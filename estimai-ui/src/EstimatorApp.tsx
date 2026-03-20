@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import Header from "./components/Header";
 import MetricsBar from "./components/MetricsBar";
@@ -100,10 +100,10 @@ export default function App() {
   const [releases, setRels] = useState<Release[]>(DEF_RELEASES);
   const [acts, setActs] = useState<Activity[]>(DEF_ACTS);
 
-  const rnames = releases.map(r => r.name);
+  const rnames = useMemo(() => releases.map(r => r.name), [releases]);
   const {summary, totals, byProfile} = useEstimator(acts, releases, params);
 
-  const updAct = (id: string, f: keyof Activity, v: string) => setActs(prev => prev.map(a => {
+  const updAct = useCallback((id: string, f: keyof Activity, v: string) => setActs(prev => prev.map(a => {
     if (a.id!==id) return a;
     const u = {...a, [f]: v};
     if (f==="ml") {
@@ -112,8 +112,9 @@ export default function App() {
       u.p = d.p;
     }
     return u;
-  }));
-  const addAct = () => setActs(prev => [...prev, {
+  })), []);
+
+  const addAct = useCallback(() => setActs(prev => [...prev, {
     id: uid(),
     num: "",
     epic: "",
@@ -125,15 +126,15 @@ export default function App() {
     risk: 0,
     notes: "",
     release: rnames[0] || "Release 1",
-  }]);
-  const delAct = (id: string) => setActs(prev => prev.filter(a => a.id!==id));
-  const updRel = (id: string, f: keyof Release, v: string | number) => setRels(prev => prev.map(r => r.id===id ? {
+  }]), [rnames]);
+  const delAct = useCallback((id: string) => setActs(prev => prev.filter(a => a.id!==id)), []);
+  const updRel = useCallback((id: string, f: keyof Release, v: string | number) => setRels(prev => prev.map(r => r.id===id ? {
     ...r,
     [f]: v,
-  }:r));
-  const addRel = () => setRels(prev => [...prev, {id: uid(), name: `Release ${prev.length + 1}`, fte: 1}]);
-  const delRel = (id: string) => setRels(prev => prev.filter(r => r.id!==id));
-  const updP = (k: keyof Parameters, v: string) => setParams(prev => ({...prev, [k]: parseFloat(v) || 0}));
+  }:r)), []);
+  const addRel = useCallback(() => setRels(prev => [...prev, {id: uid(), name: `Release ${prev.length + 1}`, fte: 1}]), []);
+  const delRel = useCallback((id: string) => setRels(prev => prev.filter(r => r.id!==id)), []);
+  const updP = useCallback((k: keyof Parameters, v: string) => setParams(prev => ({...prev, [k]: parseFloat(v) || 0})), []);
 
   const exportXLSX = useCallback(() => {
     const wb = XLSX.utils.book_new();

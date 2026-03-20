@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import { memo, useMemo, type ChangeEvent } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -25,8 +25,8 @@ const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected"]);
 
 const columnHelper = createColumnHelper<Activity>();
 
-export default function ActivityTable({ activities, releaseNames, onUpdate, onDelete, onAdd }: ActivityTableProps) {
-  const columns: ColumnDef<Activity, any>[] = [
+const ActivityTable = memo(function ActivityTable({ activities, releaseNames, onUpdate, onDelete, onAdd }: ActivityTableProps) {
+  const columns: ColumnDef<Activity, any>[] = useMemo(() => [
     columnHelper.accessor("num", {
       header: "#",
       cell: (info) => (
@@ -187,7 +187,7 @@ export default function ActivityTable({ activities, releaseNames, onUpdate, onDe
         </button>
       ),
     }),
-  ];
+  ], [releaseNames, onUpdate, onDelete]);
 
   const table = useReactTable({
     data: activities,
@@ -234,7 +234,7 @@ export default function ActivityTable({ activities, releaseNames, onUpdate, onDe
             style={{ gridTemplateColumns: COL_W }}
           >
             {row.getVisibleCells().map(cell => (
-                flexRender(cell.column.columnDef.cell, cell.getContext())
+              flexRender(cell.column.columnDef.cell, cell.getContext())
             ))}
           </div>
         );
@@ -251,4 +251,6 @@ export default function ActivityTable({ activities, releaseNames, onUpdate, onDe
       </div>
     </>
   );
-}
+});
+
+export default ActivityTable;
