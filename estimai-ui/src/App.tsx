@@ -1,7 +1,9 @@
 import EstimatorApp from './EstimatorApp'
 
-function App() {
-    return <EstimatorApp />
-}
+const App = () => (
+  <>
+    <EstimatorApp />
+  </>
+)
 
 export default App
