@@ -1,5 +1,12 @@
 export const PROFILES = ["Developer","Backend Dev","Frontend Dev","Designer","DevOps","QA Engineer","PM","Full-stack"] as const;
 
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  author: string;
+  updatedAt: string;
+}
+
 export type Profile = typeof PROFILES[number];
 
 export interface Activity {

@@ -12,12 +12,14 @@ export default function App() {
   const [tab, setTab] = useState<"activities" | "summary" | "parameters">("activities");
 
   const {
+    projectId, projects,
     name, author, params, releases, acts,
     summary, totals, byProfile,
     setName, setAuthor,
     updAct, addAct, delAct,
     updRel, addRel, delRel,
     updP,
+    switchProject, newProject,
   } = useEstimatorContext();
 
   const rnames = useMemo(() => releases.map((r) => r.name), [releases]);
@@ -53,8 +55,12 @@ export default function App() {
       <Header
         name={name}
         author={author}
+        projectId={projectId}
+        projects={projects}
         onNameChange={setName}
         onAuthorChange={setAuthor}
+        onSwitchProject={switchProject}
+        onNewProject={newProject}
         onExport={exportXLSX}
       />
 
