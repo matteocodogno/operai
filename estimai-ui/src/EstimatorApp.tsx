@@ -5,136 +5,22 @@ import MetricsBar from "./components/MetricsBar";
 import ActivityTable from "./components/ActivityTable";
 import SummaryTable from "./components/SummaryTable";
 import ParametersPanel from "./components/ParametersPanel";
-import type { Activity, Parameters, Release } from "./types";
-import { deriveOP, pertCalc, useEstimator } from "./hooks/useEstimator";
-
-
-function uid(): string {
-  return Math.random().toString(36).slice(2, 9);
-}
-
-const DEF_PARAMS: Parameters = {
-  parallelism: 0.7,
-  sprintDays: 10,
-  workingDaysMonth: 20,
-  qaDeployDays: 0,
-  qaTestDays: 0,
-  pmDays: 0,
-  aiCostCoef: 10,
-  aiGain: 0.30,
-};
-const DEF_RELEASES: Release[] = [{id: uid(), name: "Release 1", fte: 1}, {id: uid(), name: "Release 2", fte: 1}];
-const DEF_ACTS: Activity[] = [
-  {
-    id: uid(),
-    num: "1.1",
-    epic: "Auth",
-    act: "Login flow",
-    prof: "Backend Dev",
-    o: 3.75,
-    ml: 5,
-    p: 8,
-    risk: 0,
-    notes: "",
-    release: "Release 1",
-  },
-  {
-    id: uid(),
-    num: "1.2",
-    epic: "Auth",
-    act: "OAuth setup",
-    prof: "Backend Dev",
-    o: 6,
-    ml: 8,
-    p: 13,
-    risk: 2,
-    notes: "3rd party dep",
-    release: "Release 1",
-  },
-  {
-    id: uid(),
-    num: "1.3",
-    epic: "UI Shell",
-    act: "Navigation",
-    prof: "Frontend Dev",
-    o: 3,
-    ml: 4,
-    p: 6,
-    risk: 0,
-    notes: "",
-    release: "Release 1",
-  },
-  {
-    id: uid(),
-    num: "2.1",
-    epic: "Dashboard",
-    act: "Main view",
-    prof: "Frontend Dev",
-    o: 7.5,
-    ml: 10,
-    p: 16,
-    risk: 0,
-    notes: "",
-    release: "Release 2",
-  },
-  {
-    id: uid(),
-    num: "2.2",
-    epic: "Dashboard",
-    act: "API endpoints",
-    prof: "Developer",
-    o: 4.5,
-    ml: 6,
-    p: 9.6,
-    risk: 1,
-    notes: "Awaiting spec",
-    release: "Release 2",
-  },
-];
+import { pertCalc } from "./hooks/useEstimator";
+import { useEstimatorContext } from "./context/EstimatorContext";
 
 export default function App() {
   const [tab, setTab] = useState<"activities" | "summary" | "parameters">("activities");
-  const [name, setName] = useState("My Software Project");
-  const [author, setAuthor] = useState("");
-  const [params, setParams] = useState<Parameters>(DEF_PARAMS);
-  const [releases, setRels] = useState<Release[]>(DEF_RELEASES);
-  const [acts, setActs] = useState<Activity[]>(DEF_ACTS);
 
-  const rnames = useMemo(() => releases.map(r => r.name), [releases]);
-  const {summary, totals, byProfile} = useEstimator(acts, releases, params);
+  const {
+    name, author, params, releases, acts,
+    summary, totals, byProfile,
+    setName, setAuthor,
+    updAct, addAct, delAct,
+    updRel, addRel, delRel,
+    updP,
+  } = useEstimatorContext();
 
-  const updAct = useCallback((id: string, f: keyof Activity, v: string) => setActs(prev => prev.map(a => {
-    if (a.id!==id) return a;
-    const u = {...a, [f]: v};
-    if (f==="ml") {
-      const d = deriveOP(Number(v));
-      u.o = d.o;
-      u.p = d.p;
-    }
-    return u;
-  })), []);
-
-  const addAct = useCallback(() => setActs(prev => [...prev, {
-    id: uid(),
-    num: "",
-    epic: "",
-    act: "New activity",
-    prof: "Developer",
-    o: 3.75,
-    ml: 5,
-    p: 8,
-    risk: 0,
-    notes: "",
-    release: rnames[0] || "Release 1",
-  }]), [rnames]);
-  const delAct = useCallback((id: string) => setActs(prev => prev.filter(a => a.id!==id)), []);
-  const updRel = useCallback((id: string, f: keyof Release, v: string | number) => setRels(prev => prev.map(r => r.id===id ? {
-    ...r,
-    [f]: v,
-  }:r)), []);
-  const addRel = useCallback(() => setRels(prev => [...prev, {id: uid(), name: `Release ${prev.length + 1}`, fte: 1}]), []);
-  const delRel = useCallback((id: string) => setRels(prev => prev.filter(r => r.id!==id)), []);
-  const updP = useCallback((k: keyof Parameters, v: string) => setParams(prev => ({...prev, [k]: parseFloat(v) || 0})), []);
+  const rnames = useMemo(() => releases.map((r) => r.name), [releases]);
 
   const exportXLSX = useCallback(() => {
     const wb = XLSX.utils.book_new();
@@ -146,16 +32,16 @@ export default function App() {
     ]), "Parameters");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ["#", "Epic", "Activity", "Profile", "Optimistic", "Most Likely", "Pessimistic", "PERT", "Risk Buffer", "Expected", "Notes", "Release"],
-      ...acts.map(a => {
+      ...acts.map((a) => {
         const pv = pertCalc(a.o, a.ml, a.p);
         return [a.num, a.epic, a.act, a.prof, +a.o, +a.ml, +a.p, +pv.toFixed(1), +a.risk, +(pv + (Number(a.risk) || 0)).toFixed(1), a.notes, a.release];
       }),
     ]), "Detail");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ["Release", "FTE", "Ind. M/D", "Planning", "Baseline", "Elapsed Days", "Total M/D", "Months", "Best", "Worst", "Range", "AI Cost", "AI-assisted Elapsed", "Total M/D (AI)"],
-      ...summary.map(s => s.res
+      ...summary.map((s) => s.res
         ? [s.name, s.fte, s.res.ind, s.res.plan, s.res.base, s.res.el, s.res.tm, s.res.mo, s.res.best, s.res.worst, `${s.res.best}–${s.res.worst} days`, s.res.aiCost, s.res.aiElapsed, s.res.aiTotalMD]
-        :[s.name, s.fte, ...Array(12).fill("—")],
+        : [s.name, s.fte, ...Array(12).fill("—")],
       ),
       ["TOTAL", "", totals.ind.toFixed(1), "", totals.base.toFixed(1), totals.el, totals.tm, totals.mo, totals.best, totals.worst, `${totals.best}–${totals.worst} days`, totals.aiCost, totals.aiElapsed, totals.aiTotalMD],
     ]), "Summary");
@@ -186,9 +72,9 @@ export default function App() {
             key={k}
             onClick={() => setTab(k)}
             className={`py-1.75 px-3.5 rounded-t-md rounded-b-none transition-all ${
-              tab===k
+              tab === k
                 ? "bg-acc text-white font-medium border-b-2 border-acc"
-                :"bg-transparent text-muted font-normal border-b-2 border-transparent"
+                : "bg-transparent text-muted font-normal border-b-2 border-transparent"
             }`}
           >
             {l}
@@ -197,7 +83,7 @@ export default function App() {
       </div>
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
-        {tab==="activities" && (
+        {tab === "activities" && (
           <ActivityTable
             activities={acts}
             releaseNames={rnames}
@@ -207,7 +93,7 @@ export default function App() {
           />
         )}
 
-        {tab==="summary" && (
+        {tab === "summary" && (
           <SummaryTable
             summary={summary}
             releases={releases}
@@ -219,7 +105,7 @@ export default function App() {
           />
         )}
 
-        {tab==="parameters" && (
+        {tab === "parameters" && (
           <ParametersPanel
             params={params}
             onUpdate={updP}

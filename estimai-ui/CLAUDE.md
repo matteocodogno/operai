@@ -50,7 +50,7 @@ operai/
 - **Tables:** TanStack Table v8
 - **Export:** SheetJS (xlsx)
 - **Fonts:** DM Sans, DM Mono, Syne (Google Fonts)
-- **Styling:** CSS-in-JS via inline styles + CSS variables (no external UI library)
+- **Styling:** tailwindcss
 - **Deploy:** Vercel (auto-deploy on push to `main`)
 
 ### Backend (estimai-api)
