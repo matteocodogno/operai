@@ -1,0 +1,8 @@
+[tools]
+node = "24"
+
+[hooks]
+postinstall = "corepack enable pnpm && corepack use pnpm@latest-10"
+
+[settings]
+experimental = true

@@ -1,0 +1,110 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0d0d14;
+  --color-ink-soft: #13131e;
+  --color-ink-mid: #1c1c2a;
+  --color-rule: #252536;
+  --color-muted: #5a5a7a;
+  --color-dim: #3a3a54;
+  --color-text: #ddddf0;
+  --color-soft: #8888aa;
+  --color-acc: #5b6af7;
+  --color-acc-hi: #8b96ff;
+  --color-acc-lo: rgba(91, 106, 247, 0.14);
+  --color-grn: #2ec27e;
+  --color-org: #f5a623;
+  --color-red: #f55a5a;
+
+  --font-family-mono: 'DM Mono', monospace;
+  --font-family-disp: 'Syne', sans-serif;
+  --font-family-body: 'DM Sans', sans-serif;
+}
+
+:root {
+  --ink: #0d0d14;
+  --ink-soft: #13131e;
+  --ink-mid: #1c1c2a;
+  --rule: #252536;
+  --muted: #5a5a7a;
+  --dim: #3a3a54;
+  --text: #ddddf0;
+  --soft: #8888aa;
+  --acc: #5b6af7;
+  --acc-hi: #8b96ff;
+  --acc-lo: rgba(91, 106, 247, 0.14);
+  --grn: #2ec27e;
+  --org: #f5a623;
+  --red: #f55a5a;
+  --mono: 'DM Mono', monospace;
+  --disp: 'Syne', sans-serif;
+  --body: 'DM Sans', sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--body), serif;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ink-soft);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--dim);
+  border-radius: 3px;
+}
+
+@layer base {
+  input,
+  select {
+    font-family: var(--body), serif;
+    background: var(--ink-mid);
+    border: 1px solid var(--rule);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input:focus,
+  select:focus {
+    border-color: var(--acc);
+    box-shadow: 0 0 0 2px rgba(91, 106, 247, 0.18);
+  }
+
+  input[type='number'] {
+    font-family: var(--mono), monospace;
+  }
+
+  button {
+    font-family: var(--body), serif;
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+}
+
+/* Additional utility classes using custom properties */
+.font-disp {
+  font-family: var(--disp), fantasy;
+}
+
+.font-body {
+  font-family: var(--body), serif;
+}
+
+
