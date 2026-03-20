@@ -20,7 +20,7 @@ function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "44px 90px 1fr 108px 58px 58px 58px 58px 58px 62px 130px 106px 26px";
+const COL_W = "44px 90px 108px 108px 58px 58px 58px 58px 58px 62px 130px 106px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected"]);
 
 const columnHelper = createColumnHelper<Activity>();
@@ -81,7 +81,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
           step={0.5}
           min={0}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "o", e.target.value)}
-          className="text-right py-[3px] px-[5px] text-grn text-xs"
+          className="text-right py-0.75 px-1.25 text-grn text-xs"
         />
       ),
     }),
@@ -94,7 +94,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
           step={0.5}
           min={0}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "ml", e.target.value)}
-          className="text-right py-[3px] px-[5px] text-xs"
+          className="text-right py-0.75 px-1.25 text-xs"
         />
       ),
     }),
@@ -107,7 +107,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
           step={0.5}
           min={0}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "p", e.target.value)}
-          className="text-right py-[3px] px-[5px] text-red text-xs"
+          className="text-right py-0.75 px-1.25 text-red text-xs"
         />
       ),
     }),
@@ -117,7 +117,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
       cell: (info) => {
         const row = info.row.original;
         return (
-          <div className="text-right font-mono text-xs text-acc-hi pr-[3px]">
+          <div className="text-right font-mono text-xs text-acc-hi pr-0.75">
             {pertCalc(row.o, row.ml, row.p).toFixed(1)}
           </div>
         );
@@ -134,7 +134,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
             step={0.5}
             min={0}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "risk", e.target.value)}
-            className={`text-right py-[3px] px-[5px] text-xs ${risky ? "text-org" : "text-text"}`}
+            className={`text-right py-0.75 px-1.25 text-xs ${risky ? "text-org" : "text-text"}`}
           />
         );
       },
@@ -146,7 +146,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
         const row = info.row.original;
         const exp = pertCalc(row.o, row.ml, row.p) + (Number(row.risk)||0);
         return (
-          <div className="text-right font-mono text-[13px] font-semibold pr-[3px]">
+          <div className="text-right font-mono text-[13px] font-semibold pr-0.75">
             {exp.toFixed(1)}
           </div>
         );
@@ -159,7 +159,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
           value={info.getValue()}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "notes", e.target.value)}
           placeholder="Notes…"
-          className="py-[3px] px-[5px] text-[11px] text-soft"
+          className="py-0.75 px-1.25 text-[11px] text-soft"
         />
       ),
     }),
@@ -169,7 +169,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
         <select
           value={info.getValue()}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate(info.row.original.id, "release", e.target.value)}
-          className="py-[3px] px-[5px] text-[11px]"
+          className="py-0.75 px-1.25 text-[11px]"
         >
           {releaseNames.map(r => <option key={r}>{r}</option>)}
         </select>
@@ -181,7 +181,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
       cell: (info) => (
         <button
           onClick={() => onDelete(info.row.original.id)}
-          className="bg-transparent text-muted text-[15px] py-0 px-[2px]"
+          className="bg-transparent text-muted text-[15px] py-0 pr-4"
         >
           ×
         </button>
@@ -204,41 +204,45 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
         </button>
       </div>
 
-      {/* Column headers */}
-      <div
-        className="grid gap-0.75 py-1.5 px-2 bg-ink-mid rounded-t-md text-[9px] text-soft font-mono uppercase tracking-[0.06em]"
-        style={{ gridTemplateColumns: COL_W }}
-      >
-        {table.getHeaderGroups().map(headerGroup =>
-          headerGroup.headers.map(header => (
-            <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : "text-left"}>
-              {flexRender(header.column.columnDef.header, header.getContext())}
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Rows */}
-      {table.getRowModel().rows.map((row, idx) => {
-        const risky = Number(row.original.risk) > 0;
-        return (
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: "1000px" }}>
+          {/* Column headers */}
           <div
-            key={row.id}
-            className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
-              risky
-                ? "bg-[rgba(245,166,35,.04)] border-l-org"
-                : idx % 2 === 0
-                  ? "bg-ink-soft border-l-transparent"
-                  : "bg-ink border-l-transparent"
-            }`}
+            className="grid gap-0.75 py-1.5 px-2 bg-ink-mid rounded-t-md text-[9px] text-soft font-mono uppercase tracking-[0.06em]"
             style={{ gridTemplateColumns: COL_W }}
           >
-            {row.getVisibleCells().map(cell => (
-              flexRender(cell.column.columnDef.cell, cell.getContext())
-            ))}
+            {table.getHeaderGroups().map(headerGroup =>
+              headerGroup.headers.map(header => (
+                <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : "text-left"}>
+                  {flexRender(header.column.columnDef.header, header.getContext())}
+                </div>
+              ))
+            )}
           </div>
-        );
-      })}
+
+          {/* Rows */}
+          {table.getRowModel().rows.map((row, idx) => {
+            const risky = Number(row.original.risk) > 0;
+            return (
+              <div
+                key={row.id}
+                className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
+                  risky
+                    ? "bg-[rgba(245,166,35,.04)] border-l-org"
+                    : idx % 2 === 0
+                      ? "bg-ink-soft border-l-transparent"
+                      : "bg-ink border-l-transparent"
+                }`}
+                style={{ gridTemplateColumns: COL_W }}
+              >
+                {row.getVisibleCells().map(cell => (
+                  flexRender(cell.column.columnDef.cell, cell.getContext())
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Legend */}
       <div className="flex gap-4 mt-3 text-[11px] text-soft font-mono flex-wrap">
