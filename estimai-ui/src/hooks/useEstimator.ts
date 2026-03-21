@@ -47,7 +47,12 @@ export function computeRelease(acts: Activity[], rel: Release, p: Parameters): R
   const sumBest = acts.reduce((s, a) => s + (Number(a.o) || 0) + (Number(a.risk) || 0), 0);
   const sumWst = acts.reduce((s, a) => s + (Number(a.p) || 0) + (Number(a.risk) || 0), 0);
   const gain = Number(p.aiGain) || 0;
-  const sumAI = acts.reduce((s, a) => s + (pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0)) * (1 - gain), 0);
+  const sumAI = acts.reduce((s, a) => {
+    const actGain = (a.aiGain !== undefined && a.aiGain !== null && (a.aiGain as unknown as string) !== "")
+      ? Number(a.aiGain)
+      : gain;
+    return s + (pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0)) * (1 - actGain);
+  }, 0);
 
   const main = crunch(sumExp);
   const aiElapsed = crunch(sumAI).el;

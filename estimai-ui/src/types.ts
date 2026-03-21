@@ -19,6 +19,7 @@ export interface Activity {
   ml: number;
   p: number;
   risk: number;
+  aiGain?: number;
   notes: string;
   release: string;
 }

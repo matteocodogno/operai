@@ -88,7 +88,7 @@ export interface EstimatorContextValue {
   addAct: () => void;
   delAct: (id: string) => void;
   updRel: (id: string, f: keyof Release, v: string | number) => void;
-  addRel: () => void;
+  addRel: () => string;
   delRel: (id: string) => void;
   updP: (k: keyof Parameters, v: string) => void;
   switchProject: (id: string) => void;
@@ -180,8 +180,11 @@ export function EstimatorProvider({ children }: { children: React.ReactNode }) {
   const updRel = useCallback((id: string, f: keyof Release, v: string | number) =>
     setRels((prev) => prev.map((r) => r.id === id ? { ...r, [f]: v } : r)), []);
 
-  const addRel = useCallback(() =>
-    setRels((prev) => [...prev, { id: uid(), name: `Release ${prev.length + 1}`, fte: 1 }]), []);
+  const addRel = useCallback((): string => {
+    const newName = `Release ${releases.length + 1}`;
+    setRels((prev) => [...prev, { id: uid(), name: newName, fte: 1 }]);
+    return newName;
+  }, [releases]);
 
   const delRel = useCallback((id: string) =>
     setRels((prev) => prev.filter((r) => r.id !== id)), []);

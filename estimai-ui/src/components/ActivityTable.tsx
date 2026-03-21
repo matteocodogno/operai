@@ -11,21 +11,25 @@ import { type Activity, PROFILES } from "../types";
 interface ActivityTableProps {
   activities: Activity[];
   releaseNames: string[];
+  globalAiGain: number;
   onUpdate: (id: string, field: keyof Activity, value: string) => void;
   onDelete: (id: string) => void;
   onAdd: () => void;
+  onAddRelease: () => string;
 }
 
 function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "44px 90px 108px 108px 58px 58px 58px 58px 58px 62px 130px 106px 26px";
-const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected"]);
+const COL_W = "44px 90px 108px 108px 58px 58px 58px 58px 58px 62px 58px 124px 106px 26px";
+const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 
 const columnHelper = createColumnHelper<Activity>();
 
-const ActivityTable = memo(function ActivityTable({ activities, releaseNames, onUpdate, onDelete, onAdd }: ActivityTableProps) {
+const NEW_RELEASE_SENTINEL = "__new__";
+
+const ActivityTable = memo(function ActivityTable({ activities, releaseNames, globalAiGain, onUpdate, onDelete, onAdd, onAddRelease }: ActivityTableProps) {
   const columns: ColumnDef<Activity, any>[] = useMemo(() => [
     columnHelper.accessor("num", {
       header: "#",
@@ -152,6 +156,32 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
         );
       },
     }),
+    columnHelper.display({
+      id: "aiGain",
+      header: "AI%",
+      cell: (info) => {
+        const row = info.row.original;
+        const stored = row.aiGain !== undefined && row.aiGain !== null && (row.aiGain as unknown as string) !== ""
+          ? Number(row.aiGain)
+          : undefined;
+        const displayVal = stored !== undefined ? Math.round(stored * 100) : "";
+        return (
+          <input
+            type="number"
+            value={displayVal}
+            step={5}
+            min={0}
+            max={100}
+            placeholder={String(Math.round(globalAiGain * 100))}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              const v = e.target.value;
+              onUpdate(row.id, "aiGain", v === "" ? "" : String(Number(v) / 100));
+            }}
+            className="text-right py-0.75 px-1.25 text-xs text-acc-hi"
+          />
+        );
+      },
+    }),
     columnHelper.accessor("notes", {
       header: "Notes",
       cell: (info) => (
@@ -168,10 +198,19 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
       cell: (info) => (
         <select
           value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate(info.row.original.id, "release", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+            const val = e.target.value;
+            if (val === NEW_RELEASE_SENTINEL) {
+              const newName = onAddRelease();
+              onUpdate(info.row.original.id, "release", newName);
+            } else {
+              onUpdate(info.row.original.id, "release", val);
+            }
+          }}
           className="py-0.75 px-1.25 text-[11px]"
         >
           {releaseNames.map(r => <option key={r}>{r}</option>)}
+          <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
         </select>
       ),
     }),
@@ -187,7 +226,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
         </button>
       ),
     }),
-  ], [releaseNames, onUpdate, onDelete]);
+  ], [releaseNames, globalAiGain, onUpdate, onDelete, onAddRelease]);
 
   const table = useReactTable({
     data: activities,
@@ -252,6 +291,7 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, on
         <span><span className="text-acc-hi">PERT</span> = (O+4×ML+P)/6</span>
         <span><span className="text-org">Risk</span> = buffer days</span>
         <span><strong className="text-text">Exp.</strong> = PERT+Risk</span>
+        <span><span className="text-acc-hi">AI%</span> = per-activity gain (blank = global default)</span>
       </div>
     </>
   );

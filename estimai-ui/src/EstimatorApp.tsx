@@ -33,10 +33,13 @@ export default function App() {
       ["QA Test per release", params.qaTestDays], ["PM overhead per release", params.pmDays],
     ]), "Parameters");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ["#", "Epic", "Activity", "Profile", "Optimistic", "Most Likely", "Pessimistic", "PERT", "Risk Buffer", "Expected", "Notes", "Release"],
+      ["#", "Epic", "Activity", "Profile", "Optimistic", "Most Likely", "Pessimistic", "PERT", "Risk Buffer", "Expected", "AI Gain %", "Notes", "Release"],
       ...acts.map((a) => {
         const pv = pertCalc(a.o, a.ml, a.p);
-        return [a.num, a.epic, a.act, a.prof, +a.o, +a.ml, +a.p, +pv.toFixed(1), +a.risk, +(pv + (Number(a.risk) || 0)).toFixed(1), a.notes, a.release];
+        const actGain = (a.aiGain !== undefined && a.aiGain !== null && (a.aiGain as unknown as string) !== "")
+          ? Number(a.aiGain)
+          : params.aiGain;
+        return [a.num, a.epic, a.act, a.prof, +a.o, +a.ml, +a.p, +pv.toFixed(1), +a.risk, +(pv + (Number(a.risk) || 0)).toFixed(1), Math.round(actGain * 100), a.notes, a.release];
       }),
     ]), "Detail");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
@@ -93,9 +96,11 @@ export default function App() {
           <ActivityTable
             activities={acts}
             releaseNames={rnames}
+            globalAiGain={params.aiGain}
             onUpdate={updAct}
             onDelete={delAct}
             onAdd={addAct}
+            onAddRelease={addRel}
           />
         )}
 
