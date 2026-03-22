@@ -1,4 +1,4 @@
-# Operai — EstimAI
+# Operai — EstimAI UI
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting workflows.
 EstimAI is the first tool in the suite — a software effort estimator.
@@ -10,40 +10,30 @@ EstimAI is the first tool in the suite — a software effort estimator.
 ## Project structure
 
 ```
-operai/
-├── estimai-ui/          # React + Vite frontend (this repo)
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── ActivityTable.jsx    # TanStack Table — Detail grid
-│   │   │   ├── SummaryTable.jsx     # TanStack Table — Summary grid
-│   │   │   ├── MetricsBar.jsx       # Top KPI strip
-│   │   │   ├── ParametersPanel.jsx  # Model parameters tab
-│   │   │   └── Header.jsx           # Project name, author, export
-│   │   ├── hooks/
-│   │   │   └── useEstimator.js      # All estimation computation logic
-│   │   ├── utils/
-│   │   │   └── export.js            # XLSX export via SheetJS
-│   │   ├── EstimatorApp.jsx         # Top-level layout + state
-│   │   └── main.jsx
-│   ├── CLAUDE.md
-│   ├── package.json
-│   └── vite.config.js
-│
-└── estimai-api/         # Spring Boot + Kotlin backend (separate repo)
-    ├── src/main/kotlin/
-    │   └── com/welld/operai/estimai/
-    │       ├── estimate/            # Estimate domain
-    │       ├── release/             # Release domain
-    │       ├── activity/            # Activity domain
-    │       └── user/                # User/auth domain
-    └── build.gradle.kts
+estimai-ui/
+├── src/
+│   ├── components/
+│   │   ├── ActivityTable.tsx    # TanStack Table — Detail grid
+│   │   ├── SummaryTable.tsx     # TanStack Table — Summary grid
+│   │   ├── MetricsBar.tsx       # Top KPI strip
+│   │   ├── ParametersPanel.tsx  # Model parameters tab
+│   │   └── Header.tsx           # Project name, author, export
+│   ├── context/
+│   │   └── EstimatorContext.tsx # Global state + localStorage persistence
+│   ├── hooks/
+│   │   └── useEstimator.ts      # All estimation computation logic
+│   ├── types.ts                 # Shared TypeScript interfaces
+│   ├── EstimatorApp.tsx         # Top-level layout + state
+│   └── main.tsx
+├── CLAUDE.md
+├── package.json
+└── vite.config.js
 ```
 
 ---
 
 ## Tech stack
 
-### Frontend (estimai-ui)
 - **Runtime:** Node 22 via mise
 - **Package manager:** pnpm
 - **Framework:** Vite + React 18
@@ -53,18 +43,11 @@ operai/
 - **Styling:** tailwindcss
 - **Deploy:** Vercel (auto-deploy on push to `main`)
 
-### Backend (estimai-api)
-- **Language:** Kotlin
-- **Framework:** Spring Boot 3.x
-- **Database:** PostgreSQL
-- **Build:** Gradle (Kotlin DSL)
-- **Deploy:** Railway (EU region — data residency requirement)
-
 ---
 
 ## Estimation model
 
-All computation lives in `src/hooks/useEstimator.js`. Do not duplicate logic in components.
+All computation lives in `src/hooks/useEstimator.ts`. Do not duplicate logic in components.
 
 ### Calculation chain (per release)
 
@@ -78,7 +61,7 @@ Elapsed Days      = ROUND(Baseline × (1 − Parallelism × (FTE−1) / FTE))
 Total Man/Days    = Elapsed × FTE
 Elapsed Months    = Elapsed / Working Days per Month
 
-AI-assisted M/D   = Expected × (1 − AI Productivity Gain)   [per activity]
+AI-assisted M/D   = Expected × (1 − AI Productivity Gain)   [per activity, falls back to global]
 AI-assisted Elapsed = same chain applied to AI-assisted individual sum
 Total M/D (AI)    = AI-assisted Elapsed × FTE
 AI Cost           = AI Cost Coefficient × FTE × Elapsed Days
@@ -115,7 +98,7 @@ PERT directly.
 
 ## Domain language
 
-Use these terms consistently in code, API contracts, and UI copy:
+Use these terms consistently in code, UI copy, and API calls:
 
 | Term | Meaning |
 |---|---|
@@ -156,18 +139,7 @@ DELETE /estimates/{id}/activities/{aid}
 GET    /estimates/{id}/export/xlsx   Download Excel file (server-rendered)
 ```
 
-Authentication: JWT (Spring Security). Auth provider TBD (Keycloak or Spring Authorization Server).
-
----
-
-## Data residency
-
-wellD operates across Italy and Switzerland. Some clients are in regulated sectors
-(energy, finance, healthcare). Apply these rules:
-
-- Backend **must** deploy to an EU region (Railway EU, Fly.io fra, Azure Switzerland North)
-- No estimate data should be logged by the hosting provider beyond standard access logs
-- The frontend is purely client-side — no estimate data is transmitted except to the estimai-api
+Authentication: JWT (Spring Security). Dates always ISO 8601.
 
 ---
 
@@ -178,66 +150,22 @@ wellD operates across Italy and Switzerland. Some clients are in regulated secto
 - Commit style: Conventional Commits (`feat: add AI cost column to summary`)
 - `main` is always deployable
 
-### Frontend
+### Code
 - **All files must be TypeScript** (`.ts` or `.tsx`) — never create `.js` or `.jsx` files
 - Computation logic belongs in `useEstimator.ts` — never in components
 - Components receive data and callbacks as props; they do not compute
 - CSS variables defined in the root `<style>` block in `EstimatorApp.tsx`; do not add
   external CSS files unless introducing a proper CSS module setup
 - All numbers displayed to the user must be rounded (`.toFixed()` or `Math.round()`)
-
-### Backend
-- Follow standard Spring Boot package-by-feature structure
-- Use Kotlin data classes for DTOs; no `@Data` Lombok
-- All DB access via Spring Data JPA repositories
-- Flyway for migrations — never modify existing migration files
-- Return `Problem` (RFC 7807) for all error responses
-
-### Both
 - No hardcoded strings that appear in the UI — use constants or i18n from day one
   (the tool will need Italian and English at minimum)
-- Dates and durations always in ISO 8601 in API contracts; display formatting is a UI concern
 
 ---
 
 ## Running locally
 
-### Frontend
 ```bash
-cd estimai-ui
 mise use node@22      # first time only
 pnpm install
 pnpm dev              # http://localhost:5173
 ```
-
-### Backend
-```bash
-cd estimai-api
-./gradlew bootRun     # http://localhost:8080
-```
-
-Requires a local PostgreSQL instance. Copy `.env.example` to `.env` and fill in credentials.
-
-### Both together
-```bash
-# Terminal 1
-cd estimai-api && ./gradlew bootRun
-
-# Terminal 2
-cd estimai-ui && pnpm dev
-```
-
----
-
-## Operai suite — future tools
-
-EstimAI is tool #1. The suite roadmap (not yet built):
-
-| Tool | Purpose |
-|---|---|
-| **EstimAI** | Software effort estimation with PERT + AI productivity modelling |
-| **ReviewAI** | AI-assisted code and architecture review checklists |
-| **RetroAI** | Sprint retrospective facilitation and pattern detection |
-| **ProposAI** | Consulting proposal drafting from project briefs |
-
-All tools share the Operai design system (DM Sans / DM Mono / Syne, dark ink palette, purple AI accent).
