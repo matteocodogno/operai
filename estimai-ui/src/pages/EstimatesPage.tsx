@@ -46,23 +46,16 @@ export default function EstimatesPage() {
     <div className="min-h-screen">
       {/* Header */}
       <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
-        <div className="flex items-center gap-4 h-14 max-w-3xl mx-auto">
+        <div className="flex items-center gap-4 h-14">
           <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
             EstimAI
           </span>
-          <span className="text-muted text-[11px] font-mono hidden sm:block">/ My Estimates</span>
           <div className="flex-1" />
-          <button
-            onClick={handleNew}
-            className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs"
-          >
-            + New Estimate
-          </button>
         </div>
       </header>
 
       {/* List */}
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-3xl px-5.5 py-8">
         {projects.length === 0 ? (
           <div className="text-center py-16 text-muted text-sm">
             <div className="text-3xl mb-3 opacity-30">📋</div>
@@ -112,6 +105,15 @@ export default function EstimatesPage() {
           </div>
         )}
       </div>
+      {/* FAB */}
+      <button
+        onClick={handleNew}
+        className="fixed bottom-6 right-6 z-20 w-14 h-14 rounded-full text-white text-2xl flex items-center justify-center bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_4px_20px_rgba(91,106,247,.5)] hover:scale-105 active:scale-95 transition-transform"
+        aria-label="New Estimate"
+        title="New Estimate"
+      >
+        +
+      </button>
     </div>
   )
 }

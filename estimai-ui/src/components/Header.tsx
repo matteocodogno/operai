@@ -16,11 +16,9 @@ export default function Header({ name, author, onNameChange, onAuthorChange }: H
       {/* Desktop */}
       <div className="hidden sm:flex items-center h-14">
         {/* Left — logo */}
-        <div className="w-40 shrink-0">
-          <span className="font-disp text-xl font-extrabold bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-            EstimAI
-          </span>
-        </div>
+        <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
+          EstimAI
+        </span>
 
         {/* Center — project name + author */}
         <div className="flex-1 flex items-center justify-center gap-4">
