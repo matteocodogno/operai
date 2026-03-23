@@ -22,6 +22,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { type Activity, PROFILES } from "../types";
+import { computeActivityNums } from "../lib/activityNums";
 
 interface ActivityTableProps {
   activities: Activity[];
@@ -110,16 +111,16 @@ const ActivityTable = memo(function ActivityTable({
     });
   }
 
+  const activityNums = useMemo(() => computeActivityNums(activities), [activities]);
+
   const columns: ColumnDef<Activity, any>[] = useMemo(() => [
-    columnHelper.accessor("num", {
+    columnHelper.display({
+      id: "num",
       header: "#",
       cell: (info) => (
-        <input
-          value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "num", e.target.value)}
-          placeholder="#"
-          className="py-0.75 px-1.25 text-[10px]"
-        />
+        <div className="font-mono text-[10px] text-muted text-center select-none">
+          {activityNums.get(info.row.original.id) ?? ''}
+        </div>
       ),
     }),
     columnHelper.accessor("epic", {
@@ -306,7 +307,7 @@ const ActivityTable = memo(function ActivityTable({
         </button>
       ),
     }),
-  ], [releaseNames, globalAiGain, onUpdate, onDelete, onAddRelease]);
+  ], [activityNums, releaseNames, globalAiGain, onUpdate, onDelete, onAddRelease]);
 
   const table = useReactTable({
     data: activities,

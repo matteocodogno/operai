@@ -10,6 +10,7 @@ import { pertCalc } from './hooks/useEstimator'
 import { useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
 import { renderGanttPng } from './lib/ganttChart'
+import { computeActivityNums } from './lib/activityNums'
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
@@ -33,6 +34,7 @@ export default function EstimatorApp() {
       ['Working days / month', params.workingDaysMonth], ['QA Deploy per release', params.qaDeployDays],
       ['QA Test per release', params.qaTestDays], ['PM overhead per release', params.pmDays],
     ]), 'Parameters')
+    const nums = computeActivityNums(acts)
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['#', 'Epic', 'Activity', 'Profile', 'Optimistic', 'Most Likely', 'Pessimistic', 'PERT', 'Risk Buffer', 'Expected', 'AI Gain %', 'Notes', 'Release'],
       ...acts.map(a => {
@@ -40,7 +42,7 @@ export default function EstimatorApp() {
         const actGain = (a.aiGain !== undefined && a.aiGain !== null && (a.aiGain as unknown as string) !== '')
           ? Number(a.aiGain)
           : params.aiGain
-        return [a.num, a.epic, a.act, a.prof, +a.o, +a.ml, +a.p, +pv.toFixed(1), +a.risk, +(pv + (Number(a.risk) || 0)).toFixed(1), Math.round(actGain * 100), a.notes, a.release]
+        return [nums.get(a.id) ?? '', a.epic, a.act, a.prof, +a.o, +a.ml, +a.p, +pv.toFixed(1), +a.risk, +(pv + (Number(a.risk) || 0)).toFixed(1), Math.round(actGain * 100), a.notes, a.release]
       }),
     ]), 'Detail')
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
