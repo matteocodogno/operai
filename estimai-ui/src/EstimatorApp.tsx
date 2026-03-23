@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import Header from './components/Header'
 import MetricsBar from './components/MetricsBar'
 import ActivityTable from './components/ActivityTable'
@@ -8,6 +9,7 @@ import ParametersPanel from './components/ParametersPanel'
 import { pertCalc } from './hooks/useEstimator'
 import { useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
+import { renderGanttPng } from './lib/ganttChart'
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
@@ -52,35 +54,92 @@ export default function EstimatorApp() {
     XLSX.writeFile(wb, `${name.replace(/\s+/g, '_')}_estimate.xlsx`)
   }, [acts, summary, totals, params, name, author])
 
-  const exportClient = useCallback(() => {
-    const wb = XLSX.utils.book_new()
+  const exportClient = useCallback(async () => {
+    const wdm = params.workingDaysMonth || 20
+    const active = summary.filter(s => s.res)
 
-    // Summary sheet — one row per release, no internal details
-    const rows: unknown[][] = [
-      ['Release', 'Duration (months)', 'Best case (months)', 'Worst case (months)', 'Effort (man-days)'],
+    const wb  = new ExcelJS.Workbook()
+    wb.creator = author || 'EstimAI'
+    wb.created = new Date()
+    const ws  = wb.addWorksheet('Estimate')
+
+    // ── Table ──────────────────────────────────────────────────────────
+    ws.columns = [
+      { header: 'Release',              key: 'release', width: 22 },
+      { header: 'Duration (months)',    key: 'mo',      width: 18 },
+      { header: 'Best case (months)',   key: 'best',    width: 18 },
+      { header: 'Worst case (months)',  key: 'worst',   width: 18 },
+      { header: 'Effort (man-days)',    key: 'tm',      width: 18 },
     ]
-    for (const s of summary) {
-      if (!s.res) continue
-      rows.push([
-        s.name,
-        +s.res.mo.toFixed(1),
-        +(s.res.best / (params.workingDaysMonth || 20)).toFixed(1),
-        +(s.res.worst / (params.workingDaysMonth || 20)).toFixed(1),
-        s.res.tm,
-      ])
-    }
-    rows.push([
-      'TOTAL',
-      +totals.mo.toFixed(1),
-      +(totals.best / (params.workingDaysMonth || 20)).toFixed(1),
-      +(totals.worst / (params.workingDaysMonth || 20)).toFixed(1),
-      totals.tm,
-    ])
 
-    const ws = XLSX.utils.aoa_to_sheet(rows)
-    XLSX.utils.book_append_sheet(wb, ws, 'Estimate')
-    XLSX.writeFile(wb, `${name.replace(/\s+/g, '_') || 'estimate'}_client.xlsx`)
-  }, [summary, totals, params, name])
+    // Style header row
+    const headerRow = ws.getRow(1)
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B6AF7' } }
+      cell.alignment = { horizontal: 'center' }
+    })
+
+    for (const s of active) {
+      const res = s.res!
+      ws.addRow({
+        release: s.name,
+        mo:      +res.mo.toFixed(1),
+        best:    +(res.best / wdm).toFixed(1),
+        worst:   +(res.worst / wdm).toFixed(1),
+        tm:      res.tm,
+      })
+    }
+
+    // Totals row
+    const totalRow = ws.addRow({
+      release: 'TOTAL',
+      mo:      +totals.mo.toFixed(1),
+      best:    +(totals.best / wdm).toFixed(1),
+      worst:   +(totals.worst / wdm).toFixed(1),
+      tm:      totals.tm,
+    })
+    totalRow.eachCell(cell => { cell.font = { bold: true } })
+
+    // Zebra stripes on data rows
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber < 2) return
+      row.eachCell(cell => {
+        cell.alignment = { horizontal: 'center' }
+        if (rowNumber % 2 === 0 && rowNumber !== ws.rowCount) {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0FF' } }
+        }
+      })
+    })
+
+    // ── Gantt chart image ──────────────────────────────────────────────
+    const png = renderGanttPng(summary, wdm)
+    if (png) {
+      const chartRows  = active.length
+      const chartH     = 52 + chartRows * 48 + 28   // must match ganttChart.ts layout
+      const chartW     = 668                          // (16+120+500+32) logical px
+
+      const imgId = wb.addImage({ base64: png, extension: 'png' })
+      const tableRows = active.length + 2            // header + data + totals
+      ws.addImage(imgId, {
+        tl:  { col: 0, row: tableRows + 1 } as ExcelJS.Anchor,
+        ext: { width: chartW, height: chartH },
+      })
+      // Reserve rows for the image so the sheet scrolls correctly
+      const imgRowCount = Math.ceil(chartH / 20) + 1
+      for (let r = 0; r < imgRowCount; r++) ws.addRow({})
+    }
+
+    // ── Download ───────────────────────────────────────────────────────
+    const buffer = await wb.xlsx.writeBuffer()
+    const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url    = URL.createObjectURL(blob)
+    const a      = document.createElement('a')
+    a.href       = url
+    a.download   = `${name.replace(/\s+/g, '_') || 'estimate'}_client.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [summary, totals, params, name, author])
 
   const exportJSON = useCallback(() => {
     const data: ProjectData = { id: projectId, name, author, params, releases, acts }
