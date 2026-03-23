@@ -5,11 +5,13 @@ import MetricsBar from "./components/MetricsBar";
 import ActivityTable from "./components/ActivityTable";
 import SummaryTable from "./components/SummaryTable";
 import ParametersPanel from "./components/ParametersPanel";
+import EstimatesScreen from "./components/EstimatesScreen";
 import { pertCalc } from "./hooks/useEstimator";
 import { useEstimatorContext } from "./context/EstimatorContext";
 
 export default function App() {
   const [tab, setTab] = useState<"activities" | "summary" | "parameters">("activities");
+  const [view, setView] = useState<"editor" | "list">("editor");
 
   const {
     projectId, projects,
@@ -19,7 +21,7 @@ export default function App() {
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP,
-    switchProject, newProject,
+    switchProject, newProject, duplicateProject, deleteProject,
   } = useEstimatorContext();
 
   const rnames = useMemo(() => releases.map((r) => r.name), [releases]);
@@ -53,6 +55,21 @@ export default function App() {
     XLSX.writeFile(wb, `${name.replace(/\s+/g, "_")}_estimate.xlsx`);
   }, [acts, summary, totals, params, name, author]);
 
+  const handleOpen = useCallback((id: string) => {
+    switchProject(id);
+    setView("editor");
+  }, [switchProject]);
+
+  const handleNew = useCallback(() => {
+    newProject();
+    setView("editor");
+  }, [newProject]);
+
+  const handleDuplicate = useCallback((id: string) => {
+    duplicateProject(id);
+    setView("editor");
+  }, [duplicateProject]);
+
   return (
     <div className="min-h-full w-full">
       <Header
@@ -60,70 +77,86 @@ export default function App() {
         author={author}
         projectId={projectId}
         projects={projects}
+        showingList={view === "list"}
         onNameChange={setName}
         onAuthorChange={setAuthor}
         onSwitchProject={switchProject}
         onNewProject={newProject}
         onExport={exportXLSX}
+        onShowList={() => setView("list")}
+        onHideList={() => setView("editor")}
       />
 
-      <MetricsBar
-        totals={totals}
-        activityCount={acts.length}
-        releaseCount={releases.length}
-        profileCount={byProfile.length}
-      />
-
-      {/* Tabs */}
-      <div className="flex gap-px px-5.5 pt-2.5 pb-0 border-b border-rule bg-ink-soft">
-        {([["activities", "Activities"], ["summary", "Summary"], ["parameters", "Parameters"]] as const).map(([k, l]) => (
-          <button
-            key={k}
-            onClick={() => setTab(k)}
-            className={`py-1.75 px-3.5 rounded-t-md rounded-b-none transition-all ${
-              tab === k
-                ? "bg-acc text-white font-medium border-b-2 border-acc"
-                : "bg-transparent text-muted font-normal border-b-2 border-transparent"
-            }`}
-          >
-            {l}
-          </button>
-        ))}
-      </div>
-
-      <main className="flex-1 p-5 px-5.5 overflow-x-auto">
-        {tab === "activities" && (
-          <ActivityTable
-            activities={acts}
-            releaseNames={rnames}
-            globalAiGain={params.aiGain}
-            onUpdate={updAct}
-            onDelete={delAct}
-            onAdd={addAct}
-            onAddRelease={addRel}
-            onReorder={reorderActs}
-          />
-        )}
-
-        {tab === "summary" && (
-          <SummaryTable
-            summary={summary}
-            releases={releases}
+      {view === "list" ? (
+        <EstimatesScreen
+          projects={projects}
+          currentId={projectId}
+          onOpen={handleOpen}
+          onDuplicate={handleDuplicate}
+          onDelete={deleteProject}
+          onNew={handleNew}
+        />
+      ) : (
+        <>
+          <MetricsBar
             totals={totals}
-            byProfile={byProfile}
-            onUpdateRelease={updRel}
-            onAddRelease={addRel}
-            onDeleteRelease={delRel}
+            activityCount={acts.length}
+            releaseCount={releases.length}
+            profileCount={byProfile.length}
           />
-        )}
 
-        {tab === "parameters" && (
-          <ParametersPanel
-            params={params}
-            onUpdate={updP}
-          />
-        )}
-      </main>
+          {/* Tabs */}
+          <div className="flex gap-px px-5.5 pt-2.5 pb-0 border-b border-rule bg-ink-soft">
+            {([["activities", "Activities"], ["summary", "Summary"], ["parameters", "Parameters"]] as const).map(([k, l]) => (
+              <button
+                key={k}
+                onClick={() => setTab(k)}
+                className={`py-1.75 px-3.5 rounded-t-md rounded-b-none transition-all ${
+                  tab === k
+                    ? "bg-acc text-white font-medium border-b-2 border-acc"
+                    : "bg-transparent text-muted font-normal border-b-2 border-transparent"
+                }`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <main className="flex-1 p-5 px-5.5 overflow-x-auto">
+            {tab === "activities" && (
+              <ActivityTable
+                activities={acts}
+                releaseNames={rnames}
+                globalAiGain={params.aiGain}
+                onUpdate={updAct}
+                onDelete={delAct}
+                onAdd={addAct}
+                onAddRelease={addRel}
+                onReorder={reorderActs}
+              />
+            )}
+
+            {tab === "summary" && (
+              <SummaryTable
+                summary={summary}
+                releases={releases}
+                totals={totals}
+                byProfile={byProfile}
+                onUpdateRelease={updRel}
+                onAddRelease={addRel}
+                onDeleteRelease={delRel}
+              />
+            )}
+
+            {tab === "parameters" && (
+              <ParametersPanel
+                params={params}
+                onUpdate={updP}
+              />
+            )}
+          </main>
+        </>
+      )}
     </div>
   );
 }

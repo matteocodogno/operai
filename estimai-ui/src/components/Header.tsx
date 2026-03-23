@@ -8,11 +8,14 @@ interface HeaderProps {
   author: string;
   projectId: string;
   projects: ProjectMeta[];
+  showingList: boolean;
   onNameChange: (name: string) => void;
   onAuthorChange: (author: string) => void;
   onSwitchProject: (id: string) => void;
   onNewProject: () => void;
   onExport: () => void;
+  onShowList: () => void;
+  onHideList: () => void;
 }
 
 export default function Header({
@@ -20,11 +23,14 @@ export default function Header({
   author,
   projectId,
   projects,
+  showingList,
   onNameChange,
   onAuthorChange,
   onSwitchProject,
   onNewProject,
   onExport,
+  onShowList,
+  onHideList,
 }: HeaderProps) {
   const handleProjectChange = (e: ChangeEvent<HTMLSelectElement>) => {
     if (e.target.value === NEW_PROJECT_VALUE) onNewProject();
@@ -32,6 +38,44 @@ export default function Header({
   };
 
   const currentInList = projects.some((p) => p.id === projectId);
+
+  const logo = (
+    <button
+      onClick={showingList ? onHideList : onShowList}
+      className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent bg-transparent border-0 p-0 cursor-pointer"
+      title={showingList ? "Back to editor" : "My Estimates"}
+    >
+      EstimAI
+    </button>
+  );
+
+  const logoMobile = (
+    <button
+      onClick={showingList ? onHideList : onShowList}
+      className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent bg-transparent border-0 p-0 cursor-pointer"
+      title={showingList ? "Back to editor" : "My Estimates"}
+    >
+      E
+    </button>
+  );
+
+  if (showingList) {
+    return (
+      <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
+        <div className="flex items-center gap-4 h-14">
+          {logo}
+          <span className="text-muted text-[11px] font-mono hidden sm:block">/ My Estimates</span>
+          <div className="flex-1" />
+          <button
+            onClick={onHideList}
+            className="text-muted text-sm py-1 px-3 border border-rule hover:text-text transition-colors hidden sm:block"
+          >
+            ← Back to editor
+          </button>
+        </div>
+      </header>
+    );
+  }
 
   const projectSelect = (
     <select
@@ -55,9 +99,7 @@ export default function Header({
     <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
       {/* Desktop */}
       <div className="hidden sm:flex items-center gap-4 h-14">
-        <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-          EstimAI
-        </span>
+        {logo}
 
         {projectSelect}
 
@@ -74,6 +116,13 @@ export default function Header({
           className="w-30 shrink-0"
         />
         <button
+          onClick={onShowList}
+          className="text-muted text-sm py-1 px-2.5 border border-rule hover:text-text transition-colors shrink-0"
+          title="My Estimates"
+        >
+          ☰
+        </button>
+        <button
           onClick={onExport}
           className="text-white py-1.75 px-3.75 font-medium shrink-0 flex items-center gap-1.5 bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_2px_10px_rgba(91,106,247,.4)]"
         >
@@ -83,14 +132,19 @@ export default function Header({
 
       {/* Mobile */}
       <div className="flex sm:hidden items-center gap-3 h-12">
-        <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-          E
-        </span>
+        {logoMobile}
 
         <div className="flex-1 min-w-0">
           {projectSelect}
         </div>
 
+        <button
+          onClick={onShowList}
+          className="text-muted w-9 h-9 shrink-0 flex items-center justify-center border border-rule hover:text-text transition-colors"
+          aria-label="My Estimates"
+        >
+          ☰
+        </button>
         <button
           onClick={onExport}
           aria-label="Export Excel"

@@ -94,6 +94,8 @@ export interface EstimatorContextValue {
   updP: (k: keyof Parameters, v: string) => void;
   switchProject: (id: string) => void;
   newProject: () => void;
+  duplicateProject: (id: string) => void;
+  deleteProject: (id: string) => void;
 }
 
 const EstimatorContext = createContext<EstimatorContextValue | null>(null);
@@ -147,6 +149,33 @@ export function EstimatorProvider({ children }: { children: React.ReactNode }) {
   const newProject = useCallback(() => {
     loadProjectIntoState(blankProject());
   }, [loadProjectIntoState]);
+
+  const duplicateProject = useCallback((id: string) => {
+    const data = loadProject(id);
+    if (!data) return;
+    const copy: ProjectData = { ...data, id: uid(), name: data.name ? `${data.name} (copy)` : "Untitled (copy)" };
+    localStorage.setItem(projectKey(copy.id), JSON.stringify(copy));
+    const meta: ProjectMeta = { id: copy.id, name: copy.name, author: copy.author, updatedAt: new Date().toISOString() };
+    setProjects((prev) => [...prev, meta]);
+    loadProjectIntoState(copy);
+  }, [loadProjectIntoState]);
+
+  const deleteProject = useCallback((id: string) => {
+    localStorage.removeItem(projectKey(id));
+    setProjects((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
+      return next;
+    });
+    if (id === projectId) {
+      const remaining = projects.filter((p) => p.id !== id);
+      if (remaining.length > 0) {
+        const data = loadProject(remaining[0].id);
+        if (data) { loadProjectIntoState(data); return; }
+      }
+      loadProjectIntoState(blankProject());
+    }
+  }, [projectId, projects, loadProjectIntoState]);
 
   const updAct = useCallback((id: string, f: keyof Activity, v: string) =>
     setActs((prev) => prev.map((a) => {
@@ -209,8 +238,8 @@ export function EstimatorProvider({ children }: { children: React.ReactNode }) {
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP,
-    switchProject, newProject,
-  }), [projectId, projects, name, author, params, releases, acts, summary, totals, byProfile, updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP, switchProject, newProject]);
+    switchProject, newProject, duplicateProject, deleteProject,
+  }), [projectId, projects, name, author, params, releases, acts, summary, totals, byProfile, updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP, switchProject, newProject, duplicateProject, deleteProject]);
 
   return <EstimatorContext.Provider value={value}>{children}</EstimatorContext.Provider>;
 }
