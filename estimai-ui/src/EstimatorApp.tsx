@@ -58,7 +58,6 @@ export default function EstimatorApp() {
         author={author}
         onNameChange={setName}
         onAuthorChange={setAuthor}
-        onExport={exportXLSX}
       />
 
       <MetricsBar
@@ -68,7 +67,7 @@ export default function EstimatorApp() {
         profileCount={byProfile.length}
       />
 
-      <div className="flex gap-px px-5.5 pt-2.5 pb-0 border-b border-rule bg-ink-soft">
+      <div className="flex items-end gap-px px-5.5 pt-2.5 pb-0 border-b border-rule bg-ink-soft">
         {([['activities', 'Activities'], ['summary', 'Summary'], ['parameters', 'Parameters']] as const).map(([k, l]) => (
           <button
             key={k}
@@ -82,6 +81,13 @@ export default function EstimatorApp() {
             {l}
           </button>
         ))}
+        <div className="flex-1" />
+        <button
+          onClick={exportXLSX}
+          className="mb-1 py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
+        >
+          <span>↓</span> Export
+        </button>
       </div>
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">

@@ -6,10 +6,9 @@ interface HeaderProps {
   author: string
   onNameChange: (name: string) => void
   onAuthorChange: (author: string) => void
-  onExport: () => void
 }
 
-export default function Header({ name, author, onNameChange, onAuthorChange, onExport }: HeaderProps) {
+export default function Header({ name, author, onNameChange, onAuthorChange }: HeaderProps) {
   const navigate = useNavigate()
 
   return (
@@ -43,12 +42,6 @@ export default function Header({ name, author, onNameChange, onAuthorChange, onE
         >
           ☰
         </button>
-        <button
-          onClick={onExport}
-          className="text-white py-1.75 px-3.75 font-medium shrink-0 flex items-center gap-1.5 bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_2px_10px_rgba(91,106,247,.4)]"
-        >
-          <span>↓</span> Export Excel
-        </button>
       </div>
 
       {/* Mobile */}
@@ -74,13 +67,6 @@ export default function Header({ name, author, onNameChange, onAuthorChange, onE
           aria-label="My Estimates"
         >
           ☰
-        </button>
-        <button
-          onClick={onExport}
-          aria-label="Export Excel"
-          className="text-white w-9 h-9 shrink-0 flex items-center justify-center bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_2px_10px_rgba(91,106,247,.4)] rounded"
-        >
-          ↓
         </button>
       </div>
     </header>
