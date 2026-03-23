@@ -55,7 +55,7 @@ export default function EstimatesPage() {
       </header>
 
       {/* List */}
-      <div className="max-w-3xl px-5.5 py-8">
+      <div className="max-w-3xl mx-auto px-5.5 py-8">
         {projects.length === 0 ? (
           <div className="text-center py-16 text-muted text-sm">
             <div className="text-3xl mb-3 opacity-30">📋</div>
