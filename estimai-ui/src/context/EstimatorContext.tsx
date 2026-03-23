@@ -62,19 +62,22 @@ export function EstimatorProvider({ estimateId, children }: Props) {
     })), [])
 
   const addAct = useCallback(() =>
-    setActs(prev => [...prev, {
-      id: uid(),
-      num: '',
-      epic: '',
-      act: 'New activity',
-      prof: 'Developer',
-      o: 3.75,
-      ml: 5,
-      p: 8,
-      risk: 0,
-      notes: '',
-      release: rnames[0] || 'Release 1',
-    }]), [rnames])
+    setActs(prev => {
+      const last = prev[prev.length - 1]
+      return [...prev, {
+        id: uid(),
+        num: '',
+        epic: last?.epic ?? '',
+        act: 'New activity',
+        prof: last?.prof ?? 'Developer',
+        o: 3.75,
+        ml: 5,
+        p: 8,
+        risk: 0,
+        notes: '',
+        release: last?.release ?? rnames[0] ?? 'Release 1',
+      }]
+    }), [rnames])
 
   const delAct = useCallback((id: string) =>
     setActs(prev => prev.filter(a => a.id !== id)), [])
