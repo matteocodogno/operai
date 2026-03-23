@@ -42,11 +42,13 @@ function pertCalc(o: number, ml: number, p: number): number {
 const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 48px 150px 106px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 
-const columnHelper = createColumnHelper<Activity>();
+// Navigable column indices (excludes num/drag-handle, pert, expected, actions)
+// 0:epic  1:act  2:prof  3:o  4:ml  5:p  6:risk  7:aiGain  8:notes  9:release
+const NAV_COL_MAX = 9;
 
+const columnHelper = createColumnHelper<Activity>();
 const NEW_RELEASE_SENTINEL = "__new__";
 
-// Sortable row wrapper
 function SortableRow({
   id,
   children,
@@ -72,7 +74,6 @@ function SortableRow({
 
   return (
     <div ref={setNodeRef} style={rowStyle} className={className}>
-      {/* Drag handle — passed via context to the handle cell */}
       <div
         ref={setActivatorNodeRef}
         {...attributes}
@@ -99,38 +100,96 @@ const ActivityTable = memo(function ActivityTable({
   onReorder,
 }: ActivityTableProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
 
-  // Refs so columns definition is stable ([] deps) while always reading fresh values.
-  // Without this, onUpdate/releaseNames/etc. change every keystroke → columns recreates
-  // → TanStack Table remounts rows → inputs lose focus.
-  const onUpdateRef = useRef(onUpdate);
-  const onDeleteRef = useRef(onDelete);
-  const onAddReleaseRef = useRef(onAddRelease);
-  const releaseNamesRef = useRef(releaseNames);
-  const globalAiGainRef = useRef(globalAiGain);
-  const activityNumsRef = useRef<Map<string, string>>(new Map());
-  onUpdateRef.current = onUpdate;
-  onDeleteRef.current = onDelete;
+  // ── Stable refs for column closures ──────────────────────────────────────
+  // columns has [] deps; all mutable values are accessed via refs so the array
+  // reference never changes → TanStack Table keeps rows mounted → no focus loss.
+  const onUpdateRef      = useRef(onUpdate);
+  const onDeleteRef      = useRef(onDelete);
+  const onAddReleaseRef  = useRef(onAddRelease);
+  const releaseNamesRef  = useRef(releaseNames);
+  const globalAiGainRef  = useRef(globalAiGain);
+  const activityNumsRef  = useRef<Map<string, string>>(new Map());
+  const visibleRowIdxRef = useRef<Map<string, number>>(new Map());
+  const visibleIdsRef    = useRef<string[]>([]);
+  onUpdateRef.current     = onUpdate;
+  onDeleteRef.current     = onDelete;
   onAddReleaseRef.current = onAddRelease;
   releaseNamesRef.current = releaseNames;
   globalAiGainRef.current = globalAiGain;
 
-  function toggleEpic(epicKey: string) {
-    setCollapsedEpics(prev => {
-      const next = new Set(prev);
-      if (next.has(epicKey)) next.delete(epicKey);
-      else next.add(epicKey);
-      return next;
-    });
+  // ── Keyboard navigation ───────────────────────────────────────────────────
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  function focusCell(rowIdx: number, colIdx: number) {
+    const el = containerRef.current?.querySelector<HTMLElement>(`[data-cell="${rowIdx}-${colIdx}"]`);
+    el?.focus();
+    if (el instanceof HTMLInputElement) el.select();
   }
 
+  // Stored in a ref so column closures always call the latest version.
+  type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number, isText: boolean) => void;
+  const navRef = useRef<NavHandler>(() => {});
+  navRef.current = (e, rowIdx, colIdx, isText) => {
+    const maxRow = visibleIdsRef.current.length - 1;
+
+    switch (e.key) {
+      case 'Tab': {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
+          else if (rowIdx > 0) focusCell(rowIdx - 1, NAV_COL_MAX);
+        } else {
+          if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
+          else if (rowIdx < maxRow) focusCell(rowIdx + 1, 0);
+        }
+        break;
+      }
+      case 'Enter':
+      case 'ArrowDown': {
+        e.preventDefault();
+        if (rowIdx < maxRow) focusCell(rowIdx + 1, colIdx);
+        break;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        if (rowIdx > 0) focusCell(rowIdx - 1, colIdx);
+        break;
+      }
+      case 'ArrowRight': {
+        if (!isText) {
+          e.preventDefault();
+          if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
+        } else {
+          const inp = e.currentTarget as HTMLInputElement;
+          if (inp.selectionStart === inp.value.length) {
+            e.preventDefault();
+            if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
+          }
+        }
+        break;
+      }
+      case 'ArrowLeft': {
+        if (!isText) {
+          e.preventDefault();
+          if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
+        } else {
+          const inp = e.currentTarget as HTMLInputElement;
+          if (inp.selectionStart === 0) {
+            e.preventDefault();
+            if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
+          }
+        }
+        break;
+      }
+    }
+  };
+
+  // ── Column definitions (stable — [] deps) ─────────────────────────────────
   const activityNums = useMemo(() => computeActivityNums(activities), [activities]);
   activityNumsRef.current = activityNums;
 
-  // columns has stable [] deps — all mutable values read via refs so the array
-  // reference never changes, keeping TanStack Table rows mounted across keystrokes.
   const columns: ColumnDef<Activity, any>[] = useMemo(() => [
     columnHelper.display({
       id: "num",
@@ -143,76 +202,106 @@ const ActivityTable = memo(function ActivityTable({
     }),
     columnHelper.accessor("epic", {
       header: "Epic",
-      cell: (info) => (
-        <input
-          value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "epic", e.target.value)}
-          placeholder="Epic…"
-          className="py-0.75 px-1.25 text-[11px]"
-        />
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <input
+            value={info.getValue()}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "epic", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 0, true)}
+            data-cell={`${rowIdx}-0`}
+            placeholder="Epic…"
+            className="py-0.75 px-1.25 text-[11px]"
+          />
+        );
+      },
     }),
     columnHelper.accessor("act", {
       header: "Activity",
-      cell: (info) => (
-        <input
-          value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "act", e.target.value)}
-          placeholder="Activity…"
-          className="py-0.75 px-1.25 text-xs"
-        />
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <input
+            value={info.getValue()}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "act", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 1, true)}
+            data-cell={`${rowIdx}-1`}
+            placeholder="Activity…"
+            className="py-0.75 px-1.25 text-xs"
+          />
+        );
+      },
     }),
     columnHelper.accessor("prof", {
       header: "Profile",
-      cell: (info) => (
-        <select
-          value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdateRef.current(info.row.original.id, "prof", e.target.value)}
-          className="py-0.75 px-1.25 text-[11px]"
-        >
-          {PROFILES.map(p => <option key={p}>{p}</option>)}
-        </select>
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <select
+            value={info.getValue()}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdateRef.current(info.row.original.id, "prof", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 2, false)}
+            data-cell={`${rowIdx}-2`}
+            className="py-0.75 px-1.25 text-[11px]"
+          >
+            {PROFILES.map(p => <option key={p}>{p}</option>)}
+          </select>
+        );
+      },
     }),
     columnHelper.accessor("o", {
       header: "O",
-      cell: (info) => (
-        <input
-          type="number"
-          value={info.getValue()}
-          step={0.5}
-          min={0}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "o", e.target.value)}
-          className="text-right py-0.75 px-1.25 text-grn text-xs"
-        />
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <input
+            type="number"
+            value={info.getValue()}
+            step={0.5}
+            min={0}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "o", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 3, false)}
+            data-cell={`${rowIdx}-3`}
+            className="text-right py-0.75 px-1.25 text-grn text-xs"
+          />
+        );
+      },
     }),
     columnHelper.accessor("ml", {
       header: "ML",
-      cell: (info) => (
-        <input
-          type="number"
-          value={info.getValue()}
-          step={0.5}
-          min={0}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "ml", e.target.value)}
-          className="text-right py-0.75 px-1.25 text-xs"
-        />
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <input
+            type="number"
+            value={info.getValue()}
+            step={0.5}
+            min={0}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "ml", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 4, false)}
+            data-cell={`${rowIdx}-4`}
+            className="text-right py-0.75 px-1.25 text-xs"
+          />
+        );
+      },
     }),
     columnHelper.accessor("p", {
       header: "P",
-      cell: (info) => (
-        <input
-          type="number"
-          value={info.getValue()}
-          step={0.5}
-          min={0}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "p", e.target.value)}
-          className="text-right py-0.75 px-1.25 text-red text-xs"
-        />
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <input
+            type="number"
+            value={info.getValue()}
+            step={0.5}
+            min={0}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "p", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 5, false)}
+            data-cell={`${rowIdx}-5`}
+            className="text-right py-0.75 px-1.25 text-red text-xs"
+          />
+        );
+      },
     }),
     columnHelper.display({
       id: "pert",
@@ -229,6 +318,7 @@ const ActivityTable = memo(function ActivityTable({
     columnHelper.accessor("risk", {
       header: "Risk",
       cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
         const risky = Number(info.getValue()) > 0;
         return (
           <input
@@ -237,6 +327,8 @@ const ActivityTable = memo(function ActivityTable({
             step={0.5}
             min={0}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "risk", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 6, false)}
+            data-cell={`${rowIdx}-6`}
             className={`text-right py-0.75 px-1.25 text-xs ${risky ? "text-org" : "text-text"}`}
           />
         );
@@ -260,9 +352,9 @@ const ActivityTable = memo(function ActivityTable({
       header: "AI%",
       cell: (info) => {
         const row = info.row.original;
+        const rowIdx = visibleRowIdxRef.current.get(row.id) ?? 0;
         const stored = row.aiGain !== undefined && row.aiGain !== null && (row.aiGain as unknown as string) !== ""
-          ? Number(row.aiGain)
-          : undefined;
+          ? Number(row.aiGain) : undefined;
         const displayVal = stored !== undefined ? Math.round(stored * 100) : "";
         return (
           <input
@@ -276,6 +368,8 @@ const ActivityTable = memo(function ActivityTable({
               const v = e.target.value;
               onUpdateRef.current(row.id, "aiGain", v === "" ? "" : String(Number(v) / 100));
             }}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 7, false)}
+            data-cell={`${rowIdx}-7`}
             className="text-right py-0.75 px-1.25 text-xs text-acc-hi"
           />
         );
@@ -283,35 +377,45 @@ const ActivityTable = memo(function ActivityTable({
     }),
     columnHelper.accessor("notes", {
       header: "Notes",
-      cell: (info) => (
-        <input
-          value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "notes", e.target.value)}
-          placeholder="Notes…"
-          className="py-0.75 px-1.25 text-[11px] text-soft"
-        />
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <input
+            value={info.getValue()}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "notes", e.target.value)}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 8, true)}
+            data-cell={`${rowIdx}-8`}
+            placeholder="Notes…"
+            className="py-0.75 px-1.25 text-[11px] text-soft"
+          />
+        );
+      },
     }),
     columnHelper.accessor("release", {
       header: "Release",
-      cell: (info) => (
-        <select
-          value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-            const val = e.target.value;
-            if (val === NEW_RELEASE_SENTINEL) {
-              const newName = onAddReleaseRef.current();
-              onUpdateRef.current(info.row.original.id, "release", newName);
-            } else {
-              onUpdateRef.current(info.row.original.id, "release", val);
-            }
-          }}
-          className="py-0.75 px-1.25 text-[11px]"
-        >
-          {releaseNamesRef.current.map(r => <option key={r}>{r}</option>)}
-          <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
-        </select>
-      ),
+      cell: (info) => {
+        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        return (
+          <select
+            value={info.getValue()}
+            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+              const val = e.target.value;
+              if (val === NEW_RELEASE_SENTINEL) {
+                const newName = onAddReleaseRef.current();
+                onUpdateRef.current(info.row.original.id, "release", newName);
+              } else {
+                onUpdateRef.current(info.row.original.id, "release", val);
+              }
+            }}
+            onKeyDown={(e) => navRef.current(e, rowIdx, 9, false)}
+            data-cell={`${rowIdx}-9`}
+            className="py-0.75 px-1.25 text-[11px]"
+          >
+            {releaseNamesRef.current.map(r => <option key={r}>{r}</option>)}
+            <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
+          </select>
+        );
+      },
     }),
     columnHelper.display({
       id: "actions",
@@ -328,13 +432,8 @@ const ActivityTable = memo(function ActivityTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
-  const table = useReactTable({
-    data: activities,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
+  const table = useReactTable({ data: activities, columns, getCoreRowModel: getCoreRowModel() });
 
-  // Map activity id → TanStack row for grouped rendering
   const rowById = useMemo(() => {
     const m = new Map<string, Row<Activity>>();
     for (const r of table.getRowModel().rows) m.set(r.original.id, r);
@@ -342,8 +441,6 @@ const ActivityTable = memo(function ActivityTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activities]);
 
-  // Epic grouping — preserves activity order, groups by epic value.
-  // groupId = first activity's ID in each group → stable key even as epic name changes.
   const epicOrder = useMemo(() => {
     const seen = new Set<string>();
     const order: Array<{ epicKey: string; groupId: string }> = [];
@@ -362,11 +459,8 @@ const ActivityTable = memo(function ActivityTable({
     return map;
   }, [activities]);
 
-  // Flat array indices for reorder calls
   const allIds = useMemo(() => activities.map(a => a.id), [activities]);
 
-  // SortableContext needs items in visual (grouped) order, not flat array order,
-  // otherwise collision detection breaks when dragging across epic sections.
   const visibleIds = useMemo(() => {
     const ids: string[] = [];
     for (const { epicKey } of epicOrder) {
@@ -376,15 +470,30 @@ const ActivityTable = memo(function ActivityTable({
     return ids;
   }, [epicOrder, epicGroups, collapsedEpics]);
 
+  // Keep refs in sync for use inside column closures
+  visibleIdsRef.current = visibleIds;
+  visibleRowIdxRef.current = useMemo(
+    () => new Map(visibleIds.map((id, i) => [id, i])),
+    [visibleIds]
+  );
+
+  function toggleEpic(epicKey: string) {
+    setCollapsedEpics(prev => {
+      const next = new Set(prev);
+      if (next.has(epicKey)) next.delete(epicKey);
+      else next.add(epicKey);
+      return next;
+    });
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = allIds.indexOf(active.id as string);
-    const toIndex = allIds.indexOf(over.id as string);
+    const toIndex   = allIds.indexOf(over.id as string);
     if (fromIndex === -1 || toIndex === -1) return;
     onReorder(fromIndex, toIndex);
-    // When dropped onto a different epic section, adopt the target's epic
-    const overAct = activities.find(a => a.id === over.id);
+    const overAct   = activities.find(a => a.id === over.id);
     const activeAct = activities.find(a => a.id === active.id);
     if (overAct && activeAct && overAct.epic !== activeAct.epic) {
       onUpdate(active.id as string, 'epic', overAct.epic);
@@ -401,13 +510,12 @@ const ActivityTable = memo(function ActivityTable({
       </div>
 
       <div className="overflow-x-auto">
-        <div style={{ minWidth: "1080px" }}>
-          {/* Column headers — includes drag handle column */}
+        <div ref={containerRef} style={{ minWidth: "1080px" }}>
           <div
             className="grid gap-0.75 py-1.5 px-2 bg-ink-mid rounded-t-md text-[9px] text-soft font-mono uppercase tracking-[0.06em]"
             style={{ gridTemplateColumns: COL_W }}
           >
-            <div /> {/* handle column header — empty */}
+            <div />
             {table.getHeaderGroups().map(headerGroup =>
               headerGroup.headers.map(header => (
                 <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : "text-left"}>
@@ -417,31 +525,24 @@ const ActivityTable = memo(function ActivityTable({
             )}
           </div>
 
-          {/* Grouped + sortable rows */}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
               {epicOrder.map(({ epicKey, groupId }) => {
-                const label = epicKey || '(no epic)';
-                const epicActs = epicGroups.get(epicKey) ?? [];
+                const label     = epicKey || '(no epic)';
+                const epicActs  = epicGroups.get(epicKey) ?? [];
                 const isCollapsed = collapsedEpics.has(epicKey);
-                const subtotal = epicActs.reduce(
-                  (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0),
-                  0
+                const subtotal  = epicActs.reduce(
+                  (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0), 0
                 );
 
                 return (
                   <div key={groupId}>
-                    {/* Epic header row */}
                     <div
                       className="flex items-center gap-2 py-1.25 px-2 border-b border-rule bg-ink-mid/60 cursor-pointer hover:bg-ink-mid transition-colors select-none border-l-2 border-l-acc/40"
                       onClick={() => toggleEpic(epicKey)}
                     >
-                      <span className="text-[9px] text-acc w-2.5 shrink-0">
-                        {isCollapsed ? '▶' : '▼'}
-                      </span>
-                      <span className="text-[11px] font-semibold text-acc-hi flex-1 truncate">
-                        {label}
-                      </span>
+                      <span className="text-[9px] text-acc w-2.5 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
+                      <span className="text-[11px] font-semibold text-acc-hi flex-1 truncate">{label}</span>
                       <span className="text-[10px] text-muted shrink-0">
                         {epicActs.length} {epicActs.length === 1 ? 'activity' : 'activities'}
                       </span>
@@ -450,7 +551,6 @@ const ActivityTable = memo(function ActivityTable({
                       </span>
                     </div>
 
-                    {/* Activity rows */}
                     {!isCollapsed && epicActs.map((act, idx) => {
                       const row = rowById.get(act.id);
                       if (!row) return null;
@@ -482,7 +582,6 @@ const ActivityTable = memo(function ActivityTable({
         </div>
       </div>
 
-      {/* Legend */}
       <div className="flex gap-4 mt-3 text-[11px] text-soft font-mono flex-wrap">
         <span><span className="text-grn">O</span> = Optimistic</span>
         <span>ML = Most Likely (auto-derives O &amp; P)</span>
