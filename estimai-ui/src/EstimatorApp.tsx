@@ -52,6 +52,36 @@ export default function EstimatorApp() {
     XLSX.writeFile(wb, `${name.replace(/\s+/g, '_')}_estimate.xlsx`)
   }, [acts, summary, totals, params, name, author])
 
+  const exportClient = useCallback(() => {
+    const wb = XLSX.utils.book_new()
+
+    // Summary sheet — one row per release, no internal details
+    const rows: unknown[][] = [
+      ['Release', 'Duration (months)', 'Best case (months)', 'Worst case (months)', 'Effort (man-days)'],
+    ]
+    for (const s of summary) {
+      if (!s.res) continue
+      rows.push([
+        s.name,
+        +s.res.mo.toFixed(1),
+        +(s.res.best / (params.workingDaysMonth || 20)).toFixed(1),
+        +(s.res.worst / (params.workingDaysMonth || 20)).toFixed(1),
+        s.res.tm,
+      ])
+    }
+    rows.push([
+      'TOTAL',
+      +totals.mo.toFixed(1),
+      +(totals.best / (params.workingDaysMonth || 20)).toFixed(1),
+      +(totals.worst / (params.workingDaysMonth || 20)).toFixed(1),
+      totals.tm,
+    ])
+
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    XLSX.utils.book_append_sheet(wb, ws, 'Estimate')
+    XLSX.writeFile(wb, `${name.replace(/\s+/g, '_') || 'estimate'}_client.xlsx`)
+  }, [summary, totals, params, name])
+
   const exportJSON = useCallback(() => {
     const data: ProjectData = { id: projectId, name, author, params, releases, acts }
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -95,6 +125,14 @@ export default function EstimatorApp() {
         ))}
         <div className="flex-1" />
         <div className="flex items-center gap-1 mb-1">
+          <button
+            onClick={exportClient}
+            className="py-1 px-2.5 text-[11px] font-medium text-acc-hi border border-acc/30 hover:border-acc hover:text-acc transition-colors flex items-center gap-1"
+            title="Clean export for the client — no internal details"
+          >
+            <span>↓</span> Client
+          </button>
+          <div className="w-px h-4 bg-rule mx-0.5" />
           <button
             onClick={exportJSON}
             className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
