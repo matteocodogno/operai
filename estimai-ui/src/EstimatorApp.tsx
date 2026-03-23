@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import Header from './components/Header'
@@ -11,9 +11,22 @@ import { useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
 import { renderGanttPng } from './lib/ganttChart'
 import { computeActivityNums } from './lib/activityNums'
+import ShortcutsModal from './components/ShortcutsModal'
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.shiftKey && e.key === '?') {
+        e.preventDefault()
+        setShowShortcuts(v => !v)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const {
     projectId, name, author, params, releases, acts,
@@ -237,6 +250,20 @@ export default function EstimatorApp() {
           <ParametersPanel params={params} onUpdate={updP} />
         )}
       </main>
+
+      {/* Fixed footer */}
+      <footer className="fixed bottom-0 right-0 z-10 px-4 py-2 pointer-events-none">
+        <button
+          onClick={() => setShowShortcuts(v => !v)}
+          className="pointer-events-auto flex items-center gap-1.5 text-[11px] text-muted hover:text-soft transition-colors font-mono"
+          title="Keyboard shortcuts (Shift+?)"
+        >
+          <kbd className="inline-flex items-center px-1 py-0.5 rounded border border-rule bg-ink-mid text-[10px] leading-none">⇧?</kbd>
+          <span>shortcuts</span>
+        </button>
+      </footer>
+
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   )
 }
