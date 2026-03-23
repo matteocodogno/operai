@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, type ChangeEvent } from "react";
+import { memo, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -102,6 +102,21 @@ const ActivityTable = memo(function ActivityTable({
 
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
 
+  // Refs so columns definition is stable ([] deps) while always reading fresh values.
+  // Without this, onUpdate/releaseNames/etc. change every keystroke → columns recreates
+  // → TanStack Table remounts rows → inputs lose focus.
+  const onUpdateRef = useRef(onUpdate);
+  const onDeleteRef = useRef(onDelete);
+  const onAddReleaseRef = useRef(onAddRelease);
+  const releaseNamesRef = useRef(releaseNames);
+  const globalAiGainRef = useRef(globalAiGain);
+  const activityNumsRef = useRef<Map<string, string>>(new Map());
+  onUpdateRef.current = onUpdate;
+  onDeleteRef.current = onDelete;
+  onAddReleaseRef.current = onAddRelease;
+  releaseNamesRef.current = releaseNames;
+  globalAiGainRef.current = globalAiGain;
+
   function toggleEpic(epicKey: string) {
     setCollapsedEpics(prev => {
       const next = new Set(prev);
@@ -112,14 +127,17 @@ const ActivityTable = memo(function ActivityTable({
   }
 
   const activityNums = useMemo(() => computeActivityNums(activities), [activities]);
+  activityNumsRef.current = activityNums;
 
+  // columns has stable [] deps — all mutable values read via refs so the array
+  // reference never changes, keeping TanStack Table rows mounted across keystrokes.
   const columns: ColumnDef<Activity, any>[] = useMemo(() => [
     columnHelper.display({
       id: "num",
       header: "#",
       cell: (info) => (
         <div className="font-mono text-[10px] text-muted text-center select-none">
-          {activityNums.get(info.row.original.id) ?? ''}
+          {activityNumsRef.current.get(info.row.original.id) ?? ''}
         </div>
       ),
     }),
@@ -128,7 +146,7 @@ const ActivityTable = memo(function ActivityTable({
       cell: (info) => (
         <input
           value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "epic", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "epic", e.target.value)}
           placeholder="Epic…"
           className="py-0.75 px-1.25 text-[11px]"
         />
@@ -139,7 +157,7 @@ const ActivityTable = memo(function ActivityTable({
       cell: (info) => (
         <input
           value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "act", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "act", e.target.value)}
           placeholder="Activity…"
           className="py-0.75 px-1.25 text-xs"
         />
@@ -150,7 +168,7 @@ const ActivityTable = memo(function ActivityTable({
       cell: (info) => (
         <select
           value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdate(info.row.original.id, "prof", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdateRef.current(info.row.original.id, "prof", e.target.value)}
           className="py-0.75 px-1.25 text-[11px]"
         >
           {PROFILES.map(p => <option key={p}>{p}</option>)}
@@ -165,7 +183,7 @@ const ActivityTable = memo(function ActivityTable({
           value={info.getValue()}
           step={0.5}
           min={0}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "o", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "o", e.target.value)}
           className="text-right py-0.75 px-1.25 text-grn text-xs"
         />
       ),
@@ -178,7 +196,7 @@ const ActivityTable = memo(function ActivityTable({
           value={info.getValue()}
           step={0.5}
           min={0}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "ml", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "ml", e.target.value)}
           className="text-right py-0.75 px-1.25 text-xs"
         />
       ),
@@ -191,7 +209,7 @@ const ActivityTable = memo(function ActivityTable({
           value={info.getValue()}
           step={0.5}
           min={0}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "p", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "p", e.target.value)}
           className="text-right py-0.75 px-1.25 text-red text-xs"
         />
       ),
@@ -218,7 +236,7 @@ const ActivityTable = memo(function ActivityTable({
             value={info.getValue()}
             step={0.5}
             min={0}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "risk", e.target.value)}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "risk", e.target.value)}
             className={`text-right py-0.75 px-1.25 text-xs ${risky ? "text-org" : "text-text"}`}
           />
         );
@@ -253,10 +271,10 @@ const ActivityTable = memo(function ActivityTable({
             step={5}
             min={0}
             max={100}
-            placeholder={String(Math.round(globalAiGain * 100))}
+            placeholder={String(Math.round(globalAiGainRef.current * 100))}
             onChange={(e: ChangeEvent<HTMLInputElement>) => {
               const v = e.target.value;
-              onUpdate(row.id, "aiGain", v === "" ? "" : String(Number(v) / 100));
+              onUpdateRef.current(row.id, "aiGain", v === "" ? "" : String(Number(v) / 100));
             }}
             className="text-right py-0.75 px-1.25 text-xs text-acc-hi"
           />
@@ -268,7 +286,7 @@ const ActivityTable = memo(function ActivityTable({
       cell: (info) => (
         <input
           value={info.getValue()}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(info.row.original.id, "notes", e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "notes", e.target.value)}
           placeholder="Notes…"
           className="py-0.75 px-1.25 text-[11px] text-soft"
         />
@@ -282,15 +300,15 @@ const ActivityTable = memo(function ActivityTable({
           onChange={(e: ChangeEvent<HTMLSelectElement>) => {
             const val = e.target.value;
             if (val === NEW_RELEASE_SENTINEL) {
-              const newName = onAddRelease();
-              onUpdate(info.row.original.id, "release", newName);
+              const newName = onAddReleaseRef.current();
+              onUpdateRef.current(info.row.original.id, "release", newName);
             } else {
-              onUpdate(info.row.original.id, "release", val);
+              onUpdateRef.current(info.row.original.id, "release", val);
             }
           }}
           className="py-0.75 px-1.25 text-[11px]"
         >
-          {releaseNames.map(r => <option key={r}>{r}</option>)}
+          {releaseNamesRef.current.map(r => <option key={r}>{r}</option>)}
           <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
         </select>
       ),
@@ -300,14 +318,15 @@ const ActivityTable = memo(function ActivityTable({
       header: "",
       cell: (info) => (
         <button
-          onClick={() => onDelete(info.row.original.id)}
+          onClick={() => onDeleteRef.current(info.row.original.id)}
           className="bg-transparent text-muted text-[15px] py-0 pr-4"
         >
           ×
         </button>
       ),
     }),
-  ], [activityNums, releaseNames, globalAiGain, onUpdate, onDelete, onAddRelease]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
 
   const table = useReactTable({
     data: activities,
