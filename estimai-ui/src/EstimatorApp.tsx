@@ -13,17 +13,17 @@ import { renderGanttPng } from './lib/ganttChart'
 import { computeActivityNums } from './lib/activityNums'
 import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
+import HealthWarningsModal from './components/HealthWarningsModal'
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showHealthWarnings, setShowHealthWarnings] = useState(false)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.shiftKey && e.key === '?') {
-        e.preventDefault()
-        setShowShortcuts(v => !v)
-      }
+      if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
+      if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -282,6 +282,15 @@ export default function EstimatorApp() {
         </button>
       </footer>
 
+      {showHealthWarnings && (
+        <HealthWarningsModal
+          activityWarnings={warnings.activityWarnings}
+          releaseWarnings={warnings.releaseWarnings}
+          activities={acts}
+          releases={releases}
+          onClose={() => setShowHealthWarnings(false)}
+        />
+      )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   )

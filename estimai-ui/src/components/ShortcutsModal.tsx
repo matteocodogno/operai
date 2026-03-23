@@ -73,7 +73,8 @@ export default function ShortcutsModal({ onClose }: Props) {
             <p className="text-[9px] font-mono uppercase tracking-widest text-muted mb-2">General</p>
             <div className="flex flex-col gap-2">
               <Row keys={['⇧ ?']} label="Toggle this shortcuts panel" />
-              <Row keys={['Esc']} label="Close this panel" />
+              <Row keys={['⇧ H']} label="Toggle health warnings" />
+              <Row keys={['Esc']} label="Close panel" />
             </div>
           </section>
         </div>
