@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { loadProjects, createProject, duplicateProject, deleteProject } from '../lib/projects'
+import { loadProjects, createProject, duplicateProject, deleteProject, importProjectFromJson } from '../lib/projects'
 import type { ProjectMeta } from '../types'
 
 function formatDate(iso: string): string {
@@ -13,7 +13,7 @@ function formatDate(iso: string): string {
 
 export default function EstimatesPage() {
   const navigate = useNavigate()
-  // Local state so deletions/duplications re-render the list without a full navigation
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [projects, setProjects] = useState<ProjectMeta[]>(() =>
     [...loadProjects()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
   )
@@ -42,6 +42,23 @@ export default function EstimatesPage() {
     refresh()
   }
 
+  function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const id = importProjectFromJson(ev.target?.result as string)
+        navigate({ to: '/estimates/$estimateId', params: { estimateId: id } })
+      } catch (err) {
+        alert((err as Error).message)
+      }
+    }
+    reader.readAsText(file)
+    // Reset so the same file can be re-imported
+    e.target.value = ''
+  }
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -51,6 +68,19 @@ export default function EstimatesPage() {
             EstimAI
           </span>
           <div className="flex-1" />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-muted text-sm py-1 px-2.5 border border-rule hover:text-text transition-colors"
+          >
+            ↑ Import JSON
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleImport}
+          />
         </div>
       </header>
 

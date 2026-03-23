@@ -82,3 +82,25 @@ export function deleteProject(id: string): void {
 export function getLastProjectId(): string | null {
   return localStorage.getItem(CURRENT_ID_KEY)
 }
+
+/** Parse and import a JSON file. Returns the new project id, or throws on invalid input. */
+export function importProjectFromJson(raw: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error('Invalid JSON file.')
+  }
+  if (
+    typeof parsed !== 'object' || parsed === null ||
+    !Array.isArray((parsed as ProjectData).acts) ||
+    !Array.isArray((parsed as ProjectData).releases) ||
+    typeof (parsed as ProjectData).params !== 'object'
+  ) {
+    throw new Error('File does not look like a valid EstimAI estimate.')
+  }
+  const data = parsed as ProjectData
+  const newId = uid()
+  saveProjectData({ ...data, id: newId })
+  return newId
+}

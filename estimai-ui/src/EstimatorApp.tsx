@@ -7,12 +7,13 @@ import SummaryTable from './components/SummaryTable'
 import ParametersPanel from './components/ParametersPanel'
 import { pertCalc } from './hooks/useEstimator'
 import { useEstimatorContext } from './context/EstimatorContext'
+import type { ProjectData } from './lib/projects'
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
 
   const {
-    name, author, params, releases, acts,
+    projectId, name, author, params, releases, acts,
     summary, totals, byProfile,
     setName, setAuthor,
     updAct, addAct, delAct, reorderActs,
@@ -51,6 +52,17 @@ export default function EstimatorApp() {
     XLSX.writeFile(wb, `${name.replace(/\s+/g, '_')}_estimate.xlsx`)
   }, [acts, summary, totals, params, name, author])
 
+  const exportJSON = useCallback(() => {
+    const data: ProjectData = { id: projectId, name, author, params, releases, acts }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${name.replace(/\s+/g, '_') || 'estimate'}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [projectId, name, author, params, releases, acts])
+
   return (
     <div className="min-h-full w-full">
       <Header
@@ -82,12 +94,20 @@ export default function EstimatorApp() {
           </button>
         ))}
         <div className="flex-1" />
-        <button
-          onClick={exportXLSX}
-          className="mb-1 py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
-        >
-          <span>↓</span> Export
-        </button>
+        <div className="flex items-center gap-1 mb-1">
+          <button
+            onClick={exportJSON}
+            className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
+          >
+            <span>↓</span> JSON
+          </button>
+          <button
+            onClick={exportXLSX}
+            className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
+          >
+            <span>↓</span> Excel
+          </button>
+        </div>
       </div>
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
