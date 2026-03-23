@@ -26,7 +26,7 @@ export default function Header({ name, author, onNameChange, onAuthorChange }: H
             value={name}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
             placeholder="Project name…"
-            className="w-64 bg-transparent border-0 border-b border-rule rounded-none text-[14px] py-4 px-0 text-center"
+            className="w-64 bg-transparent border-0 border-b border-rule rounded-none text-[14px] py-4 px-0 text-center focus:outline-none focus:shadow-none focus:border-acc"
           />
           <input
             value={author}
@@ -58,7 +58,7 @@ export default function Header({ name, author, onNameChange, onAuthorChange }: H
           value={name}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
           placeholder="Project name…"
-          className="flex-1 bg-transparent border-0 border-b border-rule rounded-none text-[13px] py-3 px-0 min-w-0"
+          className="flex-1 bg-transparent border-0 border-b border-rule rounded-none text-[13px] py-3 px-0 min-w-0 focus:outline-none focus:shadow-none focus:border-acc"
         />
 
         <button
