@@ -16,11 +16,13 @@ import { computeActivityNums } from './lib/activityNums'
 import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
 import HealthWarningsModal from './components/HealthWarningsModal'
+import QrModal from './components/QrModal'
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
+  const [showQr, setShowQr] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -28,6 +30,7 @@ export default function EstimatorApp() {
     function onKey(e: KeyboardEvent) {
       if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
       if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
+      if (e.shiftKey && e.key === 'Q') { e.preventDefault(); setShowQr(v => !v) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -327,6 +330,13 @@ export default function EstimatorApp() {
         />
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showQr && (
+        <QrModal
+          shareUrl={buildShareUrl({ id: projectId, name, author, params, releases, acts })}
+          projectName={name}
+          onClose={() => setShowQr(false)}
+        />
+      )}
     </div>
   )
 }
