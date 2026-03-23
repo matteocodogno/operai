@@ -16,7 +16,7 @@ export default function App() {
     name, author, params, releases, acts,
     summary, totals, byProfile,
     setName, setAuthor,
-    updAct, addAct, delAct,
+    updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP,
     switchProject, newProject,
@@ -101,6 +101,7 @@ export default function App() {
             onDelete={delAct}
             onAdd={addAct}
             onAddRelease={addRel}
+            onReorder={reorderActs}
           />
         )}
 

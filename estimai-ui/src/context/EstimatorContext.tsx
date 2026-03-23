@@ -87,6 +87,7 @@ export interface EstimatorContextValue {
   updAct: (id: string, f: keyof Activity, v: string) => void;
   addAct: () => void;
   delAct: (id: string) => void;
+  reorderActs: (fromIndex: number, toIndex: number) => void;
   updRel: (id: string, f: keyof Release, v: string | number) => void;
   addRel: () => string;
   delRel: (id: string) => void;
@@ -177,6 +178,14 @@ export function EstimatorProvider({ children }: { children: React.ReactNode }) {
   const delAct = useCallback((id: string) =>
     setActs((prev) => prev.filter((a) => a.id !== id)), []);
 
+  const reorderActs = useCallback((fromIndex: number, toIndex: number) =>
+    setActs((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    }), []);
+
   const updRel = useCallback((id: string, f: keyof Release, v: string | number) =>
     setRels((prev) => prev.map((r) => r.id === id ? { ...r, [f]: v } : r)), []);
 
@@ -197,11 +206,11 @@ export function EstimatorProvider({ children }: { children: React.ReactNode }) {
     name, author, params, releases, acts,
     summary, totals, byProfile,
     setName, setAuthor,
-    updAct, addAct, delAct,
+    updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP,
     switchProject, newProject,
-  }), [projectId, projects, name, author, params, releases, acts, summary, totals, byProfile, updAct, addAct, delAct, updRel, addRel, delRel, updP, switchProject, newProject]);
+  }), [projectId, projects, name, author, params, releases, acts, summary, totals, byProfile, updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP, switchProject, newProject]);
 
   return <EstimatorContext.Provider value={value}>{children}</EstimatorContext.Provider>;
 }

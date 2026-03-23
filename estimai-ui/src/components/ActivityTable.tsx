@@ -6,6 +6,20 @@ import {
   createColumnHelper,
   type ColumnDef,
 } from "@tanstack/react-table";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { type Activity, PROFILES } from "../types";
 
 interface ActivityTableProps {
@@ -16,20 +30,74 @@ interface ActivityTableProps {
   onDelete: (id: string) => void;
   onAdd: () => void;
   onAddRelease: () => string;
+  onReorder: (fromIndex: number, toIndex: number) => void;
 }
 
 function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "44px 90px 108px 108px 58px 58px 58px 58px 58px 62px 58px 124px 106px 26px";
+const COL_W = "18px 44px 90px 108px 108px 58px 58px 58px 58px 58px 62px 58px 124px 106px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 
 const columnHelper = createColumnHelper<Activity>();
 
 const NEW_RELEASE_SENTINEL = "__new__";
 
-const ActivityTable = memo(function ActivityTable({ activities, releaseNames, globalAiGain, onUpdate, onDelete, onAdd, onAddRelease }: ActivityTableProps) {
+// Sortable row wrapper
+function SortableRow({
+  id,
+  children,
+  className,
+  style,
+}: {
+  id: string;
+  children: React.ReactNode;
+  className: string;
+  style: React.CSSProperties;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+
+  const rowStyle: React.CSSProperties = {
+    ...style,
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: "relative",
+    zIndex: isDragging ? 1 : "auto",
+  };
+
+  return (
+    <div ref={setNodeRef} style={rowStyle} className={className}>
+      {/* Drag handle — passed via context to the handle cell */}
+      <div
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        className="flex items-center justify-center cursor-grab active:cursor-grabbing text-muted hover:text-soft select-none touch-none"
+        style={{ fontSize: 14 }}
+        title="Drag to reorder"
+      >
+        ⠿
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const ActivityTable = memo(function ActivityTable({
+  activities,
+  releaseNames,
+  globalAiGain,
+  onUpdate,
+  onDelete,
+  onAdd,
+  onAddRelease,
+  onReorder,
+}: ActivityTableProps) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
   const columns: ColumnDef<Activity, any>[] = useMemo(() => [
     columnHelper.accessor("num", {
       header: "#",
@@ -234,6 +302,16 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, gl
     getCoreRowModel: getCoreRowModel(),
   });
 
+  const rowIds = useMemo(() => activities.map((a) => a.id), [activities]);
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const fromIndex = rowIds.indexOf(active.id as string);
+    const toIndex = rowIds.indexOf(over.id as string);
+    if (fromIndex !== -1 && toIndex !== -1) onReorder(fromIndex, toIndex);
+  }
+
   return (
     <>
       <div className="flex justify-between items-center mb-3">
@@ -244,12 +322,13 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, gl
       </div>
 
       <div className="overflow-x-auto">
-        <div style={{ minWidth: "1000px" }}>
-          {/* Column headers */}
+        <div style={{ minWidth: "1080px" }}>
+          {/* Column headers — includes drag handle column */}
           <div
             className="grid gap-0.75 py-1.5 px-2 bg-ink-mid rounded-t-md text-[9px] text-soft font-mono uppercase tracking-[0.06em]"
             style={{ gridTemplateColumns: COL_W }}
           >
+            <div /> {/* handle column header — empty */}
             {table.getHeaderGroups().map(headerGroup =>
               headerGroup.headers.map(header => (
                 <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : "text-left"}>
@@ -259,27 +338,32 @@ const ActivityTable = memo(function ActivityTable({ activities, releaseNames, gl
             )}
           </div>
 
-          {/* Rows */}
-          {table.getRowModel().rows.map((row, idx) => {
-            const risky = Number(row.original.risk) > 0;
-            return (
-              <div
-                key={row.id}
-                className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
-                  risky
-                    ? "bg-[rgba(245,166,35,.04)] border-l-org"
-                    : idx % 2 === 0
-                      ? "bg-ink-soft border-l-transparent"
-                      : "bg-ink border-l-transparent"
-                }`}
-                style={{ gridTemplateColumns: COL_W }}
-              >
-                {row.getVisibleCells().map(cell => (
-                  flexRender(cell.column.columnDef.cell, cell.getContext())
-                ))}
-              </div>
-            );
-          })}
+          {/* Sortable rows */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+              {table.getRowModel().rows.map((row, idx) => {
+                const risky = Number(row.original.risk) > 0;
+                return (
+                  <SortableRow
+                    key={row.id}
+                    id={row.original.id}
+                    className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
+                      risky
+                        ? "bg-[rgba(245,166,35,.04)] border-l-org"
+                        : idx % 2 === 0
+                          ? "bg-ink-soft border-l-transparent"
+                          : "bg-ink border-l-transparent"
+                    }`}
+                    style={{ gridTemplateColumns: COL_W }}
+                  >
+                    {row.getVisibleCells().map(cell => (
+                      flexRender(cell.column.columnDef.cell, cell.getContext())
+                    ))}
+                  </SortableRow>
+                );
+              })}
+            </SortableContext>
+          </DndContext>
         </div>
       </div>
 
