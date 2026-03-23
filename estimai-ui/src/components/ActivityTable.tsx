@@ -362,19 +362,33 @@ const ActivityTable = memo(function ActivityTable({
     return map;
   }, [activities]);
 
-  // Full list for index lookup in DnD; visible list for SortableContext
+  // Flat array indices for reorder calls
   const allIds = useMemo(() => activities.map(a => a.id), [activities]);
-  const visibleIds = useMemo(() =>
-    activities.filter(a => !collapsedEpics.has(a.epic)).map(a => a.id),
-    [activities, collapsedEpics]
-  );
+
+  // SortableContext needs items in visual (grouped) order, not flat array order,
+  // otherwise collision detection breaks when dragging across epic sections.
+  const visibleIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const { epicKey } of epicOrder) {
+      if (collapsedEpics.has(epicKey)) continue;
+      for (const a of epicGroups.get(epicKey) ?? []) ids.push(a.id);
+    }
+    return ids;
+  }, [epicOrder, epicGroups, collapsedEpics]);
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = allIds.indexOf(active.id as string);
     const toIndex = allIds.indexOf(over.id as string);
-    if (fromIndex !== -1 && toIndex !== -1) onReorder(fromIndex, toIndex);
+    if (fromIndex === -1 || toIndex === -1) return;
+    onReorder(fromIndex, toIndex);
+    // When dropped onto a different epic section, adopt the target's epic
+    const overAct = activities.find(a => a.id === over.id);
+    const activeAct = activities.find(a => a.id === active.id);
+    if (overAct && activeAct && overAct.epic !== activeAct.epic) {
+      onUpdate(active.id as string, 'epic', overAct.epic);
+    }
   }
 
   return (
