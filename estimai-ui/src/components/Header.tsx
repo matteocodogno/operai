@@ -14,45 +14,47 @@ export default function Header({ name, author, onNameChange, onAuthorChange }: H
   return (
     <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
       {/* Desktop */}
-      <div className="hidden sm:flex items-center gap-4 h-14">
-        <button
-          onClick={() => navigate({ to: '/estimates' })}
-          className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent bg-transparent border-0 p-0 cursor-pointer"
-          title="My Estimates"
-        >
-          EstimAI
-        </button>
+      <div className="hidden sm:flex items-center h-14">
+        {/* Left — logo */}
+        <div className="w-40 shrink-0">
+          <span className="font-disp text-xl font-extrabold bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
+            EstimAI
+          </span>
+        </div>
 
-        <input
-          value={name}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
-          placeholder="Project name…"
-          className="flex-1 max-w-[320px] bg-transparent border-0 border-b border-rule rounded-none text-[14px] py-4 px-0"
-        />
-        <input
-          value={author}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onAuthorChange(e.target.value)}
-          placeholder="Author"
-          className="w-30 shrink-0"
-        />
-        <button
-          onClick={() => navigate({ to: '/estimates' })}
-          className="text-muted text-sm py-1 px-2.5 border border-rule hover:text-text transition-colors shrink-0"
-          title="My Estimates"
-        >
-          ☰
-        </button>
+        {/* Center — project name + author */}
+        <div className="flex-1 flex items-center justify-center gap-4">
+          <input
+            value={name}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
+            placeholder="Project name…"
+            className="w-64 bg-transparent border-0 border-b border-rule rounded-none text-[14px] py-4 px-0 text-center"
+          />
+          <input
+            value={author}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => onAuthorChange(e.target.value)}
+            placeholder="Author"
+            className="w-28"
+          />
+        </div>
+
+        {/* Right — list navigation */}
+        <div className="w-40 flex justify-end shrink-0">
+          <button
+            onClick={() => navigate({ to: '/estimates' })}
+            className="text-muted text-sm py-1 px-2.5 border border-rule hover:text-text transition-colors"
+            title="My Estimates"
+          >
+            ☰ My Estimates
+          </button>
+        </div>
       </div>
 
       {/* Mobile */}
       <div className="flex sm:hidden items-center gap-3 h-12">
-        <button
-          onClick={() => navigate({ to: '/estimates' })}
-          className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent bg-transparent border-0 p-0 cursor-pointer"
-          title="My Estimates"
-        >
+        <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
           E
-        </button>
+        </span>
 
         <input
           value={name}
