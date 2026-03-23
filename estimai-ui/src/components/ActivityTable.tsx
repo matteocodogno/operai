@@ -1,10 +1,11 @@
-import { memo, useMemo, type ChangeEvent } from "react";
+import { memo, useMemo, useState, type ChangeEvent } from "react";
 import {
   useReactTable,
   getCoreRowModel,
   flexRender,
   createColumnHelper,
   type ColumnDef,
+  type Row,
 } from "@tanstack/react-table";
 import {
   DndContext,
@@ -97,6 +98,17 @@ const ActivityTable = memo(function ActivityTable({
   onReorder,
 }: ActivityTableProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
+
+  function toggleEpic(epicKey: string) {
+    setCollapsedEpics(prev => {
+      const next = new Set(prev);
+      if (next.has(epicKey)) next.delete(epicKey);
+      else next.add(epicKey);
+      return next;
+    });
+  }
 
   const columns: ColumnDef<Activity, any>[] = useMemo(() => [
     columnHelper.accessor("num", {
@@ -302,13 +314,46 @@ const ActivityTable = memo(function ActivityTable({
     getCoreRowModel: getCoreRowModel(),
   });
 
-  const rowIds = useMemo(() => activities.map((a) => a.id), [activities]);
+  // Map activity id → TanStack row for grouped rendering
+  const rowById = useMemo(() => {
+    const m = new Map<string, Row<Activity>>();
+    for (const r of table.getRowModel().rows) m.set(r.original.id, r);
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activities]);
+
+  // Epic grouping — preserves activity order, groups by epic value.
+  // groupId = first activity's ID in each group → stable key even as epic name changes.
+  const epicOrder = useMemo(() => {
+    const seen = new Set<string>();
+    const order: Array<{ epicKey: string; groupId: string }> = [];
+    for (const a of activities) {
+      if (!seen.has(a.epic)) { seen.add(a.epic); order.push({ epicKey: a.epic, groupId: a.id }); }
+    }
+    return order;
+  }, [activities]);
+
+  const epicGroups = useMemo(() => {
+    const map = new Map<string, Activity[]>();
+    for (const a of activities) {
+      if (!map.has(a.epic)) map.set(a.epic, []);
+      map.get(a.epic)!.push(a);
+    }
+    return map;
+  }, [activities]);
+
+  // Full list for index lookup in DnD; visible list for SortableContext
+  const allIds = useMemo(() => activities.map(a => a.id), [activities]);
+  const visibleIds = useMemo(() =>
+    activities.filter(a => !collapsedEpics.has(a.epic)).map(a => a.id),
+    [activities, collapsedEpics]
+  );
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const fromIndex = rowIds.indexOf(active.id as string);
-    const toIndex = rowIds.indexOf(over.id as string);
+    const fromIndex = allIds.indexOf(active.id as string);
+    const toIndex = allIds.indexOf(over.id as string);
     if (fromIndex !== -1 && toIndex !== -1) onReorder(fromIndex, toIndex);
   }
 
@@ -338,28 +383,64 @@ const ActivityTable = memo(function ActivityTable({
             )}
           </div>
 
-          {/* Sortable rows */}
+          {/* Grouped + sortable rows */}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
-              {table.getRowModel().rows.map((row, idx) => {
-                const risky = Number(row.original.risk) > 0;
+            <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
+              {epicOrder.map(({ epicKey, groupId }) => {
+                const label = epicKey || '(no epic)';
+                const epicActs = epicGroups.get(epicKey) ?? [];
+                const isCollapsed = collapsedEpics.has(epicKey);
+                const subtotal = epicActs.reduce(
+                  (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0),
+                  0
+                );
+
                 return (
-                  <SortableRow
-                    key={row.id}
-                    id={row.original.id}
-                    className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
-                      risky
-                        ? "bg-[rgba(245,166,35,.04)] border-l-org"
-                        : idx % 2 === 0
-                          ? "bg-ink-soft border-l-transparent"
-                          : "bg-ink border-l-transparent"
-                    }`}
-                    style={{ gridTemplateColumns: COL_W }}
-                  >
-                    {row.getVisibleCells().map(cell => (
-                      flexRender(cell.column.columnDef.cell, cell.getContext())
-                    ))}
-                  </SortableRow>
+                  <div key={groupId}>
+                    {/* Epic header row */}
+                    <div
+                      className="flex items-center gap-2 py-1.25 px-2 border-b border-rule bg-ink-mid/60 cursor-pointer hover:bg-ink-mid transition-colors select-none border-l-2 border-l-acc/40"
+                      onClick={() => toggleEpic(epicKey)}
+                    >
+                      <span className="text-[9px] text-acc w-2.5 shrink-0">
+                        {isCollapsed ? '▶' : '▼'}
+                      </span>
+                      <span className="text-[11px] font-semibold text-acc-hi flex-1 truncate">
+                        {label}
+                      </span>
+                      <span className="text-[10px] text-muted shrink-0">
+                        {epicActs.length} {epicActs.length === 1 ? 'activity' : 'activities'}
+                      </span>
+                      <span className="text-[11px] font-mono font-semibold text-text ml-3 shrink-0">
+                        Exp. {subtotal.toFixed(1)} d
+                      </span>
+                    </div>
+
+                    {/* Activity rows */}
+                    {!isCollapsed && epicActs.map((act, idx) => {
+                      const row = rowById.get(act.id);
+                      if (!row) return null;
+                      const risky = Number(act.risk) > 0;
+                      return (
+                        <SortableRow
+                          key={row.id}
+                          id={act.id}
+                          className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
+                            risky
+                              ? "bg-[rgba(245,166,35,.04)] border-l-org"
+                              : idx % 2 === 0
+                                ? "bg-ink-soft border-l-transparent"
+                                : "bg-ink border-l-transparent"
+                          }`}
+                          style={{ gridTemplateColumns: COL_W }}
+                        >
+                          {row.getVisibleCells().map(cell =>
+                            flexRender(cell.column.columnDef.cell, cell.getContext())
+                          )}
+                        </SortableRow>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </SortableContext>
