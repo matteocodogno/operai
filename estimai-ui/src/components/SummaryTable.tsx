@@ -1,11 +1,13 @@
 import type { ChangeEvent } from "react";
 import type { Release, ReleaseSummary, Totals } from "../types";
+import { type WarningCode, WARNING_META } from "../lib/healthWarnings";
 
 interface SummaryTableProps {
   summary: ReleaseSummary[];
   releases: Release[];
   totals: Totals;
   byProfile: [string, number][];
+  releaseWarnings: Map<string, WarningCode[]>;
   onUpdateRelease: (id: string, field: keyof Release, value: string | number) => void;
   onAddRelease: () => void;
   onDeleteRelease: (id: string) => void;
@@ -40,15 +42,17 @@ function Td({ children, right, bold, colorClass, className }: TdProps) {
   );
 }
 
-export default function SummaryTable({ summary, releases, totals, byProfile, onUpdateRelease, onAddRelease, onDeleteRelease }: SummaryTableProps) {
+export default function SummaryTable({ summary, releases, totals, byProfile, releaseWarnings, onUpdateRelease, onAddRelease, onDeleteRelease }: SummaryTableProps) {
   const headers = ["Release","FTE","Ind. M/D","Planning","Baseline","Elapsed d","Total M/D","Months","Best","Worst","Range","AI Cost","AI-assisted d","Total M/D (AI)"];
 
   return (
     <>
       <div className="flex gap-2.5 mb-[18px] flex-wrap items-center">
         <h2 className="font-disp text-sm font-bold mr-2">Release Summary</h2>
-        {releases.map(rel => (
-          <div key={rel.id} className="bg-ink-soft border border-rule rounded-[10px] py-[9px] px-[13px] flex items-center gap-[9px]">
+        {releases.map(rel => {
+          const ws = releaseWarnings.get(rel.id)
+          return (
+          <div key={rel.id} className={`bg-ink-soft border rounded-[10px] py-[9px] px-[13px] flex items-center gap-[9px] ${ws?.length ? 'border-org/40' : 'border-rule'}`}>
             <input
               value={rel.name}
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRelease(rel.id, "name", e.target.value)}
@@ -63,11 +67,19 @@ export default function SummaryTable({ summary, releases, totals, byProfile, onU
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRelease(rel.id, "fte", e.target.value)}
               className="w-11 text-right"
             />
+            {ws?.map(code => {
+              const m = WARNING_META[code]
+              return (
+                <span key={code} className={`text-[11px] leading-none ${m.colorClass}`} title={m.title}>
+                  {m.icon}
+                </span>
+              )
+            })}
             {releases.length > 1 && (
               <button onClick={() => onDeleteRelease(rel.id)} className="bg-transparent text-muted text-sm">×</button>
             )}
           </div>
-        ))}
+        )})}
         <button onClick={onAddRelease} className="bg-transparent text-soft py-[9px] px-[13px] border border-dashed border-rule rounded-[10px] text-xs">
           + Release
         </button>
@@ -81,9 +93,23 @@ export default function SummaryTable({ summary, releases, totals, byProfile, onU
             </tr>
           </thead>
           <tbody>
-            {summary.map((s, idx) => (
+            {summary.map((s, idx) => {
+              const ws = releaseWarnings.get(s.id)
+              return (
               <tr key={s.id} className={`border-b border-rule ${idx % 2 === 0 ? "bg-ink-soft" : "bg-ink"}`}>
-                <Td>{s.name}</Td>
+                <Td>
+                  <span className="flex items-center gap-1.5">
+                    {s.name}
+                    {ws?.map(code => {
+                      const m = WARNING_META[code]
+                      return (
+                        <span key={code} className={`text-[11px] leading-none ${m.colorClass}`} title={m.title}>
+                          {m.icon}
+                        </span>
+                      )
+                    })}
+                  </span>
+                </Td>
                 <Td right colorClass="text-soft">{s.fte}</Td>
                 {s.res ? (
                   <>
@@ -110,7 +136,7 @@ export default function SummaryTable({ summary, releases, totals, byProfile, onU
                   </td>
                 )}
               </tr>
-            ))}
+            )})}
             <tr className="bg-ink-mid border-t-2 border-acc">
               <td className="py-2.5 px-2.5 font-disp font-bold text-[11px]">TOTAL</td>
               <td />

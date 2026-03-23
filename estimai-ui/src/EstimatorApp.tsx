@@ -11,6 +11,7 @@ import { useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
 import { renderGanttPng } from './lib/ganttChart'
 import { computeActivityNums } from './lib/activityNums'
+import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
 
 export default function EstimatorApp() {
@@ -38,6 +39,11 @@ export default function EstimatorApp() {
   } = useEstimatorContext()
 
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
+
+  const warnings = useMemo(
+    () => computeHealthWarnings(acts, releases, summary),
+    [acts, releases, summary]
+  )
 
   const exportXLSX = useCallback(() => {
     const wb = XLSX.utils.book_new()
@@ -184,17 +190,28 @@ export default function EstimatorApp() {
       />
 
       <div className="flex items-end gap-px px-5.5 pt-2.5 pb-0 border-b border-rule bg-ink-soft">
-        {([['activities', 'Activities'], ['summary', 'Summary'], ['parameters', 'Parameters']] as const).map(([k, l]) => (
+        {([
+          ['activities', 'Activities', warnings.activityCount],
+          ['summary',    'Summary',    warnings.releaseCount],
+          ['parameters', 'Parameters', 0],
+        ] as const).map(([k, l, warnCount]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
-            className={`py-1.75 px-3.5 rounded-t-md rounded-b-none transition-all ${
+            className={`py-1.75 px-3.5 rounded-t-md rounded-b-none transition-all flex items-center gap-1.5 ${
               tab === k
                 ? 'bg-acc text-white font-medium border-b-2 border-acc'
                 : 'bg-transparent text-muted font-normal border-b-2 border-transparent'
             }`}
           >
             {l}
+            {warnCount > 0 && (
+              <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold leading-none ${
+                tab === k ? 'bg-white/20 text-white' : 'bg-org/20 text-org'
+              }`}>
+                {warnCount}
+              </span>
+            )}
           </button>
         ))}
         <div className="flex-1" />
@@ -228,6 +245,7 @@ export default function EstimatorApp() {
             activities={acts}
             releaseNames={rnames}
             globalAiGain={params.aiGain}
+            activityWarnings={warnings.activityWarnings}
             onUpdate={updAct}
             onDelete={delAct}
             onAdd={addAct}
@@ -241,6 +259,7 @@ export default function EstimatorApp() {
             releases={releases}
             totals={totals}
             byProfile={byProfile}
+            releaseWarnings={warnings.releaseWarnings}
             onUpdateRelease={updRel}
             onAddRelease={addRel}
             onDeleteRelease={delRel}

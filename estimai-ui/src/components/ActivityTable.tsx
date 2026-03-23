@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { type Activity, PROFILES } from "../types";
 import { computeActivityNums } from "../lib/activityNums";
 import { deriveOP } from "../hooks/useEstimator";
+import { type WarningCode, WARNING_META } from "../lib/healthWarnings";
 
 interface ActivityTableProps {
   activities: Activity[];
@@ -34,13 +35,14 @@ interface ActivityTableProps {
   onAdd: () => void;
   onAddRelease: () => string;
   onReorder: (fromIndex: number, toIndex: number) => void;
+  activityWarnings: Map<string, WarningCode[]>;
 }
 
 function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 48px 150px 106px 26px";
+const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 48px 150px 106px 28px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 
 // Navigable column indices (excludes num/drag-handle, pert, expected, actions)
@@ -147,6 +149,7 @@ const ActivityTable = memo(function ActivityTable({
   activities,
   releaseNames,
   globalAiGain,
+  activityWarnings,
   onUpdate,
   onDelete,
   onAdd,
@@ -165,13 +168,15 @@ const ActivityTable = memo(function ActivityTable({
   const releaseNamesRef  = useRef(releaseNames);
   const globalAiGainRef  = useRef(globalAiGain);
   const activityNumsRef  = useRef<Map<string, string>>(new Map());
+  const actWarningsRef   = useRef<Map<string, WarningCode[]>>(new Map());
   const visibleRowIdxRef = useRef<Map<string, number>>(new Map());
   const visibleIdsRef    = useRef<string[]>([]);
-  onUpdateRef.current     = onUpdate;
-  onDeleteRef.current     = onDelete;
-  onAddReleaseRef.current = onAddRelease;
-  releaseNamesRef.current = releaseNames;
-  globalAiGainRef.current = globalAiGain;
+  onUpdateRef.current      = onUpdate;
+  onDeleteRef.current      = onDelete;
+  onAddReleaseRef.current  = onAddRelease;
+  releaseNamesRef.current  = releaseNames;
+  globalAiGainRef.current  = globalAiGain;
+  actWarningsRef.current   = activityWarnings;
 
   // ── Keyboard navigation ───────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
@@ -462,6 +467,26 @@ const ActivityTable = memo(function ActivityTable({
             <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
           </select>
         );
+      },
+    }),
+    columnHelper.display({
+      id: "warn",
+      header: "",
+      cell: (info) => {
+        const ws = actWarningsRef.current.get(info.row.original.id)
+        if (!ws?.length) return null
+        return (
+          <div className="flex items-center gap-0.5">
+            {ws.map(code => {
+              const m = WARNING_META[code]
+              return (
+                <span key={code} className={`text-[11px] leading-none ${m.colorClass}`} title={m.title}>
+                  {m.icon}
+                </span>
+              )
+            })}
+          </div>
+        )
       },
     }),
     columnHelper.display({
