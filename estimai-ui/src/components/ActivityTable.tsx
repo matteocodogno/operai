@@ -23,6 +23,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { type Activity, PROFILES } from "../types";
 import { computeActivityNums } from "../lib/activityNums";
+import { deriveOP } from "../hooks/useEstimator";
 
 interface ActivityTableProps {
   activities: Activity[];
@@ -48,6 +49,59 @@ const NAV_COL_MAX = 9;
 
 const columnHelper = createColumnHelper<Activity>();
 const NEW_RELEASE_SENTINEL = "__new__";
+
+type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number, isText: boolean) => void;
+
+// MLCell — standalone component so it can hold isFocused state while living inside
+// a stable columns[] closure. Receives ref objects (not values) so it always reads fresh data.
+function MLCell({
+  id, value, rowIdx,
+  onUpdateRef, navRef,
+}: {
+  id: string
+  value: number
+  rowIdx: number
+  onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
+  navRef: React.MutableRefObject<NavHandler>
+}) {
+  const [focused, setFocused] = useState(false)
+  const derived = deriveOP(Number(value))
+  const showTip = focused && Number(value) > 0
+
+  return (
+    <div className="relative w-full">
+      <input
+        type="number"
+        value={value}
+        step={0.5}
+        min={0}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, "ml", e.target.value)}
+        onKeyDown={(e) => navRef.current(e, rowIdx, 4, false)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        data-cell={`${rowIdx}-4`}
+        className="text-right py-0.75 px-1.25 text-xs w-full"
+      />
+      {showTip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 pointer-events-none">
+          <div className="bg-ink border border-rule rounded px-2 py-1 shadow-lg whitespace-nowrap">
+            <div className="flex items-center gap-1.5 font-mono text-[10px]">
+              <span className="text-muted">O</span>
+              <span className="text-grn font-semibold">{derived.o.toFixed(1)}</span>
+              <span className="text-muted/40">·</span>
+              <span className="text-muted">P</span>
+              <span className="text-red font-semibold">{derived.p.toFixed(1)}</span>
+            </div>
+          </div>
+          {/* Caret */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2"
+            style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--rule)' }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
 
 function SortableRow({
   id,
@@ -129,7 +183,6 @@ const ActivityTable = memo(function ActivityTable({
   }
 
   // Stored in a ref so column closures always call the latest version.
-  type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number, isText: boolean) => void;
   const navRef = useRef<NavHandler>(() => {});
   navRef.current = (e, rowIdx, colIdx, isText) => {
     const maxRow = visibleIdsRef.current.length - 1;
@@ -269,21 +322,15 @@ const ActivityTable = memo(function ActivityTable({
     }),
     columnHelper.accessor("ml", {
       header: "ML",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        return (
-          <input
-            type="number"
-            value={info.getValue()}
-            step={0.5}
-            min={0}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "ml", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 4, false)}
-            data-cell={`${rowIdx}-4`}
-            className="text-right py-0.75 px-1.25 text-xs"
-          />
-        );
-      },
+      cell: (info) => (
+        <MLCell
+          id={info.row.original.id}
+          value={info.row.original.ml}
+          rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
+          onUpdateRef={onUpdateRef}
+          navRef={navRef}
+        />
+      ),
     }),
     columnHelper.accessor("p", {
       header: "P",
