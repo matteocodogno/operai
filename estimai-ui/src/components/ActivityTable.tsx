@@ -39,7 +39,7 @@ function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "18px 44px 90px 150px 100px 35px 35px 35px 35px 35px 62px 35px 150px 106px 26px";
+const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 48px 150px 106px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 
 const columnHelper = createColumnHelper<Activity>();
