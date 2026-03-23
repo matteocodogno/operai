@@ -10,6 +10,7 @@ import { pertCalc } from './hooks/useEstimator'
 import { useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
 import { buildShareUrl } from './lib/shareUrl'
+import { exportPdf } from './lib/pdfExport'
 import { renderGanttPng } from './lib/ganttChart'
 import { computeActivityNums } from './lib/activityNums'
 import { computeHealthWarnings } from './lib/healthWarnings'
@@ -176,6 +177,12 @@ export default function EstimatorApp() {
     URL.revokeObjectURL(url)
   }, [projectId, name, author, params, releases, acts])
 
+  const exportPDF = useCallback(() => {
+    const data = { id: projectId, name, author, params, releases, acts }
+    const shareUrl = buildShareUrl(data)
+    exportPdf({ name, author, summary, totals, params, shareUrl })
+  }, [projectId, name, author, params, releases, acts, summary, totals])
+
   const handleShare = useCallback(() => {
     const data: ProjectData = { id: projectId, name, author, params, releases, acts }
     const url = buildShareUrl(data)
@@ -243,6 +250,13 @@ export default function EstimatorApp() {
             title="Clean export for the client — no internal details"
           >
             <span>↓</span> Client
+          </button>
+          <button
+            onClick={exportPDF}
+            className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
+            title="Export PDF with summary, Gantt, and QR code"
+          >
+            <span>↓</span> PDF
           </button>
           <div className="w-px h-4 bg-rule mx-0.5" />
           <button
