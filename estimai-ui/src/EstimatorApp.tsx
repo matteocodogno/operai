@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import Header from './components/Header'
@@ -9,6 +9,7 @@ import ParametersPanel from './components/ParametersPanel'
 import { pertCalc } from './hooks/useEstimator'
 import { useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
+import { buildShareUrl } from './lib/shareUrl'
 import { renderGanttPng } from './lib/ganttChart'
 import { computeActivityNums } from './lib/activityNums'
 import { computeHealthWarnings } from './lib/healthWarnings'
@@ -19,6 +20,8 @@ export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
+  const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -173,6 +176,16 @@ export default function EstimatorApp() {
     URL.revokeObjectURL(url)
   }, [projectId, name, author, params, releases, acts])
 
+  const handleShare = useCallback(() => {
+    const data: ProjectData = { id: projectId, name, author, params, releases, acts }
+    const url = buildShareUrl(data)
+    navigator.clipboard.writeText(url).then(() => {
+      setShareCopied(true)
+      if (shareCopiedTimer.current) clearTimeout(shareCopiedTimer.current)
+      shareCopiedTimer.current = setTimeout(() => setShareCopied(false), 2000)
+    })
+  }, [projectId, name, author, params, releases, acts])
+
   return (
     <div className="min-h-full w-full">
       <Header
@@ -216,6 +229,14 @@ export default function EstimatorApp() {
         ))}
         <div className="flex-1" />
         <div className="flex items-center gap-1 mb-1">
+          <button
+            onClick={handleShare}
+            className="py-1 px-2.5 text-[11px] font-medium text-acc border border-acc/30 hover:border-acc hover:bg-acc/5 transition-colors flex items-center gap-1"
+            title="Copy shareable link to clipboard"
+          >
+            <span>{shareCopied ? '✓' : '⤴'}</span> {shareCopied ? 'Copied!' : 'Share'}
+          </button>
+          <div className="w-px h-4 bg-rule mx-0.5" />
           <button
             onClick={exportClient}
             className="py-1 px-2.5 text-[11px] font-medium text-acc-hi border border-acc/30 hover:border-acc hover:text-acc transition-colors flex items-center gap-1"

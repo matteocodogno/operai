@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, redirect, Outlet } from '@tanstack/react-router'
 import EstimatesPage from './pages/EstimatesPage'
 import EstimatePage from './pages/EstimatePage'
+import SharedEstimatePage from './pages/SharedEstimatePage'
 import { getLastProjectId, loadProject, createProject } from './lib/projects'
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> })
@@ -40,7 +41,13 @@ const estimateRoute = createRoute({
   component: EstimatePage,
 })
 
-const routeTree = rootRoute.addChildren([indexRoute, estimatesRoute, estimateRoute])
+const shareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/share',
+  component: SharedEstimatePage,
+})
+
+const routeTree = rootRoute.addChildren([indexRoute, estimatesRoute, estimateRoute, shareRoute])
 
 export const router = createRouter({ routeTree })
 
