@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { loadProjects, createProject, duplicateProject, deleteProject, importProjectFromJson } from '../lib/projects'
+import { loadProjects, loadProject, createProject, duplicateProject, deleteProject, importProjectFromJson } from '../lib/projects'
 import type { ProjectMeta } from '../types'
 
 function formatDate(iso: string): string {
@@ -34,6 +34,18 @@ export default function EstimatesPage() {
   function handleDuplicate(id: string) {
     const newId = duplicateProject(id)
     if (newId) navigate({ to: '/estimates/$estimateId', params: { estimateId: newId } })
+  }
+
+  function handleExportJson(p: ProjectMeta) {
+    const data = loadProject(p.id)
+    if (!data) return
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(p.name || 'estimate').replace(/\s+/g, '_')}.json`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   function handleDelete(p: ProjectMeta) {
@@ -121,6 +133,13 @@ export default function EstimatesPage() {
                     title="Duplicate"
                   >
                     ⧉
+                  </button>
+                  <button
+                    onClick={() => handleExportJson(p)}
+                    className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-text transition-colors"
+                    title="Export JSON"
+                  >
+                    ↓
                   </button>
                   <button
                     onClick={() => handleDelete(p)}

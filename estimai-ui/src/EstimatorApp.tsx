@@ -169,18 +169,7 @@ export default function EstimatorApp() {
     URL.revokeObjectURL(url)
   }, [summary, totals, params, name, author])
 
-  const exportJSON = useCallback(() => {
-    const data: ProjectData = { id: projectId, name, author, params, releases, acts }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${name.replace(/\s+/g, '_') || 'estimate'}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [projectId, name, author, params, releases, acts])
-
-  const exportPDF = useCallback(() => {
+const exportPDF = useCallback(() => {
     const data = { id: projectId, name, author, params, releases, acts }
     const shareUrl = buildShareUrl(data)
     exportPdf({ name, author, summary, totals, params, shareUrl })
@@ -262,12 +251,6 @@ export default function EstimatorApp() {
             <span>↓</span> PDF
           </button>
           <div className="w-px h-4 bg-rule mx-0.5" />
-          <button
-            onClick={exportJSON}
-            className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
-          >
-            <span>↓</span> JSON
-          </button>
           <button
             onClick={exportXLSX}
             className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
