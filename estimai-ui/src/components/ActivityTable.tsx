@@ -42,8 +42,9 @@ function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 58px 62px 48px 150px 106px 28px 26px";
+const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 58px 32px 106px 28px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
+const CENTER_COLS = new Set(["notes"]);
 
 // Navigable column indices (excludes num/drag-handle, pert, expected, actions)
 // 0:epic  1:act  2:prof  3:o  4:ml  5:p  6:risk  7:aiGain  8:notes  9:release
@@ -147,6 +148,56 @@ function AiGainCell({
             <span className="text-muted/50">{placeholderPct}%</span>
           )}
         </span>
+      )}
+    </div>
+  )
+}
+
+// NotesCell — collapses to a narrow icon; expands to a floating input on click.
+function NotesCell({
+  id, value, rowIdx, onUpdateRef, navRef,
+}: {
+  id: string
+  value: string
+  rowIdx: number
+  onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
+  navRef: React.MutableRefObject<NavHandler>
+}) {
+  const [open, setOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const hasNote = value.trim().length > 0
+
+  function handleOpen() {
+    setOpen(true)
+    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0)
+  }
+
+  return (
+    <div className="relative flex items-center justify-center">
+      <button
+        onClick={handleOpen}
+        className={`text-[12px] leading-none transition-colors select-none ${
+          hasNote ? 'text-acc-hi/70 hover:text-acc-hi' : 'text-muted/25 hover:text-muted/60'
+        }`}
+        title={hasNote ? value : 'Add note'}
+        tabIndex={-1}
+      >
+        💬
+      </button>
+      {open && (
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, 'notes', e.target.value)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { setOpen(false); return }
+            navRef.current(e, rowIdx, 8, true)
+          }}
+          data-cell={`${rowIdx}-8`}
+          placeholder="Add a note…"
+          className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-52 py-0.75 px-2 text-[11px] text-soft bg-ink border border-acc/40 rounded shadow-lg"
+        />
       )}
     </div>
   )
@@ -469,17 +520,16 @@ const ActivityTable = memo(function ActivityTable({
       },
     }),
     columnHelper.accessor("notes", {
-      header: "Notes",
+      header: "💬",
       cell: (info) => {
         const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
         return (
-          <input
+          <NotesCell
+            id={info.row.original.id}
             value={info.getValue()}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "notes", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 8, true)}
-            data-cell={`${rowIdx}-8`}
-            placeholder="Notes…"
-            className="py-0.75 px-1.25 text-[11px] text-soft"
+            rowIdx={rowIdx}
+            onUpdateRef={onUpdateRef}
+            navRef={navRef}
           />
         );
       },
@@ -631,7 +681,7 @@ const ActivityTable = memo(function ActivityTable({
             <div />
             {table.getHeaderGroups().map(headerGroup =>
               headerGroup.headers.map(header => (
-                <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : "text-left"}>
+                <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : CENTER_COLS.has(header.id) ? "text-center" : "text-left"}>
                   {flexRender(header.column.columnDef.header, header.getContext())}
                 </div>
               ))
