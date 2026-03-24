@@ -18,6 +18,7 @@ import ShortcutsModal from './components/ShortcutsModal'
 import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from "@vercel/speed-insights/react"
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
@@ -323,6 +324,7 @@ const exportPDF = useCallback(() => {
       )}
 
       <Analytics />
+      <SpeedInsights />
     </div>
   )
 }
