@@ -21,7 +21,7 @@ export default function ParametersPanel({ params, onUpdate }: ParametersPanelPro
   return (
     <div className="max-w-2xl">
       <h2 className="font-disp text-sm font-bold mb-4">Model Parameters</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-[7px]">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
         {parameterFields.map(({ k, label, hint, step, max }) => (
           <div key={k} className="bg-ink-soft border border-rule rounded-[10px] py-[13px] px-4 flex items-center gap-3">
             <div className="flex-1 min-w-0">
