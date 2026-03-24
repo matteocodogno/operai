@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { loadProjects, loadProject, createProject, duplicateProject, deleteProject, importProjectFromJson } from '../lib/projects'
+import { loadProjects, loadProject, createProject, saveProjectData, duplicateProject, deleteProject, importProjectFromJson, uid, DEF_PARAMS } from '../lib/projects'
+import { TEMPLATES } from '../lib/templates'
 import type { ProjectMeta } from '../types'
 
 function formatDate(iso: string): string {
@@ -24,6 +25,20 @@ export default function EstimatesPage() {
 
   function handleNew() {
     const id = createProject()
+    navigate({ to: '/estimates/$estimateId', params: { estimateId: id } })
+  }
+
+  function handleLoadExample() {
+    const tpl = TEMPLATES[0] // REST API Backend
+    const id = uid()
+    saveProjectData({
+      id,
+      name: tpl.name,
+      author: '',
+      params: { ...DEF_PARAMS },
+      releases: tpl.releases.map(r => ({ ...r, id: uid() })),
+      acts: tpl.activities.map(a => ({ ...a, id: uid(), num: '' })),
+    })
     navigate({ to: '/estimates/$estimateId', params: { estimateId: id } })
   }
 
@@ -67,15 +82,16 @@ export default function EstimatesPage() {
       }
     }
     reader.readAsText(file)
-    // Reset so the same file can be re-imported
     e.target.value = ''
   }
 
+  const isEmpty = projects.length === 0
+
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
-        <div className="flex items-center gap-4 h-14">
+        <div className="flex items-center gap-3 h-14">
           <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
             EstimAI
           </span>
@@ -93,76 +109,127 @@ export default function EstimatesPage() {
             className="hidden"
             onChange={handleImport}
           />
+          <button
+            onClick={handleNew}
+            className="text-sm py-1 px-3 font-medium text-white bg-acc hover:bg-acc/90 transition-colors"
+          >
+            + New estimate
+          </button>
         </div>
       </header>
 
-      {/* List */}
-      <div className="max-w-3xl mx-auto px-5.5 py-8">
-        {projects.length === 0 ? (
-          <div className="text-center py-16 text-muted text-sm">
-            <div className="text-3xl mb-3 opacity-30">📋</div>
-            <p>No estimates yet.</p>
-            <button onClick={handleNew} className="mt-4 text-acc underline text-sm">
-              Create your first estimate
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {projects.map(p => (
-              <div
-                key={p.id}
-                className="flex items-center gap-4 px-4 py-3 rounded-md border border-rule bg-ink-soft hover:border-acc/40 transition-colors"
-              >
-                <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleOpen(p.id)}>
-                  <div className="text-sm font-medium truncate">{p.name || 'Untitled'}</div>
-                  <div className="text-[11px] text-muted font-mono mt-0.5">
-                    {p.author ? `${p.author} · ` : ''}{formatDate(p.updatedAt)}
-                  </div>
-                </div>
+      {isEmpty ? (
+        /* ── Empty state ───────────────────────────────────────────────────── */
+        <div className="flex-1 flex flex-col items-center justify-center px-4 py-16 gap-10">
+          {/* Card */}
+          <div className="flex flex-col items-center text-center gap-5 max-w-sm w-full">
+            {/* Logomark */}
+            <span className="font-disp text-5xl font-extrabold bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent select-none leading-none">
+              E
+            </span>
 
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => handleOpen(p.id)}
-                    className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-text hover:border-acc hover:text-acc transition-colors"
-                  >
-                    Open
-                  </button>
-                  <button
-                    onClick={() => handleDuplicate(p.id)}
-                    className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-text transition-colors"
-                    title="Duplicate"
-                  >
-                    ⧉
-                  </button>
-                  <button
-                    onClick={() => handleExportJson(p)}
-                    className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-text transition-colors"
-                    title="Export JSON"
-                  >
-                    ↓
-                  </button>
-                  <button
-                    onClick={() => handleDelete(p)}
-                    className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-red transition-colors"
-                    title="Delete"
-                  >
-                    ×
-                  </button>
-                </div>
+            <div className="flex flex-col gap-2">
+              <h1 className="font-disp text-xl font-bold text-text">
+                Ready to estimate your first project?
+              </h1>
+              <p className="text-sm text-muted leading-relaxed">
+                EstimAI helps you size software projects using PERT, account for AI productivity gains, and produce a client-ready confidence range — in minutes.
+              </p>
+            </div>
+
+            {/* CTAs */}
+            <div className="flex gap-2.5 w-full">
+              <button
+                onClick={handleNew}
+                className="flex-1 py-2 text-sm font-medium text-white bg-acc hover:bg-acc/90 transition-colors"
+              >
+                + New estimate
+              </button>
+              <button
+                onClick={handleLoadExample}
+                className="flex-1 py-2 text-sm font-medium border border-rule text-text hover:border-acc/50 hover:text-acc transition-colors"
+              >
+                Load example
+              </button>
+            </div>
+          </div>
+
+          {/* What you get strip */}
+          <div className="flex items-center gap-8 text-center">
+            {([
+              ['📊', 'PERT estimation'],
+              ['🤖', 'AI comparison'],
+              ['📁', 'Excel & PDF export'],
+            ] as const).map(([icon, label]) => (
+              <div key={label} className="flex flex-col items-center gap-1.5">
+                <span className="text-xl leading-none opacity-60">{icon}</span>
+                <span className="text-[11px] text-muted font-mono">{label}</span>
               </div>
             ))}
           </div>
-        )}
-      </div>
-      {/* FAB */}
-      <button
-        onClick={handleNew}
-        className="fixed bottom-6 right-6 z-20 w-14 h-14 rounded-full text-white text-2xl flex items-center justify-center bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_4px_20px_rgba(91,106,247,.5)] hover:scale-105 active:scale-95 transition-transform"
-        aria-label="New Estimate"
-        title="New Estimate"
-      >
-        +
-      </button>
+        </div>
+      ) : (
+        /* ── List state ────────────────────────────────────────────────────── */
+        <>
+          <div className="max-w-3xl mx-auto w-full px-5.5 py-8">
+            <div className="flex flex-col gap-2">
+              {projects.map(p => (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-4 px-4 py-3 rounded-md border border-rule bg-ink-soft hover:border-acc/40 transition-colors"
+                >
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleOpen(p.id)}>
+                    <div className="text-sm font-medium truncate">{p.name || 'Untitled'}</div>
+                    <div className="text-[11px] text-muted font-mono mt-0.5">
+                      {p.author ? `${p.author} · ` : ''}{formatDate(p.updatedAt)}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => handleOpen(p.id)}
+                      className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-text hover:border-acc hover:text-acc transition-colors"
+                    >
+                      Open
+                    </button>
+                    <button
+                      onClick={() => handleDuplicate(p.id)}
+                      className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-text transition-colors"
+                      title="Duplicate"
+                    >
+                      ⧉
+                    </button>
+                    <button
+                      onClick={() => handleExportJson(p)}
+                      className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-text transition-colors"
+                      title="Export JSON"
+                    >
+                      ↓
+                    </button>
+                    <button
+                      onClick={() => handleDelete(p)}
+                      className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-red transition-colors"
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* FAB — only when list is populated */}
+          <button
+            onClick={handleNew}
+            className="fixed bottom-6 right-6 z-20 w-14 h-14 rounded-full text-white text-2xl flex items-center justify-center bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_4px_20px_rgba(91,106,247,.5)] hover:scale-105 active:scale-95 transition-transform"
+            aria-label="New Estimate"
+            title="New Estimate"
+          >
+            +
+          </button>
+        </>
+      )}
     </div>
   )
 }
