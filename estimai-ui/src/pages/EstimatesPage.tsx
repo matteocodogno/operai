@@ -92,9 +92,7 @@ export default function EstimatesPage() {
       {/* Header */}
       <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 h-14">
-          <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-            EstimAI
-          </span>
+          <img src="/estimai.svg" alt="EstimAI" className="h-8 w-8 rounded-md shrink-0" />
           <div className="flex-1" />
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -124,9 +122,7 @@ export default function EstimatesPage() {
           {/* Card */}
           <div className="flex flex-col items-center text-center gap-5 max-w-sm w-full">
             {/* Logomark */}
-            <span className="font-disp text-5xl font-extrabold bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent select-none leading-none">
-              E
-            </span>
+            <img src="/estimai.svg" alt="EstimAI" className="w-16 h-16 rounded-2xl" />
 
             <div className="flex flex-col gap-2">
               <h1 className="font-disp text-xl font-bold text-text">
