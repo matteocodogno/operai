@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Activity, Parameters, Release, ReleaseSummary, Totals } from '../types'
 import { deriveOP, useEstimator } from '../hooks/useEstimator'
 import { DEF_PARAMS, loadProject, saveProjectData, uid } from '../lib/projects'
+import type { Template } from '../lib/templates'
 
 export interface EstimatorContextValue {
   projectId: string
@@ -23,6 +24,7 @@ export interface EstimatorContextValue {
   addRel: () => string
   delRel: (id: string) => void
   updP: (k: keyof Parameters, v: string) => void
+  loadTemplate: (t: Template) => void
   saveStatus: 'idle' | 'saved'
 }
 
@@ -113,6 +115,13 @@ export function EstimatorProvider({ estimateId, children }: Props) {
   const updP = useCallback((k: keyof Parameters, v: string) =>
     setParams(prev => ({ ...prev, [k]: parseFloat(v) || 0 })), [])
 
+  const loadTemplate = useCallback((t: Template) => {
+    const newReleases: Release[] = t.releases.map(r => ({ ...r, id: uid() }))
+    const newActs: Activity[] = t.activities.map(a => ({ ...a, id: uid(), num: '' }))
+    setRels(newReleases)
+    setActs(newActs)
+  }, [])
+
   const value = useMemo<EstimatorContextValue>(() => ({
     projectId: estimateId,
     name, author, params, releases, acts,
@@ -120,10 +129,10 @@ export function EstimatorProvider({ estimateId, children }: Props) {
     setName, setAuthor,
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
-    updP,
+    updP, loadTemplate,
     saveStatus,
   }), [estimateId, name, author, params, releases, acts, summary, totals, byProfile,
-    updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP, saveStatus])
+    updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP, loadTemplate, saveStatus])
 
   return <EstimatorContext.Provider value={value}>{children}</EstimatorContext.Provider>
 }

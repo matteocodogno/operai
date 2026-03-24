@@ -38,7 +38,7 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
         </div>
 
         {/* Right — save indicator + list navigation */}
-        <div className="w-40 flex items-center justify-end gap-3 shrink-0">
+        <div className="w-60 flex items-center justify-end gap-3 shrink-0">
           <span
             className="text-[11px] font-mono text-grn transition-opacity duration-500"
             style={{ opacity: saveStatus === 'saved' ? 1 : 0 }}

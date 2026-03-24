@@ -17,6 +17,7 @@ import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
 import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
+import TemplatePicker from './components/TemplatePicker'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
@@ -25,6 +26,7 @@ export default function EstimatorApp() {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  const [dismissedPicker, setDismissedPicker] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -45,7 +47,7 @@ export default function EstimatorApp() {
     setName, setAuthor,
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
-    updP,
+    updP, loadTemplate,
   } = useEstimatorContext()
 
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
@@ -277,17 +279,22 @@ const exportPDF = useCallback(() => {
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
         {tab === 'activities' && (
-          <ActivityTable
-            activities={acts}
-            releaseNames={rnames}
-            globalAiGain={params.aiGain}
-            activityWarnings={warnings.activityWarnings}
-            onUpdate={updAct}
-            onDelete={delAct}
-            onAdd={addAct}
-            onAddRelease={addRel}
-            onReorder={reorderActs}
-          />
+          acts.length === 0 && !dismissedPicker
+            ? <TemplatePicker
+                onSelect={t => { loadTemplate(t); setDismissedPicker(true) }}
+                onBlank={() => setDismissedPicker(true)}
+              />
+            : <ActivityTable
+                activities={acts}
+                releaseNames={rnames}
+                globalAiGain={params.aiGain}
+                activityWarnings={warnings.activityWarnings}
+                onUpdate={updAct}
+                onDelete={delAct}
+                onAdd={addAct}
+                onAddRelease={addRel}
+                onReorder={reorderActs}
+              />
         )}
         {tab === 'summary' && (
           <SummaryTable
