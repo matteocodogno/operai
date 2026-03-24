@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ChangeEvent } from "react";
 import type { Parameters, Release, ReleaseSummary, Totals } from "../types";
 import { type WarningCode, WARNING_META } from "../lib/healthWarnings";
@@ -15,15 +16,15 @@ interface SummaryTableProps {
   onDeleteRelease: (id: string) => void;
 }
 
-
 interface ThProps {
   children: React.ReactNode;
   right?: boolean;
+  ai?: boolean;
 }
 
-function Th({ children, right }: ThProps) {
+function Th({ children, right, ai }: ThProps) {
   return (
-    <th className={`py-2 px-2.5 text-[9px] font-mono text-soft uppercase tracking-[0.06em] border-b border-rule bg-ink-mid whitespace-nowrap ${right ? "text-right" : "text-left"}`}>
+    <th className={`py-2 px-2.5 text-[9px] font-mono uppercase tracking-[0.06em] border-b border-rule bg-ink-mid whitespace-nowrap ${right ? "text-right" : "text-left"} ${ai ? "text-[#b47fff]/70" : "text-soft"}`}>
       {children}
     </th>
   );
@@ -46,7 +47,7 @@ function Td({ children, right, bold, colorClass, className }: TdProps) {
 }
 
 export default function SummaryTable({ summary, releases, totals, params, byProfile, releaseWarnings, onUpdateRelease, onAddRelease, onDeleteRelease }: SummaryTableProps) {
-  const headers = ["Release","FTE","Ind. M/D","Planning","Baseline","Elapsed d","Total M/D","Months","Best","Worst","Range","AI Cost","AI-assisted d","Total M/D (AI)"];
+  const [showAI, setShowAI] = useState(false)
 
   return (
     <>
@@ -86,13 +87,42 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
         <button onClick={onAddRelease} className="bg-transparent text-soft py-[9px] px-[13px] border border-dashed border-rule rounded-[10px] text-xs">
           + Release
         </button>
+
+        <div className="flex-1" />
+
+        <button
+          onClick={() => setShowAI(v => !v)}
+          className={`flex items-center gap-1.5 py-[7px] px-3 text-[11px] border rounded transition-colors ${
+            showAI
+              ? 'border-[#b47fff]/50 text-[#b47fff] bg-[#b47fff]/8'
+              : 'border-rule text-muted hover:text-soft hover:border-soft/40'
+          }`}
+        >
+          <span className="text-[10px]">{showAI ? '✦' : '✦'}</span>
+          {showAI ? 'Hide AI comparison' : 'Show AI comparison'}
+        </button>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="text-xs min-w-[860px]">
+        <table className="text-xs min-w-[620px]">
           <thead>
             <tr>
-              {headers.map((h, i) => <Th key={h} right={i > 0}>{h}</Th>)}
+              <Th>Release</Th>
+              <Th right>FTE</Th>
+              <Th right>Ind. M/D</Th>
+              <Th right>Planning</Th>
+              <Th right>Baseline</Th>
+              <Th right>Elapsed d</Th>
+              <Th right>Total M/D</Th>
+              <Th right>Months</Th>
+              <Th right>Best</Th>
+              <Th right>Worst</Th>
+              <Th right>Range</Th>
+              {showAI && <>
+                <Th right ai>AI Cost</Th>
+                <Th right ai>AI-assisted d</Th>
+                <Th right ai>Total M/D (AI)</Th>
+              </>}
             </tr>
           </thead>
           <tbody>
@@ -135,18 +165,20 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
                         {s.res.best}–{s.res.worst}d
                       </span>
                     </td>
-                    <Td right bold colorClass="text-[#b47fff]">{s.res.aiCost.toLocaleString()}</Td>
-                    <Td right bold colorClass="text-[#b47fff]">
-                      {s.res.aiElapsed}
-                      <FormulaPopover text={[
-                        `Expected ${s.res.sumExp} d × (1 − ${Math.round(params.aiGain * 100)}% AI gain) = ${s.res.sumAiExp} d`,
-                        `Same pipeline → ${s.res.aiElapsed} d elapsed  (saves ${s.res.el - s.res.aiElapsed} d vs ${s.res.el} d standard)`,
-                      ].join('\n')} />
-                    </Td>
-                    <Td right bold colorClass="text-[#b47fff]">{s.res.aiTotalMD}</Td>
+                    {showAI && <>
+                      <Td right bold colorClass="text-[#b47fff]">{s.res.aiCost.toLocaleString()}</Td>
+                      <Td right bold colorClass="text-[#b47fff]">
+                        {s.res.aiElapsed}
+                        <FormulaPopover text={[
+                          `Expected ${s.res.sumExp} d × (1 − ${Math.round(params.aiGain * 100)}% AI gain) = ${s.res.sumAiExp} d`,
+                          `Same pipeline → ${s.res.aiElapsed} d elapsed  (saves ${s.res.el - s.res.aiElapsed} d vs ${s.res.el} d standard)`,
+                        ].join('\n')} />
+                      </Td>
+                      <Td right bold colorClass="text-[#b47fff]">{s.res.aiTotalMD}</Td>
+                    </>}
                   </>
                 ) : (
-                  <td colSpan={12} className="py-2.5 px-2.5 text-center text-muted text-[11px] italic">
+                  <td colSpan={showAI ? 12 : 9} className="py-2.5 px-2.5 text-center text-muted text-[11px] italic">
                     No activities assigned
                   </td>
                 )}
@@ -168,9 +200,11 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
                   {totals.best}–{totals.worst}d
                 </span>
               </td>
-              <Td right bold colorClass="text-[#b47fff]" className="text-sm">{totals.aiCost.toLocaleString()}</Td>
-              <Td right bold colorClass="text-[#b47fff]" className="text-sm">{totals.aiElapsed}</Td>
-              <Td right bold colorClass="text-[#b47fff]" className="text-sm">{totals.aiTotalMD}</Td>
+              {showAI && <>
+                <Td right bold colorClass="text-[#b47fff]" className="text-sm">{totals.aiCost.toLocaleString()}</Td>
+                <Td right bold colorClass="text-[#b47fff]" className="text-sm">{totals.aiElapsed}</Td>
+                <Td right bold colorClass="text-[#b47fff]" className="text-sm">{totals.aiTotalMD}</Td>
+              </>}
             </tr>
           </tbody>
         </table>
