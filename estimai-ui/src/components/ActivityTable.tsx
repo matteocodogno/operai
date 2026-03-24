@@ -42,7 +42,8 @@ function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 58px 32px 106px 28px 26px";
+const COL_W = "28px 48px minmax(80px,0.6fr) minmax(120px,2fr) 100px 60px 60px 60px 60px 60px 68px 52px 32px 120px" +
+  " 28px 28px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 const CENTER_COLS = new Set(["notes"]);
 
@@ -674,7 +675,7 @@ const ActivityTable = memo(function ActivityTable({
       </div>
 
       <div className="overflow-x-auto">
-        <div ref={containerRef} style={{ minWidth: "1080px" }}>
+        <div ref={containerRef} style={{ width: "100%" }}>
           <div
             className="grid gap-0.75 py-1.5 px-2 bg-ink-mid rounded-t-md text-[9px] text-soft font-mono uppercase tracking-[0.06em]"
             style={{ gridTemplateColumns: COL_W }}
