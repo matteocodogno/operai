@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { Activity, Parameters, Release, ReleaseSummary, Totals } from '../types'
 import { deriveOP, useEstimator } from '../hooks/useEstimator'
 import { DEF_PARAMS, loadProject, saveProjectData, uid } from '../lib/projects'
@@ -23,6 +23,7 @@ export interface EstimatorContextValue {
   addRel: () => string
   delRel: (id: string) => void
   updP: (k: keyof Parameters, v: string) => void
+  saveStatus: 'idle' | 'saved'
 }
 
 const EstimatorContext = createContext<EstimatorContextValue | null>(null)
@@ -40,10 +41,17 @@ export function EstimatorProvider({ estimateId, children }: Props) {
   const [params, setParams] = useState<Parameters>(stored?.params ?? { ...DEF_PARAMS })
   const [releases, setRels] = useState<Release[]>(stored?.releases ?? [])
   const [acts, setActs] = useState<Activity[]>(stored?.acts ?? [])
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle')
+  const isFirstSave = useRef(true)
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Auto-save on every change
   useEffect(() => {
     saveProjectData({ id: estimateId, name, author, params, releases, acts })
+    if (isFirstSave.current) { isFirstSave.current = false; return }
+    setSaveStatus('saved')
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
   }, [estimateId, name, author, params, releases, acts])
 
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
@@ -113,8 +121,9 @@ export function EstimatorProvider({ estimateId, children }: Props) {
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP,
+    saveStatus,
   }), [estimateId, name, author, params, releases, acts, summary, totals, byProfile,
-    updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP])
+    updAct, addAct, delAct, reorderActs, updRel, addRel, delRel, updP, saveStatus])
 
   return <EstimatorContext.Provider value={value}>{children}</EstimatorContext.Provider>
 }

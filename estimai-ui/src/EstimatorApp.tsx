@@ -41,6 +41,7 @@ export default function EstimatorApp() {
   const {
     projectId, name, author, params, releases, acts,
     summary, totals, byProfile,
+    saveStatus,
     setName, setAuthor,
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
@@ -192,6 +193,7 @@ const exportPDF = useCallback(() => {
       <Header
         name={name}
         author={author}
+        saveStatus={saveStatus}
         onNameChange={setName}
         onAuthorChange={setAuthor}
       />

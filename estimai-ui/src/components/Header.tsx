@@ -4,11 +4,12 @@ import { useNavigate } from '@tanstack/react-router'
 interface HeaderProps {
   name: string
   author: string
+  saveStatus: 'idle' | 'saved'
   onNameChange: (name: string) => void
   onAuthorChange: (author: string) => void
 }
 
-export default function Header({ name, author, onNameChange, onAuthorChange }: HeaderProps) {
+export default function Header({ name, author, saveStatus, onNameChange, onAuthorChange }: HeaderProps) {
   const navigate = useNavigate()
 
   return (
@@ -36,8 +37,15 @@ export default function Header({ name, author, onNameChange, onAuthorChange }: H
           />
         </div>
 
-        {/* Right — list navigation */}
-        <div className="w-40 flex justify-end shrink-0">
+        {/* Right — save indicator + list navigation */}
+        <div className="w-40 flex items-center justify-end gap-3 shrink-0">
+          <span
+            className="text-[11px] font-mono text-grn transition-opacity duration-500"
+            style={{ opacity: saveStatus === 'saved' ? 1 : 0 }}
+            aria-live="polite"
+          >
+            ✓ Saved
+          </span>
           <button
             onClick={() => navigate({ to: '/estimates' })}
             className="text-muted text-sm py-1 px-2.5 border border-rule hover:text-text transition-colors"
