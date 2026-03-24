@@ -302,6 +302,7 @@ const exportPDF = useCallback(() => {
             releases={releases}
             totals={totals}
             byProfile={byProfile}
+            params={params}
             releaseWarnings={warnings.releaseWarnings}
             onUpdateRelease={updRel}
             onAddRelease={addRel}

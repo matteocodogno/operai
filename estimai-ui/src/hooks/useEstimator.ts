@@ -66,6 +66,8 @@ export function computeRelease(acts: Activity[], rel: Release, p: Parameters): R
     aiCost,
     aiElapsed,
     aiTotalMD,
+    sumExp: +sumExp.toFixed(2),
+    sumAiExp: +sumAI.toFixed(2),
   };
 }
 

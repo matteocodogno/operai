@@ -53,6 +53,9 @@ export interface ReleaseResult {
   aiCost: number;
   aiElapsed: number;
   aiTotalMD: number;
+  // Intermediate sums for formula popovers
+  sumExp: number;
+  sumAiExp: number;
 }
 
 export interface ReleaseSummary extends Release {

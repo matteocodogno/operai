@@ -1,17 +1,20 @@
 import type { ChangeEvent } from "react";
-import type { Release, ReleaseSummary, Totals } from "../types";
+import type { Parameters, Release, ReleaseSummary, Totals } from "../types";
 import { type WarningCode, WARNING_META } from "../lib/healthWarnings";
+import FormulaPopover from "./FormulaPopover";
 
 interface SummaryTableProps {
   summary: ReleaseSummary[];
   releases: Release[];
   totals: Totals;
   byProfile: [string, number][];
+  params: Parameters;
   releaseWarnings: Map<string, WarningCode[]>;
   onUpdateRelease: (id: string, field: keyof Release, value: string | number) => void;
   onAddRelease: () => void;
   onDeleteRelease: (id: string) => void;
 }
+
 
 interface ThProps {
   children: React.ReactNode;
@@ -42,7 +45,7 @@ function Td({ children, right, bold, colorClass, className }: TdProps) {
   );
 }
 
-export default function SummaryTable({ summary, releases, totals, byProfile, releaseWarnings, onUpdateRelease, onAddRelease, onDeleteRelease }: SummaryTableProps) {
+export default function SummaryTable({ summary, releases, totals, params, byProfile, releaseWarnings, onUpdateRelease, onAddRelease, onDeleteRelease }: SummaryTableProps) {
   const headers = ["Release","FTE","Ind. M/D","Planning","Baseline","Elapsed d","Total M/D","Months","Best","Worst","Range","AI Cost","AI-assisted d","Total M/D (AI)"];
 
   return (
@@ -116,7 +119,13 @@ export default function SummaryTable({ summary, releases, totals, byProfile, rel
                     <Td right>{s.res.ind}</Td>
                     <Td right colorClass="text-soft">{s.res.plan.toFixed(1)}</Td>
                     <Td right colorClass="text-soft">{s.res.base}</Td>
-                    <Td right bold colorClass="text-acc-hi">{s.res.el}</Td>
+                    <Td right bold colorClass="text-acc-hi">
+                      {s.res.el}
+                      <FormulaPopover text={[
+                        `Ind. ${s.res.ind} d + Planning ${s.res.plan.toFixed(1)} d = Baseline ${s.res.base} d`,
+                        `ROUND(${s.res.base} × (1 − ${params.parallelism} × ${s.fte - 1}/${s.fte} FTE)) = ${s.res.el} d`,
+                      ].join('\n')} />
+                    </Td>
                     <Td right bold>{s.res.tm}</Td>
                     <Td right colorClass="text-grn">{s.res.mo}</Td>
                     <Td right colorClass="text-grn">{s.res.best}</Td>
@@ -127,7 +136,13 @@ export default function SummaryTable({ summary, releases, totals, byProfile, rel
                       </span>
                     </td>
                     <Td right bold colorClass="text-[#b47fff]">{s.res.aiCost.toLocaleString()}</Td>
-                    <Td right bold colorClass="text-[#b47fff]">{s.res.aiElapsed}</Td>
+                    <Td right bold colorClass="text-[#b47fff]">
+                      {s.res.aiElapsed}
+                      <FormulaPopover text={[
+                        `Expected ${s.res.sumExp} d × (1 − ${Math.round(params.aiGain * 100)}% AI gain) = ${s.res.sumAiExp} d`,
+                        `Same pipeline → ${s.res.aiElapsed} d elapsed  (saves ${s.res.el - s.res.aiElapsed} d vs ${s.res.el} d standard)`,
+                      ].join('\n')} />
+                    </Td>
                     <Td right bold colorClass="text-[#b47fff]">{s.res.aiTotalMD}</Td>
                   </>
                 ) : (
