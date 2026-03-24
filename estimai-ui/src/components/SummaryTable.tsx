@@ -20,12 +20,16 @@ interface ThProps {
   children: React.ReactNode;
   right?: boolean;
   ai?: boolean;
+  tip?: string;
 }
 
-function Th({ children, right, ai }: ThProps) {
+function Th({ children, right, ai, tip }: ThProps) {
   return (
     <th className={`py-2 px-2.5 text-[9px] font-mono uppercase tracking-[0.06em] border-b border-rule bg-ink-mid whitespace-nowrap ${right ? "text-right" : "text-left"} ${ai ? "text-[#b47fff]/70" : "text-soft"}`}>
-      {children}
+      <span className="inline-flex items-center gap-0.5">
+        {children}
+        {tip && <FormulaPopover text={tip} />}
+      </span>
     </th>
   );
 }
@@ -108,20 +112,20 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
           <thead>
             <tr>
               <Th>Release</Th>
-              <Th right>FTE</Th>
-              <Th right>Ind. M/D</Th>
-              <Th right>Planning</Th>
-              <Th right>Baseline</Th>
-              <Th right>Elapsed d</Th>
-              <Th right>Total M/D</Th>
-              <Th right>Months</Th>
-              <Th right>Best</Th>
-              <Th right>Worst</Th>
-              <Th right>Range</Th>
+              <Th right tip="Number of people working on this release in parallel.">FTE</Th>
+              <Th right tip="Sum of Expected effort (PERT + risk buffer) for all activities, plus QA and PM overhead.">Ind. M/D</Th>
+              <Th right tip="Sprint coordination cost: FTE × (Ind. M/D ÷ Sprint duration) ÷ 8.">Planning</Th>
+              <Th right tip="Total effort before parallelism adjustment: Ind. M/D + Planning days.">Baseline</Th>
+              <Th right tip="Calendar days after team parallelism: ROUND(Baseline × (1 − parallelism × (FTE−1) / FTE)).">Elapsed d</Th>
+              <Th right tip="Total person-days of effort: Elapsed days × FTE.">Total M/D</Th>
+              <Th right tip="Rough calendar duration: Elapsed days ÷ working days per month.">Months</Th>
+              <Th right tip="Best-case elapsed days — full pipeline run on Optimistic (O) estimates only.">Best</Th>
+              <Th right tip="Worst-case elapsed days — full pipeline run on Pessimistic (P) estimates only.">Worst</Th>
+              <Th right tip="Spread between best and worst case. Wide range signals high estimation uncertainty.">Range</Th>
               {showAI && <>
-                <Th right ai>AI Cost</Th>
-                <Th right ai>AI-assisted d</Th>
-                <Th right ai>Total M/D (AI)</Th>
+                <Th right ai tip="Estimated AI tooling cost: AI cost coefficient × FTE × Elapsed days.">AI Cost</Th>
+                <Th right ai tip="Elapsed days after reducing each activity's expected effort by the AI productivity gain.">AI-assisted d</Th>
+                <Th right ai tip="Total person-days with AI assistance: AI-assisted elapsed × FTE.">Total M/D (AI)</Th>
               </>}
             </tr>
           </thead>
