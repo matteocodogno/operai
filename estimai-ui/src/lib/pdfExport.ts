@@ -12,8 +12,11 @@ const MR = 14
 const CW = PAGE_W - ML - MR
 
 // ── Brand palette ─────────────────────────────────────────────────────────────
-const NAVY  = '#1e1e3a'
-const ACC   = '#8b96ff'
+const NAVY  = '#1e1e3a'   // table header background
+const HDR   = '#0d0d14'   // page header background (app --ink)
+const ACC   = '#8b96ff'   // accent purple
+const BORDER_ACC = '#5b6af7' // header bottom border
+const SOFT  = '#8888aa'   // muted text in header (app --soft)
 const GRN   = '#2ec27e'
 const ORG   = '#f5a623'
 const MUTED = '#7878a8'
@@ -62,40 +65,46 @@ export async function exportPdf({
   ])
 
   // ── Section heading helper ────────────────────────────────────────────────
-  // Purple accent bar on the left + bold label
+  // 4 px accent bar + uppercase bold label at full document ink
   function secHeading(y: number, title: string): void {
-    doc.setFillColor(ACC)
-    doc.rect(ML, y - 2.5, 2.5, 5.5, 'F')
+    doc.setFillColor(BORDER_ACC)
+    doc.rect(ML, y - 3, 4, 7, 'F')
     doc.setFont('helvetica', 'bold')
-    doc.setFontSize(8)
-    doc.setTextColor(INK)
-    doc.text(title, ML + 5, y + 1)
+    doc.setFontSize(9)
+    doc.setTextColor(HDR)
+    doc.text(title, ML + 7, y + 1.2)
   }
 
   // ── Header strip ─────────────────────────────────────────────────────────
-  doc.setFillColor(NAVY)
-  doc.rect(0, 0, PAGE_W, 24, 'F')
+  const HDR_H = 24
+  doc.setFillColor(HDR)
+  doc.rect(0, 0, PAGE_W, HDR_H, 'F')
+
+  // 3 px accent line at the bottom of the header
+  doc.setFillColor(BORDER_ACC)
+  doc.rect(0, HDR_H, PAGE_W, 0.8, 'F')
 
   // Logo mark (16 × 16 mm) + "EstimAI" wordmark
   const LOGO_MM = 16
-  const LOGO_Y = (24 - LOGO_MM) / 2
+  const LOGO_Y = (HDR_H - LOGO_MM) / 2
   doc.addImage(logoDataUrl, 'PNG', ML, LOGO_Y, LOGO_MM, LOGO_MM)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(13)
-  doc.setTextColor(ACC)
+  doc.setTextColor('#ffffff')
   doc.text('EstimAI', ML + LOGO_MM + 2.5, 15)
 
-  // Project name centred
+  // Project name centred (weight 600 ≈ bold in PDF)
+  doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor('#ffffff')
   doc.text(name || 'Untitled', PAGE_W / 2 + 12, 15, { align: 'center', maxWidth: 90 })
 
-  // Author + date (right-aligned, stacked)
+  // Author + date (right-aligned, stacked, muted)
   const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
-  doc.setTextColor(MUTED)
+  doc.setTextColor(SOFT)
   if (author) doc.text(author, PAGE_W - MR, 10.5, { align: 'right' })
   doc.text(`Estimate date: ${dateStr}`, PAGE_W - MR, 17, { align: 'right' })
 
@@ -115,7 +124,7 @@ export async function exportPdf({
     doc.text(value, cx, 34, { align: 'center' })
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(6.5)
-    doc.setTextColor(MUTED)
+    doc.setTextColor('#4a4a62')
     doc.text(label.toUpperCase(), cx, 39.5, { align: 'center' })
   })
 
@@ -194,14 +203,7 @@ export async function exportPdf({
       curY += 5
 
       doc.addImage(`data:image/png;base64,${ganttPng}`, 'PNG', ML, curY, ganttMmW, ganttMmH)
-      curY += ganttMmH + 3
-
-      // One-line legend explaining the confidence extension bar
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
-      doc.setTextColor(MUTED)
-      doc.text('Bar = expected elapsed.  Extension = best–worst case range.', ML + 5, curY)
-      curY += 5
+      curY += ganttMmH + 5
     }
   }
 
@@ -271,15 +273,15 @@ export async function exportPdf({
     doc.addPage()
   }
 
-  doc.setFillColor(ALT)
+  doc.setFillColor('#f0f0f8')
   doc.rect(ML, paramY, CW, PARAM_H, 'F')
-  doc.setDrawColor(RULE)
-  doc.setLineWidth(0.2)
+  doc.setDrawColor('#c8c8e8')
+  doc.setLineWidth(0.3)
   doc.rect(ML, paramY, CW, PARAM_H, 'S')
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(6)
-  doc.setTextColor(MUTED)
+  doc.setFontSize(6.5)
+  doc.setTextColor(BORDER_ACC)
   doc.text('ESTIMATION PARAMETERS', ML + 4, paramY + 4.5)
 
   const pItems = [
@@ -291,7 +293,7 @@ export async function exportPdf({
   ]
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.5)
-  doc.setTextColor(INK)
+  doc.setTextColor(HDR)
   doc.text(pItems.join('   ·   '), ML + 4, paramY + 10.5)
 
   // ── QR code (flat box, bottom-right, above footer) ────────────────────────
