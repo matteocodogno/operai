@@ -42,7 +42,7 @@ function pertCalc(o: number, ml: number, p: number): number {
   return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
 }
 
-const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 48px 62px 48px 150px 106px 28px 26px";
+const COL_W = "18px 44px 90px 150px 100px 48px 48px 48px 48px 58px 62px 48px 150px 106px 28px 26px";
 const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
 
 // Navigable column indices (excludes num/drag-handle, pert, expected, actions)
@@ -100,6 +100,53 @@ function MLCell({
             style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--rule)' }}
           />
         </div>
+      )}
+    </div>
+  )
+}
+
+// AiGainCell — shows "30%" when blurred, bare number when focused for easy editing.
+function AiGainCell({
+  id, stored, globalGainRef, rowIdx,
+  onUpdateRef, navRef,
+}: {
+  id: string
+  stored: number | undefined
+  globalGainRef: React.MutableRefObject<number>
+  rowIdx: number
+  onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
+  navRef: React.MutableRefObject<NavHandler>
+}) {
+  const [focused, setFocused] = useState(false)
+  const displayPct = stored !== undefined ? Math.round(stored * 100) : ''
+  const placeholderPct = Math.round(globalGainRef.current * 100)
+
+  return (
+    <div className="relative flex items-center">
+      <input
+        type="number"
+        value={focused ? displayPct : ''}
+        readOnly={!focused}
+        step={5}
+        min={0}
+        max={100}
+        placeholder={focused ? String(placeholderPct) : undefined}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => {
+          const v = e.target.value
+          onUpdateRef.current(id, 'aiGain', v === '' ? '' : String(Number(v) / 100))
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={(e) => navRef.current(e, rowIdx, 7, false)}
+        data-cell={`${rowIdx}-7`}
+        className={`text-right py-0.75 px-1.25 text-xs w-full text-acc-hi ${focused ? '' : 'opacity-0 absolute'}`}
+      />
+      {!focused && (
+        <span className="text-right py-0.75 px-1.25 text-xs text-acc-hi w-full select-none">
+          {displayPct !== '' ? `${displayPct}%` : (
+            <span className="text-muted/50">{placeholderPct}%</span>
+          )}
+        </span>
       )}
     </div>
   )
@@ -409,22 +456,14 @@ const ActivityTable = memo(function ActivityTable({
         const rowIdx = visibleRowIdxRef.current.get(row.id) ?? 0;
         const stored = row.aiGain !== undefined && row.aiGain !== null && (row.aiGain as unknown as string) !== ""
           ? Number(row.aiGain) : undefined;
-        const displayVal = stored !== undefined ? Math.round(stored * 100) : "";
         return (
-          <input
-            type="number"
-            value={displayVal}
-            step={5}
-            min={0}
-            max={100}
-            placeholder={String(Math.round(globalAiGainRef.current * 100))}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => {
-              const v = e.target.value;
-              onUpdateRef.current(row.id, "aiGain", v === "" ? "" : String(Number(v) / 100));
-            }}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 7, false)}
-            data-cell={`${rowIdx}-7`}
-            className="text-right py-0.75 px-1.25 text-xs text-acc-hi"
+          <AiGainCell
+            id={row.id}
+            stored={stored}
+            globalGainRef={globalAiGainRef}
+            rowIdx={rowIdx}
+            onUpdateRef={onUpdateRef}
+            navRef={navRef}
           />
         );
       },
