@@ -278,6 +278,7 @@ const ActivityTable = memo(function ActivityTable({
       header: "Activity",
       cell: (info) => {
         const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        const isUnnamed = info.getValue() === 'New activity';
         return (
           <input
             value={info.getValue()}
@@ -285,7 +286,8 @@ const ActivityTable = memo(function ActivityTable({
             onKeyDown={(e) => navRef.current(e, rowIdx, 1, true)}
             data-cell={`${rowIdx}-1`}
             placeholder="Activity…"
-            className="py-0.75 px-1.25 text-xs"
+            className={`py-0.75 px-1.25 text-xs ${isUnnamed ? 'text-org/70 italic' : ''}`}
+            title={isUnnamed ? 'Rename this activity before sharing with a client' : undefined}
           />
         );
       },
