@@ -19,51 +19,27 @@ export default function ParametersPanel({ params, onUpdate }: ParametersPanelPro
   ];
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 max-w-5xl">
-
-      {/* ── Left: parameter cards ──────────────────────────────────────── */}
-      <div className="flex-1 min-w-0">
-        <h2 className="font-disp text-sm font-bold mb-4">Model Parameters</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-[7px]">
-          {parameterFields.map(({ k, label, hint, step, max }) => (
-            <div key={k} className="bg-ink-soft border border-rule rounded-[10px] py-[13px] px-4 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-medium mb-[2px]">{label}</div>
-                <div className="text-[11px] text-muted">{hint}</div>
-              </div>
-              <input
-                type="number"
-                value={params[k]}
-                min={0}
-                max={max}
-                step={step}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(k, e.target.value)}
-                className="w-20 shrink-0 text-right text-sm font-mono bg-acc-lo border-acc text-acc-hi"
-              />
+    <div className="max-w-2xl">
+      <h2 className="font-disp text-sm font-bold mb-4">Model Parameters</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-[7px]">
+        {parameterFields.map(({ k, label, hint, step, max }) => (
+          <div key={k} className="bg-ink-soft border border-rule rounded-[10px] py-[13px] px-4 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium mb-[2px]">{label}</div>
+              <div className="text-[11px] text-muted">{hint}</div>
             </div>
-          ))}
-        </div>
+            <input
+              type="number"
+              value={params[k]}
+              min={0}
+              max={max}
+              step={step}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdate(k, e.target.value)}
+              className="w-20 shrink-0 text-right text-sm font-mono bg-acc-lo border-acc text-acc-hi"
+            />
+          </div>
+        ))}
       </div>
-
-      {/* ── Right: calculation chain ───────────────────────────────────── */}
-      <div className="lg:w-[340px] shrink-0">
-        <h2 className="font-disp text-sm font-bold mb-4">Calculation chain</h2>
-        <div className="py-3.5 px-4 bg-[rgba(91,106,247,0.07)] border border-[rgba(91,106,247,0.2)] rounded-[10px] text-xs text-soft leading-[1.9] lg:sticky lg:top-[58px]">
-          <div><strong>PERT</strong> = (O + 4×ML + P) / 6</div>
-          <div className="text-muted mb-1.5 pl-3 text-[10px]">intermediate — not used directly in Summary</div>
-          <div><strong>Expected</strong> = PERT + Risk Buffer</div>
-          <div><strong>Individual M/D</strong> = Σ Expected + QA Deploy + QA Test + PM</div>
-          <div><strong>Planning</strong> = FTE × (Individual / Sprint) / 8</div>
-          <div><strong>Baseline</strong> = Individual + Planning</div>
-          <div><strong>Elapsed Days</strong> = ROUND(Baseline × (1 − Parallel × (FTE−1)/FTE))</div>
-          <div><strong>Total Man/Days</strong> = Elapsed × FTE</div>
-          <div className="mt-1.5"><strong>AI-assisted days</strong> = Expected × (1 − AI Gain)</div>
-          <div className="text-muted pl-3 text-[10px]">per activity; same chain applied for AI elapsed</div>
-          <div><strong>AI Cost</strong> = Coefficient × FTE × Elapsed Days</div>
-          <div className="mt-1.5"><strong>Best / Worst</strong> = full chain on Optimistic / Pessimistic</div>
-        </div>
-      </div>
-
     </div>
   );
 }

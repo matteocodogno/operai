@@ -19,6 +19,7 @@ import ShortcutsModal from './components/ShortcutsModal'
 import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
+import HelpDrawer from './components/HelpDrawer'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
@@ -27,6 +28,7 @@ export default function EstimatorApp() {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
   const [showQr, setShowQr] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
   const [dismissedPicker, setDismissedPicker] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -302,6 +304,19 @@ const exportPDF = useCallback(() => {
           >
             <span>↓</span> Excel
           </button>
+          <div className="w-px h-4 bg-rule mx-0.5" />
+          <button
+            onClick={() => setShowHelp(v => !v)}
+            className={`w-6 h-6 rounded-full text-[11px] font-bold border transition-colors flex items-center justify-center ${
+              showHelp
+                ? 'border-acc bg-acc/10 text-acc'
+                : 'border-rule text-muted hover:border-acc/50 hover:text-acc'
+            }`}
+            title="Model reference"
+            aria-label="Model reference"
+          >
+            ?
+          </button>
         </div>
       </div>
 
@@ -364,6 +379,7 @@ const exportPDF = useCallback(() => {
         />
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showHelp && <HelpDrawer onClose={() => setShowHelp(false)} />}
       {showQr && (
         <QrModal
           shareUrl={buildShareUrl({ id: projectId, name, author, params, releases, acts })}
