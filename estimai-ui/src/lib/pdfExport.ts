@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import QRCode from 'qrcode'
 import type { ReleaseSummary, Totals, Parameters } from '../types'
 import { renderGanttPng } from './ganttChart'
+import { svgToDataUrl, generateQrWithLogo } from './logoUtils'
 
 // ── A4 layout constants (mm) ──────────────────────────────────────────────────
 const PAGE_W = 210
@@ -42,25 +42,23 @@ export async function exportPdf({
 }: ExportPdfOptions): Promise<void> {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
 
-  // ── QR code (async — generate first) ────────────────────────────────────
-  let qrDataUrl: string | null = null
-  if (shareUrl) {
-    qrDataUrl = await QRCode.toDataURL(shareUrl, {
-      width: 300,
-      margin: 1,
-      color: { dark: NAVY, light: '#ffffff' },
-    })
-  }
+  // ── Logo + QR (async — generate before drawing) ─────────────────────────
+  const [logoDataUrl, qrDataUrl] = await Promise.all([
+    svgToDataUrl('/estimai-light.svg', 256),
+    shareUrl
+      ? generateQrWithLogo(shareUrl, { size: 300, dark: NAVY, light: '#ffffff' })
+      : Promise.resolve(null),
+  ])
 
   // ── Header strip ─────────────────────────────────────────────────────────
   doc.setFillColor(NAVY)
   doc.rect(0, 0, PAGE_W, 22, 'F')
 
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(15)
-  doc.setTextColor(ACC)
-  doc.text('EstimAI', ML, 14)
+  // Logo mark (13 × 13 mm, vertically centred in 22 mm strip)
+  const LOGO_MM = 13
+  doc.addImage(logoDataUrl, 'PNG', ML, (22 - LOGO_MM) / 2, LOGO_MM, LOGO_MM)
 
+  doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
   doc.setTextColor('#ffffff')
   doc.text(name || 'Untitled', PAGE_W / 2, 14, { align: 'center', maxWidth: 100 })

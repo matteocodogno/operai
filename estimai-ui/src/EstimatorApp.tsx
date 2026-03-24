@@ -12,6 +12,7 @@ import type { ProjectData } from './lib/projects'
 import { buildShareUrl } from './lib/shareUrl'
 import { exportPdf } from './lib/pdfExport'
 import { renderGanttPng } from './lib/ganttChart'
+import { svgToDataUrl } from './lib/logoUtils'
 import { computeActivityNums } from './lib/activityNums'
 import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
@@ -107,54 +108,82 @@ export default function EstimatorApp() {
     wb.created = new Date()
     const ws  = wb.addWorksheet('Estimate')
 
-    // ── Table ──────────────────────────────────────────────────────────
+    // ── Column widths ──────────────────────────────────────────────────
     ws.columns = [
-      { header: 'Release',              key: 'release', width: 22 },
-      { header: 'Duration (months)',    key: 'mo',      width: 18 },
-      { header: 'Best case (months)',   key: 'best',    width: 18 },
-      { header: 'Worst case (months)',  key: 'worst',   width: 18 },
-      { header: 'Effort (man-days)',    key: 'tm',      width: 18 },
+      { key: 'release', width: 22 },
+      { key: 'mo',      width: 18 },
+      { key: 'best',    width: 18 },
+      { key: 'worst',   width: 18 },
+      { key: 'tm',      width: 18 },
     ]
 
-    // Style header row
-    const headerRow = ws.getRow(1)
-    headerRow.eachCell(cell => {
+    // ── Logo + project info (rows 1-2) ─────────────────────────────────
+    ws.getRow(1).height = 36
+    ws.getRow(2).height = 8  // spacer
+
+    const logoDataUrl = await svgToDataUrl('/estimai-light.svg', 128)
+    const logoImgId = wb.addImage({ base64: logoDataUrl.split(',')[1], extension: 'png' })
+    ws.addImage(logoImgId, {
+      tl: { col: 0, row: 0 } as ExcelJS.Anchor,
+      ext: { width: 32, height: 32 },
+      editAs: 'absolute',
+    })
+
+    const nameCell = ws.getCell('B1')
+    nameCell.value = name || 'Untitled'
+    nameCell.font = { bold: true, size: 12 }
+    nameCell.alignment = { vertical: 'middle' }
+
+    if (author) {
+      const authorCell = ws.getCell('C1')
+      authorCell.value = author
+      authorCell.font = { size: 9, color: { argb: 'FF888888' } }
+      authorCell.alignment = { vertical: 'middle' }
+    }
+
+    const dateCell = ws.getCell('E1')
+    dateCell.value = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    dateCell.alignment = { horizontal: 'right', vertical: 'middle' }
+    dateCell.font = { size: 9, color: { argb: 'FF888888' } }
+
+    // ── Table header (row 3) ───────────────────────────────────────────
+    const TABLE_HEADERS = ['Release', 'Duration (months)', 'Best case (months)', 'Worst case (months)', 'Effort (man-days)']
+    const headerRow = ws.getRow(3)
+    TABLE_HEADERS.forEach((h, i) => {
+      const cell = headerRow.getCell(i + 1)
+      cell.value = h
       cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF5B6AF7' } }
       cell.alignment = { horizontal: 'center' }
     })
 
+    // ── Data rows (row 4+) ─────────────────────────────────────────────
+    let nextRow = 4
     for (const s of active) {
       const res = s.res!
-      ws.addRow({
-        release: s.name,
-        mo:      +res.mo.toFixed(1),
-        best:    +(res.best / wdm).toFixed(1),
-        worst:   +(res.worst / wdm).toFixed(1),
-        tm:      res.tm,
-      })
-    }
-
-    // Totals row
-    const totalRow = ws.addRow({
-      release: 'TOTAL',
-      mo:      +totals.mo.toFixed(1),
-      best:    +(totals.best / wdm).toFixed(1),
-      worst:   +(totals.worst / wdm).toFixed(1),
-      tm:      totals.tm,
-    })
-    totalRow.eachCell(cell => { cell.font = { bold: true } })
-
-    // Zebra stripes on data rows
-    ws.eachRow((row, rowNumber) => {
-      if (rowNumber < 2) return
-      row.eachCell(cell => {
+      const row = ws.getRow(nextRow)
+      const vals = [s.name, +res.mo.toFixed(1), +(res.best / wdm).toFixed(1), +(res.worst / wdm).toFixed(1), res.tm]
+      vals.forEach((v, i) => {
+        const cell = row.getCell(i + 1)
+        cell.value = v
         cell.alignment = { horizontal: 'center' }
-        if (rowNumber % 2 === 0 && rowNumber !== ws.rowCount) {
+        if (nextRow % 2 === 0) {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0FF' } }
         }
       })
+      nextRow++
+    }
+
+    // ── Total row ──────────────────────────────────────────────────────
+    const totalRow = ws.getRow(nextRow)
+    const totalVals = ['TOTAL', +totals.mo.toFixed(1), +(totals.best / wdm).toFixed(1), +(totals.worst / wdm).toFixed(1), totals.tm]
+    totalVals.forEach((v, i) => {
+      const cell = totalRow.getCell(i + 1)
+      cell.value = v
+      cell.font = { bold: true }
+      cell.alignment = { horizontal: 'center' }
     })
+    nextRow++
 
     // ── Gantt chart image ──────────────────────────────────────────────
     const png = renderGanttPng(summary, wdm)
@@ -164,14 +193,13 @@ export default function EstimatorApp() {
       const chartW     = 668                          // (16+120+500+32) logical px
 
       const imgId = wb.addImage({ base64: png, extension: 'png' })
-      const tableRows = active.length + 2            // header + data + totals
       ws.addImage(imgId, {
-        tl:  { col: 0, row: tableRows + 1 } as ExcelJS.Anchor,
+        tl:  { col: 0, row: nextRow + 1 } as ExcelJS.Anchor,
         ext: { width: chartW, height: chartH },
       })
       // Reserve rows for the image so the sheet scrolls correctly
       const imgRowCount = Math.ceil(chartH / 20) + 1
-      for (let r = 0; r < imgRowCount; r++) ws.addRow({})
+      for (let r = 0; r < imgRowCount; r++) ws.getRow(nextRow + 1 + r)
     }
 
     // ── Download ───────────────────────────────────────────────────────

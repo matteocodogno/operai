@@ -97,9 +97,10 @@ export default function SharedEstimatePage() {
       {/* Header */}
       <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
         <div className="flex items-center h-14 gap-4">
-          <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-            EstimAI
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <img src="/estimai.svg" alt="EstimAI" className="h-8 w-8 rounded-md" />
+            <span className="text-[10px] font-mono text-muted hidden sm:block">Powered by EstimAI</span>
+          </div>
           <div className="flex-1 flex items-center justify-center gap-3">
             <span className="text-[14px] font-medium text-text">{data.name || 'Untitled'}</span>
             {data.author && <span className="text-[12px] text-muted">{data.author}</span>}

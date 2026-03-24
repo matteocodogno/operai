@@ -17,9 +17,7 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
       {/* Desktop */}
       <div className="hidden sm:flex items-center h-14">
         {/* Left — logo */}
-        <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-          EstimAI
-        </span>
+        <img src="/estimai.svg" alt="EstimAI" className="h-8 w-8 rounded-md shrink-0" />
 
         {/* Center — project name + author */}
         <div className="flex-1 flex items-center justify-center gap-4">
@@ -58,9 +56,7 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
 
       {/* Mobile */}
       <div className="flex sm:hidden items-center gap-3 h-12">
-        <span className="font-disp text-xl font-extrabold shrink-0 bg-[linear-gradient(130deg,#8b96ff,#2ec27e)] bg-clip-text text-transparent">
-          E
-        </span>
+        <img src="/estimai.svg" alt="EstimAI" className="h-7 w-7 rounded-md shrink-0" />
 
         <input
           value={name}

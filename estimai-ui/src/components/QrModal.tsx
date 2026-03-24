@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import QRCode from 'qrcode'
+import { generateQrWithLogo } from '../lib/logoUtils'
 
 interface Props {
   shareUrl: string
@@ -13,11 +13,8 @@ export default function QrModal({ shareUrl, projectName, onClose }: Props) {
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    QRCode.toDataURL(shareUrl, {
-      width: 300,
-      margin: 1,
-      color: { dark: '#1e1e3a', light: '#ffffff' },
-    }).then(setQrDataUrl)
+    generateQrWithLogo(shareUrl, { size: 300, dark: '#1e1e3a', light: '#ffffff' })
+      .then(setQrDataUrl)
   }, [shareUrl])
 
   useEffect(() => {
