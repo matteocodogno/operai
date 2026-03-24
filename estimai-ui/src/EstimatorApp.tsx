@@ -50,6 +50,17 @@ export default function EstimatorApp() {
 
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
 
+  const handleDeleteRelease = useCallback((id: string) => {
+    const rel = releases.find(r => r.id === id)
+    const count = acts.filter(a => a.release === rel?.name).length
+    const label = rel?.name || 'this release'
+    const msg = count > 0
+      ? `Delete "${label}" and its ${count} ${count === 1 ? 'activity' : 'activities'}?`
+      : `Delete "${label}"?`
+    if (!confirm(msg)) return
+    delRel(id)
+  }, [releases, acts, delRel])
+
   const warnings = useMemo(
     () => computeHealthWarnings(acts, releases, summary),
     [acts, releases, summary]
@@ -287,7 +298,7 @@ const exportPDF = useCallback(() => {
             releaseWarnings={warnings.releaseWarnings}
             onUpdateRelease={updRel}
             onAddRelease={addRel}
-            onDeleteRelease={delRel}
+            onDeleteRelease={handleDeleteRelease}
           />
         )}
         {tab === 'parameters' && (
