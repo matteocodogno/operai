@@ -17,6 +17,7 @@ import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
 import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
+import { Analytics } from '@vercel/analytics/react';
 
 export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
@@ -320,6 +321,8 @@ const exportPDF = useCallback(() => {
           onClose={() => setShowQr(false)}
         />
       )}
+
+      <Analytics />
     </div>
   )
 }
