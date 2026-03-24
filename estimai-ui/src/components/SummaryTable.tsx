@@ -108,7 +108,18 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
       </div>
 
       <div className="overflow-x-auto">
-        <table className="text-xs min-w-[620px]">
+        <table className="text-xs w-full" style={{ tableLayout: 'fixed' }}>
+          <colgroup>
+            {((): React.ReactNode => {
+              const frBase = [2, 0.5, 1, 1, 1, 1, 1, 0.8, 0.8, 0.8, 1]
+              const frAI   = [1, 1, 1]
+              const cols   = showAI ? [...frBase, ...frAI] : frBase
+              const total  = cols.reduce((a, b) => a + b, 0)
+              return cols.map((fr, i) => (
+                <col key={i} style={{ width: `${(fr / total * 100).toFixed(2)}%` }} />
+              ))
+            })()}
+          </colgroup>
           <thead>
             <tr>
               <Th>Release</Th>
