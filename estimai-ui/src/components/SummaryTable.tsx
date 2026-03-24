@@ -226,7 +226,7 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
       </div>
 
       <h2 className="font-disp text-sm font-bold mt-6 mb-2.5">By Specialist Profile</h2>
-      <div className="flex gap-2.5 flex-wrap">
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
         {byProfile.map(([prof, days]) => (
           <div key={prof} className="bg-ink-soft border border-rule rounded-[10px] py-[11px] px-[15px]">
             <div className="text-[10px] text-soft mb-1">{prof}</div>
