@@ -586,7 +586,8 @@ const ActivityTable = memo(function ActivityTable({
       cell: (info) => (
         <button
           onClick={() => onDeleteRef.current(info.row.original.id)}
-          className="bg-transparent text-muted text-[15px] py-0 pr-4"
+          className="bg-transparent text-[15px] py-0 text-muted/0 group-hover:text-muted hover:!text-red focus:text-muted transition-colors"
+          title="Delete activity"
         >
           ×
         </button>
@@ -722,7 +723,7 @@ const ActivityTable = memo(function ActivityTable({
                         <SortableRow
                           key={row.id}
                           id={act.id}
-                          className={`grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
+                          className={`group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
                             risky
                               ? "bg-[rgba(245,166,35,.04)] border-l-org"
                               : idx % 2 === 0
