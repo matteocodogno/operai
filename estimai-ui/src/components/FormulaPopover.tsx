@@ -25,9 +25,9 @@ export default function FormulaPopover({ text }: Props) {
       >ⓘ</span>
       {anchor && createPortal(
         <span
-          style={{ position: 'fixed', top: anchor.top - 6, transform: 'translateY(-100%)', ...anchor }}
+          style={{ position: 'fixed', transform: 'translateY(-100%)', ...anchor }}
           className="w-max max-w-72 bg-ink-mid border border-rule text-[10.5px] text-soft font-mono
-            leading-relaxed px-2.5 py-1.5 rounded shadow-xl z-[9999] whitespace-pre-line pointer-events-none"
+            leading-relaxed px-2.5 py-1.5 rounded shadow-xl z-9999 whitespace-pre-line pointer-events-none"
         >
           {text}
         </span>,
