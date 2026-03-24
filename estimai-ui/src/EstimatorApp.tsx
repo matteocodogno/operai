@@ -216,7 +216,7 @@ export default function EstimatorApp() {
 const exportPDF = useCallback(() => {
     const data = { id: projectId, name, author, params, releases, acts }
     const shareUrl = buildShareUrl(data)
-    exportPdf({ name, author, summary, totals, params, shareUrl })
+    exportPdf({ name, author, acts, summary, totals, params, shareUrl })
   }, [projectId, name, author, params, releases, acts, summary, totals])
 
   const handleShare = useCallback(() => {

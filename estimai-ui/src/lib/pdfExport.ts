@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { ReleaseSummary, Totals, Parameters } from '../types'
+import type { ReleaseSummary, Totals, Parameters, Activity } from '../types'
 import { renderGanttPng } from './ganttChart'
 import { svgToDataUrl, generateQrWithLogo } from './logoUtils'
 
@@ -8,7 +8,8 @@ import { svgToDataUrl, generateQrWithLogo } from './logoUtils'
 const PAGE_W = 210
 const PAGE_H = 297
 const ML = 14
-const CW = PAGE_W - ML * 2  // 182 mm
+const MR = 14
+const CW = PAGE_W - ML - MR
 
 // ── Brand palette ─────────────────────────────────────────────────────────────
 const NAVY  = '#1e1e3a'
@@ -19,6 +20,7 @@ const MUTED = '#7878a8'
 const RULE  = '#dcdcec'
 const ALT   = '#f5f5fc'
 const THD   = '#eaeaf6'
+const INK   = '#1a1a2e'
 
 function rgb(hex: string): [number, number, number] {
   return [
@@ -28,9 +30,18 @@ function rgb(hex: string): [number, number, number] {
   ]
 }
 
+/** Derive PERT from three estimates (handles ML-only by deriving O and P). */
+function pertLocal(o: number | string, ml: number | string, p: number | string): number {
+  const M = +ml || 0
+  const O = +o  || M * 0.75
+  const P = +p  || M * 1.60
+  return (O + 4 * M + P) / 6
+}
+
 export interface ExportPdfOptions {
   name: string
   author: string
+  acts: Activity[]
   summary: ReleaseSummary[]
   totals: Totals
   params: Parameters
@@ -38,11 +49,11 @@ export interface ExportPdfOptions {
 }
 
 export async function exportPdf({
-  name, author, summary, totals, params, shareUrl,
+  name, author, acts, summary, totals, params, shareUrl,
 }: ExportPdfOptions): Promise<void> {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
 
-  // ── Logo + QR (async — generate before drawing) ─────────────────────────
+  // ── Async assets (logo + QR) ─────────────────────────────────────────────
   const [logoDataUrl, qrDataUrl] = await Promise.all([
     svgToDataUrl('/estimai-light.svg', 256),
     shareUrl
@@ -50,82 +61,82 @@ export async function exportPdf({
       : Promise.resolve(null),
   ])
 
+  // ── Section heading helper ────────────────────────────────────────────────
+  // Purple accent bar on the left + bold label
+  function secHeading(y: number, title: string): void {
+    doc.setFillColor(ACC)
+    doc.rect(ML, y - 2.5, 2.5, 5.5, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(8)
+    doc.setTextColor(INK)
+    doc.text(title, ML + 5, y + 1)
+  }
+
   // ── Header strip ─────────────────────────────────────────────────────────
   doc.setFillColor(NAVY)
-  doc.rect(0, 0, PAGE_W, 22, 'F')
+  doc.rect(0, 0, PAGE_W, 24, 'F')
 
-  // Logo mark (13 × 13 mm, vertically centred in 22 mm strip)
-  const LOGO_MM = 13
-  doc.addImage(logoDataUrl, 'PNG', ML, (22 - LOGO_MM) / 2, LOGO_MM, LOGO_MM)
+  // Logo mark (16 × 16 mm) + "EstimAI" wordmark
+  const LOGO_MM = 16
+  const LOGO_Y = (24 - LOGO_MM) / 2
+  doc.addImage(logoDataUrl, 'PNG', ML, LOGO_Y, LOGO_MM, LOGO_MM)
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(11)
-  doc.setTextColor('#ffffff')
-  doc.text(name || 'Untitled', PAGE_W / 2, 14, { align: 'center', maxWidth: 100 })
+  doc.setFontSize(13)
+  doc.setTextColor(ACC)
+  doc.text('EstimAI', ML + LOGO_MM + 2.5, 15)
 
-  const dateStr = new Date().toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  })
-  const meta = [author, dateStr].filter(Boolean).join('  ·  ')
+  // Project name centred
+  doc.setFontSize(10)
+  doc.setTextColor('#ffffff')
+  doc.text(name || 'Untitled', PAGE_W / 2 + 12, 15, { align: 'center', maxWidth: 90 })
+
+  // Author + date (right-aligned, stacked)
+  const dateStr = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7.5)
+  doc.setFontSize(7)
   doc.setTextColor(MUTED)
-  doc.text(meta, PAGE_W - ML, 14, { align: 'right' })
+  if (author) doc.text(author, PAGE_W - MR, 10.5, { align: 'right' })
+  doc.text(`Estimate date: ${dateStr}`, PAGE_W - MR, 17, { align: 'right' })
 
   // ── KPI strip ─────────────────────────────────────────────────────────────
   const kpis: { label: string; value: string; color: string }[] = [
-    { label: 'Total Elapsed',  value: `${totals.el} d`,              color: ACC },
-    { label: 'Man-days',       value: `${totals.tm}`,                color: ACC },
-    { label: 'Duration',       value: `${totals.mo.toFixed(1)} mo`,  color: GRN },
-    { label: 'Range',          value: `${totals.best}–${totals.worst} d`, color: ORG },
+    { label: 'Total Elapsed', value: `${totals.el} d`,                  color: ACC },
+    { label: 'Man-days',      value: `${totals.tm}`,                    color: ACC },
+    { label: 'Duration',      value: `${totals.mo.toFixed(1)} mo`,      color: GRN },
+    { label: 'Range',         value: `${totals.best}–${totals.worst} d`, color: ORG },
   ]
-
   const kpiW = CW / kpis.length
   kpis.forEach(({ label, value, color }, i) => {
     const cx = ML + i * kpiW + kpiW / 2
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(13)
     doc.setTextColor(color)
-    doc.text(value, cx, 32, { align: 'center' })
-
+    doc.text(value, cx, 34, { align: 'center' })
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(6.5)
     doc.setTextColor(MUTED)
-    doc.text(label.toUpperCase(), cx, 37.5, { align: 'center' })
+    doc.text(label.toUpperCase(), cx, 39.5, { align: 'center' })
   })
 
   doc.setDrawColor(RULE)
   doc.setLineWidth(0.25)
-  doc.line(ML, 41, PAGE_W - ML, 41)
+  doc.line(ML, 43.5, PAGE_W - MR, 43.5)
 
-  // ── Section heading ───────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
-  doc.setTextColor(MUTED)
-  doc.text('RELEASE SUMMARY', ML, 46.5)
+  // ── Release summary ───────────────────────────────────────────────────────
+  secHeading(48, 'RELEASE SUMMARY')
 
-  // ── Summary table ─────────────────────────────────────────────────────────
   const bodyRows: string[][] = summary.map(s => {
     if (!s.res) return [s.name, String(s.fte), '—', '—', '—', '—', '—', '—']
     const { el, tm, mo, best, worst } = s.res
-    return [
-      s.name, String(s.fte),
-      String(el), String(tm), mo.toFixed(1),
-      String(best), String(worst), `${best}–${worst} d`,
-    ]
+    return [s.name, String(s.fte), String(el), String(tm), mo.toFixed(1), String(best), String(worst), `${best}–${worst} d`]
   })
-
   const totalRowIndex = bodyRows.length
-  bodyRows.push([
-    'TOTAL', '',
-    String(totals.el), String(totals.tm), totals.mo.toFixed(1),
-    String(totals.best), String(totals.worst),
-    `${totals.best}–${totals.worst} d`,
-  ])
+  bodyRows.push(['TOTAL', '', String(totals.el), String(totals.tm), totals.mo.toFixed(1), String(totals.best), String(totals.worst), `${totals.best}–${totals.worst} d`])
 
   autoTable(doc, {
-    startY: 49,
-    margin: { left: ML, right: ML },
+    startY: 52,
+    margin: { left: ML, right: MR },
     head: [['Release', 'FTE', 'Elapsed d', 'M/D', 'Months', 'Best', 'Worst', 'Range']],
     body: bodyRows,
     styles: {
@@ -134,7 +145,7 @@ export async function exportPdf({
       cellPadding: { top: 2.5, bottom: 2.5, left: 3, right: 3 },
       lineColor: rgb(RULE),
       lineWidth: 0.2,
-      textColor: rgb('#1a1a2e'),
+      textColor: rgb(INK),
     },
     headStyles: {
       fillColor: rgb(NAVY),
@@ -165,9 +176,9 @@ export async function exportPdf({
   })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tableEndY: number = (doc as any).lastAutoTable?.finalY ?? 80
+  let curY: number = (doc as any).lastAutoTable?.finalY ?? 90
 
-  // ── Gantt chart ───────────────────────────────────────────────────────────
+  // ── Release timeline ──────────────────────────────────────────────────────
   const activeReleases = summary.filter(s => s.res)
   if (activeReleases.length > 0) {
     const wdm = params.workingDaysMonth || 20
@@ -177,49 +188,145 @@ export async function exportPdf({
       const GANTT_ORIG_H = 52 + activeReleases.length * 48 + 28
       const ganttMmW = CW
       const ganttMmH = ganttMmW * GANTT_ORIG_H / GANTT_ORIG_W
-      const ganttY = tableEndY + 8
 
-      if (ganttY + ganttMmH < PAGE_H - (qrDataUrl ? 68 : 20)) {
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(6.5)
-        doc.setTextColor(MUTED)
-        doc.text('RELEASE TIMELINE', ML, ganttY - 2)
-        doc.addImage(`data:image/png;base64,${ganttPng}`, 'PNG', ML, ganttY, ganttMmW, ganttMmH)
-      }
+      curY += 8
+      secHeading(curY, 'RELEASE TIMELINE')
+      curY += 5
+
+      doc.addImage(`data:image/png;base64,${ganttPng}`, 'PNG', ML, curY, ganttMmW, ganttMmH)
+      curY += ganttMmH + 3
+
+      // One-line legend explaining the confidence extension bar
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      doc.setTextColor(MUTED)
+      doc.text('Bar = expected elapsed.  Extension = best–worst case range.', ML + 5, curY)
+      curY += 5
     }
   }
 
-  // ── QR code box (bottom-right, page 1) ───────────────────────────────────
-  if (qrDataUrl) {
-    const QR = 36
-    const PAD = 4
-    const CAPTION_H = 7
-    const BOX_W = QR + PAD * 2
-    const BOX_H = QR + PAD + CAPTION_H + PAD
-    const bx = PAGE_W - ML - BOX_W
-    const by = PAGE_H - 14 - BOX_H
+  // ── Activity summary ──────────────────────────────────────────────────────
+  const activeActs = acts.filter(a => +a.ml > 0 || +a.o > 0 || +a.p > 0)
+  if (activeActs.length > 0) {
+    const EST_ROW_H = 5
+    const SECTION_OVERHEAD = 18   // heading + table header
+    const estimatedH = SECTION_OVERHEAD + activeActs.length * EST_ROW_H
+    const BOTTOM_RESERVE = 44     // params strip + footer
 
+    if (curY + estimatedH > PAGE_H - BOTTOM_RESERVE) {
+      doc.addPage()
+      curY = 14
+    } else {
+      curY += 6
+    }
+
+    secHeading(curY, 'ACTIVITY SUMMARY')
+    curY += 5
+
+    const actRows = activeActs.map(a => {
+      const pert = pertLocal(a.o, a.ml, a.p)
+      const exp = +(pert + (Number(a.risk) || 0)).toFixed(1)
+      return [a.epic || '—', a.act || '—', a.release || '—', exp]
+    })
+
+    autoTable(doc, {
+      startY: curY,
+      margin: { left: ML, right: MR },
+      head: [['Epic', 'Activity', 'Release', 'Expected d']],
+      body: actRows,
+      styles: {
+        font: 'helvetica',
+        fontSize: 7.5,
+        cellPadding: { top: 2, bottom: 2, left: 3, right: 3 },
+        lineColor: rgb(RULE),
+        lineWidth: 0.15,
+        textColor: rgb(INK),
+      },
+      headStyles: {
+        fillColor: rgb(NAVY),
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7,
+      },
+      alternateRowStyles: { fillColor: rgb(ALT) },
+      columnStyles: {
+        0: { cellWidth: 42 },
+        1: { cellWidth: 80 },
+        2: { cellWidth: 36 },
+        3: { halign: 'right' },
+      },
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    curY = (doc as any).lastAutoTable?.finalY ?? curY + estimatedH
+  }
+
+  // ── Parameters strip ─────────────────────────────────────────────────────
+  const PARAM_H = 14
+  const FOOTER_H = 12
+  const paramY = PAGE_H - FOOTER_H - PARAM_H
+
+  // If content has flowed past the params area, add a new page first
+  if (curY + 6 > paramY) {
+    doc.addPage()
+  }
+
+  doc.setFillColor(ALT)
+  doc.rect(ML, paramY, CW, PARAM_H, 'F')
+  doc.setDrawColor(RULE)
+  doc.setLineWidth(0.2)
+  doc.rect(ML, paramY, CW, PARAM_H, 'S')
+
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(6)
+  doc.setTextColor(MUTED)
+  doc.text('ESTIMATION PARAMETERS', ML + 4, paramY + 4.5)
+
+  const pItems = [
+    `Sprint: ${params.sprintDays ?? 10} d`,
+    `Parallelism: ${Math.round((params.parallelism ?? 0.7) * 100)}%`,
+    `AI gain: ${Math.round((params.aiGain ?? 0.3) * 100)}%`,
+    `Working days/mo: ${params.workingDaysMonth ?? 20}`,
+    `AI cost coef: ${params.aiCostCoef ?? 10}`,
+  ]
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7.5)
+  doc.setTextColor(INK)
+  doc.text(pItems.join('   ·   '), ML + 4, paramY + 10.5)
+
+  // ── QR code (flat box, bottom-right, above footer) ────────────────────────
+  if (qrDataUrl) {
+    const QR = 34
+    const PAD = 3
+    const BOX_W = QR + PAD * 2
+    const BOX_H = QR + PAD * 2 + 5   // 5 mm caption
+    const bx = PAGE_W - MR - BOX_W
+    const by = PAGE_H - FOOTER_H - BOX_H - 2
+
+    // Flat border, no border-radius — matches document aesthetic
+    doc.setFillColor('#ffffff')
+    doc.rect(bx, by, BOX_W, BOX_H, 'F')
     doc.setDrawColor(RULE)
-    doc.setLineWidth(0.4)
-    doc.roundedRect(bx, by, BOX_W, BOX_H, 2, 2, 'S')
+    doc.setLineWidth(0.3)
+    doc.rect(bx, by, BOX_W, BOX_H, 'S')
 
     doc.addImage(qrDataUrl, 'PNG', bx + PAD, by + PAD, QR, QR)
 
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(6)
+    doc.setFontSize(5.5)
     doc.setTextColor(MUTED)
-    doc.text('Scan to view online', bx + BOX_W / 2, by + PAD + QR + 5, { align: 'center' })
+    doc.text('Scan to view online', bx + BOX_W / 2, by + PAD + QR + 4, { align: 'center' })
   }
 
   // ── Footer ────────────────────────────────────────────────────────────────
+  const footerLineY = PAGE_H - FOOTER_H + 2
   doc.setDrawColor(RULE)
   doc.setLineWidth(0.2)
-  doc.line(ML, PAGE_H - 8, PAGE_W - ML, PAGE_H - 8)
-
+  doc.line(ML, footerLineY, PAGE_W - MR, footerLineY)
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   doc.setTextColor(MUTED)
-  doc.text('Generated by EstimAI  ·  wellD.ch', PAGE_W / 2, PAGE_H - 4, { align: 'center' })
+  doc.text('Generated by EstimAI  ·  wellD.ch', PAGE_W / 2, footerLineY + 4, { align: 'center' })
 
   doc.save(`${(name || 'estimate').replace(/\s+/g, '_')}_estimate.pdf`)
 }
