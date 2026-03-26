@@ -14,6 +14,8 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
+  type DragOverEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -243,19 +245,21 @@ function SortableRow({
   children,
   className,
   style,
+  suppressTransform,
 }: {
   id: string;
   children: React.ReactNode;
   className: string;
   style: React.CSSProperties;
+  suppressTransform?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id });
 
   const rowStyle: React.CSSProperties = {
     ...style,
-    transform: CSS.Transform.toString(transform),
-    transition,
+    transform: suppressTransform ? undefined : CSS.Transform.toString(transform),
+    transition: suppressTransform ? undefined : transition,
     opacity: isDragging ? 0.5 : 1,
     position: "relative",
     zIndex: isDragging ? 1 : "auto",
@@ -292,6 +296,8 @@ const ActivityTable = memo(function ActivityTable({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
   const [focusedActId, setFocusedActId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overEpic, setOverEpic] = useState<string | null>(null);
 
   // ── Stable refs for column closures ──────────────────────────────────────
   // columns has [] deps; all mutable values are accessed via refs so the array
@@ -699,7 +705,19 @@ const ActivityTable = memo(function ActivityTable({
     });
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
+  function handleDragOver(event: DragOverEvent) {
+    const overId = event.over?.id as string | undefined;
+    const epic = overId ? (activities.find(a => a.id === overId)?.epic ?? null) : null;
+    setOverEpic(epic);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    setOverEpic(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const fromIndex = allIds.indexOf(active.id as string);
@@ -753,7 +771,7 @@ const ActivityTable = memo(function ActivityTable({
             )}
           </div>
 
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
             <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
               {epicOrder.map(({ epicKey, groupId }) => {
                 const label     = epicKey || '(no epic)';
@@ -763,10 +781,17 @@ const ActivityTable = memo(function ActivityTable({
                   (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0), 0
                 );
 
+                const activeEpicKey = activeId ? activities.find(a => a.id === activeId)?.epic : null;
+                const isDropTarget = activeId !== null && overEpic === epicKey && activeEpicKey !== epicKey;
+
                 return (
                   <div key={groupId}>
                     <div
-                      className="flex items-center gap-2 py-1.25 px-2 border-b border-rule bg-ink-mid/60 cursor-pointer hover:bg-ink-mid transition-colors select-none border-l-2 border-l-acc/40"
+                      className={`flex items-center gap-2 py-1.25 px-2 border-b border-rule cursor-pointer select-none border-l-2 transition-colors ${
+                        isDropTarget
+                          ? 'bg-acc/10 border-l-acc'
+                          : 'bg-ink-mid/60 border-l-acc/40 hover:bg-ink-mid'
+                      }`}
                       onClick={() => toggleEpic(epicKey)}
                     >
                       <span className="text-[9px] text-acc w-2.5 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
@@ -783,10 +808,12 @@ const ActivityTable = memo(function ActivityTable({
                       const row = rowById.get(act.id);
                       if (!row) return null;
                       const risky = Number(act.risk) > 0;
+                      const suppressTransform = activeId !== null && activeEpicKey !== epicKey;
                       return (
                         <SortableRow
                           key={row.id}
                           id={act.id}
+                          suppressTransform={suppressTransform}
                           className={`group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
                             act.id === focusedActId
                               ? "bg-acc/[0.06] border-l-acc"
