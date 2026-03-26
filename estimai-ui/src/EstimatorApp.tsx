@@ -35,6 +35,8 @@ export default function EstimatorApp() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const tag = (document.activeElement as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
       if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
       if (e.shiftKey && e.key === 'Q') { e.preventDefault(); setShowQr(v => !v) }

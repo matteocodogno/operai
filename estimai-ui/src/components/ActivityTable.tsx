@@ -283,6 +283,8 @@ const ActivityTable = memo(function ActivityTable({
   // ── Global keyboard shortcut: Alt+N → add new activity ───────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (e.shiftKey && e.key === 'N') {
         e.preventDefault();
         onAddRef.current();
