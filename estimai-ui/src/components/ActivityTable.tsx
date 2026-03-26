@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { memo, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -263,6 +263,7 @@ const ActivityTable = memo(function ActivityTable({
   // reference never changes → TanStack Table keeps rows mounted → no focus loss.
   const onUpdateRef      = useRef(onUpdate);
   const onDeleteRef      = useRef(onDelete);
+  const onAddRef         = useRef(onAdd);
   const onAddReleaseRef  = useRef(onAddRelease);
   const releaseNamesRef  = useRef(releaseNames);
   const globalAiGainRef  = useRef(globalAiGain);
@@ -272,10 +273,23 @@ const ActivityTable = memo(function ActivityTable({
   const visibleIdsRef    = useRef<string[]>([]);
   onUpdateRef.current      = onUpdate;
   onDeleteRef.current      = onDelete;
+  onAddRef.current         = onAdd;
   onAddReleaseRef.current  = onAddRelease;
   releaseNamesRef.current  = releaseNames;
   globalAiGainRef.current  = globalAiGain;
   actWarningsRef.current   = activityWarnings;
+
+  // ── Global keyboard shortcut: Alt+N → add new activity ───────────────────
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.shiftKey && e.key === 'N') {
+        e.preventDefault();
+        onAddRef.current();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // ── Keyboard navigation ───────────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement>(null);
@@ -300,6 +314,7 @@ const ActivityTable = memo(function ActivityTable({
         } else {
           if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
           else if (rowIdx < maxRow) focusCell(rowIdx + 1, 0);
+          else onAddRef.current();
         }
         break;
       }
@@ -669,7 +684,7 @@ const ActivityTable = memo(function ActivityTable({
     <>
       <div className="flex justify-between items-center mb-3">
         <h2 className="font-disp text-sm font-bold">Activity Detail</h2>
-        <button onClick={onAdd} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs">
+        <button onClick={onAdd} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
           + Add Activity
         </button>
       </div>
