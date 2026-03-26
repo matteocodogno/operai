@@ -20,10 +20,12 @@ import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
+import { useTheme, THEME_CYCLE, THEME_ICON, THEME_LABEL } from './hooks/useTheme'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
 export default function EstimatorApp() {
+  const { theme, setTheme } = useTheme()
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
@@ -307,6 +309,14 @@ const exportPDF = useCallback(() => {
             <span>↓</span> Excel
           </button>
           <div className="w-px h-4 bg-rule mx-0.5" />
+          <button
+            onClick={() => setTheme(THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length])}
+            className="w-6 h-6 rounded-full text-[12px] border border-rule text-muted hover:border-acc/50 hover:text-acc transition-colors flex items-center justify-center"
+            title={THEME_LABEL[theme]}
+            aria-label={THEME_LABEL[theme]}
+          >
+            {THEME_ICON[theme]}
+          </button>
           <button
             onClick={() => setShowHelp(v => !v)}
             className={`w-6 h-6 rounded-full text-[11px] font-bold border transition-colors flex items-center justify-center ${

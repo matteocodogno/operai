@@ -42,6 +42,73 @@
   --body: 'DM Sans', sans-serif;
 }
 
+/* ── Light theme variables ─────────────────────────────────────────────────── */
+/* Explicit override via data-theme="light" on <html>                          */
+[data-theme="light"] {
+  --color-ink:     #f8f8fc;
+  --color-ink-soft:#f0f0f8;
+  --color-ink-mid: #e8e8f4;
+  --color-rule:    #d4d4ec;
+  --color-muted:   #8888aa;
+  --color-dim:     #b8b8d4;
+  --color-text:    #0d0d14;
+  --color-soft:    #60608a;
+  --color-acc:     #5b6af7;
+  --color-acc-hi:  #3d4ce0;
+  --color-acc-lo:  rgba(91, 106, 247, 0.10);
+  --color-grn:     #1a9e5c;
+  --color-org:     #c47a0e;
+  --color-red:     #d93636;
+  --ink:     #f8f8fc;
+  --ink-soft:#f0f0f8;
+  --ink-mid: #e8e8f4;
+  --rule:    #d4d4ec;
+  --muted:   #8888aa;
+  --dim:     #b8b8d4;
+  --text:    #0d0d14;
+  --soft:    #60608a;
+  --acc:     #5b6af7;
+  --acc-hi:  #3d4ce0;
+  --acc-lo:  rgba(91, 106, 247, 0.10);
+  --grn:     #1a9e5c;
+  --org:     #c47a0e;
+  --red:     #d93636;
+}
+
+/* System preference: light (only when not explicitly forced to dark)          */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --color-ink:     #f8f8fc;
+    --color-ink-soft:#f0f0f8;
+    --color-ink-mid: #e8e8f4;
+    --color-rule:    #d4d4ec;
+    --color-muted:   #8888aa;
+    --color-dim:     #b8b8d4;
+    --color-text:    #0d0d14;
+    --color-soft:    #60608a;
+    --color-acc:     #5b6af7;
+    --color-acc-hi:  #3d4ce0;
+    --color-acc-lo:  rgba(91, 106, 247, 0.10);
+    --color-grn:     #1a9e5c;
+    --color-org:     #c47a0e;
+    --color-red:     #d93636;
+    --ink:     #f8f8fc;
+    --ink-soft:#f0f0f8;
+    --ink-mid: #e8e8f4;
+    --rule:    #d4d4ec;
+    --muted:   #8888aa;
+    --dim:     #b8b8d4;
+    --text:    #0d0d14;
+    --soft:    #60608a;
+    --acc:     #5b6af7;
+    --acc-hi:  #3d4ce0;
+    --acc-lo:  rgba(91, 106, 247, 0.10);
+    --grn:     #1a9e5c;
+    --org:     #c47a0e;
+    --red:     #d93636;
+  }
+}
+
 html,
 body,
 #root {

@@ -12,6 +12,13 @@
     <title>ui</title>
   </head>
   <body>
+    <!-- Apply stored theme before React mounts to avoid flash of wrong theme -->
+    <script>
+      (function(){
+        var t=localStorage.getItem('estimai-theme');
+        if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
