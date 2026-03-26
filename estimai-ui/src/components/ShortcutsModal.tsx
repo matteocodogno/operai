@@ -75,7 +75,7 @@ export default function ShortcutsModal({ onClose }: Props) {
               <Row keys={['⇧ ?']} label="Toggle this shortcuts panel" />
               <Row keys={['⇧ H']} label="Toggle health warnings" />
               <Row keys={['⇧ Q']} label="Show QR code for sharing" />
-              <Row keys={['⇧ Q=N']} label="Create new activity" />
+              <Row keys={['⇧ N']} label="Create new activity" />
               <Row keys={['Esc']} label="Close panel" />
             </div>
           </section>
