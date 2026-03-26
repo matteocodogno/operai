@@ -56,6 +56,40 @@ const NEW_RELEASE_SENTINEL = "__new__";
 
 type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number, isText: boolean) => void;
 
+// EpicCell — holds value in local state and only commits to the store on blur/Enter.
+// This prevents epic regrouping (and consequent focus loss) while the user is mid-edit.
+function EpicCell({
+  id, value, rowIdx, onUpdateRef, navRef,
+}: {
+  id: string
+  value: string
+  rowIdx: number
+  onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
+  navRef: React.MutableRefObject<NavHandler>
+}) {
+  const [draft, setDraft] = useState(value)
+  const focused = useRef(false)
+
+  return (
+    <input
+      value={draft}
+      onChange={(e: ChangeEvent<HTMLInputElement>) => setDraft(e.target.value)}
+      onFocus={() => { focused.current = true }}
+      onBlur={() => {
+        focused.current = false
+        onUpdateRef.current(id, 'epic', draft)
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') { setDraft(value); e.preventDefault(); return }
+        navRef.current(e, rowIdx, 0, true)
+      }}
+      data-cell={`${rowIdx}-0`}
+      placeholder="Epic…"
+      className="py-0.75 px-1.25 text-[11px]"
+    />
+  )
+}
+
 // MLCell — standalone component so it can hold isFocused state while living inside
 // a stable columns[] closure. Receives ref objects (not values) so it always reads fresh data.
 function MLCell({
@@ -377,19 +411,15 @@ const ActivityTable = memo(function ActivityTable({
     }),
     columnHelper.accessor("epic", {
       header: "Epic",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        return (
-          <input
-            value={info.getValue()}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "epic", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 0, true)}
-            data-cell={`${rowIdx}-0`}
-            placeholder="Epic…"
-            className="py-0.75 px-1.25 text-[11px]"
-          />
-        );
-      },
+      cell: (info) => (
+        <EpicCell
+          id={info.row.original.id}
+          value={info.getValue()}
+          rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
+          onUpdateRef={onUpdateRef}
+          navRef={navRef}
+        />
+      ),
     }),
     columnHelper.accessor("act", {
       header: "Activity",
