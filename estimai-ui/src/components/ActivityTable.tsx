@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, useEffect, type ChangeEvent } from "react";
+import { memo, useMemo, useRef, useState, useEffect, useCallback, type ChangeEvent } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -257,6 +257,7 @@ const ActivityTable = memo(function ActivityTable({
 }: ActivityTableProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
+  const [focusedActId, setFocusedActId] = useState<string | null>(null);
 
   // ── Stable refs for column closures ──────────────────────────────────────
   // columns has [] deps; all mutable values are accessed via refs so the array
@@ -690,7 +691,22 @@ const ActivityTable = memo(function ActivityTable({
       </div>
 
       <div className="overflow-x-auto">
-        <div ref={containerRef} style={{ width: "100%" }}>
+        <div
+          ref={containerRef}
+          style={{ width: "100%" }}
+          onFocusCapture={useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+            const cell = (e.target as HTMLElement).dataset.cell;
+            if (!cell) return;
+            const rowIdx = parseInt(cell.split('-')[0], 10);
+            const id = visibleIdsRef.current[rowIdx];
+            if (id) setFocusedActId(id);
+          }, [])}
+          onBlurCapture={useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+            if (!containerRef.current?.contains(e.relatedTarget as Node)) {
+              setFocusedActId(null);
+            }
+          }, [])}
+        >
           <div
             className="grid gap-0.75 py-1.5 px-2 bg-ink-mid rounded-t-md text-[9px] text-soft font-mono uppercase tracking-[0.06em]"
             style={{ gridTemplateColumns: COL_W }}
@@ -740,11 +756,13 @@ const ActivityTable = memo(function ActivityTable({
                           key={row.id}
                           id={act.id}
                           className={`group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
-                            risky
-                              ? "bg-[rgba(245,166,35,.04)] border-l-org"
-                              : idx % 2 === 0
-                                ? "bg-ink-soft border-l-transparent"
-                                : "bg-ink border-l-transparent"
+                            act.id === focusedActId
+                              ? "bg-acc/[0.06] border-l-acc"
+                              : risky
+                                ? "bg-[rgba(245,166,35,.04)] border-l-org"
+                                : idx % 2 === 0
+                                  ? "bg-ink-soft border-l-transparent"
+                                  : "bg-ink border-l-transparent"
                           }`}
                           style={{ gridTemplateColumns: COL_W }}
                         >
