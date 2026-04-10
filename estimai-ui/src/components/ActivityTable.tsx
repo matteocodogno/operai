@@ -705,6 +705,16 @@ const ActivityTable = memo(function ActivityTable({
     });
   }
 
+  const allCollapsed = epicOrder.length > 0 && epicOrder.every(({ epicKey }) => collapsedEpics.has(epicKey));
+
+  function toggleAllEpics() {
+    if (allCollapsed) {
+      setCollapsedEpics(new Set());
+    } else {
+      setCollapsedEpics(new Set(epicOrder.map(({ epicKey }) => epicKey)));
+    }
+  }
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
@@ -734,7 +744,18 @@ const ActivityTable = memo(function ActivityTable({
   return (
     <>
       <div className="flex justify-between items-center mb-3">
-        <h2 className="font-disp text-sm font-bold">Activity Detail</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="font-disp text-sm font-bold">Activity Detail</h2>
+          {epicOrder.length > 0 && (
+            <button
+              onClick={toggleAllEpics}
+              className="bg-transparent text-[10px] text-muted hover:text-soft py-0.5 px-1.5 border border-rule rounded"
+              title={allCollapsed ? 'Expand all epics' : 'Collapse all epics'}
+            >
+              {allCollapsed ? '▶ Expand all' : '▼ Collapse all'}
+            </button>
+          )}
+        </div>
         <button onClick={onAdd} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
           + Add Activity
         </button>
