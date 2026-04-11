@@ -6,8 +6,10 @@ import MetricsBar from './components/MetricsBar'
 import ActivityTable from './components/ActivityTable'
 import SummaryTable from './components/SummaryTable'
 import ParametersPanel from './components/ParametersPanel'
-import { pertCalc } from './hooks/useEstimator'
+import ReleaseFilter from './components/ReleaseFilter'
+import { pertCalc, useEstimator } from './hooks/useEstimator'
 import { useEstimatorContext } from './context/EstimatorContext'
+import { buildExportFilename } from './lib/exportUtils'
 import type { ProjectData } from './lib/projects'
 import { buildShareUrl } from './lib/shareUrl'
 import { exportPdf } from './lib/pdfExport'
@@ -35,6 +37,8 @@ export default function EstimatorApp() {
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [activeRelease, setActiveRelease] = useState<string | null>(null)
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (document.activeElement as HTMLElement)?.tagName
@@ -58,6 +62,62 @@ export default function EstimatorApp() {
   } = useEstimatorContext()
 
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
+  // Derived at render time: if the active release was renamed or deleted, resolve to null immediately
+  // (avoids the one-render delay of a useEffect safety guard, preventing orphaned activities)
+  const resolvedRelease = activeRelease !== null && !rnames.includes(activeRelease) ? null : activeRelease
+
+  // Keep ShortcutsModal copy in sync when modifying these
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (document.activeElement as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      if (showShortcuts || showHealthWarnings || showQr || showHelp) return
+      if (e.shiftKey && e.key === 'ArrowRight') {
+        e.preventDefault()
+        setActiveRelease(prev => {
+          if (rnames.length === 0) return prev
+          if (prev !== null && !rnames.includes(prev)) return null
+          const idx = prev === null ? 0 : rnames.indexOf(prev) + 1
+          return idx >= rnames.length ? null : rnames[idx]
+        })
+      }
+      if (e.shiftKey && e.key === 'ArrowLeft') {
+        e.preventDefault()
+        setActiveRelease(prev => {
+          if (rnames.length === 0) return prev
+          if (prev !== null && !rnames.includes(prev)) return null
+          const idx = prev === null ? rnames.length - 1 : rnames.indexOf(prev) - 1
+          return idx < 0 ? null : rnames[idx]
+        })
+      }
+      if (e.shiftKey && e.code === 'Digit0') {
+        e.preventDefault()
+        setActiveRelease(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [rnames, showShortcuts, showHealthWarnings, showQr, showHelp])
+
+  const filteredActs = useMemo(
+    () => resolvedRelease ? acts.filter(a => a.release === resolvedRelease) : acts,
+    [resolvedRelease, acts]
+  )
+
+  // Second useEstimator call for filtered metrics (MetricsBar + exports)
+  // When no filter is active, filteredActs === acts (same reference); useEstimator's internal memos return cached values.
+  const { summary: filteredSummary, totals: filteredTotals } = useEstimator(filteredActs, releases, params)
+
+  // Translate filtered-array drag indices back to full-array indices before calling reorderActs
+  const handleReorder = useCallback((fromIdx: number, toIdx: number) => {
+    if (!resolvedRelease) { reorderActs(fromIdx, toIdx); return }
+    const fromId = filteredActs[fromIdx]?.id
+    const toId = filteredActs[toIdx]?.id
+    if (!fromId || !toId) return
+    const fullFrom = acts.findIndex(a => a.id === fromId)
+    const fullTo = acts.findIndex(a => a.id === toId)
+    if (fullFrom !== -1 && fullTo !== -1) reorderActs(fullFrom, fullTo)
+  }, [resolvedRelease, filteredActs, acts, reorderActs])
 
   const handleDeleteRelease = useCallback((id: string) => {
     const rel = releases.find(r => r.id === id)
@@ -83,10 +143,10 @@ export default function EstimatorApp() {
       ['Working days / month', params.workingDaysMonth], ['QA Deploy per release', params.qaDeployDays],
       ['QA Test per release', params.qaTestDays], ['PM overhead per release', params.pmDays],
     ]), 'Parameters')
-    const nums = computeActivityNums(acts)
+    const nums = computeActivityNums(filteredActs)
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['#', 'Epic', 'Activity', 'Profile', 'Optimistic', 'Most Likely', 'Pessimistic', 'PERT', 'Risk Buffer', 'Expected', 'AI Gain %', 'Notes', 'Release'],
-      ...acts.map(a => {
+      ...filteredActs.map(a => {
         const pv = pertCalc(a.o, a.ml, a.p)
         const actGain = (a.aiGain !== undefined && a.aiGain !== null && (a.aiGain as unknown as string) !== '')
           ? Number(a.aiGain)
@@ -96,18 +156,15 @@ export default function EstimatorApp() {
     ]), 'Detail')
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['Release', 'FTE', 'Ind. M/D', 'Planning', 'Baseline', 'Elapsed Days', 'Total M/D', 'Months', 'Best', 'Worst', 'Range', 'AI Cost', 'AI-assisted Elapsed', 'Total M/D (AI)'],
-      ...summary.map(s => s.res
-        ? [s.name, s.fte, s.res.ind, s.res.plan, s.res.base, s.res.el, s.res.tm, s.res.mo, s.res.best, s.res.worst, `${s.res.best}–${s.res.worst} days`, s.res.aiCost, s.res.aiElapsed, s.res.aiTotalMD]
-        : [s.name, s.fte, ...Array(12).fill('—')],
-      ),
-      ['TOTAL', '', totals.ind.toFixed(1), '', totals.base.toFixed(1), totals.el, totals.tm, totals.mo, totals.best, totals.worst, `${totals.best}–${totals.worst} days`, totals.aiCost, totals.aiElapsed, totals.aiTotalMD],
+      ...filteredSummary.filter(s => s.res).map(s => [s.name, s.fte, s.res!.ind, s.res!.plan, s.res!.base, s.res!.el, s.res!.tm, s.res!.mo, s.res!.best, s.res!.worst, `${s.res!.best}–${s.res!.worst} days`, s.res!.aiCost, s.res!.aiElapsed, s.res!.aiTotalMD]),
+      ['TOTAL', '', filteredTotals.ind.toFixed(1), '', filteredTotals.base.toFixed(1), filteredTotals.el, filteredTotals.tm, filteredTotals.mo, filteredTotals.best, filteredTotals.worst, `${filteredTotals.best}–${filteredTotals.worst} days`, filteredTotals.aiCost, filteredTotals.aiElapsed, filteredTotals.aiTotalMD],
     ]), 'Summary')
-    XLSX.writeFile(wb, `${name.replace(/\s+/g, '_')}_estimate.xlsx`)
-  }, [acts, summary, totals, params, name, author])
+    XLSX.writeFile(wb, `${buildExportFilename(name, resolvedRelease ?? undefined)}.xlsx`)
+  }, [filteredActs, filteredSummary, filteredTotals, params, name, author, resolvedRelease])
 
   const exportClient = useCallback(async () => {
     const wdm = params.workingDaysMonth || 20
-    const active = summary.filter(s => s.res)
+    const active = filteredSummary.filter(s => s.res)
 
     const wb  = new ExcelJS.Workbook()
     wb.creator = author || 'EstimAI'
@@ -182,7 +239,7 @@ export default function EstimatorApp() {
 
     // ── Total row ──────────────────────────────────────────────────────
     const totalRow = ws.getRow(nextRow)
-    const totalVals = ['TOTAL', +totals.mo.toFixed(1), +(totals.best / wdm).toFixed(1), +(totals.worst / wdm).toFixed(1), totals.tm]
+    const totalVals = ['TOTAL', +filteredTotals.mo.toFixed(1), +(filteredTotals.best / wdm).toFixed(1), +(filteredTotals.worst / wdm).toFixed(1), filteredTotals.tm]
     totalVals.forEach((v, i) => {
       const cell = totalRow.getCell(i + 1)
       cell.value = v
@@ -192,7 +249,7 @@ export default function EstimatorApp() {
     nextRow++
 
     // ── Gantt chart image ──────────────────────────────────────────────
-    const png = renderGanttPng(summary, wdm)
+    const png = renderGanttPng(filteredSummary, wdm)
     if (png) {
       const chartRows  = active.length
       const chartH     = 52 + chartRows * 48 + 28   // must match ganttChart.ts layout
@@ -214,16 +271,16 @@ export default function EstimatorApp() {
     const url    = URL.createObjectURL(blob)
     const a      = document.createElement('a')
     a.href       = url
-    a.download   = `${name.replace(/\s+/g, '_') || 'estimate'}_client.xlsx`
+    a.download   = `${buildExportFilename(name, resolvedRelease ?? undefined)}_client.xlsx`
     a.click()
     URL.revokeObjectURL(url)
-  }, [summary, totals, params, name, author])
+  }, [filteredSummary, filteredTotals, params, name, author, resolvedRelease])
 
-const exportPDF = useCallback(() => {
+  const exportPDF = useCallback(() => {
     const data = { id: projectId, name, author, params, releases, acts }
     const shareUrl = buildShareUrl(data)
-    exportPdf({ name, author, acts, summary, totals, params, shareUrl })
-  }, [projectId, name, author, params, releases, acts, summary, totals])
+    exportPdf({ name, author, acts: filteredActs, summary: filteredSummary, totals: filteredTotals, params, shareUrl, releaseName: resolvedRelease ?? undefined })
+  }, [projectId, name, author, params, releases, acts, filteredActs, filteredSummary, filteredTotals, resolvedRelease])
 
   const handleShare = useCallback(() => {
     const data: ProjectData = { id: projectId, name, author, params, releases, acts }
@@ -246,8 +303,8 @@ const exportPDF = useCallback(() => {
       />
 
       <MetricsBar
-        totals={totals}
-        activityCount={acts.length}
+        totals={filteredTotals}
+        activityCount={filteredActs.length}
         releaseCount={releases.length}
         profileCount={byProfile.length}
       />
@@ -339,17 +396,24 @@ const exportPDF = useCallback(() => {
                 onSelect={t => { loadTemplate(t); setDismissedPicker(true) }}
                 onBlank={() => setDismissedPicker(true)}
               />
-            : <ActivityTable
-                activities={acts}
-                releaseNames={rnames}
-                globalAiGain={params.aiGain}
-                activityWarnings={warnings.activityWarnings}
-                onUpdate={updAct}
-                onDelete={delAct}
-                onAdd={addAct}
-                onAddRelease={addRel}
-                onReorder={reorderActs}
-              />
+            : <>
+                <ReleaseFilter
+                  releases={releases}
+                  activeRelease={resolvedRelease}
+                  onSelect={setActiveRelease}
+                />
+                <ActivityTable
+                  activities={filteredActs}
+                  releaseNames={rnames}
+                  globalAiGain={params.aiGain}
+                  activityWarnings={warnings.activityWarnings}
+                  onUpdate={updAct}
+                  onDelete={delAct}
+                  onAdd={() => addAct(resolvedRelease ?? undefined)}
+                  onAddRelease={addRel}
+                  onReorder={handleReorder}
+                />
+              </>
         )}
         {tab === 'summary' && (
           <SummaryTable

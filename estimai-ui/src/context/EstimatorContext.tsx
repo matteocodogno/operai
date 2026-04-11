@@ -17,7 +17,7 @@ export interface EstimatorContextValue {
   setName: (v: string) => void
   setAuthor: (v: string) => void
   updAct: (id: string, f: keyof Activity, v: string) => void
-  addAct: () => void
+  addAct: (releaseOverride?: string) => void
   delAct: (id: string) => void
   reorderActs: (fromIndex: number, toIndex: number) => void
   updRel: (id: string, f: keyof Release, v: string | number) => void
@@ -71,7 +71,7 @@ export function EstimatorProvider({ estimateId, children }: Props) {
       return u
     })), [])
 
-  const addAct = useCallback(() =>
+  const addAct = useCallback((releaseOverride?: string) =>
     setActs(prev => {
       const last = prev[prev.length - 1]
       return [...prev, {
@@ -85,7 +85,7 @@ export function EstimatorProvider({ estimateId, children }: Props) {
         p: 8,
         risk: 0,
         notes: '',
-        release: last?.release ?? rnames[0] ?? 'Release 1',
+        release: releaseOverride ?? last?.release ?? rnames[0] ?? 'Release 1',
       }]
     }), [rnames])
 
