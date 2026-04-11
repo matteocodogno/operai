@@ -34,7 +34,7 @@ interface ActivityTableProps {
   globalAiGain: number;
   onUpdate: (id: string, field: keyof Activity, value: string) => void;
   onDelete: (id: string) => void;
-  onAdd: () => void;
+  onAdd: (epic?: string) => void;
   onAddRelease: () => string;
   onReorder: (fromIndex: number, toIndex: number) => void;
   activityWarnings: Map<string, WarningCode[]>;
@@ -297,12 +297,14 @@ const ActivityTable = memo(function ActivityTable({
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
   const [filteredReleases, setFilteredReleases] = useState<Set<string>>(new Set());
   const [focusedActId, setFocusedActId] = useState<string | null>(null);
+  const lastFocusedEpicRef = useRef<string | undefined>(undefined);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overEpic, setOverEpic] = useState<string | null>(null);
 
   // ── Stable refs for column closures ──────────────────────────────────────
   // columns has [] deps; all mutable values are accessed via refs so the array
   // reference never changes → TanStack Table keeps rows mounted → no focus loss.
+  const activitiesRef    = useRef(activities);
   const onUpdateRef      = useRef(onUpdate);
   const onDeleteRef      = useRef(onDelete);
   const onAddRef         = useRef(onAdd);
@@ -313,6 +315,7 @@ const ActivityTable = memo(function ActivityTable({
   const actWarningsRef   = useRef<Map<string, WarningCode[]>>(new Map());
   const visibleRowIdxRef = useRef<Map<string, number>>(new Map());
   const visibleIdsRef    = useRef<string[]>([]);
+  activitiesRef.current    = activities;
   onUpdateRef.current      = onUpdate;
   onDeleteRef.current      = onDelete;
   onAddRef.current         = onAdd;
@@ -328,7 +331,7 @@ const ActivityTable = memo(function ActivityTable({
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (e.shiftKey && e.key === 'N') {
         e.preventDefault();
-        onAddRef.current();
+        onAddRef.current(currentEpic());
       }
     }
     window.addEventListener('keydown', onKeyDown);
@@ -358,7 +361,7 @@ const ActivityTable = memo(function ActivityTable({
         } else {
           if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
           else if (rowIdx < maxRow) focusCell(rowIdx + 1, 0);
-          else onAddRef.current();
+          else onAddRef.current(currentEpic());
         }
         break;
       }
@@ -731,6 +734,11 @@ const ActivityTable = memo(function ActivityTable({
     }
   }
 
+  function currentEpic(): string | undefined {
+    return lastFocusedEpicRef.current
+      ?? activitiesRef.current[activitiesRef.current.length - 1]?.epic;
+  }
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
@@ -772,7 +780,7 @@ const ActivityTable = memo(function ActivityTable({
             </button>
           )}
         </div>
-        <button onClick={onAdd} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
+        <button onClick={() => onAdd(currentEpic())} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
           + Add Activity
         </button>
       </div>
@@ -816,7 +824,10 @@ const ActivityTable = memo(function ActivityTable({
             if (!cell) return;
             const rowIdx = parseInt(cell.split('-')[0], 10);
             const id = visibleIdsRef.current[rowIdx];
-            if (id) setFocusedActId(id);
+            if (id) {
+              setFocusedActId(id);
+              lastFocusedEpicRef.current = activitiesRef.current.find(a => a.id === id)?.epic;
+            }
           }, [])}
           onBlurCapture={useCallback((e: React.FocusEvent<HTMLDivElement>) => {
             if (!containerRef.current?.contains(e.relatedTarget as Node)) {

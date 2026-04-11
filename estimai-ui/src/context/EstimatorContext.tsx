@@ -17,7 +17,7 @@ export interface EstimatorContextValue {
   setName: (v: string) => void
   setAuthor: (v: string) => void
   updAct: (id: string, f: keyof Activity, v: string) => void
-  addAct: () => void
+  addAct: (epic?: string) => void
   delAct: (id: string) => void
   reorderActs: (fromIndex: number, toIndex: number) => void
   updRel: (id: string, f: keyof Release, v: string | number) => void
@@ -71,13 +71,13 @@ export function EstimatorProvider({ estimateId, children }: Props) {
       return u
     })), [])
 
-  const addAct = useCallback(() =>
+  const addAct = useCallback((epic?: string) =>
     setActs(prev => {
       const last = prev[prev.length - 1]
       return [...prev, {
         id: uid(),
         num: '',
-        epic: last?.epic ?? '',
+        epic: epic ?? last?.epic ?? '',
         act: 'New activity',
         prof: last?.prof ?? 'Developer',
         o: 3.75,
