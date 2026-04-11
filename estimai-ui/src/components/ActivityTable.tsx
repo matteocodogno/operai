@@ -295,6 +295,7 @@ const ActivityTable = memo(function ActivityTable({
 }: ActivityTableProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
+  const [filteredReleases, setFilteredReleases] = useState<Set<string>>(new Set());
   const [focusedActId, setFocusedActId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overEpic, setOverEpic] = useState<string | null>(null);
@@ -660,23 +661,30 @@ const ActivityTable = memo(function ActivityTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activities]);
 
+  const displayedActivities = useMemo(
+    () => filteredReleases.size > 0
+      ? activities.filter(a => filteredReleases.has(a.release))
+      : activities,
+    [activities, filteredReleases]
+  );
+
   const epicOrder = useMemo(() => {
     const seen = new Set<string>();
     const order: Array<{ epicKey: string; groupId: string }> = [];
-    for (const a of activities) {
+    for (const a of displayedActivities) {
       if (!seen.has(a.epic)) { seen.add(a.epic); order.push({ epicKey: a.epic, groupId: a.id }); }
     }
     return order;
-  }, [activities]);
+  }, [displayedActivities]);
 
   const epicGroups = useMemo(() => {
     const map = new Map<string, Activity[]>();
-    for (const a of activities) {
+    for (const a of displayedActivities) {
       if (!map.has(a.epic)) map.set(a.epic, []);
       map.get(a.epic)!.push(a);
     }
     return map;
-  }, [activities]);
+  }, [displayedActivities]);
 
   const allIds = useMemo(() => activities.map(a => a.id), [activities]);
 
@@ -695,6 +703,14 @@ const ActivityTable = memo(function ActivityTable({
     () => new Map(visibleIds.map((id, i) => [id, i])),
     [visibleIds]
   );
+
+  function toggleRelease(name: string) {
+    setFilteredReleases(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  }
 
   function toggleEpic(epicKey: string) {
     setCollapsedEpics(prev => {
@@ -760,6 +776,36 @@ const ActivityTable = memo(function ActivityTable({
           + Add Activity
         </button>
       </div>
+
+      {releaseNames.length > 1 && (
+        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+          <span className="text-[10px] text-muted font-mono uppercase tracking-wide shrink-0">Release:</span>
+          {releaseNames.map(name => {
+            const active = filteredReleases.has(name);
+            return (
+              <button
+                key={name}
+                onClick={() => toggleRelease(name)}
+                className={`text-[11px] py-0.5 px-2.5 rounded-full border transition-colors ${
+                  active
+                    ? 'bg-acc/15 border-acc/60 text-acc-hi'
+                    : 'bg-transparent border-rule text-muted hover:border-soft hover:text-soft'
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
+          {filteredReleases.size > 0 && (
+            <button
+              onClick={() => setFilteredReleases(new Set())}
+              className="text-[10px] text-muted/60 hover:text-muted ml-1 underline underline-offset-2"
+            >
+              clear
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <div
