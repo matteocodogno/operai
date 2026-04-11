@@ -70,6 +70,17 @@ export default function ShortcutsModal({ onClose }: Props) {
           <div className="border-t border-rule" />
 
           <section>
+            <p className="text-[9px] font-mono uppercase tracking-widest text-muted mb-2">Release filter</p>
+            <div className="flex flex-col gap-2">
+              <Row keys={['⇧ →']} label="Next release" />
+              <Row keys={['⇧ ←']} label="Previous release" />
+              <Row keys={['⇧ 0']} label="Show all releases" />
+            </div>
+          </section>
+
+          <div className="border-t border-rule" />
+
+          <section>
             <p className="text-[9px] font-mono uppercase tracking-widest text-muted mb-2">General</p>
             <div className="flex flex-col gap-2">
               <Row keys={['⇧ ?']} label="Toggle this shortcuts panel" />
