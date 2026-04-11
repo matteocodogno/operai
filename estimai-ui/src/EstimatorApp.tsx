@@ -39,18 +39,6 @@ export default function EstimatorApp() {
 
   const [activeRelease, setActiveRelease] = useState<string | null>(null)
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const tag = (document.activeElement as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
-      if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
-      if (e.shiftKey && e.key === 'Q') { e.preventDefault(); setShowQr(v => !v) }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   const {
     projectId, name, author, params, releases, acts,
     summary, totals, byProfile,
@@ -62,33 +50,35 @@ export default function EstimatorApp() {
   } = useEstimatorContext()
 
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
-  // Derived at render time: if the active release was renamed or deleted, resolve to null immediately
-  // (avoids the one-render delay of a useEffect safety guard, preventing orphaned activities)
+  // If the active release was renamed or deleted, resolve to null at render time (no useEffect delay)
   const resolvedRelease = activeRelease !== null && !rnames.includes(activeRelease) ? null : activeRelease
 
-  // Keep ShortcutsModal copy in sync when modifying these
+  // Refs let the handler read latest values without re-registering the listener
+  const resolvedRef = useRef(resolvedRelease)
+  resolvedRef.current = resolvedRelease
+  const anyModalOpen = useRef(false)
+  anyModalOpen.current = showShortcuts || showHealthWarnings || showQr || showHelp
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const tag = (document.activeElement as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      if (showShortcuts || showHealthWarnings || showQr || showHelp) return
+      if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
+      if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
+      if (e.shiftKey && e.key === 'Q') { e.preventDefault(); setShowQr(v => !v) }
+      // Release filter shortcuts — blocked while modals are open or no releases exist
+      if (anyModalOpen.current || rnames.length === 0) return
       if (e.shiftKey && e.key === 'ArrowRight') {
         e.preventDefault()
-        setActiveRelease(prev => {
-          if (rnames.length === 0) return prev
-          if (prev !== null && !rnames.includes(prev)) return null
-          const idx = prev === null ? 0 : rnames.indexOf(prev) + 1
-          return idx >= rnames.length ? null : rnames[idx]
-        })
+        const cur = resolvedRef.current
+        const idx = cur === null ? 0 : rnames.indexOf(cur) + 1
+        setActiveRelease(idx >= rnames.length ? null : rnames[idx])
       }
       if (e.shiftKey && e.key === 'ArrowLeft') {
         e.preventDefault()
-        setActiveRelease(prev => {
-          if (rnames.length === 0) return prev
-          if (prev !== null && !rnames.includes(prev)) return null
-          const idx = prev === null ? rnames.length - 1 : rnames.indexOf(prev) - 1
-          return idx < 0 ? null : rnames[idx]
-        })
+        const cur = resolvedRef.current
+        const idx = cur === null ? rnames.length - 1 : rnames.indexOf(cur) - 1
+        setActiveRelease(idx < 0 ? null : rnames[idx])
       }
       if (e.shiftKey && e.code === 'Digit0') {
         e.preventDefault()
@@ -97,7 +87,7 @@ export default function EstimatorApp() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [rnames, showShortcuts, showHealthWarnings, showQr, showHelp])
+  }, [rnames])
 
   const filteredActs = useMemo(
     () => resolvedRelease ? acts.filter(a => a.release === resolvedRelease) : acts,
