@@ -1,3 +1,4 @@
 .idea/
 .env.cached
 **/.claude/transcripts
+**/.env
