@@ -1,2 +1,13 @@
-.envrc:1password-reference:3
-estimai-ui/.envrc:1password-reference:3
+.envrc:1password-reference:6
+.envrc:1password-reference:8
+.envrc:1password-reference:9
+
+auth/.envrc:1password-reference:6
+auth/.envrc:1password-reference:8
+auth/.envrc:1password-reference:9
+auth/.envrc:1password-reference:11
+auth/.envrc:1password-reference:12
+auth/.envrc:1password-reference:14
+auth/.envrc:1password-reference:15
+auth/.envrc:1password-reference:17
+auth/.envrc:1password-reference:18

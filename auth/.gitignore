@@ -13,6 +13,9 @@ prisma/generated/
 .env.local
 .env.*.local
 
+# Local JWT keypair (generate via openssl, see .env.example)
+*.pem
+
 # Bun
 .bun/
 bun.lock
