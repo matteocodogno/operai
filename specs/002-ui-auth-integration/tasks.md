@@ -11,7 +11,7 @@ generated: 2026-06-07
 
 BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in parallel.
 
-- [ ] T1: Serve hosted sign-in page with Google/GitHub buttons — refs: US-2, AC-2.1 — deps: none
+- [x] T1: Serve hosted sign-in page with Google/GitHub buttons — refs: US-2, AC-2.1 — deps: none
   - touch: `auth/src/signin/signin.routes.ts` (new), `auth/src/index.ts`
   - done when: bun test asserts `GET /sign-in` returns 200 HTML containing both a
     Google and a GitHub sign-in control, each wired to `POST /auth/sign-in/social`

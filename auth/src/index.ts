@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import { authRouter } from "./auth/auth.routes";
 import { healthRouter } from "./health/health.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
+import { signinRouter } from "./signin/signin.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -31,6 +32,7 @@ app.use("*", logger());
 app.route("/auth", authRouter);
 app.route("/", healthRouter);
 app.route("/", jwksRouter);
+app.route("/", signinRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
