@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
+import { env } from "../lib/env";
 
 type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
 
@@ -52,12 +53,33 @@ const PROVIDERS: Provider[] = [
 // ─── Seams for T2 / T3 ───────────────────────────────────────────────────────
 
 /**
- * T2 will validate `redirect` against ALLOWED_ORIGINS and fall back to
- * UI_HOME_URL. For T1 the post-login destination is intentionally left to
- * Better Auth's default, so this returns `null` (no `callbackURL` sent).
+ * Resolves the post-login `callbackURL` sent to Better Auth.
+ *
+ * The `redirect` query parameter is accepted only when its **origin**
+ * (scheme + host + port) is present in the `ALLOWED_ORIGINS` env list.
+ * Validation by parsed URL origin — not string prefix — prevents both
+ * path-based bypasses (`https://evil.com/?x=https://app.legit`) and
+ * subdomain spoofing (`https://app.legit.evil.com`).
+ *
+ * Any redirect that fails the origin check, or is absent, falls back to
+ * `UI_HOME_URL` so unauthenticated visitors who hit sign-in directly are
+ * sent to the EstimAI home page after login (AC-1.3).
  */
-function resolveCallbackURL(_redirect: string | undefined): string | null {
-  return null;
+function resolveCallbackURL(redirect: string | undefined): string {
+  if (redirect !== undefined) {
+    // Wrap in Result.catching equivalent: a malformed URL throws in the URL
+    // constructor — catch it and fall through to the fallback.
+    try {
+      const redirectOrigin = new URL(redirect).origin;
+      const allowed = env.ALLOWED_ORIGINS.some(
+        (o) => new URL(o).origin === redirectOrigin,
+      );
+      if (allowed) return redirect;
+    } catch {
+      // redirect is not a valid absolute URL — fall through to UI_HOME_URL
+    }
+  }
+  return env.UI_HOME_URL;
 }
 
 /**

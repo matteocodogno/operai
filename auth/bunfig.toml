@@ -7,3 +7,4 @@ bun = true
 
 [test]
 timeout = 10000
+preload = ["./src/test-setup.ts"]

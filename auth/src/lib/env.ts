@@ -16,6 +16,9 @@ const envSchema = z.object({
     .string()
     .min(1)
     .transform((v) => v.split(",").map((o) => o.trim())),
+  // Post-login fallback destination used when `redirect` is absent or fails
+  // origin validation (AC-1.3). Must be the EstimAI home absolute URL.
+  UI_HOME_URL: z.string().url("UI_HOME_URL must be a valid absolute URL"),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

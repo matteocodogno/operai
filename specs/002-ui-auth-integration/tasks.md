@@ -18,7 +18,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     with the matching provider; page uses Operai design tokens (DM Sans/Syne, dark
     ink, purple accent)
 
-- [ ] T2: Validate `redirect` param and wire post-login return — refs: US-1, AC-1.2, AC-1.3 — deps: T1
+- [x] T2: Validate `redirect` param and wire post-login return — refs: US-1, AC-1.2, AC-1.3 — deps: T1
   - touch: `auth/src/signin/signin.routes.ts`, `auth/src/lib/env.ts`, `auth/.env.example`
   - done when: bun tests assert (a) a `redirect` whose origin is in
     `ALLOWED_ORIGINS` is passed through as the OAuth `callbackURL`, (b) a foreign

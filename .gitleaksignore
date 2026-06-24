@@ -2,6 +2,8 @@
 .envrc:1password-reference:8
 .envrc:1password-reference:9
 
+# auth/src/test-setup.ts uses a placeholder BETTER_AUTH_SECRET for unit tests — not a real secret
+auth/src/test-setup.ts:generic-api-key:20
 auth/.envrc:1password-reference:6
 auth/.envrc:1password-reference:8
 auth/.envrc:1password-reference:9
