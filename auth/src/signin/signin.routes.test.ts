@@ -47,6 +47,108 @@ describe("GET /sign-in", () => {
   });
 });
 
+// ─── Security: script-context XSS (DEFECT 1) ────────────────────────────────
+//
+// Regression tests for the script-context XSS fix: a `redirect` that has a
+// valid allowlisted origin but a path containing `</script>` must not produce
+// a literal `</script>` in the rendered HTML.  The helper `scriptJsonEncode`
+// escapes `<` → `<` so the HTML parser can never close the script block
+// prematurely.
+
+describe("GET /sign-in — script-context XSS regression (DEFECT 1)", () => {
+  test("</script> in redirect path is escaped in rendered output", async () => {
+    const { env } = await import("../lib/env");
+    const allowedOrigin = env.ALLOWED_ORIGINS[0]; // e.g. http://localhost:5173
+    // Craft a URL whose path contains the breakout sequence.
+    const maliciousPath = `${allowedOrigin}/</script><script>alert(document.cookie)</script>`;
+    const res = await signinRouter.request(
+      `/sign-in?redirect=${encodeURIComponent(maliciousPath)}`,
+    );
+    const body = await res.text();
+
+    // The literal sequence `</script>` must NOT appear inside the JS string.
+    // The safe encoding < must be present instead.
+    expect(body).not.toContain("</script><script>");
+    expect(body).toContain("\\u003c/script");
+  });
+
+  test("script tag is properly closed once and only by the page template", async () => {
+    const { env } = await import("../lib/env");
+    const allowedOrigin = env.ALLOWED_ORIGINS[0];
+    const maliciousPath = `${allowedOrigin}/path?x=</script><script>evil()`;
+    const res = await signinRouter.request(
+      `/sign-in?redirect=${encodeURIComponent(maliciousPath)}`,
+    );
+    const body = await res.text();
+    // The injected `<script>` must not appear in the output as a raw tag.
+    expect(body).not.toMatch(/<script>evil/);
+  });
+});
+
+// ─── Security: CSP and framing headers (DEFECT 2) ────────────────────────────
+//
+// Regression tests verifying that `GET /sign-in` emits the required security
+// headers and that the nonce in the CSP header matches the `nonce` attribute
+// on the inline `<script>` tag.
+
+describe("GET /sign-in — security headers (DEFECT 2)", () => {
+  test("response includes Content-Security-Policy header", async () => {
+    const res = await signinRouter.request("/sign-in");
+    const csp = res.headers.get("content-security-policy");
+    expect(csp).not.toBeNull();
+  });
+
+  test("CSP contains frame-ancestors 'none'", async () => {
+    const res = await signinRouter.request("/sign-in");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  test("CSP contains script-src with a nonce", async () => {
+    const res = await signinRouter.request("/sign-in");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toMatch(/script-src 'nonce-[A-Za-z0-9_-]+'/);
+  });
+
+  test("nonce in CSP header matches nonce attribute on the <script> tag", async () => {
+    const res = await signinRouter.request("/sign-in");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    const body = await res.text();
+
+    // Extract nonce from CSP header.
+    const cspMatch = csp.match(/nonce-([A-Za-z0-9_-]+)/);
+    expect(cspMatch).not.toBeNull();
+    const headerNonce = cspMatch![1];
+
+    // The rendered <script> must carry the same nonce value.
+    expect(body).toContain(`nonce="${headerNonce}"`);
+  });
+
+  test("response includes X-Frame-Options: DENY", async () => {
+    const res = await signinRouter.request("/sign-in");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+  });
+
+  test("response includes X-Content-Type-Options: nosniff", async () => {
+    const res = await signinRouter.request("/sign-in");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  test("each request generates a unique nonce (no nonce reuse)", async () => {
+    const [res1, res2] = await Promise.all([
+      signinRouter.request("/sign-in"),
+      signinRouter.request("/sign-in"),
+    ]);
+    const csp1 = res1.headers.get("content-security-policy") ?? "";
+    const csp2 = res2.headers.get("content-security-policy") ?? "";
+    const nonce1 = csp1.match(/nonce-([A-Za-z0-9_-]+)/)?.[1];
+    const nonce2 = csp2.match(/nonce-([A-Za-z0-9_-]+)/)?.[1];
+    expect(nonce1).toBeDefined();
+    expect(nonce2).toBeDefined();
+    expect(nonce1).not.toBe(nonce2);
+  });
+});
+
 // ─── T2: redirect validation and callbackURL wiring ──────────────────────────
 //
 // These tests exercise `resolveCallbackURL` indirectly via the rendered HTML —

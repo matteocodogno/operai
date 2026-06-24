@@ -20,6 +20,26 @@ type Html = HtmlEscapedString | Promise<HtmlEscapedString>;
  *    `errorBanner` below).
  */
 
+// ─── Script-context JSON encoding ────────────────────────────────────────────
+
+/**
+ * Safely encodes a value as JSON for embedding inside a `<script>` block.
+ *
+ * `JSON.stringify` alone does NOT escape `<` or `>`, which means a value
+ * containing the literal string `</script>` would break out of the script
+ * context — the HTML parser closes the `<script>` block at the first
+ * `</script>` token regardless of JS string quoting.
+ *
+ * We escape `<` → `<` (covers `</script>`, `<!--`, `<script`, and every
+ * other tag-opening sequence).  The result is still valid JSON and valid JS.
+ *
+ * This helper MUST be used wherever a dynamic value is embedded in an inline
+ * `<script>` via `raw()`.  Never use bare `JSON.stringify` for that purpose.
+ */
+function scriptJsonEncode(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 // ─── Provider catalogue ──────────────────────────────────────────────────────
 
 type Provider = {
@@ -120,6 +140,8 @@ function providerButton(p: Provider): Html {
 function renderSignInPage(opts: {
   redirect: string | undefined;
   error: string | undefined;
+  /** Per-request CSP nonce. Must be placed on the `<script>` tag. */
+  nonce: string;
 }): Html {
   const callbackURL = resolveCallbackURL(opts.redirect);
 
@@ -243,9 +265,9 @@ function renderSignInPage(opts: {
           </div>
           <p class="footnote">Authorized wellD accounts only.</p>
         </main>
-        <script>
+        <script nonce="${opts.nonce}">
           (function () {
-            var callbackURL = ${raw(JSON.stringify(callbackURL))};
+            var callbackURL = ${raw(scriptJsonEncode(callbackURL))};
             var buttons = document.querySelectorAll("[data-provider]");
             buttons.forEach(function (btn) {
               btn.addEventListener("click", function () {
@@ -285,6 +307,40 @@ export const signinRouter = new OpenAPIHono();
 signinRouter.get("/sign-in", (c) => {
   const redirect = c.req.query("redirect");
   const error = c.req.query("error");
-  const page = renderSignInPage({ redirect, error });
+
+  // Generate a cryptographically random per-request nonce (128-bit, base64url).
+  // Web Crypto is available in Bun globally; no import required.
+  const nonceBytes = crypto.getRandomValues(new Uint8Array(16));
+  const nonce = btoa(String.fromCharCode(...nonceBytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+
+  // Security headers required by ADR-0002.
+  //
+  // CSP note: the page has a single inline `<script>` guarded by the nonce.
+  // `style-src` allows inline styles (the :root token block) and the Google
+  // Fonts stylesheet. `connect-src 'self'` covers the same-origin
+  // `fetch("/auth/sign-in/social")` call. Inline SVG icons render via
+  // `currentColor` — no `<img>` or data-URI — so `img-src 'none'` is correct.
+  // `frame-ancestors 'none'` replaces and supersedes `X-Frame-Options`.
+  c.header(
+    "Content-Security-Policy",
+    [
+      "default-src 'none'",
+      `script-src 'nonce-${nonce}'`,
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src https://fonts.gstatic.com",
+      "connect-src 'self'",
+      "img-src 'none'",
+      "frame-ancestors 'none'",
+    ].join("; "),
+  );
+  // Belt-and-suspenders framing protection for older browsers that ignore CSP.
+  c.header("X-Frame-Options", "DENY");
+  // Prevent MIME-type sniffing attacks.
+  c.header("X-Content-Type-Options", "nosniff");
+
+  const page = renderSignInPage({ redirect, error, nonce });
   return c.html(page);
 });
