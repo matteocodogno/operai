@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import Header from './components/Header'
 import { authClient } from './lib/authClient'
+import { clearJwtCache } from './lib/api'
 import MetricsBar from './components/MetricsBar'
 import ActivityTable from './components/ActivityTable'
 import SummaryTable from './components/SummaryTable'
@@ -34,6 +35,7 @@ export default function EstimatorApp() {
 
   const handleSignOut = useCallback(async () => {
     await authClient.signOut()
+    clearJwtCache()
     window.location.assign(`${getAuthUrl()}/sign-in`)
   }, [])
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')

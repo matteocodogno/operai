@@ -4,6 +4,7 @@ import { loadProjects, loadProject, createProject, saveProjectData, duplicatePro
 import { TEMPLATES } from '../lib/templates'
 import type { ProjectMeta } from '../types'
 import { authClient } from '../lib/authClient'
+import { clearJwtCache } from '../lib/api'
 import UserMenu from '../components/UserMenu'
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -27,6 +28,7 @@ export default function EstimatesPage() {
 
   const handleSignOut = useCallback(async () => {
     await authClient.signOut()
+    clearJwtCache()
     window.location.assign(`${getAuthUrl()}/sign-in`)
   }, [])
 
