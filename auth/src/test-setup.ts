@@ -32,3 +32,5 @@ setIfAbsent("ALLOWED_ORIGINS", "http://localhost:5173,https://app.estimai.io");
 // env schema; must be an absolute URL.
 setIfAbsent("UI_HOME_URL", "http://localhost:5173");
 setIfAbsent("NODE_ENV", "test");
+// ENABLE_TEST_AUTH is intentionally NOT set here (defaults to disabled).
+// Individual test files that need the gate open set it explicitly.

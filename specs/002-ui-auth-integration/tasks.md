@@ -104,7 +104,7 @@ BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run i
     and bun tests pass in auth, vitest and Playwright suites pass, every task
     above is checked, and spec 002 status is set to `done`
 
-- [ ] T14: Add dev/test-only session-mint endpoint to auth service — refs: enabling infra for AC-1.1 e2e (plan Architecture item 11, Risk 6) — deps: none
+- [x] T14: Add dev/test-only session-mint endpoint to auth service — refs: enabling infra for AC-1.1 e2e (plan Architecture item 11, Risk 6) — deps: none
   - touch: `auth/src/` (new test-auth route + register in `auth/src/index.ts`), `auth/src/lib/env.ts` (add `ENABLE_TEST_AUTH` flag)
   - done when: bun tests assert (a) when `NODE_ENV !== 'production'` AND
     `ENABLE_TEST_AUTH` is set, the endpoint mints a valid better-auth session

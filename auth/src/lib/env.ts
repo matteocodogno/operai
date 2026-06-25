@@ -23,6 +23,17 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
+  // ─── Test-auth gate ──────────────────────────────────────────────────────────
+  // Enables the dev/test-only session-mint endpoint (POST /test-auth/session).
+  // MUST NEVER be set in production. Only effective when NODE_ENV !== 'production'.
+  // Accepted values: "true" / "1" / "yes" (case-insensitive) = enabled.
+  // Any other value (including absent) = disabled.
+  ENABLE_TEST_AUTH: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v !== undefined && /^(true|1|yes)$/i.test(v) ? true : false,
+    ),
 });
 
 const result = envSchema.safeParse(process.env);
