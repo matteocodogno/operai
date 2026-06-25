@@ -5,6 +5,37 @@ import { auth } from "../auth/auth.config";
 import { getCookies } from "better-auth/cookies";
 
 /**
+ * Produces a Hono-compatible signed cookie value: "<token>.<HMAC-SHA256-base64>".
+ *
+ * This is the exact format that Hono's `parseSigned` / `getSignedCookie` expects
+ * (see hono/dist/utils/cookie.js → `serializeSigned`, `makeSignature`).  Using the
+ * same algorithm here means better-auth can accept the cookie through its normal
+ * `ctx.getSignedCookie(...)` path without any changes to the production auth config.
+ *
+ * The signing algorithm matches Hono's `makeSignature`:
+ *   key    = HMAC-SHA-256 import of the raw secret bytes
+ *   sig    = HMAC-SHA-256 sign of TextEncoder(value)
+ *   result = btoa(String.fromCharCode(...Uint8Array(sig)))  → 44 base64 chars
+ */
+const signCookieValue = async (value: string, secret: string): Promise<string> => {
+  const keyMaterial = new TextEncoder().encode(secret);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyMaterial,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signatureBuffer = await crypto.subtle.sign(
+    "HMAC",
+    cryptoKey,
+    new TextEncoder().encode(value),
+  );
+  const base64Sig = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)));
+  return `${value}.${base64Sig}`;
+};
+
+/**
  * Dev/test-only session-mint endpoint (T14, specs/002).
  *
  * POST /test-auth/session
@@ -109,8 +140,18 @@ testAuthRouter.post("/test-auth/session", async (c) => {
   const sessionCookieName = cookieConfig.sessionToken.name;
   const sessionCookieAttrs = cookieConfig.sessionToken.attributes;
 
+  // Sign the session token with the same HMAC-SHA-256 algorithm that Hono uses
+  // for signed cookies (`serializeSigned` / `makeSignature`).  The resulting value
+  // is "<token>.<base64-sig>" — accepted verbatim by Hono's `parseSigned` (and
+  // therefore by better-auth's `ctx.getSignedCookie`).
+  //
+  // We use `env.BETTER_AUTH_SECRET` directly because `ctx.context.secret` (used by
+  // better-auth internally) is derived from `options.secret`, which is wired to the
+  // same env var in `auth.config.ts`.
+  const signedCookieValue = await signCookieValue(session.token, env.BETTER_AUTH_SECRET);
+
   // Build the attribute string from the config object
-  const attrParts: string[] = [`${sessionCookieName}=${session.token}`];
+  const attrParts: string[] = [`${sessionCookieName}=${signedCookieValue}`];
 
   if (sessionCookieAttrs.path) attrParts.push(`Path=${sessionCookieAttrs.path}`);
   if (sessionCookieAttrs.httpOnly) attrParts.push("HttpOnly");
