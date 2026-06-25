@@ -1,8 +1,12 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { loadProjects, loadProject, createProject, saveProjectData, duplicateProject, deleteProject, importProjectFromJson, uid, DEF_PARAMS } from '../lib/projects'
 import { TEMPLATES } from '../lib/templates'
 import type { ProjectMeta } from '../types'
+import { authClient } from '../lib/authClient'
+import UserMenu from '../components/UserMenu'
+
+const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
 
 function formatDate(iso: string): string {
   try {
@@ -18,6 +22,13 @@ export default function EstimatesPage() {
   const [projects, setProjects] = useState<ProjectMeta[]>(() =>
     [...loadProjects()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
   )
+  const { data: session } = authClient.useSession()
+  const sessionUser = session?.user ?? null
+
+  const handleSignOut = useCallback(async () => {
+    await authClient.signOut()
+    window.location.assign(`${getAuthUrl()}/sign-in`)
+  }, [])
 
   function refresh() {
     setProjects([...loadProjects()].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()))
@@ -113,6 +124,9 @@ export default function EstimatesPage() {
           >
             + New estimate
           </button>
+          {sessionUser && (
+            <UserMenu user={sessionUser} onSignOut={handleSignOut} />
+          )}
         </div>
       </header>
 

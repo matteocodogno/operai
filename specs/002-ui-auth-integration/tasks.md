@@ -55,7 +55,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     `/estimates`, `/estimates/$estimateId`, and `/share`, and renders nothing of
     the app before the session check resolves
 
-- [ ] T8: Add UserMenu with sign-out to the app header — refs: US-5, AC-5.1, AC-5.2 — deps: T5
+- [x] T8: Add UserMenu with sign-out to the app header — refs: US-5, AC-5.1, AC-5.2 — deps: T5
   - touch: `estimai-ui/src/components/UserMenu.tsx` (new), `estimai-ui/src/components/Header.tsx`, `estimai-ui/src/EstimatorApp.tsx`, `estimai-ui/src/pages/EstimatesPage.tsx`
   - done when: component test asserts UserMenu renders the `user` prop's
     name/avatar and calls `onSignOut` on click; UserMenu receives data only via

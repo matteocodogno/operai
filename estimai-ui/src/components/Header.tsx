@@ -1,15 +1,24 @@
 import type { ChangeEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
+import UserMenu from './UserMenu'
 
-interface HeaderProps {
+type HeaderUser = {
+  name?: string | null
+  email?: string | null
+  image?: string | null
+}
+
+type HeaderProps = {
   name: string
   author: string
   saveStatus: 'idle' | 'saved'
   onNameChange: (name: string) => void
   onAuthorChange: (author: string) => void
+  user?: HeaderUser
+  onSignOut?: () => void
 }
 
-export default function Header({ name, author, saveStatus, onNameChange, onAuthorChange }: HeaderProps) {
+export default function Header({ name, author, saveStatus, onNameChange, onAuthorChange, user, onSignOut }: HeaderProps) {
   const navigate = useNavigate()
 
   return (
@@ -35,8 +44,8 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
           />
         </div>
 
-        {/* Right — save indicator + list navigation */}
-        <div className="w-60 flex items-center justify-end gap-3 shrink-0">
+        {/* Right — save indicator + list navigation + user menu */}
+        <div className="flex items-center justify-end gap-3 shrink-0">
           <span
             className="text-[11px] font-mono text-grn transition-opacity duration-500"
             style={{ opacity: saveStatus === 'saved' ? 1 : 0 }}
@@ -51,6 +60,9 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
           >
             ☰ My Estimates
           </button>
+          {user && onSignOut && (
+            <UserMenu user={user} onSignOut={onSignOut} />
+          )}
         </div>
       </div>
 
@@ -72,6 +84,9 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
         >
           ☰
         </button>
+        {user && onSignOut && (
+          <UserMenu user={user} onSignOut={onSignOut} />
+        )}
       </div>
     </header>
   )

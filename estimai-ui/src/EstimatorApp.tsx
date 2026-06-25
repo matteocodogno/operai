@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import Header from './components/Header'
+import { authClient } from './lib/authClient'
 import MetricsBar from './components/MetricsBar'
 import ActivityTable from './components/ActivityTable'
 import SummaryTable from './components/SummaryTable'
@@ -24,8 +25,17 @@ import { useTheme, THEME_CYCLE, THEME_ICON, THEME_LABEL } from './hooks/useTheme
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
+const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
+
 export default function EstimatorApp() {
   const { theme, setTheme } = useTheme()
+  const { data: session } = authClient.useSession()
+  const sessionUser = session?.user ?? null
+
+  const handleSignOut = useCallback(async () => {
+    await authClient.signOut()
+    window.location.assign(`${getAuthUrl()}/sign-in`)
+  }, [])
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
@@ -243,6 +253,8 @@ const exportPDF = useCallback(() => {
         saveStatus={saveStatus}
         onNameChange={setName}
         onAuthorChange={setAuthor}
+        user={sessionUser ?? undefined}
+        onSignOut={handleSignOut}
       />
 
       <MetricsBar
