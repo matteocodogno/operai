@@ -34,7 +34,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
   - touch: `estimai-ui/package.json`, `estimai-ui/vite.config.ts` (or `vitest.config.ts`)
   - done when: `pnpm test` runs vitest and a trivial sample test passes locally
 
-- [ ] T5: Add auth client and environment config — refs: US-2, AC-2.2 — deps: none
+- [x] T5: Add auth client and environment config — refs: US-2, AC-2.2 — deps: none
   - touch: `estimai-ui/src/lib/authClient.ts` (new), `estimai-ui/.env.example` (new), `estimai-ui/package.json`
   - done when: with the auth service running locally and a signed-in session,
     `authClient.getSession()` resolves the user; `VITE_AUTH_URL` is read from
