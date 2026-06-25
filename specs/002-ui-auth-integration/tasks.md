@@ -25,7 +25,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     or missing `redirect` falls back to `UI_HOME_URL`, (c) `UI_HOME_URL` is
     validated at startup like every other env var
 
-- [ ] T3: Render OAuth failure banner with retry — refs: US-2, AC-2.3 — deps: T1
+- [x] T3: Render OAuth failure banner with retry — refs: US-2, AC-2.3 — deps: T1
   - touch: `auth/src/signin/signin.routes.ts`
   - done when: bun test asserts `GET /sign-in?error=<code>` renders a
     human-readable message and both provider buttons remain present and active

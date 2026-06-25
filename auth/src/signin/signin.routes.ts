@@ -102,12 +102,81 @@ function resolveCallbackURL(redirect: string | undefined): string {
   return env.UI_HOME_URL;
 }
 
+// ─── Error-code catalogue ────────────────────────────────────────────────────
+
 /**
- * T3 will render a human-readable banner when `?error=<code>` is present.
- * For T1 this renders nothing.
+ * Maps known better-auth / OAuth error codes to fixed, user-facing messages.
+ *
+ * This is an explicit allowlist: only codes whose exact string value is a key
+ * in this map produce a specific message. Any other value (including attacker-
+ * controlled strings) falls back to the generic message below — we never echo
+ * an arbitrary code into the DOM.
+ *
+ * Codes sourced from better-auth OAuth callback error handling and the OAuth 2.0
+ * spec (RFC 6749 §4.1.2.1 and §4.2.2.1), as well as the better-auth source:
+ *   - `access_denied`     — user declined the consent screen
+ *   - `oauth_failed`      — provider returned an unrecognised or internal error
+ *   - `state_mismatch`    — CSRF state token did not match (replay / network glitch)
+ *   - `callback_failed`   — better-auth could not complete the callback step
+ *   - `invalid_request`   — malformed OAuth request parameters
+ *   - `temporarily_unavailable` — provider is temporarily down (RFC 6749)
  */
-function errorBanner(_error: string | undefined): HtmlEscapedString | "" {
-  return "";
+const ERROR_MESSAGES: Record<string, string> = {
+  access_denied:
+    "You declined access. Please try again when you are ready to sign in.",
+  oauth_failed:
+    "The sign-in attempt did not complete. Please try again.",
+  state_mismatch:
+    "The request could not be verified (CSRF check failed). Please try again.",
+  callback_failed:
+    "Something went wrong while completing sign-in. Please try again.",
+  invalid_request:
+    "The sign-in request was invalid. Please try again.",
+  temporarily_unavailable:
+    "The identity provider is temporarily unavailable. Please try again in a moment.",
+};
+
+/**
+ * Generic fallback shown for any unrecognised error code.
+ *
+ * We intentionally do NOT include the raw code in this string — the `?error=`
+ * query parameter is attacker-controlled, so echoing it would create a
+ * reflected-XSS vector even through Hono's html`` escaping (the message might
+ * still confuse or mislead users). A fixed generic string is always safe.
+ */
+const GENERIC_ERROR_MESSAGE =
+  "Sign-in could not be completed. Please try again.";
+
+/**
+ * Renders the OAuth-failure error banner above the provider buttons.
+ *
+ * Security contract:
+ * - The rendered string is produced with Hono's `html` tagged template, which
+ *   auto-escapes all interpolated values. No `raw()` call touches the message.
+ * - The message itself is sourced from the `ERROR_MESSAGES` allowlist or the
+ *   `GENERIC_ERROR_MESSAGE` constant — never from the raw `error` parameter.
+ *   This means an attacker-controlled `?error=` value is never echoed into the
+ *   DOM, even in escaped form.
+ * - The banner contains no inline event handlers or inline scripts, keeping it
+ *   compatible with the page's nonce-based CSP (the CSP blocks all scripts that
+ *   lack the per-request nonce).
+ *
+ * Returns `""` when `error` is `undefined` (no error query param present).
+ */
+function errorBanner(error: string | undefined): Html | "" {
+  if (error === undefined) return "";
+
+  // Look up the code in the allowlist; fall back to the generic message for
+  // any unknown or unexpected value (including injection attempts).
+  const message =
+    ERROR_MESSAGES[error] !== undefined
+      ? ERROR_MESSAGES[error]
+      : GENERIC_ERROR_MESSAGE;
+
+  // html`` auto-escapes every interpolated value. `message` is one of our own
+  // constants so it is inherently safe, but we still route it through the
+  // template (rather than raw()) to make the escaping guarantee structural.
+  return html`<div class="error-banner" role="alert">${message}</div>`;
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────

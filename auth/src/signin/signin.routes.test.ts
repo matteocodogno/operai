@@ -266,3 +266,157 @@ describe("GET /sign-in — redirect validation (T2)", () => {
     expect(env.UI_HOME_URL.startsWith("http")).toBe(true);
   });
 });
+
+// ─── T3: OAuth-failure banner and retry ──────────────────────────────────────
+//
+// AC-2.3: Given a user abandons or fails the OAuth flow, when they return to
+// EstimAI, then they remain signed out, see an understandable message, and can
+// retry.
+//
+// Security note: the `?error=` value is attacker-controlled. These tests also
+// verify that injection attempts are NOT reflected into the page as executable
+// or unescaped markup.
+
+describe("GET /sign-in — OAuth failure banner (T3)", () => {
+  test("renders a human-readable message when ?error=access_denied is present", async () => {
+    const res = await signinRouter.request("/sign-in?error=access_denied");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // A non-empty, visible message must appear
+    expect(body).toContain("error-banner");
+    // The message for access_denied must be user-friendly
+    expect(body).toContain("declined access");
+  });
+
+  test("renders a human-readable message when ?error=oauth_failed is present", async () => {
+    const res = await signinRouter.request("/sign-in?error=oauth_failed");
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    expect(body).toContain("sign-in attempt did not complete");
+  });
+
+  test("renders a human-readable message when ?error=state_mismatch is present", async () => {
+    const res = await signinRouter.request("/sign-in?error=state_mismatch");
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    expect(body).toContain("CSRF check failed");
+  });
+
+  test("renders a human-readable message when ?error=callback_failed is present", async () => {
+    const res = await signinRouter.request("/sign-in?error=callback_failed");
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    expect(body).toContain("went wrong while completing sign-in");
+  });
+
+  test("renders a human-readable message when ?error=invalid_request is present", async () => {
+    const res = await signinRouter.request("/sign-in?error=invalid_request");
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    expect(body).toContain("sign-in request was invalid");
+  });
+
+  test("renders a human-readable message when ?error=temporarily_unavailable is present", async () => {
+    const res = await signinRouter.request(
+      "/sign-in?error=temporarily_unavailable",
+    );
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    expect(body).toContain("temporarily unavailable");
+  });
+
+  test("falls back to a generic message for an unrecognised error code", async () => {
+    const res = await signinRouter.request("/sign-in?error=unknown_code_xyz");
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    // The generic message must appear
+    expect(body).toContain("Sign-in could not be completed");
+    // The raw unknown code must NOT be echoed into the page
+    expect(body).not.toContain("unknown_code_xyz");
+  });
+
+  test("no error banner element is rendered when ?error is absent", async () => {
+    const res = await signinRouter.request("/sign-in");
+    const body = await res.text();
+    // The error-banner CSS class is defined in the <style> block, but the
+    // <div class="error-banner"> element must not appear in the page body
+    // when no ?error param is present.
+    expect(body).not.toContain('<div class="error-banner"');
+  });
+
+  test("both provider buttons remain present and active when error is shown", async () => {
+    const res = await signinRouter.request("/sign-in?error=access_denied");
+    const body = await res.text();
+    // Both provider controls must still be present (not removed or disabled).
+    expect(body).toContain('data-provider="google"');
+    expect(body).toContain("Continue with Google");
+    expect(body).toContain('data-provider="github"');
+    expect(body).toContain("Continue with GitHub");
+    // The `disabled` HTML attribute must not be baked into the button elements
+    // themselves — buttons are only transiently disabled by JS during the OAuth
+    // redirect. The CSS rule `.provider-btn:disabled` in the <style> block is
+    // expected; what must not appear is the `disabled` attribute on a <button>.
+    expect(body).not.toMatch(/\btype="button"\s[^>]*disabled/);
+  });
+
+  // ── Security: injection via ?error= ───────────────────────────────────────
+  //
+  // The ?error= value is attacker-controlled and must NEVER be echoed into the
+  // DOM as raw HTML, even through Hono's html`` auto-escaping. The implementation
+  // maps known codes to fixed strings and replaces everything else with a
+  // generic message — the raw value is never interpolated.
+
+  test("XSS injection attempt via ?error= is not reflected as executable markup", async () => {
+    // Crafted value: a classic img-onerror XSS payload
+    const injection = "<img src=x onerror=alert(1)>";
+    const res = await signinRouter.request(
+      `/sign-in?error=${encodeURIComponent(injection)}`,
+    );
+    const body = await res.text();
+
+    // The raw injection payload must not appear literally in the response.
+    expect(body).not.toContain(injection);
+    // The unescaped tag open character from the injection must not appear
+    // inside the error-banner region in a way that could execute.
+    // Specifically, the onerror attribute must not be present.
+    expect(body).not.toContain("onerror=alert");
+    // A safe fallback message must be shown instead.
+    expect(body).toContain("Sign-in could not be completed");
+  });
+
+  test("HTML entities in ?error= are not echoed into the page (even escaped)", async () => {
+    // Even if Hono's html`` template escaped the value, we must not echo it
+    // back to the user — the implementation uses a fixed generic string.
+    const tricky = "<script>alert('xss')</script>";
+    const res = await signinRouter.request(
+      `/sign-in?error=${encodeURIComponent(tricky)}`,
+    );
+    const body = await res.text();
+
+    // The literal payload (raw or escaped) must not appear in the banner.
+    expect(body).not.toContain("<script>alert");
+    // An escaped echo would look like &lt;script&gt; — also must not appear.
+    expect(body).not.toContain("&lt;script&gt;");
+    // Generic fallback must be shown.
+    expect(body).toContain("Sign-in could not be completed");
+  });
+
+  test("banner has role=alert for accessibility", async () => {
+    const res = await signinRouter.request("/sign-in?error=oauth_failed");
+    const body = await res.text();
+    expect(body).toContain('role="alert"');
+  });
+
+  test("banner contains no inline event handlers or scripts", async () => {
+    const res = await signinRouter.request("/sign-in?error=access_denied");
+    const body = await res.text();
+    // Extract just the banner HTML to avoid false positives from the page's
+    // legitimate inline script block.
+    const bannerMatch = body.match(/<div class="error-banner"[^>]*>[\s\S]*?<\/div>/);
+    expect(bannerMatch).not.toBeNull();
+    const bannerHtml = bannerMatch![0];
+    expect(bannerHtml).not.toContain("onclick");
+    expect(bannerHtml).not.toContain("onerror");
+    expect(bannerHtml).not.toContain("<script");
+  });
+});
