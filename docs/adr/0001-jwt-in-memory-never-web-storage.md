@@ -95,6 +95,29 @@ close or page reload.
   additional protection for an attacker who has already achieved script execution
 - Rejected on the same security grounds as Option B
 
+## Scope: what "never web storage" covers
+
+This decision is about the **JWT and session token** — no credential is written to
+`localStorage`, `sessionStorage`, or `IndexedDB`. It is **not** an absolute ban on all
+`localStorage` writes by the auth stack.
+
+An OWASP review of the spec-002 implementation (2026-06-25) confirmed that
+`better-auth/react`'s `createAuthClient` writes a **cross-tab signalling envelope** to
+`localStorage` under the key `better-auth.message` (its broadcast-channel fallback). That
+value carries no JWT, session token, or PII — only `{ event, data.trigger, clientId,
+timestamp }` — and is used to notify other tabs to re-check the session on events such as
+sign-out. This is an accepted, scoped exception: it does not put any credential in
+persistent storage and therefore does not weaken the threat model above. The JWT
+(`src/lib/api.ts` module-scope cache) and the session cookie (`HttpOnly`) remain out of
+script-readable persistent storage as required. No code change is warranted; if a future
+requirement demands zero `localStorage` writes, replace better-auth's broadcast channel
+with the native `BroadcastChannel` API.
+
+The token-leakage guard for the `Bearer` header (only same-origin / `VITE_AUTH_URL` /
+`VITE_API_URL` origins receive the JWT) was added in the same review; see `src/lib/api.ts`
+(`isTrustedOrigin`). It complements this decision by preventing the in-memory JWT from
+being attached to requests aimed at untrusted origins.
+
 ## Consequences
 
 **Positive:**
