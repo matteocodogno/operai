@@ -8,8 +8,15 @@ generated: 2026-06-07
 > Synced 2026-06-07 against spec.md: the only spec change was the status
 > transition `approved → in-progress` (no story/AC changes) — task list verified
 > unchanged, 13/13 ACs still covered.
+>
+> Re-synced 2026-06-25 against the plan amendment (drift from T9): the auth
+> service is OAuth-only, so headless e2e has no non-interactive way to mint a
+> session. Plan now specifies a dev/test-only session-mint endpoint (Architecture
+> item 11, Risk 6). Added **T14** (that endpoint) and made **T9** depend on it;
+> **T13** close-out now also covers T14. Existing task IDs unchanged (T1–T9 are
+> referenced in commits). No spec/AC change — this is an internal test seam.
 
-BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in parallel.
+BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run in parallel.
 
 - [x] T1: Serve hosted sign-in page with Google/GitHub buttons — refs: US-2, AC-2.1 — deps: none
   - touch: `auth/src/signin/signin.routes.ts` (new), `auth/src/index.ts`
@@ -62,7 +69,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     props (no computation/fetching inside, per project convention); sign-out
     invokes `authClient.signOut()` then redirects to the sign-in page
 
-- [ ] T9: Set up Playwright e2e with seeded-session helper — refs: enabling infra for AC-1.1 (e2e ACs) — deps: T2, T6, T7
+- [ ] T9: Set up Playwright e2e with seeded-session helper — refs: enabling infra for AC-1.1 (e2e ACs) — deps: T2, T6, T7, T14
   - touch: `estimai-ui/e2e/` (new), `estimai-ui/package.json`, helper that seeds a
     better-auth session against the local auth service
   - done when: `pnpm e2e` runs Playwright against the locally running UI + auth
@@ -91,8 +98,18 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     executed against the locally running stack and each item is recorded
     pass/fail with date and tester
 
-- [ ] T13: Close out — gates green, spec done — refs: closing task — deps: T1–T12
+- [ ] T13: Close out — gates green, spec done — refs: closing task — deps: T1–T12, T14
   - touch: `specs/002-ui-auth-integration/spec.md`
   - done when: `pnpm lint` and `pnpm build` pass in estimai-ui, `bun run typecheck`
     and bun tests pass in auth, vitest and Playwright suites pass, every task
     above is checked, and spec 002 status is set to `done`
+
+- [ ] T14: Add dev/test-only session-mint endpoint to auth service — refs: enabling infra for AC-1.1 e2e (plan Architecture item 11, Risk 6) — deps: none
+  - touch: `auth/src/` (new test-auth route + register in `auth/src/index.ts`), `auth/src/lib/env.ts` (add `ENABLE_TEST_AUTH` flag)
+  - done when: bun tests assert (a) when `NODE_ENV !== 'production'` AND
+    `ENABLE_TEST_AUTH` is set, the endpoint mints a valid better-auth session
+    cookie for a seeded test user (usable against `GET /auth/get-session` and
+    `GET /auth/token`); (b) when the gate is off (flag unset OR
+    `NODE_ENV === 'production'`) the endpoint returns 404/403 and mints nothing;
+    production sign-in surface stays OAuth-only (no password path added). owasp
+    must verify the production gate when this lands.

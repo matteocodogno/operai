@@ -70,6 +70,15 @@ this feature and every future backend call goes through it.
 10. **OAuth failure display (AC-2.3)** — better-auth redirects back with
     `?error=<code>`; `/sign-in` renders a human-readable message above the
     buttons and keeps both buttons active for retry.
+11. **Test-only session-mint endpoint** (amendment 2026-06-25, drift from T9) —
+    the auth service gains a non-interactive endpoint that mints a session
+    cookie for a seeded test user, used solely to make headless e2e possible
+    (real OAuth cannot run headlessly). It is **hard-gated off in production**
+    (`NODE_ENV !== 'production'`, and only enabled under an explicit
+    `ENABLE_TEST_AUTH` flag); when the gate is off it does not exist (404/403).
+    This adds **no** production attack surface and does **not** introduce a
+    password sign-in path — production sign-in stays Google/GitHub OAuth only,
+    preserving AC-2.1 and ADR-002. It is a test seam, not a product feature.
 
 ### Decisions worth an ADR (offer after approval)
 
@@ -116,9 +125,14 @@ UI-side interceptor contract: every `apiFetch` request carries
 New tooling: **vitest** in estimai-ui (unit/component; first test runner in the
 package — also a prerequisite for future quality gates), **bun test** in auth
 (built-in), **Playwright** e2e against the locally running stack. Real-provider
-OAuth cannot run headlessly in CI: e2e seeds sessions through better-auth test
-helpers/dev credentials; one manual QE pass covers the live Google/GitHub round
-trip (noted per AC below).
+OAuth cannot run headlessly in CI, and the auth service exposes no password
+sign-up to mint a session non-interactively — so e2e obtains a session via a
+**dev/test-only session-mint endpoint in the auth service** (gated off in
+production, see Architecture item 11). The Playwright seeded-session helper
+(`90f7d70`) calls that endpoint, takes the returned session cookie, and injects
+it into the browser context before exercising the guarded app. The live
+Google/GitHub OAuth round trip remains covered by the manual QE pass (T12), not
+by automated e2e.
 
 | AC | Behaviour | Level |
 |---|---|---|
@@ -160,3 +174,11 @@ Coverage check: 13/13 ACs mapped. ✓
 5. ~~/share behind the wall~~ — **decided 2026-06-06**: confirmed. `/share`
    stays behind login like every other route; recipients of share links must
    sign in (any Google/GitHub account suffices, per decision 1).
+6. **Test-auth endpoint reachable in production = critical auth bypass**
+   (amendment 2026-06-25). The dev/test session-mint endpoint (Architecture
+   item 11) would let anyone mint a session for the seeded user if it ever
+   shipped enabled — a complete authentication bypass.
+   → Mitigation: hard environment gate (`NODE_ENV !== 'production'` AND explicit
+   `ENABLE_TEST_AUTH`), plus an automated test asserting the endpoint returns
+   404/403 when the gate is off. The owasp-reviewer must verify this gate when
+   the endpoint lands.
