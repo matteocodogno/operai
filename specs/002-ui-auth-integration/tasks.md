@@ -40,7 +40,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     `authClient.getSession()` resolves the user; `VITE_AUTH_URL` is read from
     `import.meta.env` with no hardcoded URL in source
 
-- [ ] T6: Implement JWT cache + apiFetch interceptor — refs: US-3, US-4, AC-3.1, AC-3.2, AC-4.1 — deps: T4, T5
+- [x] T6: Implement JWT cache + apiFetch interceptor — refs: US-3, US-4, AC-3.1, AC-3.2, AC-4.1 — deps: T4, T5
   - touch: `estimai-ui/src/lib/api.ts` (new), `estimai-ui/src/lib/api.test.ts` (new)
   - done when: vitest asserts (a) `apiFetch` attaches `Authorization: Bearer <jwt>`
     to every request, (b) on 401 it re-fetches `/auth/token` once and retries,
