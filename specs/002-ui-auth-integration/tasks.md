@@ -48,7 +48,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
     `redirect`; integration test verifies a real `/auth/token` JWT against the
     JWKS endpoint and that its `sub`/`email` match the session user
 
-- [ ] T7: Guard all routes behind an `_authed` layout route — refs: US-1, AC-1.1 — deps: T5
+- [x] T7: Guard all routes behind an `_authed` layout route — refs: US-1, AC-1.1 — deps: T5
   - touch: `estimai-ui/src/router.tsx`, `estimai-ui/src/router.test.tsx` (new)
   - done when: vitest asserts the layout `beforeLoad` redirects unauthenticated
     visitors to `<AUTH_URL>/sign-in?redirect=<current absolute URL>` for `/`,
