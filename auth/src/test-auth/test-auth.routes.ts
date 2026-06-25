@@ -58,6 +58,11 @@ const signCookieValue = async (value: string, secret: string): Promise<string> =
  * better-auth internalAdapter directly to create the user and session.
  */
 
+// Only emails ending with this suffix may be minted by this endpoint.
+// Anything else (e.g. admin@welld.ch) is rejected with 403 to prevent
+// impersonation of real users in staging/dev environments.
+const TEST_EMAIL_SUFFIX = "@operai.test";
+
 const RequestBodySchema = z.object({
   email: z.string().email().optional().default("test@operai.test"),
   name: z.string().optional().default("Test User"),
@@ -97,6 +102,22 @@ testAuthRouter.post("/test-auth/session", async (c) => {
         instance: c.req.path,
       },
       400,
+    );
+  }
+
+  // ── Test-domain allowlist (OWASP: prevent impersonation of real accounts) ──
+  // Reject any email that does not end with @operai.test.  This must run
+  // BEFORE the user lookup/create so a real account is never touched.
+  if (!body.email.endsWith(TEST_EMAIL_SUFFIX)) {
+    return c.json(
+      {
+        type: "https://httpstatuses.com/403",
+        title: "Forbidden",
+        status: 403,
+        detail: `Test sessions may only be minted for addresses ending with ${TEST_EMAIL_SUFFIX}`,
+        instance: c.req.path,
+      },
+      403,
     );
   }
 
@@ -164,10 +185,12 @@ testAuthRouter.post("/test-auth/session", async (c) => {
 
   // Return the session cookie in a Set-Cookie header so the calling test
   // (Playwright helper or bun test) can inject it into the browser context.
+  // NOTE: sessionToken is intentionally absent from the body (OWASP: avoid
+  // exposing raw bearer tokens as an exfiltration vector — the Set-Cookie
+  // header is the only delivery mechanism the test helper needs).
   return c.json(
     {
       userId,
-      sessionToken: session.token,
       email: body.email,
       name: body.name,
     },

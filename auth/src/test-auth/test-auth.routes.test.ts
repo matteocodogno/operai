@@ -332,14 +332,16 @@ describe("POST /test-auth/session — happy path (gate open)", () => {
     expect(setCookie).toMatch(/SameSite=/i);
   });
 
-  test("(a) response body includes userId, sessionToken and email", async () => {
+  test("(a) response body includes userId and email but NOT sessionToken (OWASP: no raw token in body)", async () => {
     const router = await openGate();
     const res = await postMintSession(router);
     const body = await res.json() as Record<string, unknown>;
 
     expect(body.userId).toBe(FAKE_USER_ID);
-    expect(body.sessionToken).toBe(FAKE_SESSION_TOKEN);
     expect(body.email).toBe("test@operai.test");
+    // sessionToken must be absent — the raw bearer token must not appear in the
+    // response body; the Set-Cookie header is the only delivery mechanism.
+    expect(body.sessionToken).toBeUndefined();
   });
 
   test("(a) uses better-auth internalAdapter to create the session (not a hand-forged cookie)", async () => {
@@ -418,6 +420,83 @@ describe("POST /test-auth/session — happy path (gate open)", () => {
     // getCookies must have been called with the auth options — proves we did not
     // hand-forge cookie attributes
     expect(mockGetCookies).toHaveBeenCalled();
+  });
+});
+
+describe("POST /test-auth/session — email domain allowlist (OWASP: impersonation guard)", () => {
+  const originalEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_TEST_AUTH: process.env.ENABLE_TEST_AUTH,
+  };
+
+  beforeEach(() => {
+    mockInternalAdapter.findUserByEmail.mockClear();
+    mockInternalAdapter.createUser.mockClear();
+    mockInternalAdapter.createSession.mockClear();
+    mockInternalAdapter.findUserByEmail.mockImplementation(async () => null);
+  });
+
+  afterEach(() => {
+    if (originalEnv.NODE_ENV !== undefined) {
+      process.env.NODE_ENV = originalEnv.NODE_ENV;
+    } else {
+      delete process.env.NODE_ENV;
+    }
+    if (originalEnv.ENABLE_TEST_AUTH !== undefined) {
+      process.env.ENABLE_TEST_AUTH = originalEnv.ENABLE_TEST_AUTH;
+    } else {
+      delete process.env.ENABLE_TEST_AUTH;
+    }
+  });
+
+  async function openGate(): Promise<import("@hono/zod-openapi").OpenAPIHono> {
+    const envModule = await import("../lib/env");
+    (envModule.env as Record<string, unknown>).ENABLE_TEST_AUTH = true;
+    (envModule.env as Record<string, unknown>).NODE_ENV = "test";
+    const { testAuthRouter } = await import("./test-auth.routes");
+    return testAuthRouter;
+  }
+
+  test("returns 403 when email is a real (non-test) address — impersonation must be blocked", async () => {
+    const router = await openGate();
+    const res = await postMintSession(router, { email: "admin@welld.ch" });
+
+    expect(res.status).toBe(403);
+
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe(403);
+    expect(body.title).toBe("Forbidden");
+
+    // No user lookup, no session minted — the domain check fires first
+    expect(mockInternalAdapter.findUserByEmail).not.toHaveBeenCalled();
+    expect(mockInternalAdapter.createSession).not.toHaveBeenCalled();
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  test("returns 403 for any email not ending with @operai.test", async () => {
+    const router = await openGate();
+
+    for (const badEmail of [
+      "user@example.com",
+      "test@operai.test.evil.com",
+      "attacker@operai.testextra",
+      "foo@gmail.com",
+    ]) {
+      const res = await postMintSession(router, { email: badEmail });
+      expect(res.status).toBe(403);
+      expect(mockInternalAdapter.createSession).not.toHaveBeenCalled();
+      mockInternalAdapter.createSession.mockClear();
+    }
+  });
+
+  test("returns 200 for a valid @operai.test address (allowlisted domain)", async () => {
+    const router = await openGate();
+    const res = await postMintSession(router, { email: "someone@operai.test" });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.email).toBe("someone@operai.test");
+    expect(mockInternalAdapter.createSession).toHaveBeenCalledTimes(1);
   });
 });
 

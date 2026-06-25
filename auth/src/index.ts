@@ -9,7 +9,6 @@ import { authRouter } from "./auth/auth.routes";
 import { healthRouter } from "./health/health.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
 import { signinRouter } from "./signin/signin.routes";
-import { testAuthRouter } from "./test-auth/test-auth.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -34,7 +33,19 @@ app.route("/auth", authRouter);
 app.route("/", healthRouter);
 app.route("/", jwksRouter);
 app.route("/", signinRouter);
-app.route("/", testAuthRouter);
+
+// ── Test-auth router (structural defence-in-depth) ──────────────────────────
+// Only import + register when BOTH conditions are true at startup:
+//   1. NODE_ENV !== 'production'
+//   2. ENABLE_TEST_AUTH === true
+// The dynamic import keeps the module out of the production bundle entirely
+// (not loaded, not visible in OpenAPI, no route registered).
+// The handler inside the module still performs its own request-time gate check
+// as a second layer of defence — do NOT remove that check.
+if (env.NODE_ENV !== "production" && env.ENABLE_TEST_AUTH) {
+  const { testAuthRouter } = await import("./test-auth/test-auth.routes");
+  app.route("/", testAuthRouter);
+}
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
