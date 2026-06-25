@@ -30,7 +30,7 @@ BE track (T1–T3) and FE track (T4–T8) have no mutual deps and may run in par
   - done when: bun test asserts `GET /sign-in?error=<code>` renders a
     human-readable message and both provider buttons remain present and active
 
-- [ ] T4: Set up vitest in estimai-ui — refs: enabling infra for AC-3.1, AC-4.1 (unit ACs) — deps: none
+- [x] T4: Set up vitest in estimai-ui — refs: enabling infra for AC-3.1, AC-4.1 (unit ACs) — deps: none
   - touch: `estimai-ui/package.json`, `estimai-ui/vite.config.ts` (or `vitest.config.ts`)
   - done when: `pnpm test` runs vitest and a trivial sample test passes locally
 
