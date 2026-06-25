@@ -1,0 +1,22 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-06-25T02-08-20Z-implement-002-ui-auth-integration",
+  "command": "implement",
+  "feature": "002-ui-auth-integration",
+  "started": "2026-06-25T02:08:20Z",
+  "finished": "2026-06-25T02:36:58Z",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T6"], "outcome": "completed", "commits": ["ee8bfcf"], "note": "in-memory JWT cache + apiFetch interceptor" },
+    { "agent": "frontend-dev", "tasks": ["T7"], "outcome": "completed", "commits": ["1b70c4d"], "note": "_authed route guard" },
+    { "agent": "frontend-dev", "tasks": ["T8"], "outcome": "completed", "commits": ["b41ade4"], "note": "UserMenu + sign-out" },
+    { "agent": "quality-engineer", "tasks": ["T6", "T7", "T8"], "outcome": "PASS" },
+    { "agent": "owasp-reviewer", "tasks": ["T6", "T7", "T8"], "outcome": "REVIEW_REQUIRED", "findings": { "medium": 1, "low": 2 } },
+    { "agent": "frontend-dev", "tasks": ["T6", "T8"], "outcome": "completed", "commits": ["c0ec9d4"], "note": "fix: trusted-origin Bearer allowlist + clearJwtCache on sign-out" },
+    { "agent": "owasp-reviewer", "tasks": ["T6", "T7", "T8"], "outcome": "PASS", "note": "re-verify: MEDIUM + LOW closed, 0 findings" }
+  ],
+  "drift_events": [],
+  "verdicts": { "qe": "PASS", "owasp": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
