@@ -1,0 +1,17 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-06-25T01-15-20Z-implement-002-ui-auth-integration",
+  "command": "implement",
+  "feature": "002-ui-auth-integration",
+  "started": "2026-06-25T01:15:20Z",
+  "finished": "2026-06-25T01:23:52Z",
+  "agents": [
+    { "agent": "backend-dev", "tasks": ["T3"], "outcome": "completed", "commits": ["4b5f702"] },
+    { "agent": "quality-engineer", "tasks": ["T3"], "outcome": "PASS" }
+  ],
+  "drift_events": [],
+  "verdicts": { "qe": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
