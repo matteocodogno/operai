@@ -16,4 +16,7 @@ import { createAuthClient } from 'better-auth/react'
  */
 export const authClient = createAuthClient({
   baseURL: import.meta.env.VITE_AUTH_URL,
+  // The auth service registers better-auth routes under /auth (basePath in auth.config.ts).
+  // Without this, better-auth/react defaults to /api/auth, which returns 404.
+  basePath: '/auth',
 })

@@ -69,7 +69,7 @@ BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run i
     props (no computation/fetching inside, per project convention); sign-out
     invokes `authClient.signOut()` then redirects to the sign-in page
 
-- [ ] T9: Set up Playwright e2e with seeded-session helper — refs: enabling infra for AC-1.1 (e2e ACs) — deps: T2, T6, T7, T14
+- [x] T9: Set up Playwright e2e with seeded-session helper — refs: enabling infra for AC-1.1 (e2e ACs) — deps: T2, T6, T7, T14
   - touch: `estimai-ui/e2e/` (new), `estimai-ui/package.json`, helper that seeds a
     better-auth session against the local auth service
   - done when: `pnpm e2e` runs Playwright against the locally running UI + auth
