@@ -6,3 +6,7 @@ postinstall = "corepack enable pnpm && corepack use pnpm@latest-10"
 
 [settings]
 experimental = true
+
+[tasks.release]
+description = "Cut a release (conventional-changelog, git tag, GitHub release)"
+run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelog@^8 dlx release-it"

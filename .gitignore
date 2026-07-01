@@ -2,3 +2,6 @@
 .env.cached
 **/.claude/transcripts
 **/.env
+
+# WellForge: transient token-event log (semantic run traces *.json ARE committed)
+.forge/runs/*.jsonl
