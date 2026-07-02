@@ -7,6 +7,12 @@ import { env } from "../lib/env";
 export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
   basePath: "/auth",
+  // Trust the same origins the Hono CORS layer already allows.
+  // Without this, better-auth's internal getTrustedOrigins() only trusts
+  // BETTER_AUTH_URL itself and rejects state-mutating calls (e.g. /auth/sign-out)
+  // that originate from the UI (localhost:5173 in dev, Vercel origin in prod)
+  // with 403 INVALID_ORIGIN — so sign-out can never terminate the server session.
+  trustedOrigins: env.ALLOWED_ORIGINS,
   database: prismaAdapter(db, {
     provider: "postgresql",
   }),

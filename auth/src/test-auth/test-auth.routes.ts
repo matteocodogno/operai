@@ -131,11 +131,18 @@ testAuthRouter.post("/test-auth/session", async (c) => {
   // ── Find-or-create the test user ──────────────────────────────────────────
   // We look up by email so repeated calls to this endpoint are idempotent —
   // the same user row is reused across test runs.
+  //
+  // On the existing-user path we also UPDATE the name (and any future provided
+  // fields) to match the request body, so the minted session deterministically
+  // reflects the caller's payload regardless of what the row was first created with.
   let userId: string;
 
   const existing = await adapter.findUserByEmail(body.email);
   if (existing) {
     userId = existing.user.id;
+    // Upsert the name so callers get deterministic user data in their sessions.
+    // This keeps e2e name-assertions from being DB-state-dependent.
+    await adapter.updateUser(userId, { name: body.name });
   } else {
     const created = await adapter.createUser({
       email: body.email,

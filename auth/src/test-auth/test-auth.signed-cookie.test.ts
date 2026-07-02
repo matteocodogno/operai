@@ -45,6 +45,16 @@ const mockInternalAdapter = {
     createdAt: new Date(),
     updatedAt: new Date(),
   })),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateUser: mock(async (_userId: string, data: Record<string, any>) => ({
+    id: FAKE_USER_ID,
+    email: "test@operai.test",
+    name: data.name ?? "Test User",
+    emailVerified: true,
+    image: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })),
   createSession: mock(async (_userId: string, _dontRememberMe: boolean) => ({
     id: "ses_regression_test",
     token: FAKE_SESSION_TOKEN,
@@ -89,6 +99,7 @@ describe("POST /test-auth/session — signed cookie format (D-1 regression)", ()
   beforeEach(() => {
     mockInternalAdapter.findUserByEmail.mockClear();
     mockInternalAdapter.createUser.mockClear();
+    mockInternalAdapter.updateUser.mockClear();
     mockInternalAdapter.createSession.mockClear();
     mockInternalAdapter.findUserByEmail.mockImplementation(async () => null);
   });

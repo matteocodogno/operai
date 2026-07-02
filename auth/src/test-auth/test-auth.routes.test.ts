@@ -64,6 +64,16 @@ const mockInternalAdapter = {
     createdAt: new Date(),
     updatedAt: new Date(),
   })),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  updateUser: mock(async (_userId: string, data: Record<string, any>) => ({
+    id: FAKE_USER_ID,
+    email: "test@operai.test",
+    name: data.name ?? "Test User",
+    emailVerified: true,
+    image: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })),
   createSession: mock(async (_userId: string, _dontRememberMe: boolean) => ({
     id: "ses_test_00000000",
     token: FAKE_SESSION_TOKEN,
@@ -129,6 +139,7 @@ describe("POST /test-auth/session — production gate (security)", () => {
     // Reset adapter mocks before each test
     mockInternalAdapter.findUserByEmail.mockClear();
     mockInternalAdapter.createUser.mockClear();
+    mockInternalAdapter.updateUser.mockClear();
     mockInternalAdapter.createSession.mockClear();
   });
 
@@ -273,6 +284,7 @@ describe("POST /test-auth/session — happy path (gate open)", () => {
   beforeEach(() => {
     mockInternalAdapter.findUserByEmail.mockClear();
     mockInternalAdapter.createUser.mockClear();
+    mockInternalAdapter.updateUser.mockClear();
     mockInternalAdapter.createSession.mockClear();
     // Reset findUserByEmail to return null (no existing user) by default
     mockInternalAdapter.findUserByEmail.mockImplementation(async () => null);
@@ -432,6 +444,7 @@ describe("POST /test-auth/session — email domain allowlist (OWASP: impersonati
   beforeEach(() => {
     mockInternalAdapter.findUserByEmail.mockClear();
     mockInternalAdapter.createUser.mockClear();
+    mockInternalAdapter.updateUser.mockClear();
     mockInternalAdapter.createSession.mockClear();
     mockInternalAdapter.findUserByEmail.mockImplementation(async () => null);
   });
@@ -514,6 +527,112 @@ describe("POST /test-auth/session — production sign-in surface unchanged", () 
     const eap = options.emailAndPassword as Record<string, unknown> | undefined;
     const enabled = eap?.enabled;
     expect(enabled).not.toBe(true);
+  });
+
+  // DEFECT 1 fix — trustedOrigins is tested in src/auth/auth.config.test.ts
+  // (separate file without mock.module overrides so the real auth options are inspected).
+});
+
+// ── DEFECT 2 fix — test-auth user name upsert ────────────────────────────────
+//
+// On the existing-user path the handler must call adapter.updateUser so the
+// session deterministically reflects the request-body name, regardless of the
+// name the row was first created with.
+
+describe("POST /test-auth/session — name upsert for existing user (DEFECT 2 fix)", () => {
+  const originalEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    ENABLE_TEST_AUTH: process.env.ENABLE_TEST_AUTH,
+  };
+
+  beforeEach(() => {
+    mockInternalAdapter.findUserByEmail.mockClear();
+    mockInternalAdapter.createUser.mockClear();
+    mockInternalAdapter.updateUser.mockClear();
+    mockInternalAdapter.createSession.mockClear();
+  });
+
+  afterEach(() => {
+    if (originalEnv.NODE_ENV !== undefined) {
+      process.env.NODE_ENV = originalEnv.NODE_ENV;
+    } else {
+      delete process.env.NODE_ENV;
+    }
+    if (originalEnv.ENABLE_TEST_AUTH !== undefined) {
+      process.env.ENABLE_TEST_AUTH = originalEnv.ENABLE_TEST_AUTH;
+    } else {
+      delete process.env.ENABLE_TEST_AUTH;
+    }
+  });
+
+  async function openGate(): Promise<import("@hono/zod-openapi").OpenAPIHono> {
+    const envModule = await import("../lib/env");
+    (envModule.env as Record<string, unknown>).ENABLE_TEST_AUTH = true;
+    (envModule.env as Record<string, unknown>).NODE_ENV = "test";
+    const { testAuthRouter } = await import("./test-auth.routes");
+    return testAuthRouter;
+  }
+
+  test("calls updateUser with the new name when the user already exists", async () => {
+    const existingUser = {
+      user: {
+        id: FAKE_USER_ID,
+        email: "returning@operai.test",
+        name: "Old Name",  // stale name from first registration
+        emailVerified: true,
+        image: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      accounts: [],
+    };
+    mockInternalAdapter.findUserByEmail.mockImplementation(async () => existingUser);
+
+    const router = await openGate();
+    await postMintSession(router, { email: "returning@operai.test", name: "E2E User" });
+
+    // updateUser MUST be called with the new name so subsequent sessions reflect it
+    expect(mockInternalAdapter.updateUser).toHaveBeenCalledTimes(1);
+    expect(mockInternalAdapter.updateUser).toHaveBeenCalledWith(FAKE_USER_ID, { name: "E2E User" });
+    // createUser must NOT be called — we reuse the existing row
+    expect(mockInternalAdapter.createUser).not.toHaveBeenCalled();
+    // Session is still created for the existing user
+    expect(mockInternalAdapter.createSession).toHaveBeenCalledWith(FAKE_USER_ID, false);
+  });
+
+  test("does NOT call updateUser when the user is newly created (no row yet)", async () => {
+    mockInternalAdapter.findUserByEmail.mockImplementation(async () => null);
+
+    const router = await openGate();
+    await postMintSession(router, { email: "brand-new@operai.test", name: "Fresh User" });
+
+    // New user path: createUser is called, updateUser is not
+    expect(mockInternalAdapter.createUser).toHaveBeenCalledTimes(1);
+    expect(mockInternalAdapter.updateUser).not.toHaveBeenCalled();
+  });
+
+  test("response body name reflects request payload name even for returning users", async () => {
+    const existingUser = {
+      user: {
+        id: FAKE_USER_ID,
+        email: "returning@operai.test",
+        name: "Stale Name",
+        emailVerified: true,
+        image: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      accounts: [],
+    };
+    mockInternalAdapter.findUserByEmail.mockImplementation(async () => existingUser);
+
+    const router = await openGate();
+    const res = await postMintSession(router, { email: "returning@operai.test", name: "E2E User" });
+
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, unknown>;
+    // The response body reflects the request-body name, not the stale DB name
+    expect(body.name).toBe("E2E User");
   });
 });
 
