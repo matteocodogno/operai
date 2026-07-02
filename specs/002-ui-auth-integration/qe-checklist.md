@@ -61,37 +61,44 @@ Legend: **Result** = PASS / FAIL / BLOCKED · fill **Date** and **Tester** on ex
 
 | # | Step | Expected | Result | Date | Tester |
 |---|------|----------|--------|------|--------|
-| 1 | Visit `http://localhost:5173/estimates` while signed out | Redirected to the auth `/sign-in` page; **both** "Continue with Google" and "Continue with GitHub" buttons visible, Operai-styled | | | |
+| 1 | Visit `http://localhost:5173/estimates` while signed out | Redirected to the auth `/sign-in` page; **both** "Continue with Google" and "Continue with GitHub" buttons visible, Operai-styled | **PASS** | 2026-07-02 | Matteo |
 
 ### AC-2.2 — Google sign-in completes, session persists
 
 | # | Step | Expected | Result | Date | Tester |
 |---|------|----------|--------|------|--------|
-| 2 | Click "Continue with Google", complete the Google consent | Redirected back to EstimAI; you land on the originally-requested page (`/estimates`) — the deep-link `redirect` is honored | | | |
-| 3 | Confirm identity in the header | The UserMenu shows your Google name/avatar | | | |
-| 4 | Full page reload (F5) | Still signed in — no bounce to `/sign-in`; app content stays | | | |
-| 5 | Open a new tab to `http://localhost:5173/` | Session shared (cookie) — lands in the app, not the wall | | | |
+| 2 | Click "Continue with Google", complete the Google consent | Redirected back to EstimAI; you land on the originally-requested page (`/estimates`) — the deep-link `redirect` is honored | **PASS** | 2026-07-02 | Matteo |
+| 3 | Confirm identity in the header | The UserMenu shows your Google name/avatar | **PASS** | 2026-07-02 | Matteo |
+| 4 | Full page reload (F5) | Still signed in — no bounce to `/sign-in`; app content stays | **PASS** | 2026-07-02 | Matteo |
+| 5 | Open a new tab to `http://localhost:5173/` | Session shared (cookie) — lands in the app, not the wall | **PASS** | 2026-07-02 | Matteo |
+
+> Note on #3: the Google avatar initially did not render (provider 403/429 on cross-origin
+> `Referer`); fixed by adding `referrerPolicy="no-referrer"` to the UserMenu `<img>`
+> (commit `e755e95`). Re-verified rendering after the fix.
 
 ### AC-2.2 — GitHub sign-in completes, session persists
 
 | # | Step | Expected | Result | Date | Tester |
 |---|------|----------|--------|------|--------|
-| 6 | Sign out (UserMenu → Sign out), then sign in via "Continue with GitHub" | GitHub consent → redirected back signed in | | | |
-| 7 | Header identity + reload persistence | UserMenu shows GitHub name/avatar; reload keeps the session | | | |
+| 6 | Sign out (UserMenu → Sign out), then sign in via "Continue with GitHub" | GitHub consent → redirected back signed in | **PASS** | 2026-07-02 | Matteo |
+| 7 | Header identity + reload persistence | UserMenu shows GitHub name/avatar; reload keeps the session | **PASS** | 2026-07-02 | Matteo |
+
+> Note on #6: an initial GitHub 404 was a setup issue (client ID/secret swapped in
+> `auth/.env`), not a product defect — corrected and re-run.
 
 ### AC-2.3 — abandoned / denied OAuth → error banner + retry
 
 | # | Step | Expected | Result | Date | Tester |
 |---|------|----------|--------|------|--------|
-| 8 | Start "Continue with Google", then **cancel/deny** at Google's consent screen | Returned to the EstimAI `/sign-in` page with a **human-readable error banner** (not a raw code / not a crash); **both** provider buttons remain present and clickable | | | |
-| 9 | Immediately retry — click "Continue with GitHub" and complete it | Sign-in succeeds on retry (the earlier failure did not lock the flow) | | | |
-| 10 | (Optional) Repeat step 8 for GitHub (deny authorization) | Same: error banner + retry-able buttons | | | |
+| 8 | Start "Continue with Google", then **cancel/deny** at Google's consent screen | Returned to the EstimAI `/sign-in` page with a **human-readable error banner** (not a raw code / not a crash); **both** provider buttons remain present and clickable | _pending_ | | |
+| 9 | Immediately retry — click "Continue with GitHub" and complete it | Sign-in succeeds on retry (the earlier failure did not lock the flow) | _pending_ | | |
+| 10 | (Optional) Repeat step 8 for GitHub (deny authorization) | Same: error banner + retry-able buttons | _pending_ | | |
 
 ### Sign-out (real session termination, live)
 
 | # | Step | Expected | Result | Date | Tester |
 |---|------|----------|--------|------|--------|
-| 11 | While signed in, click Sign out | Redirected to `/sign-in`; navigating back to `/estimates` bounces to the wall (session ended server-side, not just client cookie) | | | |
+| 11 | While signed in, click Sign out | Redirected to `/sign-in`; navigating back to `/estimates` bounces to the wall (session ended server-side, not just client cookie) | **PASS** | 2026-07-02 | Matteo |
 
 ---
 
