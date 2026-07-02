@@ -98,7 +98,7 @@ BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run i
     executed against the locally running stack and each item is recorded
     pass/fail with date and tester
 
-- [ ] T13: Close out — gates green, spec done — refs: closing task — deps: T1–T12, T14
+- [x] T13: Close out — gates green, spec done — refs: closing task — deps: T1–T12, T14
   - touch: `specs/002-ui-auth-integration/spec.md`
   - done when: `pnpm lint` and `pnpm build` pass in estimai-ui, `bun run typecheck`
     and bun tests pass in auth, vitest and Playwright suites pass, every task
