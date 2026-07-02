@@ -76,7 +76,7 @@ BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run i
     service and a smoke test signs in via the seeded session and loads the
     estimates list
 
-- [ ] T10: e2e — login wall and post-login return — refs: US-1, US-2, AC-1.1, AC-1.2, AC-1.3, AC-2.2 — deps: T9
+- [x] T10: e2e — login wall and post-login return — refs: US-1, US-2, AC-1.1, AC-1.2, AC-1.3, AC-2.2 — deps: T9
   - touch: `estimai-ui/e2e/login-wall.spec.ts` (new)
   - done when: e2e asserts (a) anonymous visits to `/`, `/estimates`, and `/share`
     land on the sign-in page with zero app content rendered, (b) signing in from a
