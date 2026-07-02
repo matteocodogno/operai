@@ -1,0 +1,36 @@
+---
+spec: 002
+evaluated: 2026-07-02
+rubric: default-v2
+score: 92
+verdict: PASS
+---
+# Eval report: Auth integration in estimai-ui
+
+| Dimension | Weight | Score (/5) | Floor | Weighted | Evidence |
+|---|---|---|---|---|---|
+| AC satisfaction | 35 | 5 | 4 | 35.0 | All 13 ACs met with test + observable behavior. AC-1.1 ↔ router.tsx:29-39 `_authed` guard + router.test.tsx (6 pass) + login-wall.spec.ts (no-content assertion hardened, d9b0350); AC-1.2/1.3 ↔ resolveCallbackURL signin.routes.ts:88-103 + signin.routes.test.ts T2 (a/b/c pass) + login-wall e2e; AC-2.1 ↔ signin.routes.test.ts:15-27 (both providers) + T12 #1 PASS; AC-2.2 ↔ T12 #2-5 PASS (live Google/GitHub, reload persists); AC-2.3 ↔ signin.routes.test.ts:280-421 (banner+retry, injection safe) + T12 #8-10 PASS; AC-3.1 ↔ api.test.ts (a)/(d) Bearer to trusted origins; AC-3.2 ↔ token/JWKS + sub/email split across unit + e2e (not one full-live assertion — see findings); AC-4.1 ↔ api.test.ts (b)/(c) refresh-retry-redirect + session-expiry.spec.ts guard path; AC-4.2 ↔ session-expiry.spec.ts:245-278 (redirect param + fresh-session return); AC-4.3 ↔ session-expiry.spec.ts:309-348 (localStorage survives round trip); AC-5.1 ↔ UserMenu.test.tsx (7 pass) + session-expiry.spec.ts:385-413; AC-5.2 ↔ session-expiry.spec.ts:466-534 (server-side get-session→null proof). |
+| Spec fidelity / no drift | 20 | 5 | 3 | 20.0 | Implementation matches approved plan.md exactly: in-memory JWT (ADR-0001, api.ts:26), hosted sign-in in auth service (ADR-0002), `_authed` layout guard, presentational UserMenu. The one deviation (test-session-mint endpoint) is a documented plan amendment (plan.md:73-81, 2026-06-25), approved, scoped as a test seam, hard-gated off in prod (test-auth.routes.ts:77-88) — not silent scope. Non-goals honored: no estimai-api wiring, OAuth-only in prod, no roles. Drift event T9→T14 recorded and resolved (run trace 2026-06-25T15-27-25Z). |
+| Test quality | 20 | 5 | 3 | 20.0 | Tests genuinely verify each AC and target regressions, not tautologies. api.test.ts asserts call ordering, token refresh count, third-party origin exclusion + no-credentials (12 tests). signin.routes.test.ts includes adversarial cases: open-redirect path-bypass, subdomain-spoof, `</script>` breakout, `?error=` XSS reflection (61 auth tests, 155 assertions). session-expiry.spec.ts proves server-side session deletion via a fresh request context with the original cookie (not just cookie-clear) — a real regression catcher. QE independently found and forced fixes for a HIGH sign-out-origin bug and a vacuous-assertion defect (run traces 2026-07-02). Confirmed live: vitest 27/27, bun 61/61. |
+| Code quality & conventions | 15 | 5 | 3 | 15.0 | Idiomatic to the codebase: zero-dependency fetch wrapper (no axios), lazy env reads for testability (api.ts:33,71), better-auth client used because the service IS better-auth. Realistic error handling: malformed-URL catch in resolveCallbackURL, unknown-error-code allowlist with generic fallback, nonce-CSP + script-context JSON escaping. No hallucinated APIs — better-auth internalAdapter, getCookies, Hono signed-cookie format all verified against real usage. basePath:'/auth' fix (authClient.ts:22) shows correct understanding of the real contract. UserMenu is purely presentational per the "components don't compute" convention. |
+| Design fidelity (UI) | 15 | N/A | 3 | — | No design.md in specs/002-ui-auth-integration/ (confirmed: only spec/plan/tasks/qe-checklist). Rubric `applies_when: design.md present` is not satisfied → N/A, excluded; total re-normalises over the remaining 85 weight. (Sign-in page UI quality is instead captured under code_quality + AC-2.1.) |
+| Trajectory | 10 | 5 | 2 | 10.0 | 9 wellforge-run/v1 traces show the right agents in dependency order: backend-dev/frontend-dev implement, quality-engineer gates every batch, owasp-reviewer runs on every security-touching task (T2, T6-8, T11, T14). Verification never skipped — QE caught real failures (T14 D-1 unsigned cookie; T11 HIGH sign-out 403) and forced fix rounds before PASS. Drift (T9→T14) recorded, resolved via approved amendment. Commits reference task IDs (1b70c4d T7, b41ade4 T8, c0ec9d4 T6/T8). |
+| **Total** | | | | **92.4/100** | Weighted 92.4 (sum 100.0 over applicable weight 85, ×100) |
+
+**Verdict: PASS** — 92/100 ≥ pass_score 80; every applicable dimension ≥ its floor (ac_satisfaction 5≥4, all others ≥3, trajectory 5≥2). design_fidelity excluded as N/A (no design.md).
+
+## Findings
+
+- **AC-3.2 is not proven by a single full-live assertion.** The "token identifies the correct user" chain is split: the interceptor attaches the token (api.test.ts, mocked), and separately the seeded e2e exercises a live `/auth/get-session`/`/auth/token` session — but there is no one automated test that fetches a live JWT, verifies its RS256 signature against JWKS, and asserts `sub`/`email` equal the session user in a single step. The plan (test strategy row AC-3.2) described this as an integration test; what shipped verifies the pieces across unit + e2e + the live T12 pass rather than end-to-end in one place. Evidence is strong overall, hence AC satisfaction stays 5, but this is the thinnest AC.
+
+- **apiFetch is infrastructure, not yet on a live app data path.** By design (spec non-goal: estimai-api wiring deferred to spec 001), the app makes no real backend call in normal navigation, so the 401 refresh-retry-redirect path is unit-tested only and the observable expiry mechanism exercised in e2e is the route guard, not apiFetch. session-expiry.spec.ts:31-40 documents this boundary honestly. Correct for this feature's scope; noted so the next feature wires and re-verifies it live.
+
+- **Several ACs verified via UI-observable proxy with real OAuth deferred to manual T12.** AC-1.2/2.2 full OAuth callback return cannot run headlessly; e2e uses a seeded-session proxy and the live round trip is covered by the manual T12 checklist (11/11 PASS, 2026-07-02, real Google + GitHub). This is a reasonable and disclosed mitigation, not a gap — but it does mean part of the pass rests on a manual run rather than CI.
+
+- **Pre-existing lint debt (not a 002 regression).** estimai-ui lint = baseline (5 err + 1 warn) in ActivityTable.tsx / EstimatorContext.tsx / SharedEstimatePage.tsx — files untouched by 002. QE close-out (e12703c) confirms no feature-002 regression. Weighed as pre-existing; does not lower code_quality.
+
+- **No design.md.** For a UI feature the design_fidelity dimension would normally apply; here it is N/A strictly because the artifact is absent. The sign-in page and UserMenu are nonetheless clean and accessible (role=alert banner, aria-labels, referrerPolicy avatar fix), captured under code_quality. Consider adding a design.md for future UI specs so this dimension can be scored on its merits.
+
+## Recommended next step
+
+- **PASS** → spec 002 may move to `done` (tasks.md notes spec was intentionally left `in-progress` pending this eval; T13 close-out otherwise complete). When wiring the first live estimai-api call (spec 001), add the end-to-end AC-3.2 assertion (live JWT → JWKS verify → sub/email match) and exercise the apiFetch 401 path against a real 401 to close the two thin spots noted above.

@@ -1,0 +1,17 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-02T15-26-01Z-eval-002-ui-auth-integration",
+  "command": "eval",
+  "feature": "002-ui-auth-integration",
+  "tier": "production",
+  "started": "2026-07-02T15:26:01Z",
+  "finished": "2026-07-02T15:28:37Z",
+  "agents": [
+    { "agent": "evaluator", "outcome": "PASS", "score": 92, "note": "default-v2 rubric; ac_satisfaction 5/5, all dims >= floor; design_fidelity N/A (no design.md); trajectory scored on 9 run traces" }
+  ],
+  "drift_events": [],
+  "verdicts": { "eval": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
