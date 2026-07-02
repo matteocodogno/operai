@@ -90,9 +90,9 @@ Legend: **Result** = PASS / FAIL / BLOCKED · fill **Date** and **Tester** on ex
 
 | # | Step | Expected | Result | Date | Tester |
 |---|------|----------|--------|------|--------|
-| 8 | Start "Continue with Google", then **cancel/deny** at Google's consent screen | Returned to the EstimAI `/sign-in` page with a **human-readable error banner** (not a raw code / not a crash); **both** provider buttons remain present and clickable | _pending_ | | |
-| 9 | Immediately retry — click "Continue with GitHub" and complete it | Sign-in succeeds on retry (the earlier failure did not lock the flow) | _pending_ | | |
-| 10 | (Optional) Repeat step 8 for GitHub (deny authorization) | Same: error banner + retry-able buttons | _pending_ | | |
+| 8 | Start "Continue with Google", then **cancel/deny** at Google's consent screen | Returned to the EstimAI `/sign-in` page with a **human-readable error banner** (not a raw code / not a crash); **both** provider buttons remain present and clickable | **PASS** | 2026-07-02 | Matteo |
+| 9 | Immediately retry — click "Continue with GitHub" and complete it | Sign-in succeeds on retry (the earlier failure did not lock the flow) | **PASS** | 2026-07-02 | Matteo |
+| 10 | (Optional) Repeat step 8 for GitHub (deny authorization) | Same: error banner + retry-able buttons | **PASS** | 2026-07-02 | Matteo |
 
 ### Sign-out (real session termination, live)
 
@@ -104,10 +104,13 @@ Legend: **Result** = PASS / FAIL / BLOCKED · fill **Date** and **Tester** on ex
 
 ## Result summary
 
-- **Executed on:** _<date>_ by _<tester>_
+- **Executed on:** 2026-07-02 by Matteo
 - **Environment:** local (auth :3001, UI :5173, Postgres :5435), real Google + GitHub OAuth apps
-- **Overall:** _PASS / FAIL_
-- **Notes / defects:** _<anything observed — screenshots welcome under specs/002-ui-auth-integration/evidence/>_
+- **Overall:** **PASS** (11/11 items)
+- **Notes / defects:** Two issues found and resolved during the run —
+  (1) Google avatar not rendering → fixed with `referrerPolicy="no-referrer"` (`e755e95`);
+  (2) initial GitHub 404 was a setup mistake (client ID/secret swapped in `auth/.env`), not a
+  product defect. AC-2.3 (abandoned/denied OAuth) confirmed live for both providers.
 
 > When all items are PASS, check the **T12** box in `tasks.md`. Any FAIL → file it as a
 > defect and route the fix through `/wellforge:implement` before closing T12.
