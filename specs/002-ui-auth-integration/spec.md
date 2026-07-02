@@ -1,9 +1,10 @@
 ---
 id: 002
 slug: ui-auth-integration
-status: in-progress
+status: done
 created: 2026-06-06
 approved: 2026-06-06
+completed: 2026-07-02
 ---
 
 # Auth integration in estimai-ui

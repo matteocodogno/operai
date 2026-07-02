@@ -15,6 +15,9 @@ generated: 2026-06-07
 > item 11, Risk 6). Added **T14** (that endpoint) and made **T9** depend on it;
 > **T13** close-out now also covers T14. Existing task IDs unchanged (T1–T9 are
 > referenced in commits). No spec/AC change — this is an internal test seam.
+>
+> Completed 2026-07-02: all 14 tasks done; T12 manual QE 11/11 PASS; close-out gates
+> green (vitest 27, e2e 18, auth bun test 61); eval PASS 92/100 → spec status set to `done`.
 
 BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run in parallel.
 
