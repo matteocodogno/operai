@@ -1,0 +1,21 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-02T08-15-46Z-implement-002-ui-auth-integration",
+  "command": "implement",
+  "feature": "002-ui-auth-integration",
+  "tier": "production",
+  "started": "2026-07-02T08:15:46Z",
+  "finished": "2026-07-02T08:59:16Z",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T11"], "outcome": "completed", "commits": ["bbef26b"], "note": "e2e session-expiry spec; 17/17 green but masked a sign-out bug with clearCookies" },
+    { "agent": "quality-engineer", "tasks": ["T11"], "outcome": "FAIL", "note": "found HIGH product bug: /auth/sign-out 403 Invalid origin (no trustedOrigins) — sign-out never terminates server session; + MEDIUM test-fidelity name anchor" },
+    { "agent": "backend-dev", "tasks": ["T11"], "outcome": "completed", "commits": ["7aee4d5"], "note": "fix: trustedOrigins=ALLOWED_ORIGINS; test-auth upserts user name; 61 bun tests" },
+    { "agent": "frontend-dev", "tasks": ["T11"], "outcome": "completed", "commits": ["19dea7b"], "note": "e2e now proves server-side sign-out (get-session→null with old cookie); preview on trusted port 5173; name anchor fixed; 18/18 green" },
+    { "agent": "owasp-reviewer", "tasks": ["T11"], "outcome": "PASS", "findings": { "low": 1 }, "note": "trustedOrigins fix correct & safe (exact-match closed allowlist); 1 low (BETTER_AUTH_TRUSTED_ORIGINS env footgun) documented in .env.example" }
+  ],
+  "drift_events": [],
+  "verdicts": { "qe": "PASS", "owasp": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
