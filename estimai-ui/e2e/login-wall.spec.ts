@@ -52,8 +52,13 @@ const AUTH_ORIGIN =
     process.env['VITE_AUTH_URL'] ??
     'http://localhost:3001').replace(/\/$/, '')
 
-/** UI origin — where Playwright's webServer serves the Vite preview. */
-const UI_ORIGIN = 'http://localhost:4173'
+/**
+ * UI origin — where Playwright's webServer serves the Vite preview.
+ * Must match the port configured in playwright.config.ts webServer.
+ * Port 5173 is used (not the default 4173) so that the origin is in
+ * better-auth's ALLOWED_ORIGINS trusted list and sign-out succeeds.
+ */
+const UI_ORIGIN = 'http://localhost:5173'
 
 /**
  * Asserts that the browser was redirected to the auth sign-in page and that

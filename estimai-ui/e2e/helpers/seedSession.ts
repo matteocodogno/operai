@@ -30,7 +30,7 @@ export const E2E_TEST_USER = {
   email: 'e2e@operai.test',
 } as const
 
-type ParsedCookie = {
+export type ParsedCookie = {
   name: string
   value: string
   domain: string
@@ -135,14 +135,21 @@ const parseCookies = (setCookieHeader: string, domain: string): ParsedCookie[] =
  * it into the browser context so the UI's `_authed` route guard sees an
  * authenticated session from the very first page load.
  *
+ * Returns the injected cookies so callers can capture the raw session token
+ * for out-of-band verification (e.g. AC-5.2: assert GET /auth/get-session
+ * returns null after sign-out, proving server-side session termination).
+ *
  * Usage in a test:
  * ```ts
  * test.beforeEach(async ({ context }) => {
  *   await seedSession(context)
  * })
+ *
+ * // With session-cookie capture for server-side verification:
+ * const cookies = await seedSession(context)
  * ```
  */
-export const seedSession = async (context: BrowserContext): Promise<void> => {
+export const seedSession = async (context: BrowserContext): Promise<ParsedCookie[]> => {
   const cookies = await acquireSessionCookies()
   if (cookies.length === 0) {
     throw new Error(
@@ -151,4 +158,5 @@ export const seedSession = async (context: BrowserContext): Promise<void> => {
     )
   }
   await context.addCookies(cookies)
+  return cookies
 }

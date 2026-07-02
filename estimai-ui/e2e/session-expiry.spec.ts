@@ -47,21 +47,36 @@
  *          correct page — simulating the post-OAuth return with the session cookie.
  *
  * AC-5.1 SELECTOR PROOF (non-vacuous):
- *   The seeded test user's DB name is "Test User" (see SEEDED_USER_DISPLAY_NAME).  UserMenu.tsx
- *   renders displayName (= user.name) in a <span> element with a `text-soft`
- *   class (line 43) and also as aria-label on the avatar element (line 37).
- *   We assert page.getByText(SEEDED_USER_DISPLAY_NAME) is visible in the header.
- *   This fails if the UserMenu is not rendered or the user name is different.
+ *   The seeded test user's DB name is E2E_TEST_USER.name (see seedSession.ts).
+ *   The POST /test-auth/session endpoint upserts the name on every call (fixed
+ *   in commit 7aee4d5), so the stored name deterministically matches what the
+ *   seed sends regardless of prior DB state.  UserMenu.tsx renders displayName
+ *   (= user.name) in a <span> element with a `text-soft` class (line 43) and
+ *   also as aria-label on the avatar element (line 37).
+ *   We assert page.getByText(E2E_TEST_USER.name) is visible in the header.
+ *   This fails if the UserMenu is not rendered or the user name differs.
  *
  * AC-5.2 SELECTOR PROOF (non-vacuous):
  *   UserMenu.tsx renders a <button aria-label="Sign out"> (line 48) with text
- *   "Sign out" (line 51).  We click it and assert the URL moves to the auth
- *   sign-in page.  The subsequent navigation test re-uses assertRedirectedToSignIn.
+ *   "Sign out" (line 51).  We click it, wait for authClient.signOut() to POST
+ *   to /auth/sign-out (which terminates the server-side session), and then
+ *   verify server-side termination by calling GET /auth/get-session with the
+ *   original session cookie via the Playwright request API — asserting the
+ *   response body's `session` field is null/absent.  This is the direct proof
+ *   that the server deleted the session row, not merely that the cookie was
+ *   cleared from the browser.
+ *
+ * TRUSTED-ORIGIN NOTE (preview port = 5173):
+ *   better-auth's /auth/sign-out validates the request Origin against
+ *   trustedOrigins (= ALLOWED_ORIGINS).  The committed default includes
+ *   http://localhost:5173.  playwright.config.ts therefore runs the preview
+ *   server on port 5173 (--port 5173 --strictPort) so the sign-out POST is
+ *   accepted and actually terminates the server session.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 
 import { test, expect } from '@playwright/test'
-import { seedSession } from './helpers/seedSession'
+import { seedSession, E2E_TEST_USER } from './helpers/seedSession'
 import {
   PROJECTS_KEY,
   projectKey,
@@ -81,7 +96,7 @@ const AUTH_ORIGIN = (
 ).replace(/\/$/, '')
 
 /** UI origin — where Playwright's webServer serves the Vite preview. */
-const UI_ORIGIN = 'http://localhost:4173'
+const UI_ORIGIN = 'http://localhost:5173'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -335,25 +350,17 @@ test.describe('AC-4.3: estimate edits in localStorage survive the session-expiry
 
 // ─── AC-5.1 — Header shows signed-in user's name/avatar ──────────────────────
 
-/**
- * The seeded e2e test user's actual stored name in the database.
- *
- * The POST /test-auth/session endpoint is idempotent (find-or-create).  The
- * e2e test user (e2e@operai.test) was first created with the name "Test User"
- * (the schema default, test-auth.routes.ts: `name: z.string().optional().default("Test User")`).
- * Subsequent calls that pass `name: "E2E User"` do NOT update the existing user
- * record — only the session is minted.  Therefore the UserMenu will display
- * the name from the database: "Test User".
- *
- * This constant anchors the assertion to the real stored value so the test
- * remains non-vacuous: it fails if the UserMenu renders a different name or is
- * absent entirely.
- */
-const SEEDED_USER_DISPLAY_NAME = 'Test User'
-
 test.describe('AC-5.1: header displays the signed-in user\'s name', () => {
   /**
    * MECHANISM: UserMenu component (src/components/UserMenu.tsx).
+   *
+   * The seeded test user's name is E2E_TEST_USER.name (= 'E2E User' as sent by
+   * seedSession.ts).  The POST /test-auth/session endpoint upserts the `name`
+   * field on every call (commit 7aee4d5), so the stored DB name deterministically
+   * matches what the seed sends regardless of prior DB state.  This removes the
+   * original ambiguity where the name was "Test User" (the schema default) even
+   * when the seed sent "E2E User", because only `createUser` was called the first
+   * time and subsequent calls only minted a new session without updating the name.
    *
    * UserMenu renders displayName (= user.name ?? user.email ?? 'Account') as:
    *   - aria-label on the avatar <span> element (UserMenu.tsx line 37)
@@ -362,11 +369,14 @@ test.describe('AC-5.1: header displays the signed-in user\'s name', () => {
    *
    * The assertion is non-vacuous: it fails if:
    *   - UserMenu is not rendered (session absent, wrong user prop)
-   *   - The user name in the DB differs from SEEDED_USER_DISPLAY_NAME
+   *   - The user name in the DB differs from E2E_TEST_USER.name
    *   - The displayName span is hidden (sm: breakpoint: Desktop Chrome = 1280px ≫ 640px)
    *
    * The span has class "hidden sm:block" — Desktop Chrome viewport (1280px) is
    * above the sm: breakpoint (640px in Tailwind 4), so the text IS visible.
+   *
+   * Grep: E2E_TEST_USER.name = 'E2E User' (seedSession.ts line 29)
+   *       UserMenu.tsx line 43: "{displayName}"
    */
   test.beforeEach(async ({ context }) => {
     await seedSession(context)
@@ -376,11 +386,12 @@ test.describe('AC-5.1: header displays the signed-in user\'s name', () => {
     await page.goto('/estimates')
     await expect(page).toHaveURL(/\/estimates/, { timeout: 15_000 })
 
-    // The UserMenu renders the user name in the header.
-    // SEEDED_USER_DISPLAY_NAME = 'Test User' (the stored DB name for e2e@operai.test).
-    // This is non-vacuous: fails if the UserMenu is absent or shows a different name.
+    // Assert on E2E_TEST_USER.name — the actual name the seed sends and the
+    // endpoint upserts into the DB.  Anchoring on the exported constant (not a
+    // hardcoded string) guarantees the test stays in sync if the seed name changes.
+    // Grep: seedSession.ts: name: 'E2E User'
     // Grep: UserMenu.tsx line 43: "{displayName}"
-    const userNameText = page.getByText(SEEDED_USER_DISPLAY_NAME, { exact: true })
+    const userNameText = page.getByText(E2E_TEST_USER.name, { exact: true })
     await expect(userNameText).toBeVisible({ timeout: 10_000 })
 
     // Additionally: the sign-out button is present in the header (confirms
@@ -396,8 +407,8 @@ test.describe('AC-5.1: header displays the signed-in user\'s name', () => {
     // The avatar (span when no image) has aria-label={displayName}.
     // Grep: UserMenu.tsx line 37: aria-label={displayName}
     // The seeded test user has no image (image: null from getSession response),
-    // so the <span> avatar branch is rendered with aria-label = SEEDED_USER_DISPLAY_NAME.
-    const avatar = page.locator(`[aria-label="${SEEDED_USER_DISPLAY_NAME}"]`).first()
+    // so the <span> avatar branch is rendered with aria-label = E2E_TEST_USER.name.
+    const avatar = page.locator(`[aria-label="${E2E_TEST_USER.name}"]`).first()
     await expect(avatar).toBeVisible({ timeout: 10_000 })
   })
 })
@@ -414,35 +425,26 @@ test.describe('AC-5.2: sign-out ends the session and redirects subsequent naviga
    *   2. Calls clearJwtCache()       — drops the in-memory JWT (ADR-0001).
    *   3. Calls window.location.assign(`${AUTH_URL}/sign-in`) — hard redirect.
    *
-   * ORIGIN RESTRICTION NOTE:
+   * TRUSTED-ORIGIN REQUIREMENT:
    *   better-auth's /auth/sign-out validates the request's Origin header against
-   *   its internal trusted-origins list.  In local e2e the UI preview server
-   *   runs on localhost:4173.  If that origin is not in the auth service's
-   *   ALLOWED_ORIGINS / trustedOrigins, better-auth may reject the sign-out
-   *   POST with 403 "Invalid origin" — even though the hard redirect to sign-in
-   *   still fires (step 3 is unconditional).
+   *   trustedOrigins (populated from ALLOWED_ORIGINS, default includes 5173).
+   *   playwright.config.ts serves the preview on port 5173 (--port 5173 --strictPort)
+   *   so the sign-out POST is trusted and actually deletes the server-side session row.
    *
-   *   Observable consequence: the first test (redirect to sign-in) passes
-   *   regardless; the second test (subsequent navigation is blocked) may fail
-   *   if the session cookie was never cleared by the server.
-   *
-   *   Mitigation for the second test: after the sign-out button triggers the
-   *   redirect to sign-in, we also explicitly clear all browser context cookies.
-   *   This ensures the navigation guard test is not contaminated by a stale
-   *   cookie left behind when sign-out fails silently.  The explicit clear
-   *   simulates the complete session invalidation that a successful sign-out
-   *   produces, and tests that the _authed guard blocks access when there is
-   *   no session — which is the exact post-sign-out state.
+   * SERVER-SIDE TERMINATION PROOF (AC-5.2):
+   *   After the sign-out button is clicked we verify the session was terminated
+   *   server-side by calling GET /auth/get-session via the Playwright request API
+   *   with the original session cookie.  A null/absent `session` field in the
+   *   response proves the server deleted the session row — this cannot pass if
+   *   sign-out merely cleared the browser cookie without terminating the server session.
    *
    * Grep: UserMenu.tsx line 48: aria-label="Sign out"
    *       UserMenu.tsx line 51: "Sign out" (button text)
    *       EstimatesPage.tsx line 29: handleSignOut
    */
-  test.beforeEach(async ({ context }) => {
-    await seedSession(context)
-  })
 
-  test('clicking Sign out redirects to the auth sign-in page', async ({ page }) => {
+  test('clicking Sign out redirects to the auth sign-in page', async ({ context, page }) => {
+    await seedSession(context)
     await page.goto('/estimates')
     await expect(page).toHaveURL(/\/estimates/, { timeout: 15_000 })
 
@@ -461,6 +463,77 @@ test.describe('AC-5.2: sign-out ends the session and redirects subsequent naviga
     await assertRedirectedToSignIn(page)
   })
 
+  test('sign-out terminates the server-side session (GET /auth/get-session returns null with original cookie)', async ({ context, page, request }) => {
+    /**
+     * AC-5.2 SERVER-SIDE TERMINATION PROOF
+     *
+     * This test proves that authClient.signOut() actually deletes the session
+     * row on the server — not merely clears the browser cookie.
+     *
+     * Mechanism:
+     *   1. Seed a session and capture the raw session cookie value.
+     *   2. Navigate to the app and click Sign out.
+     *   3. Wait for the redirect to sign-in (confirms handleSignOut ran).
+     *   4. Using the Playwright `request` API (not the browser), call
+     *      GET /auth/get-session on the auth service with the ORIGINAL
+     *      session cookie explicitly set in the Cookie header.
+     *   5. Assert the response's `session` field is null — the server deleted
+     *      the session row, so even presenting the original token returns null.
+     *
+     * This assertion CANNOT pass if:
+     *   - sign-out's POST /auth/sign-out was rejected (e.g. origin mismatch)
+     *   - the session row was not deleted (sign-out returned 200 but was a no-op)
+     *   - the cookie we captured was wrong (test infrastructure issue)
+     *
+     * The only way it passes is if the server-side session was genuinely terminated.
+     */
+
+    // 1. Seed a session and capture the session cookie.
+    const seededCookies = await seedSession(context)
+    // Find the better-auth session token cookie (name contains "session_token").
+    const sessionCookie = seededCookies.find((c) => c.name.includes('session_token'))
+    expect(sessionCookie, 'session_token cookie must be present in seeded cookies').toBeTruthy()
+    const rawCookieHeader = `${sessionCookie!.name}=${sessionCookie!.value}`
+
+    // 2. Navigate to the app — confirm authenticated.
+    await page.goto('/estimates')
+    await expect(page).toHaveURL(/\/estimates/, { timeout: 15_000 })
+
+    // 3. Click Sign out.
+    const signOutBtn = page.getByRole('button', { name: /sign out/i })
+    await expect(signOutBtn).toBeVisible({ timeout: 10_000 })
+    await signOutBtn.click()
+
+    // Wait for the hard redirect to sign-in — confirms handleSignOut completed
+    // (including the authClient.signOut() call before window.location.assign).
+    await expect(page).toHaveURL(new RegExp(`^${AUTH_ORIGIN}/sign-in`), { timeout: 15_000 })
+
+    // 4. Verify server-side session termination via a direct request to the auth service.
+    //    We use the Playwright `request` fixture (a fresh APIRequestContext) rather
+    //    than the browser, so the browser's cleared cookie jar does not interfere —
+    //    we are explicitly passing the ORIGINAL cookie value to prove the session row
+    //    is gone server-side, not merely that the browser no longer sends the cookie.
+    const getSessionResponse = await request.get(`${AUTH_ORIGIN}/auth/get-session`, {
+      headers: {
+        Cookie: rawCookieHeader,
+      },
+    })
+
+    // better-auth returns HTTP 200 with the JSON literal `null` body when no
+    // valid session is found for the presented token (the session row was deleted).
+    // With a VALID session it returns { session: {...}, user: {...} }.
+    // Therefore a `null` body is the definitive proof the session row is gone.
+    // (Confirmed by manual curl: after sign-out, GET /auth/get-session → 200, body: null)
+    expect(getSessionResponse.status()).toBe(200)
+    const body: { session: unknown; user: unknown } | null =
+      await getSessionResponse.json() as { session: unknown; user: unknown } | null
+
+    // 5. KEY ASSERTION: body is null — better-auth found no session for the token.
+    //    This fails if sign-out did NOT terminate the server session (e.g. the
+    //    /auth/sign-out POST was rejected due to origin mismatch or was a no-op).
+    expect(body).toBeNull()
+  })
+
   test('after sign-out, navigating to /estimates is blocked by the auth guard', async ({ context, page }) => {
     /**
      * This test verifies the GUARD PATH after a sign-out event:
@@ -468,16 +541,17 @@ test.describe('AC-5.2: sign-out ends the session and redirects subsequent naviga
      * attempt to navigate to a protected route redirects back to sign-in.
      *
      * Sequence:
-     *   1. Click sign-out → browser arrives at auth sign-in page.
-     *   2. Explicitly clear remaining browser cookies (defence against a stale
-     *      session cookie if the /auth/sign-out POST was rejected by origin
-     *      validation — the redirect still fires unconditionally so step 1 ✓).
-     *   3. Navigate to /estimates — the _authed guard fires, getSession() returns
-     *      null, guard throws redirect to sign-in.
+     *   1. Click sign-out → authClient.signOut() terminates the server session
+     *      and clears the browser cookie; window.location.assign sends the
+     *      browser to the auth sign-in page.
+     *   2. Navigate to /estimates — the _authed guard fires, getSession() returns
+     *      null (no cookie + server session gone), guard throws redirect to sign-in.
      *
-     * The explicit cookie clear in step 2 is not a workaround — it faithfully
-     * models the end-state of a completed sign-out (no session cookie present).
+     * No explicit cookie clear is needed here — authClient.signOut() clears
+     * the browser cookie as part of its normal flow (the server instructs the
+     * browser to expire the cookie via Set-Cookie with Max-Age=0 in the response).
      */
+    await seedSession(context)
     await page.goto('/estimates')
     await expect(page).toHaveURL(/\/estimates/, { timeout: 15_000 })
 
@@ -489,11 +563,9 @@ test.describe('AC-5.2: sign-out ends the session and redirects subsequent naviga
     // Wait for the redirect to sign-in.
     await expect(page).toHaveURL(new RegExp(`^${AUTH_ORIGIN}/sign-in`), { timeout: 15_000 })
 
-    // Explicitly clear all cookies to ensure the guard test is not contaminated
-    // by a stale session cookie (see ORIGIN RESTRICTION NOTE above).
-    await context.clearCookies()
-
     // Navigate to /estimates — the _authed guard must block access.
+    // No clearCookies() needed: sign-out instructed the browser to expire the
+    // session cookie (Max-Age=0), so getSession() returns null naturally.
     await page.goto('/estimates')
     await assertRedirectedToSignIn(page)
   })

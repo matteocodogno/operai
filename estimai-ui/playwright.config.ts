@@ -22,7 +22,25 @@ const authUrl =
   process.env['VITE_AUTH_URL'] ??
   'http://localhost:3001'
 
-const uiUrl = 'http://localhost:4173'
+/**
+ * The UI preview is served on port 5173 (not the default 4173).
+ *
+ * Rationale: better-auth's /auth/sign-out validates the request Origin against
+ * its trustedOrigins list, which is populated from the auth service's
+ * ALLOWED_ORIGINS env var.  The committed default is:
+ *   ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+ *
+ * Running the preview on the default port 4173 would place it outside the
+ * trusted-origins list, causing sign-out POSTs to fail with 403 INVALID_ORIGIN
+ * and leaving the server-side session alive — which makes AC-5.2's server-side
+ * termination assertion non-verifiable without local env edits.
+ *
+ * Serving on 5173 (already trusted) avoids any local env configuration and makes
+ * the e2e reproducible out-of-the-box.  The `--strictPort` flag ensures the
+ * command fails fast if 5173 is already in use (rather than silently falling
+ * back to another port that is not trusted).
+ */
+const uiUrl = 'http://localhost:5173'
 
 export default defineConfig({
   testDir: './e2e',
@@ -51,13 +69,17 @@ export default defineConfig({
 
   /**
    * webServer builds the Vite bundle (VITE_AUTH_URL is embedded at build time)
-   * then starts `vite preview` so Playwright can hit it at localhost:4173.
+   * then starts `vite preview` on port 5173 (a trusted origin in ALLOWED_ORIGINS).
+   *
+   * --port 5173  — serve on the trusted origin (see rationale above)
+   * --strictPort — fail fast if 5173 is already occupied (avoids silent fallback
+   *                to an untrusted port that would break sign-out tests)
    *
    * reuseExistingServer=true in non-CI so a pre-running preview server is reused
    * (speeds up iteration when running tests repeatedly).
    */
   webServer: {
-    command: 'pnpm build && pnpm preview',
+    command: 'pnpm build && pnpm preview --port 5173 --strictPort',
     url: uiUrl,
     reuseExistingServer: !process.env['CI'],
     timeout: 120_000,
