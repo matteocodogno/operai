@@ -62,8 +62,9 @@ const UI_ORIGIN = 'http://localhost:4173'
  * What "no app content" means:
  *   - The URL has moved to the auth service origin (different from UI_ORIGIN).
  *   - The sign-in page's own heading is present ("Sign in to EstimAI").
- *   - EstimAI-specific elements are absent: the estimates heading, the
- *     "New estimate" button, and the Operai logo <img> rendered by the app.
+ *   - EstimAI-specific elements are absent: the "New estimate" button,
+ *     the "Ready to estimate" empty-state heading, and the Operai logo
+ *     <img alt="EstimAI"> rendered by the app shell (EstimatesPage header).
  */
 const assertRedirectedToSignIn = async (
   page: import('@playwright/test').Page,
@@ -80,8 +81,10 @@ const assertRedirectedToSignIn = async (
 
   // No EstimAI app content should be present.
   await expect(page.getByRole('button', { name: /new estimate/i })).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: /your estimates/i })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: /ready to estimate/i })).toHaveCount(0)
+  // The Operai logo <img alt="EstimAI"> is always present in the authenticated app shell
+  // (EstimatesPage header and empty-state card). Its absence confirms the app did not render.
+  await expect(page.getByRole('img', { name: 'EstimAI' })).toHaveCount(0)
 }
 
 // ─── AC-1.1 — Anonymous visit → sign-in, zero app content ────────────────────
