@@ -1,8 +1,9 @@
 ---
 id: 001
 slug: estimate-persistence
-status: draft
+status: approved
 created: 2026-06-06
+approved: 2026-07-02
 ---
 
 # Estimate persistence API
@@ -32,6 +33,10 @@ survives browser data loss and is available from any device.
 - AC-1.3: Given a save request that fails (e.g. network down), when the failure
   occurs, then the user sees an error message and their in-browser estimate data
   is not lost.
+- AC-1.4: Given an estimate payload larger than the maximum allowed size, when the
+  user tries to save it, then the request is rejected with a clear error and nothing
+  is persisted (no partial write). Estimates within the limit save normally, and
+  there is no cap on the *number* of estimates a user may save.
 
 ### US-2: List and reopen my estimates
 As a logged-in consultant, I want to see all my saved estimates and reopen any of
@@ -105,14 +110,23 @@ work is lost in the transition.
   persisted share links are a future spec.
 - **Server-rendered XLSX export** — export remains client-side.
 - **Collaboration / multi-user editing** — single owner per estimate, no
-  concurrent-edit handling beyond last-write-wins.
+  concurrent-edit handling. **Last-write-wins** is the accepted behaviour: editing
+  the same estimate from two devices/tabs means the later save overwrites the
+  earlier one, with no stale-write warning or version conflict UX (decided
+  2026-07-02).
+- **Per-user quotas** — there is no limit on the number of estimates per user; only
+  a per-estimate maximum size (AC-1.4) guards against abusive/accidental huge
+  payloads. A count-based quota is out of scope (decided 2026-07-02).
 - **Preserving anonymous local mode** — the login wall introduced by spec 002
   removes anonymous use; localStorage matters here only as the source for the
   one-time import (US-5).
 
 ## Open questions
 
-- [ ] Conflict handling: is last-write-wins acceptable when the same estimate is
-  edited from two devices/tabs, or do we need a stale-write warning? — owner: Matteo
-- [ ] Limits: maximum number of estimates per user and maximum estimate size —
-  needed, or unlimited for the internal tool? — owner: Matteo
+None. Resolved during refinement (2026-07-02):
+
+- ~~Conflict handling~~ — **last-write-wins** accepted; no stale-write warning
+  (see Non-goals).
+- ~~Limits~~ — **no count cap**; a per-estimate **maximum size** guard rejects
+  over-large payloads (AC-1.4). The concrete size threshold is an implementation
+  detail for the plan.
