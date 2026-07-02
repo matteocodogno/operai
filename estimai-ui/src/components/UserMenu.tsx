@@ -28,6 +28,10 @@ const UserMenu = ({ user, onSignOut }: UserMenuProps) => {
         <img
           src={user.image}
           alt={displayName}
+          // Google (lh3.googleusercontent.com) and other providers 403/429 avatar
+          // requests that carry a cross-origin Referer header — omit it so the
+          // avatar actually loads.
+          referrerPolicy="no-referrer"
           className="w-7 h-7 rounded-full object-cover border border-rule shrink-0"
           aria-label={displayName}
         />
