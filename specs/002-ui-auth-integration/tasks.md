@@ -83,7 +83,7 @@ BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run i
     deep-link redirect returns to that page, (c) opening sign-in directly lands on
     home after login, (d) the session survives a full page reload
 
-- [ ] T11: e2e — 401 round trip, work survival, identity, sign-out — refs: US-4, US-5, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2 — deps: T8, T9
+- [x] T11: e2e — 401 round trip, work survival, identity, sign-out — refs: US-4, US-5, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2 — deps: T8, T9
   - touch: `estimai-ui/e2e/session-expiry.spec.ts` (new)
   - done when: e2e asserts (a) an expired/invalidated session causes the next API
     call to redirect to sign-in, (b) re-login returns to the page the user was on,
