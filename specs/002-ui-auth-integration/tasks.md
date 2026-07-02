@@ -91,7 +91,7 @@ BE track (T1–T3, T14) and FE track (T4–T8) have no mutual deps and may run i
     (d) the header shows the signed-in user's name/avatar, (e) sign-out ends the
     session and any navigation redirects to sign-in
 
-- [ ] T12: Manual QE pass — live OAuth round trips — refs: US-2, AC-2.2, AC-2.3 — deps: T3, T8
+- [x] T12: Manual QE pass — live OAuth round trips — refs: US-2, AC-2.2, AC-2.3 — deps: T3, T8
   - touch: `specs/002-ui-auth-integration/qe-checklist.md` (new)
   - done when: the checklist (real Google sign-in, real GitHub sign-in,
     abandoned/denied OAuth showing the error banner and allowing retry) is
