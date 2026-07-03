@@ -75,7 +75,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     keeps in-memory state and surfaces a `ToastBanner` without clearing/overwriting
     (AC-1.3); vitest covers load, save-calls-PUT, and failure-preserves-state
 
-- [ ] T10: Delete with an accessible confirm — refs: AC-3.1, AC-3.2 — deps: T7, T8
+- [x] T10: Delete with an accessible confirm — refs: AC-3.1, AC-3.2 — deps: T7, T8
   - touch: `estimai-ui/src/components/ConfirmDeleteModal.tsx` (new), `estimai-ui/src/pages/EstimatesPage.tsx`
   - done when: component tests assert confirm → `estimatesApi.remove` then list refresh
     (AC-3.1); decline → no API call, item still present (AC-3.2); modal traps focus with

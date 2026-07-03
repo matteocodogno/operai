@@ -9,6 +9,7 @@ import { clearJwtCache } from '../lib/api'
 import UserMenu from '../components/UserMenu'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ImportOfferModal from '../components/ImportOfferModal'
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 import { useImportOffer } from '../hooks/useImportOffer'
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -26,10 +27,19 @@ type ListState =
   | { status: 'loaded'; items: EstimateListItem[] }
   | { status: 'error'; message: string }
 
+// ---------------------------------------------------------------------------
+// Delete modal state
+// ---------------------------------------------------------------------------
+
+type DeleteModalState =
+  | { open: false }
+  | { open: true; item: EstimateListItem; isDeleting: boolean; error: string | null }
+
 export default function EstimatesPage() {
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [listState, setListState] = useState<ListState>({ status: 'loading' })
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ open: false })
   const { data: session } = authClient.useSession()
   const sessionUser = session?.user ?? null
 
@@ -128,21 +138,32 @@ export default function EstimatesPage() {
   )
 
   // ---------------------------------------------------------------------------
-  // Delete (confirm dialog; T10 will replace with ConfirmDeleteModal)
+  // Delete — accessible ConfirmDeleteModal (T10, AC-3.1 / AC-3.2)
   // ---------------------------------------------------------------------------
 
-  const handleDelete = useCallback(
-    async (item: EstimateListItem) => {
-      if (!confirm(`Delete "${item.name || 'Untitled'}"? This cannot be undone.`)) return
-      try {
-        await estimatesApi.remove(item.id)
-        void fetchList()
-      } catch {
-        alert('Delete failed. Try again.')
-      }
-    },
-    [fetchList],
-  )
+  /** Opens the confirm modal for a row's delete "×" button. */
+  const handleDeleteRequest = useCallback((item: EstimateListItem) => {
+    setDeleteModal({ open: true, item, isDeleting: false, error: null })
+  }, [])
+
+  /** Cancel / Escape: close the modal without any API call (AC-3.2). */
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteModal({ open: false })
+  }, [])
+
+  /** Confirm: call the API, refresh list on success, show inline error on failure. */
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteModal.open) return
+    const { item } = deleteModal
+    setDeleteModal({ open: true, item, isDeleting: true, error: null })
+    try {
+      await estimatesApi.remove(item.id)
+      setDeleteModal({ open: false })
+      void fetchList()
+    } catch {
+      setDeleteModal({ open: true, item, isDeleting: false, error: 'Delete failed. Try again.' })
+    }
+  }, [deleteModal, fetchList])
 
   // ---------------------------------------------------------------------------
   // Import JSON (legacy file-based import; T12 handles the localStorage offer)
@@ -297,7 +318,7 @@ export default function EstimatesPage() {
                     Open
                   </button>
                   <button
-                    onClick={() => void handleDelete(p)}
+                    onClick={() => handleDeleteRequest(p)}
                     className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-red transition-colors"
                     title="Delete"
                     aria-label={`Delete "${p.name || 'Untitled'}"`}
@@ -337,6 +358,17 @@ export default function EstimatesPage() {
           onAccept={() => void handleImportAccept()}
           onDecline={handleImportDecline}
           onClose={handleImportClose}
+        />
+      )}
+
+      {/* Delete confirm modal (AC-3.1 / AC-3.2) */}
+      {deleteModal.open && (
+        <ConfirmDeleteModal
+          estimateName={deleteModal.item.name}
+          isDeleting={deleteModal.isDeleting}
+          errorMessage={deleteModal.error}
+          onConfirm={() => void handleDeleteConfirm()}
+          onCancel={handleDeleteCancel}
         />
       )}
 
