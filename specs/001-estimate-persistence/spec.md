@@ -104,8 +104,8 @@ work is lost in the transition.
 ## Non-goals
 
 - **Granular release/activity endpoints** — estimates are persisted as whole
-  documents in this iteration; sub-resource CRUD (the fuller contract sketched in
-  AGENTS.md) is a future spec.
+  documents in this iteration; sub-resource CRUD (a fuller per-release/activity
+  contract) is a future spec.
 - **Server-backed sharing** — the existing lz-string URL sharing stays as-is;
   persisted share links are a future spec.
 - **Server-rendered XLSX export** — export remains client-side.
