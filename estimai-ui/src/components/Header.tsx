@@ -1,6 +1,7 @@
 import type { ChangeEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import UserMenu from './UserMenu'
+import type { SaveStatus } from '../context/EstimatorContext'
 
 type HeaderUser = {
   name?: string | null
@@ -11,7 +12,7 @@ type HeaderUser = {
 type HeaderProps = {
   name: string
   author: string
-  saveStatus: 'idle' | 'saved'
+  saveStatus: SaveStatus
   onNameChange: (name: string) => void
   onAuthorChange: (author: string) => void
   user?: HeaderUser
@@ -47,11 +48,23 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
         {/* Right — save indicator + list navigation + user menu */}
         <div className="flex items-center justify-end gap-3 shrink-0">
           <span
-            className="text-[11px] font-mono text-grn transition-opacity duration-500"
-            style={{ opacity: saveStatus === 'saved' ? 1 : 0 }}
+            className={`text-[11px] font-mono transition-opacity duration-500 ${
+              saveStatus === 'saved'
+                ? 'text-grn'
+                : saveStatus === 'saving'
+                  ? 'text-soft'
+                  : saveStatus === 'error'
+                    ? 'text-org'
+                    : 'text-grn'
+            }`}
+            style={{ opacity: saveStatus === 'idle' ? 0 : 1 }}
             aria-live="polite"
           >
-            ✓ Saved
+            {saveStatus === 'saving'
+              ? 'Saving…'
+              : saveStatus === 'error'
+                ? 'Save failed'
+                : '✓ Saved'}
           </span>
           <button
             onClick={() => navigate({ to: '/estimates' })}

@@ -2,8 +2,10 @@ import { createRootRoute, createRoute, createRouter, redirect, Outlet } from '@t
 import EstimatesPage from './pages/EstimatesPage'
 import EstimatePage from './pages/EstimatePage'
 import SharedEstimatePage from './pages/SharedEstimatePage'
-import { getLastProjectId, loadProject, createProject } from './lib/projects'
+import { createProject } from './lib/projects'
 import { authClient } from './lib/authClient'
+import * as estimatesApi from './lib/estimatesApi'
+import type { EstimateFull } from './lib/estimatesApi'
 
 // ---------------------------------------------------------------------------
 // Root
@@ -46,10 +48,9 @@ const indexRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: '/',
   beforeLoad: () => {
-    const lastId = getLastProjectId()
-    if (lastId && loadProject(lastId)) {
-      throw redirect({ to: '/estimates/$estimateId', params: { estimateId: lastId } })
-    }
+    // After localStorage→server cutover, the index simply redirects to the
+    // list. The "last opened" localStorage key is preserved (not deleted) so
+    // the T12 import flow can still read legacy keys.
     throw redirect({ to: '/estimates' })
   },
 })
@@ -63,16 +64,18 @@ const estimatesRoute = createRoute({
 const estimateRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: '/estimates/$estimateId',
-  beforeLoad: ({ params }) => {
-    // If the estimate doesn't exist in localStorage, redirect to list
-    if (!loadProject(params.estimateId)) {
+  // Loader: fetch the full estimate from the API.
+  // On 404 (not found / not owned): redirect to the list.
+  // On any other error: also redirect to the list (safe fallback).
+  loader: async ({ params }): Promise<EstimateFull> => {
+    // Track last-opened in localStorage so T12 import and other tooling can
+    // read it, but never gate access on this value.
+    localStorage.setItem('estimai_current_id', params.estimateId)
+    try {
+      return await estimatesApi.get(params.estimateId)
+    } catch {
       throw redirect({ to: '/estimates' })
     }
-  },
-  loader: ({ params }) => {
-    // Track the last opened estimate
-    localStorage.setItem('estimai_current_id', params.estimateId)
-    return null
   },
   component: EstimatePage,
 })

@@ -22,6 +22,7 @@ import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
+import ToastBanner from './components/ToastBanner'
 import { useTheme, THEME_CYCLE, THEME_ICON, THEME_LABEL } from './hooks/useTheme'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
@@ -62,7 +63,7 @@ export default function EstimatorApp() {
   const {
     projectId, name, author, params, releases, acts,
     summary, totals, byProfile,
-    saveStatus,
+    saveStatus, saveError, clearSaveError,
     setName, setAuthor,
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
@@ -345,6 +346,8 @@ const exportPDF = useCallback(() => {
           </button>
         </div>
       </div>
+
+      {saveError && <ToastBanner message={saveError} onDismiss={clearSaveError} />}
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
         {tab === 'activities' && (

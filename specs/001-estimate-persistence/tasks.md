@@ -67,7 +67,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     state and the existing empty state on `[]`; vitest asserts loading → rows, and empty
     state with no error when the API returns `[]`
 
-- [ ] T9: Rewire estimate load + auto-save to the API — refs: AC-1.1, AC-1.2, AC-1.3, AC-2.2 — deps: T7
+- [x] T9: Rewire estimate load + auto-save to the API — refs: AC-1.1, AC-1.2, AC-1.3, AC-2.2 — deps: T7
   - touch: `estimai-ui/src/pages/EstimatePage.tsx`, `estimai-ui/src/router.tsx` (loader), `estimai-ui/src/context/EstimatorContext.tsx`, `estimai-ui/src/components/ToastBanner.tsx` (new)
   - done when: opening an estimate loads its content from `estimatesApi.get` (no blank
     flash) and computed values match the model (AC-2.2); the auto-save effect switches to
