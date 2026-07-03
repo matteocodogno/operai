@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Prisma generated client
+src/lib/generated/
+prisma/generated/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Local JWT keypair (if ever needed)
+*.pem
+
+# Bun
+.bun/
+bun.lock
+
+# OS
+.DS_Store
