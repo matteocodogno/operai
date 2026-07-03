@@ -8,6 +8,8 @@ import { authClient } from '../lib/authClient'
 import { clearJwtCache } from '../lib/api'
 import UserMenu from '../components/UserMenu'
 import SkeletonListRows from '../components/SkeletonListRows'
+import ImportOfferModal from '../components/ImportOfferModal'
+import { useImportOffer } from '../hooks/useImportOffer'
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
 
@@ -52,6 +54,21 @@ export default function EstimatesPage() {
   useEffect(() => {
     void fetchList()
   }, [fetchList])
+
+  // ---------------------------------------------------------------------------
+  // Import offer (one-time per session when legacy localStorage estimates exist)
+  // AC-5.1 / AC-5.2 / AC-5.3 / AC-5.4
+  // ---------------------------------------------------------------------------
+
+  const {
+    showOffer,
+    localEstimates,
+    phase: importPhase,
+    results: importResults,
+    handleAccept: handleImportAccept,
+    handleDecline: handleImportDecline,
+    handleClose: handleImportClose,
+  } = useImportOffer(fetchList)
 
   // ---------------------------------------------------------------------------
   // Auth
@@ -311,6 +328,18 @@ export default function EstimatesPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Import offer modal (one-time per session, AC-5.1) */}
+      {showOffer && (
+        <ImportOfferModal
+          localEstimates={localEstimates}
+          phase={importPhase}
+          results={importResults}
+          onAccept={() => void handleImportAccept()}
+          onDecline={handleImportDecline}
+          onClose={handleImportClose}
+        />
+      )}
+
       {/* Header */}
       <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 h-14">

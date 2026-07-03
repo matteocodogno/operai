@@ -86,7 +86,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
   - done when: vitest asserts a 413 from save surfaces a clear human-readable
     `ToastBanner` message and the editor's in-memory estimate is unchanged (nothing lost)
 
-- [ ] T12: Import-offer modal + flow — refs: US-5, AC-5.1, AC-5.2, AC-5.3, AC-5.4 — deps: T7
+- [x] T12: Import-offer modal + flow — refs: US-5, AC-5.1, AC-5.2, AC-5.3, AC-5.4 — deps: T7
   - touch: `estimai-ui/src/components/ImportOfferModal.tsx` (new), `estimai-ui/src/pages/EstimatesPage.tsx` (or a session-load hook), `estimai-ui/src/lib/projects.ts` (read-only import source)
   - done when: on first authenticated load with legacy `estimai_project_*` keys present,
     the offer renders with accept/decline (AC-5.1); decline is remembered for the session
