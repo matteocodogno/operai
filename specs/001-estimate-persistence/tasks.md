@@ -24,7 +24,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     `content Json`, `createdAt`, `updatedAt` + `@@index([userId, updatedAt(sort: Desc)])`;
     `prisma migrate` applies cleanly to a fresh DB and the client generates
 
-- [ ] T3: JWT resource-server middleware — refs: US-4, AC-4.2 — deps: T1
+- [x] T3: JWT resource-server middleware — refs: US-4, AC-4.2 — deps: T1
   - touch: `estimai-api/src/auth/jwt.middleware.ts`, `src/auth/jwt.middleware.test.ts` (new), `src/lib/env.ts` (add `AUTH_JWKS_URL`, `AUTH_ISSUER`)
   - done when: bun tests assert a valid RS256 JWT (correct issuer, `operai-auth-rs256-v1`
     kid) passes and sets `userId=sub`/`email`; missing/malformed/expired/wrong-issuer/

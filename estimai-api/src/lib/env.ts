@@ -6,9 +6,8 @@ const envSchema = z.object({
     .string()
     .min(1)
     .transform((v) => v.split(",").map((o) => o.trim())),
-  // T3 adds AUTH_JWKS_URL and AUTH_ISSUER here (optional for T1 skeleton).
-  AUTH_JWKS_URL: z.string().url().optional(),
-  AUTH_ISSUER: z.string().url().optional(),
+  AUTH_JWKS_URL: z.string().url("AUTH_JWKS_URL must be a valid URL"),
+  AUTH_ISSUER: z.string().url("AUTH_ISSUER must be a valid URL"),
   // T5 adds MAX_ESTIMATE_BYTES here (optional for T1 skeleton).
   MAX_ESTIMATE_BYTES: z.coerce.number().int().positive().optional(),
   PORT: z.coerce.number().int().positive().default(8080),
