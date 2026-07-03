@@ -31,7 +31,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     wrong-alg → 401 Problem; no DB access occurs for unauthenticated requests. Uses
     `jose createRemoteJWKSet` (cached, RS256+issuer pinned)
 
-- [ ] T4: Estimate CRUD endpoints, ownership-scoped — refs: US-1,2,3,4, AC-1.1, AC-1.2, AC-2.1, AC-2.2, AC-2.3, AC-3.1, AC-4.1 — deps: T2, T3
+- [x] T4: Estimate CRUD endpoints, ownership-scoped — refs: US-1,2,3,4, AC-1.1, AC-1.2, AC-2.1, AC-2.2, AC-2.3, AC-3.1, AC-4.1 — deps: T2, T3
   - touch: `estimai-api/src/estimates/{estimates.routes,estimates.repo,estimates.schemas}.ts` (new), `src/index.ts`
   - done when: bun integration tests (real compose Postgres) prove: `POST` then
     `GET /estimates/{id}` deep-equals `content`+name/author (AC-1.1); `PUT` updates in

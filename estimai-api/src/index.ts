@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
+import { estimatesRouter } from "./estimates/estimates.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -29,9 +30,7 @@ app.use("*", logger());
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.route("/", healthRouter);
-
-// T3 registers the JWT middleware here.
-// T4 registers the estimates router here.
+app.route("/", estimatesRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
