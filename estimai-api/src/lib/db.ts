@@ -15,7 +15,7 @@ export const db: PrismaClient =
     adapter,
     log:
       process.env["NODE_ENV"] === "development"
-        ? ["query", "error", "warn"]
+        ? ["info", "error", "warn"]
         : ["error"],
   });
 

@@ -9,8 +9,8 @@
  *  - create:  userId is always the caller's sub
  *  - list:    where: { userId }
  *  - getById: where: { id, userId }  — "not yours" === "not found" (AC-4.1)
- *  - update:  where: { id, userId }  — "not yours" === "not found" (AC-4.1)
- *  - delete:  findFirst({ where: { id, userId } }) then delete by id
+ *  - update:  updateMany({ where: { id, userId } })  — atomic; count===0 → 404 (AC-4.1)
+ *  - delete:  deleteMany({ where: { id, userId } })  — atomic; count===0 → 404 (AC-4.1)
  *
  * sizeBytes is computed here as the UTF-8 byte length of the serialized content.
  * T5 will enforce the limit; T4 only populates the column.
@@ -141,12 +141,12 @@ export const getEstimateById = (
  * updatedAt is advanced automatically by Prisma (@updatedAt).
  * sizeBytes is recomputed from the new content.
  *
- * Ownership check: we first attempt findFirst({ where: { id, userId } }).
- * If the row does not exist (id absent or owned by a different user) we return
- * NotFoundError — the caller sees 404 in both cases (AC-4.1).
+ * Ownership is structurally enforced: updateMany({ where: { id, userId } })
+ * means the write itself is owner-scoped — there is no window between the
+ * ownership check and the write where a race could bypass the predicate.
  *
- * The actual update uses `update({ where: { id } })` after the ownership check
- * passes, because Prisma's `update` requires a unique predicate.
+ * count === 0 → NotFoundError (id absent OR owned by a different user → 404, AC-4.1).
+ * On success we re-fetch to return the full EstimateFull shape.
  */
 export const updateEstimate = (
   id: string,
@@ -157,16 +157,15 @@ export const updateEstimate = (
 ): Effect.Effect<EstimateFull, DatabaseError | NotFoundError> =>
   Effect.tryPromise({
     try: async () => {
-      // First verify ownership (scoped check).
-      const existing = await db.estimate.findFirst({ where: { id, userId } });
-      if (!existing) return null;
-
       const sizeBytes = computeSizeBytes(content);
-      const updated = await db.estimate.update({
-        where: { id },
+      const { count } = await db.estimate.updateMany({
+        where: { id, userId },
         data: { name, author, sizeBytes, content: content as unknown as InputJsonValue },
       });
-      return updated;
+      if (count === 0) return null;
+      // Re-fetch to get the full row (including updatedAt stamped by @updatedAt).
+      const row = await db.estimate.findFirst({ where: { id, userId } });
+      return row ?? null;
     },
     catch: (cause) =>
       new DatabaseError({ message: "Failed to update estimate", cause }),
@@ -186,8 +185,11 @@ export const updateEstimate = (
  * Delete an estimate by id, scoped to userId.
  * Returns NotFoundError when absent or not owned (AC-4.1).
  *
- * We use findFirst+delete rather than deleteMany so we can distinguish
- * "not found / not owned" (→ 404) from a database error.
+ * Ownership is structurally enforced: deleteMany({ where: { id, userId } })
+ * makes the delete itself owner-scoped — no two-step race window.
+ *
+ * count === 0 → NotFoundError (id absent OR owned by a different user → 404, AC-4.1).
+ * count > 0   → success (void).
  */
 export const deleteEstimate = (
   id: string,
@@ -195,11 +197,8 @@ export const deleteEstimate = (
 ): Effect.Effect<void, DatabaseError | NotFoundError> =>
   Effect.tryPromise({
     try: async () => {
-      const existing = await db.estimate.findFirst({ where: { id, userId } });
-      if (!existing) return false;
-
-      await db.estimate.delete({ where: { id } });
-      return true;
+      const { count } = await db.estimate.deleteMany({ where: { id, userId } });
+      return count > 0;
     },
     catch: (cause) =>
       new DatabaseError({ message: "Failed to delete estimate", cause }),

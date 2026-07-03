@@ -633,6 +633,191 @@ describe("AC-4.1 — IDOR: user B cannot read/update/delete user A's estimates",
   });
 });
 
+// ─── Atomic write-path ownership (OWASP A01 regression guard) ────────────────
+//
+// These tests verify that the write operations themselves are owner-scoped, not
+// just protected by a prior ownership check.  They would FAIL if the `userId`
+// predicate were removed from the updateMany / deleteMany calls in the repo:
+//   - Without `userId` in updateMany: B's PUT would mutate A's row and return 200.
+//   - Without `userId` in deleteMany: B's DELETE would remove A's row and return 204.
+// The subsequent assertions on the row content / existence are the falsifiable proof.
+
+describe("Atomic ownership — write path is owner-scoped (A01 regression guard)", () => {
+  it("PUT from user B does NOT mutate user A's row — content byte-for-byte unchanged", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+    const originalContent = makeContent("original");
+
+    // Seed: user A creates an estimate
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "Owner A estimate",
+        author: "Alice",
+        content: originalContent,
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id: aId, updatedAt: originalUpdatedAt } = (await postRes.json()) as {
+      id: string;
+      updatedAt: string;
+    };
+
+    // Attack: user B attempts to overwrite A's estimate
+    const attackRes = await app.request(`/estimates/${aId}`, {
+      method: "PUT",
+      headers: bearerHeader(jwtB),
+      body: JSON.stringify({
+        name: "HIJACKED by B",
+        author: "Eve",
+        content: makeContent("hijack"),
+      }),
+    });
+    // The updateMany where:{id, userId:B} matches 0 rows → NotFoundError → 404.
+    // If userId were absent from the write predicate, this would return 200.
+    expect(attackRes.status).toBe(404);
+
+    // Proof: A's row is byte-for-byte unchanged — name, content, and updatedAt identical.
+    const verifyRes = await app.request(`/estimates/${aId}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(verifyRes.status).toBe(200);
+    const row = (await verifyRes.json()) as {
+      name: string;
+      author: string;
+      content: unknown;
+      updatedAt: string;
+    };
+    expect(row.name).toBe("Owner A estimate");
+    expect(row.author).toBe("Alice");
+    expect(row.content).toEqual(originalContent);
+    // updatedAt must not have advanced — the write never touched the row.
+    expect(row.updatedAt).toBe(originalUpdatedAt);
+  });
+
+  it("DELETE from user B does NOT remove user A's row — row still present and unchanged", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+    const originalContent = makeContent("to-survive");
+
+    // Seed: user A creates an estimate
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "Owner A estimate for delete guard",
+        author: "Alice",
+        content: originalContent,
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id: aId } = (await postRes.json()) as { id: string };
+
+    // Attack: user B attempts to delete A's estimate
+    const attackRes = await app.request(`/estimates/${aId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    // The deleteMany where:{id, userId:B} matches 0 rows → NotFoundError → 404.
+    // If userId were absent from the write predicate, this would return 204 and
+    // the subsequent GET would return 404 — the test would fail.
+    expect(attackRes.status).toBe(404);
+
+    // Proof: A's row still exists and content is unchanged.
+    const verifyRes = await app.request(`/estimates/${aId}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(verifyRes.status).toBe(200);
+    const row = (await verifyRes.json()) as { name: string; content: unknown };
+    expect(row.name).toBe("Owner A estimate for delete guard");
+    expect(row.content).toEqual(originalContent);
+  });
+});
+
+// ─── Round-trip: strip() drops no documented field (A03/A04 regression guard) ──
+//
+// This test creates an estimate with ALL documented UI fields populated (full
+// Activity and Release fields, all Parameters fields) and verifies the GET
+// response deep-equals the posted content.  If .strip() were silently dropping
+// any field the UI actually sends, this test would FAIL.
+
+describe("Schema strip() round-trip — no documented field is dropped (AC-1.1 + A03)", () => {
+  it("full realistic estimate with all documented fields survives POST→GET deep-equal", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const fullContent = {
+      params: {
+        parallelism: 0.7,
+        sprintDays: 10,
+        workingDaysMonth: 20,
+        qaDeployDays: 1,
+        qaTestDays: 2,
+        pmDays: 0.5,
+        aiCostCoef: 10,
+        aiGain: 0.3,
+      },
+      releases: [
+        { id: "rel-strip-1", name: "Release Alpha", fte: 3 },
+        { id: "rel-strip-2", name: "Release Beta", fte: 2 },
+      ],
+      acts: [
+        {
+          id: "act-strip-1",
+          num: "1",
+          epic: "Authentication",
+          act: "Implement OAuth login",
+          prof: "Backend Dev",
+          o: 1,
+          ml: 3,
+          p: 6,
+          risk: 0.15,
+          aiGain: 0.4,
+          notes: "Use Google + GitHub providers",
+          release: "rel-strip-1",
+        },
+        {
+          id: "act-strip-2",
+          num: "2",
+          epic: "UI",
+          act: "Build dashboard layout",
+          prof: "Frontend Dev",
+          o: 2,
+          ml: 4,
+          p: 7,
+          risk: 0.1,
+          notes: "",
+          release: "rel-strip-2",
+        },
+      ],
+    };
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "Full round-trip estimate",
+        author: "Strip Test",
+        content: fullContent,
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as { content: unknown };
+
+    // AC-1.1 + strip() guard: every documented field must be present and equal.
+    expect(fetched.content).toEqual(fullContent);
+  });
+});
+
 // ─── AC-4.2: No/invalid JWT → 401 on every endpoint ─────────────────────────
 
 describe("AC-4.2 — unauthenticated requests rejected on all endpoints", () => {
