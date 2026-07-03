@@ -1,5 +1,5 @@
 /**
- * Estimates CRUD router (T4, specs/001-estimate-persistence).
+ * Estimates CRUD router (T4+T5, specs/001-estimate-persistence).
  *
  * All routes are protected by jwtMiddleware (set userId/email on context).
  * Every repository call is scoped by userId derived from the verified JWT sub.
@@ -15,17 +15,23 @@
  * "not yours" and "does not exist" are indistinguishable to the caller.
  *
  * All errors are RFC 7807 Problem JSON via the global onError handler, with the
- * NotFoundError path handled inline to return 404 (not 500).
+ * NotFoundError/SizeError paths handled inline (404/413 respectively).
  *
- * T5 seam: sizeBytes is already stored by the repo; T5 will add a guard that
- * checks it before the write. To add the guard: wrap createEstimate/updateEstimate
- * calls with a size check before calling the repo function, and surface 413 here.
+ * T5: per-estimate size guard enforced on POST and PUT before any DB write.
+ *   - computeSizeBytes() from estimates.repo.ts measures the UTF-8 byte length
+ *     of the serialised content.
+ *   - If it exceeds MAX_ESTIMATE_BYTES → 413 Problem, nothing is persisted.
+ *   - checkContentSize() is a small reusable helper (T6 will call it per element).
+ *   - bodyLimit middleware caps raw request body at 2 MiB so the process never
+ *     buffers an unbounded body.
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { bodyLimit } from "hono/body-limit";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
-import { NotFoundError } from "@/lib/errors";
+import { NotFoundError, SizeError } from "@/lib/errors";
+import { env } from "@/lib/env";
 import {
   EstimateUpsertSchema,
   EstimateFullSchema,
@@ -38,6 +44,7 @@ import {
   getEstimateById,
   updateEstimate,
   deleteEstimate,
+  computeSizeBytes,
 } from "./estimates.repo";
 
 // ─── Problem JSON helpers ─────────────────────────────────────────────────────
@@ -58,6 +65,14 @@ const problemBadRequest = (path: string, detail: string) => ({
   instance: path,
 });
 
+const problemPayloadTooLarge = (path: string, actualBytes: number, limitBytes: number) => ({
+  type: "https://httpstatuses.com/413",
+  title: "Payload Too Large",
+  status: 413 as const,
+  detail: `Estimate content is ${(actualBytes / 1024 / 1024).toFixed(1)} MB; the maximum is ${(limitBytes / 1024 / 1024).toFixed(1)} MB. Nothing was saved.`,
+  instance: path,
+});
+
 const ProblemSchema = z.object({
   type: z.string(),
   title: z.string(),
@@ -66,11 +81,55 @@ const ProblemSchema = z.object({
   instance: z.string(),
 });
 
+// ─── Size guard helper (reusable by T6 import endpoint) ─────────────────────
+//
+// Returns a SizeError if `content` serialises to more than `limitBytes` UTF-8
+// bytes, otherwise returns undefined. Callers check the return value before
+// any DB write so nothing is persisted on rejection (AC-1.4).
+
+export const checkContentSize = (
+  content: Parameters<typeof computeSizeBytes>[0],
+  limitBytes: number,
+): SizeError | undefined => {
+  const actualBytes = computeSizeBytes(content);
+  if (actualBytes > limitBytes) {
+    return new SizeError({
+      message: `Estimate content is ${(actualBytes / 1024 / 1024).toFixed(1)} MB; the maximum is ${(limitBytes / 1024 / 1024).toFixed(1)} MB. Nothing was saved.`,
+      actualBytes,
+      limitBytes,
+    });
+  }
+  return undefined;
+};
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export const estimatesRouter = new OpenAPIHono<{
   Variables: JwtVariables;
 }>();
+
+// Body-size limit: reject raw request bodies > 2 MiB before any handler logic
+// runs, so the process never buffers an unbounded payload (AC-1.4, DoS guard).
+// 2 MiB gives headroom for the JSON envelope around a max-size (1 MiB) content.
+const BODY_SIZE_LIMIT = 2 * 1024 * 1024; // 2 MiB
+
+estimatesRouter.use(
+  "*",
+  bodyLimit({
+    maxSize: BODY_SIZE_LIMIT,
+    onError: (c) =>
+      c.json(
+        {
+          type: "https://httpstatuses.com/413",
+          title: "Payload Too Large",
+          status: 413,
+          detail: `Request body exceeds the maximum allowed size of ${(BODY_SIZE_LIMIT / 1024 / 1024).toFixed(0)} MB.`,
+          instance: c.req.path,
+        },
+        413,
+      ),
+  }),
+);
 
 // Apply jwtMiddleware to ALL routes on this router.
 estimatesRouter.use("*", jwtMiddleware);
@@ -105,12 +164,25 @@ const createEstimateRoute = createRoute({
       content: { "application/json": { schema: ProblemSchema } },
       description: "Missing or invalid Bearer JWT",
     },
+    413: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Content exceeds MAX_ESTIMATE_BYTES; nothing was persisted (AC-1.4)",
+    },
   },
 });
 
 estimatesRouter.openapi(createEstimateRoute, async (c) => {
   const userId = c.get("userId");
   const body = c.req.valid("json");
+
+  // T5: enforce size guard BEFORE any DB write (AC-1.4 — no partial write).
+  const sizeErr = checkContentSize(body.content, env.MAX_ESTIMATE_BYTES);
+  if (sizeErr) {
+    return c.json(
+      problemPayloadTooLarge(c.req.path, sizeErr.actualBytes, sizeErr.limitBytes),
+      413,
+    );
+  }
 
   const effect = createEstimate(userId, body.name, body.author, body.content);
 
@@ -252,6 +324,10 @@ const updateEstimateRoute = createRoute({
       content: { "application/json": { schema: ProblemSchema } },
       description: "Not found or not owned (AC-4.1)",
     },
+    413: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Content exceeds MAX_ESTIMATE_BYTES; prior stored version untouched (AC-1.4)",
+    },
   },
 });
 
@@ -259,6 +335,15 @@ estimatesRouter.openapi(updateEstimateRoute, async (c) => {
   const userId = c.get("userId");
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
+
+  // T5: enforce size guard BEFORE any DB write (AC-1.4 — prior version stays intact).
+  const sizeErr = checkContentSize(body.content, env.MAX_ESTIMATE_BYTES);
+  if (sizeErr) {
+    return c.json(
+      problemPayloadTooLarge(c.req.path, sizeErr.actualBytes, sizeErr.limitBytes),
+      413,
+    );
+  }
 
   const effect = updateEstimate(id, userId, body.name, body.author, body.content);
 

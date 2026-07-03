@@ -818,6 +818,280 @@ describe("Schema strip() round-trip — no documented field is dropped (AC-1.1 +
   });
 });
 
+// ─── T5 / AC-1.4: Per-estimate size guard ────────────────────────────────────
+//
+// MAX_ESTIMATE_BYTES defaults to 1 MiB (1048576 bytes). We build an over-size
+// payload by padding the `notes` field of one activity to 1 200 000 bytes —
+// provably > 1 MiB in UTF-8. The serialised form is then asserted by the test
+// itself so the bound is never magic.
+//
+// In-limit content stays < 1 KiB so the regression tests are not affected.
+//
+// No env override needed: the default from env.ts (1048576) applies throughout.
+
+// Build an over-size content by stacking 2500 releases each with a 500-char
+// name (the schema max). Each release serialises to ~550 bytes;
+// 2500 × 550 ≈ 1.375 MiB — deterministically > 1 MiB default cap.
+// All individual field lengths are within their schema limits, so the 400
+// from Zod validation is never triggered; only the 413 size guard fires.
+const makeOverSizeContent = () => {
+  const longName = "N".repeat(500); // matches z.string().max(500) on ReleaseSchema.name
+  const releases = Array.from({ length: 2500 }, (_, i) => ({
+    id: `rel-${i}`,
+    name: longName,
+    fte: 2,
+  }));
+  return {
+    params: {
+      parallelism: 0.7,
+      sprintDays: 10,
+      workingDaysMonth: 20,
+      qaDeployDays: 0,
+      qaTestDays: 0,
+      pmDays: 0,
+      aiCostCoef: 10,
+      aiGain: 0.3,
+    },
+    releases,
+    acts: [],
+  };
+};
+
+describe("AC-1.4 — size guard fixture is deterministically over-limit", () => {
+  it("makeOverSizeContent() serialises to > 1 MiB (guard for test determinism)", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(makeOverSizeContent())).length;
+    // Non-vacuous: explicitly verify the fixture is actually over the default 1 MiB limit.
+    expect(bytes).toBeGreaterThan(1048576);
+  });
+
+  it("makeContent() serialises to < 1 KiB (in-limit regression guard)", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(makeContent())).length;
+    expect(bytes).toBeLessThan(1024);
+  });
+});
+
+describe("AC-1.4 — POST with over-size content → 413 Problem, nothing persisted", () => {
+  it("POST with content > MAX_ESTIMATE_BYTES → 413 Problem JSON with correct shape", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Over-limit estimate", author: "Alice", content: makeOverSizeContent() }),
+    });
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as {
+      type: string;
+      title: string;
+      status: number;
+      detail: string;
+      instance: string;
+    };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+    expect(body.detail).toContain("Nothing was saved");
+    expect(body.instance).toBe("/estimates");
+  });
+
+  it("POST with over-size content → GET /estimates count is unchanged (nothing persisted)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    // Count before
+    const beforeListRes = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(beforeListRes.status).toBe(200);
+    const before = (await beforeListRes.json()) as unknown[];
+    const countBefore = before.length;
+
+    // Over-size POST must fail
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Over-limit", author: "Alice", content: makeOverSizeContent() }),
+    });
+    expect(postRes.status).toBe(413);
+
+    // Count after must equal count before — nothing was persisted
+    const afterListRes = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(afterListRes.status).toBe(200);
+    const after = (await afterListRes.json()) as unknown[];
+    expect(after).toHaveLength(countBefore);
+  });
+});
+
+describe("AC-1.4 — PUT with over-size content → 413 Problem, prior stored version intact", () => {
+  it("PUT over-size content → 413; GET still returns the prior version unchanged (no partial write)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const originalContent = makeContent("prior-version");
+
+    // Create a valid in-limit estimate.
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Original estimate", author: "Alice", content: originalContent }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id, updatedAt: originalUpdatedAt } = (await postRes.json()) as {
+      id: string;
+      updatedAt: string;
+    };
+
+    // Attempt a PUT with over-size content — must be rejected.
+    const putRes = await app.request(`/estimates/${id}`, {
+      method: "PUT",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Updated name", author: "Alice", content: makeOverSizeContent() }),
+    });
+    expect(putRes.status).toBe(413);
+    const putBody = (await putRes.json()) as {
+      type: string;
+      title: string;
+      status: number;
+      detail: string;
+    };
+    expect(putBody.type).toBe("https://httpstatuses.com/413");
+    expect(putBody.title).toBe("Payload Too Large");
+    expect(putBody.status).toBe(413);
+    expect(putBody.detail).toContain("Nothing was saved");
+
+    // GET must return the ORIGINAL version — no partial write (AC-1.4).
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as {
+      id: string;
+      name: string;
+      content: unknown;
+      updatedAt: string;
+    };
+    // id is unchanged
+    expect(fetched.id).toBe(id);
+    // name is the ORIGINAL name, not "Updated name" from the failed PUT
+    expect(fetched.name).toBe("Original estimate");
+    // content deep-equals the original (not the oversized one)
+    expect(fetched.content).toEqual(originalContent);
+    // updatedAt has NOT advanced — the write never happened
+    expect(fetched.updatedAt).toBe(originalUpdatedAt);
+  });
+});
+
+describe("AC-1.4 regression — in-limit POST / PUT still return 201 / 200", () => {
+  it("POST with in-limit content → 201 (size guard does not block valid payloads)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "In-limit estimate", author: "Alice", content: makeContent() }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string };
+    expect(body.id).toBeTruthy();
+  });
+
+  it("PUT with in-limit content → 200 (size guard does not block valid payloads)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "In-limit estimate", author: "Alice", content: makeContent() }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const updatedContent = makeContent("updated-in-limit");
+    const putRes = await app.request(`/estimates/${id}`, {
+      method: "PUT",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "In-limit updated", author: "Alice", content: updatedContent }),
+    });
+    expect(putRes.status).toBe(200);
+    const updated = (await putRes.json()) as { id: string; name: string };
+    expect(updated.id).toBe(id);
+    expect(updated.name).toBe("In-limit updated");
+  });
+});
+
+describe("bodyLimit middleware — raw request body > 2 MiB → 413 before handler logic", () => {
+  it("POST with a 3 MiB raw body → 413 Problem (bodyLimit middleware fires before handler)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    // Build a raw body that is ~3 MiB. It does not need to be a valid
+    // EstimateUpsert — bodyLimit rejects before Zod validation or handler logic.
+    // We use a large JSON string value to avoid any request parsing overhead.
+    const rawBody = `{"name":"huge","author":"","content":"${"X".repeat(3 * 1024 * 1024)}"}`;
+
+    const res = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: rawBody,
+    });
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+  });
+});
+
+// ─── AC-1.4: No count cap — unlimited estimates per user ─────────────────────
+//
+// The spec explicitly states "No count quota anywhere (spec non-goal): unlimited
+// number of estimates per user." We verify by creating N estimates in a loop
+// and confirming all succeed.
+
+describe("AC-1.4 — no count cap: multiple in-limit estimates all succeed", () => {
+  it("loop: creating 5 estimates in sequence → all 201, all appear in list", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const N = 5;
+    const ids: string[] = [];
+
+    for (let i = 1; i <= N; i++) {
+      const res = await app.request("/estimates", {
+        method: "POST",
+        headers: bearerHeader(jwt),
+        body: JSON.stringify({
+          name: `No-cap estimate ${i}`,
+          author: "Alice",
+          content: makeContent(`no-cap-${i}`),
+        }),
+      });
+      // Every single creation must succeed — no quota blocks it.
+      expect(res.status).toBe(201);
+      const { id } = (await res.json()) as { id: string };
+      ids.push(id);
+    }
+
+    // List must contain all N estimates (plus any from other tests — but
+    // afterEach cleans up by userId, so only this test's estimates appear here).
+    const listRes = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as Array<{ id: string }>;
+    // All created ids must be in the list
+    for (const id of ids) {
+      expect(list.some((item) => item.id === id)).toBe(true);
+    }
+    expect(list.length).toBeGreaterThanOrEqual(N);
+  });
+});
+
 // ─── AC-4.2: No/invalid JWT → 401 on every endpoint ─────────────────────────
 
 describe("AC-4.2 — unauthenticated requests rejected on all endpoints", () => {

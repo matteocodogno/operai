@@ -8,8 +8,8 @@ const envSchema = z.object({
     .transform((v) => v.split(",").map((o) => o.trim())),
   AUTH_JWKS_URL: z.string().url("AUTH_JWKS_URL must be a valid URL"),
   AUTH_ISSUER: z.string().url("AUTH_ISSUER must be a valid URL"),
-  // T5 adds MAX_ESTIMATE_BYTES here (optional for T1 skeleton).
-  MAX_ESTIMATE_BYTES: z.coerce.number().int().positive().optional(),
+  // Per-estimate content size cap (bytes). Default 1 MiB. Configurable per environment.
+  MAX_ESTIMATE_BYTES: z.coerce.number().int().positive().default(1048576),
   PORT: z.coerce.number().int().positive().default(8080),
   NODE_ENV: z
     .enum(["development", "production", "test"])

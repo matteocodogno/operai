@@ -26,10 +26,11 @@ import type { EstimateContent, EstimateFull, EstimateListItem } from "./estimate
 
 /**
  * Compute the UTF-8 byte length of the JSON-serialised content.
- * This is stored in `sizeBytes` so the size guard (T5) can check it without
- * parsing the JSONB column, and so the list query never touches `content`.
+ * Exported so the size guard in estimates.routes.ts (T5) and the import
+ * endpoint (T6) can reuse it without duplicating the encoding logic.
+ * Stored in `sizeBytes` so the list query never touches `content`.
  */
-const computeSizeBytes = (content: EstimateContent): number =>
+export const computeSizeBytes = (content: EstimateContent): number =>
   new TextEncoder().encode(JSON.stringify(content)).length;
 
 /** Map a Prisma Estimate row to the API EstimateFull shape. */

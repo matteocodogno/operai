@@ -40,7 +40,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     (AC-2.3); `DELETE` → 204 then `GET/{id}` → 404 (AC-3.1); every query scoped by
     `userId=sub`, cross-user `GET/PUT/DELETE/{id}` → 404 (AC-4.1)
 
-- [ ] T5: Per-estimate size guard — refs: AC-1.4 — deps: T4
+- [x] T5: Per-estimate size guard — refs: AC-1.4 — deps: T4
   - touch: `estimai-api/src/estimates/estimates.routes.ts`, `src/lib/env.ts` (add `MAX_ESTIMATE_BYTES`, default 1048576)
   - done when: bun tests assert content over `MAX_ESTIMATE_BYTES` on `POST`/`PUT` → 413
     Problem with nothing persisted (prior version intact); in-limit → 201/200; a Hono
