@@ -81,7 +81,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     (AC-3.1); decline → no API call, item still present (AC-3.2); modal traps focus with
     Cancel as default focus, Esc = Cancel; per-row delete has `aria-label`
 
-- [ ] T11: Size-limit rejection UX — refs: AC-1.4 (client) — deps: T9
+- [x] T11: Size-limit rejection UX — refs: AC-1.4 (client) — deps: T9
   - touch: `estimai-ui/src/context/EstimatorContext.tsx`, `estimai-ui/src/components/ToastBanner.tsx`
   - done when: vitest asserts a 413 from save surfaces a clear human-readable
     `ToastBanner` message and the editor's in-memory estimate is unchanged (nothing lost)

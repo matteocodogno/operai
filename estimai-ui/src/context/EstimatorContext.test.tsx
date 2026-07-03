@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Tests for T9 (specs/001-estimate-persistence):
+ * Tests for T9 + T11 (specs/001-estimate-persistence):
  *
  *   (A) Load — EstimatorProvider initialised from API content: the editor
  *       renders the loaded name/author and computed values (PERT/Expected/
@@ -16,6 +16,12 @@
  *       is unchanged (AC-1.3 — nothing lost / overwritten).
  *       This test is designed to FAIL if the failure path clears/overwrites
  *       state.
+ *
+ *   (D) 413 size-limit rejection — T11 (AC-1.4 client side): a 413 ApiError
+ *       produces a SPECIFIC, size-limit message (distinct from generic errors),
+ *       the server's Problem `detail` is surfaced when available, in-memory
+ *       state (name/acts/releases) is unchanged, and a subsequent successful
+ *       save clears the error.
  *
  * Strategy:
  *   • estimatesApi is mocked at the module level via vi.mock.
@@ -555,5 +561,309 @@ describe('(C) Save-failure: error shown, in-memory state preserved (AC-1.3)', ()
 
     // Error should be cleared after successful save
     expect(screen.getByTestId('err').textContent).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (D) 413 SIZE-LIMIT REJECTION — T11 (AC-1.4 client side)
+//
+// Key assertions:
+//   1. A 413 ApiError with a Problem `detail` surfaces THAT detail string as
+//      the saveError (not a generic "Save failed (413)..." message) — this
+//      test FAILS if 413 falls through to the generic branch.
+//   2. The saveError message contains size/too-large phrasing (non-vacuous:
+//      would fail if the handler produced a generic error like "Save failed").
+//   3. In-memory state (name, acts, releases) is UNCHANGED after the 413 —
+//      fails if state were wiped or reverted.
+//   4. A non-413 ApiError (e.g. 503) produces the generic message (regression
+//      of T9 — the 503 path must NOT gain size-limit phrasing).
+//   5. A successful save after a 413 clears the error.
+// ---------------------------------------------------------------------------
+
+describe('(D) 413 size-limit rejection: specific message + state preserved (T11 / AC-1.4)', () => {
+  it('surfaces the server Problem detail as saveError on a 413 (not a generic message)', async () => {
+    // The server's Problem detail for a 413 — matches the plan.md shape:
+    // "Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved."
+    const serverDetail = 'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.'
+
+    vi.mocked(estimatesApi.update).mockRejectedValue(
+      new estimatesApi.ApiError({
+        type: 'https://httpstatuses.com/413',
+        title: 'Payload Too Large',
+        status: 413,
+        detail: serverDetail,
+      }),
+    )
+
+    function Trigger() {
+      const ctx = useEstimatorContext()
+      return (
+        <>
+          <button onClick={() => ctx.setName('Big Estimate')}>Trigger</button>
+          <span data-testid="d-save-error">{ctx.saveError ?? ''}</span>
+          <span data-testid="d-save-status">{ctx.saveStatus}</span>
+        </>
+      )
+    }
+
+    render(
+      <EstimatorProvider
+        estimateId="est-413-a"
+        initialName="Original"
+        initialAuthor="Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <Trigger />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Trigger' }).click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(screen.getByTestId('d-save-status').textContent).toBe('error')
+
+    // The saveError MUST be the server's detail string — not a generic message.
+    // This assertion FAILS if 413 fell through to the generic branch which would
+    // produce "Save failed (413). Your work is safe in this tab." instead.
+    const saveError = screen.getByTestId('d-save-error').textContent
+    expect(saveError).toBe(serverDetail)
+
+    // Non-vacuous: the message must reference size/payload/MB — proving it is
+    // specifically a size-limit message, not any arbitrary non-empty string.
+    expect(saveError).toMatch(/MB|too large|maximum|size|payload/i)
+  })
+
+  it('uses a clear size-limit fallback message when the 413 has no detail', async () => {
+    vi.mocked(estimatesApi.update).mockRejectedValue(
+      new estimatesApi.ApiError({
+        type: 'https://httpstatuses.com/413',
+        title: 'Payload Too Large',
+        status: 413,
+        // no detail property
+      }),
+    )
+
+    function Trigger() {
+      const ctx = useEstimatorContext()
+      return (
+        <>
+          <button onClick={() => ctx.setName('Big Estimate No Detail')}>Trigger</button>
+          <span data-testid="d-save-error-fallback">{ctx.saveError ?? ''}</span>
+        </>
+      )
+    }
+
+    render(
+      <EstimatorProvider
+        estimateId="est-413-b"
+        initialName="Original"
+        initialAuthor="Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <Trigger />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Trigger' }).click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    const saveError = screen.getByTestId('d-save-error-fallback').textContent
+    // The fallback must not be empty and must contain size-limit phrasing
+    expect(saveError).not.toBe('')
+    expect(saveError).toMatch(/too large|maximum|size/i)
+    // Must NOT be the generic non-413 message
+    expect(saveError).not.toMatch(/Check your connection/i)
+  })
+
+  it('PRESERVES in-memory name, acts, and releases after a 413 (nothing lost)', async () => {
+    // KEY: this test FAILS if the 413 handler clears or overwrites any estimate state.
+    vi.mocked(estimatesApi.update).mockRejectedValue(
+      new estimatesApi.ApiError({
+        type: 'https://httpstatuses.com/413',
+        title: 'Payload Too Large',
+        status: 413,
+        detail: 'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.',
+      }),
+    )
+
+    function EditAndCheck() {
+      const ctx = useEstimatorContext()
+      return (
+        <>
+          <button onClick={() => ctx.setName('Edited While Too Large')}>Edit</button>
+          <span data-testid="d-name">{ctx.name}</span>
+          <span data-testid="d-author">{ctx.author}</span>
+          <span data-testid="d-acts">{ctx.acts.length}</span>
+          <span data-testid="d-releases">{ctx.releases.length}</span>
+          <span data-testid="d-status">{ctx.saveStatus}</span>
+        </>
+      )
+    }
+
+    render(
+      <EstimatorProvider
+        estimateId="est-413-c"
+        initialName="Big Project"
+        initialAuthor="Preserved Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <EditAndCheck />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Edit' }).click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    // Save status must be 'error'
+    expect(screen.getByTestId('d-status').textContent).toBe('error')
+
+    // ── KEY ASSERTIONS: in-memory state must be unchanged ──
+    // The edited name must still be present (failure does not revert the edit)
+    expect(screen.getByTestId('d-name').textContent).toBe('Edited While Too Large')
+    // Author intact (AC-1.3 / AC-1.4 — nothing lost)
+    expect(screen.getByTestId('d-author').textContent).toBe('Preserved Author')
+    // Acts intact (2 fixture activities, not 0)
+    expect(screen.getByTestId('d-acts').textContent).toBe('2')
+    // Releases intact
+    expect(screen.getByTestId('d-releases').textContent).toBe('1')
+  })
+
+  it('non-413 failure (503) does NOT produce size-limit phrasing (T9 regression guard)', async () => {
+    // This test FAILS if a 503 accidentally gains size-limit phrasing.
+    // The 503 has no detail — so the fallback "Save failed (503)…" fires.
+    vi.mocked(estimatesApi.update).mockRejectedValue(
+      new estimatesApi.ApiError({
+        type: 'https://httpstatuses.com/503',
+        title: 'Service Unavailable',
+        status: 503,
+        // no detail — ensures the status-code fallback path fires
+      }),
+    )
+
+    function Trigger() {
+      const ctx = useEstimatorContext()
+      return (
+        <>
+          <button onClick={() => ctx.setName('Any Change')}>Trigger</button>
+          <span data-testid="d-generic-error">{ctx.saveError ?? ''}</span>
+        </>
+      )
+    }
+
+    render(
+      <EstimatorProvider
+        estimateId="est-503"
+        initialName="Original"
+        initialAuthor="Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <Trigger />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'Trigger' }).click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    const saveError = screen.getByTestId('d-generic-error').textContent
+    // Must be a non-empty error message
+    expect(saveError).not.toBe('')
+    // Must contain the status code (non-413 fallback) — NOT size-limit phrasing
+    expect(saveError).toContain('503')
+    expect(saveError).not.toMatch(/too large|maximum|MB|size/i)
+  })
+
+  it('clears the 413 error after a subsequent successful save', async () => {
+    // First call → 413; second call → success
+    vi.mocked(estimatesApi.update)
+      .mockRejectedValueOnce(
+        new estimatesApi.ApiError({
+          type: 'https://httpstatuses.com/413',
+          title: 'Payload Too Large',
+          status: 413,
+          detail: 'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.',
+        }),
+      )
+      .mockResolvedValueOnce({
+        ...mockSuccessResponse,
+        name: 'Trimmed Estimate',
+        updatedAt: '2026-07-03T12:00:00.000Z',
+      })
+
+    function EditHelper() {
+      const ctx = useEstimatorContext()
+      return (
+        <>
+          <button data-testid="too-large" onClick={() => ctx.setName('Too Large')}>
+            Too Large
+          </button>
+          <button data-testid="trimmed" onClick={() => ctx.setName('Trimmed Estimate')}>
+            Trimmed
+          </button>
+          <span data-testid="d-err-after-clear">{ctx.saveError ?? ''}</span>
+          <span data-testid="d-status-after-clear">{ctx.saveStatus}</span>
+        </>
+      )
+    }
+
+    render(
+      <EstimatorProvider
+        estimateId="est-413-d"
+        initialName="Original"
+        initialAuthor="Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <EditHelper />
+      </EstimatorProvider>,
+    )
+
+    // First edit → 413
+    await act(async () => {
+      screen.getByTestId('too-large').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(screen.getByTestId('d-status-after-clear').textContent).toBe('error')
+    expect(screen.getByTestId('d-err-after-clear').textContent).not.toBe('')
+
+    // Second edit → success (simulates user removing activities and re-saving)
+    await act(async () => {
+      screen.getByTestId('trimmed').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    // Error must be cleared after successful save
+    expect(screen.getByTestId('d-err-after-clear').textContent).toBe('')
+    // Status cycles back through 'saved' then 'idle'; at minimum it is not 'error'
+    expect(screen.getByTestId('d-status-after-clear').textContent).not.toBe('error')
   })
 })

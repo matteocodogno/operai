@@ -104,10 +104,25 @@ export function EstimatorProvider({
           // releases/acts — only the save indicator and error message change.
           setSaveStatus('error')
           if (err instanceof estimatesApi.ApiError) {
-            setSaveError(
-              err.detail ??
-                `Save failed (${String(err.status)}). Your work is safe in this tab.`,
-            )
+            if (err.status === 413) {
+              // AC-1.4: size-limit rejection — surface a clear, specific message
+              // distinct from generic network/save failures. Prefer the server's
+              // Problem detail (e.g. "Estimate content is 2.3 MB; the maximum is
+              // 1.0 MB. Nothing was saved.") when available; it already names the
+              // sizes. Fall back to a fixed message if the detail is absent.
+              setSaveError(
+                err.detail ??
+                  'This estimate is too large to save. Remove some activities to reduce its size.',
+              )
+            } else {
+              // Non-413: generic save failure — show the server detail if present
+              // (e.g. a 500 with an operator-facing message), otherwise fall back
+              // to a status-code message. Either way, no size-limit phrasing.
+              setSaveError(
+                err.detail ??
+                  `Save failed (${String(err.status)}). Your work is safe in this tab.`,
+              )
+            }
           } else {
             setSaveError('Save failed. Check your connection. Your work is safe in this tab.')
           }
