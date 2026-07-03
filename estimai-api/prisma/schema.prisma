@@ -8,6 +8,17 @@ datasource db {
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
-// T2 adds the Estimate model here.
-// This minimal schema is enough for prisma generate (client) and the health
-// check SELECT 1 to work without any models present.
+
+model Estimate {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  author    String   @default("")
+  sizeBytes Int
+  content   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("estimate")
+}

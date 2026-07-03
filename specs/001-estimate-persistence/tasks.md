@@ -18,7 +18,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     `app.onError`/`app.notFound`, CORS with `ALLOWED_ORIGINS`), `bun run typecheck` is
     clean and `GET /health` returns 200 against the compose Postgres
 
-- [ ] T2: Prisma schema + init migration for the `estimate` table — refs: enabling infra for AC-1.1, AC-2.1 — deps: T1
+- [x] T2: Prisma schema + init migration for the `estimate` table — refs: enabling infra for AC-1.1, AC-2.1 — deps: T1
   - touch: `estimai-api/prisma/schema.prisma`, `estimai-api/prisma/migrations/*`
   - done when: `estimate` model has `id`, `userId`, `name`, `author`, `sizeBytes`,
     `content Json`, `createdAt`, `updatedAt` + `@@index([userId, updatedAt(sort: Desc)])`;
