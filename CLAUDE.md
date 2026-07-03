@@ -45,7 +45,7 @@ operai/
 │
 ├── estimai-api/         # PLANNED — Bun + Hono + TypeScript backend (directory empty; see specs/001)
 │
-├── docs/adr/            # Architecture Decision Records (0001 in-memory JWT, 0002 hosted sign-in)
+├── docs/adr/            # Architecture Decision Records (0001–0005; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run release`
 └── specs/               # Spec-driven workflow (see below)
@@ -85,9 +85,9 @@ operai/
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
 ### Backend (estimai-api) — planned, not yet implemented
-- **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (mirrors the `auth` service)
-- **Persistence:** Prisma 7 + PostgreSQL; estimates stored as a JSONB document + listing columns
-- **Auth:** resource server — verifies the `auth` service's RS256 JWT via its JWKS endpoint
+- **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (mirrors the `auth` service; see ADR-0003)
+- **Persistence:** Prisma 7 + PostgreSQL; estimates stored as a JSONB document + listing columns (see ADR-0004)
+- **Auth:** resource server — verifies the `auth` service's RS256 JWT via its JWKS endpoint (see ADR-0005)
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Deploy:** EU region (Railway EU — data residency requirement)
 - The full design lives in `specs/001-estimate-persistence/plan.md`.
@@ -285,3 +285,13 @@ EstimAI is tool #1. The suite roadmap (not yet built):
 | **ProposAI** | Consulting proposal drafting from project briefs |
 
 All tools share the Operai design system (DM Sans / DM Mono / Syne, dark ink palette, purple AI accent).
+
+---
+
+## Architecture decisions
+
+- [0001] JWT in memory, never web storage — cache the RS256 JWT in a module-scope variable in `src/lib/api.ts`; never write it to localStorage/sessionStorage (see docs/adr/0001-jwt-in-memory-never-web-storage.md)
+- [0002] Sign-in page hosted by auth service — central `GET /sign-in` (Hono JSX) serves all Operai tools; frontends redirect unauthenticated users there (see docs/adr/0002-sign-in-page-hosted-by-auth-service.md)
+- [0003] estimai-api is Bun + Hono + TypeScript, not Kotlin/Spring Boot — one backend stack across the monorepo; supersedes the earlier Kotlin/Spring intention (see docs/adr/0003-estimai-api-bun-hono-typescript.md)
+- [0004] Estimate persistence: JSONB document + denormalised listing columns — one `estimate` row with `content` JSONB; `name`/`author`/`sizeBytes`/timestamps as columns; fidelity is semantic deep-equal; 1 MiB size guard; no count quota (see docs/adr/0004-estimate-persistence-jsonb-document.md)
+- [0005] JWT resource-server verification via remote JWKS — `estimai-api` verifies Bearer JWTs with `jose createRemoteJWKSet` pinned to RS256 + issuer; all queries scoped to `sub`; not-owned records return 404 not 403; establishes the pattern for all future Operai resource services (see docs/adr/0005-jwt-resource-server-remote-jwks.md)
