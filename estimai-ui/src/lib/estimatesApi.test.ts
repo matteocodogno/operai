@@ -172,21 +172,24 @@ describe('create(body)', () => {
   })
 
   it('throws ApiError with status 413 when content is too large', async () => {
+    // QE fix (defect D-1): original used mockResolvedValueOnce consumed by the first
+    // rejects.toThrow() call, leaving the second create() call unmocked (apiFetch returned
+    // undefined → TypeError in catch → err instanceof ApiError was false → inner expects
+    // never ran). Corrected to a single call with assertions outside the catch.
     vi.mocked(apiFetch).mockResolvedValueOnce(
       problemResponse(413, 'Payload Too Large', 'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.'),
     )
 
-    await expect(create(fixedUpsert)).rejects.toThrow(ApiError)
-
+    let thrown: unknown
     try {
       await create(fixedUpsert)
     } catch (err) {
-      if (err instanceof ApiError) {
-        expect(err.status).toBe(413)
-        expect(err.title).toBe('Payload Too Large')
-        expect(err.detail).toContain('Nothing was saved')
-      }
+      thrown = err
     }
+    expect(thrown).toBeInstanceOf(ApiError)
+    expect((thrown as ApiError).status).toBe(413)
+    expect((thrown as ApiError).title).toBe('Payload Too Large')
+    expect((thrown as ApiError).detail).toContain('Nothing was saved')
   })
 
   it('throws ApiError with status 400 for a validation Problem response', async () => {
