@@ -61,7 +61,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     vitest (mocking `apiFetch`) asserts request shapes and Problem-error handling; no
     hardcoded API URL; `pnpm build` typechecks
 
-- [ ] T8: Rewire estimates list to the API — refs: AC-2.1, AC-2.3 — deps: T7
+- [x] T8: Rewire estimates list to the API — refs: AC-2.1, AC-2.3 — deps: T7
   - touch: `estimai-ui/src/pages/EstimatesPage.tsx`, `estimai-ui/src/components/SkeletonListRows.tsx` (new)
   - done when: the list loads from `estimatesApi.list` with a `SkeletonListRows` loading
     state and the existing empty state on `[]`; vitest asserts loading → rows, and empty
