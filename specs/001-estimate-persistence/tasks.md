@@ -8,6 +8,9 @@ generated: 2026-07-03
 estimai-api (BE) track and estimai-ui (FE) track run largely in parallel after their
 roots; the e2e tasks converge once both are up. New UI components come from `design.md`.
 
+> 2026-07-03: implementation started (spec → in-progress) with the two parallel roots
+> T1 (estimai-api scaffold) + T7 (estimatesApi client).
+
 - [ ] T1: Scaffold the estimai-api service skeleton — refs: enabling infra (US-1..5) — deps: none
   - touch: `estimai-api/` (new): `package.json`, `src/index.ts`, `src/lib/{env,db,errors}.ts`, `src/health/health.routes.ts`, `src/openapi/registry.ts`, `tsconfig.json`, `.env.example`
   - done when: cloning the `auth` skeleton (Bun + Hono + `@hono/zod-openapi`, zod env

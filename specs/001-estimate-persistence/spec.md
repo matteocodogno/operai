@@ -1,7 +1,7 @@
 ---
 id: 001
 slug: estimate-persistence
-status: approved
+status: in-progress
 created: 2026-06-06
 approved: 2026-07-02
 ---
