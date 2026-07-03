@@ -54,7 +54,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     imported content round-trips deep-equal (AC-5.2); the endpoint returns 200 for a
     well-formed request regardless of per-element outcome
 
-- [ ] T7: estimatesApi client + env — refs: US-1,2,3,5 (client) — deps: none
+- [x] T7: estimatesApi client + env — refs: US-1,2,3,5 (client) — deps: none
   - touch: `estimai-ui/src/lib/estimatesApi.ts` (new), `estimai-ui/.env.example`, `estimai-ui/src/lib/estimatesApi.test.ts` (new)
   - done when: typed `create/list/get/update/remove/import` wrappers call
     `apiFetch(`${import.meta.env.VITE_API_URL}/estimates…`)` with correct method/body;
