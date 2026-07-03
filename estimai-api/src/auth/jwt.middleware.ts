@@ -1,5 +1,10 @@
 import { createMiddleware } from "hono/factory";
-import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from "jose";
+import {
+  createRemoteJWKSet,
+  jwtVerify,
+  errors as joseErrors,
+  type JWTPayload,
+} from "jose";
 import { env } from "../lib/env";
 
 // ─── Context variable types ───────────────────────────────────────────────────
@@ -71,13 +76,13 @@ export const jwtMiddleware = createMiddleware<{
 
   // 2. Verify RS256 signature, issuer, and expiry via cached remote JWKS.
   //    algorithms: ['RS256'] pins the algorithm — rejects alg:none and HS256.
-  let payload: { sub?: string; email?: unknown };
+  let payload: JWTPayload;
   try {
     const result = await jwtVerify(token, JWKS, {
       issuer: env.AUTH_ISSUER,
       algorithms: ["RS256"],
     });
-    payload = result.payload as { sub?: string; email?: unknown };
+    payload = result.payload;
   } catch (err) {
     // Translate all jose verification failures → 401 Problem JSON.
     // We log the code (not full error) so no token details hit app logs.

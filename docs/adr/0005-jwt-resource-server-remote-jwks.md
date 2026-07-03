@@ -161,6 +161,30 @@ to distinguish "authenticated but not authorised" from "not found".
   /estimates`, then asserts that `GET /estimates/{id}` for a different user returns
   404 — this catches any `sub` contract drift.
 
+## Deferred hardening
+
+**Audience (`aud`) claim verification** is not implemented in this middleware. The `auth`
+service does not currently set an `aud` claim, and there is only one resource server
+(`estimai-api`), so there is no cross-service token-replay risk today.
+
+Once a second Operai resource service ships (ReviewAI, RetroAI, ProposAI, or any other),
+all resource servers will share the same issuer and signing key — a JWT minted for one
+will be structurally valid on another. **Trigger:** before a second resource service goes
+to production, coordinate with the `auth` service to set `aud` on issued tokens and
+update this middleware to verify it:
+
+```typescript
+await jwtVerify(token, JWKS, {
+  issuer: env.AUTH_ISSUER,
+  audience: env.AUTH_AUDIENCE,   // e.g. "estimai-api"
+  algorithms: ["RS256"],
+});
+```
+
+`AUTH_AUDIENCE` would become a required env var in each resource service. Until then,
+do not add audience verification — the `auth` service does not set the claim and doing
+so would break every request.
+
 ## Compliance notes
 
 - GDPR/nLPD impact: low — JWT verification is a security control; no personal data
