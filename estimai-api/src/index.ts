@@ -6,7 +6,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
-import { estimatesRouter } from "./estimates/estimates.routes";
+import { estimatesRouter, importEstimatesRouter } from "./estimates/estimates.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -30,6 +30,10 @@ app.use("*", logger());
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.route("/", healthRouter);
+// importEstimatesRouter is mounted BEFORE estimatesRouter. The import route has
+// a larger bodyLimit (IMPORT_BODY_SIZE_LIMIT) and a completely separate middleware
+// chain — it is never subject to estimatesRouter's 2 MiB cap (OWASP A04 fix).
+app.route("/", importEstimatesRouter);
 app.route("/", estimatesRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────

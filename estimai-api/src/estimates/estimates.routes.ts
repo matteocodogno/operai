@@ -4,12 +4,29 @@
  * All routes are protected by jwtMiddleware (set userId/email on context).
  * Every repository call is scoped by userId derived from the verified JWT sub.
  *
- * Endpoints:
+ * Endpoints on estimatesRouter (2 MiB body limit):
  *   POST   /estimates          → 201 EstimateFull        (AC-1.1)
  *   GET    /estimates          → 200 EstimateListItem[]  (AC-2.1, AC-2.3)
  *   GET    /estimates/:id      → 200 EstimateFull        (AC-2.2)
  *   PUT    /estimates/:id      → 200 EstimateFull        (AC-1.2)
  *   DELETE /estimates/:id      → 204 (no body)           (AC-3.1)
+ *
+ * Endpoints on importEstimatesRouter (larger body limit — see BODY LIMIT DESIGN):
+ *   POST   /estimates/import   → 200 ImportResponse      (AC-5.2, AC-5.4)
+ *
+ * BODY LIMIT DESIGN (OWASP A04 fix):
+ *   - estimatesRouter: 2 MiB wildcard bodyLimit — single-estimate POST/PUT only
+ *     need headroom for a 1 MiB content plus the JSON envelope.
+ *   - importEstimatesRouter: separate router with a larger bodyLimit so that a
+ *     legitimate batch (e.g. three 900 KB estimates) is not rejected at the outer
+ *     envelope before per-element handling can run. The import limit is:
+ *       min(MAX_ESTIMATE_BYTES × 200 + 64 KiB envelope, 32 MiB hard ceiling)
+ *     The 32 MiB ceiling is the DoS trade-off: the import endpoint is internal/
+ *     behind-auth, so a generous-but-bounded ceiling is acceptable. The per-element
+ *     checkContentSize() (1 MiB) still runs inside the handler — the body limit is
+ *     only the outer envelope bound, not a substitute for per-element validation.
+ *   - The two routers are mounted separately in index.ts so their bodyLimit
+ *     middleware chains are completely independent (no double-capping).
  *
  * Ownership violations (AC-4.1) surface as 404 — the repo filters by userId so
  * "not yours" and "does not exist" are indistinguishable to the caller.
@@ -21,9 +38,8 @@
  *   - computeSizeBytes() from estimates.repo.ts measures the UTF-8 byte length
  *     of the serialised content.
  *   - If it exceeds MAX_ESTIMATE_BYTES → 413 Problem, nothing is persisted.
- *   - checkContentSize() is a small reusable helper (T6 will call it per element).
- *   - bodyLimit middleware caps raw request body at 2 MiB so the process never
- *     buffers an unbounded body.
+ *   - checkContentSize() is a small reusable helper called per element in import.
+ *   - bodyLimit middleware caps raw request body (see BODY LIMIT DESIGN above).
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
@@ -104,16 +120,45 @@ export const checkContentSize = (
   return undefined;
 };
 
-// ─── Router ───────────────────────────────────────────────────────────────────
+// ─── Body-size limit constants ────────────────────────────────────────────────
+
+// Single-estimate endpoints (POST /estimates, PUT /estimates/:id): 2 MiB gives
+// headroom for the JSON envelope around a max-size (1 MiB) content (AC-1.4, DoS).
+const BODY_SIZE_LIMIT = 2 * 1024 * 1024; // 2 MiB
+
+// Import endpoint: must accommodate up to 200 elements each up to MAX_ESTIMATE_BYTES
+// plus a small envelope (~64 KiB). An absolute 32 MiB ceiling is applied as the
+// DoS trade-off: this endpoint is internal/behind-auth, so a generous-but-bounded
+// ceiling is acceptable. The per-element checkContentSize() (1 MiB) still runs
+// inside the handler — the body limit is only the outer envelope bound.
+//
+// Ceiling derivation: MAX_ESTIMATE_BYTES (default 1 MiB) × 200 + 65536 ≈ 200 MiB
+// computed value is much larger than the 32 MiB ceiling, so the ceiling always
+// applies with the default. If MAX_ESTIMATE_BYTES were reduced to e.g. 100 KiB,
+// the computed value (≈ 20 MiB) would fall under the ceiling.
+const IMPORT_BODY_SIZE_LIMIT = (() => {
+  const MAX_CEILING = 32 * 1024 * 1024; // 32 MiB hard ceiling
+  const ENVELOPE_BYTES = 64 * 1024; // 64 KiB for the outer JSON envelope
+  if (env.MAX_IMPORT_REQUEST_BYTES !== undefined) {
+    // Honour the explicit env override but still cap at 32 MiB.
+    return Math.min(env.MAX_IMPORT_REQUEST_BYTES, MAX_CEILING);
+  }
+  const computed = env.MAX_ESTIMATE_BYTES * 200 + ENVELOPE_BYTES;
+  return Math.min(computed, MAX_CEILING);
+})();
+
+// ─── Routers ──────────────────────────────────────────────────────────────────
+//
+// estimatesRouter: CRUD endpoints (2 MiB body limit).
+// importEstimatesRouter: bulk-import endpoint (IMPORT_BODY_SIZE_LIMIT).
+//
+// The two routers are mounted separately in index.ts so their bodyLimit middleware
+// chains are completely independent — the import route is never subject to the 2 MiB
+// cap, and single-estimate endpoints are never given the larger import limit.
 
 export const estimatesRouter = new OpenAPIHono<{
   Variables: JwtVariables;
 }>();
-
-// Body-size limit: reject raw request bodies > 2 MiB before any handler logic
-// runs, so the process never buffers an unbounded payload (AC-1.4, DoS guard).
-// 2 MiB gives headroom for the JSON envelope around a max-size (1 MiB) content.
-const BODY_SIZE_LIMIT = 2 * 1024 * 1024; // 2 MiB
 
 estimatesRouter.use(
   "*",
@@ -133,8 +178,35 @@ estimatesRouter.use(
   }),
 );
 
-// Apply jwtMiddleware to ALL routes on this router.
+// Apply jwtMiddleware to ALL routes on the CRUD router.
 estimatesRouter.use("*", jwtMiddleware);
+
+// ─── Import sub-router (separate bodyLimit — see BODY LIMIT DESIGN in file header) ──
+
+export const importEstimatesRouter = new OpenAPIHono<{
+  Variables: JwtVariables;
+}>();
+
+importEstimatesRouter.use(
+  "*",
+  bodyLimit({
+    maxSize: IMPORT_BODY_SIZE_LIMIT,
+    onError: (c) =>
+      c.json(
+        {
+          type: "https://httpstatuses.com/413",
+          title: "Payload Too Large",
+          status: 413,
+          detail: `Import request body exceeds the maximum allowed size of ${(IMPORT_BODY_SIZE_LIMIT / 1024 / 1024).toFixed(1)} MB.`,
+          instance: c.req.path,
+        },
+        413,
+      ),
+  }),
+);
+
+// Apply jwtMiddleware to ALL routes on the import router.
+importEstimatesRouter.use("*", jwtMiddleware);
 
 // ─── POST /estimates — Create ─────────────────────────────────────────────────
 
@@ -410,6 +482,9 @@ estimatesRouter.openapi(deleteEstimateRoute, async (c) => {
 
 // ─── POST /estimates/import — Bulk import (T6, AC-5.2, AC-5.4) ───────────────
 //
+// Registered on importEstimatesRouter (not estimatesRouter) so it gets its own,
+// larger bodyLimit — see BODY LIMIT DESIGN in the file header.
+//
 // Each element is processed independently, in its own try/catch (one transaction
 // per element). A failure in any element never aborts or rolls back others.
 //
@@ -418,11 +493,15 @@ estimatesRouter.openapi(deleteEstimateRoute, async (c) => {
 //   - The ImportRequestSchema reuses EstimateUpsert which strips id/userId/timestamps,
 //     so callers cannot smuggle server-controlled fields (IDOR prevention).
 //   - Per-element size guard (checkContentSize) runs before each DB write.
+//   - Per-element error messages are sanitized (A09): SizeError messages are
+//     user-safe (they name the size limit); DatabaseError is replaced with a
+//     generic message to avoid leaking Prisma/DB internals to the wire.
 //
 // Response contract (plan.md):
 //   - 200 as long as the REQUEST ENVELOPE is well-formed (per-element outcomes in results).
 //   - 400 if the envelope is malformed (not an array, missing top-level fields).
 //   - 401 handled by jwtMiddleware upstream.
+//   - 413 if the entire import request body exceeds IMPORT_BODY_SIZE_LIMIT.
 
 const importEstimatesRoute = createRoute({
   method: "post",
@@ -455,10 +534,14 @@ const importEstimatesRoute = createRoute({
       content: { "application/json": { schema: ProblemSchema } },
       description: "Missing or invalid Bearer JWT",
     },
+    413: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Import request body exceeds IMPORT_BODY_SIZE_LIMIT; no elements processed",
+    },
   },
 });
 
-estimatesRouter.openapi(importEstimatesRoute, async (c) => {
+importEstimatesRouter.openapi(importEstimatesRoute, async (c) => {
   // userId is derived from the JWT sub — never from the request body (OWASP A01).
   const userId = c.get("userId");
   const { estimates } = c.req.valid("json");
@@ -474,6 +557,7 @@ estimatesRouter.openapi(importEstimatesRoute, async (c) => {
 
     // Per-element size guard (reuses T5's checkContentSize).
     // Over-size → that element is marked failed; others continue (AC-5.4).
+    // SizeError.message is user-safe (names the size limit in MB) — safe to wire.
     const sizeErr = checkContentSize(content, env.MAX_ESTIMATE_BYTES);
     if (sizeErr) {
       results.push({
@@ -497,11 +581,30 @@ estimatesRouter.openapi(importEstimatesRoute, async (c) => {
         id: exit.value.id,
       });
     } else {
-      // DatabaseError or any unexpected failure — capture a concise message.
-      const errorMessage =
-        exit.cause._tag === "Fail"
-          ? exit.cause.error.message
-          : "Unexpected error while importing estimate";
+      // OWASP A09 — error sanitization at the wire boundary:
+      //   SizeError (_tag === "SizeError"): message names the size limit in MB — safe to
+      //     forward (e.g. if the caller re-uses this handler for other error types).
+      //   DatabaseError: replace with generic message — never forward Prisma/cause
+      //     internals (connection strings, table names, constraint names).
+      //   Other (e.g. unexpected Die): generic fallback.
+      //
+      // Note: currently createEstimate only fails with DatabaseError, so the SizeError
+      // branch is unreachable in this code path. It is kept as a forward-compatibility
+      // guard: if the error union is ever widened (e.g. a retry layer adds SizeError),
+      // the sanitization remains correct without further changes. Using _tag
+      // discriminant (not instanceof) avoids TypeScript narrowing issues with
+      // Data.TaggedError intersections.
+      const errorMessage = (() => {
+        if (exit.cause._tag !== "Fail") {
+          return "Unexpected error while importing estimate";
+        }
+        const err = exit.cause.error as { _tag: string; message: string };
+        if (err._tag === "SizeError") {
+          return err.message; // user-safe: "X.X MB; maximum is Y.Y MB. Nothing was saved."
+        }
+        // DatabaseError or any other typed error — use a generic message.
+        return "Failed to import estimate";
+      })();
       results.push({
         localId,
         status: "failed" as const,

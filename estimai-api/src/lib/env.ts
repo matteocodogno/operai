@@ -10,6 +10,13 @@ const envSchema = z.object({
   AUTH_ISSUER: z.string().url("AUTH_ISSUER must be a valid URL"),
   // Per-estimate content size cap (bytes). Default 1 MiB. Configurable per environment.
   MAX_ESTIMATE_BYTES: z.coerce.number().int().positive().default(1048576),
+  // Raw request-body size cap for the bulk-import endpoint (bytes).
+  // Default: min(MAX_ESTIMATE_BYTES × 200 + 64 KiB envelope, 32 MiB hard ceiling).
+  // 32 MiB is chosen because this is an internal/behind-auth service; the ceiling
+  // prevents a single unbounded upload even if all 200 elements are legitimately
+  // near-max, while remaining a comfortable DoS bound for an authenticated endpoint.
+  // Override this env var only if you intentionally change MAX_ESTIMATE_BYTES above.
+  MAX_IMPORT_REQUEST_BYTES: z.coerce.number().int().positive().optional(),
   PORT: z.coerce.number().int().positive().default(8080),
   NODE_ENV: z
     .enum(["development", "production", "test"])

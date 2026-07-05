@@ -160,7 +160,7 @@ mock.module("@/lib/db", () => ({
 }));
 
 // Dynamic imports ensure the mocks are in place first.
-const { estimatesRouter } = await import("./estimates.routes");
+const { estimatesRouter, importEstimatesRouter } = await import("./estimates.routes");
 
 // Use the same freshDb for test cleanup.
 const testDb = freshDb;
@@ -169,6 +169,9 @@ const testDb = freshDb;
 
 const buildApp = () => {
   const app = new Hono();
+  // importEstimatesRouter is mounted first (mirrors index.ts) so its larger
+  // bodyLimit is in effect for /estimates/import independently of estimatesRouter.
+  app.route("/", importEstimatesRouter);
   app.route("/", estimatesRouter);
   return app;
 };
@@ -1665,5 +1668,213 @@ describe("T6 — malformed envelope → 400 Problem JSON", () => {
     // The schema .max(200) must reject the batch before the handler runs.
     // Without the cap, this returns 200 — the test would FAIL.
     expect(res.status).toBe(400);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OWASP A04 fix — import body-limit guard composition (regression tests)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// These three tests cover the A04 MEDIUM finding: the router-wide 2 MiB
+// bodyLimit was incorrectly capping POST /estimates/import, causing legitimate
+// multi-element batches (total > 2 MiB, each element < 1 MiB) to be rejected
+// with 413 BEFORE per-element handling could run.
+//
+// The fix: /estimates/import lives on importEstimatesRouter which has its own
+// larger bodyLimit (min(MAX_ESTIMATE_BYTES × 200 + 64 KiB, 32 MiB) = 32 MiB).
+// The 2 MiB cap on estimatesRouter no longer applies to the import path.
+//
+// Test (a) — THE REGRESSION: batch total > 2 MiB, each element < 1 MiB → 200.
+//   Before the fix this would return 413 from the router-wide bodyLimit before
+//   any handler logic ran. Now it returns 200 with per-element results.
+//
+// Test (b) — Over-import-limit body → 413 (outer envelope guard still works).
+//
+// Test (c) — Element over 1 MiB inside otherwise-fine batch → that element
+//   fails; others succeed (AC-5.4 still holds with the new larger limit).
+
+// Helper: builds content that serialises to ~700 KiB (deterministically under the
+// 1 MiB per-element cap but large enough that 3 copies exceed 2 MiB total).
+// Construction: 1300 releases × 500-char name → each release ≈ 550 bytes,
+// 1300 × 550 ≈ 715 KiB. We verify the exact range in the guard test below.
+const makeMediumContent = (tag: string) => {
+  const longName = "M".repeat(500);
+  const releases = Array.from({ length: 1300 }, (_, i) => ({
+    id: `rel-${tag}-${i}`,
+    name: longName,
+    fte: 2,
+  }));
+  return {
+    params: {
+      parallelism: 0.7,
+      sprintDays: 10,
+      workingDaysMonth: 20,
+      qaDeployDays: 0,
+      qaTestDays: 0,
+      pmDays: 0,
+      aiCostCoef: 10,
+      aiGain: 0.3,
+    },
+    releases,
+    acts: [],
+  };
+};
+
+describe("OWASP A04 fix — import body-limit fixture guards (test determinism)", () => {
+  it("makeMediumContent() is < 1 MiB per element (under per-element cap)", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(makeMediumContent("guard"))).length;
+    expect(bytes).toBeLessThan(1048576); // under 1 MiB per-element cap
+  });
+
+  it("3 × makeMediumContent() total exceeds 2 MiB (triggers the old router-wide cap)", () => {
+    const single = new TextEncoder().encode(
+      JSON.stringify(makeMediumContent("guard-sum")),
+    ).length;
+    // 3 copies must exceed 2 MiB to make the regression meaningful.
+    expect(single * 3).toBeGreaterThan(2 * 1024 * 1024);
+  });
+});
+
+describe("OWASP A04 fix (a) — multi-element batch > 2 MiB total, each element < 1 MiB → 200 with per-element results", () => {
+  it("[REGRESSION] batch whose total body > 2 MiB but each element < 1 MiB → 200 imported (was 413 before fix)", async () => {
+    // This is the exact scenario described in the MEDIUM finding:
+    // a legitimate batch of individually-valid estimates whose combined body
+    // exceeds the old router-wide 2 MiB limit. Before the fix, the bodyLimit
+    // middleware on estimatesRouter rejected the entire request with 413 — the
+    // caller never received a `results` array. After the fix, importEstimatesRouter's
+    // larger limit allows the batch through and all elements are processed.
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const batch = [
+      { localId: "medium-1", name: "Medium Import 1", author: "Alice", content: makeMediumContent("m1") },
+      { localId: "medium-2", name: "Medium Import 2", author: "Alice", content: makeMediumContent("m2") },
+      { localId: "medium-3", name: "Medium Import 3", author: "Alice", content: makeMediumContent("m3") },
+    ];
+
+    // Verify total body size crosses the old 2 MiB threshold (non-vacuous guard).
+    const totalBytes = new TextEncoder().encode(JSON.stringify({ estimates: batch })).length;
+    expect(totalBytes).toBeGreaterThan(2 * 1024 * 1024); // would have 413'd before fix
+
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: batch }),
+    });
+
+    // Must return 200 — not 413. Before the fix this would be 413.
+    expect(importRes.status).toBe(200);
+
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string; error?: string }>;
+    };
+
+    expect(body.results).toHaveLength(3);
+
+    // All elements must be imported (no per-element size failure — each is < 1 MiB).
+    for (const result of body.results) {
+      expect(result.status).toBe("imported");
+      expect(typeof result.id).toBe("string");
+      expect(result.id).toBeTruthy();
+    }
+
+    expect(body.results[0]?.localId).toBe("medium-1");
+    expect(body.results[1]?.localId).toBe("medium-2");
+    expect(body.results[2]?.localId).toBe("medium-3");
+  });
+});
+
+describe("OWASP A04 fix (b) — import body over IMPORT_BODY_SIZE_LIMIT → 413", () => {
+  it("POST /estimates/import with raw body > import limit → 413 (outer envelope guard)", async () => {
+    // Build a raw body that exceeds the 32 MiB import limit.
+    // We do NOT need a syntactically valid estimates payload — bodyLimit rejects
+    // before Zod parsing or handler logic runs.
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    // 33 MiB of raw body (slightly over the 32 MiB ceiling).
+    const rawBody = `{"estimates":"${"X".repeat(33 * 1024 * 1024)}"}`;
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: rawBody,
+    });
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+  });
+});
+
+describe("OWASP A04 fix (c) — element over 1 MiB in otherwise-fine large batch → that element failed; others imported (AC-5.4)", () => {
+  it("batch > 2 MiB total with one over-size element → over-size element failed; in-limit elements imported", async () => {
+    // Combines the regression scenario (total body > 2 MiB) with AC-5.4 partial
+    // failure: the large batch is accepted (over-import-limit body guard no longer
+    // applies), and the over-size element is caught by per-element checkContentSize.
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const batch = [
+      { localId: "mix-good-1", name: "Good Mix 1", author: "Alice", content: makeMediumContent("mix1") },
+      { localId: "mix-oversized", name: "Over-size", author: "Alice", content: makeOverSizeContentForImport() },
+      { localId: "mix-good-2", name: "Good Mix 2", author: "Alice", content: makeMediumContent("mix2") },
+    ];
+
+    // Verify the good elements are each under 1 MiB (per-element guard must not fire).
+    const goodBytes = new TextEncoder().encode(JSON.stringify(makeMediumContent("check"))).length;
+    expect(goodBytes).toBeLessThan(1048576);
+
+    // Verify the bad element is over 1 MiB (per-element guard must fire).
+    const badBytes = new TextEncoder().encode(JSON.stringify(makeOverSizeContentForImport())).length;
+    expect(badBytes).toBeGreaterThan(1048576);
+
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: batch }),
+    });
+
+    // Envelope is accepted (body is within import limit).
+    expect(importRes.status).toBe(200);
+
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string; error?: string }>;
+    };
+    expect(body.results).toHaveLength(3);
+
+    const [r1, rBad, r2] = body.results as Array<{
+      localId: string;
+      status: string;
+      id?: string;
+      error?: string;
+    }>;
+
+    // Good elements imported.
+    expect(r1!.status).toBe("imported");
+    expect(r1!.id).toBeTruthy();
+
+    // Over-size element failed with an error message (SizeError — safe to forward).
+    expect(rBad!.status).toBe("failed");
+    expect(typeof rBad!.error).toBe("string");
+    expect(rBad!.error!.length).toBeGreaterThan(0);
+    // Error must reference the size (not a generic DB message).
+    expect(rBad!.error).toContain("MB");
+
+    expect(r2!.status).toBe("imported");
+    expect(r2!.id).toBeTruthy();
+
+    // Verify good elements are retrievable via GET/{id} (AC-5.4 isolation proof).
+    const getRes1 = await app.request(`/estimates/${r1!.id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes1.status).toBe(200);
+
+    const getRes2 = await app.request(`/estimates/${r2!.id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes2.status).toBe(200);
   });
 });
