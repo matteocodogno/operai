@@ -97,7 +97,7 @@ export default function EstimatesPage() {
   const handleNew = useCallback(async () => {
     try {
       const estimate = await estimatesApi.create({
-        name: '',
+        name: 'Untitled',
         author: '',
         content: {
           params: { ...DEF_PARAMS },

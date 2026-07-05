@@ -100,7 +100,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     (AC-5.4), removing no local data; component/integration tests cover offer-shown,
     decline-session-remembered, and the results table
 
-- [ ] T13: e2e — persistence journey — refs: AC-1.1, AC-2.1, AC-2.2, AC-3.1 — deps: T4, T8, T9, T10
+- [x] T13: e2e — persistence journey — refs: AC-1.1, AC-2.1, AC-2.2, AC-3.1 — deps: T4, T8, T9, T10
   - touch: `estimai-ui/e2e/persistence.spec.ts` (new)
   - done when: `pnpm e2e` (against live estimai-api + auth + Postgres, seeded session)
     signs in, creates/saves an estimate, reloads and sees it in the list, reopens it with
