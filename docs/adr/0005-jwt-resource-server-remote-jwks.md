@@ -10,10 +10,20 @@
 ## Context
 
 `estimai-api` must authenticate every request. The Operai `auth` service is the
-single identity provider for the suite: it issues RS256-signed JWTs (via `jose`,
-private key `JWT_PRIVATE_KEY`) and exposes a JWKS endpoint at
-`/.well-known/jwks.json` (key ID `operai-auth-rs256-v1`, `Cache-Control: max-age=3600`).
-The `iss` claim equals `BETTER_AUTH_URL`; the `sub` claim is the user's database id.
+single identity provider for the suite: it issues RS256-signed JWTs and exposes a JWKS
+endpoint. The `iss` claim equals `BETTER_AUTH_URL`; the `sub` claim is the user's
+database id.
+
+> **Correction (2026-07-05, discovered by the T14 real-JWKS e2e).** The tokens minted by
+> `GET /auth/token` are signed by better-auth's **jwt plugin**, using a rotating RS256
+> keypair stored in the DB `jwks` table with a **dynamic `kid`** — and published at
+> better-auth's built-in **`/auth/jwks`** endpoint. The `auth` service *also* has a
+> separate custom `/.well-known/jwks.json` route that serves the env `JWT_PUBLIC_KEY`
+> (static `kid: operai-auth-rs256-v1`) — a **different key that does not sign
+> `/auth/token`**. Therefore `estimai-api` MUST verify against `AUTH_JWKS_URL =
+> <auth>/auth/jwks` (not `/.well-known/jwks.json`). Pointing at the custom endpoint made
+> every real token fail (`kid` not found). The `createRemoteJWKSet` design below is
+> unchanged and correctly follows the rotating `kid`; only the endpoint was corrected.
 
 `estimai-api` has no better-auth instance and no session cookie of its own. It is the
 first **resource server** in the monorepo — a service that consumes the JWT issued by
@@ -184,6 +194,21 @@ await jwtVerify(token, JWKS, {
 `AUTH_AUDIENCE` would become a required env var in each resource service. Until then,
 do not add audience verification — the `auth` service does not set the claim and doing
 so would break every request.
+
+**Access-token lifetime (owasp 2026-07-05, LOW).** The `auth` jwt plugin issues tokens
+with `expirationTime: "7d"` (matching the session TTL). A stolen in-memory JWT is valid
+for a week with no revocation at the resource server (it is a pure verifier). Acceptable
+today (in-memory only per ADR-0001, internal service, client-sensitive but not financial
+data), but for the regulated-sector clients a shorter access-token lifetime (≤ 24h, ideally
+1h) with the `apiFetch` refresh circuit is the target. **Trigger:** before external/regulated
+production exposure — reduce `expirationTime` and confirm the refresh path is transparent.
+This change lives in the `auth` service config, not this middleware.
+
+**Orphaned `/.well-known/jwks.json` (owasp 2026-07-05, advisory).** The `auth` service still
+serves the custom `/.well-known/jwks.json` (env key, static kid `operai-auth-rs256-v1`),
+which is NOT the key that signs `/auth/token` and is no longer consumed by any service.
+It is harmless (public key only) but a misconfiguration footgun. Tech-debt: remove it, or
+redirect it to `/auth/jwks`, once confirmed nothing depends on the env keypair.
 
 ## Compliance notes
 

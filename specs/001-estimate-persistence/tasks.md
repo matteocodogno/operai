@@ -10,6 +10,11 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
 
 > 2026-07-03: implementation started (spec → in-progress) with the two parallel roots
 > T1 (estimai-api scaffold) + T7 (estimatesApi client).
+>
+> 2026-07-05: T14 (real-JWKS e2e) exposed that estimai-api must verify against better-auth's
+> `/auth/jwks` (rotating dynamic kid), NOT the custom `/.well-known/jwks.json` (static key
+> that never signs `/auth/token`). plan.md § Auth model + ADR-0005 corrected accordingly; the
+> code/.env.example were fixed in T14. No task/AC change — a config/doc correction.
 
 - [x] T1: Scaffold the estimai-api service skeleton — refs: enabling infra (US-1..5) — deps: none
   - touch: `estimai-api/` (new): `package.json`, `src/index.ts`, `src/lib/{env,db,errors}.ts`, `src/health/health.routes.ts`, `src/openapi/registry.ts`, `tsconfig.json`, `.env.example`

@@ -42,7 +42,9 @@ candidate below. The concrete stack, matching `auth`:
   `auth/src/lib/errors.ts`), surfaced as RFC 7807 Problem JSON via a global
   `app.onError` + `app.notFound` (copied shape from `auth/src/index.ts`).
 - **Env validation:** zod schema à la `auth/src/lib/env.ts`, `process.exit(1)` on missing
-  vars. New vars: `DATABASE_URL`, `AUTH_JWKS_URL` (auth service `/.well-known/jwks.json`),
+  vars. New vars: `DATABASE_URL`, `AUTH_JWKS_URL` (auth service `/auth/jwks` — better-auth's
+  built-in JWKS whose rotating keypair signs `/auth/token`; NOT the custom
+  `/.well-known/jwks.json`, corrected 2026-07-05 per T14 / ADR-0005),
   `AUTH_ISSUER` (= auth's `BETTER_AUTH_URL`), `ALLOWED_ORIGINS` (CORS, includes the UI
   origin), `MAX_ESTIMATE_BYTES` (default `1048576` = 1 MiB), `PORT` (default 8080),
   `NODE_ENV`.
@@ -67,7 +69,9 @@ estimai-api is a **resource server**: it does not manage sessions or issue token
 2. Verifies the RS256 signature with `jose` `jwtVerify`, using a **cached remote JWKS**
    (`jose` `createRemoteJWKSet(new URL(AUTH_JWKS_URL))` — built once at module scope; it
    caches keys and honours the auth JWKS `Cache-Control: max-age=3600`, refetching only on
-   unknown `kid`). Verify `issuer: AUTH_ISSUER`; the signing key is `operai-auth-rs256-v1`.
+   unknown `kid`). Verify `issuer: AUTH_ISSUER`; the signing key uses better-auth's
+   rotating **dynamic `kid`** from `/auth/jwks` (corrected 2026-07-05 — the earlier
+   static `operai-auth-rs256-v1` was the wrong, non-signing key; see ADR-0005).
 3. On any verification failure (expired, bad signature, wrong issuer) → 401 Problem
    (AC-4.2). No DB access happens for unauthenticated requests.
 4. On success, set `c.set('userId', payload.sub)` and `c.set('email', payload.email)`.
