@@ -1640,4 +1640,30 @@ describe("T6 — malformed envelope → 400 Problem JSON", () => {
 
     expect(res.status).toBe(400);
   });
+
+  it("batch with 201 elements (exceeds cap of 200) → 400 (schema .max(200) enforced)", async () => {
+    // QE-added test: verifies the array-length cap is actually enforced by zod
+    // validation. Without this, the cap could be silently removed from the schema
+    // and callers could send unbounded batches (DoS risk).
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    // Build 201 elements — one over the allowed cap of 200.
+    const oversizedBatch = Array.from({ length: 201 }, (_, i) => ({
+      localId: `cap-test-${i}`,
+      name: `Estimate ${i}`,
+      author: "Alice",
+      content: makeContent(`cap-${i}`),
+    }));
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: oversizedBatch }),
+    });
+
+    // The schema .max(200) must reject the batch before the handler runs.
+    // Without the cap, this returns 200 — the test would FAIL.
+    expect(res.status).toBe(400);
+  });
 });
