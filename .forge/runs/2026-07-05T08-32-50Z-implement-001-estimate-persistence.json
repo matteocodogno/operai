@@ -1,0 +1,24 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-05T08-32-50Z-implement-001-estimate-persistence",
+  "command": "implement",
+  "feature": "001-estimate-persistence",
+  "tier": "production",
+  "started": "2026-07-05T08:32:50Z",
+  "finished": "2026-07-05T09:22:12Z",
+  "agents": [
+    { "agent": "backend-dev", "tasks": ["T6"], "outcome": "completed", "commits": ["09aec18"], "note": "bulk import endpoint; per-element isolation + ownership + 200-cap" },
+    { "agent": "frontend-dev", "tasks": ["T14"], "outcome": "completed", "commits": ["560b097"], "note": "real-JWKS + real-401 e2e (6 tests green vs live stack); FIXED critical drift — estimai-api was pointed at wrong JWKS (/.well-known vs /auth/jwks) so every real token would 401; also fixed 500 in jwks route" },
+    { "agent": "quality-engineer", "tasks": ["T6", "T14"], "outcome": "PASS", "commits": ["0d4096d"], "note": "all gates green (estimai-api 54, auth 61, ui 83, e2e 24); reproduced T14 live; added 200-cap test; flagged plan/ADR JWKS drift; escalated to owasp" },
+    { "agent": "owasp-reviewer", "tasks": ["T6", "T14"], "outcome": "REVIEW_REQUIRED", "findings": { "medium": 1, "low": 2 }, "note": "MED import bodyLimit composition breaks AC-5.4; LOW error passthrough; LOW 7d token; advisory orphaned jwks endpoint. Ownership/isolation/JWKS-fail-closed all clean" },
+    { "agent": "backend-dev", "tasks": ["T6"], "outcome": "completed", "commits": ["65d5734"], "note": "fix: route-local 32MiB-bounded import bodyLimit + sanitize per-element errors; 6 regression tests" },
+    { "agent": "owasp-reviewer", "tasks": ["T6"], "outcome": "PASS", "note": "re-verify: MED+LOW closed, jwtMiddleware still on import router, 0 findings" }
+  ],
+  "drift_events": [
+    { "agent": "frontend-dev", "artifact": "plan.md/ADR-0005", "summary": "T14 real-JWKS e2e exposed estimai-api verifying against the wrong JWKS: /auth/token is signed by better-auth's rotating keypair at /auth/jwks (dynamic kid), but plan/ADR-0005 specified the custom /.well-known/jwks.json (static kid operai-auth-rs256-v1). Every real token would 401 → feature-breaking in prod. Code + .env.example fixed in 560b097; plan.md + ADR-0005 corrected in 957476a.", "resolved": true }
+  ],
+  "verdicts": { "qe": "PASS", "owasp": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
