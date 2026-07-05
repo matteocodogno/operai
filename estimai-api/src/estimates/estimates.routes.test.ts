@@ -1164,3 +1164,480 @@ describe("AC-4.2 — unauthenticated requests rejected on all endpoints", () => 
     expect(list).toEqual([]);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// T6 — POST /estimates/import (AC-5.2, AC-5.4, specs/001-estimate-persistence)
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// These tests share the fixture keypair, JWKS proxy, JWT helpers, and Hono app
+// from the T4/T5 tests above (same file — no multi-file mock-module collision).
+//
+// SECURITY PROPERTIES TESTED
+// ──────────────────────────
+// Per-element isolation (AC-5.4):
+//   One failing element must NOT abort/rollback the others. If the endpoint used a
+//   single spanning transaction, the partial-failure test would fail (either all or
+//   none succeed). The test asserts that good elements are retrievable via GET/{id}
+//   even when a sibling element failed — impossible if the batch were rolled back.
+//
+// Ownership (AC-5.2 + AC-4.1):
+//   All imported rows are created under the JWT sub (userId from jwt) — never from
+//   any field in the request body. User B cannot see user A's imported estimates.
+//
+// Body smuggling guard (OWASP A01):
+//   A body element with a `userId` or `id` field must be silently stripped
+//   (EstimateUpsert has no such fields) and the row created under the JWT sub.
+//
+// Unauthenticated (AC-4.2): no/invalid JWT → 401; nothing written.
+//
+// Malformed envelope: missing or wrong `estimates` field → 400 Problem.
+
+// ─── T6 fixture: over-size content for per-element size guard tests ───────────
+//
+// Identical construction to the T5 fixture above (2500 releases × 500-char name).
+// Defined here separately so T6 tests are self-contained and don't depend on T5's
+// helper being in scope (they are, but naming the intent explicitly is clearer).
+
+const makeOverSizeContentForImport = () => {
+  const longName = "N".repeat(500);
+  const releases = Array.from({ length: 2500 }, (_, i) => ({
+    id: `rel-import-${i}`,
+    name: longName,
+    fte: 2,
+  }));
+  return {
+    params: {
+      parallelism: 0.7,
+      sprintDays: 10,
+      workingDaysMonth: 20,
+      qaDeployDays: 0,
+      qaTestDays: 0,
+      pmDays: 0,
+      aiCostCoef: 10,
+      aiGain: 0.3,
+    },
+    releases,
+    acts: [],
+  };
+};
+
+// ─── AC-5.2: Happy path — 3 elements all imported, content round-trips ────────
+//
+// Tests that each import element is persisted and retrievable via GET/{id} with
+// content deep-equal to what was sent. Covers the "accept → each appears in
+// account with identical content" assertion in AC-5.2.
+
+describe("T6 / AC-5.2 — happy path: 3 elements all imported, content round-trips", () => {
+  it("POST /estimates/import with 3 valid elements → all status:imported, content deep-equals sent payload", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const elements = [
+      { localId: "local-1", name: "Import Estimate 1", author: "Alice", content: makeContent("imp-e1") },
+      { localId: "local-2", name: "Import Estimate 2", author: "Bob", content: makeContent("imp-e2") },
+      { localId: "local-3", name: "Import Estimate 3", author: "Charlie", content: makeContent("imp-e3") },
+    ];
+
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: elements }),
+    });
+
+    expect(importRes.status).toBe(200);
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string; error?: string }>;
+    };
+
+    expect(body.results).toHaveLength(3);
+
+    // Every element must be imported.
+    for (const result of body.results) {
+      expect(result.status).toBe("imported");
+      expect(typeof result.id).toBe("string");
+      expect(result.id).toBeTruthy();
+    }
+
+    // localIds must correspond to the input order.
+    expect(body.results[0]?.localId).toBe("local-1");
+    expect(body.results[1]?.localId).toBe("local-2");
+    expect(body.results[2]?.localId).toBe("local-3");
+
+    // AC-5.2: each imported estimate is retrievable via GET/{id} and content
+    // deep-equals what was sent. Semantic deep-equal = JSONB preserves values.
+    for (let i = 0; i < elements.length; i++) {
+      const result = body.results[i]!;
+      // Narrow: after asserting status === "imported", id is present.
+      if (result.status !== "imported" || !result.id) continue;
+      const importedId: string = result.id;
+
+      const getRes = await app.request(`/estimates/${importedId}`, {
+        headers: { Authorization: `Bearer ${jwt}` },
+      });
+      expect(getRes.status).toBe(200);
+      const fetched = (await getRes.json()) as {
+        id: string;
+        name: string;
+        author: string;
+        content: unknown;
+      };
+
+      expect(fetched.id).toBe(importedId);
+      expect(fetched.name).toBe(elements[i]!.name);
+      expect(fetched.author).toBe(elements[i]!.author);
+      // AC-5.2 — semantic round-trip through JSONB preserves all values.
+      expect(fetched.content).toEqual(elements[i]!.content);
+    }
+  });
+});
+
+// ─── AC-5.4: Partial failure ──────────────────────────────────────────────────
+//
+// ISOLATION INVARIANT (KEY for AC-5.4, plan.md security target):
+//
+//   If the endpoint used a single spanning transaction (or aborted-on-first-error),
+//   a DB error on the bad element would roll back the good ones too — the good
+//   elements would NOT be retrievable via GET/{id}.
+//
+//   This test FAILS if per-element isolation is dropped.
+//
+// The test asserts:
+//   1. The bad (over-size) element → status:"failed" with a non-empty error message.
+//   2. The good elements → status:"imported" and retrievable via GET/{id} (AC-5.2).
+//   3. The bad element did NOT persist — GET /estimates count = 2, not 3.
+//   4. The overall endpoint response is 200 (not 413 or 500) — well-formed envelope.
+
+describe("T6 / AC-5.4 — partial failure: over-size element fails; valid elements are still imported", () => {
+  it("batch with one over-size element → that element is failed; others are imported and retrievable", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const goodContent1 = makeContent("import-good-1");
+    const goodContent2 = makeContent("import-good-2");
+    const badContent = makeOverSizeContentForImport();
+
+    // Verify the over-size fixture is actually over-limit (guard against silently
+    // shrinking the fixture and making this test vacuous).
+    const badBytes = new TextEncoder().encode(JSON.stringify(badContent)).length;
+    expect(badBytes).toBeGreaterThan(1048576);
+
+    const batch = [
+      { localId: "import-good-a", name: "Good Import A", author: "Alice", content: goodContent1 },
+      { localId: "import-bad-oversized", name: "Bad Import (over-size)", author: "Alice", content: badContent },
+      { localId: "import-good-b", name: "Good Import B", author: "Alice", content: goodContent2 },
+    ];
+
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: batch }),
+    });
+
+    // Endpoint returns 200 for a well-formed envelope regardless of per-element outcome.
+    expect(importRes.status).toBe(200);
+
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string; error?: string }>;
+    };
+    expect(body.results).toHaveLength(3);
+
+    const [resultA, resultBad, resultB] = body.results as Array<{
+      localId: string;
+      status: string;
+      id?: string;
+      error?: string;
+    }>;
+
+    // Good elements must be imported.
+    expect(resultA!.localId).toBe("import-good-a");
+    expect(resultA!.status).toBe("imported");
+    expect(resultA!.id).toBeTruthy();
+
+    // Bad element must be failed with an error.
+    expect(resultBad!.localId).toBe("import-bad-oversized");
+    expect(resultBad!.status).toBe("failed");
+    expect(typeof resultBad!.error).toBe("string");
+    expect(resultBad!.error!.length).toBeGreaterThan(0);
+    expect(resultBad!.id).toBeUndefined(); // no id on failed element
+
+    expect(resultB!.localId).toBe("import-good-b");
+    expect(resultB!.status).toBe("imported");
+    expect(resultB!.id).toBeTruthy();
+
+    // Narrow to string (asserted truthy above).
+    const idA = resultA!.id as string;
+    const idB = resultB!.id as string;
+
+    // ISOLATION PROOF: good elements are retrievable via GET/{id}.
+    // If the endpoint had used a single transaction, both would return 404 here.
+    const getResA = await app.request(`/estimates/${idA}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getResA.status).toBe(200);
+    const fetchedA = (await getResA.json()) as { content: unknown };
+    expect(fetchedA.content).toEqual(goodContent1); // AC-5.2 round-trip
+
+    const getResB = await app.request(`/estimates/${idB}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getResB.status).toBe(200);
+    const fetchedB = (await getResB.json()) as { content: unknown };
+    expect(fetchedB.content).toEqual(goodContent2); // AC-5.2 round-trip
+
+    // ISOLATION PROOF: the bad element did NOT persist.
+    // List must contain exactly the 2 good imports — not 3, not 1.
+    const listRes = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as Array<{ id: string; name: string }>;
+
+    expect(list).toHaveLength(2);
+    const ids = list.map((item) => item.id);
+    expect(ids).toContain(idA);
+    expect(ids).toContain(idB);
+    // The bad element must not have snuck into the DB.
+    expect(ids).not.toContain(resultBad!.id ?? "__none__");
+  });
+});
+
+// ─── Ownership: imported rows belong to the caller's userId only ──────────────
+//
+// OWNERSHIP INVARIANT:
+//   All imported rows must be created under the JWT sub (USER_A_ID), never under
+//   any body-supplied value. User B's GET must not see them.
+//
+//   If userId were taken from the body, a smuggled `userId` field could write under
+//   B's account. EstimateUpsert strips unknown fields (zod default — no .passthrough()),
+//   so the import schema carries no `userId`. This test catches both cases:
+//     1. Ownership via GET/{id} with user B's token → 404.
+//     2. Body smuggling: element with `userId: USER_B_ID` → row created under USER_A_ID.
+
+describe("T6 — ownership: imported rows belong to the caller's userId", () => {
+  it("imported rows are retrievable by user A; user B's list does not include them (AC-4.1)", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        estimates: [
+          { localId: "own-test-1", name: "Ownership Test Estimate", author: "Alice", content: makeContent("own") },
+        ],
+      }),
+    });
+    expect(importRes.status).toBe(200);
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string }>;
+    };
+    const [result] = body.results;
+    expect(result!.status).toBe("imported");
+    const importedId = result!.id as string;
+
+    // User A can fetch the imported estimate.
+    const getResA = await app.request(`/estimates/${importedId}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(getResA.status).toBe(200);
+
+    // User B cannot see user A's imported estimate (AC-4.1).
+    // Without userId scoping in createEstimate, the row might be accessible to anyone.
+    const getResB = await app.request(`/estimates/${importedId}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(getResB.status).toBe(404); // falsifiable: without scoping → 200
+
+    // User B's list must not contain user A's imported estimate.
+    const listResB = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(listResB.status).toBe(200);
+    const listB = (await listResB.json()) as Array<{ id: string }>;
+    expect(listB.every((item) => item.id !== importedId)).toBe(true);
+  });
+
+  it("body field 'userId' is stripped — caller cannot override ownership via body (OWASP A01)", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    // Attempt: user A sends an element with `userId` = USER_B_ID in the body.
+    // EstimateUpsert.extend({localId}) strips unknown fields — `userId` in body
+    // must be silently dropped and the row created under USER_A_ID (JWT sub).
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        estimates: [
+          {
+            localId: "smuggle-userid",
+            name: "Body userId smuggle attempt",
+            author: "Alice",
+            content: makeContent("smuggle"),
+            // Extra field — must be stripped by EstimateUpsert schema
+            userId: USER_B_ID,
+          },
+        ],
+      }),
+    });
+    expect(importRes.status).toBe(200);
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string }>;
+    };
+    const [result] = body.results;
+    expect(result!.status).toBe("imported");
+    const importedId = result!.id as string;
+
+    // The row must be under USER_A_ID — user A can read it.
+    const getResA = await app.request(`/estimates/${importedId}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(getResA.status).toBe(200);
+
+    // The row must NOT be under USER_B_ID.
+    // If the body userId were used, user B would be able to read it → 200.
+    // Without smuggling prevention → 200 here, failing the test. (OWASP A01 guard)
+    const getResB = await app.request(`/estimates/${importedId}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(getResB.status).toBe(404);
+  });
+});
+
+// ─── AC-4.2: Unauthenticated import → 401; nothing written ───────────────────
+//
+// jwtMiddleware is applied to all routes on the router via `use("*")`.
+// These tests verify the middleware guards /estimates/import too.
+
+describe("T6 / AC-4.2 — unauthenticated import requests are rejected", () => {
+  it("POST /estimates/import without Bearer → 401 Problem JSON", async () => {
+    const app = buildApp();
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        estimates: [
+          { localId: "no-auth", name: "No auth estimate", author: "", content: makeContent() },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.status).toBe(401);
+    expect(body.type).toBe("https://httpstatuses.com/401");
+    expect(body.title).toBe("Unauthorized");
+  });
+
+  it("POST /estimates/import with invalid Bearer → 401; nothing persisted in DB", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+
+    // Unauthenticated POST — must fail.
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer not-a-valid-jwt",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        estimates: [
+          { localId: "bad-auth", name: "Bad auth estimate", author: "", content: makeContent() },
+        ],
+      }),
+    });
+    expect(res.status).toBe(401);
+
+    // Verify nothing was persisted — user A's list is still empty.
+    const listRes = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(listRes.status).toBe(200);
+    const list = await listRes.json();
+    expect(list).toEqual([]);
+  });
+});
+
+// ─── Malformed envelope → 400 Problem JSON ────────────────────────────────────
+//
+// A malformed envelope (missing/wrong `estimates` field) must return 400.
+// Per-element outcomes live in `results` only when the envelope is valid (plan.md).
+// The 400 is returned by @hono/zod-openapi validation before the handler runs.
+
+describe("T6 — malformed envelope → 400 Problem JSON", () => {
+  it("missing 'estimates' field → 400", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ wrong_field: [] }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("'estimates' is not an array (string) → 400", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: "not-an-array" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("empty 'estimates' array → 400 (schema requires min 1 element)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ estimates: [] }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("element missing 'localId' → 400 (required field by schema)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        estimates: [
+          { name: "No localId", author: "", content: makeContent() },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("element missing 'name' → 400 (EstimateUpsert: z.string().min(1))", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        estimates: [
+          { localId: "no-name", author: "", content: makeContent() },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+});

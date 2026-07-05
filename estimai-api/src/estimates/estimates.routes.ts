@@ -37,6 +37,8 @@ import {
   EstimateFullSchema,
   EstimateListItemSchema,
   EstimateIdParamSchema,
+  ImportRequestSchema,
+  ImportResponseSchema,
 } from "./estimates.schemas";
 import {
   createEstimate,
@@ -404,4 +406,109 @@ estimatesRouter.openapi(deleteEstimateRoute, async (c) => {
   }
 
   return new Response(null, { status: 204 });
+});
+
+// ─── POST /estimates/import — Bulk import (T6, AC-5.2, AC-5.4) ───────────────
+//
+// Each element is processed independently, in its own try/catch (one transaction
+// per element). A failure in any element never aborts or rolls back others.
+//
+// SECURITY (OWASP A01/A04):
+//   - userId is ALWAYS taken from c.get('userId') (JWT sub) — never from the body.
+//   - The ImportRequestSchema reuses EstimateUpsert which strips id/userId/timestamps,
+//     so callers cannot smuggle server-controlled fields (IDOR prevention).
+//   - Per-element size guard (checkContentSize) runs before each DB write.
+//
+// Response contract (plan.md):
+//   - 200 as long as the REQUEST ENVELOPE is well-formed (per-element outcomes in results).
+//   - 400 if the envelope is malformed (not an array, missing top-level fields).
+//   - 401 handled by jwtMiddleware upstream.
+
+const importEstimatesRoute = createRoute({
+  method: "post",
+  path: "/estimates/import",
+  tags: ["Estimates"],
+  summary: "Bulk import estimates (one-time migration, US-5)",
+  description:
+    "Imports a batch of estimates from local storage under the caller's account. " +
+    "Each element is imported independently in its own transaction — one failure " +
+    "never aborts or rolls back others (AC-5.4). Per-element size guard applies. " +
+    "Returns 200 with per-element results as long as the request envelope is well-formed.",
+  request: {
+    body: {
+      required: true,
+      content: {
+        "application/json": { schema: ImportRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: ImportResponseSchema } },
+      description: "Batch processed — check each element's status in results (AC-5.2, AC-5.4)",
+    },
+    400: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Malformed request envelope (not an array, missing required fields)",
+    },
+    401: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Missing or invalid Bearer JWT",
+    },
+  },
+});
+
+estimatesRouter.openapi(importEstimatesRoute, async (c) => {
+  // userId is derived from the JWT sub — never from the request body (OWASP A01).
+  const userId = c.get("userId");
+  const { estimates } = c.req.valid("json");
+
+  // Process each element independently so one failure cannot abort the batch.
+  // We deliberately do NOT use Promise.all here — sequential processing avoids
+  // overwhelming the DB connection pool with a large batch (200 elements) and
+  // makes the per-element isolation explicit and auditable.
+  const results = [];
+
+  for (const element of estimates) {
+    const { localId, name, author, content } = element;
+
+    // Per-element size guard (reuses T5's checkContentSize).
+    // Over-size → that element is marked failed; others continue (AC-5.4).
+    const sizeErr = checkContentSize(content, env.MAX_ESTIMATE_BYTES);
+    if (sizeErr) {
+      results.push({
+        localId,
+        status: "failed" as const,
+        error: sizeErr.message,
+      });
+      continue;
+    }
+
+    // Each create runs in its own Effect — a DB error on this element is caught
+    // here and marks only this element failed; the loop continues (AC-5.4).
+    const exit = await Effect.runPromiseExit(
+      createEstimate(userId, name, author, content),
+    );
+
+    if (exit._tag === "Success") {
+      results.push({
+        localId,
+        status: "imported" as const,
+        id: exit.value.id,
+      });
+    } else {
+      // DatabaseError or any unexpected failure — capture a concise message.
+      const errorMessage =
+        exit.cause._tag === "Fail"
+          ? exit.cause.error.message
+          : "Unexpected error while importing estimate";
+      results.push({
+        localId,
+        status: "failed" as const,
+        error: errorMessage,
+      });
+    }
+  }
+
+  return c.json({ results }, 200);
 });

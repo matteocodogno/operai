@@ -46,7 +46,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     Problem with nothing persisted (prior version intact); in-limit → 201/200; a Hono
     body-size limit caps the request; a loop creating many estimates confirms no count cap
 
-- [ ] T6: Bulk import endpoint — refs: US-5, AC-5.2, AC-5.4 — deps: T4, T5
+- [x] T6: Bulk import endpoint — refs: US-5, AC-5.2, AC-5.4 — deps: T4, T5
   - touch: `estimai-api/src/estimates/estimates.routes.ts`, `estimates.repo.ts`, `estimates.schemas.ts`
   - done when: bun tests assert `POST /estimates/import` imports each element in its own
     transaction under the caller's `userId`; a batch with one over-size/invalid element

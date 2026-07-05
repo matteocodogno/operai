@@ -126,3 +126,62 @@ export type EstimateFull = z.infer<typeof EstimateFullSchema>;
 export const EstimateIdParamSchema = z.object({
   id: z.string().min(1, "id is required"),
 });
+
+// ─── Bulk import schemas (T6, AC-5.2/AC-5.4) ─────────────────────────────────
+
+/**
+ * A single element in a bulk import request.
+ * Extends EstimateUpsert (name/author/content bounds apply) with a caller-supplied
+ * `localId` used to correlate results back to the original local estimate.
+ *
+ * EstimateUpsert is reused deliberately: it excludes id/userId/timestamps so the
+ * caller cannot smuggle server-controlled fields into the batch (OWASP A01).
+ */
+export const ImportElementSchema = EstimateUpsertSchema.extend({
+  localId: z.string().min(1, "localId is required").max(500),
+});
+
+export type ImportElement = z.infer<typeof ImportElementSchema>;
+
+/**
+ * POST /estimates/import request body.
+ * Array is capped at 200 elements to bound the batch size and prevent abuse.
+ */
+export const ImportRequestSchema = z.object({
+  estimates: z
+    .array(ImportElementSchema)
+    .min(1, "estimates must contain at least one element")
+    .max(200, "estimates batch must not exceed 200 elements"),
+});
+
+export type ImportRequest = z.infer<typeof ImportRequestSchema>;
+
+/**
+ * Per-element import result.
+ *   status:"imported" — element was persisted; `id` is the new server-assigned id.
+ *   status:"failed"   — element was NOT persisted; `error` is a human-readable reason.
+ */
+export const ImportResultItemSchema = z.discriminatedUnion("status", [
+  z.object({
+    localId: z.string(),
+    status: z.literal("imported"),
+    id: z.string(),
+  }),
+  z.object({
+    localId: z.string(),
+    status: z.literal("failed"),
+    error: z.string(),
+  }),
+]);
+
+export type ImportResultItem = z.infer<typeof ImportResultItemSchema>;
+
+/**
+ * POST /estimates/import response body.
+ * One result per input element, in the same order.
+ */
+export const ImportResponseSchema = z.object({
+  results: z.array(ImportResultItemSchema),
+});
+
+export type ImportResponse = z.infer<typeof ImportResponseSchema>;
