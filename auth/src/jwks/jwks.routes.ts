@@ -31,7 +31,9 @@ async function getJwks(): Promise<{ keys: object[] }> {
 
   // PEM values in .env store literal \n; normalise to real newlines.
   const pem = env.JWT_PUBLIC_KEY.replace(/\\n/g, "\n");
-  const publicKey = await importSPKI(pem, "RS256");
+  // extractable: true is required so exportJWK can read the key material back out.
+  // importSPKI defaults to non-extractable in the WebCrypto path used by Bun.
+  const publicKey = await importSPKI(pem, "RS256", { extractable: true });
   const jwk = await exportJWK(publicKey);
 
   jwksCache = {

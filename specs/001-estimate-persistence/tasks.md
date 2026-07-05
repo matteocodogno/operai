@@ -101,7 +101,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     signs in, creates/saves an estimate, reloads and sees it in the list, reopens it with
     matching content, deletes it and confirms it is gone
 
-- [ ] T14: e2e — JWKS identity + real-401 (closes the 002 eval gaps) — refs: AC-3.2-equiv, AC-4.1, AC-4.2 — deps: T3, T4, T9
+- [x] T14: e2e — JWKS identity + real-401 (closes the 002 eval gaps) — refs: AC-3.2-equiv, AC-4.1, AC-4.2 — deps: T3, T4, T9
   - touch: `estimai-ui/e2e/auth-identity.spec.ts` (new), or an estimai-api integration test
   - done when: `T-JWKS-identity` proves a real JWT verified against the live JWKS resolves
     the correct user (user A's token reaches only A's data; B's cannot — AC-4.1); and

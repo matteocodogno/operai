@@ -23,6 +23,16 @@ const authUrl =
   'http://localhost:3001'
 
 /**
+ * estimai-api URL — required by T13 (persistence e2e) and T14 (JWKS identity
+ * + real-401). Must be embedded in the Vite build so apiFetch treats it as a
+ * trusted origin (VITE_API_URL). Defaults to localhost:8080 (local compose).
+ */
+const apiUrl =
+  process.env['E2E_API_URL'] ??
+  process.env['VITE_API_URL'] ??
+  'http://localhost:8080'
+
+/**
  * The UI preview is served on port 5173 (not the default 4173).
  *
  * Rationale: better-auth's /auth/sign-out validates the request Origin against
@@ -87,6 +97,12 @@ export default defineConfig({
     stderr: 'pipe',
     env: {
       VITE_AUTH_URL: authUrl,
+      // estimai-api origin — baked into the Vite bundle so apiFetch includes it
+      // in its trusted-origin set (isTrustedOrigin) and attaches the Bearer JWT.
+      // Without this the UI makes unauthenticated requests to the API and the
+      // T13/T14 e2e tests (persistence journey, JWKS identity) cannot exercise
+      // the real authenticated path.
+      VITE_API_URL: apiUrl,
     },
   },
 })
