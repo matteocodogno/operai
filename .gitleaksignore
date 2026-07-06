@@ -17,3 +17,16 @@ auth/.envrc:1password-reference:18
 # estimai-api/src/auth/jwt.middleware.test.ts uses in-test generated CryptoKey objects
 # (kp2.privateKey) — these are WebCrypto key handles in memory, not real secrets
 estimai-api/src/auth/jwt.middleware.test.ts:generic-api-key:146
+
+# infra/variables.md documents 1Password reference URIs as placeholder examples — not real secrets
+infra/variables.md:1password-reference:13
+infra/variables.md:1password-reference:15
+infra/variables.md:1password-reference:16
+infra/variables.md:1password-reference:17
+infra/variables.md:1password-reference:18
+infra/variables.md:1password-reference:19
+infra/variables.md:1password-reference:20
+
+# infra/bootstrap.sh comments show example `op read` invocations for the operator — not real secrets
+infra/bootstrap.sh:1password-reference:38
+infra/bootstrap.sh:1password-reference:39
