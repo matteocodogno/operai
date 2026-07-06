@@ -19,6 +19,23 @@
  *   Release:    id, name, fte
  *   Activity:   id, num (string in UI), epic, act, prof, o, ml, p, risk,
  *               aiGain (optional), notes, release
+ *
+ * COERCION NOTE (bug fix): The EstimAI UI stores numeric activity and parameter
+ * inputs as strings (e.g. ml:"5", risk:"2", aiGain:"0.15", fte:"1") and only
+ * coerces them to numbers at compute time (useEstimator.ts). Strict z.number()
+ * therefore rejected all real saved/imported estimates, producing 400 on every
+ * POST /estimates, PUT /estimates/{id}, and POST /estimates/import.
+ *
+ * The fix uses z.coerce.number() for every field the UI may store as a string.
+ * z.coerce.number() calls Number(value) then rejects NaN, so:
+ *   - string "5"  → 5   (accepted)
+ *   - number  5   → 5   (accepted — numbers coerce to themselves)
+ *   - string ""   → 0   (accepted — matches the UI's Number(x)||0 compute behaviour)
+ *   - string "abc" → NaN → zod rejects (legitimately invalid input)
+ *   - undefined on an optional field stays undefined (optional short-circuits before coerce)
+ *
+ * `num` is intentionally kept as a string|number union (no coerce) — the UI types
+ * it as a string and it is display-only (never used in arithmetic).
  */
 
 import { z } from "zod";
@@ -29,36 +46,42 @@ import { z } from "zod";
  * Model parameters object stored inside every estimate.
  * All fields are optional so we accept both complete and partial params.
  * Unknown fields are stripped (no .passthrough()) to prevent oversized payloads.
+ *
+ * z.coerce.number() is used (not z.number()) because the UI stores these values
+ * as strings in localStorage/projectData and only coerces at compute time.
  */
 export const ParametersSchema = z.object({
-  parallelism: z.number().optional(),
-  sprintDays: z.number().optional(),
-  workingDaysMonth: z.number().optional(),
-  qaDeployDays: z.number().optional(),
-  qaTestDays: z.number().optional(),
-  pmDays: z.number().optional(),
-  aiCostCoef: z.number().optional(),
-  aiGain: z.number().optional(),
+  parallelism: z.coerce.number().optional(),
+  sprintDays: z.coerce.number().optional(),
+  workingDaysMonth: z.coerce.number().optional(),
+  qaDeployDays: z.coerce.number().optional(),
+  qaTestDays: z.coerce.number().optional(),
+  pmDays: z.coerce.number().optional(),
+  aiCostCoef: z.coerce.number().optional(),
+  aiGain: z.coerce.number().optional(),
 });
 
 export const ReleaseSchema = z.object({
   id: z.string().max(200),
   name: z.string().max(500),
-  fte: z.number(),
+  // z.coerce.number() — UI may store fte as a string (e.g. "1") in saved data.
+  fte: z.coerce.number(),
 });
 
 export const ActivitySchema = z.object({
   // `num` is typed as `string` in the UI (estimai-ui/src/types.ts Activity.num).
+  // Kept as string|number union (no coerce) — display-only, never used in arithmetic.
   id: z.string().max(200),
   num: z.union([z.string().max(50), z.number()]).optional(),
   epic: z.string().max(500).optional(),
   act: z.string().max(500).optional(),
   prof: z.string().max(200).optional(),
-  o: z.number().optional(),
-  ml: z.number().optional(),
-  p: z.number().optional(),
-  risk: z.number().optional(),
-  aiGain: z.number().optional(),
+  // z.coerce.number() — UI stores o/ml/p/risk/aiGain as strings in saved estimates.
+  o: z.coerce.number().optional(),
+  ml: z.coerce.number().optional(),
+  p: z.coerce.number().optional(),
+  risk: z.coerce.number().optional(),
+  aiGain: z.coerce.number().optional(),
   notes: z.string().max(2000).optional(),
   release: z.string().max(200).optional(),
 });

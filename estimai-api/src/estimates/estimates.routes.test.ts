@@ -1878,3 +1878,340 @@ describe("OWASP A04 fix (c) — element over 1 MiB in otherwise-fine large batch
     expect(getRes2.status).toBe(200);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUG FIX: z.coerce.number() — UI stores numeric fields as strings
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// The EstimAI UI stores numeric activity/parameter inputs as strings
+// (e.g. ml:"5", risk:"2", aiGain:"0.15") and coerces them to numbers only at
+// compute time.  The prior z.number() schemas rejected any real saved estimate,
+// causing POST /estimates, PUT, and POST /estimates/import to return 400.
+//
+// These tests use the PaperJudge-shaped payload (mixed string and number values
+// as they appear in real localStorage exports) to verify the fix is complete.
+//
+// Test structure:
+//   (1) import: string-valued acts/fte → status:"imported"; GET → fields coerced to numbers
+//   (2) upsert: POST with string-valued content → 201; GET → fields coerced to numbers
+//   (3) regression: all-numeric fixture still works (numbers coerce to themselves)
+//   (4) garbage string "abc" in a numeric field → that import element "failed" / upsert 400s
+
+// PaperJudge-shaped content: ml/risk/aiGain as strings, o/p as numbers, fte as number.
+// This mirrors the exact shape that caused the bug (confirmed by reproduction).
+const makePaperJudgeContent = () => ({
+  params: {
+    parallelism: "0.7",   // string — UI stores as string
+    sprintDays: 10,       // number — some fields may already be coerced
+    workingDaysMonth: "20",
+    qaDeployDays: "0",
+    qaTestDays: 0,
+    pmDays: "0",
+    aiCostCoef: "10",
+    aiGain: "0.15",       // string — the triggering field in the bug report
+  },
+  releases: [{ id: "rel-pj", name: "PaperJudge Release", fte: 1 }],
+  acts: [
+    {
+      id: "act-pj-1",
+      num: "1",
+      epic: "Auth",
+      act: "Login implementation",
+      prof: "Backend Dev",
+      o: 3,               // number — mixed with strings below
+      ml: "5",            // string — the triggering field (bug report)
+      p: 8,               // number
+      risk: "2",          // string — the triggering field (bug report)
+      aiGain: "0.15",     // string — the triggering field (bug report)
+      notes: "PaperJudge project activity",
+      release: "rel-pj",
+    },
+    {
+      id: "act-pj-2",
+      num: "2",
+      epic: "UI",
+      act: "Dashboard layout",
+      prof: "Frontend Dev",
+      o: 1,
+      ml: "3",
+      p: 6,
+      risk: "0",
+      aiGain: "0",        // string "0" — edge case: Number("0") === 0, not NaN
+      release: "rel-pj",
+    },
+  ],
+});
+
+// Expected shape after coercion: all numeric fields are numbers, not strings.
+const paperJudgeCoerced = () => ({
+  params: {
+    parallelism: 0.7,
+    sprintDays: 10,
+    workingDaysMonth: 20,
+    qaDeployDays: 0,
+    qaTestDays: 0,
+    pmDays: 0,
+    aiCostCoef: 10,
+    aiGain: 0.15,
+  },
+  releases: [{ id: "rel-pj", name: "PaperJudge Release", fte: 1 }],
+  acts: [
+    {
+      id: "act-pj-1",
+      num: "1",
+      epic: "Auth",
+      act: "Login implementation",
+      prof: "Backend Dev",
+      o: 3,
+      ml: 5,
+      p: 8,
+      risk: 2,
+      aiGain: 0.15,
+      notes: "PaperJudge project activity",
+      release: "rel-pj",
+    },
+    {
+      id: "act-pj-2",
+      num: "2",
+      epic: "UI",
+      act: "Dashboard layout",
+      prof: "Frontend Dev",
+      o: 1,
+      ml: 3,
+      p: 6,
+      risk: 0,
+      aiGain: 0,
+      release: "rel-pj",
+    },
+  ],
+});
+
+// (1) import: string-valued acts → status:"imported"; GET → fields coerced to numbers
+describe("coerce fix (1) — import with string-valued numeric fields → imported; GET round-trips as numbers", () => {
+  it("POST /estimates/import with PaperJudge-shaped content (ml:'5', risk:'2', aiGain:'0.15') → status:imported; GET returns coerced numbers", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        estimates: [
+          {
+            localId: "paperjudge-import-1",
+            name: "PaperJudge Import Test",
+            author: "QA",
+            content: makePaperJudgeContent(),
+          },
+        ],
+      }),
+    });
+
+    // Before the fix this would be 400 (z.number() rejected "5", "2", "0.15").
+    expect(importRes.status).toBe(200);
+    const body = (await importRes.json()) as {
+      results: Array<{ localId: string; status: string; id?: string; error?: string }>;
+    };
+    expect(body.results).toHaveLength(1);
+    const [result] = body.results;
+    // Must be "imported", not "failed" — this is the primary regression assertion.
+    expect(result!.status).toBe("imported");
+    expect(typeof result!.id).toBe("string");
+    expect(result!.id).toBeTruthy();
+
+    // GET the imported estimate — fields must be coerced to numbers (not strings).
+    const getRes = await app.request(`/estimates/${result!.id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as { content: unknown };
+
+    // Deep-equal to the coerced shape: ml:5 not "5", risk:2 not "2", etc.
+    expect(fetched.content).toEqual(paperJudgeCoerced());
+  });
+});
+
+// (2) upsert: POST with string-valued content → 201; GET → fields coerced to numbers
+describe("coerce fix (2) — POST /estimates with string-valued numeric fields → 201; GET round-trips as numbers", () => {
+  it("POST /estimates with PaperJudge content → 201; GET returns coerced numbers", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "PaperJudge Upsert Test",
+        author: "QA",
+        content: makePaperJudgeContent(),
+      }),
+    });
+
+    // Before the fix this would be 400.
+    expect(postRes.status).toBe(201);
+    const created = (await postRes.json()) as { id: string; content: unknown };
+    expect(created.id).toBeTruthy();
+
+    // GET — fields coerced to numbers, not strings.
+    const getRes = await app.request(`/estimates/${created.id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as { content: unknown };
+    expect(fetched.content).toEqual(paperJudgeCoerced());
+  });
+
+  it("PUT /estimates/{id} with string-valued numeric fields → 200; GET returns coerced numbers", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    // First create with numeric content so the row exists.
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "PaperJudge PUT Test (original)",
+        author: "QA",
+        content: makeContent("before-put"),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    // PUT with string-valued content — before the fix this would be 400.
+    const putRes = await app.request(`/estimates/${id}`, {
+      method: "PUT",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "PaperJudge PUT Test (updated)",
+        author: "QA",
+        content: makePaperJudgeContent(),
+      }),
+    });
+    expect(putRes.status).toBe(200);
+
+    // GET — fields coerced to numbers.
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as { content: unknown };
+    expect(fetched.content).toEqual(paperJudgeCoerced());
+  });
+});
+
+// (3) regression: all-numeric fixture still works (numbers coerce to themselves)
+describe("coerce fix (3) — regression: all-numeric content still accepted (numbers coerce to themselves)", () => {
+  it("POST /estimates with fully numeric content (existing fixture shape) → 201; GET round-trips identical", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const numericContent = makeContent("coerce-regression");
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "Numeric Regression Estimate",
+        author: "QA",
+        content: numericContent,
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    const fetched = (await getRes.json()) as { content: unknown };
+    // Numeric content must deep-equal the input — coercion does not corrupt numbers.
+    expect(fetched.content).toEqual(numericContent);
+  });
+});
+
+// (4) garbage string "abc" in a numeric field → envelope validation rejects (400)
+//
+// Both the single-estimate and import endpoints validate the entire request body
+// at the envelope level via @hono/zod-openapi before the handler runs. A genuinely
+// non-numeric string (e.g. "abc") coerces to NaN, and z.coerce.number() rejects NaN
+// → the envelope fails zod validation → 400. This is stricter than per-element
+// isolation (only size/DB errors produce per-element "failed" results).
+describe("coerce fix (4) — garbage string in a numeric field is rejected at envelope level", () => {
+  it("POST /estimates/import with ml:'abc' in one element → 400 (envelope zod validation rejects NaN)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const garbageContent = {
+      params: {
+        parallelism: 0.7,
+        sprintDays: 10,
+        workingDaysMonth: 20,
+        qaDeployDays: 0,
+        qaTestDays: 0,
+        pmDays: 0,
+        aiCostCoef: 10,
+        aiGain: 0.3,
+      },
+      releases: [{ id: "rel-garbage", name: "Garbage Release", fte: 1 }],
+      acts: [
+        {
+          id: "act-garbage",
+          ml: "abc", // genuinely non-numeric → NaN → zod rejects at envelope level
+          release: "rel-garbage",
+        },
+      ],
+    };
+
+    // @hono/zod-openapi validates the full request body before the handler runs.
+    // z.coerce.number() applied to "abc" → NaN → zod rejects → 400 on the envelope.
+    // This is correct: garbage values must never reach the DB.
+    const importRes = await app.request("/estimates/import", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        estimates: [
+          {
+            localId: "garbage-ml",
+            name: "Garbage ML estimate",
+            author: "QA",
+            content: garbageContent,
+          },
+        ],
+      }),
+    });
+
+    // Envelope-level 400: the entire batch is rejected (NaN is not valid input).
+    expect(importRes.status).toBe(400);
+  });
+
+  it("POST /estimates with aiGain:'not-a-number' → 400 (envelope validation rejects NaN)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const res = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "Garbage aiGain estimate",
+        author: "QA",
+        content: {
+          params: {
+            parallelism: 0.7,
+            sprintDays: 10,
+            workingDaysMonth: 20,
+            qaDeployDays: 0,
+            qaTestDays: 0,
+            pmDays: 0,
+            aiCostCoef: 10,
+            aiGain: "not-a-number", // NaN → rejected
+          },
+          releases: [{ id: "rel-g", name: "R", fte: 1 }],
+          acts: [],
+        },
+      }),
+    });
+
+    // Envelope-level validation rejects NaN — must return 400.
+    expect(res.status).toBe(400);
+  });
+});
