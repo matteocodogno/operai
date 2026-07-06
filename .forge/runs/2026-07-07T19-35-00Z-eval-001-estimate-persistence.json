@@ -1,0 +1,22 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-07T19-35-00Z-eval-001-estimate-persistence",
+  "command": "eval",
+  "feature": "001-estimate-persistence",
+  "tier": "production",
+  "started": "2026-07-07T19-35-00Z",
+  "finished": "2026-07-07T19-39-00Z",
+  "agents": [
+    {
+      "agent": "evaluator",
+      "outcome": "PASS",
+      "score": 91,
+      "note": "RE-EVAL after coercion fix 6b96be0 (prior 95 was stale, scored pre-fix). default-v2 rubric; AC 5/5, spec 5/5, test 4/5, code 5/5, design 5/5, trajectory 5/5 = 91.0. test_quality dropped 5->4: pre-fix suite stayed green while real string-numeric data 400'd in prod; coercion regression tests now non-vacuous (string in -> imported -> GET coerced numbers, garbage->400) but most fidelity fixtures still numeric-only. AC-1.1/AC-5.2 now hold for real data shape. Fresh gates: estimai-api 65/0 + tsc clean, estimai-ui vitest 83/0 + lint clean"
+    }
+  ],
+  "drift_events": [],
+  "verdicts": { "eval": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
