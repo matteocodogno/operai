@@ -24,14 +24,19 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Install only production dependencies
-COPY package.json bun.lock bunfig.toml ./
+# Install only production dependencies (as root so bun can write to /app)
+COPY --chown=bun:bun package.json bun.lock bunfig.toml ./
 RUN bun install --frozen-lockfile --production
 
 # Copy compiled source + generated Prisma client from builder
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/prisma ./prisma
-COPY tsconfig.json prisma.config.ts ./
+COPY --chown=bun:bun --from=builder /app/src ./src
+COPY --chown=bun:bun --from=builder /app/prisma ./prisma
+COPY --chown=bun:bun tsconfig.json prisma.config.ts ./
+
+# Drop privileges: the official oven/bun:1.3-alpine image ships with a non-root
+# 'bun' user (uid 1000). Running as root in a container handling regulated-sector
+# data exceeds the risk floor — switch before the process starts.
+USER bun
 
 # Run migrations then start the server.
 # The CMD is intentionally a shell form so the entrypoint can be overridden
