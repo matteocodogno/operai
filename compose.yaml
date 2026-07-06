@@ -8,12 +8,51 @@ services:
     ports:
       - "5435:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U operai"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
     volumes:
       - operai_postgres_data:/var/lib/postgresql/data
+
+  # ─── estimai-api ────────────────────────────────────────────────────────────
+  # Bun + Hono resource server for estimate persistence.
+  #
+  # DATA-RESIDENCY: in production this service is deployed to Railway EU region
+  # (see estimai-api/railway.json). Locally it runs against the shared Postgres
+  # instance above. Request/response bodies are never written to application logs
+  # (hono/logger emits method+path+status only — enforced in src/index.ts).
+  #
+  # Prerequisites:
+  #   1. Copy estimai-api/.env.example → estimai-api/.env and fill in values.
+  #   2. The `estimai` database must exist; run migrations first:
+  #        docker compose run --rm estimai-api-migrate
+  #      or manually:
+  #        cd estimai-api && bun run db:migrate
+  estimai-api:
+    build:
+      context: ./estimai-api
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./estimai-api/.env
+    environment:
+      # Override DATABASE_URL so the hostname resolves inside the compose network.
+      # The .env file uses localhost:5435 (host access); inside compose use the
+      # service name 'postgres' on its internal port 5432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/estimai
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
   operai_postgres_data:

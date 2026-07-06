@@ -119,7 +119,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     import offer, and asserts each estimate appears in the account with matching content;
     a batch with one bad element shows the partial-failure report and removes no local data
 
-- [ ] T16: devops — estimai-api deploy + local wiring — refs: data-residency constraint — deps: T1
+- [x] T16: devops — estimai-api deploy + local wiring — refs: data-residency constraint — deps: T1
   - touch: `compose.yaml` (or estimai-api compose entry), estimai-api deploy config, `estimai-api/.env.example`
   - done when: estimai-api runs locally against the compose Postgres; the deploy config
     explicitly names an EU region (Railway EU) and disables request-body logging; a check
