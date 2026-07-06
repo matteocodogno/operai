@@ -1,9 +1,10 @@
 ---
 id: 001
 slug: estimate-persistence
-status: in-progress
+status: done
 created: 2026-06-06
 approved: 2026-07-02
+done: 2026-07-07
 ---
 
 # Estimate persistence API
