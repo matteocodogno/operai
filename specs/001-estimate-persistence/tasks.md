@@ -113,7 +113,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     `T-real-401` drives `apiFetch` against a genuine estimai-api 401 and asserts the
     ADR-0001 refresh-retry-then-redirect circuit fires against a real backend 401
 
-- [ ] T15: e2e — import journey — refs: US-5, AC-5.1, AC-5.2, AC-5.4 — deps: T6, T12, T13
+- [x] T15: e2e — import journey — refs: US-5, AC-5.1, AC-5.2, AC-5.4 — deps: T6, T12, T13
   - touch: `estimai-ui/e2e/import.spec.ts` (new)
   - done when: `pnpm e2e` seeds legacy localStorage estimates, signs in, accepts the
     import offer, and asserts each estimate appears in the account with matching content;
