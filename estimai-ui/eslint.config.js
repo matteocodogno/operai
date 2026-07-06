@@ -19,5 +19,11 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // useEstimatorContext is a hook co-located with its Provider in the same file —
+      // the canonical React context pattern. Listing it here tells fast-refresh not to
+      // flag the mixed export; the hook itself never renders anything so HMR is safe.
+      'react-refresh/only-export-components': ['error', { allowConstantExport: true, allowExportNames: ['useEstimatorContext'] }],
+    },
   },
 ])

@@ -6,7 +6,7 @@ import { saveProjectData, uid } from '../lib/projects'
 import MetricsBar from '../components/MetricsBar'
 import { pertCalc } from '../hooks/useEstimator'
 import { computeActivityNums } from '../lib/activityNums'
-import type { Activity } from '../types'
+import type { Activity, Parameters } from '../types'
 
 function ReadOnlyActivityTable({ activities }: { activities: Activity[] }) {
   const nums = useMemo(() => computeActivityNums(activities), [activities])
@@ -64,7 +64,7 @@ export default function SharedEstimatePage() {
   const { summary, totals, byProfile } = useEstimator(
     data?.acts ?? [],
     data?.releases ?? [],
-    data?.params ?? {} as any,
+    data?.params ?? {} as Parameters,
   )
 
   function handleImport() {

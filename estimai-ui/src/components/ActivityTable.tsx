@@ -4,7 +4,6 @@ import {
   getCoreRowModel,
   flexRender,
   createColumnHelper,
-  type ColumnDef,
   type Row,
 } from "@tanstack/react-table";
 import {
@@ -145,19 +144,19 @@ function MLCell({
 
 // AiGainCell — shows "30%" when blurred, bare number when focused for easy editing.
 function AiGainCell({
-  id, stored, globalGainRef, rowIdx,
+  id, stored, globalAiGain, rowIdx,
   onUpdateRef, navRef,
 }: {
   id: string
   stored: number | undefined
-  globalGainRef: React.MutableRefObject<number>
+  globalAiGain: number
   rowIdx: number
   onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
   navRef: React.MutableRefObject<NavHandler>
 }) {
   const [focused, setFocused] = useState(false)
   const displayPct = stored !== undefined ? Math.round(stored * 100) : ''
-  const placeholderPct = Math.round(globalGainRef.current * 100)
+  const placeholderPct = Math.round(globalAiGain * 100)
 
   return (
     <div className="relative flex items-center">
@@ -409,7 +408,7 @@ const ActivityTable = memo(function ActivityTable({
   const activityNums = useMemo(() => computeActivityNums(activities), [activities]);
   activityNumsRef.current = activityNums;
 
-  const columns: ColumnDef<Activity, any>[] = useMemo(() => [
+  const columns = useMemo(() => [
     columnHelper.display({
       id: "num",
       header: "#",
@@ -570,7 +569,7 @@ const ActivityTable = memo(function ActivityTable({
           <AiGainCell
             id={row.id}
             stored={stored}
-            globalGainRef={globalAiGainRef}
+            globalAiGain={globalAiGainRef.current}
             rowIdx={rowIdx}
             onUpdateRef={onUpdateRef}
             navRef={navRef}
@@ -652,8 +651,7 @@ const ActivityTable = memo(function ActivityTable({
         </button>
       ),
     }),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], []);
+  ], []); // deps intentionally empty: all mutable values go through refs (activitiesRef, onUpdateRef, etc.)
 
   const table = useReactTable({ data: activities, columns, getCoreRowModel: getCoreRowModel() });
 
