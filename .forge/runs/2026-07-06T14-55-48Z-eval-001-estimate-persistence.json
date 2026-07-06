@@ -1,0 +1,17 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-06T14-55-48Z-eval-001-estimate-persistence",
+  "command": "eval",
+  "feature": "001-estimate-persistence",
+  "tier": "production",
+  "started": "2026-07-06T14:55:48Z",
+  "finished": "2026-07-06T14:59:26Z",
+  "agents": [
+    { "agent": "evaluator", "outcome": "PASS", "score": 95, "note": "default-v2 rubric; all dims 5/5 (ac 35, spec 20, test 20, code 15, design 15, trajectory 10); design_fidelity applies (design.md present); every dim >= floor; trajectory scored on 8 run traces" }
+  ],
+  "drift_events": [],
+  "verdicts": { "eval": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
