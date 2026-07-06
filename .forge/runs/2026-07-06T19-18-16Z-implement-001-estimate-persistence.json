@@ -1,0 +1,18 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-06T19-18-16Z-implement-001-estimate-persistence",
+  "command": "implement",
+  "feature": "001-estimate-persistence",
+  "tier": "production",
+  "started": "2026-07-06T19:18:16Z",
+  "finished": "2026-07-06T19:34:00Z",
+  "agents": [
+    { "agent": "backend-dev", "tasks": ["fix"], "outcome": "completed", "commits": ["6b96be0"], "note": "manual-QA defect: UI stores numeric fields as strings (ml/risk/aiGain), content schema required strict z.number() → POST/PUT/import 400 on real data (import showed 0/0). Fix: z.coerce.number() for Activity o/ml/p/risk/aiGain, Release fte, all Parameters numerics; +6 regression tests (string-valued import+upsert round-trip to numbers, garbage→400). typecheck clean, bun test 65/0" },
+    { "agent": "quality-engineer", "tasks": ["fix"], "outcome": "PASS", "note": "independent verify: 0 fields missed (cross-checked types.ts + ParametersPanel/ActivityTable onChange emit strings); tests non-vacuous (assert imported + coerced-number GET); garbage rejects 400; PaperJudge fixture safeParse now success:true on ImportElement+EstimateUpsert with numeric output; edge undefined→undefined, ''→0; scope isolated to schema+test. No owasp needed (validation-only)" }
+  ],
+  "drift_events": [],
+  "verdicts": { "qe": "PASS", "owasp": "n/a" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
