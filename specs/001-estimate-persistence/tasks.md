@@ -125,7 +125,7 @@ roots; the e2e tasks converge once both are up. New UI components come from `des
     explicitly names an EU region (Railway EU) and disables request-body logging; a check
     confirms no estimate `content` is written to application logs
 
-- [ ] T17: Close-out — gates green, spec done — refs: closing task — deps: T1–T16
+- [x] T17: Close-out — gates green, spec done — refs: closing task — deps: T1–T16
   - touch: `specs/001-estimate-persistence/spec.md`
   - done when: estimai-api `bun run typecheck` + `bun test` pass; estimai-ui `pnpm lint`,
     `pnpm build`, `pnpm test`, `pnpm e2e` pass; every task above is checked; then
