@@ -34,10 +34,9 @@ command -v railway >/dev/null 2>&1 || die "railway CLI not found — install fro
 railway whoami >/dev/null 2>&1    || die "Not logged in to Railway — run: railway login"
 
 # ─── Required secret env vars (read from the operator's shell — NEVER hardcoded) ─
-# Export these before running the script, e.g.:
-#   export BETTER_AUTH_SECRET=$(op read "op://Operai/auth/BETTER_AUTH_SECRET")
-#   export GOOGLE_CLIENT_ID=$(op read "op://Operai/auth/GOOGLE_CLIENT_ID")
-#   ... (see infra/README.md for the full list)
+# This repo uses direnv + 1Password: `cd auth/` and direnv exports these from
+# `auth/.envrc` automatically. Run this script from within `auth/` (or otherwise
+# ensure the vars below are exported). See infra/README.md for the full workflow.
 REQUIRED_SECRETS=(
   BETTER_AUTH_SECRET
   GOOGLE_CLIENT_ID
@@ -61,8 +60,14 @@ RAILWAY_PROJECT_NAME="${RAILWAY_PROJECT_NAME:-operai}"
 RAILWAY_ENVIRONMENT="${RAILWAY_ENVIRONMENT:-production}"
 RAILWAY_REGION="europe-west4"
 
-# UI origin — must match the deployed Vercel URL
-UI_ORIGIN="${UI_ORIGIN:-https://app.estimai.io}"
+# UI origin — the deployed Vercel URL (no trailing slash for CORS)
+UI_ORIGIN="${UI_ORIGIN:-https://operai.welld.io}"
+
+# Public URL of the auth service (Railway-generated domain or a custom domain such
+# as https://auth.operai.welld.io). Required — it becomes the JWT issuer, so both
+# services must agree on it. Generate/attach the auth domain first, then set this.
+AUTH_PUBLIC_URL="${AUTH_PUBLIC_URL:-}"
+[[ -n "${AUTH_PUBLIC_URL}" ]] || die "AUTH_PUBLIC_URL is not set. Attach a domain to the auth service, then: export AUTH_PUBLIC_URL=https://<auth-domain>"
 
 # ─── Project selection / creation ─────────────────────────────────────────────
 if [[ -n "${RAILWAY_PROJECT_ID:-}" ]]; then
@@ -134,7 +139,7 @@ info "Configuring auth service variables..."
 railway variables --service auth --set \
   "DATABASE_URL=${DATABASE_URL_AUTH}" \
   "BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}" \
-  "BETTER_AUTH_URL=https://auth.operai.io" \
+  "BETTER_AUTH_URL=${AUTH_PUBLIC_URL}" \
   "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" \
   "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" \
   "GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}" \
@@ -142,9 +147,9 @@ railway variables --service auth --set \
   "JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}" \
   "JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}" \
   "ALLOWED_ORIGINS=${UI_ORIGIN}" \
-  "UI_HOME_URL=${UI_ORIGIN}" \
-  "PORT=3001" \
+  "UI_HOME_URL=${UI_ORIGIN}/" \
   "NODE_ENV=production"
+# PORT is intentionally NOT set — Railway injects it and the app reads $PORT.
 # ENABLE_TEST_AUTH is intentionally NOT set — it must remain absent in production.
 
 info "Deploying auth service..."
@@ -159,10 +164,10 @@ info "Configuring estimai-api service variables..."
 railway variables --service estimai-api --set \
   "DATABASE_URL=${DATABASE_URL_ESTIMAI}" \
   "ALLOWED_ORIGINS=${UI_ORIGIN}" \
-  "AUTH_ISSUER=https://auth.operai.io" \
-  "AUTH_JWKS_URL=https://auth.operai.io/auth/jwks" \
-  "PORT=8080" \
+  "AUTH_ISSUER=${AUTH_PUBLIC_URL}" \
+  "AUTH_JWKS_URL=${AUTH_PUBLIC_URL}/auth/jwks" \
   "NODE_ENV=production"
+# PORT is intentionally NOT set — Railway injects it and the app reads $PORT.
 # MAX_ESTIMATE_BYTES and MAX_IMPORT_REQUEST_BYTES use their coded defaults (1 MiB / 32 MiB).
 
 info "Deploying estimai-api service..."
@@ -178,8 +183,8 @@ echo "    railway status --service auth"
 echo "    railway status --service estimai-api"
 echo ""
 echo "  Health checks (once DNS is live):"
-echo "    curl https://auth.operai.io/health"
-echo "    curl https://api.estimai.operai.io/health"
+echo "    curl ${AUTH_PUBLIC_URL}/health"
+echo "    curl <API_URL>/health   # the estimai-api public domain"
 echo ""
 echo "  Migrations run automatically via preDeployCommand (bun run db:deploy)."
 echo "  To roll back a migration: deploy the previous image tag from the Railway dashboard."

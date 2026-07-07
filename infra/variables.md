@@ -9,18 +9,18 @@
 
 | Variable | Example / Placeholder | Secret | Source |
 |---|---|---|---|
-| `DATABASE_URL` | `postgresql://user:pass@postgres.railway.internal:5432/auth` | Yes | Composed by bootstrap.sh from Railway Postgres plugin vars (`PGUSER`/`PGPASSWORD`/`PGHOST`/`PGPORT`) with dbname `auth`. Uses private networking (`.railway.internal`). |
-| `BETTER_AUTH_SECRET` | `op://Operai/auth/BETTER_AUTH_SECRET` | **Yes** | 1Password item `Operai/auth`. Must be ≥ 32 random characters. |
-| `BETTER_AUTH_URL` | `https://auth.operai.io` | No | Public URL of the auth service itself. Sets the JWT `iss` claim — must match `AUTH_ISSUER` in estimai-api. Never use the Railway-internal hostname here. |
-| `GOOGLE_CLIENT_ID` | `op://Operai/auth/GOOGLE_CLIENT_ID` | **Yes** | 1Password item `Operai/auth`. From Google Cloud Console → APIs & Credentials. |
-| `GOOGLE_CLIENT_SECRET` | `op://Operai/auth/GOOGLE_CLIENT_SECRET` | **Yes** | 1Password item `Operai/auth`. |
-| `GITHUB_CLIENT_ID` | `op://Operai/auth/GITHUB_CLIENT_ID` | **Yes** | 1Password item `Operai/auth`. From GitHub → Settings → Developer Applications. |
-| `GITHUB_CLIENT_SECRET` | `op://Operai/auth/GITHUB_CLIENT_SECRET` | **Yes** | 1Password item `Operai/auth`. |
-| `JWT_PRIVATE_KEY` | `op://Operai/auth/JWT_PRIVATE_KEY` | **Yes** | 1Password item `Operai/auth`. RS256 private key PEM content (newlines as `\n`). Generated with `openssl genrsa -out private.pem 2048`. The `.pem` files are gitignored — never commit them. |
-| `JWT_PUBLIC_KEY` | `op://Operai/auth/JWT_PUBLIC_KEY` | **Yes** | 1Password item `Operai/auth`. RS256 public key PEM. Generated with `openssl rsa -in private.pem -pubout -out public.pem`. Exposed via `GET /.well-known/jwks.json` (static env-var key, distinct from better-auth's DB keypair). |
-| `ALLOWED_ORIGINS` | `https://app.estimai.io` | No | Comma-separated list of trusted UI origins. Feeds both Hono CORS and better-auth `trustedOrigins`. No wildcards. **Do NOT set `BETTER_AUTH_TRUSTED_ORIGINS`** — it bypasses the validated allowlist. |
-| `UI_HOME_URL` | `https://app.estimai.io` | No | Post-login redirect fallback. Must be a URL whose origin is in `ALLOWED_ORIGINS`. |
-| `PORT` | `3001` | No | Server listen port. Railway overrides this; keep `3001` as the default. |
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/auth` | Yes | Railway reference vars from the shared Postgres service, dbname `auth`. Private networking (`*.railway.internal`). NOT the 1Password `OperAI DB` creds (those are for local compose). |
+| `BETTER_AUTH_SECRET` | _(from shell)_ | **Yes** | 1Password → `Employee / Paperclip - BETTER_AUTH_SECRET` (password). Exported by `auth/.envrc` as `$BETTER_AUTH_SECRET`. Must be ≥ 32 chars. |
+| `BETTER_AUTH_URL` | `<AUTH_URL>` (e.g. `https://auth.operai.welld.io`) | No | Public URL of the auth service itself. Sets the JWT `iss` claim — must match `AUTH_ISSUER` in estimai-api. Never use the Railway-internal hostname here. |
+| `GOOGLE_CLIENT_ID` | _(from shell)_ | **Yes** | 1Password → `AIScream / OperAI - GOOGLE OAuth` (Client ID). Exported by `auth/.envrc` as `$GOOGLE_CLIENT_ID`. |
+| `GOOGLE_CLIENT_SECRET` | _(from shell)_ | **Yes** | 1Password → `AIScream / OperAI - GOOGLE OAuth` (Client Secret). `$GOOGLE_CLIENT_SECRET`. |
+| `GITHUB_CLIENT_ID` | _(from shell)_ | **Yes** | 1Password → `AIScream / OperAI - GITHUB OAuth` (Client ID). `$GITHUB_CLIENT_ID`. |
+| `GITHUB_CLIENT_SECRET` | _(from shell)_ | **Yes** | 1Password → `AIScream / OperAI - GITHUB OAuth` (Client Secret). `$GITHUB_CLIENT_SECRET`. |
+| `JWT_PRIVATE_KEY` | _(from shell)_ | **Yes** | 1Password → `AIScream / OperAI Private Key` (private key). `$JWT_PRIVATE_KEY`. RS256 private key PEM. `.pem` files are gitignored — never commit them. |
+| `JWT_PUBLIC_KEY` | _(from shell)_ | **Yes** | 1Password → `AIScream / OperAI Private Key` (public key). `$JWT_PUBLIC_KEY`. RS256 public key PEM. |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` | No | Comma-separated list of trusted UI origins (the Vercel deployment). Feeds both Hono CORS and better-auth `trustedOrigins`. No wildcards, no trailing slash. **Do NOT set `BETTER_AUTH_TRUSTED_ORIGINS`** — it bypasses the validated allowlist. |
+| `UI_HOME_URL` | `https://operai.welld.io/` | No | Post-login redirect fallback. Must be a URL whose origin is in `ALLOWED_ORIGINS`. |
+| `PORT` | _(unset — Railway injects it)_ | No | Server listen port. Railway sets `$PORT` automatically; do not set it. Code default is 3001 for local dev. |
 | `NODE_ENV` | `production` | No | Must be `production` in Railway. |
 | `ENABLE_TEST_AUTH` | _(absent)_ | — | **MUST REMAIN UNSET IN PRODUCTION.** When set to `true`, a session-mint endpoint (`POST /test-auth/session`) is exposed with no authentication — a complete auth bypass. Only set in local dev and CI. Bootstrap.sh explicitly omits this variable. |
 
@@ -30,11 +30,11 @@
 
 | Variable | Example / Placeholder | Secret | Source |
 |---|---|---|---|
-| `DATABASE_URL` | `postgresql://user:pass@postgres.railway.internal:5432/estimai` | Yes | Composed by bootstrap.sh from Railway Postgres plugin vars with dbname `estimai`. Uses private networking (`.railway.internal`). |
-| `ALLOWED_ORIGINS` | `https://app.estimai.io` | No | Same as auth service — comma-separated trusted UI origins. No wildcards. |
-| `AUTH_ISSUER` | `https://auth.operai.io` | No | Cross-service reference: must equal the auth service's `BETTER_AUTH_URL` exactly (this is the JWT `iss` claim). |
-| `AUTH_JWKS_URL` | `https://auth.operai.io/auth/jwks` | No | Cross-service reference: better-auth's built-in JWKS endpoint (DB keypair, rotating `kid`). **Use `/auth/jwks`, NOT `/.well-known/jwks.json`** — the latter serves the static env-var key (different keypair from the one that signs `/auth/token` JWTs). |
-| `PORT` | `8080` | No | Server listen port. |
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/estimai` | Yes | Railway reference vars from the shared Postgres service, dbname `estimai`. Private networking. |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` | No | Same as auth service — the Vercel UI origin. No wildcards, no trailing slash. |
+| `AUTH_ISSUER` | `<AUTH_URL>` | No | Cross-service reference: must equal the auth service's `BETTER_AUTH_URL` exactly (this is the JWT `iss` claim). |
+| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` | No | Cross-service reference: better-auth's built-in JWKS endpoint (DB keypair, rotating `kid`). **Use `/auth/jwks`, NOT `/.well-known/jwks.json`** — the latter serves the static env-var key (different keypair from the one that signs `/auth/token` JWTs). |
+| `PORT` | _(unset — Railway injects it)_ | No | Server listen port. Railway sets `$PORT`; do not set it. Code default is 8080 for local dev. |
 | `NODE_ENV` | `production` | No | Must be `production` in Railway. |
 | `MAX_ESTIMATE_BYTES` | `1048576` | No | Per-estimate content size cap in bytes. Default: 1 MiB (1048576). Optional — omit to use the default. |
 | `MAX_IMPORT_REQUEST_BYTES` | `33554432` | No | Bulk-import raw body limit in bytes. Default: `min(MAX_ESTIMATE_BYTES × 200 + 64 KiB, 32 MiB)`. Optional — omit to use the default. |
@@ -63,10 +63,9 @@ One Railway Postgres plugin instance, two logical databases:
 | `auth` | auth service | `.../auth` |
 | `estimai` | estimai-api | `.../estimai` |
 
-Bootstrap.sh creates both databases idempotently before deploying the services.
-Each service's `preDeployCommand` runs `bun run db:deploy` (`prisma migrate deploy`)
-against its own database — non-interactive, production-safe, never re-runs
-applied migrations.
+Create both databases before the first deploy (Step 2 of `README.md`). Each service's
+`preDeployCommand` runs `bun run db:deploy` (`prisma migrate deploy`) against its own
+database — non-interactive, production-safe, never re-runs applied migrations.
 
 ## Security notes
 
@@ -76,5 +75,7 @@ applied migrations.
 - `BETTER_AUTH_TRUSTED_ORIGINS` must remain **unset**. better-auth appends that
   env var to its trusted list at runtime, bypassing the `ALLOWED_ORIGINS`
   validated allowlist. Origin trust is controlled solely through `ALLOWED_ORIGINS`.
-- JWT PEM keys are injected as Railway variables from 1Password at bootstrap time.
-  The repo carries only `.env.example` placeholders. `.pem` files are gitignored.
+- Secret values (JWT PEM keys, OAuth secrets, `BETTER_AUTH_SECRET`) are exported into
+  your shell by `auth/.envrc` (direnv → 1Password) and set on Railway by referencing the
+  shell variables — never pasted literally, never written to the repo. The repo carries
+  only `.env.example` placeholders. `.pem` files are gitignored.
