@@ -153,8 +153,8 @@ railway status
    railway variables --service estimai-api \
      --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/estimai' \
      --set "ALLOWED_ORIGINS=https://operai.welld.io" \
-     --set "AUTH_ISSUER=<AUTH_URL>" \
-     --set "AUTH_JWKS_URL=<AUTH_URL>/auth/jwks" \
+     --set "AUTH_ISSUER=https://auth-production-0700.up.railway.app" \
+     --set "AUTH_JWKS_URL=auth-production-0700.up.railway.app/auth/jwks" \
      --set "NODE_ENV=production"
    ```
    `MAX_ESTIMATE_BYTES` / `MAX_IMPORT_REQUEST_BYTES` are optional (sane defaults — 1 MiB).
@@ -172,7 +172,7 @@ Now both public URLs exist. The JWT `iss` claim must match exactly, so:
 
 ```bash
 # auth must know its own public URL (this becomes the JWT issuer)
-railway variables --service auth --set "BETTER_AUTH_URL=<AUTH_URL>"
+railway variables --service auth --set "BETTER_AUTH_URL=https://estimai-api-production.up.railway.app"
 ```
 
 Confirm the wiring is consistent:
