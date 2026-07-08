@@ -69,6 +69,24 @@ to the repo. See `infra/variables.md` for the full variable → 1Password-item m
 
 ---
 
+## URL placeholders used in this guide
+
+Two public URLs appear throughout — they are **different services**, keep them straight.
+You get the real values when you generate each service's domain in Steps 3–4; substitute
+them wherever you see the placeholder. **Both must include the `https://` scheme** — the
+services validate these as URLs and refuse to start without it.
+
+| Placeholder | Which service | Example | Used by |
+|---|---|---|---|
+| `<AUTH_URL>` | the **auth** service | `https://auth.operai.welld.io` | auth `BETTER_AUTH_URL`; estimai-api `AUTH_ISSUER` + `AUTH_JWKS_URL`; OAuth callback URLs; Vercel `VITE_AUTH_URL` |
+| `<API_URL>` | the **estimai-api** service | `https://api.operai.welld.io` | Vercel `VITE_API_URL`; the health-check curls |
+
+`<AUTH_URL>` shows up in more places **on purpose**: it is the JWT **issuer**, so estimai-api
+must point back at it. estimai-api's own URL (`<API_URL>`) is not referenced by any
+cross-service variable — only the browser/UI needs it.
+
+---
+
 ## Step 1 — Link the Railway project
 
 The project already exists (its id is in 1Password, loaded as `$RAILWAY_PROJECT_ID`).
@@ -153,11 +171,12 @@ railway status
    railway variables --service estimai-api \
      --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/estimai' \
      --set "ALLOWED_ORIGINS=https://operai.welld.io" \
-     --set "AUTH_ISSUER=https://auth-production-0700.up.railway.app" \
-     --set "AUTH_JWKS_URL=auth-production-0700.up.railway.app/auth/jwks" \
+     --set "AUTH_ISSUER=<AUTH_URL>" \
+     --set "AUTH_JWKS_URL=<AUTH_URL>/auth/jwks" \
      --set "NODE_ENV=production"
    ```
-   `MAX_ESTIMATE_BYTES` / `MAX_IMPORT_REQUEST_BYTES` are optional (sane defaults — 1 MiB).
+   `<AUTH_URL>` is the **auth** service's URL from Step 3 (e.g. `https://auth-production-0700.up.railway.app`)
+   — **with `https://`**. `MAX_ESTIMATE_BYTES` / `MAX_IMPORT_REQUEST_BYTES` are optional (defaults — 1 MiB).
 3. **Generate a public domain** (or custom domain e.g. `api.operai.welld.io`). Note it as
    `<API_URL>`.
 
@@ -171,12 +190,13 @@ railway status
 Now both public URLs exist. The JWT `iss` claim must match exactly, so:
 
 ```bash
-# auth must know its own public URL (this becomes the JWT issuer)
-railway variables --service auth --set "BETTER_AUTH_URL=https://estimai-api-production.up.railway.app"
+# auth must know its OWN public URL (this becomes the JWT issuer).
+# This is <AUTH_URL> — the auth service's domain, NOT the estimai-api domain.
+railway variables --service auth --set "BETTER_AUTH_URL=<AUTH_URL>"
 ```
 
 Confirm the wiring is consistent:
-- `auth.BETTER_AUTH_URL` **==** `estimai-api.AUTH_ISSUER`  (both `<AUTH_URL>`)
+- `auth.BETTER_AUTH_URL` **==** `estimai-api.AUTH_ISSUER`  (both are `<AUTH_URL>`, the auth domain)
 - `estimai-api.AUTH_JWKS_URL` **==** `<AUTH_URL>/auth/jwks`
   (better-auth's rotating DB keypair — **NOT** `/.well-known/jwks.json`, which serves a
   different static key and will fail verification)
@@ -215,10 +235,11 @@ In the Vercel project for `estimai-ui` → **Settings → Environment Variables*
 | `VITE_AUTH_URL` | `<AUTH_URL>` |
 | `VITE_API_URL` | `<API_URL>` |
 
-Then **redeploy** the Vercel project. Also confirm `<AUTH_URL>` and `<API_URL>` are present
-in each service's `ALLOWED_ORIGINS` reasoning: the UI origin `https://operai.welld.io` is
-already set on both services (Steps 3–4), which is what CORS + better-auth `trustedOrigins`
-check — no change needed there.
+Then **redeploy** the Vercel project. No change is needed to `ALLOWED_ORIGINS` on the
+backends: it holds the **UI origin** (`https://operai.welld.io`), which was already set on
+both services in Steps 3–4 — that is what CORS + better-auth `trustedOrigins` validate.
+(`ALLOWED_ORIGINS` is the browser origin, *not* the service URLs — don't put `<AUTH_URL>`
+or `<API_URL>` there.)
 
 ---
 
