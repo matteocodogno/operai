@@ -18,7 +18,7 @@ prisma/generated/
 
 # Bun
 .bun/
-bun.lock
+# bun.lock is committed — the Dockerfile's `bun install --frozen-lockfile` needs it
 
 # OS
 .DS_Store
