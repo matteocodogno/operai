@@ -16,11 +16,16 @@ import { test, expect } from '@playwright/test'
  *     the host's and remote's `react` module's `useState` function AND
  *     dispatcher-internals object by reference (see
  *     shell/src/federation/SeedProbeMount.tsx for why raw namespace-object
- *     identity is the wrong check) — is `true`. This was verified to
- *     actually discriminate: temporarily disabling `shared` on the remote
- *     produced a real `TypeError: Cannot read properties of null (reading
- *     'useState')` — the exact classic MF duplicate-React failure — proving
- *     this assertion is not a tautology.
+ *     identity is the wrong check) — is `true`.
+ *
+ * Non-tautology, verified: forcing the singleton comparison in
+ * `SeedProbeMount` to report `false` makes this test fail as expected
+ * (`data-status` = "diverged"), so the assertion genuinely discriminates.
+ * NOTE: with `@module-federation/vite`, simply omitting `shared` on the
+ * remote does NOT create a duplicate React — the plugin auto-shares every
+ * `package.json` dependency as a singleton by default. The real way to
+ * produce a two-copy negative signal is a mismatched/incompatible shared
+ * config (e.g. an unsatisfiable `requiredVersion`), not an absent one.
  */
 test('shell loads the seed remote and proves a single shared React instance', async ({
   page,
