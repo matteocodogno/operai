@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { federation } from '@module-federation/vite'
+import { readFileSync } from 'node:fs'
+
+// requiredVersion for shared singletons is sourced from this package's own
+// dependency ranges rather than hardcoded, so host and remote (estimai-ui,
+// refund-ui) cannot silently drift — mirrors estimai-ui/vite.config.ts.
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // R1 GATE (specs/003-suite-shell/tasks.md, T2): Module Federation host config.
 //
@@ -59,15 +65,26 @@ export default defineConfig({
         },
       },
       shared: {
-        react: { singleton: true, requiredVersion: '^19.2.4' },
-        'react-dom': { singleton: true, requiredVersion: '^19.2.4' },
+        react: { singleton: true, requiredVersion: pkg.dependencies.react },
+        'react-dom': { singleton: true, requiredVersion: pkg.dependencies['react-dom'] },
+        // @tanstack/react-router MUST be a shared singleton on the HOST side
+        // too (plan.md federation contract, Risk R2): once a remote
+        // (estimai-ui T12/refund-ui T15) is mounted under the shell's Outlet,
+        // both sides must resolve ONE router instance — otherwise the remote
+        // falls back to its own bundled copy and context/history is split.
+        // (Caught by QE on T5/T12; the host omitted it while the remote
+        // already declared it.)
+        '@tanstack/react-router': {
+          singleton: true,
+          requiredVersion: pkg.dependencies['@tanstack/react-router'],
+        },
         // T4: the session module (./session) wraps a single better-auth
         // client instance; a second better-auth copy across the host↔remote
         // boundary would mean two independent auth-client instances (and,
         // via its cross-tab broadcast-channel, two signalling identities) —
         // singleton: true keeps it one instance for the whole suite, same
         // rationale as react/react-dom above.
-        'better-auth': { singleton: true, requiredVersion: '^1.2.5' },
+        'better-auth': { singleton: true, requiredVersion: pkg.dependencies['better-auth'] },
       },
     }),
   ],
