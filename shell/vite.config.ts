@@ -28,6 +28,18 @@ export default defineConfig({
       // startup. Not needed anyway: the remote's shape is declared via
       // src/federation/remotes.d.ts (ambient module declaration).
       dts: false,
+      // T3 (specs/003-suite-shell/tasks.md): the shell doubles as a producer
+      // for the shared Operai design tokens (fonts, palette, Tailwind
+      // `@theme` block — see src/styles/tokens.css), per the plan's
+      // federation contract (`shell` exposes `./tokens.css`, `./session`).
+      // This makes the shell bidirectional — it both consumes remotes
+      // (`remotes` below) and exposes modules of its own — which MF2
+      // supports. Remotes (estimai-ui T12/T13, refund-ui T15) import this
+      // as `shell/tokens.css` instead of duplicating the stylesheet, so the
+      // whole suite renders in one design system (AC-1.3).
+      exposes: {
+        './tokens.css': './src/styles/tokens.css',
+      },
       remotes: {
         seed: {
           type: 'module',

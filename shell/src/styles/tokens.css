@@ -1,0 +1,152 @@
+/*
+ * Operai shared design tokens.
+ *
+ * Single source of truth for the suite's design system: the DM Sans / DM
+ * Mono / Syne type family, the dark-ink color palette (+ light-theme
+ * override), and the Tailwind v4 `@theme` token block that turns the
+ * palette into utility classes (`bg-ink`, `text-text`, `border-rule`, …).
+ *
+ * Copied from (and must be kept in sync with) `estimai-ui/src/index.css`,
+ * the app the design system originated in — see specs/003-suite-shell/
+ * tasks.md T3. `estimai-ui` keeps its own copy for now (it isn't yet
+ * consuming the shell as a remote); rewiring it onto this shared file is
+ * T12/T13's job once it's federated.
+ *
+ * Exposed by the shell via Module Federation as `./tokens.css` (see the
+ * `exposes` entry in shell/vite.config.ts) so every remote (estimai-ui,
+ * refund-ui, …) renders in the identical palette instead of re-implementing
+ * it — see specs/003-suite-shell/plan.md's federation contract and
+ * docs/adr/0006-suite-frontend-module-federation.md.
+ *
+ * Consuming stylesheet must `@import "tailwindcss";` BEFORE importing this
+ * file, so the `@theme` block below extends Tailwind's generated theme
+ * rather than being processed before Tailwind exists.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap');
+
+@theme {
+  --color-ink: #0d0d14;
+  --color-ink-soft: #13131e;
+  --color-ink-mid: #1c1c2a;
+  --color-rule: #252536;
+  --color-muted: #5a5a7a;
+  --color-dim: #3a3a54;
+  --color-text: #ddddf0;
+  --color-soft: #8888aa;
+  --color-acc: #5b6af7;
+  --color-acc-hi: #8b96ff;
+  --color-acc-lo: rgba(91, 106, 247, 0.14);
+  --color-grn: #2ec27e;
+  --color-org: #f5a623;
+  --color-red: #f55a5a;
+
+  --font-family-mono: 'DM Mono', monospace;
+  --font-family-disp: 'Syne', sans-serif;
+  --font-family-body: 'DM Sans', sans-serif;
+}
+
+:root {
+  --ink: #0d0d14;
+  --ink-soft: #13131e;
+  --ink-mid: #1c1c2a;
+  --rule: #252536;
+  --muted: #5a5a7a;
+  --dim: #3a3a54;
+  --text: #ddddf0;
+  --soft: #8888aa;
+  --acc: #5b6af7;
+  --acc-hi: #8b96ff;
+  --acc-lo: rgba(91, 106, 247, 0.14);
+  --grn: #2ec27e;
+  --org: #f5a623;
+  --red: #f55a5a;
+  --mono: 'DM Mono', monospace;
+  --disp: 'Syne', sans-serif;
+  --body: 'DM Sans', sans-serif;
+}
+
+/* ── Light theme variables ─────────────────────────────────────────────────── */
+/* Explicit override via data-theme="light" on <html>                          */
+[data-theme="light"] {
+  --color-ink:     #f8f8fc;
+  --color-ink-soft:#f0f0f8;
+  --color-ink-mid: #e8e8f4;
+  --color-rule:    #d4d4ec;
+  --color-muted:   #8888aa;
+  --color-dim:     #b8b8d4;
+  --color-text:    #0d0d14;
+  --color-soft:    #60608a;
+  --color-acc:     #5b6af7;
+  --color-acc-hi:  #3d4ce0;
+  --color-acc-lo:  rgba(91, 106, 247, 0.10);
+  --color-grn:     #1a9e5c;
+  --color-org:     #c47a0e;
+  --color-red:     #d93636;
+  --ink:     #f8f8fc;
+  --ink-soft:#f0f0f8;
+  --ink-mid: #e8e8f4;
+  --rule:    #d4d4ec;
+  --muted:   #8888aa;
+  --dim:     #b8b8d4;
+  --text:    #0d0d14;
+  --soft:    #60608a;
+  --acc:     #5b6af7;
+  --acc-hi:  #3d4ce0;
+  --acc-lo:  rgba(91, 106, 247, 0.10);
+  --grn:     #1a9e5c;
+  --org:     #c47a0e;
+  --red:     #d93636;
+}
+
+/* System preference: light (only when not explicitly forced to dark)          */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --color-ink:     #f8f8fc;
+    --color-ink-soft:#f0f0f8;
+    --color-ink-mid: #e8e8f4;
+    --color-rule:    #d4d4ec;
+    --color-muted:   #8888aa;
+    --color-dim:     #b8b8d4;
+    --color-text:    #0d0d14;
+    --color-soft:    #60608a;
+    --color-acc:     #5b6af7;
+    --color-acc-hi:  #3d4ce0;
+    --color-acc-lo:  rgba(91, 106, 247, 0.10);
+    --color-grn:     #1a9e5c;
+    --color-org:     #c47a0e;
+    --color-red:     #d93636;
+    --ink:     #f8f8fc;
+    --ink-soft:#f0f0f8;
+    --ink-mid: #e8e8f4;
+    --rule:    #d4d4ec;
+    --muted:   #8888aa;
+    --dim:     #b8b8d4;
+    --text:    #0d0d14;
+    --soft:    #60608a;
+    --acc:     #5b6af7;
+    --acc-hi:  #3d4ce0;
+    --acc-lo:  rgba(91, 106, 247, 0.10);
+    --grn:     #1a9e5c;
+    --org:     #c47a0e;
+    --red:     #d93636;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--body), serif;
+}
+
+/* Additional utility classes using custom properties */
+.font-disp {
+  font-family: var(--disp), fantasy;
+}
+
+.font-body {
+  font-family: var(--body), serif;
+}

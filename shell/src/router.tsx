@@ -16,8 +16,8 @@ import { SeedProbeMount } from './federation/SeedProbeMount'
 
 const rootRoute = createRootRoute({
   component: () => (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white text-neutral-900">
-      <p className="font-sans text-lg">Operai suite shell</p>
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-ink font-body text-text">
+      <p className="font-disp text-lg">Operai suite shell</p>
       <SeedProbeMount />
     </main>
   ),

@@ -17,7 +17,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/vite.config.ts` (@module-federation/vite host), a minimal throwaway/seed remote, `shell/src` mount point
   - done when: the shell loads a remote's exposed component at runtime AND a test/log asserts a single shared React instance (no duplicate). If this fails on Vite 8, apply the plan's R1 fallback (pin Vite or switch plugin) and record it. **Blocks T12/T15.**
 
-- [ ] T3: Extract shared design tokens into `tokens.css` (DM Sans/DM Mono/Syne, CSS vars, Tailwind `@theme`) — refs: AC-1.3 — deps: T1
+- [x] T3: Extract shared design tokens into `tokens.css` (DM Sans/DM Mono/Syne, CSS vars, Tailwind `@theme`) — refs: AC-1.3 — deps: T1
   - touch: `estimai-ui/src/index.css` (source), new shared tokens stylesheet exposed by `shell` (`./tokens.css`), imported by shell
   - done when: the shell renders with the Operai fonts/palette from the shared token file (no visual divergence from EstimAI)
 
