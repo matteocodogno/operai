@@ -15,7 +15,7 @@
   ],
   "drift_events": [],
   "defect_events": [
-    { "found_by": "quality-engineer", "file": "shell/vite.config.ts", "summary": "MF host  omitted @tanstack/react-router singleton (host/remote parity gap, Risk R2); latent until T9 mounts the remote. Also hardcoded requiredVersions.", "owner": "main-loop", "fix_commit": "a1b8167", "resolved": true }
+    { "found_by": "quality-engineer", "file": "shell/vite.config.ts", "summary": "MF host shared block omitted @tanstack/react-router singleton (host/remote parity gap, Risk R2); latent until T9 mounts the remote. Also hardcoded requiredVersions.", "owner": "main-loop", "fix_commit": "a1b8167", "resolved": true }
   ],
   "notes": [
     "Intended parallel worktree isolation (T5 shell / T12 estimai-ui, disjoint files) but the .claude/settings.json edit to set worktree.baseRef=head was blocked by the auto-mode self-modification guard. Without a confirmed HEAD base, worktrees risked branching off stale origin/main (missing T1-T4). Fell back to the SANCTIONED sequential main-tree dispatch; disjoint file sets made it collision-free.",
