@@ -25,7 +25,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `estimai-ui/src/lib/api.ts` + `authClient.ts` (source of truth), new `shell/src/lib/session.ts` exposed via MF; port the existing api unit tests
   - done when: ported unit tests pass for the refresh-retry circuit and the trusted-origin Bearer guard; the module is exposed as `shell/session`
 
-- [ ] T5: Shell layout (header/sidebar/content/footer regions, landmark roles, skip-to-content link), desktop-only — refs: AC-1.1 — deps: T1, T3
+- [x] T5: Shell layout (header/sidebar/content/footer regions, landmark roles, skip-to-content link), desktop-only — refs: AC-1.1 — deps: T1, T3
   - touch: `shell/src/components/ShellLayout.tsx`
   - done when: a component test asserts `banner`/`nav`/`main`/`contentinfo` landmarks, a skip-to-content link, and an `<Outlet/>` content region render
 
