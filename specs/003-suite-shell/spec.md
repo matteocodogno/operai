@@ -72,6 +72,9 @@ move between them from one place.
   location is shareable and survives a reload.
 - AC-3.3: Given a URL that points directly at a specific tool, when the shell loads that
   URL, then the correct tool is shown directly without first showing a different tool.
+- AC-3.4: Given a returning signed-in user, when they open the suite at its bare root,
+  then they are taken to the tool they most recently used; on a first visit with no prior
+  tool, they land on EstimAI as the default.
 
 ### US-4: EstimAI runs inside the shell with no regression
 As an EstimAI user, I want EstimAI to behave exactly as before now that it runs inside
@@ -127,6 +130,10 @@ one tool's outage does not take down the whole product.
   sign-in is reused as-is.
 - A visual redesign — the suite keeps the existing design system; no new look.
 - Offline support and server-side rendering.
+- Responsive / mobile layout of the shell chrome — v1 is desktop-first; the shell's
+  header, sidebar, and footer target desktop, and mobile chrome for the suite is deferred
+  to a later spec. (EstimAI's own content is unchanged; only the new suite chrome is
+  desktop-only.)
 
 ## Constraints
 

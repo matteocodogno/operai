@@ -17,7 +17,7 @@ live.
 | Component | Change |
 |---|---|
 | `shell/` (new Vite host app) | Owns the shared chrome (header/sidebar/footer), the single session guard, and tool navigation. Loads each tool as a runtime-federated remote. Exposes a shared session/runtime module to the remotes. |
-| `estimai-ui/` (existing → becomes a remote) | Exposes its app as a federated module; drops its own auth guard and suite-level chrome (header logo/About/avatar/theme); keeps tool-level UI (My Estimates nav, save-status). Consumes the shell's session module. Keeps a dev/test-only standalone bootstrap. |
+| `estimai-ui/` (existing → becomes a remote) | Exposes its app as a federated module; drops its own auth guard and suite-level chrome (header logo/About/avatar/theme); keeps tool-level UI (My Estimates nav, save-status). Consumes the shell's session module. Keeps a dev/test-only standalone bootstrap. **Also removes the duplicate inline chrome (logo + `UserMenu`) in `pages/EstimatesPage.tsx`, and trims `pages/SharedEstimatePage.tsx`'s header — these also violate AC-4.2, beyond `Header.tsx`/`EstimatorApp.tsx` (found at design stage).** |
 | `refund-ui/` (new stub remote) | Minimal placeholder tool exposed as a federated module; consumes the shell session; proves a second independently-built/deployed remote. |
 | `auth` service | No code change; add the shell's origin to `ALLOWED_ORIGINS` (config only). |
 | `estimai-api` | No change. |
@@ -77,7 +77,19 @@ live.
 - **Shell footer:** legal link, version, company info (AC-1.5).
 - **Shell sidebar:** tool switcher listing EstimAI + Refund, active tool indicated (US-3).
 - **Stays in EstimAI:** the "My Estimates" navigation and the save-status indicator (they are
-  tool-scoped, not suite-scoped).
+  tool-scoped, not suite-scoped). EstimAI's floating "⇧? shortcuts" hint also stays
+  tool-scoped.
+- **Footer placement (design decision):** the shell footer is a normal in-flow page footer
+  (bottom of content, not fixed), so it does not collide with EstimAI's fixed-position
+  shortcuts hint (AC-1.5).
+- **Root landing (AC-3.4):** the shell's bare `/` redirects to the user's most-recently-used
+  tool, persisted in a shell-owned key (e.g. `localStorage['operai_last_tool']`), falling
+  back to EstimAI on first visit. The active tool is written to this key on each tool switch.
+
+### Scope: desktop-first chrome (v1)
+
+Per the spec non-goal, the new shell chrome (header/sidebar/footer) targets desktop only in
+v1; responsive/mobile chrome is deferred. EstimAI's own content is unchanged.
 
 ### Deploy (Vercel)
 
