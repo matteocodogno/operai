@@ -1,7 +1,7 @@
 ---
 id: 003
 slug: suite-shell
-status: approved
+status: in-progress
 rigor: production
 created: 2026-07-09
 approved: 2026-07-09
