@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/*
+ * Placeholder stylesheet for the walking-skeleton shell host.
+ *
+ * This is intentionally minimal: it only wires the Tailwind pipeline so
+ * utility classes work in this app. The shared Operai design tokens (DM
+ * Sans/DM Mono/Syne fonts, the ink/accent color palette, light/dark theme
+ * variables) currently live in estimai-ui/src/index.css and are extracted
+ * into a shared tokens stylesheet consumed by both the shell and every
+ * remote in T3 — do not duplicate them here ahead of that task.
+ */

@@ -9,7 +9,7 @@ Three tracks fan out after the federation skeleton (T2, the R1 gate):
 **shell-chrome** (T3–T11), **estimai-migration** (T12–T14), **refund-stub** (T15) —
 they converge at the e2e gate (T16). Deploy/security/regression/close follow.
 
-- [ ] T1: Scaffold the `shell/` host app (Vite 8, React 19, TanStack Router, Tailwind 4) — refs: AC-1.1 (enabler) — deps: none
+- [x] T1: Scaffold the `shell/` host app (Vite 8, React 19, TanStack Router, Tailwind 4) — refs: AC-1.1 (enabler) — deps: none
   - touch: `shell/` (new: package.json, vite.config.ts, tsconfig, src/main.tsx, src/index.css, eslint/prettier mirrored from estimai-ui)
   - done when: `pnpm --dir shell build` and `pnpm --dir shell dev` both succeed and serve a bare page
 
