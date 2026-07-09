@@ -49,7 +49,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/router.tsx` (root `beforeLoad`), sidebar/route change handler
   - done when: integration test — no key → lands on EstimAI; key set to `refund` → lands on Refund
 
-- [ ] T11: Content-area remote boundary — loading state + error boundary/failed state + retry (MF runtime error handling) — refs: AC-6.1 — deps: T2
+- [x] T11: Content-area remote boundary — loading state + error boundary/failed state + retry (MF runtime error handling) — refs: AC-6.1 — deps: T2
   - touch: `shell/src/components/RemoteMount.tsx` (or equivalent boundary)
   - done when: integration test — a forced remote-load failure shows an in-place error + retry while chrome and the other tool stay usable; a loading state renders while resolving
 
