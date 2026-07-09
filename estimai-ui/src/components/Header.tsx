@@ -11,15 +11,13 @@ type HeaderUser = {
 
 type HeaderProps = {
   name: string
-  author: string
   saveStatus: SaveStatus
   onNameChange: (name: string) => void
-  onAuthorChange: (author: string) => void
   user?: HeaderUser
   onSignOut?: () => void
 }
 
-export default function Header({ name, author, saveStatus, onNameChange, onAuthorChange, user, onSignOut }: HeaderProps) {
+export default function Header({ name, saveStatus, onNameChange, user, onSignOut }: HeaderProps) {
   const navigate = useNavigate()
 
   return (
@@ -29,19 +27,13 @@ export default function Header({ name, author, saveStatus, onNameChange, onAutho
         {/* Left — logo */}
         <img src="/estimai.svg" alt="EstimAI" className="h-8 w-8 rounded-md shrink-0" />
 
-        {/* Center — project name + author */}
-        <div className="flex-1 flex items-center justify-center gap-4">
+        {/* Center — project name */}
+        <div className="flex-1 flex items-center justify-center">
           <input
             value={name}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
             placeholder="Project name…"
             className="w-64 bg-transparent border-0 border-b border-rule rounded-none text-[14px] py-4 px-0 text-center focus:outline-none focus:shadow-none focus:border-acc"
-          />
-          <input
-            value={author}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onAuthorChange(e.target.value)}
-            placeholder="Author"
-            className="w-28"
           />
         </div>
 

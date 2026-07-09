@@ -70,6 +70,15 @@ export default function EstimatorApp() {
     updP, loadTemplate,
   } = useEstimatorContext()
 
+  // The author is the logged-in user — there is no manual author input anymore.
+  // Backfill it from the session for estimates created without one (e.g. new or
+  // imported), without overwriting an author already recorded on the estimate.
+  useEffect(() => {
+    if (author) return
+    const sessionAuthor = sessionUser?.name || sessionUser?.email
+    if (sessionAuthor) setAuthor(sessionAuthor)
+  }, [author, sessionUser, setAuthor])
+
   const rnames = useMemo(() => releases.map(r => r.name), [releases])
 
   const handleDeleteRelease = useCallback((id: string) => {
@@ -252,10 +261,8 @@ const exportPDF = useCallback(() => {
     <div className="min-h-full w-full">
       <Header
         name={name}
-        author={author}
         saveStatus={saveStatus}
         onNameChange={setName}
-        onAuthorChange={setAuthor}
         user={sessionUser ?? undefined}
         onSignOut={handleSignOut}
       />
