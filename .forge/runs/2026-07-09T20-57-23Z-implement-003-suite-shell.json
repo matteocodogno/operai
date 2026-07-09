@@ -1,0 +1,29 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-09T20-57-23Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-09T22:32:31Z",
+  "finished": "2026-07-09T20:57:23Z",
+  "isolation": "main-tree-sequential",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T6"], "outcome": "completed", "commits": ["6811d3c"] },
+    { "agent": "frontend-dev", "tasks": ["T8"], "outcome": "completed", "commits": ["1cf9a0a"] },
+    { "agent": "frontend-dev", "tasks": ["T11"], "outcome": "completed", "commits": ["181ea00"] },
+    { "agent": "quality-engineer", "tasks": ["T6", "T8", "T11"], "outcome": "PASS", "round": 1 }
+  ],
+  "drift_events": [],
+  "defect_events": [],
+  "notes": [
+    "Sequential main-tree fallback again: three independent tasks with disjoint shell/src files (header chrome / footer / remote-boundary) would suit worktree parallelism, but worktree.baseRef=head remains unset (settings edit blocked by auto-mode self-mod guard), so worktrees risk branching off stale origin/main. Disjoint files kept sequential collision-free.",
+    "T6: header chrome (LogoMenu/UserMenu/ThemeToggle/AboutModal) relocated to shell; sign-out via shell/session; suite-level appInfo (Operai) + __APP_VERSION__ define; 18 new chrome tests.",
+    "T8: Footer (legal/version/company) in normal flow, not fixed; LEGAL_URL added to appInfo.",
+    "T11: RemoteMount boundary (loading aria-live + failed role=alert + retry that re-invokes loader via fresh lazy per attempt); AC-6.1.",
+    "QE PASS round 1, no defects; About-version substitution and RemoteMount retry verified adversarially; security floor clean (0 vulns/423 deps)."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
