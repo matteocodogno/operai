@@ -867,3 +867,50 @@ describe('(D) 413 size-limit rejection: specific message + state preserved (T11 
     expect(screen.getByTestId('d-status-after-clear').textContent).not.toBe('error')
   })
 })
+
+// ---------------------------------------------------------------------------
+// (E) Rename cascade — renaming a release re-points its linked activities so
+//     they are not orphaned (activities link to a release by name).
+// ---------------------------------------------------------------------------
+
+// Consumer that exposes updRel and the count of activities linked to r1 by name.
+function RenameConsumer() {
+  const ctx = useEstimatorContext()
+  const linked = ctx.acts.filter(a => a.release === ctx.releases[0]?.name).length
+  return (
+    <div>
+      <span data-testid="e-release-name">{ctx.releases[0]?.name}</span>
+      <span data-testid="e-linked-count">{linked}</span>
+      <button data-testid="e-rename" onClick={() => ctx.updRel('r1', 'name', 'v2.0')} />
+    </div>
+  )
+}
+
+describe('(E) Rename cascade: renaming a release keeps its activities linked', () => {
+  it('re-points every activity that referenced the old release name', () => {
+    render(
+      <EstimatorProvider
+        estimateId="est-001"
+        initialName="Test Estimate"
+        initialAuthor="Consultant"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <RenameConsumer />
+      </EstimatorProvider>,
+    )
+
+    // Both fixture activities are linked to 'v1.0' before the rename.
+    expect(screen.getByTestId('e-release-name').textContent).toBe('v1.0')
+    expect(screen.getByTestId('e-linked-count').textContent).toBe('2')
+
+    act(() => {
+      screen.getByTestId('e-rename').click()
+    })
+
+    // After the rename the release is 'v2.0' and BOTH activities still link to it.
+    expect(screen.getByTestId('e-release-name').textContent).toBe('v2.0')
+    expect(screen.getByTestId('e-linked-count').textContent).toBe('2')
+  })
+})

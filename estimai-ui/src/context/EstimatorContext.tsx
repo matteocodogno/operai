@@ -190,9 +190,21 @@ export function EstimatorProvider({
   )
 
   const updRel = useCallback(
-    (id: string, f: keyof Release, v: string | number) =>
-      setRels(prev => prev.map(r => (r.id === id ? { ...r, [f]: v } : r))),
-    [],
+    (id: string, f: keyof Release, v: string | number) => {
+      // Activities link to a release by name, so a rename must cascade to
+      // every activity pointing at the old name or they become orphaned.
+      if (f === 'name') {
+        const oldName = releases.find(r => r.id === id)?.name
+        const newName = String(v)
+        if (oldName !== undefined && oldName !== newName) {
+          setActs(prev =>
+            prev.map(a => (a.release === oldName ? { ...a, release: newName } : a)),
+          )
+        }
+      }
+      setRels(prev => prev.map(r => (r.id === id ? { ...r, [f]: v } : r)))
+    },
+    [releases],
   )
 
   const addRel = useCallback((): string => {
