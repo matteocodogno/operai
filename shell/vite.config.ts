@@ -37,8 +37,17 @@ export default defineConfig({
       // supports. Remotes (estimai-ui T12/T13, refund-ui T15) import this
       // as `shell/tokens.css` instead of duplicating the stylesheet, so the
       // whole suite renders in one design system (AC-1.3).
+      // T4 (specs/003-suite-shell/tasks.md): the shell also exposes the
+      // shared session/runtime module — the in-memory-JWT `apiFetch`, the
+      // better-auth client wrappers (getSession/useSession/signOut), and the
+      // trusted-origin Bearer guard, extracted from estimai-ui's
+      // src/lib/api.ts + authClient.ts (ADR-0001). Remotes import
+      // `shell/session` instead of holding their own copy, so the ADR-0001
+      // in-memory JWT is cached ONCE for the whole suite (plan.md federation
+      // contract).
       exposes: {
         './tokens.css': './src/styles/tokens.css',
+        './session': './src/lib/session.ts',
       },
       remotes: {
         seed: {
@@ -52,6 +61,13 @@ export default defineConfig({
       shared: {
         react: { singleton: true, requiredVersion: '^19.2.4' },
         'react-dom': { singleton: true, requiredVersion: '^19.2.4' },
+        // T4: the session module (./session) wraps a single better-auth
+        // client instance; a second better-auth copy across the host↔remote
+        // boundary would mean two independent auth-client instances (and,
+        // via its cross-tab broadcast-channel, two signalling identities) —
+        // singleton: true keeps it one instance for the whole suite, same
+        // rationale as react/react-dom above.
+        'better-auth': { singleton: true, requiredVersion: '^1.2.5' },
       },
     }),
   ],

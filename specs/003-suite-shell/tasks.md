@@ -21,7 +21,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `estimai-ui/src/index.css` (source), new shared tokens stylesheet exposed by `shell` (`./tokens.css`), imported by shell
   - done when: the shell renders with the Operai fonts/palette from the shared token file (no visual divergence from EstimAI)
 
-- [ ] T4: Extract the shared session runtime → `shell/session` (apiFetch, authClient wrappers, in-memory JWT singleton, trusted-origin guard) — refs: AC-2.2, AC-2.4 (ADR-0001) — deps: T2
+- [x] T4: Extract the shared session runtime → `shell/session` (apiFetch, authClient wrappers, in-memory JWT singleton, trusted-origin guard) — refs: AC-2.2, AC-2.4 (ADR-0001) — deps: T2
   - touch: `estimai-ui/src/lib/api.ts` + `authClient.ts` (source of truth), new `shell/src/lib/session.ts` exposed via MF; port the existing api unit tests
   - done when: ported unit tests pass for the refresh-retry circuit and the trusted-origin Bearer guard; the module is exposed as `shell/session`
 
