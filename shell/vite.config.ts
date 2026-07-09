@@ -5,7 +5,10 @@ import { readFileSync } from 'node:fs'
 
 // requiredVersion for shared singletons is sourced from this package's own
 // dependency ranges rather than hardcoded, so host and remote (estimai-ui,
-// refund-ui) cannot silently drift — mirrors estimai-ui/vite.config.ts.
+// refund-ui) cannot silently drift — mirrors estimai-ui/vite.config.ts. The same
+// `pkg` read also backs the `define` block below (T6, specs/003-suite-shell): the
+// shell's About dialog (AboutModal.tsx, via src/lib/appInfo.ts) shows the suite's
+// version, injected at build time exactly like estimai-ui/vite.config.ts does.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // R1 GATE (specs/003-suite-shell/tasks.md, T2): Module Federation host config.
@@ -88,6 +91,9 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   build: {
     // Required by @module-federation/vite: federated chunks use top-level
     // await to resolve shared modules asynchronously at runtime.

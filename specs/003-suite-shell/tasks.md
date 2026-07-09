@@ -29,7 +29,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/components/ShellLayout.tsx`
   - done when: a component test asserts `banner`/`nav`/`main`/`contentinfo` landmarks, a skip-to-content link, and an `<Outlet/>` content region render
 
-- [ ] T6: Relocate header chrome into the shell — LogoMenu, UserMenu, ThemeToggle (extracted), AboutModal + suite-level `appInfo` — refs: AC-1.4 — deps: T4, T5
+- [x] T6: Relocate header chrome into the shell — LogoMenu, UserMenu, ThemeToggle (extracted), AboutModal + suite-level `appInfo` — refs: AC-1.4 — deps: T4, T5
   - touch: `shell/src/components/{LogoMenu,UserMenu,ThemeToggle,AboutModal}.tsx`, `shell/src/lib/appInfo.ts`, `shell/src/hooks/useTheme.ts`
   - done when: ported component tests pass; header shows suite logo, About dropdown/dialog, avatar/menu (+ sign-out via `shell/session`), theme toggle; About shows the suite (Operai) name/version
 
