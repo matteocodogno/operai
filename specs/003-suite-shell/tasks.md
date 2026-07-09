@@ -53,7 +53,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/components/RemoteMount.tsx` (or equivalent boundary)
   - done when: integration test — a forced remote-load failure shows an in-place error + retry while chrome and the other tool stay usable; a loading state renders while resolving
 
-- [ ] T12: Expose `estimai-ui` as a federated remote — MF config, expose `./App`, rebase inner TanStack Router to `basepath: '/estimai'`, keep a dev/test-only standalone bootstrap — refs: AC-4.1 — deps: T2
+- [x] T12: Expose `estimai-ui` as a federated remote — MF config, expose `./App`, rebase inner TanStack Router to `basepath: '/estimai'`, keep a dev/test-only standalone bootstrap — refs: AC-4.1 — deps: T2
   - touch: `estimai-ui/vite.config.ts`, `estimai-ui/src/router.tsx`, a new remote entry + retained standalone `main.tsx`
   - done when: `estimai-ui` builds a `remoteEntry.js`; the standalone dev bootstrap still runs; the existing test suite passes
 

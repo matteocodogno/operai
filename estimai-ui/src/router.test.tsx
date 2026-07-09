@@ -55,6 +55,13 @@ const AUTH_URL = 'http://auth.test'
  * We extract the beforeLoad from the _authed route by calling it directly.
  * TanStack Router's route tree is synchronous to construct, so we can import
  * the router module and then invoke the guard's beforeLoad as a plain async fn.
+ *
+ * T12 (specs/003-suite-shell/tasks.md): the module now exports a
+ * `createAppRouter(basepath?)` factory rather than a single module-scope
+ * `router` (so the same route definitions can be rebased under `/estimai`
+ * for the federated remote — see src/App.tsx). Calling it with no basepath
+ * here reproduces the exact standalone-router shape this test always
+ * exercised; the guard's behavior is basepath-independent.
  */
 const getAuthedBeforeLoad = async (): Promise<
   ((ctx: { location: { href: string } }) => Promise<void>) | undefined
@@ -63,7 +70,7 @@ const getAuthedBeforeLoad = async (): Promise<
   const mod = await import('./router?t=' + Date.now())
   // The router exposes the route tree via router.routeTree; navigate the tree
   // to find the _authed route's beforeLoad.
-  const routeTree = mod.router.routeTree
+  const routeTree = mod.createAppRouter().routeTree
   // The _authed route is the first (and only) non-root child.
   const authedNode = routeTree.children?.[0]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

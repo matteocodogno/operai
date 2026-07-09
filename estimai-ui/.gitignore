@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Module Federation build diagnostics/cache (@module-federation/vite)
+.mf/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
