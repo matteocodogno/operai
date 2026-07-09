@@ -1,0 +1,30 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-09T20-31-32Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-09T17:53:14Z",
+  "finished": "2026-07-09T20:31:32Z",
+  "isolation": "main-tree-sequential",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T5"], "outcome": "completed", "commits": ["c94a661"] },
+    { "agent": "frontend-dev", "tasks": ["T12"], "outcome": "completed", "commits": ["f41b2e5"] },
+    { "agent": "quality-engineer", "tasks": ["T5", "T12"], "outcome": "FAIL", "round": 1 },
+    { "agent": "quality-engineer", "tasks": ["T5", "T12"], "outcome": "PASS", "round": 2 }
+  ],
+  "drift_events": [],
+  "defect_events": [
+    { "found_by": "quality-engineer", "file": "shell/vite.config.ts", "summary": "MF host  omitted @tanstack/react-router singleton (host/remote parity gap, Risk R2); latent until T9 mounts the remote. Also hardcoded requiredVersions.", "owner": "main-loop", "fix_commit": "a1b8167", "resolved": true }
+  ],
+  "notes": [
+    "Intended parallel worktree isolation (T5 shell / T12 estimai-ui, disjoint files) but the .claude/settings.json edit to set worktree.baseRef=head was blocked by the auto-mode self-modification guard. Without a confirmed HEAD base, worktrees risked branching off stale origin/main (missing T1-T4). Fell back to the SANCTIONED sequential main-tree dispatch; disjoint file sets made it collision-free.",
+    "T5: ShellLayout with banner/nav/main/contentinfo landmarks + skip link, desktop-only, placeholder slots for T6/T7/T8; 7 new tests (20 total in shell).",
+    "T12: estimai-ui exposed as MF remote (./App), createAppRouter(basepath?) factory (root standalone / /estimai federated); AC-4.1 held: 97/97 tests, 14 files, identical before/after.",
+    "QE round1 FAIL on 1 defect (router singleton parity), fixed in a1b8167, QE round2 PASS."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
