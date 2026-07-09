@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { ChangeEvent } from "react";
 import type { Parameters, Release, ReleaseSummary, Totals } from "../types";
-import { type WarningCode, WARNING_META } from "../lib/healthWarnings";
+import { type WarningCode } from "../lib/healthWarnings";
 import FormulaPopover from "./FormulaPopover";
+import WarningBadge from "./WarningBadge";
 
 interface SummaryTableProps {
   summary: ReleaseSummary[];
@@ -75,14 +76,9 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRelease(rel.id, "fte", e.target.value)}
               className="w-11 text-right"
             />
-            {ws?.map(code => {
-              const m = WARNING_META[code]
-              return (
-                <span key={code} className={`text-[11px] leading-none ${m.colorClass}`} title={m.title}>
-                  {m.icon}
-                </span>
-              )
-            })}
+            {ws?.map(code => (
+              <WarningBadge key={code} code={code} className="text-[11px]" />
+            ))}
             {releases.length > 1 && (
               <button onClick={() => onDeleteRelease(rel.id)} className="bg-transparent text-muted text-sm">×</button>
             )}
@@ -148,14 +144,9 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
                 <Td>
                   <span className="flex items-center gap-1.5">
                     {s.name}
-                    {ws?.map(code => {
-                      const m = WARNING_META[code]
-                      return (
-                        <span key={code} className={`text-[11px] leading-none ${m.colorClass}`} title={m.title}>
-                          {m.icon}
-                        </span>
-                      )
-                    })}
+                    {ws?.map(code => (
+                      <WarningBadge key={code} code={code} className="text-[11px]" />
+                    ))}
                   </span>
                 </Td>
                 <Td right colorClass="text-soft">{s.fte}</Td>

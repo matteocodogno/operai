@@ -2,11 +2,38 @@ import type { Activity, Release, ReleaseSummary } from '../types'
 
 export type WarningCode = 'no-profile' | 'high-risk' | 'no-activities' | 'wide-range'
 
-export const WARNING_META: Record<WarningCode, { icon: string; colorClass: string; title: string }> = {
-  'no-profile':    { icon: '⊘', colorClass: 'text-muted',  title: 'No profile assigned' },
-  'high-risk':     { icon: '⚠', colorClass: 'text-org',    title: 'Risk buffer exceeds 50% of expected' },
-  'no-activities': { icon: '⊘', colorClass: 'text-muted',  title: 'Release has no activities' },
-  'wide-range':    { icon: '⚠', colorClass: 'text-org',    title: 'Worst case is more than 2× best case' },
+export const WARNING_META: Record<
+  WarningCode,
+  { icon: string; colorClass: string; title: string; description: string }
+> = {
+  'no-profile': {
+    icon: '⊘',
+    colorClass: 'text-muted',
+    title: 'No profile assigned',
+    description:
+      'This activity has no specialist profile (e.g. Backend Dev, Designer). Assign one so the effort is attributed to the right role.',
+  },
+  'high-risk': {
+    icon: '⚠',
+    colorClass: 'text-org',
+    title: 'Risk buffer exceeds the PERT estimate',
+    description:
+      'The risk buffer is larger than the activity’s own PERT estimate — over half of the expected effort is contingency. Re-check the optimistic / most-likely / pessimistic values, or split the activity to reduce uncertainty.',
+  },
+  'no-activities': {
+    icon: '⊘',
+    colorClass: 'text-muted',
+    title: 'Release has no activities',
+    description:
+      'No activities are linked to this release, so it contributes nothing to the estimate. Add activities to it, or remove the empty release.',
+  },
+  'wide-range': {
+    icon: '⚠',
+    colorClass: 'text-org',
+    title: 'Worst case is more than 2× the best case',
+    description:
+      'The pessimistic total is more than double the optimistic total, signalling high uncertainty in this release. Tighten the estimates or break large activities into smaller ones.',
+  },
 }
 
 function pertCalc(o: number, ml: number, p: number): number {

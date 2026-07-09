@@ -25,7 +25,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { type Activity, PROFILES } from "../types";
 import { computeActivityNums } from "../lib/activityNums";
 import { deriveOP } from "../hooks/useEstimator";
-import { type WarningCode, WARNING_META } from "../lib/healthWarnings";
+import { type WarningCode } from "../lib/healthWarnings";
+import WarningBadge from "./WarningBadge";
 
 interface ActivityTableProps {
   activities: Activity[];
@@ -626,14 +627,9 @@ const ActivityTable = memo(function ActivityTable({
         if (!ws?.length) return null
         return (
           <div className="flex items-center gap-0.5">
-            {ws.map(code => {
-              const m = WARNING_META[code]
-              return (
-                <span key={code} className={`text-[11px] leading-none ${m.colorClass}`} title={m.title}>
-                  {m.icon}
-                </span>
-              )
-            })}
+            {ws.map(code => (
+              <WarningBadge key={code} code={code} className="text-[11px]" />
+            ))}
           </div>
         )
       },

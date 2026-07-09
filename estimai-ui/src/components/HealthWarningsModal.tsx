@@ -14,10 +14,13 @@ interface Props {
 function WarnBadge({ code }: { code: WarningCode }) {
   const m = WARNING_META[code]
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] ${m.colorClass}`}>
-      <span>{m.icon}</span>
-      <span>{m.title}</span>
-    </span>
+    <div className="flex flex-col gap-0.5">
+      <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${m.colorClass}`}>
+        <span>{m.icon}</span>
+        <span>{m.title}</span>
+      </span>
+      <span className="text-[10.5px] text-soft leading-relaxed">{m.description}</span>
+    </div>
   )
 }
 
