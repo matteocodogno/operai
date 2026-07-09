@@ -15,6 +15,14 @@ export const APP_AUTHOR = 'wellD'
 export const APP_AUTHOR_URL = 'https://welld.ch'
 
 /**
+ * Legal-information link shown in the shell footer (T8, specs/003-suite-shell,
+ * AC-1.5). No dedicated Operai legal/privacy page exists yet, so this points at
+ * wellD's own site as the placeholder source of truth — update once the suite has
+ * its own legal/privacy page.
+ */
+export const LEGAL_URL = 'https://welld.ch/legal'
+
+/**
  * Injected by Vite `define` at build time (see vite.config.ts, mirroring
  * estimai-ui/vite.config.ts). Under vitest there is no define, so `__APP_VERSION__` is an
  * undeclared global at runtime — `typeof` guards against a ReferenceError and we fall back

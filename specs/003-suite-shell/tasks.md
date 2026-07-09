@@ -37,7 +37,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/components/Sidebar.tsx`
   - done when: a component test asserts both tool entries, the active item marked from the route, and arrow-key/roving-tabindex keyboard navigation
 
-- [ ] T8: Shell footer (legal link, version, company info; normal document flow) — refs: AC-1.5 — deps: T5
+- [x] T8: Shell footer (legal link, version, company info; normal document flow) — refs: AC-1.5 — deps: T5
   - touch: `shell/src/components/Footer.tsx`
   - done when: a component test asserts the legal link, version string, and company info; footer is not `position: fixed`
 
