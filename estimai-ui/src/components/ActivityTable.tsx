@@ -912,6 +912,14 @@ const ActivityTable = memo(function ActivityTable({
               })}
             </SortableContext>
           </DndContext>
+
+          <button
+            onClick={() => onAdd(currentEpic())}
+            className="w-full py-2 text-xs font-medium text-acc-hi bg-ink-soft hover:bg-ink-mid border-t border-rule rounded-b-md transition-colors"
+            title="Add activity (Shift+N)"
+          >
+            + Add Activity
+          </button>
         </div>
       </div>
 
