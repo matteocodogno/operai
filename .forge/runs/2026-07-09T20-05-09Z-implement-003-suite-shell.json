@@ -1,0 +1,26 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-09T20-05-09Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-09T17:53:14Z",
+  "finished": "2026-07-09T20:05:09Z",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T3"], "outcome": "completed", "commits": ["55f543f"] },
+    { "agent": "frontend-dev", "tasks": ["T4"], "outcome": "completed", "commits": ["bca7d13"] },
+    { "agent": "quality-engineer", "tasks": ["T3", "T4"], "outcome": "PASS" }
+  ],
+  "drift_events": [],
+  "notes": [
+    "T3 (design tokens) and T4 (shell/session) have no DAG edge but both edit shell/vite.config.ts's MF exposes map + shell/package.json -> not truly independent. Dispatched SEQUENTIALLY in the main tree to avoid a predictable merge collision (no worktree isolation).",
+    "T3: tokens extracted to shell/src/styles/tokens.css, exposed ./tokens.css; estimai-ui untouched.",
+    "T4: shell/session extracted (apiFetch+JWT singleton+trusted-origin guard, ADR-0001 preserved), exposed ./session, better-auth added as shared singleton; 13/13 ported tests pass; estimai-ui untouched (T13 rewires).",
+    "QE PASS, no defects; ADR-0001 invariants verified adversarially; security floor PASS.",
+    "Non-blocking: Rollup IMPORT_IS_UNDEFINED warning on better-auth default export in the MF shared-singleton prebuild; watch when T12/T13 consume shell/session across the boundary."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
