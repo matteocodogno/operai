@@ -1,7 +1,52 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { federation } from '@module-federation/vite'
 
-// https://vite.dev/config/
+// R1 GATE (specs/003-suite-shell/tasks.md, T2): Module Federation host config.
+//
+// `@module-federation/vite` (MF2 runtime, per ADR-0006) officially supports
+// Vite 8 — its peerDependencies declare "vite": "^5 || ^6 || ^7 || ^8" as of
+// 1.16.x — so this walking skeleton targets Vite 8 directly. Building and
+// running it here (see mf-seed-remote/) proved that clean; no R1 fallback
+// (pinning Vite down a minor, or switching to @originjs/vite-plugin-federation)
+// was necessary.
+//
+// The remote URL below is a build-time default for the walking skeleton only.
+// The plan's actual deploy model (T17) resolves remote URLs per-environment
+// at *runtime* via MF's dynamic-remote API, not build-baked — do not treat
+// this hardcoded localhost URL as the production pattern.
+const seedRemoteUrl = process.env['SEED_REMOTE_URL'] ?? 'http://localhost:5175/remoteEntry.js'
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    federation({
+      name: 'shell',
+      // dts generation is disabled on the seed remote's producer side (see
+      // mf-seed-remote/vite.config.ts) — matching it here avoids a noisy
+      // failed download of a nonexistent @mf-types.zip on host dev-server
+      // startup. Not needed anyway: the remote's shape is declared via
+      // src/federation/remotes.d.ts (ambient module declaration).
+      dts: false,
+      remotes: {
+        seed: {
+          type: 'module',
+          name: 'seed',
+          entry: seedRemoteUrl,
+          entryGlobalName: 'seed',
+          shareScope: 'default',
+        },
+      },
+      shared: {
+        react: { singleton: true, requiredVersion: '^19.2.4' },
+        'react-dom': { singleton: true, requiredVersion: '^19.2.4' },
+      },
+    }),
+  ],
+  build: {
+    // Required by @module-federation/vite: federated chunks use top-level
+    // await to resolve shared modules asynchronously at runtime.
+    target: 'esnext',
+    modulePreload: false,
+  },
 })

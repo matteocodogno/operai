@@ -1,20 +1,24 @@
 import { createRootRoute, createRouter } from '@tanstack/react-router'
+import { SeedProbeMount } from './federation/SeedProbeMount'
 
 // ---------------------------------------------------------------------------
 // Walking-skeleton router for the Operai suite shell host.
 //
-// This is a bare placeholder: a single root route rendering a static page.
-// It exists only so the app boots, builds, and dev-serves (T1's "done when").
-// The real shell — the federation walking skeleton (T2), the pathless
-// `_authed` session guard, and the `/estimai/*` / `/refund/*` tool routes —
-// is built up in later tasks (T2, T9, T10). Do not add routing/auth logic
-// here ahead of those tasks.
+// This is still a bare placeholder route (T1's "done when": the app boots,
+// builds, and dev-serves). T2 adds the federation R1-gate proof below —
+// `SeedProbeMount` loads the throwaway `mf-seed-remote`'s exposed component
+// via Module Federation and asserts a shared React singleton across the
+// host↔remote boundary. This is a temporary probe mount, not real routing:
+// the pathless `_authed` session guard and the `/estimai/*` / `/refund/*`
+// tool routes are built up in T9/T10 and will replace this. Do not add
+// further routing/auth logic here ahead of those tasks.
 // ---------------------------------------------------------------------------
 
 const rootRoute = createRootRoute({
   component: () => (
-    <main className="flex min-h-screen items-center justify-center bg-white text-neutral-900">
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white text-neutral-900">
       <p className="font-sans text-lg">Operai suite shell</p>
+      <SeedProbeMount />
     </main>
   ),
 })

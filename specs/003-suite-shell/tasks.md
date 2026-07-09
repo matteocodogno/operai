@@ -13,7 +13,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/` (new: package.json, vite.config.ts, tsconfig, src/main.tsx, src/index.css, eslint/prettier mirrored from estimai-ui)
   - done when: `pnpm --dir shell build` and `pnpm --dir shell dev` both succeed and serve a bare page
 
-- [ ] T2: Federation walking skeleton — **R1 GATE** — refs: AC-5.3, AC-6.1 (federation mechanism) — deps: T1
+- [x] T2: Federation walking skeleton — **R1 GATE** — refs: AC-5.3, AC-6.1 (federation mechanism) — deps: T1
   - touch: `shell/vite.config.ts` (@module-federation/vite host), a minimal throwaway/seed remote, `shell/src` mount point
   - done when: the shell loads a remote's exposed component at runtime AND a test/log asserts a single shared React instance (no duplicate). If this fails on Vite 8, apply the plan's R1 fallback (pin Vite or switch plugin) and record it. **Blocks T12/T15.**
 
