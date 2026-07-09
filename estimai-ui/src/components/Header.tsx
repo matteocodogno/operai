@@ -1,7 +1,9 @@
 import type { ChangeEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import UserMenu from './UserMenu'
+import LogoMenu from './LogoMenu'
 import type { SaveStatus } from '../context/EstimatorContext'
+import { type Theme, THEME_ICON, THEME_LABEL } from '../hooks/useTheme'
 
 type HeaderUser = {
   name?: string | null
@@ -15,17 +17,31 @@ type HeaderProps = {
   onNameChange: (name: string) => void
   user?: HeaderUser
   onSignOut?: () => void
+  theme: Theme
+  onCycleTheme: () => void
+  onShowAbout: () => void
 }
 
-export default function Header({ name, saveStatus, onNameChange, user, onSignOut }: HeaderProps) {
+export default function Header({ name, saveStatus, onNameChange, user, onSignOut, theme, onCycleTheme, onShowAbout }: HeaderProps) {
   const navigate = useNavigate()
+
+  const themeButton = (
+    <button
+      onClick={onCycleTheme}
+      className="w-7 h-7 rounded-full text-[12px] border border-rule text-muted hover:border-acc/50 hover:text-acc transition-colors flex items-center justify-center shrink-0"
+      title={THEME_LABEL[theme]}
+      aria-label={THEME_LABEL[theme]}
+    >
+      {THEME_ICON[theme]}
+    </button>
+  )
 
   return (
     <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
       {/* Desktop */}
       <div className="hidden sm:flex items-center h-14">
-        {/* Left — logo */}
-        <img src="/estimai.svg" alt="EstimAI" className="h-8 w-8 rounded-md shrink-0" />
+        {/* Left — logo menu */}
+        <LogoMenu onAbout={onShowAbout} imgClassName="h-8 w-8" />
 
         {/* Center — project name */}
         <div className="flex-1 flex items-center justify-center">
@@ -68,12 +84,13 @@ export default function Header({ name, saveStatus, onNameChange, user, onSignOut
           {user && onSignOut && (
             <UserMenu user={user} onSignOut={onSignOut} />
           )}
+          {themeButton}
         </div>
       </div>
 
       {/* Mobile */}
       <div className="flex sm:hidden items-center gap-3 h-12">
-        <img src="/estimai.svg" alt="EstimAI" className="h-7 w-7 rounded-md shrink-0" />
+        <LogoMenu onAbout={onShowAbout} imgClassName="h-7 w-7" />
 
         <input
           value={name}
@@ -92,6 +109,7 @@ export default function Header({ name, saveStatus, onNameChange, user, onSignOut
         {user && onSignOut && (
           <UserMenu user={user} onSignOut={onSignOut} />
         )}
+        {themeButton}
       </div>
     </header>
   )

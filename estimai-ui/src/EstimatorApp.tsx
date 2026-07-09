@@ -22,8 +22,9 @@ import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
+import AboutModal from './components/AboutModal'
 import ToastBanner from './components/ToastBanner'
-import { useTheme, THEME_CYCLE, THEME_ICON, THEME_LABEL } from './hooks/useTheme'
+import { useTheme, THEME_CYCLE } from './hooks/useTheme'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
@@ -44,6 +45,7 @@ export default function EstimatorApp() {
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const [dismissedPicker, setDismissedPicker] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -265,6 +267,9 @@ const exportPDF = useCallback(() => {
         onNameChange={setName}
         user={sessionUser ?? undefined}
         onSignOut={handleSignOut}
+        theme={theme}
+        onCycleTheme={() => setTheme(THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length])}
+        onShowAbout={() => setShowAbout(true)}
       />
 
       <MetricsBar
@@ -331,14 +336,6 @@ const exportPDF = useCallback(() => {
             <span>↓</span> Excel
           </button>
           <div className="w-px h-4 bg-rule mx-0.5" />
-          <button
-            onClick={() => setTheme(THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length])}
-            className="w-6 h-6 rounded-full text-[12px] border border-rule text-muted hover:border-acc/50 hover:text-acc transition-colors flex items-center justify-center"
-            title={THEME_LABEL[theme]}
-            aria-label={THEME_LABEL[theme]}
-          >
-            {THEME_ICON[theme]}
-          </button>
           <button
             onClick={() => setShowHelp(v => !v)}
             className={`w-6 h-6 rounded-full text-[11px] font-bold border transition-colors flex items-center justify-center ${
@@ -415,6 +412,7 @@ const exportPDF = useCallback(() => {
         />
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       {showHelp && <HelpDrawer onClose={() => setShowHelp(false)} />}
       {showQr && (
         <QrModal
