@@ -57,7 +57,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `estimai-ui/vite.config.ts`, `estimai-ui/src/router.tsx`, a new remote entry + retained standalone `main.tsx`
   - done when: `estimai-ui` builds a `remoteEntry.js`; the standalone dev bootstrap still runs; the existing test suite passes
 
-- [ ] T13: `estimai-ui` consumes `shell/session` and drops its own `_authed` guard/redirect — refs: AC-2.3, AC-4.1 — deps: T4, T12
+- [x] T13: `estimai-ui` consumes `shell/session` and drops its own `_authed` guard/redirect — refs: AC-2.3, AC-4.1 — deps: T4, T12
   - touch: `estimai-ui/src/router.tsx` (remove guard), `estimai-ui/src/lib/api.ts`/`authClient.ts` (delegate to `shell/session`)
   - done when: mounted with a present session, the remote performs no sign-in redirect of its own; unit asserts the remote router has no `_authed` guard
 
@@ -65,7 +65,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `estimai-ui/src/components/Header.tsx`, `pages/EstimatesPage.tsx`, `pages/SharedEstimatePage.tsx`
   - done when: component tests assert the suite-level controls are gone and tool-scoped ones (project name, save-status, My Estimates, Import/+New, read-only badge) remain; existing suites pass
 
-- [ ] T15: Scaffold `refund-ui/` remote (Vite 8 + MF), consume `shell/session` + tokens, `basepath: '/refund'`, minimal authed placeholder screen — refs: AC-5.1, AC-5.2, AC-5.3 — deps: T2, T4
+- [x] T15: Scaffold `refund-ui/` remote (Vite 8 + MF), consume `shell/session` + tokens, `basepath: '/refund'`, minimal authed placeholder screen — refs: AC-5.1, AC-5.2, AC-5.3 — deps: T2, T4
   - touch: `refund-ui/` (new app), expose `./App`, placeholder page
   - done when: `refund-ui` builds a `remoteEntry.js`; the placeholder renders only for a signed-in user when selected in the shell; a `refund-ui`-only rebuild changes its remote without rebuilding the shell/EstimAI
 
