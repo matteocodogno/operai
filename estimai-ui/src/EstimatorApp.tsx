@@ -3,7 +3,6 @@ import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import Header from './components/Header'
 import { authClient } from './lib/authClient'
-import { clearJwtCache } from './lib/api'
 import MetricsBar from './components/MetricsBar'
 import ActivityTable from './components/ActivityTable'
 import SummaryTable from './components/SummaryTable'
@@ -22,30 +21,24 @@ import HealthWarningsModal from './components/HealthWarningsModal'
 import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
-import AboutModal from './components/AboutModal'
 import ToastBanner from './components/ToastBanner'
-import { useTheme, THEME_CYCLE } from './hooks/useTheme'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
-const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
-
 export default function EstimatorApp() {
-  const { theme, setTheme } = useTheme()
+  // The suite-level chrome (logo/About, avatar menu + sign-out, theme toggle)
+  // is now owned by the shell (specs/003-suite-shell, T6/T9/T14) — it is not
+  // rendered here. `authClient.useSession()` is still read below, but only to
+  // source the author-backfill value; `shell/session` (via T13's authClient
+  // facade) is what actually supplies the session.
   const { data: session } = authClient.useSession()
   const sessionUser = session?.user ?? null
 
-  const handleSignOut = useCallback(async () => {
-    await authClient.signOut()
-    clearJwtCache()
-    window.location.assign(`${getAuthUrl()}/sign-in`)
-  }, [])
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
-  const [showAbout, setShowAbout] = useState(false)
   const [dismissedPicker, setDismissedPicker] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -265,11 +258,6 @@ const exportPDF = useCallback(() => {
         name={name}
         saveStatus={saveStatus}
         onNameChange={setName}
-        user={sessionUser ?? undefined}
-        onSignOut={handleSignOut}
-        theme={theme}
-        onCycleTheme={() => setTheme(THEME_CYCLE[(THEME_CYCLE.indexOf(theme) + 1) % THEME_CYCLE.length])}
-        onShowAbout={() => setShowAbout(true)}
       />
 
       <MetricsBar
@@ -412,7 +400,6 @@ const exportPDF = useCallback(() => {
         />
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
-      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       {showHelp && <HelpDrawer onClose={() => setShowHelp(false)} />}
       {showQr && (
         <QrModal

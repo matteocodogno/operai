@@ -3,9 +3,11 @@ import react from '@vitejs/plugin-react'
 import { federation } from '@module-federation/vite'
 import { readFileSync } from 'node:fs'
 
-// Read the app version from package.json (bumped by `mise run release`) and
-// expose it to the client as the compile-time constant __APP_VERSION__ so the
-// About dialog can show it without bundling the whole package.json.
+// Read package.json so the federation `shared.requiredVersion` entries below
+// stay in sync with this package's own dependency ranges rather than being
+// hardcoded (see the T12 comment further down). The suite-level About dialog
+// (which used to read the app version from here, via __APP_VERSION__) is now
+// owned by the shell — specs/003-suite-shell, T6/T14.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // T12 (specs/003-suite-shell/tasks.md): estimai-ui as a Module Federation
@@ -73,9 +75,6 @@ export default defineConfig({
       },
     }),
   ],
-  define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
-  },
   build: {
     // Required by @module-federation/vite: federated chunks use top-level
     // await to resolve shared modules asynchronously at runtime.

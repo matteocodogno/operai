@@ -61,7 +61,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `estimai-ui/src/router.tsx` (remove guard), `estimai-ui/src/lib/api.ts`/`authClient.ts` (delegate to `shell/session`)
   - done when: mounted with a present session, the remote performs no sign-in redirect of its own; unit asserts the remote router has no `_authed` guard
 
-- [ ] T14: EstimAI chrome dedup (AC-4.2) — remove `LogoMenu`/`UserMenu`/theme from `EstimatorApp`'s `Header`; remove logo + `UserMenu` from `EstimatesPage`; trim `SharedEstimatePage`'s logo; keep tool-scoped controls — refs: AC-4.2 — deps: T6, T12
+- [x] T14: EstimAI chrome dedup (AC-4.2) — remove `LogoMenu`/`UserMenu`/theme from `EstimatorApp`'s `Header`; remove logo + `UserMenu` from `EstimatesPage`; trim `SharedEstimatePage`'s logo; keep tool-scoped controls — refs: AC-4.2 — deps: T6, T12
   - touch: `estimai-ui/src/components/Header.tsx`, `pages/EstimatesPage.tsx`, `pages/SharedEstimatePage.tsx`
   - done when: component tests assert the suite-level controls are gone and tool-scoped ones (project name, save-status, My Estimates, Import/+New, read-only badge) remain; existing suites pass
 

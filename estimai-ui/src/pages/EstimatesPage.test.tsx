@@ -12,12 +12,13 @@
  *       surface and no SkeletonListRows visible (AC-2.3).
  *   (D) Error: estimatesApi.list rejects → an error surface renders and the
  *       component does not crash.
+ *   (E) Chrome dedup (specs/003-suite-shell, T14, AC-4.2): the page no longer
+ *       renders its own logo image or UserMenu — those are shell-owned now —
+ *       but keeps its tool-scoped "Import JSON" and "+ New estimate" actions.
  *
  * Strategy:
  *   • estimatesApi is mocked at the module level so tests control what list()
  *     resolves/rejects to.
- *   • authClient is mocked to provide a stable session (the component calls
- *     authClient.useSession() for the UserMenu).
  *   • useNavigate from @tanstack/react-router is mocked to a vi.fn().
  *   • waitFor is used to await the async useEffect that calls estimatesApi.list.
  *   • Non-vacuous: every assertion is tied to a specific text/testid that would
@@ -42,15 +43,6 @@ vi.mock('../lib/estimatesApi', async (importOriginal) => {
     remove: vi.fn(),
   }
 })
-
-vi.mock('../lib/authClient', () => ({
-  authClient: {
-    useSession: vi.fn(() => ({
-      data: { user: { id: 'u1', name: 'Test User', email: 'test@welld.ch', image: null } },
-    })),
-    signOut: vi.fn(),
-  },
-}))
 
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const original = await importOriginal<typeof import('@tanstack/react-router')>()
@@ -209,6 +201,30 @@ describe('EstimatesPage', () => {
       // No skeleton, no empty state
       expect(screen.queryByTestId('skeleton-list-rows')).toBeNull()
       expect(screen.queryByText('Ready to estimate your first project?')).toBeNull()
+    })
+  })
+
+  // (E) Chrome dedup (specs/003-suite-shell, T14, AC-4.2)
+  describe('(E) chrome dedup — suite-level controls are shell-owned, not duplicated here', () => {
+    it('does not render its own logo image or UserMenu, but keeps Import JSON / + New estimate', async () => {
+      vi.mocked(estimatesApi.list).mockResolvedValue([itemA, itemB])
+
+      render(<EstimatesPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Alpha Project')).toBeDefined()
+      })
+
+      // Suite-level controls (now shell-owned) must be GONE from this page.
+      expect(screen.queryByAltText('EstimAI')).toBeNull()
+      expect(screen.queryByRole('img')).toBeNull()
+      // UserMenu renders its avatar as an aria-haspopup="menu" trigger — none
+      // should be present since the page no longer mounts a UserMenu.
+      expect(screen.queryByRole('button', { name: /account|sign out/i })).toBeNull()
+
+      // Tool-scoped controls remain.
+      expect(screen.getByRole('button', { name: /Import JSON/i })).toBeDefined()
+      expect(screen.getByRole('button', { name: /\+ New estimate/i })).toBeDefined()
     })
   })
 })

@@ -4,15 +4,10 @@ import { importProjectFromJson, uid, DEF_PARAMS } from '../lib/projects'
 import { TEMPLATES } from '../lib/templates'
 import type { EstimateListItem } from '../lib/estimatesApi'
 import * as estimatesApi from '../lib/estimatesApi'
-import { authClient } from '../lib/authClient'
-import { clearJwtCache } from '../lib/api'
-import UserMenu from '../components/UserMenu'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ImportOfferModal from '../components/ImportOfferModal'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 import { useImportOffer } from '../hooks/useImportOffer'
-
-const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
 
 const formatDate = (iso: string): string => {
   try {
@@ -40,8 +35,6 @@ export default function EstimatesPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [listState, setListState] = useState<ListState>({ status: 'loading' })
   const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ open: false })
-  const { data: session } = authClient.useSession()
-  const sessionUser = session?.user ?? null
 
   // ---------------------------------------------------------------------------
   // Load list from API on mount
@@ -79,16 +72,6 @@ export default function EstimatesPage() {
     handleDecline: handleImportDecline,
     handleClose: handleImportClose,
   } = useImportOffer(fetchList)
-
-  // ---------------------------------------------------------------------------
-  // Auth
-  // ---------------------------------------------------------------------------
-
-  const handleSignOut = useCallback(async () => {
-    await authClient.signOut()
-    clearJwtCache()
-    window.location.assign(`${getAuthUrl()}/sign-in`)
-  }, [])
 
   // ---------------------------------------------------------------------------
   // Create / open
@@ -375,7 +358,6 @@ export default function EstimatesPage() {
       {/* Header */}
       <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 h-14">
-          <img src="/estimai.svg" alt="EstimAI" className="h-8 w-8 rounded-md shrink-0" />
           <div className="flex-1" />
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -397,9 +379,6 @@ export default function EstimatesPage() {
             >
               + New estimate
             </button>
-          )}
-          {sessionUser && (
-            <UserMenu user={sessionUser} onSignOut={handleSignOut} />
           )}
         </div>
       </header>

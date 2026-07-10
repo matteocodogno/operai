@@ -1,0 +1,76 @@
+/**
+ * @vitest-environment jsdom
+ *
+ * Component tests for Header — the editor's in-content top bar
+ * (specs/003-suite-shell, T14, AC-4.2).
+ *
+ * The shell now owns the suite-level chrome (logo/About dropdown, the
+ * signed-in user's avatar/menu + sign-out, the theme toggle) — Header no
+ * longer renders any of it and no longer accepts the props that used to
+ * drive it (`user`, `onSignOut`, `theme`, `onCycleTheme`, `onShowAbout`).
+ * Header keeps only the tool-scoped controls: the project-name input, the
+ * save-status indicator, and the "My Estimates" nav button.
+ *
+ * Non-vacuous: these assertions would fail if LogoMenu/UserMenu/the theme
+ * button were still rendered (or reintroduced), and would fail if the
+ * project-name input / save-status / My Estimates button were removed.
+ */
+
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import Header from './Header'
+
+const navigateMock = vi.fn()
+
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => navigateMock,
+}))
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+describe('Header', () => {
+  it('does not render suite-level chrome (logo/About menu, user avatar/menu, theme toggle)', () => {
+    render(<Header name="My Project" saveStatus="saved" onNameChange={() => {}} />)
+
+    // LogoMenu's trigger has aria-label "<APP_NAME> menu" / aria-haspopup="menu"
+    // pointing at a logo image — none of that exists here anymore.
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByLabelText(/menu$/i)).toBeNull()
+    // UserMenu's avatar button used aria-haspopup="menu"; the theme toggle used
+    // a title/aria-label naming the theme (e.g. "System theme (auto)"). Neither
+    // should be present.
+    expect(screen.queryByRole('button', { name: /theme/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /sign out/i })).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('keeps the tool-scoped controls: project name, save-status, My Estimates', () => {
+    render(<Header name="My Project" saveStatus="saving" onNameChange={() => {}} />)
+
+    // Project-name input (desktop + mobile render two, but at least one is present).
+    const nameInputs = screen.getAllByPlaceholderText('Project name…')
+    expect(nameInputs.length).toBeGreaterThan(0)
+    expect((nameInputs[0] as HTMLInputElement).value).toBe('My Project')
+
+    // Save-status indicator reflects the saveStatus prop.
+    expect(screen.getAllByText('Saving…').length).toBeGreaterThan(0)
+
+    // "My Estimates" nav button — one per breakpoint (desktop text form +
+    // mobile icon-only form with an aria-label).
+    const myEstimatesButtons = screen.getAllByRole('button', { name: /My Estimates/i })
+    expect(myEstimatesButtons.length).toBe(2)
+  })
+
+  it('calls onNameChange when the project-name input changes', () => {
+    const onNameChange = vi.fn()
+    render(<Header name="" saveStatus="idle" onNameChange={onNameChange} />)
+
+    const [desktopInput] = screen.getAllByPlaceholderText('Project name…')
+    fireEvent.change(desktopInput, { target: { value: 'New Name' } })
+
+    expect(onNameChange).toHaveBeenCalledWith('New Name')
+  })
+})

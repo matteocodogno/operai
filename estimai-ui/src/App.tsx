@@ -17,9 +17,10 @@ import { createAppRouter } from './router'
 // resolves the session before this component is ever mounted (see
 // src/router.tsx's file-level doc for the full rationale).
 //
-// Still deliberately unchanged here (out of scope for T13):
-//   - EstimAI's own chrome (Header/UserMenu/etc.) still renders (T14 dedups
-//     it against the shell's chrome).
+// T14 (specs/003-suite-shell/tasks.md, AC-4.2): the suite-level chrome
+// (logo/About, avatar menu + sign-out, theme toggle) has been removed from
+// estimai-ui's own components — the shell now owns it exclusively. Only
+// tool-scoped chrome (project name, save-status, "My Estimates") remains.
 const router = createAppRouter('/estimai')
 
 export default function App() {
