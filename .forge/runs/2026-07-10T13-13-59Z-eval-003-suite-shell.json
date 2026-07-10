@@ -1,0 +1,25 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-10T13-13-59Z-eval-003-suite-shell",
+  "command": "eval",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-10T15:05:56Z",
+  "finished": "2026-07-10T13:13:59Z",
+  "isolation": "main-tree",
+  "agents": [
+    { "agent": "evaluator", "tasks": [], "outcome": "PASS", "score": 90 }
+  ],
+  "drift_events": [],
+  "defect_events": [],
+  "notes": [
+    "LM-judge eval PASS 90/100 (pass_score 80). Dimensions (score/floor): ac_satisfaction 4/4 (at floor, met), spec_fidelity 4/3, test_quality 5/3, code_quality 5/3, design_fidelity 5/3, trajectory 5/2. Normalised over 115 (design applies): 104/115 = 90.",
+    "Evaluator independently re-ran fresh against the live stack: shell unit 71/71, estimai-ui 81/81, refund-ui 5/5, shell e2e 30/30 — matched claimed counts. Judged tests non-tautological (DOM-identity chrome persistence, raw-cookie server-side sign-out, A/B ownership isolation via real JWKS).",
+    "Two non-blocking deductions: AC-4.3 + AC-5.3 are deploy-dependent (authored vercel config, not live-verifiable without Vercel access; documented in infra runbook; both fail closed) -> ac_satisfaction held at its floor of 4; spec_fidelity 4/5 for the documented, correctly-reconciled retirement of the estimai-ui standalone e2e (relocated to shell e2e, nothing dropped).",
+    "eval-report.md written to specs/003-suite-shell/. Eval PASS is the gate into /wellforge:done (T20)."
+  ],
+  "verdicts": { "qe": null, "eval": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
