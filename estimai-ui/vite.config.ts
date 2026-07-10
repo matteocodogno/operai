@@ -18,14 +18,49 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // walking skeleton. requiredVersion strings below are copied from this
 // package's own dependency ranges (package.json) rather than hardcoded, so
 // they cannot silently drift from what estimai-ui actually ships.
+//
+// T13 (specs/003-suite-shell/tasks.md, AC-2.3): estimai-ui is ALSO, now, a
+// consumer — it makes the shell a `remotes` entry so it can import the
+// shell-exposed `shell/session` module (shell/src/lib/session.ts, T4) rather
+// than holding its own JWT cache / better-auth client (see src/lib/api.ts,
+// src/lib/authClient.ts). This mirrors shell/vite.config.ts's own `remotes`
+// entries for estimai/refund exactly (type: 'module', shareScope: 'default').
+// The URL is env-configurable with a localhost dev default, matching the
+// ESTIMAI_REMOTE_URL/REFUND_REMOTE_URL pattern shell/vite.config.ts already
+// uses. `dts: false` for the same reason shell disables it for its own
+// (not-yet-built) remotes: a dts fetch against the shell's dev server would
+// fail noisily whenever estimai-ui's dev server / CI build runs without the
+// shell also running — `shell/session`'s shape is instead hand-declared via
+// src/federation/remotes.d.ts (ambient module declaration), mirroring
+// shell/src/federation/remotes.d.ts's own approach for estimai/App + refund/App.
+//
+// Neither estimai-ui nor the shell currently pin a dev-server port (both
+// default to Vite's 5173 — see shell/vite.config.ts's own comment on this),
+// so running the shell + estimai-ui concurrently in local dev needs an
+// explicit `--port`/`SHELL_REMOTE_URL` override today; this is the same T17
+// (deploy wiring) concern the shell's comment already flags for
+// ESTIMAI_REMOTE_URL/REFUND_REMOTE_URL, not something this task resolves.
+const shellRemoteUrl =
+  process.env['SHELL_REMOTE_URL'] ?? 'http://localhost:5173/remoteEntry.js'
+
 export default defineConfig({
   plugins: [
     react(),
     federation({
       name: 'estimai',
       filename: 'remoteEntry.js',
+      dts: false,
       exposes: {
         './App': './src/App.tsx',
+      },
+      remotes: {
+        shell: {
+          type: 'module',
+          name: 'shell',
+          entry: shellRemoteUrl,
+          entryGlobalName: 'shell',
+          shareScope: 'default',
+        },
       },
       shared: {
         react: { singleton: true, requiredVersion: pkg.dependencies.react },

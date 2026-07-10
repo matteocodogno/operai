@@ -12,9 +12,12 @@ import { createAppRouter } from './router'
 //     exposes:  ./App   # root component; inner TanStack Router with
 //                        # basepath '/estimai'; no auth guard, no chrome
 //
-// Deliberately unchanged here (out of scope for T12):
-//   - The `_authed` guard still runs inside this router (T13 removes it in
-//     favor of the shell's session guard).
+// T13 (specs/003-suite-shell/tasks.md, AC-2.3): the router's own `_authed`
+// guard is gone — the shell's guard (shell/src/router.tsx, T9) already
+// resolves the session before this component is ever mounted (see
+// src/router.tsx's file-level doc for the full rationale).
+//
+// Still deliberately unchanged here (out of scope for T13):
 //   - EstimAI's own chrome (Header/UserMenu/etc.) still renders (T14 dedups
 //     it against the shell's chrome).
 const router = createAppRouter('/estimai')

@@ -1,207 +1,116 @@
 /**
  * @vitest-environment jsdom
  *
- * Unit tests for the _authed layout route guard in src/router.tsx (T7, AC-1.1).
+ * Router structure tests for estimai-ui (T13, specs/003-suite-shell/tasks.md).
  *
- * The guard's beforeLoad:
- *   - Resolves the session via authClient.getSession() (cookie-based).
- *   - When NO session is present → throws a TanStack Router redirect to
- *     <VITE_AUTH_URL>/sign-in?redirect=<current absolute URL>.
- *   - When a session IS present → completes without throwing (routes render).
+ * Before T13, this file unit-tested the router's own pathless `_authed`
+ * guard — a real session check that threw a full-page redirect to the
+ * hosted sign-in page when no session was present (AC-1.1, spec 002). T13
+ * REMOVES that guard entirely (AC-2.3): estimai-ui now runs as a federated
+ * remote inside the shell (T12), and the shell's OWN `_authed` guard
+ * (shell/src/router.tsx, T9) already guarantees a session before this
+ * router's routes are ever reached — a second, independent sign-in redirect
+ * here would violate AC-2.3 ("the tool ... does not perform its own
+ * independent sign-in redirect").
  *
- * We test the guard at the unit level by calling its beforeLoad directly with
- * a mocked authClient. The "nothing renders before session check resolves"
- * property is structurally guaranteed by TanStack Router: beforeLoad must
- * resolve/reject before the component is mounted. The pending-promise test
- * verifies that the guard's promise does not resolve until getSession resolves.
+ * The guard-redirect coverage itself was not dropped, only relocated: it
+ * lives in shell/src/router.test.tsx now, testing the identical
+ * beforeLoad/redirect contract this file used to test, now owned by the
+ * shell (which resolves the session via the same shared `shell/session`
+ * module estimai-ui's own src/lib/authClient.ts delegates to — see
+ * src/lib/authClient.test.ts for that delegation's coverage).
  *
- * Covered routes (AC-1.1): /, /estimates, /estimates/$estimateId, /share.
- * All share the same guard (they are all children of _authed), so a single
- * unit test of the guard's beforeLoad covers all four paths. We additionally
- * assert that the redirect URL encodes the correct per-route `window.location.href`.
+ * What THIS file asserts is T13's own done-when: the remote's router has NO
+ * `_authed` route, and its app routes (/, /estimates,
+ * /estimates/$estimateId, /share) are mounted directly off the root with no
+ * guarding beforeLoad — proven both structurally (route tree shape) and
+ * behaviorally (visiting a guarded path with NO session/auth mocked at all
+ * never redirects to sign-in).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isRedirect } from '@tanstack/react-router'
+import { cleanup, render, screen } from '@testing-library/react'
+import { RouterProvider } from '@tanstack/react-router'
 
 // ---------------------------------------------------------------------------
-// Module mock — must be hoisted above imports of the module under test.
-// vi.mock is hoisted by the vitest transformer.
+// Types
 // ---------------------------------------------------------------------------
 
-vi.mock('./lib/authClient', () => ({
-  authClient: {
-    getSession: vi.fn(),
-  },
-}))
-
-// Import authClient AFTER vi.mock so we get the mocked version.
-import { authClient } from './lib/authClient'
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const AUTH_URL = 'http://auth.test'
+/** Minimal shape of a TanStack Router route object needed for these assertions. */
+interface RouteTreeNode {
+  id: string
+  fullPath?: string
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Imports the router module fresh for each test group so that import.meta.env
- * is read after vi.stubEnv has been called.
- *
- * We extract the beforeLoad from the _authed route by calling it directly.
- * TanStack Router's route tree is synchronous to construct, so we can import
- * the router module and then invoke the guard's beforeLoad as a plain async fn.
- *
- * T12 (specs/003-suite-shell/tasks.md): the module now exports a
- * `createAppRouter(basepath?)` factory rather than a single module-scope
- * `router` (so the same route definitions can be rebased under `/estimai`
- * for the federated remote — see src/App.tsx). Calling it with no basepath
- * here reproduces the exact standalone-router shape this test always
- * exercised; the guard's behavior is basepath-independent.
- */
-const getAuthedBeforeLoad = async (): Promise<
-  ((ctx: { location: { href: string } }) => Promise<void>) | undefined
-> => {
-  // Re-import to pick up the stubbed env.
-  const mod = await import('./router?t=' + Date.now())
-  // The router exposes the route tree via router.routeTree; navigate the tree
-  // to find the _authed route's beforeLoad.
-  const routeTree = mod.createAppRouter().routeTree
-  // The _authed route is the first (and only) non-root child.
-  const authedNode = routeTree.children?.[0]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (authedNode as any)?.options?.beforeLoad as
-    | ((ctx: { location: { href: string } }) => Promise<void>)
-    | undefined
-}
+/** Imports the router module fresh (cache-busted) so each test builds its own route tree. */
+const importRouter = () => import('./router?t=' + Date.now())
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  vi.stubEnv('VITE_AUTH_URL', AUTH_URL)
-
-  // Default: simulate a page at the estimates route.
-  Object.defineProperty(window, 'location', {
-    value: {
-      href: 'http://localhost:5173/estimates',
-    },
-    writable: true,
-    configurable: true,
-  })
+  vi.stubEnv('VITE_AUTH_URL', 'http://auth.test')
 })
 
 afterEach(() => {
+  cleanup()
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
   vi.resetModules()
+  window.history.pushState(null, '', '/')
 })
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('_authed layout route guard (beforeLoad)', () => {
-  describe('unauthenticated visitor — redirects to sign-in for each guarded route', () => {
-    const routes: Array<{ name: string; href: string }> = [
-      { name: '/', href: 'http://localhost:5173/' },
-      { name: '/estimates', href: 'http://localhost:5173/estimates' },
-      { name: '/estimates/$estimateId', href: 'http://localhost:5173/estimates/abc-123' },
-      { name: '/share', href: 'http://localhost:5173/share' },
-    ]
+describe('router has no _authed guard (T13, AC-2.3)', () => {
+  it('mounts the app routes directly off the root — no `_authed` layout route in the tree', async () => {
+    const { createAppRouter } = await importRouter()
+    const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
-    for (const route of routes) {
-      it(`redirects to <AUTH_URL>/sign-in?redirect=<current URL> when visiting ${route.name}`, async () => {
-        // Arrange: no session.
-        vi.mocked(authClient.getSession).mockResolvedValue(null)
+    const childIds = (routeTree.children ?? []).map((child) => child.id)
 
-        // Simulate the visitor being on this route's URL.
-        Object.defineProperty(window, 'location', {
-          value: { href: route.href },
-          writable: true,
-          configurable: true,
-        })
-
-        const beforeLoad = await getAuthedBeforeLoad()
-        expect(beforeLoad, 'beforeLoad must be defined on the _authed route').toBeDefined()
-
-        // Act: call beforeLoad — it should throw a TanStack Router redirect.
-        let thrown: unknown
-        try {
-          await beforeLoad!({ location: { href: route.href } })
-        } catch (err) {
-          thrown = err
-        }
-
-        // Assert: thrown value is a TanStack Router redirect.
-        expect(isRedirect(thrown), 'expected a TanStack Router redirect to be thrown').toBe(true)
-
-        const response = thrown as Response & { options: { href: string; reloadDocument?: boolean } }
-
-        // The Location header must point to <AUTH_URL>/sign-in with the
-        // current absolute URL encoded as the `redirect` query param.
-        const expectedSignInUrl = `${AUTH_URL}/sign-in?redirect=${encodeURIComponent(route.href)}`
-        expect(response.headers.get('Location')).toBe(expectedSignInUrl)
-
-        // reloadDocument must be true so the browser performs a full navigation
-        // to the external auth service (not a client-side router transition).
-        expect(response.options.reloadDocument).toBe(true)
-      })
-    }
+    expect(childIds).not.toContain('_authed')
   })
 
-  describe('authenticated visitor — beforeLoad completes without throwing', () => {
-    it('does NOT redirect when a valid session is present', async () => {
-      // Arrange: session exists.
-      vi.mocked(authClient.getSession).mockResolvedValue({
-        data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any)
+  it('exposes the same four app routes as direct children of root, none of them guarded', async () => {
+    const { createAppRouter } = await importRouter()
+    const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
-      const beforeLoad = await getAuthedBeforeLoad()
-      expect(beforeLoad).toBeDefined()
+    const childPaths = (routeTree.children ?? [])
+      .map((child) => child.fullPath)
+      .filter((path): path is string => path !== undefined)
+      .sort()
 
-      // Act + Assert: must not throw.
-      await expect(beforeLoad!({ location: { href: 'http://localhost:5173/estimates' } })).resolves.toBeUndefined()
-    })
+    expect(childPaths).toEqual(['/', '/estimates', '/estimates/$estimateId', '/share'].sort())
+    // Exactly these four — no extra `_authed` (or any other) wrapper route.
+    expect(routeTree.children).toHaveLength(4)
   })
+})
 
-  describe('session check is async — nothing renders before it resolves', () => {
-    it('beforeLoad promise does not resolve until getSession resolves', async () => {
-      // Arrange: delay the session response.
-      let resolveSession!: (value: null) => void
-      const pendingSession = new Promise<null>((resolve) => {
-        resolveSession = resolve
-      })
-      vi.mocked(authClient.getSession).mockReturnValue(pendingSession)
+describe('no independent sign-in redirect (T13, AC-2.3)', () => {
+  it('visiting /estimates/... with no session/auth mocked at all never redirects to sign-in', async () => {
+    // Deliberately do NOT mock ./lib/authClient or ./lib/api — proving the
+    // route resolves with NO session check in the path at all, not merely
+    // that a mocked session check passes.
+    window.history.pushState(null, '', '/share')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
 
-      const beforeLoad = await getAuthedBeforeLoad()
-      expect(beforeLoad).toBeDefined()
+    render(<RouterProvider router={router} />)
 
-      // Act: start beforeLoad but do not await.
-      let resolved = false
-      const promise = beforeLoad!({ location: { href: 'http://localhost:5173/estimates' } })
-        .catch(() => {
-          resolved = true
-        })
-        .then(() => {
-          resolved = true
-        })
+    // /share with no hash payload renders its own "invalid/missing data"
+    // state directly — proof the route's component mounted without any
+    // sign-in redirect happening first.
+    await screen.findByText(/invalid or missing share data/i)
 
-      // The guard must still be pending — nothing can render yet.
-      expect(resolved).toBe(false)
-
-      // Resolve the session check (no session → will throw redirect).
-      resolveSession(null)
-      await promise
-
-      // Now the guard has completed (with a redirect throw, caught above).
-      expect(resolved).toBe(true)
-    })
+    expect(window.location.pathname).toBe('/share')
+    expect(window.location.href).not.toContain('/sign-in')
   })
 })
