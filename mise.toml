@@ -10,3 +10,21 @@ experimental = true
 [tasks.release]
 description = "Cut a release (conventional-changelog, git tag, GitHub release)"
 run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelog@^8 dlx release-it"
+
+# Run the whole Operai suite shell locally with HMR (Module Federation, specs/003).
+# Prereqs: `docker compose up -d` (Postgres :5435) and the auth service on :3001
+# (`cd auth && bun run dev`; set ENABLE_TEST_AUTH=true for a seeded local session).
+# Optionally run estimai-api on :8080 for authenticated EstimAI calls.
+# Then open http://localhost:5173 (the shell). Ports are pinned in each app's
+# vite.config.ts: shell 5173, estimai-ui 5174, refund-ui 5175.
+#
+# HMR note: all-dev Module Federation works (verified — remotes mount, shared
+# React singleton holds, no dup-React). Editing a remote's MF-EXPOSED root
+# (estimai-ui/refund-ui `src/App.tsx`) triggers a full page reload rather than
+# state-preserving Fast Refresh (the `__mf_remote_dependency_pending` export the
+# federation plugin adds is incompatible with React Fast Refresh's
+# consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
+# The e2e suite deliberately uses build+preview instead (see shell/playwright.config.ts).
+[tasks.dev]
+description = "Run the suite locally with HMR — shell :5173 + estimai-ui :5174 + refund-ui :5175 (needs Postgres + auth running)"
+run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & wait"
