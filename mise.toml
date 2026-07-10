@@ -19,10 +19,14 @@ run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelo
 # left running (docker `up -d`, detached) — cheap to keep; `docker compose down`
 # to stop it.
 #
-# Prereqs (once): backend env must be configured — `auth/.env` (with
-# ENABLE_TEST_AUTH=true for a seeded local session) and `estimai-api/.env` (via
-# direnv + 1Password, per each service's example); and DB migrations applied via
-# `mise run db:migrate`. `bun run` auto-loads each backend's dotenv from its dir.
+# Backend env: auth + estimai-api load their secrets from their own `.envrc`
+# (direnv + 1Password). The `direnv exec .` wrappers below load `auth/.envrc` /
+# `estimai-api/.envrc` explicitly — mise runs the task non-interactively, so
+# direnv's shell hook does NOT fire on its own (without this, the backends fall
+# back to placeholder creds and e.g. Google OAuth fails with `invalid_client`).
+# Prereqs (once): direnv installed; each backend's .envrc allowed (`direnv allow
+# auth`, `direnv allow estimai-api`); 1Password CLI signed in; ENABLE_TEST_AUTH=true
+# for a seeded local session; and migrations applied via `mise run db:migrate`.
 #
 # HMR note: all-dev Module Federation works (verified — remotes mount, shared
 # React singleton holds, no dup-React). Editing a remote's MF-EXPOSED root
@@ -35,8 +39,8 @@ description = "Run the FULL suite locally with HMR — Postgres + auth :3001 + e
 run = """
 docker compose up -d postgres
 trap 'kill 0' EXIT INT TERM
-(cd auth && bun run dev) &
-(cd estimai-api && bun run dev) &
+(cd auth && direnv exec . bun run dev) &
+(cd estimai-api && direnv exec . bun run dev) &
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
 pnpm --dir refund-ui dev &
@@ -59,8 +63,8 @@ run = """
 docker compose up -d postgres
 pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build
 trap 'kill 0' EXIT INT TERM
-(cd auth && bun run dev) &
-(cd estimai-api && bun run dev) &
+(cd auth && direnv exec . bun run dev) &
+(cd estimai-api && direnv exec . bun run dev) &
 pnpm --dir shell preview &
 pnpm --dir estimai-ui preview &
 pnpm --dir refund-ui preview &
@@ -74,6 +78,6 @@ wait
 description = "Apply DB migrations for auth + estimai-api (needs backend env configured)"
 run = """
 docker compose up -d postgres
-(cd auth && bun run db:deploy)
-(cd estimai-api && bun run db:deploy)
+(cd auth && direnv exec . bun run db:deploy)
+(cd estimai-api && direnv exec . bun run db:deploy)
 """
