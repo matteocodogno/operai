@@ -1,0 +1,27 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-10T11-26-30Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-10T11:02:30Z",
+  "finished": "2026-07-10T11:26:30Z",
+  "isolation": "main-tree",
+  "agents": [
+    { "agent": "devops", "tasks": ["T17"], "outcome": "completed", "commits": ["c864a0d"] },
+    { "agent": "quality-engineer", "tasks": ["T17"], "outcome": "PASS", "round": 1 }
+  ],
+  "drift_events": [],
+  "defect_events": [],
+  "notes": [
+    "T17 Vercel deploy wiring: 3 vercel.json (shell + estimai-ui->shell redirect gated on sec-fetch-dest=document (AC-4.3) + refund-ui), pinned CSP headers (no wildcards; inline theme script extracted to public/theme-init.js so script-src needs no unsafe-inline), remoteEntry.js CORS+cache. Added an ADDITIVE runtime remote-URL layer (@module-federation/runtime registerRemotes) that is a verified no-op unless window.__OPERAI_RUNTIME_CONFIG__ or /runtime-config.json is present -> e2e wiring untouched. infra/vercel-deploy-runbook.md written.",
+    "Local guards held: 3 builds pass, shell 71, estimai-ui 81, lint clean, shell e2e re-run by QE 18/18. Security floor clean (gitleaks, @module-federation/runtime audit 0 critical, auth env file untouched).",
+    "PENDING (no Vercel access, documented in runbook, NOT defects): create 3 Vercel projects + env; reassign operai.welld.io from estimai-ui to shell + provision estimai/refund subdomains (hostnames are proposed placeholders); set prod auth ALLOWED_ORIGINS to shell origin + redeploy auth; CSP preview-URL (*.vercel.app) gap needs Edge Middleware (ADR-worthy); runtime-config.json not populated (example only).",
+    "OBSERVATION for T19: committed auth env-example now uncomments ENABLE_TEST_AUTH=true (rode in from the user local edit enabling e2e test-auth). Template default gated on NODE_ENV!=production; not a secret, but owasp should confirm shipping enabled as the example default is intended.",
+    "QE recommends T19 owasp-reviewer next (CSP/remote-origin pinning, token-origin allowlist, sign-out, open-redirect, style-src unsafe-inline) — T19 now unblocked (deps T17 met). T18 (regression gate) must resolve the 16/21 estimai-ui standalone e2e broken by T13/T14 before AC-4.1/done."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
