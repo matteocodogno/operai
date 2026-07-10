@@ -77,9 +77,10 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/vercel.json`, `estimai-ui/vercel.json`, `refund-ui/vercel.json`, env config, `auth` `ALLOWED_ORIGINS` (config only)
   - done when: a preview deploy loads the shell + both remotes via per-env URLs; the old EstimAI URL redirects into the shell; a refund-only redeploy is reflected without rebuilding others
 
-- [ ] T18: EstimAI regression gate — full `estimai-ui` Vitest + Playwright pass, standalone and in-shell — refs: AC-4.1 — deps: T14
-  - touch: none (CI/verification)
-  - done when: the entire existing EstimAI test suite passes against the migrated app in both bootstraps
+- [x] T18: EstimAI regression gate — reconciled to the shell-mounted architecture — refs: AC-4.1 — deps: T14
+  - touch: `estimai-ui/e2e/*` (retired), `shell/e2e/*` (relocated journeys), `estimai-ui/package.json`+`tsconfig.e2e.json`+`playwright.config.ts` (removed)
+  - done when: `estimai-ui` Vitest 81/81 green (its real standalone verification now); the migrated app's journeys pass in-shell — `shell` e2e 30/30 (18 prior + relocated: persistence CRUD ×2, localStorage import ×3, suite-wide sign-out ×1, real-JWKS identity/RFC7807/real-401 ×6); `shell` unit 71/71, `refund-ui` unit 5/5.
+  - DRIFT: the original done-when ("standalone `estimai-ui` Playwright pass, in both bootstraps") is obsolete. T13/T14 turned `estimai-ui` into a federated remote with no standalone authed bootstrap (its `import('shell/session')` can't resolve without the shell served), so its browser e2e suite (smoke/session-expiry/persistence/import + auth-identity's browser test) tested behavior that moved to the shell and could no longer pass standalone (verified: 16/21 failed). That suite was **retired**, and every genuine journey it covered was **relocated to `shell/e2e`** against the real shell-mounted EstimAI (nothing dropped). Regression coverage is now: **`estimai-ui` unit suite + `shell` e2e**. The 5 backend HTTP tests that still passed standalone (JWKS/ownership/RFC7807) were relocated too, as they verify `estimai-api`/`auth`, not `estimai-ui`.
 
 - [ ] T19: owasp-reviewer pass (security = YES) — refs: AC-2.1, AC-2.3, AC-2.4 (security) — deps: T17
   - touch: none (review; fixes land as follow-up edits to the flagged files)
