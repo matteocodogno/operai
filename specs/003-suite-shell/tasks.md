@@ -82,7 +82,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - done when: `estimai-ui` Vitest 81/81 green (its real standalone verification now); the migrated app's journeys pass in-shell — `shell` e2e 30/30 (18 prior + relocated: persistence CRUD ×2, localStorage import ×3, suite-wide sign-out ×1, real-JWKS identity/RFC7807/real-401 ×6); `shell` unit 71/71, `refund-ui` unit 5/5.
   - DRIFT: the original done-when ("standalone `estimai-ui` Playwright pass, in both bootstraps") is obsolete. T13/T14 turned `estimai-ui` into a federated remote with no standalone authed bootstrap (its `import('shell/session')` can't resolve without the shell served), so its browser e2e suite (smoke/session-expiry/persistence/import + auth-identity's browser test) tested behavior that moved to the shell and could no longer pass standalone (verified: 16/21 failed). That suite was **retired**, and every genuine journey it covered was **relocated to `shell/e2e`** against the real shell-mounted EstimAI (nothing dropped). Regression coverage is now: **`estimai-ui` unit suite + `shell` e2e**. The 5 backend HTTP tests that still passed standalone (JWKS/ownership/RFC7807) were relocated too, as they verify `estimai-api`/`auth`, not `estimai-ui`.
 
-- [ ] T19: owasp-reviewer pass (security = YES) — refs: AC-2.1, AC-2.3, AC-2.4 (security) — deps: T17
+- [x] T19: owasp-reviewer pass (security = YES) — refs: AC-2.1, AC-2.3, AC-2.4 (security) — deps: T17
   - touch: none (review; fixes land as follow-up edits to the flagged files)
   - done when: owasp-reviewer verdict PASS (or all findings resolved) on: CSP/remote-origin pinning, token-origin allowlist, sign-out completeness, open-redirect on the guard's `redirect` param, CORS posture on `remoteEntry.js`
 
