@@ -33,7 +33,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/components/{LogoMenu,UserMenu,ThemeToggle,AboutModal}.tsx`, `shell/src/lib/appInfo.ts`, `shell/src/hooks/useTheme.ts`
   - done when: ported component tests pass; header shows suite logo, About dropdown/dialog, avatar/menu (+ sign-out via `shell/session`), theme toggle; About shows the suite (Operai) name/version
 
-- [ ] T7: Sidebar / tool switcher (EstimAI + Refund; active via route; roving-tabindex + arrow keys; `aria-current`) — refs: AC-3.1, AC-5.1 — deps: T5, T9
+- [x] T7: Sidebar / tool switcher (EstimAI + Refund; active via route; roving-tabindex + arrow keys; `aria-current`) — refs: AC-3.1, AC-5.1 — deps: T5, T9
   - touch: `shell/src/components/Sidebar.tsx`
   - done when: a component test asserts both tool entries, the active item marked from the route, and arrow-key/roving-tabindex keyboard navigation
 

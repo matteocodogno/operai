@@ -3,6 +3,7 @@ import { ShellLayout } from './components/ShellLayout'
 import { RemoteMount } from './components/RemoteMount'
 import Header from './components/Header'
 import Footer from './components/Footer'
+import Sidebar from './components/Sidebar'
 import { getSession } from './lib/session'
 
 // ---------------------------------------------------------------------------
@@ -32,8 +33,6 @@ import { getSession } from './lib/session'
 //     from there (AC-3.2, AC-3.3).
 //
 // Deliberately NOT built here (see task scope guardrails):
-//   - The Sidebar (T7) — ShellLayout's `sidebar` slot is left at its built-in
-//     placeholder.
 //   - The root-landing "last used tool" redirect (T10) — `/` renders a
 //     minimal static index for now.
 //   - `refund-ui` doesn't exist yet (T15) — `/refund`'s loader will 404 at
@@ -77,18 +76,17 @@ const authedRoute = createRoute({
 // ---------------------------------------------------------------------------
 // _shell — pathless layout route, child of _authed (AC-1.1, AC-1.2)
 //
-// Renders ShellLayout with the header/footer slots filled — Header (T6
-// chrome, composed in its own file, components/Header.tsx: see that file's
-// doc for why it isn't defined inline here) and Footer (T8). The `sidebar`
-// slot is intentionally left unset here — ShellLayout falls back to its own
-// placeholder until T7 builds the real Sidebar (see T7's `deps: T5, T9`,
-// i.e. T7 depends on THIS route existing, not the other way around).
+// Renders ShellLayout with the header/sidebar/footer slots filled — Header
+// (T6 chrome, composed in its own file, components/Header.tsx: see that
+// file's doc for why it isn't defined inline here), Sidebar (T7, the tool
+// switcher — reads the active route itself via useMatchRoute, needs no props
+// from here), and Footer (T8).
 // ---------------------------------------------------------------------------
 
 const shellRoute = createRoute({
   getParentRoute: () => authedRoute,
   id: '_shell',
-  component: () => <ShellLayout header={<Header />} footer={<Footer />} />,
+  component: () => <ShellLayout header={<Header />} sidebar={<Sidebar />} footer={<Footer />} />,
 })
 
 // ---------------------------------------------------------------------------
