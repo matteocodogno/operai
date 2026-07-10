@@ -69,7 +69,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `refund-ui/` (new app), expose `./App`, placeholder page
   - done when: `refund-ui` builds a `remoteEntry.js`; the placeholder renders only for a signed-in user when selected in the shell; a `refund-ui`-only rebuild changes its remote without rebuilding the shell/EstimAI
 
-- [ ] T16: Cross-app e2e (Playwright, seeded session) — refs: AC-1.2, AC-1.3, AC-2.2, AC-2.5, AC-3.2, AC-3.3, AC-5.2, AC-6.1 — deps: T6, T7, T8, T9, T10, T11, T13, T14, T15
+- [x] T16: Cross-app e2e (Playwright, seeded session) — refs: AC-1.2, AC-1.3, AC-2.2, AC-2.5, AC-3.2, AC-3.3, AC-5.2, AC-6.1 — deps: T6, T7, T8, T9, T10, T11, T13, T14, T15
   - touch: `shell/e2e/*` (reuse `estimai-ui/e2e/helpers/seedSession.ts`)
   - done when: e2e green for: chrome persists on switch; remotes render in the shared design system; an authed backend call succeeds; session persists on reload; URL reflects tool + reload-safe + deep-link; refund placeholder authed-only; failing-tool graceful
 
