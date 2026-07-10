@@ -42,6 +42,23 @@ export default defineConfig({
     react(),
     federation({
       name: 'shell',
+      // BUGFIX (found by T16's real-browser e2e run, specs/003-suite-shell):
+      // without an explicit `filename`, the plugin emits the shell's own
+      // remote entry under a hashed asset name instead of a stable
+      // `/remoteEntry.js`. estimai-ui and refund-ui already set this
+      // explicitly (see their own vite.config.ts) because THEY are consumed
+      // as remotes by the shell host — but the shell is *also* consumed as a
+      // remote (bidirectional graph: estimai-ui/refund-ui both declare a
+      // `shell` remote pointing at `${SHELL_REMOTE_URL}/remoteEntry.js` to
+      // import `shell/session`/`shell/tokens.css`), and that side was missed
+      // here. Without this, every remote's `shell` import 404s (silently
+      // SPA-fallback-served as `index.html` by `vite preview`), which makes
+      // `import('estimai/App')`/`import('refund/App')` reject — RemoteMount
+      // (T11) then correctly shows its "couldn't load" error for BOTH tools,
+      // even though estimai-ui/refund-ui themselves are fine. Matches the
+      // exact same line already used by estimai-ui/vite.config.ts and
+      // refund-ui/vite.config.ts.
+      filename: 'remoteEntry.js',
       // dts generation stays disabled (as it was for the retired seed
       // remote): refund-ui (T15) doesn't exist yet, so a dts fetch attempt
       // against its dev server would just fail noisily on host dev-server
