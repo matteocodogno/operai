@@ -21,9 +21,13 @@ See `CLAUDE.md` for the full architecture, conventions, and estimation model, an
 
 One-time setup:
 
-1. **Configure backend env** — `auth/.env` and `estimai-api/.env` (via direnv + 1Password,
-   per each service's `.env.example`). Set `ENABLE_TEST_AUTH=true` in `auth/.env` for a
-   seeded local session (used by the e2e and handy for manual testing).
+1. **Backend secrets (direnv + 1Password)** — the backends load their secrets from their
+   own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
+   so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
+   `direnv allow auth` and `direnv allow estimai-api`, and be signed in to the **1Password
+   CLI** (`op`). Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide real
+   `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with `http://localhost:3001/auth/callback/google`
+   as an authorized redirect URI) if you want Google login locally.
 2. **Apply DB migrations** (brings up Postgres, then migrates both backends):
 
    ```bash
