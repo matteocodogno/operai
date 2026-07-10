@@ -11,31 +11,42 @@ import { readFileSync } from 'node:fs'
 // version, injected at build time exactly like estimai-ui/vite.config.ts does.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
-// R1 GATE (specs/003-suite-shell/tasks.md, T2): Module Federation host config.
+// Module Federation host config.
 //
 // `@module-federation/vite` (MF2 runtime, per ADR-0006) officially supports
 // Vite 8 — its peerDependencies declare "vite": "^5 || ^6 || ^7 || ^8" as of
-// 1.16.x — so this walking skeleton targets Vite 8 directly. Building and
-// running it here (see mf-seed-remote/) proved that clean; no R1 fallback
-// (pinning Vite down a minor, or switching to @originjs/vite-plugin-federation)
-// was necessary.
+// 1.16.x. The R1 gate (T2, specs/003-suite-shell/tasks.md) proved this clean
+// against a throwaway seed remote (`mf-seed-remote/`, since deleted — see
+// docs/adr/0006 and the T2 run trace for the proof); no R1 fallback (pinning
+// Vite down a minor, or switching to @originjs/vite-plugin-federation) was
+// necessary. The two real remotes below (estimai-ui T12, refund-ui T15)
+// replace that probe now that the mechanism is proven.
 //
-// The remote URL below is a build-time default for the walking skeleton only.
-// The plan's actual deploy model (T17) resolves remote URLs per-environment
-// at *runtime* via MF's dynamic-remote API, not build-baked — do not treat
-// this hardcoded localhost URL as the production pattern.
-const seedRemoteUrl = process.env['SEED_REMOTE_URL'] ?? 'http://localhost:5175/remoteEntry.js'
+// The remote URLs below are build-time dev defaults only, overridable via
+// env var (mirrors the retired seed remote's SEED_REMOTE_URL pattern). The
+// plan's actual deploy model (T17) resolves remote URLs per-environment at
+// *runtime* via MF's dynamic-remote API, not build-baked — do not treat
+// these hardcoded localhost URLs as the production pattern. Neither
+// estimai-ui nor refund-ui currently pin a dev-server port (both default to
+// Vite's 5173, same as this host when run via `pnpm dev`), so running shell
+// + estimai-ui concurrently in local dev needs an explicit `--port`/
+// `ESTIMAI_REMOTE_URL` override today — assigning stable dev ports across
+// the suite is a T17 concern, not this task's.
+const estimaiRemoteUrl =
+  process.env['ESTIMAI_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
+const refundRemoteUrl =
+  process.env['REFUND_REMOTE_URL'] ?? 'http://localhost:5176/remoteEntry.js'
 
 export default defineConfig({
   plugins: [
     react(),
     federation({
       name: 'shell',
-      // dts generation is disabled on the seed remote's producer side (see
-      // mf-seed-remote/vite.config.ts) — matching it here avoids a noisy
-      // failed download of a nonexistent @mf-types.zip on host dev-server
-      // startup. Not needed anyway: the remote's shape is declared via
-      // src/federation/remotes.d.ts (ambient module declaration).
+      // dts generation stays disabled (as it was for the retired seed
+      // remote): refund-ui (T15) doesn't exist yet, so a dts fetch attempt
+      // against its dev server would just fail noisily on host dev-server
+      // startup. Not needed anyway: both remotes' shapes are declared via
+      // src/federation/remotes.d.ts (ambient module declarations, T9).
       dts: false,
       // T3 (specs/003-suite-shell/tasks.md): the shell doubles as a producer
       // for the shared Operai design tokens (fonts, palette, Tailwind
@@ -59,11 +70,21 @@ export default defineConfig({
         './session': './src/lib/session.ts',
       },
       remotes: {
-        seed: {
+        // T9 (specs/003-suite-shell/tasks.md): the two real suite tools.
+        // Shape mirrors the retired seed remote's entry exactly (proven
+        // working by the R1 gate) — only the name/URL differ.
+        estimai: {
           type: 'module',
-          name: 'seed',
-          entry: seedRemoteUrl,
-          entryGlobalName: 'seed',
+          name: 'estimai',
+          entry: estimaiRemoteUrl,
+          entryGlobalName: 'estimai',
+          shareScope: 'default',
+        },
+        refund: {
+          type: 'module',
+          name: 'refund',
+          entry: refundRemoteUrl,
+          entryGlobalName: 'refund',
           shareScope: 'default',
         },
       },

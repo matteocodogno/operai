@@ -3,20 +3,25 @@ import { defineConfig, devices } from '@playwright/test'
 /**
  * Playwright configuration for shell e2e tests.
  *
- * T2 (specs/003-suite-shell/tasks.md) — the R1 gate — is currently the only
- * suite here: it proves the Module Federation walking skeleton actually
- * works at runtime (not just "it builds"). Both the shell host AND the
- * throwaway `mf-seed-remote` are built and served via `vite preview` (not
- * `vite dev`) — dev-mode host + build-mode remote was tried first and does
- * NOT reliably negotiate the shared React singleton (esbuild's dev
- * dependency pre-bundling and the federation runtime's dev-mode virtual
- * modules don't line up the same way build-mode chunks do); build+preview
- * on both sides is the reliable, reproducible mode and also mirrors how the
- * suite actually deploys (independently built + served remotes).
+ * T2's (specs/003-suite-shell/tasks.md) R1-gate suite — which proved the
+ * Module Federation walking skeleton against a throwaway `mf-seed-remote` —
+ * has been retired now that the mechanism is proven (see docs/adr/0006 and
+ * the T2 run trace) and the two real remotes (estimai-ui, refund-ui) exist
+ * in `shell/vite.config.ts`'s federation config instead. No e2e spec lives
+ * in `e2e/` yet: the cross-app suite (chrome persistence, deep-linking,
+ * seeded-session auth, the Refund placeholder, remote-failure handling) is
+ * T16, which needs T7 (Sidebar), T10 (root redirect), T13/T14 (EstimAI
+ * rewired to the shell session/chrome), and T15 (refund-ui) — none of which
+ * exist yet. This config is left in place, webServer-ready, for T16 to add
+ * specs to; build+preview (not `vite dev`) is deliberate here — dev-mode
+ * host + build-mode remote does NOT reliably negotiate the shared React
+ * singleton (esbuild's dev dependency pre-bundling and the federation
+ * runtime's dev-mode virtual modules don't line up the same way build-mode
+ * chunks do), and build+preview also mirrors how the suite actually deploys
+ * (independently built + served remotes).
  */
 
 const shellUrl = 'http://localhost:5174'
-const seedRemoteUrl = 'http://localhost:5175'
 
 export default defineConfig({
   testDir: './e2e',
@@ -41,20 +46,10 @@ export default defineConfig({
     },
   ],
 
-  // Two independent webServers: the seed remote (built + previewed on 5175,
-  // the URL shell/vite.config.ts's federation host config points at) and the
-  // shell host itself (built + previewed on 5174). Order matters: the remote
-  // must be up before the shell's build-time SEED_REMOTE_URL default is
-  // dereferenced at runtime.
+  // The shell host, built + previewed on 5174. T16 will add the estimai-ui
+  // and refund-ui webServer entries (and their remote URLs) alongside this
+  // one once those specs land.
   webServer: [
-    {
-      command: 'pnpm --dir ../mf-seed-remote build && pnpm --dir ../mf-seed-remote preview --port 5175 --strictPort',
-      url: seedRemoteUrl,
-      reuseExistingServer: !process.env['CI'],
-      timeout: 120_000,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    },
     {
       command: 'pnpm build && pnpm preview --port 5174 --strictPort',
       url: shellUrl,

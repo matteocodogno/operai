@@ -41,7 +41,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/components/Footer.tsx`
   - done when: a component test asserts the legal link, version string, and company info; footer is not `position: fixed`
 
-- [ ] T9: Shell router + pathless `_authed` session guard + tool routes `/estimai/*`, `/refund/*` mounting remotes; chrome stays mounted across switches — refs: AC-1.2, AC-2.1, AC-2.5, AC-3.2, AC-3.3 — deps: T4, T5, T11
+- [x] T9: Shell router + pathless `_authed` session guard + tool routes `/estimai/*`, `/refund/*` mounting remotes; chrome stays mounted across switches — refs: AC-1.2, AC-2.1, AC-2.5, AC-3.2, AC-3.3 — deps: T4, T5, T11
   - touch: `shell/src/router.tsx`, `shell/src/main.tsx`
   - done when: guard-redirect test (no session → `<AUTH_URL>/sign-in?redirect=…`, ported from estimai-ui router.test); deep-link to `/refund` and `/estimai/...` resolves the right tool first paint; switching tools does not remount the chrome
 
