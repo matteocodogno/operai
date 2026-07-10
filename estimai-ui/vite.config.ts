@@ -82,11 +82,16 @@ export default defineConfig({
     modulePreload: false,
   },
   server: {
-    // Allow the shell (a different dev-server origin) to fetch this remote's
-    // remoteEntry.js and chunks in local development.
+    // Pinned local-dev port for estimai-ui as a remote (5174); the shell
+    // (:5173) consumes its remoteEntry.js from here. cors lets the shell's
+    // different dev origin fetch it; strictPort fails fast on a collision.
+    port: 5174,
+    strictPort: true,
     cors: true,
   },
   preview: {
+    port: 5174,
+    strictPort: true,
     cors: true,
   },
 })

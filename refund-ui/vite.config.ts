@@ -14,7 +14,11 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // ESTIMAI_REMOTE_URL / REFUND_REMOTE_URL pattern in shell/vite.config.ts.
 // The plan's actual deploy model (T17) resolves remote URLs per-environment
 // at *runtime* via MF's dynamic-remote API, not build-baked.
-const shellRemoteUrl = process.env['SHELL_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
+// Dev default points at the shell's pinned port (:5173) — refund-ui consumes
+// shell/session + shell/tokens.css from there. (Previously :5174, which was the
+// wrong origin for the shell; the e2e overrode it via SHELL_REMOTE_URL so the
+// mistake was masked until the local-dev port scheme was pinned.)
+const shellRemoteUrl = process.env['SHELL_REMOTE_URL'] ?? 'http://localhost:5173/remoteEntry.js'
 
 export default defineConfig({
   plugins: [
@@ -69,11 +73,16 @@ export default defineConfig({
     modulePreload: false,
   },
   server: {
-    // Allow the shell (a different dev-server origin) to fetch this remote's
-    // remoteEntry.js and chunks in local development.
+    // Pinned local-dev port for refund-ui as a remote (5175); the shell
+    // (:5173) consumes its remoteEntry.js from here. cors lets the shell's
+    // different dev origin fetch it; strictPort fails fast on a collision.
+    port: 5175,
+    strictPort: true,
     cors: true,
   },
   preview: {
+    port: 5175,
+    strictPort: true,
     cors: true,
   },
 })

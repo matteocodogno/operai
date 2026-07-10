@@ -26,16 +26,18 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // env var (mirrors the retired seed remote's SEED_REMOTE_URL pattern). The
 // plan's actual deploy model (T17) resolves remote URLs per-environment at
 // *runtime* via MF's dynamic-remote API, not build-baked — do not treat
-// these hardcoded localhost URLs as the production pattern. Neither
-// estimai-ui nor refund-ui currently pin a dev-server port (both default to
-// Vite's 5173, same as this host when run via `pnpm dev`), so running shell
-// + estimai-ui concurrently in local dev needs an explicit `--port`/
-// `ESTIMAI_REMOTE_URL` override today — assigning stable dev ports across
-// the suite is a T17 concern, not this task's.
+// these hardcoded localhost URLs as the production pattern.
+//
+// Stable local-dev port scheme (pinned via server/preview below, matched by
+// both remotes' own configs): shell 5173, estimai-ui 5174, refund-ui 5175.
+// The shell consumes estimai at :5174 and refund at :5175; each remote
+// consumes the shell (shell/session, shell/tokens.css) at :5173. The e2e
+// harness (playwright.config.ts) uses its own explicit ports+env and is
+// unaffected by these dev defaults.
 const estimaiRemoteUrl =
   process.env['ESTIMAI_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
 const refundRemoteUrl =
-  process.env['REFUND_REMOTE_URL'] ?? 'http://localhost:5176/remoteEntry.js'
+  process.env['REFUND_REMOTE_URL'] ?? 'http://localhost:5175/remoteEntry.js'
 
 export default defineConfig({
   plugins: [
@@ -138,4 +140,9 @@ export default defineConfig({
     target: 'esnext',
     modulePreload: false,
   },
+  // Pinned local-dev port for the suite host (5173 — a trusted origin in
+  // auth's committed ALLOWED_ORIGINS default). strictPort fails fast rather
+  // than silently drifting to another port the remotes/auth wouldn't trust.
+  server: { port: 5173, strictPort: true, cors: true },
+  preview: { port: 5173, strictPort: true, cors: true },
 })
