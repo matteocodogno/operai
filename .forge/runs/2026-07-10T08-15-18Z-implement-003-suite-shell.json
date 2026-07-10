@@ -1,0 +1,32 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-10T08-15-18Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-10T09:55:38Z",
+  "finished": "2026-07-10T08:15:18Z",
+  "isolation": "worktree",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T13"], "outcome": "completed", "commits": ["76a555d"], "worktree": "worktree-agent-a948f89c580101470" },
+    { "agent": "frontend-dev", "tasks": ["T15"], "outcome": "completed", "commits": ["77627a5"], "worktree": "worktree-agent-afe470612e688e168" },
+    { "agent": "quality-engineer", "tasks": ["T13", "T15"], "outcome": "PASS", "round": 1 }
+  ],
+  "collision_events": [],
+  "drift_events": [
+    { "agent": "frontend-dev", "task": "T13", "artifact": "estimai-ui/e2e/login-wall.spec.ts", "summary": "Spec-002 e2e tests the standalone _authed guard T13 intentionally removed; will fail standalone. Deferred to T16/T18 (outside T13 touch list). Not fixed.", "resolved": false }
+  ],
+  "defect_events": [],
+  "notes": [
+    "FIRST worktree-isolated parallel run (worktree.baseRef=head now set). T13 (estimai-ui) and T15 (refund-ui) built concurrently in isolated worktrees off HEAD 7211d6f; both branches merged clean into main (no collisions -> disjoint file sets, DAG correct); checkboxes reconciled centrally in 70879c8; worktrees + branches pruned.",
+    "T13: estimai-ui guard removed; api.ts/authClient.ts are thin re-exports of shell/session (one suite-wide JWT). Tests 97->90: guard + interceptor suites RELOCATED (already in shell T4/T9); 88 feature tests unchanged (AC-4.1).",
+    "T15: refund-ui scaffolded as MF remote exposing ./App, consuming shell/session + shell/tokens.css; minimal authed placeholder, no domain; independent remoteEntry (AC-5.3). 5 tests.",
+    "ADR-CANDIDATE (from T15): how remotes consume the shared design system across the federation boundary — refund-ui uses shared-stylesheet CSS custom properties (var(--text)) + core Tailwind utilities, because Tailwind JIT cannot see runtime-federated @theme tokens at build time. Establishes the pattern for every future remote (ReviewAI/RetroAI/ProposAI). Consider capturing as an ADR.",
+    "QE PASS round 1, no defects; delegation + relocation verified adversarially; federation singletons consistent (R2); security floor clean.",
+    "Carry to T16: real-browser reconfirm of MF prebuild IMPORT_IS_UNDEFINED warnings (no true duplicate module)."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
