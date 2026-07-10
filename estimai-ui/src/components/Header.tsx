@@ -14,10 +14,11 @@ export default function Header({ name, saveStatus, onNameChange }: HeaderProps) 
   return (
     <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
       {/* Single desktop-only row. estimai-ui runs inside the desktop-only suite
-          shell (specs/003), so there is no separate mobile header — a second
-          responsive row here also renders alongside this one, because with the
-          shell's + estimai-ui's Tailwind both on the page the cross-sheet
-          `sm:hidden` cascade is unreliable. One row avoids that entirely. */}
+          shell (specs/003), so there is no separate mobile header — one row is
+          all this chrome needs. (Responsive variant utilities now behave
+          correctly in-shell too: the suite runs a single shell-owned Tailwind
+          sheet, so the old cross-sheet `sm:*` cascade is gone — see
+          docs/adr/0006 Remote CSS strategy addendum.) */}
       <div className="flex items-center h-14">
         {/* Center — project name */}
         <div className="flex-1 flex items-center justify-center">

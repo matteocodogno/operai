@@ -1,14 +1,17 @@
-import './index.css'
 import { RouterProvider } from '@tanstack/react-router'
 import { createAppRouter } from './router'
 
-// IMPORTANT (specs/003-suite-shell): the exposed remote MUST import its own
-// compiled stylesheet. Tailwind is JIT — each app's build only emits the
-// utility classes IT uses — so when the shell mounts `estimai/App`, estimai-ui's
-// Tailwind CSS has to travel with the federated module or its utility classes
-// (e.g. `hidden`, its spacing/colors) have no rules on the shell's page and the
-// UI renders broken. `main.tsx` (the standalone bootstrap) imports this too;
-// the exposed root needs it independently. MF injects this CSS when App loads.
+// IMPORTANT (specs/003-suite-shell; docs/adr/0006 Remote CSS strategy): the
+// exposed remote MUST NOT import its own `index.css` here. The shell owns the
+// single Tailwind sheet for the whole suite — its Tailwind `@source`-scans
+// estimai-ui/src (shell/src/index.css) and generates estimai's utility classes
+// from the shared `@theme` (shell/src/styles/tokens.css). Importing estimai's
+// own compiled Tailwind here would put a SECOND full Tailwind sheet on the
+// shell's page; the two sheets' `@layer utilities` merge by DOM order, so the
+// later sheet's plain utilities clobber the earlier sheet's variant utilities
+// (`sm:*`/`hover:*`/`focus:*`) — the double-header / broken-responsive bug.
+// The standalone bootstrap (main.tsx) DOES import index.css: outside the shell
+// there is no shell sheet, so it's estimai's only source of Tailwind + tokens.
 
 // T12 (specs/003-suite-shell/tasks.md): root component exposed via Module
 // Federation as `./App` (see vite.config.ts's `exposes`). This is what the

@@ -1,2 +1,16 @@
 @import "tailwindcss";
 @import "./styles/tokens.css";
+
+/*
+ * Single-owner Tailwind for the whole suite (docs/adr/0006, Remote CSS
+ * strategy addendum). The shell emits ONE Tailwind sheet; these `@source`
+ * directives make its JIT scan every federated remote's source too, so the
+ * shell's sheet carries the remotes' utility classes (generated from the
+ * shared `@theme` in tokens.css). In-shell, each remote's exposed root ships
+ * NO Tailwind of its own (estimai-ui/src/App.tsx, refund-ui/src/App.tsx) —
+ * eliminating the second Tailwind sheet and the cross-sheet `@layer utilities`
+ * cascade that clobbered variant utilities (`sm:*`/`hover:*`/`focus:*`).
+ * Paths are relative to THIS file (shell/src/) → the repo-root remotes.
+ */
+@source "../../estimai-ui/src";
+@source "../../refund-ui/src";

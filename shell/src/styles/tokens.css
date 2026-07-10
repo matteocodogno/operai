@@ -6,17 +6,29 @@
  * override), and the Tailwind v4 `@theme` token block that turns the
  * palette into utility classes (`bg-ink`, `text-text`, `border-rule`, …).
  *
- * Copied from (and must be kept in sync with) `estimai-ui/src/index.css`,
- * the app the design system originated in — see specs/003-suite-shell/
- * tasks.md T3. `estimai-ui` keeps its own copy for now (it isn't yet
- * consuming the shell as a remote); rewiring it onto this shared file is
- * T12/T13's job once it's federated.
+ * This is the SINGLE OWNER of the suite's global CSS. The shell imports it
+ * (shell/src/index.css) right after `@import "tailwindcss";`, and the shell's
+ * Tailwind `@source`-scans every remote's `src/` — so the shell emits ONE
+ * Tailwind sheet that carries every remote's utility classes generated from
+ * the shared `@theme` below. In-shell, a federated remote's exposed root
+ * therefore ships NO Tailwind of its own (estimai-ui/src/App.tsx,
+ * refund-ui/src/App.tsx): a second full Tailwind sheet on the page produced a
+ * cross-sheet `@layer utilities` cascade where the later sheet's plain
+ * utilities clobbered the earlier sheet's variant utilities (`sm:*`, `hover:*`,
+ * `focus:*`) — the double-header / broken-responsive bug. One owner, one sheet,
+ * no cross-sheet cascade. See docs/adr/0006 (Remote CSS strategy addendum).
  *
- * Exposed by the shell via Module Federation as `./tokens.css` (see the
- * `exposes` entry in shell/vite.config.ts) so every remote (estimai-ui,
- * refund-ui, …) renders in the identical palette instead of re-implementing
- * it — see specs/003-suite-shell/plan.md's federation contract and
- * docs/adr/0006-suite-frontend-module-federation.md.
+ * This file is the design system's home: the `@theme` token block AND the
+ * global base layer (scrollbar, form-control resets) live here so every remote
+ * renders identical chrome and form controls. Each remote keeps its own copy of
+ * the SAME rules in `src/index.css` purely for its STANDALONE build
+ * (`src/main.tsx`, dev/test outside the shell) — keep the two in sync.
+ *
+ * Also exposed via Module Federation as `./tokens.css` (see the `exposes` entry
+ * in shell/vite.config.ts) so a remote consuming it at runtime (refund-ui's
+ * App reads the palette CSS vars via `var(--…)`) gets the shared custom
+ * properties even where Tailwind's build-time utilities aren't available — see
+ * specs/003-suite-shell/plan.md's federation contract.
  *
  * Consuming stylesheet must `@import "tailwindcss";` BEFORE importing this
  * file, so the `@theme` block below extends Tailwind's generated theme
@@ -140,6 +152,53 @@ body,
   background: var(--ink);
   color: var(--text);
   font-family: var(--body), serif;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ink-soft);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--dim);
+  border-radius: 3px;
+}
+
+@layer base {
+  input,
+  select {
+    font-family: var(--body), serif;
+    background: var(--ink-mid);
+    border: 1px solid var(--rule);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  input:focus,
+  select:focus {
+    border-color: var(--acc);
+    box-shadow: 0 0 0 2px rgba(91, 106, 247, 0.18);
+  }
+
+  input[type='number'] {
+    font-family: var(--mono), monospace;
+  }
+
+  button {
+    font-family: var(--body), serif;
+    cursor: pointer;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
 }
 
 /* Additional utility classes using custom properties */
