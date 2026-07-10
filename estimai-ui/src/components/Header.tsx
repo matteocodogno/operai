@@ -13,8 +13,12 @@ export default function Header({ name, saveStatus, onNameChange }: HeaderProps) 
 
   return (
     <header className="bg-ink-soft border-b border-rule px-4 sticky top-0 z-10">
-      {/* Desktop */}
-      <div className="hidden sm:flex items-center h-14">
+      {/* Single desktop-only row. estimai-ui runs inside the desktop-only suite
+          shell (specs/003), so there is no separate mobile header — a second
+          responsive row here also renders alongside this one, because with the
+          shell's + estimai-ui's Tailwind both on the page the cross-sheet
+          `sm:hidden` cascade is unreliable. One row avoids that entirely. */}
+      <div className="flex items-center h-14">
         {/* Center — project name */}
         <div className="flex-1 flex items-center justify-center">
           <input
@@ -54,24 +58,6 @@ export default function Header({ name, saveStatus, onNameChange }: HeaderProps) 
             ☰ My Estimates
           </button>
         </div>
-      </div>
-
-      {/* Mobile */}
-      <div className="flex sm:hidden items-center gap-3 h-12">
-        <input
-          value={name}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => onNameChange(e.target.value)}
-          placeholder="Project name…"
-          className="flex-1 bg-transparent border-0 border-b border-rule rounded-none text-[13px] py-3 px-0 min-w-0 focus:outline-none focus:shadow-none focus:border-acc"
-        />
-
-        <button
-          onClick={() => navigate({ to: '/estimates' })}
-          className="text-muted w-9 h-9 shrink-0 flex items-center justify-center border border-rule hover:text-text transition-colors"
-          aria-label="My Estimates"
-        >
-          ☰
-        </button>
       </div>
     </header>
   )

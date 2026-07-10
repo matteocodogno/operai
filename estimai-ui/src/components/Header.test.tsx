@@ -50,26 +50,25 @@ describe('Header', () => {
   it('keeps the tool-scoped controls: project name, save-status, My Estimates', () => {
     render(<Header name="My Project" saveStatus="saving" onNameChange={() => {}} />)
 
-    // Project-name input (desktop + mobile render two, but at least one is present).
-    const nameInputs = screen.getAllByPlaceholderText('Project name…')
-    expect(nameInputs.length).toBeGreaterThan(0)
-    expect((nameInputs[0] as HTMLInputElement).value).toBe('My Project')
+    // Single project-name input — one desktop-only row (no separate mobile row,
+    // which used to render a duplicate; see Header.tsx).
+    const nameInput = screen.getByPlaceholderText('Project name…') as HTMLInputElement
+    expect(nameInput.value).toBe('My Project')
 
     // Save-status indicator reflects the saveStatus prop.
-    expect(screen.getAllByText('Saving…').length).toBeGreaterThan(0)
+    expect(screen.getByText('Saving…')).toBeDefined()
 
-    // "My Estimates" nav button — one per breakpoint (desktop text form +
-    // mobile icon-only form with an aria-label).
+    // Exactly one "My Estimates" nav button.
     const myEstimatesButtons = screen.getAllByRole('button', { name: /My Estimates/i })
-    expect(myEstimatesButtons.length).toBe(2)
+    expect(myEstimatesButtons.length).toBe(1)
   })
 
   it('calls onNameChange when the project-name input changes', () => {
     const onNameChange = vi.fn()
     render(<Header name="" saveStatus="idle" onNameChange={onNameChange} />)
 
-    const [desktopInput] = screen.getAllByPlaceholderText('Project name…')
-    fireEvent.change(desktopInput, { target: { value: 'New Name' } })
+    const nameInput = screen.getByPlaceholderText('Project name…')
+    fireEvent.change(nameInput, { target: { value: 'New Name' } })
 
     expect(onNameChange).toHaveBeenCalledWith('New Name')
   })
