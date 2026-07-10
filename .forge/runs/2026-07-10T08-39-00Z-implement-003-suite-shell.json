@@ -1,0 +1,25 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-10T08-39-00Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-10T10:15:18Z",
+  "finished": "2026-07-10T08:39:00Z",
+  "isolation": "main-tree",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T14"], "outcome": "completed", "commits": ["59454d9"] },
+    { "agent": "quality-engineer", "tasks": ["T14"], "outcome": "PASS", "round": 1 }
+  ],
+  "drift_events": [],
+  "defect_events": [],
+  "notes": [
+    "T14 EstimAI chrome dedup (AC-4.2): removed suite-level chrome (LogoMenu/UserMenu/theme/About/sign-out) from Header + EstimatesPage + SharedEstimatePage; EstimatorApp dropped theme/about/signout state but KEPT authClient.useSession for the author-backfill. Deleted now-orphaned estimai-ui copies (LogoMenu/UserMenu/AboutModal/useTheme/appInfo + __APP_VERSION__ define) with grep evidence of no importers.",
+    "AC-4.1 held: tests 90->81 = exactly the 15 relocated chrome-component tests removed (coverage now in shell/src/components) + 6 new dedup-assertion tests; zero feature test touched. Verified adversarially by QE via git name-status arithmetic.",
+    "QE PASS round 1, no defects; shell (71) and refund-ui (5) still green; security floor clean; scope estimai-ui only."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
