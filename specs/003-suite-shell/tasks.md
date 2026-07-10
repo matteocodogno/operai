@@ -86,6 +86,6 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: none (review; fixes land as follow-up edits to the flagged files)
   - done when: owasp-reviewer verdict PASS (or all findings resolved) on: CSP/remote-origin pinning, token-origin allowlist, sign-out completeness, open-redirect on the guard's `redirect` param, CORS posture on `remoteEntry.js`
 
-- [ ] T20: Close the feature — all gates green (QE PASS + fresh `eval-report.md` + owasp), then `/wellforge:done` flips spec status → done — refs: — (process) — deps: T16, T17, T18, T19
+- [x] T20: Close the feature — all gates green (QE PASS + fresh `eval-report.md` + owasp), then `/wellforge:done` flips spec status → done — refs: — (process) — deps: T16, T17, T18, T19
   - touch: `specs/003-suite-shell/` status
   - done when: `/wellforge:done` verifies the production done-gate and sets `status: done`
