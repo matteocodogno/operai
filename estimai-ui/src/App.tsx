@@ -1,5 +1,14 @@
+import './index.css'
 import { RouterProvider } from '@tanstack/react-router'
 import { createAppRouter } from './router'
+
+// IMPORTANT (specs/003-suite-shell): the exposed remote MUST import its own
+// compiled stylesheet. Tailwind is JIT — each app's build only emits the
+// utility classes IT uses — so when the shell mounts `estimai/App`, estimai-ui's
+// Tailwind CSS has to travel with the federated module or its utility classes
+// (e.g. `hidden`, its spacing/colors) have no rules on the shell's page and the
+// UI renders broken. `main.tsx` (the standalone bootstrap) imports this too;
+// the exposed root needs it independently. MF injects this CSS when App loads.
 
 // T12 (specs/003-suite-shell/tasks.md): root component exposed via Module
 // Federation as `./App` (see vite.config.ts's `exposes`). This is what the
