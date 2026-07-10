@@ -5,6 +5,7 @@ import Header from './components/Header'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import { getSession } from './lib/session'
+import { recordLastTool, resolveLastToolPath } from './lib/tools'
 
 // ---------------------------------------------------------------------------
 // Shell router — the integration keystone (T9, specs/003-suite-shell).
@@ -33,13 +34,22 @@ import { getSession } from './lib/session'
 //     from there (AC-3.2, AC-3.3).
 //
 // Deliberately NOT built here (see task scope guardrails):
-//   - The root-landing "last used tool" redirect (T10) — `/` renders a
-//     minimal static index for now.
 //   - `refund-ui` doesn't exist yet (T15) — `/refund`'s loader will 404 at
 //     runtime until then; RemoteMount's error boundary (T11) is exactly the
 //     mechanism that turns that into an in-place, recoverable error instead
 //     of a crash (see this task's final report for why that's a drift note,
 //     not a blocker).
+//
+// T10 (AC-3.4) adds:
+//   - The root-landing redirect on `/` (see indexRoute below): resolves the
+//     most-recently-used tool from `operai_last_tool` (shell/src/lib/tools.ts),
+//     falling back to EstimAI, and throws a client-side `redirect` to it.
+//   - A `beforeLoad` writer on each tool route (estimaiRoute/refundRoute)
+//     that records the tool as most-recently-used whenever that ROUTE
+//     becomes active — sidebar clicks, deep links, and programmatic
+//     `.navigate()` calls all go through route matching, so all of them are
+//     captured uniformly here rather than only wiring the sidebar's click
+//     handler.
 // ---------------------------------------------------------------------------
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -90,22 +100,30 @@ const shellRoute = createRoute({
 })
 
 // ---------------------------------------------------------------------------
-// Root index `/` — minimal placeholder (T10 scope guardrail)
+// Root index `/` — redirect to the most-recently-used tool (T10, AC-3.4,
+// design.md Flow 2)
 //
-// T10 replaces this with the "redirect to most-recently-used tool, fallback
-// EstimAI" logic (AC-3.4). Building that here would be scope creep — this is
-// deliberately NOT a redirect and NOT a tool launcher, just a static message
-// so `/` renders something coherent inside the chrome in the meantime.
+// `/` never renders a screen of its own (design.md: "Root path / — No
+// dedicated screen"). `resolveLastToolPath()` (shell/src/lib/tools.ts) reads
+// `localStorage['operai_last_tool']`, VALIDATES it against the known tool id
+// set (`isToolId`), and returns that tool's path — or the EstimAI default's
+// path when the key is absent, unreadable (storage exception, no
+// localStorage), or holds an unrecognized/tampered value. A bad stored value
+// can therefore only ever resolve to a route this app itself defines, never
+// an arbitrary string (no open-redirect surface).
+//
+// `redirect({ to })` (no `href`) is a CLIENT-SIDE router redirect, not a full
+// page navigation — this happens inside the shell, under the already-
+// resolved `_authed` guard, so a client-side transition (not a document
+// reload, unlike the guard's sign-in redirect) is correct here.
 // ---------------------------------------------------------------------------
 
 const indexRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/',
-  component: () => (
-    <div className="px-6 py-16 text-center text-sm text-muted">
-      Select a tool to get started.
-    </div>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: resolveLastToolPath() })
+  },
 })
 
 // ---------------------------------------------------------------------------
@@ -136,15 +154,28 @@ const indexRoute = createRoute({
 const loadEstimaiApp = () => import('estimai/App')
 const loadRefundApp = () => import('refund/App')
 
+// Each tool route's `beforeLoad` writes its id to `operai_last_tool` (T10,
+// AC-3.4, Flow 3 step 4) whenever the route matches — the writer lives on the
+// ROUTE, not on a sidebar click handler, so deep links (typed/shared URLs)
+// and programmatic `.navigate()` calls record the tool exactly like a
+// sidebar click does. `recordLastTool` is defensive about storage failures
+// itself (shell/src/lib/tools.ts), so no try/catch is needed here.
+
 const estimaiRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/estimai/$',
+  beforeLoad: () => {
+    recordLastTool('estimai')
+  },
   component: () => <RemoteMount loader={loadEstimaiApp} moduleLabel="EstimAI" />,
 })
 
 const refundRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/refund/$',
+  beforeLoad: () => {
+    recordLastTool('refund')
+  },
   component: () => <RemoteMount loader={loadRefundApp} moduleLabel="Refund" />,
 })
 

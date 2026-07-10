@@ -32,19 +32,13 @@
  */
 import { useRef, useState, type KeyboardEvent } from 'react'
 import { Link, useMatchRoute } from '@tanstack/react-router'
+import { TOOLS } from '../lib/tools'
 
-interface SidebarTool {
-  id: string
-  label: string
-  to: string
-}
-
-// Flat, ordered list of suite tools (AC-3.1, AC-5.1). Add a tool here — no other
-// change is needed for it to appear in the sidebar.
-const TOOLS: readonly SidebarTool[] = [
-  { id: 'estimai', label: 'EstimAI', to: '/estimai' },
-  { id: 'refund', label: 'Refund (Rimborsi)', to: '/refund' },
-]
+// TOOLS (id, label, mount path) now lives in ../lib/tools — the single source
+// of truth also consumed by the root-landing redirect and the tool-route
+// "last used" writer (T10), so the sidebar and the redirect logic can never
+// drift on ids/paths. Add a tool there — no other change is needed for it to
+// appear here.
 
 const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc/50'
 

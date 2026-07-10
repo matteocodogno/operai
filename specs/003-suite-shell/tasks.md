@@ -45,7 +45,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/src/router.tsx`, `shell/src/main.tsx`
   - done when: guard-redirect test (no session → `<AUTH_URL>/sign-in?redirect=…`, ported from estimai-ui router.test); deep-link to `/refund` and `/estimai/...` resolves the right tool first paint; switching tools does not remount the chrome
 
-- [ ] T10: Root-landing redirect — `/` → most-recently-used tool (`localStorage['operai_last_tool']`, fallback EstimAI); write the key on each tool switch — refs: AC-3.4 — deps: T9
+- [x] T10: Root-landing redirect — `/` → most-recently-used tool (`localStorage['operai_last_tool']`, fallback EstimAI); write the key on each tool switch — refs: AC-3.4 — deps: T9
   - touch: `shell/src/router.tsx` (root `beforeLoad`), sidebar/route change handler
   - done when: integration test — no key → lands on EstimAI; key set to `refund` → lands on Refund
 
