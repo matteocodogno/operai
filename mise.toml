@@ -28,3 +28,12 @@ run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelo
 [tasks.dev]
 description = "Run the suite locally with HMR — shell :5173 + estimai-ui :5174 + refund-ui :5175 (needs Postgres + auth running)"
 run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & wait"
+
+# Build-then-preview path: no HMR, but this is the deterministic mode the e2e
+# uses and the one that mirrors the Vercel deploy shape (independently built +
+# served remotes). Prefer this when HMR quirks get in the way or to reproduce a
+# production-like run. Same prereqs + ports as `dev`. Builds gate the previews
+# (a failed build aborts before serving).
+[tasks."dev:preview"]
+description = "Build + preview the suite locally (no HMR; mirrors deploy) — shell :5173 + estimai-ui :5174 + refund-ui :5175"
+run = "pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && { trap 'kill 0' EXIT INT TERM; pnpm --dir shell preview & pnpm --dir estimai-ui preview & pnpm --dir refund-ui preview & wait; }"
