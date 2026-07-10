@@ -19,28 +19,45 @@ See `CLAUDE.md` for the full architecture, conventions, and estimation model, an
 
 ## Local development
 
-Prerequisites (run these first, in their own terminals):
+One-time setup:
+
+1. **Configure backend env** — `auth/.env` and `estimai-api/.env` (via direnv + 1Password,
+   per each service's `.env.example`). Set `ENABLE_TEST_AUTH=true` in `auth/.env` for a
+   seeded local session (used by the e2e and handy for manual testing).
+2. **Apply DB migrations** (brings up Postgres, then migrates both backends):
+
+   ```bash
+   mise run db:migrate
+   ```
+
+Then run the whole suite with **one command**:
 
 ```bash
-docker compose up -d          # Postgres 17 on :5435
-cd auth && bun run dev        # auth service on :3001
-#   → set ENABLE_TEST_AUTH=true in auth/.env for a seeded local session (e2e/manual)
-# optional: estimai-api on :8080 — needed for authenticated EstimAI calls to succeed
+mise run dev            # HMR — Postgres + auth + estimai-api + all 3 frontends
 ```
 
-Then run the frontends. Ports are **pinned** in each app's `vite.config.ts`
-(`strictPort`): **shell `5173`, estimai-ui `5174`, refund-ui `5175`**. The shell is the
-entry point — open **http://localhost:5173**.
+`mise run dev` starts everything and reaps every child on Ctrl-C (Postgres is left
+running — `docker compose down` to stop it). The shell is the entry point —
+open **http://localhost:5173**.
 
-Two `mise` tasks start all three at once (Ctrl-C reaps every dev server):
+| Service | Port | |
+|---|---|---|
+| shell (host) | **5173** | ← open this |
+| estimai-ui (remote) | 5174 | pinned in `vite.config.ts` (`strictPort`) |
+| refund-ui (remote) | 5175 | |
+| auth | 3001 | Bun + Hono |
+| estimai-api | 8080 | Bun + Hono |
+| Postgres | 5435 | `docker compose` |
+
+Other `mise` tasks:
 
 ```bash
-mise run dev            # HMR — fast iteration (recommended for day-to-day work)
-mise run dev:preview    # build + preview — no HMR; deterministic, mirrors the deploy
+mise run dev:web        # frontends only (HMR) — when backends run elsewhere
+mise run dev:preview    # full stack, but frontends build+preview (no HMR; mirrors deploy)
+mise run db:migrate     # apply auth + estimai-api migrations
 ```
 
-Prefer `mise run dev`. Use `mise run dev:preview` to reproduce a production-like run
-(it's the mode the e2e uses).
+Use `mise run dev:preview` to reproduce a production-like run (it's the mode the e2e uses).
 
 ### HMR notes (Module Federation)
 

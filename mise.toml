@@ -11,29 +11,69 @@ experimental = true
 description = "Cut a release (conventional-changelog, git tag, GitHub release)"
 run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelog@^8 dlx release-it"
 
-# Run the whole Operai suite shell locally with HMR (Module Federation, specs/003).
-# Prereqs: `docker compose up -d` (Postgres :5435) and the auth service on :3001
-# (`cd auth && bun run dev`; set ENABLE_TEST_AUTH=true for a seeded local session).
-# Optionally run estimai-api on :8080 for authenticated EstimAI calls.
-# Then open http://localhost:5173 (the shell). Ports are pinned in each app's
-# vite.config.ts: shell 5173, estimai-ui 5174, refund-ui 5175.
+# Run the WHOLE Operai suite locally (Module Federation, specs/003): Postgres +
+# both backends + the three frontends, one command. Ports: auth 3001,
+# estimai-api 8080, shell 5173, estimai-ui 5174, refund-ui 5175 (frontend ports
+# pinned in each app's vite.config.ts). Open http://localhost:5173 (the shell).
+# `trap 'kill 0'` reaps every child (backends + vite) on Ctrl-C. Postgres is
+# left running (docker `up -d`, detached) — cheap to keep; `docker compose down`
+# to stop it.
+#
+# Prereqs (once): backend env must be configured — `auth/.env` (with
+# ENABLE_TEST_AUTH=true for a seeded local session) and `estimai-api/.env` (via
+# direnv + 1Password, per each service's example); and DB migrations applied via
+# `mise run db:migrate`. `bun run` auto-loads each backend's dotenv from its dir.
 #
 # HMR note: all-dev Module Federation works (verified — remotes mount, shared
 # React singleton holds, no dup-React). Editing a remote's MF-EXPOSED root
-# (estimai-ui/refund-ui `src/App.tsx`) triggers a full page reload rather than
+# (estimai-ui/refund-ui src/App.tsx) triggers a full page reload rather than
 # state-preserving Fast Refresh (the `__mf_remote_dependency_pending` export the
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
-# The e2e suite deliberately uses build+preview instead (see shell/playwright.config.ts).
 [tasks.dev]
-description = "Run the suite locally with HMR — shell :5173 + estimai-ui :5174 + refund-ui :5175 (needs Postgres + auth running)"
+description = "Run the FULL suite locally with HMR — Postgres + auth :3001 + estimai-api :8080 + shell :5173 + estimai-ui :5174 + refund-ui :5175"
+run = """
+docker compose up -d postgres
+trap 'kill 0' EXIT INT TERM
+(cd auth && bun run dev) &
+(cd estimai-api && bun run dev) &
+pnpm --dir shell dev &
+pnpm --dir estimai-ui dev &
+pnpm --dir refund-ui dev &
+wait
+"""
+
+# Frontends only (HMR) — for when the backends are already running elsewhere
+# (e.g. you started auth/estimai-api in their own terminals).
+[tasks."dev:web"]
+description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 (backends run separately)"
 run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & wait"
 
-# Build-then-preview path: no HMR, but this is the deterministic mode the e2e
-# uses and the one that mirrors the Vercel deploy shape (independently built +
-# served remotes). Prefer this when HMR quirks get in the way or to reproduce a
-# production-like run. Same prereqs + ports as `dev`. Builds gate the previews
-# (a failed build aborts before serving).
+# Full stack, but the frontends run build + preview instead of dev: no HMR, but
+# deterministic and mirrors the Vercel deploy shape (independently built + served
+# remotes) — the same mode the e2e uses (shell/playwright.config.ts). Builds gate
+# the previews. Same prereqs + ports as `dev`.
 [tasks."dev:preview"]
-description = "Build + preview the suite locally (no HMR; mirrors deploy) — shell :5173 + estimai-ui :5174 + refund-ui :5175"
-run = "pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && { trap 'kill 0' EXIT INT TERM; pnpm --dir shell preview & pnpm --dir estimai-ui preview & pnpm --dir refund-ui preview & wait; }"
+description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + auth + estimai-api + built frontends"
+run = """
+docker compose up -d postgres
+pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build
+trap 'kill 0' EXIT INT TERM
+(cd auth && bun run dev) &
+(cd estimai-api && bun run dev) &
+pnpm --dir shell preview &
+pnpm --dir estimai-ui preview &
+pnpm --dir refund-ui preview &
+wait
+"""
+
+# One-time / occasional: bring up Postgres and apply both backends' Prisma
+# migrations (non-interactive `migrate deploy`). Run this before the first
+# `mise run dev` (or after pulling new migrations).
+[tasks."db:migrate"]
+description = "Apply DB migrations for auth + estimai-api (needs backend env configured)"
+run = """
+docker compose up -d postgres
+(cd auth && bun run db:deploy)
+(cd estimai-api && bun run db:deploy)
+"""
