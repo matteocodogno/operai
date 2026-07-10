@@ -1,0 +1,79 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { federation } from '@module-federation/vite'
+import { readFileSync } from 'node:fs'
+
+// T15 (specs/003-suite-shell/tasks.md): refund-ui — a second, independently
+// built/deployed Module Federation REMOTE, proving the multi-tool pattern
+// (US-5, AC-5.1–AC-5.3). requiredVersion for shared singletons is sourced
+// from this package's own dependency ranges (mirrors estimai-ui/vite.config.ts,
+// shell/vite.config.ts) so the whole graph cannot silently drift.
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+
+// Build-time dev default only, overridable via env var — mirrors the
+// ESTIMAI_REMOTE_URL / REFUND_REMOTE_URL pattern in shell/vite.config.ts.
+// The plan's actual deploy model (T17) resolves remote URLs per-environment
+// at *runtime* via MF's dynamic-remote API, not build-baked.
+const shellRemoteUrl = process.env['SHELL_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    federation({
+      name: 'refund',
+      filename: 'remoteEntry.js',
+      // dts generation disabled: this remote's own build may run without a
+      // live shell dev server (e.g. CI, `pnpm --dir refund-ui build` in
+      // isolation) — a dts fetch attempt against `shellRemoteUrl` would fail
+      // noisily in that case. Same call made for the shell's own config
+      // (dts: false there too) and for the same reason. Not needed anyway:
+      // `shell/session` and `shell/tokens.css`'s shapes are declared via
+      // src/federation/remotes.d.ts (ambient module declarations).
+      dts: false,
+      // T15's own federation contract: refund-ui EXPOSES its root component
+      // (mirrors estimai-ui/vite.config.ts's T12 shape exactly: name/
+      // filename/exposes/shared) AND CONSUMES the shell as a remote, for
+      // `shell/session` (shared auth, T4) and `shell/tokens.css` (shared
+      // design tokens, T3) — see src/App.tsx. This makes refund-ui
+      // bidirectional, same as the shell itself (plan.md federation
+      // contract; ADR-0006): the shell is a host to refund-ui's exposed
+      // `./App`, and refund-ui is in turn a host to the shell's exposed
+      // `./session`/`./tokens.css`.
+      exposes: {
+        './App': './src/App.tsx',
+      },
+      remotes: {
+        shell: {
+          type: 'module',
+          name: 'shell',
+          entry: shellRemoteUrl,
+          entryGlobalName: 'shell',
+          shareScope: 'default',
+        },
+      },
+      shared: {
+        react: { singleton: true, requiredVersion: pkg.dependencies.react },
+        'react-dom': { singleton: true, requiredVersion: pkg.dependencies['react-dom'] },
+        '@tanstack/react-router': {
+          singleton: true,
+          requiredVersion: pkg.dependencies['@tanstack/react-router'],
+        },
+        'better-auth': { singleton: true, requiredVersion: pkg.dependencies['better-auth'] },
+      },
+    }),
+  ],
+  build: {
+    // Required by @module-federation/vite: federated chunks use top-level
+    // await to resolve shared modules asynchronously at runtime.
+    target: 'esnext',
+    modulePreload: false,
+  },
+  server: {
+    // Allow the shell (a different dev-server origin) to fetch this remote's
+    // remoteEntry.js and chunks in local development.
+    cors: true,
+  },
+  preview: {
+    cors: true,
+  },
+})
