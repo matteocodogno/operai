@@ -1,0 +1,28 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-10T06-37-09Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-09T17:51:52Z",
+  "finished": "2026-07-10T06:37:09Z",
+  "isolation": "main-tree",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T9"], "outcome": "completed", "commits": ["fe92237"] },
+    { "agent": "quality-engineer", "tasks": ["T9"], "outcome": "PASS", "round": 1 }
+  ],
+  "drift_events": [],
+  "defect_events": [],
+  "notes": [
+    "T9 integration keystone: shell router + pathless _authed guard (getSession from shell/session, redirect to hosted sign-in per ADR-0002) + ShellLayout composed with Header (T6) and Footer (T8) + tool routes /estimai and /refund mounting remotes via RemoteMount (T11). 56/56 shell tests (guard 7, deep-link 3, chrome-persist 1).",
+    "Retired the T2 R1-gate throwaway scaffold: deleted mf-seed-remote/, SeedProbeMount, federation-skeleton e2e; swapped the seed remote for estimai/refund in shell vite.config. R1 gate already complete (git history + ADR-0006).",
+    "Guard/routing/chrome-persist verified non-tautologically by QE. estimai-ui untouched (97/97). Security floor clean.",
+    "ENV NOTE: the T9 commit was blocked ~3 attempts by the 1Password op-ssh-sign agent being mid-auto-update (--should-restart); user restarted 1Password and the commit landed on retry. Not a code issue.",
+    "WATCH (carry to T16): MF prebuild IMPORT_IS_UNDEFINED warnings for better-auth/@tanstack/react-router are benign now; reconfirm no real duplicate-module (R2) once real remotes are wired in a browser.",
+    "Deferred correctly: /refund shows RemoteMount graceful error until T15 builds the remote; local dev-port collisions (5173) are a T17 concern."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
