@@ -1,0 +1,28 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-10T06-57-52Z-implement-003-suite-shell",
+  "command": "implement",
+  "feature": "003-suite-shell",
+  "rigor": "production",
+  "started": "2026-07-10T08:32:33Z",
+  "finished": "2026-07-10T06:57:52Z",
+  "isolation": "main-tree-sequential",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T7"], "outcome": "completed", "commits": ["18f5d52"] },
+    { "agent": "frontend-dev", "tasks": ["T10"], "outcome": "completed", "commits": ["7b7302b"] },
+    { "agent": "quality-engineer", "tasks": ["T7", "T10"], "outcome": "PASS", "round": 1 }
+  ],
+  "drift_events": [],
+  "defect_events": [],
+  "notes": [
+    "Sequential main-tree: T7 and T10 both edit shell/src/router.tsx (T7 wires Sidebar into the layout slot; T10 adds root beforeLoad redirect + writes operai_last_tool on tool-route activation) so they are not independent; sequential avoided a collision on that shared file.",
+    "T7: Sidebar tool switcher (EstimAI + Refund) with aria-current from route (fuzzy match keeps deep links active), roving-tabindex + arrow keys, renders ul inside ShellLayout's single nav landmark. 8 tests.",
+    "T10: root landing redirect to last-used tool via new centralized shell/src/lib/tools.ts registry (Sidebar refactored to share it); stored value validated against known tools (tampered value falls back to EstimAI, no open-redirect); defensive localStorage access. 7 tests.",
+    "QE PASS round 1, no defects; open-redirect guard verified adversarially; estimai-ui untouched (97/97); security floor clean. Shell suite now 71 tests / 12 files.",
+    "Env: user added worktree.baseRef=head to .claude/settings.json (uncommitted) — worktree parallelism now available for future independent-task batches."
+  ],
+  "verdicts": { "qe": "PASS", "eval": null },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
