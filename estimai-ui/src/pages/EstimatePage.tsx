@@ -2,7 +2,11 @@ import { getRouteApi } from '@tanstack/react-router'
 import { EstimatorProvider } from '../context/EstimatorContext'
 import EstimatorApp from '../EstimatorApp'
 
-const route = getRouteApi('/_authed/estimates/$estimateId')
+// T13 (specs/003-suite-shell/tasks.md): route id no longer includes the
+// `_authed` prefix — the guarding layout route it belonged to was removed
+// (AC-2.3, src/router.tsx). The route itself (path, loader, component) is
+// unchanged; only its id in the tree shifted up one level.
+const route = getRouteApi('/estimates/$estimateId')
 
 /**
  * EstimatePage — mounts after the router loader resolves the estimate from

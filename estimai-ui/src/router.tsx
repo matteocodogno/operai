@@ -3,11 +3,8 @@ import EstimatesPage from './pages/EstimatesPage'
 import EstimatePage from './pages/EstimatePage'
 import SharedEstimatePage from './pages/SharedEstimatePage'
 import { createProject } from './lib/projects'
-import { authClient } from './lib/authClient'
 import * as estimatesApi from './lib/estimatesApi'
 import type { EstimateFull } from './lib/estimatesApi'
-
-const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
 
 // ---------------------------------------------------------------------------
 // createAppRouter — factory, not a module-scope singleton (T12, specs/003)
@@ -26,45 +23,32 @@ const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
 // module scope, as before) so that two router instances — one per basepath —
 // never share mutable route-tree state.
 //
-// The `_authed` guard below (AC-1.1) is unchanged and identical in both
-// modes. T13 is the task that removes it in favor of the shell's session
-// guard — out of scope here.
+// T13 (specs/003-suite-shell/tasks.md, AC-2.3): this router NO LONGER runs
+// its own `_authed` session guard. estimai-ui runs as a federated remote
+// inside the shell; the shell's OWN `_authed` guard (shell/src/router.tsx,
+// T9) already resolves the session — via the SAME shared `shell/session`
+// module this file's own session/API facades now delegate to (see
+// src/lib/api.ts, src/lib/authClient.ts) — before RemoteMount (shell T11)
+// ever imports this module. A second, independent guard here would be
+// redundant at best and, per AC-2.3 ("the tool ... does not perform its own
+// independent sign-in redirect"), is an explicit non-goal. All four app
+// routes below are therefore direct children of the root route, unguarded.
+//
+// This does leave the standalone dev/test bootstrap (src/main.tsx) without
+// ANY sign-in redirect of its own when run outside the shell — see that
+// file's doc comment for why that's an accepted limitation (AC-4.3: EstimAI
+// is reachable only through the shell in production).
 // ---------------------------------------------------------------------------
 
 export function createAppRouter(basepath?: string) {
   const rootRoute = createRootRoute({ component: () => <Outlet /> })
 
   // ---------------------------------------------------------------------------
-  // _authed — pathless layout route that guards all app content (AC-1.1)
-  //
-  // beforeLoad resolves the session via authClient.getSession() (cookie-based).
-  // If there is no active session, throws a full-page redirect to the auth
-  // service sign-in page, encoding the current absolute URL as `redirect` so
-  // that the user is returned here after sign-in (AC-1.2).
-  //
-  // The `redirect` param is the real current window.location.href. The auth
-  // service's ALLOWED_ORIGINS allowlist (T2) enforces that only trusted origins
-  // are honoured — no open-redirect exposure on the UI side.
-  // ---------------------------------------------------------------------------
-
-  const authedRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    id: '_authed',
-    beforeLoad: async () => {
-      const session = await authClient.getSession()
-      if (!session?.data) {
-        const signInUrl = `${getAuthUrl()}/sign-in?redirect=${encodeURIComponent(window.location.href)}`
-        throw redirect({ href: signInUrl })
-      }
-    },
-  })
-
-  // ---------------------------------------------------------------------------
-  // App routes (all children of _authed)
+  // App routes (direct children of root — no guarding layout route, AC-2.3)
   // ---------------------------------------------------------------------------
 
   const indexRoute = createRoute({
-    getParentRoute: () => authedRoute,
+    getParentRoute: () => rootRoute,
     path: '/',
     beforeLoad: () => {
       // After localStorage→server cutover, the index simply redirects to the
@@ -75,13 +59,13 @@ export function createAppRouter(basepath?: string) {
   })
 
   const estimatesRoute = createRoute({
-    getParentRoute: () => authedRoute,
+    getParentRoute: () => rootRoute,
     path: '/estimates',
     component: EstimatesPage,
   })
 
   const estimateRoute = createRoute({
-    getParentRoute: () => authedRoute,
+    getParentRoute: () => rootRoute,
     path: '/estimates/$estimateId',
     // Loader: fetch the full estimate from the API.
     // On 404 (not found / not owned): redirect to the list.
@@ -100,7 +84,7 @@ export function createAppRouter(basepath?: string) {
   })
 
   const shareRoute = createRoute({
-    getParentRoute: () => authedRoute,
+    getParentRoute: () => rootRoute,
     path: '/share',
     component: SharedEstimatePage,
   })
@@ -109,9 +93,7 @@ export function createAppRouter(basepath?: string) {
   // Route tree
   // ---------------------------------------------------------------------------
 
-  const routeTree = rootRoute.addChildren([
-    authedRoute.addChildren([indexRoute, estimatesRoute, estimateRoute, shareRoute]),
-  ])
+  const routeTree = rootRoute.addChildren([indexRoute, estimatesRoute, estimateRoute, shareRoute])
 
   return createRouter({ routeTree, basepath })
 }
