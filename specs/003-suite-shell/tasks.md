@@ -73,7 +73,7 @@ they converge at the e2e gate (T16). Deploy/security/regression/close follow.
   - touch: `shell/e2e/*` (reuse `estimai-ui/e2e/helpers/seedSession.ts`)
   - done when: e2e green for: chrome persists on switch; remotes render in the shared design system; an authed backend call succeeds; session persists on reload; URL reflects tool + reload-safe + deep-link; refund placeholder authed-only; failing-tool graceful
 
-- [ ] T17: Vercel deploy wiring — 3 projects; per-env runtime remote URLs; repoint EstimAI's standalone URL into the shell; add new origins to `auth` `ALLOWED_ORIGINS` + shell CSP + `apiFetch` trusted-origins — refs: AC-4.3, AC-5.3 — deps: T12, T15
+- [x] T17: Vercel deploy wiring — 3 projects; per-env runtime remote URLs; repoint EstimAI's standalone URL into the shell; add new origins to `auth` `ALLOWED_ORIGINS` + shell CSP + `apiFetch` trusted-origins — refs: AC-4.3, AC-5.3 — deps: T12, T15
   - touch: `shell/vercel.json`, `estimai-ui/vercel.json`, `refund-ui/vercel.json`, env config, `auth` `ALLOWED_ORIGINS` (config only)
   - done when: a preview deploy loads the shell + both remotes via per-env URLs; the old EstimAI URL redirects into the shell; a refund-only redeploy is reflected without rebuilding others
 

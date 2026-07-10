@@ -3,9 +3,15 @@
 Step-by-step manual guide to deploy the two backend services — **`auth`** and
 **`estimai-api`** — plus a shared Postgres, to Railway.
 
-The frontend (`estimai-ui`) is **already deployed on Vercel** at
-**https://operai.welld.io/** — it is not covered here except for the one step
-that points it at these new backends (Step 7).
+The frontends (`shell`, `estimai-ui`, `refund-ui`) deploy on Vercel — they are
+not covered here except for the one step that points them at these backends
+(Step 7). See **`infra/vercel-deploy-runbook.md`** for the full frontend
+deploy procedure (specs/003-suite-shell, T17): as of that feature, the
+`shell` app — not `estimai-ui` — is the suite's single entry point, and the
+production domain **https://operai.welld.io/** is reassigned from the
+`estimai-ui` Vercel project to the `shell` Vercel project. Step 7 below still
+governs `ALLOWED_ORIGINS`/`UI_HOME_URL`, but now points at the shell's
+origin, not estimai-ui's own.
 
 **Data residency:** all services and the database are pinned to `europe-west4`
 (Railway EU). Hard requirement for regulated-sector clients — do not change the
@@ -228,18 +234,28 @@ this step only registers the redirect URL on the provider side.)
 The UI reads its backend URLs at **build time** from Vite env vars, so they must be set in
 Vercel **and the UI redeployed** — a running build will not pick them up otherwise.
 
-In the Vercel project for `estimai-ui` → **Settings → Environment Variables**:
+**As of specs/003-suite-shell (T17): this is now the `shell` Vercel project**,
+not `estimai-ui` — the shell owns the suite's single `_authed` session guard
+and the shared `shell/session` module that every remote (estimai-ui,
+refund-ui) delegates to; see `infra/vercel-deploy-runbook.md` for the full
+frontend topology. In the Vercel project for `shell` → **Settings →
+Environment Variables**:
 
 | Variable | Value |
 |---|---|
 | `VITE_AUTH_URL` | `<AUTH_URL>` |
 | `VITE_API_URL` | `<API_URL>` |
 
-Then **redeploy** the Vercel project. No change is needed to `ALLOWED_ORIGINS` on the
-backends: it holds the **UI origin** (`https://operai.welld.io`), which was already set on
-both services in Steps 3–4 — that is what CORS + better-auth `trustedOrigins` validate.
-(`ALLOWED_ORIGINS` is the browser origin, *not* the service URLs — don't put `<AUTH_URL>`
-or `<API_URL>` there.)
+(`estimai-ui`/`refund-ui` also accept these two vars, but only their
+dev/test-only standalone bootstraps read them — in production they run as
+shell remotes and never call `auth`/`estimai-api` directly. Don't rely on
+setting them there instead of on `shell`.)
+
+Then **redeploy** the Vercel project. `ALLOWED_ORIGINS` on the backends must hold
+the **shell's** origin (`https://operai.welld.io`, reassigned to the `shell`
+Vercel project per `infra/vercel-deploy-runbook.md` Step 2) — that is what CORS
++ better-auth `trustedOrigins` validate. (`ALLOWED_ORIGINS` is the browser
+origin, *not* the service URLs — don't put `<AUTH_URL>` or `<API_URL>` there.)
 
 ---
 

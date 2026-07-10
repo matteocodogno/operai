@@ -7,13 +7,10 @@
     <title>Operai</title>
   </head>
   <body>
-    <!-- Apply stored theme before React mounts to avoid flash of wrong theme -->
-    <script>
-      (function(){
-        var t=localStorage.getItem('operai-theme');
-        if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);
-      })();
-    </script>
+    <!-- Apply stored theme before React mounts to avoid flash of wrong theme.
+         External file (not inline) so the shell's CSP (vercel.json) can omit
+         'unsafe-inline' from script-src — see public/theme-init.js. -->
+    <script src="/theme-init.js"></script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

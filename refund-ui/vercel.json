@@ -1,13 +1,5 @@
 {
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
-  "redirects": [
-    {
-      "source": "/(.*)",
-      "has": [{ "type": "header", "key": "sec-fetch-dest", "value": "document" }],
-      "destination": "https://operai.welld.io/estimai",
-      "permanent": false
-    }
-  ],
   "headers": [
     {
       "source": "/remoteEntry.js",
