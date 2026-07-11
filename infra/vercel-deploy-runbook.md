@@ -112,6 +112,11 @@ Each project's Vercel dashboard → **Settings → Environment Variables**. Set
 per-environment (Production vs. Preview) since preview remotes usually don't
 share the production hostnames.
 
+> The canonical variable reference (both platforms, with the `VITE_*` vs
+> unprefixed distinction and the standalone-only caveats) is
+> **`infra/variables.md` → "Frontend build-time variables (Vercel)"**. The
+> tables below are the procedural per-project view; keep the two in sync.
+
 ### `shell`
 
 | Variable | Production value | Notes |

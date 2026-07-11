@@ -19,6 +19,46 @@ region without an ADR and client sign-off.
 
 ---
 
+## The infra folder at a glance
+
+| File | What it is |
+|---|---|
+| `README.md` (this file) | **Railway** runbook — the two backends (`auth`, `estimai-api`) + shared Postgres |
+| `vercel-deploy-runbook.md` | **Vercel** runbook — the three frontends (`shell` host + `estimai-ui`/`refund-ui` remotes, ADR-0006) |
+| `variables.md` | Single environment-variable reference for **both** platforms (Railway services + Vercel projects) |
+| `bootstrap.sh` | Scripted Railway variable-set + deploy (convenience wrapper for the manual steps below) |
+
+The deployable config lives **with each app**, not here: `auth/railway.json`,
+`estimai-api/railway.json` (Docker build, EU region, `/health`, `preDeployCommand`);
+`shell/vercel.json`, `estimai-ui/vercel.json`, `refund-ui/vercel.json` (SPA rewrites,
+CSP + security headers, `remoteEntry.js`/`assets` caching, the EstimAI→shell redirect).
+
+---
+
+## Deploying the whole suite — order of operations
+
+The suite spans two platforms; deploy in this order, because each stage's outputs feed
+the next:
+
+1. **Railway — backends first** (this runbook, Steps 1–6): Postgres + `auth` + `estimai-api`.
+   This is what yields the two backend URLs, `<AUTH_URL>` and `<API_URL>` (Railway generates
+   them, or you attach custom domains).
+2. **Vercel — the three frontends** (`vercel-deploy-runbook.md`, Steps 1–5): `shell` (host —
+   the human-facing entry point) + `estimai-ui` + `refund-ui` (remotes). Their build-time
+   `VITE_AUTH_URL`/`VITE_API_URL` are set to the Step-1 URLs (Vercel Step 3).
+3. **Cross-wire the origins** (this runbook Step 7 + Vercel Step 6): the backends'
+   `ALLOWED_ORIGINS`/`UI_HOME_URL` point at the **shell's** origin, and the OAuth redirect
+   URIs are registered on Google/GitHub (Step 6). Redeploy the affected services.
+4. **Verify end-to-end** (Step 8 here / Vercel Step 9).
+
+**Chicken-and-egg, resolved:** the shell's production origin is fixed in advance
+(`https://operai.welld.io`), so you can set the backends' `ALLOWED_ORIGINS`/`UI_HOME_URL`
+in Step 1 without waiting for the Vercel project to exist. Only the two **backend** URLs
+are discovered during deploy — which is why the frontends' build-time vars (Step 2) come
+after the backends are up. Full variable map for both platforms: `variables.md`.
+
+---
+
 ## Topology
 
 ```

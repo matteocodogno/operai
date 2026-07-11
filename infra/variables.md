@@ -1,7 +1,14 @@
-# Operai — Railway Environment Variables
+# Operai — Deployment Environment Variables
 
-> DATA RESIDENCY: all services deploy to `europe-west4` (EU). No estimate data
-> is transmitted outside the EU. Request/response bodies are never logged.
+Single environment-variable reference for the whole suite across **both** platforms:
+the **Railway** backend services (`auth`, `estimai-api`) and the **Vercel** frontend
+projects (`shell`, `estimai-ui`, `refund-ui`). Deploy procedures: `infra/README.md`
+(Railway) and `infra/vercel-deploy-runbook.md` (Vercel).
+
+> DATA RESIDENCY: all **backend** services + Postgres deploy to `europe-west4` (EU).
+> No estimate data is transmitted outside the EU. Request/response bodies are never
+> logged. The Vercel frontends are static client bundles — they store/transmit no
+> estimate data except the authenticated calls the browser makes to the EU backends.
 
 ---
 
@@ -38,6 +45,47 @@
 | `NODE_ENV` | `production` | No | Must be `production` in Railway. |
 | `MAX_ESTIMATE_BYTES` | `1048576` | No | Per-estimate content size cap in bytes. Default: 1 MiB (1048576). Optional — omit to use the default. |
 | `MAX_IMPORT_REQUEST_BYTES` | `33554432` | No | Bulk-import raw body limit in bytes. Default: `min(MAX_ESTIMATE_BYTES × 200 + 64 KiB, 32 MiB)`. Optional — omit to use the default. |
+
+---
+
+## Frontend build-time variables (Vercel)
+
+Set per Vercel project → **Settings → Environment Variables** (set for **both**
+Production and Preview — preview remotes usually don't share the production hostnames).
+**All are read at BUILD time**, so a value change requires a **redeploy** of that project.
+
+Two kinds, distinguished by prefix:
+- **`VITE_*`** — client-side (`import.meta.env`), compiled into the browser bundle.
+- **unprefixed** (`*_REMOTE_URL`) — read in each app's `vite.config.ts` via `process.env`
+  (Node-side Vite config, the federation plugin), **not** shipped to the client.
+
+### `shell` project (the host / entry point)
+
+| Variable | Example / Placeholder | Secret | Source |
+|---|---|---|---|
+| `VITE_AUTH_URL` | `<AUTH_URL>` (e.g. `https://auth.operai.welld.io`) | No | auth service URL. Drives the `_authed` guard's hosted-sign-in redirect and `shell/session`'s JWT fetch/refresh + trusted-origin allowlist. Same value as auth `BETTER_AUTH_URL`. |
+| `VITE_API_URL` | `<API_URL>` (e.g. `https://api.operai.welld.io`) | No | estimai-api URL. `shell/session` attaches the Bearer JWT **only** to this origin (or `VITE_AUTH_URL`, or same-origin). |
+| `ESTIMAI_REMOTE_URL` | `https://estimai.operai.welld.io/remoteEntry.js` | No | Build-time default for the EstimAI remote, baked into the shell bundle. Overridable at runtime by `shell/public/runtime-config.json` without a rebuild (AC-5.3 — see Vercel runbook Step 5). Unprefixed (Vite-config-side). |
+| `REFUND_REMOTE_URL` | `https://refund.operai.welld.io/remoteEntry.js` | No | Same as above, for the Refund remote. |
+
+### `estimai-ui` project (remote)
+
+| Variable | Example / Placeholder | Secret | Source |
+|---|---|---|---|
+| `VITE_AUTH_URL` / `VITE_API_URL` | same as shell's | No | **Standalone-only.** Read only by the dev/test standalone bootstrap (`src/main.tsx`). In production estimai-ui runs as a shell remote and delegates every session/API call to `shell/session` — these have **no effect** on that path (see `src/lib/api.ts`, `authClient.ts`). |
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | Build-time; the shell host's `remoteEntry.js` so the standalone bootstrap can import `shell/session`. Unprefixed (Vite-config-side). Same standalone-only caveat. |
+
+### `refund-ui` project (remote)
+
+| Variable | Example / Placeholder | Secret | Source |
+|---|---|---|---|
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | Same pattern as `estimai-ui`. refund-ui has **no** backend vars of its own today (no direct `auth`/`estimai-api` calls — it delegates to `shell/session`). |
+
+> The frontends' **production origin** (`https://operai.welld.io`, the shell) is what the
+> backends' `ALLOWED_ORIGINS`/`UI_HOME_URL` must contain — see the Cross-service wiring
+> below. Only the shell's origin is needed there: `estimai-ui`/`refund-ui` never call the
+> backends directly in production (federated modules execute inside the shell's document,
+> so `shell/session` runs under the shell's origin regardless of which remote is mounted).
 
 ---
 
