@@ -8,10 +8,19 @@
  * landmark type, not just `<main>`), a second nav landmark here would double up the
  * one ShellLayout already provides around the `sidebar` slot.
  *
- * Lists the suite's tools as a flat two-item list (EstimAI, Refund (Rimborsi)) — no
- * nested items, no role-based filtering (explicit spec non-goal). Entries come from
- * the `TOOLS` array below, not individually hand-authored markup, so adding a future
- * tool is a one-line change, not a redesign.
+ * Lists the suite's tools as a flat list — no nested items. Entries come from the
+ * `TOOLS` array in ../lib/tools, not individually hand-authored markup, so adding a
+ * future tool is a one-line change, not a redesign.
+ *
+ * App-access filtering (specs/004-auth-roles-permissions, T24, AC-7.1/AC-7.2): the
+ * rendered list is `TOOLS` filtered down to the ids present in the signed-in user's
+ * `usePermissions().apps` (shell/session, T23) — a data-only change, no new markup or
+ * interaction. `usePermissions()` resolves synchronously to `EMPTY_PERMISSIONS`
+ * (`apps: []`) on first render, before the live `/authz/me` fetch settles, so the
+ * filtered list is simply empty for that first tick — never the unfiltered `TOOLS`
+ * list flashing before narrowing down. Every index-based computation below (active
+ * match, roving tabindex, arrow-key wrap) operates on this filtered list, not the
+ * raw `TOOLS` array.
  *
  * Active state (AC-3.1): each entry is a TanStack Router `<Link>`. By default (no
  * `activeOptions.exact`) a `Link` is "active" whenever the current pathname equals or
@@ -41,6 +50,7 @@ import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link, useMatchRoute } from '@tanstack/react-router'
 import { TOOLS, type ToolId } from '../lib/tools'
 import { useSidebarCollapsed } from '../hooks/sidebarCollapsed'
+import { usePermissions } from '../lib/session'
 
 // TOOLS (id, label, mount path) now lives in ../lib/tools — the single source
 // of truth also consumed by the root-landing redirect and the tool-route
@@ -89,6 +99,13 @@ const TOOL_ICONS: Record<ToolId, ReactNode> = {
       <path d="M12 17.5v-11" />
     </svg>
   ),
+  admin: (
+    // shield — administration / access control
+    <svg {...ICON_PROPS}>
+      <path d="M12 3 4 6v6c0 5 3.4 8.5 8 9 4.6-.5 8-4 8-9V6l-8-3Z" />
+      <path d="m9 12 2 2 4-4" />
+    </svg>
+  ),
 }
 
 // chevrons-left (can collapse) / chevrons-right (can expand) for the toggle.
@@ -113,13 +130,32 @@ function ChevronsIcon({ direction }: { direction: 'left' | 'right' }) {
 export default function Sidebar() {
   const matchRoute = useMatchRoute()
   const { collapsed, toggle } = useSidebarCollapsed()
-  const activeIndex = TOOLS.findIndex(tool => matchRoute({ to: tool.to, fuzzy: true }) !== false)
+
+  // App-access filter (T24, AC-7.1/AC-7.2): only render tools the signed-in
+  // user has been granted. `apps` is `[]` both while `/authz/me` is still
+  // loading (usePermissions's synchronous EMPTY_PERMISSIONS first value) and
+  // when the user genuinely has zero access — either way the correct nav is
+  // an empty list, never the full unfiltered TOOLS array.
+  const { apps } = usePermissions()
+  const visibleTools = TOOLS.filter(tool => apps.includes(tool.id))
+
+  const activeIndex = visibleTools.findIndex(tool => matchRoute({ to: tool.to, fuzzy: true }) !== false)
 
   const [rovingIndex, setRovingIndex] = useState(() => (activeIndex >= 0 ? activeIndex : 0))
   const itemRefs = useRef<Array<HTMLAnchorElement | null>>([])
 
+  // The permitted-apps list can change size after mount (permissions resolve
+  // after the initial empty render, or a later revalidation narrows/widens
+  // `apps`). Clamp so the roving tab stop always lands on a real entry —
+  // without this, a list that shrank out from under a stale `rovingIndex`
+  // would leave NO entry with `tabIndex 0`, breaking keyboard operation.
+  const safeRovingIndex = visibleTools.length === 0 ? -1 : Math.min(rovingIndex, visibleTools.length - 1)
+
   const moveFocus = (nextIndex: number) => {
-    const clamped = (nextIndex + TOOLS.length) % TOOLS.length
+    if (visibleTools.length === 0) {
+      return
+    }
+    const clamped = (nextIndex + visibleTools.length) % visibleTools.length
     setRovingIndex(clamped)
     itemRefs.current[clamped]?.focus()
   }
@@ -142,7 +178,7 @@ export default function Sidebar() {
         break
       case 'End':
         event.preventDefault()
-        moveFocus(TOOLS.length - 1)
+        moveFocus(visibleTools.length - 1)
         break
       default:
         break
@@ -155,14 +191,14 @@ export default function Sidebar() {
     // bottom section (`shrink-0`).
     <div className="flex h-full flex-col">
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 py-3">
-        {TOOLS.map((tool, index) => (
+        {visibleTools.map((tool, index) => (
           <li key={tool.id}>
             <Link
               to={tool.to}
               ref={node => {
                 itemRefs.current[index] = node
               }}
-              tabIndex={index === rovingIndex ? 0 : -1}
+              tabIndex={index === safeRovingIndex ? 0 : -1}
               onFocus={() => setRovingIndex(index)}
               onKeyDown={event => handleKeyDown(event, index)}
               // Hover tooltip surfaces the label the collapsed rail hides.

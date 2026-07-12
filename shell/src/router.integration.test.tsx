@@ -38,6 +38,12 @@ vi.mock('./lib/session', () => ({
     data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' } },
   })),
   signOut: vi.fn(),
+  // Sidebar (T24, specs/004-auth-roles-permissions) filters its tool list by
+  // usePermissions().apps — these tests deep-link into both estimai and
+  // refund routes, so both must be granted or the route content (mounted via
+  // RemoteMount, unrelated to Sidebar) would still resolve, but grant both
+  // anyway to keep this mock a faithful "fully permissioned user" fixture.
+  usePermissions: vi.fn(() => ({ epoch: 0, apps: ['estimai', 'refund'], roles: [], departments: [], permissions: [] })),
 }))
 
 vi.mock('estimai/App', () => ({
