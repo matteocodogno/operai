@@ -1,13 +1,15 @@
 /**
- * Integration tests for GET /admin/audit (T7, AC-5.2/AC-5.3).
+ * Integration tests for GET /admin/audit (T7, AC-5.2/AC-5.3; guarded by
+ * `requireAdmin` since T4, AC-1.5).
  *
  * Strategy: mock `../auth/auth.config` (the `auth` object `sessionMiddleware`
  * reads via `auth.api.getSession`) so we can flip between "no session" and
  * "authenticated as <user>" without needing a real OAuth flow or the
  * dev/test-only session-mint endpoint — mirrors the mocking style already
  * used in `test-auth/test-auth.routes.test.ts`. The router itself, its
- * middleware chain, and the `listAuditLog` query all run for real against
- * the local Postgres (shared dev DB on localhost:5435).
+ * middleware chain (incl. the real `requireAdmin` role-membership query),
+ * and the `listAuditLog` query all run for real against the local Postgres
+ * (shared dev DB on localhost:5435).
  *
  * DB-ISOLATION: audit_log is a suite-wide, unscoped resource (no per-user
  * filter in the contract), so this file may see rows written concurrently by
@@ -17,6 +19,9 @@
  * sizes, no overlap between consecutive pages, global reverse-chronological
  * order) are checked structurally, and this file's *own* seeded rows are
  * identified by a per-run unique marker rather than by absolute position.
+ * The "admin" `Role` row is a single shared, system-wide row (see
+ * `auth/src/auth/auth.middleware.test.ts`'s `ensureAdminRole` doc comment) —
+ * `upsert`ed here too, never deleted.
  */
 
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -51,9 +56,33 @@ mock.module("../auth/auth.config", () => ({
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 let actorId: string;
+let nonAdminUserId: string;
 const seededAuditIds: string[] = [];
 
+/**
+ * Idempotently ensures the single shared `Role` row named "admin" exists
+ * and returns its id (see `auth/src/auth/auth.middleware.test.ts` for the
+ * full rationale — `upsert` keyed on the unique `name` column so concurrent
+ * test processes never collide on the unique constraint).
+ */
+async function ensureAdminRole(): Promise<string> {
+  try {
+    const role = await db.role.upsert({
+      where: { name: "admin" },
+      update: {},
+      create: { name: "admin", isSystem: true },
+    });
+    return role.id;
+  } catch {
+    const existing = await db.role.findUnique({ where: { name: "admin" } });
+    if (existing) return existing.id;
+    throw new Error("Failed to ensure the shared 'admin' role exists");
+  }
+}
+
 beforeAll(async () => {
+  const adminRoleId = await ensureAdminRole();
+
   const actor = await db.user.create({
     data: {
       email: `t7-route-actor-${RUN_ID}@operai.test`,
@@ -62,6 +91,19 @@ beforeAll(async () => {
     },
   });
   actorId = actor.id;
+  // The route is now guarded by requireAdmin (T4, AC-1.5) — this fixture
+  // actor drives every existing 200/400 assertion below, so it must hold
+  // the admin role.
+  await db.userRole.create({ data: { userId: actorId, roleId: adminRoleId } });
+
+  const nonAdmin = await db.user.create({
+    data: {
+      email: `t7-route-nonadmin-${RUN_ID}@operai.test`,
+      name: "T7 Route Fixture Non-Admin",
+      emailVerified: true,
+    },
+  });
+  nonAdminUserId = nonAdmin.id;
 
   // Seed SEED_COUNT rows with strictly increasing createdAt, all in the
   // past, so that among themselves they have a deterministic, known order
@@ -84,7 +126,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.auditLog.deleteMany({ where: { id: { in: seededAuditIds } } });
-  await db.user.deleteMany({ where: { id: actorId } });
+  // Cascades each user's `user_role` row; the shared "admin" Role row itself
+  // is intentionally left in place (see `ensureAdminRole` doc comment).
+  await db.user.deleteMany({ where: { id: { in: [actorId, nonAdminUserId] } } });
 });
 
 describe("GET /admin/audit (T7)", () => {
@@ -98,6 +142,30 @@ describe("GET /admin/audit (T7)", () => {
     const body = (await res.json()) as { status: number; title: string };
     expect(body.status).toBe(401);
     expect(body.title).toBe("Unauthorized");
+  });
+
+  test("403s (RFC 7807) when the authenticated caller is not an admin (T4, AC-1.5)", async () => {
+    currentSession = {
+      user: {
+        id: nonAdminUserId,
+        email: "nonadmin@operai.test",
+        name: "Non-Admin",
+      },
+      session: { id: "sess_nonadmin" },
+    };
+
+    const { auditRouter } = await import("./audit.routes");
+    const res = await auditRouter.request("/admin/audit");
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as {
+      status: number;
+      title: string;
+      type: string;
+    };
+    expect(body.status).toBe(403);
+    expect(body.title).toBe("Forbidden");
+    expect(body.type).toBe("https://httpstatuses.com/403");
   });
 
   test("400s (RFC 7807 Problem JSON) on an out-of-range page", async () => {

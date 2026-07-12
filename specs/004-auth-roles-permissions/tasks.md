@@ -26,7 +26,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/auth/auth.config.ts`
   - replace the dead `jwt.fields` with `definePayload` → `{ email, name, image, perm_epoch }`; keep `sub` via plugin default (never change `sub`).
   - done when: contract test asserts the minted token still yields `sub`+`email` (verified by estimai-api's verifier path) and carries `perm_epoch`.
-- [ ] T4: `requireAdmin` middleware — refs: AC-1.5 — deps: T1, T2
+- [x] T4: `requireAdmin` middleware — refs: AC-1.5 — deps: T1, T2
   - touch: `auth/src/auth/auth.middleware.ts` (or `authz/`)
   - reads `c.get("user")`, checks the `admin` role; `403` RFC 7807 otherwise.
   - done when: integration test — non-admin → 403 on a guarded route; admin passes.
