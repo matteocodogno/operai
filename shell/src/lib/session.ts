@@ -28,8 +28,31 @@
  *     • The API service origin (VITE_API_URL), if that env var is defined.
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
+ *
+ * Permission resolution (T23, specs/004-auth-roles-permissions, ADR-0007):
+ *   Roles/permissions are deliberately NOT embedded in the JWT (only a
+ *   forward-looking `perm_epoch` claim rides the token — see ADR-0007). The
+ *   shell instead resolves the caller's effective permissions **live** via
+ *   `GET /authz/me` on the auth service, through the same `apiFetch` machinery
+ *   used for every other trusted-origin call (Bearer attach + 401 refresh/
+ *   retry/redirect). The result is cached in module-scope memory only — never
+ *   web storage (ADR-0001) — and is:
+ *     • populated lazily by `ensurePermissions()` (first call fetches; later
+ *       calls return the cache);
+ *     • force-refreshed by `ensurePermissions({ force: true })` (aliased as
+ *       `revalidatePermissions()`), which the shell's per-navigation route
+ *       guard calls so a revoked grant disappears on the very next navigation
+ *       (AC-7.5) instead of waiting for the JWT to expire;
+ *     • concurrency-safe: overlapping callers while a fetch is in flight share
+ *       the same in-flight promise rather than triggering duplicate requests;
+ *     • cleared on `signOut()` alongside the JWT cache;
+ *     • never thrown on failure — a missing session, a network error, or a
+ *       non-2xx response all resolve to `EMPTY_PERMISSIONS` (`apps: []`) so
+ *       the route guard can treat "no data" as "no access" uniformly instead
+ *       of special-casing errors.
  */
 
+import { useEffect, useState } from 'react'
 import { authClient } from './authClient'
 
 /** In-memory JWT cache (module scope — cleared on page reload, never persisted). */
@@ -213,16 +236,204 @@ export const apiFetch = async (
 }
 
 /**
+ * A single effective permission grant, as resolved by the auth service's
+ * authorization resolver (union of direct + department-derived role rules,
+ * de-duplicated by (resource, action) — widest condition wins; see plan.md
+ * "Effective permissions (resolution)"). `conditions` is opaque here — the
+ * shell does not evaluate ownership/attribute conditions itself; each app
+ * enforces those against its own records (out of scope for this feature).
+ */
+export interface Permission {
+  resource: string
+  action: string
+  conditions?: unknown
+}
+
+/** The `GET /authz/me` response shape (plan.md "API contracts"). */
+export interface PermissionsResult {
+  epoch: number
+  apps: string[]
+  roles: string[]
+  departments: string[]
+  permissions: Permission[]
+}
+
+/**
+ * The denied/absent result used whenever the caller's permissions cannot be
+ * determined (no session, network failure, non-2xx response). `apps: []`
+ * means the route guard hides/blocks every app — "absence = no-access",
+ * never a thrown error the guard would have to special-case.
+ */
+export const EMPTY_PERMISSIONS: PermissionsResult = Object.freeze({
+  epoch: 0,
+  apps: [],
+  roles: [],
+  departments: [],
+  permissions: [],
+})
+
+/** In-memory permissions cache (module scope — cleared on sign-out, never persisted). */
+let cachedPermissions: PermissionsResult | null = null
+
+/** Shares one in-flight `/authz/me` request across concurrent callers. */
+let inFlightPermissions: Promise<PermissionsResult> | null = null
+
+/** Components subscribed via `usePermissions()`, notified when the cache changes. */
+const permissionsListeners = new Set<(result: PermissionsResult) => void>()
+
+const notifyPermissionsListeners = (result: PermissionsResult): void => {
+  for (const listener of permissionsListeners) {
+    listener(result)
+  }
+}
+
+/**
+ * Narrows an arbitrary decoded JSON body down to a well-formed
+ * `PermissionsResult`, falling back to `EMPTY_PERMISSIONS` for anything that
+ * doesn't match the contract shape (defensive — a malformed/absent body must
+ * never crash the caller, per the "resolve, never throw" contract).
+ */
+const toPermissionsResult = (body: unknown): PermissionsResult => {
+  if (typeof body !== 'object' || body === null) {
+    return EMPTY_PERMISSIONS
+  }
+  const candidate = body as Partial<PermissionsResult>
+  if (
+    typeof candidate.epoch !== 'number' ||
+    !Array.isArray(candidate.apps) ||
+    !Array.isArray(candidate.roles) ||
+    !Array.isArray(candidate.departments) ||
+    !Array.isArray(candidate.permissions)
+  ) {
+    return EMPTY_PERMISSIONS
+  }
+  return {
+    epoch: candidate.epoch,
+    apps: candidate.apps,
+    roles: candidate.roles,
+    departments: candidate.departments,
+    permissions: candidate.permissions,
+  }
+}
+
+/**
+ * Fetches the caller's live effective permissions from `GET /authz/me`.
+ *
+ * Goes through `apiFetch` — the same trusted-origin/Bearer-attach/401-refresh
+ * machinery used for the JWT itself, since `/authz/me` is guarded by the same
+ * session middleware as every other authenticated auth-service route (plan.md
+ * "API contracts": `sessionMiddleware + requireAuth`). Never throws: a
+ * non-2xx response (401 with no session, 5xx, …) or a network-level failure
+ * both resolve to `EMPTY_PERMISSIONS`, matching the "absence = no-access"
+ * contract the shell's route guard relies on.
+ */
+const fetchPermissions = async (): Promise<PermissionsResult> => {
+  try {
+    const response = await apiFetch(`${getAuthUrl()}/authz/me`)
+    if (!response.ok) {
+      return EMPTY_PERMISSIONS
+    }
+    return toPermissionsResult(await response.json())
+  } catch {
+    return EMPTY_PERMISSIONS
+  }
+}
+
+/**
+ * Ensures the caller's effective permissions are present in the module-scope
+ * cache, fetching `GET /authz/me` only when needed.
+ *
+ * - First call (empty cache): fetches, caches the result, notifies any
+ *   `usePermissions()` subscribers, and returns it.
+ * - Subsequent calls: return the cached value without a network request.
+ * - `{ force: true }` (aliased as `revalidatePermissions()`) always re-fetches
+ *   and replaces the cache — used by the shell's per-navigation route guard
+ *   so a revoked grant is gone on the very next navigation (AC-7.5).
+ * - Concurrent callers while a (non-forced) fetch is already in flight share
+ *   that single in-flight request instead of firing duplicate ones.
+ */
+export const ensurePermissions = async (
+  options?: { force?: boolean },
+): Promise<PermissionsResult> => {
+  if (!options?.force) {
+    if (cachedPermissions !== null) {
+      return cachedPermissions
+    }
+    if (inFlightPermissions !== null) {
+      return inFlightPermissions
+    }
+  }
+
+  const request = fetchPermissions().then((result) => {
+    cachedPermissions = result
+    inFlightPermissions = null
+    notifyPermissionsListeners(result)
+    return result
+  })
+  inFlightPermissions = request
+  return request
+}
+
+/**
+ * Forces a fresh `GET /authz/me` fetch and replaces the cache.
+ * Convenience alias for `ensurePermissions({ force: true })` — used by the
+ * shell's per-navigation route guard (AC-7.5).
+ */
+export const revalidatePermissions = (): Promise<PermissionsResult> =>
+  ensurePermissions({ force: true })
+
+/** Clears the in-memory permissions cache (does not notify subscribers with a fetch). */
+export const clearPermissionsCache = (): void => {
+  cachedPermissions = null
+  inFlightPermissions = null
+}
+
+/**
+ * React hook exposing the caller's resolved effective permissions.
+ *
+ * Mirrors how `useSession` is exposed: a component-friendly reactive read of
+ * shared, module-scope state. Unlike `useSession` (backed by better-auth's
+ * own reactive store), there is no external store here, so this hook
+ * subscribes itself to the module-scope cache via a small listener set and
+ * re-renders whenever `ensurePermissions()`/`revalidatePermissions()` resolve
+ * a new value anywhere in the app.
+ *
+ * Returns `EMPTY_PERMISSIONS` synchronously on first render if the cache is
+ * still empty, then updates once the initial `ensurePermissions()` fetch
+ * resolves — never throws, never suspends.
+ */
+export function usePermissions(): PermissionsResult {
+  const [permissions, setPermissions] = useState<PermissionsResult>(
+    () => cachedPermissions ?? EMPTY_PERMISSIONS,
+  )
+
+  useEffect(() => {
+    permissionsListeners.add(setPermissions)
+
+    if (cachedPermissions === null) {
+      void ensurePermissions()
+    }
+
+    return () => {
+      permissionsListeners.delete(setPermissions)
+    }
+  }, [])
+
+  return permissions
+}
+
+/**
  * Session wrappers — the single better-auth client instance for the suite.
  *
  * getSession / useSession resolve the cookie-based session as-is (mirrors
  * estimai-ui/src/router.tsx's `_authed` guard usage, ADR-0002).
  *
- * signOut additionally clears the shared in-memory JWT cache *before* ending
- * the better-auth session, so a suite-wide sign-out invalidates every
- * remote's cached Bearer token immediately rather than waiting for the next
- * 401 (plan.md federation contract: "authClient.signOut() — suite-wide
- * sign-out; clears the shared JWT cache + redirects").
+ * signOut additionally clears the shared in-memory JWT cache and the
+ * permissions cache *before* ending the better-auth session, so a suite-wide
+ * sign-out invalidates every remote's cached Bearer token and resolved
+ * permissions immediately rather than waiting for the next 401 or navigation
+ * (plan.md federation contract: "authClient.signOut() — suite-wide sign-out;
+ * clears the shared JWT cache + redirects").
  */
 export const getSession = authClient.getSession
 export const useSession = authClient.useSession
@@ -231,5 +442,6 @@ export const signOut = async (
   ...args: Parameters<typeof authClient.signOut>
 ): Promise<Awaited<ReturnType<typeof authClient.signOut>>> => {
   clearJwtCache()
+  clearPermissionsCache()
   return authClient.signOut(...args)
 }
