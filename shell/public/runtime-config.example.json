@@ -1,5 +1,6 @@
 {
-  "_comment": "Template only — NOT loaded by the app (see shell/src/lib/runtimeRemotes.ts). Copy to shell/public/runtime-config.json in a deploy pipeline (or edit it as a standalone static asset on Vercel) to override the estimai/refund remoteEntry.js URLs at RUNTIME, without a shell rebuild. Omit this file entirely (the default state of this repo) to fall back to the build-time ESTIMAI_REMOTE_URL/REFUND_REMOTE_URL env vars baked into shell/vite.config.ts — that is what local dev and the T16 e2e suite do today, and remains correct for production as long as each remote's custom domain is stable across its own redeploys (see infra/vercel-deploy-runbook.md).",
+  "_comment": "Template only — NOT loaded by the app (see shell/src/lib/runtimeRemotes.ts). Copy to shell/public/runtime-config.json in a deploy pipeline (or edit it as a standalone static asset on Vercel) to override the estimai/refund/admin remoteEntry.js URLs at RUNTIME, without a shell rebuild. Omit this file entirely (the default state of this repo) to fall back to the build-time ESTIMAI_REMOTE_URL/REFUND_REMOTE_URL/ADMIN_REMOTE_URL env vars baked into shell/vite.config.ts — that is what local dev and the T16 e2e suite do today, and remains correct for production as long as each remote's custom domain is stable across its own redeploys (see infra/vercel-deploy-runbook.md). 'admin' added T27 (specs/004-auth-roles-permissions).",
   "estimai": "https://estimai.operai.welld.io/remoteEntry.js",
-  "refund": "https://refund.operai.welld.io/remoteEntry.js"
+  "refund": "https://refund.operai.welld.io/remoteEntry.js",
+  "admin": "https://admin.operai.welld.io/remoteEntry.js"
 }

@@ -1,8 +1,9 @@
 # Operai — Vercel Deployment Runbook (suite shell)
 
-Step-by-step guide to deploying the three frontend apps that make up the Operai
-suite — **`shell`** (host), **`estimai-ui`** (remote), **`refund-ui`** (remote) —
-as three independent Vercel projects (specs/003-suite-shell, T17, ADR-0006).
+Step-by-step guide to deploying the four frontend apps that make up the Operai
+suite — **`shell`** (host), **`estimai-ui`** (remote), **`refund-ui`** (remote),
+**`admin-ui`** (remote) — as four independent Vercel projects (specs/003-suite-shell,
+T17, ADR-0006; `admin-ui` added by specs/004-auth-roles-permissions, T13/T25/T27).
 
 This runbook **does not cover the backends** (`auth`, `estimai-api`) — see
 `infra/README.md` (the Railway runbook) for those. It **replaces** the single
@@ -21,7 +22,7 @@ access is a **pending human/deploy action**.
 ## Topology
 
 ```
-Vercel (3 independent projects)                    Railway (europe-west4)
+Vercel (4 independent projects)                    Railway (europe-west4)
 ┌─────────────────────────────┐
 │ shell            (host)      │──┐
 │ https://operai.welld.io      │  │  loads remoteEntry.js cross-origin,
@@ -31,11 +32,13 @@ Vercel (3 independent projects)                    Railway (europe-west4)
 │ https://estimai.operai.welld.io│ │                 │ auth (Railway)        │
 └─────────────────────────────┘  │                 │ https://auth.operai.  │
 ┌─────────────────────────────┐  │                 │ welld.io              │
-│ refund-ui        (remote)    │◄─┘                 ├───────────────────────┤
-│ https://refund.operai.welld.io│                    │ estimai-api (Railway) │
-└─────────────────────────────┘                     │ https://api.operai.   │
-                                                     │ welld.io              │
-                                                     └───────────────────────┘
+│ refund-ui        (remote)    │◄─┤                 ├───────────────────────┤
+│ https://refund.operai.welld.io│  │                 │ estimai-api (Railway) │
+└─────────────────────────────┘  │                 │ https://api.operai.   │
+┌─────────────────────────────┐  │                 │ welld.io              │
+│ admin-ui         (remote)    │◄─┘                 └───────────────────────┘
+│ https://admin.operai.welld.io│
+└─────────────────────────────┘
 ```
 
 **PENDING DECISION — real hostnames.** The hostnames above
@@ -75,19 +78,19 @@ in ADR-0001, degrades UX, not security).
 
 ---
 
-## Step 1 — Create the three Vercel projects
+## Step 1 — Create the four Vercel projects
 
-For each of `shell`, `estimai-ui`, `refund-ui`:
+For each of `shell`, `estimai-ui`, `refund-ui`, `admin-ui`:
 
 1. Vercel dashboard → **New Project** → import this GitHub repo.
-2. **Root Directory** = the app's directory (`shell`, `estimai-ui`, or
-   `refund-ui`). Framework preset: **Vite**.
+2. **Root Directory** = the app's directory (`shell`, `estimai-ui`,
+   `refund-ui`, or `admin-ui`). Framework preset: **Vite**.
 3. Build command / output directory: leave the Vite defaults (`pnpm build` /
    `dist`) — each app's `package.json` already defines `build: "tsc -b && vite
    build"`.
-4. Each app ships its own `vercel.json` (committed in this task) with SPA
-   rewrites + headers — Vercel picks it up automatically from the project
-   root.
+4. Each app ships its own `vercel.json` (committed in this task, or — for
+   `admin-ui` — in T27, specs/004-auth-roles-permissions) with SPA rewrites +
+   headers — Vercel picks it up automatically from the project root.
 
 ---
 
@@ -98,6 +101,7 @@ For each of `shell`, `estimai-ui`, `refund-ui`:
 | `shell` | `https://operai.welld.io` | **Reassign** from `estimai-ui` (see above) — this is the human-facing entry point (AC-4.3) |
 | `estimai-ui` | `https://estimai.operai.welld.io` | Remote-only; not linked from anywhere in the product, but see Step 4's redirect for defense-in-depth |
 | `refund-ui` | `https://refund.operai.welld.io` | Remote-only; never had a standalone production URL (no redirect needed, unlike estimai-ui) |
+| `admin-ui` | `https://admin.operai.welld.io` | Remote-only; never had a standalone production URL (no redirect needed, same as refund-ui). specs/004-auth-roles-permissions (T13/T27). |
 
 If the confirmed real hostnames differ from this proposal, update them here
 **and** in `shell/vercel.json`'s CSP header and `estimai-ui/vercel.json`'s
@@ -125,6 +129,7 @@ share the production hostnames.
 | `VITE_API_URL` | `https://estimai-api.operai.welld.io` | `<API_URL>` from `infra/README.md` |
 | `ESTIMAI_REMOTE_URL` | `https://estimai.operai.welld.io/remoteEntry.js` | Build-time default (see Step 5 for the runtime override layer) |
 | `REFUND_REMOTE_URL` | `https://refund.operai.welld.io/remoteEntry.js` | Build-time default |
+| `ADMIN_REMOTE_URL` | `https://admin.operai.welld.io/remoteEntry.js` | Build-time default for the Admin (Roles & Permissions) remote (specs/004-auth-roles-permissions, T25) — same runtime-override layer as the two above (Step 5, `shell/src/lib/runtimeRemotes.ts`) |
 
 ### `estimai-ui`
 
@@ -141,6 +146,16 @@ share the production hostnames.
 | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | **REQUIRED in production** — same as estimai-ui's `SHELL_REMOTE_URL` (refund-ui imports `shell/session`/`shell/tokens.css` from the shell when mounted). Unset ⇒ dev-default `localhost:5173` baked ⇒ CSP-blocked ⇒ Refund fails to mount. |
 
 refund-ui has no direct backend vars of its own today (see `refund-ui/.env.example`).
+
+### `admin-ui`
+
+| Variable | Production value | Notes |
+|---|---|---|
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | **REQUIRED in production** — same as estimai-ui's/refund-ui's `SHELL_REMOTE_URL` (admin-ui imports `shell/session`/`shell/tokens.css` from the shell when mounted; T13, specs/004-auth-roles-permissions). Unset ⇒ dev-default `localhost:5173` baked ⇒ CSP-blocked ⇒ Admin fails to mount. |
+
+admin-ui has no direct backend vars of its own today (see `admin-ui/.env.example`) — like
+refund-ui, it has no direct calls to `auth`'s Admin API; those go through the shared
+`shell/session` `apiFetch`.
 
 After setting/changing these, **redeploy the affected project** — they are
 build-time (`process.env` read in each `vite.config.ts`), same as
@@ -242,12 +257,22 @@ ALLOWED_ORIGINS=https://operai.welld.io
 ```
 
 Per ADR-0002/ADR-0006, only the **shell**'s origin needs to be listed —
-`estimai-ui`/`refund-ui` never call `auth` directly in production (they
-delegate to `shell/session`, which runs under the shell's origin regardless
-of which remote is mounted, since federated modules execute in the host
-document). `auth/.env.example` has been updated with this note (not a real
-secret, template only). See `infra/README.md` Step 3 for the full variable
-list and the direnv/1Password mechanics.
+`estimai-ui`/`refund-ui`/`admin-ui` never call `auth` directly in production
+(they delegate to `shell/session`, which runs under the shell's origin
+regardless of which remote is mounted, since federated modules execute in
+the host document). `auth/.env.example` has been updated with this note (not
+a real secret, template only). See `infra/README.md` Step 3 for the full
+variable list and the direnv/1Password mechanics.
+
+**admin-ui note (T27, specs/004-auth-roles-permissions):** the new Admin
+remote follows the exact same delegation as estimai-ui/refund-ui (see
+`admin-ui/vite.config.ts` — it consumes `shell`, exposing only `./App`, and
+`admin-ui/src/main.tsx`/`adminApi.ts` import `apiFetch` from `shell/session`,
+never holding their own copy). So `https://admin.operai.welld.io` does **not**
+need its own entry in `auth`'s `ALLOWED_ORIGINS` either — only the shell's
+origin above. This is a documentation note, not a code change: no `admin-ui`
+origin was added to `ALLOWED_ORIGINS` because none is required by the
+existing pattern.
 
 **Redeploy `auth`** after changing this (`railway redeploy --service auth`)
 for the CORS/trustedOrigins change to take effect.
@@ -263,14 +288,19 @@ affect the T16 e2e suite, which was a deliberate risk-avoidance choice):
 
 ```
 default-src 'self';
-script-src 'self' https://estimai.operai.welld.io https://refund.operai.welld.io;
+script-src 'self' https://estimai.operai.welld.io https://refund.operai.welld.io https://admin.operai.welld.io;
 connect-src 'self' https://auth.operai.welld.io https://estimai-api.operai.welld.io
-            https://estimai.operai.welld.io https://refund.operai.welld.io;
+            https://estimai.operai.welld.io https://refund.operai.welld.io https://admin.operai.welld.io;
 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
 font-src 'self' https://fonts.gstatic.com data:;
-img-src 'self' data:;
+img-src 'self' data: https://*.googleusercontent.com https://avatars.githubusercontent.com;
 object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'
 ```
+
+**admin-ui origin — verified present (T27):** `https://admin.operai.welld.io`
+was added to both `script-src` and `connect-src` by T25 (specs/004-auth-roles-permissions)
+ahead of this task; re-checked here against the committed `shell/vercel.json` — both
+directives include it, so no further shell CSP change was needed for T27.
 
 Notes:
 - **Pinned, not wildcarded** (plan.md Security / R5 requirement) — each
@@ -297,9 +327,9 @@ Notes:
   `X-Frame-Options: DENY`, and `Referrer-Policy: strict-origin-when-cross-origin`
   as universal (non-origin-specific) hardening, plus CORS (`Access-Control-Allow-Origin:
   *`) and revalidate-on-every-request caching for `/remoteEntry.js`, and
-  long-lived immutable caching for hashed `/assets/*` chunks — `estimai-ui`
-  and `refund-ui`'s `vercel.json` mirror the same `remoteEntry.js`/`assets`
-  headers, since they are remotes too.
+  long-lived immutable caching for hashed `/assets/*` chunks — `estimai-ui`,
+  `refund-ui`, and `admin-ui`'s `vercel.json` mirror the same
+  `remoteEntry.js`/`assets` headers, since they are remotes too.
 
 ---
 
@@ -308,14 +338,16 @@ Notes:
 `shell/src/lib/session.ts`'s `getTrustedOrigins()` already covers: same-origin
 (the current page — i.e. wherever the shell's document is served from,
 regardless of which remote is mounted inside it), `VITE_AUTH_URL`, and
-`VITE_API_URL` (set in Step 3). Because `estimai-ui`/`refund-ui` delegate to
-`shell/session` (T13/T15) rather than holding their own `apiFetch`, **the
-code that actually runs is the shell's own compiled `getTrustedOrigins()`,
-reading the shell's own build-time env vars** — confirmed by reading
-`estimai-ui/src/lib/api.ts` (`export { apiFetch, clearJwtCache } from
-'shell/session'`) and `playwright.config.ts`'s own comment to the same
-effect. No remote ever needs its own entry in this allowlist, and no code
-change was required for this task.
+`VITE_API_URL` (set in Step 3). Because `estimai-ui`/`refund-ui` (T13/T15,
+specs/003-suite-shell) and, as of specs/004-auth-roles-permissions, `admin-ui`
+(T13) all delegate to `shell/session` rather than holding their own
+`apiFetch`, **the code that actually runs is the shell's own compiled
+`getTrustedOrigins()`, reading the shell's own build-time env vars** —
+confirmed by reading `estimai-ui/src/lib/api.ts` (`export { apiFetch,
+clearJwtCache } from 'shell/session'`), `admin-ui/src/lib/adminApi.ts`
+(imports `apiFetch` the same way), and `playwright.config.ts`'s own comment
+to the same effect. No remote ever needs its own entry in this allowlist,
+and no code change was required for this task (or for T27).
 
 ---
 
@@ -326,19 +358,20 @@ change was required for this task.
 curl -fsSI https://operai.welld.io/                       | head -1   # 200
 curl -fsSI https://estimai.operai.welld.io/remoteEntry.js  | head -1   # 200, check CORS header
 curl -fsSI https://refund.operai.welld.io/remoteEntry.js   | head -1   # 200, check CORS header
+curl -fsSI https://admin.operai.welld.io/remoteEntry.js    | head -1   # 200, check CORS header
 
 # AC-4.3 — old EstimAI URL redirects into the shell
 curl -fsSI https://estimai.operai.welld.io/                | grep -i '^location:'
 # expect: location: https://operai.welld.io/estimai
 
-# CSP present
+# CSP present, and includes the admin-ui origin (T25/T27)
 curl -fsSI https://operai.welld.io/ | grep -i content-security-policy
 ```
 
-Then in a browser: visit `https://operai.welld.io/`, sign in, confirm both
-EstimAI and Refund load inside the shell chrome (open DevTools → Network →
-confirm `remoteEntry.js` requests to the two remote origins succeed with no
-CSP console errors), sign out, confirm the session is gone suite-wide.
+Then in a browser: visit `https://operai.welld.io/`, sign in, confirm EstimAI,
+Refund, and Admin all load inside the shell chrome (open DevTools → Network
+→ confirm `remoteEntry.js` requests to all three remote origins succeed with
+no CSP console errors), sign out, confirm the session is gone suite-wide.
 
 ---
 
@@ -346,6 +379,6 @@ CSP console errors), sign out, confirm the session is gone suite-wide.
 
 Same model as `infra/README.md`: each Vercel project keeps its own deployment
 history; roll back the affected project's deployment via the dashboard.
-Because the three apps are independently deployed, rolling back `refund-ui`
-alone (for example) has no effect on `shell` or `estimai-ui` — this
-independence is the whole point of AC-5.3.
+Because the four apps are independently deployed, rolling back `refund-ui`
+or `admin-ui` alone (for example) has no effect on `shell` or the other
+remotes — this independence is the whole point of AC-5.3.

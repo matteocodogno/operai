@@ -2,10 +2,11 @@
  * runtimeRemotes — production runtime resolution for the shell's federated
  * remote URLs (T17, specs/003-suite-shell, AC-5.3, plan.md Deploy + Risk R6).
  *
- * PROBLEM this solves: `shell/vite.config.ts` declares `estimai`/`refund`
- * remote entries using `process.env['ESTIMAI_REMOTE_URL']` /
- * `process.env['REFUND_REMOTE_URL']`, read at Vite CONFIG-EVALUATION time
- * (i.e. at `vite build`). Those values are baked as literal strings into the
+ * PROBLEM this solves: `shell/vite.config.ts` declares `estimai`/`refund`/
+ * `admin` remote entries using `process.env['ESTIMAI_REMOTE_URL']` /
+ * `process.env['REFUND_REMOTE_URL']` / `process.env['ADMIN_REMOTE_URL']`,
+ * read at Vite CONFIG-EVALUATION time (i.e. at `vite build`). Those values
+ * are baked as literal strings into the
  * shell's compiled bundle — changing which URL the shell points a remote at
  * (e.g. because a remote's origin moved) requires re-running `vite build`
  * for the shell, i.e. a shell rebuild, even though the shell's own code
@@ -34,10 +35,15 @@
  * entirely for it — the remote falls through to whatever vite.config.ts
  * baked at build time (the existing, unchanged behavior). This is
  * deliberately additive/fail-safe: local dev and the T16 e2e suite (which
- * run entirely off the build-time `ESTIMAI_REMOTE_URL`/`REFUND_REMOTE_URL`
- * env vars, see playwright.config.ts) never ship a `runtime-config.json`,
- * so `fetch()` 404s, this resolves to `{}`, and behavior is byte-for-byte
- * identical to before this file existed.
+ * run entirely off the build-time `ESTIMAI_REMOTE_URL`/`REFUND_REMOTE_URL`/
+ * `ADMIN_REMOTE_URL` env vars, see playwright.config.ts) never ship a
+ * `runtime-config.json`, so `fetch()` 404s, this resolves to `{}`, and
+ * behavior is byte-for-byte identical to before this file existed.
+ *
+ * `admin` (specs/004-auth-roles-permissions, T27) was added to this override
+ * list following the exact same shape as `estimai`/`refund` above — no new
+ * mechanism, just a third optional key so the Admin (Roles & Permissions)
+ * remote's origin can be repointed the same way, per AC-5.3 / ADR-0006.
  *
  * HONEST SCOPE NOTE (see T17 report): for the common production case — a
  * remote redeployed at its EXISTING, stable custom-domain URL — the shell
@@ -53,6 +59,7 @@
 export interface RuntimeRemoteConfig {
   estimai?: string
   refund?: string
+  admin?: string
 }
 
 declare global {
@@ -69,7 +76,7 @@ declare global {
 
 /** Shape `@module-federation/runtime`'s `registerRemotes` expects (mirrors vite.config.ts's static remote entries). */
 export interface RuntimeRemoteEntry {
-  name: 'estimai' | 'refund'
+  name: 'estimai' | 'refund' | 'admin'
   entry: string
   type: 'module'
   entryGlobalName: string
@@ -96,10 +103,10 @@ async function loadRuntimeConfig(): Promise<RuntimeRemoteConfig> {
 }
 
 /**
- * Resolves runtime overrides for the `estimai`/`refund` remotes. Returns an
- * empty array when no runtime config is present (local dev, e2e, or a
- * production deploy that hasn't opted into runtime-config.json because its
- * remotes' custom domains are already stable — see module doc).
+ * Resolves runtime overrides for the `estimai`/`refund`/`admin` remotes.
+ * Returns an empty array when no runtime config is present (local dev, e2e,
+ * or a production deploy that hasn't opted into runtime-config.json because
+ * its remotes' custom domains are already stable — see module doc).
  */
 export async function resolveRuntimeRemotes(): Promise<RuntimeRemoteEntry[]> {
   const config = await loadRuntimeConfig()
@@ -121,6 +128,16 @@ export async function resolveRuntimeRemotes(): Promise<RuntimeRemoteEntry[]> {
       entry: config.refund,
       type: 'module',
       entryGlobalName: 'refund',
+      shareScope: 'default',
+    })
+  }
+
+  if (config.admin) {
+    remotes.push({
+      name: 'admin',
+      entry: config.admin,
+      type: 'module',
+      entryGlobalName: 'admin',
       shareScope: 'default',
     })
   }
