@@ -50,6 +50,7 @@ vi.mock('./lib/session', () => ({
 // or importing router.tsx at all fails before any test runs.
 vi.mock('estimai/App', () => ({ default: () => null }))
 vi.mock('refund/App', () => ({ default: () => null }))
+vi.mock('admin/App', () => ({ default: () => null }))
 
 // Import getSession AFTER vi.mock so we get the mocked version.
 import { getSession } from './lib/session'

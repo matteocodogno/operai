@@ -29,15 +29,22 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // these hardcoded localhost URLs as the production pattern.
 //
 // Stable local-dev port scheme (pinned via server/preview below, matched by
-// both remotes' own configs): shell 5173, estimai-ui 5174, refund-ui 5175.
-// The shell consumes estimai at :5174 and refund at :5175; each remote
-// consumes the shell (shell/session, shell/tokens.css) at :5173. The e2e
-// harness (playwright.config.ts) uses its own explicit ports+env and is
-// unaffected by these dev defaults.
+// both remotes' own configs): shell 5173, estimai-ui 5174, refund-ui 5175,
+// admin-ui 5177 (5176 left free for a future remote — see admin-ui/vite.config.ts).
+// The shell consumes estimai at :5174, refund at :5175, and admin at :5177;
+// each remote consumes the shell (shell/session, shell/tokens.css) at :5173.
+// The e2e harness (playwright.config.ts) uses its own explicit ports+env and
+// is unaffected by these dev defaults.
 const estimaiRemoteUrl =
   process.env['ESTIMAI_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
 const refundRemoteUrl =
   process.env['REFUND_REMOTE_URL'] ?? 'http://localhost:5175/remoteEntry.js'
+// T25 (specs/004-auth-roles-permissions/tasks.md): admin-ui (T13) as a third
+// suite remote — same env-override + localhost dev-default pattern as
+// estimai/refund above. Dev default targets admin-ui's own pinned port
+// (5177, see admin-ui/vite.config.ts).
+const adminRemoteUrl =
+  process.env['ADMIN_REMOTE_URL'] ?? 'http://localhost:5177/remoteEntry.js'
 
 export default defineConfig({
   plugins: [
@@ -104,6 +111,15 @@ export default defineConfig({
           name: 'refund',
           entry: refundRemoteUrl,
           entryGlobalName: 'refund',
+          shareScope: 'default',
+        },
+        // T25: admin-ui (T13) — the Roles & Permissions management GUI.
+        // Same shape as estimai/refund above.
+        admin: {
+          type: 'module',
+          name: 'admin',
+          entry: adminRemoteUrl,
+          entryGlobalName: 'admin',
           shareScope: 'default',
         },
       },
