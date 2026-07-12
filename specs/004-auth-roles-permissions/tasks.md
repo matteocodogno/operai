@@ -34,7 +34,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/authz/catalog.routes.ts` + catalog module; mount in `src/index.ts`; OpenAPI tag
   - `PUT /authz/catalog` (idempotent upsert of an app's resources/actions/condition-types), `GET /admin/catalog`.
   - done when: register a catalog → `GET /admin/catalog` returns it; off-catalog validation helper exists.
-- [ ] T6: `GET /authz/me` — refs: AC-4.1, AC-3.3, AC-4.4 — deps: T2
+- [x] T6: `GET /authz/me` — refs: AC-4.1, AC-3.3, AC-4.4 — deps: T2
   - touch: `auth/src/authz/authz.routes.ts`
   - returns `{ epoch, apps, roles, departments, permissions:[{resource,action,conditions}] }` for the caller; `apps` = `access`-granted resources.
   - done when: integration test returns enumerable perms + `apps`; absent pair not present.
