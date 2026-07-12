@@ -47,7 +47,42 @@ export const auth = betterAuth({
       jwt: {
         issuer: env.BETTER_AUTH_URL,
         expirationTime: "7d",
-        fields: ["sub", "email", "name", "image"],
+        // `fields` (the old option here) is a no-op on better-auth 1.6.2 — the
+        // plugin spreads the ENTIRE user row into the token regardless of what
+        // `fields` lists (node_modules/better-auth/dist/plugins/jwt/sign.mjs:
+        // `getJwtToken` falls back to `ctx.context.session.user` verbatim when
+        // no `definePayload` is supplied). `definePayload` is the only real
+        // claim seam (plan.md "The JWT claim seam"; ADR-0007; risk R2).
+        //
+        // Deliberately minimal + explicit: identity claims existing consumers
+        // already read (estimai-api's jwtMiddleware reads `sub`+`email`) plus
+        // `perm_epoch`, a forward-looking staleness marker for future resource
+        // servers (ADR-0007 decision 4). Roles/permissions are NEVER embedded
+        // here — they are resolved live via `GET /authz/me` (AC-4.3): a 7-day
+        // token can't carry fresh authorization.
+        //
+        // `sub` is intentionally NOT set here — the plugin always overwrites it
+        // with `getSubject()` (default: `session.user.id`) after `definePayload`
+        // returns (sign.mjs: `{ iat, ...payload, sub: ... }`), so setting it here
+        // would be misleading dead code. Do not change `sub` semantics (ADR-0005).
+        definePayload: async ({ user }) => {
+          // Re-read permissionEpoch directly via the Prisma client rather than
+          // trusting `user.permissionEpoch` off the session object: better-auth's
+          // session/cookie cache (up to 5 min, see `cookieCache` above) can serve
+          // a stale user snapshot, which would defeat the purpose of `perm_epoch`
+          // as a staleness signal for future consumers.
+          const current = await db.user.findUnique({
+            where: { id: user.id },
+            select: { permissionEpoch: true },
+          });
+
+          return {
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            perm_epoch: current?.permissionEpoch ?? user.permissionEpoch ?? 0,
+          };
+        },
       },
     }),
   ],

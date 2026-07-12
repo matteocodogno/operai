@@ -22,7 +22,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/authz/resolver.ts` (+ `resolver.test.ts`)
   - union of direct `user_role` ∪ department-derived rules, de-dup by `(resource,action)` (widest condition wins); default-deny (absent = no grant); epoch helpers (bump affected users).
   - done when: unit tests cover union, dedup/widest-wins, default-deny.
-- [ ] T3: JWT `definePayload` claim — refs: AC-4.3, plan R2 — deps: T1
+- [x] T3: JWT `definePayload` claim — refs: AC-4.3, plan R2 — deps: T1
   - touch: `auth/src/auth/auth.config.ts`
   - replace the dead `jwt.fields` with `definePayload` → `{ email, name, image, perm_epoch }`; keep `sub` via plugin default (never change `sub`).
   - done when: contract test asserts the minted token still yields `sub`+`email` (verified by estimai-api's verifier path) and carries `perm_epoch`.
