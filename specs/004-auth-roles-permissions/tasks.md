@@ -88,7 +88,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - done when: search+pagination; edit entity/jobTitle; assign roles/departments; last-admin 422 → GuardrailDialog D2 preserving the edit.
 - [ ] T21: Audit log screen (D1) — refs: AC-5.2, AC-5.3 — deps: T14, T15, T16
   - done when: paginated reverse-chron table + row-expand diff; no mutate affordance.
-- [ ] T22: Permission-denied in-place (E1) — refs: AC-1.5 — deps: T14, T15
+- [x] T22: Permission-denied in-place (E1) — refs: AC-1.5 — deps: T14, T15
   - done when: an admin `403` renders E1 in-place (no crash, no Retry), chrome intact.
 
 ## Track C — shell US-7 (app-access enforcement)
