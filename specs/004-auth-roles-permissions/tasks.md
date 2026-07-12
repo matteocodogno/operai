@@ -73,7 +73,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 - [ ] T15: admin-ui shared primitives (ported patterns) — refs: design a11y — deps: T13
   - touch: `admin-ui/src/components/*` — ConfirmDeleteModal (D1, `role="alertdialog"`), error banner (RFC 7807), SkeletonListRows, **Pagination** (new primitive), badges (System + condition chips), GuardrailDialog (D2, acknowledge-only).
   - done when: component tests for the dialogs (focus trap, Escape) + pagination bounds.
-- [ ] T16: admin-ui API client — refs: AC-4.1, all admin ACs — deps: T13
+- [x] T16: admin-ui API client — refs: AC-4.1, all admin ACs — deps: T13
   - touch: `admin-ui/src/lib/adminApi.ts` — typed calls to `/admin/*` + `/authz/me` via `apiFetch` from `shell/session`; RFC 7807 error mapping.
   - done when: typed client + unit tests against the plan's contract shapes.
 - [ ] T17: Roles list (A1) + Create-role modal (M1) — refs: AC-1.1, AC-2.4 — deps: T14, T15, T16
