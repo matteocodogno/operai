@@ -14,9 +14,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { ShellLayout, SHELL_MAIN_CONTENT_ID } from './ShellLayout'
+import Sidebar from './Sidebar'
 
 // jsdom doesn't implement scrollIntoView/scrollTo; TanStack Router's
 // navigation and hash-scroll restoration call them (the latter when the URL
@@ -36,6 +38,9 @@ afterEach(() => {
   // `pushState`, and jsdom's `window`/`history` persist across tests within
   // this file, so leaving the hash in place would leak into later tests.
   window.history.pushState(null, '', '/')
+  // The collapse toggle persists to localStorage — clear it so a collapse test
+  // doesn't leak a `true` into a later test's initial rail width.
+  localStorage.clear()
 })
 
 /**
@@ -105,6 +110,40 @@ describe('ShellLayout', () => {
     expect(screen.getByText(/header placeholder/i)).toBeDefined()
     expect(screen.getByText(/sidebar placeholder/i)).toBeDefined()
     expect(screen.getByText(/footer placeholder/i)).toBeDefined()
+  })
+
+  it('sizes the nav rail from the shared collapse state driven by the Sidebar toggle', async () => {
+    const user = userEvent.setup()
+    const rootRoute = createRootRoute({ component: () => <ShellLayout sidebar={<Sidebar />} /> })
+    const indexRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/',
+      component: () => <p data-testid="outlet-content">Tool content</p>,
+    })
+    // Splat routes so the Sidebar's `/estimai` and `/refund` Links resolve.
+    const estimaiRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/estimai/$',
+      component: () => <p>estimai</p>,
+    })
+    const refundRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/refund/$',
+      component: () => <p>refund</p>,
+    })
+    const routeTree = rootRoute.addChildren([indexRoute, estimaiRoute, refundRoute])
+    const router = createRouter({ routeTree })
+    render(<RouterProvider router={router} />)
+    await screen.findByTestId('outlet-content')
+
+    const nav = screen.getByRole('navigation', { name: /tool navigation/i })
+    expect(nav.className).toContain('w-56') // expanded
+
+    await user.click(screen.getByRole('button', { name: /collapse sidebar/i }))
+    expect(nav.className).toContain('w-16') // collapsed to icons-only rail
+
+    await user.click(screen.getByRole('button', { name: /expand sidebar/i }))
+    expect(nav.className).toContain('w-56') // back to expanded
   })
 
   it('renders provided header/sidebar/footer slots instead of the placeholders', async () => {

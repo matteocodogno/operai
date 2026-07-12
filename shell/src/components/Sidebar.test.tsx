@@ -15,10 +15,14 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 import Sidebar from './Sidebar'
+import { SidebarCollapsedProvider } from '../hooks/SidebarCollapsedProvider'
 
 afterEach(() => {
   cleanup()
   window.history.pushState(null, '', '/')
+  // The collapse toggle persists to localStorage; clear it so a collapse test
+  // doesn't leak a `true` into a later test's initial state.
+  localStorage.clear()
 })
 
 /**
@@ -34,10 +38,10 @@ async function renderSidebarAt(path: string) {
 
   const rootRoute = createRootRoute({
     component: () => (
-      <>
+      <SidebarCollapsedProvider>
         <Sidebar />
         <Outlet />
-      </>
+      </SidebarCollapsedProvider>
     ),
   })
   const indexRoute = createRoute({
@@ -154,5 +158,41 @@ describe('Sidebar keyboard operation (roving tabindex + arrow keys)', () => {
     expect(document.activeElement).toBe(refundLink)
     expect(refundLink.tabIndex).toBe(0)
     expect(estimaiLink.tabIndex).toBe(-1)
+  })
+})
+
+describe('Sidebar collapse toggle', () => {
+  it('starts expanded: labels visible, toggle offers to collapse', async () => {
+    await renderSidebarAt('/estimai')
+
+    const toggle = screen.getByRole('button', { name: /collapse sidebar/i })
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    // The label text is present and NOT visually hidden while expanded.
+    expect(screen.getByText('EstimAI').classList.contains('sr-only')).toBe(false)
+  })
+
+  it('collapsing hides the labels (sr-only) and flips the toggle to Expand; links keep their accessible name', async () => {
+    const user = userEvent.setup()
+    await renderSidebarAt('/estimai')
+
+    await user.click(screen.getByRole('button', { name: /collapse sidebar/i }))
+
+    // Toggle now offers to expand.
+    const toggle = screen.getByRole('button', { name: /expand sidebar/i })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    // Label text is still in the DOM but visually hidden…
+    expect(screen.getByText('EstimAI').classList.contains('sr-only')).toBe(true)
+    // …so the link's accessible name (icon is aria-hidden) is unchanged.
+    expect(screen.getByRole('link', { name: 'EstimAI' })).toBeDefined()
+    // Persisted for the next reload.
+    expect(localStorage.getItem('operai_sidebar_collapsed')).toBe('true')
+  })
+
+  it('starts collapsed when localStorage says so', async () => {
+    localStorage.setItem('operai_sidebar_collapsed', 'true')
+    await renderSidebarAt('/estimai')
+
+    expect(screen.getByRole('button', { name: /expand sidebar/i }).getAttribute('aria-expanded')).toBe('false')
+    expect(screen.getByText('EstimAI').classList.contains('sr-only')).toBe(true)
   })
 })

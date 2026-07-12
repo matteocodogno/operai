@@ -1,5 +1,7 @@
 import { type MouseEvent, type ReactNode, useCallback } from 'react'
 import { Outlet } from '@tanstack/react-router'
+import { SidebarCollapsedProvider } from '../hooks/SidebarCollapsedProvider'
+import { useSidebarCollapsed } from '../hooks/sidebarCollapsed'
 
 /**
  * ShellLayout — the persistent multi-region app-shell frame (specs/003-suite-shell,
@@ -15,9 +17,14 @@ import { Outlet } from '@tanstack/react-router'
  *                                    (AC-1.2 — chrome must not remount/flicker).
  *   - footer   → `role="contentinfo"` — legal/version/company info (T8)
  *
- * Desktop-only per the spec's explicit non-goal (no mobile/collapsed/drawer
- * variants) — a fixed header-then-(sidebar+content)-then-footer column, not a
- * responsive grid.
+ * Desktop-only (no mobile/drawer variant) — a fixed-viewport frame
+ * (`h-screen`, `overflow-hidden`): the header (top) and footer (bottom) are
+ * always visible, and the middle sidebar+content row fills the space between,
+ * with the sidebar rail and the `<main>` content each owning their OWN scroll
+ * (neither scrolls the other, and the page itself never scrolls). The rail is
+ * collapsible to an icons-only width via the toggle in Sidebar's bottom
+ * section; ShellLayout sizes the rail (`w-56` ↔ `w-16`) from the shared
+ * `useSidebarCollapsed` state the toggle drives.
  *
  * `header`/`sidebar`/`footer` are optional slots: T6/T7/T8 pass their real
  * components in from the router once built. Until then (and in isolation, e.g.
@@ -49,7 +56,21 @@ export interface ShellLayoutProps {
   footer?: ReactNode
 }
 
-export function ShellLayout({ header, sidebar, footer }: ShellLayoutProps) {
+export function ShellLayout(props: ShellLayoutProps) {
+  // The collapse state is provided here (not higher up) because ShellLayout is
+  // the only place it's needed: the rail width below and the Sidebar's toggle
+  // (rendered inside the `sidebar` slot, a descendant of this provider) are its
+  // only two consumers.
+  return (
+    <SidebarCollapsedProvider>
+      <ShellLayoutFrame {...props} />
+    </SidebarCollapsedProvider>
+  )
+}
+
+function ShellLayoutFrame({ header, sidebar, footer }: ShellLayoutProps) {
+  const { collapsed } = useSidebarCollapsed()
+
   // Belt-and-braces skip link: `href="#id"` + a focusable (tabIndex=-1) target
   // is enough in every modern browser, but jsdom/older engines don't always
   // move focus on a same-document fragment click (especially a second click
@@ -64,7 +85,11 @@ export function ShellLayout({ header, sidebar, footer }: ShellLayoutProps) {
   }, [])
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink font-body text-text">
+    // Fixed-viewport frame: the page itself never scrolls (`h-screen` +
+    // `overflow-hidden`). Header/footer are `shrink-0` so they stay pinned;
+    // the middle row (`min-h-0` so its flex children may scroll) holds the
+    // rail and `<main>`, each with its own overflow.
+    <div className="flex h-screen flex-col overflow-hidden bg-ink font-body text-text">
       {/* First focusable element in the document (AC-1.1 / Accessibility). */}
       <a
         href={`#${SHELL_MAIN_CONTENT_ID}`}
@@ -78,17 +103,28 @@ export function ShellLayout({ header, sidebar, footer }: ShellLayoutProps) {
         {header ?? <ShellHeaderPlaceholder />}
       </header>
 
-      <div className="flex flex-1">
+      <div className="flex min-h-0 flex-1">
+        {/* The rail width is driven by the shared collapse state; the Sidebar
+            inside owns its own vertical scroll + always-visible bottom toggle,
+            so `overflow-hidden` here just clips during the width transition. */}
         <nav
           aria-label="Tool navigation"
-          className="w-56 shrink-0 border-r border-rule bg-ink-soft"
+          className={`${
+            collapsed ? 'w-16' : 'w-56'
+          } shrink-0 overflow-hidden border-r border-rule bg-ink-soft transition-[width] duration-200`}
         >
           {sidebar ?? <ShellSidebarPlaceholder />}
         </nav>
 
         {/* `tabIndex={-1}` makes this a valid skip-link target without adding
-            it to the normal tab order (it's a landmark, not a control). */}
-        <main id={SHELL_MAIN_CONTENT_ID} tabIndex={-1} className={`min-w-0 flex-1 ${FOCUS_RING}`}>
+            it to the normal tab order (it's a landmark, not a control).
+            `overflow-y-auto` gives the tool content its OWN scroll, independent
+            of the rail. */}
+        <main
+          id={SHELL_MAIN_CONTENT_ID}
+          tabIndex={-1}
+          className={`min-w-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
+        >
           <Outlet />
         </main>
       </div>
