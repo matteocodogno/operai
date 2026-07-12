@@ -96,7 +96,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 - [x] T23: shell/session permission resolution — refs: AC-4.3, AC-7.5 — deps: none (builds to the `/authz/me` contract)
   - touch: `shell/src/lib/session.ts` — `ensurePermissions()`/`usePermissions()` (fetch `/authz/me`, in-memory cache per ADR-0001, cleared on `signOut`), revalidate helper.
   - done when: unit tests — cache, clear-on-signout, revalidate returns fresh apps/permissions.
-- [ ] T24: Sidebar/tools app-access filter + Admin tool — refs: AC-7.1, AC-7.2 — deps: T23
+- [x] T24: Sidebar/tools app-access filter + Admin tool — refs: AC-7.1, AC-7.2 — deps: T23
   - touch: `shell/src/lib/tools.ts` (`ToolId += 'admin'`, TOOLS entry), `shell/src/components/Sidebar.tsx` (filter by `apps` + `TOOL_ICONS` admin entry).
   - done when: component/e2e — nav lists only `apps`-granted tools; Admin appears for admins only.
 - [ ] T25: shell route guard + `/no-access` + admin remote wiring — refs: AC-7.3, AC-7.4, AC-7.5 — deps: T23, T24, T13

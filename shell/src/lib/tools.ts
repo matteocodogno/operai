@@ -13,7 +13,7 @@
  */
 
 /** Known suite tool ids. Extend this union (and TOOLS below) to add a tool. */
-export type ToolId = 'estimai' | 'refund'
+export type ToolId = 'estimai' | 'refund' | 'admin'
 
 export interface SuiteTool {
   id: ToolId
@@ -26,10 +26,17 @@ export interface SuiteTool {
  * Flat, ordered list of suite tools (AC-3.1, AC-5.1). Add a tool here — no
  * other change is needed for it to appear in the sidebar; update the
  * `ToolId` union above too so the redirect/writer logic recognizes it.
+ *
+ * `admin` (specs/004-auth-roles-permissions, T24, AC-7.1/AC-7.2, ADR-0006/0007):
+ * every entry here is a *candidate* tool — Sidebar only renders the subset
+ * present in the signed-in user's `usePermissions().apps`, so `admin` (and
+ * any other entry) only appears in the nav for users actually granted that
+ * app.
  */
 export const TOOLS: readonly SuiteTool[] = [
   { id: 'estimai', label: 'EstimAI', to: '/estimai' },
   { id: 'refund', label: 'Refund (Rimborsi)', to: '/refund' },
+  { id: 'admin', label: 'Admin', to: '/admin' },
 ]
 
 /** First-visit / invalid-storage fallback tool (AC-3.4). */
