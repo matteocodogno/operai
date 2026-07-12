@@ -38,7 +38,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/authz/authz.routes.ts`
   - returns `{ epoch, apps, roles, departments, permissions:[{resource,action,conditions}] }` for the caller; `apps` = `access`-granted resources.
   - done when: integration test returns enumerable perms + `apps`; absent pair not present.
-- [ ] T7: Audit trail — refs: AC-5.1, AC-5.2, AC-5.3 — deps: T1
+- [x] T7: Audit trail — refs: AC-5.1, AC-5.2, AC-5.3 — deps: T1
   - touch: `auth/src/authz/audit.ts` + `GET /admin/audit`
   - transactional helper: write `audit_log` row (actor/target/summary/diff) **and** bump affected `permissionEpoch` in one tx; paginated read-only list; no update/delete route.
   - done when: a mutation produces an immutable audit row; `GET /admin/audit` paginates; no mutate route exists.
@@ -67,10 +67,10 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 - [x] T13: Scaffold `admin-ui` remote — refs: US-1 (host), ADR-0006 — deps: none
   - touch: `admin-ui/*` (package.json, vite.config.ts w/ federation exposing `./App` + consuming `shell/session`+`shell/tokens.css`, index.html, `src/main.tsx` standalone bootstrap, `src/App.tsx`, `.env.example`, vitest/playwright config) — mirror `refund-ui`.
   - done when: `pnpm --dir admin-ui build` emits `remoteEntry.js`; standalone bootstrap runs.
-- [ ] T14: admin-ui inner router + section nav — refs: US-1 — deps: T13
+- [x] T14: admin-ui inner router + section nav — refs: US-1 — deps: T13
   - touch: `admin-ui/src/router.tsx` (basepath `/admin`), `App.tsx`, section nav (Roles/Departments/Users/Audit), not-found.
   - done when: the four sections route client-side under `/admin`.
-- [ ] T15: admin-ui shared primitives (ported patterns) — refs: design a11y — deps: T13
+- [x] T15: admin-ui shared primitives (ported patterns) — refs: design a11y — deps: T13
   - touch: `admin-ui/src/components/*` — ConfirmDeleteModal (D1, `role="alertdialog"`), error banner (RFC 7807), SkeletonListRows, **Pagination** (new primitive), badges (System + condition chips), GuardrailDialog (D2, acknowledge-only).
   - done when: component tests for the dialogs (focus trap, Escape) + pagination bounds.
 - [x] T16: admin-ui API client — refs: AC-4.1, all admin ACs — deps: T13

@@ -186,7 +186,17 @@ New auth-service modules following the `OpenAPIHono` sub-router pattern
 | `GET /admin/audit` | paginated authorization-change history | AC-5.2; read-only |
 
 Every mutating admin route: (1) writes an `audit_log` row (actor, target, summary, diff —
-AC-5.1) and (2) bumps `permissionEpoch` for affected users (AC-4.3), in one transaction.
+AC-5.1) and (2) bumps `permissionEpoch` for affected users (AC-4.3), in one transaction —
+via the shared `withAudit(mutate(tx))` helper (T7), so each route passes its domain write
+through that callback rather than hand-rolling its own transaction.
+
+**Wire-shape conventions** (fixed by the admin-ui client T16; backend T8–T10 MUST match):
+- **Pagination** (`GET /admin/users`, `GET /admin/audit`): query `?page=&pageSize=`;
+  response envelope `{ items, page, pageSize, total }`.
+- **Collection-set PUTs** use a named-field wrapper object, never a bare array:
+  `PUT …/roles/:id/rules` → `{ rules }`; `…/departments/:id/roles` → `{ roleIds }`;
+  `…/departments/:id/members` → `{ userIds }`; `…/users/:id/roles` → `{ roleIds }`;
+  `…/users/:id/departments` → `{ departmentIds }`.
 
 ### Catalog registration (AC-3.1/3.4)
 
