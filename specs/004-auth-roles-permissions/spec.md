@@ -1,7 +1,7 @@
 ---
 id: 004
 slug: auth-roles-permissions
-status: approved
+status: in-progress
 rigor: production
 created: 2026-07-13
 approved: 2026-07-13
