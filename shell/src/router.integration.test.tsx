@@ -32,18 +32,30 @@ import { RouterProvider } from '@tanstack/react-router'
 // replace.
 // ---------------------------------------------------------------------------
 
+// Fully-permissioned fixture shared by usePermissions/ensurePermissions/
+// revalidatePermissions below (T24/T25, specs/004-auth-roles-permissions).
+// These tests deep-link into both estimai and refund routes, and each tool
+// route's access guard (router.tsx, T25) now force-revalidates permissions
+// on every navigation — `revalidatePermissions()` must therefore resolve a
+// grant for whichever tool is being navigated to, or the guard would
+// redirect away instead of letting the route render.
+const PERMISSIONS_FIXTURE = {
+  epoch: 0,
+  apps: ['estimai', 'refund'],
+  roles: [],
+  departments: [],
+  permissions: [],
+}
+
 vi.mock('./lib/session', () => ({
   getSession: vi.fn(),
   useSession: vi.fn(() => ({
     data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' } },
   })),
   signOut: vi.fn(),
-  // Sidebar (T24, specs/004-auth-roles-permissions) filters its tool list by
-  // usePermissions().apps — these tests deep-link into both estimai and
-  // refund routes, so both must be granted or the route content (mounted via
-  // RemoteMount, unrelated to Sidebar) would still resolve, but grant both
-  // anyway to keep this mock a faithful "fully permissioned user" fixture.
-  usePermissions: vi.fn(() => ({ epoch: 0, apps: ['estimai', 'refund'], roles: [], departments: [], permissions: [] })),
+  usePermissions: vi.fn(() => PERMISSIONS_FIXTURE),
+  ensurePermissions: vi.fn(async () => PERMISSIONS_FIXTURE),
+  revalidatePermissions: vi.fn(async () => PERMISSIONS_FIXTURE),
 }))
 
 vi.mock('estimai/App', () => ({
@@ -52,6 +64,10 @@ vi.mock('estimai/App', () => ({
 
 vi.mock('refund/App', () => ({
   default: () => <div data-testid="refund-app">Refund mounted</div>,
+}))
+
+vi.mock('admin/App', () => ({
+  default: () => <div data-testid="admin-app">Admin mounted</div>,
 }))
 
 import { getSession } from './lib/session'

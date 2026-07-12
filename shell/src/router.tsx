@@ -1,11 +1,12 @@
 import { createRootRoute, createRoute, createRouter, redirect, Outlet } from '@tanstack/react-router'
 import { ShellLayout } from './components/ShellLayout'
 import { RemoteMount } from './components/RemoteMount'
+import { NoAccessScreen } from './components/NoAccessScreen'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
-import { getSession } from './lib/session'
-import { recordLastTool, resolveLastToolPath } from './lib/tools'
+import { ensurePermissions, getSession, revalidatePermissions } from './lib/session'
+import { recordLastTool, resolveLastToolPath, TOOLS, type ToolId } from './lib/tools'
 
 // ---------------------------------------------------------------------------
 // Shell router — the integration keystone (T9, specs/003-suite-shell).
@@ -50,6 +51,26 @@ import { recordLastTool, resolveLastToolPath } from './lib/tools'
 //     `.navigate()` calls all go through route matching, so all of them are
 //     captured uniformly here rather than only wiring the sidebar's click
 //     handler.
+//
+// T25 (specs/004-auth-roles-permissions, US-7, AC-7.3/7.4/7.5) adds:
+//   - `/admin/$`: a third tool route, mounting the new `admin-ui` remote
+//     exactly like `/estimai/$`/`/refund/$` (see "New admin-ui remote"
+//     below).
+//   - An app-access guard on EVERY tool route (`createToolAccessBeforeLoad`):
+//     resolves the caller's live permissions (`shell/session`'s
+//     `revalidatePermissions()`, ADR-0007) and, if the tool being navigated
+//     to is not in the resolved `apps` set, redirects to a permitted tool
+//     (or `/no-access` if the user has none) INSTEAD of recording/mounting
+//     the tool. `revalidatePermissions()` (not the cached `ensurePermissions()`)
+//     is used deliberately here — it force-refetches `GET /authz/me` on every
+//     navigation into a tool route, so a just-revoked app is blocked on the
+//     very next navigation (AC-7.5), not merely on the next full page load.
+//     This is a real, if modest, network cost per tool navigation; the plan
+//     accepts it explicitly ("Navigations are user-paced, so revalidation is
+//     cheap" — plan.md "Immediate revocation (AC-4.3) — the mechanism").
+//   - `/no-access` (Screen S1, design.md): rendered when the caller has zero
+//     granted apps at all — reached either via the root `/` redirect (below)
+//     or via a tool route's access guard.
 // ---------------------------------------------------------------------------
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -116,12 +137,26 @@ const shellRoute = createRoute({
 // page navigation — this happens inside the shell, under the already-
 // resolved `_authed` guard, so a client-side transition (not a document
 // reload, unlike the guard's sign-in redirect) is correct here.
+//
+// T25 (AC-7.4, design.md Flow F8): if the caller's `apps` is empty, there is
+// nothing to redirect to — this route sends them to `/no-access` (Screen S1)
+// directly instead of following `resolveLastToolPath()`'s always-a-tool
+// fallback. `ensurePermissions()` (the CACHED resolver, not the forced
+// `revalidatePermissions()` used by the tool routes below) is enough here:
+// this route never mounts a tool itself, and whichever tool it redirects to
+// re-checks access itself via its own guard on the very next `beforeLoad`, so
+// a value that's gone stale between this check and that one self-corrects
+// there (see "New in T25" module doc above).
 // ---------------------------------------------------------------------------
 
 const indexRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/',
-  beforeLoad: () => {
+  beforeLoad: async () => {
+    const permissions = await ensurePermissions()
+    if (permissions.apps.length === 0) {
+      throw redirect({ to: '/no-access' })
+    }
     throw redirect({ to: resolveLastToolPath() })
   },
 })
@@ -153,30 +188,77 @@ const indexRoute = createRoute({
 
 const loadEstimaiApp = () => import('estimai/App')
 const loadRefundApp = () => import('refund/App')
+// T25 (specs/004-auth-roles-permissions, US-1 host side): admin-ui's exposed
+// root — same loader shape as the two above.
+const loadAdminApp = () => import('admin/App')
 
-// Each tool route's `beforeLoad` writes its id to `operai_last_tool` (T10,
-// AC-3.4, Flow 3 step 4) whenever the route matches — the writer lives on the
-// ROUTE, not on a sidebar click handler, so deep links (typed/shared URLs)
-// and programmatic `.navigate()` calls record the tool exactly like a
-// sidebar click does. `recordLastTool` is defensive about storage failures
-// itself (shell/src/lib/tools.ts), so no try/catch is needed here.
+// ---------------------------------------------------------------------------
+// App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
+// tool route's `beforeLoad`, so the check/redirect logic exists exactly once
+// instead of being hand-copied per tool.
+//
+// `resolveAccessRedirectTarget` picks the fallback destination for a caller
+// who lacks the tool they navigated to: the first tool (in `TOOLS` order,
+// shell/src/lib/tools.ts) present in their resolved `apps`, or `/no-access`
+// (Screen S1) if `apps` is empty. Never returns the tool that was just
+// denied — by construction it can't: the caller only reaches this branch
+// when that tool's id is NOT in `apps`.
+// ---------------------------------------------------------------------------
+
+const resolveAccessRedirectTarget = (apps: readonly string[]): string => {
+  const permitted = TOOLS.find(tool => apps.includes(tool.id))
+  return permitted ? permitted.to : '/no-access'
+}
+
+/**
+ * Builds a tool route's combined `beforeLoad`: revalidate permissions live
+ * (force-refetch `GET /authz/me` via `revalidatePermissions()`, not the
+ * cached `ensurePermissions()`, so a revocation is caught on THIS
+ * navigation — AC-7.5), then either redirect away (tool not granted) or
+ * record the tool as most-recently-used (T10) and let the route render.
+ */
+const createToolAccessBeforeLoad = (toolId: ToolId) => async () => {
+  const permissions = await revalidatePermissions()
+  if (!permissions.apps.includes(toolId)) {
+    throw redirect({ to: resolveAccessRedirectTarget(permissions.apps) })
+  }
+  recordLastTool(toolId)
+}
 
 const estimaiRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/estimai/$',
-  beforeLoad: () => {
-    recordLastTool('estimai')
-  },
+  beforeLoad: createToolAccessBeforeLoad('estimai'),
   component: () => <RemoteMount loader={loadEstimaiApp} moduleLabel="EstimAI" />,
 })
 
 const refundRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/refund/$',
-  beforeLoad: () => {
-    recordLastTool('refund')
-  },
+  beforeLoad: createToolAccessBeforeLoad('refund'),
   component: () => <RemoteMount loader={loadRefundApp} moduleLabel="Refund" />,
+})
+
+const adminRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/admin/$',
+  beforeLoad: createToolAccessBeforeLoad('admin'),
+  component: () => <RemoteMount loader={loadAdminApp} moduleLabel="Admin" />,
+})
+
+// ---------------------------------------------------------------------------
+// `/no-access` — Screen S1 (T25, design.md, AC-7.4). Reached either from the
+// root `/` redirect above (zero apps, nothing to land on) or from a tool
+// route's access guard (zero apps, redirected here instead of a permitted
+// tool). No `beforeLoad` of its own — it is always the TARGET of a redirect
+// already backed by a resolved (empty) `apps` set, never navigated to
+// directly by the user.
+// ---------------------------------------------------------------------------
+
+const noAccessRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/no-access',
+  component: () => <NoAccessScreen />,
 })
 
 // ---------------------------------------------------------------------------
@@ -189,6 +271,8 @@ export const routeTree = rootRoute.addChildren([
       indexRoute,
       estimaiRoute,
       refundRoute,
+      adminRoute,
+      noAccessRoute,
     ]),
   ]),
 ])
