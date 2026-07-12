@@ -125,7 +125,7 @@ services validate these as URLs and refuse to start without it.
 | Placeholder | Which service | Example | Used by |
 |---|---|---|---|
 | `<AUTH_URL>` | the **auth** service | `https://auth.operai.welld.io` | auth `BETTER_AUTH_URL`; estimai-api `AUTH_ISSUER` + `AUTH_JWKS_URL`; OAuth callback URLs; Vercel `VITE_AUTH_URL` |
-| `<API_URL>` | the **estimai-api** service | `https://api.operai.welld.io` | Vercel `VITE_API_URL`; the health-check curls |
+| `<API_URL>` | the **estimai-api** service | `https://estimai-api.operai.welld.io` | Vercel `VITE_API_URL`; the health-check curls |
 
 `<AUTH_URL>` shows up in more places **on purpose**: it is the JWT **issuer**, so estimai-api
 must point back at it. estimai-api's own URL (`<API_URL>`) is not referenced by any
@@ -223,7 +223,7 @@ railway status
    ```
    `<AUTH_URL>` is the **auth** service's URL from Step 3 (e.g. `https://auth-production-0700.up.railway.app`)
    — **with `https://`**. `MAX_ESTIMATE_BYTES` / `MAX_IMPORT_REQUEST_BYTES` are optional (defaults — 1 MiB).
-3. **Generate a public domain** (or custom domain e.g. `api.operai.welld.io`). Note it as
+3. **Generate a public domain** (or custom domain e.g. `estimai-api.operai.welld.io`). Note it as
    `<API_URL>`.
 
 > **Postgres service name:** the `${{Postgres.*}}` references assume the database service

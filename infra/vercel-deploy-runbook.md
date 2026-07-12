@@ -40,7 +40,7 @@ Vercel (3 independent projects)                    Railway (europe-west4)
 
 **PENDING DECISION — real hostnames.** The hostnames above
 (`operai.welld.io`, `estimai.operai.welld.io`, `refund.operai.welld.io`,
-`auth.operai.welld.io`, `api.operai.welld.io`) are the **proposed** scheme
+`auth.operai.welld.io`, `estimai-api.operai.welld.io`) are the **proposed** scheme
 this runbook and the committed `vercel.json` files use as placeholders — they
 share the registrable parent domain `welld.io` on purpose (see "Shared parent
 domain" below, plan.md Risk R7). They are not yet confirmed/provisioned. If
@@ -122,7 +122,7 @@ share the production hostnames.
 | Variable | Production value | Notes |
 |---|---|---|
 | `VITE_AUTH_URL` | `https://auth.operai.welld.io` | `<AUTH_URL>` from `infra/README.md` |
-| `VITE_API_URL` | `https://api.operai.welld.io` | `<API_URL>` from `infra/README.md` |
+| `VITE_API_URL` | `https://estimai-api.operai.welld.io` | `<API_URL>` from `infra/README.md` |
 | `ESTIMAI_REMOTE_URL` | `https://estimai.operai.welld.io/remoteEntry.js` | Build-time default (see Step 5 for the runtime override layer) |
 | `REFUND_REMOTE_URL` | `https://refund.operai.welld.io/remoteEntry.js` | Build-time default |
 
@@ -131,12 +131,15 @@ share the production hostnames.
 | Variable | Production value | Notes |
 |---|---|---|
 | `VITE_AUTH_URL` / `VITE_API_URL` | same as shell's | Only exercised by the dev/test-only standalone bootstrap (`src/main.tsx`) — in production estimai-ui runs as a shell remote and delegates every session/API call to `shell/session` (see `src/lib/api.ts`, `authClient.ts`); these vars have **no effect** on that path |
-| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | Same standalone-bootstrap-only caveat |
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | **REQUIRED in production** — baked into estimai-ui's bundle; when mounted in the shell, estimai-ui imports `shell/session`/`shell/tokens.css` from **this** `remoteEntry.js`. Unset ⇒ dev-default `http://localhost:5173/remoteEntry.js` is baked ⇒ the shell's CSP blocks it ⇒ `[RemoteMount] failed to load remote module "EstimAI"`. **Redeploy** after setting. NOT the same as the `VITE_*` standalone-only caveat above. |
 
 ### `refund-ui`
 
-Same `SHELL_REMOTE_URL` pattern as `estimai-ui`; no direct backend vars today
-(see `refund-ui/.env.example`).
+| Variable | Production value | Notes |
+|---|---|---|
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | **REQUIRED in production** — same as estimai-ui's `SHELL_REMOTE_URL` (refund-ui imports `shell/session`/`shell/tokens.css` from the shell when mounted). Unset ⇒ dev-default `localhost:5173` baked ⇒ CSP-blocked ⇒ Refund fails to mount. |
+
+refund-ui has no direct backend vars of its own today (see `refund-ui/.env.example`).
 
 After setting/changing these, **redeploy the affected project** — they are
 build-time (`process.env` read in each `vite.config.ts`), same as
@@ -260,7 +263,7 @@ affect the T16 e2e suite, which was a deliberate risk-avoidance choice):
 ```
 default-src 'self';
 script-src 'self' https://estimai.operai.welld.io https://refund.operai.welld.io;
-connect-src 'self' https://auth.operai.welld.io https://api.operai.welld.io
+connect-src 'self' https://auth.operai.welld.io https://estimai-api.operai.welld.io
             https://estimai.operai.welld.io https://refund.operai.welld.io;
 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
 font-src 'self' https://fonts.gstatic.com data:;

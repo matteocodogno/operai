@@ -64,7 +64,7 @@ Two kinds, distinguished by prefix:
 | Variable | Example / Placeholder | Secret | Source |
 |---|---|---|---|
 | `VITE_AUTH_URL` | `<AUTH_URL>` (e.g. `https://auth.operai.welld.io`) | No | auth service URL. Drives the `_authed` guard's hosted-sign-in redirect and `shell/session`'s JWT fetch/refresh + trusted-origin allowlist. Same value as auth `BETTER_AUTH_URL`. |
-| `VITE_API_URL` | `<API_URL>` (e.g. `https://api.operai.welld.io`) | No | estimai-api URL. `shell/session` attaches the Bearer JWT **only** to this origin (or `VITE_AUTH_URL`, or same-origin). |
+| `VITE_API_URL` | `<API_URL>` (e.g. `https://estimai-api.operai.welld.io`) | No | estimai-api URL. `shell/session` attaches the Bearer JWT **only** to this origin (or `VITE_AUTH_URL`, or same-origin). |
 | `ESTIMAI_REMOTE_URL` | `https://estimai.operai.welld.io/remoteEntry.js` | No | Build-time default for the EstimAI remote, baked into the shell bundle. Overridable at runtime by `shell/public/runtime-config.json` without a rebuild (AC-5.3 — see Vercel runbook Step 5). Unprefixed (Vite-config-side). |
 | `REFUND_REMOTE_URL` | `https://refund.operai.welld.io/remoteEntry.js` | No | Same as above, for the Refund remote. |
 
@@ -73,13 +73,13 @@ Two kinds, distinguished by prefix:
 | Variable | Example / Placeholder | Secret | Source |
 |---|---|---|---|
 | `VITE_AUTH_URL` / `VITE_API_URL` | same as shell's | No | **Standalone-only.** Read only by the dev/test standalone bootstrap (`src/main.tsx`). In production estimai-ui runs as a shell remote and delegates every session/API call to `shell/session` — these have **no effect** on that path (see `src/lib/api.ts`, `authClient.ts`). |
-| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | Build-time; the shell host's `remoteEntry.js` so the standalone bootstrap can import `shell/session`. Unprefixed (Vite-config-side). Same standalone-only caveat. |
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | **REQUIRED in production** (build-time, baked into the estimai-ui bundle by `vite.config.ts`). When estimai-ui is mounted inside the shell, its code imports `shell/session` / `shell/tokens.css` from **this** `remoteEntry.js` — so it must point at the shell's origin. **If unset, the build bakes the dev default `http://localhost:5173/remoteEntry.js`**, which the shell's CSP blocks at runtime → `shell/session` fails to load → `[RemoteMount] failed to load remote module "EstimAI"`. Unprefixed (Vite-config-side, read via `process.env`). Set it and **redeploy** the estimai-ui project. |
 
 ### `refund-ui` project (remote)
 
 | Variable | Example / Placeholder | Secret | Source |
 |---|---|---|---|
-| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | Same pattern as `estimai-ui`. refund-ui has **no** backend vars of its own today (no direct `auth`/`estimai-api` calls — it delegates to `shell/session`). |
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | **REQUIRED in production** — same as estimai-ui's `SHELL_REMOTE_URL` above (refund-ui imports `shell/session` / `shell/tokens.css` from the shell when mounted). Unset ⇒ dev-default `localhost:5173` baked ⇒ CSP-blocked ⇒ Refund fails to mount. refund-ui has **no** backend vars of its own today (no direct `auth`/`estimai-api` calls — it delegates to `shell/session`). |
 
 > The frontends' **production origin** (`https://operai.welld.io`, the shell) is what the
 > backends' `ALLOWED_ORIGINS`/`UI_HOME_URL` must contain — see the Cross-service wiring
