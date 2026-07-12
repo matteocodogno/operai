@@ -8,7 +8,11 @@
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
-import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
+import {
+  requireAdmin,
+  requireAuth,
+  sessionMiddleware,
+} from "../auth/auth.middleware";
 import { listAuditLog } from "./audit";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -75,6 +79,10 @@ const getAuditLogRoute = createRoute({
       content: { "application/json": { schema: ProblemJsonSchema } },
       description: "No valid session",
     },
+    403: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "Caller does not hold the admin role",
+    },
   },
 });
 
@@ -102,11 +110,9 @@ export const auditRouter = new OpenAPIHono({
   },
 });
 
-// sessionMiddleware + requireAuth per plan.md's "all admin routes" baseline.
-// TODO(T4): once `requireAdmin` lands (auth/src/auth/auth.middleware.ts or
-// authz/), add it here so only admins can list the audit trail — e.g.:
-//   auditRouter.use("/admin/audit", sessionMiddleware, requireAuth, requireAdmin);
-auditRouter.use("/admin/audit", sessionMiddleware, requireAuth);
+// sessionMiddleware + requireAuth + requireAdmin per plan.md's "all admin
+// routes" baseline (403 for non-admin — AC-1.5, T4).
+auditRouter.use("/admin/audit", sessionMiddleware, requireAuth, requireAdmin);
 
 auditRouter.openapi(getAuditLogRoute, async (c) => {
   const { page, pageSize } = c.req.valid("query");
