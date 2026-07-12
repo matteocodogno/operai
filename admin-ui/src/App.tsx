@@ -1,76 +1,56 @@
 import 'shell/tokens.css'
-import { useSession } from 'shell/session'
+import { RouterProvider } from '@tanstack/react-router'
+import { createAppRouter } from './router'
+
+// IMPORTANT (mirrors estimai-ui/src/App.tsx's T12/specs/003-suite-shell doc
+// exactly, same underlying reason): the exposed remote MUST NOT import its
+// own `index.css` here. The shell owns the single Tailwind sheet for the
+// whole suite; importing admin-ui's own compiled Tailwind here would put a
+// SECOND full Tailwind sheet on the shell's page (the double-header /
+// broken-responsive bug — see index.css's own doc comment). The standalone
+// bootstrap (main.tsx) DOES import index.css: outside the shell there is no
+// shell sheet, so it's admin-ui's only source of Tailwind + tokens.
 
 /**
  * App — admin-ui's root component, exposed via Module Federation as `./App`
  * (see vite.config.ts's `exposes`) — what the shell's future `/admin/*`
- * catch-all route (a later task, per plan.md's shell-wiring list) will
- * mount.
+ * catch-all route (per plan.md's shell-wiring list, a later task of this
+ * feature) mounts.
  *
- * Minimal, authed-only placeholder (T13, specs/004-auth-roles-permissions —
- * "the scaffold only; real screens/routing are later tasks"): a heading
- * identifying the tool, a short coming-soon / proof-of-concept message, and
- * nothing else — no roles/departments/users/audit screens yet (those are
- * T14+). It is written to render only once the shell's `_authed` guard has
- * already confirmed a session exists before mounting this component —
- * mirrors the plan's federation contract ("no auth guard, no chrome" for
- * every remote) and refund-ui's `./App` (specs/003-suite-shell T15). No
- * inner TanStack Router either: there is nothing to navigate between on a
- * single static screen yet — a later task adds admin-ui's own inner router
- * (basepath `/admin`) once there are real Roles/Departments/Users/Audit
- * screens to route between (plan.md "New admin-ui remote").
+ * T14 (specs/004-auth-roles-permissions/tasks.md): replaces T13's static
+ * placeholder with admin-ui's own inner TanStack Router (src/router.tsx),
+ * rebased to basepath `/admin` — same federation contract estimai-ui's
+ * `./App` (specs/003-suite-shell, T12/T13) already established:
  *
- * Demonstrates the shared session (ADR-0001/ADR-0006): reads the signed-in
- * user's name via the shell's shared `shell/session` module (`useSession`)
- * — the SAME in-memory JWT/session state the shell chrome and every other
- * tool reads, not a locally re-created auth client. Kept to a single line,
- * not a profile UI.
+ *   admin-ui (remote)
+ *     exposes:  ./App   # root component; inner TanStack Router with
+ *                        # basepath '/admin'; no auth guard, no chrome
+ *
+ * Landing on `/admin` (or any admin path) renders AdminShell's section nav
+ * (Roles/Departments/Users/Audit — src/components/SectionNav.tsx) + the
+ * active section's placeholder page via `<Outlet/>` (src/components/
+ * AdminShell.tsx). The real Roles/Departments/Users/Audit screens are
+ * T17–T21; this task ships only the router + nav shell they mount into.
  *
  * Design-system consistency: imports `shell/tokens.css` as a side-effect
  * (federated CSS module) so the shared Operai fonts + palette CSS custom
  * properties are present regardless of whether this component runs inside
  * the shell (which already loads the same tokens globally — a harmless
  * duplicate `<style>` injection) or standalone (src/main.tsx, dev/test
- * bootstrap — where it's the ONLY source of the palette).
- *
- * Deliberate styling choice (mirrors refund-ui/src/App.tsx's ADR-candidate
- * exactly, same underlying reason): colors and fonts below are applied via
- * the shared stylesheet's plain CSS custom properties (`var(--text)`,
- * `var(--soft)`, `var(--disp)`, …) rather than Tailwind's palette-specific
- * utility classes (`text-text`, `font-disp`, …). Those utilities only exist
- * in a build that processed the tokens' `@theme` block through Tailwind's
- * compiler at BUILD time; `shell/tokens.css` is consumed here as a RUNTIME
- * federated import, which Tailwind's JIT in this project's own build never
+ * bootstrap — where it's the ONLY source of the palette). AdminShell,
+ * SectionNav, and the section pages all consume that palette via plain CSS
+ * custom properties (`var(--text)`, `var(--soft)`, `var(--disp)`, …) rather
+ * than Tailwind's palette-specific utility classes, for the same reason
+ * documented on T13's original App.tsx: those utilities only exist in a
+ * build that processed the tokens' `@theme` block through Tailwind's
+ * compiler at BUILD time, and `shell/tokens.css` is consumed here as a
+ * RUNTIME federated import that this project's own Tailwind build never
  * sees. Standard Tailwind utilities (layout/spacing/type-scale — `mx-auto`,
- * `px-6`, `text-3xl`, …) are unaffected and used freely below, since those
- * ship with Tailwind itself and need no local `@theme`.
+ * `px-6`, `text-3xl`, …) are unaffected and used freely, since those ship
+ * with Tailwind itself and need no local `@theme`.
  */
-export default function App() {
-  const session = useSession()
-  const displayName = session.data?.user?.name || session.data?.user?.email || null
+const router = createAppRouter('/admin')
 
-  return (
-    <div className="mx-auto max-w-2xl px-6 py-16 text-center" style={{ color: 'var(--text)' }}>
-      <h1
-        className="text-3xl font-bold"
-        style={{ fontFamily: 'var(--disp)' }}
-      >
-        Admin
-      </h1>
-      <p className="mt-4 text-base" style={{ color: 'var(--soft)' }}>
-        Coming soon — this is a proof-of-concept placeholder proving Admin loads as its
-        own, independently deployed tool inside the Operai suite. Roles, departments,
-        users, and the audit log ship in later tasks of this feature.
-      </p>
-      {displayName && (
-        <p
-          className="mt-6 text-sm"
-          style={{ color: 'var(--muted)', fontFamily: 'var(--mono)' }}
-          data-testid="admin-signed-in-as"
-        >
-          Signed in as {displayName}
-        </p>
-      )}
-    </div>
-  )
+export default function App() {
+  return <RouterProvider router={router} />
 }
