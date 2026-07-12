@@ -130,7 +130,8 @@ share the production hostnames.
 
 | Variable | Production value | Notes |
 |---|---|---|
-| `VITE_AUTH_URL` / `VITE_API_URL` | same as shell's | Only exercised by the dev/test-only standalone bootstrap (`src/main.tsx`) — in production estimai-ui runs as a shell remote and delegates every session/API call to `shell/session` (see `src/lib/api.ts`, `authClient.ts`); these vars have **no effect** on that path |
+| `VITE_API_URL` | same as shell's (`https://estimai-api.operai.welld.io`) | **REQUIRED in production** — estimai-ui's `src/lib/estimatesApi.ts` builds `${VITE_API_URL}/estimates` from **its own** baked value, so this sets **where** EstimAI's data calls go. Must match the shell's `VITE_API_URL` (shell decides *whether* the JWT is attached to that origin; this sets the origin). Redeploy after setting. |
+| `VITE_AUTH_URL` | same as shell's | **Standalone-only** — auth/session is owned by the shell (`shell/session`); estimai-ui's `authClient.ts` isn't imported by prod code. Only the dev/test standalone bootstrap reads it. No production effect on the remote. |
 | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | **REQUIRED in production** — baked into estimai-ui's bundle; when mounted in the shell, estimai-ui imports `shell/session`/`shell/tokens.css` from **this** `remoteEntry.js`. Unset ⇒ dev-default `http://localhost:5173/remoteEntry.js` is baked ⇒ the shell's CSP blocks it ⇒ `[RemoteMount] failed to load remote module "EstimAI"`. **Redeploy** after setting. NOT the same as the `VITE_*` standalone-only caveat above. |
 
 ### `refund-ui`
