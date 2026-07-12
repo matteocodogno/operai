@@ -45,7 +45,7 @@ operai/
 │
 ├── estimai-api/         # PLANNED — Bun + Hono + TypeScript backend (directory empty; see specs/001)
 │
-├── docs/adr/            # Architecture Decision Records (0001–0005; see ## Architecture decisions)
+├── docs/adr/            # Architecture Decision Records (0001–0007; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run release`
 └── specs/               # Spec-driven workflow (see below)
@@ -296,3 +296,4 @@ All tools share the Operai design system (DM Sans / DM Mono / Syne, dark ink pal
 - [0004] Estimate persistence: JSONB document + denormalised listing columns — one `estimate` row with `content` JSONB; `name`/`author`/`sizeBytes`/timestamps as columns; fidelity is semantic deep-equal; 1 MiB size guard; no count quota (see docs/adr/0004-estimate-persistence-jsonb-document.md)
 - [0005] JWT resource-server verification via remote JWKS — `estimai-api` verifies Bearer JWTs with `jose createRemoteJWKSet` pinned to RS256 + issuer; all queries scoped to `sub`; not-owned records return 404 not 403; establishes the pattern for all future Operai resource services (see docs/adr/0005-jwt-resource-server-remote-jwks.md)
 - [0006] Operai suite frontend composition via Module Federation — a shell host owns shared chrome/session (ADR-0001/0002/0005 reused via `shell/session`); tools mount as path-basepathed remotes with no own auth guard/chrome; remote URLs resolved at runtime per-env, never build-baked (see docs/adr/0006-suite-frontend-module-federation.md)
+- [0007] Authorization model: hand-rolled RBAC/ABAC in the auth service, identity+epoch JWT claims, live permission resolution — do not embed roles/permissions in the JWT (identity + `perm_epoch` only); resolve effective permissions live via `GET /authz/me`, cached in-memory and revalidated on navigation, so revocation is immediate; per-app catalog + admin API live inside `auth` (see docs/adr/0007-authz-hand-rolled-rbac-abac-epoch-claims.md)
