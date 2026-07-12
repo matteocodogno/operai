@@ -11,7 +11,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 
 ## Track A — auth service authorization core
 
-- [ ] T1: Prisma schema + migration for the authz domain — refs: US-1/2/3/5, AC-4.2 — deps: none
+- [x] T1: Prisma schema + migration for the authz domain — refs: US-1/2/3/5, AC-4.2 — deps: none
   - touch: `auth/prisma/schema.prisma`, new `auth/prisma/migrations/*`
   - add models `role`, `department`, `permission_rule` (resource, action, `conditions Json?`),
     `user_role`, `department_role`, `user_department`, `catalog_resource`, `catalog_action`,
@@ -64,7 +64,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 
 ## Track B — new `admin-ui` federated remote
 
-- [ ] T13: Scaffold `admin-ui` remote — refs: US-1 (host), ADR-0006 — deps: none
+- [x] T13: Scaffold `admin-ui` remote — refs: US-1 (host), ADR-0006 — deps: none
   - touch: `admin-ui/*` (package.json, vite.config.ts w/ federation exposing `./App` + consuming `shell/session`+`shell/tokens.css`, index.html, `src/main.tsx` standalone bootstrap, `src/App.tsx`, `.env.example`, vitest/playwright config) — mirror `refund-ui`.
   - done when: `pnpm --dir admin-ui build` emits `remoteEntry.js`; standalone bootstrap runs.
 - [ ] T14: admin-ui inner router + section nav — refs: US-1 — deps: T13
@@ -93,7 +93,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 
 ## Track C — shell US-7 (app-access enforcement)
 
-- [ ] T23: shell/session permission resolution — refs: AC-4.3, AC-7.5 — deps: none (builds to the `/authz/me` contract)
+- [x] T23: shell/session permission resolution — refs: AC-4.3, AC-7.5 — deps: none (builds to the `/authz/me` contract)
   - touch: `shell/src/lib/session.ts` — `ensurePermissions()`/`usePermissions()` (fetch `/authz/me`, in-memory cache per ADR-0001, cleared on `signOut`), revalidate helper.
   - done when: unit tests — cache, clear-on-signout, revalidate returns fresh apps/permissions.
 - [ ] T24: Sidebar/tools app-access filter + Admin tool — refs: AC-7.1, AC-7.2 — deps: T23
