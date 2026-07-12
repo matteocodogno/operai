@@ -10,16 +10,30 @@ datasource db {
 // ─── Better Auth core tables ──────────────────────────────────────────────────
 
 model User {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
+  email         String   @unique
+  emailVerified Boolean  @default(false)
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // ─── Authorization (spec 004) ──────────────────────────────────────────────
+  // permissionEpoch is bumped (in the same tx as any authz mutation affecting
+  // this user) so live consumers (GET /authz/me, and — in a future backend —
+  // the JWT perm_epoch claim) can detect a stale cached permission view.
+  // entity/jobTitle are admin-set attribute targets for ABAC conditions
+  // (see PermissionRule.conditions).
+  permissionEpoch Int     @default(0)
+  entity          String?
+  jobTitle        String?
 
   sessions Session[]
   accounts Account[]
+
+  userRoles       UserRole[]
+  userDepartments UserDepartment[]
+  auditLogs       AuditLog[]
 
   @@map("user")
 }
@@ -39,31 +53,31 @@ model Session {
 }
 
 model Account {
-  id                   String    @id @default(cuid())
-  accountId            String
-  providerId           String
-  userId               String
-  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accessToken          String?
-  refreshToken         String?
-  idToken              String?
-  accessTokenExpiresAt DateTime?
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
   refreshTokenExpiresAt DateTime?
-  scope                String?
-  password             String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@map("account")
 }
 
 model Verification {
-  id         String    @id @default(cuid())
+  id         String   @id @default(cuid())
   identifier String
   value      String
   expiresAt  DateTime
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("verification")
 }
@@ -77,4 +91,157 @@ model Jwks {
   createdAt  DateTime @default(now())
 
   @@map("jwks")
+}
+
+// ─── Authorization domain (spec 004) ─────────────────────────────────────────
+// Hand-rolled RBAC/ABAC — see docs/adr/0007. Roles bundle permission_rules;
+// departments confer roles to their members; users hold roles directly and/or
+// via department membership. Effective permissions = union of both paths,
+// resolved live (never embedded in the JWT — see auth.config.ts definePayload).
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules           PermissionRule[]
+  userRoles       UserRole[]
+  departmentRoles DepartmentRole[]
+
+  @@map("role")
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  departmentRoles DepartmentRole[]
+  members         UserDepartment[]
+
+  @@map("department")
+}
+
+// A grant of one action on one resource, optionally narrowed by conditions
+// (ownership + attribute match — see docs). Rules bundle into a role.
+model PermissionRule {
+  id     String @id @default(cuid())
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  resource   String
+  action     String
+  // { ownership: "own"|"any", attributes: [{ key, match: "user" }] } — see plan.md
+  conditions Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId])
+  @@index([resource, action])
+  @@map("permission_rule")
+}
+
+// Direct role assignment to a user.
+model UserRole {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  assignedByUserId String?
+  assignedAt       DateTime @default(now())
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_role")
+}
+
+// Roles a department confers to all of its members.
+model DepartmentRole {
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([departmentId, roleId])
+  @@index([roleId])
+  @@map("department_role")
+}
+
+// Department membership — members inherit the department's roles.
+model UserDepartment {
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  assignedByUserId String?
+  assignedAt       DateTime @default(now())
+
+  @@id([userId, departmentId])
+  @@index([departmentId])
+  @@map("user_department")
+}
+
+// A resource an app protects (an app itself, or a data type within it).
+// appId is the declaring app (e.g. "estimai"); key is the resource
+// (e.g. "estimate", or the app id itself for the app-access resource).
+model CatalogResource {
+  id    String @id @default(cuid())
+  appId String
+  key   String
+  label String
+
+  actions CatalogAction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([appId, key])
+  @@map("catalog_resource")
+}
+
+// An operation on a catalog resource (view/create/edit/delete/approve/access)
+// and which condition types a rule against it may use.
+model CatalogAction {
+  id         String          @id @default(cuid())
+  resourceId String
+  resource   CatalogResource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  key                 String
+  label               String
+  supportedConditions String[]
+
+  @@unique([resourceId, key])
+  @@index([resourceId])
+  @@map("catalog_action")
+}
+
+// Immutable authorization-change trail (AC-5.1/5.3) — no update/delete route.
+// actorUserId is nullable + SetNull so the record survives the actor's deletion.
+model AuditLog {
+  id String @id @default(cuid())
+
+  actorUserId String?
+  actor       User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  action     String
+  targetType String
+  targetId   String?
+  summary    String
+  // before/after diff, shape varies by action
+  data       Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_log")
 }
