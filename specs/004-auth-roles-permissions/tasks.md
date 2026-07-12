@@ -18,7 +18,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
     `audit_log`; add `user.permissionEpoch Int @default(0)`, `user.entity String?`,
     `user.jobTitle String?`. cuid PKs, `@@map` lowercase, cascade-from-`user`, timestamps.
   - done when: `bun run db:migrate` applies cleanly on the existing DB; client regenerates; never edits `20260415155105_init`.
-- [ ] T2: Effective-permissions resolver — refs: AC-4.2, AC-4.4 — deps: T1
+- [x] T2: Effective-permissions resolver — refs: AC-4.2, AC-4.4 — deps: T1
   - touch: `auth/src/authz/resolver.ts` (+ `resolver.test.ts`)
   - union of direct `user_role` ∪ department-derived rules, de-dup by `(resource,action)` (widest condition wins); default-deny (absent = no grant); epoch helpers (bump affected users).
   - done when: unit tests cover union, dedup/widest-wins, default-deny.
