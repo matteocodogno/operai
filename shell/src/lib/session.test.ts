@@ -25,6 +25,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
 
 // Mock better-auth's client factory so importing ./authClient (a session.ts
 // dependency) doesn't perform real network/env work during these interceptor
@@ -38,7 +39,17 @@ vi.mock('better-auth/react', () => ({
   }),
 }))
 
-const { apiFetch, clearJwtCache, signOut } = await import('./session')
+const {
+  apiFetch,
+  clearJwtCache,
+  signOut,
+  ensurePermissions,
+  revalidatePermissions,
+  clearPermissionsCache,
+  usePermissions,
+  EMPTY_PERMISSIONS,
+} = await import('./session')
+type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,8 +94,9 @@ beforeEach(() => {
   // a trusted origin in the existing interceptor tests.
   vi.stubEnv('VITE_API_URL', API_URL)
 
-  // Clear the module-level JWT cache before each test.
+  // Clear the module-level JWT + permissions caches before each test.
   clearJwtCache()
+  clearPermissionsCache()
 
   // Replace global fetch with a vi mock (restored after each test via afterEach).
   vi.stubGlobal('fetch', vi.fn())
@@ -394,5 +406,184 @@ describe('signOut', () => {
     )
     // 1 initial fetch + 1 fetch after sign-out clears the cache = 2.
     expect(tokenCalls).toHaveLength(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Permission resolution — ensurePermissions / revalidatePermissions /
+// usePermissions (T23, specs/004-auth-roles-permissions).
+//
+// GET /authz/me is reached through apiFetch (same trusted-origin/Bearer/401
+// machinery as the JWT), so every scenario below primes a /auth/token
+// response before the /authz/me response, mirroring the apiFetch tests above.
+// ---------------------------------------------------------------------------
+
+const PERMISSIONS_URL = `${AUTH_URL}/authz/me`
+
+const permissionsResponse = (overrides: Partial<PermissionsResult> = {}): Response =>
+  makeResponse(200, {
+    epoch: 1,
+    apps: ['estimai'],
+    roles: ['employee'],
+    departments: [],
+    permissions: [{ resource: 'estimate', action: 'view' }],
+    ...overrides,
+  })
+
+describe('ensurePermissions', () => {
+  it('fetches GET /authz/me and populates the in-memory cache on the first call', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT)) // /auth/token (apiFetch)
+      .mockResolvedValueOnce(permissionsResponse()) // /authz/me
+
+    const result = await ensurePermissions()
+
+    expect(result).toEqual({
+      epoch: 1,
+      apps: ['estimai'],
+      roles: ['employee'],
+      departments: [],
+      permissions: [{ resource: 'estimate', action: 'view' }],
+    })
+
+    const permCalls = mockFetch.mock.calls.filter(([url]) => url === PERMISSIONS_URL)
+    expect(permCalls).toHaveLength(1)
+  })
+
+  it('returns the cached value on a second call — no second /authz/me fetch', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(permissionsResponse())
+
+    const first = await ensurePermissions()
+    const second = await ensurePermissions()
+
+    expect(second).toEqual(first)
+    const permCalls = mockFetch.mock.calls.filter(([url]) => url === PERMISSIONS_URL)
+    expect(permCalls).toHaveLength(1)
+  })
+
+  it('dedupes concurrent callers into a single in-flight /authz/me request', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(permissionsResponse())
+
+    const [a, b] = await Promise.all([ensurePermissions(), ensurePermissions()])
+
+    expect(a).toEqual(b)
+    const permCalls = mockFetch.mock.calls.filter(([url]) => url === PERMISSIONS_URL)
+    expect(permCalls).toHaveLength(1)
+  })
+
+  it('resolves to EMPTY_PERMISSIONS (apps: []) on a failed fetch instead of throwing', async () => {
+    const mockFetch = vi.mocked(fetch)
+    // apiFetch flow: token, first 401, refresh token, retry 401 → redirect;
+    // ensurePermissions must resolve to the denied result, never throw/reject.
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(unauthorizedResponse())
+      .mockResolvedValueOnce(tokenResponse(REFRESHED_JWT))
+      .mockResolvedValueOnce(unauthorizedResponse())
+
+    await expect(ensurePermissions()).resolves.toEqual(EMPTY_PERMISSIONS)
+  })
+
+  it('resolves to EMPTY_PERMISSIONS on a network-level failure instead of throwing', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockRejectedValueOnce(new TypeError('network error'))
+
+    await expect(ensurePermissions()).resolves.toEqual(EMPTY_PERMISSIONS)
+  })
+})
+
+describe('revalidatePermissions', () => {
+  it('re-fetches /authz/me and replaces the cache even when already populated', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(permissionsResponse({ epoch: 1, apps: ['estimai'] }))
+      .mockResolvedValueOnce(
+        permissionsResponse({ epoch: 2, apps: ['estimai', 'refund'] }),
+      )
+
+    const first = await ensurePermissions()
+    expect(first.apps).toEqual(['estimai'])
+
+    const second = await revalidatePermissions()
+    expect(second.epoch).toBe(2)
+    expect(second.apps).toEqual(['estimai', 'refund'])
+
+    // A subsequent ensurePermissions() call must reuse the revalidated cache,
+    // not trigger a third fetch.
+    const third = await ensurePermissions()
+    expect(third).toEqual(second)
+
+    const permCalls = mockFetch.mock.calls.filter(([url]) => url === PERMISSIONS_URL)
+    expect(permCalls).toHaveLength(2)
+  })
+})
+
+describe('signOut clears the permissions cache', () => {
+  it('forces a fresh /authz/me fetch on the next ensurePermissions() call after sign-out', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(permissionsResponse({ epoch: 1 }))
+    await ensurePermissions()
+
+    await signOut()
+
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse('post-signout-jwt'))
+      .mockResolvedValueOnce(permissionsResponse({ epoch: 2 }))
+    const result = await ensurePermissions()
+
+    expect(result.epoch).toBe(2)
+    const permCalls = mockFetch.mock.calls.filter(([url]) => url === PERMISSIONS_URL)
+    expect(permCalls).toHaveLength(2)
+  })
+})
+
+describe('usePermissions', () => {
+  it('exposes EMPTY_PERMISSIONS synchronously, then the resolved permissions once fetched', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(permissionsResponse({ apps: ['estimai'] }))
+
+    const { result } = renderHook(() => usePermissions())
+
+    expect(result.current).toEqual(EMPTY_PERMISSIONS)
+
+    await waitFor(() => {
+      expect(result.current.apps).toEqual(['estimai'])
+    })
+  })
+
+  it('reflects a revalidatePermissions() update in an already-mounted component', async () => {
+    const mockFetch = vi.mocked(fetch)
+    mockFetch
+      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+      .mockResolvedValueOnce(permissionsResponse({ epoch: 1, apps: ['estimai'] }))
+      .mockResolvedValueOnce(
+        permissionsResponse({ epoch: 2, apps: ['estimai', 'refund'] }),
+      )
+
+    const { result } = renderHook(() => usePermissions())
+
+    await waitFor(() => {
+      expect(result.current.apps).toEqual(['estimai'])
+    })
+
+    await revalidatePermissions()
+
+    await waitFor(() => {
+      expect(result.current.apps).toEqual(['estimai', 'refund'])
+    })
   })
 })
