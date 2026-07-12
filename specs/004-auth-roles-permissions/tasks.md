@@ -30,7 +30,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/auth/auth.middleware.ts` (or `authz/`)
   - reads `c.get("user")`, checks the `admin` role; `403` RFC 7807 otherwise.
   - done when: integration test — non-admin → 403 on a guarded route; admin passes.
-- [ ] T5: Permission catalog — refs: AC-3.1, AC-3.2 — deps: T1, T4
+- [x] T5: Permission catalog — refs: AC-3.1, AC-3.2 — deps: T1, T4
   - touch: `auth/src/authz/catalog.routes.ts` + catalog module; mount in `src/index.ts`; OpenAPI tag
   - `PUT /authz/catalog` (idempotent upsert of an app's resources/actions/condition-types), `GET /admin/catalog`.
   - done when: register a catalog → `GET /admin/catalog` returns it; off-catalog validation helper exists.
