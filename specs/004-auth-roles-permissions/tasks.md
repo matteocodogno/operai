@@ -58,7 +58,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/lib/env.ts` (`BOOTSTRAP_ADMIN_EMAIL`), `auth/.env.example`, seed script, `auth.config.ts` `databaseHooks.user.create.after`
   - seed `employee`/`admin`/`accounting`/`hr` (+ their catalogs); on user-create assign `employee`, and `admin` if email matches bootstrap.
   - done when: fresh-DB integration test → 4 system roles exist; bootstrap email → admin; every new user → employee.
-- [ ] T12: Align better-auth version + hygiene — refs: plan R8 — deps: none
+- [x] T12: Align better-auth version + hygiene — refs: plan R8 — deps: none
   - touch: `auth/package.json` (`better-auth` `^1.6.2` to match the lockfile)
   - done when: `bun install` clean; `bun test` (auth) green; `definePayload`/`databaseHooks` behave as on 1.6.2.
 
@@ -99,7 +99,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 - [x] T24: Sidebar/tools app-access filter + Admin tool — refs: AC-7.1, AC-7.2 — deps: T23
   - touch: `shell/src/lib/tools.ts` (`ToolId += 'admin'`, TOOLS entry), `shell/src/components/Sidebar.tsx` (filter by `apps` + `TOOL_ICONS` admin entry).
   - done when: component/e2e — nav lists only `apps`-granted tools; Admin appears for admins only.
-- [ ] T25: shell route guard + `/no-access` + admin remote wiring — refs: AC-7.3, AC-7.4, AC-7.5 — deps: T23, T24, T13
+- [x] T25: shell route guard + `/no-access` + admin remote wiring — refs: AC-7.3, AC-7.4, AC-7.5 — deps: T23, T24, T13
   - touch: `shell/src/router.tsx` (per-tool `access` `beforeLoad`; `/no-access` route S1; `/admin/$` route), `shell/src/federation/remotes.d.ts` (`admin/App`), `shell/vite.config.ts` (`ADMIN_REMOTE_URL` remote), `shell/src/index.css` (`@source` admin-ui), `shell/vercel.json` (CSP admin origin).
   - done when: e2e — deep-link to an un-permitted tool → redirect/`/no-access`; zero-apps user → S1; revoked app gone on next navigation.
 
