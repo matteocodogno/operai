@@ -30,6 +30,12 @@ export function setupOpenAPI(app: OpenAPIHono): void {
         name: "System",
         description: "Health checks, JWKS, and service metadata",
       },
+      {
+        name: "Admin",
+        description:
+          "Authorization administration (roles, departments, users, audit trail). " +
+          "Requires an authenticated session; admin-only gating lands with requireAdmin (spec 004, T4).",
+      },
     ],
   });
 
