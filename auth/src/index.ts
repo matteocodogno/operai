@@ -7,6 +7,7 @@ import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { authRouter } from "./auth/auth.routes";
 import { auditRouter } from "./authz/audit.routes";
+import { authzRouter } from "./authz/authz.routes";
 import { healthRouter } from "./health/health.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
 import { signinRouter } from "./signin/signin.routes";
@@ -35,6 +36,7 @@ app.route("/", healthRouter);
 app.route("/", jwksRouter);
 app.route("/", signinRouter);
 app.route("/", auditRouter);
+app.route("/", authzRouter);
 
 // ── Test-auth router (structural defence-in-depth) ──────────────────────────
 // Only import + register when BOTH conditions are true at startup:
