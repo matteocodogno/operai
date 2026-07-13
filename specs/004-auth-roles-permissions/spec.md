@@ -1,10 +1,11 @@
 ---
 id: 004
 slug: auth-roles-permissions
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-13
 approved: 2026-07-13
+done: 2026-07-13
 ---
 
 # Authorization: roles, departments & fine-grained permissions

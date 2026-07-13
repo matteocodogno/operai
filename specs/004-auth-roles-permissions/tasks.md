@@ -117,7 +117,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 
 ## Close
 
-- [ ] T28: All gates green → `done` — deps: T1–T27
+- [x] T28: All gates green → `done` — deps: T1–T27
   - QE PASS (+ owasp-reviewer, security-sensitive) + eval PASS + all tasks checked → set spec `status: done`.
 
 ---

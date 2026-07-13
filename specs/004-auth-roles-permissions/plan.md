@@ -338,3 +338,27 @@ token's `perm_epoch` with live state) is **designed but not exercised here** (ba
 out of scope). This plan commits to: small token + `perm_epoch` + live `/authz/me`, shell
 revalidation on navigation. Backend enforcement lands in each app's own spec (`refund-api`
 first), which will also add `aud` (ADR-0005 R5).
+
+---
+
+## Post-implementation reconciliations (2026-07-13)
+
+Minor plan-vs-reality notes surfaced by QE + eval and reconciled at close (no behavior change):
+
+- **EstimAI catalog location.** The "Catalog registration" section says EstimAI's catalog
+  declaration is "added to `estimai-ui`/`estimai-api`." `estimai-api` doesn't exist yet
+  (planned, dir empty), so T26 placed the typed declaration at
+  `auth/src/authz/catalogs/estimai.ts` and registers it via the deploy-time seed. AC-3.4's
+  observable behaviour (`GET /admin/catalog` includes EstimAI's `estimate` resource + `access`)
+  is unchanged and tested. When `estimai-api` is built, the declaration can move there.
+- **US-7 test level.** The test-strategy table names **e2e** for the shell route-boundary ACs
+  (AC-7.3 deep-link block, AC-7.5 revoke-on-next-nav, the admin-ui leg of AC-1.5). Delivered
+  at **vitest/jsdom component/integration** level (`shell/src/router.access-guard.test.tsx`,
+  `Sidebar.test.tsx`) against a mocked `/authz/me` — thorough, but not against the assembled
+  stack. A live Playwright admin e2e (auth + admin-ui preview + seeded admin session) is a
+  **documented follow-up**, not a gap in AC coverage.
+- **Deferred (non-blocking).** (a) Catalog `(resource, action)` lookups match globally across
+  apps (no `appId` namespace) — fine for the 3 non-colliding suite apps today; revisit with an
+  app-prefix convention before a 2nd app declares a same-named resource (plan Risk R6).
+  (b) No `@vitest/coverage-v8` installed repo-wide (predates 004) — a devops follow-up to wire
+  coverage tooling; auth (bun) coverage is 96.4%.
