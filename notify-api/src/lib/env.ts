@@ -40,6 +40,19 @@ const envSchema = z.object({
   // optional at the schema level so test/local can leave them unset.
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
+  // ─── System-to-system auth (T3, specs/006-user-invitations, ADR-0011) ──────
+  // Shared secret checked by internalTokenMiddleware against the
+  // `X-Internal-Token` header on POST /system/emails ONLY — never accepted on
+  // any jwtMiddleware-protected route, and jwtMiddleware never accepts this
+  // value (the two auth mechanisms are mutually exclusive by route, not
+  // layered, per ADR-0011). Required unconditionally — /system/emails has no
+  // meaningful "disabled" mode the way EMAIL_ENABLED does. A short/weak value
+  // materially weakens the entire trust boundary (ADR-0011 Risk: "leaked
+  // token = arbitrary email to arbitrary addresses"), so a minimum length is
+  // enforced here rather than left to operational discipline alone.
+  NOTIFY_INTERNAL_TOKEN: z
+    .string()
+    .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
 }).superRefine((v, ctx) => {
   // Cross-field: EMAIL_ENABLED=true means real sends are attempted, so the
   // Resend credentials become mandatory (they stay optional at rest so

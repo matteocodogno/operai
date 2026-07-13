@@ -11,6 +11,7 @@ import { markReadRouter } from "./notifications/markRead.routes";
 import { raiseRouter } from "./notifications/raise.routes";
 import { streamRouter } from "./notifications/stream.routes";
 import { setupOpenAPI } from "./openapi/registry";
+import { systemEmailsRouter } from "./system/emails.routes";
 
 const app = new OpenAPIHono();
 
@@ -41,6 +42,10 @@ app.route("/", raiseRouter);
 app.route("/", listRouter);
 app.route("/", markReadRouter);
 app.route("/", streamRouter);
+// System routes — internal-token-authed only (ADR-0011). NEVER register this
+// router with jwtMiddleware applied anywhere above it in the chain; it must
+// stay reachable exclusively via internalTokenMiddleware.
+app.route("/", systemEmailsRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

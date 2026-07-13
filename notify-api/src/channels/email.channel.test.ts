@@ -6,18 +6,25 @@
  * pass unmodified after the T2 refactor (src/channels/inApp.channel.ts).
  *
  * Strategy: real Postgres (compose, host:5435, database: notify), same as
- * raise.routes.test.ts — no DB mocking. `@/lib/env` and `@/lib/resend` are
- * module-mocked so each test can flip EMAIL_ENABLED and control the simulated
- * Resend outcome without touching real credentials or the network.
+ * raise.routes.test.ts — no DB mocking. `@/lib/resend` is module-mocked so
+ * each test can control the simulated Resend outcome without touching real
+ * credentials or the network.
+ *
+ * NOTE: deliberately does NOT `mock.module("@/lib/env", …)`. `env` is a
+ * process-wide singleton (bun test runs every file in one process, and
+ * mock.module replaces a specifier for the rest of that process — see
+ * stream.routes.test.ts, which reads env.MAX_STREAM_DURATION and would break
+ * if some other file's mock permanently replaced the whole module). Instead
+ * this file imports the REAL `env` and mutates only `EMAIL_ENABLED` on the
+ * shared object (email.channel.ts re-reads it at call time, not import time),
+ * restoring it to its `.env` default in `afterEach` so no other test file
+ * observes a changed value.
  */
 
 import { describe, it, expect, afterEach, mock } from "bun:test";
+import { env } from "@/lib/env";
 
-// ─── @/lib/env mock — email.channel.ts reads env.EMAIL_ENABLED at call time,
-// so mutating this shared object between tests is enough (no re-import needed) ─
-
-const mockEnv: { EMAIL_ENABLED: boolean } = { EMAIL_ENABLED: false };
-mock.module("@/lib/env", () => ({ env: mockEnv }));
+const ORIGINAL_EMAIL_ENABLED = env.EMAIL_ENABLED;
 
 // ─── @/lib/resend mock — controlled per test via sendEmailImpl ───────────────
 
@@ -66,6 +73,7 @@ const TEST_ADDRESS_PREFIX = "email-channel-test";
 
 afterEach(async () => {
   sendEmailCalled = false;
+  env.EMAIL_ENABLED = ORIGINAL_EMAIL_ENABLED;
   await testDb.emailDelivery.deleteMany({
     where: { to: { contains: TEST_ADDRESS_PREFIX } },
   });
@@ -75,7 +83,7 @@ afterEach(async () => {
 
 describe("emailChannel — EMAIL_ENABLED=false (stub)", () => {
   it("records EmailDelivery status=sent with a synthetic (stub_) providerId, and never calls sendEmail", async () => {
-    mockEnv.EMAIL_ENABLED = false;
+    env.EMAIL_ENABLED = false;
 
     const result = await emailChannel.send({
       to: `${TEST_ADDRESS_PREFIX}-a@example.com`,
@@ -103,7 +111,7 @@ describe("emailChannel — EMAIL_ENABLED=false (stub)", () => {
 
 describe("emailChannel — EMAIL_ENABLED=true (mocked Resend)", () => {
   it("success: records EmailDelivery status=sent with Resend's own providerId", async () => {
-    mockEnv.EMAIL_ENABLED = true;
+    env.EMAIL_ENABLED = true;
     sendEmailImpl = async () => ({ ok: true, providerId: "resend-msg-123" });
 
     const result = await emailChannel.send({
@@ -125,7 +133,7 @@ describe("emailChannel — EMAIL_ENABLED=true (mocked Resend)", () => {
   });
 
   it("failure: a Resend/network failure records EmailDelivery status=failed and returns {status:'failed'} — never throws", async () => {
-    mockEnv.EMAIL_ENABLED = true;
+    env.EMAIL_ENABLED = true;
     sendEmailImpl = async () => ({ ok: false, error: "network timeout" });
 
     const result = await emailChannel.send({
