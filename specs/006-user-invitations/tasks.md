@@ -61,7 +61,7 @@ owned by a single track to avoid collisions.
   - hashes token, looks up by id, renders effective state: pending+match → "continue with Google/GitHub" wired to existing `POST /auth/sign-in/social` w/ callbackURL; expired/revoked/accepted/token-mismatch → safe "no longer valid"; email only disclosed on a valid pending token; no enumeration; escape `email`/`inviterName`
   - done when: integration tests — each state renders correctly; old-token-post-resend → invalid; no email leak on invalid; `bun run typecheck` clean
 
-- [ ] T10: admin-ui user soft-delete UI + UsersSubNav + modal extension — refs: US-5 (5.7) — deps: T7
+- [x] T10: admin-ui user soft-delete UI + UsersSubNav + modal extension — refs: US-5 (5.7) — deps: T7
   - touch: `admin-ui/src/components/ConfirmDeleteModal.tsx` (add optional `body` prop, backward-compatible — soft-delete copy), `admin-ui/src/components/UsersSubNav.tsx` (NEW, "Active users" | "Invitations"), the Users list row delete + confirm; the caller's own row delete is **disabled-with-explanation** (design.md), soft-deleted users vanish from the list; route `/users/invitations` sibling added
   - done when: `pnpm --dir admin-ui lint`+`build`+`test` green; unit tests: row delete calls DELETE + confirm, self-row disabled, list reflects removal
 
