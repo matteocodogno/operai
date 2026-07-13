@@ -47,6 +47,12 @@ vi.mock('./lib/session', () => ({
   usePermissions,
   ensurePermissions,
   revalidatePermissions,
+  // T11 (specs/005): Header mounts Bell → useUnreadCount() (notifications.ts),
+  // which imports apiFetch/onSignOut from this module. Mounting the router in
+  // these tests renders the chrome, so the session mock must supply them
+  // (fail-closed no-ops — the SSE ticket-mint just degrades gracefully).
+  apiFetch: vi.fn(),
+  onSignOut: vi.fn(),
 }))
 
 vi.mock('estimai/App', () => ({

@@ -65,12 +65,12 @@ are edited by a single track to avoid collisions.
   - `raiseNotification`, `getNotifyBaseUrl` (`VITE_NOTIFY_API_URL`), `useUnreadCount` (SSE-driven, REST-seeded, listener-set like `usePermissions`), `resetUnreadCount` (optimistic local zero); internal **SSE connection manager** (mint ticket → `EventSource` → handle `notification`/`unread-reset` → emit toast-worthy → reconnect + REST resync); `signOut` closes + reconnects
   - done when: unit tests — `raiseNotification` shape/sub-only, `useUnreadCount` updates on mocked events, `resetUnreadCount` zeros, SSE manager reconnect re-syncs count, trusted-origins includes notify
 
-- [ ] T11: Shell `Bell` button — refs: US-1 (1.1, 1.2, 1.3, 1.6), US-2 (2.1) — deps: T10
+- [x] T11: Shell `Bell` button — refs: US-1 (1.1, 1.2, 1.3, 1.6), US-2 (2.1) — deps: T10
   - touch: `shell/src/components/Bell.tsx` (new), `shell/src/components/Header.tsx` (place beside `ThemeToggle`)
   - `useUnreadCount`; badge shows 1–9 exact, "9+" for ≥10, none at 0; `onClick` → `navigate('/notify')`; a11y: static button name + separate `aria-live` badge region (design.md)
   - done when: unit tests — badge for 0/1/9/10/99, navigates on click; renders on every route
 
-- [ ] T12: Shell `ToastHost` — refs: US-5 (5.1, 5.2, 5.3, 5.5) — deps: T10
+- [x] T12: Shell `ToastHost` — refs: US-5 (5.1, 5.2, 5.3, 5.5) — deps: T10
   - touch: `shell/src/components/ToastHost.tsx` (new), `shell/src/components/ShellLayout.tsx` (mount once)
   - subscribes SSE toast stream; severity variants `role="status"` (info/success) vs `role="alert"` (warning/error); auto-dismiss + manual dismiss (no reappear); stacking; honors reduced-motion (design.md)
   - done when: unit tests — toast pops on toast-worthy event, auto-dismiss timer, manual dismiss no-reappear, non-toast event pops nothing, correct aria roles
