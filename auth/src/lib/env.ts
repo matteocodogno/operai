@@ -12,6 +12,18 @@ const envSchema = z.object({
   GITHUB_CLIENT_SECRET: z.string().min(1, "GITHUB_CLIENT_SECRET is required"),
   JWT_PRIVATE_KEY: z.string().min(1, "JWT_PRIVATE_KEY is required"),
   JWT_PUBLIC_KEY: z.string().min(1, "JWT_PUBLIC_KEY is required"),
+  // ─── JWT audience (ADR-0010, specs/005-notification-center T8) ────────────
+  // Stamped as the `aud` claim on every JWT this service mints (jwt plugin's
+  // `definePayload`, auth.config.ts) so resource servers can reject tokens
+  // scoped to a different audience. v1 is a single suite-wide value shared
+  // by every current resource server (estimai-api, notify-api) — NOT yet a
+  // per-service value (see ADR-0010 "Consequences"). Whatever value is set
+  // here MUST exactly match the `AUTH_AUDIENCE` each resource server verifies
+  // against, or every request will fail closed once T9 turns on verification.
+  // Not a secret — a config identifier — but still sourced from env, never
+  // hardcoded, so every environment (local/preview/production) can share the
+  // one true value without a code change.
+  AUTH_AUDIENCE: z.string().min(1, "AUTH_AUDIENCE is required"),
   ALLOWED_ORIGINS: z
     .string()
     .min(1)

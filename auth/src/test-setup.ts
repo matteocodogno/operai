@@ -27,6 +27,9 @@ setIfAbsent("GITHUB_CLIENT_ID", "test-github-client-id");
 setIfAbsent("GITHUB_CLIENT_SECRET", "test-github-client-secret");
 setIfAbsent("JWT_PRIVATE_KEY", "test-private-key");
 setIfAbsent("JWT_PUBLIC_KEY", "test-public-key");
+// AUTH_AUDIENCE (ADR-0010): suite-wide `aud` claim value stamped on every
+// minted JWT — a config identifier, not a secret.
+setIfAbsent("AUTH_AUDIENCE", "operai-suite-test");
 setIfAbsent("ALLOWED_ORIGINS", "http://localhost:5173,https://app.estimai.io");
 // UI_HOME_URL: post-login fallback destination (AC-1.3) — validated by the
 // env schema; must be an absolute URL.
