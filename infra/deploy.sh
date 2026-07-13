@@ -8,7 +8,12 @@
 #   direnv/1Password-exported secrets, and trigger their deploys. This
 #   includes AUTH_AUDIENCE (ADR-0010, specs/005-notification-center) — the
 #   SAME value is set on all three services, closing the cross-service JWT
-#   replay gap now that notify-api is a second JWKS resource server.
+#   replay gap now that notify-api is a second JWKS resource server. It also
+#   sets NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006-user-invitations) — the
+#   SAME value on auth + notify-api only (not estimai-api) — plus auth's
+#   NOTIFY_INTERNAL_URL (notify-api's Railway PRIVATE-networking address, not
+#   its public domain — plan.md Risk R2) and notify-api's optional
+#   EMAIL_ENABLED/RESEND_API_KEY/RESEND_FROM.
 #   Migrations + the authz seed run automatically via each service's
 #   railway.json preDeployCommand (`bun run db:deploy && …`).
 #
@@ -61,6 +66,23 @@ SHELL_REMOTE_URL="${SHELL_REMOTE_URL:-https://operai.welld.io/remoteEntry.js}"
 # deploy if you want a non-default suite-wide audience string.
 AUTH_AUDIENCE="${AUTH_AUDIENCE:-operai-suite}"
 
+# ADR-0011 (specs/006-user-invitations): notify-api's Railway PRIVATE-networking
+# address — auth's server-to-server POST /system/emails call must stay off the
+# public internet (plan.md Risk R2). This is DIFFERENT from $NOTIFY_API_URL
+# above (that one is public, for the browser/SSE only). The exact private
+# hostname is visible in the Railway dashboard (notify-api service → Settings
+# → Networking → Private Networking) after notify-api's first deploy — override
+# this default if yours differs.
+NOTIFY_INTERNAL_URL="${NOTIFY_INTERNAL_URL:-http://notify-api.railway.internal:8081}"
+
+# notify-api email channel (specs/006-user-invitations, ADR-0011). EMAIL_ENABLED
+# defaults false (invite emails are stubbed — recorded, not actually sent via
+# Resend) so a first deploy doesn't require a verified Resend domain up front.
+# Flip to true (and provide RESEND_API_KEY/RESEND_FROM) once the domain is
+# verified — see infra/README.md § Resend domain setup.
+EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+RESEND_FROM="${RESEND_FROM:-no-reply@operai.welld.io}"
+
 # ─── Output helpers ───────────────────────────────────────────────────────────
 c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
 info() { echo "$(c '0;34' '[deploy]') $*"; }
@@ -73,12 +95,28 @@ command -v railway >/dev/null 2>&1 || die "railway CLI not found — https://doc
 railway whoami >/dev/null 2>&1    || die "not logged in to Railway — run: railway login"
 
 REQUIRED_SECRETS=(BETTER_AUTH_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
-                  GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET JWT_PRIVATE_KEY JWT_PUBLIC_KEY)
+                  GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET JWT_PRIVATE_KEY JWT_PUBLIC_KEY
+                  NOTIFY_INTERNAL_TOKEN)
 info "Checking direnv/1Password-exported secrets…"
 for v in "${REQUIRED_SECRETS[@]}"; do
   [[ -n "${!v:-}" ]] || die "\$$v is not set. Run inside the direnv/1Password shell (e.g. \`direnv exec auth ./infra/deploy.sh\`); see infra/README.md."
 done
+# NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006) is shared verbatim between auth
+# and notify-api — a short value materially weakens the whole trust boundary
+# (plan.md Risk R2), so fail fast rather than silently deploying a weak secret.
+[[ "${#NOTIFY_INTERNAL_TOKEN}" -ge 32 ]] || die "\$NOTIFY_INTERNAL_TOKEN is only ${#NOTIFY_INTERNAL_TOKEN} chars — notify-api requires >=32 (generate with: openssl rand -hex 32)."
 [[ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ]] || warn "BOOTSTRAP_ADMIN_EMAIL not set — the seed will create no bootstrap admin (set it on the auth service to grant the first admin; specs/004 AC-6.1)."
+# Case-insensitive match on the literal "true" (mirrors notify-api's own
+# EMAIL_ENABLED parsing, src/lib/env.ts). Avoids bash 4+ `${VAR,,}` — macOS
+# ships bash 3.2 by default, which doesn't support it.
+case "${EMAIL_ENABLED}" in
+  [Tt][Rr][Uu][Ee])
+    [[ -n "${RESEND_API_KEY:-}" ]] || die "EMAIL_ENABLED=true but \$RESEND_API_KEY is not set — notify-api will refuse to start. Export it, or leave EMAIL_ENABLED unset/false until the Resend domain is verified (infra/README.md § Resend domain setup)."
+    ;;
+  *)
+    warn "EMAIL_ENABLED is not 'true' — invitation emails will be stubbed (recorded, not actually sent via Resend). Fine for a first deploy; see infra/README.md § Resend domain setup before enabling in production."
+    ;;
+esac
 ok "All required secrets present."
 
 # ─── Link the Railway project ─────────────────────────────────────────────────
@@ -116,6 +154,8 @@ railway variables --service auth \
   --set "JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}" --set "JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}" \
   --set "ALLOWED_ORIGINS=${UI_ORIGIN}" --set "UI_HOME_URL=${UI_ORIGIN}/" \
   --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
+  --set "NOTIFY_INTERNAL_URL=${NOTIFY_INTERNAL_URL}" \
+  --set "NOTIFY_INTERNAL_TOKEN=${NOTIFY_INTERNAL_TOKEN}" \
   ${BOOTSTRAP_ADMIN_EMAIL:+--set "BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL}"} \
   --set "NODE_ENV=production" >/dev/null
 # BETTER_AUTH_URL is set after the domain exists (below). PORT / ENABLE_TEST_AUTH /
@@ -138,6 +178,11 @@ railway up --service estimai-api --detach && ok "estimai-api deploy triggered."
 # estimai-api (same issuer, same JWKS endpoint) but its OWN AUTH_AUDIENCE value
 # (must match auth's and estimai-api's — ADR-0010). railway.json (committed)
 # pins numReplicas: 1 — this script does not and must not override that.
+# NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006) must be byte-for-byte identical
+# to the value just set on auth above — same $NOTIFY_INTERNAL_TOKEN var, so
+# they can't drift within one run of this script. RESEND_API_KEY is only set
+# when provided (leaving it unset keeps EMAIL_ENABLED=false safe — notify-api's
+# env schema only requires it when EMAIL_ENABLED=true).
 info "Setting notify-api service variables…"
 railway variables --service notify-api \
   --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/notify' \
@@ -146,6 +191,10 @@ railway variables --service notify-api \
   --set "AUTH_JWKS_URL=${AUTH_PUBLIC_URL:-$AUTH_URL}/auth/jwks" \
   --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
   --set "MAX_STREAM_DURATION=${MAX_STREAM_DURATION:-1800}" \
+  --set "NOTIFY_INTERNAL_TOKEN=${NOTIFY_INTERNAL_TOKEN}" \
+  --set "EMAIL_ENABLED=${EMAIL_ENABLED}" \
+  --set "RESEND_FROM=${RESEND_FROM}" \
+  ${RESEND_API_KEY:+--set "RESEND_API_KEY=${RESEND_API_KEY}"} \
   --set "NODE_ENV=production" >/dev/null
 railway up --service notify-api --detach && ok "notify-api deploy triggered."
 

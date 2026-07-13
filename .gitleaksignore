@@ -27,3 +27,11 @@ estimai-api/src/auth/jwt.middleware.test.ts:generic-api-key:146
 
 # notify-api/src/auth/jwt.middleware.test.ts — same in-test generated CryptoKey pattern
 notify-api/src/auth/jwt.middleware.test.ts:generic-api-key:138
+
+# infra/check.sh (T13, specs/006-user-invitations) — deliberately BOGUS literal string
+# ("not-the-real-token") sent as X-Internal-Token to assert POST /system/emails
+# rejects it with 401 (negative control on the internal-token gate, ADR-0011).
+# Not a real secret; the real NOTIFY_INTERNAL_TOKEN is only ever read from an
+# already-exported env var, never hardcoded (see the positive-control check
+# immediately below it in the same file).
+infra/check.sh:curl-auth-header:114
