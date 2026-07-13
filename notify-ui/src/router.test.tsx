@@ -7,11 +7,23 @@
  * route tree + behavioral RouterProvider renders), using the basepath-less
  * `createAppRouter()` factory; App.test.tsx separately covers the exposed
  * remote's own hardcoded `/notify` basepath.
+ *
+ * T15 (specs/005-notification-center/tasks.md) mocks `./lib/notificationsApi`
+ * — see App.test.tsx's identical doc-comment note: `NotificationCenterPage`
+ * now fetches on mount, and these tests only assert on the heading/not-found
+ * fallback (rendered before any fetch settles), so a never-resolving pending
+ * promise keeps a real, unmocked network call from escaping into the test
+ * run.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { RouterProvider } from '@tanstack/react-router'
+
+vi.mock('./lib/notificationsApi', () => ({
+  listNotifications: vi.fn(() => new Promise(() => {})),
+  markAllRead: vi.fn(() => new Promise(() => {})),
+}))
 
 interface RouteTreeNode {
   id: string

@@ -11,9 +11,22 @@
  * `shell/tokens.css` is a side-effect-only import — vitest.config.ts's
  * `resolve.alias` points the bare specifier at a real (empty) local stub so
  * Vite's import-analysis is satisfied; nothing to assert on for it here.
+ *
+ * T15 (specs/005-notification-center/tasks.md) mocks `./lib/notificationsApi`
+ * — `NotificationCenterPage` now fetches `GET /notifications` on mount; a
+ * never-resolving pending promise keeps this test's assertions (which only
+ * ever check the heading, rendered synchronously before any fetch settles)
+ * from also having to deal with a real, unmocked network call escaping into
+ * the test run (see NotificationCenterPage.test.tsx for the actual
+ * list/empty/loading/error/was-unread coverage).
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+
+vi.mock('./lib/notificationsApi', () => ({
+  listNotifications: vi.fn(() => new Promise(() => {})),
+  markAllRead: vi.fn(() => new Promise(() => {})),
+}))
 
 const { default: App } = await import('./App')
 

@@ -8,11 +8,17 @@
 // without a live shell dev server. Mirrors admin-ui/src/federation/remotes.d.ts
 // and refund-ui/src/federation/remotes.d.ts exactly. Update these by hand if
 // the shell's exposed `./session`/`./tokens.css` shape changes
-// (shell/src/lib/session.ts, shell/src/styles/tokens.css) — a later task of
-// this feature (T10) extends the shell's exposed surface with the
-// notification-specific seam (`raiseNotification`, `useUnreadCount`,
-// `resetUnreadCount`, `getNotifyBaseUrl`); this declaration is extended then,
-// not here, since T14 is scaffold-only and does not consume those yet.
+// (shell/src/lib/session.ts, shell/src/styles/tokens.css).
+//
+// T15 (specs/005-notification-center/tasks.md) extends this declaration with
+// the notification-specific seam T10 added to `shell/src/lib/notifications.ts`
+// (re-exported through `shell/session`'s `export * from './notifications'`):
+// `getNotifyBaseUrl` (notificationsApi.ts builds `/notifications`/
+// `/notifications/mark-all-read` URLs against it) and `resetUnreadCount`
+// (the instant local badge clear `NotificationCenterPage` fires the moment
+// the center opens, AC-3.1). `useUnreadCount`/`raiseNotification` are not
+// declared here — notify-ui's own page never calls them (only `Bell.tsx` /
+// other remotes' raise call sites do).
 
 declare module 'shell/session' {
   // Mirrors shell/src/lib/session.ts's public surface — only the members
@@ -38,6 +44,10 @@ declare module 'shell/session' {
   export const getAuthBaseUrl: () => string
   export const signOut: (...args: unknown[]) => Promise<unknown>
   export const clearJwtCache: () => void
+  /** The notify-api base URL (the shell's VITE_NOTIFY_API_URL) — remotes build /notifications* URLs against this (T10). */
+  export const getNotifyBaseUrl: () => string
+  /** Optimistic local unread-count zero (AC-3.1) — called the instant the center opens (T10). */
+  export const resetUnreadCount: () => void
 }
 
 declare module 'shell/tokens.css' {
