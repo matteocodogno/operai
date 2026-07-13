@@ -3,6 +3,7 @@ import AdminShell from './components/AdminShell'
 import RolesPage from './pages/RolesPage'
 import DepartmentsPage from './pages/DepartmentsPage'
 import UsersPage from './pages/UsersPage'
+import UserDetail from './pages/UserDetail'
 import AuditPage from './pages/AuditPage'
 import NotFoundPage from './pages/NotFoundPage'
 
@@ -81,11 +82,28 @@ export function createAppRouter(basepath?: string) {
     component: AuditPage,
   })
 
+  // Screen C2 (design.md) — user detail: attributes + role/department
+  // assignment + the AC-6.4 last-admin guardrail (T20). A direct child of
+  // root like every other section route above, not nested under `usersRoute`
+  // — same flat shape TanStack Router uses elsewhere in this file.
+  const userDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/users/$id',
+    component: UserDetail,
+  })
+
   // ---------------------------------------------------------------------------
   // Route tree
   // ---------------------------------------------------------------------------
 
-  const routeTree = rootRoute.addChildren([indexRoute, rolesRoute, departmentsRoute, usersRoute, auditRoute])
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    rolesRoute,
+    departmentsRoute,
+    usersRoute,
+    userDetailRoute,
+    auditRoute,
+  ])
 
   // `defaultNotFoundComponent` is the router-wide fallback for any path that
   // matches none of the routes above (TanStack Router's own "not-found route"
