@@ -74,12 +74,16 @@ export const jwtMiddleware = createMiddleware<{
     );
   }
 
-  // 2. Verify RS256 signature, issuer, and expiry via cached remote JWKS.
+  // 2. Verify RS256 signature, issuer, audience, and expiry via cached remote JWKS.
   //    algorithms: ['RS256'] pins the algorithm — rejects alg:none and HS256.
+  //    audience (ADR-0010): notify-api is the suite's first real second JWKS
+  //    resource server — a token missing or carrying the wrong `aud` is rejected
+  //    here, closing the cross-service token-replay gap ADR-0005/ADR-0007 deferred.
   let payload: JWTPayload;
   try {
     const result = await jwtVerify(token, JWKS, {
       issuer: env.AUTH_ISSUER,
+      audience: env.AUTH_AUDIENCE,
       algorithms: ["RS256"],
     });
     payload = result.payload;
