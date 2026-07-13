@@ -105,7 +105,7 @@ are edited by a single track to avoid collisions.
   - touch: `shell/vercel.json` — **`connect-src`** += `notify-api.operai.welld.io` (SSE is governed by connect-src!) **and** notify-ui origin; `script-src` += `notify.operai.welld.io`; note `ALLOWED_ORIGINS` additions for auth + notify-api
   - done when: CSP includes both new origins, with the notify-api origin in `connect-src` for the EventSource stream
 
-- [ ] T20: Deploy-doc + scripts update — refs: R9, ADR-0010 — deps: T16, T17, T18, T19, T9
+- [x] T20: Deploy-doc + scripts update — refs: R9, ADR-0010 — deps: T16, T17, T18, T19, T9
   - touch: `infra/README.md`, `infra/deploy.sh`, `infra/check.sh`
   - add notify-api + notify-ui to topology/provisioning; env reference incl. `AUTH_AUDIENCE` (all three services) + `VITE_NOTIFY_API_URL`; `check.sh` verifies notify-api `/health` + notify-ui `remoteEntry.js` + the SSE `connect-src` CSP pin
   - done when: doc + scripts cover both new services and the `aud` env
