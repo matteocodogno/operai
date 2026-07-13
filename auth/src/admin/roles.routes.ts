@@ -100,9 +100,10 @@ const RoleListItemSchema = RoleSchema.extend({
   ruleCount: z.number().int(),
 });
 
-const RoleListSchema = z.object({
-  items: z.array(RoleListItemSchema),
-});
+// A bare array, NOT an { items } envelope: the pagination envelope is reserved
+// for /admin/users and /admin/audit only (plan.md wire-shape conventions); the
+// admin-ui client's listRoles() expects Role[]. (Same shape as GET /admin/departments.)
+const RoleListSchema = z.array(RoleListItemSchema);
 
 const ConditionAttributeSchema = z.object({
   key: z.string(),
@@ -401,12 +402,10 @@ rolesRouter.openapi(listRolesRoute, async (c) => {
   });
 
   return c.json(
-    {
-      items: roles.map((role) => ({
-        ...serializeRole(role),
-        ruleCount: role._count.rules,
-      })),
-    },
+    roles.map((role) => ({
+      ...serializeRole(role),
+      ruleCount: role._count.rules,
+    })),
     200,
   );
 });

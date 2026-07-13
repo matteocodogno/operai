@@ -236,10 +236,11 @@ describe("Admin roles API (T8)", () => {
 
     const res = await rolesRouter.request("/admin/roles");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      items: Array<{ id: string; ruleCount: number; isSystem: boolean }>;
-    };
-    const item = body.items.find((r) => r.id === role.id);
+    // Bare array (not an { items } envelope) — matches the admin-ui client's
+    // listRoles(): Promise<Role[]> and the wire-shape convention.
+    const body = (await res.json()) as Array<{ id: string; ruleCount: number; isSystem: boolean }>;
+    expect(Array.isArray(body)).toBe(true);
+    const item = body.find((r) => r.id === role.id);
     expect(item).toBeDefined();
     expect(item?.ruleCount).toBe(1);
     expect(item?.isSystem).toBe(false);
