@@ -20,3 +20,8 @@ export const clearJwtCache = () => undefined
 // these two (T10's shell/session seam) — same never-actually-used rationale.
 export const getNotifyBaseUrl = () => (import.meta.env.VITE_NOTIFY_API_URL as string | undefined) ?? ''
 export const resetUnreadCount = () => undefined
+// Follow-up (specs/005-notification-center, ADR-0006-consistent):
+// NotificationItem.tsx imports this for cross-remote, no-full-reload
+// navigation — same never-actually-used rationale (every test that renders
+// NotificationItem with a link overrides this via vi.mock('shell/session', ...)).
+export const navigateSuite = () => undefined

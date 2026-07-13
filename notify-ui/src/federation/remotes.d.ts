@@ -19,6 +19,14 @@
 // the center opens, AC-3.1). `useUnreadCount`/`raiseNotification` are not
 // declared here — notify-ui's own page never calls them (only `Bell.tsx` /
 // other remotes' raise call sites do).
+//
+// Follow-up (specs/005-notification-center, ADR-0006-consistent) adds
+// `navigateSuite` — `NotificationItem.tsx`'s cross-remote, no-full-reload
+// navigation seam (session.ts's `registerSuiteNavigate`/`navigateSuite`
+// pair). Declared directly on `shell/session` (not re-exported via
+// `notifications.ts`) because that's where it actually lives — it isn't
+// notification-specific, it's the suite's general cross-remote navigation
+// primitive, notify-ui just happens to be its first caller.
 
 declare module 'shell/session' {
   // Mirrors shell/src/lib/session.ts's public surface — only the members
@@ -48,6 +56,14 @@ declare module 'shell/session' {
   export const getNotifyBaseUrl: () => string
   /** Optimistic local unread-count zero (AC-3.1) — called the instant the center opens (T10). */
   export const resetUnreadCount: () => void
+  /**
+   * Cross-remote, no-full-reload navigation — routes an in-suite absolute
+   * path (e.g. "/estimai/estimates/42") through the shell's top-level
+   * router. Falls back to a full `window.location.assign` if the shell
+   * hasn't registered its router yet. Used by `NotificationItem.tsx` for a
+   * plain left-click on a notification's link.
+   */
+  export const navigateSuite: (to: string) => void
 }
 
 declare module 'shell/tokens.css' {

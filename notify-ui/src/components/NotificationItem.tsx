@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, MouseEvent } from 'react'
+import { navigateSuite } from 'shell/session'
 import { SEVERITY_META, originAppLabel } from '../lib/severity'
 import type { Notification } from '../lib/notificationsApi'
 
@@ -33,15 +34,26 @@ import type { Notification } from '../lib/notificationsApi'
  * remote) — there is no shared router *instance* across remotes (ADR-0006:
  * `@tanstack/react-router` is a shared MF *library* singleton, not a shared
  * router instance), so a remote's inner `<Link>` cannot navigate outside
- * its own basepath. A real `<a href>` instead performs a genuine browser
- * navigation, which the shell's own top-level router (basepath `/`, which
- * knows every remote route) picks up correctly. This is exercised at the
- * unit level here (a real anchor with the untouched absolute `href` is
- * rendered, never a raw `window.location` assignment — AC-2.5's explicit
- * security note) and across remotes at the e2e level (T21, plan.md's
- * test-strategy row for AC-2.5) — flagging this boundary explicitly since
- * it is the first notify-ui code to link to a path outside its own
- * basepath.
+ * its own basepath. This is exercised at the unit level here (a real anchor
+ * with the untouched absolute `href` is rendered) and across remotes at the
+ * e2e level (T21, plan.md's test-strategy row for AC-2.5) — flagging this
+ * boundary explicitly since it is the first notify-ui code to link to a
+ * path outside its own basepath.
+ *
+ * Follow-up (specs/005-notification-center, ADR-0006-consistent): a plain
+ * `<a href>` alone means every click — even an unmodified left-click meant
+ * to stay in-app — performs a full DOCUMENT reload, since the browser has no
+ * way to know the target lives inside the same federated suite. The anchor
+ * stays (middle-click / ctrl+click / cmd+click / "open in new tab" all still
+ * need a real `href` to work), but a plain left-click is intercepted: the
+ * default browser navigation is prevented and `shell/session`'s
+ * `navigateSuite(link.href)` is called instead, which drives the SHELL's
+ * single top-level router (the only router instance that spans every
+ * remote's basepath) client-side, with no full reload. A MODIFIED click
+ * (any of metaKey/ctrlKey/shiftKey/altKey, or a non-primary mouse button)
+ * is deliberately left alone — `preventDefault()` is never called for those,
+ * so the browser's own "open in new tab/window" behavior fires exactly as a
+ * user expects from a real anchor.
  */
 
 export interface NotificationItemProps {
@@ -157,10 +169,32 @@ export default function NotificationItem({ notification, wasUnread }: Notificati
   )
 
   if (notification.link) {
+    const link = notification.link
+
+    // A plain, unmodified left-click stays in-app via the shell's router
+    // (navigateSuite); a modified click (new-tab/new-window/etc.) is left
+    // untouched so the anchor's own `href` drives the browser's native
+    // behavior — see the module doc comment's "Follow-up" section above.
+    const handleClick = (event: MouseEvent<HTMLAnchorElement>): void => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return
+      }
+      event.preventDefault()
+      navigateSuite(link.href)
+    }
+
     return (
       <li role="listitem">
         <a
-          href={notification.link.href}
+          href={link.href}
+          onClick={handleClick}
           data-testid={`notification-item-${notification.id}`}
           className={rowClassName}
           style={rowStyle}

@@ -24,19 +24,35 @@
  *       never reaches the target remote. A real anchor's `href` is left
  *       alone by the browser and is handled by the shell's own top-level
  *       router once the resulting navigation reaches it (ADR-0006).
+ *   (E) Follow-up (ADR-0006-consistent): a plain left-click on the row
+ *       calls `shell/session`'s `navigateSuite` (no full reload) instead of
+ *       letting the browser follow the anchor's `href`; a MODIFIED click
+ *       (metaKey, here — standing in for ctrl/shift/alt/middle-click too,
+ *       since they're all checked by the same guard clause) does NOT call
+ *       `navigateSuite`, leaving the anchor free to drive the browser's own
+ *       "open in new tab" behavior.
  *
  * NotificationItem no longer needs a TanStack Router context (it renders a
  * plain `<a>`, not a `<Link>`), so these are now bare
- * `render(<NotificationItem .../>)` calls — no router harness required.
+ * `render(<NotificationItem .../>)` calls — no router harness required. It
+ * DOES need `shell/session`'s `navigateSuite`, mocked below the same way
+ * `NotificationCenterPage.test.tsx` mocks `resetUnreadCount`.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import NotificationItem from './NotificationItem'
 import type { Notification } from '../lib/notificationsApi'
 
+vi.mock('shell/session', () => ({
+  navigateSuite: vi.fn(),
+}))
+
+import { navigateSuite } from 'shell/session'
+
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
 })
 
 const baseNotification: Notification = {
@@ -140,5 +156,52 @@ describe('NotificationItem', () => {
     const row = screen.getByTestId('notification-item-notif-1')
     expect(row.getAttribute('href')).toBe('/estimai/estimates/abc')
     expect(row.getAttribute('href')).not.toMatch(/^\/notify/)
+  })
+
+  // (E) Cross-remote navigation without a full reload
+  describe('cross-remote navigation (ADR-0006-consistent)', () => {
+    const withLink: Notification = {
+      ...baseNotification,
+      link: { href: '/estimai/estimates/abc', label: 'Open this estimate' },
+    }
+
+    it('calls navigateSuite (not a full browser navigation) on a plain left-click', () => {
+      render(<NotificationItem notification={withLink} wasUnread={false} />)
+      const row = screen.getByTestId('notification-item-notif-1')
+
+      const event = fireEvent.click(row, { button: 0 })
+
+      expect(navigateSuite).toHaveBeenCalledOnce()
+      expect(navigateSuite).toHaveBeenCalledWith('/estimai/estimates/abc')
+      // fireEvent.click returns false when the event's default was prevented
+      // — i.e. the anchor's native navigation was suppressed in favor of
+      // navigateSuite.
+      expect(event).toBe(false)
+      // The href itself is untouched — navigateSuite is called with the
+      // exact same absolute path a modified click would have followed.
+      expect(row.getAttribute('href')).toBe('/estimai/estimates/abc')
+    })
+
+    it('does NOT call navigateSuite on a modified click (metaKey), leaving the anchor to the browser', () => {
+      render(<NotificationItem notification={withLink} wasUnread={false} />)
+      const row = screen.getByTestId('notification-item-notif-1')
+
+      const event = fireEvent.click(row, { button: 0, metaKey: true })
+
+      expect(navigateSuite).not.toHaveBeenCalled()
+      // Default was NOT prevented — fireEvent.click returns true when the
+      // event is allowed to proceed (the browser handles the real anchor).
+      expect(event).toBe(true)
+    })
+
+    it('does NOT call navigateSuite on a non-primary mouse button (e.g. middle-click)', () => {
+      render(<NotificationItem notification={withLink} wasUnread={false} />)
+      const row = screen.getByTestId('notification-item-notif-1')
+
+      const event = fireEvent.click(row, { button: 1 })
+
+      expect(navigateSuite).not.toHaveBeenCalled()
+      expect(event).toBe(true)
+    })
   })
 })

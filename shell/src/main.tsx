@@ -5,6 +5,22 @@ import { registerRemotes } from '@module-federation/runtime'
 import './index.css'
 import { router } from './router'
 import { resolveRuntimeRemotes } from './lib/runtimeRemotes'
+import { registerSuiteNavigate } from './lib/session'
+
+// Follow-up to specs/005-notification-center (T15/AC-2.5): registers this
+// shell's real router.navigate as the suite-wide cross-remote navigation
+// function (session.ts's `navigateSuite` seam) — see that file's doc comment
+// for why the registration happens here rather than session.ts importing the
+// router directly (avoids a session↔router import cycle). `to` is a runtime
+// string (an in-suite absolute path read off a notification's `link.href`,
+// not a value known to TanStack Router's generated route-tree types at build
+// time), so it needs the same kind of cast the codebase already uses for
+// other dynamic `to` values (e.g. router.tsx's `redirect({ to:
+// resolveLastToolPath() })`, Sidebar's `SuiteTool.to: string`) — TanStack's
+// `navigate({ to })` overload set expects a statically-known route literal.
+registerSuiteNavigate((to) => {
+  void router.navigate({ to })
+})
 
 // T17 (specs/003-suite-shell/tasks.md, AC-5.3): resolve remote entry
 // overrides at RUNTIME (see src/lib/runtimeRemotes.ts) before the router

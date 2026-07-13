@@ -48,6 +48,8 @@ const {
   clearPermissionsCache,
   usePermissions,
   EMPTY_PERMISSIONS,
+  registerSuiteNavigate,
+  navigateSuite,
 } = await import('./session')
 type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 
@@ -585,5 +587,35 @@ describe('usePermissions', () => {
     await waitFor(() => {
       expect(result.current.apps).toEqual(['estimai', 'refund'])
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// navigateSuite / registerSuiteNavigate — the cross-remote navigation seam
+// (follow-up to specs/005-notification-center, T15/AC-2.5). NOTE: the
+// underlying registry is module-scope and NOT reset by beforeEach (there is
+// no `resetSuiteNavigate` — production only ever registers once, from
+// main.tsx), so the "falls back" case is asserted FIRST, before any test in
+// this file registers a function, and the "registered" case intentionally
+// leaves a registration behind afterwards.
+// ---------------------------------------------------------------------------
+
+describe('navigateSuite', () => {
+  it('falls back to window.location.assign(to) when nothing is registered', () => {
+    navigateSuite('/estimai/estimates/42')
+
+    expect(window.location.assign).toHaveBeenCalledOnce()
+    expect(window.location.assign).toHaveBeenCalledWith('/estimai/estimates/42')
+  })
+
+  it('calls the registered function instead of the fallback once registerSuiteNavigate has run', () => {
+    const fn = vi.fn()
+    registerSuiteNavigate(fn)
+
+    navigateSuite('/refund/reports/7')
+
+    expect(fn).toHaveBeenCalledOnce()
+    expect(fn).toHaveBeenCalledWith('/refund/reports/7')
+    expect(window.location.assign).not.toHaveBeenCalled()
   })
 })

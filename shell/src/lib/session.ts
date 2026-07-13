@@ -509,6 +509,65 @@ export const signOut = async (
 }
 
 /**
+ * Suite-wide cross-remote navigation seam (follow-up to specs/005-notification-
+ * center, T15/AC-2.5): a remote (e.g. notify-ui's `NotificationItem`) cannot
+ * drive a client-side navigation into ANOTHER remote's route — each remote
+ * runs its own inner TanStack Router scoped to its own `basepath` (`/notify`,
+ * `/estimai`, …), and there is no shared router *instance* across the
+ * federation boundary (ADR-0006: `@tanstack/react-router` is a shared MF
+ * *library* singleton, not a shared router instance). Only the SHELL's
+ * top-level router (basepath `/`, `shell/src/router.tsx`) knows every remote's
+ * route, so cross-remote navigation must go through it.
+ *
+ * `registerSuiteNavigate` / `navigateSuite` form the same "module holds a
+ * registry, exposes a register + invoke pair" shape already used for
+ * `onSignOut` above — used here (instead of importing `router.tsx` directly)
+ * to avoid a session↔router import cycle: `router.tsx` already imports
+ * `ensurePermissions`/`getSession`/`revalidatePermissions` from THIS module,
+ * so a reverse static import (this module importing the router instance)
+ * would make the cycle bidirectional at the declaration level. Instead,
+ * whichever code owns the router instance (`shell/src/main.tsx`) registers
+ * its real `navigate` here once, and every caller — this module's own
+ * `export`, and every remote that imports `shell/session` — calls the single
+ * `navigateSuite(to)` function without needing to know the router exists.
+ *
+ * `navigateSuite` falls back to `window.location.assign(to)` (a full
+ * document navigation) when nothing is registered yet — e.g. a call that
+ * somehow races module init before `main.tsx`'s registration runs, or a test
+ * that exercises this seam without a real router. That fallback still
+ * reaches the right place (the shell owns every route), just via a full
+ * reload instead of a client-side transition.
+ */
+const suiteNavigateRegistry: { fn: ((to: string) => void) | null } = { fn: null }
+
+/**
+ * Registers the shell's real navigate function (called once, from wherever
+ * the router instance lives — `shell/src/main.tsx`). A later call replaces
+ * any previous registration; there is exactly one shell router per tab, so
+ * this is expected to be called at most once in production.
+ */
+export function registerSuiteNavigate(fn: (to: string) => void): void {
+  suiteNavigateRegistry.fn = fn
+}
+
+/**
+ * Navigates the suite to an absolute in-suite path (e.g. `/estimai/estimates/
+ * 42`), routing through the shell's top-level router — the ONLY router
+ * instance that spans every remote's basepath — instead of a plain document
+ * navigation, so cross-remote clicks (e.g. a notification's link) feel like
+ * an in-app transition rather than a full reload. Falls back to
+ * `window.location.assign(to)` when the shell hasn't registered a navigate
+ * function yet (see this seam's doc comment above).
+ */
+export function navigateSuite(to: string): void {
+  if (suiteNavigateRegistry.fn) {
+    suiteNavigateRegistry.fn(to)
+    return
+  }
+  window.location.assign(to)
+}
+
+/**
  * Re-exports the shell's notification transport seam (T10,
  * specs/005-notification-center, ADR-0009) so it rides the suite's existing
  * `shell/session` federation export (vite.config.ts `exposes['./session']`)

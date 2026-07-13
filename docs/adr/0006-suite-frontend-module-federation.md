@@ -337,4 +337,55 @@ variant utility, so it could not be whack-a-moled class by class.
 
 ---
 
+## Addendum (2026-07-13) — Cross-remote navigation without a full reload
+
+### Context
+
+specs/005-notification-center's T15 fix (AC-2.5) made a notification's link render as a
+real `<a href>` instead of a TanStack Router `<Link>`, because a remote's own inner
+router cannot resolve a path outside its own `basepath` — this ADR already established
+that `@tanstack/react-router` is a shared MF *library* singleton across remotes, not a
+shared router *instance* (see "Shared singletons" above). That fix was correct but
+incomplete: a plain anchor means every click, including an ordinary unmodified
+left-click meant to stay in the app, triggers a full document navigation — the browser
+has no way to know the target lives inside the same federated suite.
+
+### Decision
+
+The SHELL is the only place a single top-level router instance exists that spans every
+remote's basepath (`/estimai`, `/refund`, `/admin`, `/notify`, …), so cross-remote
+navigation must be routed through it. `shell/session` (already the suite's shared
+session/runtime seam, per this ADR's "Shared session singleton" section) now also
+exposes `navigateSuite(to)`: a remote calls it with an in-suite absolute path, and it
+invokes the shell's own `router.navigate({ to })` — registered once, from
+`shell/src/main.tsx`, into a module-scope registry (`registerSuiteNavigate`), the same
+"register a callback, invoke it later" shape already used for `onSignOut` in
+`session.ts`, chosen specifically to avoid a session↔router import cycle. A remote (e.g.
+`notify-ui`'s `NotificationItem`) keeps the real `<a href>` — untouched, so
+middle-click/ctrl-click/cmd-click/"open in new tab" all still work exactly as a native
+anchor — but intercepts a plain, unmodified left-click, calls `preventDefault()`, and
+calls `navigateSuite(link.href)` instead, producing an in-app client-side transition
+with no full reload. `navigateSuite` falls back to `window.location.assign(to)` if
+nothing has registered yet (e.g. a stray call before the shell has mounted), which still
+reaches the right place via a full reload rather than doing nothing.
+
+### Consequences
+
+- **Positive:** cross-remote navigation (a notification's link today; any future
+  remote-to-remote link tomorrow) is a real client-side transition, not a full page
+  reload, without requiring a shared router *instance* across the federation boundary —
+  the shell's router stays the single source of truth for routing, and remotes never
+  need their own copy of it.
+- **Cost:** every remote that wants this behavior must import `navigateSuite` from
+  `shell/session` and wire its own click-interception guard (the "which click counts as
+  a plain click" logic — `button !== 0`/`metaKey`/`ctrlKey`/`shiftKey`/`altKey` — is
+  duplicated per call site rather than centralized in one component, since each remote
+  renders its own markup).
+- **Verified:** `shell`'s unit suite covers `navigateSuite`'s registered-callback and
+  `window.location.assign` fallback paths; `notify-ui`'s `NotificationItem` tests cover a
+  plain left-click calling `navigateSuite` and a modified click leaving the anchor's
+  native behavior alone.
+
+---
+
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
