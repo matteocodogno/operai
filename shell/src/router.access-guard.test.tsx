@@ -49,6 +49,18 @@ vi.mock('./lib/session', () => ({
   usePermissions,
   ensurePermissions,
   revalidatePermissions,
+  // T11 (specs/005-notification-center): Header now mounts Bell, which reads
+  // useUnreadCount() (shell/src/lib/notifications.ts) on every render of the
+  // shared chrome these tests exercise via ShellLayout/Header. notifications.ts
+  // imports apiFetch/onSignOut from this same module, so a mock of
+  // './lib/session' that omits them breaks — not because these tests care
+  // about notifications, but because the mocked module must still satisfy
+  // every export the transitively-rendered chrome touches. apiFetch resolving
+  // to nothing (undefined) makes the SSE manager's ticket mint fail closed
+  // (mirrors "signed out" — see notifications.ts's mintStreamTicket try/catch),
+  // so Bell just renders with 0 unread here, harmlessly.
+  apiFetch: vi.fn(),
+  onSignOut: vi.fn(),
 }))
 
 vi.mock('estimai/App', () => ({
