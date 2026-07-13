@@ -8,6 +8,10 @@ const envSchema = z.object({
     .transform((v) => v.split(",").map((o) => o.trim())),
   AUTH_JWKS_URL: z.string().url("AUTH_JWKS_URL must be a valid URL"),
   AUTH_ISSUER: z.string().url("AUTH_ISSUER must be a valid URL"),
+  // Suite-wide JWT audience value (ADR-0010). Must match the `audience` claim
+  // stamped by the auth service's jwt plugin. A token missing this claim, or
+  // carrying a different value, is rejected with 401 by jwtMiddleware.
+  AUTH_AUDIENCE: z.string().min(1, "AUTH_AUDIENCE is required"),
   // Per-estimate content size cap (bytes). Default 1 MiB. Configurable per environment.
   MAX_ESTIMATE_BYTES: z.coerce.number().int().positive().default(1048576),
   // Raw request-body size cap for the bulk-import endpoint (bytes).

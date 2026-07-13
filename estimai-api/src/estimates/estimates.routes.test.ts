@@ -51,6 +51,7 @@ let localJWKS: Awaited<ReturnType<typeof createLocalJWKSet>>;
 const TEST_KID_A = "operai-auth-rs256-v1";
 const TEST_KID_B = "operai-auth-rs256-v2";
 const TEST_ISSUER = "http://localhost:3001";
+const TEST_AUDIENCE = "operai-suite"; // ADR-0010 — must match AUTH_AUDIENCE below
 
 const USER_A_ID = "test-user-a-t4";
 const USER_B_ID = "test-user-b-t4";
@@ -92,6 +93,7 @@ mock.module("@/auth/jwt.middleware", () => {
         if (!jwksProxy) throw new Error("JWKS proxy not initialised");
         const { payload } = await jose.jwtVerify(token, jwksProxy, {
           issuer: TEST_ISSUER,
+          audience: TEST_AUDIENCE, // ADR-0010 — mirrors jwt.middleware.ts's env.AUTH_AUDIENCE pin
           algorithms: ["RS256"],
         });
         const userId = payload.sub;
@@ -135,6 +137,7 @@ dotenvConfig({
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/.well-known/jwks.json";
 process.env["AUTH_ISSUER"] = TEST_ISSUER;
+process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
 process.env["NODE_ENV"] = "test";
 
 // Create a dedicated Prisma client with the real DATABASE_URL loaded from .env
@@ -183,13 +186,23 @@ const signToken = async (
   kid: string,
   sub: string,
   email: string,
-): Promise<string> =>
-  new SignJWT({ email })
+  // ADR-0010: `aud` claim. `null` omits it (pre-ADR-0010 token shape);
+  // defaults to the correct TEST_AUDIENCE so every existing caller keeps
+  // minting valid tokens without change.
+  audience: string | null = TEST_AUDIENCE,
+): Promise<string> => {
+  const jwt = new SignJWT({ email })
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(TEST_ISSUER)
     .setSubject(sub)
-    .setExpirationTime("1h")
-    .sign(privateKey);
+    .setExpirationTime("1h");
+
+  if (audience !== null) {
+    jwt.setAudience(audience);
+  }
+
+  return jwt.sign(privateKey);
+};
 
 // Convenience wrappers — each user signs with their own keypair + kid.
 const tokenA = () =>
@@ -1165,6 +1178,102 @@ describe("AC-4.2 — unauthenticated requests rejected on all endpoints", () => 
     expect(listRes.status).toBe(200);
     const list = await listRes.json();
     expect(list).toEqual([]);
+  });
+});
+
+// ─── ADR-0010: JWT audience (`aud`) enforcement (T9, specs/005-notification-center) ──
+//
+// Closes the cross-service replay gap ADR-0005 deferred: a token missing the `aud`
+// claim entirely, or carrying a value other than AUTH_AUDIENCE, must be rejected —
+// even though its signature, issuer, and expiry are otherwise perfectly valid. This
+// is the concrete regression guard for "a token minted for a different resource
+// server must not be accepted here."
+
+describe("ADR-0010 — audience (aud) claim enforcement", () => {
+  it("token with no 'aud' claim at all — 401, nothing persisted", async () => {
+    const app = buildApp();
+    const jwtNoAud = await signToken(
+      userAPrivateKey,
+      TEST_KID_A,
+      USER_A_ID,
+      USER_A_EMAIL,
+      null, // omit setAudience() entirely
+    );
+
+    const res = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtNoAud}` },
+    });
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { status: number; type: string };
+    expect(body.status).toBe(401);
+    expect(body.type).toBe("https://httpstatuses.com/401");
+  });
+
+  it("token with a wrong 'aud' value — 401, nothing persisted", async () => {
+    const app = buildApp();
+    const jwtWrongAud = await signToken(
+      userAPrivateKey,
+      TEST_KID_A,
+      USER_A_ID,
+      USER_A_EMAIL,
+      "some-other-resource-server",
+    );
+
+    const res = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtWrongAud}` },
+    });
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { status: number; type: string };
+    expect(body.status).toBe(401);
+    expect(body.type).toBe("https://httpstatuses.com/401");
+  });
+
+  it("token with the correct 'aud' value (default tokenA()) — 200, list returned", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+
+    const res = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+
+    // Correct audience — the request must pass the auth layer (200), regardless
+    // of list contents (other tests may have created rows for USER_A_ID).
+    expect(res.status).toBe(200);
+  });
+
+  it("POST /estimates with wrong 'aud' → 401 and the row is NOT persisted", async () => {
+    const app = buildApp();
+    const jwtWrongAud = await signToken(
+      userAPrivateKey,
+      TEST_KID_A,
+      USER_A_ID,
+      USER_A_EMAIL,
+      "some-other-resource-server",
+    );
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtWrongAud),
+      body: JSON.stringify({
+        name: "should-not-persist-wrong-aud",
+        author: "Eve",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(401);
+
+    // Confirm with a validly-audienced token that nothing was written.
+    const jwtA = await tokenA();
+    const listRes = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as Array<{ name: string }>;
+    expect(list.some((e) => e.name === "should-not-persist-wrong-aud")).toBe(
+      false,
+    );
   });
 });
 
