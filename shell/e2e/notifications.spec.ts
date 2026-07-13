@@ -26,7 +26,7 @@
  */
 
 import { test, expect, type BrowserContext, type Page } from '@playwright/test'
-import { seedSession, E2E_TEST_USER } from './helpers/seedSession'
+import { seedSession } from './helpers/seedSession'
 
 const AUTH_ORIGIN = (
   process.env['E2E_AUTH_URL'] ?? process.env['VITE_AUTH_URL'] ?? 'http://localhost:3001'
