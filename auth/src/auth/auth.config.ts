@@ -2,8 +2,187 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { jwt } from "better-auth/plugins";
 import { assignBaselineRolesToNewUser } from "../authz/seed";
+import type { NewUserForBootstrap } from "../authz/seed";
+import { withAudit } from "../authz/audit";
+import { findLivePendingInvitationByEmail } from "../invitations/invitations.repo";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
+
+// ─── Invitation activation hooks (specs/006-user-invitations, T8) ──────────
+//
+// Two distinct better-auth seams — ADR-0012 explains WHY there are two, not
+// one: `user.create.after` fires exactly once, when a brand-new user row is
+// first persisted; it does NOT fire again for a returning identity (better-
+// auth matches the existing `account` row and only creates a session), so a
+// SEPARATE seam (`session.create.before`, below) is required to intercept a
+// soft-deleted user's return sign-in. Both share the same trust posture:
+// the email that gates a privilege grant is ALWAYS the OAuth-**verified**
+// email already persisted on the `user` row — never anything from a
+// request body/header, and never the invite-link token itself (that token
+// is UX/landing-page-only, see `src/invite/`, and grants nothing on its
+// own — AC-2.4 falls out of this structurally).
+//
+// R1 (plan.md Risk R1) — the `session.create.before` abort contract was
+// spiked empirically against the pinned better-auth version (1.6.23, see
+// bun.lock) before this was wired: a scratch `betterAuth()` instance with a
+// `session.create.before` hook returning `false` was used to call
+// `ctx.internalAdapter.createSession(userId)` directly. Result: it resolves
+// to `null` and NO session row is persisted (confirmed via a `db.session.count`
+// of 0 afterward) — matching both `node_modules/better-auth/dist/db/with-
+// hooks.mjs` (`if (result === false) return null;`) and the official type
+// doc-comment in `@better-auth/core`'s `init-options.d.mts` ("if the hook
+// returns false, the session will not be created"). Tracing the OAuth
+// callback path (`api/routes/callback.mjs` → `oauth2/link-account.mjs`'s
+// `handleOAuthUserInfo`) confirms `createSession` returning `null` becomes
+// `{ error: "unable to create session" }`, which the callback handler
+// redirects on WITHOUT ever calling `setSessionCookie` — no session
+// persists, no cookie is set. Returning `false` is therefore a genuine,
+// confirmed deny; the documented `session.create.after` + immediate
+// `session.delete` fallback (plan.md) is NOT needed. See
+// `auth.config.test.ts`'s "R1 spike" describe block for the permanent,
+// shipped version of this empirical check.
+
+/**
+ * `user.create.after` — new-user activation (AC-2.3, AC-2.4). Called AFTER
+ * `assignBaselineRolesToNewUser` so the baseline `employee` role is already
+ * in place. Looks up a LIVE PENDING invitation for the new user's own
+ * verified email (`user.emailVerified === true` — the same posture as the
+ * bootstrap-admin match in `authz/seed.ts`) and, on a match, applies the
+ * invitation's roleIds/departmentIds ADDITIVE to the baseline `employee`
+ * role (per plan.md Risk R9 — AC-2.3's "baseline default" framing reads as
+ * additive; flagged here for QE to confirm — a one-line flip to
+ * replace-not-add if QE reads AC-2.3 strictly), marks the invitation
+ * `accepted`, bumps `permissionEpoch`, and writes an audit row. A DIFFERENT
+ * verified identity that follows the same invite link looks up ITS OWN
+ * email here and finds no live-pending row — the original invitation is
+ * untouched — which is exactly AC-2.4's cross-identity isolation, achieved
+ * structurally rather than via any invite-link-specific check.
+ */
+export async function applyLivePendingInvitationOnUserCreate(
+  user: NewUserForBootstrap,
+): Promise<void> {
+  if (user.emailVerified !== true) return;
+
+  const invitation = await findLivePendingInvitationByEmail(db, user.email);
+  if (!invitation) return;
+
+  await withAudit({
+    affectedUserIds: [user.id],
+    mutate: async (tx) => {
+      for (const roleId of invitation.roleIds) {
+        await tx.userRole.upsert({
+          where: { userId_roleId: { userId: user.id, roleId } },
+          update: {},
+          create: { userId: user.id, roleId, assignedByUserId: invitation.invitedByUserId },
+        });
+      }
+      for (const departmentId of invitation.departmentIds) {
+        await tx.userDepartment.upsert({
+          where: { userId_departmentId: { userId: user.id, departmentId } },
+          update: {},
+          create: {
+            userId: user.id,
+            departmentId,
+            assignedByUserId: invitation.invitedByUserId,
+          },
+        });
+      }
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: { status: "accepted", acceptedByUserId: user.id },
+      });
+    },
+    entry: {
+      actorUserId: user.id,
+      action: "invitation.accept",
+      targetType: "invitation",
+      targetId: invitation.id,
+      summary: `Invitation for ${user.email} accepted on sign-up`,
+      data: { roleIds: invitation.roleIds, departmentIds: invitation.departmentIds },
+    },
+  });
+}
+
+/**
+ * `session.create.before` — soft-delete gate + re-activation (AC-5.2,
+ * AC-5.10). Fires on EVERY session creation, including a returning OAuth
+ * identity whose `account` row already exists (the seam `user.create.after`
+ * cannot reach — see ADR-0012). An ACTIVE user (`deletedAt == null`) is
+ * always allowed with NO invitation logic (an active user's verified email
+ * can never hold a live-pending invitation, AC-1.3) — this keeps the
+ * per-sign-in cost of this hook to a single indexed lookup for the
+ * overwhelming common case. A SOFT-DELETED user is gated: a live-pending
+ * invitation for their verified email RE-ACTIVATES them — clears
+ * `deletedAt`/`deletedByUserId` and REPLACES roles/departments with EXACTLY
+ * the new invitation's set (deliberately NOT additive/unioned with
+ * whatever they held before deletion — AC-5.10 is explicit that
+ * re-activation is a fresh activation, not a resurrection of prior grants)
+ * — otherwise the session is DENIED outright (AC-5.2, see the R1 comment
+ * above for the confirmed abort mechanism): no resurrection, and no new
+ * user row is created because the `account` row still maps to this exact
+ * (soft-deleted) user.
+ */
+export async function gateOrReactivateSoftDeletedSession(
+  userId: string,
+): Promise<false | void> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { deletedAt: true, email: true, emailVerified: true },
+  });
+
+  // Defensive fail-closed: a session must always reference a real user row.
+  if (!user) return false;
+  if (user.deletedAt === null) return; // active user — no gate (AC-1.3)
+  if (user.emailVerified !== true) return false;
+
+  const invitation = await findLivePendingInvitationByEmail(db, user.email);
+  if (!invitation) return false; // AC-5.2 — refused; no resurrection, no new user row
+
+  await withAudit({
+    affectedUserIds: [userId],
+    mutate: async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { deletedAt: null, deletedByUserId: null },
+      });
+      // REPLACE (not merge) — AC-5.10.
+      await tx.userRole.deleteMany({ where: { userId } });
+      await tx.userDepartment.deleteMany({ where: { userId } });
+      if (invitation.roleIds.length > 0) {
+        await tx.userRole.createMany({
+          data: invitation.roleIds.map((roleId) => ({
+            userId,
+            roleId,
+            assignedByUserId: invitation.invitedByUserId,
+          })),
+        });
+      }
+      if (invitation.departmentIds.length > 0) {
+        await tx.userDepartment.createMany({
+          data: invitation.departmentIds.map((departmentId) => ({
+            userId,
+            departmentId,
+            assignedByUserId: invitation.invitedByUserId,
+          })),
+        });
+      }
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: { status: "accepted", acceptedByUserId: userId },
+      });
+    },
+    entry: {
+      actorUserId: userId,
+      action: "user.reactivate",
+      targetType: "user",
+      targetId: userId,
+      summary: `Re-activated ${user.email} via a fresh invitation (was soft-deleted)`,
+      data: { invitationId: invitation.id, roleIds: invitation.roleIds, departmentIds: invitation.departmentIds },
+    },
+  });
+
+  // Falls through to `undefined` — allow the session.
+}
 
 export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
@@ -51,7 +230,17 @@ export const auth = betterAuth({
       create: {
         after: async (user) => {
           await assignBaselineRolesToNewUser(user);
+          // T8, specs/006-user-invitations (AC-2.3/2.4) — see the doc
+          // comment on `applyLivePendingInvitationOnUserCreate` above.
+          await applyLivePendingInvitationOnUserCreate(user);
         },
+      },
+    },
+    session: {
+      create: {
+        // T8, specs/006-user-invitations (AC-5.2/5.10; R1) — see the doc
+        // comment on `gateOrReactivateSoftDeletedSession` above.
+        before: async (session) => gateOrReactivateSoftDeletedSession(session.userId),
       },
     },
   },
