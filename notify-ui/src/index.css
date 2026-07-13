@@ -1,0 +1,10 @@
+/*
+ * notify-ui's own stylesheet: Tailwind's core utilities only (layout,
+ * spacing, type scale — `mx-auto`, `px-6`, `text-3xl`, …). No local `@theme`
+ * / palette block is defined here — see App.tsx's module doc for why: the
+ * shared Operai palette/fonts are consumed at runtime from the federated
+ * `shell/tokens.css` import instead of being duplicated into this project's
+ * own build. Mirrors admin-ui/src/index.css and refund-ui/src/index.css
+ * exactly (ADR-0006 addendum, "Remote CSS strategy").
+ */
+@import "tailwindcss";
