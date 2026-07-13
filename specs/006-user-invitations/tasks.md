@@ -69,7 +69,7 @@ owned by a single track to avoid collisions.
   - touch: `admin-ui/src/pages/` Users list — checkbox column (tri-state select-all), `role=region` bulk action bar w/ live count, confirm naming the count, `BulkDeleteResultPanel` (NEW, persistent `role=status`, per-skipped-user reason in a real `<ul>` — NOT a vanishing toast, AC-6.3)
   - done when: lint+build+test green; unit tests: select-all tri-state, bulk POST, the skipped-with-reasons panel renders and persists
 
-- [ ] T12: admin-ui InvitationsPage + invite modal — refs: US-1 (1.6), US-3 — deps: T6, T10
+- [x] T12: admin-ui InvitationsPage + invite modal — refs: US-1 (1.6), US-3 — deps: T6, T10
   - touch: `admin-ui/src/pages/InvitationsPage.tsx` (NEW), `InviteUserModal` (NEW — email + reuse the role/department pickers), `InvitationStatusBadge` (NEW, pending/accepted/expired/revoked, not color-only), per-row Resend/Revoke (Revoke terminal → confirm), email-send-failed surfaced; list w/ status filter + `?q=`
   - done when: lint+build+test green; unit tests: invite modal submit + 409/422 inline errors, status badges, resend/revoke actions + confirm, email-failed indicator
 
