@@ -1,8 +1,9 @@
 /**
- * Bootstrap seed for the authorization domain (T11, specs/004-auth-roles-permissions
- * — refs AC-6.1, AC-6.2, AC-6.3; plan.md "Bootstrap & seed"; ADR-0007).
+ * Bootstrap seed for the authorization domain (T11/T26, specs/004-auth-roles-
+ * permissions — refs AC-6.1, AC-6.2, AC-6.3, AC-3.4; plan.md "Bootstrap &
+ * seed" + "Catalog registration"; ADR-0007).
  *
- * Two independent, idempotent responsibilities, both safe to re-run any
+ * Three independent, idempotent responsibilities, both safe to re-run any
  * number of times (at every deploy, and from tests):
  *
  *   1. {@link seedSystemRoles} — upsert the four system roles `employee`,
@@ -11,17 +12,25 @@
  *      editable — an admin may still attach rules to them.
  *   2. {@link seedAppAccessCatalog} — register the suite-wide "can see this
  *      app" catalog via `upsertAppCatalog` (T5): one resource per suite app
- *      (`estimai`, `refund`, `admin`), keyed by the app id itself (per
- *      `catalog.ts`'s convention for the app-access resource), each with a
- *      single `access` action. This lets an admin grant/deny app visibility
- *      (US-7) from day one, independent of any app's own domain-resource
- *      catalog. EstimAI's `estimate` resource (view/create/edit/delete) is
- *      deliberately NOT seeded here — T26 is EstimAI's own job to declare
- *      and register its full catalog (including its own `access` entry,
- *      which supersedes this placeholder for `estimai` via the same
- *      full-replace-per-appId upsert — see `catalog.ts`'s doc comment).
+ *      that has NOT declared its own full catalog yet (`refund`, `admin`),
+ *      keyed by the app id itself (per `catalog.ts`'s convention for the
+ *      app-access resource), each with a single `access` action. This lets
+ *      an admin grant/deny app visibility (US-7) from day one, independent
+ *      of any app's own domain-resource catalog. `estimai` is deliberately
+ *      EXCLUDED from this list — see (3).
+ *   3. {@link seedEstimaiCatalog} (T26, AC-3.4) — register EstimAI's FULL
+ *      declared catalog (`catalogs/estimai.ts`: app `access` + the
+ *      `estimate` resource's view/create/edit/delete actions) via the same
+ *      `upsertAppCatalog`. Because `upsertAppCatalog` is a full-replace
+ *      upsert keyed by `appId` (`catalog.ts`'s doc comment), registering
+ *      `estimai`'s `access` action from BOTH `seedAppAccessCatalog` and
+ *      `seedEstimaiCatalog` would mean whichever ran last silently pruned
+ *      the other's contribution — a conflicting double-registration. Instead
+ *      `estimai` is registered exactly once, here, with its complete
+ *      catalog; `seedAppAccessCatalog`'s `SUITE_APPS` list only ever
+ *      contains apps that don't (yet) declare more than bare access.
  *
- * A THIRD, per-user concern — assigning the baseline `employee` role (and
+ * A FOURTH, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
  * `auth.config.ts`'s `databaseHooks.user.create.after` hook, via
@@ -33,6 +42,7 @@ import { ADMIN_ROLE_NAME } from "../admin/lastAdminGuard";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { upsertAppCatalog } from "./catalog";
+import { ESTIMAI_CATALOG } from "./catalogs/estimai";
 
 export const EMPLOYEE_ROLE_NAME = "employee";
 
@@ -44,9 +54,14 @@ export const SYSTEM_ROLE_NAMES = [
   "hr",
 ] as const;
 
-/** Suite apps that get a baseline app-access catalog resource (US-7). */
-const SUITE_APPS: { appId: string; label: string }[] = [
-  { appId: "estimai", label: "EstimAI" },
+/**
+ * Suite apps that get a baseline access-only catalog resource (US-7).
+ * `estimai` is intentionally NOT here — it declares and registers its own
+ * full catalog (access + `estimate` CRUD) via {@link seedEstimaiCatalog}
+ * (T26), so it isn't registered twice with conflicting full-replace
+ * payloads. Add an app here only until it ships its own catalog declaration.
+ */
+export const SUITE_APPS: { appId: string; label: string }[] = [
   { appId: "refund", label: "Rimborsi" },
   { appId: "admin", label: "Admin" },
 ];
@@ -87,10 +102,22 @@ export async function seedAppAccessCatalog(): Promise<void> {
   }
 }
 
-/** Runs both deploy-time seed steps. */
+/**
+ * Registers EstimAI's full declared catalog (T26, AC-3.4) — `catalogs/
+ * estimai.ts`'s `ESTIMAI_CATALOG` (app `access` + the `estimate` resource's
+ * view/create/edit/delete actions, each with the ownership/entity/department
+ * conditions model). Idempotent for the same reason `seedAppAccessCatalog`
+ * is: `upsertAppCatalog` is itself a full-replace upsert keyed by `appId`.
+ */
+export async function seedEstimaiCatalog(): Promise<void> {
+  await upsertAppCatalog(ESTIMAI_CATALOG);
+}
+
+/** Runs every deploy-time seed step. */
 export async function seed(): Promise<void> {
   await seedSystemRoles();
   await seedAppAccessCatalog();
+  await seedEstimaiCatalog();
 }
 
 // ─── Per-user baseline role assignment (AC-6.1, AC-6.3) ─────────────────────
@@ -165,7 +192,7 @@ export async function assignBaselineRolesToNewUser(
 if (import.meta.main) {
   seed()
     .then(() => {
-      console.log("Seeded system roles + suite app-access catalog");
+      console.log("Seeded system roles + suite app-access catalog + EstimAI catalog");
       process.exit(0);
     })
     .catch((err) => {

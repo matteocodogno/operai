@@ -1,6 +1,6 @@
 /**
- * Tests for the bootstrap seed (T11, specs/004-auth-roles-permissions —
- * refs AC-6.1, AC-6.2, AC-6.3).
+ * Tests for the bootstrap seed (T11/T26, specs/004-auth-roles-permissions —
+ * refs AC-6.1, AC-6.2, AC-6.3, AC-3.4).
  *
  * Strategy: everything here is exercised directly against the real local
  * Postgres (shared dev DB, localhost:5435) via `db`/`env`/`./seed` only —
@@ -34,12 +34,15 @@ import { ADMIN_ROLE_NAME } from "../admin/lastAdminGuard";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { getAppCatalog } from "./catalog";
+import { ESTIMAI_APP_ID } from "./catalogs/estimai";
 import {
   assignBaselineRolesToNewUser,
   EMPLOYEE_ROLE_NAME,
   seed,
   seedAppAccessCatalog,
+  seedEstimaiCatalog,
   seedSystemRoles,
+  SUITE_APPS,
   SYSTEM_ROLE_NAMES,
 } from "./seed";
 
@@ -81,11 +84,11 @@ describe("seedSystemRoles (T11, AC-6.2)", () => {
 });
 
 describe("seedAppAccessCatalog (T11, US-7)", () => {
-  test("registers a single access-only resource for estimai, refund, and admin, idempotent on re-run", async () => {
+  test("registers a single access-only resource for refund and admin, idempotent on re-run", async () => {
     await seedAppAccessCatalog();
     await seedAppAccessCatalog(); // re-run — full-replace upsert, must not duplicate
 
-    for (const appId of ["estimai", "refund", "admin"]) {
+    for (const appId of ["refund", "admin"]) {
       const catalog = await getAppCatalog(appId);
       const accessResource = catalog.resources.find((r) => r.key === appId);
       expect(accessResource).toBeDefined();
@@ -94,9 +97,49 @@ describe("seedAppAccessCatalog (T11, US-7)", () => {
     }
   });
 
-  test("does NOT register EstimAI's `estimate` domain resource (T26's job, not T11's)", async () => {
-    const catalog = await getAppCatalog("estimai");
-    expect(catalog.resources.some((r) => r.key === "estimate")).toBe(false);
+  test("estimai is excluded from SUITE_APPS — it declares/registers its own full catalog (T26), not this one", () => {
+    // This is a code-shape assertion, not a DB-state one, so it stays true
+    // regardless of what earlier test runs may have left in the shared DB.
+    expect(SUITE_APPS.some((app) => app.appId === "estimai")).toBe(false);
+  });
+});
+
+describe("seedEstimaiCatalog (T26, AC-3.4)", () => {
+  test("registers EstimAI's full catalog — app access + estimate view/create/edit/delete, idempotent on re-run", async () => {
+    await seedEstimaiCatalog();
+    await seedEstimaiCatalog(); // re-run — full-replace upsert, must not duplicate
+
+    const catalog = await getAppCatalog(ESTIMAI_APP_ID);
+
+    const accessResource = catalog.resources.find((r) => r.key === ESTIMAI_APP_ID);
+    expect(accessResource).toBeDefined();
+    expect(accessResource?.actions).toHaveLength(1);
+    expect(accessResource?.actions[0]?.key).toBe("access");
+
+    const estimateResource = catalog.resources.find((r) => r.key === "estimate");
+    expect(estimateResource).toBeDefined();
+    expect(estimateResource?.actions.map((a) => a.key).sort()).toEqual([
+      "create",
+      "delete",
+      "edit",
+      "view",
+    ]);
+    for (const action of estimateResource?.actions ?? []) {
+      expect(action.supportedConditions.sort()).toEqual(["department", "entity", "ownership"]);
+    }
+  });
+
+  test("GET /admin/catalog's backing read (getFullCatalog) includes estimai's estimate resource (AC-3.4 done-when)", async () => {
+    await seedEstimaiCatalog();
+
+    const { getFullCatalog } = await import("./catalog");
+    const fullCatalog = await getFullCatalog();
+
+    const mine = fullCatalog.find((app) => app.appId === ESTIMAI_APP_ID);
+    expect(mine).toBeDefined();
+    const estimateResource = mine?.resources.find((r) => r.key === "estimate");
+    expect(estimateResource).toBeDefined();
+    expect(estimateResource?.actions).toHaveLength(4);
   });
 });
 
@@ -196,8 +239,8 @@ describe("assignBaselineRolesToNewUser (T11, AC-6.1/6.3)", () => {
   });
 });
 
-describe("seed() — runs both deploy-time steps", () => {
-  test("completes without error and leaves roles + catalog in place", async () => {
+describe("seed() — runs every deploy-time step", () => {
+  test("completes without error and leaves roles + catalogs (incl. EstimAI's, T26) in place", async () => {
     await seed();
 
     const roles = await db.role.findMany({
@@ -205,7 +248,12 @@ describe("seed() — runs both deploy-time steps", () => {
     });
     expect(roles).toHaveLength(4);
 
-    const catalog = await getAppCatalog("admin");
-    expect(catalog.resources.some((r) => r.key === "admin")).toBe(true);
+    const adminCatalog = await getAppCatalog("admin");
+    expect(adminCatalog.resources.some((r) => r.key === "admin")).toBe(true);
+
+    const estimaiCatalog = await getAppCatalog(ESTIMAI_APP_ID);
+    expect(estimaiCatalog.resources.some((r) => r.key === ESTIMAI_APP_ID)).toBe(true);
+    const estimateResource = estimaiCatalog.resources.find((r) => r.key === "estimate");
+    expect(estimateResource?.actions).toHaveLength(4);
   });
 });
