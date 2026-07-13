@@ -45,6 +45,14 @@
  * mechanism, just a third optional key so the Admin (Roles & Permissions)
  * remote's origin can be repointed the same way, per AC-5.3 / ADR-0006.
  *
+ * `notify` (specs/005-notification-center, T13) follows the identical shape —
+ * a fourth optional key so the notification center remote's origin can be
+ * repointed the same way. Unlike `estimai`/`refund`/`admin`, the shell route
+ * that mounts it (`/notify/$`, src/router.tsx) is deliberately NOT
+ * app-access-gated (plan.md "Shell changes") — that's a routing/permissions
+ * concern, orthogonal to this module's job of resolving WHERE the remote's
+ * code is served from.
+ *
  * HONEST SCOPE NOTE (see T17 report): for the common production case — a
  * remote redeployed at its EXISTING, stable custom-domain URL — the shell
  * never needs `runtime-config.json` to change at all, because the URL
@@ -60,6 +68,7 @@ export interface RuntimeRemoteConfig {
   estimai?: string
   refund?: string
   admin?: string
+  notify?: string
 }
 
 declare global {
@@ -76,7 +85,7 @@ declare global {
 
 /** Shape `@module-federation/runtime`'s `registerRemotes` expects (mirrors vite.config.ts's static remote entries). */
 export interface RuntimeRemoteEntry {
-  name: 'estimai' | 'refund' | 'admin'
+  name: 'estimai' | 'refund' | 'admin' | 'notify'
   entry: string
   type: 'module'
   entryGlobalName: string
@@ -138,6 +147,16 @@ export async function resolveRuntimeRemotes(): Promise<RuntimeRemoteEntry[]> {
       entry: config.admin,
       type: 'module',
       entryGlobalName: 'admin',
+      shareScope: 'default',
+    })
+  }
+
+  if (config.notify) {
+    remotes.push({
+      name: 'notify',
+      entry: config.notify,
+      type: 'module',
+      entryGlobalName: 'notify',
       shareScope: 'default',
     })
   }

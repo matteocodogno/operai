@@ -71,6 +71,20 @@ import { recordLastTool, resolveLastToolPath, TOOLS, type ToolId } from './lib/t
 //   - `/no-access` (Screen S1, design.md): rendered when the caller has zero
 //     granted apps at all — reached either via the root `/` redirect (below)
 //     or via a tool route's access guard.
+//
+// T13 (specs/005-notification-center, US-2 AC-2.1) adds:
+//   - `/notify/$`: mounts the new `notify-ui` remote via RemoteMount exactly
+//     like the tool routes above (see "New notify-ui remote" below) — SAME
+//     mounting mechanism, but a DELIBERATE DIVERGENCE from the app-access
+//     pattern: it has NO `beforeLoad` app-access guard and is NOT listed in
+//     `shell/src/lib/tools.ts`'s `TOOLS` (so it never appears in the
+//     permission-filtered Sidebar). plan.md "Shell changes" is explicit about
+//     why: every signed-in user has notifications (US-6), and the spec's
+//     non-goal forbids re-gating notification visibility by app-access. It
+//     is still a CHILD of `shellRoute` (not `authedRoute` directly), so it
+//     still requires a session (the `_authed` guard above) and still renders
+//     inside the shared chrome — only the per-tool access check is skipped.
+//     Reached from the bell (T11), not the nav.
 // ---------------------------------------------------------------------------
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -191,6 +205,9 @@ const loadRefundApp = () => import('refund/App')
 // T25 (specs/004-auth-roles-permissions, US-1 host side): admin-ui's exposed
 // root — same loader shape as the two above.
 const loadAdminApp = () => import('admin/App')
+// T13 (specs/005-notification-center): notify-ui's exposed root — same
+// loader shape as the three above.
+const loadNotifyApp = () => import('notify/App')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -247,6 +264,28 @@ const adminRoute = createRoute({
 })
 
 // ---------------------------------------------------------------------------
+// `/notify/$` — mounts notify-ui via RemoteMount (T13, specs/005-notification-
+// center, US-2 AC-2.1). Structurally identical to estimaiRoute/refundRoute/
+// adminRoute above (same catch-all `/$` shape, same RemoteMount boundary,
+// same parent — `shellRoute`, so it still sits under the `_authed` session
+// guard and inside the shared chrome) with exactly ONE difference: NO
+// `beforeLoad`. plan.md "Shell changes" (specs/005-notification-center) is
+// explicit that `/notify` is deliberately NOT app-access-gated — every
+// signed-in user has notifications (US-6), and the spec's non-goal forbids
+// re-gating notification visibility by app-access. Consequently this route
+// also does NOT call `recordLastTool` (there is no corresponding `ToolId` —
+// `/notify` is intentionally absent from `shell/src/lib/tools.ts`'s `TOOLS`,
+// so it never appears in the permission-filtered Sidebar; it's reached from
+// the bell, T11, not the nav).
+// ---------------------------------------------------------------------------
+
+const notifyRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/notify/$',
+  component: () => <RemoteMount loader={loadNotifyApp} moduleLabel="Notifications" />,
+})
+
+// ---------------------------------------------------------------------------
 // `/no-access` — Screen S1 (T25, design.md, AC-7.4). Reached either from the
 // root `/` redirect above (zero apps, nothing to land on) or from a tool
 // route's access guard (zero apps, redirected here instead of a permitted
@@ -272,6 +311,7 @@ export const routeTree = rootRoute.addChildren([
       estimaiRoute,
       refundRoute,
       adminRoute,
+      notifyRoute,
       noAccessRoute,
     ]),
   ]),

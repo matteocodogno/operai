@@ -43,14 +43,16 @@ vi.mock('./lib/session', () => ({
   signOut: vi.fn(),
 }))
 
-// router.tsx also dynamically imports estimai/App and refund/App (T9's tool
-// routes) — Vite's import-analysis resolves every static/dynamic import
-// specifier in a transformed module up front, even ones the guard tests
-// never execute, so these two federated remotes must be mocked here as well
-// or importing router.tsx at all fails before any test runs.
+// router.tsx also dynamically imports estimai/App, refund/App, admin/App and
+// notify/App (T9/T25/T13's tool routes) — Vite's import-analysis resolves
+// every static/dynamic import specifier in a transformed module up front,
+// even ones the guard tests never execute, so these federated remotes must
+// be mocked here as well or importing router.tsx at all fails before any
+// test runs.
 vi.mock('estimai/App', () => ({ default: () => null }))
 vi.mock('refund/App', () => ({ default: () => null }))
 vi.mock('admin/App', () => ({ default: () => null }))
+vi.mock('notify/App', () => ({ default: () => null }))
 
 // Import getSession AFTER vi.mock so we get the mocked version.
 import { getSession } from './lib/session'
