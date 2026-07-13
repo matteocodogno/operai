@@ -36,10 +36,13 @@ vi.mock('shell/session', () => ({
 import { apiFetch } from 'shell/session'
 import {
   ApiError,
+  bulkDeleteUsers,
   createDepartment,
+  createInvitation,
   createRole,
   deleteDepartment,
   deleteRole,
+  deleteUser,
   getCatalog,
   getDepartment,
   getMe,
@@ -48,6 +51,7 @@ import {
   getUserPermissions,
   listAudit,
   listDepartments,
+  listInvitations,
   listRoles,
   listUsers,
   patchDepartment,
@@ -58,13 +62,18 @@ import {
   putRoleRules,
   putUserDepartments,
   putUserRoles,
+  resendInvitation,
+  revokeInvitation,
 } from './adminApi'
 import type {
   ApiProblem,
   AuditLogEntry,
+  BulkDeleteUsersResult,
   Catalog,
+  DeleteUserResult,
   DepartmentDetail,
   EffectivePermissions,
+  InvitationDetail,
   Paginated,
   PermissionRuleInput,
   Role,
@@ -139,6 +148,26 @@ const fixedUserSummary: UserSummary = {
 
 const fixedUsersPage: Paginated<UserSummary> = {
   items: [fixedUserSummary],
+  page: 1,
+  pageSize: 20,
+  total: 1,
+}
+
+const fixedInvitation: InvitationDetail = {
+  id: 'inv-1',
+  email: 'alice@welld.ch',
+  status: 'pending',
+  roles: [{ id: 'role-1', name: 'accounting' }],
+  departments: [{ id: 'dept-1', name: 'Finance' }],
+  invitedBy: { id: 'user-1', name: 'Ada Lovelace', email: 'ada@welld.ch' },
+  invitedAt: '2026-07-13T10:00:00.000Z',
+  expiresAt: '2026-07-16T10:00:00.000Z',
+  acceptedAt: null,
+  emailDelivery: 'sent',
+}
+
+const fixedInvitationsPage: Paginated<InvitationDetail> = {
+  items: [fixedInvitation],
   page: 1,
   pageSize: 20,
   total: 1,
@@ -584,6 +613,160 @@ describe('users', () => {
   it('getUserPermissions(id) throws ApiError on 403 (admin-only)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden'))
     await expectApiError(() => getUserPermissions('user-1'), 403)
+  })
+
+  // --- Soft-delete (T10/T11, specs/006-user-invitations) ---
+
+  it('deleteUser(id) issues DELETE /admin/users/:id with no body and returns { id, deletedAt }', async () => {
+    const fixedDeleteResult: DeleteUserResult = { id: 'user-1', deletedAt: '2026-07-14T10:00:00.000Z' }
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedDeleteResult))
+
+    const result = await deleteUser('user-1')
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/users/user-1`)
+    expect(init?.method).toBe('DELETE')
+    expect(init?.body).toBeUndefined()
+    expect(result).toEqual(fixedDeleteResult)
+  })
+
+  it('deleteUser(id) throws ApiError on 422 (self-delete AC-5.6 / last-admin guard AC-5.5)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      problemResponse(422, 'Unprocessable Entity', 'This is the last remaining administrator'),
+    )
+    const err = await expectApiError(() => deleteUser('user-2'), 422)
+    expect(err.detail).toContain('last remaining administrator')
+  })
+
+  it('deleteUser(id) throws ApiError on 404 (no such active user)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(404, 'Not Found'))
+    await expectApiError(() => deleteUser('missing'), 404)
+  })
+
+  it('bulkDeleteUsers(userIds) issues POST /admin/users/delete wrapping as { userIds } and returns the partial-success report (AC-6.3)', async () => {
+    const fixedBulkResult: BulkDeleteUsersResult = {
+      deleted: ['user-3', 'user-4'],
+      skipped: [
+        { userId: 'user-self', reason: 'cannot delete your own account' },
+        { userId: 'user-admin2', reason: 'last remaining admin' },
+      ],
+    }
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedBulkResult))
+
+    const result = await bulkDeleteUsers(['user-3', 'user-4', 'user-self', 'user-admin2'])
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/users/delete`)
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(init?.body as string)).toEqual({
+      userIds: ['user-3', 'user-4', 'user-self', 'user-admin2'],
+    })
+    expect(result).toEqual(fixedBulkResult)
+  })
+
+  it('bulkDeleteUsers(userIds) throws ApiError on 400 (empty userIds)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(400, 'Bad Request'))
+    await expectApiError(() => bulkDeleteUsers([]), 400)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Invitations (T12, specs/006-user-invitations)
+// ---------------------------------------------------------------------------
+
+describe('invitations', () => {
+  it('listInvitations() issues GET /admin/invitations with no query params when none given', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedInvitationsPage))
+
+    const result = await listInvitations()
+
+    expect(lastCall().url).toBe(`${AUTH_URL}/admin/invitations`)
+    expect(result).toEqual(fixedInvitationsPage)
+  })
+
+  it('listInvitations({ status, q, page, pageSize }) encodes every filter/pagination query param (AC-1.6)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedInvitationsPage))
+
+    await listInvitations({ status: 'pending', q: 'alice', page: 2, pageSize: 10 })
+
+    const url = new URL(lastCall().url)
+    expect(url.pathname).toBe('/admin/invitations')
+    expect(url.searchParams.get('status')).toBe('pending')
+    expect(url.searchParams.get('q')).toBe('alice')
+    expect(url.searchParams.get('page')).toBe('2')
+    expect(url.searchParams.get('pageSize')).toBe('10')
+  })
+
+  it('listInvitations() throws ApiError on 403', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden'))
+    await expectApiError(() => listInvitations(), 403)
+  })
+
+  it('createInvitation(body) issues POST /admin/invitations with email/roleIds/departmentIds and returns 201 InvitationDetail', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedInvitation))
+
+    const body = { email: 'alice@welld.ch', roleIds: ['role-1'], departmentIds: ['dept-1'] }
+    const result = await createInvitation(body)
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/invitations`)
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(init?.body as string)).toEqual(body)
+    expect(result).toEqual(fixedInvitation)
+  })
+
+  it('createInvitation(body) throws ApiError on 409 (active user exists, AC-1.3)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      problemResponse(409, 'Conflict', 'An active user already exists with email "alice@welld.ch"'),
+    )
+    const err = await expectApiError(() => createInvitation({ email: 'alice@welld.ch' }), 409)
+    expect(err.detail).toContain('active user already exists')
+  })
+
+  it('createInvitation(body) throws ApiError on 409 (live pending invitation exists, AC-1.4)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      problemResponse(409, 'Conflict', 'A pending invitation already exists for "alice@welld.ch" (id: inv-1)'),
+    )
+    const err = await expectApiError(() => createInvitation({ email: 'alice@welld.ch' }), 409)
+    expect(err.detail).toContain('pending invitation already exists')
+  })
+
+  it('createInvitation(body) throws ApiError on 422 (unknown role/department id)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(422, 'Unprocessable Entity', 'Unknown role id(s): role-x'))
+    await expectApiError(() => createInvitation({ email: 'alice@welld.ch', roleIds: ['role-x'] }), 422)
+  })
+
+  it('resendInvitation(id) issues POST /admin/invitations/:id/resend and returns the refreshed InvitationDetail', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedInvitation))
+
+    const result = await resendInvitation('inv-1')
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/invitations/inv-1/resend`)
+    expect(init?.method).toBe('POST')
+    expect(result).toEqual(fixedInvitation)
+  })
+
+  it('resendInvitation(id) throws ApiError on 422 (already accepted/revoked, AC-3.4)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(422, 'Unprocessable Entity'))
+    await expectApiError(() => resendInvitation('inv-1'), 422)
+  })
+
+  it('revokeInvitation(id) issues POST /admin/invitations/:id/revoke and returns the revoked InvitationDetail', async () => {
+    const revoked: InvitationDetail = { ...fixedInvitation, status: 'revoked' }
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(revoked))
+
+    const result = await revokeInvitation('inv-1')
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/invitations/inv-1/revoke`)
+    expect(init?.method).toBe('POST')
+    expect(result.status).toBe('revoked')
+  })
+
+  it('revokeInvitation(id) throws ApiError on 422 (already accepted/revoked, AC-1.10/1.11)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(422, 'Unprocessable Entity'))
+    await expectApiError(() => revokeInvitation('inv-1'), 422)
   })
 })
 

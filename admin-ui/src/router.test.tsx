@@ -11,7 +11,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { RouterProvider } from '@tanstack/react-router'
 
 // ---------------------------------------------------------------------------
@@ -69,9 +69,10 @@ describe('router structure', () => {
         '/roles/$id',
         '/users',
         '/users/$id',
+        '/users/invitations',
       ].sort(),
     )
-    expect(routeTree.children).toHaveLength(8)
+    expect(routeTree.children).toHaveLength(9)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors estimai-ui/T13, AC-2.3', async () => {
@@ -103,14 +104,30 @@ describe('the four sections route client-side', () => {
 
     expect(await screen.findByTestId(testId)).not.toBeNull()
 
-    const activeLink = screen.getByRole('link', { name: label })
+    // Scoped to the "Admin sections" landmark specifically — the Users
+    // section (T10, specs/006-user-invitations) additionally renders its own
+    // UsersSubNav ("Active users"/"Invitations") landmark, which must not be
+    // confused with SectionNav's four top-level links here.
+    const sectionNav = screen.getByRole('navigation', { name: 'Admin sections' })
+    const activeLink = within(sectionNav).getByRole('link', { name: label })
     expect(activeLink.getAttribute('aria-current')).toBe('page')
 
     // The other three sections' links are present but not active.
-    const allLinks = screen.getAllByRole('link')
+    const allLinks = within(sectionNav).getAllByRole('link')
     const inactiveLinks = allLinks.filter((link) => link !== activeLink)
     expect(inactiveLinks).toHaveLength(3)
     inactiveLinks.forEach((link) => expect(link.getAttribute('aria-current')).toBeNull())
+  })
+
+  it('visiting /users/invitations renders Screen U2 (InvitationsPage), not the /users/$id detail route (static-vs-dynamic-segment precedence, design.md Screen U2)', async () => {
+    window.history.pushState(null, '', '/users/invitations')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByTestId('admin-invitations-page')).not.toBeNull()
+    expect(screen.queryByTestId('admin-user-detail-page')).toBeNull()
   })
 
   it('root ("/") redirects to /roles', async () => {

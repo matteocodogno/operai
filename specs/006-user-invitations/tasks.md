@@ -61,15 +61,15 @@ owned by a single track to avoid collisions.
   - hashes token, looks up by id, renders effective state: pending+match → "continue with Google/GitHub" wired to existing `POST /auth/sign-in/social` w/ callbackURL; expired/revoked/accepted/token-mismatch → safe "no longer valid"; email only disclosed on a valid pending token; no enumeration; escape `email`/`inviterName`
   - done when: integration tests — each state renders correctly; old-token-post-resend → invalid; no email leak on invalid; `bun run typecheck` clean
 
-- [ ] T10: admin-ui user soft-delete UI + UsersSubNav + modal extension — refs: US-5 (5.7) — deps: T7
+- [x] T10: admin-ui user soft-delete UI + UsersSubNav + modal extension — refs: US-5 (5.7) — deps: T7
   - touch: `admin-ui/src/components/ConfirmDeleteModal.tsx` (add optional `body` prop, backward-compatible — soft-delete copy), `admin-ui/src/components/UsersSubNav.tsx` (NEW, "Active users" | "Invitations"), the Users list row delete + confirm; the caller's own row delete is **disabled-with-explanation** (design.md), soft-deleted users vanish from the list; route `/users/invitations` sibling added
   - done when: `pnpm --dir admin-ui lint`+`build`+`test` green; unit tests: row delete calls DELETE + confirm, self-row disabled, list reflects removal
 
-- [ ] T11: admin-ui bulk delete + partial-success panel — refs: US-6 (6.3) — deps: T7, T10
+- [x] T11: admin-ui bulk delete + partial-success panel — refs: US-6 (6.3) — deps: T7, T10
   - touch: `admin-ui/src/pages/` Users list — checkbox column (tri-state select-all), `role=region` bulk action bar w/ live count, confirm naming the count, `BulkDeleteResultPanel` (NEW, persistent `role=status`, per-skipped-user reason in a real `<ul>` — NOT a vanishing toast, AC-6.3)
   - done when: lint+build+test green; unit tests: select-all tri-state, bulk POST, the skipped-with-reasons panel renders and persists
 
-- [ ] T12: admin-ui InvitationsPage + invite modal — refs: US-1 (1.6), US-3 — deps: T6, T10
+- [x] T12: admin-ui InvitationsPage + invite modal — refs: US-1 (1.6), US-3 — deps: T6, T10
   - touch: `admin-ui/src/pages/InvitationsPage.tsx` (NEW), `InviteUserModal` (NEW — email + reuse the role/department pickers), `InvitationStatusBadge` (NEW, pending/accepted/expired/revoked, not color-only), per-row Resend/Revoke (Revoke terminal → confirm), email-send-failed surfaced; list w/ status filter + `?q=`
   - done when: lint+build+test green; unit tests: invite modal submit + 409/422 inline errors, status badges, resend/revoke actions + confirm, email-failed indicator
 

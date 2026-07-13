@@ -360,6 +360,20 @@ const getJson = async <T>(path: string): Promise<T> => {
   return response.json() as Promise<T>
 }
 
+/**
+ * DELETE helper — no request body, but (unlike `deleteRole`/`deleteDepartment`
+ * below) the response DOES carry a JSON body (`{ id, deletedAt }` — plan.md
+ * `DELETE /admin/users/:id`, T10 specs/006-user-invitations). Throws ApiError
+ * on non-2xx.
+ */
+const deleteJson = async <T>(path: string): Promise<T> => {
+  const response = await apiFetch(`${authBase()}${path}`, { method: 'DELETE' })
+  if (!response.ok) {
+    return throwFromResponse(response)
+  }
+  return response.json() as Promise<T>
+}
+
 /** POST/PATCH/PUT helper — JSON body, throws ApiError on non-2xx. */
 const sendJson = async <T>(path: string, method: string, body: unknown): Promise<T> => {
   const response = await apiFetch(`${authBase()}${path}`, {
@@ -550,6 +564,138 @@ export const putUserDepartments = async (id: string, departmentIds: string[]): P
  */
 export const getUserPermissions = async (id: string): Promise<EffectivePermissions> =>
   getJson<EffectivePermissions>(`/admin/users/${id}/permissions`)
+
+/** `DELETE /admin/users/:id` response (T10, specs/006-user-invitations, plan.md). */
+export type DeleteUserResult = {
+  id: string
+  deletedAt: string
+}
+
+/**
+ * DELETE /admin/users/:id
+ * Soft-deletes a user (US-5, AC-5.1/5.3/5.4/5.8): sets `deletedAt`, revokes
+ * every session synchronously, retains the row/data for audit. Throws
+ * ApiError on 404 (no such active user), 422 (self-delete AC-5.6 / last-admin
+ * guard AC-5.5), 403, or 401.
+ */
+export const deleteUser = async (id: string): Promise<DeleteUserResult> =>
+  deleteJson<DeleteUserResult>(`/admin/users/${id}`)
+
+/** One skipped entry in a bulk-delete response (T11, plan.md `POST /admin/users/delete`). */
+export type BulkDeleteSkip = {
+  userId: string
+  reason: string
+}
+
+/** `POST /admin/users/delete` response — partial success IS the success shape (AC-6.3). */
+export type BulkDeleteUsersResult = {
+  deleted: string[]
+  skipped: BulkDeleteSkip[]
+}
+
+/**
+ * POST /admin/users/delete
+ * Bulk soft-delete (US-6, AC-6.1–6.5): each id is deleted in its own
+ * transaction and individually audited; the caller's own id and any id that
+ * would leave zero active admins are skipped, not failed — the response is
+ * always 200 with a `{ deleted, skipped }` report, never a partial-failure
+ * error status. Throws ApiError on 400 (empty `userIds`), 403, or 401.
+ */
+export const bulkDeleteUsers = async (userIds: string[]): Promise<BulkDeleteUsersResult> =>
+  sendJson<BulkDeleteUsersResult>('/admin/users/delete', 'POST', { userIds })
+
+// ---------------------------------------------------------------------------
+// Admin — invitations (T12, specs/006-user-invitations, plan.md "Invitation
+// admin API" / "InvitationDetailSchema")
+// ---------------------------------------------------------------------------
+
+/**
+ * `status` is always the EFFECTIVE status (plan.md, ADR-0013) — a past-window
+ * `pending` row renders `expired` here; `expired` is never a distinct stored
+ * value, only ever observed through this field.
+ */
+export type EffectiveInvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired'
+
+export type InvitationRoleRef = { id: string; name: string }
+export type InvitationDepartmentRef = { id: string; name: string }
+export type InvitationInviterRef = { id: string; name: string; email: string }
+
+/** Mirrors the stored `Invitation.lastEmailStatus` column (plan.md). */
+export type EmailDeliveryStatus = 'sent' | 'failed'
+
+/** `InvitationDetail` — plan.md's create/list/resend/revoke response shape, verbatim. */
+export type InvitationDetail = {
+  id: string
+  email: string
+  status: EffectiveInvitationStatus
+  roles: InvitationRoleRef[]
+  departments: InvitationDepartmentRef[]
+  invitedBy: InvitationInviterRef | null
+  invitedAt: string
+  expiresAt: string
+  acceptedAt: string | null
+  emailDelivery: EmailDeliveryStatus | null
+}
+
+export type InvitationCreateInput = {
+  email: string
+  roleIds?: string[]
+  departmentIds?: string[]
+}
+
+export type InvitationListParams = PageParams & {
+  status?: EffectiveInvitationStatus
+  /** Email substring search — plan.md `?q=`, same convention as `listUsers`. */
+  q?: string
+}
+
+/**
+ * GET /admin/invitations
+ * Paginated, filterable by effective status, searchable by email (AC-1.6).
+ * Throws ApiError on 403 or 401.
+ */
+export const listInvitations = async (
+  params: InvitationListParams = {},
+): Promise<Paginated<InvitationDetail>> =>
+  getJson<Paginated<InvitationDetail>>(
+    `/admin/invitations${buildQuery({
+      status: params.status,
+      q: params.q,
+      page: params.page,
+      pageSize: params.pageSize,
+    })}`,
+  )
+
+/**
+ * POST /admin/invitations
+ * Creates a pending invitation and triggers the invite email (AC-1.1–1.2).
+ * Returns 201 InvitationDetail — `emailDelivery` reflects whether the email
+ * send itself succeeded, independent of the invitation's own creation, which
+ * always succeeds when this resolves (plan.md "Failure handling" — a failed
+ * send is never a failed create). Throws ApiError on 409 (active user exists,
+ * AC-1.3 / live pending invitation exists, AC-1.4), 422 (unknown role/department
+ * id), 403, or 401.
+ */
+export const createInvitation = async (body: InvitationCreateInput): Promise<InvitationDetail> =>
+  sendJson<InvitationDetail>('/admin/invitations', 'POST', body)
+
+/**
+ * POST /admin/invitations/:id/resend
+ * Rotates the token, resets the 72h expiry window, and re-sends the email
+ * (AC-3.1–3.3). Returns 200 InvitationDetail. Throws ApiError on 404, 422
+ * (already accepted/revoked — AC-3.4), 403, or 401.
+ */
+export const resendInvitation = async (id: string): Promise<InvitationDetail> =>
+  sendJson<InvitationDetail>(`/admin/invitations/${id}/resend`, 'POST', {})
+
+/**
+ * POST /admin/invitations/:id/revoke
+ * Terminal — invalidates the link immediately (AC-1.9). Returns 200
+ * InvitationDetail (`status: "revoked"`). Throws ApiError on 404, 422
+ * (already accepted/revoked — AC-1.10/1.11), 403, or 401.
+ */
+export const revokeInvitation = async (id: string): Promise<InvitationDetail> =>
+  sendJson<InvitationDetail>(`/admin/invitations/${id}/revoke`, 'POST', {})
 
 // ---------------------------------------------------------------------------
 // Admin — catalog

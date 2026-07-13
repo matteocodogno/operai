@@ -20,6 +20,20 @@
  * Presentational: all data and callbacks arrive via props. The screen that
  * uses this owns the state and the API call (later tasks, T17/T19).
  *
+ * **Extended (T10, specs/006-user-invitations, design.md Dialog N2):** an
+ * optional `body?: ReactNode` prop overrides the default hardcoded copy
+ * ("'{itemName}' will be permanently deleted. This cannot be undone.") — a
+ * hard-delete framing that is WRONG for this feature's three new call sites
+ * (soft-deleting a user, bulk-deleting users, revoking an invitation, all of
+ * which need their own accurate copy, not a literal "permanently deleted").
+ * Omitting `body` preserves every existing caller's (`RolesPage`,
+ * `RoleEditor`, `DepartmentsPage`) exact byte-for-byte copy — this is a
+ * backward-compatible extension, not a breaking change. The body container
+ * is a `<div>` (not a `<p>`) precisely so a new caller can nest block content
+ * (e.g. the bulk-delete confirmation's scrollable `<ul>` of selected emails)
+ * without invalid `<ul>`-inside-`<p>` nesting; `aria-describedby` still
+ * targets it by the same `confirm-delete-body` id regardless of tag.
+ *
  * A11y:
  *   • role="alertdialog" aria-modal="true" aria-labelledby + aria-describedby
  *   • Focus trap: Tab cycles only between Cancel and Delete while open.
@@ -42,6 +56,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,7 +65,7 @@ import { useEffect, useRef } from 'react'
 export type ConfirmDeleteModalProps = {
   /** Noun describing the kind of entity being deleted (e.g. "role", "department"). */
   entityLabel: string
-  /** Name of the entity being deleted — shown in the body copy. */
+  /** Name of the entity being deleted — shown in the default body copy (ignored when `body` is supplied). */
   itemName: string
   /** Whether the DELETE request is currently in-flight. */
   isDeleting: boolean
@@ -60,6 +75,12 @@ export type ConfirmDeleteModalProps = {
   onConfirm: () => void
   /** Called when the user cancels (clicks "Cancel", "×", or presses Escape). */
   onCancel: () => void
+  /**
+   * Overrides the default body copy (design.md Dialog N2, T10 specs/006).
+   * Omit to keep the original hard-delete wording verbatim (every T15/T17/T19
+   * caller does this today — backward-compatible default).
+   */
+  body?: ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +94,7 @@ export default function ConfirmDeleteModal({
   errorMessage,
   onConfirm,
   onCancel,
+  body,
 }: ConfirmDeleteModalProps) {
   const cancelBtnRef = useRef<HTMLButtonElement>(null)
   const deleteBtnRef = useRef<HTMLButtonElement>(null)
@@ -156,14 +178,18 @@ export default function ConfirmDeleteModal({
           </button>
         </div>
 
-        {/* Body */}
-        <p
+        {/* Body — a <div>, not a <p>, so an overriding `body` can nest block
+            content (e.g. a scrollable <ul> of names) without invalid
+            <ul>-inside-<p> markup; aria-describedby targets it either way. */}
+        <div
           id="confirm-delete-body"
           className="text-sm leading-relaxed mb-4"
           style={{ color: 'var(--text)' }}
         >
-          &lsquo;{displayName}&rsquo; will be permanently deleted. This cannot be undone.
-        </p>
+          {body ?? (
+            <p>&lsquo;{displayName}&rsquo; will be permanently deleted. This cannot be undone.</p>
+          )}
+        </div>
 
         {/* Inline error (between body and footer) */}
         {errorMessage && (
@@ -200,7 +226,7 @@ export default function ConfirmDeleteModal({
             {isDeleting ? (
               <span className="flex items-center gap-2">
                 <span
-                  className="inline-block w-3 h-3 border-2 rounded-full animate-spin"
+                  className="inline-block w-3 h-3 border-2 rounded-full animate-spin motion-reduce:animate-none"
                   style={{ borderColor: 'var(--red)', borderTopColor: 'transparent' }}
                   aria-hidden="true"
                 />

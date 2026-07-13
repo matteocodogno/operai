@@ -1,13 +1,15 @@
 /**
  * @vitest-environment jsdom
  *
- * Component tests for UsersPage — Screen C1 (T20, specs/004-auth-roles-permissions).
+ * Component tests for UsersPage — Screen C1 (T20, specs/004-auth-roles-permissions)
+ * + Screen U1's row soft-delete extension (T10) + bulk select/delete (T11,
+ * specs/006-user-invitations).
  *
  * Covers:
  *   (A) Loading: adminApi.listUsers is pending → SkeletonListRows is visible.
  *   (B) Loaded/populated: renders the table (Name/Email/Entity/Job
- *       title/Roles/Departments) with each user's row, name as a link to
- *       `/users/$id`.
+ *       title/Roles/Departments/Actions) with each user's row, name as a link
+ *       to `/users/$id`.
  *   (C) Empty: listUsers resolves a zero-total page → "No users match your
  *       search." (design.md's search-scoped empty state), no table, no
  *       skeleton.
@@ -17,19 +19,35 @@
  *       and resets to page 1.
  *   (F) Pagination: Pagination renders with the right total and clicking
  *       Next re-calls listUsers with page 2.
+ *   (G) Row delete (T10): Delete → ConfirmDeleteModal → confirm →
+ *       adminApi.deleteUser called → list re-fetches (row vanishes, AC-5.3).
+ *   (H) Self-row disabled (T10, AC-5.6): the row matching the current
+ *       session's user id renders Delete as aria-disabled + titled +
+ *       explained, and clicking it never opens the confirm modal.
+ *   (I) 422 (last-admin guard, AC-5.5) → GuardrailDialog, not an inline
+ *       dialog error.
+ *   (J) Bulk select (T11): checking rows shows the bulk action bar with a
+ *       live count; the header checkbox is a true tri-state control (none →
+ *       unchecked, some → indeterminate, all → checked); the self-row's
+ *       checkbox is disabled and excluded from "select all".
+ *   (K) Bulk delete (T11, AC-6.3): confirming calls `bulkDeleteUsers` with
+ *       the selected ids, and a persistent `BulkDeleteResultPanel` (not a
+ *       toast) renders the skipped users with their server-supplied reasons.
  *
  * Strategy mirrors ../pages/AuditPage.test.tsx: `../lib/adminApi` mocked at
  * module level, keeping the real `ApiError` class via `importOriginal`.
+ * `shell/session`'s `useSession` is mocked per-test (defaults to no user via
+ * vitest.config.ts's stub alias) to control which row is "self".
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import UsersPage from './UsersPage'
 import type { Paginated, UserSummary } from '../lib/adminApi'
 
 // ---------------------------------------------------------------------------
-// Module mock — must be declared before importing the mocked module.
+// Module mocks — must be declared before importing the mocked modules.
 // ---------------------------------------------------------------------------
 
 vi.mock('../lib/adminApi', async (importOriginal) => {
@@ -37,8 +55,15 @@ vi.mock('../lib/adminApi', async (importOriginal) => {
   return {
     ...original,
     listUsers: vi.fn(),
+    deleteUser: vi.fn(),
+    bulkDeleteUsers: vi.fn(),
   }
 })
+
+const useSessionMock = vi.fn(() => ({ data: null as { user?: { id?: string } } | null }))
+vi.mock('shell/session', () => ({
+  useSession: () => useSessionMock(),
+}))
 
 import * as adminApi from '../lib/adminApi'
 import { ApiError } from '../lib/adminApi'
@@ -89,6 +114,16 @@ const userB: UserSummary = {
   departmentCount: 0,
 }
 
+const userC: UserSummary = {
+  id: 'user-3',
+  name: 'Carlo Rossi',
+  email: 'carlo@welld.it',
+  entity: 'welld_it',
+  jobTitle: 'Consultant',
+  roleCount: 1,
+  departmentCount: 1,
+}
+
 const pageOf = (items: UserSummary[], total = items.length): Paginated<UserSummary> => ({
   items,
   page: 1,
@@ -106,6 +141,10 @@ function pendingPromise<T>(): Promise<T> {
 
 beforeEach(() => {
   vi.stubEnv('VITE_AUTH_URL', 'http://auth.test')
+  // Default: no session user — `vi.clearAllMocks()` (afterEach) clears calls
+  // but not a prior test's `mockReturnValue`, so this re-pins the default
+  // explicitly rather than relying on clear-order across tests.
+  useSessionMock.mockReturnValue({ data: null })
 })
 
 afterEach(() => {
@@ -146,7 +185,16 @@ describe('UsersPage', () => {
 
     const table = screen.getByTestId('users-table')
     const headerTexts = Array.from(table.querySelectorAll('th[scope="col"]')).map((th) => th.textContent?.trim())
-    expect(headerTexts).toEqual(['Name', 'Email', 'Entity', 'Job title', 'Roles', 'Departments'])
+    expect(headerTexts).toEqual([
+      'Select all',
+      'Name',
+      'Email',
+      'Entity',
+      'Job title',
+      'Roles',
+      'Departments',
+      'Actions',
+    ])
 
     const rowLinkA = screen.getByTestId('user-row-user-1')
     expect(rowLinkA.tagName).toBe('A')
@@ -246,6 +294,276 @@ describe('UsersPage', () => {
 
     await waitFor(() => {
       expect(adminApi.listUsers).toHaveBeenLastCalledWith({ q: undefined, page: 2, pageSize: 20 })
+    })
+  })
+
+  // (G) Row delete (T10, specs/006-user-invitations)
+  it('Delete on a row opens ConfirmDeleteModal; confirming calls deleteUser and the list re-fetches (row vanishes, AC-5.3)', async () => {
+    vi.mocked(adminApi.listUsers)
+      .mockResolvedValueOnce(pageOf([userA, userB]))
+      .mockResolvedValueOnce(pageOf([userB], 1))
+    vi.mocked(adminApi.deleteUser).mockResolvedValue({ id: 'user-1', deletedAt: '2026-07-14T10:00:00.000Z' })
+
+    renderUsersPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('users-table')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByTestId('user-delete-user-1'))
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(within(dialog).getByText(/Ada Lovelace/)).not.toBeNull()
+
+    fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+    await waitFor(() => {
+      expect(adminApi.deleteUser).toHaveBeenCalledWith('user-1')
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+    })
+    await waitFor(() => {
+      expect(adminApi.listUsers).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('Cancel on the delete confirm closes it without calling deleteUser', async () => {
+    vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+
+    renderUsersPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('users-table')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByTestId('user-delete-user-1'))
+    expect(screen.getByRole('alertdialog')).not.toBeNull()
+
+    fireEvent.click(screen.getByTestId('confirm-delete-cancel'))
+
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(adminApi.deleteUser).not.toHaveBeenCalled()
+  })
+
+  // (H) Self-row disabled (T10, AC-5.6)
+  it('disables Delete on the row matching the current session user, with title + aria-disabled + sr-only explanation', async () => {
+    useSessionMock.mockReturnValue({ data: { user: { id: 'user-1' } } })
+    vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+
+    renderUsersPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('users-table')).not.toBeNull()
+    })
+
+    const selfDeleteButton = screen.getByTestId('user-delete-user-1')
+    expect(selfDeleteButton.getAttribute('aria-disabled')).toBe('true')
+    expect(selfDeleteButton.getAttribute('title')).toBe("You can't delete your own account")
+    expect(selfDeleteButton.textContent).toContain("You can't delete your own account")
+
+    fireEvent.click(selfDeleteButton)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+
+    // The other row's Delete stays enabled.
+    const otherDeleteButton = screen.getByTestId('user-delete-user-2')
+    expect(otherDeleteButton.getAttribute('aria-disabled')).toBe('false')
+  })
+
+  // (I) Guardrail (last-admin, AC-5.5)
+  it('a 422 on deleteUser surfaces GuardrailDialog, not an inline dialog error', async () => {
+    vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+    vi.mocked(adminApi.deleteUser).mockRejectedValue(
+      new ApiError({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: 'This is the last remaining administrator',
+      }),
+    )
+
+    renderUsersPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('users-table')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByTestId('user-delete-user-1'))
+    fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('guardrail-dialog')).not.toBeNull()
+    })
+    expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
+    expect(screen.getByText(/last administrator/)).not.toBeNull()
+  })
+
+  // (J) Bulk select (T11, specs/006-user-invitations)
+  describe('bulk select', () => {
+    it('checking a row shows the bulk action bar with a live count; no bar with nothing selected', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB, userC]))
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-table')).not.toBeNull()
+      })
+      expect(screen.queryByTestId('bulk-action-bar')).toBeNull()
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-1'))
+
+      const bar = screen.getByTestId('bulk-action-bar')
+      expect(bar.getAttribute('role')).toBe('region')
+      expect(bar.getAttribute('aria-label')).toBe('Bulk actions')
+      expect(screen.getByTestId('bulk-action-count').textContent).toBe('1 user selected')
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-2'))
+      expect(screen.getByTestId('bulk-action-count').textContent).toBe('2 users selected')
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-1'))
+      fireEvent.click(screen.getByTestId('user-checkbox-user-2'))
+      expect(screen.queryByTestId('bulk-action-bar')).toBeNull()
+    })
+
+    it('the header checkbox is a true tri-state control: none → unchecked, some → indeterminate, all → checked', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB, userC]))
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-table')).not.toBeNull()
+      })
+
+      const selectAll = screen.getByTestId('users-select-all') as HTMLInputElement
+      expect(selectAll.checked).toBe(false)
+      expect(selectAll.indeterminate).toBe(false)
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-1'))
+      expect(selectAll.checked).toBe(false)
+      expect(selectAll.indeterminate).toBe(true)
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-2'))
+      fireEvent.click(screen.getByTestId('user-checkbox-user-3'))
+      expect(selectAll.checked).toBe(true)
+      expect(selectAll.indeterminate).toBe(false)
+
+      // Clicking "select all" while fully checked clears the selection.
+      fireEvent.click(selectAll)
+      expect(screen.queryByTestId('bulk-action-bar')).toBeNull()
+    })
+
+    it('"select all" only selects selectable (non-self) rows, and the self row checkbox is disabled', async () => {
+      useSessionMock.mockReturnValue({ data: { user: { id: 'user-1' } } })
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB, userC]))
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-table')).not.toBeNull()
+      })
+
+      const selfCheckbox = screen.getByTestId('user-checkbox-user-1') as HTMLInputElement
+      expect(selfCheckbox.disabled).toBe(true)
+
+      fireEvent.click(screen.getByTestId('users-select-all'))
+
+      expect(screen.getByTestId('bulk-action-count').textContent).toBe('2 users selected')
+      expect(selfCheckbox.checked).toBe(false)
+    })
+  })
+
+  // (K) Bulk delete (T11, AC-6.1–6.5)
+  describe('bulk delete', () => {
+    it('confirming calls bulkDeleteUsers with the selected ids and re-fetches on success', async () => {
+      vi.mocked(adminApi.listUsers)
+        .mockResolvedValueOnce(pageOf([userA, userB, userC]))
+        .mockResolvedValueOnce(pageOf([userC], 1))
+      vi.mocked(adminApi.bulkDeleteUsers).mockResolvedValue({ deleted: ['user-1', 'user-2'], skipped: [] })
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-table')).not.toBeNull()
+      })
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-1'))
+      fireEvent.click(screen.getByTestId('user-checkbox-user-2'))
+      fireEvent.click(screen.getByTestId('bulk-delete-button'))
+
+      const dialog = screen.getByRole('alertdialog')
+      expect(within(dialog).getByText(/ada@welld.ch/)).not.toBeNull()
+      expect(within(dialog).getByText(/bianca@welld.it/)).not.toBeNull()
+
+      fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+      await waitFor(() => {
+        expect(adminApi.bulkDeleteUsers).toHaveBeenCalledWith(['user-1', 'user-2'])
+      })
+      await waitFor(() => {
+        expect(adminApi.listUsers).toHaveBeenCalledTimes(2)
+      })
+      // The bulk action bar clears once the selection resets after success.
+      expect(screen.queryByTestId('bulk-action-bar')).toBeNull()
+    })
+
+    it('renders a persistent BulkDeleteResultPanel (role="status", not a toast) listing skipped users with their server-supplied reasons (AC-6.3)', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB, userC]))
+      vi.mocked(adminApi.bulkDeleteUsers).mockResolvedValue({
+        deleted: ['user-3'],
+        skipped: [
+          { userId: 'user-1', reason: 'cannot delete your own account' },
+          { userId: 'user-2', reason: 'last remaining admin' },
+        ],
+      })
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-table')).not.toBeNull()
+      })
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-1'))
+      fireEvent.click(screen.getByTestId('user-checkbox-user-2'))
+      fireEvent.click(screen.getByTestId('user-checkbox-user-3'))
+      fireEvent.click(screen.getByTestId('bulk-delete-button'))
+      fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+      const panel = await screen.findByTestId('bulk-delete-result-panel')
+      expect(panel.getAttribute('role')).toBe('status')
+      expect(screen.getByTestId('bulk-delete-result-summary').textContent).toBe('Deleted 1 of 3 selected users.')
+
+      const skippedList = screen.getByTestId('bulk-delete-result-skipped-list')
+      expect(skippedList.tagName).toBe('UL')
+      expect(screen.getByTestId('bulk-delete-result-skipped-user-1').textContent).toBe(
+        'Ada Lovelace — skipped: cannot delete your own account',
+      )
+      expect(screen.getByTestId('bulk-delete-result-skipped-user-2').textContent).toBe(
+        'bianca@welld.it — skipped: last remaining admin',
+      )
+
+      // Persistent — still present after the underlying list re-fetches, and only a
+      // deliberate dismiss removes it (never a timeout).
+      fireEvent.click(screen.getByTestId('bulk-delete-result-dismiss'))
+      expect(screen.queryByTestId('bulk-delete-result-panel')).toBeNull()
+    })
+
+    it('Cancel on the bulk confirm dialog closes it without calling bulkDeleteUsers', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB, userC]))
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-table')).not.toBeNull()
+      })
+
+      fireEvent.click(screen.getByTestId('user-checkbox-user-1'))
+      fireEvent.click(screen.getByTestId('bulk-delete-button'))
+      fireEvent.click(screen.getByTestId('confirm-delete-cancel'))
+
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(adminApi.bulkDeleteUsers).not.toHaveBeenCalled()
+      // The selection survives a cancelled confirm (only a successful delete clears it).
+      expect(screen.getByTestId('bulk-action-count').textContent).toBe('1 user selected')
     })
   })
 })
