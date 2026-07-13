@@ -21,6 +21,45 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
+  // ─── Email channel (T2, specs/006-user-invitations, ADR-0011) ──────────────
+  // EMAIL_ENABLED gates whether the `email` channel actually calls Resend.
+  // Default OFF: test/local runs never need a real Resend key — with it off,
+  // the channel stubs the send and still records an EmailDelivery row
+  // (status "sent", a synthetic id) so callers/tests observe the same shape.
+  //
+  // NOTE: deliberately NOT z.coerce.boolean() — that coerces via Boolean(str),
+  // so the literal string "false" (any non-empty string) would parse to
+  // `true` and silently enable real Resend sends. Only the literal string
+  // "true" (case-insensitive) is truthy; anything else (including unset,
+  // "false", "0") is false.
+  EMAIL_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v?.toLowerCase() === "true"),
+  // Required only when EMAIL_ENABLED is true (enforced below, not here) —
+  // optional at the schema level so test/local can leave them unset.
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM: z.string().optional(),
+}).superRefine((v, ctx) => {
+  // Cross-field: EMAIL_ENABLED=true means real sends are attempted, so the
+  // Resend credentials become mandatory (they stay optional at rest so
+  // test/local can run with the channel stubbed, per ADR-0011/T2).
+  if (v.EMAIL_ENABLED) {
+    if (!v.RESEND_API_KEY) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RESEND_API_KEY"],
+        message: "RESEND_API_KEY is required when EMAIL_ENABLED=true",
+      });
+    }
+    if (!v.RESEND_FROM) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RESEND_FROM"],
+        message: "RESEND_FROM is required when EMAIL_ENABLED=true",
+      });
+    }
+  }
 });
 
 const result = envSchema.safeParse(process.env);
