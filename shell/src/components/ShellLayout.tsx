@@ -2,6 +2,7 @@ import { type MouseEvent, type ReactNode, useCallback } from 'react'
 import { Outlet } from '@tanstack/react-router'
 import { SidebarCollapsedProvider } from '../hooks/SidebarCollapsedProvider'
 import { useSidebarCollapsed } from '../hooks/sidebarCollapsed'
+import ToastHost from './ToastHost'
 
 /**
  * ShellLayout — the persistent multi-region app-shell frame (specs/003-suite-shell,
@@ -16,6 +17,14 @@ import { useSidebarCollapsed } from '../hooks/sidebarCollapsed'
  *                                    component being remounted on tool switches
  *                                    (AC-1.2 — chrome must not remount/flicker).
  *   - footer   → `role="contentinfo"` — legal/version/company info (T8)
+ *
+ * A fifth, non-landmark piece — `ToastHost` (T12, specs/005-notification-center) — is
+ * mounted once here too, as a sibling of `<main>` inside the middle row. It is a
+ * `position: fixed` overlay (see ToastHost.tsx), so its DOM position doesn't drive its
+ * visual placement, but living beside `<main>` (not inside it) keeps it outside whatever
+ * a mounted remote renders, so a remote re-render/unmount never touches it — exactly the
+ * "single shell-owned host, overlays whichever remote is mounted" model plan.md and
+ * design.md describe for US-5's time-sensitive toasts.
  *
  * Desktop-only (no mobile/drawer variant) — a fixed-viewport frame
  * (`h-screen`, `overflow-hidden`): the header (top) and footer (bottom) are
@@ -127,6 +136,8 @@ function ShellLayoutFrame({ header, sidebar, footer }: ShellLayoutProps) {
         >
           <Outlet />
         </main>
+
+        <ToastHost />
       </div>
 
       <footer role="contentinfo" className="shrink-0 border-t border-rule bg-ink-soft">
