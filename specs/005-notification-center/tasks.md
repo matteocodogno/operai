@@ -16,7 +16,7 @@ are edited by a single track to avoid collisions.
 
 ---
 
-- [ ] T1: Scaffold `notify-api` resource service — refs: US-1, US-2, US-4 (enabler) — deps: none
+- [x] T1: Scaffold `notify-api` resource service — refs: US-1, US-2, US-4 (enabler) — deps: none
   - touch: `notify-api/` (clone `estimai-api` structure: `package.json`, `tsconfig.json`, `src/index.ts`, `src/lib/env.ts`, `src/lib/db.ts`, `src/lib/errors.ts`, `src/openapi/`, `src/auth/jwt.middleware.ts` (copy, ADR-0005), `src/health/`)
   - port **8081**; `ALLOWED_ORIGINS`, `JWKS`/issuer env validated at startup; RFC 7807 `onError`/`notFound`
   - done when: `bun run typecheck` clean and `GET /health` returns 200 locally
@@ -51,7 +51,7 @@ are edited by a single track to avoid collisions.
   - ticket mint on Bearer/JWKS path; stream authed by ticket only (no `jwtMiddleware`); `event: notification` / `event: unread-reset`; `: heartbeat` ~15s; `MAX_STREAM_DURATION`; subscribe EventBus; CORS `Allow-Origin: <shell origin>`
   - done when: integration tests — invalid/expired/used ticket → 401 (stream never opens); valid ticket streams a `notification` event on raise and `unread-reset` on mark-all-read; two connections for one `sub` both receive fan-out
 
-- [ ] T8: `auth` issues the `audience` JWT claim — refs: Security R7, ADR-0010 — deps: none
+- [x] T8: `auth` issues the `audience` JWT claim — refs: Security R7, ADR-0010 — deps: none
   - touch: `auth/src/auth/*` (better-auth jwt plugin `audience`), `auth/src/lib/env.ts` (`AUTH_AUDIENCE`), `auth/.env.example`
   - done when: a minted JWT carries the `audience` claim; auth `bun run typecheck` + tests green
 
@@ -75,7 +75,7 @@ are edited by a single track to avoid collisions.
   - subscribes SSE toast stream; severity variants `role="status"` (info/success) vs `role="alert"` (warning/error); auto-dismiss + manual dismiss (no reappear); stacking; honors reduced-motion (design.md)
   - done when: unit tests — toast pops on toast-worthy event, auto-dismiss timer, manual dismiss no-reappear, non-toast event pops nothing, correct aria roles
 
-- [ ] T14: Scaffold `notify-ui` remote — refs: US-2 (enabler) — deps: none
+- [x] T14: Scaffold `notify-ui` remote — refs: US-2 (enabler) — deps: none
   - touch: `notify-ui/` (clone `admin-ui`: `@module-federation/vite` exposing `./App`, consumes `shell/session` + `shell/tokens.css`, `src/main.tsx` standalone bootstrap, inner TanStack Router `basepath '/notify'`), port **5176**
   - done when: `pnpm build` succeeds and standalone `pnpm dev` renders a shell of the page
 
@@ -101,7 +101,7 @@ are edited by a single track to avoid collisions.
   - touch: `notify-ui/vercel.json` (clone `admin-ui`), `SHELL_REMOTE_URL`/runtime-config vars
   - done when: config present and mirrors admin-ui
 
-- [ ] T19: Shell CSP + origin allowlists — refs: R6 — deps: none
+- [x] T19: Shell CSP + origin allowlists — refs: R6 — deps: none
   - touch: `shell/vercel.json` — **`connect-src`** += `notify-api.operai.welld.io` (SSE is governed by connect-src!) **and** notify-ui origin; `script-src` += `notify.operai.welld.io`; note `ALLOWED_ORIGINS` additions for auth + notify-api
   - done when: CSP includes both new origins, with the notify-api origin in `connect-src` for the EventSource stream
 
