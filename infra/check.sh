@@ -14,7 +14,10 @@
 # Covers all three backends (auth, estimai-api, notify-api) and all four
 # remotes (estimai-ui, refund-ui, admin-ui, notify-ui), plus the shell CSP —
 # including the notify-api origin in connect-src, the classic SSE/EventSource
-# miss (specs/005-notification-center Risk R6).
+# miss (specs/005-notification-center Risk R6). Also probes notify-api's
+# internal email-send gate (specs/006-user-invitations, ADR-0011) — see
+# § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same value configured on
+# both auth and notify-api) to get the strongest form of that check.
 #
 # Exit code: 0 if every executed check passed, 1 otherwise.
 
@@ -97,6 +100,46 @@ fi
 tc="$(code "$AUTH_URL/auth/token")"; { [[ "$tc" == 401 || "$tc" == 200 ]] && pass "/auth/token reachable (HTTP $tc)"; } || fail "/auth/token unexpected (HTTP $tc)"
 # Sign-in page (hosted, ADR-0002).
 [[ "$(code "$AUTH_URL/sign-in")" =~ ^(200|302|307)$ ]] && pass "hosted /sign-in reachable" || warn "/sign-in not obviously reachable (HTTP $(code "$AUTH_URL/sign-in"))"
+
+# ─── 2b. Invitation email internal endpoint (specs/006, ADR-0011) ────────────
+# POST /system/emails is notify-api's service-to-service endpoint (auth calls
+# it to send invite/resend emails) — authenticated by a shared secret
+# (NOTIFY_INTERNAL_TOKEN), NOT a user JWT. Never print the token value.
+head "Invitation email channel — /system/emails gate"
+SYSTEM_EMAILS_URL="$NOTIFY_API_URL/system/emails"
+
+# Negative control (always runs): a garbage token must be rejected with 401 —
+# proves the internal-token middleware is deployed and live without needing
+# to know the real secret.
+BOGUS_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
+  -H 'Content-Type: application/json' -H 'X-Internal-Token: not-the-real-token' \
+  -d '{}' "$SYSTEM_EMAILS_URL" 2>/dev/null)"
+[[ "$BOGUS_CODE" == 401 ]] \
+  && pass "/system/emails rejects a bad X-Internal-Token (401)" \
+  || fail "/system/emails did not return 401 for a bad token (got HTTP ${BOGUS_CODE:-?}) — the internal-token gate may be missing or misconfigured"
+
+# Positive control (opt-in): only runs if NOTIFY_INTERNAL_TOKEN is exported
+# locally (same value configured on both auth and notify-api — never printed
+# here). Sends a deliberately INVALID body (bad `to`/`template`); the real
+# token should get the request PAST the auth gate to schema validation, i.e.
+# 400, not 401. A 400 proves your local value matches what's deployed on
+# notify-api — the "matching NOTIFY_INTERNAL_TOKEN posture" check — without
+# ever risking a real Resend send (an invalid payload never reaches the email
+# channel).
+if [[ -n "${NOTIFY_INTERNAL_TOKEN:-}" ]]; then
+  REAL_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -H "X-Internal-Token: ${NOTIFY_INTERNAL_TOKEN}" \
+    -d '{"to":"not-an-email","template":"bogus-template"}' "$SYSTEM_EMAILS_URL" 2>/dev/null)"
+  if [[ "$REAL_CODE" == 400 ]]; then
+    pass "/system/emails accepts your NOTIFY_INTERNAL_TOKEN (matches the deployed value — got the expected 400 for a deliberately invalid payload)"
+  elif [[ "$REAL_CODE" == 401 ]]; then
+    fail "/system/emails rejected your NOTIFY_INTERNAL_TOKEN (401) — your local value does NOT match what notify-api has deployed (check the shared 1Password item / redeploy both services)"
+  else
+    warn "/system/emails returned HTTP ${REAL_CODE:-?} for the positive-control probe (expected 400) — inspect manually"
+  fi
+else
+  warn "NOTIFY_INTERNAL_TOKEN not set locally — skipping the positive-auth check (the negative 401 check above still confirms the gate is live). Export it (same value as both services' 1Password item) to also confirm the deployed value matches."
+fi
 
 # ─── 3. Frontends (Vercel) ────────────────────────────────────────────────────
 head "Frontends (Vercel)"
