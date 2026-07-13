@@ -79,7 +79,7 @@ are edited by a single track to avoid collisions.
   - touch: `notify-ui/` (clone `admin-ui`: `@module-federation/vite` exposing `./App`, consumes `shell/session` + `shell/tokens.css`, `src/main.tsx` standalone bootstrap, inner TanStack Router `basepath '/notify'`), port **5176**
   - done when: `pnpm build` succeeds and standalone `pnpm dev` renders a shell of the page
 
-- [ ] T15: Notification center page (`notify-ui`) — refs: US-2 (2.1–2.5), US-3 (3.1–3.4) — deps: T14, T10, T5, T6
+- [x] T15: Notification center page (`notify-ui`) — refs: US-2 (2.1–2.5), US-3 (3.1–3.4) — deps: T14, T10, T5, T6
   - touch: `notify-ui/src/pages/NotificationCenterPage.tsx`, `notify-ui/src/components/NotificationItem.tsx`, severity lookup, empty/loading/error states
   - `GET /notifications` via `apiFetch(getNotifyBaseUrl())`; item shows title/body/timestamp/read-state/severity/originApp; newest-first; explicit empty state; **capture unread set at open → `resetUnreadCount()` + `POST /mark-all-read`**; "was-unread" affordance for the viewing session only (text+weight+border, sr-only, not color-only — design.md AC-3.2/3.3); "mark all as read" control (AC-3.4); link/action followed as an in-suite route navigation (not `location=`)
   - done when: unit/component tests for populated list, ordering, empty, loading, error, was-unread affordance present-then-absent-on-remount, mark-all-read call, link follow
