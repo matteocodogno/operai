@@ -70,6 +70,10 @@ vi.mock('admin/App', () => ({
   default: () => <div data-testid="admin-app">Admin mounted</div>,
 }))
 
+vi.mock('notify/App', () => ({
+  default: () => <div data-testid="notify-app">Notify mounted</div>,
+}))
+
 import { getSession } from './lib/session'
 
 // ---------------------------------------------------------------------------

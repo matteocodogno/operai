@@ -84,7 +84,7 @@ are edited by a single track to avoid collisions.
   - `GET /notifications` via `apiFetch(getNotifyBaseUrl())`; item shows title/body/timestamp/read-state/severity/originApp; newest-first; explicit empty state; **capture unread set at open → `resetUnreadCount()` + `POST /mark-all-read`**; "was-unread" affordance for the viewing session only (text+weight+border, sr-only, not color-only — design.md AC-3.2/3.3); "mark all as read" control (AC-3.4); link/action followed as an in-suite route navigation (not `location=`)
   - done when: unit/component tests for populated list, ordering, empty, loading, error, was-unread affordance present-then-absent-on-remount, mark-all-read call, link follow
 
-- [ ] T13: Shell `/notify` route + remote registration — refs: US-2 (2.1) — deps: T10, T14
+- [x] T13: Shell `/notify` route + remote registration — refs: US-2 (2.1) — deps: T10, T14
   - touch: `shell/src/router.tsx` (always-available `/notify/*` catch-all mounting `notify/App`), `shell/src/lib/runtimeRemotes.ts`, `shell/vite.config.ts`
   - **NOT** an app-access-gated `tools.ts` entry and NOT in the sidebar `TOOLS` list (plan §Shell) — reachable by any authenticated user, from the bell
   - done when: router test renders the notify remote at `/notify`; asserted absent from the permission-filtered sidebar list

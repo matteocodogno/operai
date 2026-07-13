@@ -29,9 +29,10 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // these hardcoded localhost URLs as the production pattern.
 //
 // Stable local-dev port scheme (pinned via server/preview below, matched by
-// both remotes' own configs): shell 5173, estimai-ui 5174, refund-ui 5175,
-// admin-ui 5177 (5176 left free for a future remote — see admin-ui/vite.config.ts).
-// The shell consumes estimai at :5174, refund at :5175, and admin at :5177;
+// every remote's own config): shell 5173, estimai-ui 5174, refund-ui 5175,
+// notify-ui 5176 (the slot admin-ui/vite.config.ts deliberately left free —
+// see notify-ui/vite.config.ts, T14), admin-ui 5177. The shell consumes
+// estimai at :5174, refund at :5175, notify at :5176, and admin at :5177;
 // each remote consumes the shell (shell/session, shell/tokens.css) at :5173.
 // The e2e harness (playwright.config.ts) uses its own explicit ports+env and
 // is unaffected by these dev defaults.
@@ -45,6 +46,12 @@ const refundRemoteUrl =
 // (5177, see admin-ui/vite.config.ts).
 const adminRemoteUrl =
   process.env['ADMIN_REMOTE_URL'] ?? 'http://localhost:5177/remoteEntry.js'
+// T13 (specs/005-notification-center/tasks.md): notify-ui (T14) — the
+// notification center's federated remote. Same env-override + localhost
+// dev-default pattern as estimai/refund/admin above. Dev default targets
+// notify-ui's own pinned port (5176, see notify-ui/vite.config.ts).
+const notifyRemoteUrl =
+  process.env['NOTIFY_REMOTE_URL'] ?? 'http://localhost:5176/remoteEntry.js'
 
 export default defineConfig({
   plugins: [
@@ -120,6 +127,18 @@ export default defineConfig({
           name: 'admin',
           entry: adminRemoteUrl,
           entryGlobalName: 'admin',
+          shareScope: 'default',
+        },
+        // T13 (specs/005-notification-center/tasks.md): notify-ui (T14) —
+        // the notification center remote. Same shape as estimai/refund/admin
+        // above. Unlike those, the shell route that mounts this remote
+        // (`/notify/$`, src/router.tsx) is deliberately NOT app-access-gated
+        // (plan.md "Shell changes" — every signed-in user has notifications).
+        notify: {
+          type: 'module',
+          name: 'notify',
+          entry: notifyRemoteUrl,
+          entryGlobalName: 'notify',
           shareScope: 'default',
         },
       },
