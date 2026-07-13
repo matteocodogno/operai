@@ -1,10 +1,11 @@
 ---
 id: 005
 slug: notification-center
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-13
 approved: 2026-07-13
+done: 2026-07-13
 ---
 
 # Notification center

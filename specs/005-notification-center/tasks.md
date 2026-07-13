@@ -115,7 +115,7 @@ are edited by a single track to avoid collisions.
   - raise → badge ≤~2s; two contexts both update; open center → badge 0 + was-unread affordance; reload → no affordance; toast on toast-worthy over a mounted remote; non-toast → no toast; raise-while-disconnected → present in center, no toast on reconnect; two-user isolation; sign-out/sign-in user switch shows only own
   - done when: the e2e spec passes against the assembled shell + notify-ui + notify-api
 
-- [ ] T22: Close — all gates green, spec status → done — deps: T1–T21
+- [x] T22: Close — all gates green, spec status → done — deps: T1–T21
   - QE PASS + owasp (≥medium clear) + eval PASS; then `/wellforge:done 005`
   - done when: done gate met and spec frontmatter `status: done`
 

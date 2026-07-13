@@ -1,0 +1,47 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-13T14-30-13Z-orchestrate-005-notification-center",
+  "command": "orchestrate",
+  "feature": "005-notification-center",
+  "rigor": "production",
+  "started": "2026-07-13T07:30:00Z",
+  "finished": "2026-07-13T14:30:13Z",
+  "agents": [
+    { "agent": "product-owner", "tasks": ["spec.md"], "outcome": "completed" },
+    { "agent": "architect", "tasks": ["plan.md"], "outcome": "completed" },
+    { "agent": "adr-writer", "tasks": ["adr-0008", "adr-0009", "adr-0010"], "outcome": "completed" },
+    { "agent": "designer", "tasks": ["design.md"], "outcome": "completed" },
+    { "agent": "backend-dev", "tasks": ["T1"], "outcome": "completed", "commits": ["e38feb3"], "worktree": "worktree-agent-a8221925c1dbc4bfc" },
+    { "agent": "frontend-dev", "tasks": ["T14"], "outcome": "completed", "commits": ["4702138"], "worktree": "worktree-agent-a8ab39b25f821758c" },
+    { "agent": "backend-dev", "tasks": ["T8"], "outcome": "completed", "commits": ["bff1e3c"], "worktree": "worktree-agent-ab91d48ebd5e28787" },
+    { "agent": "devops", "tasks": ["T19"], "outcome": "completed", "commits": ["d0861fb"], "worktree": "worktree-agent-aebae37f0dec04a93" },
+    { "agent": "backend-dev", "tasks": ["T2", "T3", "T4", "T5", "T6", "T7"], "outcome": "completed", "commits": ["7362657", "86479fd", "9aa4c53", "52a1e7a", "5acaab0", "3c06c0d", "b5a0e1b"], "worktree": "worktree-agent-a9083b9a55e78c596" },
+    { "agent": "backend-dev", "tasks": ["T9-estimai"], "outcome": "completed", "commits": ["7814a59"], "worktree": "worktree-agent-a65c3233ed2511406" },
+    { "agent": "devops", "tasks": ["T16", "T17", "T18"], "outcome": "completed", "commits": ["256c452", "bc9420c", "5015edb"], "worktree": "worktree-agent-ae7849380ff9a8dc1" },
+    { "agent": "frontend-dev", "tasks": ["T10"], "outcome": "completed", "commits": ["dc27b3b"], "worktree": "worktree-agent-a1b9b3a78ab4ef7bf" },
+    { "agent": "devops", "tasks": ["T20"], "outcome": "completed", "commits": ["6f31551"], "worktree": "worktree-agent-a5daafc91fe0c10f8" },
+    { "agent": "frontend-dev", "tasks": ["T11"], "outcome": "completed", "commits": ["503534a"], "worktree": "worktree-agent-a8e4798775cdb0a51" },
+    { "agent": "frontend-dev", "tasks": ["T12"], "outcome": "completed", "commits": ["935393c"], "worktree": "worktree-agent-a6958c2701cd242c8" },
+    { "agent": "frontend-dev", "tasks": ["T13"], "outcome": "completed", "commits": ["0c88d60"], "worktree": "worktree-agent-ac3ebfb09d5cbc97f" },
+    { "agent": "frontend-dev", "tasks": ["T15"], "outcome": "completed", "commits": ["3655f30"], "worktree": "worktree-agent-a74a62d344610e65f" },
+    { "agent": "quality-engineer", "tasks": ["T21"], "outcome": "FAIL", "note": "round 1: live e2e found 2 critical defects (SSE middleware leak, cross-remote link) + a secondary reconnect issue" },
+    { "agent": "owasp-reviewer", "outcome": "REVIEW", "note": "0 critical/high, 1 medium: SSE ticket written to app logs via query string" },
+    { "agent": "backend-dev", "tasks": ["defect-1", "defect-1b"], "outcome": "completed", "commits": ["a2c8773"], "worktree": "worktree-agent-a8f6bd480006585dc", "note": "scoped jwtMiddleware off SSE stream + custom logger drops query string + subprocess real-app regression test" },
+    { "agent": "frontend-dev", "tasks": ["defect-2"], "outcome": "completed", "commits": ["014762e"], "worktree": "worktree-agent-ad1c0a3c9b4ca89b8", "note": "cross-remote link → plain anchor" },
+    { "agent": "frontend-dev", "tasks": ["defect-3"], "outcome": "completed", "commits": ["c9a724d"], "worktree": "worktree-agent-a95431ef87d23e477", "note": "SSE reconnect exponential backoff + cap" },
+    { "agent": "quality-engineer", "outcome": "PASS", "note": "round 2: 9/10 then 10/10 live e2e after test-seeding fix; all defects confirmed fixed, owasp medium re-verified live" },
+    { "agent": "evaluator", "outcome": "PASS", "score": 95 }
+  ],
+  "drift_events": [
+    { "agent": "designer", "artifact": "spec.md", "summary": "AC-3.2 vs AC-3.3 contradicted under the locked page-only architecture (togglable-panel assumption); reconciled to per-navigation viewing session", "resolved": true },
+    { "agent": "backend-dev", "artifact": "plan.md", "summary": "AC-6.2 test-strategy said not-owned→404 but notify-api exposes no GET-by-id endpoint; isolation is list sub-scoping (wording corrected, code correct)", "resolved": true },
+    { "agent": "backend-dev", "artifact": "plan.md", "summary": "T1 flagged /health should report JWKS readiness + SSE connection count with no task owning it; folded into T7", "resolved": true }
+  ],
+  "collision_events": [
+    { "tasks": ["T11", "T13"], "files": ["shell/src/router.access-guard.test.tsx", "shell/src/router.integration.test.tsx", "shell/src/router.root-redirect.test.tsx", "shell/src/router.notify.test.tsx"], "resolved_by": "T11 and T13 both edited the shared router test mocks (session-mock hygiene vs notify/App mock); git auto-merged the additive hunks, but T13's new router.notify.test.tsx needed onSignOut/apiFetch added to its session mock — reconciled centrally, full shell suite re-run green" }
+  ],
+  "verdicts": { "qe": "PASS", "eval": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}
