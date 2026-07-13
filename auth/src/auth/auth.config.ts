@@ -101,6 +101,17 @@ export const auth = betterAuth({
             name: user.name,
             image: user.image,
             perm_epoch: current?.permissionEpoch ?? user.permissionEpoch ?? 0,
+            // ADR-0010 (specs/005-notification-center T8): the standard `aud`
+            // claim, closing the cross-service JWT replay gap now that
+            // notify-api is the suite's first real second JWKS resource
+            // server. `sign.mjs` reads `payload.aud` and passes it to
+            // `SignJWT#setAudience`, so returning it here from
+            // `definePayload` is sufficient — no separate `jwt.audience`
+            // plugin option needed. v1 is one suite-wide value (not yet
+            // per-resource-server scoped, see ADR-0010 "Consequences"); every
+            // resource server must verify against the SAME `AUTH_AUDIENCE`
+            // value (T9 — not yet enforced here, issuer-side only).
+            aud: env.AUTH_AUDIENCE,
           };
         },
       },

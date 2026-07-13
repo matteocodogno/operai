@@ -1,16 +1,25 @@
 /**
- * JWT claim contract test (T3, specs/004-auth-roles-permissions).
+ * JWT claim contract test (T3, specs/004-auth-roles-permissions; extended by
+ * T8, specs/005-notification-center — ADR-0010 `aud` claim).
  *
  * plan.md "The JWT claim seam" replaces the dead `jwt.fields` no-op with a
  * real `definePayload` that returns a MINIMAL, deliberate claim set:
- * `{ email, name, image, perm_epoch }`, with `sub` left to the plugin default
- * (`getSubject` → `user.id` — ADR-0005, never changed here).
+ * `{ email, name, image, perm_epoch, aud }`, with `sub` left to the plugin
+ * default (`getSubject` → `user.id` — ADR-0005, never changed here).
  *
  * Risk R2 (plan.md "Risks") is exactly what this test guards against:
  * "`definePayload` drops a claim a consumer needs" — `estimai-api`'s
  * `jwtMiddleware` reads `sub` + `email` off the verified payload
  * (estimai-api/src/auth/jwt.middleware.ts) and 401s if either is absent.
  * A regression here would silently break every resource server.
+ *
+ * ADR-0010 (T8) adds `aud` to that same minimal set: `auth` stamps
+ * `env.AUTH_AUDIENCE` as the JWT's standard `aud` claim so resource servers
+ * can (T9) reject tokens scoped to a different audience — closing the
+ * cross-service replay gap now that notify-api is the suite's first real
+ * second JWKS resource server. This file proves the ISSUER half only (a
+ * freshly minted token carries `aud`); verifying/rejecting on `aud` is T9's
+ * job in estimai-api's and notify-api's own `jwtMiddleware` tests.
  *
  * Strategy: exercise the REAL token-mint flow end-to-end against the live
  * local Postgres (no mocks on auth.config/definePayload) —
@@ -139,13 +148,39 @@ describe("JWT claim contract — definePayload (T3, R2)", () => {
     // AC-4.3 / plan.md claim seam — perm_epoch present and correct.
     expect(payload["perm_epoch"]).toBe(0);
 
+    // ADR-0010 (T8, specs/005-notification-center) — the standard `aud`
+    // claim, stamped from env.AUTH_AUDIENCE via definePayload. Verify it two
+    // ways: (a) the decoded payload carries the exact configured value, and
+    // (b) re-verifying the SAME token with jose's `audience` option (the
+    // shape T9 will wire into estimai-api's/notify-api's jwtMiddleware)
+    // succeeds — proving the claim is genuinely signed-in, not merely present
+    // in an unverified decode.
+    expect(payload["aud"]).toBe(env.AUTH_AUDIENCE);
+    await expect(
+      jwtVerify(token, JWKS, {
+        issuer: env.BETTER_AUTH_URL,
+        audience: env.AUTH_AUDIENCE,
+        algorithms: ["RS256"],
+      }),
+    ).resolves.toBeDefined();
+    // A wrong/unrecognised audience must fail verification — proves this is
+    // a real signed claim jose actually checks, not a coincidental string.
+    await expect(
+      jwtVerify(token, JWKS, {
+        issuer: env.BETTER_AUTH_URL,
+        audience: "some-other-audience-not-configured",
+        algorithms: ["RS256"],
+      }),
+    ).rejects.toThrow();
+
     // Deliberate minimality (plan.md "We deliberately do NOT put roles or the
     // permission set in the token"): no role/permission claims leak in.
     expect(payload["roles"]).toBeUndefined();
     expect(payload["permissions"]).toBeUndefined();
 
-    // definePayload's declared shape: email/name/image (+ perm_epoch), sub via
-    // plugin default. name/image are additional identity claims plan.md keeps.
+    // definePayload's declared shape: email/name/image (+ perm_epoch, aud),
+    // sub via plugin default. name/image are additional identity claims
+    // plan.md keeps.
     expect(payload["name"]).toBe(FIXTURE_NAME);
 
     // Sanity: decodeJwt (no verification) should agree — proves the assertions
@@ -153,6 +188,7 @@ describe("JWT claim contract — definePayload (T3, R2)", () => {
     const unverified = decodeJwt(token);
     expect(unverified.sub).toBe(fixtureUserId);
     expect(unverified["perm_epoch"]).toBe(0);
+    expect(unverified["aud"]).toBe(env.AUTH_AUDIENCE);
   });
 
   test("perm_epoch reflects the DB column at mint time, not a stale value (definePayload reads via Prisma)", async () => {
