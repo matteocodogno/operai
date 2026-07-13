@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { jwt } from "better-auth/plugins";
+import { assignBaselineRolesToNewUser } from "../authz/seed";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
 
@@ -33,6 +34,25 @@ export const auth = betterAuth({
     github: {
       clientId: env.GITHUB_CLIENT_ID,
       clientSecret: env.GITHUB_CLIENT_SECRET,
+    },
+  },
+  // Authorization bootstrap (specs/004-auth-roles-permissions, T11 —
+  // AC-6.1, AC-6.3). Fires once, after every new user row is created,
+  // regardless of which sign-up path created it (Google, GitHub, or the
+  // dev-only test-auth mint endpoint). See `authz/seed.ts` for the full
+  // rationale — this hook only wires better-auth's lifecycle to that logic:
+  //   - every new user is assigned the baseline `employee` role (AC-6.3)
+  //   - a user whose (verified) email matches `BOOTSTRAP_ADMIN_EMAIL` is
+  //     ALSO assigned `admin` (AC-6.1) — matched against `user.email` as
+  //     recorded from the OAuth provider's verified profile, never
+  //     anything a client can supply directly
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          await assignBaselineRolesToNewUser(user);
+        },
+      },
     },
   },
   plugins: [

@@ -54,7 +54,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/admin/admin.routes.ts` (users)
   - `GET /admin/users` (paginated + `?q=` — drift fix), `GET /admin/users/:id`, `PATCH /admin/users/:id` (entity/jobTitle), `PUT /admin/users/:id/roles` · `/departments`, `GET /admin/users/:id/permissions` (drift fix — resolver output for any user); **last-admin guard → 422**.
   - done when: assign/revoke reflected in target's `/authz/me`; last-admin removal → 422; each mutation audits + bumps epoch.
-- [ ] T11: Seed roles + bootstrap admin — refs: AC-6.1, AC-6.2, AC-6.3 — deps: T1, T5
+- [x] T11: Seed roles + bootstrap admin — refs: AC-6.1, AC-6.2, AC-6.3 — deps: T1, T5
   - touch: `auth/src/lib/env.ts` (`BOOTSTRAP_ADMIN_EMAIL`), `auth/.env.example`, seed script, `auth.config.ts` `databaseHooks.user.create.after`
   - seed `employee`/`admin`/`accounting`/`hr` (+ their catalogs); on user-create assign `employee`, and `admin` if email matches bootstrap.
   - done when: fresh-DB integration test → 4 system roles exist; bootstrap email → admin; every new user → employee.
