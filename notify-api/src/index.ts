@@ -7,6 +7,7 @@ import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { listRouter } from "./notifications/list.routes";
+import { markReadRouter } from "./notifications/markRead.routes";
 import { raiseRouter } from "./notifications/raise.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -33,7 +34,8 @@ app.use("*", logger());
 app.route("/", healthRouter);
 app.route("/", raiseRouter);
 app.route("/", listRouter);
-// Mark-read/stream routes land in T6–T7 (specs/005).
+app.route("/", markReadRouter);
+// SSE stream routes land in T7 (specs/005).
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
