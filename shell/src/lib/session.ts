@@ -65,6 +65,15 @@ let cachedJwt: string | null = null
  */
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
 
+/**
+ * The auth service base URL (`VITE_AUTH_URL`), exposed for federated remotes.
+ * A remote (e.g. admin-ui) building `/admin/*` or `/authz/*` request URLs MUST
+ * use the SHELL's configured auth origin — remotes ship no `VITE_AUTH_URL` of
+ * their own, so reading `import.meta.env.VITE_AUTH_URL` inside a remote yields
+ * `undefined` (which collapses to a broken relative URL). Import this instead.
+ */
+export const getAuthBaseUrl = (): string => getAuthUrl()
+
 /** Clears the in-memory JWT cache. */
 export const clearJwtCache = (): void => {
   cachedJwt = null

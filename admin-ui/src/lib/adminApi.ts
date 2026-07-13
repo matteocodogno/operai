@@ -7,9 +7,12 @@
  * request/response shapes, an `ApiError` built from RFC 7807 Problem JSON, one
  * function per operation) with two differences forced by where this data lives:
  *
- *   • Base URL is `import.meta.env.VITE_AUTH_URL`, not `VITE_API_URL` — `/admin/*`
- *     and `/authz/me` are served by the **auth service** (plan.md "Architecture
- *     decisions | Admin API home"), not estimai-api.
+ *   • Base URL is the **auth service** origin (`/admin/*` and `/authz/me` are
+ *     served there, not estimai-api) — obtained from `shell/session`'s
+ *     `getAuthBaseUrl()`, NOT admin-ui's own `import.meta.env.VITE_AUTH_URL`
+ *     (a remote ships no such env var, so reading it here yields `undefined`
+ *     and the request collapses to a broken relative URL). The shell owns the
+ *     one configured auth origin.
  *   • `apiFetch` is imported directly from the federated `shell/session` module
  *     (ADR-0001/ADR-0006) rather than through a local `./api` facade — admin-ui has
  *     no such facade yet and this task's `touch:` list is this file alone
@@ -37,7 +40,7 @@
  * ADR-candidate note in this feature's implementation report.
  */
 
-import { apiFetch } from 'shell/session'
+import { apiFetch, getAuthBaseUrl } from 'shell/session'
 
 // ---------------------------------------------------------------------------
 // Shared shapes (mirrors the plan.md API contracts + Data model section)
@@ -303,7 +306,11 @@ export class ApiError extends Error {
 // ---------------------------------------------------------------------------
 
 /** Returns the base URL for the auth service — never hardcoded. */
-const authBase = (): string => import.meta.env.VITE_AUTH_URL as string
+// The auth service base URL comes from the SHELL (shell/session), not admin-ui's
+// own env: admin-ui ships no VITE_AUTH_URL, so reading import.meta.env here
+// yields `undefined` and the request collapses to a broken relative URL
+// (`.../admin/undefined/admin/roles`). The shell owns the one configured origin.
+const authBase = (): string => getAuthBaseUrl()
 
 /** Builds a `?a=1&b=2` query string, omitting undefined/empty values. */
 const buildQuery = (params: Record<string, string | number | undefined>): string => {

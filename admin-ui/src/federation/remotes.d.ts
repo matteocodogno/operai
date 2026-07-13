@@ -30,6 +30,8 @@ declare module 'shell/session' {
   export const useSession: () => ShellSessionState
   export const getSession: () => Promise<{ data: { user?: ShellSessionUser } } | null>
   export const apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  /** The auth service base URL (the shell's VITE_AUTH_URL) — remotes build /admin/* + /authz/* URLs against this. */
+  export const getAuthBaseUrl: () => string
   export const signOut: (...args: unknown[]) => Promise<unknown>
   export const clearJwtCache: () => void
 }

@@ -28,6 +28,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('shell/session', () => ({
   apiFetch: vi.fn(),
+  // Mirrors the shell: the base URL comes from shell/session, driven here by
+  // the vi.stubEnv('VITE_AUTH_URL', …) below (same pattern as before).
+  getAuthBaseUrl: () => import.meta.env.VITE_AUTH_URL as string,
 }))
 
 import { apiFetch } from 'shell/session'
