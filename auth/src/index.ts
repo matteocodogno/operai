@@ -13,6 +13,7 @@ import { departmentsRouter } from "./admin/departments.routes";
 import { rolesRouter } from "./admin/roles.routes";
 import { usersRouter } from "./admin/users.routes";
 import { healthRouter } from "./health/health.routes";
+import { inviteRouter } from "./invite/invite.routes";
 import { invitationsRouter } from "./invitations/invitations.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
 import { signinRouter } from "./signin/signin.routes";
@@ -47,6 +48,7 @@ app.route("/", departmentsRouter);
 app.route("/", rolesRouter);
 app.route("/", usersRouter);
 app.route("/", invitationsRouter);
+app.route("/", inviteRouter);
 
 // ── Test-auth router (structural defence-in-depth) ──────────────────────────
 // Only import + register when BOTH conditions are true at startup:
