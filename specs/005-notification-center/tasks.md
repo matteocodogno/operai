@@ -21,32 +21,32 @@ are edited by a single track to avoid collisions.
   - port **8081**; `ALLOWED_ORIGINS`, `JWKS`/issuer env validated at startup; RFC 7807 `onError`/`notFound`
   - done when: `bun run typecheck` clean and `GET /health` returns 200 locally
 
-- [ ] T2: Notification Prisma model + init migration — refs: US-2, US-6 — deps: T1
+- [x] T2: Notification Prisma model + init migration — refs: US-2, US-6 — deps: T1
   - touch: `notify-api/prisma/schema.prisma`, `notify-api/prisma/migrations/*`
   - `Notification` per plan (recipientId, title, body, severity, originApp, linkHref?, linkLabel?, toastWorthy, readAt?, timestamps) + the two `@@index` on `[recipientId, createdAt Desc]` and `[recipientId, readAt]`
   - done when: `bun run db:migrate` applies the init migration to the `notify` DB and the Prisma client generates
 
-- [ ] T3: EventBus + ticket-store seams (in-process impls) — refs: US-1, US-5 — deps: T1
+- [x] T3: EventBus + ticket-store seams (in-process impls) — refs: US-1, US-5 — deps: T1
   - touch: `notify-api/src/notifications/eventBus.ts`, `notify-api/src/notifications/ticketStore.ts`
   - `publish(sub,event)`/`subscribe(sub)` behind an interface (R2: Postgres LISTEN/NOTIFY later); single-use, ~30s-TTL, sub-bound ticket `Map` behind an interface
   - done when: `bun test` proves publish→subscriber delivery and ticket mint→consume is single-use + expires
 
-- [ ] T4: `POST /notifications` raise endpoint — refs: US-4 (AC-4.1..4.5) — deps: T2, T3
+- [x] T4: `POST /notifications` raise endpoint — refs: US-4 (AC-4.1..4.5) — deps: T2, T3
   - touch: `notify-api/src/notifications/raise.routes.ts` (+ register in `src/index.ts`)
   - zod: title 1..200, body 1..2000, severity enum, originApp enum, `link.href` **relative-only** (open-redirect guard), toast default false; body-size cap (413); `recipientId := JWT sub` and **any body `recipient` is ignored** (A01); `publish()` the event
   - done when: integration tests — 201 happy; 400 on empty title/body, bad enum, non-relative `link.href`; persisted `recipientId == sub`; event published
 
-- [ ] T5: `GET /notifications` (list) + `GET /notifications/unread-count` — refs: US-2 (2.3, 2.4), US-6 (6.1, 6.2) — deps: T2
+- [x] T5: `GET /notifications` (list) + `GET /notifications/unread-count` — refs: US-2 (2.3, 2.4), US-6 (6.1, 6.2) — deps: T2
   - touch: `notify-api/src/notifications/list.routes.ts` (+ register)
   - cursor pagination, `createdAt DESC`, `sub`-scoped, `[]` (not error) when none; not-owned → 404 (ADR-0005); unread-count = exact server truth
   - done when: integration tests — ordering, empty list, sub-scope isolation, not-owned 404, correct count
 
-- [ ] T6: `POST /notifications/mark-all-read` — refs: US-3 (3.1, 3.4) — deps: T2, T3
+- [x] T6: `POST /notifications/mark-all-read` — refs: US-3 (3.1, 3.4) — deps: T2, T3
   - touch: `notify-api/src/notifications/markRead.routes.ts` (+ register)
   - set `readAt := now()` for all unread of `sub`; idempotent (harmless 200 when nothing unread); publish `unread-reset` to sub's streams
   - done when: integration tests — marks unread→read, idempotent 200 no-op, `unread-reset` published
 
-- [ ] T7: SSE — `POST /notifications/stream-ticket` + `GET /notifications/stream?ticket=` — refs: US-1 (1.4, 1.5), US-5 (5.1, 5.5, 5.6) — deps: T3, T4, T6
+- [x] T7: SSE — `POST /notifications/stream-ticket` + `GET /notifications/stream?ticket=` — refs: US-1 (1.4, 1.5), US-5 (5.1, 5.5, 5.6) — deps: T3, T4, T6
   - touch: `notify-api/src/notifications/stream.routes.ts` (+ register)
   - ticket mint on Bearer/JWKS path; stream authed by ticket only (no `jwtMiddleware`); `event: notification` / `event: unread-reset`; `: heartbeat` ~15s; `MAX_STREAM_DURATION`; subscribe EventBus; CORS `Allow-Origin: <shell origin>`
   - done when: integration tests — invalid/expired/used ticket → 401 (stream never opens); valid ticket streams a `notification` event on raise and `unread-reset` on mark-all-read; two connections for one `sub` both receive fan-out
@@ -55,7 +55,7 @@ are edited by a single track to avoid collisions.
   - touch: `auth/src/auth/*` (better-auth jwt plugin `audience`), `auth/src/lib/env.ts` (`AUTH_AUDIENCE`), `auth/.env.example`
   - done when: a minted JWT carries the `audience` claim; auth `bun run typecheck` + tests green
 
-- [ ] T9: `estimai-api` + `notify-api` verify `audience` — refs: Security R7, ADR-0010 — deps: T8, T1
+- [x] T9: `estimai-api` + `notify-api` verify `audience` — refs: Security R7, ADR-0010 — deps: T8, T1
   - touch: `estimai-api/src/auth/jwt.middleware.ts` + env; `notify-api/src/auth/jwt.middleware.ts` + env (`AUTH_AUDIENCE` both)
   - `jwtVerify` pins `audience`; a token with missing/wrong `aud` → 401 in both services
   - done when: both services reject wrong/absent `aud` (401) and accept the correct one (200); existing estimai-api auth tests updated + green
@@ -89,15 +89,15 @@ are edited by a single track to avoid collisions.
   - **NOT** an app-access-gated `tools.ts` entry and NOT in the sidebar `TOOLS` list (plan §Shell) — reachable by any authenticated user, from the bell
   - done when: router test renders the notify remote at `/notify`; asserted absent from the permission-filtered sidebar list
 
-- [ ] T16: Local dev wiring — refs: R9 — deps: T1, T14
+- [x] T16: Local dev wiring — refs: R9 — deps: T1, T14
   - touch: `compose.yaml` (create `notify` logical DB like `estimai`), `mise.toml` (dev/build/preview start notify-api :8081 + notify-ui :5176), `notify-api/.env.example`, shell env (`VITE_NOTIFY_API_URL`)
   - done when: `docker compose up` creates the `notify` DB and `mise run dev` starts both new services
 
-- [ ] T17: `notify-api` deploy config — refs: R9, R2, data-residency — deps: T1
+- [x] T17: `notify-api` deploy config — refs: R9, R2, data-residency — deps: T1
   - touch: `notify-api/railway.json` (**`numReplicas: 1`** — single-instance ticket store/fan-out, R2), `notify-api/Dockerfile`, `preDeployCommand` `db:deploy`, EU `europe-west4`, estimai-api logger posture (no bodies logged)
   - done when: config mirrors estimai-api; single-replica pin present
 
-- [ ] T18: `notify-ui` deploy config — refs: R9 — deps: T14
+- [x] T18: `notify-ui` deploy config — refs: R9 — deps: T14
   - touch: `notify-ui/vercel.json` (clone `admin-ui`), `SHELL_REMOTE_URL`/runtime-config vars
   - done when: config present and mirrors admin-ui
 
