@@ -60,7 +60,7 @@ are edited by a single track to avoid collisions.
   - `jwtVerify` pins `audience`; a token with missing/wrong `aud` → 401 in both services
   - done when: both services reject wrong/absent `aud` (401) and accept the correct one (200); existing estimai-api auth tests updated + green
 
-- [ ] T10: Shell notification seam in `shell/session` — refs: US-1 (1.4, 1.5), US-3 (3.1), US-4, US-5, AC-6.3 — deps: T7
+- [x] T10: Shell notification seam in `shell/session` — refs: US-1 (1.4, 1.5), US-3 (3.1), US-4, US-5, AC-6.3 — deps: T7
   - touch: `shell/src/lib/notifications.ts` (new), `shell/src/lib/session.ts` (extend `getTrustedOrigins` with `VITE_NOTIFY_API_URL`, extend `signOut`), federation `./session` export
   - `raiseNotification`, `getNotifyBaseUrl` (`VITE_NOTIFY_API_URL`), `useUnreadCount` (SSE-driven, REST-seeded, listener-set like `usePermissions`), `resetUnreadCount` (optimistic local zero); internal **SSE connection manager** (mint ticket → `EventSource` → handle `notification`/`unread-reset` → emit toast-worthy → reconnect + REST resync); `signOut` closes + reconnects
   - done when: unit tests — `raiseNotification` shape/sub-only, `useUnreadCount` updates on mocked events, `resetUnreadCount` zeros, SSE manager reconnect re-syncs count, trusted-origins includes notify

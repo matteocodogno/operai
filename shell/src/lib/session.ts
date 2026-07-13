@@ -26,6 +26,11 @@
  *     • Same origin as the current page (relative URLs resolve here automatically).
  *     • The auth service origin (VITE_AUTH_URL).
  *     • The API service origin (VITE_API_URL), if that env var is defined.
+ *     • The notify-api origin (VITE_NOTIFY_API_URL), if that env var is
+ *       defined (T10, specs/005-notification-center) — trusted so
+ *       `raiseNotification`/the SSE ticket mint/`GET /notifications/*` (this
+ *       module's notification seam, notify-ui) go through this same
+ *       Bearer-attach machinery.
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -125,6 +130,16 @@ const getTrustedOrigins = (): Set<string> => {
   if (apiUrl) {
     try {
       trusted.add(new URL(apiUrl).origin)
+    } catch { /* ignore invalid env value */ }
+  }
+
+  // T10 (specs/005-notification-center): notify-api origin — raiseNotification,
+  // the SSE stream-ticket mint, and GET /notifications/* (this module's
+  // notification seam, notify-ui) all go through apiFetch too.
+  const notifyUrl = import.meta.env.VITE_NOTIFY_API_URL as string | undefined
+  if (notifyUrl) {
+    try {
+      trusted.add(new URL(notifyUrl).origin)
     } catch { /* ignore invalid env value */ }
   }
 
@@ -432,6 +447,40 @@ export function usePermissions(): PermissionsResult {
 }
 
 /**
+ * Sign-out teardown hooks (T10, specs/005-notification-center, ADR-0009 R8).
+ *
+ * `signOut()` must close the shell's live SSE notification connection on
+ * every identity change (notifications.ts's `closeSseConnection()`), so a
+ * signed-out user's stream never lingers and the next sign-in reconnects
+ * fresh, bound to the new identity. `session.ts` cannot import
+ * `notifications.ts` directly to call that function — `notifications.ts`
+ * already imports `apiFetch`/`onSignOut` from THIS module, and a reverse
+ * static import would make the cycle two-directional at the declaration
+ * level in a way that's harder to reason about. Instead, `notifications.ts`
+ * registers its own teardown here (lazily — see its
+ * `ensureSignOutTeardownRegistered`) via `onSignOut`, and `signOut()` below
+ * just invokes whatever has been registered. Same "module holds a listener
+ * set, exposes a register + notify pair" shape already used for
+ * `permissionsListeners` above.
+ */
+const signOutHooks = new Set<() => void>()
+
+/**
+ * Registers a callback to run whenever `signOut()` is called, before the
+ * better-auth client's own `signOut` and before the JWT/permissions caches
+ * are cleared. Returns an unregister function (unused today — hooks
+ * registered here are expected to live for the module's lifetime, mirroring
+ * `usePermissions`'s listener set — but returning it costs nothing and
+ * matches that same shape).
+ */
+export function onSignOut(hook: () => void): () => void {
+  signOutHooks.add(hook)
+  return () => {
+    signOutHooks.delete(hook)
+  }
+}
+
+/**
  * Session wrappers — the single better-auth client instance for the suite.
  *
  * getSession / useSession resolve the cookie-based session as-is (mirrors
@@ -442,7 +491,8 @@ export function usePermissions(): PermissionsResult {
  * sign-out invalidates every remote's cached Bearer token and resolved
  * permissions immediately rather than waiting for the next 401 or navigation
  * (plan.md federation contract: "authClient.signOut() — suite-wide sign-out;
- * clears the shared JWT cache + redirects").
+ * clears the shared JWT cache + redirects"). It also runs every registered
+ * sign-out hook (T10 — closes the shared SSE notification connection).
  */
 export const getSession = authClient.getSession
 export const useSession = authClient.useSession
@@ -452,5 +502,19 @@ export const signOut = async (
 ): Promise<Awaited<ReturnType<typeof authClient.signOut>>> => {
   clearJwtCache()
   clearPermissionsCache()
+  for (const hook of signOutHooks) {
+    hook()
+  }
   return authClient.signOut(...args)
 }
+
+/**
+ * Re-exports the shell's notification transport seam (T10,
+ * specs/005-notification-center, ADR-0009) so it rides the suite's existing
+ * `shell/session` federation export (vite.config.ts `exposes['./session']`)
+ * — the same module every remote already imports for
+ * `apiFetch`/`usePermissions`. See notifications.ts's file-level doc for why
+ * this `export *` forms a safe ES-module cycle (notifications.ts imports
+ * `apiFetch`/`onSignOut` from this file).
+ */
+export * from './notifications'
