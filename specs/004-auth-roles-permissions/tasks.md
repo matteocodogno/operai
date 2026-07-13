@@ -46,11 +46,11 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/admin/admin.routes.ts` (roles)
   - `GET/POST /admin/roles`, `GET/PATCH/DELETE /admin/roles/:id` (delete `isSystem` → 422), `PUT /admin/roles/:id/rules` (catalog-validated → 422; conditions ∈ `supportedConditions`).
   - done when: integration tests incl off-catalog 422, system-role delete 422, custom-role create+rules; each mutation audits + bumps epoch.
-- [ ] T9: Admin departments API — refs: AC-1.2 — deps: T4, T7
+- [x] T9: Admin departments API — refs: AC-1.2 — deps: T4, T7
   - touch: `auth/src/admin/admin.routes.ts` (departments)
   - `GET/POST /admin/departments`, `GET/PATCH/DELETE /:id` (**`GET /:id` embeds members** — drift fix), `PUT /:id/roles`, `PUT /:id/members` (drift fix).
   - done when: create dept + add members + confer roles → members inherit (verified via a member's `/authz/me`).
-- [ ] T10: Admin users API — refs: AC-1.3, AC-1.4, AC-2.3, AC-6.4 — deps: T4, T2, T7
+- [x] T10: Admin users API — refs: AC-1.3, AC-1.4, AC-2.3, AC-6.4 — deps: T4, T2, T7
   - touch: `auth/src/admin/admin.routes.ts` (users)
   - `GET /admin/users` (paginated + `?q=` — drift fix), `GET /admin/users/:id`, `PATCH /admin/users/:id` (entity/jobTitle), `PUT /admin/users/:id/roles` · `/departments`, `GET /admin/users/:id/permissions` (drift fix — resolver output for any user); **last-admin guard → 422**.
   - done when: assign/revoke reflected in target's `/authz/me`; last-admin removal → 422; each mutation audits + bumps epoch.
@@ -86,7 +86,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - done when: create dept, confer roles, add/remove members (user-search picker); guardrail/errors surfaced.
 - [ ] T20: Users list + detail (C1/C2) — refs: AC-1.3, AC-1.4, AC-2.3, AC-6.4 — deps: T14, T15, T16
   - done when: search+pagination; edit entity/jobTitle; assign roles/departments; last-admin 422 → GuardrailDialog D2 preserving the edit.
-- [ ] T21: Audit log screen (D1) — refs: AC-5.2, AC-5.3 — deps: T14, T15, T16
+- [x] T21: Audit log screen (D1) — refs: AC-5.2, AC-5.3 — deps: T14, T15, T16
   - done when: paginated reverse-chron table + row-expand diff; no mutate affordance.
 - [x] T22: Permission-denied in-place (E1) — refs: AC-1.5 — deps: T14, T15
   - done when: an admin `403` renders E1 in-place (no crash, no Retry), chrome intact.
@@ -111,7 +111,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 
 ## Track E — infra / deploy
 
-- [ ] T27: admin-ui deploy wiring — refs: ADR-0006 deploy — deps: T13, T25
+- [x] T27: admin-ui deploy wiring — refs: ADR-0006 deploy — deps: T13, T25
   - touch: `admin-ui/vercel.json` (SPA rewrites, CSP, remoteEntry/asset headers), `infra/variables.md` + `infra/vercel-deploy-runbook.md` (`ADMIN_REMOTE_URL`, `BOOTSTRAP_ADMIN_EMAIL`, admin origin in shell CSP / auth `ALLOWED_ORIGINS` / apiFetch trusted origins).
   - done when: docs + config added; consistent with the existing runbooks.
 
