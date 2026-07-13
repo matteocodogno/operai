@@ -1,0 +1,91 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { federation } from '@module-federation/vite'
+import { readFileSync } from 'node:fs'
+
+// T14 (specs/005-notification-center/tasks.md): notify-ui — the notification
+// center's dedicated Module Federation REMOTE (plan.md "Architecture →
+// notify-ui"). Structurally a clone of admin-ui/vite.config.ts (T13,
+// specs/004-auth-roles-permissions) — same federation shape, same shared
+// singletons, same dev-default pattern — so the whole suite's remotes stay
+// structurally identical. requiredVersion for shared singletons is sourced
+// from this package's own dependency ranges so the graph cannot silently
+// drift.
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+
+// Build-time dev default only, overridable via env var — mirrors the
+// SHELL_REMOTE_URL pattern in admin-ui/refund-ui/estimai-ui's own
+// vite.config.ts. The plan's actual deploy model resolves remote URLs
+// per-environment at *runtime* via MF's dynamic-remote API, not build-baked.
+// Dev default points at the shell's pinned port (:5173) — notify-ui consumes
+// shell/session + shell/tokens.css from there.
+const shellRemoteUrl = process.env['SHELL_REMOTE_URL'] ?? 'http://localhost:5173/remoteEntry.js'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    federation({
+      name: 'notify',
+      filename: 'remoteEntry.js',
+      // dts generation disabled: this remote's own build may run without a
+      // live shell dev server (e.g. CI, `pnpm --dir notify-ui build` in
+      // isolation) — a dts fetch attempt against `shellRemoteUrl` would fail
+      // noisily in that case. Same call made for admin-ui/refund-ui's own
+      // configs (dts: false there too) and for the same reason. Not needed
+      // anyway: `shell/session` and `shell/tokens.css`'s shapes are declared
+      // via src/federation/remotes.d.ts (ambient module declarations).
+      dts: false,
+      // T14's own federation contract: notify-ui EXPOSES its root component
+      // (mirrors admin-ui/vite.config.ts's T13 shape exactly: name/filename/
+      // exposes/shared) AND CONSUMES the shell as a remote, for
+      // `shell/session` (shared auth) and `shell/tokens.css` (shared design
+      // tokens) — see src/App.tsx. This makes notify-ui bidirectional, same
+      // as the shell itself and every other remote (plan.md federation
+      // contract; ADR-0006): the shell is a host to notify-ui's exposed
+      // `./App`, and notify-ui is in turn a host to the shell's exposed
+      // `./session`/`./tokens.css`.
+      exposes: {
+        './App': './src/App.tsx',
+      },
+      remotes: {
+        shell: {
+          type: 'module',
+          name: 'shell',
+          entry: shellRemoteUrl,
+          entryGlobalName: 'shell',
+          shareScope: 'default',
+        },
+      },
+      shared: {
+        react: { singleton: true, requiredVersion: pkg.dependencies.react },
+        'react-dom': { singleton: true, requiredVersion: pkg.dependencies['react-dom'] },
+        '@tanstack/react-router': {
+          singleton: true,
+          requiredVersion: pkg.dependencies['@tanstack/react-router'],
+        },
+        'better-auth': { singleton: true, requiredVersion: pkg.dependencies['better-auth'] },
+      },
+    }),
+  ],
+  build: {
+    // Required by @module-federation/vite: federated chunks use top-level
+    // await to resolve shared modules asynchronously at runtime.
+    target: 'esnext',
+    modulePreload: false,
+  },
+  server: {
+    // Pinned local-dev port for notify-ui as a remote (5176 — shell=5173,
+    // estimai-ui=5174, refund-ui=5175, admin-ui=5177; admin-ui's own
+    // vite.config.ts deliberately left 5176 free for this remote). The shell
+    // (:5173) consumes its remoteEntry.js from here. cors lets the shell's
+    // different dev origin fetch it; strictPort fails fast on a collision.
+    port: 5176,
+    strictPort: true,
+    cors: true,
+  },
+  preview: {
+    port: 5176,
+    strictPort: true,
+    cors: true,
+  },
+})
