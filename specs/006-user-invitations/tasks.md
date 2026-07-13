@@ -44,12 +44,12 @@ owned by a single track to avoid collisions.
   - `POST /admin/invitations` (validate role/dept ids → 422; 409 active-user / live-pending; reconcile-on-write; create pending+token+72h; audit; call notify; store `lastEmailStatus`; 201 with `emailDelivery`), `GET /admin/invitations?page&pageSize&status?&q?` (paginated, effective status, q on email), `POST .../{id}/resend` (rotate token, +72h, re-send; 422 if accepted/revoked), `POST .../{id}/revoke` (terminal; 422 if accepted/revoked); each writes `audit_log`
   - done when: integration tests cover AC-1.1..1.14, 3.1..3.6, 4.1..4.4 (see plan test table) incl. non-admin→403 and the email-failure-still-201 path (notify mocked)
 
-- [ ] T7: auth soft-delete user endpoints + guards — refs: US-5 (5.1,5.3–5.9), US-6 (6.1–6.5) — deps: T4
+- [x] T7: auth soft-delete user endpoints + guards — refs: US-5 (5.1,5.3–5.9), US-6 (6.1–6.5) — deps: T4
   - touch: `auth/src/admin/users.routes.ts` (`DELETE /admin/users/{id}` single soft-delete; `POST /admin/users/delete` bulk partial-success; filter `deletedAt:null` from `GET /admin/users` + 404 soft-deleted on detail), `auth/src/admin/lastAdminGuard.ts` (admin-count queries gain `deletedAt:null`)
   - per-delete tx: self-delete guard (`caller.id!==target` → 422, absolute, single+bulk); last-admin guard (422); set `deletedAt`/`deletedByUserId`; **synchronous** `session.deleteMany({userId})`; perm_epoch bump; `withAudit` `user.delete`. Bulk = per-user tx, individually audited, skip-and-report `{deleted,skipped:[{userId,reason}]}`; acting admin ALWAYS excluded
   - done when: integration tests cover AC-5.1,5.3–5.9, 6.1–6.5 (plan table) incl. non-admin→403, self+last-admin skipped in bulk, retained data
 
-- [ ] T8: auth better-auth activation hooks — refs: US-2 (2.3, 2.4), AC-5.2, AC-5.10 — deps: T5, T7
+- [x] T8: auth better-auth activation hooks — refs: US-2 (2.3, 2.4), AC-5.2, AC-5.10 — deps: T5, T7
   - touch: `auth/src/auth/auth.config.ts` (`databaseHooks`)
   - **FIRST: spike R1** — confirm better-auth 1.6.x `session.create.before` can ABORT session creation (return `false` vs throw vs `{}`); if unsupported, use the documented fallback (`session.create.after` + immediate `session.delete` + denied-redirect). State what you found.
   - `user.create.after`: after baseline-role assignment, match a live-pending invite by the **verified** email (`emailVerified===true`) → apply invite roleIds/departmentIds (additive to baseline `employee` per R9 — flag for QE), mark accepted + acceptedByUserId, bump perm_epoch, audit. AC-2.4 holds structurally (keys on new user's own verified email, never the link token).
