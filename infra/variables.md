@@ -2,7 +2,7 @@
 
 Single environment-variable reference for the whole suite across **both** platforms:
 the **Railway** backend services (`auth`, `estimai-api`) and the **Vercel** frontend
-projects (`shell`, `estimai-ui`, `refund-ui`). Deploy procedures: `infra/README.md`
+projects (`shell`, `estimai-ui`, `refund-ui`, `admin-ui`). Deploy procedures: `infra/README.md`
 (Railway) and `infra/vercel-deploy-runbook.md` (Vercel).
 
 > DATA RESIDENCY: all **backend** services + Postgres deploy to `europe-west4` (EU).
@@ -30,6 +30,7 @@ projects (`shell`, `estimai-ui`, `refund-ui`). Deploy procedures: `infra/README.
 | `PORT` | _(unset — Railway injects it)_ | No | Server listen port. Railway sets `$PORT` automatically; do not set it. Code default is 3001 for local dev. |
 | `NODE_ENV` | `production` | No | Must be `production` in Railway. |
 | `ENABLE_TEST_AUTH` | _(absent)_ | — | **MUST REMAIN UNSET IN PRODUCTION.** When set to `true`, a session-mint endpoint (`POST /test-auth/session`) is exposed with no authentication — a complete auth bypass. Only set in local dev and CI. Bootstrap.sh explicitly omits this variable. |
+| `BOOTSTRAP_ADMIN_EMAIL` | _(from shell)_ | No | specs/004-auth-roles-permissions (AC-6.1). The email of the account that receives the `admin` system role on first `databaseHooks.user.create.after` (in addition to the `employee` role every new user gets, AC-6.3). Not a secret itself, but set it on the Railway `auth` service, not committed — a value baked into the repo would let anyone matching it self-escalate. The env var itself is only **validated** (`auth/src/lib/env.ts` Zod schema) and **consumed** by the seed/bootstrap hook as of T11 (specs/004-auth-roles-permissions/tasks.md); this row documents the deploy-side variable ahead of that code landing. |
 
 ---
 
@@ -67,6 +68,7 @@ Two kinds, distinguished by prefix:
 | `VITE_API_URL` | `<API_URL>` (e.g. `https://estimai-api.operai.welld.io`) | No | estimai-api URL. `shell/session` attaches the Bearer JWT **only** to this origin (or `VITE_AUTH_URL`, or same-origin). |
 | `ESTIMAI_REMOTE_URL` | `https://estimai.operai.welld.io/remoteEntry.js` | No | Build-time default for the EstimAI remote, baked into the shell bundle. Overridable at runtime by `shell/public/runtime-config.json` without a rebuild (AC-5.3 — see Vercel runbook Step 5). Unprefixed (Vite-config-side). |
 | `REFUND_REMOTE_URL` | `https://refund.operai.welld.io/remoteEntry.js` | No | Same as above, for the Refund remote. |
+| `ADMIN_REMOTE_URL` | `https://admin.operai.welld.io/remoteEntry.js` | No | specs/004-auth-roles-permissions — build-time default for the new Admin (Roles & Permissions) remote, baked into the shell bundle by `shell/vite.config.ts` (T25). Same runtime-override mechanism as the two above (`shell/src/lib/runtimeRemotes.ts`). Dev default: `http://localhost:5177/remoteEntry.js`. |
 
 ### `estimai-ui` project (remote)
 
@@ -82,11 +84,24 @@ Two kinds, distinguished by prefix:
 |---|---|---|---|
 | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | **REQUIRED in production** — same as estimai-ui's `SHELL_REMOTE_URL` above (refund-ui imports `shell/session` / `shell/tokens.css` from the shell when mounted). Unset ⇒ dev-default `localhost:5173` baked ⇒ CSP-blocked ⇒ Refund fails to mount. refund-ui has **no** backend vars of its own today (no direct `auth`/`estimai-api` calls — it delegates to `shell/session`). |
 
+### `admin-ui` project (remote)
+
+| Variable | Example / Placeholder | Secret | Source |
+|---|---|---|---|
+| `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` | No | **REQUIRED in production** — same pattern as estimai-ui's/refund-ui's `SHELL_REMOTE_URL` (admin-ui imports `shell/session` / `shell/tokens.css` from the shell when mounted; T13, specs/004-auth-roles-permissions). Unset ⇒ dev-default `http://localhost:5173/remoteEntry.js` baked ⇒ CSP-blocked ⇒ Admin fails to mount. Documented in `admin-ui/.env.example`. |
+
+admin-ui has, like refund-ui, **no backend vars of its own** — it has no direct `auth`
+calls; the Admin API calls the admin-ui client makes go through the shared
+`shell/session` `apiFetch` (same delegation as estimai-ui/refund-ui), so they run under
+the shell's own origin and are governed by the shell's `VITE_AUTH_URL`/`VITE_API_URL`
+above, not by anything set on the `admin-ui` Vercel project.
+
 > The frontends' **production origin** (`https://operai.welld.io`, the shell) is what the
 > backends' `ALLOWED_ORIGINS`/`UI_HOME_URL` must contain — see the Cross-service wiring
-> below. Only the shell's origin is needed there: `estimai-ui`/`refund-ui` never call the
-> backends directly in production (federated modules execute inside the shell's document,
-> so `shell/session` runs under the shell's origin regardless of which remote is mounted).
+> below. Only the shell's origin is needed there: `estimai-ui`/`refund-ui`/`admin-ui`
+> never call the backends directly in production (federated modules execute inside the
+> shell's document, so `shell/session` runs under the shell's origin regardless of which
+> remote is mounted).
 
 ---
 
