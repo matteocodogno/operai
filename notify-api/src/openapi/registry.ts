@@ -25,7 +25,8 @@ export function setupOpenAPI(app: OpenAPIHono): void {
       {
         name: "Notifications",
         description:
-          "Notification raise/list/read/stream — persistence and real-time push for the notification center",
+          "Notification raise/list/read/stream — persistence and real-time push for the notification center. " +
+          "All endpoints except GET /notifications/stream are behind jwtMiddleware (RS256 Bearer JWT).",
       },
       {
         name: "System",

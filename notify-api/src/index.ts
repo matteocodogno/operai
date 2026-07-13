@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
+import { raiseRouter } from "./notifications/raise.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -29,7 +30,8 @@ app.use("*", logger());
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.route("/", healthRouter);
-// Notification routes (raise/list/mark-read/stream) land in T4–T7 (specs/005).
+app.route("/", raiseRouter);
+// List/mark-read/stream routes land in T5–T7 (specs/005).
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

@@ -29,7 +29,7 @@ export type NotificationEventData = {
   body: string;
   severity: string;
   originApp: string;
-  link?: { href: string; label?: string };
+  link?: { href: string; label?: string | undefined } | undefined;
   toastWorthy: boolean;
   readAt: string | null;
   createdAt: string;
