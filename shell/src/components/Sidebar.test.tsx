@@ -150,6 +150,20 @@ describe('Sidebar app-access filtering (T24, AC-7.1, AC-7.2)', () => {
     expect(screen.getAllByRole('link')).toHaveLength(3)
   })
 
+  it('pins the Admin entry to the bottom section (with the collapse toggle), not the scrollable tool list', async () => {
+    usePermissions.mockReturnValue(permissionsWith(['estimai', 'refund', 'admin']))
+    await renderSidebarAt('/estimai')
+
+    const adminLink = screen.getByRole('link', { name: 'Admin' })
+    const toggle = screen.getByRole('button', { name: /collapse sidebar/i })
+    // Admin is NOT inside the scrollable <ul> of workflow tools…
+    expect(adminLink.closest('ul')).toBeNull()
+    // …and it shares the pinned bottom container with the collapse toggle.
+    expect(adminLink.parentElement).toBe(toggle.parentElement)
+    // The workflow tools ARE still in the <ul>.
+    expect(screen.getByRole('link', { name: 'EstimAI' }).closest('ul')).not.toBeNull()
+  })
+
   it('renders no tool entries while permissions are unresolved (apps: []), never flashing the full tool list', async () => {
     usePermissions.mockReturnValue(permissionsWith([]))
     await renderSidebarAt('/estimai')

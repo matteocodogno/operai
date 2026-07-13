@@ -138,24 +138,30 @@ export default function Sidebar() {
   // an empty list, never the full unfiltered TOOLS array.
   const { apps } = usePermissions()
   const visibleTools = TOOLS.filter(tool => apps.includes(tool.id))
+  // Admin is pinned to the bottom section (above the collapse toggle), kept out
+  // of the scrollable workflow-tool list — it's an admin-only affordance, not a
+  // day-to-day tool. The roving-tabindex arrow-key group covers only the main
+  // tools; Admin is a standalone tab stop like the collapse toggle beneath it.
+  const mainTools = visibleTools.filter(tool => tool.id !== 'admin')
+  const adminTool = visibleTools.find(tool => tool.id === 'admin')
 
-  const activeIndex = visibleTools.findIndex(tool => matchRoute({ to: tool.to, fuzzy: true }) !== false)
+  const activeIndex = mainTools.findIndex(tool => matchRoute({ to: tool.to, fuzzy: true }) !== false)
 
   const [rovingIndex, setRovingIndex] = useState(() => (activeIndex >= 0 ? activeIndex : 0))
   const itemRefs = useRef<Array<HTMLAnchorElement | null>>([])
 
-  // The permitted-apps list can change size after mount (permissions resolve
+  // The permitted-tools list can change size after mount (permissions resolve
   // after the initial empty render, or a later revalidation narrows/widens
   // `apps`). Clamp so the roving tab stop always lands on a real entry —
   // without this, a list that shrank out from under a stale `rovingIndex`
   // would leave NO entry with `tabIndex 0`, breaking keyboard operation.
-  const safeRovingIndex = visibleTools.length === 0 ? -1 : Math.min(rovingIndex, visibleTools.length - 1)
+  const safeRovingIndex = mainTools.length === 0 ? -1 : Math.min(rovingIndex, mainTools.length - 1)
 
   const moveFocus = (nextIndex: number) => {
-    if (visibleTools.length === 0) {
+    if (mainTools.length === 0) {
       return
     }
-    const clamped = (nextIndex + visibleTools.length) % visibleTools.length
+    const clamped = (nextIndex + mainTools.length) % mainTools.length
     setRovingIndex(clamped)
     itemRefs.current[clamped]?.focus()
   }
@@ -178,7 +184,7 @@ export default function Sidebar() {
         break
       case 'End':
         event.preventDefault()
-        moveFocus(visibleTools.length - 1)
+        moveFocus(mainTools.length - 1)
         break
       default:
         break
@@ -186,12 +192,12 @@ export default function Sidebar() {
   }
 
   return (
-    // Fills the full height of ShellLayout's rail: the tool list scrolls
-    // (own scrollbar), the collapse toggle sits in a pinned, always-visible
-    // bottom section (`shrink-0`).
+    // Fills the full height of ShellLayout's rail: the workflow-tool list
+    // scrolls (own scrollbar); the pinned, always-visible bottom section
+    // (`shrink-0`) holds the Admin entry (admin-only) above the collapse toggle.
     <div className="flex h-full flex-col">
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-2 py-3">
-        {visibleTools.map((tool, index) => (
+        {mainTools.map((tool, index) => (
           <li key={tool.id}>
             <Link
               to={tool.to}
@@ -213,7 +219,18 @@ export default function Sidebar() {
         ))}
       </ul>
 
-      <div className="shrink-0 border-t border-rule px-2 py-2">
+      <div className="flex shrink-0 flex-col gap-1 border-t border-rule px-2 py-2">
+        {adminTool && (
+          <Link
+            to={adminTool.to}
+            title={collapsed ? adminTool.label : undefined}
+            className={itemClass(collapsed)}
+            activeProps={{ className: 'bg-acc-lo text-acc hover:bg-acc-lo hover:text-acc' }}
+          >
+            {TOOL_ICONS[adminTool.id]}
+            <span className={collapsed ? 'sr-only' : ''}>{adminTool.label}</span>
+          </Link>
+        )}
         <button
           type="button"
           onClick={toggle}
