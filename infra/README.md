@@ -22,34 +22,61 @@ Two helper scripts live beside this doc:
 ## Topology
 
 ```
-Vercel (4 projects, one origin each)          Railway project (europe-west4)
+Vercel (5 projects, one origin each)          Railway project (europe-west4)
 ┌───────────────────────────────┐             ┌───────────────────────────────┐
 │ shell   https://operai.welld.io│──┐ loads    │ auth        (Bun+Hono)        │
 │         (host, entry point)    │  │ remote-  │  https://auth.operai.welld.io │
 ├───────────────────────────────┤  │ Entry.js ├───────────────────────────────┤
 │ estimai-ui  estimai.operai…    │◄─┤ at run-  │ estimai-api (Bun+Hono)        │
-│ refund-ui   refund.operai…     │◄─┤ time, in │  https://estimai-api.operai…  │
-│ admin-ui    admin.operai…      │◄─┘ browser  ├───────────────────────────────┤
-└───────────────────────────────┘             │ Postgres (shared)             │
-   shell owns session; remotes                 │   ├─ db: auth                 │
-   delegate to shell/session                   │   └─ db: estimai              │
-                                               │ estimai-api → auth /auth/jwks │
-                                               └───────────────────────────────┘
+│ refund-ui   refund.operai…     │◄─┤ time, in │  https://estimai-api.operai… │
+│ admin-ui    admin.operai…      │◄─┤ browser  ├───────────────────────────────┤
+│ notify-ui   notify.operai…     │◄─┘          │ notify-api  (Bun+Hono)        │
+└───────────────────────────────┘              │  https://notify-api.operai…  │
+   shell owns session; remotes                 │  numReplicas: 1 (R2 — see    │
+   delegate to shell/session                   │  below), SSE + ticket store  │
+                                                │  are single-instance only    │
+                                                ├───────────────────────────────┤
+                                                │ Postgres (shared)             │
+                                                │   ├─ db: auth                 │
+                                                │   ├─ db: estimai              │
+                                                │   └─ db: notify               │
+                                                │ estimai-api,                  │
+                                                │ notify-api → auth /auth/jwks  │
+                                                └───────────────────────────────┘
 ```
 
 - **Frontends:** the `shell` is the human entry point (`operai.welld.io`); the
-  three tools (`estimai-ui`, `refund-ui`, `admin-ui`) are runtime-federated
-  remotes, each on its own subdomain, loaded cross-origin by the shell (ADR-0006).
+  four tools (`estimai-ui`, `refund-ui`, `admin-ui`, `notify-ui`) are
+  runtime-federated remotes, each on its own subdomain, loaded cross-origin by
+  the shell (ADR-0006). `notify-ui` (specs/005) is the notification-center
+  page; the shell's own bell/toast/SSE seam is shipped inside the shell bundle
+  itself, not this remote (ADR-0009) — see the shell-side notes in
+  `specs/005-notification-center/plan.md`.
 - **Backends:** `auth` (OAuth, sessions, RS256 JWT + JWKS, hosted sign-in,
-  authorization/admin API) and `estimai-api` (estimate persistence). One Postgres
-  instance, two logical databases (`auth`, `estimai`); service↔DB traffic stays on
-  Railway private networking (`*.railway.internal`).
-- **The two public URL placeholders** used below — keep them straight; both need
+  authorization/admin API), `estimai-api` (estimate persistence), and
+  `notify-api` (notification persistence + SSE push, specs/005). One Postgres
+  instance, three logical databases (`auth`, `estimai`, `notify`); service↔DB
+  traffic stays on Railway private networking (`*.railway.internal`).
+  **`notify-api` is pinned to a single replica** (`railway.json`
+  `numReplicas: 1`) — its in-process EventBus fan-out and stream-ticket store
+  are correct for exactly one running instance (plan.md Risk R2). Do not
+  enable autoscale/multiple replicas for this service without first moving
+  both seams onto Postgres `LISTEN`/`NOTIFY` + a shared ticket table.
+- **`notify-api` and `estimai-api` are cross-valid JWKS resource servers**
+  (ADR-0010) — both verify the same `auth`-issued tokens, so both (plus
+  `auth`, which stamps the claim) require an identical **`AUTH_AUDIENCE`**
+  value or a token minted for one is structurally valid at the other. See
+  § Variable reference.
+- **The public URL placeholders** used below — keep them straight; all need
   the `https://` scheme:
   - `<AUTH_URL>` = the **auth** service (e.g. `https://auth.operai.welld.io`). It
-    is the JWT **issuer**, so `estimai-api` points back at it.
+    is the JWT **issuer**, so `estimai-api` and `notify-api` point back at it.
   - `<API_URL>` = the **estimai-api** service (e.g. `https://estimai-api.operai.welld.io`).
     Only the browser/UI references it.
+  - `<NOTIFY_API_URL>` = the **notify-api** service (e.g.
+    `https://notify-api.operai.welld.io`). Only the browser/UI references it
+    (via `VITE_NOTIFY_API_URL`); it is also the origin the shell CSP's
+    `connect-src` must allow for the SSE `EventSource` (R6 — see Phase 3).
 
 **Hostnames.** The `*.operai.welld.io` scheme is the proposed, welld.io-parented
 layout (shared registrable parent matters for the credentialed `/auth/token`
@@ -67,10 +94,10 @@ vars into those).
    **`./infra/check.sh --prereqs`**.
 2. **Secrets (direnv + 1Password).** Backend secrets never live in the repo —
    they load from 1Password via `.envrc`. Run `direnv allow auth` (and
-   `direnv allow estimai-api`) once, be signed in to `op`, and run deploy commands
-   from within that shell (e.g. `direnv exec auth ./infra/deploy.sh`) so the
-   secrets are exported. The full variable → 1Password-item map is in
-   **§ Variable reference** below.
+   `direnv allow estimai-api`, `direnv allow notify-api`) once, be signed in to
+   `op`, and run deploy commands from within that shell (e.g.
+   `direnv exec auth ./infra/deploy.sh`) so the secrets are exported. The full
+   variable → 1Password-item map is in **§ Variable reference** below.
 3. **Railway project** exists (its id is in 1Password as `$RAILWAY_PROJECT_ID`).
    Creating the project + attaching custom domains is a one-time dashboard action.
 
@@ -80,15 +107,15 @@ vars into those).
 
 Each phase feeds the next, so do them in order:
 
-1. **Railway — backends first.** Yields `<AUTH_URL>` and `<API_URL>`.
-2. **Vercel — the four frontends.** Their build-time vars point at the Phase-1 URLs.
+1. **Railway — backends first.** Yields `<AUTH_URL>`, `<API_URL>`, and `<NOTIFY_API_URL>`.
+2. **Vercel — the five frontends.** Their build-time vars point at the Phase-1 URLs.
 3. **Cross-wire origins + OAuth.** Backends trust the shell origin; register OAuth redirects.
 4. **Verify** end-to-end (`./infra/check.sh`).
 
 **Chicken-and-egg, resolved:** the shell's production origin is fixed in advance
 (`https://operai.welld.io`), so the backends' `ALLOWED_ORIGINS`/`UI_HOME_URL` can
-be set in Phase 1 without waiting for Vercel. Only the two **backend** URLs are
-discovered during deploy — which is why the frontends' vars come after.
+be set in Phase 1 without waiting for Vercel. Only the three **backend** URLs
+are discovered during deploy — which is why the frontends' vars come after.
 
 ---
 
@@ -99,29 +126,50 @@ are called out. What the script does, step by step:
 
 1. **Link** the project: `railway link "$RAILWAY_PROJECT_ID"` (env `production`).
 2. **Postgres** (manual first time): dashboard → New → Database → PostgreSQL;
-   confirm its **region is `europe-west4`** before adding data. Then create the two
-   logical DBs (the script attempts this; or `railway connect Postgres` →
-   `CREATE DATABASE auth;` `CREATE DATABASE estimai;`). They must exist before the
-   first deploy — each service's `preDeployCommand` runs `prisma migrate deploy`
-   against its own DB.
+   confirm its **region is `europe-west4`** before adding data. Then create the
+   three logical DBs (the script attempts this; or `railway connect Postgres` →
+   `CREATE DATABASE auth;` `CREATE DATABASE estimai;` `CREATE DATABASE notify;`).
+   They must exist before the first deploy — each service's `preDeployCommand`
+   runs `prisma migrate deploy` against its own DB.
 3. **Deploy `auth`** (root dir `auth`, reads `auth/railway.json`): set its vars
    (DATABASE_URL via `${{Postgres.*}}` references, `BETTER_AUTH_SECRET`,
    `GOOGLE_*`/`GITHUB_*`, `JWT_*`, `ALLOWED_ORIGINS=<shell origin>`, `UI_HOME_URL`,
+   `AUTH_AUDIENCE` (ADR-0010 — one suite-wide value; see below),
    `BOOTSTRAP_ADMIN_EMAIL`, `NODE_ENV=production`), then deploy. **Generate its
    domain** (dashboard → Settings → Networking, or a custom `auth.operai.welld.io`)
    → this is **`<AUTH_URL>`**.
 4. **Deploy `estimai-api`** (root dir `estimai-api`): set `DATABASE_URL` (dbname
    `estimai`), `ALLOWED_ORIGINS`, `AUTH_ISSUER=<AUTH_URL>`,
-   `AUTH_JWKS_URL=<AUTH_URL>/auth/jwks`, `NODE_ENV`. **Generate its domain** →
-   **`<API_URL>`**.
-5. **Cross-wire:** set `auth`'s `BETTER_AUTH_URL=<AUTH_URL>` (the JWT `iss` claim —
-   must equal `estimai-api.AUTH_ISSUER`) and redeploy `auth`. Re-run the script
-   with `AUTH_PUBLIC_URL=<AUTH_URL>` once the domain exists.
+   `AUTH_JWKS_URL=<AUTH_URL>/auth/jwks`, `AUTH_AUDIENCE` (byte-for-byte identical
+   to `auth`'s), `NODE_ENV`. **Generate its domain** → **`<API_URL>`**.
+5. **Deploy `notify-api`** (root dir `notify-api`, reads `notify-api/railway.json`
+   — note it pins **`numReplicas: 1`**, do not change this without first reading
+   plan.md Risk R2): set `DATABASE_URL` (dbname `notify`, **not** `estimai`),
+   `ALLOWED_ORIGINS=<shell origin>`, `AUTH_ISSUER=<AUTH_URL>`,
+   `AUTH_JWKS_URL=<AUTH_URL>/auth/jwks`, `AUTH_AUDIENCE` (same value as the other
+   two), `MAX_STREAM_DURATION` (seconds; default `1800`), `NODE_ENV=production`.
+   Confirm region **`europe-west4`** (data residency — notification bodies may
+   name clients/estimates and must stay EU-only, never logged). **Generate its
+   domain** → this is **`<NOTIFY_API_URL>`**.
+6. **Cross-wire:** set `auth`'s `BETTER_AUTH_URL=<AUTH_URL>` (the JWT `iss` claim —
+   must equal `estimai-api.AUTH_ISSUER` and `notify-api.AUTH_ISSUER`) and
+   redeploy `auth`. Re-run the script with `AUTH_PUBLIC_URL=<AUTH_URL>` once the
+   domain exists.
+
+**`AUTH_AUDIENCE` (ADR-0010) — one value, three services.** `notify-api` is the
+suite's first real second JWKS resource server, so a token minted for
+`estimai-api` would otherwise be structurally valid at `notify-api` (and vice
+versa). `auth` stamps the `audience` claim on every JWT it issues; both
+`estimai-api` and `notify-api` verify `audience` against their own
+`AUTH_AUDIENCE`. **All three services must carry the byte-for-byte identical
+value** (local default: `operai-suite`, see each service's `.env.example`) — a
+drifted value fails every request closed (401) in that environment, not open.
 
 **Run it:**
 ```bash
 export RAILWAY_PROJECT_ID=...        # from 1Password
 export BOOTSTRAP_ADMIN_EMAIL=you@welld.ch
+export AUTH_AUDIENCE=operai-suite    # ADR-0010 — identical across auth + estimai-api + notify-api
 export AUTH_PUBLIC_URL=https://auth.operai.welld.io   # after the auth domain exists
 direnv exec auth ./infra/deploy.sh
 ```
@@ -131,11 +179,11 @@ direnv exec auth ./infra/deploy.sh
 validated `ALLOWED_ORIGINS` allowlist), or `PORT` (Railway injects it).
 
 **Migrations + seed run automatically** — each `railway.json` `preDeployCommand`
-is `bun run db:deploy && bun run db:seed` (for `auth`; `estimai-api` runs
-`db:deploy`). `migrate deploy` is non-interactive and only applies pending
-migrations; the authz seed (idempotent) creates the system roles + app-access
-catalog and, on first sign-in of `BOOTSTRAP_ADMIN_EMAIL`, the first admin. Never
-edit an existing migration file.
+is `bun run db:deploy && bun run db:seed` (for `auth`; `estimai-api` and
+`notify-api` run `db:deploy` only). `migrate deploy` is non-interactive and only
+applies pending migrations; the authz seed (idempotent) creates the system
+roles + app-access catalog and, on first sign-in of `BOOTSTRAP_ADMIN_EMAIL`, the
+first admin. Never edit an existing migration file.
 
 ---
 
@@ -144,10 +192,11 @@ edit an existing migration file.
 **Project + domain creation is manual** (Vercel CLI can't create+assign domains
 here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 
-1. **Create four projects** (dashboard → New Project → import this repo). For each,
+1. **Create five projects** (dashboard → New Project → import this repo). For each,
    **Root Directory** = the app dir (`shell` / `estimai-ui` / `refund-ui` /
-   `admin-ui`), framework **Vite**, default build (`pnpm build` → `dist`). Each app
-   ships its own `vercel.json` (SPA rewrites + headers) picked up automatically.
+   `admin-ui` / `notify-ui`), framework **Vite**, default build (`pnpm build` →
+   `dist`). Each app ships its own `vercel.json` (SPA rewrites + headers) picked
+   up automatically.
 2. **Assign domains:**
 
    | Project | Domain | Notes |
@@ -156,6 +205,7 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
    | `estimai-ui` | `estimai.operai.welld.io` | remote-only; keeps a redirect for the old URL (below) |
    | `refund-ui` | `refund.operai.welld.io` | remote-only |
    | `admin-ui` | `admin.operai.welld.io` | remote-only (roles & permissions, specs/004) |
+   | `notify-ui` | `notify.operai.welld.io` | remote-only (notification center, specs/005) |
 
 3. **Env vars** (Settings → Environment Variables, Production **and** Preview;
    all build-time → **redeploy** after changing). See **§ Variable reference**.
@@ -167,16 +217,24 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
    With stable custom domains you need nothing more. To repoint a remote's origin
    without rebuilding the shell, publish `shell/public/runtime-config.json` (see
    `shell/public/runtime-config.example.json` — includes `admin`) — the shell
-   reads it at every page load (`shell/src/lib/runtimeRemotes.ts`).
+   reads it at every page load (`shell/src/lib/runtimeRemotes.ts`). **Note:**
+   as of this task (T20), `shell/vite.config.ts` does not yet declare a
+   `notify` remote (`NOTIFY_REMOTE_URL`) — that lands with specs/005's T13,
+   mirroring `ADMIN_REMOTE_URL` exactly. `notify-ui` is deployable and
+   reachable on its own domain today; the shell mounting it at `/notify` is a
+   separate, not-yet-merged app-code change, not an infra gap.
 
 ---
 
 ## Phase 3 — Cross-wire origins + OAuth
 
-- **`ALLOWED_ORIGINS`** on both backends must be the **shell's** origin
-  (`https://operai.welld.io`) — that's what CORS + better-auth `trustedOrigins`
-  validate. Only the shell's origin is needed: the remotes never call the backends
-  directly (they delegate to `shell/session`, which runs under the shell's origin).
+- **`ALLOWED_ORIGINS`** on all three backends (`auth`, `estimai-api`,
+  `notify-api`) must be the **shell's** origin (`https://operai.welld.io`) —
+  that's what CORS + better-auth `trustedOrigins` validate. Only the shell's
+  origin is needed: the remotes never call the backends directly (they
+  delegate to `shell/session`, which runs under the shell's origin). This
+  includes `notify-api`'s SSE stream endpoint — its
+  `Access-Control-Allow-Origin` is pinned to the shell origin too (plan.md).
   Redeploy the affected service after a change.
 - **OAuth redirect URIs** (better-auth mounts at `/auth`):
   - Google Cloud Console → your OAuth client → Authorized redirect URIs:
@@ -185,9 +243,17 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
     `<AUTH_URL>/auth/callback/github`
 - **Shell CSP** (`shell/vercel.json`, a static header) pins each remote origin +
   the auth/API origins in `script-src`/`connect-src`, and allows Google/GitHub
-  avatar hosts in `img-src`. If domains change, edit that file. *(Known gap: Vercel
-  Preview deploys get `*.vercel.app` URLs the pinned CSP won't match — assign
-  preview subdomains or relax CSP via Edge Middleware; not implemented.)*
+  avatar hosts in `img-src`. If domains change, edit that file.
+  **`connect-src` MUST include the `notify-api` origin** —
+  `EventSource` (SSE) is governed by `connect-src`, not `script-src`; this is
+  the classic miss for a streaming feature (plan.md Risk R6). Both
+  `notify.operai.welld.io` (the remote, in `script-src` **and** `connect-src`)
+  and `notify-api.operai.welld.io` (the SSE origin, in `connect-src`) are
+  already present in `shell/vercel.json`'s CSP string (specs/005 T19) —
+  `check.sh` asserts this pin so a future edit that drops it fails loudly.
+  *(Known gap: Vercel Preview deploys get `*.vercel.app` URLs the pinned CSP
+  won't match — assign preview subdomains or relax CSP via Edge Middleware;
+  not implemented.)*
 
 ---
 
@@ -196,13 +262,17 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 ```bash
 ./infra/check.sh
 ```
-It checks backend `/health`, the **`/auth/jwks`** RS256 key set (the endpoint
-`estimai-api` verifies against — **not** `/.well-known/jwks.json`, an orphaned
-env-key endpoint), each remote's `remoteEntry.js` + CORS header, and the shell CSP
-pins. Then, in a browser at `https://operai.welld.io/`: hit a guarded route →
-redirected to `<AUTH_URL>/sign-in`; sign in with Google + GitHub; the
-`BOOTSTRAP_ADMIN_EMAIL` account sees the **Admin** tool in the nav; create an
-estimate + reload (persists); sign out (session ends suite-wide, no 403).
+It checks backend `/health` for all three backends (`auth`, `estimai-api`,
+`notify-api`), the **`/auth/jwks`** RS256 key set (the endpoint both resource
+servers verify against — **not** `/.well-known/jwks.json`, an orphaned env-key
+endpoint), each remote's `remoteEntry.js` + CORS header (now five: `estimai-ui`,
+`refund-ui`, `admin-ui`, `notify-ui`), the shell CSP pins (including the
+`notify-api` SSE `connect-src` pin, R6), and warns if `notify-api`'s health
+payload doesn't look JWKS-ready. Then, in a browser at
+`https://operai.welld.io/`: hit a guarded route → redirected to
+`<AUTH_URL>/sign-in`; sign in with Google + GitHub; the `BOOTSTRAP_ADMIN_EMAIL`
+account sees the **Admin** tool in the nav; create an estimate + reload
+(persists); sign out (session ends suite-wide, no 403).
 
 ---
 
@@ -220,6 +290,7 @@ estimate + reload (persists); sign out (session ends suite-wide, no 403).
 | `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` | 1Password → `AIScream / OperAI Private Key` (RS256 PEM; `.pem` gitignored) | **yes** |
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin; no wildcard/trailing slash) | no |
 | `UI_HOME_URL` | `https://operai.welld.io/` (post-login fallback; origin ∈ ALLOWED_ORIGINS) | no |
+| `AUTH_AUDIENCE` | **NEW (ADR-0010).** One suite-wide value (e.g. `operai-suite`), byte-for-byte identical to `estimai-api.AUTH_AUDIENCE` and `notify-api.AUTH_AUDIENCE`. Stamped as the JWT `audience` claim on every token `auth` mints; closes the cross-service token-replay gap now that `notify-api` is a second JWKS resource server. | no |
 | `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
 | `NODE_ENV` | `production` | no |
 | `PORT` / `ENABLE_TEST_AUTH` / `BETTER_AUTH_TRUSTED_ORIGINS` | **leave UNSET** (see Phase 1) | — |
@@ -232,21 +303,46 @@ estimate + reload (persists); sign out (session ends suite-wide, no 403).
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` |
 | `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) |
 | `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (**not** `/.well-known/jwks.json`) |
+| `AUTH_AUDIENCE` | **NEW (ADR-0010).** Same value as `auth.AUTH_AUDIENCE` and `notify-api.AUTH_AUDIENCE` — `jwtVerify` pins `audience`; a token with a missing/wrong `aud` is rejected 401. | no |
 | `NODE_ENV` | `production` · `MAX_ESTIMATE_BYTES`/`MAX_IMPORT_REQUEST_BYTES` optional (defaults) |
+
+### `notify-api` service (Railway) — NEW (specs/005-notification-center)
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/notify` — **its own logical DB, `notify`, not `estimai`** | yes |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin) — also what the SSE stream's `Access-Control-Allow-Origin` echoes | no |
+| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (same endpoint `estimai-api` uses — **not** `/.well-known/jwks.json`) | no |
+| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) | no |
+| `AUTH_AUDIENCE` | **NEW (ADR-0010).** Byte-for-byte identical to `auth.AUTH_AUDIENCE` and `estimai-api.AUTH_AUDIENCE` — `notify-api` is the suite's first real second JWKS resource server, so a drifted value here either rejects everything (401) or (worse, if unset elsewhere) allows cross-service token replay. | no |
+| `MAX_STREAM_DURATION` | Seconds an SSE connection may stay open before the server forces a reconnect (ADR-0008). Default `1800` (~30 min). | no |
+| `NODE_ENV` | `production` | no |
+
+**`notify-api` deploy constraints (do not relax without reading plan.md Risk
+R2):** `railway.json` pins **`numReplicas: 1`** — the in-process EventBus
+fan-out and the in-process stream-ticket store are correct for exactly one
+running instance; a second replica silently splits both. Region **must** be
+`europe-west4` (data residency — notification title/body may name
+clients/estimates) and the service must never log request/response bodies
+(reuses `estimai-api`'s method+path+status-only `hono/logger` posture, enforced
+in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 
 ### Frontend build-time vars (Vercel) — `VITE_*` are client-side; `*_REMOTE_URL` are Vite-config-side
 
 | Project | Variable | Value |
 |---|---|---|
 | **shell** | `VITE_AUTH_URL` / `VITE_API_URL` | `<AUTH_URL>` / `<API_URL>` |
+| | `VITE_NOTIFY_API_URL` | **NEW.** `<NOTIFY_API_URL>` — feeds `shell/session`'s trusted-origin allowlist and `getNotifyBaseUrl()` (the raise-capability, `useUnreadCount` SSE manager); also the origin `notify-ui` itself calls (mirrors `VITE_API_URL`/`VITE_AUTH_URL`) |
 | | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` | `https://<estimai/refund/admin>.operai.welld.io/remoteEntry.js` |
 | **estimai-ui** | `VITE_API_URL` | `<API_URL>` — **required**: estimai-ui builds `${VITE_API_URL}/estimates` from its *own* value (must match the shell's) |
 | | `VITE_AUTH_URL` / `SHELL_REMOTE_URL` | standalone-only / `https://operai.welld.io/remoteEntry.js` |
-| **refund-ui**, **admin-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own) |
+| **refund-ui**, **admin-ui**, **notify-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own — `notify-ui`'s calls to `notify-api` go through the shared `shell/session` module's `VITE_NOTIFY_API_URL`, same pattern `admin-ui` uses for the auth service's admin API) |
 
-Cross-service wiring: `auth.BETTER_AUTH_URL == estimai-api.AUTH_ISSUER`;
-`estimai-api.AUTH_JWKS_URL == <AUTH_URL>/auth/jwks`; both backends'
-`ALLOWED_ORIGINS == shell origin`.
+Cross-service wiring: `auth.BETTER_AUTH_URL == estimai-api.AUTH_ISSUER ==
+notify-api.AUTH_ISSUER`; `estimai-api.AUTH_JWKS_URL == notify-api.AUTH_JWKS_URL
+== <AUTH_URL>/auth/jwks`; all three backends' `ALLOWED_ORIGINS == shell
+origin`; **`auth.AUTH_AUDIENCE == estimai-api.AUTH_AUDIENCE ==
+notify-api.AUTH_AUDIENCE`** (ADR-0010 — new as of specs/005).
 
 ---
 
@@ -262,8 +358,18 @@ Cross-service wiring: `auth.BETTER_AUTH_URL == estimai-api.AUTH_ISSUER`;
   `railway redeploy --service <svc>` (run inside the direnv shell if `K` is a
   secret). Frontend var changes need a Vercel **redeploy** (build-time).
 - **EU residency (operational):** request/response bodies are never logged
-  (hono/logger emits method+path+status only; Prisma `query` logging off in prod).
-  Don't add a CDN/log-aggregator/backup target that routes EU data outside the EU.
+  (hono/logger emits method+path+status only; Prisma `query` logging off in prod)
+  across `auth`, `estimai-api`, **and `notify-api`** (the last handles
+  notification title/body, which may name clients/estimates — the same
+  no-body-logging rule applies). Don't add a CDN/log-aggregator/backup target
+  that routes EU data outside the EU.
+- **`notify-api` single-replica constraint (specs/005 Risk R2):** never scale
+  `notify-api` past `numReplicas: 1` (Railway dashboard autoscale or a
+  `railway.json` edit) without first moving its EventBus fan-out and
+  stream-ticket store onto Postgres `LISTEN`/`NOTIFY` + a shared ticket table
+  — both are designed behind an interface for that migration, but the current
+  in-process implementation silently breaks (missed events, ticket
+  mint↔connect mismatches) across two or more instances.
 - **Secrets** are only ever referenced from the direnv/1Password shell, never
   pasted literally or committed; `.pem` files are gitignored; the pre-commit
   gitleaks hook guards commits.
