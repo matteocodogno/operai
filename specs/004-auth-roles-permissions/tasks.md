@@ -42,7 +42,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `auth/src/authz/audit.ts` + `GET /admin/audit`
   - transactional helper: write `audit_log` row (actor/target/summary/diff) **and** bump affected `permissionEpoch` in one tx; paginated read-only list; no update/delete route.
   - done when: a mutation produces an immutable audit row; `GET /admin/audit` paginates; no mutate route exists.
-- [ ] T8: Admin roles API — refs: AC-1.1, AC-2.1–2.4, AC-3.2 — deps: T4, T5, T7
+- [x] T8: Admin roles API — refs: AC-1.1, AC-2.1–2.4, AC-3.2 — deps: T4, T5, T7
   - touch: `auth/src/admin/admin.routes.ts` (roles)
   - `GET/POST /admin/roles`, `GET/PATCH/DELETE /admin/roles/:id` (delete `isSystem` → 422), `PUT /admin/roles/:id/rules` (catalog-validated → 422; conditions ∈ `supportedConditions`).
   - done when: integration tests incl off-catalog 422, system-role delete 422, custom-role create+rules; each mutation audits + bumps epoch.
@@ -82,9 +82,9 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
   - touch: `admin-ui/src/pages/RoleEditor.tsx` + composer
   - catalog-driven Resource→Action cascade (only catalog options), dynamic Conditions fieldset (ownership radio + attribute checkboxes per `supportedConditions`) with `aria-live` announcements; save via `PUT /admin/roles/:id/rules`; 422 stale-catalog banner + reload.
   - done when: component/e2e — build a conditioned rule; off-catalog impossible via UI; a11y aria-live on change.
-- [ ] T19: Departments list + detail (B1/B2) — refs: AC-1.2 — deps: T14, T15, T16
+- [x] T19: Departments list + detail (B1/B2) — refs: AC-1.2 — deps: T14, T15, T16
   - done when: create dept, confer roles, add/remove members (user-search picker); guardrail/errors surfaced.
-- [ ] T20: Users list + detail (C1/C2) — refs: AC-1.3, AC-1.4, AC-2.3, AC-6.4 — deps: T14, T15, T16
+- [x] T20: Users list + detail (C1/C2) — refs: AC-1.3, AC-1.4, AC-2.3, AC-6.4 — deps: T14, T15, T16
   - done when: search+pagination; edit entity/jobTitle; assign roles/departments; last-admin 422 → GuardrailDialog D2 preserving the edit.
 - [x] T21: Audit log screen (D1) — refs: AC-5.2, AC-5.3 — deps: T14, T15, T16
   - done when: paginated reverse-chron table + row-expand diff; no mutate affordance.

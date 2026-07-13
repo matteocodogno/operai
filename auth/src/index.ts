@@ -10,6 +10,7 @@ import { auditRouter } from "./authz/audit.routes";
 import { authzRouter } from "./authz/authz.routes";
 import { catalogRouter } from "./authz/catalog.routes";
 import { departmentsRouter } from "./admin/departments.routes";
+import { rolesRouter } from "./admin/roles.routes";
 import { usersRouter } from "./admin/users.routes";
 import { healthRouter } from "./health/health.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
@@ -42,6 +43,7 @@ app.route("/", auditRouter);
 app.route("/", authzRouter);
 app.route("/", catalogRouter);
 app.route("/", departmentsRouter);
+app.route("/", rolesRouter);
 app.route("/", usersRouter);
 
 // ── Test-auth router (structural defence-in-depth) ──────────────────────────
