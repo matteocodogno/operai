@@ -16,30 +16,30 @@ owned by a single track to avoid collisions.
 
 ---
 
-- [ ] T1: notify-api `EmailDelivery` model + migration — refs: US-2 (enabler), AC-2.1 — deps: none
+- [x] T1: notify-api `EmailDelivery` model + migration — refs: US-2 (enabler), AC-2.1 — deps: none
   - touch: `notify-api/prisma/schema.prisma`, `notify-api/prisma/migrations/*`
   - `EmailDelivery` per plan §Data model (to, template, status, providerId?, error?, createdAt, `@@index([to, createdAt desc])`)
   - done when: `bun run db:migrate` applies; Prisma client generates
 
-- [ ] T2: notify-api channel abstraction + Resend client — refs: US-2, Constraint (notify-api 2nd channel) — deps: T1
+- [x] T2: notify-api channel abstraction + Resend client — refs: US-2, Constraint (notify-api 2nd channel) — deps: T1
   - touch: `notify-api/src/channels/` (a small interface: `inApp` = today's behaviour refactored behind it, `recipientId=sub`, persist+SSE; `email` = new, raw-address, render→Resend→`EmailDelivery`), `notify-api/src/lib/resend.ts`, env (`RESEND_API_KEY`, `RESEND_FROM`, `EMAIL_ENABLED`)
   - `EMAIL_ENABLED` off in test/local (no key) → email channel stubs the send, records `EmailDelivery` `sent` with a synthetic id. The existing `POST /notifications` keeps using `inApp` UNCHANGED.
   - done when: `bun run typecheck` clean, `bun test` green (unit: email channel records delivery; inApp unchanged)
 
-- [ ] T3: notify-api `POST /system/emails` internal endpoint + bilingual templates — refs: AC-2.1, Security R2 — deps: T2
+- [x] T3: notify-api `POST /system/emails` internal endpoint + bilingual templates — refs: AC-2.1, Security R2 — deps: T2
   - touch: `notify-api/src/system/emails.routes.ts` (+ register in `src/index.ts`), `internalTokenMiddleware` (validates `X-Internal-Token` == `NOTIFY_INTERNAL_TOKEN`; NOT jwtMiddleware; user-JWT routes never accept it and `/system/*` never accepts a user JWT), bilingual (IT+EN in one email) `invitation`/`invitation_resend` templates with escaped `to`/`inviteUrl`/`inviterName`/`expiresAt`
   - done when: integration tests — valid token → send (stub/real) 200 `{deliveryId,status}`; missing/wrong token → 401; a user JWT is rejected on `/system/*`; bad `to`/`template` → 400; Resend failure surfaced as `{status:"failed"}` (never a 5xx that fails the caller)
 
-- [ ] T4: auth `Invitation` model + `User` soft-delete columns + migration — refs: US-1, US-5 — deps: none
+- [x] T4: auth `Invitation` model + `User` soft-delete columns + migration — refs: US-1, US-5 — deps: none
   - touch: `auth/prisma/schema.prisma`, `auth/prisma/migrations/*`
   - `Invitation` (email, status pending|accepted|revoked, roleIds[]/departmentIds[], tokenHash, expiresAt, invitedBy/acceptedBy FKs SetNull, lastEmailStatus/Error, timestamps) + the **partial-unique index** appended as raw SQL to the new migration: `CREATE UNIQUE INDEX invitation_pending_email_key ON invitation (email) WHERE status = 'pending';`; `User.deletedAt?`/`deletedByUserId?` + `@@index([deletedAt])`. `deletedAt` nullable/no default (no backfill, R7). Never edit existing migrations.
   - done when: `bun run db:migrate` applies both the model + the partial-unique index; client generates
 
-- [ ] T5: auth invitation domain — refs: US-1, US-4 — deps: T4
+- [x] T5: auth invitation domain — refs: US-1, US-4 — deps: T4
   - touch: `auth/src/invitations/` (`invitations.repo.ts`, `invitations.schemas.ts`, invite-link token helper [≥32-byte CSPRNG, sha256 `tokenHash`, rotate], effective-status derivation `status=='pending' && expiresAt<=now ? 'expired' : status`, reconcile-on-write helper that flips past-expiry `pending` rows to a terminal state before insert)
   - done when: `bun test` — token hash/rotate, effective-status derivation (incl. expired), reconcile-on-write helper; `bun run typecheck` clean
 
-- [ ] T6: auth invitation admin API + notify email trigger — refs: US-1 (1.1–1.14), US-3 (3.1–3.6), US-4 — deps: T5, T3
+- [x] T6: auth invitation admin API + notify email trigger — refs: US-1 (1.1–1.14), US-3 (3.1–3.6), US-4 — deps: T5, T3
   - touch: `auth/src/invitations/invitations.routes.ts` (+ register in `src/index.ts` under the requireAdmin chain), `auth/src/lib/notify.ts` (calls notify-api `POST /system/emails` with `X-Internal-Token`, `NOTIFY_INTERNAL_URL`/`NOTIFY_INTERNAL_TOKEN` env)
   - `POST /admin/invitations` (validate role/dept ids → 422; 409 active-user / live-pending; reconcile-on-write; create pending+token+72h; audit; call notify; store `lastEmailStatus`; 201 with `emailDelivery`), `GET /admin/invitations?page&pageSize&status?&q?` (paginated, effective status, q on email), `POST .../{id}/resend` (rotate token, +72h, re-send; 422 if accepted/revoked), `POST .../{id}/revoke` (terminal; 422 if accepted/revoked); each writes `audit_log`
   - done when: integration tests cover AC-1.1..1.14, 3.1..3.6, 4.1..4.4 (see plan test table) incl. non-admin→403 and the email-failure-still-201 path (notify mocked)
@@ -56,7 +56,7 @@ owned by a single track to avoid collisions.
   - `session.create.before`: `deletedAt!=null` → look for live-pending invite → found = re-activate (clear deletedAt, **replace** roles/depts with invite's set, perm_epoch bump, accept, audit, allow) / not found = **deny** the session (AC-5.2, no resurrection, no new user row)
   - done when: integration tests (hook+DB) cover AC-2.3, 2.4, 5.2, 5.10; the R1 finding documented in the task/commit
 
-- [ ] T9: auth hosted invite landing page — refs: US-2 (2.2, 2.5), AC-1.9 state — deps: T5
+- [x] T9: auth hosted invite landing page — refs: US-2 (2.2, 2.5), AC-1.9 state — deps: T5
   - touch: `auth/src/invite/` (`GET /invite?id&token` Hono JSX bilingual, ADR-0002 precedent; `GET /invite/state?id&token` JSON `{state,email?}`), register in `src/index.ts`
   - hashes token, looks up by id, renders effective state: pending+match → "continue with Google/GitHub" wired to existing `POST /auth/sign-in/social` w/ callbackURL; expired/revoked/accepted/token-mismatch → safe "no longer valid"; email only disclosed on a valid pending token; no enumeration; escape `email`/`inviterName`
   - done when: integration tests — each state renders correctly; old-token-post-resend → invalid; no email leak on invalid; `bun run typecheck` clean
