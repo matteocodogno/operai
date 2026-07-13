@@ -216,6 +216,35 @@ describe("assignBaselineRolesToNewUser (T11, AC-6.1/6.3)", () => {
     expect(await userHasRole(user.id, ADMIN_ROLE_NAME)).toBe(false);
   });
 
+  test(
+    "does NOT grant admin when emailVerified is undefined/unset (owasp/QE fix — " +
+      "the bootstrap check must require emailVerified === true explicitly; " +
+      "treating an absent value as verified would let an unverified-email " +
+      "signup path self-claim the bootstrap identity)",
+    async () => {
+      const email = `t11-emailverified-unset-${RUN_ID}@operai.test`;
+      const user = await db.user.create({
+        data: { email, name: "T11 fixture emailVerified-unset", emailVerified: true },
+      });
+      createdUserIds.push(user.id);
+      setBootstrapEmail(email);
+
+      // Simulate a caller whose `NewUserForBootstrap.emailVerified` field is
+      // entirely absent (not merely `false`) — e.g. a hypothetical provider
+      // that doesn't report the field at all. The field is optional on the
+      // interface, so this object is a valid `NewUserForBootstrap` without it.
+      const userWithoutEmailVerified: { id: string; email: string } = {
+        id: user.id,
+        email: user.email,
+      };
+
+      await assignBaselineRolesToNewUser(userWithoutEmailVerified);
+
+      expect(await userHasRole(user.id, EMPLOYEE_ROLE_NAME)).toBe(true);
+      expect(await userHasRole(user.id, ADMIN_ROLE_NAME)).toBe(false);
+    },
+  );
+
   test("is idempotent — calling it twice for the same user does not error or duplicate role rows", async () => {
     const user = await createUser("idempotent");
     setBootstrapEmail(user.email);

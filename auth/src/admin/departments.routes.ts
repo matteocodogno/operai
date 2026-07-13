@@ -56,6 +56,7 @@ import {
 import { db } from "../lib/db";
 import { Prisma } from "../lib/generated/prisma/client";
 import { withAudit } from "../authz/audit";
+import { ADMIN_ROLE_NAME, findAdminRoleId } from "./lastAdminGuard";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -384,7 +385,10 @@ const setDepartmentRolesRoute = createRoute({
     },
     422: {
       content: { "application/json": { schema: ProblemJsonSchema } },
-      description: "One or more roleIds do not exist",
+      description:
+        "One or more roleIds do not exist, or roleIds includes the " +
+        "`admin` role (which must stay direct-only, never " +
+        "department-conferred)",
     },
   },
 });
@@ -636,6 +640,24 @@ departmentsRouter.openapi(setDepartmentRolesRoute, async (c) => {
       const { body, status } = unprocessable(
         c,
         `Unknown role id(s): ${missing.join(", ")}`,
+      );
+      return c.json(body, status);
+    }
+
+    // The `admin` role must stay DIRECT-only (`user_role`), never
+    // department-conferred. `requireAdmin` (auth.middleware.ts) counts only
+    // DIRECT admin membership when gating `/admin/*`, but
+    // `lastAdminGuard.getEffectiveAdminUserIds()` counts department-conferred
+    // admins as effective when deciding whether a change would remove the
+    // "last admin" — so conferring `admin` here would let the guard believe
+    // a department's members are covering admin access while those members
+    // can never actually pass `requireAdmin` and authenticate `/admin/*`.
+    // Rejecting the confer keeps the two admin-counting paths consistent.
+    const adminRoleId = await findAdminRoleId(db);
+    if (adminRoleId !== null && uniqueRoleIds.includes(adminRoleId)) {
+      const { body, status } = unprocessable(
+        c,
+        `The "${ADMIN_ROLE_NAME}" role cannot be conferred via a department`,
       );
       return c.json(body, status);
     }

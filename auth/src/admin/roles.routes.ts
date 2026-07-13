@@ -17,9 +17,12 @@
  *   GET    /admin/roles                list roles (rule count + isSystem)
  *   POST   /admin/roles                create a role — `409` duplicate name
  *   GET    /admin/roles/:id            a role + its rules
- *   PATCH  /admin/roles/:id            rename/redescribe — allowed for
- *                                      system roles too; only DELETE is
- *                                      blocked for them (AC-1.1)
+ *   PATCH  /admin/roles/:id            rename/redescribe — redescribing is
+ *                                      allowed for system roles too;
+ *                                      renaming a system role is blocked
+ *                                      (`422`) because `requireAdmin` gates
+ *                                      `/admin/*` on the literal system role
+ *                                      name (AC-1.1)
  *   DELETE /admin/roles/:id            `isSystem` role → `422` (AC-1.1)
  *   PUT    /admin/roles/:id/rules      full-replace the role's rule set —
  *                                      body `{ rules }` (named wrapper, per
@@ -522,7 +525,7 @@ const patchRoleRoute = createRoute({
   method: "patch",
   path: "/admin/roles/{id}",
   tags: ["Admin"],
-  summary: "Rename or redescribe a role (allowed for system roles too)",
+  summary: "Rename or redescribe a role (renaming a system role is blocked)",
   request: {
     params: ParamsSchema,
     body: {
@@ -550,6 +553,10 @@ const patchRoleRoute = createRoute({
       content: { "application/json": { schema: ProblemJsonSchema } },
       description: "A role with this name already exists",
     },
+    422: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "This role is a system role and its name cannot be changed",
+    },
   },
 });
 
@@ -564,9 +571,24 @@ rolesRouter.openapi(patchRoleRoute, async (c) => {
     return c.json(problem, status);
   }
 
+  // A system role's NAME is load-bearing: `requireAdmin` (and this route's
+  // own `ADMIN_ROLE_NAME`-keyed lookups elsewhere) gate `/admin/*` on a
+  // literal role-name match. Renaming a system role (most acutely `admin`)
+  // would silently lock every admin out of `/admin/*` with no recovery path
+  // short of a manual DB fix — so name changes are rejected for system
+  // roles; description edits remain allowed (see module doc comment +
+  // deleteRoleRoute for the parallel DELETE-blocked-for-system-roles rule).
+  if (existing.isSystem && body.name !== undefined && body.name !== existing.name) {
+    const { body: problem, status } = unprocessable(
+      c,
+      `System role "${existing.name}" cannot be renamed`,
+    );
+    return c.json(problem, status);
+  }
+
   try {
-    // Note: renaming/redescribing is allowed for system roles too — only
-    // DELETE is blocked for them (see module doc comment + deleteRoleRoute).
+    // Note: redescribing is allowed for system roles too — only DELETE and
+    // (as of the guard above) renaming are blocked for them.
     const updated = await withAudit({
       affectedUserIds: [],
       mutate: (tx) =>

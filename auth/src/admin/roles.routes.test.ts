@@ -291,14 +291,14 @@ describe("Admin roles API (T8)", () => {
     await db.permissionRule.delete({ where: { id: rule.id } });
   });
 
-  test("PATCH renames a role and audits the change (allowed for system roles too)", async () => {
+  test("PATCH renames a NON-system role and audits the change", async () => {
     asAdmin();
     const { rolesRouter } = await import("./roles.routes");
 
-    const systemRole = await makeRole("patch-system", { isSystem: true });
+    const role = await makeRole("patch-nonsystem");
 
     const newName = `t8-role-patch-renamed-${RUN_ID}`;
-    const res = await rolesRouter.request(`/admin/roles/${systemRole.id}`, {
+    const res = await rolesRouter.request(`/admin/roles/${role.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newName, description: "Renamed" }),
@@ -308,13 +308,91 @@ describe("Admin roles API (T8)", () => {
     const body = (await res.json()) as { name: string; description: string | null; isSystem: boolean };
     expect(body.name).toBe(newName);
     expect(body.description).toBe("Renamed");
-    expect(body.isSystem).toBe(true);
+    expect(body.isSystem).toBe(false);
 
     const auditRow = await db.auditLog.findFirst({
-      where: { action: "role.update", targetId: systemRole.id },
+      where: { action: "role.update", targetId: role.id },
     });
     expect(auditRow).not.toBeNull();
   });
+
+  test(
+    "PATCH redescribes a system role (allowed) but rejects renaming it with 422 " +
+      "(owasp/QE fix — renaming a system role, e.g. `admin`, would break " +
+      "requireAdmin's literal-name gate and lock every admin out)",
+    async () => {
+      asAdmin();
+      const { rolesRouter } = await import("./roles.routes");
+
+      const systemRole = await makeRole("patch-system-redescribe", { isSystem: true });
+
+      // Description-only edit is still allowed for system roles.
+      const redescribeRes = await rolesRouter.request(`/admin/roles/${systemRole.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: "Redescribed" }),
+      });
+      expect(redescribeRes.status).toBe(200);
+      const redescribed = (await redescribeRes.json()) as {
+        name: string;
+        description: string | null;
+        isSystem: boolean;
+      };
+      expect(redescribed.name).toBe(systemRole.name);
+      expect(redescribed.description).toBe("Redescribed");
+      expect(redescribed.isSystem).toBe(true);
+
+      // Renaming (even alongside a description change) is rejected.
+      const renameRes = await rolesRouter.request(`/admin/roles/${systemRole.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `t8-role-patch-system-renamed-${RUN_ID}`,
+          description: "Attempted rename",
+        }),
+      });
+      expect(renameRes.status).toBe(422);
+      const renameBody = (await renameRes.json()) as { status: number; detail: string };
+      expect(renameBody.status).toBe(422);
+      expect(renameBody.detail).toContain(systemRole.name);
+
+      // Unchanged in the DB.
+      const stillThere = await db.role.findUnique({ where: { id: systemRole.id } });
+      expect(stillThere?.name).toBe(systemRole.name);
+      expect(stillThere?.description).toBe("Redescribed");
+
+      // Sending the SAME name back (a no-op rename) is allowed, not rejected.
+      const sameNameRes = await rolesRouter.request(`/admin/roles/${systemRole.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: systemRole.name, description: "Still same name" }),
+      });
+      expect(sameNameRes.status).toBe(200);
+    },
+  );
+
+  test(
+    "requireAdmin still authenticates /admin/* after a system role's rename attempt " +
+      "was rejected (no lockout — the gate uses the shared ADMIN_ROLE_NAME constant)",
+    async () => {
+      asAdmin();
+      const { rolesRouter } = await import("./roles.routes");
+
+      const adminRole = await db.role.findUniqueOrThrow({ where: { name: "admin" } });
+
+      const blockedRename = await rolesRouter.request(`/admin/roles/${adminRole.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: `admin-renamed-${RUN_ID}` }),
+      });
+      expect(blockedRename.status).toBe(422);
+
+      // The admin actor's session still passes requireAdmin — the "admin"
+      // role name was never actually changed.
+      const stillAdmin = await rolesRouter.request("/admin/roles");
+      expect(stillAdmin.status).toBe(200);
+    },
+  );
 
   test("DELETE of a system role -> 422 (AC-1.1)", async () => {
     asAdmin();

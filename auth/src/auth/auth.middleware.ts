@@ -2,6 +2,7 @@ import { createMiddleware } from "hono/factory";
 import type { User, Session } from "better-auth";
 import { auth } from "./auth.config";
 import { db } from "../lib/db";
+import { ADMIN_ROLE_NAME } from "../admin/lastAdminGuard";
 
 type AuthVariables = {
   user: User | null;
@@ -65,7 +66,7 @@ export const requireAuth = createMiddleware<{
  * `c.get("user")` already being populated and non-null).
  *
  * Checks role membership with a direct, minimal query (`UserRole` joined to
- * `Role` where `name: "admin"`) rather than routing through the full
+ * `Role` where `name: ADMIN_ROLE_NAME`) rather than routing through the full
  * effective-permissions resolver (`authz/resolver.ts`) — the resolver unions
  * direct AND department-derived rules and de-dups by (resource, action),
  * which is the right tool for "what can this user do" but unnecessary work
@@ -85,7 +86,7 @@ export const requireAdmin = createMiddleware<{
   // than assuming admin or throwing — never treat "unknown" as "allowed".
   const membership = user
     ? await db.userRole.findFirst({
-        where: { userId: user.id, role: { name: "admin" } },
+        where: { userId: user.id, role: { name: ADMIN_ROLE_NAME } },
         select: { userId: true },
       })
     : null;

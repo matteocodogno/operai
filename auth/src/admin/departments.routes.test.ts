@@ -309,6 +309,45 @@ describe("Admin departments API (T9)", () => {
     expect(auditRow).not.toBeNull();
   });
 
+  test(
+    "PUT /:id/roles 422s when roleIds includes the `admin` role (owasp/QE fix — " +
+      "admin must stay direct-only, never department-conferred, to stay " +
+      "consistent with requireAdmin's direct-only gate and lastAdminGuard's " +
+      "effective-admin accounting)",
+    async () => {
+      asAdmin();
+      const { departmentsRouter } = await import("./departments.routes");
+
+      const department = await db.department.create({
+        data: { name: `t9-dept-adminrole-${RUN_ID}` },
+      });
+      createdDepartmentIds.add(department.id);
+
+      const adminRole = await db.role.findUniqueOrThrow({ where: { name: "admin" } });
+
+      const res = await departmentsRouter.request(
+        `/admin/departments/${department.id}/roles`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roleIds: [adminRole.id] }),
+        },
+      );
+
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { status: number; detail: string };
+      expect(body.status).toBe(422);
+      expect(body.detail).toContain("admin");
+
+      // Nothing was conferred.
+      const detail = await departmentsRouter.request(
+        `/admin/departments/${department.id}`,
+      );
+      const detailBody = (await detail.json()) as { roleIds: string[] };
+      expect(detailBody.roleIds).not.toContain(adminRole.id);
+    },
+  );
+
   test("PUT /:id/roles 422s on an unknown roleId", async () => {
     asAdmin();
     const { departmentsRouter } = await import("./departments.routes");

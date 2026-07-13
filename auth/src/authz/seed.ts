@@ -168,7 +168,7 @@ export async function assignBaselineRolesToNewUser(
   const bootstrapEmail = env.BOOTSTRAP_ADMIN_EMAIL;
   const isBootstrapAdmin =
     bootstrapEmail !== undefined &&
-    user.emailVerified !== false &&
+    user.emailVerified === true &&
     user.email.toLowerCase() === bootstrapEmail.toLowerCase();
 
   if (isBootstrapAdmin) {
