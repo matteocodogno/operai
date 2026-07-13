@@ -41,13 +41,15 @@ const unauthorized = (detail: string, path: string) =>
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 /**
- * JWT resource-server middleware (ADR-0005).
+ * JWT resource-server middleware (ADR-0005, audience enforcement per ADR-0010).
  *
  * 1. Reads Authorization: Bearer <jwt>. Missing / malformed → 401 Problem JSON.
  * 2. Verifies the RS256 signature against the auth service JWKS (cached remote fetch).
  *    Algorithm is pinned to RS256 — alg:none / HS256 confusion rejected.
- *    issuer is pinned to AUTH_ISSUER.
- * 3. Any verification failure (expired, bad signature, wrong issuer/kid/alg) → 401.
+ *    issuer is pinned to AUTH_ISSUER; audience is pinned to AUTH_AUDIENCE (ADR-0010) —
+ *    a token missing the `aud` claim, or carrying a value other than AUTH_AUDIENCE, fails
+ *    verification here.
+ * 3. Any verification failure (expired, bad signature, wrong issuer/kid/alg/audience) → 401.
  * 4. On success: sets c.set('userId', sub) and c.set('email', email).
  *
  * NO database access occurs for unauthenticated requests (AC-4.2).
@@ -80,6 +82,7 @@ export const jwtMiddleware = createMiddleware<{
   try {
     const result = await jwtVerify(token, JWKS, {
       issuer: env.AUTH_ISSUER,
+      audience: env.AUTH_AUDIENCE,
       algorithms: ["RS256"],
     });
     payload = result.payload;

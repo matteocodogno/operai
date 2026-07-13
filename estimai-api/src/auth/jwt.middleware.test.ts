@@ -34,6 +34,7 @@ let localJWKS: (
 
 const TEST_KID = "operai-auth-rs256-v1";
 const TEST_ISSUER = "http://localhost:3001";
+const TEST_AUDIENCE = "operai-suite";
 
 // ─── Module mock: redirect createRemoteJWKSet to our local key set ────────────
 //
@@ -68,6 +69,7 @@ process.env["DATABASE_URL"] = "postgresql://test:test@localhost:5435/test";
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/.well-known/jwks.json";
 process.env["AUTH_ISSUER"] = TEST_ISSUER;
+process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
 process.env["NODE_ENV"] = "test";
 
 // Dynamic import ensures the mock.module() registration and process.env
@@ -108,6 +110,10 @@ const signValid = async (overrides?: {
   email?: string;
   kid?: string;
   privateKeyOverride?: CryptoKey;
+  // ADR-0010: the `aud` claim. `null` omits the claim entirely (pre-ADR-0010
+  // token shape); any string sets a specific (possibly wrong) audience value.
+  // Defaults to the correct TEST_AUDIENCE so existing callers keep passing.
+  audience?: string | null;
 }) => {
   const {
     issuer = TEST_ISSUER,
@@ -116,14 +122,20 @@ const signValid = async (overrides?: {
     email = "alice@example.com",
     kid = TEST_KID,
     privateKeyOverride,
+    audience = TEST_AUDIENCE,
   } = overrides ?? {};
 
-  return new SignJWT({ email })
+  const jwt = new SignJWT({ email })
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(issuer)
     .setSubject(sub)
-    .setExpirationTime(expiresIn)
-    .sign(privateKeyOverride ?? privateKey);
+    .setExpirationTime(expiresIn);
+
+  if (audience !== null) {
+    jwt.setAudience(audience);
+  }
+
+  return jwt.sign(privateKeyOverride ?? privateKey);
 };
 
 // ─── Test setup ───────────────────────────────────────────────────────────────
@@ -250,6 +262,42 @@ describe("jwtMiddleware", () => {
 
     expect(res.status).toBe(401);
     // SECURITY: wrong issuer must be rejected — handler must NOT have run.
+    expect(handlerRan.value).toBe(false);
+  });
+
+  // ─── (d2) Missing audience claim → 401 (ADR-0010) ────────────────────────
+
+  it("(d2) token with no 'aud' claim at all — 401, handler does not run (ADR-0010)", async () => {
+    const handlerRan = { value: false };
+    const app = buildApp(handlerRan);
+
+    // audience: null omits setAudience() entirely — simulates a pre-ADR-0010
+    // token that predates the claim.
+    const jwt = await signValid({ audience: null });
+    const res = await app.request("/protected", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+
+    expect(res.status).toBe(401);
+    // SECURITY: a token missing 'aud' must be rejected — handler must NOT run.
+    expect(handlerRan.value).toBe(false);
+  });
+
+  // ─── (d3) Wrong audience claim → 401 (ADR-0010) ──────────────────────────
+
+  it("(d3) token with a different (wrong) 'aud' value — 401, handler does not run (ADR-0010)", async () => {
+    const handlerRan = { value: false };
+    const app = buildApp(handlerRan);
+
+    const jwt = await signValid({ audience: "some-other-service" });
+    const res = await app.request("/protected", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+
+    expect(res.status).toBe(401);
+    // SECURITY: a wrong audience must be rejected — handler must NOT run.
+    // This is the concrete cross-service-replay regression guard: a token
+    // minted for a different resource server must not be accepted here.
     expect(handlerRan.value).toBe(false);
   });
 
