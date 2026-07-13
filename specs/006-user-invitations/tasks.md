@@ -73,7 +73,7 @@ owned by a single track to avoid collisions.
   - touch: `admin-ui/src/pages/InvitationsPage.tsx` (NEW), `InviteUserModal` (NEW — email + reuse the role/department pickers), `InvitationStatusBadge` (NEW, pending/accepted/expired/revoked, not color-only), per-row Resend/Revoke (Revoke terminal → confirm), email-send-failed surfaced; list w/ status filter + `?q=`
   - done when: lint+build+test green; unit tests: invite modal submit + 409/422 inline errors, status badges, resend/revoke actions + confirm, email-failed indicator
 
-- [ ] T13: env wiring + infra docs — refs: R2, R5, R7 — deps: T3, T6, T7
+- [x] T13: env wiring + infra docs — refs: R2, R5, R7 — deps: T3, T6, T7
   - touch: `auth/.env.example` (`NOTIFY_INTERNAL_URL`, `NOTIFY_INTERNAL_TOKEN`, reuse `BETTER_AUTH_URL`/`UI_HOME_URL`), `notify-api/.env.example` (`NOTIFY_INTERNAL_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM`, `EMAIL_ENABLED`), `infra/README.md` + `infra/deploy.sh`/`check.sh` (new vars + Resend domain/SPF-DKIM note + Railway private-networking for `/system/emails`), `compose.yaml`/`mise.toml` if a local default is needed
   - done when: `.env.example`s document every new var; infra docs updated; `bash -n` clean on scripts
 
