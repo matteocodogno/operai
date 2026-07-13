@@ -1,365 +1,269 @@
-# Operai — Railway Deployment Runbook
+# Operai — Deployment Guide
 
-Step-by-step manual guide to deploy the two backend services — **`auth`** and
-**`estimai-api`** — plus a shared Postgres, to Railway.
+The single, step-by-step guide to installing the Operai suite: **frontends on
+Vercel**, **backends + Postgres on Railway**. It replaces the previous
+per-platform runbooks and variable reference (all folded in below).
 
-The frontends (`shell`, `estimai-ui`, `refund-ui`) deploy on Vercel — they are
-not covered here except for the one step that points them at these backends
-(Step 7). See **`infra/vercel-deploy-runbook.md`** for the full frontend
-deploy procedure (specs/003-suite-shell, T17): as of that feature, the
-`shell` app — not `estimai-ui` — is the suite's single entry point, and the
-production domain **https://operai.welld.io/** is reassigned from the
-`estimai-ui` Vercel project to the `shell` Vercel project. Step 7 below still
-governs `ALLOWED_ORIGINS`/`UI_HOME_URL`, but now points at the shell's
-origin, not estimai-ui's own.
+Two helper scripts live beside this doc:
 
-**Data residency:** all services and the database are pinned to `europe-west4`
-(Railway EU). Hard requirement for regulated-sector clients — do not change the
-region without an ADR and client sign-off.
-
----
-
-## The infra folder at a glance
-
-| File | What it is |
+| Script | What it does |
 |---|---|
-| `README.md` (this file) | **Railway** runbook — the two backends (`auth`, `estimai-api`) + shared Postgres |
-| `vercel-deploy-runbook.md` | **Vercel** runbook — the three frontends (`shell` host + `estimai-ui`/`refund-ui` remotes, ADR-0006) |
-| `variables.md` | Single environment-variable reference for **both** platforms (Railway services + Vercel projects) |
-| `bootstrap.sh` | Scripted Railway variable-set + deploy (convenience wrapper for the manual steps below) |
+| **`./infra/deploy.sh`** | Automates the automatable: Railway backend vars + deploys (+ optional `--vercel` env sync). |
+| **`./infra/check.sh`** | Verifies an install — local tooling and/or deployed health (backends, JWKS, remotes, CSP). |
 
-The deployable config lives **with each app**, not here: `auth/railway.json`,
-`estimai-api/railway.json` (Docker build, EU region, `/health`, `preDeployCommand`);
-`shell/vercel.json`, `estimai-ui/vercel.json`, `refund-ui/vercel.json` (SPA rewrites,
-CSP + security headers, `remoteEntry.js`/`assets` caching, the EstimAI→shell redirect).
-
----
-
-## Deploying the whole suite — order of operations
-
-The suite spans two platforms; deploy in this order, because each stage's outputs feed
-the next:
-
-1. **Railway — backends first** (this runbook, Steps 1–6): Postgres + `auth` + `estimai-api`.
-   This is what yields the two backend URLs, `<AUTH_URL>` and `<API_URL>` (Railway generates
-   them, or you attach custom domains).
-2. **Vercel — the three frontends** (`vercel-deploy-runbook.md`, Steps 1–5): `shell` (host —
-   the human-facing entry point) + `estimai-ui` + `refund-ui` (remotes). Their build-time
-   `VITE_AUTH_URL`/`VITE_API_URL` are set to the Step-1 URLs (Vercel Step 3).
-3. **Cross-wire the origins** (this runbook Step 7 + Vercel Step 6): the backends'
-   `ALLOWED_ORIGINS`/`UI_HOME_URL` point at the **shell's** origin, and the OAuth redirect
-   URIs are registered on Google/GitHub (Step 6). Redeploy the affected services.
-4. **Verify end-to-end** (Step 8 here / Vercel Step 9).
-
-**Chicken-and-egg, resolved:** the shell's production origin is fixed in advance
-(`https://operai.welld.io`), so you can set the backends' `ALLOWED_ORIGINS`/`UI_HOME_URL`
-in Step 1 without waiting for the Vercel project to exist. Only the two **backend** URLs
-are discovered during deploy — which is why the frontends' build-time vars (Step 2) come
-after the backends are up. Full variable map for both platforms: `variables.md`.
+> **Data residency (hard requirement).** All **backend** services and Postgres
+> run in **`europe-west4`** (Railway EU). Some wellD clients are regulated
+> (energy/finance/health). Don't change the region without an ADR + client
+> sign-off. Frontends are static client bundles; they store/transmit no estimate
+> data except the browser's authenticated calls to the EU backends.
 
 ---
 
 ## Topology
 
 ```
-Vercel                         Railway project (europe-west4)
-┌──────────────────┐           ┌────────────────────────────────────────┐
-│ estimai-ui       │  HTTPS    │  auth service ──┐                       │
-│ operai.welld.io  │ ────────► │                 ├─► Postgres (shared)   │
-│                  │           │  estimai-api ───┤     ├── db: auth      │
-└──────────────────┘           │                 │     └── db: estimai   │
-                               │  estimai-api ──► auth /auth/jwks (JWT)  │
-                               └────────────────────────────────────────┘
+Vercel (4 projects, one origin each)          Railway project (europe-west4)
+┌───────────────────────────────┐             ┌───────────────────────────────┐
+│ shell   https://operai.welld.io│──┐ loads    │ auth        (Bun+Hono)        │
+│         (host, entry point)    │  │ remote-  │  https://auth.operai.welld.io │
+├───────────────────────────────┤  │ Entry.js ├───────────────────────────────┤
+│ estimai-ui  estimai.operai…    │◄─┤ at run-  │ estimai-api (Bun+Hono)        │
+│ refund-ui   refund.operai…     │◄─┤ time, in │  https://estimai-api.operai…  │
+│ admin-ui    admin.operai…      │◄─┘ browser  ├───────────────────────────────┤
+└───────────────────────────────┘             │ Postgres (shared)             │
+   shell owns session; remotes                 │   ├─ db: auth                 │
+   delegate to shell/session                   │   └─ db: estimai              │
+                                               │ estimai-api → auth /auth/jwks │
+                                               └───────────────────────────────┘
 ```
 
-One Postgres instance, two logical databases (`auth`, `estimai`). Service-to-DB
-traffic uses Railway private networking (`*.railway.internal`) and never leaves
-the private network.
+- **Frontends:** the `shell` is the human entry point (`operai.welld.io`); the
+  three tools (`estimai-ui`, `refund-ui`, `admin-ui`) are runtime-federated
+  remotes, each on its own subdomain, loaded cross-origin by the shell (ADR-0006).
+- **Backends:** `auth` (OAuth, sessions, RS256 JWT + JWKS, hosted sign-in,
+  authorization/admin API) and `estimai-api` (estimate persistence). One Postgres
+  instance, two logical databases (`auth`, `estimai`); service↔DB traffic stays on
+  Railway private networking (`*.railway.internal`).
+- **The two public URL placeholders** used below — keep them straight; both need
+  the `https://` scheme:
+  - `<AUTH_URL>` = the **auth** service (e.g. `https://auth.operai.welld.io`). It
+    is the JWT **issuer**, so `estimai-api` points back at it.
+  - `<API_URL>` = the **estimai-api** service (e.g. `https://estimai-api.operai.welld.io`).
+    Only the browser/UI references it.
 
----
-
-## How secrets are handled (direnv + 1Password)
-
-This repo uses **direnv** + the **1Password CLI**. The `.envrc` files read secrets
-from 1Password into `.env.cached` and export them into your shell automatically:
-
-- **repo root `.envrc`** → `RAILWAY_PROJECT_ID`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
-- **`auth/.envrc`** → `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID`/`_SECRET`,
-  `GITHUB_CLIENT_ID`/`_SECRET`, `JWT_PRIVATE_KEY`, `JWT_PUBLIC_KEY` (plus the Postgres creds)
-
-So the auth secrets are already in your shell **once you `cd` into `auth/`** with
-direnv allowed. You never paste secret values into commands — you reference the
-exported shell variables (`$BETTER_AUTH_SECRET`, …). Nothing secret is ever written
-to the repo. See `infra/variables.md` for the full variable → 1Password-item map.
-
-> The **Postgres credentials for Railway are NOT the 1Password `OperAI DB` ones** —
-> those are for local `docker compose`. On Railway the managed Postgres generates its
-> own credentials; you reference them with Railway's `${{Postgres.*}}` variables
-> (Steps 3–4). The 1Password DB creds are irrelevant to this deployment.
+**Hostnames.** The `*.operai.welld.io` scheme is the proposed, welld.io-parented
+layout (shared registrable parent matters for the credentialed `/auth/token`
+cookie call — ADR-0001 R7). If the real domains differ, update them here **and**
+in the static `vercel.json` CSP/redirect strings (Vercel doesn't interpolate env
+vars into those).
 
 ---
 
 ## Prerequisites
 
-1. **Railway CLI** logged in:
-   ```bash
-   npm install -g @railway/cli    # if not installed
-   railway login
-   ```
-2. **direnv + 1Password** already working locally (you run the app with them). Sanity check
-   from the repo root — this must print `set` without printing the value:
-   ```bash
-   echo "RAILWAY_PROJECT_ID is ${RAILWAY_PROJECT_ID:+set}"
-   ```
-   If it prints nothing, run `direnv allow` and `op signin` first.
+1. **Tooling:** `railway` CLI (logged in: `railway login`), `vercel` CLI (logged
+   in: `vercel login`) if you want Vercel automation, **direnv**, the **1Password
+   CLI** (`op`, signed in), Node 24 + `pnpm`, and `bun`. Verify with
+   **`./infra/check.sh --prereqs`**.
+2. **Secrets (direnv + 1Password).** Backend secrets never live in the repo —
+   they load from 1Password via `.envrc`. Run `direnv allow auth` (and
+   `direnv allow estimai-api`) once, be signed in to `op`, and run deploy commands
+   from within that shell (e.g. `direnv exec auth ./infra/deploy.sh`) so the
+   secrets are exported. The full variable → 1Password-item map is in
+   **§ Variable reference** below.
+3. **Railway project** exists (its id is in 1Password as `$RAILWAY_PROJECT_ID`).
+   Creating the project + attaching custom domains is a one-time dashboard action.
 
 ---
 
-## URL placeholders used in this guide
+## Order of operations
 
-Two public URLs appear throughout — they are **different services**, keep them straight.
-You get the real values when you generate each service's domain in Steps 3–4; substitute
-them wherever you see the placeholder. **Both must include the `https://` scheme** — the
-services validate these as URLs and refuse to start without it.
+Each phase feeds the next, so do them in order:
 
-| Placeholder | Which service | Example | Used by |
-|---|---|---|---|
-| `<AUTH_URL>` | the **auth** service | `https://auth.operai.welld.io` | auth `BETTER_AUTH_URL`; estimai-api `AUTH_ISSUER` + `AUTH_JWKS_URL`; OAuth callback URLs; Vercel `VITE_AUTH_URL` |
-| `<API_URL>` | the **estimai-api** service | `https://estimai-api.operai.welld.io` | Vercel `VITE_API_URL`; the health-check curls |
+1. **Railway — backends first.** Yields `<AUTH_URL>` and `<API_URL>`.
+2. **Vercel — the four frontends.** Their build-time vars point at the Phase-1 URLs.
+3. **Cross-wire origins + OAuth.** Backends trust the shell origin; register OAuth redirects.
+4. **Verify** end-to-end (`./infra/check.sh`).
 
-`<AUTH_URL>` shows up in more places **on purpose**: it is the JWT **issuer**, so estimai-api
-must point back at it. estimai-api's own URL (`<API_URL>`) is not referenced by any
-cross-service variable — only the browser/UI needs it.
+**Chicken-and-egg, resolved:** the shell's production origin is fixed in advance
+(`https://operai.welld.io`), so the backends' `ALLOWED_ORIGINS`/`UI_HOME_URL` can
+be set in Phase 1 without waiting for Vercel. Only the two **backend** URLs are
+discovered during deploy — which is why the frontends' vars come after.
 
 ---
 
-## Step 1 — Link the Railway project
+## Phase 1 — Railway backends
 
-The project already exists (its id is in 1Password, loaded as `$RAILWAY_PROJECT_ID`).
-Link your local checkout to it:
+The automatable parts are in **`./infra/deploy.sh`**; the manual dashboard bits
+are called out. What the script does, step by step:
 
+1. **Link** the project: `railway link "$RAILWAY_PROJECT_ID"` (env `production`).
+2. **Postgres** (manual first time): dashboard → New → Database → PostgreSQL;
+   confirm its **region is `europe-west4`** before adding data. Then create the two
+   logical DBs (the script attempts this; or `railway connect Postgres` →
+   `CREATE DATABASE auth;` `CREATE DATABASE estimai;`). They must exist before the
+   first deploy — each service's `preDeployCommand` runs `prisma migrate deploy`
+   against its own DB.
+3. **Deploy `auth`** (root dir `auth`, reads `auth/railway.json`): set its vars
+   (DATABASE_URL via `${{Postgres.*}}` references, `BETTER_AUTH_SECRET`,
+   `GOOGLE_*`/`GITHUB_*`, `JWT_*`, `ALLOWED_ORIGINS=<shell origin>`, `UI_HOME_URL`,
+   `BOOTSTRAP_ADMIN_EMAIL`, `NODE_ENV=production`), then deploy. **Generate its
+   domain** (dashboard → Settings → Networking, or a custom `auth.operai.welld.io`)
+   → this is **`<AUTH_URL>`**.
+4. **Deploy `estimai-api`** (root dir `estimai-api`): set `DATABASE_URL` (dbname
+   `estimai`), `ALLOWED_ORIGINS`, `AUTH_ISSUER=<AUTH_URL>`,
+   `AUTH_JWKS_URL=<AUTH_URL>/auth/jwks`, `NODE_ENV`. **Generate its domain** →
+   **`<API_URL>`**.
+5. **Cross-wire:** set `auth`'s `BETTER_AUTH_URL=<AUTH_URL>` (the JWT `iss` claim —
+   must equal `estimai-api.AUTH_ISSUER`) and redeploy `auth`. Re-run the script
+   with `AUTH_PUBLIC_URL=<AUTH_URL>` once the domain exists.
+
+**Run it:**
 ```bash
-# from the repo root
-railway link "$RAILWAY_PROJECT_ID"
+export RAILWAY_PROJECT_ID=...        # from 1Password
+export BOOTSTRAP_ADMIN_EMAIL=you@welld.ch
+export AUTH_PUBLIC_URL=https://auth.operai.welld.io   # after the auth domain exists
+direnv exec auth ./infra/deploy.sh
 ```
 
-Confirm:
-```bash
-railway status
-```
+**Do NOT set** `ENABLE_TEST_AUTH` (a complete auth bypass — the `POST
+/test-auth/session` mint endpoint), `BETTER_AUTH_TRUSTED_ORIGINS` (bypasses the
+validated `ALLOWED_ORIGINS` allowlist), or `PORT` (Railway injects it).
+
+**Migrations + seed run automatically** — each `railway.json` `preDeployCommand`
+is `bun run db:deploy && bun run db:seed` (for `auth`; `estimai-api` runs
+`db:deploy`). `migrate deploy` is non-interactive and only applies pending
+migrations; the authz seed (idempotent) creates the system roles + app-access
+catalog and, on first sign-in of `BOOTSTRAP_ADMIN_EMAIL`, the first admin. Never
+edit an existing migration file.
 
 ---
 
-## Step 2 — Provision the shared Postgres (EU)
+## Phase 2 — Vercel frontends
 
-1. **Railway dashboard → your project → New → Database → PostgreSQL.**
-2. Open the new database → **Settings → check the region is `europe-west4`.** If the
-   project/environment default is a non-EU region, set the region **before** adding data
-   (moving a populated DB region is disruptive).
-3. Create the two logical databases. Open a psql shell against the instance:
-   ```bash
-   railway connect Postgres      # opens psql on the Postgres service
-   ```
-   Then, at the `psql` prompt:
-   ```sql
-   CREATE DATABASE auth;
-   CREATE DATABASE estimai;
-   \l                            -- verify both are listed
-   \q
-   ```
-   > These must exist **before** the services first deploy — each service's
-   > `preDeployCommand` runs `prisma migrate deploy` against its own database, which
-   > fails if the database is missing.
+**Project + domain creation is manual** (Vercel CLI can't create+assign domains
+here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 
----
+1. **Create four projects** (dashboard → New Project → import this repo). For each,
+   **Root Directory** = the app dir (`shell` / `estimai-ui` / `refund-ui` /
+   `admin-ui`), framework **Vite**, default build (`pnpm build` → `dist`). Each app
+   ships its own `vercel.json` (SPA rewrites + headers) picked up automatically.
+2. **Assign domains:**
 
-## Step 3 — Deploy the `auth` service
+   | Project | Domain | Notes |
+   |---|---|---|
+   | `shell` | `operai.welld.io` | **Reassign** from the old `estimai-ui` project — the human entry point |
+   | `estimai-ui` | `estimai.operai.welld.io` | remote-only; keeps a redirect for the old URL (below) |
+   | `refund-ui` | `refund.operai.welld.io` | remote-only |
+   | `admin-ui` | `admin.operai.welld.io` | remote-only (roles & permissions, specs/004) |
 
-1. **Dashboard → New → GitHub Repo →** select this monorepo.
-2. Open the new service → **Settings → Source → Root Directory = `auth`.** Railway then
-   reads `auth/railway.json` (Dockerfile build, EU region, `/health` check,
-   `preDeployCommand: bun run db:deploy`) automatically.
-3. **Set the variables.** Run this **from inside `auth/`** so direnv has exported the
-   secrets. `${{...}}` is Railway reference syntax — keep the **single quotes** so your
-   shell does not expand it:
-   ```bash
-   cd auth        # direnv loads BETTER_AUTH_SECRET, GOOGLE_*, GITHUB_*, JWT_* here
-
-   railway variables --service auth \
-     --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/auth' \
-     --set "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET" \
-     --set "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
-     --set "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" \
-     --set "GITHUB_CLIENT_ID=$GITHUB_CLIENT_ID" \
-     --set "GITHUB_CLIENT_SECRET=$GITHUB_CLIENT_SECRET" \
-     --set "JWT_PRIVATE_KEY=$JWT_PRIVATE_KEY" \
-     --set "JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY" \
-     --set "ALLOWED_ORIGINS=https://operai.welld.io" \
-     --set "UI_HOME_URL=https://operai.welld.io/" \
-     --set "NODE_ENV=production"
-   ```
-   `BETTER_AUTH_URL` is set in Step 5 (it needs the public URL from the next sub-step).
-   **Do NOT set `ENABLE_TEST_AUTH`** (auth-bypass endpoint) or `BETTER_AUTH_TRUSTED_ORIGINS`
-   (bypasses the validated origin allowlist), or `PORT` (Railway injects it).
-4. **Generate a public domain:** service → **Settings → Networking → Generate Domain**
-   (or add a custom domain such as `auth.operai.welld.io`). **Note this URL** — call it
-   `<AUTH_URL>` below.
+3. **Env vars** (Settings → Environment Variables, Production **and** Preview;
+   all build-time → **redeploy** after changing). See **§ Variable reference**.
+4. **EstimAI old-URL redirect:** `estimai-ui/vercel.json` 302-redirects only
+   top-level document nav (`sec-fetch-dest: document`) to `operai.welld.io/estimai`
+   — so it never catches the shell's `remoteEntry.js` fetches. Smoke-test on first
+   deploy (`check.sh` checks it).
+5. **Runtime remote URLs (optional):** the shell bakes `*_REMOTE_URL` at build.
+   With stable custom domains you need nothing more. To repoint a remote's origin
+   without rebuilding the shell, publish `shell/public/runtime-config.json` (see
+   `shell/public/runtime-config.example.json` — includes `admin`) — the shell
+   reads it at every page load (`shell/src/lib/runtimeRemotes.ts`).
 
 ---
 
-## Step 4 — Deploy the `estimai-api` service
+## Phase 3 — Cross-wire origins + OAuth
 
-1. **Dashboard → New → GitHub Repo →** same monorepo; **Root Directory = `estimai-api`.**
-   It reads `estimai-api/railway.json` automatically.
-2. **Set the variables** (`estimai-api` has no repo secrets of its own beyond the DB URL;
-   `<AUTH_URL>` is from Step 3):
-   ```bash
-   railway variables --service estimai-api \
-     --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/estimai' \
-     --set "ALLOWED_ORIGINS=https://operai.welld.io" \
-     --set "AUTH_ISSUER=<AUTH_URL>" \
-     --set "AUTH_JWKS_URL=<AUTH_URL>/auth/jwks" \
-     --set "NODE_ENV=production"
-   ```
-   `<AUTH_URL>` is the **auth** service's URL from Step 3 (e.g. `https://auth-production-0700.up.railway.app`)
-   — **with `https://`**. `MAX_ESTIMATE_BYTES` / `MAX_IMPORT_REQUEST_BYTES` are optional (defaults — 1 MiB).
-3. **Generate a public domain** (or custom domain e.g. `estimai-api.operai.welld.io`). Note it as
-   `<API_URL>`.
-
-> **Postgres service name:** the `${{Postgres.*}}` references assume the database service
-> is named `Postgres` (Railway's default). If you renamed it, substitute the actual name.
+- **`ALLOWED_ORIGINS`** on both backends must be the **shell's** origin
+  (`https://operai.welld.io`) — that's what CORS + better-auth `trustedOrigins`
+  validate. Only the shell's origin is needed: the remotes never call the backends
+  directly (they delegate to `shell/session`, which runs under the shell's origin).
+  Redeploy the affected service after a change.
+- **OAuth redirect URIs** (better-auth mounts at `/auth`):
+  - Google Cloud Console → your OAuth client → Authorized redirect URIs:
+    `<AUTH_URL>/auth/callback/google`
+  - GitHub → Developer settings → OAuth App → Authorization callback URL:
+    `<AUTH_URL>/auth/callback/github`
+- **Shell CSP** (`shell/vercel.json`, a static header) pins each remote origin +
+  the auth/API origins in `script-src`/`connect-src`, and allows Google/GitHub
+  avatar hosts in `img-src`. If domains change, edit that file. *(Known gap: Vercel
+  Preview deploys get `*.vercel.app` URLs the pinned CSP won't match — assign
+  preview subdomains or relax CSP via Edge Middleware; not implemented.)*
 
 ---
 
-## Step 5 — Cross-wire the two services
-
-Now both public URLs exist. The JWT `iss` claim must match exactly, so:
+## Phase 4 — Verify
 
 ```bash
-# auth must know its OWN public URL (this becomes the JWT issuer).
-# This is <AUTH_URL> — the auth service's domain, NOT the estimai-api domain.
-railway variables --service auth --set "BETTER_AUTH_URL=<AUTH_URL>"
+./infra/check.sh
 ```
-
-Confirm the wiring is consistent:
-- `auth.BETTER_AUTH_URL` **==** `estimai-api.AUTH_ISSUER`  (both are `<AUTH_URL>`, the auth domain)
-- `estimai-api.AUTH_JWKS_URL` **==** `<AUTH_URL>/auth/jwks`
-  (better-auth's rotating DB keypair — **NOT** `/.well-known/jwks.json`, which serves a
-  different static key and will fail verification)
-
-Redeploy both services so the new variables take effect:
-```bash
-railway redeploy --service auth
-railway redeploy --service estimai-api
-```
+It checks backend `/health`, the **`/auth/jwks`** RS256 key set (the endpoint
+`estimai-api` verifies against — **not** `/.well-known/jwks.json`, an orphaned
+env-key endpoint), each remote's `remoteEntry.js` + CORS header, and the shell CSP
+pins. Then, in a browser at `https://operai.welld.io/`: hit a guarded route →
+redirected to `<AUTH_URL>/sign-in`; sign in with Google + GitHub; the
+`BOOTSTRAP_ADMIN_EMAIL` account sees the **Admin** tool in the nav; create an
+estimate + reload (persists); sign out (session ends suite-wide, no 403).
 
 ---
 
-## Step 6 — Register the OAuth redirect URIs
+## Variable reference
 
-better-auth mounts at `basePath: /auth`, so the social callback URLs are:
+### `auth` service (Railway)
 
-- **Google** — Google Cloud Console → your OAuth client → *Authorized redirect URIs*:
-  `<AUTH_URL>/auth/callback/google`
-- **GitHub** — GitHub → Developer settings → your OAuth App → *Authorization callback URL*:
-  `<AUTH_URL>/auth/callback/github`
+| Variable | Value / source | Secret |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/auth` | yes |
+| `BETTER_AUTH_SECRET` | 1Password → `Employee / Paperclip - BETTER_AUTH_SECRET` (≥32 chars) | **yes** |
+| `BETTER_AUTH_URL` | `<AUTH_URL>` — the JWT `iss`; must equal estimai-api `AUTH_ISSUER` | no |
+| `GOOGLE_CLIENT_ID` / `_SECRET` | 1Password → `AIScream / OperAI - GOOGLE OAuth` | **yes** |
+| `GITHUB_CLIENT_ID` / `_SECRET` | 1Password → `AIScream / OperAI - GITHUB OAuth` | **yes** |
+| `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` | 1Password → `AIScream / OperAI Private Key` (RS256 PEM; `.pem` gitignored) | **yes** |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin; no wildcard/trailing slash) | no |
+| `UI_HOME_URL` | `https://operai.welld.io/` (post-login fallback; origin ∈ ALLOWED_ORIGINS) | no |
+| `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
+| `NODE_ENV` | `production` | no |
+| `PORT` / `ENABLE_TEST_AUTH` / `BETTER_AUTH_TRUSTED_ORIGINS` | **leave UNSET** (see Phase 1) | — |
 
-(The OAuth **client id/secret** themselves are already set from 1Password in Step 3;
-this step only registers the redirect URL on the provider side.)
+### `estimai-api` service (Railway)
 
----
-
-## Step 7 — Point the Vercel UI at the deployed backends
-
-The UI reads its backend URLs at **build time** from Vite env vars, so they must be set in
-Vercel **and the UI redeployed** — a running build will not pick them up otherwise.
-
-**As of specs/003-suite-shell (T17): this is now the `shell` Vercel project**,
-not `estimai-ui` — the shell owns the suite's single `_authed` session guard
-and the shared `shell/session` module that every remote (estimai-ui,
-refund-ui) delegates to; see `infra/vercel-deploy-runbook.md` for the full
-frontend topology. In the Vercel project for `shell` → **Settings →
-Environment Variables**:
-
-| Variable | Value |
+| Variable | Value | 
 |---|---|
-| `VITE_AUTH_URL` | `<AUTH_URL>` |
-| `VITE_API_URL` | `<API_URL>` |
+| `DATABASE_URL` | `…@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/estimai` |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` |
+| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) |
+| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (**not** `/.well-known/jwks.json`) |
+| `NODE_ENV` | `production` · `MAX_ESTIMATE_BYTES`/`MAX_IMPORT_REQUEST_BYTES` optional (defaults) |
 
-(`estimai-ui`/`refund-ui` also accept these two vars, but only their
-dev/test-only standalone bootstraps read them — in production they run as
-shell remotes and never call `auth`/`estimai-api` directly. Don't rely on
-setting them there instead of on `shell`.)
+### Frontend build-time vars (Vercel) — `VITE_*` are client-side; `*_REMOTE_URL` are Vite-config-side
 
-Then **redeploy** the Vercel project. `ALLOWED_ORIGINS` on the backends must hold
-the **shell's** origin (`https://operai.welld.io`, reassigned to the `shell`
-Vercel project per `infra/vercel-deploy-runbook.md` Step 2) — that is what CORS
-+ better-auth `trustedOrigins` validate. (`ALLOWED_ORIGINS` is the browser
-origin, *not* the service URLs — don't put `<AUTH_URL>` or `<API_URL>` there.)
+| Project | Variable | Value |
+|---|---|---|
+| **shell** | `VITE_AUTH_URL` / `VITE_API_URL` | `<AUTH_URL>` / `<API_URL>` |
+| | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` | `https://<estimai/refund/admin>.operai.welld.io/remoteEntry.js` |
+| **estimai-ui** | `VITE_API_URL` | `<API_URL>` — **required**: estimai-ui builds `${VITE_API_URL}/estimates` from its *own* value (must match the shell's) |
+| | `VITE_AUTH_URL` / `SHELL_REMOTE_URL` | standalone-only / `https://operai.welld.io/remoteEntry.js` |
+| **refund-ui**, **admin-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own) |
 
----
-
-## Step 8 — Verify end-to-end
-
-```bash
-# Health checks (Railway also gates deploys on /health)
-curl -fsS <AUTH_URL>/health && echo " auth OK"
-curl -fsS <API_URL>/health  && echo " api OK"
-
-# JWKS reachable (estimai-api verifies tokens against this)
-curl -fsS <AUTH_URL>/auth/jwks | head -c 200; echo
-```
-
-Then in a browser at **https://operai.welld.io/**:
-1. Visit a guarded route → you are redirected to `<AUTH_URL>/sign-in`.
-2. Sign in with Google and with GitHub → you land back on the UI.
-3. Create an estimate, reload → it persisted (estimai-api + `estimai` DB).
-4. Sign out → session terminates (no 403).
+Cross-service wiring: `auth.BETTER_AUTH_URL == estimai-api.AUTH_ISSUER`;
+`estimai-api.AUTH_JWKS_URL == <AUTH_URL>/auth/jwks`; both backends'
+`ALLOWED_ORIGINS == shell origin`.
 
 ---
 
-## How migrations run
+## Rollback & operations
 
-- Each `railway.json` sets `preDeployCommand: "bun run db:deploy"`.
-- `db:deploy` runs `prisma migrate deploy` — non-interactive, applies only pending
-  migrations, never re-runs applied ones, production-safe.
-- Migrations run **before** the new version starts, so the schema is always at least as
-  new as the code. Migration files live in `auth/prisma/migrations/` and
-  `estimai-api/prisma/migrations/` — never modify an existing migration file.
-
----
-
-## Rollback
-
-Railway keeps a per-service deployment history: **service → Deployments → Redeploy** on the
-last good deployment. If the rollback crosses a migration boundary (older code cannot read
-the newer schema), restore the Postgres from a backup or apply a down-migration **before**
-redeploying the older image — Railway does not reverse migrations automatically.
-
----
-
-## Updating a variable later
-
-```bash
-cd auth        # if the value comes from a direnv-loaded secret
-railway variables --service auth --set "BETTER_AUTH_SECRET=$BETTER_AUTH_SECRET"
-railway redeploy --service auth
-```
-
----
-
-## Optional: scripted bootstrap
-
-`infra/bootstrap.sh` automates the variable-setting and deploy triggers (it cannot create
-the Railway services or the logical databases — do Steps 2–3's service/DB creation in the
-dashboard first). The manual steps above are the source of truth; the script is a
-convenience wrapper for repeat runs.
-
----
-
-## EU data residency
-
-- Both services and the Postgres instance run in `europe-west4`.
-- Request/response **bodies are never logged** (hono/logger emits method + path + status
-  only; Prisma `query` log level is never enabled). Estimate JSONB never appears in a log line.
-- Do not add a CDN, log aggregator, or backup target that would route EU data outside the EU.
+- **Rollback:** each Railway service and each Vercel project keeps its own
+  deployment history — redeploy the last good one from the dashboard. Frontends
+  are independent, so rolling back one remote doesn't touch the others. If a
+  Railway rollback crosses a migration boundary (older code, newer schema),
+  restore Postgres from a backup or down-migrate **before** redeploying the older
+  image — Railway doesn't reverse migrations.
+- **Update one var later:** `railway variables --service <svc> --set "K=$K"` then
+  `railway redeploy --service <svc>` (run inside the direnv shell if `K` is a
+  secret). Frontend var changes need a Vercel **redeploy** (build-time).
+- **EU residency (operational):** request/response bodies are never logged
+  (hono/logger emits method+path+status only; Prisma `query` logging off in prod).
+  Don't add a CDN/log-aggregator/backup target that routes EU data outside the EU.
+- **Secrets** are only ever referenced from the direnv/1Password shell, never
+  pasted literally or committed; `.pem` files are gitignored; the pre-commit
+  gitleaks hook guards commits.
