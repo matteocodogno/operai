@@ -54,6 +54,49 @@ services:
       retries: 5
       start_period: 15s
 
+  # ─── notify-api ─────────────────────────────────────────────────────────────
+  # Bun + Hono resource server for the notification center (specs/005).
+  #
+  # DATA-RESIDENCY: in production this service is deployed to Railway EU region
+  # (see notify-api/railway.json). Locally it runs against the shared Postgres
+  # instance above, in its own logical database ('notify'). Same pattern as
+  # 'estimai' above: there is no init script — Prisma creates the logical
+  # database itself the first time migrations run against it (`migrate dev` /
+  # `migrate deploy`, see `mise run db:migrate`), because the default
+  # postgres/postgres role has CREATEDB. Request/response bodies are never
+  # written to application logs (hono/logger emits method+path+status only —
+  # enforced in src/index.ts) — notification title/body may name clients/estimates.
+  #
+  # Prerequisites:
+  #   1. Copy notify-api/.env.example → notify-api/.env and fill in values.
+  #   2. The `notify` database must exist; run migrations first:
+  #        cd notify-api && bun run db:migrate
+  #      or `mise run db:migrate` (applies auth + estimai-api + notify-api).
+  notify-api:
+    build:
+      context: ./notify-api
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "8081:8081"
+    env_file:
+      - ./notify-api/.env
+    environment:
+      # Override DATABASE_URL so the hostname resolves inside the compose network.
+      # The .env file uses localhost:5435 (host access); inside compose use the
+      # service name 'postgres' on its internal port 5432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/notify
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   operai_postgres_data:
     driver: local
