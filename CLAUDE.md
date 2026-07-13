@@ -31,9 +31,15 @@ operai/
 │   ├── package.json
 │   └── vite.config.ts
 │
+├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006)
+├── refund-ui/           # Reimbursement tool — federated remote (placeholder; domain in a later spec)
+├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions GUI (specs/004, admin-only)
+│
 ├── auth/                # Bun + Hono authentication service
 │   ├── src/
-│   │   ├── auth/        # better-auth config, middleware, routes
+│   │   ├── auth/        # better-auth config, middleware (requireAuth/requireAdmin), routes
+│   │   ├── authz/        # authorization (specs/004, ADR-0007): resolver, /authz/me, catalog, audit, seed
+│   │   ├── admin/        # admin API — roles/departments/users routes + last-admin guard
 │   │   ├── signin/      # hosted sign-in page (Google/GitHub)
 │   │   ├── test-auth/   # dev/test-only session-mint endpoint (gated)
 │   │   ├── jwks/        # JWKS endpoint (RS256 public key)
@@ -43,7 +49,7 @@ operai/
 │   ├── prisma/          # Schema + migrations (PostgreSQL)
 │   └── package.json
 │
-├── estimai-api/         # PLANNED — Bun + Hono + TypeScript backend (directory empty; see specs/001)
+├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
 │
 ├── docs/adr/            # Architecture Decision Records (0001–0007; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)

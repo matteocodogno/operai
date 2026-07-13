@@ -13,8 +13,8 @@ run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelo
 
 # Run the WHOLE Operai suite locally (Module Federation, specs/003): Postgres +
 # both backends + the three frontends, one command. Ports: auth 3001,
-# estimai-api 8080, shell 5173, estimai-ui 5174, refund-ui 5175 (frontend ports
-# pinned in each app's vite.config.ts). Open http://localhost:5173 (the shell).
+# estimai-api 8080, shell 5173, estimai-ui 5174, refund-ui 5175, admin-ui 5177
+# (frontend ports pinned in each app's vite.config.ts). Open http://localhost:5173 (the shell).
 # `trap 'kill 0'` reaps every child (backends + vite) on Ctrl-C. Postgres is
 # left running (docker `up -d`, detached) — cheap to keep; `docker compose down`
 # to stop it.
@@ -35,7 +35,7 @@ run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelo
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
 [tasks.dev]
-description = "Run the FULL suite locally with HMR — Postgres + auth :3001 + estimai-api :8080 + shell :5173 + estimai-ui :5174 + refund-ui :5175"
+description = "Run the FULL suite locally with HMR — Postgres + auth :3001 + estimai-api :8080 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + admin-ui :5177"
 run = """
 docker compose up -d postgres
 trap 'kill 0' EXIT INT TERM
@@ -44,14 +44,15 @@ trap 'kill 0' EXIT INT TERM
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
 pnpm --dir refund-ui dev &
+pnpm --dir admin-ui dev &
 wait
 """
 
 # Frontends only (HMR) — for when the backends are already running elsewhere
 # (e.g. you started auth/estimai-api in their own terminals).
 [tasks."dev:web"]
-description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 (backends run separately)"
-run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & wait"
+description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + admin-ui :5177 (backends run separately)"
+run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir admin-ui dev & wait"
 
 # Full stack, but the frontends run build + preview instead of dev: no HMR, but
 # deterministic and mirrors the Vercel deploy shape (independently built + served
@@ -61,13 +62,14 @@ run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui
 description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + auth + estimai-api + built frontends"
 run = """
 docker compose up -d postgres
-pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build
+pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir admin-ui build
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
 pnpm --dir shell preview &
 pnpm --dir estimai-ui preview &
 pnpm --dir refund-ui preview &
+pnpm --dir admin-ui preview &
 wait
 """
 
