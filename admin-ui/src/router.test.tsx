@@ -46,7 +46,13 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('router structure', () => {
-  it('mounts the index redirect and the four section routes as direct children of root', async () => {
+  it('mounts the index redirect, the four section routes, and Screen B2\'s department-detail route as direct children of root', async () => {
+    // T19 (specs/004-auth-roles-permissions/tasks.md) adds `/departments/$id`
+    // (Screen B2, design.md "Department detail") alongside the four section
+    // routes T14 originally shipped here — the orchestrator's note on T19
+    // anticipated this file needing this exact, minimal update as later
+    // tasks add their own detail routes (T18's role editor, T20's user
+    // detail) the same way.
     const { createAppRouter } = await importRouter()
     const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
@@ -55,8 +61,10 @@ describe('router structure', () => {
       .filter((path): path is string => path !== undefined)
       .sort()
 
-    expect(childPaths).toEqual(['/', '/audit', '/departments', '/roles', '/users'].sort())
-    expect(routeTree.children).toHaveLength(5)
+    expect(childPaths).toEqual(
+      ['/', '/audit', '/departments', '/departments/$id', '/roles', '/users'].sort(),
+    )
+    expect(routeTree.children).toHaveLength(6)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors estimai-ui/T13, AC-2.3', async () => {

@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/
 import AdminShell from './components/AdminShell'
 import RolesPage from './pages/RolesPage'
 import DepartmentsPage from './pages/DepartmentsPage'
+import DepartmentDetail from './pages/DepartmentDetail'
 import UsersPage from './pages/UsersPage'
 import AuditPage from './pages/AuditPage'
 import NotFoundPage from './pages/NotFoundPage'
@@ -69,6 +70,16 @@ export function createAppRouter(basepath?: string) {
     component: DepartmentsPage,
   })
 
+  // Screen B2 (design.md "Department detail", T19) — child of the same
+  // parent as departmentsRoute, not nested under it, since it renders as
+  // its own full section content (no shared layout/outlet between list and
+  // detail) — same flat-children shape as every other route in this tree.
+  const departmentDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/departments/$id',
+    component: DepartmentDetail,
+  })
+
   const usersRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/users',
@@ -85,7 +96,14 @@ export function createAppRouter(basepath?: string) {
   // Route tree
   // ---------------------------------------------------------------------------
 
-  const routeTree = rootRoute.addChildren([indexRoute, rolesRoute, departmentsRoute, usersRoute, auditRoute])
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    rolesRoute,
+    departmentsRoute,
+    departmentDetailRoute,
+    usersRoute,
+    auditRoute,
+  ])
 
   // `defaultNotFoundComponent` is the router-wide fallback for any path that
   // matches none of the routes above (TanStack Router's own "not-found route"
