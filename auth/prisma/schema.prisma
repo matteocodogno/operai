@@ -28,6 +28,19 @@ model User {
   entity          String?
   jobTitle        String?
 
+  // ─── Soft delete (spec 006-user-invitations, T4/T7 — AC-5.x) ───────────────
+  // null = active; set = soft-deleted. Nullable with NO default (R7): a
+  // migration adding this column performs no backfill/rewrite of existing
+  // rows, which all continue to read as active. Deletion in this feature is
+  // ALWAYS soft — the row, its Account rows, and its UserRole/UserDepartment
+  // rows are retained (see ADR-0012); resource servers do nothing at delete
+  // time. `deletedByUserId` is a plain audit convenience column (the
+  // authoritative record is the `audit_log` row written by the delete
+  // transaction) — deliberately NOT a FK relation, so a deleted actor never
+  // blocks referential integrity here.
+  deletedAt       DateTime?
+  deletedByUserId String?
+
   sessions Session[]
   accounts Account[]
 
@@ -35,6 +48,11 @@ model User {
   userDepartments UserDepartment[]
   auditLogs       AuditLog[]
 
+  // ─── Invitations (spec 006-user-invitations, T4) ───────────────────────────
+  invitationsSent     Invitation[] @relation("InvitationInviter")
+  invitationsAccepted Invitation[] @relation("InvitationAcceptor")
+
+  @@index([deletedAt])
   @@map("user")
 }
 
@@ -245,3 +263,45 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_log")
 }
+
+// ─── Invitations (spec 006-user-invitations) ─────────────────────────────────
+// Invitation lifecycle: see docs/adr/0012 (activation hooks + soft-delete) and
+// docs/adr/0013 (derived `expired` state, schedulerless). Stored `status` is
+// only ever `pending | accepted | revoked` — `expired` is ALWAYS computed
+// (`status=='pending' && expiresAt<=now`, see src/invitations/), never a
+// literal value written here in the routine hot path. `roleIds`/
+// `departmentIds` are the assignment snapshot taken at invite-create time
+// (validated then; immutable thereafter — no in-place edit).
+model Invitation {
+  id            String   @id @default(cuid())
+  email         String // normalized lower-case
+  status        String   @default("pending") // pending | accepted | revoked
+  roleIds       String[]
+  departmentIds String[]
+  tokenHash     String // sha256(raw link token); rotated on resend
+
+  expiresAt DateTime // created/last-resend + 72h
+
+  invitedByUserId String?
+  invitedBy       User?   @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  acceptedByUserId String?
+  acceptedBy       User?   @relation("InvitationAcceptor", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  lastEmailStatus String? // sent | failed
+  lastEmailError  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@map("invitation")
+}
+
+// NOTE: a partial unique index enforcing "at most one LIVE pending invitation
+// per email" (AC-1.4) — `CREATE UNIQUE INDEX invitation_pending_email_key ON
+// invitation (email) WHERE status = 'pending'` — cannot be expressed in the
+// Prisma schema language (no partial-index support). It is appended as raw
+// SQL to the migration this model was introduced in
+// (prisma/migrations/*_invitation_lifecycle/migration.sql) — see ADR-0013.
