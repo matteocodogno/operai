@@ -110,7 +110,7 @@ are edited by a single track to avoid collisions.
   - add notify-api + notify-ui to topology/provisioning; env reference incl. `AUTH_AUDIENCE` (all three services) + `VITE_NOTIFY_API_URL`; `check.sh` verifies notify-api `/health` + notify-ui `remoteEntry.js` + the SSE `connect-src` CSP pin
   - done when: doc + scripts cover both new services and the `aud` env
 
-- [ ] T21: End-to-end (Playwright) — refs: AC-1.4, 1.5, 2.1, 2.4, 2.5, 3.1, 3.2, 3.3, 5.1, 5.5, 5.6, 6.1, 6.2, 6.3 — deps: T7, T13, T15, T16
+- [x] T21: End-to-end (Playwright) — refs: AC-1.4, 1.5, 2.1, 2.4, 2.5, 3.1, 3.2, 3.3, 5.1, 5.5, 5.6, 6.1, 6.2, 6.3 — deps: T7, T13, T15, T16
   - touch: `shell/e2e/notifications.spec.ts` (seeded-session helper)
   - raise → badge ≤~2s; two contexts both update; open center → badge 0 + was-unread affordance; reload → no affordance; toast on toast-worthy over a mounted remote; non-toast → no toast; raise-while-disconnected → present in center, no toast on reconnect; two-user isolation; sign-out/sign-in user switch shows only own
   - done when: the e2e spec passes against the assembled shell + notify-ui + notify-api
