@@ -65,7 +65,7 @@ owned by a single track to avoid collisions.
   - touch: `admin-ui/src/components/ConfirmDeleteModal.tsx` (add optional `body` prop, backward-compatible — soft-delete copy), `admin-ui/src/components/UsersSubNav.tsx` (NEW, "Active users" | "Invitations"), the Users list row delete + confirm; the caller's own row delete is **disabled-with-explanation** (design.md), soft-deleted users vanish from the list; route `/users/invitations` sibling added
   - done when: `pnpm --dir admin-ui lint`+`build`+`test` green; unit tests: row delete calls DELETE + confirm, self-row disabled, list reflects removal
 
-- [ ] T11: admin-ui bulk delete + partial-success panel — refs: US-6 (6.3) — deps: T7, T10
+- [x] T11: admin-ui bulk delete + partial-success panel — refs: US-6 (6.3) — deps: T7, T10
   - touch: `admin-ui/src/pages/` Users list — checkbox column (tri-state select-all), `role=region` bulk action bar w/ live count, confirm naming the count, `BulkDeleteResultPanel` (NEW, persistent `role=status`, per-skipped-user reason in a real `<ul>` — NOT a vanishing toast, AC-6.3)
   - done when: lint+build+test green; unit tests: select-all tri-state, bulk POST, the skipped-with-reasons panel renders and persists
 
