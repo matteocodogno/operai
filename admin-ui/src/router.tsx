@@ -1,6 +1,7 @@
 import { createRootRoute, createRoute, createRouter, redirect } from '@tanstack/react-router'
 import AdminShell from './components/AdminShell'
 import RolesPage from './pages/RolesPage'
+import RoleEditor from './pages/RoleEditor'
 import DepartmentsPage from './pages/DepartmentsPage'
 import UsersPage from './pages/UsersPage'
 import AuditPage from './pages/AuditPage'
@@ -63,6 +64,17 @@ export function createAppRouter(basepath?: string) {
     component: RolesPage,
   })
 
+  // Screen A2 (Role editor / rule composer — T18, specs/004-auth-roles-permissions).
+  // A sibling of `rolesRoute` under the same root, exactly like estimai-ui's
+  // `/estimates` + `/estimates/$estimateId` pair (src/router.tsx) — not a
+  // nested child of `rolesRoute`, since neither route renders the other's
+  // content around an <Outlet/>.
+  const roleEditorRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/roles/$id',
+    component: RoleEditor,
+  })
+
   const departmentsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/departments',
@@ -85,7 +97,14 @@ export function createAppRouter(basepath?: string) {
   // Route tree
   // ---------------------------------------------------------------------------
 
-  const routeTree = rootRoute.addChildren([indexRoute, rolesRoute, departmentsRoute, usersRoute, auditRoute])
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    rolesRoute,
+    roleEditorRoute,
+    departmentsRoute,
+    usersRoute,
+    auditRoute,
+  ])
 
   // `defaultNotFoundComponent` is the router-wide fallback for any path that
   // matches none of the routes above (TanStack Router's own "not-found route"

@@ -46,7 +46,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('router structure', () => {
-  it('mounts the index redirect and the four section routes as direct children of root', async () => {
+  it('mounts the index redirect, the four section routes, and the role editor route as direct children of root', async () => {
     const { createAppRouter } = await importRouter()
     const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
@@ -55,8 +55,11 @@ describe('router structure', () => {
       .filter((path): path is string => path !== undefined)
       .sort()
 
-    expect(childPaths).toEqual(['/', '/audit', '/departments', '/roles', '/users'].sort())
-    expect(routeTree.children).toHaveLength(5)
+    // '/roles/$id' (Screen A2, the role editor — T18) is a sibling of '/roles',
+    // not nested under it, exactly like estimai-ui's '/estimates' +
+    // '/estimates/$estimateId' pair (see router.tsx's own comment).
+    expect(childPaths).toEqual(['/', '/audit', '/departments', '/roles', '/roles/$id', '/users'].sort())
+    expect(routeTree.children).toHaveLength(6)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors estimai-ui/T13, AC-2.3', async () => {

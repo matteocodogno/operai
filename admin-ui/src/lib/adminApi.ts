@@ -84,6 +84,18 @@ export type Role = {
   name: string
   description: string | null
   isSystem: boolean
+  /**
+   * Number of permission_rules bundled by this role. Additive/optional field,
+   * not in plan.md's literal `role` data model (which has no ruleCount
+   * column) — added here for Screen A1's "rule count" table column
+   * (design.md), pending T8's `GET /admin/roles` actually populating it.
+   * List screens must render a `—` placeholder when this is absent rather
+   * than assume it is always present (see RolesPage.tsx). Flagged in the
+   * T17/T18 implementation report as a plan/design drift to route to the
+   * architect: either amend plan.md's `GET /admin/roles` response shape to
+   * include it, or drop the rule-count column from design.md.
+   */
+  ruleCount?: number
   createdAt: string
   updatedAt: string
 }

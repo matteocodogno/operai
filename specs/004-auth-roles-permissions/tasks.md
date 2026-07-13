@@ -76,9 +76,9 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 - [x] T16: admin-ui API client — refs: AC-4.1, all admin ACs — deps: T13
   - touch: `admin-ui/src/lib/adminApi.ts` — typed calls to `/admin/*` + `/authz/me` via `apiFetch` from `shell/session`; RFC 7807 error mapping.
   - done when: typed client + unit tests against the plan's contract shapes.
-- [ ] T17: Roles list (A1) + Create-role modal (M1) — refs: AC-1.1, AC-2.4 — deps: T14, T15, T16
+- [x] T17: Roles list (A1) + Create-role modal (M1) — refs: AC-1.1, AC-2.4 — deps: T14, T15, T16
   - done when: list renders (loading/empty/populated/error); create → role editor; system badge + disabled delete.
-- [ ] T18: Role editor + rule composer (A2) — refs: AC-2.1–2.4, AC-3.1, AC-3.2 — deps: T14, T15, T16
+- [x] T18: Role editor + rule composer (A2) — refs: AC-2.1–2.4, AC-3.1, AC-3.2 — deps: T14, T15, T16
   - touch: `admin-ui/src/pages/RoleEditor.tsx` + composer
   - catalog-driven Resource→Action cascade (only catalog options), dynamic Conditions fieldset (ownership radio + attribute checkboxes per `supportedConditions`) with `aria-live` announcements; save via `PUT /admin/roles/:id/rules`; 422 stale-catalog banner + reload.
   - done when: component/e2e — build a conditioned rule; off-catalog impossible via UI; a11y aria-live on change.
