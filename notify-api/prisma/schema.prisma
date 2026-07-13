@@ -1,0 +1,14 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+// The Notification model + init migration land in T2 (specs/005-notification-center).
+// This schema is intentionally model-less for T1: it exists only so `db:generate`
+// can produce a PrismaClient for src/lib/db.ts (health check uses $queryRaw, which
+// needs no model). Do not add models here — see T2.
