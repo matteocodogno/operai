@@ -21,11 +21,20 @@
  * from the guard's one-shot getSession() call, so `user` is guarded with a
  * truthiness check rather than assumed non-null (mirrors EstimatorApp.tsx's
  * existing `authClient.useSession()` usage in estimai-ui).
+ *
+ * Bell (T11, specs/005-notification-center, design.md) sits between ThemeToggle and
+ * UserMenu — "grouping the two small icon-buttons together, with the (differently
+ * shaped) avatar/identity control last" (design.md "Bell (shell header chrome)"). Unlike
+ * UserMenu, it renders unconditionally (not gated on `user`): it has no dependency on the
+ * session-derived display fields UserMenu needs, and design.md/AC-1.1 calls for it to
+ * render "on every route" — gating it on the same `user` truthiness check as UserMenu
+ * would needlessly delay it behind that separate `useSession()` subscription.
  */
 import { useState } from 'react'
 import LogoMenu from './LogoMenu'
 import UserMenu from './UserMenu'
 import ThemeToggle from './ThemeToggle'
+import Bell from './Bell'
 import AboutModal from './AboutModal'
 import { useSession } from '../lib/session'
 
@@ -39,6 +48,7 @@ export default function Header() {
       <LogoMenu onAbout={() => setAboutOpen(true)} />
       <div className="flex items-center gap-3">
         <ThemeToggle />
+        <Bell />
         {user && <UserMenu user={user} />}
       </div>
       {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
