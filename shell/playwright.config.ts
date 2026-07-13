@@ -19,8 +19,8 @@ import { defineConfig, devices } from '@playwright/test'
  *   4. notify-api: `bun run dev` in `notify-api/` (localhost:8081) —
  *      required for specs/005's US-1..US-6 (bell/badge, center, SSE, toasts).
  *
- * All four frontends (shell, estimai-ui, refund-ui, notify-ui) are started
- * here via `build && preview` (NOT `vite dev`) — dev-mode host + build-mode remote
+ * All five frontends (shell, estimai-ui, refund-ui, notify-ui, admin-ui) are
+ * started here via `build && preview` (NOT `vite dev`) — dev-mode host + build-mode remote
  * does NOT reliably negotiate the shared React singleton (esbuild's dev
  * dependency pre-bundling and the federation runtime's dev-mode virtual
  * modules don't line up the same way build-mode chunks do), and build+preview
@@ -72,6 +72,14 @@ const refundRemoteOrigin = 'http://localhost:5176'
 // already claimed by refundRemoteOrigin in THIS file's numbering, so 5178
 // (free here) is used for its e2e preview instance only.
 const notifyRemoteOrigin = 'http://localhost:5178'
+// admin-ui (specs/004-auth-roles-permissions T25, specs/006-user-invitations
+// T14) — the Roles/Permissions/Invitations admin GUI. Was federated into the
+// shell's router/vite.config (ADMIN_REMOTE_URL) back in specs/004 but never
+// added to THIS webServer array, so admin-ui had NO real browser e2e coverage
+// until this feature's T14 — every ACL/roles/departments AC that named "e2e"
+// in specs/004's own test-strategy table was, in practice, only verified at
+// the component (vitest) level. 5179 is the next free e2e-preview slot.
+const adminRemoteOrigin = 'http://localhost:5179'
 
 export default defineConfig({
   testDir: './e2e',
@@ -155,6 +163,22 @@ export default defineConfig({
       },
     },
     {
+      // admin-ui (specs/006-user-invitations T14 — see adminRemoteOrigin doc
+      // comment above for why this entry is new). Same shape as
+      // estimai-ui/refund-ui/notify-ui above: independently built + previewed,
+      // consumes shell/session + shell/tokens.css.
+      command: 'pnpm build && pnpm preview --port 5179 --strictPort',
+      cwd: '../admin-ui',
+      url: adminRemoteOrigin,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+      },
+    },
+    {
       command: 'pnpm build && pnpm preview --port 5173 --strictPort',
       url: shellUrl,
       reuseExistingServer: !process.env['CI'],
@@ -165,6 +189,7 @@ export default defineConfig({
         ESTIMAI_REMOTE_URL: `${estimaiRemoteOrigin}/remoteEntry.js`,
         REFUND_REMOTE_URL: `${refundRemoteOrigin}/remoteEntry.js`,
         NOTIFY_REMOTE_URL: `${notifyRemoteOrigin}/remoteEntry.js`,
+        ADMIN_REMOTE_URL: `${adminRemoteOrigin}/remoteEntry.js`,
         VITE_AUTH_URL: authUrl,
         VITE_API_URL: apiUrl,
         VITE_NOTIFY_API_URL: notifyApiUrl,
