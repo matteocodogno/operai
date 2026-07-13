@@ -38,8 +38,17 @@ const RAISE_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB
 
 export const raiseRouter = new OpenAPIHono<{ Variables: JwtVariables }>();
 
+// Both middlewares below are scoped to this router's ONE exact path only —
+// NEVER `.use("*", …)`. index.ts mounts every notifications router at the
+// same prefix (`app.route("/", raiseRouter)` etc.), and Hono merges each
+// child router's middleware into ONE flat route table once mounted — a "*"
+// registered on ANY sub-router therefore applies to the WHOLE app, including
+// `GET /notifications/stream`, which per ADR-0008 MUST be reachable WITHOUT a
+// Bearer (EventSource cannot send one; it is authed by the query-string
+// ticket instead). This mirrors the precedent already documented in
+// stream.routes.ts's stream-ticket route.
 raiseRouter.use(
-  "*",
+  "/notifications",
   bodyLimit({
     maxSize: RAISE_BODY_SIZE_LIMIT,
     onError: (c) =>
@@ -55,7 +64,7 @@ raiseRouter.use(
   }),
 );
 
-raiseRouter.use("*", jwtMiddleware);
+raiseRouter.use("/notifications", jwtMiddleware);
 
 const raiseRoute = createRoute({
   method: "post",
