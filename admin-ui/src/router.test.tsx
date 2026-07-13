@@ -46,7 +46,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('router structure', () => {
-  it('mounts the index redirect, the four section routes, and the role editor route as direct children of root', async () => {
+  it('mounts the index redirect, the four section routes, and the detail routes (role editor, department detail, user detail) as direct children of root', async () => {
     const { createAppRouter } = await importRouter()
     const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
@@ -55,10 +55,13 @@ describe('router structure', () => {
       .filter((path): path is string => path !== undefined)
       .sort()
 
-    // '/roles/$id' (Screen A2, the role editor — T18) is a sibling of '/roles',
-    // not nested under it, exactly like estimai-ui's '/estimates' +
-    // '/estimates/$estimateId' pair (see router.tsx's own comment).
-    expect(childPaths).toEqual(['/', '/audit', '/departments', '/roles', '/roles/$id', '/users'].sort())
+    // Each detail screen ('/roles/$id' A2, '/departments/$id' B2, '/users/$id'
+    // C2) is a sibling of its list route under the same root, not nested —
+    // exactly like estimai-ui's '/estimates' + '/estimates/$estimateId' pair.
+    // Combined centrally as T18/T19/T20 each added their own detail route.
+    expect(childPaths).toEqual(
+      ['/', '/audit', '/departments', '/departments/$id', '/roles', '/roles/$id', '/users'].sort(),
+    )
     expect(routeTree.children).toHaveLength(6)
   })
 
