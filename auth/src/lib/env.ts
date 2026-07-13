@@ -43,6 +43,20 @@ const envSchema = z.object({
     .string()
     .email("BOOTSTRAP_ADMIN_EMAIL must be a valid email address")
     .optional(),
+  // ─── notify-api internal email channel (specs/006-user-invitations, T6) ───
+  // The base URL + shared service token used to call notify-api's internal,
+  // NON-user-JWT endpoint `POST /system/emails` (plan.md "auth → notify-api
+  // internal email send"; ADR candidate — service-to-service trust). Header
+  // `X-Internal-Token: <NOTIFY_INTERNAL_TOKEN>`. NOT a per-user JWT/JWKS path
+  // — a leaked token lets an attacker send arbitrary email over wellD's
+  // Resend domain (plan.md risk R2), so this MUST stay internal-network-only
+  // in production (Railway private networking).
+  NOTIFY_INTERNAL_URL: z
+    .string()
+    .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
+  NOTIFY_INTERNAL_TOKEN: z
+    .string()
+    .min(1, "NOTIFY_INTERNAL_TOKEN is required"),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])
