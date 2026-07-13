@@ -327,7 +327,7 @@ Mapping is total over all 29 ACs.
 | AC-5.5 | Not toast-worthy → no toast anywhere; center only | e2e + unit (SSE manager: non-toast event emits no toast) |
 | AC-5.6 | Raised while suite closed → no toast later, present in center in correct state | integration (list includes, unread) + e2e (connect after raise → no toast, present) |
 | AC-6.1 | Reload same device / sign in other device → list + read state unchanged | integration (persistence) + e2e (reload) |
-| AC-6.2 | Two users → neither sees the other's; B fetching A's id → 404 | integration (sub-scope + not-owned 404) + e2e |
+| AC-6.2 | Two users → neither sees the other's (v1 exposes no GET-by-id endpoint, so isolation is enforced by `sub`-scoping the list, not a not-owned 404) | integration (sub-scope isolation) + e2e |
 | AC-6.3 | Sign out A, sign in B same device → B sees only own | e2e (signOut clears caches + SSE reconnects as B) + integration |
 
 ## Risks

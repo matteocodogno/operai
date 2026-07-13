@@ -38,8 +38,8 @@ are edited by a single track to avoid collisions.
 
 - [x] T5: `GET /notifications` (list) + `GET /notifications/unread-count` — refs: US-2 (2.3, 2.4), US-6 (6.1, 6.2) — deps: T2
   - touch: `notify-api/src/notifications/list.routes.ts` (+ register)
-  - cursor pagination, `createdAt DESC`, `sub`-scoped, `[]` (not error) when none; not-owned → 404 (ADR-0005); unread-count = exact server truth
-  - done when: integration tests — ordering, empty list, sub-scope isolation, not-owned 404, correct count
+  - cursor pagination, `createdAt DESC`, `sub`-scoped, `[]` (not error) when none; unread-count = exact server truth (v1 has no GET-by-id route, so isolation is list `sub`-scoping — not a not-owned 404)
+  - done when: integration tests — ordering, empty list, sub-scope isolation, correct count
 
 - [x] T6: `POST /notifications/mark-all-read` — refs: US-3 (3.1, 3.4) — deps: T2, T3
   - touch: `notify-api/src/notifications/markRead.routes.ts` (+ register)
