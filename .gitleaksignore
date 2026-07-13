@@ -18,3 +18,6 @@ auth/.envrc:1password-reference:18
 # estimai-api/src/auth/jwt.middleware.test.ts uses in-test generated CryptoKey objects
 # (kp2.privateKey) — these are WebCrypto key handles in memory, not real secrets
 estimai-api/src/auth/jwt.middleware.test.ts:generic-api-key:146
+
+# notify-api/src/auth/jwt.middleware.test.ts — same in-test generated CryptoKey pattern
+notify-api/src/auth/jwt.middleware.test.ts:generic-api-key:138

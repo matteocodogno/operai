@@ -24,6 +24,18 @@ export type JwtVariables = {
 // auth service — no per-request fetch in the steady state.
 const JWKS = createRemoteJWKSet(new URL(env.AUTH_JWKS_URL));
 
+/**
+ * JWKS-verifier readiness (ADR-0005 cold-start note; plan.md §API contracts
+ * "GET /health … additionally report JWKS-verifier readiness"). `JWKS.jwks()`
+ * is a synchronous getter over jose's in-memory cache — it never triggers a
+ * network fetch itself, it only reports whether at least one fetch has
+ * succeeded (the JWKS is lazily fetched on the first unknown `kid`, i.e. the
+ * first real verification attempt, not at process start). Consumed by
+ * health.routes.ts; exported so the health route never has to reach into the
+ * JWKS singleton directly.
+ */
+export const isJwksReady = (): boolean => JWKS.jwks() !== undefined;
+
 // ─── Problem JSON 401 helper ──────────────────────────────────────────────────
 
 const unauthorized = (detail: string, path: string) =>
@@ -74,12 +86,16 @@ export const jwtMiddleware = createMiddleware<{
     );
   }
 
-  // 2. Verify RS256 signature, issuer, and expiry via cached remote JWKS.
+  // 2. Verify RS256 signature, issuer, audience, and expiry via cached remote JWKS.
   //    algorithms: ['RS256'] pins the algorithm — rejects alg:none and HS256.
+  //    audience (ADR-0010): notify-api is the suite's first real second JWKS
+  //    resource server — a token missing or carrying the wrong `aud` is rejected
+  //    here, closing the cross-service token-replay gap ADR-0005/ADR-0007 deferred.
   let payload: JWTPayload;
   try {
     const result = await jwtVerify(token, JWKS, {
       issuer: env.AUTH_ISSUER,
+      audience: env.AUTH_AUDIENCE,
       algorithms: ["RS256"],
     });
     payload = result.payload;

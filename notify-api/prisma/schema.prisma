@@ -8,7 +8,36 @@ datasource db {
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
-// The Notification model + init migration land in T2 (specs/005-notification-center).
-// This schema is intentionally model-less for T1: it exists only so `db:generate`
-// can produce a PrismaClient for src/lib/db.ts (health check uses $queryRaw, which
-// needs no model). Do not add models here — see T2.
+
+// Notification (T2, specs/005-notification-center, plan.md §Data model).
+//
+// recipientId = JWT `sub` (ADR-0005). v1: always == the caller's sub. NOT a
+// foreign key — notify-api is a resource server with no user table (users
+// live only in the auth DB); ownership is enforced by the sub predicate, like
+// estimai-api's Estimate.userId.
+//
+// severity/originApp are String (not Prisma enums) to match the codebase
+// convention — the closed set is validated at the zod boundary, keeping DB
+// migrations off the critical path when the set grows.
+//
+// No "was-unread" column — that affordance is a client viewing-session concept
+// (notify-ui captures the unread set at open), not durable state.
+// No retention/expiry field (spec non-goal: no retention policy).
+model Notification {
+  id          String    @id @default(cuid())
+  recipientId String
+  title       String
+  body        String
+  severity    String // "info" | "success" | "warning" | "error" (zod-enum at the boundary)
+  originApp   String // "estimai" | "refund" | "admin" | … (zod-enum at the boundary)
+  linkHref    String?
+  linkLabel   String?
+  toastWorthy Boolean   @default(false)
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([recipientId, createdAt(sort: Desc)]) // list newest-first (AC-2.3)
+  @@index([recipientId, readAt]) // unread-count / mark-all-read (AC-1.2, AC-3.1)
+  @@map("notification")
+}
