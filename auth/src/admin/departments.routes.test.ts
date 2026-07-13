@@ -176,6 +176,24 @@ describe("Admin departments API (T9)", () => {
     expect(body.type).toBe("https://httpstatuses.com/403");
   });
 
+  test("GET /admin/departments returns a bare array (matches admin-ui's listDepartments, not the pagination envelope)", async () => {
+    asAdmin();
+    const { departmentsRouter } = await import("./departments.routes");
+
+    const department = await db.department.create({
+      data: { name: `t9-dept-list-${RUN_ID}` },
+    });
+    createdDepartmentIds.add(department.id);
+
+    const res = await departmentsRouter.request("/admin/departments");
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as unknown;
+    expect(Array.isArray(body)).toBe(true);
+    const departments = body as Array<{ id: string }>;
+    expect(departments.map((d) => d.id)).toContain(department.id);
+  });
+
   test("POST creates a department; duplicate name -> 409", async () => {
     asAdmin();
     const { departmentsRouter } = await import("./departments.routes");
@@ -228,7 +246,7 @@ describe("Admin departments API (T9)", () => {
     expect(body.status).toBe(404);
   });
 
-  test("GET /:id embeds the department's conferred roles and member list (drift fix)", async () => {
+  test("GET /:id embeds the department's conferred roleIds and member list (drift fix, matches admin-ui's DepartmentDetail)", async () => {
     asAdmin();
     const { departmentsRouter } = await import("./departments.routes");
 
@@ -253,12 +271,12 @@ describe("Admin departments API (T9)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       id: string;
-      roles: Array<{ id: string; name: string }>;
+      roleIds: string[];
       members: Array<{ id: string; name: string; email: string }>;
     };
 
     expect(body.id).toBe(department.id);
-    expect(body.roles.map((r) => r.id)).toContain(role.id);
+    expect(body.roleIds).toContain(role.id);
     expect(body.members.map((m) => m.id)).toContain(member.id);
   });
 
@@ -429,10 +447,10 @@ describe("Admin departments API (T9)", () => {
       expect(membersRes.status).toBe(200);
       const membersBody = (await membersRes.json()) as {
         members: Array<{ id: string }>;
-        roles: Array<{ id: string }>;
+        roleIds: string[];
       };
       expect(membersBody.members.map((m) => m.id)).toContain(member.id);
-      expect(membersBody.roles.map((r) => r.id)).toContain(role.id);
+      expect(membersBody.roleIds).toContain(role.id);
 
       // AC-1.2: the member now inherits the department's conferred role's
       // rules through the resolver's union (T2) — this is exactly the

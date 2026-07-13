@@ -35,6 +35,14 @@
  * Per plan.md's "Wire-shape conventions": collection-set PUTs use a
  * named-field wrapper object, never a bare array — `{ roleIds }` for
  * `PUT /:id/roles`, `{ userIds }` for `PUT /:id/members`.
+ *
+ * Response shapes MUST match the admin-ui client (T16, `adminApi.ts`), which
+ * is authoritative per plan.md ("backend T8-T10 MUST match"): `GET
+ * /admin/departments` returns a bare `Department[]` (departments/roles lists
+ * are NOT in the `{ items, page, pageSize, total }` pagination convention —
+ * only `/admin/users` and `/admin/audit` are), and every route returning a
+ * department detail (`GET /:id`, `PUT /:id/roles`, `PUT /:id/members`)
+ * reports conferred roles as `roleIds: string[]`, not `roles: {id,name}[]`.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
@@ -63,11 +71,6 @@ const DepartmentSchema = z.object({
   updatedAt: z.string().datetime(),
 });
 
-const DepartmentRoleRefSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-});
-
 const DepartmentMemberSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -75,13 +78,11 @@ const DepartmentMemberSchema = z.object({
 });
 
 const DepartmentDetailSchema = DepartmentSchema.extend({
-  roles: z.array(DepartmentRoleRefSchema),
+  roleIds: z.array(z.string()),
   members: z.array(DepartmentMemberSchema),
 });
 
-const DepartmentListSchema = z.object({
-  items: z.array(DepartmentSchema),
-});
+const DepartmentListSchema = z.array(DepartmentSchema);
 
 const CreateDepartmentBodySchema = z.object({
   name: z.string().min(1),
@@ -183,7 +184,7 @@ async function loadDepartmentDetail(id: string) {
   const department = await db.department.findUnique({
     where: { id },
     include: {
-      departmentRoles: { select: { role: { select: { id: true, name: true } } } },
+      departmentRoles: { select: { role: { select: { id: true } } } },
       members: {
         select: {
           user: { select: { id: true, name: true, email: true } },
@@ -196,10 +197,7 @@ async function loadDepartmentDetail(id: string) {
 
   return {
     ...serializeDepartment(department),
-    roles: department.departmentRoles.map((dr) => ({
-      id: dr.role.id,
-      name: dr.role.name,
-    })),
+    roleIds: department.departmentRoles.map((dr) => dr.role.id),
     members: department.members.map((m) => ({
       id: m.user.id,
       name: m.user.name,
@@ -470,7 +468,7 @@ departmentsRouter.openapi(listDepartmentsRoute, async (c) => {
     orderBy: { name: "asc" },
   });
 
-  return c.json({ items: departments.map(serializeDepartment) }, 200);
+  return c.json(departments.map(serializeDepartment), 200);
 });
 
 // ─── POST /admin/departments ──────────────────────────────────────────────────
