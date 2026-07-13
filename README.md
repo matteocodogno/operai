@@ -10,8 +10,10 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `estimai-ui/` | EstimAI, as a federated remote |
 | `refund-ui/` | Reimbursement tool (placeholder remote; domain lands in a later spec) |
 | `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/004, admin-only) |
+| `notify-ui/` | Notification center (federated remote) — the `/notify` page; reached from the header bell (specs/005) |
 | `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR-0007) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
+| `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009) |
 | `specs/`, `docs/adr/` | Spec-driven workflow + Architecture Decision Records |
 | `infra/` | Deploy config + runbooks (Railway, Vercel) |
 
@@ -25,8 +27,11 @@ One-time setup:
 1. **Backend secrets (direnv + 1Password)** — the backends load their secrets from their
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
-   `direnv allow auth` and `direnv allow estimai-api`, and be signed in to the **1Password
-   CLI** (`op`). Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide real
+   `direnv allow auth`, `direnv allow estimai-api`, and `direnv allow notify-api`, and be
+   signed in to the **1Password CLI** (`op`). All three backends require `AUTH_AUDIENCE`
+   (the same suite-wide value, e.g. `operai-suite`) — the `aud` claim `auth` stamps and the
+   resource servers verify (ADR-0010); a mismatch rejects every token with 401. Set
+   `ENABLE_TEST_AUTH=true` for a seeded local session, and provide real
    `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with `http://localhost:3001/auth/callback/google`
    as an authorized redirect URI) if you want Google login locally.
 2. **Apply DB migrations** (brings up Postgres, then migrates both backends):
@@ -38,7 +43,7 @@ One-time setup:
 Then run the whole suite with **one command**:
 
 ```bash
-mise run dev            # HMR — Postgres + auth + estimai-api + all 3 frontends
+mise run dev            # HMR — Postgres + auth + estimai-api + notify-api + all 4 frontends
 ```
 
 `mise run dev` starts everything and reaps every child on Ctrl-C (Postgres is left
@@ -50,17 +55,19 @@ open **http://localhost:5173**.
 | shell (host) | **5173** | ← open this |
 | estimai-ui (remote) | 5174 | pinned in `vite.config.ts` (`strictPort`) |
 | refund-ui (remote) | 5175 | |
+| notify-ui (remote) | 5176 | notification center `/notify` (specs/005) |
 | admin-ui (remote) | 5177 | roles & permissions admin (specs/004) |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
-| Postgres | 5435 | `docker compose` |
+| notify-api | 8081 | Bun + Hono — SSE push (specs/005) |
+| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`) |
 
 Other `mise` tasks:
 
 ```bash
 mise run dev:web        # frontends only (HMR) — when backends run elsewhere
 mise run dev:preview    # full stack, but frontends build+preview (no HMR; mirrors deploy)
-mise run db:migrate     # apply auth + estimai-api migrations
+mise run db:migrate     # apply auth + estimai-api + notify-api migrations
 ```
 
 Use `mise run dev:preview` to reproduce a production-like run (it's the mode the e2e uses).

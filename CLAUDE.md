@@ -34,6 +34,7 @@ operai/
 ├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006)
 ├── refund-ui/           # Reimbursement tool — federated remote (placeholder; domain in a later spec)
 ├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions GUI (specs/004, admin-only)
+├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
 │
 ├── auth/                # Bun + Hono authentication service
 │   ├── src/
@@ -50,8 +51,9 @@ operai/
 │   └── package.json
 │
 ├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
+├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009)
 │
-├── docs/adr/            # Architecture Decision Records (0001–0007; see ## Architecture decisions)
+├── docs/adr/            # Architecture Decision Records (0001–0010; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run release`
 └── specs/               # Spec-driven workflow (see below)
@@ -276,6 +278,14 @@ bun run dev           # http://localhost:3001 (hot reload)
 bun run typecheck     # tsc --noEmit
 bun test
 ```
+
+### Resource backends (estimai-api :8080, notify-api :8081)
+Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
+`bun install`, `bun run db:migrate`, `bun run dev`. Both are JWKS resource servers and
+**require `AUTH_AUDIENCE`** (the same suite-wide value auth stamps as the `aud` claim, ADR-0010)
+or they reject every token with 401. `notify-api` also serves the ticket-authed SSE stream
+(ADR-0008) and is pinned to a single instance in production (in-process ticket store + fan-out).
+The whole suite comes up with one command from the repo root: `mise run dev`.
 
 ---
 
