@@ -2,19 +2,24 @@
 # infra/deploy.sh — automate what can be automated in an Operai deploy.
 #
 # WHAT THIS AUTOMATES
-#   Railway (backends): link the project, ensure the shared Postgres + the two
-#   logical databases (auth, estimai), set every env var for the `auth` and
-#   `estimai-api` services from your direnv/1Password-exported secrets, and
-#   trigger their deploys. Migrations + the authz seed run automatically via
-#   each service's railway.json preDeployCommand (`bun run db:deploy && …`).
+#   Railway (backends): link the project, ensure the shared Postgres + the
+#   three logical databases (auth, estimai, notify), set every env var for the
+#   `auth`, `estimai-api`, and `notify-api` services from your
+#   direnv/1Password-exported secrets, and trigger their deploys. This
+#   includes AUTH_AUDIENCE (ADR-0010, specs/005-notification-center) — the
+#   SAME value is set on all three services, closing the cross-service JWT
+#   replay gap now that notify-api is a second JWKS resource server.
+#   Migrations + the authz seed run automatically via each service's
+#   railway.json preDeployCommand (`bun run db:deploy && …`).
 #
 #   Vercel (frontends, optional --vercel): push the build-time env vars to the
-#   four existing projects and trigger a redeploy. Project + custom-domain
-#   creation is NOT automatable via CLI here — do it once in the dashboard
-#   (see infra/README.md § Vercel), then this keeps env vars in sync.
+#   five existing projects (shell, estimai-ui, refund-ui, admin-ui, notify-ui)
+#   and trigger a redeploy. Project + custom-domain creation is NOT
+#   automatable via CLI here — do it once in the dashboard (see
+#   infra/README.md § Vercel), then this keeps env vars in sync.
 #
 # WHAT STAYS MANUAL (see infra/README.md): creating the Railway project +
-#   attaching custom domains; creating the 4 Vercel projects + assigning the 4
+#   attaching custom domains; creating the 5 Vercel projects + assigning the 5
 #   domains; registering the Google/GitHub OAuth redirect URIs.
 #
 # USAGE
@@ -27,6 +32,9 @@
 #   NEVER put real secret values in this file — it is committed.
 #
 # DATA RESIDENCY: all backend services + Postgres are pinned to europe-west4.
+#   notify-api additionally never logs request/response bodies (notification
+#   title/body may name clients/estimates) and is pinned to numReplicas: 1 in
+#   notify-api/railway.json — do not scale it without reading plan.md Risk R2.
 
 set -euo pipefail
 
@@ -39,10 +47,19 @@ DO_VERCEL=false; [[ "${1:-}" == "--vercel" ]] && DO_VERCEL=true
 # Frontend build-time URLs (used by --vercel). Override to match real domains.
 AUTH_URL="${AUTH_URL:-https://auth.operai.welld.io}"
 API_URL="${API_URL:-https://estimai-api.operai.welld.io}"
+NOTIFY_API_URL="${NOTIFY_API_URL:-https://notify-api.operai.welld.io}"
 ESTIMAI_REMOTE_URL="${ESTIMAI_REMOTE_URL:-https://estimai.operai.welld.io/remoteEntry.js}"
 REFUND_REMOTE_URL="${REFUND_REMOTE_URL:-https://refund.operai.welld.io/remoteEntry.js}"
 ADMIN_REMOTE_URL="${ADMIN_REMOTE_URL:-https://admin.operai.welld.io/remoteEntry.js}"
 SHELL_REMOTE_URL="${SHELL_REMOTE_URL:-https://operai.welld.io/remoteEntry.js}"
+
+# ADR-0010 (specs/005-notification-center): ONE audience value, verified by
+# auth (stamps it) and BOTH resource servers (estimai-api, notify-api). Not a
+# secret, but must be byte-for-byte identical across all three services — a
+# drift fails every request closed (401), not open. Defaults to the same
+# local-dev value baked into each service's .env.example; override for a real
+# deploy if you want a non-default suite-wide audience string.
+AUTH_AUDIENCE="${AUTH_AUDIENCE:-operai-suite}"
 
 # ─── Output helpers ───────────────────────────────────────────────────────────
 c() { printf '\033[%sm%s\033[0m' "$1" "$2"; }
@@ -80,8 +97,8 @@ if ! railway service list 2>/dev/null | grep -qi postgres; then
 else
   ok "Postgres already present."
 fi
-info "Ensuring logical databases 'auth' and 'estimai' exist…"
-for DB in auth estimai; do
+info "Ensuring logical databases 'auth', 'estimai', and 'notify' exist…"
+for DB in auth estimai notify; do
   railway run --service Postgres -- psql "\$DATABASE_URL" -v ON_ERROR_STOP=0 -tc \
     "SELECT 'CREATE DATABASE ${DB}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='${DB}')\gexec" \
     >/dev/null 2>&1 || warn "Could not auto-create '${DB}' — create it manually: railway connect Postgres → CREATE DATABASE ${DB};"
@@ -98,6 +115,7 @@ railway variables --service auth \
   --set "GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}" --set "GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}" \
   --set "JWT_PRIVATE_KEY=${JWT_PRIVATE_KEY}" --set "JWT_PUBLIC_KEY=${JWT_PUBLIC_KEY}" \
   --set "ALLOWED_ORIGINS=${UI_ORIGIN}" --set "UI_HOME_URL=${UI_ORIGIN}/" \
+  --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
   ${BOOTSTRAP_ADMIN_EMAIL:+--set "BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL}"} \
   --set "NODE_ENV=production" >/dev/null
 # BETTER_AUTH_URL is set after the domain exists (below). PORT / ENABLE_TEST_AUTH /
@@ -111,8 +129,25 @@ railway variables --service estimai-api \
   --set "ALLOWED_ORIGINS=${UI_ORIGIN}" \
   --set "AUTH_ISSUER=${AUTH_PUBLIC_URL:-$AUTH_URL}" \
   --set "AUTH_JWKS_URL=${AUTH_PUBLIC_URL:-$AUTH_URL}/auth/jwks" \
+  --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
   --set "NODE_ENV=production" >/dev/null
 railway up --service estimai-api --detach && ok "estimai-api deploy triggered."
+
+# ─── notify-api service vars + deploy (specs/005-notification-center) ─────────
+# Own logical DB ('notify', NOT 'estimai'); same AUTH_ISSUER/AUTH_JWKS_URL as
+# estimai-api (same issuer, same JWKS endpoint) but its OWN AUTH_AUDIENCE value
+# (must match auth's and estimai-api's — ADR-0010). railway.json (committed)
+# pins numReplicas: 1 — this script does not and must not override that.
+info "Setting notify-api service variables…"
+railway variables --service notify-api \
+  --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/notify' \
+  --set "ALLOWED_ORIGINS=${UI_ORIGIN}" \
+  --set "AUTH_ISSUER=${AUTH_PUBLIC_URL:-$AUTH_URL}" \
+  --set "AUTH_JWKS_URL=${AUTH_PUBLIC_URL:-$AUTH_URL}/auth/jwks" \
+  --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
+  --set "MAX_STREAM_DURATION=${MAX_STREAM_DURATION:-1800}" \
+  --set "NODE_ENV=production" >/dev/null
+railway up --service notify-api --detach && ok "notify-api deploy triggered."
 
 # ─── Cross-wire: auth must know its own public URL (JWT issuer) ────────────────
 if [[ -n "${AUTH_PUBLIC_URL:-}" ]]; then
@@ -121,7 +156,7 @@ if [[ -n "${AUTH_PUBLIC_URL:-}" ]]; then
   railway redeploy --service auth --yes >/dev/null 2>&1 || railway up --service auth --detach
   ok "auth redeployed with issuer."
 else
-  warn "AUTH_PUBLIC_URL not set → BETTER_AUTH_URL not applied. Generate the auth domain, then re-run with AUTH_PUBLIC_URL=https://<auth-domain> (must equal estimai-api's AUTH_ISSUER)."
+  warn "AUTH_PUBLIC_URL not set → BETTER_AUTH_URL not applied. Generate the auth domain, then re-run with AUTH_PUBLIC_URL=https://<auth-domain> (must equal estimai-api's and notify-api's AUTH_ISSUER)."
 fi
 
 # ─── Optional: sync Vercel env + redeploy (projects must already exist) ────────
@@ -132,15 +167,18 @@ if $DO_VERCEL; then
       || warn "  could not set $2 on $1 (may already exist — remove+re-add or set in dashboard)"
   }
   info "Syncing Vercel env vars (production)…"
-  vset shell VITE_AUTH_URL "$AUTH_URL"; vset shell VITE_API_URL "$API_URL"
+  vset shell VITE_AUTH_URL "$AUTH_URL"; vset shell VITE_API_URL "$API_URL"; vset shell VITE_NOTIFY_API_URL "$NOTIFY_API_URL"
   vset shell ESTIMAI_REMOTE_URL "$ESTIMAI_REMOTE_URL"; vset shell REFUND_REMOTE_URL "$REFUND_REMOTE_URL"; vset shell ADMIN_REMOTE_URL "$ADMIN_REMOTE_URL"
   vset estimai-ui VITE_API_URL "$API_URL"; vset estimai-ui VITE_AUTH_URL "$AUTH_URL"; vset estimai-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
   vset refund-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
   vset admin-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
-  for p in shell estimai-ui refund-ui admin-ui; do vercel deploy --prod --cwd "$p" >/dev/null 2>&1 && ok "  redeployed $p" || warn "  redeploy $p failed — trigger from dashboard"; done
+  # notify-ui (specs/005): no backend var of its own — it goes through shell/session's
+  # VITE_NOTIFY_API_URL (set on the shell project above), same pattern as admin-ui.
+  vset notify-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
+  for p in shell estimai-ui refund-ui admin-ui notify-ui; do vercel deploy --prod --cwd "$p" >/dev/null 2>&1 && ok "  redeployed $p" || warn "  redeploy $p failed — trigger from dashboard"; done
 fi
 
 echo ""
 ok "Done. Verify with:  ./infra/check.sh"
-echo "   Health:  railway status --service auth ; railway status --service estimai-api"
+echo "   Health:  railway status --service auth ; railway status --service estimai-api ; railway status --service notify-api"
 echo "   Migrations + authz seed run automatically via each railway.json preDeployCommand."
