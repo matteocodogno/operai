@@ -70,6 +70,7 @@ class MockEventSource {
   url: string
   closed = false
   onerror: ((event: Event) => void) | null = null
+  onopen: (() => void) | null = null
   private listeners: Record<string, Array<(event: MessageEvent<string>) => void>> = {}
 
   constructor(url: string) {
@@ -96,6 +97,11 @@ class MockEventSource {
   /** Test helper: fires the connection's onerror handler. */
   triggerError(): void {
     this.onerror?.(new Event('error'))
+  }
+
+  /** Test helper: fires the connection's onopen handler (simulates a successful connect). */
+  triggerOpen(): void {
+    this.onopen?.()
   }
 }
 
@@ -437,6 +443,139 @@ describe('SSE connection manager', () => {
     },
     10_000,
   )
+})
+
+// ---------------------------------------------------------------------------
+// Reconnect backoff — DEFECT 3 fix: fixed 1s unbounded retry replaced with
+// exponential backoff + cap + jitter (schedule: 1s, 2s, 4s, 8s, 16s, 30s,
+// 30s, …), resetting to the prompt ~1s retry on a successful (re)connect,
+// with a leaked-timer guard on teardown. `Math.random` is stubbed to 0 in
+// these tests so the (deliberately small, ratio-based) jitter term is
+// neutralized and the schedule is asserted exactly; real jitter only ever
+// adds up to 20% on top.
+// ---------------------------------------------------------------------------
+
+describe('SSE reconnect backoff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('grows exponentially across consecutive failures, capped at 30s', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const { unmount } = renderHook(() => useUnreadCount())
+
+    // Flush the initial (successful) connect.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(MockEventSource.instances).toHaveLength(1)
+
+    // Never call triggerOpen() below — every reconnect in this test also
+    // fails immediately, so the attempt counter keeps climbing per the
+    // documented schedule.
+    const schedule = [1000, 2000, 4000, 8000, 16000, 30000, 30000]
+
+    for (const [i, delay] of schedule.entries()) {
+      const latest = MockEventSource.instances[MockEventSource.instances.length - 1]
+      act(() => {
+        latest.triggerError()
+      })
+
+      // One tick short of the expected delay: no reconnect yet.
+      await vi.advanceTimersByTimeAsync(delay - 1)
+      expect(MockEventSource.instances).toHaveLength(i + 1)
+
+      // The delay elapses: the reconnect fires.
+      await vi.advanceTimersByTimeAsync(1)
+      expect(MockEventSource.instances).toHaveLength(i + 2)
+    }
+
+    unmount()
+  })
+
+  it('keeps the FIRST reconnect after a drop prompt (~1s), only backing off on repeated failures', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const { unmount } = renderHook(() => useUnreadCount())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(MockEventSource.instances).toHaveLength(1)
+
+    act(() => {
+      MockEventSource.instances[0].triggerError()
+    })
+
+    // Not yet at 999ms...
+    await vi.advanceTimersByTimeAsync(999)
+    expect(MockEventSource.instances).toHaveLength(1)
+    // ...fires at 1000ms.
+    await vi.advanceTimersByTimeAsync(1)
+    expect(MockEventSource.instances).toHaveLength(2)
+
+    unmount()
+  })
+
+  it('resets the backoff to ~1s after a successful (re)connect', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+
+    const { unmount } = renderHook(() => useUnreadCount())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(MockEventSource.instances).toHaveLength(1)
+
+    // Two consecutive failures — climbs to a 4s-delay attempt (1s, then 2s).
+    act(() => {
+      MockEventSource.instances[0].triggerError()
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(MockEventSource.instances).toHaveLength(2)
+
+    act(() => {
+      MockEventSource.instances[1].triggerError()
+    })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(MockEventSource.instances).toHaveLength(3)
+
+    // This (re)connect succeeds — the backoff resets.
+    act(() => {
+      MockEventSource.instances[2].triggerOpen()
+    })
+
+    act(() => {
+      MockEventSource.instances[2].triggerError()
+    })
+
+    // A subsequent failure backs off from scratch: ~1s, not 4s/8s.
+    await vi.advanceTimersByTimeAsync(999)
+    expect(MockEventSource.instances).toHaveLength(3)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(MockEventSource.instances).toHaveLength(4)
+
+    unmount()
+  })
+
+  it('close()/signOut cancels a pending reconnect timer — no leaked reconnect', async () => {
+    const { unmount } = renderHook(() => useUnreadCount())
+    await vi.advanceTimersByTimeAsync(0)
+    expect(MockEventSource.instances).toHaveLength(1)
+
+    act(() => {
+      MockEventSource.instances[0].triggerError()
+    })
+    // A reconnect is scheduled (~1s out) but has not fired yet.
+    expect(MockEventSource.instances).toHaveLength(1)
+
+    await signOut()
+    expect(mockAuthClientSignOut).toHaveBeenCalledOnce()
+
+    // Advance well past the scheduled delay (and the whole backoff ceiling)
+    // — the cancelled timer must never fire.
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(MockEventSource.instances).toHaveLength(1)
+
+    unmount()
+  })
 })
 
 // ---------------------------------------------------------------------------

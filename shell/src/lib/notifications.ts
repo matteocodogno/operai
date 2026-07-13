@@ -252,22 +252,58 @@ export function subscribeToasts(listener: (event: ToastEvent) => void): () => vo
 //   6. on error/disconnect: close the EventSource (stops the browser's OWN
 //      built-in reconnect-to-the-same-URL behavior — critical, since the
 //      ticket in that URL is now single-use-consumed and would 401 forever)
-//      and reconnect from step 1 with a FRESH ticket, after a short backoff.
+//      and reconnect from step 1 with a FRESH ticket, after an exponential
+//      backoff (see below).
+//
+// Reconnect backoff: a persistently-failing stream (notify-api down, auth
+// expired, …) must not spin at a fixed ~1 reconnect/sec forever — that was a
+// real defect (excess console errors + ticket-mint + REST-resync load per
+// open tab). Backoff is exponential from INITIAL_RECONNECT_DELAY_MS, doubling
+// per CONSECUTIVE failure, capped at MAX_RECONNECT_DELAY_MS, with up to
+// RECONNECT_JITTER_RATIO of extra random jitter layered on top (avoids a
+// thundering herd of tabs all retrying in lockstep). The schedule (jitter
+// aside): 1s, 2s, 4s, 8s, 16s, 30s, 30s, … — the FIRST reconnect after a drop
+// is still prompt (~1s), so a brief blip recovers fast; only repeated
+// consecutive failures back off. The counter resets to 0 the moment a
+// (re)connect actually succeeds (the EventSource's `onopen`), so a later,
+// unrelated drop starts fresh from ~1s rather than wherever a prior failure
+// streak left off.
 // ---------------------------------------------------------------------------
 
-/** Backoff before minting a fresh ticket + reconnecting after an SSE error. */
-const RECONNECT_DELAY_MS = 1000
+/** First reconnect delay after an SSE error — kept prompt for a brief blip. */
+const INITIAL_RECONNECT_DELAY_MS = 1000
+/** Ceiling for the exponential backoff — never wait longer than this between attempts. */
+const MAX_RECONNECT_DELAY_MS = 30_000
+/** Extra random jitter layered on top of the (capped) delay, as a ratio of it. */
+const RECONNECT_JITTER_RATIO = 0.2
 
 interface SseConnectionState {
   eventSource: EventSource | null
   connecting: boolean
   reconnectTimer: ReturnType<typeof setTimeout> | null
+  /** Consecutive failures since the last successful (re)connect — drives the backoff. */
+  reconnectAttempt: number
 }
 
 const connectionState: SseConnectionState = {
   eventSource: null,
   connecting: false,
   reconnectTimer: null,
+  reconnectAttempt: 0,
+}
+
+/**
+ * Computes the delay before the next reconnect attempt, from the current
+ * consecutive-failure count (`connectionState.reconnectAttempt`). Exponential
+ * doubling from `INITIAL_RECONNECT_DELAY_MS`, capped at
+ * `MAX_RECONNECT_DELAY_MS`, plus up to `RECONNECT_JITTER_RATIO` of extra
+ * random jitter on top of the capped value.
+ */
+function computeReconnectDelay(): number {
+  const exponential = INITIAL_RECONNECT_DELAY_MS * 2 ** connectionState.reconnectAttempt
+  const capped = Math.min(exponential, MAX_RECONNECT_DELAY_MS)
+  const jitter = capped * RECONNECT_JITTER_RATIO * Math.random()
+  return capped + jitter
 }
 
 /**
@@ -358,10 +394,14 @@ function scheduleReconnect(): void {
   if (connectionState.reconnectTimer !== null) {
     return
   }
+  const delay = computeReconnectDelay()
+  // Count this attempt now, so a subsequent failure (if this reconnect also
+  // fails) backs off further — see computeReconnectDelay's doc comment.
+  connectionState.reconnectAttempt += 1
   connectionState.reconnectTimer = setTimeout(() => {
     connectionState.reconnectTimer = null
     void openConnection()
-  }, RECONNECT_DELAY_MS)
+  }, delay)
 }
 
 async function openConnection(): Promise<void> {
@@ -391,6 +431,12 @@ async function openConnection(): Promise<void> {
   es.addEventListener('unread-reset', () => {
     handleUnreadResetEvent()
   })
+  es.onopen = () => {
+    // A successful (re)connect — reset the backoff so a LATER, unrelated
+    // drop starts fresh from the prompt ~1s retry, not wherever a prior
+    // failure streak left off.
+    connectionState.reconnectAttempt = 0
+  }
   es.onerror = () => {
     teardownEventSource()
     // R3: reconcile whatever was missed while the connection was down, then
@@ -425,6 +471,7 @@ function ensureSseConnection(): void {
 export function closeSseConnection(): void {
   clearReconnectTimer()
   connectionState.connecting = false
+  connectionState.reconnectAttempt = 0
   teardownEventSource()
 }
 
