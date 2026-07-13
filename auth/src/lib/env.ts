@@ -19,6 +19,18 @@ const envSchema = z.object({
   // Post-login fallback destination used when `redirect` is absent or fails
   // origin validation (AC-1.3). Must be the EstimAI home absolute URL.
   UI_HOME_URL: z.string().url("UI_HOME_URL must be a valid absolute URL"),
+  // ─── Bootstrap admin (spec 004, T11 — AC-6.1) ───────────────────────────────
+  // The ONLY account granted the `admin` role automatically, on its first
+  // sign-in, with no manual DB edit. Matched against the verified OAuth
+  // `user.email` in `databaseHooks.user.create.after` (auth.config.ts) —
+  // never against anything a client can send in a request. Optional: an
+  // environment with no bootstrap admin configured simply seeds no admin
+  // automatically (an operator must grant it by hand via direct DB access,
+  // since there is no `/admin/*` route usable without an existing admin).
+  BOOTSTRAP_ADMIN_EMAIL: z
+    .string()
+    .email("BOOTSTRAP_ADMIN_EMAIL must be a valid email address")
+    .optional(),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

@@ -9,6 +9,7 @@
     "db:migrate": "node node_modules/prisma/build/index.js migrate dev",
     "db:deploy": "node node_modules/prisma/build/index.js migrate deploy",
     "db:generate": "node node_modules/prisma/build/index.js generate",
+    "db:seed": "bun run src/authz/seed.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
