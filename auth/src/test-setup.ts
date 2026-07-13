@@ -34,6 +34,11 @@ setIfAbsent("ALLOWED_ORIGINS", "http://localhost:5173,https://app.estimai.io");
 // UI_HOME_URL: post-login fallback destination (AC-1.3) — validated by the
 // env schema; must be an absolute URL.
 setIfAbsent("UI_HOME_URL", "http://localhost:5173");
+// notify-api internal email channel (specs/006-user-invitations, T6) — a
+// placeholder URL/token so the env schema validates in tests that never
+// actually call notify-api (routes tests mock `../lib/notify` instead).
+setIfAbsent("NOTIFY_INTERNAL_URL", "http://localhost:3099");
+setIfAbsent("NOTIFY_INTERNAL_TOKEN", "test-notify-internal-token");
 setIfAbsent("NODE_ENV", "test");
 // ENABLE_TEST_AUTH is intentionally NOT set here (defaults to disabled).
 // Individual test files that need the gate open set it explicitly.
