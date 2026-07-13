@@ -17,12 +17,18 @@
  *   (F) mark-all-read invoked on open: `resetUnreadCount()` THEN
  *       `POST /notifications/mark-all-read` (AC-3.1)
  *   (G) the explicit "Mark all as read" control (AC-3.4)
- *   (H) a linked item follows as a real route navigation (AC-2.5)
+ *   (H) a linked item renders as a real anchor with the correct in-suite href
+ *       (AC-2.5) — the actual cross-remote navigation is a real browser
+ *       navigation handled by the shell's top-level router, exercised at the
+ *       e2e level (T21), not simulable via a same-page router harness
+ *
+ * NotificationCenterPage itself never touches `@tanstack/react-router`
+ * directly (NotificationItem renders a plain `<a href>`, not a `<Link>`,
+ * see NotificationItem.tsx), so no router harness/context is needed here.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import NotificationCenterPage from './NotificationCenterPage'
 import type { ListNotificationsResponse, Notification } from '../lib/notificationsApi'
 
@@ -38,28 +44,8 @@ vi.mock('../lib/notificationsApi', () => ({
 import { resetUnreadCount } from 'shell/session'
 import { listNotifications, markAllRead } from '../lib/notificationsApi'
 
-// ---------------------------------------------------------------------------
-// Router harness — mirrors admin-ui/src/pages/UsersPage.test.tsx: the page
-// renders `<Link>`s for items carrying a link, which needs a real router
-// context; a stub destination route proves navigation actually lands.
-// ---------------------------------------------------------------------------
-
 function renderCenterPage() {
-  window.history.pushState(null, '', '/')
-  const rootRoute = createRootRoute()
-  const centerRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/',
-    component: NotificationCenterPage,
-  })
-  const destinationRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/estimai/estimates/$id',
-    component: () => <p>Estimate detail</p>,
-  })
-  const routeTree = rootRoute.addChildren([centerRoute, destinationRoute])
-  const router = createRouter({ routeTree })
-  return render(<RouterProvider router={router} />)
+  return render(<NotificationCenterPage />)
 }
 
 function pendingPromise<T>(): Promise<T> {
@@ -281,8 +267,8 @@ describe('NotificationCenterPage', () => {
     })
   })
 
-  // (H) Link follow — real route navigation
-  it('follows a notification link as an in-suite route navigation', async () => {
+  // (H) Linked item — real anchor with the untouched in-suite href
+  it('renders a notification link as a real anchor with the correct in-suite href', async () => {
     vi.mocked(listNotifications).mockResolvedValue(listOf([linkedNotification]))
 
     renderCenterPage()
@@ -290,10 +276,6 @@ describe('NotificationCenterPage', () => {
     const row = await screen.findByTestId('notification-item-n-3')
     expect(row.tagName).toBe('A')
     expect(row.getAttribute('href')).toBe('/estimai/estimates/abc')
-
-    fireEvent.click(row)
-
-    expect(await screen.findByText('Estimate detail')).not.toBeNull()
-    expect(window.location.pathname).toBe('/estimai/estimates/abc')
+    expect(row.getAttribute('href')).not.toMatch(/^\/notify/)
   })
 })

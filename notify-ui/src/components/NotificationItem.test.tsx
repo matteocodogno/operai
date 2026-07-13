@@ -11,28 +11,32 @@
  *       tag, the sr-only "New: " prefix, and the heavier title weight are
  *       ALL present when `wasUnread` is true, and ALL absent when false.
  *   (C) Link vs static row (AC-2.5, AC-4.3): a notification with a `link`
- *       renders the whole row as a real `<a>` (TanStack Router `<Link>`) —
- *       never a `window.location` assignment; one without renders a static,
+ *       renders the whole row as a real `<a href>` — a genuine browser
+ *       anchor, never a TanStack Router `<Link>` and never a raw
+ *       `window.location` assignment; one without renders a static,
  *       non-interactive `<div>`.
- *   (D) Link follow: activating a linked row is a real in-suite route
- *       navigation (checked against a router harness with a stub
- *       destination route, mirroring admin-ui/src/pages/UsersPage.test.tsx's
- *       `<Link to="/users/$id">` harness technique).
+ *   (D) The anchor's `href` is the untouched, absolute in-suite path (e.g.
+ *       "/estimai/estimates/abc") — NOT rewritten relative to notify-ui's
+ *       own `/notify` basepath. This is the regression check for the
+ *       cross-remote navigation bug: a `<Link>` here would have resolved
+ *       the path against notify-ui's inner router and produced
+ *       "/notify/estimai/estimates/abc", which 404s inside notify-ui and
+ *       never reaches the target remote. A real anchor's `href` is left
+ *       alone by the browser and is handled by the shell's own top-level
+ *       router once the resulting navigation reaches it (ADR-0006).
  *
- * `<Link>` requires a TanStack Router context, so every render here goes
- * through a minimal two-route harness (this component's row + a stub
- * destination route) rather than a bare `render(<NotificationItem .../>)`.
+ * NotificationItem no longer needs a TanStack Router context (it renders a
+ * plain `<a>`, not a `<Link>`), so these are now bare
+ * `render(<NotificationItem .../>)` calls — no router harness required.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import { cleanup, render, screen } from '@testing-library/react'
 import NotificationItem from './NotificationItem'
 import type { Notification } from '../lib/notificationsApi'
 
 afterEach(() => {
   cleanup()
-  window.history.pushState(null, '', '/')
 })
 
 const baseNotification: Notification = {
@@ -46,34 +50,12 @@ const baseNotification: Notification = {
   createdAt: '2026-07-10T08:00:00.000Z',
 }
 
-function renderItem(notification: Notification, wasUnread: boolean) {
-  window.history.pushState(null, '', '/')
-  const rootRoute = createRootRoute()
-  const listRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/',
-    component: () => (
-      <ul role="list">
-        <NotificationItem notification={notification} wasUnread={wasUnread} />
-      </ul>
-    ),
-  })
-  const destinationRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/estimai/estimates/$id',
-    component: () => <p>Estimate detail</p>,
-  })
-  const routeTree = rootRoute.addChildren([listRoute, destinationRoute])
-  const router = createRouter({ routeTree })
-  return render(<RouterProvider router={router} />)
-}
-
 describe('NotificationItem', () => {
   // (A) Base render
-  it('renders title, body, origin app, time, and a severity icon+sr-only label', async () => {
-    renderItem(baseNotification, false)
+  it('renders title, body, origin app, time, and a severity icon+sr-only label', () => {
+    render(<NotificationItem notification={baseNotification} wasUnread={false} />)
 
-    expect(await screen.findByTestId('notification-title-notif-1')).not.toBeNull()
+    expect(screen.getByTestId('notification-title-notif-1')).not.toBeNull()
     expect(screen.getByTestId('notification-title-notif-1').textContent).toBe('Export finished')
     expect(screen.getByText('Your XLSX export is ready.')).not.toBeNull()
     expect(screen.getByTestId('notification-origin-notif-1').textContent).toBe('EstimAI')
@@ -87,7 +69,7 @@ describe('NotificationItem', () => {
     expect(time?.getAttribute('dateTime')).toBe('2026-07-10T08:00:00.000Z')
   })
 
-  it("renders each severity's own icon + sr-only label", async () => {
+  it("renders each severity's own icon + sr-only label", () => {
     const cases: Array<[Notification['severity'], string, string]> = [
       ['info', 'ⓘ', 'Severity: Info'],
       ['success', '✓', 'Severity: Success'],
@@ -96,18 +78,18 @@ describe('NotificationItem', () => {
     ]
 
     for (const [severity, icon, label] of cases) {
-      renderItem({ ...baseNotification, severity }, false)
-      expect(await screen.findByText(icon)).not.toBeNull()
+      render(<NotificationItem notification={{ ...baseNotification, severity }} wasUnread={false} />)
+      expect(screen.getByText(icon)).not.toBeNull()
       expect(screen.getByText(label)).not.toBeNull()
       cleanup()
     }
   })
 
   // (B) Was-unread affordance
-  it('renders the "New" tag, sr-only "New: " prefix, and a heavier title weight when wasUnread', async () => {
-    renderItem(baseNotification, true)
+  it('renders the "New" tag, sr-only "New: " prefix, and a heavier title weight when wasUnread', () => {
+    render(<NotificationItem notification={baseNotification} wasUnread={true} />)
 
-    const tag = await screen.findByTestId('notification-new-tag-notif-1')
+    const tag = screen.getByTestId('notification-new-tag-notif-1')
     expect(tag.textContent).toBe('New')
 
     const prefix = screen.getByTestId('notification-new-prefix-notif-1')
@@ -118,48 +100,45 @@ describe('NotificationItem', () => {
     expect(title.className).toContain('font-semibold')
   })
 
-  it('renders none of the was-unread affordance when not wasUnread', async () => {
-    renderItem(baseNotification, false)
+  it('renders none of the was-unread affordance when not wasUnread', () => {
+    render(<NotificationItem notification={baseNotification} wasUnread={false} />)
 
-    await screen.findByTestId('notification-title-notif-1')
+    screen.getByTestId('notification-title-notif-1')
     expect(screen.queryByTestId('notification-new-tag-notif-1')).toBeNull()
     expect(screen.queryByTestId('notification-new-prefix-notif-1')).toBeNull()
     expect(screen.getByTestId('notification-title-notif-1').className).toContain('font-normal')
   })
 
   // (C) Link vs static row
-  it('renders a static, non-interactive row when there is no link', async () => {
-    renderItem(baseNotification, false)
+  it('renders a static, non-interactive row when there is no link', () => {
+    render(<NotificationItem notification={baseNotification} wasUnread={false} />)
 
-    const row = await screen.findByTestId('notification-item-notif-1')
+    const row = screen.getByTestId('notification-item-notif-1')
     expect(row.tagName).toBe('DIV')
   })
 
-  it('renders the whole row as a real anchor when a link is present', async () => {
+  it('renders the whole row as a real anchor when a link is present', () => {
     const withLink: Notification = {
       ...baseNotification,
       link: { href: '/estimai/estimates/abc', label: 'Open this estimate' },
     }
-    renderItem(withLink, false)
+    render(<NotificationItem notification={withLink} wasUnread={false} />)
 
-    const row = await screen.findByTestId('notification-item-notif-1')
+    const row = screen.getByTestId('notification-item-notif-1')
     expect(row.tagName).toBe('A')
-    expect(row.getAttribute('href')).toBe('/estimai/estimates/abc')
     expect(screen.getByText('Open this estimate')).not.toBeNull()
   })
 
-  // (D) Link follow — a real in-suite route navigation
-  it('activating a linked row navigates to the destination route (not window.location)', async () => {
+  // (D) Cross-remote link — the href must be the untouched absolute path
+  it('keeps an in-suite absolute link href intact (not rewritten under /notify)', () => {
     const withLink: Notification = {
       ...baseNotification,
       link: { href: '/estimai/estimates/abc', label: 'Open this estimate' },
     }
-    renderItem(withLink, false)
+    render(<NotificationItem notification={withLink} wasUnread={false} />)
 
-    const row = await screen.findByTestId('notification-item-notif-1')
-    fireEvent.click(row)
-
-    expect(await screen.findByText('Estimate detail')).not.toBeNull()
-    expect(window.location.pathname).toBe('/estimai/estimates/abc')
+    const row = screen.getByTestId('notification-item-notif-1')
+    expect(row.getAttribute('href')).toBe('/estimai/estimates/abc')
+    expect(row.getAttribute('href')).not.toMatch(/^\/notify/)
   })
 })

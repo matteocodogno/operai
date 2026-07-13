@@ -1,5 +1,4 @@
 import type { CSSProperties } from 'react'
-import { Link } from '@tanstack/react-router'
 import { SEVERITY_META, originAppLabel } from '../lib/severity'
 import type { Notification } from '../lib/notificationsApi'
 
@@ -19,25 +18,30 @@ import type { Notification } from '../lib/notificationsApi'
  *     assistive-tech users who perceive none of the visual channels.
  *
  * When the notification carries a `link` (AC-2.5, AC-4.3) the entire row is
- * a real `<Link>` (design.md Accessibility: "the whole row itself is the
- * real, natively keyboard-operable anchor" — reusing Sidebar.tsx's/
- * SectionNav.tsx's "always a real anchor for navigation" convention, and
- * matching Sidebar.tsx's own precedent of passing a plain runtime `string`
- * to `to=`, not just a route-tree literal). When absent, the row is a
+ * a real `<a href>` (design.md Accessibility: "the whole row itself is the
+ * real, natively keyboard-operable anchor"). When absent, the row is a
  * static, non-interactive container (no tab stop — "don't make
  * non-interactive content focusable").
  *
- * `to={link.href}` targets an in-suite ABSOLUTE path (e.g.
+ * IMPORTANT: this is a plain `<a href={link.href}>`, NOT a TanStack Router
+ * `<Link>`. `link.href` targets an in-suite ABSOLUTE path (e.g.
  * "/estimai/estimates/abc") that lives outside notify-ui's own inner router
- * (which only ever registers `/`, see ../router.tsx) — cross-remote
- * navigation ultimately depends on the shell's own top-level router picking
- * up the resulting history change once mounted inside the real shell
- * (ADR-0006's per-remote nested-router model). This is exercised at the
- * unit level here (a `<Link>`/real anchor is rendered, never a raw
- * `window.location` assignment — AC-2.5's explicit security note) and
- * across remotes at the e2e level (T21, plan.md's test-strategy row for
- * AC-2.5) — flagging this boundary explicitly since it is the first
- * notify-ui code to link to a path outside its own basepath.
+ * (which only ever registers `/`, see ../router.tsx and its own
+ * `basepath: '/notify'`). A `<Link>` here would resolve that path RELATIVE
+ * TO notify-ui's basepath (producing `/notify/estimai/estimates/abc`, a
+ * dead route that 404s inside notify-ui and never reaches the target
+ * remote) — there is no shared router *instance* across remotes (ADR-0006:
+ * `@tanstack/react-router` is a shared MF *library* singleton, not a shared
+ * router instance), so a remote's inner `<Link>` cannot navigate outside
+ * its own basepath. A real `<a href>` instead performs a genuine browser
+ * navigation, which the shell's own top-level router (basepath `/`, which
+ * knows every remote route) picks up correctly. This is exercised at the
+ * unit level here (a real anchor with the untouched absolute `href` is
+ * rendered, never a raw `window.location` assignment — AC-2.5's explicit
+ * security note) and across remotes at the e2e level (T21, plan.md's
+ * test-strategy row for AC-2.5) — flagging this boundary explicitly since
+ * it is the first notify-ui code to link to a path outside its own
+ * basepath.
  */
 
 export interface NotificationItemProps {
@@ -155,14 +159,14 @@ export default function NotificationItem({ notification, wasUnread }: Notificati
   if (notification.link) {
     return (
       <li role="listitem">
-        <Link
-          to={notification.link.href}
+        <a
+          href={notification.link.href}
           data-testid={`notification-item-${notification.id}`}
           className={rowClassName}
           style={rowStyle}
         >
           {body}
-        </Link>
+        </a>
       </li>
     )
   }
