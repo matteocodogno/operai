@@ -522,6 +522,24 @@ describe("POST /notifications — unauthenticated → 401", () => {
     const after = await testDb.notification.count({ where: { recipientId: USER_A_ID } });
     expect(after).toBe(before);
   });
+
+  // ADR-0011 (T3, specs/006-user-invitations): jwtMiddleware and the new
+  // /system/emails internalTokenMiddleware are mutually exclusive by route,
+  // never layered. jwtMiddleware only ever reads Authorization: Bearer — an
+  // X-Internal-Token header (even a real one) is simply not a credential it
+  // looks at, so a user-facing route must still 401 without a Bearer JWT.
+  it("X-Internal-Token header alone (no Authorization Bearer) → still 401 — jwtMiddleware never accepts the internal token", async () => {
+    const app = buildApp();
+    const res = await app.request("/notifications", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": "some-internal-token-value-not-a-jwt",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ title: "x", body: "y", originApp: "estimai" }),
+    });
+    expect(res.status).toBe(401);
+  });
 });
 
 // ─── 413: body-size cap ───────────────────────────────────────────────────────

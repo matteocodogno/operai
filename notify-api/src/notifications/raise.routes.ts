@@ -2,9 +2,12 @@
  * POST /notifications — raise endpoint (T4, specs/005-notification-center,
  * plan.md §API contracts / §Architecture "raise → persist → push → badge" sequence).
  *
- * Flow: jwtMiddleware (ADR-0005 + ADR-0010) → zod-validate body → INSERT
- * (recipientId := JWT sub) → publish() the event to the EventBus (T3) so every
- * open SSE stream for that sub receives it (T7 wires the consumption side).
+ * Flow: jwtMiddleware (ADR-0005 + ADR-0010) → zod-validate body → the inApp
+ * channel (T2, specs/006-user-invitations) INSERTs (recipientId := JWT sub)
+ * and publish()es the event to the EventBus (T3) so every open SSE stream for
+ * that sub receives it (T7 wires the consumption side). The persist+publish
+ * sequence itself is unchanged from before the T2 channel refactor — only its
+ * location moved, from this handler into src/channels/inApp.channel.ts.
  *
  * SECURITY (OWASP A01 — never trust the body for identity):
  *   RaiseNotificationSchema has no recipient/recipientId field at all (see
@@ -20,11 +23,9 @@
  */
 
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
-import { Effect } from "effect";
 import { bodyLimit } from "hono/body-limit";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
-import { eventBus } from "./eventBus";
-import { createNotification } from "./notifications.repo";
+import { inAppChannel } from "@/channels/inApp.channel";
 import {
   NotificationSchema,
   ProblemSchema,
@@ -108,7 +109,7 @@ raiseRouter.openapi(raiseRoute, async (c) => {
   const recipientId = c.get("userId");
   const body = c.req.valid("json");
 
-  const effect = createNotification({
+  const created = await inAppChannel.send({
     recipientId,
     title: body.title,
     body: body.body,
@@ -116,21 +117,6 @@ raiseRouter.openapi(raiseRoute, async (c) => {
     originApp: body.originApp,
     link: body.link,
     toastWorthy: body.toast,
-  });
-
-  const exit = await Effect.runPromiseExit(effect);
-
-  if (exit._tag === "Failure") {
-    throw new Error("Unexpected database failure creating notification");
-  }
-
-  const created = exit.value;
-
-  // Publish AFTER persistence succeeds — the DB is the source of truth (plan.md
-  // Risk R3/R5); a dropped publish never loses the notification, only the live push.
-  eventBus.publish(recipientId, {
-    type: "notification",
-    data: created,
   });
 
   return c.json(created, 201);

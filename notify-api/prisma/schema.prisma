@@ -41,3 +41,31 @@ model Notification {
   @@index([recipientId, readAt]) // unread-count / mark-all-read (AC-1.2, AC-3.1)
   @@map("notification")
 }
+
+// EmailDelivery (T1, specs/006-user-invitations, plan.md §Data model, ADR-0011).
+//
+// A delivery-log row for notify-api's SECOND channel (email, alongside the
+// existing in-app/SSE channel above). Addresses a RAW email string — there is
+// no `User` table in this service (users live only in the auth DB), so this
+// is deliberately NOT a foreign key, mirroring recipientId on Notification.
+//
+// One row per send ATTEMPT (create + resend both write a new row — no update-
+// in-place), so the log is an audit trail of attempts, not current state.
+// `status` is the outcome of the synchronous send ("queued" is reserved for a
+// future async delivery path — v1 never leaves a row in that state).
+// `providerId` is Resend's message id (present only when status == "sent").
+// `error` is a short failure reason (present only when status == "failed") —
+// never the raw Resend/network error object (ADR-0011 Risks: never log the
+// internal token or email content; this column follows the same posture).
+model EmailDelivery {
+  id         String   @id @default(cuid())
+  to         String
+  template   String // "invitation" | "invitation_resend" (closed set validated at the zod boundary)
+  status     String // "queued" | "sent" | "failed"
+  providerId String? // Resend message id, present only when status == "sent"
+  error      String? // short failure reason, present only when status == "failed"
+  createdAt  DateTime @default(now())
+
+  @@index([to, createdAt(sort: Desc)]) // per-address delivery history, newest-first
+  @@map("email_delivery")
+}
