@@ -3,9 +3,9 @@ import { env } from "./lib/env";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
+import { requestLogger } from "./lib/logger";
 import { listRouter } from "./notifications/list.routes";
 import { markReadRouter } from "./notifications/markRead.routes";
 import { raiseRouter } from "./notifications/raise.routes";
@@ -26,9 +26,13 @@ app.use(
   }),
 );
 
-// Log method / path / status only — NEVER log bodies (data-residency constraint:
-// notification title/body may name clients/estimates and must not appear in logs).
-app.use("*", logger());
+// Log method / PATH ONLY (no query string) / status / duration — NEVER log
+// bodies (data-residency constraint: notification title/body may name clients/
+// estimates and must not appear in logs) and never log query strings either:
+// GET /notifications/stream?ticket=<t> carries the single-use SSE ticket
+// (ADR-0008) in its query string, and hono/logger's stock implementation logs
+// the full path INCLUDING the query string — see src/lib/logger.ts.
+app.use("*", requestLogger());
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 

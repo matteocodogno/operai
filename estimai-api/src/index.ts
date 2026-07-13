@@ -3,10 +3,10 @@ import { env } from "./lib/env";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { estimatesRouter, importEstimatesRouter } from "./estimates/estimates.routes";
+import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -23,9 +23,13 @@ app.use(
   }),
 );
 
-// Log method / path / status only — NEVER log bodies (data-residency constraint:
-// estimate content must not appear in application logs).
-app.use("*", logger());
+// Log method / PATH ONLY (no query string) / status / duration — NEVER log
+// bodies (data-residency constraint: estimate content must not appear in
+// logs). Query strings are dropped too — shared src/lib/logger.ts posture
+// with notify-api, whose GET /notifications/stream?ticket=<t> (ADR-0008)
+// carries a live single-use credential in the query string that hono/logger's
+// stock implementation would otherwise write to application logs.
+app.use("*", requestLogger());
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 

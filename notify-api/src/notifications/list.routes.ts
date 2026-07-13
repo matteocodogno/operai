@@ -33,7 +33,17 @@ import {
 
 export const listRouter = new OpenAPIHono<{ Variables: JwtVariables }>();
 
-listRouter.use("*", jwtMiddleware);
+// jwtMiddleware is scoped to this router's TWO exact paths only — NEVER
+// `.use("*", jwtMiddleware)`. index.ts mounts every notifications router at
+// the same prefix (`app.route("/", listRouter)` etc.), and Hono merges each
+// child router's middleware into ONE flat route table once mounted — a "*"
+// registered on ANY sub-router therefore gates the WHOLE app, including
+// `GET /notifications/stream`, which per ADR-0008 MUST be reachable WITHOUT a
+// Bearer (EventSource cannot send one; it is authed by the query-string
+// ticket instead). This mirrors the precedent already documented in
+// stream.routes.ts's stream-ticket route.
+listRouter.use("/notifications", jwtMiddleware);
+listRouter.use("/notifications/unread-count", jwtMiddleware);
 
 // ─── GET /notifications — list, newest-first, cursor-paginated ──────────────
 

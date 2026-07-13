@@ -20,7 +20,16 @@ import { MarkAllReadResponseSchema, ProblemSchema } from "./notifications.schema
 
 export const markReadRouter = new OpenAPIHono<{ Variables: JwtVariables }>();
 
-markReadRouter.use("*", jwtMiddleware);
+// jwtMiddleware is scoped to this router's ONE exact path only — NEVER
+// `.use("*", jwtMiddleware)`. index.ts mounts every notifications router at
+// the same prefix (`app.route("/", markReadRouter)` etc.), and Hono merges
+// each child router's middleware into ONE flat route table once mounted — a
+// "*" registered on ANY sub-router therefore gates the WHOLE app, including
+// `GET /notifications/stream`, which per ADR-0008 MUST be reachable WITHOUT a
+// Bearer (EventSource cannot send one; it is authed by the query-string
+// ticket instead). This mirrors the precedent already documented in
+// stream.routes.ts's stream-ticket route.
+markReadRouter.use("/notifications/mark-all-read", jwtMiddleware);
 
 const markAllReadRoute = createRoute({
   method: "post",
