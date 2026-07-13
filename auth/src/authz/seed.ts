@@ -3,8 +3,10 @@
  * permissions — refs AC-6.1, AC-6.2, AC-6.3, AC-3.4; plan.md "Bootstrap &
  * seed" + "Catalog registration"; ADR-0007).
  *
- * Three independent, idempotent responsibilities, both safe to re-run any
- * number of times (at every deploy, and from tests):
+ * Independent, idempotent responsibilities, all safe to re-run any number of
+ * times (at every deploy, and from tests) — roles + catalog, admin app-access
+ * grants (so a bootstrap admin can actually reach the Admin tool), and
+ * promoting the configured bootstrap-admin account:
  *
  *   1. {@link seedSystemRoles} — upsert the four system roles `employee`,
  *      `admin`, `accounting`, `hr` (`isSystem: true`, AC-6.2). `isSystem`
@@ -113,11 +115,79 @@ export async function seedEstimaiCatalog(): Promise<void> {
   await upsertAppCatalog(ESTIMAI_CATALOG);
 }
 
-/** Runs every deploy-time seed step. */
+/** Every suite app id. `estimai` declares its own catalog; the rest come from SUITE_APPS. */
+export const ALL_APP_IDS: readonly string[] = ["estimai", ...SUITE_APPS.map((a) => a.appId)];
+
+/**
+ * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
+ * seed leaves `admin` with zero permission rules, so even the bootstrap admin
+ * resolves to `apps: []` and is stranded on the shell's `/no-access` screen —
+ * unable to reach the very Admin tool needed to grant anyone (themselves
+ * included) anything. So `admin` must be able to see the whole suite out of the
+ * box. Employees deliberately get NO default grants — app access is fully
+ * admin-assigned (product decision, specs/004). Idempotent: each
+ * (role, resource, action) grant is created only when absent.
+ */
+export async function seedAdminRoleGrants(): Promise<void> {
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  for (const appId of ALL_APP_IDS) {
+    const existing = await db.permissionRule.findFirst({
+      where: { roleId: adminRole.id, resource: appId, action: "access" },
+    });
+    if (!existing) {
+      // Omit `conditions` → defaults to null (an unconditional grant); app
+      // `access` declares no supported conditions anyway.
+      await db.permissionRule.create({
+        data: { roleId: adminRole.id, resource: appId, action: "access" },
+      });
+    }
+  }
+}
+
+/**
+ * Idempotently ensures the configured `BOOTSTRAP_ADMIN_EMAIL` account (if it
+ * already exists) holds the `admin` role, and bumps its permission epoch.
+ * Complements the create-time hook ({@link assignBaselineRolesToNewUser}) which
+ * only fires on NEW users — so an admin who signed in BEFORE the env var was
+ * configured is still promoted on the next deploy/seed, with no manual DB
+ * surgery. No-op when the var is unset or the user doesn't exist yet. Email
+ * match is case-insensitive against the OAuth-verified address.
+ */
+export async function ensureBootstrapAdmin(): Promise<void> {
+  const bootstrapEmail = env.BOOTSTRAP_ADMIN_EMAIL;
+  if (!bootstrapEmail) return;
+  const user = await db.user.findFirst({
+    where: { email: { equals: bootstrapEmail, mode: "insensitive" } },
+    select: { id: true },
+  });
+  if (!user) return;
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await db.userRole.upsert({
+    where: { userId_roleId: { userId: user.id, roleId: adminRole.id } },
+    update: {},
+    create: { userId: user.id, roleId: adminRole.id },
+  });
+  await db.user.update({
+    where: { id: user.id },
+    data: { permissionEpoch: { increment: 1 } },
+  });
+}
+
+/** Runs every deploy-time seed step (all idempotent). */
 export async function seed(): Promise<void> {
   await seedSystemRoles();
   await seedAppAccessCatalog();
   await seedEstimaiCatalog();
+  await seedAdminRoleGrants();
+  await ensureBootstrapAdmin();
 }
 
 // ─── Per-user baseline role assignment (AC-6.1, AC-6.3) ─────────────────────
@@ -192,7 +262,9 @@ export async function assignBaselineRolesToNewUser(
 if (import.meta.main) {
   seed()
     .then(() => {
-      console.log("Seeded system roles + suite app-access catalog + EstimAI catalog");
+      console.log(
+        "Seeded system roles + suite app-access catalog + EstimAI catalog + admin app-access grants + bootstrap admin",
+      );
       process.exit(0);
     })
     .catch((err) => {

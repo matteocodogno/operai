@@ -36,9 +36,12 @@ import { env } from "../lib/env";
 import { getAppCatalog } from "./catalog";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
 import {
+  ALL_APP_IDS,
   assignBaselineRolesToNewUser,
   EMPLOYEE_ROLE_NAME,
+  ensureBootstrapAdmin,
   seed,
+  seedAdminRoleGrants,
   seedAppAccessCatalog,
   seedEstimaiCatalog,
   seedSystemRoles,
@@ -284,5 +287,55 @@ describe("seed() — runs every deploy-time step", () => {
     expect(estimaiCatalog.resources.some((r) => r.key === ESTIMAI_APP_ID)).toBe(true);
     const estimateResource = estimaiCatalog.resources.find((r) => r.key === "estimate");
     expect(estimateResource?.actions).toHaveLength(4);
+  });
+});
+
+describe("seedAdminRoleGrants — admin can reach the whole suite (bootstrap usability)", () => {
+  test("grants the admin role `access` to every app; employee gets none; idempotent", async () => {
+    await seedSystemRoles();
+    await seedAdminRoleGrants();
+    await seedAdminRoleGrants(); // re-run must not duplicate
+
+    const admin = await db.role.findUnique({ where: { name: ADMIN_ROLE_NAME } });
+    const adminAccess = await db.permissionRule.findMany({
+      where: { roleId: admin!.id, action: "access" },
+    });
+    expect(adminAccess.map((r) => r.resource).sort()).toEqual([...ALL_APP_IDS].sort());
+    expect(adminAccess.length).toBe(ALL_APP_IDS.length); // idempotent — no dups
+
+    // Employees deliberately get nothing (fully admin-assigned, specs/004).
+    const employee = await db.role.findUnique({ where: { name: EMPLOYEE_ROLE_NAME } });
+    const employeeRules = await db.permissionRule.findMany({ where: { roleId: employee!.id } });
+    expect(employeeRules).toHaveLength(0);
+  });
+});
+
+describe("ensureBootstrapAdmin — promotes an already-existing account", () => {
+  const ids: string[] = [];
+  afterAll(async () => {
+    if (ids.length) await db.user.deleteMany({ where: { id: { in: ids } } });
+    setBootstrapEmail(undefined);
+  });
+
+  test("an EXISTING user whose email matches BOOTSTRAP_ADMIN_EMAIL gets admin + an epoch bump (no create hook needed)", async () => {
+    const email = `ensure-bootstrap-${RUN_ID}@operai.test`;
+    // A user who signed in BEFORE the env var was set: exists, employee-only, no admin.
+    const user = await db.user.create({ data: { email, name: "Pre-existing", emailVerified: true } });
+    ids.push(user.id);
+    await seedSystemRoles();
+    expect(await userHasRole(user.id, ADMIN_ROLE_NAME)).toBe(false);
+
+    setBootstrapEmail(email.toUpperCase()); // case-insensitive match
+    await ensureBootstrapAdmin();
+
+    expect(await userHasRole(user.id, ADMIN_ROLE_NAME)).toBe(true);
+    const after = await db.user.findUnique({ where: { id: user.id }, select: { permissionEpoch: true } });
+    expect(after!.permissionEpoch).toBeGreaterThan(0);
+  });
+
+  test("no-op when BOOTSTRAP_ADMIN_EMAIL is unset", async () => {
+    setBootstrapEmail(undefined);
+    await ensureBootstrapAdmin(); // must not throw
+    expect(true).toBe(true);
   });
 });
