@@ -106,6 +106,28 @@ const UserDetailSchema = z.object({
   departments: z.array(DepartmentSummarySchema),
 });
 
+// ─── Soft-delete schemas (T7, specs/006-user-invitations — refs US-5, US-6) ───
+
+const DeleteUserResponseSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  deletedAt: z.string(),
+});
+
+const BulkDeleteBodySchema = z.object({
+  userIds: z.array(z.string().min(1)).min(1),
+});
+
+const SkippedUserSchema = z.object({
+  userId: z.string(),
+  reason: z.string(),
+});
+
+const BulkDeleteResponseSchema = z.object({
+  deleted: z.array(z.string()),
+  skipped: z.array(SkippedUserSchema),
+});
+
 const PatchUserBodySchema = z
   .object({
     entity: z.enum(ENTITY_VALUES).nullable().optional(),
@@ -287,14 +309,20 @@ const listUsersRoute = createRoute({
 usersRouter.openapi(listUsersRoute, async (c) => {
   const { page, pageSize, q } = c.req.valid("query");
 
-  const whereClause: Prisma.UserWhereInput = q
-    ? {
-        OR: [
-          { name: { contains: q, mode: "insensitive" } },
-          { email: { contains: q, mode: "insensitive" } },
-        ],
-      }
-    : {};
+  // AC-5.3 (specs/006-user-invitations, T7): a soft-deleted user is gone
+  // from every user-facing list — filtered out here, not merely hidden by
+  // the UI, so no client can discover them via this endpoint either.
+  const whereClause: Prisma.UserWhereInput = {
+    deletedAt: null,
+    ...(q
+      ? {
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
 
   const [rows, total] = await Promise.all([
     db.user.findMany({
@@ -376,6 +404,7 @@ usersRouter.openapi(getUserRoute, async (c) => {
       entity: true,
       jobTitle: true,
       permissionEpoch: true,
+      deletedAt: true,
       userRoles: { select: { role: { select: { id: true, name: true } } } },
       userDepartments: {
         select: { department: { select: { id: true, name: true } } },
@@ -383,7 +412,11 @@ usersRouter.openapi(getUserRoute, async (c) => {
     },
   });
 
-  if (!user) {
+  // AC-5.4 (specs/006-user-invitations, T7): a soft-deleted user's record is
+  // retained internally (audit/referential integrity) but there is no
+  // admin-facing way to browse them — the detail endpoint 404s exactly as
+  // if the row didn't exist, same as an unknown id.
+  if (!user || user.deletedAt !== null) {
     return c.json(notFound(c.req.path, `No user with id ${id}`), 404);
   }
 
@@ -400,6 +433,263 @@ usersRouter.openapi(getUserRoute, async (c) => {
     },
     200,
   );
+});
+
+// ─── DELETE /admin/users/:id ──────────────────────────────────────────────────
+//
+// Soft-delete (T7, specs/006-user-invitations — refs US-5, AC-5.1, AC-5.3–5.9;
+// ADR-0012). Per-delete, inside a single `withAudit` transaction:
+//   1. AC-5.6 (absolute, checked first, independent of admin-count): the
+//      caller can never delete their own account through this action.
+//   2. 404 if the target doesn't exist or is already soft-deleted (AC-5.4 —
+//      no admin-facing way to "see" a soft-deleted user at all).
+//   3. AC-5.5: the last-admin guard (reused from `./lastAdminGuard.ts`,
+//      T10/specs/004) — deletion always removes ALL effective access, so
+//      `willBeAdminAfter` is unconditionally `false` here (unlike the
+//      roles/departments routes, which pass the caller's proposed new set).
+//   4. `deletedAt`/`deletedByUserId` set + a SYNCHRONOUS `session.deleteMany`
+//      in the SAME transaction (AC-5.1 — not a background job) + the
+//      `withAudit` epoch bump + `user.delete` audit row (AC-5.8). The user's
+//      `Account`/`UserRole`/`UserDepartment` rows are retained untouched
+//      (AC-5.4, ADR-0012) — only `deletedAt` changes.
+
+const deleteUserRoute = createRoute({
+  method: "delete",
+  path: "/admin/users/{id}",
+  tags: ["Admin"],
+  summary: "Soft-delete a user",
+  description:
+    "Soft-deletes a user: marks deletedAt, synchronously revokes every " +
+    "active session, and bumps their permission epoch. The user's own " +
+    "record and their UserRole/UserDepartment/Account rows are retained " +
+    "(ADR-0012) — nothing is physically removed.",
+  request: { params: IdParamSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: DeleteUserResponseSchema } },
+      description: "The user was soft-deleted",
+    },
+    401: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "No valid session",
+    },
+    403: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "Caller does not hold the admin role",
+    },
+    404: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "No user with this id, or the user is already soft-deleted",
+    },
+    422: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description:
+        "The caller attempted to delete their own account (AC-5.6), or this " +
+        "would remove the last remaining admin (AC-5.5)",
+    },
+  },
+});
+
+usersRouter.openapi(deleteUserRoute, async (c) => {
+  const { id } = c.req.valid("param");
+  const actorUserId = c.get("user")!.id;
+
+  // AC-5.6 — absolute, checked before anything else (including whether other
+  // admins remain): the acting admin can never delete their own account.
+  if (id === actorUserId) {
+    return c.json(
+      unprocessable(c.req.path, "You cannot delete your own account"),
+      422,
+    );
+  }
+
+  const target = await db.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, deletedAt: true },
+  });
+  if (!target || target.deletedAt !== null) {
+    return c.json(notFound(c.req.path, `No user with id ${id}`), 404);
+  }
+
+  try {
+    const deletedAt = await withAudit({
+      affectedUserIds: [id],
+      mutate: async (tx) => {
+        const adminRoleId = await findAdminRoleId(tx);
+        if (adminRoleId) {
+          const [directAdmin, deptIds] = await Promise.all([
+            userHasDirectAdmin(tx, id, adminRoleId),
+            userDepartmentIds(tx, id),
+          ]);
+          const deptConfersAdmin = await departmentIdsConferAdmin(
+            tx,
+            deptIds,
+            adminRoleId,
+          );
+          const isCurrentlyAdmin = directAdmin || deptConfersAdmin;
+
+          await assertNotRemovingLastAdmin(
+            tx,
+            adminRoleId,
+            id,
+            isCurrentlyAdmin,
+            false,
+          );
+        }
+
+        const now = new Date();
+        await tx.user.update({
+          where: { id },
+          data: { deletedAt: now, deletedByUserId: actorUserId },
+        });
+        // Synchronous session revocation (AC-5.1) — same transaction, not a
+        // background job: a subsequent getSession for this user is empty.
+        await tx.session.deleteMany({ where: { userId: id } });
+        return now;
+      },
+      entry: {
+        actorUserId,
+        action: "user.delete",
+        targetType: "user",
+        targetId: id,
+        summary: `Deleted user ${target.email}`,
+        data: { deletedByUserId: actorUserId },
+      },
+    });
+
+    return c.json(
+      { id, email: target.email, deletedAt: deletedAt.toISOString() },
+      200,
+    );
+  } catch (error) {
+    if (error instanceof LastAdminGuardError) {
+      return c.json(unprocessable(c.req.path, error.message), 422);
+    }
+    throw error;
+  }
+});
+
+// ─── POST /admin/users/delete (bulk) ──────────────────────────────────────────
+//
+// Bulk soft-delete (T7, specs/006-user-invitations — refs US-6, AC-6.1–6.5).
+// Partial-success, never all-or-nothing (AC-6.2/6.3): each requested id is
+// processed in its own `withAudit` transaction, SEQUENTIALLY (not
+// `Promise.all`) — deliberate, so that deleting several admins in one batch
+// re-evaluates "is there still another effective admin" against the
+// already-committed result of every earlier id in the same request (a
+// soft-deleted admin is excluded from that count the moment their own
+// transaction commits, per `lastAdminGuard.ts`'s `deletedAt: null` filter).
+// The acting admin's own id is ALWAYS skipped (AC-6.2, no exception), before
+// any DB lookup, exactly mirroring the single-delete route's absolute
+// self-delete guard (AC-5.6).
+
+const bulkDeleteUsersRoute = createRoute({
+  method: "post",
+  path: "/admin/users/delete",
+  tags: ["Admin"],
+  summary: "Bulk soft-delete users",
+  description:
+    "Soft-deletes every requested user for whom deletion is permitted; the " +
+    "acting admin's own id and the sole remaining admin (if requested) are " +
+    "skipped with a reason rather than failing the whole batch (AC-6.2/6.3).",
+  request: {
+    body: {
+      content: { "application/json": { schema: BulkDeleteBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: BulkDeleteResponseSchema } },
+      description: "Per-user outcome: which ids were deleted, which were skipped and why",
+    },
+    401: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "No valid session",
+    },
+    403: {
+      content: { "application/json": { schema: ProblemJsonSchema } },
+      description: "Caller does not hold the admin role",
+    },
+  },
+});
+
+usersRouter.openapi(bulkDeleteUsersRoute, async (c) => {
+  const { userIds } = c.req.valid("json");
+  const actorUserId = c.get("user")!.id;
+
+  const uniqueIds = Array.from(new Set(userIds));
+  const deleted: string[] = [];
+  const skipped: { userId: string; reason: string }[] = [];
+
+  for (const id of uniqueIds) {
+    // AC-5.6/AC-6.2 — the acting admin's own account is ALWAYS excluded,
+    // with no exception, before any lookup.
+    if (id === actorUserId) {
+      skipped.push({ userId: id, reason: "skipped: cannot delete your own account" });
+      continue;
+    }
+
+    const target = await db.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, deletedAt: true },
+    });
+    if (!target || target.deletedAt !== null) {
+      skipped.push({ userId: id, reason: "skipped: user not found" });
+      continue;
+    }
+
+    try {
+      await withAudit({
+        affectedUserIds: [id],
+        mutate: async (tx) => {
+          const adminRoleId = await findAdminRoleId(tx);
+          if (adminRoleId) {
+            const [directAdmin, deptIds] = await Promise.all([
+              userHasDirectAdmin(tx, id, adminRoleId),
+              userDepartmentIds(tx, id),
+            ]);
+            const deptConfersAdmin = await departmentIdsConferAdmin(
+              tx,
+              deptIds,
+              adminRoleId,
+            );
+            const isCurrentlyAdmin = directAdmin || deptConfersAdmin;
+
+            await assertNotRemovingLastAdmin(
+              tx,
+              adminRoleId,
+              id,
+              isCurrentlyAdmin,
+              false,
+            );
+          }
+
+          await tx.user.update({
+            where: { id },
+            data: { deletedAt: new Date(), deletedByUserId: actorUserId },
+          });
+          await tx.session.deleteMany({ where: { userId: id } });
+        },
+        entry: {
+          actorUserId,
+          action: "user.delete",
+          targetType: "user",
+          targetId: id,
+          summary: `Deleted user ${target.email} (bulk)`,
+          data: { deletedByUserId: actorUserId, bulk: true },
+        },
+      });
+      deleted.push(id);
+    } catch (error) {
+      if (error instanceof LastAdminGuardError) {
+        skipped.push({ userId: id, reason: "skipped: last remaining admin" });
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return c.json({ deleted, skipped }, 200);
 });
 
 // ─── PATCH /admin/users/:id ───────────────────────────────────────────────────

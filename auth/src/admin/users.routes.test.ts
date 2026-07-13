@@ -610,4 +610,284 @@ describe("Admin Users API (T10)", () => {
       expect(res.status).toBe(404);
     });
   });
+
+  // ── DELETE /admin/users/:id (soft-delete, T7, specs/006-user-invitations) ──
+
+  describe("DELETE /admin/users/:id", () => {
+    test("403s (RFC 7807) when the authenticated caller is not an admin (AC-5.9)", async () => {
+      const nonAdmin = await makeUser("delete-nonadmin");
+      const target = await makeUser("delete-nonadmin-target");
+      actAs(nonAdmin.id, nonAdmin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}`, { method: "DELETE" });
+      expect(res.status).toBe(403);
+    });
+
+    test("422s (RFC 7807) when an admin attempts to delete their own account (AC-5.6), absolute regardless of other admins", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("delete-self");
+      await assignRole(admin.id, adminRoleId);
+      const sibling = await makeUser("delete-self-sibling");
+      await assignRole(sibling.id, adminRoleId);
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${admin.id}`, { method: "DELETE" });
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { status: number };
+      expect(body.status).toBe(422);
+
+      const stillActive = await db.user.findUniqueOrThrow({ where: { id: admin.id } });
+      expect(stillActive.deletedAt).toBeNull();
+    });
+
+    test("404s for an unknown id", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("delete-actor-404");
+      await assignRole(admin.id, adminRoleId);
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request("/admin/users/does-not-exist", { method: "DELETE" });
+      expect(res.status).toBe(404);
+    });
+
+    test("404s for an already soft-deleted user (no admin-facing re-delete, AC-5.4)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("delete-actor-already");
+      await assignRole(admin.id, adminRoleId);
+      const target = await makeUser("delete-target-already");
+      await db.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), deletedByUserId: admin.id },
+      });
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}`, { method: "DELETE" });
+      expect(res.status).toBe(404);
+    });
+
+    // NOTE on AC-5.5 at this endpoint: the true "target is the ONLY
+    // remaining effective admin" scenario is structurally unreachable via
+    // single-user HTTP delete. `requireAdmin` means the caller is
+    // necessarily an effective admin distinct from the target (self-delete
+    // is blocked separately by AC-5.6), so the caller ALWAYS counts as
+    // "another admin" once the target is removed — the guard can only ever
+    // find zero OTHER admins when the caller themself is the target, which
+    // this route already refuses first. This mirrors the exact
+    // department-transitive precedent already documented above
+    // ("a user whose only admin access is via a department is 403'd..."):
+    // `assertNotRemovingLastAdmin` throwing when the target truly is the
+    // sole effective admin is exercised directly at the DB layer in
+    // `lastAdminGuard.test.ts` ("...throws when the target is the ONLY
+    // effective admin (direct)"), which this route's `mutate` calls
+    // verbatim with `willBeAdminAfter=false` — so route-level correctness
+    // here is about proving the WIRING (an admin target's deletion still
+    // succeeds when another effective admin remains), not re-deriving the
+    // guard's own unit coverage.
+    test("deleting an admin target succeeds when another effective admin (the caller) remains (AC-5.5 wiring)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("delete-actor-lastadmin");
+      await assignRole(admin.id, adminRoleId);
+      const otherAdmin = await makeUser("delete-other-admin");
+      await assignRole(otherAdmin.id, adminRoleId);
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${otherAdmin.id}`, { method: "DELETE" });
+      expect(res.status).toBe(200);
+
+      const deleted = await db.user.findUniqueOrThrow({ where: { id: otherAdmin.id } });
+      expect(deleted.deletedAt).not.toBeNull();
+      // The caller (a distinct admin) is untouched and remains active.
+      const caller = await db.user.findUniqueOrThrow({ where: { id: admin.id } });
+      expect(caller.deletedAt).toBeNull();
+    });
+
+    test("soft-deletes: sets deletedAt/deletedByUserId, synchronously revokes sessions, bumps epoch, audits, and retains role/department rows (AC-5.1, AC-5.4, AC-5.8)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("delete-actor-happy");
+      await assignRole(admin.id, adminRoleId);
+
+      const role = await makeRole("delete-retained");
+      const department = await makeDepartment("delete-retained");
+      const target = await makeUser("delete-target-happy");
+      await assignRole(target.id, role.id);
+      await assignDepartment(target.id, department.id);
+
+      // A live session for the target (AC-5.1 — must be revoked synchronously).
+      const session = await db.session.create({
+        data: {
+          userId: target.id,
+          token: `t7-session-${unique()}`,
+          expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+        },
+      });
+
+      const beforeEpoch = (
+        await db.user.findUniqueOrThrow({ where: { id: target.id }, select: { permissionEpoch: true } })
+      ).permissionEpoch;
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}`, { method: "DELETE" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string; email: string; deletedAt: string };
+      expect(body.id).toBe(target.id);
+      expect(body.email).toBe(target.email);
+      expect(new Date(body.deletedAt).getTime()).not.toBeNaN();
+
+      const updated = await db.user.findUniqueOrThrow({ where: { id: target.id } });
+      expect(updated.deletedAt).not.toBeNull();
+      expect(updated.deletedByUserId).toBe(admin.id);
+      expect(updated.permissionEpoch).toBe(beforeEpoch + 1);
+
+      // AC-5.1 — synchronous session revocation.
+      const remainingSession = await db.session.findUnique({ where: { id: session.id } });
+      expect(remainingSession).toBeNull();
+
+      // AC-5.4 — role/department rows retained (not physically removed).
+      const retainedRole = await db.userRole.findUnique({
+        where: { userId_roleId: { userId: target.id, roleId: role.id } },
+      });
+      expect(retainedRole).not.toBeNull();
+      const retainedDept = await db.userDepartment.findUnique({
+        where: { userId_departmentId: { userId: target.id, departmentId: department.id } },
+      });
+      expect(retainedDept).not.toBeNull();
+
+      // AC-5.8 — audited.
+      const auditRow = await db.auditLog.findFirst({
+        where: { targetType: "user", targetId: target.id, action: "user.delete" },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(auditRow).not.toBeNull();
+      expect(auditRow?.actorUserId).toBe(admin.id);
+
+      // AC-5.3 — gone from the list.
+      const listRes = await usersRouter.request(`/admin/users?q=${target.email}`);
+      const listBody = (await listRes.json()) as { items: Array<{ id: string }> };
+      expect(listBody.items.some((item) => item.id === target.id)).toBe(false);
+
+      // AC-5.4 — detail 404s.
+      const detailRes = await usersRouter.request(`/admin/users/${target.id}`);
+      expect(detailRes.status).toBe(404);
+    });
+  });
+
+  // ── POST /admin/users/delete (bulk soft-delete, T7, specs/006-user-invitations) ──
+
+  describe("POST /admin/users/delete", () => {
+    test("403s (RFC 7807) when the authenticated caller is not an admin (AC-6.5)", async () => {
+      const nonAdmin = await makeUser("bulk-nonadmin");
+      const target = await makeUser("bulk-nonadmin-target");
+      actAs(nonAdmin.id, nonAdmin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request("/admin/users/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: [target.id] }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    test("deletes eligible users (including another admin), skips self with a reason, and audits only the deleted (AC-6.1, 6.2, 6.3, 6.4)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("bulk-actor");
+      await assignRole(admin.id, adminRoleId);
+      // A second admin is a perfectly eligible bulk-delete target: the acting
+      // admin themselves remains an effective admin throughout (self is only
+      // ever SKIPPED, never removed — AC-5.6), so deleting a DIFFERENT admin
+      // never leaves the system with zero admins. See the DELETE
+      // /admin/users/:id "(AC-5.5 wiring)" test above for why the true "sole
+      // remaining admin" skip is unreachable via this HTTP surface and is
+      // instead verified directly against `assertNotRemovingLastAdmin` in
+      // `lastAdminGuard.test.ts`.
+      const otherAdmin = await makeUser("bulk-other-admin");
+      await assignRole(otherAdmin.id, adminRoleId);
+      const eligible1 = await makeUser("bulk-eligible-1");
+      const eligible2 = await makeUser("bulk-eligible-2");
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request("/admin/users/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userIds: [admin.id, otherAdmin.id, eligible1.id, eligible2.id],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        deleted: string[];
+        skipped: Array<{ userId: string; reason: string }>;
+      };
+
+      // AC-6.2 — the acting admin's own account is ALWAYS excluded (skipped,
+      // never an error); every other selected user is still soft-deleted —
+      // a batch is not entirely blocked by one un-deletable member.
+      expect(body.deleted.sort()).toEqual(
+        [eligible1.id, eligible2.id, otherAdmin.id].sort(),
+      );
+      expect(body.skipped).toEqual([
+        { userId: admin.id, reason: "skipped: cannot delete your own account" },
+      ]);
+
+      const [callerRow, otherAdminRow, e1Row, e2Row] = await Promise.all([
+        db.user.findUniqueOrThrow({ where: { id: admin.id } }),
+        db.user.findUniqueOrThrow({ where: { id: otherAdmin.id } }),
+        db.user.findUniqueOrThrow({ where: { id: eligible1.id } }),
+        db.user.findUniqueOrThrow({ where: { id: eligible2.id } }),
+      ]);
+      expect(callerRow.deletedAt).toBeNull();
+      expect(otherAdminRow.deletedAt).not.toBeNull();
+      expect(e1Row.deletedAt).not.toBeNull();
+      expect(e2Row.deletedAt).not.toBeNull();
+
+      // AC-6.4 — one audit_log row per DELETED user, none for the skipped self.
+      const auditRows = await db.auditLog.findMany({
+        where: {
+          targetType: "user",
+          action: "user.delete",
+          targetId: { in: [admin.id, otherAdmin.id, eligible1.id, eligible2.id] },
+        },
+      });
+      expect(auditRows.map((r) => r.targetId).sort()).toEqual(
+        [eligible1.id, eligible2.id, otherAdmin.id].sort(),
+      );
+    });
+
+    test("skips an unknown/already-deleted id with a reason instead of failing the batch", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("bulk-actor-unknown");
+      await assignRole(admin.id, adminRoleId);
+      const eligible = await makeUser("bulk-unknown-eligible");
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request("/admin/users/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userIds: ["does-not-exist", eligible.id] }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        deleted: string[];
+        skipped: Array<{ userId: string; reason: string }>;
+      };
+      expect(body.deleted).toEqual([eligible.id]);
+      expect(body.skipped).toEqual([{ userId: "does-not-exist", reason: "skipped: user not found" }]);
+    });
+  });
 });

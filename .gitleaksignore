@@ -5,6 +5,12 @@
 
 # auth/src/test-setup.ts uses a placeholder BETTER_AUTH_SECRET for unit tests — not a real secret
 auth/src/test-setup.ts:generic-api-key:20
+
+# auth/src/auth/auth.config.test.ts (T8, specs/006-user-invitations) — same placeholder
+# secret string, reused to construct scratch betterAuth() instances for the R1 spike
+# (session.create.before abort-contract check) — not a real secret
+auth/src/auth/auth.config.test.ts:generic-api-key:173
+auth/src/auth/auth.config.test.ts:generic-api-key:197
 auth/.envrc:1password-reference:6
 auth/.envrc:1password-reference:8
 auth/.envrc:1password-reference:9
