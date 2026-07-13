@@ -247,4 +247,61 @@ describe("lastAdminGuard (T10, AC-6.4)", () => {
     // any other same-file/concurrent admin rows.
     await assertNotRemovingLastAdmin(db, adminRoleId, target.id, true, false);
   });
+
+  // specs/006-user-invitations, T7 — plan.md Risk R7 / ADR-0012: a
+  // soft-deleted user's `UserRole`/`UserDepartment` rows are RETAINED
+  // (deletion never touches them), so `getEffectiveAdminUserIds` must
+  // explicitly filter `deletedAt: null` or a just-deleted admin would still
+  // be counted as "another effective admin" covering a genuinely last-
+  // standing active admin.
+  test("getEffectiveAdminUserIds excludes a soft-deleted user even though their direct admin UserRole row is retained", async () => {
+    const adminRoleId = await ensureAdminRole();
+    const softDeletedAdmin = await makeUser("soft-deleted-direct");
+    await db.userRole.create({ data: { userId: softDeletedAdmin.id, roleId: adminRoleId } });
+    await db.user.update({
+      where: { id: softDeletedAdmin.id },
+      data: { deletedAt: new Date(), deletedByUserId: softDeletedAdmin.id },
+    });
+
+    const adminSet = await getEffectiveAdminUserIds(db, adminRoleId);
+    expect(adminSet.has(softDeletedAdmin.id)).toBe(false);
+  });
+
+  test("getEffectiveAdminUserIds excludes a soft-deleted user even though their admin-conferring department membership is retained", async () => {
+    const adminRoleId = await ensureAdminRole();
+    const department = await makeDepartment("soft-deleted-transitive");
+    await db.departmentRole.create({ data: { departmentId: department.id, roleId: adminRoleId } });
+    const softDeletedAdmin = await makeUser("soft-deleted-dept");
+    await db.userDepartment.create({
+      data: { userId: softDeletedAdmin.id, departmentId: department.id },
+    });
+    await db.user.update({
+      where: { id: softDeletedAdmin.id },
+      data: { deletedAt: new Date(), deletedByUserId: softDeletedAdmin.id },
+    });
+
+    const adminSet = await getEffectiveAdminUserIds(db, adminRoleId);
+    expect(adminSet.has(softDeletedAdmin.id)).toBe(false);
+  });
+
+  test("assertNotRemovingLastAdmin throws when the only OTHER effective admin is soft-deleted", async () => {
+    const adminRoleId = await ensureAdminRole();
+    const target = await makeUser("with-soft-deleted-sibling");
+    await db.userRole.create({ data: { userId: target.id, roleId: adminRoleId } });
+    const softDeletedSibling = await makeUser("soft-deleted-sibling");
+    await db.userRole.create({ data: { userId: softDeletedSibling.id, roleId: adminRoleId } });
+    await db.user.update({
+      where: { id: softDeletedSibling.id },
+      data: { deletedAt: new Date(), deletedByUserId: target.id },
+    });
+
+    await isolateAsSoleAdmin(adminRoleId, target.id, async () => {
+      // `softDeletedSibling` still holds the `admin` UserRole row (retained
+      // per ADR-0012) but is soft-deleted, so they must NOT count as cover —
+      // this must still throw exactly as if target were the sole admin.
+      await expect(
+        assertNotRemovingLastAdmin(db, adminRoleId, target.id, true, false),
+      ).rejects.toBeInstanceOf(LastAdminGuardError);
+    });
+  });
 });

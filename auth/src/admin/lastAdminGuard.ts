@@ -56,6 +56,14 @@ export async function findAdminRoleId(client: PrismaClientLike): Promise<string 
 /**
  * All user ids that are currently effective admins: DIRECT `user_role` OR
  * via a department that confers the `admin` role.
+ *
+ * Both queries filter `user: { deletedAt: null }` (specs/006-user-invitations,
+ * T7 — ADR-0012, plan.md Risk R7): a soft-deleted user still has their
+ * `UserRole`/`UserDepartment` rows physically retained (deletion never
+ * touches them), so without this filter a just-deleted admin would still be
+ * counted as an "other effective admin" and could wrongly let a genuinely
+ * last-standing admin be deleted (or, symmetrically, wrongly block deleting
+ * the last ACTIVE admin because a soft-deleted one is miscounted as cover).
  */
 export async function getEffectiveAdminUserIds(
   client: PrismaClientLike,
@@ -63,11 +71,14 @@ export async function getEffectiveAdminUserIds(
 ): Promise<Set<string>> {
   const [direct, viaDepartment] = await Promise.all([
     client.userRole.findMany({
-      where: { roleId: adminRoleId },
+      where: { roleId: adminRoleId, user: { deletedAt: null } },
       select: { userId: true },
     }),
     client.userDepartment.findMany({
-      where: { department: { departmentRoles: { some: { roleId: adminRoleId } } } },
+      where: {
+        department: { departmentRoles: { some: { roleId: adminRoleId } } },
+        user: { deletedAt: null },
+      },
       select: { userId: true },
     }),
   ]);
