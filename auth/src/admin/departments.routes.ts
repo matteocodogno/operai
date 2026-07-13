@@ -85,9 +85,11 @@ const DepartmentDetailSchema = DepartmentSchema.extend({
 
 const DepartmentListSchema = z.array(DepartmentSchema);
 
+// description is nullable (DB column is `String?`; a client may send `null` for
+// an empty field) — matches UpdateDepartmentBodySchema.
 const CreateDepartmentBodySchema = z.object({
   name: z.string().min(1),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
 });
 
 const UpdateDepartmentBodySchema = z.object({

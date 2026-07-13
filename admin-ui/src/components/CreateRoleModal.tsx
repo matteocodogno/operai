@@ -156,7 +156,11 @@ export default function CreateRoleModal({
           <div className="flex flex-col gap-3 mb-4">
             <div className="flex flex-col gap-1">
               <label htmlFor="create-role-name" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
-                Name
+                Name{' '}
+                <span aria-hidden="true" style={{ color: 'var(--red)' }}>
+                  *
+                </span>
+                <span className="sr-only">(required)</span>
               </label>
               <input
                 ref={nameInputRef}
@@ -191,7 +195,8 @@ export default function CreateRoleModal({
                 className="text-xs font-medium"
                 style={{ color: 'var(--soft)' }}
               >
-                Description
+                Description{' '}
+                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
               </label>
               <textarea
                 ref={descriptionInputRef}

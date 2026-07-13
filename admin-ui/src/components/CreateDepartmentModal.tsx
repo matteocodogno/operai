@@ -162,12 +162,17 @@ export default function CreateDepartmentModal({
               className="block text-xs font-medium mb-1"
               style={{ color: 'var(--soft)' }}
             >
-              Name
+              Name{' '}
+              <span aria-hidden="true" style={{ color: 'var(--red)' }}>
+                *
+              </span>
+              <span className="sr-only">(required)</span>
             </label>
             <input
               ref={nameInputRef}
               id="create-department-name"
               type="text"
+              aria-required="true"
               value={name}
               disabled={isSubmitting}
               onChange={(e) => setName(e.target.value)}
@@ -183,7 +188,8 @@ export default function CreateDepartmentModal({
               className="block text-xs font-medium mb-1"
               style={{ color: 'var(--soft)' }}
             >
-              Description
+              Description{' '}
+              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
             </label>
             <textarea
               id="create-department-description"

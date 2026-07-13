@@ -225,6 +225,25 @@ describe("Admin roles API (T8)", () => {
     expect(auditRow?.actorUserId).toBe(adminActorId);
   });
 
+  test("POST accepts description: null (empty-description role) -> 201, not 400", async () => {
+    asAdmin();
+    const { rolesRouter } = await import("./roles.routes");
+
+    // The create-role modal sends `description: null` for an empty field; the
+    // create schema must accept it (DB column is nullable) — regression for the
+    // "Expected string, received null" 400.
+    const res = await rolesRouter.request("/admin/roles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: `t8-role-nulldesc-${RUN_ID}`, description: null }),
+    });
+
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; description: string | null };
+    expect(created.description).toBeNull();
+    createdRoleIds.add(created.id);
+  });
+
   test("GET /admin/roles lists roles with rule counts and isSystem", async () => {
     asAdmin();
     const { rolesRouter } = await import("./roles.routes");

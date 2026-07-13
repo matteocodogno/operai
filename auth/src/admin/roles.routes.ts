@@ -128,7 +128,9 @@ const RoleDetailSchema = RoleSchema.extend({
 
 const CreateRoleBodySchema = z.object({
   name: z.string().min(1),
-  description: z.string().optional(),
+  // Nullable: description is optional (DB column is `String?`) and the client
+  // sends `null` for an empty field. Matches UpdateRoleBodySchema below.
+  description: z.string().nullable().optional(),
 });
 
 const UpdateRoleBodySchema = z.object({
