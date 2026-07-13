@@ -24,6 +24,18 @@ export type JwtVariables = {
 // auth service — no per-request fetch in the steady state.
 const JWKS = createRemoteJWKSet(new URL(env.AUTH_JWKS_URL));
 
+/**
+ * JWKS-verifier readiness (ADR-0005 cold-start note; plan.md §API contracts
+ * "GET /health … additionally report JWKS-verifier readiness"). `JWKS.jwks()`
+ * is a synchronous getter over jose's in-memory cache — it never triggers a
+ * network fetch itself, it only reports whether at least one fetch has
+ * succeeded (the JWKS is lazily fetched on the first unknown `kid`, i.e. the
+ * first real verification attempt, not at process start). Consumed by
+ * health.routes.ts; exported so the health route never has to reach into the
+ * JWKS singleton directly.
+ */
+export const isJwksReady = (): boolean => JWKS.jwks() !== undefined;
+
 // ─── Problem JSON 401 helper ──────────────────────────────────────────────────
 
 const unauthorized = (detail: string, path: string) =>

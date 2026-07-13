@@ -9,6 +9,7 @@ import { healthRouter } from "./health/health.routes";
 import { listRouter } from "./notifications/list.routes";
 import { markReadRouter } from "./notifications/markRead.routes";
 import { raiseRouter } from "./notifications/raise.routes";
+import { streamRouter } from "./notifications/stream.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -35,7 +36,7 @@ app.route("/", healthRouter);
 app.route("/", raiseRouter);
 app.route("/", listRouter);
 app.route("/", markReadRouter);
-// SSE stream routes land in T7 (specs/005).
+app.route("/", streamRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
