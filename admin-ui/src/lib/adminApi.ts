@@ -605,6 +605,99 @@ export const bulkDeleteUsers = async (userIds: string[]): Promise<BulkDeleteUser
   sendJson<BulkDeleteUsersResult>('/admin/users/delete', 'POST', { userIds })
 
 // ---------------------------------------------------------------------------
+// Admin — invitations (T12, specs/006-user-invitations, plan.md "Invitation
+// admin API" / "InvitationDetailSchema")
+// ---------------------------------------------------------------------------
+
+/**
+ * `status` is always the EFFECTIVE status (plan.md, ADR-0013) — a past-window
+ * `pending` row renders `expired` here; `expired` is never a distinct stored
+ * value, only ever observed through this field.
+ */
+export type EffectiveInvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired'
+
+export type InvitationRoleRef = { id: string; name: string }
+export type InvitationDepartmentRef = { id: string; name: string }
+export type InvitationInviterRef = { id: string; name: string; email: string }
+
+/** Mirrors the stored `Invitation.lastEmailStatus` column (plan.md). */
+export type EmailDeliveryStatus = 'sent' | 'failed'
+
+/** `InvitationDetail` — plan.md's create/list/resend/revoke response shape, verbatim. */
+export type InvitationDetail = {
+  id: string
+  email: string
+  status: EffectiveInvitationStatus
+  roles: InvitationRoleRef[]
+  departments: InvitationDepartmentRef[]
+  invitedBy: InvitationInviterRef | null
+  invitedAt: string
+  expiresAt: string
+  acceptedAt: string | null
+  emailDelivery: EmailDeliveryStatus | null
+}
+
+export type InvitationCreateInput = {
+  email: string
+  roleIds?: string[]
+  departmentIds?: string[]
+}
+
+export type InvitationListParams = PageParams & {
+  status?: EffectiveInvitationStatus
+  /** Email substring search — plan.md `?q=`, same convention as `listUsers`. */
+  q?: string
+}
+
+/**
+ * GET /admin/invitations
+ * Paginated, filterable by effective status, searchable by email (AC-1.6).
+ * Throws ApiError on 403 or 401.
+ */
+export const listInvitations = async (
+  params: InvitationListParams = {},
+): Promise<Paginated<InvitationDetail>> =>
+  getJson<Paginated<InvitationDetail>>(
+    `/admin/invitations${buildQuery({
+      status: params.status,
+      q: params.q,
+      page: params.page,
+      pageSize: params.pageSize,
+    })}`,
+  )
+
+/**
+ * POST /admin/invitations
+ * Creates a pending invitation and triggers the invite email (AC-1.1–1.2).
+ * Returns 201 InvitationDetail — `emailDelivery` reflects whether the email
+ * send itself succeeded, independent of the invitation's own creation, which
+ * always succeeds when this resolves (plan.md "Failure handling" — a failed
+ * send is never a failed create). Throws ApiError on 409 (active user exists,
+ * AC-1.3 / live pending invitation exists, AC-1.4), 422 (unknown role/department
+ * id), 403, or 401.
+ */
+export const createInvitation = async (body: InvitationCreateInput): Promise<InvitationDetail> =>
+  sendJson<InvitationDetail>('/admin/invitations', 'POST', body)
+
+/**
+ * POST /admin/invitations/:id/resend
+ * Rotates the token, resets the 72h expiry window, and re-sends the email
+ * (AC-3.1–3.3). Returns 200 InvitationDetail. Throws ApiError on 404, 422
+ * (already accepted/revoked — AC-3.4), 403, or 401.
+ */
+export const resendInvitation = async (id: string): Promise<InvitationDetail> =>
+  sendJson<InvitationDetail>(`/admin/invitations/${id}/resend`, 'POST', {})
+
+/**
+ * POST /admin/invitations/:id/revoke
+ * Terminal — invalidates the link immediately (AC-1.9). Returns 200
+ * InvitationDetail (`status: "revoked"`). Throws ApiError on 404, 422
+ * (already accepted/revoked — AC-1.10/1.11), 403, or 401.
+ */
+export const revokeInvitation = async (id: string): Promise<InvitationDetail> =>
+  sendJson<InvitationDetail>(`/admin/invitations/${id}/revoke`, 'POST', {})
+
+// ---------------------------------------------------------------------------
 // Admin — catalog
 // ---------------------------------------------------------------------------
 
