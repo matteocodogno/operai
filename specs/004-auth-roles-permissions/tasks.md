@@ -105,7 +105,7 @@ Tracks: **A** auth-service authz core (backend-dev) · **B** new `admin-ui` remo
 
 ## Track D — EstimAI catalog declaration
 
-- [ ] T26: EstimAI declares + registers its catalog — refs: AC-3.4 — deps: T5
+- [x] T26: EstimAI declares + registers its catalog — refs: AC-3.4 — deps: T5
   - touch: estimai catalog declaration (`estimai-api`/`estimai-ui`) + registration via seed/`PUT /authz/catalog`.
   - done when: `GET /admin/catalog` includes `estimai` (`estimate` → view/create/edit/delete + app `access`). Declaration only — no enforcement (non-goal).
 

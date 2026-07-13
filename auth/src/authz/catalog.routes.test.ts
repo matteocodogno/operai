@@ -32,6 +32,14 @@ import { db } from "../lib/db";
 
 const RUN_ID = crypto.randomUUID().slice(0, 8);
 const APP_ID = `t5-catalog-${RUN_ID}`;
+// `isKnownPermission`/`isConditionSupported` (catalog.ts) look up
+// (resource, action) GLOBALLY — no `appId` filter, by design (a
+// `permission_rule` doesn't carry one; see catalog.ts's module doc). A
+// literal `"estimate"` fixture key would therefore collide with EstimAI's
+// own real, persistent `estimate` resource (T26, `catalogs/estimai.ts`),
+// which declares different `supportedConditions` — so this fixture's
+// resource key must be run-scoped like `APP_ID`, not the literal domain name.
+const RESOURCE_KEY = `estimate-${RUN_ID}`;
 
 // ─── Mock the session source ───────────────────────────────────────────────
 
@@ -129,7 +137,7 @@ const initialCatalogBody = {
   appId: APP_ID,
   resources: [
     {
-      key: "estimate",
+      key: RESOURCE_KEY,
       label: "Estimate",
       actions: [
         { key: "view", label: "View", supportedConditions: ["ownership"] },
@@ -224,7 +232,7 @@ describe("PUT /authz/catalog + GET /admin/catalog (T5)", () => {
 
     const estimate = (
       mine as { resources: { key: string; actions: unknown[] }[] }
-    ).resources.find((resource) => resource.key === "estimate");
+    ).resources.find((resource) => resource.key === RESOURCE_KEY);
     expect(estimate).toBeDefined();
     expect(estimate?.actions).toHaveLength(3);
   });
@@ -259,7 +267,7 @@ describe("PUT /authz/catalog + GET /admin/catalog (T5)", () => {
       appId: APP_ID,
       resources: [
         {
-          key: "estimate",
+          key: RESOURCE_KEY,
           label: "Estimate",
           actions: [{ key: "view", label: "View", supportedConditions: ["ownership"] }],
         },
@@ -273,13 +281,13 @@ describe("PUT /authz/catalog + GET /admin/catalog (T5)", () => {
     });
     expect(res.status).toBe(200);
 
-    // The app-access resource is gone entirely; "estimate" kept only "view".
+    // The app-access resource is gone entirely; RESOURCE_KEY kept only "view".
     const resources = await db.catalogResource.findMany({
       where: { appId: APP_ID },
       include: { actions: true },
     });
     expect(resources).toHaveLength(1);
-    expect(resources[0]?.key).toBe("estimate");
+    expect(resources[0]?.key).toBe(RESOURCE_KEY);
     expect(resources[0]?.actions.map((action) => action.key)).toEqual(["view"]);
 
     // Restore the full catalog so the remaining tests in this file (and the
@@ -297,7 +305,7 @@ describe("isKnownPermission / isConditionSupported (T5 validation helpers, AC-3.
   test("isKnownPermission accepts an on-catalog (resource, action) pair", async () => {
     const { isKnownPermission } = await import("./catalog");
 
-    expect(await isKnownPermission("estimate", "view")).toBe(true);
+    expect(await isKnownPermission(RESOURCE_KEY, "view")).toBe(true);
     expect(await isKnownPermission(APP_ID, "access")).toBe(true);
   });
 
@@ -305,7 +313,7 @@ describe("isKnownPermission / isConditionSupported (T5 validation helpers, AC-3.
     const { isKnownPermission } = await import("./catalog");
 
     // Known resource, action never declared for it.
-    expect(await isKnownPermission("estimate", "approve")).toBe(false);
+    expect(await isKnownPermission(RESOURCE_KEY, "approve")).toBe(false);
     // Resource never declared by any app.
     expect(await isKnownPermission(`${APP_ID}-nope`, "view")).toBe(false);
   });
@@ -313,17 +321,17 @@ describe("isKnownPermission / isConditionSupported (T5 validation helpers, AC-3.
   test("isConditionSupported accepts a condition declared in the catalog", async () => {
     const { isConditionSupported } = await import("./catalog");
 
-    expect(await isConditionSupported("estimate", "view", "ownership")).toBe(true);
-    expect(await isConditionSupported("estimate", "edit", "entity")).toBe(true);
+    expect(await isConditionSupported(RESOURCE_KEY, "view", "ownership")).toBe(true);
+    expect(await isConditionSupported(RESOURCE_KEY, "edit", "entity")).toBe(true);
   });
 
   test("isConditionSupported rejects a condition not declared for that (resource, action)", async () => {
     const { isConditionSupported } = await import("./catalog");
 
     // "view" only declares "ownership", not "entity".
-    expect(await isConditionSupported("estimate", "view", "entity")).toBe(false);
+    expect(await isConditionSupported(RESOURCE_KEY, "view", "entity")).toBe(false);
     // "delete" declares no conditions at all.
-    expect(await isConditionSupported("estimate", "delete", "ownership")).toBe(false);
+    expect(await isConditionSupported(RESOURCE_KEY, "delete", "ownership")).toBe(false);
   });
 
   test("isConditionSupported is false (not throwing) for an unknown (resource, action)", async () => {
