@@ -60,9 +60,18 @@ describe('router structure', () => {
     // exactly like estimai-ui's '/estimates' + '/estimates/$estimateId' pair.
     // Combined centrally as T18/T19/T20 each added their own detail route.
     expect(childPaths).toEqual(
-      ['/', '/audit', '/departments', '/departments/$id', '/roles', '/roles/$id', '/users'].sort(),
+      [
+        '/',
+        '/audit',
+        '/departments',
+        '/departments/$id',
+        '/roles',
+        '/roles/$id',
+        '/users',
+        '/users/$id',
+      ].sort(),
     )
-    expect(routeTree.children).toHaveLength(6)
+    expect(routeTree.children).toHaveLength(8)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors estimai-ui/T13, AC-2.3', async () => {
