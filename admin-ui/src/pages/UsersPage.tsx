@@ -27,18 +27,42 @@
  * see ../pages/AuditPage.tsx's doc comment for the full rationale
  * (`react-hooks/set-state-in-effect` false positive on an async function
  * that calls a state setter after an `await`).
+ *
+ * --- T10, specs/006-user-invitations (design.md Screen U1) ---
+ * Gains: `UsersSubNav` ("Active users" | "Invitations") above the search
+ * input; a per-row soft-delete action (`DELETE /admin/users/:id`, plan.md)
+ * behind `ConfirmDeleteModal`'s extended `body` prop. The acting admin's own
+ * row is **disabled-with-explanation** — `aria-disabled` + `title` + a
+ * visually-hidden explanation, mirroring `RolesPage.tsx`'s System-role
+ * Delete-button convention exactly (design.md: "disabled + explained", not
+ * silent omission) — never native `disabled`, so the control stays
+ * perceivable/focusable to assistive tech. Self-identity comes from
+ * `shell/session`'s `useSession()` (already federated, ADR-0001/0006 — no
+ * new endpoint). A `422` (the last-admin guard, AC-5.5 — self-delete AC-5.6
+ * is UI-unreachable since the button is disabled, but defended anyway)
+ * surfaces via `GuardrailDialog`, the same "genuinely blocked, nothing to
+ * retry" shape `UserDetail.tsx` already uses for the identical guard on
+ * roles/departments saves.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { useSession } from 'shell/session'
 import * as adminApi from '../lib/adminApi'
 import type { Paginated, UserSummary } from '../lib/adminApi'
 import { ApiError } from '../lib/adminApi'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import Pagination from '../components/Pagination'
+import UsersSubNav from '../components/UsersSubNav'
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
+import GuardrailDialog from '../components/GuardrailDialog'
 
 const PAGE_SIZE = 20
+
+/** design.md F3 — fixed acknowledgement copy for the last-admin delete guard, adapted from UserDetail.tsx's LAST_ADMIN_MESSAGE. */
+const LAST_ADMIN_DELETE_MESSAGE =
+  'This is the last administrator — deleting this user would leave nobody able to manage access. Assign another admin first.'
 
 const formatEntity = (entity: UserSummary['entity']): string => {
   if (entity === 'welld_ch') return 'WellD CH'
@@ -51,6 +75,10 @@ type UsersState =
   | { status: 'loaded'; result: Paginated<UserSummary> }
   | { status: 'error'; message: string }
 
+type DeleteModalState =
+  | { open: false }
+  | { open: true; user: UserSummary; isDeleting: boolean; error: string | null }
+
 const errorMessageFor = (error: unknown): string => {
   if (error instanceof ApiError) {
     return error.detail ?? error.title
@@ -59,14 +87,19 @@ const errorMessageFor = (error: unknown): string => {
 }
 
 export default function UsersPage() {
+  const session = useSession()
+  const currentUserId = session.data?.user?.id
+
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
   const [reloadToken, setReloadToken] = useState(0)
   const [state, setState] = useState<UsersState>({ status: 'loading' })
+  const [deleteModal, setDeleteModal] = useState<DeleteModalState>({ open: false })
+  const [guardrailMessage, setGuardrailMessage] = useState<string | null>(null)
 
   // Fetches the current page/query whenever they (or `reloadToken`, bumped by
-  // "Retry") change. See ../pages/AuditPage.tsx's doc comment for why this is
-  // a Promise chain rather than an async/await helper.
+  // "Retry" or a successful delete) change. See ../pages/AuditPage.tsx's doc
+  // comment for why this is a Promise chain rather than an async/await helper.
   useEffect(() => {
     let cancelled = false
 
@@ -96,8 +129,83 @@ export default function UsersPage() {
     setReloadToken((token) => token + 1)
   }, [])
 
+  // ---------------------------------------------------------------------------
+  // Single-row soft-delete (Dialog N2 — design.md F3, T10 specs/006-user-invitations)
+  // ---------------------------------------------------------------------------
+
+  const handleDeleteRequest = useCallback(
+    (user: UserSummary) => {
+      if (user.id === currentUserId) return // defensive — the button is already disabled for this row
+      setDeleteModal({ open: true, user, isDeleting: false, error: null })
+    },
+    [currentUserId],
+  )
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteModal({ open: false })
+  }, [])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteModal.open) return
+    const { user } = deleteModal
+    setDeleteModal((prev) => (prev.open ? { ...prev, isDeleting: true, error: null } : prev))
+    try {
+      await adminApi.deleteUser(user.id)
+      setDeleteModal({ open: false })
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 422) {
+        // AC-5.5/5.6 — genuinely blocked, nothing to retry from this dialog.
+        setDeleteModal({ open: false })
+        setGuardrailMessage(LAST_ADMIN_DELETE_MESSAGE)
+        return
+      }
+      setDeleteModal((prev) =>
+        prev.open ? { ...prev, isDeleting: false, error: errorMessageFor(error) } : prev,
+      )
+    }
+  }, [deleteModal])
+
+  const handleAcknowledgeGuardrail = useCallback(() => {
+    setGuardrailMessage(null)
+  }, [])
+
+  const deleteBody = useMemo(() => {
+    if (!deleteModal.open) return null
+    const identity = deleteModal.user.name ?? deleteModal.user.email
+    return (
+      <p>
+        Delete {identity}? They will immediately lose all access to Operai — every active session
+        ends and they can no longer sign in. Their record and data are retained for audit, but
+        there is no undo: regaining access requires a brand-new invitation.
+      </p>
+    )
+  }, [deleteModal])
+
   return (
     <section aria-labelledby="admin-users-heading" data-testid="admin-users-page">
+      {deleteModal.open && (
+        <ConfirmDeleteModal
+          entityLabel="user"
+          itemName={deleteModal.user.email}
+          body={deleteBody}
+          isDeleting={deleteModal.isDeleting}
+          errorMessage={deleteModal.error}
+          onConfirm={() => void handleDeleteConfirm()}
+          onCancel={handleDeleteCancel}
+        />
+      )}
+
+      {guardrailMessage && (
+        <GuardrailDialog
+          title="Can't delete this user"
+          message={guardrailMessage}
+          onAcknowledge={handleAcknowledgeGuardrail}
+        />
+      )}
+
+      <UsersSubNav />
+
       <h2 id="admin-users-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
         Users
       </h2>
@@ -153,43 +261,65 @@ export default function UsersPage() {
                         {label}
                       </th>
                     ))}
+                    <th scope="col" className="py-1.5 px-2">
+                      <span className="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {state.result.items.map((user) => (
-                    <tr
-                      key={user.id}
-                      className="border-b"
-                      style={{ borderColor: 'color-mix(in srgb, var(--rule) 50%, transparent)' }}
-                    >
-                      <td className="py-1.5 px-2">
-                        <Link
-                          to="/users/$id"
-                          params={{ id: user.id }}
-                          data-testid={`user-row-${user.id}`}
-                          className="font-medium transition-opacity hover:opacity-80"
-                          style={{ color: 'var(--acc)' }}
-                        >
-                          {user.name ?? user.email}
-                        </Link>
-                      </td>
-                      <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
-                        {user.email}
-                      </td>
-                      <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
-                        {formatEntity(user.entity)}
-                      </td>
-                      <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
-                        {user.jobTitle ?? '—'}
-                      </td>
-                      <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
-                        {user.roleCount}
-                      </td>
-                      <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
-                        {user.departmentCount}
-                      </td>
-                    </tr>
-                  ))}
+                  {state.result.items.map((user) => {
+                    const isSelf = user.id === currentUserId
+                    return (
+                      <tr
+                        key={user.id}
+                        className="border-b"
+                        style={{ borderColor: 'color-mix(in srgb, var(--rule) 50%, transparent)' }}
+                      >
+                        <td className="py-1.5 px-2">
+                          <Link
+                            to="/users/$id"
+                            params={{ id: user.id }}
+                            data-testid={`user-row-${user.id}`}
+                            className="font-medium transition-opacity hover:opacity-80"
+                            style={{ color: 'var(--acc)' }}
+                          >
+                            {user.name ?? user.email}
+                          </Link>
+                        </td>
+                        <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
+                          {user.email}
+                        </td>
+                        <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
+                          {formatEntity(user.entity)}
+                        </td>
+                        <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
+                          {user.jobTitle ?? '—'}
+                        </td>
+                        <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
+                          {user.roleCount}
+                        </td>
+                        <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
+                          {user.departmentCount}
+                        </td>
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center justify-end">
+                            <button
+                              type="button"
+                              aria-disabled={isSelf}
+                              title={isSelf ? "You can't delete your own account" : undefined}
+                              onClick={() => handleDeleteRequest(user)}
+                              data-testid={`user-delete-${user.id}`}
+                              className="py-1 px-2.5 text-[11px] font-medium border transition-opacity hover:opacity-80 aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
+                              style={{ borderColor: 'var(--rule)', color: 'var(--text)' }}
+                            >
+                              Delete
+                              {isSelf && <span className="sr-only"> — You can't delete your own account</span>}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

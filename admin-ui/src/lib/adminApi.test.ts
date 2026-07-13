@@ -36,10 +36,12 @@ vi.mock('shell/session', () => ({
 import { apiFetch } from 'shell/session'
 import {
   ApiError,
+  bulkDeleteUsers,
   createDepartment,
   createRole,
   deleteDepartment,
   deleteRole,
+  deleteUser,
   getCatalog,
   getDepartment,
   getMe,
@@ -62,7 +64,9 @@ import {
 import type {
   ApiProblem,
   AuditLogEntry,
+  BulkDeleteUsersResult,
   Catalog,
+  DeleteUserResult,
   DepartmentDetail,
   EffectivePermissions,
   Paginated,
@@ -584,6 +588,60 @@ describe('users', () => {
   it('getUserPermissions(id) throws ApiError on 403 (admin-only)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden'))
     await expectApiError(() => getUserPermissions('user-1'), 403)
+  })
+
+  // --- Soft-delete (T10/T11, specs/006-user-invitations) ---
+
+  it('deleteUser(id) issues DELETE /admin/users/:id with no body and returns { id, deletedAt }', async () => {
+    const fixedDeleteResult: DeleteUserResult = { id: 'user-1', deletedAt: '2026-07-14T10:00:00.000Z' }
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedDeleteResult))
+
+    const result = await deleteUser('user-1')
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/users/user-1`)
+    expect(init?.method).toBe('DELETE')
+    expect(init?.body).toBeUndefined()
+    expect(result).toEqual(fixedDeleteResult)
+  })
+
+  it('deleteUser(id) throws ApiError on 422 (self-delete AC-5.6 / last-admin guard AC-5.5)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      problemResponse(422, 'Unprocessable Entity', 'This is the last remaining administrator'),
+    )
+    const err = await expectApiError(() => deleteUser('user-2'), 422)
+    expect(err.detail).toContain('last remaining administrator')
+  })
+
+  it('deleteUser(id) throws ApiError on 404 (no such active user)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(404, 'Not Found'))
+    await expectApiError(() => deleteUser('missing'), 404)
+  })
+
+  it('bulkDeleteUsers(userIds) issues POST /admin/users/delete wrapping as { userIds } and returns the partial-success report (AC-6.3)', async () => {
+    const fixedBulkResult: BulkDeleteUsersResult = {
+      deleted: ['user-3', 'user-4'],
+      skipped: [
+        { userId: 'user-self', reason: 'cannot delete your own account' },
+        { userId: 'user-admin2', reason: 'last remaining admin' },
+      ],
+    }
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedBulkResult))
+
+    const result = await bulkDeleteUsers(['user-3', 'user-4', 'user-self', 'user-admin2'])
+
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH_URL}/admin/users/delete`)
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(init?.body as string)).toEqual({
+      userIds: ['user-3', 'user-4', 'user-self', 'user-admin2'],
+    })
+    expect(result).toEqual(fixedBulkResult)
+  })
+
+  it('bulkDeleteUsers(userIds) throws ApiError on 400 (empty userIds)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(400, 'Bad Request'))
+    await expectApiError(() => bulkDeleteUsers([]), 400)
   })
 })
 

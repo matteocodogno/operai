@@ -131,4 +131,37 @@ describe('ConfirmDeleteModal', () => {
 
     expect(screen.getByText(/Untitled/)).not.toBeNull()
   })
+
+  // --- body override (T10, specs/006-user-invitations, design.md Dialog N2) ---
+
+  it('renders the default hard-delete copy verbatim when `body` is omitted (backward compatibility)', () => {
+    render(<ConfirmDeleteModal {...baseProps} />)
+
+    expect(screen.getByText(/Accounting Lead/)).not.toBeNull()
+    expect(screen.getByText(/will be permanently deleted\. This cannot be undone\./)).not.toBeNull()
+  })
+
+  it('renders an overriding `body` instead of the default copy, still inside aria-describedby', () => {
+    render(
+      <ConfirmDeleteModal
+        {...baseProps}
+        body={
+          <>
+            <p>Delete alice@welld.ch? They will immediately lose all access to Operai.</p>
+            <ul>
+              <li>alice@welld.ch</li>
+            </ul>
+          </>
+        }
+      />,
+    )
+
+    expect(screen.getByText(/They will immediately lose all access to Operai/)).not.toBeNull()
+    expect(screen.queryByText(/permanently deleted/)).toBeNull()
+
+    const dialog = screen.getByRole('alertdialog')
+    const describedById = dialog.getAttribute('aria-describedby')
+    expect(describedById).toBe('confirm-delete-body')
+    expect(document.getElementById(describedById!)?.querySelector('ul')).not.toBeNull()
+  })
 })

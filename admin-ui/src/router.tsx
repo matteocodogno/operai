@@ -6,6 +6,7 @@ import DepartmentsPage from './pages/DepartmentsPage'
 import DepartmentDetail from './pages/DepartmentDetail'
 import UsersPage from './pages/UsersPage'
 import UserDetail from './pages/UserDetail'
+import InvitationsPage from './pages/InvitationsPage'
 import AuditPage from './pages/AuditPage'
 import NotFoundPage from './pages/NotFoundPage'
 
@@ -115,6 +116,25 @@ export function createAppRouter(basepath?: string) {
     component: UserDetail,
   })
 
+  // Screen U2 (design.md "Invitations list", T10/T12, specs/006-user-invitations)
+  // — the Users section's second tab (UsersSubNav), reached at
+  // `/users/invitations`. A flat sibling of `usersRoute`/`userDetailRoute`
+  // under the same root, same shape as every other route in this tree — NOT
+  // nested under `usersRoute` (no shared layout/outlet between the two).
+  //
+  // Static-vs-dynamic segment precedence (design.md Screen U2's explicit
+  // flag): `/users/invitations` (a literal path segment) and `/users/$id` (a
+  // dynamic one) are both registered as children of the same parent here.
+  // TanStack Router resolves the STATIC segment in preference to the dynamic
+  // one regardless of registration order (standard router precedence, same
+  // as every other router family) — router.test.tsx asserts this explicitly
+  // so a future reordering of this array can never silently regress it.
+  const invitationsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/users/invitations',
+    component: InvitationsPage,
+  })
+
   // ---------------------------------------------------------------------------
   // Route tree
   // ---------------------------------------------------------------------------
@@ -127,6 +147,7 @@ export function createAppRouter(basepath?: string) {
     departmentDetailRoute,
     usersRoute,
     userDetailRoute,
+    invitationsRoute,
     auditRoute,
   ])
 

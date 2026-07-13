@@ -360,6 +360,20 @@ const getJson = async <T>(path: string): Promise<T> => {
   return response.json() as Promise<T>
 }
 
+/**
+ * DELETE helper — no request body, but (unlike `deleteRole`/`deleteDepartment`
+ * below) the response DOES carry a JSON body (`{ id, deletedAt }` — plan.md
+ * `DELETE /admin/users/:id`, T10 specs/006-user-invitations). Throws ApiError
+ * on non-2xx.
+ */
+const deleteJson = async <T>(path: string): Promise<T> => {
+  const response = await apiFetch(`${authBase()}${path}`, { method: 'DELETE' })
+  if (!response.ok) {
+    return throwFromResponse(response)
+  }
+  return response.json() as Promise<T>
+}
+
 /** POST/PATCH/PUT helper — JSON body, throws ApiError on non-2xx. */
 const sendJson = async <T>(path: string, method: string, body: unknown): Promise<T> => {
   const response = await apiFetch(`${authBase()}${path}`, {
@@ -550,6 +564,45 @@ export const putUserDepartments = async (id: string, departmentIds: string[]): P
  */
 export const getUserPermissions = async (id: string): Promise<EffectivePermissions> =>
   getJson<EffectivePermissions>(`/admin/users/${id}/permissions`)
+
+/** `DELETE /admin/users/:id` response (T10, specs/006-user-invitations, plan.md). */
+export type DeleteUserResult = {
+  id: string
+  deletedAt: string
+}
+
+/**
+ * DELETE /admin/users/:id
+ * Soft-deletes a user (US-5, AC-5.1/5.3/5.4/5.8): sets `deletedAt`, revokes
+ * every session synchronously, retains the row/data for audit. Throws
+ * ApiError on 404 (no such active user), 422 (self-delete AC-5.6 / last-admin
+ * guard AC-5.5), 403, or 401.
+ */
+export const deleteUser = async (id: string): Promise<DeleteUserResult> =>
+  deleteJson<DeleteUserResult>(`/admin/users/${id}`)
+
+/** One skipped entry in a bulk-delete response (T11, plan.md `POST /admin/users/delete`). */
+export type BulkDeleteSkip = {
+  userId: string
+  reason: string
+}
+
+/** `POST /admin/users/delete` response — partial success IS the success shape (AC-6.3). */
+export type BulkDeleteUsersResult = {
+  deleted: string[]
+  skipped: BulkDeleteSkip[]
+}
+
+/**
+ * POST /admin/users/delete
+ * Bulk soft-delete (US-6, AC-6.1–6.5): each id is deleted in its own
+ * transaction and individually audited; the caller's own id and any id that
+ * would leave zero active admins are skipped, not failed — the response is
+ * always 200 with a `{ deleted, skipped }` report, never a partial-failure
+ * error status. Throws ApiError on 400 (empty `userIds`), 403, or 401.
+ */
+export const bulkDeleteUsers = async (userIds: string[]): Promise<BulkDeleteUsersResult> =>
+  sendJson<BulkDeleteUsersResult>('/admin/users/delete', 'POST', { userIds })
 
 // ---------------------------------------------------------------------------
 // Admin — catalog
