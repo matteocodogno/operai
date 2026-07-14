@@ -82,7 +82,7 @@ owned by a single track to avoid collisions.
   - invite → landing → OAuth accept → provisioned with roles; resend invalidates old link; revoke; soft-delete → vanishes + blocked re-sign-in; bulk delete partial-success report
   - done when: the e2e suite passes against the assembled stack (auth + notify-api + admin-ui + shell)
 
-- [ ] T15: close — all gates green, spec → done — deps: T1–T14
+- [x] T15: close — all gates green, spec → done — deps: T1–T14
   - QE PASS + owasp (frontier tier, ≥medium clear) + eval PASS; then `/wellforge:done 006`
   - done when: done gate met and spec frontmatter `status: done`
 

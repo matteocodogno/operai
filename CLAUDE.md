@@ -53,7 +53,7 @@ operai/
 ├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
 ├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009)
 │
-├── docs/adr/            # Architecture Decision Records (0001–0010; see ## Architecture decisions)
+├── docs/adr/            # Architecture Decision Records (0001–0013; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run release`
 └── specs/               # Spec-driven workflow (see below)

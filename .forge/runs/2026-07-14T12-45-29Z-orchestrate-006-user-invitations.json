@@ -1,0 +1,35 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-14T12-45-29Z-orchestrate-006-user-invitations",
+  "command": "orchestrate",
+  "feature": "006-user-invitations",
+  "rigor": "production",
+  "started": "2026-07-13T22:00:00Z",
+  "finished": "2026-07-14T12:45:29Z",
+  "agents": [
+    { "agent": "product-owner", "tasks": ["spec.md"], "outcome": "completed" },
+    { "agent": "architect", "tasks": ["plan.md"], "outcome": "completed" },
+    { "agent": "adr-writer", "tasks": ["adr-0011", "adr-0012", "adr-0013"], "outcome": "completed" },
+    { "agent": "designer", "tasks": ["design.md"], "outcome": "completed" },
+    { "agent": "backend-dev", "tasks": ["T1", "T2", "T3"], "outcome": "completed", "commits": ["0b0ff1d", "7efbee1", "c62a35c"], "worktree": "worktree-agent-ac908abb20b8b10e9", "note": "notify-api email channel" },
+    { "agent": "backend-dev", "tasks": ["T4", "T5", "T6", "T9"], "outcome": "completed", "commits": ["f3e49b4", "8808470", "a11e2f5", "84da442"], "worktree": "worktree-agent-ad8dcccd189c1cc0a", "note": "auth invitation lifecycle" },
+    { "agent": "backend-dev", "tasks": ["T7", "T8"], "outcome": "completed", "commits": ["b6a11ba", "31f493a"], "worktree": "worktree-agent-ae5556f6f7ead156a", "note": "soft-delete + activation hooks; R1 spike confirmed session.create.before can abort" },
+    { "agent": "frontend-dev", "tasks": ["T10", "T11", "T12"], "outcome": "completed", "commits": ["b23dfba", "256ce4e", "85002bd"], "worktree": "worktree-agent-a522215333430c915", "note": "admin-ui invite/delete screens" },
+    { "agent": "devops", "tasks": ["T13"], "outcome": "completed", "commits": ["0c47cd9", "08ccbbc"], "worktree": "worktree-agent-ac81ea1c3a440b75c", "note": "env wiring + infra docs" },
+    { "agent": "owasp-reviewer", "outcome": "REVIEW", "note": "frontier tier: 1 HIGH (invite token in auth logs) + 3 MEDIUM (soft-delete sub-route guards, Referrer-Policy, activation FK-existence) + 2 LOW — all fixed" },
+    { "agent": "quality-engineer", "tasks": ["T14"], "outcome": "FAIL", "note": "round 1: gates green + e2e 5/5, but AC-2.3 additive-vs-exact roles defect + 2 design gaps (U1/U3)" },
+    { "agent": "backend-dev", "tasks": ["owasp-fixes", "AC-2.3"], "outcome": "completed", "commits": ["e8cb3b5"], "worktree": "worktree-agent-aa557431a4f70a217", "note": "6 owasp findings + AC-2.3 exact-roles flip" },
+    { "agent": "frontend-dev", "tasks": ["U1", "U3"], "outcome": "completed", "commits": ["2418880"], "worktree": "worktree-agent-a97e09e030aeb60e8", "note": "+Invite on users list + Delete on user detail" },
+    { "agent": "quality-engineer", "outcome": "PASS", "note": "round 2: e2e 5/5 live (exact-roles verified), owasp HIGH logger redaction verified live, U1/U3 verified in browser" },
+    { "agent": "evaluator", "outcome": "PASS", "score": 95 }
+  ],
+  "drift_events": [
+    { "agent": "product-owner", "artifact": "spec.md", "summary": "user reversed the no-soft-delete non-goal at the spec gate → deletion became soft-delete + synchronous cascade; folded before approval", "resolved": true },
+    { "agent": "quality-engineer", "artifact": "code", "summary": "AC-2.3 shipped additive (employee+invite roles) but spec says exactly the invite's roles; user confirmed exact, hook flipped to replace-not-add", "resolved": true }
+  ],
+  "collision_events": [],
+  "verdicts": { "qe": "PASS", "eval": "PASS" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null
+}

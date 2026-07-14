@@ -1,10 +1,11 @@
 ---
 id: 006
 slug: user-invitations
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-13
 approved: 2026-07-13
+done: 2026-07-14
 ---
 
 # User invitations, resend, and user deletion
