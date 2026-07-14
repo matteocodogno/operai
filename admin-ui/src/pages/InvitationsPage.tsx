@@ -39,6 +39,7 @@ import UsersSubNav from '../components/UsersSubNav'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 import InviteUserModal from '../components/InviteUserModal'
 import InvitationStatusBadge from '../components/InvitationStatusBadge'
+import { inviteConflictMessageFor } from '../lib/inviteConflict'
 
 const PAGE_SIZE = 20
 
@@ -74,21 +75,6 @@ const formatExpiry = (invitation: InvitationDetail): string => {
 const errorMessageFor = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) return error.detail ?? error.title
   return fallback
-}
-
-/** Distinguishes AC-1.3 (active user) vs AC-1.4 (live pending invite) 409s —
- *  the backend contract carries only a `detail` string, no structured
- *  discriminant field (design.md Gaps #1), so this pattern-matches the
- *  fixed template text `invitations.routes.ts` actually emits. */
-const inviteConflictMessageFor = (detail: string | undefined): string => {
-  const lower = (detail ?? '').toLowerCase()
-  if (lower.includes('active user')) {
-    return 'This email already belongs to an existing user — use their user page to change roles or departments instead.'
-  }
-  if (lower.includes('pending invitation')) {
-    return 'An invitation is already pending for this email — resend it from the Invitations tab instead of creating a new one.'
-  }
-  return detail ?? 'This email cannot be invited right now.'
 }
 
 type ListState =

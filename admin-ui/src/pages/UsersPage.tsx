@@ -55,6 +55,20 @@
  * (never selectable), matching the row Delete button's own disabled-for-self
  * treatment (T10) — it therefore never needs the server's defense-in-depth
  * self-skip either, though the bulk endpoint still defends against it.
+ *
+ * --- Design-fidelity gap closed post-T12 (design.md Screen U1, specs/006-user-invitations) ---
+ * Gains: a "+ Invite user" button next to the heading — Screen U1's own entry
+ * point into F1, parallel to (and independent of) the Invitations tab's
+ * identical button (T12, ./InvitationsPage.tsx). Opens the SAME
+ * `InviteUserModal` component and calls the SAME `adminApi.createInvitation`
+ * + `inviteConflictMessageFor` 409-mapping helper (../lib/inviteConflict.ts,
+ * extracted from InvitationsPage.tsx so neither screen re-implements the
+ * 409/422 handling) — only the modal's local state/wiring is page-owned, same
+ * as this file's row-delete wiring already duplicates `ConfirmDeleteModal`
+ * plumbing independently from `UserDetail.tsx`'s. On success, the modal
+ * closes and an `aria-live="polite"` confirmation announces the outcome
+ * (design.md F1 step 3) — the new invitation itself is visible on the
+ * Invitations tab on next visit; this screen has no reason to re-fetch users.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -62,8 +76,9 @@ import type { InputHTMLAttributes } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useSession } from 'shell/session'
 import * as adminApi from '../lib/adminApi'
-import type { Paginated, UserSummary } from '../lib/adminApi'
+import type { Department, Paginated, Role, UserSummary } from '../lib/adminApi'
 import { ApiError } from '../lib/adminApi'
+import { inviteConflictMessageFor } from '../lib/inviteConflict'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import Pagination from '../components/Pagination'
@@ -72,6 +87,7 @@ import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 import GuardrailDialog from '../components/GuardrailDialog'
 import BulkDeleteResultPanel from '../components/BulkDeleteResultPanel'
 import type { BulkDeleteSkipItem } from '../components/BulkDeleteResultPanel'
+import InviteUserModal from '../components/InviteUserModal'
 
 const PAGE_SIZE = 20
 
@@ -103,6 +119,20 @@ type BulkResultState = {
   totalCount: number
   skipped: BulkDeleteSkipItem[]
 } | null
+
+type CatalogState = { roles: Role[]; departments: Department[] } | null
+
+type InviteModalState =
+  | { open: false }
+  | {
+      open: true
+      email: string
+      selectedRoleIds: Set<string>
+      selectedDepartmentIds: Set<string>
+      submitting: boolean
+      emailError: string | null
+      generalError: string | null
+    }
 
 const errorMessageFor = (error: unknown): string => {
   if (error instanceof ApiError) {
@@ -156,6 +186,12 @@ export default function UsersPage() {
   const [bulkDeleteModal, setBulkDeleteModal] = useState<BulkDeleteModalState>({ open: false })
   const [bulkResult, setBulkResult] = useState<BulkResultState>(null)
 
+  // --- "+ Invite user" (Screen U1's own entry point into F1 — closed post-T12) ---
+  const [catalog, setCatalog] = useState<CatalogState>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [inviteModal, setInviteModal] = useState<InviteModalState>({ open: false })
+  const [inviteAnnouncement, setInviteAnnouncement] = useState('')
+
   // Fetches the current page/query whenever they (or `reloadToken`, bumped by
   // "Retry" or a successful delete) change. See ../pages/AuditPage.tsx's doc
   // comment for why this is a Promise chain rather than an async/await helper.
@@ -194,6 +230,112 @@ export default function UsersPage() {
   useEffect(() => {
     setSelectedIds(new Set())
   }, [query, page])
+
+  // ---------------------------------------------------------------------------
+  // "+ Invite user" (Modal N1 reused — design.md Screen U1 / F1)
+  // ---------------------------------------------------------------------------
+
+  // Fetch the role/department catalogs once — needed by InviteUserModal's two
+  // checkbox fieldsets whenever it opens (mirrors InvitationsPage.tsx's own
+  // identical fetch).
+  useEffect(() => {
+    let cancelled = false
+
+    Promise.all([adminApi.listRoles(), adminApi.listDepartments()])
+      .then(([roles, departments]) => {
+        if (!cancelled) setCatalog({ roles, departments })
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setCatalogError(errorMessageFor(error))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleInviteOpen = useCallback(() => {
+    setInviteModal({
+      open: true,
+      email: '',
+      selectedRoleIds: new Set(),
+      selectedDepartmentIds: new Set(),
+      submitting: false,
+      emailError: null,
+      generalError: null,
+    })
+  }, [])
+
+  const handleInviteCancel = useCallback(() => {
+    setInviteModal({ open: false })
+  }, [])
+
+  const handleInviteEmailChange = useCallback((value: string) => {
+    setInviteModal((prev) => (prev.open ? { ...prev, email: value, emailError: null } : prev))
+  }, [])
+
+  const handleToggleInviteRole = useCallback((roleId: string) => {
+    setInviteModal((prev) => {
+      if (!prev.open) return prev
+      const next = new Set(prev.selectedRoleIds)
+      if (next.has(roleId)) next.delete(roleId)
+      else next.add(roleId)
+      return { ...prev, selectedRoleIds: next }
+    })
+  }, [])
+
+  const handleToggleInviteDepartment = useCallback((departmentId: string) => {
+    setInviteModal((prev) => {
+      if (!prev.open) return prev
+      const next = new Set(prev.selectedDepartmentIds)
+      if (next.has(departmentId)) next.delete(departmentId)
+      else next.add(departmentId)
+      return { ...prev, selectedDepartmentIds: next }
+    })
+  }, [])
+
+  const handleInviteSubmit = useCallback(async () => {
+    if (!inviteModal.open) return
+    const { email, selectedRoleIds, selectedDepartmentIds } = inviteModal
+    setInviteModal((prev) => (prev.open ? { ...prev, submitting: true, emailError: null, generalError: null } : prev))
+    try {
+      const created = await adminApi.createInvitation({
+        email: email.trim(),
+        roleIds: Array.from(selectedRoleIds),
+        departmentIds: Array.from(selectedDepartmentIds),
+      })
+      // A 201 ALWAYS closes the modal (design.md F1 step 3) — the invitation
+      // itself succeeded regardless of the email delivery outcome, which is
+      // announced here instead (the row itself lives on the Invitations tab,
+      // not this screen).
+      setInviteModal({ open: false })
+      setInviteAnnouncement(
+        created.emailDelivery === 'sent'
+          ? `Invitation sent to ${created.email}`
+          : `Invitation created for ${created.email} — email failed to send`,
+      )
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) {
+        setInviteModal((prev) =>
+          prev.open ? { ...prev, submitting: false, emailError: inviteConflictMessageFor(error.detail) } : prev,
+        )
+        return
+      }
+      if (error instanceof ApiError && error.status === 422) {
+        setInviteModal((prev) =>
+          prev.open
+            ? {
+                ...prev,
+                submitting: false,
+                generalError: error.detail ?? 'One or more selected roles/departments no longer exist.',
+              }
+            : prev,
+        )
+        return
+      }
+      setInviteModal((prev) => (prev.open ? { ...prev, submitting: false, generalError: errorMessageFor(error) } : prev))
+    }
+  }, [inviteModal])
 
   // ---------------------------------------------------------------------------
   // Single-row soft-delete (Dialog N2 — design.md F3, T10 specs/006-user-invitations)
@@ -374,14 +516,50 @@ export default function UsersPage() {
         />
       )}
 
+      {inviteModal.open && catalog && (
+        <InviteUserModal
+          email={inviteModal.email}
+          onEmailChange={handleInviteEmailChange}
+          roles={catalog.roles}
+          departments={catalog.departments}
+          selectedRoleIds={inviteModal.selectedRoleIds}
+          onToggleRole={handleToggleInviteRole}
+          selectedDepartmentIds={inviteModal.selectedDepartmentIds}
+          onToggleDepartment={handleToggleInviteDepartment}
+          onSubmit={() => void handleInviteSubmit()}
+          onCancel={handleInviteCancel}
+          submitting={inviteModal.submitting}
+          emailError={inviteModal.emailError}
+          generalError={inviteModal.generalError}
+        />
+      )}
+
       <UsersSubNav />
 
-      <h2 id="admin-users-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
-        Users
-      </h2>
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="admin-users-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
+          Users
+        </h2>
+        <button
+          type="button"
+          onClick={handleInviteOpen}
+          disabled={!catalog}
+          data-testid="users-invite-button"
+          className="text-sm py-1.5 px-3 font-medium transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ color: 'white', backgroundColor: 'var(--acc)' }}
+        >
+          + Invite user
+        </button>
+      </div>
       <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
         Browse every signed-in user, then open one to set attributes and assign roles or
         departments.
+      </p>
+
+      {catalogError && <ErrorBanner message={catalogError} />}
+
+      <p aria-live="polite" className="sr-only" data-testid="users-invite-announcement">
+        {inviteAnnouncement}
       </p>
 
       <div className="mt-4">

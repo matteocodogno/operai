@@ -21,11 +21,21 @@
  *       selection — the admin's in-progress edit survives so they can adjust
  *       and retry.
  *   (G) Error: getUser rejects → ErrorBanner + Retry.
+ *   (H) "Delete user" (design.md Screen U3, closed post-T10): opens the SAME
+ *       `ConfirmDeleteModal` UsersPage.tsx's row action uses; confirming
+ *       calls the SAME `adminApi.deleteUser` and navigates to `/users`
+ *       (mirrors RoleEditor.test.tsx's delete-then-navigate coverage). The
+ *       button is disabled-with-explanation on the acting admin's own page
+ *       (same `useSession()` convention as Screen U1); a 422 (last-admin
+ *       guard) surfaces via GuardrailDialog, not an inline dialog error.
  *
  * Strategy mirrors ../pages/AuditPage.test.tsx: `../lib/adminApi` mocked at
  * module level, keeping the real `ApiError` class via `importOriginal`. A
  * minimal two-route TanStack Router tree provides the `/users/$id` route
- * context UserDetail's `getRouteApi('/users/$id')` needs.
+ * context UserDetail's `getRouteApi('/users/$id')` needs, and lets (H)'s
+ * navigation assertion be a real router transition (mirrors
+ * ../pages/UsersPage.test.tsx's own harness) rather than a mocked
+ * `useNavigate`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -48,8 +58,14 @@ vi.mock('../lib/adminApi', async (importOriginal) => {
     patchUser: vi.fn(),
     putUserRoles: vi.fn(),
     putUserDepartments: vi.fn(),
+    deleteUser: vi.fn(),
   }
 })
+
+const useSessionMock = vi.fn(() => ({ data: null as { user?: { id?: string } } | null }))
+vi.mock('shell/session', () => ({
+  useSession: () => useSessionMock(),
+}))
 
 import * as adminApi from '../lib/adminApi'
 import { ApiError } from '../lib/adminApi'
@@ -61,7 +77,11 @@ import { ApiError } from '../lib/adminApi'
 function renderUserDetail(id: string) {
   window.history.pushState(null, '', `/users/${id}`)
   const rootRoute = createRootRoute()
-  const usersRoute = createRoute({ getParentRoute: () => rootRoute, path: '/users', component: () => null })
+  const usersRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/users',
+    component: () => <div data-testid="users-page-stub" />,
+  })
   const userDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/users/$id',
@@ -130,6 +150,9 @@ const setupLoaded = () => {
 
 beforeEach(() => {
   vi.stubEnv('VITE_AUTH_URL', 'http://auth.test')
+  // Default: no session user — re-pinned explicitly each test, same rationale
+  // as ../pages/UsersPage.test.tsx's identical beforeEach comment.
+  useSessionMock.mockReturnValue({ data: null })
 })
 
 afterEach(() => {
@@ -321,6 +344,99 @@ describe('UserDetail', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('user-detail-name')).not.toBeNull()
+    })
+  })
+
+  // (H) "Delete user" (design.md Screen U3, closed post-T10, specs/006-user-invitations)
+  describe('delete user', () => {
+    it('Delete user opens ConfirmDeleteModal; confirming calls deleteUser and navigates to /users', async () => {
+      setupLoaded()
+      vi.mocked(adminApi.deleteUser).mockResolvedValue({ id: 'user-1', deletedAt: '2026-07-14T10:00:00.000Z' })
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-delete-button')).not.toBeNull()
+      })
+
+      fireEvent.click(screen.getByTestId('user-detail-delete-button'))
+
+      const dialog = screen.getByRole('alertdialog')
+      expect(dialog.textContent).toContain('Ada Lovelace')
+
+      fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+      await waitFor(() => {
+        expect(adminApi.deleteUser).toHaveBeenCalledWith('user-1')
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId('users-page-stub')).not.toBeNull()
+      })
+    })
+
+    it('Cancel closes the delete confirm without calling deleteUser', async () => {
+      setupLoaded()
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-delete-button')).not.toBeNull()
+      })
+
+      fireEvent.click(screen.getByTestId('user-detail-delete-button'))
+      expect(screen.getByRole('alertdialog')).not.toBeNull()
+
+      fireEvent.click(screen.getByTestId('confirm-delete-cancel'))
+
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(adminApi.deleteUser).not.toHaveBeenCalled()
+    })
+
+    it('disables Delete on the caller\'s own detail page, with title + aria-disabled + sr-only explanation', async () => {
+      useSessionMock.mockReturnValue({ data: { user: { id: 'user-1' } } })
+      setupLoaded()
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-delete-button')).not.toBeNull()
+      })
+
+      const deleteButton = screen.getByTestId('user-detail-delete-button')
+      expect(deleteButton.getAttribute('aria-disabled')).toBe('true')
+      expect(deleteButton.getAttribute('title')).toBe("You can't delete your own account")
+      expect(deleteButton.textContent).toContain("You can't delete your own account")
+
+      fireEvent.click(deleteButton)
+      expect(screen.queryByRole('alertdialog')).toBeNull()
+      expect(adminApi.deleteUser).not.toHaveBeenCalled()
+    })
+
+    it('a 422 on deleteUser surfaces GuardrailDialog, not an inline dialog error', async () => {
+      setupLoaded()
+      vi.mocked(adminApi.deleteUser).mockRejectedValue(
+        new ApiError({
+          type: 'about:blank',
+          title: 'Unprocessable Entity',
+          status: 422,
+          detail: 'This is the last remaining administrator',
+        }),
+      )
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-delete-button')).not.toBeNull()
+      })
+
+      fireEvent.click(screen.getByTestId('user-detail-delete-button'))
+      fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('guardrail-dialog')).not.toBeNull()
+      })
+      expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
+      expect(screen.getByText(/last administrator/)).not.toBeNull()
     })
   })
 })
