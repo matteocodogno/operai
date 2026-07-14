@@ -47,16 +47,34 @@ import { env } from "../lib/env";
  * `assignBaselineRolesToNewUser` so the baseline `employee` role is already
  * in place. Looks up a LIVE PENDING invitation for the new user's own
  * verified email (`user.emailVerified === true` — the same posture as the
- * bootstrap-admin match in `authz/seed.ts`) and, on a match, applies the
- * invitation's roleIds/departmentIds ADDITIVE to the baseline `employee`
- * role (per plan.md Risk R9 — AC-2.3's "baseline default" framing reads as
- * additive; flagged here for QE to confirm — a one-line flip to
- * replace-not-add if QE reads AC-2.3 strictly), marks the invitation
- * `accepted`, bumps `permissionEpoch`, and writes an audit row. A DIFFERENT
- * verified identity that follows the same invite link looks up ITS OWN
- * email here and finds no live-pending row — the original invitation is
- * untouched — which is exactly AC-2.4's cross-identity isolation, achieved
- * structurally rather than via any invite-link-specific check.
+ * bootstrap-admin match in `authz/seed.ts`) and, on a match, applies it.
+ *
+ * **R9 RESOLVED (security-review fix #5, specs/006-user-invitations): AC-2.3
+ * reads STRICTLY — "no more, no fewer".** A named-role invite (`roleIds.length
+ * > 0`) grants the user EXACTLY those roles: the baseline `employee` role
+ * `assignBaselineRolesToNewUser` just assigned is REMOVED (`userRole` is
+ * cleared for this user, then re-created from the invitation's valid role
+ * ids only) — never additive/employee-plus. An invite with NO roles keeps
+ * the baseline `employee` grant untouched (AC-1.1's "seed-role default"
+ * framing). This mirrors `gateOrReactivateSoftDeletedSession`'s
+ * re-activation below, which already REPLACES unconditionally.
+ *
+ * **Security-review fix #4: existence check before applying.** A role/
+ * department named on the invitation may have been deleted during the 72h
+ * acceptance window — applying a dangling id via `upsert`/`createMany` would
+ * throw on the FK constraint, rolling back the ENTIRE transaction and
+ * leaving the invitation stuck `pending` for an email that (per better-auth)
+ * now has an active user row. Fixed by filtering `roleIds`/`departmentIds`
+ * to ids that still exist (`tx.role.findMany`/`tx.department.findMany`)
+ * BEFORE applying, recording the skipped ids in the audit `data`, and
+ * marking the invitation `accepted` REGARDLESS of whether anything was
+ * skipped — never leave a live-pending invitation for a now-active user.
+ *
+ * A DIFFERENT verified identity that follows the same invite link looks up
+ * ITS OWN email here and finds no live-pending row — the original
+ * invitation is untouched — which is exactly AC-2.4's cross-identity
+ * isolation, achieved structurally rather than via any invite-link-specific
+ * check.
  */
 export async function applyLivePendingInvitationOnUserCreate(
   user: NewUserForBootstrap,
@@ -69,37 +87,75 @@ export async function applyLivePendingInvitationOnUserCreate(
   await withAudit({
     affectedUserIds: [user.id],
     mutate: async (tx) => {
-      for (const roleId of invitation.roleIds) {
-        await tx.userRole.upsert({
-          where: { userId_roleId: { userId: user.id, roleId } },
-          update: {},
-          create: { userId: user.id, roleId, assignedByUserId: invitation.invitedByUserId },
-        });
+      // Fix #4 — filter to ids that still exist (a role/department could
+      // have been deleted during the 72h window between invite and accept).
+      const [existingRoles, existingDepartments] = await Promise.all([
+        invitation.roleIds.length > 0
+          ? tx.role.findMany({ where: { id: { in: invitation.roleIds } }, select: { id: true } })
+          : Promise.resolve([]),
+        invitation.departmentIds.length > 0
+          ? tx.department.findMany({
+              where: { id: { in: invitation.departmentIds } },
+              select: { id: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const validRoleIds = existingRoles.map((role) => role.id);
+      const validDepartmentIds = existingDepartments.map((department) => department.id);
+      const skippedRoleIds = invitation.roleIds.filter((id) => !validRoleIds.includes(id));
+      const skippedDepartmentIds = invitation.departmentIds.filter(
+        (id) => !validDepartmentIds.includes(id),
+      );
+
+      // Fix #5 — EXACT roles (AC-2.3 strict reading): a named-role invite
+      // REPLACES the baseline `employee` grant rather than adding to it. An
+      // invite with no roles leaves the baseline grant alone.
+      if (invitation.roleIds.length > 0) {
+        await tx.userRole.deleteMany({ where: { userId: user.id } });
+        if (validRoleIds.length > 0) {
+          await tx.userRole.createMany({
+            data: validRoleIds.map((roleId) => ({
+              userId: user.id,
+              roleId,
+              assignedByUserId: invitation.invitedByUserId,
+            })),
+          });
+        }
       }
-      for (const departmentId of invitation.departmentIds) {
-        await tx.userDepartment.upsert({
-          where: { userId_departmentId: { userId: user.id, departmentId } },
-          update: {},
-          create: {
+      if (validDepartmentIds.length > 0) {
+        await tx.userDepartment.createMany({
+          data: validDepartmentIds.map((departmentId) => ({
             userId: user.id,
             departmentId,
             assignedByUserId: invitation.invitedByUserId,
-          },
+          })),
         });
       }
+
+      // Fix #4 — mark accepted REGARDLESS of any skipped ids: never leave
+      // this invitation live-pending for an email that now has an active user.
       await tx.invitation.update({
         where: { id: invitation.id },
         data: { status: "accepted", acceptedByUserId: user.id },
       });
+
+      return { validRoleIds, validDepartmentIds, skippedRoleIds, skippedDepartmentIds };
     },
-    entry: {
+    entry: (result) => ({
       actorUserId: user.id,
       action: "invitation.accept",
       targetType: "invitation",
       targetId: invitation.id,
       summary: `Invitation for ${user.email} accepted on sign-up`,
-      data: { roleIds: invitation.roleIds, departmentIds: invitation.departmentIds },
-    },
+      data: {
+        roleIds: result.validRoleIds,
+        departmentIds: result.validDepartmentIds,
+        ...(result.skippedRoleIds.length > 0 ? { skippedRoleIds: result.skippedRoleIds } : {}),
+        ...(result.skippedDepartmentIds.length > 0
+          ? { skippedDepartmentIds: result.skippedDepartmentIds }
+          : {}),
+      },
+    }),
   });
 }
 
@@ -121,6 +177,15 @@ export async function applyLivePendingInvitationOnUserCreate(
  * above for the confirmed abort mechanism): no resurrection, and no new
  * user row is created because the `account` row still maps to this exact
  * (soft-deleted) user.
+ *
+ * **Security-review fix #4 (specs/006-user-invitations): existence check
+ * before applying.** Same rationale as `applyLivePendingInvitationOnUserCreate`
+ * above — a role/department named on the invitation may have been deleted
+ * during the 72h window; applying a dangling id would throw on the FK
+ * constraint and roll back the whole re-activation, leaving the user
+ * soft-deleted with their invitation stuck live-pending. Filtered to ids
+ * that still exist before applying; skipped ids are recorded in the audit
+ * `data`; the invitation is marked `accepted` regardless.
  */
 export async function gateOrReactivateSoftDeletedSession(
   userId: string,
@@ -141,6 +206,26 @@ export async function gateOrReactivateSoftDeletedSession(
   await withAudit({
     affectedUserIds: [userId],
     mutate: async (tx) => {
+      // Fix #4 — filter to ids that still exist (a role/department could
+      // have been deleted during the 72h window between invite and accept).
+      const [existingRoles, existingDepartments] = await Promise.all([
+        invitation.roleIds.length > 0
+          ? tx.role.findMany({ where: { id: { in: invitation.roleIds } }, select: { id: true } })
+          : Promise.resolve([]),
+        invitation.departmentIds.length > 0
+          ? tx.department.findMany({
+              where: { id: { in: invitation.departmentIds } },
+              select: { id: true },
+            })
+          : Promise.resolve([]),
+      ]);
+      const validRoleIds = existingRoles.map((role) => role.id);
+      const validDepartmentIds = existingDepartments.map((department) => department.id);
+      const skippedRoleIds = invitation.roleIds.filter((id) => !validRoleIds.includes(id));
+      const skippedDepartmentIds = invitation.departmentIds.filter(
+        (id) => !validDepartmentIds.includes(id),
+      );
+
       await tx.user.update({
         where: { id: userId },
         data: { deletedAt: null, deletedByUserId: null },
@@ -148,37 +233,49 @@ export async function gateOrReactivateSoftDeletedSession(
       // REPLACE (not merge) — AC-5.10.
       await tx.userRole.deleteMany({ where: { userId } });
       await tx.userDepartment.deleteMany({ where: { userId } });
-      if (invitation.roleIds.length > 0) {
+      if (validRoleIds.length > 0) {
         await tx.userRole.createMany({
-          data: invitation.roleIds.map((roleId) => ({
+          data: validRoleIds.map((roleId) => ({
             userId,
             roleId,
             assignedByUserId: invitation.invitedByUserId,
           })),
         });
       }
-      if (invitation.departmentIds.length > 0) {
+      if (validDepartmentIds.length > 0) {
         await tx.userDepartment.createMany({
-          data: invitation.departmentIds.map((departmentId) => ({
+          data: validDepartmentIds.map((departmentId) => ({
             userId,
             departmentId,
             assignedByUserId: invitation.invitedByUserId,
           })),
         });
       }
+      // Fix #4 — mark accepted REGARDLESS of any skipped ids: never leave
+      // this invitation live-pending for an email that now has an active user.
       await tx.invitation.update({
         where: { id: invitation.id },
         data: { status: "accepted", acceptedByUserId: userId },
       });
+
+      return { validRoleIds, validDepartmentIds, skippedRoleIds, skippedDepartmentIds };
     },
-    entry: {
+    entry: (result) => ({
       actorUserId: userId,
       action: "user.reactivate",
       targetType: "user",
       targetId: userId,
       summary: `Re-activated ${user.email} via a fresh invitation (was soft-deleted)`,
-      data: { invitationId: invitation.id, roleIds: invitation.roleIds, departmentIds: invitation.departmentIds },
-    },
+      data: {
+        invitationId: invitation.id,
+        roleIds: result.validRoleIds,
+        departmentIds: result.validDepartmentIds,
+        ...(result.skippedRoleIds.length > 0 ? { skippedRoleIds: result.skippedRoleIds } : {}),
+        ...(result.skippedDepartmentIds.length > 0
+          ? { skippedDepartmentIds: result.skippedDepartmentIds }
+          : {}),
+      },
+    }),
   });
 
   // Falls through to `undefined` — allow the session.

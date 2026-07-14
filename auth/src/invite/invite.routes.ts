@@ -329,6 +329,11 @@ inviteRouter.get("/invite/state", async (c) => {
   const id = c.req.query("id");
   const token = c.req.query("token");
   const resolved = await resolveInviteState(id, token);
+  // Security-review fix #3 (specs/006-user-invitations, A02): this URL
+  // carries the raw invite token in its query string — never leak it via the
+  // Referer header on any outbound request a client might make from this
+  // response's context.
+  c.header("Referrer-Policy", "no-referrer");
   return c.json(resolved, 200);
 });
 
@@ -358,6 +363,11 @@ inviteRouter.get("/invite", async (c) => {
   );
   c.header("X-Frame-Options", "DENY");
   c.header("X-Content-Type-Options", "nosniff");
+  // Security-review fix #3 (specs/006-user-invitations, A02): this URL
+  // carries the raw invite token (`?id=...&token=...`) and the page also
+  // loads Google Fonts cross-origin — never leak the token via the Referer
+  // header on that (or any future) outbound request.
+  c.header("Referrer-Policy", "no-referrer");
 
   const page = renderInvitePage({ resolved, nonce });
   return c.html(page);

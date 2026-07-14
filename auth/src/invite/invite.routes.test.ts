@@ -150,6 +150,14 @@ describe("GET /invite/state (JSON seam)", () => {
     expect(body.state).toBe("invalid");
     expect(body.email).toBeNull();
   });
+
+  test("(security-review fix #3, specs/006-user-invitations, A02) sets Referrer-Policy: no-referrer — this URL carries the raw token", async () => {
+    const { row, rawToken } = await makeInvitation("state-json-referrer-policy");
+    const res = await inviteRouter.request(
+      `/invite/state?id=${encodeURIComponent(row.id)}&token=${encodeURIComponent(rawToken)}`,
+    );
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
 });
 
 describe("GET /invite (HTML landing page)", () => {
@@ -166,6 +174,14 @@ describe("GET /invite (HTML landing page)", () => {
     expect(bodyText).toContain("data-provider=\"google\"");
     expect(bodyText).toContain("data-provider=\"github\"");
     expect(res.headers.get("Content-Security-Policy")).toContain("script-src 'nonce-");
+  });
+
+  test("(security-review fix #3, specs/006-user-invitations, A02) sets Referrer-Policy: no-referrer — this URL carries the raw token and loads cross-origin fonts", async () => {
+    const { row, rawToken } = await makeInvitation("html-referrer-policy");
+    const res = await inviteRouter.request(
+      `/invite?id=${encodeURIComponent(row.id)}&token=${encodeURIComponent(rawToken)}`,
+    );
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 
   test("expired/revoked/accepted/invalid all render a 'no longer valid' message and NEVER the invitation's email (AC-2.5, no leak)", async () => {

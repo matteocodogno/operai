@@ -54,9 +54,13 @@ const envSchema = z.object({
   NOTIFY_INTERNAL_URL: z
     .string()
     .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
+  // Security-review fix #6 (specs/006-user-invitations, A05): mirror
+  // notify-api's own `.min(32)` on this SAME shared secret — a weak/truncated
+  // value must fail closed on either side of the trust boundary, not just
+  // the receiving service's.
   NOTIFY_INTERNAL_TOKEN: z
     .string()
-    .min(1, "NOTIFY_INTERNAL_TOKEN is required"),
+    .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

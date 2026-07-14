@@ -376,6 +376,38 @@ describe("Invitation admin API (T6)", () => {
     expect(body.detail).toContain(existing.id);
   });
 
+  test("(security-review fix #7, specs/006-user-invitations, A04) two concurrent creates for the SAME email race past the pre-check — exactly one 201, the other 409 (never 500)", async () => {
+    asAdmin();
+    mockEmailSent();
+    const { invitationsRouter } = await import("./invitations.routes");
+
+    const email = `t6-race-${RUN_ID}@operai.test`;
+
+    const [resA, resB] = await Promise.all([
+      invitationsRouter.request("/admin/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      }),
+      invitationsRouter.request("/admin/invitations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      }),
+    ]);
+
+    const statuses = [resA.status, resB.status].sort();
+    // Never a 500 — the partial-unique-index loser must surface as 409.
+    expect(statuses).toEqual([201, 409]);
+
+    const winner = resA.status === 201 ? resA : resB;
+    const winnerBody = (await winner.json()) as { id: string };
+    trackInvitation(winnerBody.id);
+
+    const rows = await db.invitation.findMany({ where: { email } });
+    expect(rows.length).toBe(1);
+  });
+
   test("POST creates pending for an email whose only prior invites are dead — reconcile-on-write flips the stale row (AC-1.5/AC-1.14)", async () => {
     asAdmin();
     mockEmailSent();

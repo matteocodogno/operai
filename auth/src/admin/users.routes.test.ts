@@ -299,6 +299,31 @@ describe("Admin Users API (T10)", () => {
       expect(res.status).toBe(404);
     });
 
+    test("404s for a soft-deleted user (security-review fix #2, specs/006-user-invitations, AC-5.4)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("patch-actor-softdeleted");
+      await assignRole(admin.id, adminRoleId);
+      const target = await makeUser("patch-target-softdeleted");
+      await db.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), deletedByUserId: admin.id },
+      });
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobTitle: "Should not apply" }),
+      });
+
+      expect(res.status).toBe(404);
+
+      const unchanged = await db.user.findUniqueOrThrow({ where: { id: target.id } });
+      expect(unchanged.jobTitle).not.toBe("Should not apply");
+    });
+
     test("sets entity/jobTitle and audits the change", async () => {
       const adminRoleId = await ensureAdminRole();
       const admin = await makeUser("patch-actor");
@@ -352,6 +377,34 @@ describe("Admin Users API (T10)", () => {
       expect(res.status).toBe(422);
       const body = (await res.json()) as { status: number };
       expect(body.status).toBe(422);
+    });
+
+    test("404s for a soft-deleted user (security-review fix #2, specs/006-user-invitations, AC-5.4)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("roles-actor-softdeleted");
+      await assignRole(admin.id, adminRoleId);
+      const target = await makeUser("roles-target-softdeleted");
+      await db.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), deletedByUserId: admin.id },
+      });
+      const role = await makeRole("softdeleted-guard");
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}/roles`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleIds: [role.id] }),
+      });
+
+      expect(res.status).toBe(404);
+
+      const grantedRole = await db.userRole.findUnique({
+        where: { userId_roleId: { userId: target.id, roleId: role.id } },
+      });
+      expect(grantedRole).toBeNull();
     });
 
     test("assign then revoke is reflected in GET .../permissions (matches the resolver)", async () => {
@@ -517,6 +570,34 @@ describe("Admin Users API (T10)", () => {
       expect(res.status).toBe(422);
     });
 
+    test("404s for a soft-deleted user (security-review fix #2, specs/006-user-invitations, AC-5.4)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("depts-actor-softdeleted");
+      await assignRole(admin.id, adminRoleId);
+      const target = await makeUser("depts-target-softdeleted");
+      await db.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), deletedByUserId: admin.id },
+      });
+      const department = await makeDepartment("softdeleted-guard");
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}/departments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ departmentIds: [department.id] }),
+      });
+
+      expect(res.status).toBe(404);
+
+      const grantedDept = await db.userDepartment.findUnique({
+        where: { userId_departmentId: { userId: target.id, departmentId: department.id } },
+      });
+      expect(grantedDept).toBeNull();
+    });
+
     test("assign then revoke is reflected (member inherits department roles)", async () => {
       const adminRoleId = await ensureAdminRole();
       const admin = await makeUser("depts-actor");
@@ -607,6 +688,23 @@ describe("Admin Users API (T10)", () => {
       const { usersRouter } = await import("./users.routes");
 
       const res = await usersRouter.request("/admin/users/does-not-exist/permissions");
+      expect(res.status).toBe(404);
+    });
+
+    test("404s for a soft-deleted user (security-review fix #2, specs/006-user-invitations, AC-5.4)", async () => {
+      const adminRoleId = await ensureAdminRole();
+      const admin = await makeUser("perms-actor-softdeleted");
+      await assignRole(admin.id, adminRoleId);
+      const target = await makeUser("perms-target-softdeleted");
+      await db.user.update({
+        where: { id: target.id },
+        data: { deletedAt: new Date(), deletedByUserId: admin.id },
+      });
+
+      actAs(admin.id, admin.email);
+      const { usersRouter } = await import("./users.routes");
+
+      const res = await usersRouter.request(`/admin/users/${target.id}/permissions`);
       expect(res.status).toBe(404);
     });
   });

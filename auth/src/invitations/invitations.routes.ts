@@ -37,6 +37,7 @@ import {
   sessionMiddleware,
 } from "../auth/auth.middleware";
 import { db } from "../lib/db";
+import { Prisma } from "../lib/generated/prisma/client";
 import type { Invitation } from "../lib/generated/prisma/client";
 import { withAudit } from "../authz/audit";
 import { env } from "../lib/env";
@@ -95,6 +96,23 @@ function unprocessable(instance: string, detail: string) {
     detail,
     instance,
   } as const;
+}
+
+/**
+ * True when `error` is a Prisma unique-constraint violation (P2002) —
+ * mirrors `admin/roles.routes.ts` / `admin/departments.routes.ts`'s own
+ * helper of the same name. Security-review fix #7 (specs/006-user-invitations,
+ * A04): used to catch the race where two concurrent `POST /admin/invitations`
+ * for the SAME email both pass the pre-transaction 409 check (AC-1.4) and
+ * then both attempt to insert — the `invitation_pending_email_key` partial
+ * unique index lets exactly one commit; the loser must surface as the same
+ * 409 Conflict shape, never an uncaught 500.
+ */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
 }
 
 // ─── Serialization ────────────────────────────────────────────────────────────
@@ -296,31 +314,51 @@ invitationsRouter.openapi(createInvitationRoute, async (c) => {
   const token = await generateInvitationToken();
   const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
 
-  const created = await withAudit({
-    affectedUserIds: [],
-    mutate: async (tx) => {
-      // Reconcile-on-write (ADR-0013, AC-1.5/AC-1.14) — INSIDE the same
-      // transaction as the insert, so the partial-unique index never sees
-      // a stale row it should have excluded.
-      await reconcileExpiredPending(tx, email);
-      return createInvitationRow(tx, {
-        email,
-        roleIds,
-        departmentIds,
-        invitedByUserId: actor.id,
-        tokenHash: token.hash,
-        expiresAt,
-      });
-    },
-    entry: (invitation) => ({
-      actorUserId: actor.id,
-      action: "invitation.create",
-      targetType: "invitation",
-      targetId: invitation.id,
-      summary: `Invited ${invitation.email}`,
-      data: { roleIds, departmentIds },
-    }),
-  });
+  let created: Invitation;
+  try {
+    created = await withAudit({
+      affectedUserIds: [],
+      mutate: async (tx) => {
+        // Reconcile-on-write (ADR-0013, AC-1.5/AC-1.14) — INSIDE the same
+        // transaction as the insert, so the partial-unique index never sees
+        // a stale row it should have excluded.
+        await reconcileExpiredPending(tx, email);
+        return createInvitationRow(tx, {
+          email,
+          roleIds,
+          departmentIds,
+          invitedByUserId: actor.id,
+          tokenHash: token.hash,
+          expiresAt,
+        });
+      },
+      entry: (invitation) => ({
+        actorUserId: actor.id,
+        action: "invitation.create",
+        targetType: "invitation",
+        targetId: invitation.id,
+        summary: `Invited ${invitation.email}`,
+        data: { roleIds, departmentIds },
+      }),
+    });
+  } catch (error) {
+    // Security-review fix #7 (specs/006-user-invitations, A04): the
+    // pre-transaction check above (AC-1.4) is TOCTOU-racy under concurrency —
+    // two simultaneous creates for the same email can both pass it and both
+    // reach the insert. The `invitation_pending_email_key` partial unique
+    // index (ADR-0013) lets only one win; the other must surface the SAME
+    // 409 Conflict the pre-check path returns, never an uncaught 500.
+    if (isUniqueConstraintViolation(error)) {
+      return c.json(
+        conflict(
+          c.req.path,
+          `A pending invitation already exists for "${email}"`,
+        ),
+        409,
+      );
+    }
+    throw error;
+  }
 
   // ── Email send — AFTER commit, never blocks the invitation itself ───────
   const delivery = await sendInvitationEmail({
