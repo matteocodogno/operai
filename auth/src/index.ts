@@ -3,8 +3,8 @@ import { env } from "./lib/env";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import type { Context } from "hono";
+import { requestLogger } from "./lib/logger";
 import { authRouter } from "./auth/auth.routes";
 import { auditRouter } from "./authz/audit.routes";
 import { authzRouter } from "./authz/authz.routes";
@@ -33,7 +33,11 @@ app.use(
   }),
 );
 
-app.use("*", logger());
+// Redacted request logger (security-review fix #1, specs/006-user-invitations):
+// hono/logger() logs the full path INCLUDING the query string, which would
+// write the live `GET /invite?id&token=<raw>` invitation token into every log
+// line for that request — see src/lib/logger.ts.
+app.use("*", requestLogger());
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 

@@ -248,7 +248,7 @@ describe("user.create.after — invitation activation (T8, AC-2.3, AC-2.4)", () 
     return afterHook;
   }
 
-  test("AC-2.3: a live-pending invitation for the new user's verified email is applied ADDITIVE to the baseline employee role, marked accepted, epoch bumped, and audited", async () => {
+  test("AC-2.3 (R9 RESOLVED, security-review fix #5): a live-pending invitation naming a role grants EXACTLY that role/department — the baseline employee role is REPLACED, not kept alongside it — marked accepted, epoch bumped, audited", async () => {
     const { db } = await import("../lib/db");
     const afterHook = await getRegisteredAfterHook();
 
@@ -277,18 +277,17 @@ describe("user.create.after — invitation activation (T8, AC-2.3, AC-2.4)", () 
 
     await afterHook(user, null);
 
-    // Baseline employee role is still assigned (auth.config.ts calls
-    // assignBaselineRolesToNewUser BEFORE the invitation hook).
+    // Fix #5 — a named-role invite is EXACT (AC-2.3 "no more, no fewer"):
+    // the baseline employee role assignBaselineRolesToNewUser just granted
+    // is REPLACED, never kept alongside the invite's role.
     const employeeRole = await db.userRole.findFirst({
       where: { userId: user.id, role: { name: "employee" } },
     });
-    expect(employeeRole).not.toBeNull();
+    expect(employeeRole).toBeNull();
 
-    // The invite's role/department are ADDITIVE — both present alongside employee.
-    const grantedRole = await db.userRole.findUnique({
-      where: { userId_roleId: { userId: user.id, roleId: role.id } },
-    });
-    expect(grantedRole).not.toBeNull();
+    const roleRows = await db.userRole.findMany({ where: { userId: user.id } });
+    expect(roleRows.map((r) => r.roleId)).toEqual([role.id]);
+
     const grantedDept = await db.userDepartment.findUnique({
       where: { userId_departmentId: { userId: user.id, departmentId: department.id } },
     });
@@ -306,6 +305,93 @@ describe("user.create.after — invitation activation (T8, AC-2.3, AC-2.4)", () 
     });
     expect(auditRow).not.toBeNull();
     expect(auditRow?.actorUserId).toBe(user.id);
+  });
+
+  test("AC-2.3 (security-review fix #5): an EMPTY invitation (no roleIds) keeps the baseline employee role — the seed-role default", async () => {
+    const { db } = await import("../lib/db");
+    const afterHook = await getRegisteredAfterHook();
+
+    const email = `t8-invitee-empty-${RUN_ID}@operai.test`;
+    const invitation = await db.invitation.create({
+      data: {
+        email,
+        status: "pending",
+        roleIds: [],
+        departmentIds: [],
+        tokenHash: `t8-token-hash-empty-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      },
+    });
+    createdInvitationIds.push(invitation.id);
+
+    const user = await db.user.create({
+      data: { email, name: "T8 empty-invite invitee", emailVerified: true },
+    });
+    createdUserIds.push(user.id);
+
+    await afterHook(user, null);
+
+    const roleRows = await db.userRole.findMany({
+      where: { userId: user.id },
+      include: { role: true },
+    });
+    expect(roleRows.map((r) => r.role.name)).toEqual(["employee"]);
+
+    const updatedInvitation = await db.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+    expect(updatedInvitation.status).toBe("accepted");
+  });
+
+  test("security-review fix #4: an invitation naming a role that was DELETED before acceptance still completes activation — invitation accepted, skipped id audited, no dangling FK crash", async () => {
+    const { db } = await import("../lib/db");
+    const afterHook = await getRegisteredAfterHook();
+
+    const survivingRole = await db.role.create({ data: { name: `t8-invite-role-survivor-${RUN_ID}` } });
+    createdRoleIds.push(survivingRole.id);
+
+    // A role that existed at invite-create time but is deleted before the
+    // invitee ever accepts (simulated by creating then deleting it — the
+    // invitation still names its now-dangling id, exactly as if an admin had
+    // deleted the role during the 72h window).
+    const deletedRole = await db.role.create({ data: { name: `t8-invite-role-todelete-${RUN_ID}` } });
+    const deletedRoleId = deletedRole.id;
+    await db.role.delete({ where: { id: deletedRoleId } });
+
+    const email = `t8-invitee-deletedrole-${RUN_ID}@operai.test`;
+    const invitation = await db.invitation.create({
+      data: {
+        email,
+        status: "pending",
+        roleIds: [survivingRole.id, deletedRoleId],
+        departmentIds: [],
+        tokenHash: `t8-token-hash-deletedrole-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      },
+    });
+    createdInvitationIds.push(invitation.id);
+
+    const user = await db.user.create({
+      data: { email, name: "T8 deleted-role invitee", emailVerified: true },
+    });
+    createdUserIds.push(user.id);
+
+    // Must not throw — a dangling FK on the deleted role must never roll
+    // back the whole activation transaction.
+    await afterHook(user, null);
+
+    const roleRows = await db.userRole.findMany({ where: { userId: user.id } });
+    expect(roleRows.map((r) => r.roleId)).toEqual([survivingRole.id]);
+
+    // Fix #4 — the invitation is marked accepted REGARDLESS of the skipped id.
+    const updatedInvitation = await db.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+    expect(updatedInvitation.status).toBe("accepted");
+    expect(updatedInvitation.acceptedByUserId).toBe(user.id);
+
+    const auditRow = await db.auditLog.findFirst({
+      where: { targetType: "invitation", targetId: invitation.id, action: "invitation.accept" },
+    });
+    expect(auditRow).not.toBeNull();
+    const auditData = auditRow?.data as { skippedRoleIds?: string[] } | null;
+    expect(auditData?.skippedRoleIds).toEqual([deletedRoleId]);
   });
 
   test("AC-2.4: a different verified identity's sign-up does not consume another email's pending invitation (cross-identity isolation)", async () => {
@@ -520,5 +606,62 @@ describe("session.create.before — soft-delete gate + re-activation (T8, AC-5.2
       where: { targetType: "user", targetId: user.id, action: "user.reactivate" },
     });
     expect(auditRow).not.toBeNull();
+  });
+
+  test("security-review fix #4: re-activation via an invitation naming a role DELETED before acceptance still completes — deletedAt cleared, invitation accepted, skipped id audited, no dangling FK crash", async () => {
+    const { db } = await import("../lib/db");
+    const beforeHook = await getRegisteredBeforeHook();
+
+    const survivingRole = await db.role.create({ data: { name: `t8-reactivate-survivor-${RUN_ID}` } });
+    createdRoleIds.push(survivingRole.id);
+
+    const deletedRole = await db.role.create({ data: { name: `t8-reactivate-todelete-${RUN_ID}` } });
+    const deletedRoleId = deletedRole.id;
+    await db.role.delete({ where: { id: deletedRoleId } });
+
+    const email = `t8-deleted-reinvited-deletedrole-${RUN_ID}@operai.test`;
+    const user = await db.user.create({
+      data: {
+        email,
+        name: "T8 soft-deleted, re-invited with a since-deleted role",
+        emailVerified: true,
+        deletedAt: new Date(),
+      },
+    });
+    createdUserIds.push(user.id);
+
+    const invitation = await db.invitation.create({
+      data: {
+        email,
+        status: "pending",
+        roleIds: [survivingRole.id, deletedRoleId],
+        departmentIds: [],
+        tokenHash: `t8-token-hash-reactivate-deletedrole-${crypto.randomUUID()}`,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      },
+    });
+    createdInvitationIds.push(invitation.id);
+
+    // Must not throw — a dangling FK on the deleted role must never roll
+    // back the whole re-activation transaction (which would leave the user
+    // permanently locked out with a live-pending invitation for their email).
+    const result = await beforeHook({ userId: user.id }, null);
+    expect(result).toBeUndefined();
+
+    const reactivated = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(reactivated.deletedAt).toBeNull();
+
+    const roleRows = await db.userRole.findMany({ where: { userId: user.id } });
+    expect(roleRows.map((r) => r.roleId)).toEqual([survivingRole.id]);
+
+    const acceptedInvitation = await db.invitation.findUniqueOrThrow({ where: { id: invitation.id } });
+    expect(acceptedInvitation.status).toBe("accepted");
+
+    const auditRow = await db.auditLog.findFirst({
+      where: { targetType: "user", targetId: user.id, action: "user.reactivate" },
+    });
+    expect(auditRow).not.toBeNull();
+    const auditData = auditRow?.data as { skippedRoleIds?: string[] } | null;
+    expect(auditData?.skippedRoleIds).toEqual([deletedRoleId]);
   });
 });

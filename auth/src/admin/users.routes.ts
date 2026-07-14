@@ -732,9 +732,12 @@ usersRouter.openapi(patchUserRoute, async (c) => {
 
   const existing = await db.user.findUnique({
     where: { id },
-    select: { id: true, email: true, entity: true, jobTitle: true },
+    select: { id: true, email: true, entity: true, jobTitle: true, deletedAt: true },
   });
-  if (!existing) {
+  // Security-review fix #2 (specs/006-user-invitations): a soft-deleted user
+  // has no admin-facing existence (AC-5.4, mirroring GET/DELETE .../:id) — a
+  // caller must not be able to mutate a soft-deleted user's attributes.
+  if (!existing || existing.deletedAt !== null) {
     return c.json(notFound(c.req.path, `No user with id ${id}`), 404);
   }
 
@@ -837,8 +840,14 @@ usersRouter.openapi(putUserRolesRoute, async (c) => {
   const { roleIds } = c.req.valid("json");
   const actorUserId = c.get("user")!.id;
 
-  const target = await db.user.findUnique({ where: { id }, select: { id: true, email: true } });
-  if (!target) {
+  const target = await db.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, deletedAt: true },
+  });
+  // Security-review fix #2 (specs/006-user-invitations): a soft-deleted
+  // user's roles can never be mutated (AC-5.4) — treat them as gone, same as
+  // GET/DELETE .../:id.
+  if (!target || target.deletedAt !== null) {
     return c.json(notFound(c.req.path, `No user with id ${id}`), 404);
   }
 
@@ -992,8 +1001,14 @@ usersRouter.openapi(putUserDepartmentsRoute, async (c) => {
   const { departmentIds } = c.req.valid("json");
   const actorUserId = c.get("user")!.id;
 
-  const target = await db.user.findUnique({ where: { id }, select: { id: true, email: true } });
-  if (!target) {
+  const target = await db.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, deletedAt: true },
+  });
+  // Security-review fix #2 (specs/006-user-invitations): a soft-deleted
+  // user's departments can never be mutated (AC-5.4) — treat them as gone,
+  // same as GET/DELETE .../:id.
+  if (!target || target.deletedAt !== null) {
     return c.json(notFound(c.req.path, `No user with id ${id}`), 404);
   }
 
@@ -1136,8 +1151,14 @@ const getUserPermissionsRoute = createRoute({
 usersRouter.openapi(getUserPermissionsRoute, async (c) => {
   const { id } = c.req.valid("param");
 
-  const exists = await db.user.findUnique({ where: { id }, select: { id: true } });
-  if (!exists) {
+  const exists = await db.user.findUnique({
+    where: { id },
+    select: { id: true, deletedAt: true },
+  });
+  // Security-review fix #2 (specs/006-user-invitations): a soft-deleted
+  // user's effective permissions must never be readable (AC-5.4) — treat
+  // them as gone, same as GET/DELETE .../:id.
+  if (!exists || exists.deletedAt !== null) {
     return c.json(notFound(c.req.path, `No user with id ${id}`), 404);
   }
 
