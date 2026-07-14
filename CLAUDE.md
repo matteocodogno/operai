@@ -40,7 +40,9 @@ operai/
 │   ├── src/
 │   │   ├── auth/        # better-auth config, middleware (requireAuth/requireAdmin), routes
 │   │   ├── authz/        # authorization (specs/004, ADR-0007): resolver, /authz/me, catalog, audit, seed
-│   │   ├── admin/        # admin API — roles/departments/users routes + last-admin guard
+│   │   ├── admin/        # admin API — roles/departments/users routes + last-admin guard; user soft-delete + bulk (specs/006)
+│   │   ├── invitations/  # invitation lifecycle + admin API (create/list/resend/revoke); notify email trigger (specs/006, ADR-0012/0013)
+│   │   ├── invite/       # hosted invite landing page (GET /invite, bilingual) + state JSON (specs/006)
 │   │   ├── signin/      # hosted sign-in page (Google/GitHub)
 │   │   ├── test-auth/   # dev/test-only session-mint endpoint (gated)
 │   │   ├── jwks/        # JWKS endpoint (RS256 public key)
@@ -51,7 +53,7 @@ operai/
 │   └── package.json
 │
 ├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
-├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009)
+├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011)
 │
 ├── docs/adr/            # Architecture Decision Records (0001–0013; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)

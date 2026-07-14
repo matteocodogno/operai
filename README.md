@@ -9,11 +9,11 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `shell/` | Suite host — shared chrome (header/sidebar/footer) + single session; mounts each tool as a federated remote |
 | `estimai-ui/` | EstimAI, as a federated remote |
 | `refund-ui/` | Reimbursement tool (placeholder remote; domain lands in a later spec) |
-| `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/004, admin-only) |
+| `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/004); user invitations, resend/revoke & soft-delete (specs/006, admin-only) |
 | `notify-ui/` | Notification center (federated remote) — the `/notify` page; reached from the header bell (specs/005) |
-| `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR-0007) |
+| `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR-0007); user invitations + soft-delete + hosted invite landing (specs/006) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
-| `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009) |
+| `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery via Resend, internal `/system/emails` (specs/006, ADR-0011) |
 | `specs/`, `docs/adr/` | Spec-driven workflow + Architecture Decision Records |
 | `infra/` | Deploy config + runbooks (Railway, Vercel) |
 
