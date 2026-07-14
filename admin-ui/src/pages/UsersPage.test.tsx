@@ -33,6 +33,11 @@
  *   (K) Bulk delete (T11, AC-6.3): confirming calls `bulkDeleteUsers` with
  *       the selected ids, and a persistent `BulkDeleteResultPanel` (not a
  *       toast) renders the skipped users with their server-supplied reasons.
+ *   (L) "+ Invite user" (design.md Screen U1, closed post-T12): the button
+ *       opens the SAME `InviteUserModal` the Invitations tab uses; submitting
+ *       calls the SAME `adminApi.createInvitation`, closes the modal on 201,
+ *       and announces the outcome (aria-live) — mirrors
+ *       ../pages/InvitationsPage.test.tsx's own invite-modal coverage.
  *
  * Strategy mirrors ../pages/AuditPage.test.tsx: `../lib/adminApi` mocked at
  * module level, keeping the real `ApiError` class via `importOriginal`.
@@ -44,7 +49,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import UsersPage from './UsersPage'
-import type { Paginated, UserSummary } from '../lib/adminApi'
+import type { Department, Paginated, Role, UserSummary } from '../lib/adminApi'
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before importing the mocked modules.
@@ -57,6 +62,9 @@ vi.mock('../lib/adminApi', async (importOriginal) => {
     listUsers: vi.fn(),
     deleteUser: vi.fn(),
     bulkDeleteUsers: vi.fn(),
+    createInvitation: vi.fn(),
+    listRoles: vi.fn(),
+    listDepartments: vi.fn(),
   }
 })
 
@@ -124,6 +132,36 @@ const userC: UserSummary = {
   departmentCount: 1,
 }
 
+const roleAccounting: Role = {
+  id: 'role-1',
+  name: 'accounting',
+  description: null,
+  isSystem: false,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const deptFinance: Department = {
+  id: 'dept-1',
+  name: 'Finance',
+  description: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
+const pendingInvitation = {
+  id: 'inv-1',
+  email: 'newperson@welld.ch',
+  status: 'pending' as const,
+  roles: [],
+  departments: [],
+  invitedBy: { id: 'user-1', name: 'Ada Lovelace', email: 'ada@welld.ch' },
+  invitedAt: '2026-07-13T10:00:00.000Z',
+  expiresAt: '2099-01-01T10:00:00.000Z',
+  acceptedAt: null,
+  emailDelivery: 'sent' as const,
+}
+
 const pageOf = (items: UserSummary[], total = items.length): Paginated<UserSummary> => ({
   items,
   page: 1,
@@ -145,6 +183,10 @@ beforeEach(() => {
   // but not a prior test's `mockReturnValue`, so this re-pins the default
   // explicitly rather than relying on clear-order across tests.
   useSessionMock.mockReturnValue({ data: null })
+  // The invite modal's role/department catalogs (../lib/inviteConflict.ts's
+  // 409-mapping helper needs no mock — it's a pure function, not adminApi).
+  vi.mocked(adminApi.listRoles).mockResolvedValue([roleAccounting])
+  vi.mocked(adminApi.listDepartments).mockResolvedValue([deptFinance])
 })
 
 afterEach(() => {
@@ -564,6 +606,106 @@ describe('UsersPage', () => {
       expect(adminApi.bulkDeleteUsers).not.toHaveBeenCalled()
       // The selection survives a cancelled confirm (only a successful delete clears it).
       expect(screen.getByTestId('bulk-action-count').textContent).toBe('1 user selected')
+    })
+  })
+
+  // (L) "+ Invite user" (design.md Screen U1, closed post-T12)
+  describe('invite user', () => {
+    it('opens the SAME InviteUserModal used on the Invitations tab, submits, and calls createInvitation', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+      vi.mocked(adminApi.createInvitation).mockResolvedValue(pendingInvitation)
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-invite-button').hasAttribute('disabled')).toBe(false)
+      })
+
+      fireEvent.click(screen.getByTestId('users-invite-button'))
+      expect(screen.getByTestId('invite-user-modal')).not.toBeNull()
+
+      fireEvent.change(screen.getByTestId('invite-user-email'), { target: { value: 'newperson@welld.ch' } })
+      fireEvent.click(screen.getByTestId('invite-user-role-role-1'))
+      fireEvent.click(screen.getByTestId('invite-user-submit'))
+
+      await waitFor(() => {
+        expect(adminApi.createInvitation).toHaveBeenCalledWith({
+          email: 'newperson@welld.ch',
+          roleIds: ['role-1'],
+          departmentIds: [],
+        })
+      })
+      await waitFor(() => {
+        expect(screen.queryByTestId('invite-user-modal')).toBeNull()
+      })
+      expect(screen.getByTestId('users-invite-announcement').textContent).toBe(
+        'Invitation sent to newperson@welld.ch',
+      )
+    })
+
+    it('announces a failed email delivery outcome without treating it as an error (design.md F1 step 3)', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+      vi.mocked(adminApi.createInvitation).mockResolvedValue({ ...pendingInvitation, emailDelivery: 'failed' })
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-invite-button').hasAttribute('disabled')).toBe(false)
+      })
+
+      fireEvent.click(screen.getByTestId('users-invite-button'))
+      fireEvent.change(screen.getByTestId('invite-user-email'), { target: { value: 'newperson@welld.ch' } })
+      fireEvent.click(screen.getByTestId('invite-user-submit'))
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('invite-user-modal')).toBeNull()
+      })
+      expect(screen.getByTestId('users-invite-announcement').textContent).toContain('email failed to send')
+    })
+
+    it('409 active-user conflict (AC-1.3) shows the fixed inline copy, modal stays open', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+      vi.mocked(adminApi.createInvitation).mockRejectedValue(
+        new ApiError({
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          detail: 'An active user already exists for this email',
+        }),
+      )
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-invite-button').hasAttribute('disabled')).toBe(false)
+      })
+
+      fireEvent.click(screen.getByTestId('users-invite-button'))
+      fireEvent.change(screen.getByTestId('invite-user-email'), { target: { value: 'ada@welld.ch' } })
+      fireEvent.click(screen.getByTestId('invite-user-submit'))
+
+      await waitFor(() => {
+        expect(screen.getByTestId('invite-user-email-error').textContent).toContain(
+          'already belongs to an existing user',
+        )
+      })
+      expect(screen.getByTestId('invite-user-modal')).not.toBeNull()
+    })
+
+    it('Cancel closes the invite modal without calling createInvitation', async () => {
+      vi.mocked(adminApi.listUsers).mockResolvedValue(pageOf([userA, userB]))
+
+      renderUsersPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('users-invite-button').hasAttribute('disabled')).toBe(false)
+      })
+
+      fireEvent.click(screen.getByTestId('users-invite-button'))
+      fireEvent.click(screen.getByTestId('invite-user-cancel'))
+
+      expect(screen.queryByTestId('invite-user-modal')).toBeNull()
+      expect(adminApi.createInvitation).not.toHaveBeenCalled()
     })
   })
 })

@@ -40,16 +40,33 @@
  * ../pages/AuditPage.tsx's doc comment for the full rationale
  * (`react-hooks/set-state-in-effect` false positive on an async function that
  * calls a state setter after an `await`).
+ *
+ * --- Design-fidelity gap closed post-T10 (design.md Screen U3, specs/006-user-invitations) ---
+ * Gains: a "Delete user" button in the header area — the SAME `ConfirmDeleteModal`
+ * (soft-delete `body` copy) and the SAME `adminApi.deleteUser` call
+ * `UsersPage.tsx`'s row action already uses (T10), wired independently here
+ * because this is a different screen (mirrors how `RoleEditor.tsx`'s own
+ * delete-then-navigate wiring is independent from `RolesPage.tsx`'s row
+ * delete, even though both call the same `adminApi.deleteRole`). Same
+ * guardrails: the caller's own detail page renders the button
+ * disabled-with-explanation (`aria-disabled` + `title` + sr-only text,
+ * `shell/session`'s `useSession()` for self-identity — same convention as
+ * Screen U1), and a `422` (last-admin guard, AC-5.5) surfaces via
+ * `GuardrailDialog`, same shape as every other guardrail on this page. On
+ * success, navigates back to `/users` (mirrors `RoleEditor.tsx`'s
+ * delete-then-navigate-to-list pattern, design.md Screen U3).
  */
 
-import { useCallback, useEffect, useState } from 'react'
-import { getRouteApi, Link } from '@tanstack/react-router'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
+import { useSession } from 'shell/session'
 import * as adminApi from '../lib/adminApi'
 import type { Department, Role, UserDetail as UserDetailData, UserEntity } from '../lib/adminApi'
 import { ApiError } from '../lib/adminApi'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import GuardrailDialog from '../components/GuardrailDialog'
+import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
 
 const route = getRouteApi('/users/$id')
 
@@ -61,6 +78,10 @@ const ENTITY_OPTIONS: { value: UserEntity; label: string }[] = [
 /** design.md F4 / Dialog D2 — fixed acknowledgement copy, verbatim. */
 const LAST_ADMIN_MESSAGE =
   'This is the last administrator — removing this role would leave nobody able to manage access. Assign another admin first.'
+
+/** design.md F3 — fixed acknowledgement copy for the last-admin delete guard (UsersPage.tsx's LAST_ADMIN_DELETE_MESSAGE, mirrored verbatim). */
+const LAST_ADMIN_DELETE_MESSAGE =
+  'This is the last administrator — deleting this user would leave nobody able to manage access. Assign another admin first.'
 
 type LoadState =
   | { status: 'loading' }
@@ -86,6 +107,9 @@ const toggleInSet = (set: ReadonlySet<string>, id: string): Set<string> => {
 
 export default function UserDetail() {
   const { id } = route.useParams()
+  const navigate = useNavigate()
+  const session = useSession()
+  const currentUserId = session.data?.user?.id
 
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
@@ -105,6 +129,12 @@ export default function UserDetail() {
   const [departmentsSaving, setDepartmentsSaving] = useState(false)
   const [departmentsError, setDepartmentsError] = useState<string | null>(null)
   const [guardrailMessage, setGuardrailMessage] = useState<string | null>(null)
+
+  // --- "Delete user" (Dialog N2 reused — design.md Screen U3 / F3) ---
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteGuardrailMessage, setDeleteGuardrailMessage] = useState<string | null>(null)
 
   // Fetch the user + the full role/department catalogs (needed to render
   // every option in the two checkbox fieldsets, not just the assigned ones).
@@ -219,6 +249,60 @@ export default function UserDetail() {
     setGuardrailMessage(null)
   }, [])
 
+  // ---------------------------------------------------------------------------
+  // "Delete user" (Dialog N2 — design.md F3/Screen U3, reuses UsersPage.tsx's
+  // exact ConfirmDeleteModal body copy + adminApi.deleteUser call)
+  // ---------------------------------------------------------------------------
+
+  const isSelf = state.status === 'loaded' && state.user.id === currentUserId
+
+  const handleDeleteRequest = useCallback(() => {
+    if (state.status !== 'loaded') return
+    if (state.user.id === currentUserId) return // defensive — the button is already disabled for this page
+    setDeleteError(null)
+    setDeleteModalOpen(true)
+  }, [state, currentUserId])
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteModalOpen(false)
+  }, [])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (state.status !== 'loaded') return
+    setIsDeleting(true)
+    setDeleteError(null)
+    try {
+      await adminApi.deleteUser(state.user.id)
+      setDeleteModalOpen(false)
+      void navigate({ to: '/users' })
+    } catch (error) {
+      setIsDeleting(false)
+      if (error instanceof ApiError && error.status === 422) {
+        // AC-5.5/5.6 — genuinely blocked, nothing to retry from this dialog.
+        setDeleteModalOpen(false)
+        setDeleteGuardrailMessage(LAST_ADMIN_DELETE_MESSAGE)
+        return
+      }
+      setDeleteError(errorMessageFor(error))
+    }
+  }, [state, navigate])
+
+  const handleAcknowledgeDeleteGuardrail = useCallback(() => {
+    setDeleteGuardrailMessage(null)
+  }, [])
+
+  const deleteBody = useMemo(() => {
+    if (state.status !== 'loaded') return null
+    const identity = state.user.name ?? state.user.email
+    return (
+      <p>
+        Delete {identity}? They will immediately lose all access to Operai — every active session
+        ends and they can no longer sign in. Their record and data are retained for audit, but
+        there is no undo: regaining access requires a brand-new invitation.
+      </p>
+    )
+  }, [state])
+
   return (
     <section aria-labelledby="admin-user-detail-heading" data-testid="admin-user-detail-page">
       <Link
@@ -230,13 +314,23 @@ export default function UserDetail() {
         ← Back to Users
       </Link>
 
-      <h2
-        id="admin-user-detail-heading"
-        className="mt-2 text-lg font-semibold"
-        style={{ fontFamily: 'var(--disp)' }}
-      >
-        User detail
-      </h2>
+      <div className="mt-2 flex items-center justify-between gap-4">
+        <h2 id="admin-user-detail-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
+          User detail
+        </h2>
+        <button
+          type="button"
+          aria-disabled={state.status !== 'loaded' || isSelf}
+          title={isSelf ? "You can't delete your own account" : undefined}
+          onClick={handleDeleteRequest}
+          data-testid="user-detail-delete-button"
+          className="py-1.5 px-3 text-sm font-medium border transition-opacity hover:opacity-80 aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
+          style={{ borderColor: 'var(--red)', color: 'var(--red)' }}
+        >
+          Delete user
+          {isSelf && <span className="sr-only"> — You can't delete your own account</span>}
+        </button>
+      </div>
 
       <div className="mt-4">
         {state.status === 'loading' && <SkeletonListRows rows={4} />}
@@ -437,6 +531,26 @@ export default function UserDetail() {
           title="Can't remove the last administrator"
           message={guardrailMessage}
           onAcknowledge={handleAcknowledgeGuardrail}
+        />
+      )}
+
+      {deleteModalOpen && state.status === 'loaded' && (
+        <ConfirmDeleteModal
+          entityLabel="user"
+          itemName={state.user.email}
+          body={deleteBody}
+          isDeleting={isDeleting}
+          errorMessage={deleteError}
+          onConfirm={() => void handleDeleteConfirm()}
+          onCancel={handleDeleteCancel}
+        />
+      )}
+
+      {deleteGuardrailMessage && (
+        <GuardrailDialog
+          title="Can't delete this user"
+          message={deleteGuardrailMessage}
+          onAcknowledge={handleAcknowledgeDeleteGuardrail}
         />
       )}
     </section>
