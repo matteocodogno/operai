@@ -10,8 +10,9 @@
  * assigns to the "E"/e2e level:
  *   AC-1.6  (invite visible / active-vs-pending, roles/depts shown)
  *   AC-2.2  (invite-landing → real OAuth sign-in controls)
- *   AC-2.3  (accept → provisioned with exactly the invite's roles, additive
- *            to baseline `employee` — see auth.config.ts R9 / plan.md Risk R9)
+ *   AC-2.3  (accept → provisioned with EXACTLY the invite's roles; a named-role
+ *            invite replaces the baseline `employee`, it is not additive — the
+ *            resolved R9 decision, see auth.config.ts / plan.md Risk R9)
  *   AC-2.6  (accepted invitation moves from Invitations-pending to Users)
  *   AC-3.3  (resend invalidates the OLD link)
  *   AC-5.2  (soft-deleted user's re-sign-in is refused)
@@ -72,7 +73,7 @@ test.describe('specs/006-user-invitations — e2e (T14)', () => {
   })
 
   // ── AC-1.6 / AC-2.3 / AC-2.6 ────────────────────────────────────────────
-  test('invite a person with a role, they accept via OAuth-equivalent sign-up, and they move from pending to an active user with exactly employee+invited role', async ({
+  test('invite a person with a role, they accept via OAuth-equivalent sign-up, and they move from pending to an active user with exactly the invited role (no baseline employee)', async ({
     page,
   }) => {
     const invitedEmail = `invitee-${RUN}@operai.test`
@@ -141,8 +142,9 @@ test.describe('specs/006-user-invitations — e2e (T14)', () => {
     await expect(userTableRow).toBeVisible({ timeout: 10_000 })
     await userTableRow.locator('[data-testid^="user-row-"]').click()
 
-    // ── AC-2.3 exact check: baseline `employee` AND the invited role are
-    // both checked (additive — R9). Neither more nor fewer OTHER roles.
+    // ── AC-2.3 exact check: a named-role invite grants EXACTLY the invited
+    // role — the baseline `employee` is NOT added (replace-not-add, the
+    // resolved R9 decision; empty invites still get baseline employee).
     await expect(page.getByTestId('admin-user-detail-page')).toBeVisible({ timeout: 20_000 })
     // The roles fieldset populates from its own catalog fetch, slightly after
     // the page shell itself renders — wait for it, rather than counting
@@ -158,7 +160,7 @@ test.describe('specs/006-user-invitations — e2e (T14)', () => {
       }
     }
     expect(checkedIds).toContain(role.id)
-    expect(checkedIds.length).toBe(2) // employee (baseline) + the invited role — additive, not exact-only
+    expect(checkedIds.length).toBe(1) // EXACTLY the invited role — baseline employee replaced, not added (AC-2.3, resolved R9)
   })
 
   // ── AC-2.2 / AC-3.3 ──────────────────────────────────────────────────────

@@ -77,7 +77,7 @@ owned by a single track to avoid collisions.
   - touch: `auth/.env.example` (`NOTIFY_INTERNAL_URL`, `NOTIFY_INTERNAL_TOKEN`, reuse `BETTER_AUTH_URL`/`UI_HOME_URL`), `notify-api/.env.example` (`NOTIFY_INTERNAL_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM`, `EMAIL_ENABLED`), `infra/README.md` + `infra/deploy.sh`/`check.sh` (new vars + Resend domain/SPF-DKIM note + Railway private-networking for `/system/emails`), `compose.yaml`/`mise.toml` if a local default is needed
   - done when: `.env.example`s document every new var; infra docs updated; `bash -n` clean on scripts
 
-- [ ] T14: end-to-end (Playwright) — refs: AC-1.6, 2.1–2.6, 3.x, 5.3/5.7, 6.1/6.3 — deps: T6, T7, T8, T9, T10, T11, T12, T13
+- [x] T14: end-to-end (Playwright) — refs: AC-1.6, 2.1–2.6, 3.x, 5.3/5.7, 6.1/6.3 — deps: T6, T7, T8, T9, T10, T11, T12, T13
   - touch: `admin-ui`/`shell` e2e (seeded-session helper; email via the `EMAIL_ENABLED`-off stub / a mailbox stub)
   - invite → landing → OAuth accept → provisioned with roles; resend invalidates old link; revoke; soft-delete → vanishes + blocked re-sign-in; bulk delete partial-success report
   - done when: the e2e suite passes against the assembled stack (auth + notify-api + admin-ui + shell)
