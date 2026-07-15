@@ -505,7 +505,22 @@ export const signOut = async (
   for (const hook of signOutHooks) {
     hook()
   }
-  return authClient.signOut(...args)
+  try {
+    return await authClient.signOut(...args)
+  } finally {
+    // Clearing the session client-side does NOT re-run the router's `_authed`
+    // guard (it only redirects on navigation), so without an explicit redirect a
+    // signed-out user is stranded on the now-session-less page (avatar gone, but
+    // no login screen). Send them to the hosted sign-in page — the SAME target
+    // the guard uses (`<AUTH_URL>/sign-in?redirect=<current URL>`, ADR-0002) — via
+    // a full-document navigation. In a finally so it fires even if the better-auth
+    // sign-out call rejects (e.g. a transient network error), which still leaves
+    // the local caches cleared above.
+    if (typeof window !== 'undefined') {
+      const authUrl = import.meta.env.VITE_AUTH_URL as string
+      window.location.href = `${authUrl}/sign-in?redirect=${encodeURIComponent(window.location.href)}`
+    }
+  }
 }
 
 /**
