@@ -10,6 +10,7 @@
     "db:deploy": "node node_modules/prisma/build/index.js migrate deploy",
     "db:generate": "node node_modules/prisma/build/index.js generate",
     "db:seed": "bun run src/authz/seed.ts",
+    "db:release": "bun run db:deploy && bun run db:seed",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
