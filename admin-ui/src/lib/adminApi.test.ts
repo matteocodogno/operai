@@ -775,8 +775,10 @@ describe('invitations', () => {
 // ---------------------------------------------------------------------------
 
 describe('getCatalog()', () => {
-  it('issues GET /admin/catalog and returns the registered apps (AC-3.1)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedCatalog))
+  it('issues GET /admin/catalog and unwraps the { apps } envelope to a bare array (AC-3.1)', async () => {
+    // The auth API responds `{ apps: CatalogApp[] }` — getCatalog must unwrap
+    // it so callers (RoleEditor) get a plain iterable array, not the object.
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse({ apps: fixedCatalog }))
 
     const result = await getCatalog()
 
@@ -784,6 +786,7 @@ describe('getCatalog()', () => {
     expect(url).toBe(`${AUTH_URL}/admin/catalog`)
     expect(init?.method).toBeUndefined()
     expect(result).toEqual(fixedCatalog)
+    expect(Array.isArray(result)).toBe(true)
   })
 
   it('throws ApiError on 403', async () => {

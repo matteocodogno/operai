@@ -707,7 +707,13 @@ export const revokeInvitation = async (id: string): Promise<InvitationDetail> =>
  * feeds the rule-builder's catalog-driven selects (AC-3.1, AC-3.3). Throws
  * ApiError on 403 or 401.
  */
-export const getCatalog = async (): Promise<Catalog> => getJson<Catalog>('/admin/catalog')
+export const getCatalog = async (): Promise<Catalog> => {
+  // The auth API wraps the catalog: GET /admin/catalog → { apps: CatalogApp[] }
+  // (auth/src/authz/catalog.routes.ts `c.json({ apps })`). Unwrap to the bare
+  // array the callers consume (RoleEditor iterates it with for…of / .map).
+  const { apps } = await getJson<{ apps: Catalog }>('/admin/catalog')
+  return apps
+}
 
 // ---------------------------------------------------------------------------
 // Admin — audit
