@@ -169,6 +169,18 @@ are called out. What the script does, step by step:
    EU-only, never logged). **Generate its domain** → this is
    **`<NOTIFY_API_URL>`** (public — browser/SSE only; see step 7 for the
    private URL `auth` uses instead).
+
+   > ⚠️ **Build fails with `Corepack is about to download … pnpm-…tgz` (exit 1)?**
+   > That means Railway ignored the service's Dockerfile and fell back to
+   > **Nixpacks**, which scans the monorepo and tries to corepack-install pnpm.
+   > Root cause: the service's **Root Directory is not set to the app dir**, so
+   > Railway builds from the repo root (which has no `railway.json`/`package.json`).
+   > **Fix:** service → **Settings → Root Directory = `<app>`** (`notify-api`,
+   > `auth`, `estimai-api`, …), then redeploy — Railway then reads
+   > `<app>/railway.json` (`builder: DOCKERFILE`) and does the correct Bun build.
+   > This applies to BOTH GitHub-connected deploys and `deploy.sh`'s
+   > `railway up --service <svc>` (which uploads the repo root as context; the
+   > Root Directory setting is what scopes the build down to the app).
 6. **Cross-wire:** set `auth`'s `BETTER_AUTH_URL=<AUTH_URL>` (the JWT `iss` claim —
    must equal `estimai-api.AUTH_ISSUER` and `notify-api.AUTH_ISSUER`) and
    redeploy `auth`. Re-run the script with `AUTH_PUBLIC_URL=<AUTH_URL>` once the
