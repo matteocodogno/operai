@@ -121,6 +121,18 @@ streamRouter.get("/notifications/stream", async (c) => {
   }
 
   return streamSSE(c, async (stream) => {
+    // Flush an initial SSE comment IMMEDIATELY, before subscribing/heartbeat.
+    // Hono's streamSSE defers sending the response head until the first write,
+    // and this handler otherwise writes nothing until the first `: heartbeat`
+    // 15s later. A proxy in front (Railway's edge) can treat a response with no
+    // headers/body for that long as stalled and RETRY the GET — and the retry's
+    // ticketStore.consume() finds the (now single-use-consumed) ticket gone,
+    // returning 401. Emitting a byte now flushes the 200 + text/event-stream
+    // head at once, so the stream is established for the EventSource AND the
+    // proxy sees a live response and won't retry. It's a raw comment line, so
+    // EventSource message/addEventListener consumers never see it.
+    await stream.write(": connected\n\n");
+
     await new Promise<void>((resolve) => {
       const cleanup = () => {
         clearInterval(heartbeatTimer);
