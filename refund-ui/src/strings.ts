@@ -58,16 +58,104 @@ const en = {
   pages: {
     myRequests: {
       heading: 'My requests',
-      placeholder:
-        'Your refund requests will appear here once expense request composition ships.',
+      newRequestButton: '+ New request',
+      loadingAnnouncement: 'Loading your requests',
+      loadErrorFallback: 'Could not load your requests.',
+      empty: {
+        heading: 'Ready to submit your first expense request?',
+        body: 'Add expense lines, attach receipts, and submit for accounting to review — right from here.',
+      },
+      row: {
+        updatedLabel: (date: string) => `Updated ${date}`,
+        openLabel: (label: string) => `Open request updated ${label}`,
+      },
     },
     newRequest: {
       heading: 'New request',
       placeholder: 'Starting a new refund request will draft it here.',
+      creatingAnnouncement: 'Creating your request…',
+      createError: 'Could not create a new request.',
+      tryAgain: 'Try again',
+      backToMyRequests: 'Back to my requests',
     },
     requestDetail: {
-      heading: 'Request detail',
-      placeholder: 'This request’s expense lines and status will appear here.',
+      heading: 'Request',
+      loadingAnnouncement: 'Loading this request',
+      loadErrorFallback: 'Could not load this request.',
+      notFound: {
+        heading: 'Request not found',
+        body: 'This request doesn’t exist or you don’t have access to it.',
+        backLink: 'Back to my requests',
+      },
+      composer: {
+        heading: 'Add expense line',
+        dateLabel: 'Date',
+        typeLabel: 'Expense type',
+        typePlaceholder: 'Select a type…',
+        motivoLabel: 'Motivo',
+        amountLabel: 'Requested amount',
+        entityLabel: 'Entity',
+        entityPlaceholder: 'Select an entity…',
+        kmLabel: 'Distance (km)',
+        kmHelp: 'Must be greater than 0',
+        kmFieldAdded: 'Mileage field added — km is required for travel by car',
+        kmFieldRemoved: 'Mileage field removed — not applicable for this expense type',
+        addButton: '+ Add expense line',
+        addingLabel: 'Adding…',
+        genericError: 'Could not add this expense line. Check the fields and try again.',
+      },
+      lines: {
+        emptyDraft: 'No expense lines yet — add one to get started.',
+        requestedLabel: 'Requested',
+        approvedLabel: 'Approved',
+        deleteLineLabel: (motivo: string) => `Delete line “${motivo}”`,
+        savingLabel: 'Saving…',
+        updateError: 'Could not save this change. Check the fields and try again.',
+        attachmentsSeamLabel: 'Attachments',
+        attachmentsSeamComingSoon: 'Attaching receipts is coming soon.',
+      },
+      submit: {
+        button: 'Submit for review',
+        submittingLabel: 'Submitting…',
+        blockedNote: 'Add at least one expense line before submitting.',
+        confirmation: 'Submitted — now awaiting accounting’s decision',
+        genericError: 'Could not submit this request. Try again.',
+      },
+      withdraw: {
+        button: 'Withdraw',
+        withdrawingLabel: 'Withdrawing…',
+        confirmation: 'Withdrawn — back to draft',
+        guardrailTitle: 'This request has already been decided',
+        guardrailMessage: 'This request has already been decided and can no longer be withdrawn.',
+        genericError: 'Could not withdraw this request. Try again.',
+      },
+      guardrail: {
+        title: 'This request has already been decided',
+        message: 'This request has already been decided and can no longer be changed.',
+      },
+      deleteRequest: {
+        button: 'Delete request',
+        entityLabel: 'request',
+        body: (lineCount: number) =>
+          `Delete this draft request and its ${lineCount} expense line${lineCount === 1 ? '' : 's'}? This cannot be undone.`,
+      },
+      validationSummary: {
+        heading: 'Some expense lines need attention before you can submit.',
+        jumpLinkLabel: (label: string) => `Go to ${label}`,
+        fallbackLineLabel: (lineId: string) => `Line ${lineId}`,
+        noMotivo: '(no description)',
+      },
+      statusBadges: {
+        submittedNote: 'Every field is read-only while a decision is pending.',
+      },
+      rejected: {
+        motivationHeading: 'Reason for rejection',
+        newRequestLink: '+ New request',
+      },
+      monthlyNote: {
+        heading: 'Monthly processing',
+        body: 'Approved reimbursements are processed together on a regular monthly cycle. No specific date or payout amount is promised here — check with accounting for the current schedule.',
+      },
     },
     reviewQueue: {
       heading: 'Review queue',
