@@ -14,12 +14,12 @@
  *      editable — an admin may still attach rules to them.
  *   2. {@link seedAppAccessCatalog} — register the suite-wide "can see this
  *      app" catalog via `upsertAppCatalog` (T5): one resource per suite app
- *      that has NOT declared its own full catalog yet (`refund`, `admin`),
- *      keyed by the app id itself (per `catalog.ts`'s convention for the
- *      app-access resource), each with a single `access` action. This lets
- *      an admin grant/deny app visibility (US-7) from day one, independent
- *      of any app's own domain-resource catalog. `estimai` is deliberately
- *      EXCLUDED from this list — see (3).
+ *      that has NOT declared its own full catalog yet (`admin`), keyed by
+ *      the app id itself (per `catalog.ts`'s convention for the app-access
+ *      resource), each with a single `access` action. This lets an admin
+ *      grant/deny app visibility (US-7) from day one, independent of any
+ *      app's own domain-resource catalog. `estimai` and `refund` are
+ *      deliberately EXCLUDED from this list — see (3)/(4).
  *   3. {@link seedEstimaiCatalog} (T26, AC-3.4) — register EstimAI's FULL
  *      declared catalog (`catalogs/estimai.ts`: app `access` + the
  *      `estimate` resource's view/create/edit/delete actions) via the same
@@ -31,8 +31,22 @@
  *      `estimai` is registered exactly once, here, with its complete
  *      catalog; `seedAppAccessCatalog`'s `SUITE_APPS` list only ever
  *      contains apps that don't (yet) declare more than bare access.
+ *   4. {@link seedRefundCatalog} (T2, specs/007-refund-service — AC-1.1,
+ *      AC-5.4, AC-7.5, AC-8.2) — register refund's FULL declared catalog
+ *      (`catalogs/refund.ts`: app `access` + the `request` resource's
+ *      create/read/review/set-approved-total/approve/reject actions) via the
+ *      same `upsertAppCatalog`, for the identical reason `estimai` was
+ *      pulled out of `SUITE_APPS` in (2): `refund` now declares more than
+ *      bare access, so it is registered exactly once, here.
+ *   5. {@link seedAccountingRoleGrants} (T2, AC-7.5) — attach the entity-
+ *      conditioned review/decision grants to the `accounting` system role
+ *      (ADR-0015). Deliberately does NOT touch `employee` (refund access is
+ *      fully admin-assigned, Gate-2 decision D2) and does NOT create a
+ *      separate `accounting-global` role (Gate-2 decision D3 — "global"
+ *      scope is composed by an admin adding an unconditioned grant on top of
+ *      this same role, via the resolver's widest-wins union).
  *
- * A FOURTH, per-user concern — assigning the baseline `employee` role (and
+ * A SIXTH, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
  * `auth.config.ts`'s `databaseHooks.user.create.after` hook, via
@@ -43,30 +57,31 @@
 import { ADMIN_ROLE_NAME } from "../admin/lastAdminGuard";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
+import type { Prisma } from "../lib/generated/prisma/client";
 import { upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
+import { REFUND_APP_ID, REFUND_CATALOG } from "./catalogs/refund";
 
 export const EMPLOYEE_ROLE_NAME = "employee";
+export const ACCOUNTING_ROLE_NAME = "accounting";
 
 /** The four seed system roles (AC-6.2). Order is insignificant; upserts run sequentially for deterministic logging. */
 export const SYSTEM_ROLE_NAMES = [
   EMPLOYEE_ROLE_NAME,
   ADMIN_ROLE_NAME,
-  "accounting",
+  ACCOUNTING_ROLE_NAME,
   "hr",
 ] as const;
 
 /**
  * Suite apps that get a baseline access-only catalog resource (US-7).
- * `estimai` is intentionally NOT here — it declares and registers its own
- * full catalog (access + `estimate` CRUD) via {@link seedEstimaiCatalog}
- * (T26), so it isn't registered twice with conflicting full-replace
- * payloads. Add an app here only until it ships its own catalog declaration.
+ * `estimai` and `refund` are intentionally NOT here — each declares and
+ * registers its own full catalog ({@link seedEstimaiCatalog} T26,
+ * {@link seedRefundCatalog} T2), so neither is registered twice with
+ * conflicting full-replace payloads. Add an app here only until it ships its
+ * own catalog declaration.
  */
-export const SUITE_APPS: { appId: string; label: string }[] = [
-  { appId: "refund", label: "Rimborsi" },
-  { appId: "admin", label: "Admin" },
-];
+export const SUITE_APPS: { appId: string; label: string }[] = [{ appId: "admin", label: "Admin" }];
 
 /**
  * Upserts the four system roles (AC-6.2). Idempotent: re-running never
@@ -115,8 +130,86 @@ export async function seedEstimaiCatalog(): Promise<void> {
   await upsertAppCatalog(ESTIMAI_CATALOG);
 }
 
-/** Every suite app id. `estimai` declares its own catalog; the rest come from SUITE_APPS. */
-export const ALL_APP_IDS: readonly string[] = ["estimai", ...SUITE_APPS.map((a) => a.appId)];
+/**
+ * Registers refund's full declared catalog (T2, specs/007-refund-service —
+ * AC-1.1, AC-5.4, AC-7.5, AC-8.2) — `catalogs/refund.ts`'s `REFUND_CATALOG`
+ * (app `access` + the `request` resource's create/read/review/
+ * set-approved-total/approve/reject actions, each with its declared
+ * `supportedConditions`). Idempotent for the same reason `seedEstimaiCatalog`
+ * is: `upsertAppCatalog` is itself a full-replace upsert keyed by `appId`.
+ */
+export async function seedRefundCatalog(): Promise<void> {
+  await upsertAppCatalog(REFUND_CATALOG);
+}
+
+/** Every suite app id. `estimai`/`refund` declare their own catalogs; the rest come from SUITE_APPS. */
+export const ALL_APP_IDS: readonly string[] = [
+  "estimai",
+  REFUND_APP_ID,
+  ...SUITE_APPS.map((a) => a.appId),
+];
+
+/**
+ * The entity attribute condition (specs/004, applied by ADR-0015): "the
+ * record's entity must equal the acting user's `entity` attribute". Attached
+ * to every entity-scoped `accounting` grant below.
+ */
+const REFUND_ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
+
+/** The `request` resource actions the `accounting` role is granted, entity-scoped (ADR-0015). */
+const ACCOUNTING_REQUEST_ACTIONS = ["review", "set-approved-total", "approve", "reject"] as const;
+
+/**
+ * Seeds the `accounting` role's refund grants (T2, specs/007-refund-service
+ * — AC-5.4, AC-6.4, AC-7.5; plan.md "Role → permission mapping"; ADR-0015).
+ * Grants `refund:access` (unconditional — same shape as every other app-
+ * access grant) plus `request:review`/`set-approved-total`/`approve`/
+ * `reject`, each carrying the entity condition {@link REFUND_ENTITY_CONDITION}
+ * — an `accounting` user is scoped to their own `user.entity`. Deliberately
+ * does NOT touch:
+ *   - `employee` — refund access is fully admin-assigned (Gate-2 decision
+ *     D2); an employee gets `refund:access`/`request:create`/`request:read`
+ *     only once an admin grants them via the existing specs/004 GUI.
+ *   - a separate `accounting-global` role — "global" (both-entity) review
+ *     scope is composed by an admin additionally granting an UNCONDITIONED
+ *     `request:review` (etc.) to a user who already holds this role; the
+ *     resolver's pre-existing widest-wins union promotes them to global with
+ *     no second role needed (Gate-2 decision D3; ADR-0015 point 4).
+ * Idempotent: each (role, resource, action) grant is created only when
+ * absent, mirroring {@link seedAdminRoleGrants}'s pattern exactly.
+ */
+export async function seedAccountingRoleGrants(): Promise<void> {
+  const accountingRole = await db.role.upsert({
+    where: { name: ACCOUNTING_ROLE_NAME },
+    update: {},
+    create: { name: ACCOUNTING_ROLE_NAME, isSystem: true },
+  });
+
+  const existingAccess = await db.permissionRule.findFirst({
+    where: { roleId: accountingRole.id, resource: REFUND_APP_ID, action: "access" },
+  });
+  if (!existingAccess) {
+    await db.permissionRule.create({
+      data: { roleId: accountingRole.id, resource: REFUND_APP_ID, action: "access" },
+    });
+  }
+
+  for (const action of ACCOUNTING_REQUEST_ACTIONS) {
+    const existing = await db.permissionRule.findFirst({
+      where: { roleId: accountingRole.id, resource: "request", action },
+    });
+    if (!existing) {
+      await db.permissionRule.create({
+        data: {
+          roleId: accountingRole.id,
+          resource: "request",
+          action,
+          conditions: REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+        },
+      });
+    }
+  }
+}
 
 /**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
@@ -186,7 +279,9 @@ export async function seed(): Promise<void> {
   await seedSystemRoles();
   await seedAppAccessCatalog();
   await seedEstimaiCatalog();
+  await seedRefundCatalog();
   await seedAdminRoleGrants();
+  await seedAccountingRoleGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -263,7 +358,8 @@ if (import.meta.main) {
   seed()
     .then(() => {
       console.log(
-        "Seeded system roles + suite app-access catalog + EstimAI catalog + admin app-access grants + bootstrap admin",
+        "Seeded system roles + suite app-access catalog + EstimAI catalog + refund catalog " +
+          "+ admin app-access grants + accounting refund grants + bootstrap admin",
       );
       process.exit(0);
     })
