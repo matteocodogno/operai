@@ -106,7 +106,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - Draft mode: multi-file input, client-side size/type pre-check with per-file inline error, three-phase mint→direct-PUT→confirm with live `aria-live` per-file state, remove (draft-only). Accounting mode: download-only (click → mint signed GET → open).
   - done when: tests cover per-file rejection (oversize/wrong type), the phase state machine transitions, remove-on-draft, and that accounting mode exposes no upload/remove; `aria-live` announcements present.
 
-- [ ] T18: Screens A1 (Review queue) + A2 (Review detail & decide) — refs: AC-5.1, AC-5.2, AC-5.4, AC-6.1, AC-6.3, AC-6.5, AC-6.6, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6 — deps: T15, T16
+- [x] T18: Screens A1 (Review queue) + A2 (Review detail & decide) — refs: AC-5.1, AC-5.2, AC-5.4, AC-6.1, AC-6.3, AC-6.5, AC-6.6, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6 — deps: T15, T16
   - touch: `refund-ui/src/pages/` A1/A2, per-line approved-total input, `ApproveDialog` (ported+recolored `--grn`), `RejectDialog` (NEW, required motivation, disabled-until-valid)
   - A1 queue (loading/empty/populated/error/PD-403). A2: full RO line list + download-only attachments, per-line approved-total inputs (default-shown, write-on-change only), Approve/Reject with dialogs, 409→GuardrailDialog, out-of-scope→NF, decided→RO. Integrates T11/T12.
   - done when: tests cover PD on missing review grant, the approved-total input row-identity `aria-label`s, RejectDialog disabled-until-non-empty motivation, the approve/reject flows returning to the queue, and the decided read-only variant.

@@ -34,6 +34,17 @@
  *   • idle      — title + body + Cancel + Delete buttons
  *   • deleting  — "Deleting…" + spinner, both buttons disabled
  *   • error     — inline error text between body and footer; both buttons re-enabled
+ *
+ * T18 extension (specs/007-refund-service/tasks.md, design.md Component
+ * inventory: "ApproveDialog — Reuse (ported, extended) — ConfirmDeleteModal's
+ * shell, ported + a new non-destructive tone='positive' variant … the same
+ * kind of backward-compatible prop extension specs/006 already applied to
+ * this component's body prop"): `tone`/`title`/`confirmLabel`/
+ * `confirmingLabel`/`testIdPrefix` are all optional, defaulting to this
+ * component's original hard-delete behavior verbatim — every existing call
+ * site (and every test above) is untouched. `ApproveDialog.tsx` is a thin
+ * wrapper supplying `tone="positive"` + refund-specific copy + its own
+ * `testIdPrefix` so an "Approve" flow's tests never read "confirm-delete-*".
  */
 
 import { useEffect, useRef } from 'react'
@@ -43,6 +54,8 @@ import { strings } from '../strings'
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export type ConfirmDeleteModalTone = 'destructive' | 'positive'
 
 export type ConfirmDeleteModalProps = {
   /** Noun describing the kind of entity being deleted (e.g. "request"). */
@@ -59,6 +72,16 @@ export type ConfirmDeleteModalProps = {
   onCancel: () => void
   /** Overrides the default body copy. Omit to keep the default hard-delete wording. */
   body?: ReactNode
+  /** Recolors the confirm button (`--grn` for a non-destructive action like Approve). Defaults to `'destructive'` (`--red`) — this component's original behavior. */
+  tone?: ConfirmDeleteModalTone
+  /** Overrides the default `t.title(entityLabel)` heading. */
+  title?: ReactNode
+  /** Overrides the default "Delete" confirm-button label. */
+  confirmLabel?: string
+  /** Overrides the default "Deleting…" in-flight label. */
+  confirmingLabel?: string
+  /** Namespaces every `data-testid`/internal id this dialog renders. Defaults to `'confirm-delete'`. */
+  testIdPrefix?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -73,10 +96,18 @@ export default function ConfirmDeleteModal({
   onConfirm,
   onCancel,
   body,
+  tone = 'destructive',
+  title,
+  confirmLabel,
+  confirmingLabel,
+  testIdPrefix = 'confirm-delete',
 }: ConfirmDeleteModalProps) {
   const cancelBtnRef = useRef<HTMLButtonElement>(null)
   const deleteBtnRef = useRef<HTMLButtonElement>(null)
   const t = strings.components.confirmDeleteModal
+  const confirmColor = tone === 'positive' ? 'var(--grn)' : 'var(--red)'
+  const titleId = `${testIdPrefix}-title`
+  const bodyId = `${testIdPrefix}-body`
 
   // Focus Cancel on mount — safe default.
   useEffect(() => {
@@ -126,13 +157,13 @@ export default function ConfirmDeleteModal({
       className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
       onClick={onCancel}
-      data-testid="confirm-delete-modal"
+      data-testid={`${testIdPrefix}-modal`}
     >
       <div
         role="alertdialog"
         aria-modal="true"
-        aria-labelledby="confirm-delete-title"
-        aria-describedby="confirm-delete-body"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
         className="border rounded-lg shadow-2xl w-full max-w-sm mx-4 p-5"
         style={{ backgroundColor: 'var(--ink-soft)', borderColor: 'var(--rule)' }}
         onClick={(e) => e.stopPropagation()}
@@ -140,11 +171,11 @@ export default function ConfirmDeleteModal({
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <h2
-            id="confirm-delete-title"
+            id={titleId}
             className="text-sm font-bold"
             style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}
           >
-            {t.title(entityLabel)}
+            {title ?? t.title(entityLabel)}
           </h2>
           <button
             onClick={onCancel}
@@ -159,13 +190,13 @@ export default function ConfirmDeleteModal({
 
         {/* Body — a <div>, not a <p>, so an overriding `body` can nest block
             content without invalid markup; aria-describedby targets it either way. */}
-        <div id="confirm-delete-body" className="text-sm leading-relaxed mb-4" style={{ color: 'var(--text)' }}>
+        <div id={bodyId} className="text-sm leading-relaxed mb-4" style={{ color: 'var(--text)' }}>
           {body ?? <p>{t.defaultBody(displayName)}</p>}
         </div>
 
         {/* Inline error (between body and footer) */}
         {errorMessage && (
-          <p className="text-sm mb-3" style={{ color: 'var(--org)' }} role="alert" data-testid="confirm-delete-error">
+          <p className="text-sm mb-3" style={{ color: 'var(--org)' }} role="alert" data-testid={`${testIdPrefix}-error`}>
             {errorMessage}
           </p>
         )}
@@ -176,7 +207,7 @@ export default function ConfirmDeleteModal({
             ref={cancelBtnRef}
             onClick={onCancel}
             disabled={isDeleting}
-            data-testid="confirm-delete-cancel"
+            data-testid={`${testIdPrefix}-cancel`}
             className="py-2 px-4 text-sm font-medium border transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ borderColor: 'var(--rule)', color: 'var(--muted)' }}
           >
@@ -186,21 +217,21 @@ export default function ConfirmDeleteModal({
             ref={deleteBtnRef}
             onClick={onConfirm}
             disabled={isDeleting}
-            data-testid="confirm-delete-confirm"
+            data-testid={`${testIdPrefix}-confirm`}
             className="py-2 px-4 text-sm font-medium border transition-opacity hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ color: 'var(--red)', borderColor: 'var(--red)' }}
+            style={{ color: confirmColor, borderColor: confirmColor }}
           >
             {isDeleting ? (
               <span className="flex items-center gap-2">
                 <span
                   className="inline-block w-3 h-3 border-2 rounded-full animate-spin motion-reduce:animate-none"
-                  style={{ borderColor: 'var(--red)', borderTopColor: 'transparent' }}
+                  style={{ borderColor: confirmColor, borderTopColor: 'transparent' }}
                   aria-hidden="true"
                 />
-                {t.deletingLabel}
+                {confirmingLabel ?? t.deletingLabel}
               </span>
             ) : (
-              t.deleteLabel
+              confirmLabel ?? t.deleteLabel
             )}
           </button>
         </div>

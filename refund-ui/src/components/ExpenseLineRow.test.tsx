@@ -150,3 +150,90 @@ describe('ExpenseLineRow — read-only modes', () => {
     expect(screen.queryByTestId('attachment-attach-button-line-1')).toBeNull()
   })
 })
+
+describe('ExpenseLineRow — review mode (T18, accounting)', () => {
+  it('renders read-only fields (no edit inputs) plus a pre-filled approved-total input defaulting to the requested amount', () => {
+    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={vi.fn()} />)
+
+    expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
+    expect(screen.queryByTestId('row-line-1-delete')).toBeNull()
+    const input = screen.getByTestId('row-line-1-approved-total') as HTMLInputElement
+    expect(input.value).toBe('10.00')
+  })
+
+  it('pre-fills from an already-set approvedTotalCents, not the requested amount, when one exists', () => {
+    render(
+      <ExpenseLineRow
+        line={{ ...line, approvedTotalCents: 750 }}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+      />,
+    )
+    expect((screen.getByTestId('row-line-1-approved-total') as HTMLInputElement).value).toBe('7.50')
+  })
+
+  it('the approved-total input carries a full row-identity aria-label (design.md Accessibility)', () => {
+    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={vi.fn()} />)
+
+    const input = screen.getByTestId('row-line-1-approved-total')
+    expect(input.getAttribute('aria-label')).toBe('Approved total for 2026-07-01 · Pens · EUR')
+  })
+
+  it('write-on-change-only: does NOT call onApprovedTotalChange when the field blurs untouched', () => {
+    const onApprovedTotalChange = vi.fn()
+    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+
+    fireEvent.blur(screen.getByTestId('row-line-1-approved-total'))
+
+    expect(onApprovedTotalChange).not.toHaveBeenCalled()
+  })
+
+  it('calls onApprovedTotalChange with the new cents value once changed and blurred', async () => {
+    const onApprovedTotalChange = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+
+    const input = screen.getByTestId('row-line-1-approved-total')
+    fireEvent.change(input, { target: { value: '7.50' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(onApprovedTotalChange).toHaveBeenCalledWith(750))
+  })
+
+  it('reverting to the original default before blur still counts as untouched — no write', () => {
+    const onApprovedTotalChange = vi.fn()
+    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+
+    const input = screen.getByTestId('row-line-1-approved-total')
+    fireEvent.change(input, { target: { value: '7.50' } })
+    fireEvent.change(input, { target: { value: '10.00' } })
+    fireEvent.blur(input)
+
+    expect(onApprovedTotalChange).not.toHaveBeenCalled()
+  })
+
+  it('shows an inline error on an invalid amount, without calling onApprovedTotalChange', () => {
+    const onApprovedTotalChange = vi.fn()
+    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+
+    const input = screen.getByTestId('row-line-1-approved-total')
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(screen.getByTestId('row-line-1-approved-total-error').textContent).toBe('Enter a valid, non-negative amount.')
+    expect(onApprovedTotalChange).not.toHaveBeenCalled()
+  })
+
+  it('renders attachments download-only (same as readOnly)', () => {
+    render(
+      <ExpenseLineRow
+        line={{ ...line, attachments: [attachment] }}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('attachment-download-a1')).not.toBeNull()
+    expect(screen.queryByTestId('attachment-remove-a1')).toBeNull()
+  })
+})

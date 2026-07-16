@@ -1,5 +1,5 @@
 /**
- * ExpenseLineRow — one expense line, in one of three modes (T16,
+ * ExpenseLineRow — one expense line, in one of four modes (T16/T18,
  * specs/007-refund-service/tasks.md):
  *
  *   - `edit` (Screen R2 `draft` variant): every field is a live input,
@@ -15,21 +15,34 @@
  *     "a draft line is cheap, reversible working state") and the real
  *     `AttachmentList` (T17, specs/007-refund-service/tasks.md) in
  *     upload/remove mode — fills the seam T16 left here.
- *   - `readOnly` (Screen R2 `submitted`/`rejected` variants): plain text,
- *     no inputs, no delete — editing controls are absent, not disabled
- *     (design.md F2 step 3). `AttachmentList` renders in download-only mode
- *     here too — a submitted/decided line's receipts stay viewable, just
- *     not editable (T17: "AttachmentDownloadLink … used by … the RO
- *     employee variants").
- *   - `readOnlyApproved` (Screen R2 `approved` variant): same as `readOnly`
- *     plus the line's finalized approved total alongside its requested
- *     amount (AC-3.2).
+ *   - `readOnly` (Screen R2 `submitted`/`rejected` variants, and Screen A2's
+ *     own decided-request RO render, T18 F6 step 8): plain text, no inputs,
+ *     no delete — editing controls are absent, not disabled (design.md F2
+ *     step 3). `AttachmentList` renders in download-only mode here too — a
+ *     submitted/decided line's receipts stay viewable, just not editable
+ *     (T17: "AttachmentDownloadLink … used by … the RO employee variants").
+ *   - `readOnlyApproved` (Screen R2 `approved` variant, and A2's decided
+ *     `approved` render): same as `readOnly` plus the line's finalized
+ *     approved total alongside its requested amount (AC-3.2).
+ *   - `review` (Screen A2, `submitted`, decidable — T18, design.md F6 step
+ *     1-2): same read-only field display as `readOnly` (accounting never
+ *     edits date/type/motivo/entity/km — only the employee does, pre-submit)
+ *     plus an editable **approved-total input**, visually pre-filled with
+ *     `approvedTotalCents ?? requestedAmountCents` (AC-7.1). Write-on-
+ *     change-only (design.md F6 step 2): the pre-filled default is never
+ *     eagerly `PUT` — a write fires only once the value actually differs
+ *     from what was last committed AND the field blurs, mirroring `edit`
+ *     mode's own blur-commit convention for the rest of the row. The input
+ *     carries a full, row-identity `aria-label` ("Approved total for {date}
+ *     · {motivo} · {currency}") per design.md's Accessibility section, since
+ *     accounting tabs through many otherwise-identical inputs by role.
  *
- * `registerRef` lets the parent (`RequestDetailPage`) capture this row's
- * container node so `SubmitValidationSummary`'s jump links can scroll to and
- * focus it (design.md F2 step 1) — the container carries `tabIndex={-1}` for
- * exactly that programmatic-focus target, the same technique
- * `PermissionDenied.tsx`/`NotFoundPage.tsx` use for their own mount-focus.
+ * `registerRef` lets the parent (`RequestDetailPage`/`ReviewDetailPage`)
+ * capture this row's container node so `SubmitValidationSummary`'s jump
+ * links can scroll to and focus it (design.md F2 step 1) — the container
+ * carries `tabIndex={-1}` for exactly that programmatic-focus target, the
+ * same technique `PermissionDenied.tsx`/`NotFoundPage.tsx` use for their own
+ * mount-focus.
  */
 
 import { useRef, useState } from 'react'
@@ -43,10 +56,10 @@ import { formatMoney } from '../lib/money'
 import type { Attachment, LinePayload, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
-import { isLineDraftComplete, lineDraftToPayload, lineToDraft } from '../lib/lineDraft'
+import { amountToCents, centsToAmountInput, isLineDraftComplete, lineDraftToPayload, lineToDraft } from '../lib/lineDraft'
 import AttachmentList from './AttachmentList'
 
-export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved'
+export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved' | 'review'
 
 export type ExpenseLineRowProps = {
   line: RefundLine
@@ -63,6 +76,8 @@ export type ExpenseLineRowProps = {
   onRemoveAttachment?: (attachmentId: string) => Promise<void>
   /** Required in every mode — mints a short-lived signed GET for one attachment (`lib/attachmentsApi.ts`). */
   onDownloadAttachment: (attachmentId: string) => Promise<{ url: string }>
+  /** Required in `review` mode — `PUT .../lines/:lineId/approved-total`, fired only on an actual edit (see this file's `review` mode doc above). */
+  onApprovedTotalChange?: (cents: number) => Promise<void>
 }
 
 const ENTITY_OPTIONS: Entity[] = ['welld_it', 'welld_ch']
@@ -86,10 +101,12 @@ export default function ExpenseLineRow({
   onUploadAttachment,
   onRemoveAttachment,
   onDownloadAttachment,
+  onApprovedTotalChange,
 }: ExpenseLineRowProps) {
   const t = strings.pages.requestDetail.lines
   const composerStrings = strings.pages.requestDetail.composer
   const badgeStrings = strings.badges.entity
+  const reviewStrings = strings.pages.reviewDetail.approvedTotal
 
   const [draft, setDraft] = useState<LineDraftValue>(() => lineToDraft(line))
   const committedRef = useRef<LineDraftValue>(lineToDraft(line))
@@ -99,9 +116,36 @@ export default function ExpenseLineRow({
   const [kmStatus, setKmStatus] = useState('')
   const [deleting, setDeleting] = useState(false)
 
+  // `review` mode only — the approved-total input's own local draft +
+  // "last committed cents" (write-on-change-only comparison base).
+  const approvedTotalDefaultCents = line.approvedTotalCents ?? line.requestedAmountCents
+  const [approvedDraft, setApprovedDraft] = useState<string>(() => centsToAmountInput(approvedTotalDefaultCents))
+  const approvedCommittedRef = useRef<number>(approvedTotalDefaultCents)
+  const [approvedSaving, setApprovedSaving] = useState(false)
+  const [approvedError, setApprovedError] = useState<string | null>(null)
+
   const setContainerRef = (node: HTMLDivElement | null) => {
     containerRef.current = node
     registerRef?.(node)
+  }
+
+  const commitApprovedTotal = async () => {
+    const cents = amountToCents(approvedDraft)
+    if (cents === null) {
+      setApprovedError(reviewStrings.invalidAmount)
+      return
+    }
+    if (cents === approvedCommittedRef.current) return // untouched (or reverted to the default) — no write (design.md F6 step 2)
+    setApprovedSaving(true)
+    setApprovedError(null)
+    try {
+      await onApprovedTotalChange?.(cents)
+      approvedCommittedRef.current = cents
+    } catch (err) {
+      setApprovedError(err instanceof ApiError ? (err.detail ?? err.title) : reviewStrings.updateError)
+    } finally {
+      setApprovedSaving(false)
+    }
   }
 
   const commit = async () => {
@@ -144,10 +188,10 @@ export default function ExpenseLineRow({
   }
 
   // -------------------------------------------------------------------------
-  // Read-only render (submitted / approved / rejected)
+  // Read-only render (submitted / approved / rejected / accounting review)
   // -------------------------------------------------------------------------
 
-  if (mode === 'readOnly' || mode === 'readOnlyApproved') {
+  if (mode === 'readOnly' || mode === 'readOnlyApproved' || mode === 'review') {
     return (
       <div
         ref={setContainerRef}
@@ -183,6 +227,38 @@ export default function ExpenseLineRow({
             </div>
           )}
         </dl>
+
+        {mode === 'review' && (
+          <div className="flex items-center gap-2">
+            <span aria-hidden="true" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+              {reviewStrings.label}
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              aria-label={reviewStrings.ariaLabel(line.date, line.motivo, line.currency)}
+              value={approvedDraft}
+              disabled={approvedSaving}
+              onChange={(e) => setApprovedDraft(e.target.value)}
+              onBlur={() => void commitApprovedTotal()}
+              data-testid={`row-${line.id}-approved-total`}
+              className="text-sm px-2.5 py-1.5 border rounded w-28"
+              style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+            />
+            {approvedSaving && (
+              <span className="text-[11px]" style={{ color: 'var(--muted)' }}>
+                {reviewStrings.savingLabel}
+              </span>
+            )}
+            {approvedError && (
+              <span role="alert" data-testid={`row-${line.id}-approved-total-error`} className="text-xs" style={{ color: 'var(--red)' }}>
+                {approvedError}
+              </span>
+            )}
+          </div>
+        )}
+
         <AttachmentList lineId={line.id} attachments={line.attachments} mode="readOnly" onDownload={onDownloadAttachment} />
       </div>
     )

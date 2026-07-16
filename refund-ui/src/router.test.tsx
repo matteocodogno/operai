@@ -11,13 +11,16 @@
  *
  * T16 update (specs/007-refund-service/tasks.md): `/requests`, `/requests/
  * new`, and `/requests/$id` are no longer static placeholders — they fetch
- * via `requestsApi` (built on `shell/session`'s `apiFetch`). `/review` and
- * `/review/$id` remain T14 placeholders (T18's scope) so their assertions
- * are unchanged. `apiFetch` is mocked module-wide here purely so these
+ * via `requestsApi` (built on `shell/session`'s `apiFetch`).
+ *
+ * T18 update: `/review` and `/review/$id` are likewise no longer static
+ * placeholders — they fetch via `reviewApi`/`requestsApi` (same `apiFetch`
+ * plumbing). `apiFetch` is mocked module-wide here purely so these
  * ROUTING-level tests don't need real network — the real fetch/mutation
  * behavior of each screen is covered by its own test file
  * (MyRequestsPage.test.tsx, NewRequestPage.test.tsx,
- * RequestDetailPage.test.tsx).
+ * RequestDetailPage.test.tsx, ReviewQueuePage.test.tsx,
+ * ReviewDetailPage.test.tsx).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -93,7 +96,8 @@ describe('the five routes render client-side', () => {
     expect(await screen.findByTestId('refund-my-requests-page')).not.toBeNull()
   })
 
-  it('visiting /review renders its placeholder (refund-review-queue-page)', async () => {
+  it('visiting /review renders Screen A1 (refund-review-queue-page)', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(jsonResponse(200, []))
     window.history.pushState(null, '', '/review')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
@@ -160,7 +164,22 @@ describe('the five routes render client-side', () => {
     })
   })
 
-  it('visiting /review/$id resolves the id param', async () => {
+  it('visiting /review/$id resolves the id param and fetches that request', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        id: 'rev-xyz',
+        status: 'submitted',
+        owner: { userId: 'u1', email: 'a@welld.ch', name: 'A' },
+        submittedAt: '2026-07-15T00:00:00.000Z',
+        decidedAt: null,
+        decidedBy: null,
+        rejectionMotivation: null,
+        lines: [],
+        subtotals: [],
+        createdAt: '2026-07-15T00:00:00.000Z',
+        updatedAt: '2026-07-15T00:00:00.000Z',
+      }),
+    )
     window.history.pushState(null, '', '/review/rev-xyz')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
@@ -168,7 +187,9 @@ describe('the five routes render client-side', () => {
     render(<RouterProvider router={router} />)
 
     expect(await screen.findByTestId('refund-review-detail-page')).not.toBeNull()
-    expect(screen.getByTestId('refund-review-detail-id').textContent).toBe('rev-xyz')
+    await waitFor(() => {
+      expect(screen.getByTestId('refund-review-detail-id').textContent).toBe('rev-xyz')
+    })
   })
 
   it('root ("/") redirects to /requests', async () => {
