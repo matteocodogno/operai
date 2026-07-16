@@ -506,3 +506,32 @@ describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {
     expect(editRes.count).toBe(1);
   });
 });
+
+// ─── bodyLimit middleware — OWASP A04 fix ───────────────────────────────────
+
+describe("bodyLimit middleware — raw request body > 4 KiB → 413 before handler logic", () => {
+  it("POST /requests with an oversized raw body → 413 Problem (fires before jwtMiddleware/handler)", async () => {
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    // POST /requests takes no body at all — bodyLimit must still reject an
+    // oversized payload before jwtMiddleware/authzMiddleware or the handler
+    // (which never reads the body) ever run.
+    const rawBody = `{"junk":"${"X".repeat(8 * 1024)}"}`;
+
+    const res = await requestsRouter.request("/requests", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: rawBody,
+    });
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+
+    // Nothing must have been created despite the oversized body.
+    expect(await db.refundRequest.count()).toBe(0);
+  });
+});

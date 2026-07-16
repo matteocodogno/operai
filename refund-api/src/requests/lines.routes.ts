@@ -9,10 +9,17 @@
  * not-owned / missing `request:create` capability — never 403, matching
  * requests.routes.ts's "any /requests/:id subroute → 404" denial rule).
  * Body validation (422, AC-1.2/1.6) lives in lines.schemas.ts.
+ *
+ * BODY SIZE GUARD (OWASP A04 fix): `motivo` caps at 2000 chars (LineBodySchema)
+ * — worst-case ~8 KiB of UTF-8 — so 16 KiB gives headroom for the JSON
+ * envelope and the rest of the (small, scalar) line fields. bodyLimit fires
+ * BEFORE jwtMiddleware/authzMiddleware/zod validation, mirroring estimai-api's
+ * bodyLimit precedent (estimates.routes.ts "OWASP A04 fix").
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { hasCapability } from "../authz/conditions";
@@ -45,6 +52,16 @@ const conflictProblem = (path: string, detail: string) => ({
   instance: path,
 });
 
+const payloadTooLargeProblem = (path: string, limitBytes: number) => ({
+  type: "https://httpstatuses.com/413",
+  title: "Payload Too Large",
+  status: 413 as const,
+  detail: `Request body exceeds the maximum allowed size of ${(limitBytes / 1024).toFixed(0)} KB.`,
+  instance: path,
+});
+
+const LINES_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB — see file header
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 //
 // defaultHook returns 422 (not the framework's default 400) for a malformed
@@ -71,6 +88,14 @@ export const linesRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   },
 });
 
+const linesBodyLimit = bodyLimit({
+  maxSize: LINES_BODY_SIZE_LIMIT,
+  onError: (c) =>
+    c.json(payloadTooLargeProblem(c.req.path, LINES_BODY_SIZE_LIMIT), 413),
+});
+
+linesRouter.use("/requests/:id/lines", linesBodyLimit);
+linesRouter.use("/requests/:id/lines/*", linesBodyLimit);
 linesRouter.use("/requests/:id/lines", jwtMiddleware);
 linesRouter.use("/requests/:id/lines", authzMiddleware);
 linesRouter.use("/requests/:id/lines/*", jwtMiddleware);

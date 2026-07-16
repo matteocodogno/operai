@@ -19,10 +19,16 @@
  * own try/catch here as a second line of defense on top of `notify.ts`'s own
  * internal catch-everything contract, so a decision's HTTP response can
  * NEVER fail or roll back because of a notify-side error (ADR-0017 §4).
+ *
+ * BODY SIZE GUARD (OWASP A04 fix): only approved-total (a single integer
+ * field) and reject (a free-text `motivation` with NO schema-level max
+ * length — RejectBodySchema) accept a body; approve takes none. bodyLimit is
+ * scoped per-path accordingly, fires BEFORE jwtMiddleware/authzMiddleware.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { ConflictError, NotFoundError } from "../lib/errors";
@@ -88,6 +94,21 @@ const conflictProblem = (path: string, detail: string) => ({
   instance: path,
 });
 
+const payloadTooLargeProblem = (path: string, limitBytes: number) => ({
+  type: "https://httpstatuses.com/413",
+  title: "Payload Too Large",
+  status: 413 as const,
+  detail: `Request body exceeds the maximum allowed size of ${(limitBytes / 1024).toFixed(0)} KB.`,
+  instance: path,
+});
+
+// approved-total's body is a single integer field — 4 KiB is generous.
+const APPROVED_TOTAL_BODY_SIZE_LIMIT = 4 * 1024; // 4 KiB
+// reject's `motivation` has no schema-level max length (RejectBodySchema) —
+// bodyLimit is the ONLY cap on that field; 16 KiB mirrors lines.routes.ts's
+// motivo cap as a sensible bound for accounting free-text.
+const REJECT_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 //
 // defaultHook returns 422 for a malformed body (approvedTotalCents/motivation
@@ -112,6 +133,26 @@ export const decideRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
     return undefined;
   },
 });
+
+decideRouter.use(
+  "/review/requests/:id/lines/:lineId/approved-total",
+  bodyLimit({
+    maxSize: APPROVED_TOTAL_BODY_SIZE_LIMIT,
+    onError: (c) =>
+      c.json(
+        payloadTooLargeProblem(c.req.path, APPROVED_TOTAL_BODY_SIZE_LIMIT),
+        413,
+      ),
+  }),
+);
+decideRouter.use(
+  "/review/requests/:id/reject",
+  bodyLimit({
+    maxSize: REJECT_BODY_SIZE_LIMIT,
+    onError: (c) =>
+      c.json(payloadTooLargeProblem(c.req.path, REJECT_BODY_SIZE_LIMIT), 413),
+  }),
+);
 
 decideRouter.use("/review/requests/:id/lines/:lineId/approved-total", jwtMiddleware);
 decideRouter.use("/review/requests/:id/lines/:lineId/approved-total", authzMiddleware);

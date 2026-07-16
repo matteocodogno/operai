@@ -260,6 +260,32 @@ describe("POST /requests/:id/lines/:lineId/attachments (mint)", () => {
     expect(res.status).toBe(404);
     expect(mintPresignedPostCalls).toBe(0);
   });
+
+  it("(OWASP A04 fix) oversized raw body → 413 Problem before validation, nothing minted or persisted", async () => {
+    const { request, line } = await makeRequestWithLine();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    // Not a valid MintAttachmentBody — bodyLimit must reject on size alone,
+    // before zod validation or handler logic ever run.
+    const rawBody = `{"fileName":"${"X".repeat(10 * 1024)}"}`;
+
+    const res = await attachmentsRouter.request(
+      `/requests/${request.id}/lines/${line.id}/attachments`,
+      {
+        method: "POST",
+        headers: authHeaders(token),
+        body: rawBody,
+      },
+    );
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+    expect(mintPresignedPostCalls).toBe(0);
+    expect(await db.attachment.count()).toBe(0);
+  });
 });
 
 // ─── POST .../attachments/:aid/confirm ──────────────────────────────────────

@@ -16,10 +16,18 @@
  * GET /requests/:id is the SAME route accounting uses (plan.md lists it under
  * both the employee and accounting contract tables) — `canReadRequest`
  * (requests.service.ts) evaluates the owner-OR-in-scope-accounting predicate.
+ *
+ * BODY SIZE GUARD (OWASP A04 fix): POST /requests takes no request body at
+ * all (the owner is always the JWT `sub`, never anything from the payload —
+ * see the handler below) but an unbounded body would still be buffered by
+ * the runtime before any handler logic runs. bodyLimit fails closed on an
+ * oversized/malicious body BEFORE jwtMiddleware/authzMiddleware, mirroring
+ * estimai-api's bodyLimit precedent (estimates.routes.ts "OWASP A04 fix").
  */
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { hasCapability } from "../authz/conditions";
@@ -64,6 +72,19 @@ const conflictProblem = (path: string, detail: string) => ({
   instance: path,
 });
 
+const payloadTooLargeProblem = (path: string, limitBytes: number) => ({
+  type: "https://httpstatuses.com/413",
+  title: "Payload Too Large",
+  status: 413 as const,
+  detail: `Request body exceeds the maximum allowed size of ${(limitBytes / 1024).toFixed(0)} KB.`,
+  instance: path,
+});
+
+// No route on this router accepts a meaningful JSON body (see file header) —
+// a small cap is defense-in-depth against an oversized payload, not headroom
+// for a real request shape.
+const REQUESTS_BODY_SIZE_LIMIT = 4 * 1024; // 4 KiB
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export const requestsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
@@ -86,6 +107,14 @@ export const requestsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
   },
 });
 
+const requestsBodyLimit = bodyLimit({
+  maxSize: REQUESTS_BODY_SIZE_LIMIT,
+  onError: (c) =>
+    c.json(payloadTooLargeProblem(c.req.path, REQUESTS_BODY_SIZE_LIMIT), 413),
+});
+
+requestsRouter.use("/requests", requestsBodyLimit);
+requestsRouter.use("/requests/*", requestsBodyLimit);
 requestsRouter.use("/requests", jwtMiddleware);
 requestsRouter.use("/requests", authzMiddleware);
 requestsRouter.use("/requests/*", jwtMiddleware);
