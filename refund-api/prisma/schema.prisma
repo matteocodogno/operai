@@ -7,14 +7,205 @@ datasource db {
   provider = "postgresql"
 }
 
-// ─── Models ───────────────────────────────────────────────────────────────────
+// ─── Enums ──────────────────────────────────────────────────────────────────
 //
-// Intentionally empty. This is T4's bootstrap skeleton — src/lib/db.ts wires the
-// generated Prisma client the same way estimai-api does, but the real domain
-// models (RefundRequest, RefundLine, Attachment, RefundAuditEntry — see
-// specs/007-refund-service/plan.md § Data model) land in T5's `0001_init`
-// migration. `prisma generate` against a model-less schema still produces a
-// valid PrismaClient (raw queries like `$queryRaw`, used by the health check,
-// work with zero models) — this is not a placeholder model, it's genuinely
-// empty on purpose. Never hand-edit this file outside its owning task; T5 adds
-// the models here and creates the first migration.
+// Native Prisma enums (departing from estimai-api/notify-api's "String +
+// zod-boundary validation" convention — see plan.md § Data model) because
+// this domain's closed sets are genuinely fixed by the spec/plan (the twelve
+// expense types, the four-state lifecycle, the two wellD legal entities, the
+// five audit actions, the two-phase upload status) and Postgres-level enum
+// constraints add a second, DB-native line of defense for financial data —
+// consistent with this plan's overall "defense in depth" posture (ADR-0018).
+
+// draft|submitted|approved|rejected only. `withdrawn` is NOT a status — it is
+// an AuditAction recording the submitted→draft transition (Gate-2 D1,
+// plan.md Risk R6). Do not add a fifth value here.
+enum RefundStatus {
+  draft
+  submitted
+  approved
+  rejected
+}
+
+// Reuses auth's `user.entity` string values verbatim (welld_it | welld_ch).
+// Currency is DERIVED from this at the API boundary (welld_it→EUR,
+// welld_ch→CHF) — never stored (plan.md § Money handling).
+enum Entity {
+  welld_it
+  welld_ch
+}
+
+// The twelve expense types from the spec's line-item table. `km` (RefundLine)
+// is required and >0 iff type == travel_km, rejected for every other type
+// (AC-1.2).
+enum ExpenseType {
+  travel_highway
+  travel_km
+  travel_parking
+  travel_train
+  travel_other_public_transport
+  company_manuals
+  stationery
+  representation_meals
+  representation_gifts
+  office_material
+  postal
+  telephone
+}
+
+// One row per audited state-relevant event (US-8, ADR-0018). Written inside
+// the same transaction as the event it records.
+enum AuditAction {
+  submitted
+  withdrawn
+  approved
+  rejected
+  approved_total_set
+}
+
+// Two-phase presigned upload (ADR-0016, wired by T9): `pending` until the
+// browser's direct-to-bucket upload is confirmed via HEAD, then `stored`.
+// Only `stored` attachments are ever surfaced by refund-api's own routes.
+enum UploadStatus {
+  pending
+  stored
+}
+
+// ─── Models ─────────────────────────────────────────────────────────────────
+
+// RefundRequest — the top-level expense-reimbursement document (T5,
+// specs/007-refund-service, plan.md § Data model).
+//
+// ownerUserId is the JWT `sub` (ADR-0005 pattern) — NEVER taken from the
+// request body; every query is scoped to it (employee-owned) or to the
+// entity-scope predicate (accounting review, ADR-0015). ownerEmail/ownerName
+// are snapshots taken at creation time for accounting display (AC-6.1) — this
+// service holds no `User` table (users live only in the `auth` DB), mirroring
+// estimai-api/notify-api's sub-as-foreign-key-less-ownership convention.
+//
+// A request has NO single entity — its lines may straddle both welld_it and
+// welld_ch (AC-3.5/6.6) — so entity scoping is evaluated per-request via "at
+// least one line matches" (ADR-0015), never via a column on this table.
+model RefundRequest {
+  id                  String    @id @default(cuid())
+  ownerUserId         String
+  ownerEmail          String
+  ownerName           String?
+  status              RefundStatus @default(draft)
+  submittedAt         DateTime?
+  decidedAt           DateTime?
+  decidedByUserId     String?
+  decidedByEmail      String?
+  // Non-null iff status == rejected (AC-7.3); left null/untouched otherwise.
+  rejectionMotivation String?
+
+  lines        RefundLine[]
+  auditEntries RefundAuditEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerUserId, status]) // list-own (AC-3.1)
+  @@index([status]) // queue base filter (AC-5.1), combined with the line entity join at query time
+  @@map("refund_request")
+}
+
+// RefundLine — a single expense-line item, entity-scoped individually
+// (T5, plan.md § Data model).
+//
+// requestedAmountCents is employee-entered (AC-1.2); approvedTotalCents is
+// set during accounting review (AC-7.1/7.2), defaulting to
+// requestedAmountCents on approve for any line left untouched (application
+// logic, T12 — not a DB default, since "untouched" must be distinguishable
+// from "explicitly set to the same value" during review).
+//
+// Money is stored as integer minor units (cents/centesimi), never Decimal or
+// float — exact, unambiguous, trivially summable for per-currency subtotals
+// (plan.md § Money handling). Currency is derived from `entity`, never
+// stored, so it can never disagree with the line's own entity.
+model RefundLine {
+  id        String        @id @default(cuid())
+  requestId String
+  request   RefundRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  date                 DateTime    @db.Date
+  type                 ExpenseType
+  motivo               String
+  entity               Entity
+  requestedAmountCents Int
+  // Required and > 0 iff type == travel_km; rejected (422) if present for any
+  // other type (AC-1.2/1.6). Nullable at the DB level — validated at the API
+  // boundary, not by a CHECK constraint, so the same table shape serves every
+  // expense type without a partial/conditional column.
+  km                 Int?
+  approvedTotalCents Int?
+
+  attachments Attachment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requestId])
+  @@index([requestId, entity]) // backs the per-request "at least one line matches" entity-scope predicate (ADR-0015)
+  @@map("refund_line")
+}
+
+// Attachment — a receipt file attached to a specific expense line (T5;
+// object-storage wiring lands in T9, ADR-0016).
+//
+// objectKey is globally unique (refund/{requestId}/{lineId}/{attachmentId}/
+// {safeName}) — the presigned-upload/download key, never guessable, no user
+// PII in the key itself. uploadStatus starts `pending` (two-phase presigned
+// upload — mint, then confirm via HEAD); only `stored` attachments are ever
+// returned by refund-api's own read routes (T9's reconcile-on-read posture,
+// no cron, ADR-0013 precedent).
+model Attachment {
+  id     String     @id @default(cuid())
+  lineId String
+  line   RefundLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  objectKey    String       @unique
+  fileName     String
+  contentType  String
+  sizeBytes    Int
+  uploadStatus UploadStatus @default(pending)
+
+  createdAt DateTime @default(now())
+
+  @@index([lineId])
+  @@map("attachment")
+}
+
+// RefundAuditEntry — append-only financial audit trail (US-8, ADR-0018).
+//
+// IMMUTABILITY IS ENFORCED AT THE DATABASE LEVEL, not merely by the absence
+// of an update/delete route: this migration's raw SQL adds a `BEFORE
+// UPDATE/DELETE` trigger on this table that RAISEs an exception on any write
+// attempt (ADR-0018 decision 2 — a raising trigger was chosen over a silent
+// `CREATE RULE ... DO INSTEAD NOTHING`, so an inadvertent write attempt fails
+// loudly). Never add an update/delete route for this model.
+//
+// `request` uses `onDelete: Restrict` (NOT Prisma's default `Cascade`):
+// combined with the route guard that only ever permits `DELETE /requests/:id`
+// while `status == draft` (409 otherwise), any request that ever transitioned
+// past `draft` — and therefore has at least one audit row — becomes
+// physically undeletable at the database level (AC-8.3), independent of and
+// in addition to the application-level status guard.
+model RefundAuditEntry {
+  id        String        @id @default(cuid())
+  requestId String
+  request   RefundRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  lineId    String?
+
+  actorUserId String
+  actorEmail  String
+  action      AuditAction
+  // e.g. { rejectionMotivation } | { lineId, fromCents, toCents } — see
+  // plan.md's per-action detail shape.
+  detail      Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([requestId, createdAt])
+  @@map("refund_audit_entry")
+}

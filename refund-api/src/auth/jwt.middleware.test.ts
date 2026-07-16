@@ -68,8 +68,17 @@ mock.module("jose", () => {
 // ─── Set env vars BEFORE importing the middleware ────────────────────────────
 // env.ts runs at module-eval time and calls process.exit(1) on missing vars.
 // These assignments run synchronously before the dynamic import below.
-
-process.env["DATABASE_URL"] = "postgresql://test:test@localhost:5435/test";
+//
+// DATABASE_URL uses `??=` (set ONLY if unset), never `=`: `bun test` runs
+// every test file in ONE process, so an unconditional overwrite here would
+// permanently clobber the REAL DATABASE_URL (auto-loaded by Bun from `.env`
+// at process start) for every OTHER test file that runs afterward in the
+// same process — including T5's real-Postgres `db.audit-immutability.test.ts`
+// (see its own comment for the full story). This middleware never actually
+// connects to a database, so any placeholder value is fine when nothing else
+// has already set a real one; a real value already present must never be
+// touched.
+process.env["DATABASE_URL"] ??= "postgresql://test:test@localhost:5435/test";
 process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] = "http://localhost:3001/.well-known/jwks.json";
 process.env["AUTH_ISSUER"] = TEST_ISSUER;
@@ -96,6 +105,7 @@ const buildApp = (handlerRanRef: { value: boolean }) => {
       {
         userId: c.get("userId" as never),
         email: c.get("email" as never),
+        permEpoch: c.get("permEpoch" as never),
       },
       200,
     );
@@ -118,6 +128,10 @@ const signValid = async (overrides?: {
   // token shape); any string sets a specific (possibly wrong) audience value.
   // Defaults to the correct TEST_AUDIENCE so existing callers keep passing.
   audience?: string | null;
+  // T6/ADR-0014: the `perm_epoch` claim (auth.config.ts's definePayload).
+  // `undefined` (default) omits the claim entirely, exercising the "missing
+  // claim degrades to 0" path; any number sets a specific epoch value.
+  permEpoch?: number;
 }) => {
   const {
     issuer = TEST_ISSUER,
@@ -127,9 +141,13 @@ const signValid = async (overrides?: {
     kid = TEST_KID,
     privateKeyOverride,
     audience = TEST_AUDIENCE,
+    permEpoch,
   } = overrides ?? {};
 
-  const jwt = new SignJWT({ email })
+  const jwt = new SignJWT({
+    email,
+    ...(permEpoch !== undefined ? { perm_epoch: permEpoch } : {}),
+  })
     .setProtectedHeader({ alg: "RS256", kid })
     .setIssuer(issuer)
     .setSubject(sub)
@@ -171,16 +189,55 @@ describe("jwtMiddleware", () => {
     const handlerRan = { value: false };
     const app = buildApp(handlerRan);
 
+    const jwt = await signValid({ permEpoch: 7 });
+    const res = await app.request("/protected", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      userId: string;
+      email: string;
+      permEpoch: number;
+    };
+    expect(body.userId).toBe("user-abc-123");
+    expect(body.email).toBe("alice@example.com");
+    // T6/ADR-0014: perm_epoch is read straight off the verified payload.
+    expect(body.permEpoch).toBe(7);
+    // Handler MUST have run — verify the middleware passed through.
+    expect(handlerRan.value).toBe(true);
+  });
+
+  // ─── (h) perm_epoch claim handling (T6, ADR-0014) ─────────────────────────
+
+  it("(h) token with no 'perm_epoch' claim — passes, permEpoch defaults to 0", async () => {
+    const handlerRan = { value: false };
+    const app = buildApp(handlerRan);
+
+    // signValid() with no `permEpoch` override omits the claim entirely.
     const jwt = await signValid();
     const res = await app.request("/protected", {
       headers: { Authorization: `Bearer ${jwt}` },
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { userId: string; email: string };
-    expect(body.userId).toBe("user-abc-123");
-    expect(body.email).toBe("alice@example.com");
-    // Handler MUST have run — verify the middleware passed through.
+    const body = (await res.json()) as { permEpoch: number };
+    expect(body.permEpoch).toBe(0);
+    expect(handlerRan.value).toBe(true);
+  });
+
+  it("(h2) token with perm_epoch: 0 explicitly — passes, permEpoch is 0", async () => {
+    const handlerRan = { value: false };
+    const app = buildApp(handlerRan);
+
+    const jwt = await signValid({ permEpoch: 0 });
+    const res = await app.request("/protected", {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { permEpoch: number };
+    expect(body.permEpoch).toBe(0);
     expect(handlerRan.value).toBe(true);
   });
 
