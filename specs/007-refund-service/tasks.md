@@ -81,7 +81,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - `PUT …/lines/:lineId/approved-total` (submitted-only, entity-scoped, writes an `approved_total_set` audit row). `POST …/approve` → `approved`, each line's total finalized (default = requested for untouched lines), stamps decidedBy/decidedAt. `POST …/reject` requires non-empty motivation (422 if empty) → `rejected`, stamps motivation + decidedBy/decidedAt. Both are whole-request incl. out-of-scope lines. Decided → any change 409 (AC-7.4).
   - done when: integration tests cover approve (defaulting + stamps + audit), reject (empty→422, valid→motivation+stamps+audit), per-line total edits with audit rows, whole-request decision across a mixed-entity request, and decided-immutability 409s.
 
-- [ ] T13: Notify the employee on decision — refs: AC-3.3, AC-3.6 — deps: T12, T3
+- [x] T13: Notify the employee on decision — refs: AC-3.3, AC-3.6 — deps: T12, T3
   - touch: `refund-api/src/review/decide.*` (post-commit hook), `refund-api/src/lib/notify.ts`, env (`NOTIFY_INTERNAL_TOKEN`, notify-api base URL)
   - After an approve/reject commits, call `notify-api POST /system/notifications` (`X-Internal-Token`) with `recipientId=<owner sub>`, `originApp:"refund"`, title/body per outcome, `link.href:/refund/requests/:id`. Best-effort: a failed call is logged and never rolls back the decision.
   - done when: an integration test (notify-api mocked) asserts approve and reject each fire the call with the owner's sub + correct link, and that a mocked notify failure still returns a 200 decision.

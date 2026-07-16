@@ -1,13 +1,22 @@
 /**
- * Integration tests for accounting decisions (T12, specs/007-refund-service).
+ * Integration tests for accounting decisions (T12, specs/007-refund-service)
+ * + the post-decision notify trigger (T13, AC-3.6, ADR-0017).
  *
  * Strategy — mirrors requests.routes.test.ts's header comment: real Postgres
  * (compose, `refund` database), jwt/authz mocked via test-support/testAuth.ts.
  * `decideRouter` is a NEW router module owned exclusively by this file (see
  * testAuth.ts's doc comment on the no-shared-router-specifier constraint).
  *
- * AC coverage (T12 done-when)
- * ──────────────────────────
+ * Notify verification mocks `globalThis.fetch` directly (NOT
+ * `mock.module("../lib/notify", …)`) — mirrors storage.test.ts's approach of
+ * mocking notify.ts's own external dependency rather than replacing the
+ * whole module. `mock.module` registrations are process-global for the rest
+ * of the `bun test` run, not scoped to this file; src/lib/notify.test.ts
+ * unit-tests the REAL `notify.ts` in the SAME process, so replacing that
+ * module here would leak into (and corrupt) that file's tests.
+ *
+ * AC coverage (T12/T13 done-when)
+ * ──────────────────────────────
  * AC-7.1 editable approved-total per line, default=requested on approve
  * AC-7.2 approve → approved, totals recorded, approver+ts
  * AC-7.3 reject requires non-empty motivation (422 empty; 200 + motivation+stamps)
@@ -15,6 +24,8 @@
  * AC-7.5 non-accounting cannot set total/decide → 403
  * AC-7.6 decision whole-request incl. out-of-scope lines
  * AC-8.1 audit rows for approved_total_set / approved / rejected
+ * AC-3.6 approve/reject each fire notifyDecision with the owner's sub +
+ *        correct link; a mocked notify failure still returns 200 (T13)
  */
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
@@ -28,6 +39,8 @@ process.env["AUTH_ISSUER"] = "http://localhost:3001";
 process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
+process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
+process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
 
 const harness = setupTestAuth();
 await harness.init();
@@ -35,6 +48,40 @@ await harness.init();
 const { decideRouter } = await import("./decide.routes");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+
+// ─── Fake the notify-api HTTP boundary (global fetch) — no live notify-api
+// required, and no module-cache pollution across test files (T13) ─────────
+
+interface NotifyCall {
+  readonly recipientId: string;
+  readonly requestId: string;
+  readonly outcome: "approved" | "rejected";
+}
+
+let notifyCalls: NotifyCall[] = [];
+let notifyShouldFail = false;
+const originalFetch = globalThis.fetch;
+
+globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  if (typeof url === "string" && url.includes("/system/notifications")) {
+    const body = JSON.parse((init?.body as string) ?? "{}") as {
+      recipientId: string;
+      link?: { href: string };
+      severity: string;
+    };
+    const requestId = body.link?.href.split("/").pop() ?? "";
+    notifyCalls.push({
+      recipientId: body.recipientId,
+      requestId,
+      outcome: body.severity === "success" ? "approved" : "rejected",
+    });
+    if (notifyShouldFail) {
+      return new Response("simulated notify-api outage", { status: 500 });
+    }
+    return new Response(JSON.stringify({ id: "n1" }), { status: 201 });
+  }
+  return originalFetch(url, init);
+}) as unknown as typeof fetch;
 
 // ─── Fixture permission sets ────────────────────────────────────────────────
 
@@ -116,10 +163,13 @@ async function createSubmittedRequest(
 beforeEach(async () => {
   await truncateRefundTables();
   __resetAuthzCacheForTests();
+  notifyCalls = [];
+  notifyShouldFail = false;
 });
 
 afterAll(async () => {
   await truncateRefundTables();
+  globalThis.fetch = originalFetch;
 });
 
 // ─── PUT .../lines/:lineId/approved-total ──────────────────────────────────
@@ -286,6 +336,43 @@ describe("POST /review/requests/:id/approve", () => {
     expect(auditRows[0]?.actorUserId).toBe("acct-1");
   });
 
+  it("(AC-3.6/T13) approve fires notifyDecision with the owner's sub and the correct link", async () => {
+    const { request } = await createSubmittedRequest([
+      { entity: "welld_it", requestedAmountCents: 1000 },
+    ]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+
+    expect(notifyCalls).toEqual([
+      { recipientId: "emp-1", requestId: request.id, outcome: "approved" },
+    ]);
+  });
+
+  it("(AC-3.6/T13) a notify-api failure is swallowed — the decision still returns 200", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    notifyShouldFail = true;
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("approved");
+
+    // The decision itself is the source of truth, independent of the push.
+    const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(row.status).toBe("approved");
+  });
+
   it("(AC-7.6) approve is whole-request — an out-of-scope line is still finalized", async () => {
     const { request, lines } = await createSubmittedRequest([
       { entity: "welld_it", requestedAmountCents: 1000 },
@@ -405,6 +492,39 @@ describe("POST /review/requests/:id/reject", () => {
     expect(auditRows.map((r) => r.action)).toEqual(["rejected"]);
     expect(auditRows[0]?.detail).toEqual({ rejectionMotivation: "Missing receipt for line 1" });
     void lines;
+  });
+
+  it("(AC-3.6/T13) reject fires notifyDecision with the owner's sub and the correct link", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/reject`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ motivation: "Not eligible" }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(notifyCalls).toEqual([
+      { recipientId: "emp-1", requestId: request.id, outcome: "rejected" },
+    ]);
+  });
+
+  it("(AC-3.6/T13) a notify-api failure is swallowed — the rejection still returns 200", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    notifyShouldFail = true;
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/reject`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ motivation: "Not eligible" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("rejected");
   });
 
   it("(AC-7.6) reject is whole-request — applies even though a line is outside the caller's scope", async () => {

@@ -12,6 +12,13 @@
  * (AC-7.6) — `decide.repo.ts` never filters lines by the deciding user's own
  * scope, only gates ACCESS to the request via the same "at least one line
  * matches" predicate.
+ *
+ * T13 adds the post-commit notify trigger (AC-3.6, ADR-0017): after an
+ * approve/reject decision COMMITS, `notifyDecision` (lib/notify.ts) pushes
+ * an in-app notification to the request owner. Best-effort — wrapped in its
+ * own try/catch here as a second line of defense on top of `notify.ts`'s own
+ * internal catch-everything contract, so a decision's HTTP response can
+ * NEVER fail or roll back because of a notify-side error (ADR-0017 §4).
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
@@ -19,6 +26,7 @@ import { Effect } from "effect";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { ConflictError, NotFoundError } from "../lib/errors";
+import { notifyDecision } from "../lib/notify";
 import { findRequestWithLines } from "../requests/requests.repo";
 import { mapLine, mapRequestDetail } from "../requests/requests.service";
 import {
@@ -31,6 +39,28 @@ import {
 import { approveRequest, rejectRequest, setApprovedTotal } from "./decide.repo";
 import { ApprovedTotalBodySchema, RejectBodySchema } from "./decide.schemas";
 import { scopeForReviewAction } from "./review.service";
+
+/**
+ * Fires the post-decision notification (T13, AC-3.6). Never throws — even
+ * though `notifyDecision` already promises never to reject, this extra
+ * try/catch is deliberate defense-in-depth (ADR-0017 §4: a notify failure
+ * must NEVER fail or roll back the decision response).
+ */
+async function notifyDecisionBestEffort(
+  recipientId: string,
+  requestId: string,
+  outcome: "approved" | "rejected",
+): Promise<void> {
+  try {
+    await notifyDecision({ recipientId, requestId, outcome });
+  } catch (error) {
+    console.error(
+      `[refund-api] notifyDecision threw unexpectedly for request ${requestId} ` +
+        `(${outcome}) — decision NOT rolled back:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
 
@@ -240,6 +270,8 @@ decideRouter.openapi(approveRoute, async (c) => {
   }
 
   const detail = await fetchDetailAfterDecision(id);
+  // Post-commit, best-effort (AC-3.6/ADR-0017) — never blocks or fails this response.
+  await notifyDecisionBestEffort(detail.owner.userId, id, "approved");
   return c.json(detail, 200);
 });
 
@@ -319,5 +351,7 @@ decideRouter.openapi(rejectRoute, async (c) => {
   }
 
   const detail = await fetchDetailAfterDecision(id);
+  // Post-commit, best-effort (AC-3.6/ADR-0017) — never blocks or fails this response.
+  await notifyDecisionBestEffort(detail.owner.userId, id, "rejected");
   return c.json(detail, 200);
 });
