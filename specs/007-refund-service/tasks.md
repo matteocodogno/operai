@@ -71,7 +71,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - `POST /requests/:id/submit`: refuse 0-line (422, AC-1.5) and incomplete-line (422 body lists offending line ids, AC-1.6); else → `submitted`, becomes read-only. `POST /requests/:id/withdraw`: `submitted`→`draft` (409 if not submitted). Each transition (submit, withdraw) writes an append-only audit row (actor/ts/action). Editing/deleting a non-draft → 409 (AC-2.3).
   - done when: integration tests cover the full transition matrix incl. the 422 offending-line payload, the withdraw round-trip, terminal-immutability 409s, and an audit row per transition.
 
-- [ ] T11: Accounting review read — entity-scoped queue + detail — refs: AC-5.1, AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-6.1, AC-6.3, AC-6.4, AC-6.5, AC-6.6 — deps: T10, T2
+- [x] T11: Accounting review read — entity-scoped queue + detail — refs: AC-5.1, AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-6.1, AC-6.3, AC-6.4, AC-6.5, AC-6.6 — deps: T10, T2
   - touch: `refund-api/src/review/` (routes, service), reuse the entity predicate (T6)
   - `GET /review/requests` (submitted ∧ in-scope; 403 without `request:review`). `GET /requests/:id` for accounting: full detail incl. **all** lines when ≥1 in scope (never filtered); 404 when scope matches none. Decided requests inspectable read-only. Per-currency subtotals as on the employee side.
   - done when: integration tests cover queue scoping (single-entity sees/omits, global sees all, withdrawn absent, only submitted present), whole-request line visibility for an in-scope mixed-entity request, out-of-scope deep-link 404, and non-accounting 403.

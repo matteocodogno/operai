@@ -317,6 +317,75 @@ describe("GET /requests/:id", () => {
     });
     expect(res.status).toBe(200);
   });
+
+  // ─── T11 additions (specs/007-refund-service) ──────────────────────────
+  //
+  // These exercise the SAME shared GET /requests/:id route accounting uses
+  // (canReadRequest, requests.service.ts) — added here rather than in a new
+  // src/review/ test file because test-support/testAuth.ts's own doc comment
+  // warns against two test FILES importing the SAME router specifier
+  // (`./requests.routes`); this file already owns it.
+
+  it("(AC-6.5) an in-scope single-entity reviewer sees ALL lines of a mixed-entity request, including the out-of-scope entity's line", async () => {
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", status: "submitted" },
+    });
+    await createLineDirect(request.id, { entity: "welld_it", requestedAmountCents: 1000 });
+    await createLineDirect(request.id, { entity: "welld_ch", requestedAmountCents: 500 });
+
+    // Scoped to welld_it only — matches exactly ONE of the request's two lines.
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      lines: { entity: string }[];
+      subtotals: { entity: string; currency: string; requestedCents: number; approvedCents: number | null }[];
+    };
+    // Never filtered down to the caller's own scope — both entities present.
+    expect(body.lines.map((l) => l.entity).sort()).toEqual(["welld_ch", "welld_it"]);
+    expect(body.subtotals).toEqual([
+      { entity: "welld_ch", currency: "CHF", requestedCents: 500, approvedCents: null },
+      { entity: "welld_it", currency: "EUR", requestedCents: 1000, approvedCents: null },
+    ]);
+  });
+
+  it("(AC-6.3) a decided (approved) request remains readable, read-only, for an in-scope accounting reviewer", async () => {
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: "emp-1",
+        ownerEmail: "emp1@x.com",
+        status: "approved",
+        decidedByUserId: "acct-1",
+        decidedByEmail: "acct1@x.com",
+        decidedAt: new Date(),
+      },
+    });
+    await createLineDirect(request.id, {
+      entity: "welld_it",
+      requestedAmountCents: 1000,
+      approvedTotalCents: 800,
+    });
+
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      decidedBy: { email: string } | null;
+      lines: { approvedTotalCents: number | null }[];
+    };
+    expect(body.status).toBe("approved");
+    expect(body.decidedBy).toEqual({ email: "acct1@x.com" });
+    expect(body.lines[0]?.approvedTotalCents).toBe(800);
+  });
 });
 
 describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {
