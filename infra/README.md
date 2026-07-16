@@ -36,12 +36,25 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
    delegate to shell/session                   │  below), SSE + ticket store  │
                                                 │  are single-instance only    │
                                                 ├───────────────────────────────┤
+                                                │ refund-api  (Bun+Hono)        │
+                                                │  https://refund-api.operai…  │
+                                                │  → EU object storage (S3-    │
+                                                │    compatible, ADR-0016) —   │
+                                                │    receipt attachments,      │
+                                                │    presigned direct-to-bucket│
+                                                ├───────────────────────────────┤
                                                 │ Postgres (shared)             │
                                                 │   ├─ db: auth                 │
                                                 │   ├─ db: estimai              │
-                                                │   └─ db: notify               │
-                                                │ estimai-api,                  │
-                                                │ notify-api → auth /auth/jwks  │
+                                                │   ├─ db: notify               │
+                                                │   └─ db: refund               │
+                                                │ estimai-api, notify-api,      │
+                                                │ refund-api → auth /auth/jwks  │
+                                                │ refund-api → auth /authz/     │
+                                                │   resolve (ADR-0014)          │
+                                                │ refund-api → notify-api       │
+                                                │   /system/notifications       │
+                                                │   (ADR-0017)                  │
                                                 └───────────────────────────────┘
 ```
 
@@ -53,20 +66,27 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
   itself, not this remote (ADR-0009) — see the shell-side notes in
   `specs/005-notification-center/plan.md`.
 - **Backends:** `auth` (OAuth, sessions, RS256 JWT + JWKS, hosted sign-in,
-  authorization/admin API), `estimai-api` (estimate persistence), and
-  `notify-api` (notification persistence + SSE push, specs/005). One Postgres
-  instance, three logical databases (`auth`, `estimai`, `notify`); service↔DB
-  traffic stays on Railway private networking (`*.railway.internal`).
+  authorization/admin API), `estimai-api` (estimate persistence), `notify-api`
+  (notification persistence + SSE push, specs/005), and `refund-api`
+  (reimbursement persistence + authorization-enforcing resource server,
+  specs/007). One Postgres instance, four logical databases (`auth`,
+  `estimai`, `notify`, `refund`); service↔DB traffic stays on Railway private
+  networking (`*.railway.internal`).
   **`notify-api` is pinned to a single replica** (`railway.json`
   `numReplicas: 1`) — its in-process EventBus fan-out and stream-ticket store
   are correct for exactly one running instance (plan.md Risk R2). Do not
   enable autoscale/multiple replicas for this service without first moving
   both seams onto Postgres `LISTEN`/`NOTIFY` + a shared ticket table.
+  `refund-api` has no equivalent constraint — its `authzMiddleware` cache
+  (ADR-0014) is a per-replica performance optimization with a 30s TTL
+  backstop, not a correctness-dependent single-instance store, so it deploys
+  like `estimai-api` (no replica pin).
 - **`notify-api` and `estimai-api` are cross-valid JWKS resource servers**
   (ADR-0010) — both verify the same `auth`-issued tokens, so both (plus
   `auth`, which stamps the claim) require an identical **`AUTH_AUDIENCE`**
-  value or a token minted for one is structurally valid at the other. See
-  § Variable reference.
+  value or a token minted for one is structurally valid at the other.
+  `refund-api` (specs/007) is a THIRD JWKS resource server on the same
+  `AUTH_AUDIENCE` value — see § Variable reference.
 - **`auth` → `notify-api` service-to-service email trigger** (specs/006-user-invitations,
   ADR-0011): `auth` calls `notify-api`'s internal `POST /system/emails` to send
   invite/resend emails (Resend, bilingual) — the suite's first non-user-JWT
@@ -75,10 +95,29 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
   networking** (`NOTIFY_INTERNAL_URL` → `notify-api.railway.internal`), not
   the public `<NOTIFY_API_URL>` domain the browser uses for SSE — see
   § Variable reference and § Phase 1 step 7.
+- **`refund-api` → `auth` `/authz/resolve` + `refund-api` → `notify-api`
+  `/system/notifications`** (specs/007-refund-service, ADR-0014/ADR-0017):
+  `refund-api` is the suite's first AUTHORIZATION-enforcing resource server —
+  every request resolves the caller's live permissions from `auth GET
+  /authz/resolve` (forwarding the caller's own Bearer JWT, no new secret,
+  reuses `AUTH_ISSUER`/`AUTH_JWKS_URL`/`AUTH_AUDIENCE` below — no separate env
+  var). After an approve/reject decision it calls `notify-api`'s internal
+  `POST /system/notifications` (mirrors `/system/emails`'s shape), reusing the
+  **same** `NOTIFY_INTERNAL_TOKEN` `auth` and `notify-api` already share —
+  ADR-0017 explicitly notes this trips ADR-0011's named "second internal
+  caller" escalation trigger without acting on it yet. Both calls should
+  prefer Railway **private networking** where the target service's private
+  hostname is known, same posture as `auth`'s existing `NOTIFY_INTERNAL_URL`.
+- **`refund-api` → EU object storage** (specs/007-refund-service, ADR-0016): a
+  SEPARATE S3-compatible bucket resource (not a Railway service) — receipt
+  attachments never transit `refund-api`'s own process (presigned
+  direct-to-bucket upload/download). See § Variable reference's `refund-api`
+  section and this task's follow-up note on provisioning (not yet done).
 - **The public URL placeholders** used below — keep them straight; all need
   the `https://` scheme:
   - `<AUTH_URL>` = the **auth** service (e.g. `https://auth.operai.welld.io`). It
-    is the JWT **issuer**, so `estimai-api` and `notify-api` point back at it.
+    is the JWT **issuer**, so `estimai-api`, `notify-api`, and `refund-api`
+    point back at it (`refund-api` also calls its `/authz/resolve` route).
   - `<API_URL>` = the **estimai-api** service (e.g. `https://estimai-api.operai.welld.io`).
     Only the browser/UI references it.
   - `<NOTIFY_API_URL>` = the **notify-api** service's **public** domain (e.g.
@@ -87,9 +126,15 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
     `connect-src` must allow for the SSE `EventSource` (R6 — see Phase 3).
   - `<NOTIFY_INTERNAL_URL>` = notify-api's Railway **private**-networking
     address (e.g. `http://notify-api.railway.internal:8081`) — distinct from
-    `<NOTIFY_API_URL>` above. Only `auth`'s server-side `POST /system/emails`
-    call uses it (specs/006-user-invitations, ADR-0011); never given to a
-    browser, never the public domain — see § Phase 1 step 7.
+    `<NOTIFY_API_URL>` above. `auth`'s server-side `POST /system/emails` call
+    (specs/006-user-invitations, ADR-0011) AND `refund-api`'s server-side
+    `POST /system/notifications` call (specs/007, ADR-0017) both use this;
+    never given to a browser, never the public domain — see § Phase 1 step 7.
+  - `<REFUND_API_URL>` = the **refund-api** service's **public** domain (e.g.
+    `https://refund-api.operai.welld.io`). Only the browser/UI references it
+    (via `VITE_REFUND_API_URL`, both on the `shell` project — trusted-origins
+    allowlist — and the `refund-ui` project itself); it is also the origin
+    the shell CSP's `connect-src` must allow (see Phase 3).
 
 **Hostnames.** The `*.operai.welld.io` scheme is the proposed, welld.io-parented
 layout (shared registrable parent matters for the credentialed `/auth/token`
@@ -107,10 +152,14 @@ vars into those).
    **`./infra/check.sh --prereqs`**.
 2. **Secrets (direnv + 1Password).** Backend secrets never live in the repo —
    they load from 1Password via `.envrc`. Run `direnv allow auth` (and
-   `direnv allow estimai-api`, `direnv allow notify-api`) once, be signed in to
-   `op`, and run deploy commands from within that shell (e.g.
-   `direnv exec auth ./infra/deploy.sh`) so the secrets are exported. The full
-   variable → 1Password-item map is in **§ Variable reference** below.
+   `direnv allow estimai-api`, `direnv allow notify-api`, `direnv allow
+   refund-api`) once, be signed in to `op`, and run deploy commands from
+   within that shell (e.g. `direnv exec auth ./infra/deploy.sh`) so the
+   secrets are exported. The full variable → 1Password-item map is in
+   **§ Variable reference** below. **`refund-api`'s object-storage
+   credentials (`REFUND_S3_*`) have NO 1Password item yet** — provision a real
+   EU-region bucket first (see § Variable reference's `refund-api` section);
+   `deploy.sh` does not yet set these vars automatically for that reason.
 3. **Railway project** exists (its id is in 1Password as `$RAILWAY_PROJECT_ID`).
    Creating the project + attaching custom domains is a one-time dashboard action.
 
@@ -120,7 +169,7 @@ vars into those).
 
 Each phase feeds the next, so do them in order:
 
-1. **Railway — backends first.** Yields `<AUTH_URL>`, `<API_URL>`, and `<NOTIFY_API_URL>`.
+1. **Railway — backends first.** Yields `<AUTH_URL>`, `<API_URL>`, `<NOTIFY_API_URL>`, and `<REFUND_API_URL>`.
 2. **Vercel — the five frontends.** Their build-time vars point at the Phase-1 URLs.
 3. **Cross-wire origins + OAuth.** Backends trust the shell origin; register OAuth redirects.
 4. **Verify** end-to-end (`./infra/check.sh`).
@@ -140,10 +189,13 @@ are called out. What the script does, step by step:
 1. **Link** the project: `railway link "$RAILWAY_PROJECT_ID"` (env `production`).
 2. **Postgres** (manual first time): dashboard → New → Database → PostgreSQL;
    confirm its **region is `europe-west4`** before adding data. Then create the
-   three logical DBs (the script attempts this; or `railway connect Postgres` →
-   `CREATE DATABASE auth;` `CREATE DATABASE estimai;` `CREATE DATABASE notify;`).
-   They must exist before the first deploy — each service's `preDeployCommand`
-   runs `prisma migrate deploy` against its own DB.
+   four logical DBs (the script attempts this; or `railway connect Postgres` →
+   `CREATE DATABASE auth;` `CREATE DATABASE estimai;` `CREATE DATABASE notify;`
+   `CREATE DATABASE refund;`). They must exist before the first deploy — each
+   service's `preDeployCommand` runs `prisma migrate deploy` against its own
+   DB (`refund-api`'s first migration, `0001_init`, lands with specs/007's T5
+   — until then `preDeployCommand` is a safe no-op against an empty
+   migrations directory).
 3. **Deploy `auth`** (root dir `auth`, reads `auth/railway.json`): set its vars
    (DATABASE_URL via `${{Postgres.*}}` references, `BETTER_AUTH_SECRET`,
    `GOOGLE_*`/`GITHUB_*`, `JWT_*`, `ALLOWED_ORIGINS=<shell origin>`, `UI_HOME_URL`,
@@ -176,52 +228,78 @@ are called out. What the script does, step by step:
    > Root cause: the service's **Root Directory is not set to the app dir**, so
    > Railway builds from the repo root (which has no `railway.json`/`package.json`).
    > **Fix:** service → **Settings → Root Directory = `<app>`** (`notify-api`,
-   > `auth`, `estimai-api`, …), then redeploy — Railway then reads
+   > `auth`, `estimai-api`, `refund-api`, …), then redeploy — Railway then reads
    > `<app>/railway.json` (`builder: DOCKERFILE`) and does the correct Bun build.
    > This applies to BOTH GitHub-connected deploys and `deploy.sh`'s
    > `railway up --service <svc>` (which uploads the repo root as context; the
    > Root Directory setting is what scopes the build down to the app).
-6. **Cross-wire:** set `auth`'s `BETTER_AUTH_URL=<AUTH_URL>` (the JWT `iss` claim —
-   must equal `estimai-api.AUTH_ISSUER` and `notify-api.AUTH_ISSUER`) and
-   redeploy `auth`. Re-run the script with `AUTH_PUBLIC_URL=<AUTH_URL>` once the
-   domain exists.
-7. **Wire the invitation email channel** (specs/006-user-invitations, ADR-0011):
-   set `auth`'s `NOTIFY_INTERNAL_URL` to notify-api's **Railway private**
-   networking address, e.g. `http://notify-api.railway.internal:8081`
-   (dashboard → notify-api service → Settings → Networking → Private Networking
-   shows the exact internal hostname/port) — **not** `<NOTIFY_API_URL>`, the
-   public domain from step 5 (plan.md Risk R2 / ADR-0011: this
-   service-to-service call must stay off the public internet). Generate a
-   strong shared secret (`openssl rand -hex 32`) and set it as
-   `NOTIFY_INTERNAL_TOKEN` on **both** `auth` and `notify-api` — byte-for-byte
-   identical, stored once in 1Password and referenced by both services'
-   `.envrc`. Set `notify-api`'s `EMAIL_ENABLED=true` with real
-   `RESEND_API_KEY`/`RESEND_FROM` only once the Resend sending domain is
-   verified (see § Resend domain setup below) — until then, leave
+6. **Deploy `refund-api`** (root dir `refund-api`, reads `refund-api/railway.json`
+   — T19, specs/007-refund-service): set `DATABASE_URL` (dbname `refund`,
+   **not** `estimai`/`notify`), `ALLOWED_ORIGINS=<shell origin>`,
+   `AUTH_ISSUER=<AUTH_URL>`, `AUTH_JWKS_URL=<AUTH_URL>/auth/jwks`,
+   `AUTH_AUDIENCE` (same value as the other three), `NOTIFY_INTERNAL_URL`
+   (notify-api's **private**-networking address — same value as `auth`'s, see
+   step 8), `NOTIFY_INTERNAL_TOKEN` (same value as `auth`'s/`notify-api`'s —
+   see step 8), `REFUND_S3_ENDPOINT`/`REFUND_S3_REGION`/`REFUND_S3_BUCKET`/
+   `REFUND_S3_ACCESS_KEY_ID`/`REFUND_S3_SECRET_ACCESS_KEY` (EU-region object
+   storage, ADR-0016 — **NOT YET PROVISIONED**, see § Variable reference),
+   `NODE_ENV=production`. Confirm region **`europe-west4`** (data residency —
+   this service handles financial figures and receipt-attachment metadata that
+   may carry PII, never logged). **Generate its domain** → this is
+   **`<REFUND_API_URL>`**.
+7. **Cross-wire:** set `auth`'s `BETTER_AUTH_URL=<AUTH_URL>` (the JWT `iss` claim —
+   must equal `estimai-api.AUTH_ISSUER`, `notify-api.AUTH_ISSUER`, and
+   `refund-api.AUTH_ISSUER`) and redeploy `auth`. Re-run the script with
+   `AUTH_PUBLIC_URL=<AUTH_URL>` once the domain exists.
+8. **Wire the invitation email channel + refund decision notifications**
+   (specs/006-user-invitations ADR-0011, specs/007-refund-service ADR-0017):
+   set `auth`'s **and** `refund-api`'s `NOTIFY_INTERNAL_URL` to notify-api's
+   **Railway private** networking address, e.g.
+   `http://notify-api.railway.internal:8081` (dashboard → notify-api service
+   → Settings → Networking → Private Networking shows the exact internal
+   hostname/port) — **not** `<NOTIFY_API_URL>`, the public domain from step 5
+   (plan.md Risk R2 / ADR-0011: this service-to-service call must stay off
+   the public internet). Generate a strong shared secret (`openssl rand -hex
+   32`) and set it as `NOTIFY_INTERNAL_TOKEN` on **all three** of `auth`,
+   `notify-api`, **and `refund-api`** — byte-for-byte identical, stored once
+   in 1Password and referenced by all three services' `.envrc` (ADR-0017:
+   this is now a THIRD caller sharing one secret, a named-but-not-yet-acted-on
+   escalation trigger from ADR-0011). Set `notify-api`'s `EMAIL_ENABLED=true`
+   with real `RESEND_API_KEY`/`RESEND_FROM` only once the Resend sending
+   domain is verified (see § Resend domain setup below) — until then, leave
    `EMAIL_ENABLED=false` so invite emails are stubbed (recorded, not actually
    sent) rather than failing loudly.
 
-**`AUTH_AUDIENCE` (ADR-0010) — one value, three services.** `notify-api` is the
-suite's first real second JWKS resource server, so a token minted for
-`estimai-api` would otherwise be structurally valid at `notify-api` (and vice
-versa). `auth` stamps the `audience` claim on every JWT it issues; both
-`estimai-api` and `notify-api` verify `audience` against their own
-`AUTH_AUDIENCE`. **All three services must carry the byte-for-byte identical
+**`AUTH_AUDIENCE` (ADR-0010) — one value, FOUR services (as of specs/007).**
+`notify-api` was the suite's first real second JWKS resource server, so a
+token minted for `estimai-api` would otherwise be structurally valid at
+`notify-api` (and vice versa); `refund-api` (specs/007) is now a third. `auth`
+stamps the `audience` claim on every JWT it issues; `estimai-api`,
+`notify-api`, AND `refund-api` each verify `audience` against their own
+`AUTH_AUDIENCE`. **All four services must carry the byte-for-byte identical
 value** (local default: `operai-suite`, see each service's `.env.example`) — a
 drifted value fails every request closed (401) in that environment, not open.
 
-**`NOTIFY_INTERNAL_TOKEN` (ADR-0011) — shared secret, two services, no user
-identity.** `auth` calls `notify-api`'s `POST /system/emails` to send
-invite/resend emails — deliberately NOT the JWKS/Bearer-JWT pattern above,
-because the invitee has no `User` row/`sub` yet and `auth` itself isn't a
-signed-in end user. Instead both services validate a single shared secret via
-the `X-Internal-Token` header. **Both `auth.NOTIFY_INTERNAL_TOKEN` and
-`notify-api.NOTIFY_INTERNAL_TOKEN` must be byte-for-byte identical**, sourced
-from one 1Password item, ≥32 random chars, never logged by either service —
+**`NOTIFY_INTERNAL_TOKEN` (ADR-0011, extended by ADR-0017) — shared secret,
+THREE services (as of specs/007), no user identity.** `auth` calls
+`notify-api`'s `POST /system/emails` to send invite/resend emails, and
+`refund-api` calls `notify-api`'s `POST /system/notifications` to push
+decision notifications — both deliberately NOT the JWKS/Bearer-JWT pattern
+above (the invitee has no `User` row/`sub` yet for the email case; the
+notification case reuses the same internal-token shape rather than forwarding
+a caller's JWT to a different service for a system-initiated push). All three
+services validate a single shared secret via the `X-Internal-Token` header.
+**`auth.NOTIFY_INTERNAL_TOKEN`, `notify-api.NOTIFY_INTERNAL_TOKEN`, and
+`refund-api.NOTIFY_INTERNAL_TOKEN` must be byte-for-byte identical**, sourced
+from one 1Password item, ≥32 random chars, never logged by any service —
 plan.md Risk R2: a leaked token lets an attacker send arbitrary email over
-wellD's Resend domain. Rotate by generating a new value, updating 1Password,
-and redeploying **both** services together (a stale value on either side
-fails every send closed, 401, not open).
+wellD's Resend domain (and, as of specs/007, push arbitrary in-app
+notifications to any user). Rotate by generating a new value, updating
+1Password, and redeploying **all three** services together (a stale value on
+any one side fails every send/push closed, 401, not open). ADR-0017 names
+this "a THIRD internal caller sharing one secret" as an explicit,
+knowingly-deferred escalation trigger from ADR-0011 — not re-litigated here,
+just flagged.
 
 **Resend domain setup (plan.md Risk R5, ADR-0011 compliance notes).** Before
 setting `EMAIL_ENABLED=true` in production:
@@ -245,21 +323,26 @@ a verified domain.
 ```bash
 export RAILWAY_PROJECT_ID=...        # from 1Password
 export BOOTSTRAP_ADMIN_EMAIL=you@welld.ch
-export AUTH_AUDIENCE=operai-suite    # ADR-0010 — identical across auth + estimai-api + notify-api
+export AUTH_AUDIENCE=operai-suite    # ADR-0010 — identical across auth + estimai-api + notify-api + refund-api
 export AUTH_PUBLIC_URL=https://auth.operai.welld.io   # after the auth domain exists
 direnv exec auth ./infra/deploy.sh
 ```
+
+`deploy.sh` as of T19 does NOT yet set `refund-api`'s `REFUND_S3_*` vars (no
+bucket provisioned — see § Variable reference); set those manually via
+`railway variables --service refund-api --set "REFUND_S3_...=..."` once a real
+EU bucket + credentials exist.
 
 **Do NOT set** `ENABLE_TEST_AUTH` (a complete auth bypass — the `POST
 /test-auth/session` mint endpoint), `BETTER_AUTH_TRUSTED_ORIGINS` (bypasses the
 validated `ALLOWED_ORIGINS` allowlist), or `PORT` (Railway injects it).
 
 **Migrations + seed run automatically** — each `railway.json` `preDeployCommand`
-is `bun run db:deploy && bun run db:seed` (for `auth`; `estimai-api` and
-`notify-api` run `db:deploy` only). `migrate deploy` is non-interactive and only
-applies pending migrations; the authz seed (idempotent) creates the system
-roles + app-access catalog and, on first sign-in of `BOOTSTRAP_ADMIN_EMAIL`, the
-first admin. Never edit an existing migration file.
+is `bun run db:deploy && bun run db:seed` (for `auth`; `estimai-api`,
+`notify-api`, and `refund-api` run `db:deploy` only). `migrate deploy` is
+non-interactive and only applies pending migrations; the authz seed (idempotent)
+creates the system roles + app-access catalog and, on first sign-in of
+`BOOTSTRAP_ADMIN_EMAIL`, the first admin. Never edit an existing migration file.
 
 ---
 
@@ -304,14 +387,14 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 
 ## Phase 3 — Cross-wire origins + OAuth
 
-- **`ALLOWED_ORIGINS`** on all three backends (`auth`, `estimai-api`,
-  `notify-api`) must be the **shell's** origin (`https://operai.welld.io`) —
-  that's what CORS + better-auth `trustedOrigins` validate. Only the shell's
-  origin is needed: the remotes never call the backends directly (they
-  delegate to `shell/session`, which runs under the shell's origin). This
-  includes `notify-api`'s SSE stream endpoint — its
-  `Access-Control-Allow-Origin` is pinned to the shell origin too (plan.md).
-  Redeploy the affected service after a change.
+- **`ALLOWED_ORIGINS`** on all FOUR backends (`auth`, `estimai-api`,
+  `notify-api`, `refund-api`) must be the **shell's** origin
+  (`https://operai.welld.io`) — that's what CORS + better-auth
+  `trustedOrigins` validate. Only the shell's origin is needed: the remotes
+  never call the backends directly (they delegate to `shell/session`, which
+  runs under the shell's origin). This includes `notify-api`'s SSE stream
+  endpoint — its `Access-Control-Allow-Origin` is pinned to the shell origin
+  too (plan.md). Redeploy the affected service after a change.
 - **OAuth redirect URIs** (better-auth mounts at `/auth`):
   - Google Cloud Console → your OAuth client → Authorized redirect URIs:
     `<AUTH_URL>/auth/callback/google`
@@ -320,13 +403,18 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 - **Shell CSP** (`shell/vercel.json`, a static header) pins each remote origin +
   the auth/API origins in `script-src`/`connect-src`, and allows Google/GitHub
   avatar hosts in `img-src`. If domains change, edit that file.
-  **`connect-src` MUST include the `notify-api` origin** —
+  **`connect-src` MUST include the `notify-api` AND `refund-api` origins** —
   `EventSource` (SSE) is governed by `connect-src`, not `script-src`; this is
-  the classic miss for a streaming feature (plan.md Risk R6). Both
-  `notify.operai.welld.io` (the remote, in `script-src` **and** `connect-src`)
-  and `notify-api.operai.welld.io` (the SSE origin, in `connect-src`) are
-  already present in `shell/vercel.json`'s CSP string (specs/005 T19) —
-  `check.sh` asserts this pin so a future edit that drops it fails loudly.
+  the classic miss for a streaming feature (plan.md Risk R6). `notify.operai.
+  welld.io` (the remote, in `script-src` **and** `connect-src`) and
+  `notify-api.operai.welld.io` (the SSE origin, in `connect-src`) are already
+  present in `shell/vercel.json`'s CSP string (specs/005 T19) — `check.sh`
+  asserts this pin so a future edit that drops it fails loudly.
+  `refund-api.operai.welld.io` was added to `connect-src` (T20,
+  specs/007-refund-service) — `refund-api` never streams (no SSE), but it's an
+  ordinary fetch target from `refund-ui`'s calls (via `shell/session`'s
+  `apiFetch`) and `connect-src` governs `fetch`/`XHR` origins too, not just
+  EventSource.
   *(Known gap: Vercel Preview deploys get `*.vercel.app` URLs the pinned CSP
   won't match — assign preview subdomains or relax CSP via Edge Middleware;
   not implemented.)*
@@ -338,13 +426,14 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 ```bash
 ./infra/check.sh
 ```
-It checks backend `/health` for all three backends (`auth`, `estimai-api`,
-`notify-api`), the **`/auth/jwks`** RS256 key set (the endpoint both resource
-servers verify against — **not** `/.well-known/jwks.json`, an orphaned env-key
-endpoint), each remote's `remoteEntry.js` + CORS header (now five: `estimai-ui`,
-`refund-ui`, `admin-ui`, `notify-ui`), the shell CSP pins (including the
-`notify-api` SSE `connect-src` pin, R6), and warns if `notify-api`'s health
-payload doesn't look JWKS-ready. It also probes `POST
+It checks backend `/health` for all FOUR backends (`auth`, `estimai-api`,
+`notify-api`, `refund-api`), the **`/auth/jwks`** RS256 key set (the endpoint
+every resource server verifies against — **not** `/.well-known/jwks.json`, an
+orphaned env-key endpoint), each remote's `remoteEntry.js` + CORS header (five:
+`estimai-ui`, `refund-ui`, `admin-ui`, `notify-ui`), the shell CSP pins
+(including the `notify-api` SSE `connect-src` pin, R6, and the `refund-api`
+`connect-src` pin, T20), and warns if `notify-api`'s health payload doesn't
+look JWKS-ready. It also probes `POST
 $NOTIFY_API_URL/system/emails` (specs/006, ADR-0011): a garbage
 `X-Internal-Token` must get 401 (proves the internal-token gate is deployed
 and live), and — only if you export `NOTIFY_INTERNAL_TOKEN` locally (the same
@@ -418,27 +507,70 @@ clients/estimates) and the service must never log request/response bodies
 (reuses `estimai-api`'s method+path+status-only `hono/logger` posture, enforced
 in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 
+### `refund-api` service (Railway) — NEW (specs/007-refund-service, T19)
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/refund` — **its own logical DB, `refund`** | yes |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin) | no |
+| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (same endpoint every resource server uses — **not** `/.well-known/jwks.json`) | no |
+| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) — also the base URL `refund-api`'s `authzMiddleware` (T6) builds `GET /authz/resolve` against; no separate env var for that call | no |
+| `AUTH_AUDIENCE` | Byte-for-byte identical to `auth.AUTH_AUDIENCE`, `estimai-api.AUTH_AUDIENCE`, `notify-api.AUTH_AUDIENCE` — `refund-api` is the suite's THIRD JWKS resource server on this shared value. | no |
+| `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address (e.g. `http://notify-api.railway.internal:8081`) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
+| `NOTIFY_INTERNAL_TOKEN` | Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN`/`notify-api.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical (ADR-0017: now a THIRD caller sharing this secret). Consumed starting T13, not this bootstrap. | **yes** |
+| `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR-0016) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
+| `NODE_ENV` | `production` | no |
+
+**`refund-api` deploy notes:** no `numReplicas` pin (unlike `notify-api`) —
+its `authzMiddleware` in-process cache (T6, ADR-0014) is a per-replica
+performance optimization with a 30s TTL backstop, not a correctness-dependent
+shared store, so normal Railway autoscale is fine. Region **must** be
+`europe-west4` (data residency — financial figures + receipt-attachment
+metadata that may carry PII, ADR-0016) and the service must never log
+request/response bodies (same `hono/logger` posture as every other backend,
+enforced in `refund-api/src/index.ts`, called out in `refund-api/Dockerfile`).
+
+**Object storage — provisioning (human action, before T9 lands).** ADR-0016
+names AWS S3 `eu-south-1` (Milan) or Scaleway Object Storage `fr-par` as
+primary candidates (Cloudflare R2 + EU jurisdiction restriction as fallback):
+"the exact vendor is an implementation-time choice within this allowlist."
+None of this is provisioned yet. Before `refund-api/src/lib/storage.ts` (T9)
+lands: (1) create the bucket in one of those EU regions/vendors: (2) create a
+1Password item for its access key/secret (mirror the `AIScream/OperAI - …`
+naming convention used by every other secret in this doc — do not invent a
+placeholder vault path); (3) wire that item into `refund-api/.envrc` following
+`auth/.envrc`'s `.env.cached` + `op read` pattern; (4) set the five
+`REFUND_S3_*` Railway vars above for production.
+
 ### Frontend build-time vars (Vercel) — `VITE_*` are client-side; `*_REMOTE_URL` are Vite-config-side
 
 | Project | Variable | Value |
 |---|---|---|
 | **shell** | `VITE_AUTH_URL` / `VITE_API_URL` | `<AUTH_URL>` / `<API_URL>` |
-| | `VITE_NOTIFY_API_URL` | **NEW.** `<NOTIFY_API_URL>` — feeds `shell/session`'s trusted-origin allowlist and `getNotifyBaseUrl()` (the raise-capability, `useUnreadCount` SSE manager); also the origin `notify-ui` itself calls (mirrors `VITE_API_URL`/`VITE_AUTH_URL`) |
+| | `VITE_NOTIFY_API_URL` | `<NOTIFY_API_URL>` — feeds `shell/session`'s trusted-origin allowlist and `getNotifyBaseUrl()` (the raise-capability, `useUnreadCount` SSE manager); also the origin `notify-ui` itself calls (mirrors `VITE_API_URL`/`VITE_AUTH_URL`) |
+| | `VITE_REFUND_API_URL` | **NEW (T20, specs/007-refund-service).** `<REFUND_API_URL>` — feeds `shell/session`'s trusted-origin allowlist ONLY (`getTrustedOrigins()`, `shell/src/lib/session.ts`); `refund-ui` calls refund-api using its OWN copy of this same var (own build, see the `refund-ui` row below) — both copies MUST carry the identical `<REFUND_API_URL>` value or `apiFetch` will not recognize refund-ui's request origin as trusted and every call 401s. |
 | | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` | `https://<estimai/refund/admin>.operai.welld.io/remoteEntry.js` |
 | **estimai-ui** | `VITE_API_URL` | `<API_URL>` — **required**: estimai-ui builds `${VITE_API_URL}/estimates` from its *own* value (must match the shell's) |
 | | `VITE_AUTH_URL` / `SHELL_REMOTE_URL` | standalone-only / `https://operai.welld.io/remoteEntry.js` |
-| **refund-ui**, **admin-ui**, **notify-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own — `notify-ui`'s calls to `notify-api` go through the shared `shell/session` module's `VITE_NOTIFY_API_URL`, same pattern `admin-ui` uses for the auth service's admin API) |
+| **refund-ui** | `VITE_REFUND_API_URL` | **NEW (T20).** `<REFUND_API_URL>` — **required**: `refund-ui/src/lib/refundApi.ts` builds every refund-api URL from its *own* value (must byte-for-byte match the shell's copy above — see that row's note) |
+| | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` |
+| **admin-ui**, **notify-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own — `notify-ui`'s calls to `notify-api` go through the shared `shell/session` module's `VITE_NOTIFY_API_URL`, same pattern `admin-ui` uses for the auth service's admin API) |
 
 Cross-service wiring: `auth.BETTER_AUTH_URL == estimai-api.AUTH_ISSUER ==
-notify-api.AUTH_ISSUER`; `estimai-api.AUTH_JWKS_URL == notify-api.AUTH_JWKS_URL
-== <AUTH_URL>/auth/jwks`; all three backends' `ALLOWED_ORIGINS == shell
-origin`; **`auth.AUTH_AUDIENCE == estimai-api.AUTH_AUDIENCE ==
-notify-api.AUTH_AUDIENCE`** (ADR-0010 — new as of specs/005);
-**`auth.NOTIFY_INTERNAL_TOKEN == notify-api.NOTIFY_INTERNAL_TOKEN`** (ADR-0011
-— new as of specs/006, this pair only, not `estimai-api`); `auth.NOTIFY_INTERNAL_URL`
-is notify-api's **private**-networking address, distinct from
-`<NOTIFY_API_URL>`/`VITE_NOTIFY_API_URL` (the public address every other row
-above uses).
+notify-api.AUTH_ISSUER == refund-api.AUTH_ISSUER`; `estimai-api.AUTH_JWKS_URL
+== notify-api.AUTH_JWKS_URL == refund-api.AUTH_JWKS_URL == <AUTH_URL>/auth/jwks`;
+all four backends' `ALLOWED_ORIGINS == shell origin`;
+**`auth.AUTH_AUDIENCE == estimai-api.AUTH_AUDIENCE == notify-api.AUTH_AUDIENCE
+== refund-api.AUTH_AUDIENCE`** (ADR-0010 — extended to `refund-api` as of
+specs/007); **`auth.NOTIFY_INTERNAL_TOKEN == notify-api.NOTIFY_INTERNAL_TOKEN
+== refund-api.NOTIFY_INTERNAL_TOKEN`** (ADR-0011, extended by ADR-0017 as of
+specs/007 — a THIRD caller on one secret); `auth.NOTIFY_INTERNAL_URL ==
+refund-api.NOTIFY_INTERNAL_URL` is notify-api's **private**-networking
+address, distinct from `<NOTIFY_API_URL>`/`VITE_NOTIFY_API_URL` (the public
+address every other row above uses); **`shell.VITE_REFUND_API_URL ==
+refund-ui.VITE_REFUND_API_URL == <REFUND_API_URL>`** (T20 — two independent
+Vercel projects, one value; a drift here silently breaks the Bearer-attach
+trusted-origins check even though both builds succeed).
 
 ---
 
@@ -455,10 +587,12 @@ above uses).
   secret). Frontend var changes need a Vercel **redeploy** (build-time).
 - **EU residency (operational):** request/response bodies are never logged
   (hono/logger emits method+path+status only; Prisma `query` logging off in prod)
-  across `auth`, `estimai-api`, **and `notify-api`** (the last handles
-  notification title/body, which may name clients/estimates — the same
-  no-body-logging rule applies). Don't add a CDN/log-aggregator/backup target
-  that routes EU data outside the EU.
+  across `auth`, `estimai-api`, `notify-api`, **and `refund-api`** (the last
+  two handle notification title/body and financial/receipt-PII data
+  respectively — the same no-body-logging rule applies to both). Don't add a
+  CDN/log-aggregator/backup target that routes EU data outside the EU — this
+  now also covers `refund-api`'s EU object-storage bucket once provisioned
+  (ADR-0016).
 - **`notify-api` single-replica constraint (specs/005 Risk R2):** never scale
   `notify-api` past `numReplicas: 1` (Railway dashboard autoscale or a
   `railway.json` edit) without first moving its EventBus fan-out and
@@ -466,26 +600,36 @@ above uses).
   — both are designed behind an interface for that migration, but the current
   in-process implementation silently breaks (missed events, ticket
   mint↔connect mismatches) across two or more instances.
-- **`NOTIFY_INTERNAL_TOKEN` rotation (specs/006, ADR-0011 Risk R2):** if
-  compromise is suspected, generate a new value (`openssl rand -hex 32`),
-  update the single 1Password item, then `railway variables --set
-  "NOTIFY_INTERNAL_TOKEN=$NEW" --service auth` **and** `--service notify-api`,
-  and redeploy **both** services close together — there is no dual-key grace
-  period (unlike the JWKS keypair), so a gap between the two redeploys is a
-  short window where every `POST /system/emails` call 401s. Never log the
-  value; `railway variables` output containing it should not be pasted into
-  chat/tickets.
-- **`/system/emails` network exposure (specs/006 Risk R2):** the shared token
-  is the enforced access control regardless of network path, but reduce
-  exposure further by keeping `auth`'s `NOTIFY_INTERNAL_URL` on notify-api's
-  Railway **private**-networking hostname (never the public
-  `<NOTIFY_API_URL>` domain) — this specific call should never traverse the
-  public internet. `notify-api` still needs its public domain for the
-  browser-facing SSE/notification routes; there is currently no per-route
-  network-level isolation (Railway private networking is per-service, not
-  per-route) — flagged here, not solved, since splitting `/system/emails` onto
-  a network-isolated deployment would be a new infra topology decision (ADR
+- **`NOTIFY_INTERNAL_TOKEN` rotation (specs/006 ADR-0011 Risk R2, extended by
+  specs/007 ADR-0017):** if compromise is suspected, generate a new value
+  (`openssl rand -hex 32`), update the single 1Password item, then `railway
+  variables --set "NOTIFY_INTERNAL_TOKEN=$NEW" --service auth` **and**
+  `--service notify-api` **and** `--service refund-api`, and redeploy **all
+  three** services close together — there is no dual-key grace period (unlike
+  the JWKS keypair), so a gap between redeploys is a short window where every
+  `POST /system/emails` AND `POST /system/notifications` call 401s. Never log
+  the value; `railway variables` output containing it should not be pasted
+  into chat/tickets.
+- **`/system/emails` and `/system/notifications` network exposure (specs/006
+  Risk R2, specs/007 ADR-0017):** the shared token is the enforced access
+  control regardless of network path, but reduce exposure further by keeping
+  `auth`'s and `refund-api`'s `NOTIFY_INTERNAL_URL` on notify-api's Railway
+  **private**-networking hostname (never the public `<NOTIFY_API_URL>`
+  domain) — these calls should never traverse the public internet.
+  `notify-api` still needs its public domain for the browser-facing
+  SSE/notification routes; there is currently no per-route network-level
+  isolation (Railway private networking is per-service, not per-route) —
+  flagged here, not solved, since splitting these internal routes onto a
+  network-isolated deployment would be a new infra topology decision (ADR
   territory), not something to adopt unilaterally.
+- **`refund-api` object storage not yet provisioned (T19 follow-up, human
+  action required):** no EU-region bucket exists and no 1Password item exists
+  for `REFUND_S3_*` — see § Variable reference's `refund-api` section, "Object
+  storage — provisioning". `refund-api/src/lib/storage.ts` (T9) will consume
+  these vars; local dev's placeholder values in `.env.example` are non-
+  functional until a real bucket is created. This is the primary blocker for
+  a genuine end-to-end T9 deploy verification (mint→confirm→signed-GET against
+  a real bucket) — `bun test` itself does not require one (storage is mocked).
 - **Secrets** are only ever referenced from the direnv/1Password shell, never
   pasted literally or committed; `.pem` files are gitignored; the pre-commit
   gitleaks hook guards commits.

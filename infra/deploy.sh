@@ -3,19 +3,28 @@
 #
 # WHAT THIS AUTOMATES
 #   Railway (backends): link the project, ensure the shared Postgres + the
-#   three logical databases (auth, estimai, notify), set every env var for the
-#   `auth`, `estimai-api`, and `notify-api` services from your
-#   direnv/1Password-exported secrets, and trigger their deploys. This
+#   four logical databases (auth, estimai, notify, refund), set every env var
+#   for the `auth`, `estimai-api`, `notify-api`, and `refund-api` services from
+#   your direnv/1Password-exported secrets, and trigger their deploys. This
 #   includes AUTH_AUDIENCE (ADR-0010, specs/005-notification-center) — the
-#   SAME value is set on all three services, closing the cross-service JWT
-#   replay gap now that notify-api is a second JWKS resource server. It also
-#   sets NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006-user-invitations) — the
-#   SAME value on auth + notify-api only (not estimai-api) — plus auth's
-#   NOTIFY_INTERNAL_URL (notify-api's Railway PRIVATE-networking address, not
-#   its public domain — plan.md Risk R2) and notify-api's optional
+#   SAME value is set on all four services, closing the cross-service JWT
+#   replay gap now that notify-api/refund-api are additional JWKS resource
+#   servers. It also sets NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006-user-
+#   invitations; extended to a third caller by ADR-0017, specs/007-refund-
+#   service) — the SAME value on auth + notify-api + refund-api (not
+#   estimai-api) — plus auth's and refund-api's NOTIFY_INTERNAL_URL
+#   (notify-api's Railway PRIVATE-networking address, not its public domain —
+#   plan.md Risk R2) and notify-api's optional
 #   EMAIL_ENABLED/RESEND_API_KEY/RESEND_FROM.
 #   Migrations + the authz seed run automatically via each service's
 #   railway.json preDeployCommand (`bun run db:deploy && …`).
+#
+#   NOT automated: `refund-api`'s REFUND_S3_* (EU object storage, ADR-0016) —
+#   no bucket/1Password item exists yet (see infra/README.md § Variable
+#   reference, "Object storage — provisioning"). Set those manually via
+#   `railway variables --service refund-api --set "REFUND_S3_...=..."` once
+#   provisioned; this script deliberately does not invent placeholder values
+#   for a service still using its local-dev-only .env.example defaults.
 #
 #   Vercel (frontends, optional --vercel): push the build-time env vars to the
 #   five existing projects (shell, estimai-ui, refund-ui, admin-ui, notify-ui)
@@ -25,7 +34,8 @@
 #
 # WHAT STAYS MANUAL (see infra/README.md): creating the Railway project +
 #   attaching custom domains; creating the 5 Vercel projects + assigning the 5
-#   domains; registering the Google/GitHub OAuth redirect URIs.
+#   domains; registering the Google/GitHub OAuth redirect URIs; provisioning
+#   refund-api's EU object-storage bucket + 1Password item.
 #
 # USAGE
 #   direnv exec auth ./infra/deploy.sh            # backends only (recommended)
@@ -40,6 +50,10 @@
 #   notify-api additionally never logs request/response bodies (notification
 #   title/body may name clients/estimates) and is pinned to numReplicas: 1 in
 #   notify-api/railway.json — do not scale it without reading plan.md Risk R2.
+#   refund-api never logs request/response bodies either (financial figures +
+#   receipt-attachment metadata may carry PII, ADR-0016) but has no replica
+#   pin — its authz cache is a per-replica perf optimization, not a shared
+#   store (see infra/README.md § refund-api deploy notes).
 
 set -euo pipefail
 
@@ -53,26 +67,30 @@ DO_VERCEL=false; [[ "${1:-}" == "--vercel" ]] && DO_VERCEL=true
 AUTH_URL="${AUTH_URL:-https://auth.operai.welld.io}"
 API_URL="${API_URL:-https://estimai-api.operai.welld.io}"
 NOTIFY_API_URL="${NOTIFY_API_URL:-https://notify-api.operai.welld.io}"
+REFUND_API_URL="${REFUND_API_URL:-https://refund-api.operai.welld.io}"
 ESTIMAI_REMOTE_URL="${ESTIMAI_REMOTE_URL:-https://estimai.operai.welld.io/remoteEntry.js}"
 REFUND_REMOTE_URL="${REFUND_REMOTE_URL:-https://refund.operai.welld.io/remoteEntry.js}"
 ADMIN_REMOTE_URL="${ADMIN_REMOTE_URL:-https://admin.operai.welld.io/remoteEntry.js}"
 SHELL_REMOTE_URL="${SHELL_REMOTE_URL:-https://operai.welld.io/remoteEntry.js}"
 
-# ADR-0010 (specs/005-notification-center): ONE audience value, verified by
-# auth (stamps it) and BOTH resource servers (estimai-api, notify-api). Not a
-# secret, but must be byte-for-byte identical across all three services — a
-# drift fails every request closed (401), not open. Defaults to the same
-# local-dev value baked into each service's .env.example; override for a real
-# deploy if you want a non-default suite-wide audience string.
+# ADR-0010 (specs/005-notification-center, extended by specs/007-refund-
+# service): ONE audience value, verified by auth (stamps it) and every
+# resource server (estimai-api, notify-api, refund-api). Not a secret, but
+# must be byte-for-byte identical across all four services — a drift fails
+# every request closed (401), not open. Defaults to the same local-dev value
+# baked into each service's .env.example; override for a real deploy if you
+# want a non-default suite-wide audience string.
 AUTH_AUDIENCE="${AUTH_AUDIENCE:-operai-suite}"
 
-# ADR-0011 (specs/006-user-invitations): notify-api's Railway PRIVATE-networking
-# address — auth's server-to-server POST /system/emails call must stay off the
-# public internet (plan.md Risk R2). This is DIFFERENT from $NOTIFY_API_URL
-# above (that one is public, for the browser/SSE only). The exact private
-# hostname is visible in the Railway dashboard (notify-api service → Settings
-# → Networking → Private Networking) after notify-api's first deploy — override
-# this default if yours differs.
+# ADR-0011 (specs/006-user-invitations, extended by ADR-0017/specs/007-refund-
+# service): notify-api's Railway PRIVATE-networking address — auth's
+# server-to-server POST /system/emails call AND refund-api's POST
+# /system/notifications call must both stay off the public internet (plan.md
+# Risk R2). This is DIFFERENT from $NOTIFY_API_URL above (that one is public,
+# for the browser/SSE only). The exact private hostname is visible in the
+# Railway dashboard (notify-api service → Settings → Networking → Private
+# Networking) after notify-api's first deploy — override this default if
+# yours differs.
 NOTIFY_INTERNAL_URL="${NOTIFY_INTERNAL_URL:-http://notify-api.railway.internal:8081}"
 
 # notify-api email channel (specs/006-user-invitations, ADR-0011). EMAIL_ENABLED
@@ -101,10 +119,11 @@ info "Checking direnv/1Password-exported secrets…"
 for v in "${REQUIRED_SECRETS[@]}"; do
   [[ -n "${!v:-}" ]] || die "\$$v is not set. Run inside the direnv/1Password shell (e.g. \`direnv exec auth ./infra/deploy.sh\`); see infra/README.md."
 done
-# NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006) is shared verbatim between auth
-# and notify-api — a short value materially weakens the whole trust boundary
+# NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006; extended to a third caller by
+# ADR-0017, specs/007) is shared verbatim between auth, notify-api, AND
+# refund-api — a short value materially weakens the whole trust boundary
 # (plan.md Risk R2), so fail fast rather than silently deploying a weak secret.
-[[ "${#NOTIFY_INTERNAL_TOKEN}" -ge 32 ]] || die "\$NOTIFY_INTERNAL_TOKEN is only ${#NOTIFY_INTERNAL_TOKEN} chars — notify-api requires >=32 (generate with: openssl rand -hex 32)."
+[[ "${#NOTIFY_INTERNAL_TOKEN}" -ge 32 ]] || die "\$NOTIFY_INTERNAL_TOKEN is only ${#NOTIFY_INTERNAL_TOKEN} chars — notify-api/refund-api require >=32 (generate with: openssl rand -hex 32)."
 [[ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ]] || warn "BOOTSTRAP_ADMIN_EMAIL not set — the seed will create no bootstrap admin (set it on the auth service to grant the first admin; specs/004 AC-6.1)."
 # Case-insensitive match on the literal "true" (mirrors notify-api's own
 # EMAIL_ENABLED parsing, src/lib/env.ts). Avoids bash 4+ `${VAR,,}` — macOS
@@ -135,8 +154,8 @@ if ! railway service list 2>/dev/null | grep -qi postgres; then
 else
   ok "Postgres already present."
 fi
-info "Ensuring logical databases 'auth', 'estimai', and 'notify' exist…"
-for DB in auth estimai notify; do
+info "Ensuring logical databases 'auth', 'estimai', 'notify', and 'refund' exist…"
+for DB in auth estimai notify refund; do
   railway run --service Postgres -- psql "\$DATABASE_URL" -v ON_ERROR_STOP=0 -tc \
     "SELECT 'CREATE DATABASE ${DB}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='${DB}')\gexec" \
     >/dev/null 2>&1 || warn "Could not auto-create '${DB}' — create it manually: railway connect Postgres → CREATE DATABASE ${DB};"
@@ -198,6 +217,34 @@ railway variables --service notify-api \
   --set "NODE_ENV=production" >/dev/null
 railway up --service notify-api --detach && ok "notify-api deploy triggered."
 
+# ─── refund-api service vars + deploy (specs/007-refund-service, T19) ─────────
+# Own logical DB ('refund', NOT 'estimai'/'notify'); same AUTH_ISSUER/
+# AUTH_JWKS_URL/AUTH_AUDIENCE pattern as estimai-api/notify-api above — a
+# THIRD JWKS resource server on the same shared AUTH_AUDIENCE (ADR-0010).
+# refund-api also gets NOTIFY_INTERNAL_URL/NOTIFY_INTERNAL_TOKEN (ADR-0017 —
+# reuses the SAME $NOTIFY_INTERNAL_TOKEN just set on auth/notify-api above, so
+# they can't drift within one run of this script) for its decision→
+# notification push (T13, POST /system/notifications).
+#
+# NOT SET HERE: REFUND_S3_* (EU object storage, ADR-0016) — no bucket/
+# 1Password item exists yet (see infra/README.md § Variable reference,
+# "Object storage — provisioning"). refund-api's env.ts does not enforce
+# these until T9 lands, so omitting them here does not break this deploy;
+# set them manually via `railway variables --service refund-api --set
+# "REFUND_S3_...=..."` once a real bucket exists, before T9 ships.
+info "Setting refund-api service variables…"
+railway variables --service refund-api \
+  --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/refund' \
+  --set "ALLOWED_ORIGINS=${UI_ORIGIN}" \
+  --set "AUTH_ISSUER=${AUTH_PUBLIC_URL:-$AUTH_URL}" \
+  --set "AUTH_JWKS_URL=${AUTH_PUBLIC_URL:-$AUTH_URL}/auth/jwks" \
+  --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
+  --set "NOTIFY_INTERNAL_URL=${NOTIFY_INTERNAL_URL}" \
+  --set "NOTIFY_INTERNAL_TOKEN=${NOTIFY_INTERNAL_TOKEN}" \
+  --set "NODE_ENV=production" >/dev/null
+railway up --service refund-api --detach && ok "refund-api deploy triggered."
+warn "refund-api's REFUND_S3_* vars were NOT set (no bucket provisioned yet) — the service will start (env.ts does not enforce them until T9), but attachment upload/download will fail until they're set manually. See infra/README.md."
+
 # ─── Cross-wire: auth must know its own public URL (JWT issuer) ────────────────
 if [[ -n "${AUTH_PUBLIC_URL:-}" ]]; then
   info "Setting auth BETTER_AUTH_URL=${AUTH_PUBLIC_URL} (JWT issuer)…"
@@ -205,7 +252,7 @@ if [[ -n "${AUTH_PUBLIC_URL:-}" ]]; then
   railway redeploy --service auth --yes >/dev/null 2>&1 || railway up --service auth --detach
   ok "auth redeployed with issuer."
 else
-  warn "AUTH_PUBLIC_URL not set → BETTER_AUTH_URL not applied. Generate the auth domain, then re-run with AUTH_PUBLIC_URL=https://<auth-domain> (must equal estimai-api's and notify-api's AUTH_ISSUER)."
+  warn "AUTH_PUBLIC_URL not set → BETTER_AUTH_URL not applied. Generate the auth domain, then re-run with AUTH_PUBLIC_URL=https://<auth-domain> (must equal estimai-api's, notify-api's, and refund-api's AUTH_ISSUER)."
 fi
 
 # ─── Optional: sync Vercel env + redeploy (projects must already exist) ────────
@@ -217,9 +264,17 @@ if $DO_VERCEL; then
   }
   info "Syncing Vercel env vars (production)…"
   vset shell VITE_AUTH_URL "$AUTH_URL"; vset shell VITE_API_URL "$API_URL"; vset shell VITE_NOTIFY_API_URL "$NOTIFY_API_URL"
+  vset shell VITE_REFUND_API_URL "$REFUND_API_URL"
   vset shell ESTIMAI_REMOTE_URL "$ESTIMAI_REMOTE_URL"; vset shell REFUND_REMOTE_URL "$REFUND_REMOTE_URL"; vset shell ADMIN_REMOTE_URL "$ADMIN_REMOTE_URL"
   vset estimai-ui VITE_API_URL "$API_URL"; vset estimai-ui VITE_AUTH_URL "$AUTH_URL"; vset estimai-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
-  vset refund-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
+  # refund-ui (T20, specs/007-refund-service): VITE_REFUND_API_URL is REQUIRED
+  # here too — refund-ui builds its own refund-api URLs from this project's
+  # OWN copy (refund-ui/src/lib/refundApi.ts), independent of the shell's
+  # copy above. Both MUST carry the identical $REFUND_API_URL value (see
+  # infra/README.md § Variable reference's cross-service-wiring note) or the
+  # shell's trusted-origins check and refund-ui's own request URLs silently
+  # disagree.
+  vset refund-ui VITE_REFUND_API_URL "$REFUND_API_URL"; vset refund-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
   vset admin-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
   # notify-ui (specs/005): no backend var of its own — it goes through shell/session's
   # VITE_NOTIFY_API_URL (set on the shell project above), same pattern as admin-ui.
@@ -229,5 +284,6 @@ fi
 
 echo ""
 ok "Done. Verify with:  ./infra/check.sh"
-echo "   Health:  railway status --service auth ; railway status --service estimai-api ; railway status --service notify-api"
+echo "   Health:  railway status --service auth ; railway status --service estimai-api ; railway status --service notify-api ; railway status --service refund-api"
 echo "   Migrations + authz seed run automatically via each railway.json preDeployCommand."
+echo "   Reminder: refund-api's REFUND_S3_* vars still need to be set manually once its EU bucket is provisioned (infra/README.md § Variable reference)."

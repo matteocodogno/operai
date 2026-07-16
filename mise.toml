@@ -11,25 +11,27 @@ experimental = true
 description = "Cut a release (conventional-changelog, git tag, GitHub release)"
 run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelog@^8 dlx release-it"
 
-# Run the WHOLE Operai suite locally (Module Federation, specs/003 + specs/005):
-# Postgres + all three backends + the four tool frontends, one command. Ports:
-# auth 3001, estimai-api 8080, notify-api 8081, shell 5173, estimai-ui 5174,
-# refund-ui 5175, notify-ui 5176, admin-ui 5177 (frontend ports pinned in each
-# app's vite.config.ts). Open http://localhost:5173 (the shell).
+# Run the WHOLE Operai suite locally (Module Federation, specs/003 + specs/005
+# + specs/007): Postgres + all FOUR backends + the four tool frontends, one
+# command. Ports: auth 3001, estimai-api 8080, notify-api 8081, refund-api
+# 8082, shell 5173, estimai-ui 5174, refund-ui 5175, notify-ui 5176, admin-ui
+# 5177 (frontend ports pinned in each app's vite.config.ts). Open
+# http://localhost:5173 (the shell).
 # `trap 'kill 0'` reaps every child (backends + vite) on Ctrl-C. Postgres is
 # left running (docker `up -d`, detached) — cheap to keep; `docker compose down`
 # to stop it.
 #
-# Backend env: auth + estimai-api + notify-api load their secrets from their
-# own `.envrc` (direnv + 1Password). The `direnv exec .` wrappers below load
-# `auth/.envrc` / `estimai-api/.envrc` / `notify-api/.envrc` explicitly — mise
-# runs the task non-interactively, so direnv's shell hook does NOT fire on its
-# own (without this, the backends fall back to placeholder creds and e.g.
-# Google OAuth fails with `invalid_client`).
+# Backend env: auth + estimai-api + notify-api + refund-api load their secrets
+# from their own `.envrc` (direnv + 1Password — refund-api's own .envrc has no
+# 1Password-sourced secrets yet, see refund-api/.envrc). The `direnv exec .`
+# wrappers below load `auth/.envrc` / `estimai-api/.envrc` / `notify-api/.envrc`
+# / `refund-api/.envrc` explicitly — mise runs the task non-interactively, so
+# direnv's shell hook does NOT fire on its own (without this, the backends fall
+# back to placeholder creds and e.g. Google OAuth fails with `invalid_client`).
 # Prereqs (once): direnv installed; each backend's .envrc allowed (`direnv allow
-# auth`, `direnv allow estimai-api`, `direnv allow notify-api`); 1Password CLI
-# signed in; ENABLE_TEST_AUTH=true for a seeded local session; and migrations
-# applied via `mise run db:migrate`.
+# auth`, `direnv allow estimai-api`, `direnv allow notify-api`, `direnv allow
+# refund-api`); 1Password CLI signed in; ENABLE_TEST_AUTH=true for a seeded
+# local session; and migrations applied via `mise run db:migrate`.
 #
 # HMR note: all-dev Module Federation works (verified — remotes mount, shared
 # React singleton holds, no dup-React). Editing a remote's MF-EXPOSED root
@@ -38,13 +40,14 @@ run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelo
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
 [tasks.dev]
-description = "Run the FULL suite locally with HMR — Postgres + auth :3001 + estimai-api :8080 + notify-api :8081 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177"
+description = "Run the FULL suite locally with HMR — Postgres + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177"
 run = """
 docker compose up -d postgres
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
 (cd notify-api && direnv exec . bun run dev) &
+(cd refund-api && direnv exec . bun run dev) &
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
 pnpm --dir refund-ui dev &
@@ -54,7 +57,7 @@ wait
 """
 
 # Frontends only (HMR) — for when the backends are already running elsewhere
-# (e.g. you started auth/estimai-api/notify-api in their own terminals).
+# (e.g. you started auth/estimai-api/notify-api/refund-api in their own terminals).
 [tasks."dev:web"]
 description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 (backends run separately)"
 run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir admin-ui dev & pnpm --dir notify-ui dev & wait"
@@ -64,7 +67,7 @@ run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui
 # remotes) — the same mode the e2e uses (shell/playwright.config.ts). Builds gate
 # the previews. Same prereqs + ports as `dev`.
 [tasks."dev:preview"]
-description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + auth + estimai-api + notify-api + built frontends"
+description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + auth + estimai-api + notify-api + refund-api + built frontends"
 run = """
 docker compose up -d postgres
 pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir admin-ui build && pnpm --dir notify-ui build
@@ -72,6 +75,7 @@ trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
 (cd notify-api && direnv exec . bun run dev) &
+(cd refund-api && direnv exec . bun run dev) &
 pnpm --dir shell preview &
 pnpm --dir estimai-ui preview &
 pnpm --dir refund-ui preview &
@@ -80,14 +84,18 @@ pnpm --dir notify-ui preview &
 wait
 """
 
-# One-time / occasional: bring up Postgres and apply all three backends' Prisma
+# One-time / occasional: bring up Postgres and apply all four backends' Prisma
 # migrations (non-interactive `migrate deploy`). Run this before the first
-# `mise run dev` (or after pulling new migrations).
+# `mise run dev` (or after pulling new migrations). refund-api has no
+# migrations yet (T5 lands prisma/migrations/0001_init) — `db:deploy` against
+# an empty migrations directory is a no-op, not an error, so this stays safe
+# to run today.
 [tasks."db:migrate"]
-description = "Apply DB migrations for auth + estimai-api + notify-api (needs backend env configured)"
+description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api (needs backend env configured)"
 run = """
 docker compose up -d postgres
 (cd auth && direnv exec . bun run db:deploy)
 (cd estimai-api && direnv exec . bun run db:deploy)
 (cd notify-api && direnv exec . bun run db:deploy)
+(cd refund-api && direnv exec . bun run db:deploy)
 """
