@@ -1,17 +1,21 @@
 /**
  * @vitest-environment jsdom
  *
- * Component tests for ExpenseLineRow (T16, specs/007-refund-service/
+ * Component tests for ExpenseLineRow (T16/T17, specs/007-refund-service/
  * tasks.md). Covers: `edit` mode's blur-commit-as-one-PUT behavior (not
  * per-keystroke), the `readOnly`/`readOnlyApproved` variants (AC-3.2: shows
- * both requested and approved), inline delete, and the km field's
- * type-driven show/hide inside the row too.
+ * both requested and approved), inline delete, the km field's type-driven
+ * show/hide inside the row, and (T17) that each mode wires the real
+ * `AttachmentList`/`AttachmentDownloadLink` rather than the T16 seam
+ * placeholder — the attachment state machine itself is covered by
+ * AttachmentList.test.tsx; these tests only assert the wiring (right mode,
+ * right callbacks reach the child).
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ExpenseLineRow from './ExpenseLineRow'
-import type { RefundLine } from '../lib/requestsApi'
+import type { Attachment, RefundLine } from '../lib/requestsApi'
 
 afterEach(() => {
   cleanup()
@@ -30,10 +34,12 @@ const line: RefundLine = {
   attachments: [],
 }
 
+const attachment: Attachment = { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 2048 }
+
 describe('ExpenseLineRow — edit mode', () => {
   it('commits a single PUT with the whole payload when focus leaves the row, not per keystroke', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} />)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
     expect(onCommit).not.toHaveBeenCalled()
@@ -53,7 +59,7 @@ describe('ExpenseLineRow — edit mode', () => {
 
   it('does NOT commit when focus moves to another field inside the same row', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} />)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
     fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: screen.getByTestId('row-line-1-amount') })
@@ -63,7 +69,7 @@ describe('ExpenseLineRow — edit mode', () => {
 
   it('does not re-commit when nothing changed', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} />)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
 
     fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: document.body })
 
@@ -71,7 +77,7 @@ describe('ExpenseLineRow — edit mode', () => {
   })
 
   it('shows km only once type is changed to travel_km, hides it for any other type', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} />)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
 
     expect(screen.queryByTestId('row-line-1-km')).toBeNull()
 
@@ -84,7 +90,7 @@ describe('ExpenseLineRow — edit mode', () => {
 
   it('calls onDelete when the inline "×" is clicked, with no confirm modal', async () => {
     const onDelete = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} />)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
 
     fireEvent.click(screen.getByTestId('row-line-1-delete'))
 
@@ -92,23 +98,36 @@ describe('ExpenseLineRow — edit mode', () => {
     expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
   })
 
-  it('renders an AttachmentList seam placeholder, not real upload machinery (T17 out of scope)', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} />)
-    expect(screen.getByTestId('row-line-1-attachments-seam')).not.toBeNull()
-    expect(screen.queryByRole('button', { name: /attach/i })).toBeNull()
+  it('renders the real AttachmentList in upload/remove mode (T17 fills the T16 seam)', () => {
+    render(
+      <ExpenseLineRow
+        line={{ ...line, attachments: [attachment] }}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onUploadAttachment={vi.fn()}
+        onRemoveAttachment={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByTestId('row-line-1-attachments-seam')).toBeNull()
+    expect(screen.getByTestId('attachment-list-line-1')).not.toBeNull()
+    expect(screen.getByTestId('attachment-attach-button-line-1')).not.toBeNull()
+    expect(screen.getByTestId('attachment-remove-a1')).not.toBeNull()
   })
 })
 
 describe('ExpenseLineRow — read-only modes', () => {
   it('readOnly renders no inputs and no delete control', () => {
-    render(<ExpenseLineRow line={line} mode="readOnly" />)
+    render(<ExpenseLineRow line={line} mode="readOnly" onDownloadAttachment={vi.fn()} />)
     expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
     expect(screen.queryByTestId('row-line-1-delete')).toBeNull()
     expect(screen.getByText('Pens')).not.toBeNull()
   })
 
   it('readOnly shows only the requested amount, not an approved figure', () => {
-    render(<ExpenseLineRow line={line} mode="readOnly" />)
+    render(<ExpenseLineRow line={line} mode="readOnly" onDownloadAttachment={vi.fn()} />)
     const row = screen.getByTestId('expense-line-row-line-1')
     expect(row.textContent).toContain('10,00 €')
     expect(row.textContent).not.toContain('Approved')
@@ -116,9 +135,18 @@ describe('ExpenseLineRow — read-only modes', () => {
 
   it('readOnlyApproved shows both requested and approved (AC-3.2)', () => {
     const approvedLine: RefundLine = { ...line, approvedTotalCents: 800 }
-    render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" />)
+    render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
     const row = screen.getByTestId('expense-line-row-line-1')
     expect(row.textContent).toContain('10,00 €')
     expect(row.textContent).toContain('8,00 €')
+  })
+
+  it('readOnly/readOnlyApproved render attachments download-only — no upload trigger, no Remove button', () => {
+    render(
+      <ExpenseLineRow line={{ ...line, attachments: [attachment] }} mode="readOnly" onDownloadAttachment={vi.fn()} />,
+    )
+    expect(screen.getByTestId('attachment-download-a1')).not.toBeNull()
+    expect(screen.queryByTestId('attachment-remove-a1')).toBeNull()
+    expect(screen.queryByTestId('attachment-attach-button-line-1')).toBeNull()
   })
 })

@@ -46,7 +46,19 @@
  * interpolation can differ by language (a fixed prefix+suffix pair would not
  * survive translation) — same reasoning `Strings` being exported already
  * documents for the rest of this file's i18n-readiness.
+ *
+ * T17/T18 addition (specs/007-refund-service/tasks.md): `components.
+ * attachmentList` (upload/download copy shared by `AttachmentList`'s draft
+ * mode and `AttachmentDownloadLink`'s read-only mode), and the real
+ * `pages.reviewQueue`/`pages.reviewDetail` (Screens A1/A2, replacing T14's
+ * placeholders). `NO_MOTIVO_FALLBACK` is hoisted above `en` (not inlined
+ * per-use) so the same "(no description)" wording the submit-validation
+ * summary (T16) already uses is also reused by the approved-total input's
+ * disambiguating `aria-label` — a literal object can't reference its own
+ * other branches while being built.
  */
+
+const NO_MOTIVO_FALLBACK = '(no description)'
 
 const en = {
   appTitle: 'Refund (Rimborsi)',
@@ -111,8 +123,6 @@ const en = {
         deleteLineLabel: (motivo: string) => `Delete line “${motivo}”`,
         savingLabel: 'Saving…',
         updateError: 'Could not save this change. Check the fields and try again.',
-        attachmentsSeamLabel: 'Attachments',
-        attachmentsSeamComingSoon: 'Attaching receipts is coming soon.',
       },
       submit: {
         button: 'Submit for review',
@@ -143,7 +153,7 @@ const en = {
         heading: 'Some expense lines need attention before you can submit.',
         jumpLinkLabel: (label: string) => `Go to ${label}`,
         fallbackLineLabel: (lineId: string) => `Line ${lineId}`,
-        noMotivo: '(no description)',
+        noMotivo: NO_MOTIVO_FALLBACK,
       },
       statusBadges: {
         submittedNote: 'Every field is read-only while a decision is pending.',
@@ -197,6 +207,19 @@ const en = {
     permissionDenied: {
       heading: 'You no longer have refund access.',
       body: 'If this is unexpected, contact your administrator.',
+    },
+    attachmentList: {
+      attachButton: '+ Attach files',
+      removeLabel: (fileName: string) => `Remove ${fileName}`,
+      downloadLabel: (fileName: string) => `Download ${fileName}`,
+      downloadError: 'Could not open this attachment. Try again.',
+      dismissLabel: (fileName: string) => `Dismiss ${fileName}`,
+      statusQueued: 'Queued',
+      statusUploading: 'Uploading…',
+      statusStored: 'Uploaded',
+      statusFailed: 'Upload failed. Try again.',
+      rejectedTooLarge: 'File exceeds 10 MB and was not added.',
+      rejectedType: 'Unsupported file type — use PDF, JPEG, or PNG.',
     },
   },
   badges: {

@@ -101,7 +101,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - R1 list (loading/empty/populated/error/PD). R2 variants: draft (composer with type-driven `km`, add/edit/delete line, delete-request confirm, submit-disabled-on-0-lines), submitted (RO pending), approved (requested vs approved + subtotals + MonthlyProcessingNote), rejected (motivation + "+ New request"). 422 → SubmitValidationSummary with jump links; 409 → GuardrailDialog; NF → neutral not-found. Integrates T7/T8/T10.
   - done when: component/integration tests cover the km show/hide, submit-blocked-on-empty, the four status variants, the validation-summary jump behavior, and MonthlyProcessingNote present only on approved; a11y: labelled fields, focus-on-transition, `aria-live` announcements.
 
-- [ ] T17: Attachment upload/download UI — refs: AC-1.3, AC-1.7, AC-6.2 — deps: T16, T9
+- [x] T17: Attachment upload/download UI — refs: AC-1.3, AC-1.7, AC-6.2 — deps: T16, T9
   - touch: `refund-ui/src/components/AttachmentList.tsx`, per-file upload state machine, `AttachmentDownloadLink`
   - Draft mode: multi-file input, client-side size/type pre-check with per-file inline error, three-phase mint→direct-PUT→confirm with live `aria-live` per-file state, remove (draft-only). Accounting mode: download-only (click → mint signed GET → open).
   - done when: tests cover per-file rejection (oversize/wrong type), the phase state machine transitions, remove-on-draft, and that accounting mode exposes no upload/remove; `aria-live` announcements present.

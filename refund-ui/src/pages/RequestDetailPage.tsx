@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
 import { strings } from '../strings'
 import * as requestsApi from '../lib/requestsApi'
-import type { LinePayload, RefundRequestDetail } from '../lib/requestsApi'
+import type { Attachment, LinePayload, RefundRequestDetail } from '../lib/requestsApi'
 import { SubmitValidationApiError } from '../lib/requestsApi'
+import * as attachmentsApi from '../lib/attachmentsApi'
 import { ApiError } from '../lib/refundApi'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
@@ -204,6 +205,44 @@ export default function RequestDetailPage() {
   }, [])
 
   // ---------------------------------------------------------------------------
+  // Attachment mutations (T17, specs/007-refund-service/tasks.md) — mint/
+  // upload/confirm and remove are draft-only on the wire (same 409 → mint-only
+  // routes as line mutations, plan.md "### Employee endpoints"); a 409 here
+  // surfaces the same GuardrailDialog + reload as `runLineMutation`, then
+  // rethrows so `AttachmentList`'s per-file item shows `failed` too (the
+  // dialog already explains why; the row's own status text just needs to
+  // stop reading "Uploading…" forever). `handleDownloadAttachment` is a
+  // plain read (mint a signed GET) — no draft-only guard, no reload.
+  // ---------------------------------------------------------------------------
+
+  const handleUploadAttachment = useCallback(
+    async (lineId: string, file: File): Promise<Attachment> => {
+      try {
+        const attachment = await attachmentsApi.uploadAttachment(id, lineId, file)
+        await reloadRequest()
+        return attachment
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          setGuardrail({ title: t.guardrail.title, message: t.guardrail.message })
+          await reloadRequest()
+        }
+        throw err
+      }
+    },
+    [id, reloadRequest, t.guardrail.message, t.guardrail.title],
+  )
+
+  const handleRemoveAttachment = useCallback(
+    (lineId: string, attachmentId: string) => runLineMutation(() => attachmentsApi.removeAttachment(id, lineId, attachmentId)),
+    [id, runLineMutation],
+  )
+
+  const handleDownloadAttachment = useCallback(
+    (lineId: string, attachmentId: string) => attachmentsApi.getDownloadUrl(id, lineId, attachmentId),
+    [id],
+  )
+
+  // ---------------------------------------------------------------------------
   // Submit / withdraw (design.md F2 steps 1-2)
   // ---------------------------------------------------------------------------
 
@@ -381,6 +420,9 @@ export default function RequestDetailPage() {
                     mode="edit"
                     onCommit={(payload) => handleUpdateLine(line.id, payload)}
                     onDelete={() => handleDeleteLine(line.id)}
+                    onUploadAttachment={(file) => handleUploadAttachment(line.id, file)}
+                    onRemoveAttachment={(attachmentId) => handleRemoveAttachment(line.id, attachmentId)}
+                    onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
                     registerRef={registerRowRef(line.id)}
                   />
                 ))}
@@ -436,7 +478,13 @@ export default function RequestDetailPage() {
             <SubtotalsPanel subtotals={pageState.request.subtotals} />
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
-                <ExpenseLineRow key={line.id} line={line} mode="readOnly" registerRef={registerRowRef(line.id)} />
+                <ExpenseLineRow
+                  key={line.id}
+                  line={line}
+                  mode="readOnly"
+                  onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                  registerRef={registerRowRef(line.id)}
+                />
               ))}
             </div>
             {actionError && (
@@ -464,7 +512,13 @@ export default function RequestDetailPage() {
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
-                <ExpenseLineRow key={line.id} line={line} mode="readOnlyApproved" registerRef={registerRowRef(line.id)} />
+                <ExpenseLineRow
+                  key={line.id}
+                  line={line}
+                  mode="readOnlyApproved"
+                  onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                  registerRef={registerRowRef(line.id)}
+                />
               ))}
             </div>
             <MonthlyProcessingNote />
@@ -486,7 +540,13 @@ export default function RequestDetailPage() {
             <SubtotalsPanel subtotals={pageState.request.subtotals} />
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
-                <ExpenseLineRow key={line.id} line={line} mode="readOnly" registerRef={registerRowRef(line.id)} />
+                <ExpenseLineRow
+                  key={line.id}
+                  line={line}
+                  mode="readOnly"
+                  onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                  registerRef={registerRowRef(line.id)}
+                />
               ))}
             </div>
             <Link

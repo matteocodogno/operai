@@ -12,12 +12,15 @@
  *     outside this row's DOM subtree), not each field's individual blur,
  *     so tabbing between this row's own fields never fires a PUT per field.
  *     Includes an inline "×" delete (no confirm modal — design.md F1 step 6:
- *     "a draft line is cheap, reversible working state") and an
- *     `AttachmentList` SEAM (a labelled placeholder slot, not the real
- *     upload machinery — that's T17, explicitly out of this task's scope).
+ *     "a draft line is cheap, reversible working state") and the real
+ *     `AttachmentList` (T17, specs/007-refund-service/tasks.md) in
+ *     upload/remove mode — fills the seam T16 left here.
  *   - `readOnly` (Screen R2 `submitted`/`rejected` variants): plain text,
  *     no inputs, no delete — editing controls are absent, not disabled
- *     (design.md F2 step 3).
+ *     (design.md F2 step 3). `AttachmentList` renders in download-only mode
+ *     here too — a submitted/decided line's receipts stay viewable, just
+ *     not editable (T17: "AttachmentDownloadLink … used by … the RO
+ *     employee variants").
  *   - `readOnlyApproved` (Screen R2 `approved` variant): same as `readOnly`
  *     plus the line's finalized approved total alongside its requested
  *     amount (AC-3.2).
@@ -37,10 +40,11 @@ import type { ExpenseType } from '../lib/expenseTypes'
 import type { Entity } from './EntityBadge'
 import EntityBadge from './EntityBadge'
 import { formatMoney } from '../lib/money'
-import type { LinePayload, RefundLine } from '../lib/requestsApi'
+import type { Attachment, LinePayload, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
 import { isLineDraftComplete, lineDraftToPayload, lineToDraft } from '../lib/lineDraft'
+import AttachmentList from './AttachmentList'
 
 export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved'
 
@@ -53,6 +57,12 @@ export type ExpenseLineRowProps = {
   onDelete?: () => Promise<void>
   /** Lets the parent capture this row's container node for jump-to-on-validation-error focus. */
   registerRef?: (node: HTMLDivElement | null) => void
+  /** Required in `edit` mode — the full mint→upload→confirm sequence for one file (`lib/attachmentsApi.ts`). */
+  onUploadAttachment?: (file: File) => Promise<Attachment>
+  /** Required in `edit` mode — removes a persisted attachment (draft-only, no confirm). */
+  onRemoveAttachment?: (attachmentId: string) => Promise<void>
+  /** Required in every mode — mints a short-lived signed GET for one attachment (`lib/attachmentsApi.ts`). */
+  onDownloadAttachment: (attachmentId: string) => Promise<{ url: string }>
 }
 
 const ENTITY_OPTIONS: Entity[] = ['welld_it', 'welld_ch']
@@ -67,7 +77,16 @@ const draftsEqual = (a: LineDraftValue, b: LineDraftValue): boolean =>
 
 const typeLabel = (type: ExpenseType): string => EXPENSE_TYPES.find((o) => o.id === type)?.labelEn ?? type
 
-export default function ExpenseLineRow({ line, mode, onCommit, onDelete, registerRef }: ExpenseLineRowProps) {
+export default function ExpenseLineRow({
+  line,
+  mode,
+  onCommit,
+  onDelete,
+  registerRef,
+  onUploadAttachment,
+  onRemoveAttachment,
+  onDownloadAttachment,
+}: ExpenseLineRowProps) {
   const t = strings.pages.requestDetail.lines
   const composerStrings = strings.pages.requestDetail.composer
   const badgeStrings = strings.badges.entity
@@ -164,6 +183,7 @@ export default function ExpenseLineRow({ line, mode, onCommit, onDelete, registe
             </div>
           )}
         </dl>
+        <AttachmentList lineId={line.id} attachments={line.attachments} mode="readOnly" onDownload={onDownloadAttachment} />
       </div>
     )
   }
@@ -311,11 +331,15 @@ export default function ExpenseLineRow({ line, mode, onCommit, onDelete, registe
         </p>
       )}
 
-      <div className="flex items-center justify-between gap-3 pt-1 border-t" style={{ borderColor: 'var(--rule)' }}>
-        {/* T17 seam: the real AttachmentList (upload/remove) replaces this placeholder. */}
-        <div className="text-[11px]" style={{ color: 'var(--muted)' }} data-testid={`row-${line.id}-attachments-seam`}>
-          {t.attachmentsSeamLabel}: {t.attachmentsSeamComingSoon}
-        </div>
+      <div className="flex items-start justify-between gap-3 pt-1 border-t" style={{ borderColor: 'var(--rule)' }}>
+        <AttachmentList
+          lineId={line.id}
+          attachments={line.attachments}
+          mode="edit"
+          onUpload={onUploadAttachment}
+          onRemove={onRemoveAttachment}
+          onDownload={onDownloadAttachment}
+        />
         <button
           type="button"
           onClick={() => void handleDelete()}

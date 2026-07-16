@@ -35,8 +35,19 @@ vi.mock('../lib/requestsApi', async (importOriginal) => {
   }
 })
 
+vi.mock('../lib/attachmentsApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/attachmentsApi')>()
+  return {
+    ...original,
+    uploadAttachment: vi.fn(),
+    removeAttachment: vi.fn(),
+    getDownloadUrl: vi.fn(),
+  }
+})
+
 import * as requestsApi from '../lib/requestsApi'
 import { SubmitValidationApiError } from '../lib/requestsApi'
+import * as attachmentsApi from '../lib/attachmentsApi'
 import { ApiError } from '../lib/refundApi'
 
 function pendingPromise<T>(): Promise<T> {
@@ -294,5 +305,56 @@ describe('RequestDetailPage — rejected variant', () => {
     expect(screen.getByTestId('request-detail-rejection-motivation').textContent).toContain('Missing receipt.')
     expect(screen.getByTestId('request-detail-new-request-link').getAttribute('href')).toBe('/requests/new')
     expect(screen.queryByTestId('monthly-processing-note')).toBeNull()
+  })
+})
+
+describe('RequestDetailPage — attachment wiring (T17)', () => {
+  it('draft mode: uploading a file calls attachmentsApi.uploadAttachment scoped to the request+line, then reloads', async () => {
+    const withLine = { ...baseRequest, lines: [oneLine] }
+    vi.mocked(requestsApi.get).mockResolvedValue(withLine)
+    const stored = { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }
+    vi.mocked(attachmentsApi.uploadAttachment).mockResolvedValue({ ...stored, uploadStatus: 'stored' as const })
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('attachment-input-line-1')).not.toBeNull())
+
+    const file = new File([new Uint8Array(10)], 'receipt.pdf', { type: 'application/pdf' })
+    fireEvent.change(screen.getByTestId('attachment-input-line-1'), { target: { files: [file] } })
+
+    await waitFor(() => expect(attachmentsApi.uploadAttachment).toHaveBeenCalledWith('req-1', 'line-1', file))
+    await waitFor(() => expect(requestsApi.get).toHaveBeenCalledTimes(2))
+  })
+
+  it('draft mode: removing a persisted attachment calls attachmentsApi.removeAttachment, 409 surfaces GuardrailDialog', async () => {
+    const withAttachment = { ...baseRequest, lines: [{ ...oneLine, attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }] }] }
+    vi.mocked(requestsApi.get).mockResolvedValue(withAttachment)
+    vi.mocked(attachmentsApi.removeAttachment).mockRejectedValue(
+      new ApiError({ type: 'about:blank', title: 'Conflict', status: 409, detail: 'Not a draft.' }),
+    )
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('attachment-remove-a1')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('attachment-remove-a1'))
+
+    await waitFor(() => expect(attachmentsApi.removeAttachment).toHaveBeenCalledWith('req-1', 'line-1', 'a1'))
+    await waitFor(() => expect(screen.getByTestId('guardrail-dialog')).not.toBeNull())
+  })
+
+  it('submitted variant: attachments render download-only, scoped to the request+line', async () => {
+    const submittedWithAttachment = {
+      ...baseRequest,
+      status: 'submitted' as const,
+      lines: [{ ...oneLine, attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }] }],
+    }
+    vi.mocked(requestsApi.get).mockResolvedValue(submittedWithAttachment)
+    vi.mocked(attachmentsApi.getDownloadUrl).mockResolvedValue({ url: 'https://signed.example/a1', expiresAt: '2026-07-16T00:01:00.000Z' })
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('attachment-download-a1')).not.toBeNull())
+    expect(screen.queryByTestId('attachment-remove-a1')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('attachment-download-a1'))
+    await waitFor(() => expect(attachmentsApi.getDownloadUrl).toHaveBeenCalledWith('req-1', 'line-1', 'a1'))
   })
 })
