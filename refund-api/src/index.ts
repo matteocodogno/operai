@@ -8,6 +8,7 @@ import { healthRouter } from "./health/health.routes";
 import { whoamiRouter } from "./auth/whoami.routes";
 import { requestsRouter } from "./requests/requests.routes";
 import { linesRouter } from "./requests/lines.routes";
+import { attachmentsRouter } from "./attachments/attachments.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -42,6 +43,8 @@ app.route("/", whoamiRouter);
 app.route("/", requestsRouter);
 // linesRouter: expense-line endpoints (T8, specs/007-refund-service).
 app.route("/", linesRouter);
+// attachmentsRouter: receipt attachments + EU object storage (T9, specs/007-refund-service).
+app.route("/", attachmentsRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

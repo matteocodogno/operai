@@ -30,6 +30,7 @@ await harness.init();
 
 const { linesRouter } = await import("./lines.routes");
 const { db } = await import("../lib/db");
+const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 
 const EMPLOYEE_PERMS: ResolveResponse = {
   sub: "",
@@ -69,6 +70,7 @@ const validLineBody = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(async () => {
   await truncateRefundTables();
   harness.setResolve(async () => EMPLOYEE_PERMS);
+  __resetAuthzCacheForTests();
 });
 
 afterAll(async () => {

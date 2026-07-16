@@ -38,6 +38,11 @@ await harness.init();
 
 const { requestsRouter } = await import("./requests.routes");
 const { db } = await import("../lib/db");
+// Dynamically imported AFTER requests.routes (which itself imports
+// authz.middleware) so this shares the SAME module instance/cache — a
+// static top-level import would resolve before setupTestAuth()'s
+// mock.module("../authz/resolveClient") is registered.
+const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 
 // ─── Fixture permission sets ────────────────────────────────────────────────
 
@@ -115,6 +120,10 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await truncateRefundTables();
+  // The authzMiddleware cache is keyed by (sub, perm_epoch) — several tests
+  // below reuse the same sub with different fixture permission sets, which
+  // would otherwise read stale cached permissions from an earlier test.
+  __resetAuthzCacheForTests();
 });
 
 afterAll(async () => {
