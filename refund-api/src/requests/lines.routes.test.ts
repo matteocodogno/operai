@@ -355,3 +355,42 @@ describe("DELETE /requests/:id/lines/:lineId", () => {
     expect(await db.refundLine.findUnique({ where: { id: line.id } })).not.toBeNull();
   });
 });
+
+// ─── bodyLimit middleware — OWASP A04 fix ───────────────────────────────────
+
+describe("bodyLimit middleware — raw request body > 16 KiB → 413 before validation", () => {
+  it("POST /requests/:id/lines with an oversized raw body → 413 Problem (fires before zod validation)", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    // Not a valid LineBody — bodyLimit must reject on size alone, before
+    // zod validation or handler logic ever run.
+    const rawBody = `{"motivo":"${"X".repeat(20 * 1024)}"}`;
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: rawBody,
+    });
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+    expect(await db.refundLine.count({ where: { requestId: request.id } })).toBe(0);
+  });
+
+  it("a valid in-limit line body still succeeds (bodyLimit does not clip legitimate requests)", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(validLineBody({ motivo: "X".repeat(2000) })),
+    });
+
+    expect(res.status).toBe(201);
+  });
+});

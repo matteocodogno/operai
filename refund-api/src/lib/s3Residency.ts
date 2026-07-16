@@ -14,13 +14,21 @@
  *
  *   - `REFUND_S3_ENDPOINT` host ends with `.amazonaws.com` → this IS AWS, so
  *     `region` IS meaningful → enforce `REFUND_S3_REGION` ∈ the EU allowlist.
- *   - Any other host (Railway, Scaleway, R2, MinIO, …) → residency is
- *     OPERATOR-ASSERTED by the choice of endpoint/bucket (e.g. the ops team
- *     provisioning a bucket physically in Amsterdam), not verifiable from the
- *     region string — no allowlist check; `REFUND_S3_REGION` is treated as an
- *     opaque SDK value. `REFUND_S3_ENDPOINT` itself is still required and
- *     non-empty (enforced by env.ts's own `.url()` check) — fail-closed if
- *     it's missing.
+ *   - Any other host (Railway, Scaleway, R2, MinIO, …) → `region` is an
+ *     opaque SDK value that does NOT encode location, so residency instead
+ *     must be CODE-ENFORCED against an operator-declared EU allowlist:
+ *     `REFUND_S3_EU_ENDPOINT_HOSTS` (env.ts, comma-separated host suffixes).
+ *     If the endpoint's host matches none of them — INCLUDING when the
+ *     allowlist itself is empty/unset — startup FAILS CLOSED
+ *     (`process.exit(1)` via env.ts's `superRefine`, never a silent no-op).
+ *
+ * OWASP A05 fix (data-residency guard was a no-op for non-AWS endpoints):
+ * previously a non-AWS endpoint returned `null` (pass) unconditionally —
+ * residency was merely "operator-asserted by the choice of endpoint" with no
+ * code-level check at all. A mis-set non-EU non-AWS endpoint would have
+ * started silently. `REFUND_S3_EU_ENDPOINT_HOSTS` closes that gap: residency
+ * for a non-AWS endpoint is now both code-enforced AND explicitly
+ * operator-declared, never assumed.
  */
 
 /** AWS regions whose physical location is EU (ADR-0016 Risk R8). */
@@ -45,23 +53,74 @@ export function isAwsS3Endpoint(endpoint: string): boolean {
 }
 
 /**
+ * True when `hostname` exactly matches, or is a subdomain of, one of the
+ * operator-declared EU endpoint host suffixes.
+ */
+function hostMatchesEuAllowlist(
+  hostname: string,
+  euEndpointHosts: readonly string[],
+): boolean {
+  const lower = hostname.toLowerCase();
+  return euEndpointHosts.some(
+    (allowed) => lower === allowed || lower.endsWith(`.${allowed}`),
+  );
+}
+
+/**
  * Returns an error message when residency cannot be asserted, or `null` when
  * it's fine to proceed. Called from env.ts's `superRefine` at startup.
+ *
+ * `euEndpointHosts` is `REFUND_S3_EU_ENDPOINT_HOSTS` (env.ts) — a
+ * comma-separated, operator-declared allowlist of EU endpoint host suffixes,
+ * consulted ONLY for a non-AWS endpoint (see file header). Fails closed: an
+ * empty/unset allowlist, or a non-matching host, both reject — never a
+ * silent pass.
  */
 export function checkEuResidency(
   endpoint: string,
   region: string,
+  euEndpointHosts: readonly string[],
 ): string | null {
-  if (!isAwsS3Endpoint(endpoint)) {
-    // Custom endpoint (Railway, Scaleway, R2, MinIO, ...) — residency is
-    // operator-asserted by the bucket's own provisioning, not the region
-    // string. Nothing further to check here.
+  if (isAwsS3Endpoint(endpoint)) {
+    if (!(EU_AWS_REGIONS as readonly string[]).includes(region)) {
+      return (
+        `REFUND_S3_REGION "${region}" is not an EU AWS region (data residency, ` +
+        `ADR-0016/CLAUDE.md). Allowed: ${EU_AWS_REGIONS.join(", ")}`
+      );
+    }
     return null;
   }
-  if (!(EU_AWS_REGIONS as readonly string[]).includes(region)) {
+
+  // Non-AWS endpoint (Railway, Scaleway, R2, MinIO, ...) — `region` is an
+  // opaque SDK value that does not encode location (see file header), so
+  // residency must be code-enforced against the operator-declared
+  // REFUND_S3_EU_ENDPOINT_HOSTS allowlist. OWASP A05 fix: this branch used
+  // to return `null` unconditionally here — a silent no-op that would let a
+  // mis-set non-EU endpoint start without any check at all.
+  let hostname: string;
+  try {
+    hostname = new URL(endpoint).hostname;
+  } catch {
+    return `REFUND_S3_ENDPOINT "${endpoint}" is not a valid URL`;
+  }
+
+  if (euEndpointHosts.length === 0) {
     return (
-      `REFUND_S3_REGION "${region}" is not an EU AWS region (data residency, ` +
-      `ADR-0016/CLAUDE.md). Allowed: ${EU_AWS_REGIONS.join(", ")}`
+      `REFUND_S3_ENDPOINT "${endpoint}" is a non-AWS endpoint, but ` +
+      `REFUND_S3_EU_ENDPOINT_HOSTS is empty/unset — residency cannot be ` +
+      `verified for a non-AWS endpoint without an operator-declared EU ` +
+      `allowlist (data residency, ADR-0016/CLAUDE.md). Set ` +
+      `REFUND_S3_EU_ENDPOINT_HOSTS to a comma-separated list of EU endpoint ` +
+      `host suffixes (e.g. "s3.railway-eu-amsterdam.example.com").`
+    );
+  }
+
+  if (!hostMatchesEuAllowlist(hostname, euEndpointHosts)) {
+    return (
+      `REFUND_S3_ENDPOINT host "${hostname}" does not match any entry in ` +
+      `REFUND_S3_EU_ENDPOINT_HOSTS (${euEndpointHosts.join(", ")}) — refusing ` +
+      `to start with an unverified non-EU endpoint (data residency, ` +
+      `ADR-0016/CLAUDE.md).`
     );
   }
   return null;

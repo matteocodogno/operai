@@ -12,10 +12,20 @@
  * /requests/:id uses) so an in-scope accounting reviewer can also download a
  * submitted request's receipts (AC-6.2), and the signed URL is minted ONLY
  * after that check passes (ADR-0016 § Download).
+ *
+ * BODY SIZE GUARD (OWASP A04 fix): only the mint route (POST .../attachments)
+ * accepts a JSON body — confirm/delete/get-url take none. bodyLimit is
+ * therefore scoped to that ONE exact path (not the router's `*`/subpath
+ * wildcard), mirroring notify-api's systemNotificationsRouter precedent of
+ * scoping bodyLimit to a single exact path rather than leaking it onto
+ * sibling routes with no body. Receipt BYTES themselves never transit this
+ * router (ADR-0016) — this cap is only for the small upload-metadata body
+ * (fileName/contentType/sizeBytes), fires BEFORE jwtMiddleware/authzMiddleware.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { Effect } from "effect";
+import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { hasCapability } from "../authz/conditions";
@@ -67,6 +77,18 @@ const conflictProblem = (path: string, detail: string) => ({
   instance: path,
 });
 
+const payloadTooLargeProblem = (path: string, limitBytes: number) => ({
+  type: "https://httpstatuses.com/413",
+  title: "Payload Too Large",
+  status: 413 as const,
+  detail: `Request body exceeds the maximum allowed size of ${(limitBytes / 1024).toFixed(0)} KB.`,
+  instance: path,
+});
+
+// fileName caps at 255 chars (MintAttachmentBodySchema) + a short contentType
+// enum + a sizeBytes number — 8 KiB is generous headroom over that shape.
+const MINT_ATTACHMENT_BODY_SIZE_LIMIT = 8 * 1024; // 8 KiB
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export const attachmentsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({
@@ -88,6 +110,21 @@ export const attachmentsRouter = new OpenAPIHono<{ Variables: AuthzVariables }>(
     return undefined;
   },
 });
+
+// Scoped to this ONE exact path (the mint route) — see file header for why
+// this must NOT use the `/attachments/*` wildcard the sibling
+// confirm/delete/get-url routes are registered under.
+attachmentsRouter.use(
+  "/requests/:id/lines/:lineId/attachments",
+  bodyLimit({
+    maxSize: MINT_ATTACHMENT_BODY_SIZE_LIMIT,
+    onError: (c) =>
+      c.json(
+        payloadTooLargeProblem(c.req.path, MINT_ATTACHMENT_BODY_SIZE_LIMIT),
+        413,
+      ),
+  }),
+);
 
 attachmentsRouter.use("/requests/:id/lines/:lineId/attachments", jwtMiddleware);
 attachmentsRouter.use("/requests/:id/lines/:lineId/attachments", authzMiddleware);

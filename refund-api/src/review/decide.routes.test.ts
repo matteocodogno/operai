@@ -285,6 +285,34 @@ describe("PUT /review/requests/:id/lines/:lineId/approved-total", () => {
     );
     expect(res.status).toBe(409);
   });
+
+  it("(OWASP A04 fix) oversized raw body → 413 Problem before validation, nothing written", async () => {
+    const { request, lines } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    // Not a valid ApprovedTotalBody — bodyLimit must reject on size alone,
+    // before zod validation or handler logic ever run.
+    const rawBody = `{"junk":"${"X".repeat(8 * 1024)}"}`;
+
+    const res = await decideRouter.request(
+      `/review/requests/${request.id}/lines/${lines[0]!.id}/approved-total`,
+      {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: rawBody,
+      },
+    );
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+
+    const auditRows = await db.refundAuditEntry.findMany({ where: { requestId: request.id } });
+    expect(auditRows).toHaveLength(0);
+  });
 });
 
 // ─── POST .../approve ────────────────────────────────────────────────────────
@@ -595,5 +623,30 @@ describe("POST /review/requests/:id/reject", () => {
 
     const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
     expect(row.rejectionMotivation).toBe("Original reason");
+  });
+
+  it("(OWASP A04 fix) oversized raw body → 413 Problem before validation, request stays submitted", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    // reject's `motivation` has no schema-level max length — bodyLimit is
+    // the only cap on this field; must reject BEFORE validation/handler logic.
+    const rawBody = `{"motivation":"${"X".repeat(20 * 1024)}"}`;
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/reject`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: rawBody,
+    });
+
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { type: string; title: string; status: number };
+    expect(body.type).toBe("https://httpstatuses.com/413");
+    expect(body.title).toBe("Payload Too Large");
+    expect(body.status).toBe(413);
+
+    const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(row.status).toBe("submitted");
   });
 });
