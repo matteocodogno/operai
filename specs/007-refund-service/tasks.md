@@ -41,12 +41,12 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - Mirror `estimai-api` verbatim: startup env validation (`process.exit(1)` on missing), global RFC-7807 `onError`/`notFound`, Scalar reference, JWKS-verified identity middleware, `AUTH_AUDIENCE` enforced.
   - done when: `bun run dev` boots on :8082; `GET /health` returns ok; a request with no/invalid/wrong-aud Bearer → 401 Problem JSON; `bun run typecheck` + `bun test` (health) green.
 
-- [ ] T5: Prisma schema + `0001_init` migration (4 tables, enums, audit immutability) — refs: AC-8.1, AC-8.2, AC-8.3 — deps: T4
+- [x] T5: Prisma schema + `0001_init` migration (4 tables, enums, audit immutability) — refs: AC-8.1, AC-8.2, AC-8.3 — deps: T4
   - touch: `refund-api/prisma/schema.prisma`, `refund-api/prisma/migrations/0001_init/`
   - `RefundRequest`, `RefundLine` (12-type enum, per-line `entity`, `requestedAmountCents:Int`, `km:Int?`, `approvedTotalCents:Int?`), `Attachment` (objectKey unique, uploadStatus), append-only `RefundAuditEntry`. Money as integer cents; no stored currency. Audit immutability via a raw-SQL `CREATE RULE`/trigger blocking UPDATE+DELETE; `RefundAuditEntry.request` `onDelete: Restrict`; lines/attachments `onDelete: Cascade`.
   - done when: `bun run db:migrate` applies cleanly against the local DB; a raw-SQL UPDATE/DELETE on `RefundAuditEntry` is rejected by the trigger (test); deleting a request that has an audit row is refused by the FK (test).
 
-- [ ] T6: `authzMiddleware` + local condition evaluation — refs: AC-5.4, AC-6.4, AC-7.5 — deps: T4, T1
+- [x] T6: `authzMiddleware` + local condition evaluation — refs: AC-5.4, AC-6.4, AC-7.5 — deps: T4, T1
   - touch: `refund-api/src/auth/authz.middleware.ts`, `refund-api/src/authz/conditions.ts`, tests
   - Resolves the caller's refund permissions from `auth GET /authz/resolve` (forward Bearer), cache keyed `(sub, perm_epoch)` + 30s TTL backstop; **fail-closed** (503) on auth outage. Sets `c.var.authz = { permissions, entity }`. Provide helpers: `hasCapability(resource,action)`, `ownershipOwn(record, sub)`, and the entity-scope predicate `requestInScope(lines, callerEntity | GLOBAL)` = "≥1 line matches, or unconditioned ⇒ all".
   - done when: unit tests cover the predicate (single-entity match/no-match, mixed-entity ≥1 match, global sees all); an integration test shows a missing capability → 403 and the cache serves a second call without re-hitting auth for the same epoch; auth-down → 503, never 200.
@@ -92,7 +92,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - touch: `refund-ui/src/` — TanStack Router at `basepath:'/refund'` with routes `requests`/`requests/new`/`requests/$id`/`review`/`review/$id`; `RefundShell` layout; an `apiFetch`-based client (via `shell/session`); `src/strings.ts` (centralized English copy, no hardcoded JSX text); `EXPENSE_TYPES` constant (12 types, id + labels); `formatMoney(cents,currency)` lib with unit tests. Replace the placeholder `App.tsx`.
   - done when: `pnpm build` + `pnpm lint` green; `formatMoney` unit tests pass per currency (EUR/CHF, 2 decimals); the router mounts all five routes with placeholder screens; no hardcoded UI strings remain (all via `strings.ts`).
 
-- [ ] T15: Ported shared components + badges — refs: AC-3.4 (status badge), AC-3.5 (entity chip) — deps: T14
+- [x] T15: Ported shared components + badges — refs: AC-3.4 (status badge), AC-3.5 (entity chip) — deps: T14
   - touch: `refund-ui/src/components/` — port `ErrorBanner`, `SkeletonListRows`, `ConfirmDeleteModal`, `GuardrailDialog`, `PermissionDenied` (from admin-ui patterns); NEW `RequestStatusBadge` (4 variants), `EntityBadge` (glyph+text+color, never color-only).
   - done when: component tests render each badge variant and the ported dialogs' focus-trap/Escape/confirm behavior; `pnpm lint`/`build` green.
 
@@ -113,11 +113,11 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
 
 ## DevOps
 
-- [ ] T19: Wire refund-api into local dev + deploy (EU region, object storage, shared secrets) — refs: data-residency constraint, AC-3.6 (notify token), AC-8.* (durable DB) — deps: T4
+- [x] T19: Wire refund-api into local dev + deploy (EU region, object storage, shared secrets) — refs: data-residency constraint, AC-3.6 (notify token), AC-8.* (durable DB) — deps: T4
   - touch: root `mise.toml` (`mise run dev` includes refund-api), `compose.yaml` if a logical DB is added, `refund-api/.env.example`/`.envrc`, deploy config (EU region), 1Password refs for `REFUND_S3_*`, `NOTIFY_INTERNAL_TOKEN` (shared with notify-api), `AUTH_AUDIENCE`
   - done when: `mise run dev` brings up refund-api alongside the suite; documented EU-region deploy target + object-storage bucket provisioning; `NOTIFY_INTERNAL_TOKEN` shared between auth/refund-api/notify-api; startup env validation verified.
 
-- [ ] T20: Federation & routing wiring — shell mounts refund at `/refund` + trusted-origin — refs: AC-1.1 (reachable), ADR-0006, ADR-0001 — deps: T14
+- [x] T20: Federation & routing wiring — shell mounts refund at `/refund` + trusted-origin — refs: AC-1.1 (reachable), ADR-0006, ADR-0001 — deps: T14
   - touch: `refund-ui/vite.config.ts` (exposes `./App` — verify), `shell/` remote registration + `/refund/*` route mapping, runtime remote-URL resolution per-env, **`shell/src/lib/session.ts` `getTrustedOrigins()`** (+ the shell's env for the refund-api URL)
   - **Trusted-origin fix (drift from T14):** `shell/src/lib/session.ts`'s `getTrustedOrigins()` allowlist currently covers auth/estimai/notify only — NOT refund-api. Until refund-api's origin is added, `apiFetch` sends refund-api requests WITHOUT the Bearer header (ADR-0001 attaches the token to trusted origins only) and every refund-api call 401s. Add the refund-api origin (mirrors how specs/005-notification-center added notify-api in its own shell task). This is the enabler for T16–T18's real API calls to work end-to-end.
   - done when: the shell mounts refund-ui at `/refund` in dev, the `_authed` guard runs before mount, the nav item for the Review queue is gated at the shell level, **and an `apiFetch` to the refund-api origin carries the Bearer token (trusted-origins test/assertion)**; `pnpm build` green for both shell and refund-ui.
