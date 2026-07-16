@@ -9,6 +9,7 @@ import { whoamiRouter } from "./auth/whoami.routes";
 import { requestsRouter } from "./requests/requests.routes";
 import { linesRouter } from "./requests/lines.routes";
 import { attachmentsRouter } from "./attachments/attachments.routes";
+import { lifecycleRouter } from "./requests/lifecycle.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -45,6 +46,8 @@ app.route("/", requestsRouter);
 app.route("/", linesRouter);
 // attachmentsRouter: receipt attachments + EU object storage (T9, specs/007-refund-service).
 app.route("/", attachmentsRouter);
+// lifecycleRouter: submit/withdraw + audit (T10, specs/007-refund-service).
+app.route("/", lifecycleRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
