@@ -19,24 +19,24 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
 
 ## Cross-service seams (start first — the plan flags these as load-bearing)
 
-- [ ] T1: Add Bearer-authed `GET /authz/resolve` to the `auth` service — refs: AC-5.4, AC-6.4, AC-7.5 (enables server-side authz) — deps: none
+- [x] T1: Add Bearer-authed `GET /authz/resolve` to the `auth` service — refs: AC-5.4, AC-6.4, AC-7.5 (enables server-side authz) — deps: none
   - touch: `auth/src/authz/authz.routes.ts` (or a new `resolve.routes.ts`), `auth/src/authz/resolver.ts`, `auth/src/index.ts`, OpenAPI registry
   - Returns the **caller's own** resolution only (same guard as `/authz/me`), authenticated by the RS256 Bearer JWT (verify own issuer/aud/alg, no session cookie): `{ sub, epoch, permissions[<resource,action,conditions>], entity, jobTitle }`. Adds the caller's own `entity`/`jobTitle` so a resource server can evaluate `match:"user"` conditions locally.
   - done when: an integration test proves a valid Bearer token returns the caller's permissions + entity; a token for user A can never return user B's resolution; missing/invalid/wrong-aud token → 401; `bun test` + `bun run typecheck` green in `auth`.
 
-- [ ] T2: Declare refund's real permission catalog + seed accounting grants in `auth` — refs: AC-1.1, AC-5.4, AC-7.5, AC-8.2 — deps: none
+- [x] T2: Declare refund's real permission catalog + seed accounting grants in `auth` — refs: AC-1.1, AC-5.4, AC-7.5, AC-8.2 — deps: none
   - touch: `auth/src/authz/catalogs/refund.ts` (NEW), `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`
   - Move `refund` out of the access-only `SUITE_APPS` stub; register the full catalog (`refund:access`; `request` resource actions `create`/`read`[ownership]/`review`[entity]/`set-approved-total`[entity]/`approve`[entity]/`reject`[entity]). Seed the `accounting` role with the review/decision grants under the entity condition `{attributes:[{key:"entity",match:"user"}]}`. Do **not** seed any refund grant onto `employee` (admin-assigned per Gate-2 D2); do **not** seed an `accounting-global` role (D3).
   - done when: `seedRefundCatalog` is idempotent on re-run; a test asserts the catalog actions + supportedConditions and that `accounting` carries the entity-conditioned review grants while `employee` carries none; `bun test` green in `auth`.
 
-- [ ] T3: Add internal `POST /system/notifications` to `notify-api` (cross-user in-app push) — refs: AC-3.6 — deps: none
+- [x] T3: Add internal `POST /system/notifications` to `notify-api` (cross-user in-app push) — refs: AC-3.6 — deps: none
   - touch: `notify-api/src/system/` (new route mirroring `/system/emails`), `notify-api/src/index.ts`, env validation, tests
   - Internal-token authenticated (`NOTIFY_INTERNAL_TOKEN`, constant-time compare, ≥32 chars); body `{ recipientId, originApp, severity, title, body, link{href} }`; routes through the existing `inAppChannel.send` (persist + SSE push to `recipientId`). Never accepts a user JWT; `/notifications` never accepts the internal token (ADR-0011 invariant).
   - done when: an integration test pushes a notification to an arbitrary `recipientId` with a valid token and sees it persisted + fanned out; a request without/with a wrong token → 401; `bun test` + `bun run typecheck` green in `notify-api`.
 
 ## refund-api (new resource server)
 
-- [ ] T4: Bootstrap the `refund-api` service skeleton — refs: (foundation for all R tasks) — deps: none
+- [x] T4: Bootstrap the `refund-api` service skeleton — refs: (foundation for all R tasks) — deps: none
   - touch: `refund-api/` NEW — `package.json`, `tsconfig`, `src/index.ts`, `src/lib/{env,db,errors,logger}.ts`, `src/auth/jwt.middleware.ts` (JWKS + `iss` + `aud`/`AUTH_AUDIENCE`), `src/openapi/registry.ts`, `src/health/`, `.env.example`, `.envrc`
   - Mirror `estimai-api` verbatim: startup env validation (`process.exit(1)` on missing), global RFC-7807 `onError`/`notFound`, Scalar reference, JWKS-verified identity middleware, `AUTH_AUDIENCE` enforced.
   - done when: `bun run dev` boots on :8082; `GET /health` returns ok; a request with no/invalid/wrong-aud Bearer → 401 Problem JSON; `bun run typecheck` + `bun test` (health) green.
@@ -88,7 +88,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
 
 ## refund-ui (federated remote — replace the placeholder)
 
-- [ ] T14: refund-ui foundation — router, shell, api client, strings, domain constants — refs: AC-1.1 (routing), (foundation for all U tasks) — deps: none
+- [x] T14: refund-ui foundation — router, shell, api client, strings, domain constants — refs: AC-1.1 (routing), (foundation for all U tasks) — deps: none
   - touch: `refund-ui/src/` — TanStack Router at `basepath:'/refund'` with routes `requests`/`requests/new`/`requests/$id`/`review`/`review/$id`; `RefundShell` layout; an `apiFetch`-based client (via `shell/session`); `src/strings.ts` (centralized English copy, no hardcoded JSX text); `EXPENSE_TYPES` constant (12 types, id + labels); `formatMoney(cents,currency)` lib with unit tests. Replace the placeholder `App.tsx`.
   - done when: `pnpm build` + `pnpm lint` green; `formatMoney` unit tests pass per currency (EUR/CHF, 2 decimals); the router mounts all five routes with placeholder screens; no hardcoded UI strings remain (all via `strings.ts`).
 
@@ -117,9 +117,10 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - touch: root `mise.toml` (`mise run dev` includes refund-api), `compose.yaml` if a logical DB is added, `refund-api/.env.example`/`.envrc`, deploy config (EU region), 1Password refs for `REFUND_S3_*`, `NOTIFY_INTERNAL_TOKEN` (shared with notify-api), `AUTH_AUDIENCE`
   - done when: `mise run dev` brings up refund-api alongside the suite; documented EU-region deploy target + object-storage bucket provisioning; `NOTIFY_INTERNAL_TOKEN` shared between auth/refund-api/notify-api; startup env validation verified.
 
-- [ ] T20: Federation & routing wiring — shell mounts refund at `/refund` — refs: AC-1.1 (reachable), ADR-0006 — deps: T14
-  - touch: `refund-ui/vite.config.ts` (exposes `./App` — verify), `shell/` remote registration + `/refund/*` route mapping, runtime remote-URL resolution per-env
-  - done when: the shell mounts refund-ui at `/refund` in dev, the `_authed` guard runs before mount, and the nav item for the Review queue is gated at the shell level; `pnpm build` green for both shell and refund-ui.
+- [ ] T20: Federation & routing wiring — shell mounts refund at `/refund` + trusted-origin — refs: AC-1.1 (reachable), ADR-0006, ADR-0001 — deps: T14
+  - touch: `refund-ui/vite.config.ts` (exposes `./App` — verify), `shell/` remote registration + `/refund/*` route mapping, runtime remote-URL resolution per-env, **`shell/src/lib/session.ts` `getTrustedOrigins()`** (+ the shell's env for the refund-api URL)
+  - **Trusted-origin fix (drift from T14):** `shell/src/lib/session.ts`'s `getTrustedOrigins()` allowlist currently covers auth/estimai/notify only — NOT refund-api. Until refund-api's origin is added, `apiFetch` sends refund-api requests WITHOUT the Bearer header (ADR-0001 attaches the token to trusted origins only) and every refund-api call 401s. Add the refund-api origin (mirrors how specs/005-notification-center added notify-api in its own shell task). This is the enabler for T16–T18's real API calls to work end-to-end.
+  - done when: the shell mounts refund-ui at `/refund` in dev, the `_authed` guard runs before mount, the nav item for the Review queue is gated at the shell level, **and an `apiFetch` to the refund-api origin carries the Bearer token (trusted-origins test/assertion)**; `pnpm build` green for both shell and refund-ui.
 
 ## Verification & close
 
