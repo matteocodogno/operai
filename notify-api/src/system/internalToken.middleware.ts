@@ -1,20 +1,25 @@
 /**
- * internalTokenMiddleware (T3, specs/006-user-invitations, ADR-0011).
+ * internalTokenMiddleware (T3, specs/006-user-invitations, ADR-0011; reused
+ * by T3, specs/007-refund-service, ADR-0017 for a second internal caller).
  *
- * Authenticates `POST /system/emails` — a service-to-service call from `auth`,
- * not an end-user request. Deliberately NOT jwtMiddleware: there is no user
- * `sub` to verify (the invitee has no User row yet), and the caller (`auth`)
- * has no `sub` of its own. Checks the `X-Internal-Token` header against
- * `NOTIFY_INTERNAL_TOKEN` (a strong, 1Password-sourced shared secret,
- * identical value configured in both `auth` and `notify-api`).
+ * Authenticates `POST /system/emails` (service-to-service call from `auth`)
+ * and `POST /system/notifications` (service-to-service call from
+ * `refund-api`) — neither is an end-user request. Deliberately NOT
+ * jwtMiddleware: neither caller has a `sub` of its own to verify (and, for
+ * /system/emails, the invitee has no User row yet either). Checks the
+ * `X-Internal-Token` header against `NOTIFY_INTERNAL_TOKEN` (a strong,
+ * 1Password-sourced shared secret, identical value configured in `auth`,
+ * `refund-api`, and `notify-api` — ADR-0017 knowingly reuses the same secret
+ * for both internal callers rather than provisioning a second one).
  *
- * CRITICAL invariant (Security R2, ADR-0011): this is the ONLY middleware
- * `/system/*` routes may use. `jwtMiddleware`-protected routes must never
- * accept this token, and `/system/*` must never accept a user JWT — the two
- * mechanisms are mutually exclusive by route, never layered. A valid user JWT
- * presented here is simply not the credential this middleware checks, so it
- * is rejected exactly like any other missing/wrong token (see
- * emails.routes.test.ts "a user JWT is rejected on /system/emails").
+ * CRITICAL invariant (Security R2, ADR-0011; ADR-0017 §3): this is the ONLY
+ * middleware `/system/*` routes may use. `jwtMiddleware`-protected routes
+ * must never accept this token, and `/system/*` must never accept a user
+ * JWT — the two mechanisms are mutually exclusive by route, never layered. A
+ * valid user JWT presented here is simply not the credential this middleware
+ * checks, so it is rejected exactly like any other missing/wrong token (see
+ * emails.routes.test.ts "a user JWT is rejected on /system/emails" and
+ * notifications.routes.test.ts's equivalent case).
  *
  * The comparison is constant-time (`timingSafeEqual`) — a naive `!==` string
  * comparison on a secret this consequential (leak = arbitrary email over
