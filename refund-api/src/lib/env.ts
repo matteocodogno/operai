@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { checkEuResidency } from "./s3Residency";
+import { checkEuResidency, isAwsS3Endpoint } from "./s3Residency";
 
 const envSchema = z
   .object({
@@ -57,6 +57,26 @@ const envSchema = z
     REFUND_S3_SECRET_ACCESS_KEY: z
       .string()
       .min(1, "REFUND_S3_SECRET_ACCESS_KEY is required"),
+    // OWASP A05 fix — the EU-residency guard used to be a silent no-op for
+    // any non-AWS endpoint (see s3Residency.ts's file header). This
+    // operator-declared allowlist makes residency code-enforced for the
+    // real deployed target (a Railway EU-Amsterdam S3-compatible bucket, a
+    // non-AWS host): a comma-separated list of EU endpoint host suffixes,
+    // consulted ONLY when REFUND_S3_ENDPOINT's host is NOT `*.amazonaws.com`
+    // (checkEuResidency, s3Residency.ts). Optional at the schema level (a
+    // pure-AWS deployment never needs it — the AWS-region allowlist covers
+    // that branch), but for a non-AWS endpoint like ours, an
+    // empty/unset/non-matching allowlist FAILS startup closed
+    // (`process.exit(1)` below) — never a silent pass.
+    REFUND_S3_EU_ENDPOINT_HOSTS: z
+      .string()
+      .optional()
+      .transform((v) =>
+        (v ?? "")
+          .split(",")
+          .map((h) => h.trim().toLowerCase())
+          .filter((h) => h.length > 0),
+      ),
     // ─── notify-api internal call (T13, specs/007-refund-service, ADR-0017) ──
     // refund-api → notify-api `POST /system/notifications` after an
     // approve/reject decision commits (best-effort, never rolls back the
@@ -81,11 +101,18 @@ const envSchema = z
     const residencyError = checkEuResidency(
       val.REFUND_S3_ENDPOINT,
       val.REFUND_S3_REGION,
+      val.REFUND_S3_EU_ENDPOINT_HOSTS,
     );
     if (residencyError) {
+      // AWS branch fails on the region value; the non-AWS branch fails on
+      // the endpoint/allowlist mismatch — attribute the zod issue to
+      // whichever var the operator actually needs to fix.
+      const path = isAwsS3Endpoint(val.REFUND_S3_ENDPOINT)
+        ? ["REFUND_S3_REGION"]
+        : ["REFUND_S3_EU_ENDPOINT_HOSTS"];
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["REFUND_S3_REGION"],
+        path,
         message: residencyError,
       });
     }

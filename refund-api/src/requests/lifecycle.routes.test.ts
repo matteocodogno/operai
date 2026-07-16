@@ -34,6 +34,7 @@ process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
 process.env["REFUND_S3_ENDPOINT"] =
   "https://test.s3.railway-eu-amsterdam.example.com";
 process.env["REFUND_S3_REGION"] = "auto";
+process.env["REFUND_S3_EU_ENDPOINT_HOSTS"] = "s3.railway-eu-amsterdam.example.com";
 process.env["REFUND_S3_BUCKET"] = "test-bucket";
 process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
 process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
