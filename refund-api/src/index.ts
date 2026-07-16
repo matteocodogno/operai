@@ -6,6 +6,10 @@ import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { whoamiRouter } from "./auth/whoami.routes";
+import { requestsRouter } from "./requests/requests.routes";
+import { linesRouter } from "./requests/lines.routes";
+import { attachmentsRouter } from "./attachments/attachments.routes";
+import { lifecycleRouter } from "./requests/lifecycle.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -32,10 +36,18 @@ app.use("*", requestLogger());
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.route("/", healthRouter);
-// whoamiRouter is the bootstrap's only protected route — a minimal identity
-// probe (jwtMiddleware only, no authorization) until T7+ land the real
-// request/review domain routes and T6 layers authzMiddleware on top.
+// whoamiRouter is the bootstrap's identity probe (jwtMiddleware only, no
+// authorization) — kept as a lightweight diagnostic route alongside the real
+// domain routers below.
 app.route("/", whoamiRouter);
+// requestsRouter: employee request-level endpoints (T7, specs/007-refund-service).
+app.route("/", requestsRouter);
+// linesRouter: expense-line endpoints (T8, specs/007-refund-service).
+app.route("/", linesRouter);
+// attachmentsRouter: receipt attachments + EU object storage (T9, specs/007-refund-service).
+app.route("/", attachmentsRouter);
+// lifecycleRouter: submit/withdraw + audit (T10, specs/007-refund-service).
+app.route("/", lifecycleRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
