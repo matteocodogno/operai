@@ -33,6 +33,19 @@
  * one body line per placeholder screen, the not-found fallback). T15–T18 add
  * their own screens' copy to this same file as they're built — this file
  * grows with the feature, it is not meant to be "complete" yet.
+ *
+ * T15 addition (specs/007-refund-service/tasks.md: "ported shared components
+ * + badges … All copy via strings.ts"): the `components` and `badges`
+ * namespaces below hold copy for the five ported patterns (`ErrorBanner`,
+ * `SkeletonListRows`, `ConfirmDeleteModal`, `GuardrailDialog`,
+ * `PermissionDenied`) and the two new badges (`RequestStatusBadge`,
+ * `EntityBadge`). A couple of entries are FUNCTIONS, not plain strings
+ * (`confirmDeleteModal.title`/`defaultBody`) — deliberately, since their
+ * exact wording depends on a runtime value (the entity/item name) AND, for a
+ * future non-English locale, sentence structure/word order around that
+ * interpolation can differ by language (a fixed prefix+suffix pair would not
+ * survive translation) — same reasoning `Strings` being exported already
+ * documents for the rest of this file's i18n-readiness.
  */
 
 const en = {
@@ -67,6 +80,47 @@ const en = {
     notFound: {
       heading: 'Page not found',
       body: 'This refund section doesn’t exist. Use the navigation above to pick My requests or Review queue.',
+    },
+  },
+  components: {
+    errorBanner: {
+      defaultRetryLabel: 'Retry',
+      dismissLabel: 'Dismiss',
+    },
+    skeletonListRows: {
+      /** sr-only aria-live loading text a caller composes into its own list-loading announcement. */
+      loadingLabel: 'Loading…',
+    },
+    confirmDeleteModal: {
+      /** "Delete {entityLabel}?" — see this file's doc comment on why this is a function. */
+      title: (entityLabel: string) => `Delete ${entityLabel}?`,
+      cancelLabel: 'Cancel',
+      cancelAriaLabel: 'Cancel',
+      deleteLabel: 'Delete',
+      deletingLabel: 'Deleting…',
+      untitledFallback: 'Untitled',
+      /** Default body copy when the caller doesn't override `body` — see this file's doc comment. */
+      defaultBody: (itemName: string) =>
+        `‘${itemName}’ will be permanently deleted. This cannot be undone.`,
+    },
+    guardrailDialog: {
+      defaultAcknowledgeLabel: 'OK',
+    },
+    permissionDenied: {
+      heading: 'You no longer have refund access.',
+      body: 'If this is unexpected, contact your administrator.',
+    },
+  },
+  badges: {
+    requestStatus: {
+      draft: 'Draft',
+      submitted: 'Awaiting decision',
+      approved: 'Approved',
+      rejected: 'Rejected',
+    },
+    entity: {
+      welld_it: 'WellD Italia · EUR',
+      welld_ch: 'WellD CH · CHF',
     },
   },
 } as const
