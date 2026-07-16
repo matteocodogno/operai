@@ -129,7 +129,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - Journeys: (1) employee composes a mixed-entity request with an attachment → submits → accounting (scoped) adjusts a total → approves → employee sees requested-vs-approved + the notification + the monthly note; (2) a reject-with-motivation path showing the motivation to the employee.
   - done when: both e2e journeys pass against the running stack.
 
-- [ ] T22: Close — all gates green, spec status → done — refs: (all) — deps: T1–T21
+- [x] T22: Close — all gates green, spec status → done — refs: (all) — deps: T1–T21
   - done when: every task above checked; QE PASS + owasp findings resolved; a fresh passing `eval-report.md`; then `/wellforge:done 007-refund-service` flips `status: done`.
 
 ---

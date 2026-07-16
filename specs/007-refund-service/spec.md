@@ -1,10 +1,11 @@
 ---
 id: 007
 slug: refund-service
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-16
 approved: 2026-07-16
+done: 2026-07-16
 ---
 
 # Refund service (Rimborsi): expense requests, expense lines & accounting review
