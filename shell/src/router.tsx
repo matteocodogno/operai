@@ -317,7 +317,36 @@ export const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-export const router = createRouter({ routeTree })
+// Content-area pending fallback shown while a tool route's `beforeLoad`
+// (createToolAccessBeforeLoad → revalidatePermissions() → GET /authz/me, ~1s)
+// resolves. Without it, TanStack Router keeps the OUTGOING remote mounted
+// during that window — and that remote's inner router, now seeing the new
+// (cross-basepath) URL, renders its own "Not Found" until the new route
+// resolves. `defaultPendingMs: 0` shows this immediately on navigation so the
+// stale remote is never displayed mid-switch; the shell chrome (header/sidebar/
+// footer) stays mounted since only the tool-route child is pending.
+function RoutePendingFallback() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-3 px-6 py-16"
+      data-testid="route-pending"
+    >
+      <div
+        aria-hidden="true"
+        className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-acc"
+      />
+      <p className="sr-only" aria-live="polite">
+        Loading…
+      </p>
+    </div>
+  )
+}
+
+export const router = createRouter({
+  routeTree,
+  defaultPendingComponent: RoutePendingFallback,
+  defaultPendingMs: 0,
+})
 
 // TypeScript registration
 declare module '@tanstack/react-router' {
