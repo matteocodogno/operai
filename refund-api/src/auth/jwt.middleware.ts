@@ -16,6 +16,19 @@ import { env } from "../lib/env";
 export type JwtVariables = {
   userId: string;
   email: string;
+  /**
+   * The `perm_epoch` claim from the verified JWT (auth/src/auth/auth.config.ts
+   * `definePayload`) — a monotonically-increasing staleness marker bumped
+   * whenever an admin changes this user's roles/permissions/departments.
+   * Consumed by authzMiddleware (T6, ADR-0014) as half of its
+   * `(sub, perm_epoch)` permission cache key: a grant change bumps the
+   * epoch, so the caller's NEXT refreshed token carries a new epoch, which
+   * is a cache-key miss at refund-api, forcing a fresh `/authz/resolve`
+   * call. Defaults to 0 for a token that (unexpectedly) omits the claim —
+   * treated as "epoch unknown", never as a reason to reject the token here;
+   * jwtMiddleware's job is identity only (WHO), not authorization (WHAT).
+   */
+  permEpoch: number;
 };
 
 // ─── JWKS key set — built ONCE at module scope ────────────────────────────────
@@ -115,8 +128,16 @@ export const jwtMiddleware = createMiddleware<{
   }
 
   // 4. Set context variables for downstream route handlers.
+  //    perm_epoch (T6, ADR-0014): read straight off the already-verified
+  //    payload — no additional trust decision, just extraction. A
+  //    non-numeric/missing claim degrades to 0 rather than failing
+  //    verification (identity, not authorization, is this middleware's job).
+  const permEpoch =
+    typeof payload["perm_epoch"] === "number" ? payload["perm_epoch"] : 0;
+
   c.set("userId", userId);
   c.set("email", email);
+  c.set("permEpoch", permEpoch);
 
   return next();
 });
