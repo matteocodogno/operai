@@ -124,7 +124,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
 
 ## Verification & close
 
-- [ ] T21: End-to-end headline journeys (Playwright) — refs: AC-2.1, AC-3.2, AC-3.6, AC-6.5, AC-7.2, AC-7.3 — deps: T16, T17, T18, T13
+- [x] T21: End-to-end headline journeys (Playwright) — refs: AC-2.1, AC-3.2, AC-3.6, AC-6.5, AC-7.2, AC-7.3 — deps: T16, T17, T18, T13
   - touch: `shell/e2e/` (seeded-session helper; refund-ui is driven through the shell per ADR-0006), stack config
   - Journeys: (1) employee composes a mixed-entity request with an attachment → submits → accounting (scoped) adjusts a total → approves → employee sees requested-vs-approved + the notification + the monthly note; (2) a reject-with-motivation path showing the motivation to the employee.
   - done when: both e2e journeys pass against the running stack.
