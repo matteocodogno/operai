@@ -1,105 +1,82 @@
 /**
  * @vitest-environment jsdom
  *
- * Component tests for App.tsx — refund-ui's exposed `./App` placeholder
- * (T15, specs/003-suite-shell, US-5, AC-5.2).
+ * Component tests for App.tsx — refund-ui's exposed `./App` (T14,
+ * specs/007-refund-service/tasks.md).
  *
- * Proves:
- *   (a) the placeholder renders — a heading identifying the tool and a
- *       short coming-soon / proof-of-concept message, and nothing else (no
- *       forms, no reimbursement domain — explicit spec non-goal).
- *   (b) with a mocked SIGNED-IN user (`shell/session`'s useSession), the
- *       shared-session demonstration line shows that user's name — proving
- *       this remote reads the ONE suite-wide session (ADR-0001/ADR-0006,
- *       AC-2.3) rather than holding its own.
- *   (c) when the session hook has no user data yet (e.g. useSession still
- *       pending), the component still renders the placeholder without
- *       crashing and simply omits the "Signed in as" line — defensive
- *       coverage since useSession is a separate reactive subscription from
- *       the shell's one-shot `_authed` guard (mirrors Header.test.tsx's
- *       reasoning in shell/, and EstimatorApp.tsx's existing
- *       `authClient.useSession()` truthiness-guard convention).
+ * The T15/specs/003 placeholder's tests (heading + coming-soon copy + shared-
+ * session demonstration) are superseded: T14 replaces that static
+ * placeholder with refund-ui's own inner TanStack Router (src/router.tsx),
+ * rebased to basepath `/refund` (src/App.tsx's `createAppRouter('/refund')`).
+ * This file proves the EXACT exposed component — with its hardcoded
+ * `/refund` basepath — mounts and resolves under that prefix; src/router.test.tsx
+ * separately covers the router's structure and per-route navigation using
+ * the basepath-less factory (mirrors admin-ui's App.test.tsx/router.test.tsx
+ * split).
  *
- * `shell/session` is a federated module (bare specifier `shell/session`,
- * only resolvable at runtime via @module-federation/vite) — vitest.config.ts
- * aliases it to a local stub purely to satisfy Vite's import-analysis; this
- * test overrides its content with vi.mock (hoisted above the App import).
+ * `shell/tokens.css` is a side-effect-only import — vitest.config.ts's
+ * `resolve.alias` points the bare specifier at a real (empty) local stub so
+ * Vite's import-analysis is satisfied; nothing to assert on for it here.
+ * `shell/session` is mocked because `RefundShell`'s nav uses `<Link>`, which
+ * needs no session data, but this remote's federation contract still routes
+ * every import through the same stubbed specifiers as every other test file
+ * in this package (see vitest.config.ts's `resolve.alias`).
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-
-const mockUseSession = vi.fn()
-
-vi.mock('shell/session', () => ({
-  useSession: () => mockUseSession(),
-}))
-
-// App.tsx also does a side-effect `import 'shell/tokens.css'` — left
-// unmocked here: vitest.config.ts's `resolve.alias` already points the bare
-// `shell/tokens.css` specifier at a real (empty) local stub, which is enough
-// to satisfy the import with nothing to assert on (visual consistency is an
-// e2e/design concern, AC-1.3, T16).
 
 const { default: App } = await import('./App')
 
 afterEach(() => {
   cleanup()
-  vi.restoreAllMocks()
+  window.history.pushState(null, '', '/')
 })
 
-describe('App (refund-ui placeholder)', () => {
-  it('renders a heading identifying the tool and a coming-soon message', () => {
-    mockUseSession.mockReturnValue({ data: null })
+describe('App (refund-ui, mounted under /refund)', () => {
+  it('landing on /refund redirects to /refund/requests and renders the shell + My requests placeholder', async () => {
+    window.history.pushState(null, '', '/refund')
 
     render(<App />)
 
+    expect(await screen.findByTestId('refund-my-requests-page')).not.toBeNull()
+    expect(window.location.pathname).toBe('/refund/requests')
     expect(screen.getByRole('heading', { name: /refund \(rimborsi\)/i })).not.toBeNull()
-    expect(screen.getByText(/coming soon/i)).not.toBeNull()
-    expect(screen.getByText(/proof-of-concept/i)).not.toBeNull()
   })
 
-  it('renders no forms, tables, or reimbursement-domain content (placeholder only)', () => {
-    mockUseSession.mockReturnValue({ data: null })
+  it('nav links carry the /refund basepath in their href', async () => {
+    window.history.pushState(null, '', '/refund')
+
+    render(<App />)
+    await screen.findByTestId('refund-my-requests-page')
+
+    expect(screen.getByRole('link', { name: 'My requests' }).getAttribute('href')).toBe('/refund/requests')
+    expect(screen.getByRole('link', { name: 'Review queue' }).getAttribute('href')).toBe('/refund/review')
+  })
+
+  it('deep-linking to /refund/review renders the review queue placeholder directly, not the redirect target', async () => {
+    window.history.pushState(null, '', '/refund/review')
 
     render(<App />)
 
-    expect(screen.queryByRole('textbox')).toBeNull()
-    expect(screen.queryByRole('form')).toBeNull()
-    expect(screen.queryByRole('table')).toBeNull()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(await screen.findByTestId('refund-review-queue-page')).not.toBeNull()
+    expect(screen.queryByTestId('refund-my-requests-page')).toBeNull()
   })
 
-  it('shows the signed-in user\'s name, demonstrating the shared shell session', () => {
-    mockUseSession.mockReturnValue({
-      data: { user: { id: 'u1', name: 'Ada Lovelace', email: 'ada@welld.ch' } },
-    })
+  it('deep-linking to a request detail resolves the $id param under the /refund basepath', async () => {
+    window.history.pushState(null, '', '/refund/requests/req-123')
 
     render(<App />)
 
-    const signedInAs = screen.getByTestId('refund-signed-in-as')
-    expect(signedInAs.textContent).toMatch(/Ada Lovelace/)
+    expect(await screen.findByTestId('refund-request-detail-page')).not.toBeNull()
+    expect(screen.getByTestId('refund-request-detail-id').textContent).toBe('req-123')
   })
 
-  it('falls back to the email when the session has no name', () => {
-    mockUseSession.mockReturnValue({
-      data: { user: { id: 'u2', email: 'consultant@welld.ch' } },
-    })
+  it('an unmatched path renders the not-found fallback, with the nav still mounted', async () => {
+    window.history.pushState(null, '', '/refund/nonexistent')
 
     render(<App />)
 
-    const signedInAs = screen.getByTestId('refund-signed-in-as')
-    expect(signedInAs.textContent).toMatch(/consultant@welld\.ch/)
-  })
-
-  it('omits the "signed in as" line when the session has no user yet (still renders the placeholder)', () => {
-    mockUseSession.mockReturnValue({ data: null })
-
-    render(<App />)
-
-    expect(screen.queryByTestId('refund-signed-in-as')).toBeNull()
-    // The placeholder itself still renders — a pending/absent session read
-    // does not crash the component (it is not this component's job to gate
-    // on auth; the shell's `_authed` guard already did that before mounting).
-    expect(screen.getByRole('heading', { name: /refund \(rimborsi\)/i })).not.toBeNull()
+    expect(await screen.findByTestId('refund-not-found-page')).not.toBeNull()
+    expect(screen.getByRole('navigation', { name: 'Refund navigation' })).not.toBeNull()
   })
 })
