@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+//
+// Intentionally empty. This is T4's bootstrap skeleton — src/lib/db.ts wires the
+// generated Prisma client the same way estimai-api does, but the real domain
+// models (RefundRequest, RefundLine, Attachment, RefundAuditEntry — see
+// specs/007-refund-service/plan.md § Data model) land in T5's `0001_init`
+// migration. `prisma generate` against a model-less schema still produces a
+// valid PrismaClient (raw queries like `$queryRaw`, used by the health check,
+// work with zero models) — this is not a placeholder model, it's genuinely
+// empty on purpose. Never hand-edit this file outside its owning task; T5 adds
+// the models here and creates the first migration.

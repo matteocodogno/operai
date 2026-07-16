@@ -1,0 +1,60 @@
+- generic [ref=f6e3]:
+  - link "Skip to content" [ref=f6e4] [cursor=pointer]:
+    - /url: "#shell-main-content"
+  - banner [ref=f6e5]:
+    - generic [ref=f6e6]:
+      - button "Operai menu" [ref=f6e8] [cursor=pointer]:
+        - img "Operai" [ref=f6e9]
+      - generic [ref=f6e10]:
+        - button "System theme (auto)" [ref=f6e11] [cursor=pointer]: ◑
+        - link "Notifications" [ref=f6e12] [cursor=pointer]:
+          - /url: /notify
+          - img [ref=f6e13]
+        - generic [ref=f6e17]:
+          - button "QE User A" [expanded] [active] [ref=f6e18] [cursor=pointer]:
+            - generic "QE User A" [ref=f6e19]: Q
+          - menu [ref=f6e60]:
+            - generic [ref=f6e61]:
+              - generic [ref=f6e62]: QE User A
+              - generic [ref=f6e63]: qe-6.3-a-1783949294777@operai.test
+            - menuitem "Sign out" [ref=f6e64] [cursor=pointer]
+  - generic [ref=f6e20]:
+    - navigation "Tool navigation" [ref=f6e21]:
+      - generic [ref=f6e22]:
+        - list [ref=f6e23]
+        - button "Collapse sidebar" [expanded] [ref=f6e25] [cursor=pointer]:
+          - img [ref=f6e26]
+          - generic [ref=f6e29]: Collapse
+    - main [ref=f6e30]:
+      - generic [ref=f6e31]:
+        - generic [ref=f6e32]:
+          - heading "Notifications" [level=1] [ref=f6e33]
+          - button "Mark all as read" [ref=f6e34] [cursor=pointer]
+        - paragraph [ref=f6e35]: 1 notification loaded
+        - list [ref=f6e37]:
+          - listitem [ref=f6e38]:
+            - generic [ref=f6e39]:
+              - generic [ref=f6e40]: "New:"
+              - generic [ref=f6e41]: ⓘ
+              - generic [ref=f6e42]: "Severity: Info"
+              - generic [ref=f6e43]:
+                - generic [ref=f6e44]:
+                  - generic [ref=f6e45]: New
+                  - generic [ref=f6e46]: A only notification
+                - generic [ref=f6e47]: belongs to A
+                - generic [ref=f6e48]:
+                  - generic [ref=f6e49]: EstimAI
+                  - time [ref=f6e50]: just now
+  - contentinfo [ref=f6e51]:
+    - generic [ref=f6e52]:
+      - link "Legal information" [ref=f6e53] [cursor=pointer]:
+        - /url: https://welld.ch/legal
+      - generic [ref=f6e54]:
+        - generic [ref=f6e55]:
+          - text: Operai
+          - generic [ref=f6e56]: v0.0.0
+        - generic [ref=f6e57]: ·
+        - generic [ref=f6e58]:
+          - text: © 2026
+          - link "wellD" [ref=f6e59] [cursor=pointer]:
+            - /url: https://welld.ch
