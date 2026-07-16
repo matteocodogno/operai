@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
-import { strings } from '../strings'
+import { ownerDisplay, strings } from '../strings'
 import * as requestsApi from '../lib/requestsApi'
 import type { RefundRequestDetail } from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
@@ -187,7 +187,7 @@ export default function ReviewDetailPage() {
 
   const handleApproveConfirm = useCallback(async () => {
     if (pageState.status !== 'loaded') return
-    const employeeName = pageState.request.owner.name
+    const employeeName = ownerDisplay(pageState.request.owner)
     setDecisionDialog((prev) => (prev.open ? { ...prev, deciding: true, error: null } : prev))
     try {
       await reviewApi.approve(id)
@@ -209,7 +209,7 @@ export default function ReviewDetailPage() {
   const handleRejectConfirm = useCallback(
     async (motivation: string) => {
       if (pageState.status !== 'loaded') return
-      const employeeName = pageState.request.owner.name
+      const employeeName = ownerDisplay(pageState.request.owner)
       setDecisionDialog((prev) => (prev.open ? { ...prev, deciding: true, error: null } : prev))
       try {
         await reviewApi.reject(id, motivation)
@@ -256,7 +256,7 @@ export default function ReviewDetailPage() {
 
       {pageState.status === 'loaded' && (
         <p className="mt-1 text-sm" style={{ color: 'var(--soft)' }} data-testid="review-detail-requested-by">
-          {t.requestedByLabel(pageState.request.owner.name, pageState.request.owner.email)}
+          {t.requestedByLabel(pageState.request.owner)}
         </p>
       )}
 
@@ -390,7 +390,7 @@ export default function ReviewDetailPage() {
 
       {decisionDialog.open && decisionDialog.kind === 'approve' && pageState.status === 'loaded' && (
         <ApproveDialog
-          employeeName={pageState.request.owner.name}
+          employeeName={ownerDisplay(pageState.request.owner)}
           isDeciding={decisionDialog.deciding}
           errorMessage={decisionDialog.error}
           onConfirm={() => void handleApproveConfirm()}
@@ -400,7 +400,7 @@ export default function ReviewDetailPage() {
 
       {decisionDialog.open && decisionDialog.kind === 'reject' && pageState.status === 'loaded' && (
         <RejectDialog
-          employeeName={pageState.request.owner.name}
+          employeeName={ownerDisplay(pageState.request.owner)}
           isDeciding={decisionDialog.deciding}
           errorMessage={decisionDialog.error}
           onConfirm={(motivation) => void handleRejectConfirm(motivation)}

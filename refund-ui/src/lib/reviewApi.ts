@@ -31,11 +31,18 @@ import type { RefundLine, RefundRequestDetail } from './requestsApi'
 import type { Subtotal } from './subtotals'
 import { getJson, sendJson } from './refundApi'
 
-/** One row of `GET /review/requests` — always `status: 'submitted'` (the queue's own scope predicate). */
+/**
+ * One row of `GET /review/requests` — always `status: 'submitted'` (the
+ * queue's own scope predicate). `owner.name` is `string | null` (QE-verified
+ * defect, specs/007-refund-service): `refund-api` never populates it — the
+ * JWT carries no `name` claim, only `sub`/`email` — so it's `null` on every
+ * real response. Never read `owner.name` directly for display; use
+ * `strings.ts`'s `ownerDisplay(owner)` instead.
+ */
 export type ReviewQueueItem = {
   id: string
   status: RequestStatus
-  owner: { email: string; name: string }
+  owner: { email: string; name: string | null }
   submittedAt: string
   subtotals: Subtotal[]
 }
