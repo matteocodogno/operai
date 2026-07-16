@@ -31,6 +31,15 @@
  *       `raiseNotification`/the SSE ticket mint/`GET /notifications/*` (this
  *       module's notification seam, notify-ui) go through this same
  *       Bearer-attach machinery.
+ *     • The refund-api origin (VITE_REFUND_API_URL), if that env var is
+ *       defined (T20, specs/007-refund-service — closes the drift flagged by
+ *       refund-ui's own T14: `refund-ui/src/lib/refundApi.ts` read
+ *       `VITE_REFUND_API_URL` and called through `apiFetch` from day one, but
+ *       until this origin was added here every refund-api request went out
+ *       WITHOUT the Bearer header and refund-api 401'd everything). Same
+ *       shape as the notify-api entry above — refund-api is a sibling
+ *       resource server, not the auth service, so it gets its own entry
+ *       rather than reusing VITE_API_URL.
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -140,6 +149,20 @@ const getTrustedOrigins = (): Set<string> => {
   if (notifyUrl) {
     try {
       trusted.add(new URL(notifyUrl).origin)
+    } catch { /* ignore invalid env value */ }
+  }
+
+  // T20 (specs/007-refund-service, tasks.md "Trusted-origin fix"): refund-api
+  // origin — refund-ui's requestsApi/reviewApi/attachments calls (all via
+  // refund-ui/src/lib/refundApi.ts's getJson/sendJson/deleteJson, which
+  // already call apiFetch) need the Bearer JWT attached the same way every
+  // other resource server's calls do. Without this entry every refund-api
+  // request 401s (ADR-0001: apiFetch only attaches Authorization to a
+  // trusted origin).
+  const refundUrl = import.meta.env.VITE_REFUND_API_URL as string | undefined
+  if (refundUrl) {
+    try {
+      trusted.add(new URL(refundUrl).origin)
     } catch { /* ignore invalid env value */ }
   }
 

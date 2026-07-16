@@ -59,6 +59,7 @@ type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 
 const AUTH_URL = 'http://auth.test'
 const API_URL = 'http://api.test'
+const REFUND_API_URL = 'http://refund-api.test'
 const TARGET_URL = `${API_URL}/estimates`
 const THIRD_PARTY_URL = 'https://evil.example.com/x'
 const SAME_ORIGIN_PATH = '/estimates'
@@ -267,6 +268,31 @@ describe('apiFetch', () => {
         .mockResolvedValueOnce(okResponse())
 
       await apiFetch(authOriginUrl)
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const [, init] = mockFetch.mock.calls[1]
+      expect(
+        (init as RequestInit & { headers: Record<string, string> }).headers,
+      ).toMatchObject({ Authorization: `Bearer ${FAKE_JWT}` })
+    })
+
+    // T20 (specs/007-refund-service, tasks.md "Trusted-origin fix"): proves
+    // getTrustedOrigins() (session.ts, unexported) includes the refund-api
+    // origin once VITE_REFUND_API_URL is set — mirrors this describe block's
+    // own auth-origin assertion above, and matches how specs/005-notification-
+    // center proved the notify-api entry (shell/src/lib/notifications.test.ts,
+    // "trusted origins" describe block) — behaviorally, via apiFetch, since
+    // getTrustedOrigins itself is a private helper.
+    it('sends Authorization header for a request to the refund-api origin (VITE_REFUND_API_URL)', async () => {
+      vi.stubEnv('VITE_REFUND_API_URL', REFUND_API_URL)
+      const mockFetch = vi.mocked(fetch)
+
+      const refundOriginUrl = `${REFUND_API_URL}/requests`
+      mockFetch
+        .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
+        .mockResolvedValueOnce(okResponse())
+
+      await apiFetch(refundOriginUrl)
 
       expect(mockFetch).toHaveBeenCalledTimes(2)
       const [, init] = mockFetch.mock.calls[1]

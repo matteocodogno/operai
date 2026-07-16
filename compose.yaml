@@ -97,6 +97,52 @@ services:
       retries: 5
       start_period: 15s
 
+  # ─── refund-api ─────────────────────────────────────────────────────────────
+  # Bun + Hono resource server for the reimbursement tool (specs/007).
+  #
+  # DATA-RESIDENCY: in production this service is deployed to Railway EU region
+  # (see refund-api/railway.json). Locally it runs against the shared Postgres
+  # instance above, in its own logical database ('refund'). Same pattern as
+  # 'estimai'/'notify' above — no init script; Prisma creates the logical
+  # database itself the first time migrations run (`migrate dev` / `migrate
+  # deploy`). Request/response bodies are never written to application logs
+  # (hono/logger emits method+path+status only, enforced in src/index.ts) —
+  # this service additionally handles financial figures and receipt-attachment
+  # metadata that may carry PII (ADR-0016). Receipt BYTES themselves never
+  # transit this container — they go direct-to-bucket via presigned URLs
+  # (REFUND_S3_*, a separate EU-region object-storage resource, ADR-0016).
+  #
+  # Prerequisites:
+  #   1. Copy refund-api/.env.example → refund-api/.env and fill in values.
+  #   2. The `refund` database must exist; run migrations first:
+  #        cd refund-api && bun run db:migrate
+  #      or `mise run db:migrate` (applies auth + estimai-api + notify-api +
+  #      refund-api).
+  refund-api:
+    build:
+      context: ./refund-api
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "8082:8082"
+    env_file:
+      - ./refund-api/.env
+    environment:
+      # Override DATABASE_URL so the hostname resolves inside the compose network.
+      # The .env file uses localhost:5435 (host access); inside compose use the
+      # service name 'postgres' on its internal port 5432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/refund
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 volumes:
   operai_postgres_data:
     driver: local

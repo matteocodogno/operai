@@ -32,7 +32,7 @@ operai/
 │   └── vite.config.ts
 │
 ├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006)
-├── refund-ui/           # Reimbursement tool — federated remote (placeholder; domain in a later spec)
+├── refund-ui/           # Reimbursement tool — federated remote: expense requests + accounting review/decision (specs/007)
 ├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions GUI (specs/004, admin-only)
 ├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
 │
@@ -53,7 +53,8 @@ operai/
 │   └── package.json
 │
 ├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
-├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011)
+├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011); + internal /system/notifications for cross-user push (specs/007, ADR-0017)
+├── refund-api/          # Bun + Hono + TypeScript backend — reimbursement persistence; authorization-enforcing resource server + EU object storage for receipt attachments (specs/007, ADR-0014/0015/0016)
 │
 ├── docs/adr/            # Architecture Decision Records (0001–0018; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
@@ -281,13 +282,18 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
-`bun install`, `bun run db:migrate`, `bun run dev`. Both are JWKS resource servers and
+`bun install`, `bun run db:migrate`, `bun run dev`. All three are JWKS resource servers and
 **require `AUTH_AUDIENCE`** (the same suite-wide value auth stamps as the `aud` claim, ADR-0010)
 or they reject every token with 401. `notify-api` also serves the ticket-authed SSE stream
 (ADR-0008) and is pinned to a single instance in production (in-process ticket store + fan-out).
-The whole suite comes up with one command from the repo root: `mise run dev`.
+`refund-api` is additionally an **authorization**-enforcing resource server (ADR-0014) — it
+resolves the caller's live permissions from `auth GET /authz/resolve` on every request — and
+uses EU-region S3-compatible object storage for receipt attachments, reached only via
+presigned URLs (ADR-0016; `REFUND_S3_*` env, not yet provisioned in any environment as of
+specs/007's devops task — see `infra/README.md`). The whole suite comes up with one command
+from the repo root: `mise run dev`.
 
 ---
 
