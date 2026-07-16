@@ -51,22 +51,22 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - Resolves the caller's refund permissions from `auth GET /authz/resolve` (forward Bearer), cache keyed `(sub, perm_epoch)` + 30s TTL backstop; **fail-closed** (503) on auth outage. Sets `c.var.authz = { permissions, entity }`. Provide helpers: `hasCapability(resource,action)`, `ownershipOwn(record, sub)`, and the entity-scope predicate `requestInScope(lines, callerEntity | GLOBAL)` = "≥1 line matches, or unconditioned ⇒ all".
   - done when: unit tests cover the predicate (single-entity match/no-match, mixed-entity ≥1 match, global sees all); an integration test shows a missing capability → 403 and the cache serves a second call without re-hitting auth for the same epoch; auth-down → 503, never 200.
 
-- [ ] T7: Employee request-level endpoints (create/list/get/delete draft) — refs: AC-1.1, AC-2.5, AC-3.1, AC-3.2, AC-3.4, AC-3.5 — deps: T5, T6
+- [x] T7: Employee request-level endpoints (create/list/get/delete draft) — refs: AC-1.1, AC-2.5, AC-3.1, AC-3.2, AC-3.4, AC-3.5 — deps: T5, T6
   - touch: `refund-api/src/requests/` (routes, service, repo), OpenAPI
   - `POST /requests` (draft, owner=`sub`), `GET /requests` (own only, `[{id,status,updatedAt,subtotals}]`), `GET /requests/:id` (full detail incl. per-currency `subtotals[]`, never blended), `DELETE /requests/:id` (204 only when `status==draft`, else 409). Non-owner-non-accounting on `/requests/:id` → 404.
   - done when: integration tests prove sub-scoping (foreign request 404 + absent from list), draft-only delete (409 otherwise), and correct per-currency subtotal grouping for a mixed-entity request.
 
-- [ ] T8: Expense line endpoints + validation — refs: AC-1.2, AC-1.4, AC-1.6 — deps: T7
+- [x] T8: Expense line endpoints + validation — refs: AC-1.2, AC-1.4, AC-1.6 — deps: T7
   - touch: `refund-api/src/requests/lines.*`, validation schema
   - `POST/PUT/DELETE /requests/:id/lines[/:lineId]` (draft-only → 409 otherwise; ownership 404). Validation (422): `date,type,motivo,requestedAmountCents(≥0 int),entity` required; `km` required & `>0` **iff** `type==travel_km`, rejected if present for any other type.
   - done when: unit + integration tests cover every validation branch (km required/rejected by type, missing-field 422 with offending field named) and draft-only mutation guards.
 
-- [ ] T9: Attachments + EU object storage (presigned upload/confirm/delete, signed GET) — refs: AC-1.3, AC-1.7, AC-6.2 — deps: T8
+- [x] T9: Attachments + EU object storage (presigned upload/confirm/delete, signed GET) — refs: AC-1.3, AC-1.7, AC-6.2 — deps: T8
   - touch: `refund-api/src/attachments/`, `refund-api/src/lib/storage.ts` (S3-compatible), env (`REFUND_S3_*`, EU-region allowlist assertion at startup)
   - Two-phase: `POST …/attachments` mints a presigned **POST** (policy caps ≤10 MiB + `pdf`/`jpeg`/`png`) → browser uploads direct → `POST …/confirm` (HEAD verifies size/type) flips to `stored`. `DELETE …/attachments/:aid` (draft-only, also deletes the object). `GET …/attachments/:aid/url` mints a ~60s presigned GET **only after** ownership/entity-scope passes. Key: `refund/{requestId}/{lineId}/{attachmentId}/{safeName}`. Only `stored` attachments surface.
   - done when: integration tests (storage mocked) prove the mint→confirm→list flow, oversize/wrong-type rejection at mint, draft-only delete, and that a signed GET is only minted after the authz check; startup aborts if `REFUND_S3_REGION` ∉ EU allowlist.
 
-- [ ] T10: Submit / withdraw lifecycle + audit — refs: AC-1.5, AC-1.6, AC-2.1, AC-2.2, AC-2.3, AC-8.1 — deps: T8
+- [x] T10: Submit / withdraw lifecycle + audit — refs: AC-1.5, AC-1.6, AC-2.1, AC-2.2, AC-2.3, AC-8.1 — deps: T8
   - touch: `refund-api/src/requests/lifecycle.*`, audit writer
   - `POST /requests/:id/submit`: refuse 0-line (422, AC-1.5) and incomplete-line (422 body lists offending line ids, AC-1.6); else → `submitted`, becomes read-only. `POST /requests/:id/withdraw`: `submitted`→`draft` (409 if not submitted). Each transition (submit, withdraw) writes an append-only audit row (actor/ts/action). Editing/deleting a non-draft → 409 (AC-2.3).
   - done when: integration tests cover the full transition matrix incl. the 422 offending-line payload, the withdraw round-trip, terminal-immutability 409s, and an audit row per transition.
@@ -96,7 +96,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - touch: `refund-ui/src/components/` — port `ErrorBanner`, `SkeletonListRows`, `ConfirmDeleteModal`, `GuardrailDialog`, `PermissionDenied` (from admin-ui patterns); NEW `RequestStatusBadge` (4 variants), `EntityBadge` (glyph+text+color, never color-only).
   - done when: component tests render each badge variant and the ported dialogs' focus-trap/Escape/confirm behavior; `pnpm lint`/`build` green.
 
-- [ ] T16: Screens R1 (My requests) + R2 (draft composer & status-driven detail) — refs: AC-1.2, AC-1.4, AC-1.5, AC-1.6, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2 — deps: T15
+- [x] T16: Screens R1 (My requests) + R2 (draft composer & status-driven detail) — refs: AC-1.2, AC-1.4, AC-1.5, AC-1.6, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2 — deps: T15
   - touch: `refund-ui/src/pages/` + components `ExpenseLineComposer`, `ExpenseLineRow`, `SubtotalsPanel`, `SubmitValidationSummary`, `MonthlyProcessingNote`, R1/R2 rows
   - R1 list (loading/empty/populated/error/PD). R2 variants: draft (composer with type-driven `km`, add/edit/delete line, delete-request confirm, submit-disabled-on-0-lines), submitted (RO pending), approved (requested vs approved + subtotals + MonthlyProcessingNote), rejected (motivation + "+ New request"). 422 → SubmitValidationSummary with jump links; 409 → GuardrailDialog; NF → neutral not-found. Integrates T7/T8/T10.
   - done when: component/integration tests cover the km show/hide, submit-blocked-on-empty, the four status variants, the validation-summary jump behavior, and MonthlyProcessingNote present only on approved; a11y: labelled fields, focus-on-transition, `aria-live` announcements.
