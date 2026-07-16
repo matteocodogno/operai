@@ -30,7 +30,7 @@ export function setupOpenAPI(app: OpenAPIHono): void {
       {
         name: "Review",
         description:
-          "Entity-scoped accounting review queue and decisions (T11, specs/007-refund-service).",
+          "Entity-scoped accounting review queue and decisions (T11-T12, specs/007-refund-service).",
       },
     ],
   });

@@ -76,7 +76,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - `GET /review/requests` (submitted ∧ in-scope; 403 without `request:review`). `GET /requests/:id` for accounting: full detail incl. **all** lines when ≥1 in scope (never filtered); 404 when scope matches none. Decided requests inspectable read-only. Per-currency subtotals as on the employee side.
   - done when: integration tests cover queue scoping (single-entity sees/omits, global sees all, withdrawn absent, only submitted present), whole-request line visibility for an in-scope mixed-entity request, out-of-scope deep-link 404, and non-accounting 403.
 
-- [ ] T12: Accounting decisions — set-approved-total / approve / reject + audit — refs: AC-6.5, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6, AC-8.1 — deps: T11
+- [x] T12: Accounting decisions — set-approved-total / approve / reject + audit — refs: AC-6.5, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6, AC-8.1 — deps: T11
   - touch: `refund-api/src/review/decide.*`, audit writer
   - `PUT …/lines/:lineId/approved-total` (submitted-only, entity-scoped, writes an `approved_total_set` audit row). `POST …/approve` → `approved`, each line's total finalized (default = requested for untouched lines), stamps decidedBy/decidedAt. `POST …/reject` requires non-empty motivation (422 if empty) → `rejected`, stamps motivation + decidedBy/decidedAt. Both are whole-request incl. out-of-scope lines. Decided → any change 409 (AC-7.4).
   - done when: integration tests cover approve (defaulting + stamps + audit), reject (empty→422, valid→motivation+stamps+audit), per-line total edits with audit rows, whole-request decision across a mixed-entity request, and decided-immutability 409s.

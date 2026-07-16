@@ -14,7 +14,10 @@ import { ConflictError, DatabaseError, NotFoundError } from "../lib/errors";
 import type { LineBody } from "./lines.schemas";
 import type { LineRow } from "./requests.service";
 
-const lineInclude = {
+// Exported so decide.repo.ts (T12) can re-fetch a full LineRow-shaped line
+// after PUT approved-total, without duplicating this stored-only attachment
+// filter shape.
+export const lineInclude = {
   attachments: {
     where: { uploadStatus: "stored" as const },
     orderBy: { createdAt: "asc" as const },
