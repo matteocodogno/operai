@@ -8,11 +8,27 @@
  * RouterProvider renders), using the basepath-less `createAppRouter()`
  * factory; App.test.tsx separately covers the exposed remote's own
  * hardcoded `/refund` basepath.
+ *
+ * T16 update (specs/007-refund-service/tasks.md): `/requests`, `/requests/
+ * new`, and `/requests/$id` are no longer static placeholders — they fetch
+ * via `requestsApi` (built on `shell/session`'s `apiFetch`). `/review` and
+ * `/review/$id` remain T14 placeholders (T18's scope) so their assertions
+ * are unchanged. `apiFetch` is mocked module-wide here purely so these
+ * ROUTING-level tests don't need real network — the real fetch/mutation
+ * behavior of each screen is covered by its own test file
+ * (MyRequestsPage.test.tsx, NewRequestPage.test.tsx,
+ * RequestDetailPage.test.tsx).
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { RouterProvider } from '@tanstack/react-router'
+
+vi.mock('shell/session', () => ({
+  apiFetch: vi.fn(),
+}))
+
+import { apiFetch } from 'shell/session'
 
 /** Minimal shape of a TanStack Router route object needed for these assertions. */
 interface RouteTreeNode {
@@ -20,12 +36,22 @@ interface RouteTreeNode {
   fullPath?: string
 }
 
+const REFUND_API_URL = 'http://refund-api.test'
+
+const jsonResponse = (status: number, body: unknown): Response =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+
 /** Imports the router module fresh (cache-busted) so each test builds its own route tree/instance. */
 const importRouter = () => import('./router?t=' + Date.now())
+
+beforeEach(() => {
+  vi.stubEnv('VITE_REFUND_API_URL', REFUND_API_URL)
+})
 
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   window.history.pushState(null, '', '/')
 })
 
@@ -56,32 +82,72 @@ describe('router structure', () => {
 })
 
 describe('the five routes render client-side', () => {
-  it.each([
-    ['/requests', 'refund-my-requests-page'],
-    ['/requests/new', 'refund-new-request-page'],
-    ['/review', 'refund-review-queue-page'],
-  ] as const)('visiting %s renders its placeholder (%s)', async (path, testId) => {
-    window.history.pushState(null, '', path)
+  it('visiting /requests renders Screen R1 (refund-my-requests-page)', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(jsonResponse(200, []))
+    window.history.pushState(null, '', '/requests')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByTestId(testId)).not.toBeNull()
+    expect(await screen.findByTestId('refund-my-requests-page')).not.toBeNull()
   })
 
-  it('visiting /requests/new renders Screen "new request", not the /requests/$id detail route (static-vs-dynamic-segment precedence)', async () => {
+  it('visiting /review renders its placeholder (refund-review-queue-page)', async () => {
+    window.history.pushState(null, '', '/review')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByTestId('refund-review-queue-page')).not.toBeNull()
+  })
+
+  it('visiting /requests/new immediately creates a draft and redirects to Screen R2, not Screen R1', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(201, {
+        id: 'req-new-1',
+        status: 'draft',
+        owner: { userId: 'u1', email: 'a@welld.ch', name: 'A' },
+        submittedAt: null,
+        decidedAt: null,
+        decidedBy: null,
+        rejectionMotivation: null,
+        lines: [],
+        subtotals: [],
+        createdAt: '2026-07-16T00:00:00.000Z',
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      }),
+    )
     window.history.pushState(null, '', '/requests/new')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
 
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByTestId('refund-new-request-page')).not.toBeNull()
-    expect(screen.queryByTestId('refund-request-detail-page')).toBeNull()
+    await waitFor(() => {
+      expect(screen.getByTestId('refund-request-detail-id').textContent).toBe('req-new-1')
+    })
+    expect(await screen.findByTestId('refund-request-detail-page')).not.toBeNull()
+    expect(window.location.pathname).toBe('/requests/req-new-1')
   })
 
-  it('visiting /requests/$id resolves the id param', async () => {
+  it('visiting /requests/$id resolves the id param and fetches that request', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(200, {
+        id: 'req-abc',
+        status: 'draft',
+        owner: { userId: 'u1', email: 'a@welld.ch', name: 'A' },
+        submittedAt: null,
+        decidedAt: null,
+        decidedBy: null,
+        rejectionMotivation: null,
+        lines: [],
+        subtotals: [],
+        createdAt: '2026-07-16T00:00:00.000Z',
+        updatedAt: '2026-07-16T00:00:00.000Z',
+      }),
+    )
     window.history.pushState(null, '', '/requests/req-abc')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
@@ -89,7 +155,9 @@ describe('the five routes render client-side', () => {
     render(<RouterProvider router={router} />)
 
     expect(await screen.findByTestId('refund-request-detail-page')).not.toBeNull()
-    expect(screen.getByTestId('refund-request-detail-id').textContent).toBe('req-abc')
+    await waitFor(() => {
+      expect(screen.getByTestId('refund-request-detail-id').textContent).toBe('req-abc')
+    })
   })
 
   it('visiting /review/$id resolves the id param', async () => {
@@ -104,6 +172,7 @@ describe('the five routes render client-side', () => {
   })
 
   it('root ("/") redirects to /requests', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(jsonResponse(200, []))
     window.history.pushState(null, '', '/')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
