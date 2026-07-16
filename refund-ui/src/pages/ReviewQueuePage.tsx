@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
-import { strings } from '../strings'
+import { ownerDisplay, strings } from '../strings'
 import * as reviewApi from '../lib/reviewApi'
 import type { ReviewQueueItem } from '../lib/reviewApi'
 import { ApiError } from '../lib/refundApi'
@@ -137,19 +137,20 @@ export default function ReviewQueuePage() {
             {listState.items.map((item) => {
               const preview = formatSubtotalsPreview(item.subtotals)
               const submitted = formatDate(item.submittedAt)
+              const ownerName = ownerDisplay(item.owner)
               return (
                 <Link
                   to="/review/$id"
                   params={{ id: item.id }}
                   key={item.id}
                   data-testid={`review-queue-row-${item.id}`}
-                  aria-label={t.row.openLabel(item.owner.name, submitted)}
+                  aria-label={t.row.openLabel(ownerName, submitted)}
                   className="flex items-center justify-between gap-4 px-4 py-3 rounded-md border text-left transition-colors hover:opacity-90"
                   style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--ink-soft)' }}
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>
-                      {item.owner.name}
+                      {ownerName}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--muted)' }}>
                       {t.row.submittedLabel(submitted)}

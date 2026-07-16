@@ -60,6 +60,21 @@
 
 const NO_MOTIVO_FALLBACK = '(no description)'
 
+/**
+ * ownerDisplay — the single place that resolves a request owner's display
+ * name, guarding against `owner.name` being `null` (QE-verified defect,
+ * specs/007-refund-service: `refund-api` never populates `RefundRequest.
+ * ownerName` because the JWT carries no `name` claim, only `sub`/`email` —
+ * so the wire contract is `name: string | null`, never guaranteed present).
+ * Falls back to the owner's email so accounting screens NEVER render the
+ * literal string "null" in place of a name. Every call site that displays
+ * an owner's name (ReviewQueuePage's row, ReviewDetailPage's confirmation
+ * copy and decision dialogs) MUST route through this helper rather than
+ * reading `owner.name` directly.
+ */
+export const ownerDisplay = (owner: { email: string; name: string | null }): string =>
+  owner.name && owner.name.trim().length > 0 ? owner.name : owner.email
+
 const en = {
   appTitle: 'Refund (Rimborsi)',
   nav: {
@@ -182,7 +197,15 @@ const en = {
       heading: 'Review detail',
       loadingAnnouncement: 'Loading this request',
       loadErrorFallback: 'Could not load this request.',
-      requestedByLabel: (name: string, email: string) => `Requested by ${name} (${email})`,
+      /**
+       * `owner.name` can be `null` (see `ownerDisplay`'s doc comment) — when
+       * absent, show the email alone rather than duplicating it as both the
+       * name and the parenthetical (`Requested by bob@x (bob@x)`).
+       */
+      requestedByLabel: (owner: { email: string; name: string | null }) =>
+        owner.name && owner.name.trim().length > 0
+          ? `Requested by ${owner.name} (${owner.email})`
+          : `Requested by ${owner.email}`,
       notFound: {
         heading: 'Request not found',
         body: 'This request doesn’t exist or you don’t have access to it.',
