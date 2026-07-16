@@ -7,6 +7,7 @@ import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { whoamiRouter } from "./auth/whoami.routes";
 import { requestsRouter } from "./requests/requests.routes";
+import { linesRouter } from "./requests/lines.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -39,6 +40,8 @@ app.route("/", healthRouter);
 app.route("/", whoamiRouter);
 // requestsRouter: employee request-level endpoints (T7, specs/007-refund-service).
 app.route("/", requestsRouter);
+// linesRouter: expense-line endpoints (T8, specs/007-refund-service).
+app.route("/", linesRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
