@@ -28,6 +28,10 @@ estimai-api/src/auth/jwt.middleware.test.ts:generic-api-key:146
 # notify-api/src/auth/jwt.middleware.test.ts — same in-test generated CryptoKey pattern
 notify-api/src/auth/jwt.middleware.test.ts:generic-api-key:138
 
+# refund-api/src/auth/jwt.middleware.test.ts (T4, specs/007-refund-service) — same
+# in-test generated CryptoKey pattern as estimai-api/notify-api above
+refund-api/src/auth/jwt.middleware.test.ts:generic-api-key:162
+
 # infra/check.sh (T13, specs/006-user-invitations) — deliberately BOGUS literal string
 # ("not-the-real-token") sent as X-Internal-Token to assert POST /system/emails
 # rejects it with 401 (negative control on the internal-token gate, ADR-0011).
