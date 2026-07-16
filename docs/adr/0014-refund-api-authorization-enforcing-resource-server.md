@@ -227,4 +227,52 @@ resource server requiring `AUTH_AUDIENCE`, the trigger ADR-0010 was written for)
 
 ---
 
+## Addendum (2026-07-16): key source correction
+
+**Correction, discovered during spec 007's T1 implementation.**
+
+Decision point 1 above states that, when verifying the forwarded Bearer token for
+`GET /authz/resolve`, `auth` checks it "against env.JWT_PUBLIC_KEY... it holds the
+signing keypair, so this is a local verification, not a remote-JWKS round trip against
+itself." **That premise is incorrect.**
+
+Per ADR-0005's own dated correction (2026-07-05), tokens issued by `GET /auth/token` are
+signed by better-auth's own **rotating, DB-managed keypair**, published with a dynamic
+`kid` at better-auth's built-in **`/auth/jwks`** endpoint. `env.JWT_PUBLIC_KEY` /
+`JWT_PRIVATE_KEY` back a *separate, unrelated* static keypair served at the custom
+`/.well-known/jwks.json` route (`kid: operai-auth-rs256-v1`) — that keypair does **not**
+sign `/auth/token` tokens and cannot verify them. `auth` therefore has no static
+"signing keypair it holds" to check the forwarded Bearer token against directly; the env
+keypair was never in the signing path for real tokens.
+
+**Shipped correction (T1).** `GET /authz/resolve`'s Bearer-token verification follows the
+same JWKS-consumer pattern ADR-0005 established for every other resource server: it
+verifies against **`/auth/jwks`** (fetched in-process, cached ~60s, refetched on an
+unknown `kid`), pinning `alg: RS256` + `iss` + `aud` — identical in shape to how
+`estimai-api`, `notify-api`, and `refund-api` itself verify tokens minted for them. The
+only thing distinguishing this from an ordinary resource-server verifier is that the
+fetch target happens to be `auth`'s own JWKS endpoint rather than another service's:
+`auth` is, for this one endpoint, also a client of its own public-key publication.
+
+Nothing else in the original Decision changes: `/authz/resolve` still returns only the
+caller's own resolution, is still Bearer-authed with no new credential type introduced,
+and the epoch-keyed cache, capability/condition split, and `refund-api`'s fail-closed
+posture are all unaffected. Only the "which keys does `auth` check the token against"
+premise in point 1 was wrong — corrected here, not rewritten there.
+
+**Consequence for every resource server.** `AUTH_JWKS_URL` must point at `/auth/jwks` in
+every service that verifies suite-issued Bearer tokens — `estimai-api`, `notify-api`,
+`refund-api`, and, per this addendum, `auth`'s own `/authz/resolve` verifier — never at
+`/.well-known/jwks.json`. Already reflected in `refund-api`'s `.env.example`.
+
+Cross-reference: ADR-0005 (JWT resource-server verification via remote JWKS — the pattern
+this addendum aligns `/authz/resolve`'s verifier with; see that ADR's own 2026-07-05
+correction for the original discovery of the `/auth/jwks` vs `/.well-known/jwks.json`
+split, and its still-open "orphaned `/.well-known/jwks.json`" tech-debt note, which this
+addendum reinforces rather than newly raises).
+
+Status unchanged: **Accepted**.
+
+---
+
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
