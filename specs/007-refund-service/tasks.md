@@ -41,7 +41,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - Mirror `estimai-api` verbatim: startup env validation (`process.exit(1)` on missing), global RFC-7807 `onError`/`notFound`, Scalar reference, JWKS-verified identity middleware, `AUTH_AUDIENCE` enforced.
   - done when: `bun run dev` boots on :8082; `GET /health` returns ok; a request with no/invalid/wrong-aud Bearer → 401 Problem JSON; `bun run typecheck` + `bun test` (health) green.
 
-- [x] T5: Prisma schema + `0001_init` migration (4 tables, enums, audit immutability) — refs: AC-8.1, AC-8.2, AC-8.3 — deps: T4
+- [x] T5: Prisma schema + `0001_init` migration (4 tables, enums, audit immutability) — refs: AC-8.1, AC-8.2, AC-8.3, AC-8.4 — deps: T4
   - touch: `refund-api/prisma/schema.prisma`, `refund-api/prisma/migrations/0001_init/`
   - `RefundRequest`, `RefundLine` (12-type enum, per-line `entity`, `requestedAmountCents:Int`, `km:Int?`, `approvedTotalCents:Int?`), `Attachment` (objectKey unique, uploadStatus), append-only `RefundAuditEntry`. Money as integer cents; no stored currency. Audit immutability via a raw-SQL `CREATE RULE`/trigger blocking UPDATE+DELETE; `RefundAuditEntry.request` `onDelete: Restrict`; lines/attachments `onDelete: Cascade`.
   - done when: `bun run db:migrate` applies cleanly against the local DB; a raw-SQL UPDATE/DELETE on `RefundAuditEntry` is rejected by the trigger (test); deleting a request that has an audit row is refused by the FK (test).
@@ -51,7 +51,7 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - Resolves the caller's refund permissions from `auth GET /authz/resolve` (forward Bearer), cache keyed `(sub, perm_epoch)` + 30s TTL backstop; **fail-closed** (503) on auth outage. Sets `c.var.authz = { permissions, entity }`. Provide helpers: `hasCapability(resource,action)`, `ownershipOwn(record, sub)`, and the entity-scope predicate `requestInScope(lines, callerEntity | GLOBAL)` = "≥1 line matches, or unconditioned ⇒ all".
   - done when: unit tests cover the predicate (single-entity match/no-match, mixed-entity ≥1 match, global sees all); an integration test shows a missing capability → 403 and the cache serves a second call without re-hitting auth for the same epoch; auth-down → 503, never 200.
 
-- [x] T7: Employee request-level endpoints (create/list/get/delete draft) — refs: AC-1.1, AC-2.5, AC-3.1, AC-3.2, AC-3.4, AC-3.5 — deps: T5, T6
+- [x] T7: Employee request-level endpoints (create/list/get/delete draft) — refs: AC-1.1, AC-1.4, AC-2.5, AC-3.1, AC-3.2, AC-3.4, AC-3.5, AC-8.4 — deps: T5, T6
   - touch: `refund-api/src/requests/` (routes, service, repo), OpenAPI
   - `POST /requests` (draft, owner=`sub`), `GET /requests` (own only, `[{id,status,updatedAt,subtotals}]`), `GET /requests/:id` (full detail incl. per-currency `subtotals[]`, never blended), `DELETE /requests/:id` (204 only when `status==draft`, else 409). Non-owner-non-accounting on `/requests/:id` → 404.
   - done when: integration tests prove sub-scoping (foreign request 404 + absent from list), draft-only delete (409 otherwise), and correct per-currency subtotal grouping for a mixed-entity request.

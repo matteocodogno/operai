@@ -122,7 +122,10 @@ sessions) before committing it to review.
   the employee can remove an attachment they added before submission.
 - AC-1.4: Given a `draft` request, when the employee edits or deletes an expense line, or
   deletes the whole request, then the change is saved (or the request/line is gone) with
-  no involvement from accounting — a draft is entirely private, disposable working state.
+  no involvement from accounting. A draft that has never been submitted can be freely
+  edited or deleted. Once a request has been submitted at least once (even if later
+  withdrawn back to `draft`), it retains its audit history and can no longer be
+  hard-deleted — an attempt returns a 409; it may still be edited and re-submitted.
 - AC-1.5: Given a `draft` request with zero expense lines, when the employee attempts to
   submit it (US-2), then submission is refused with a clear message — a request needs at
   least one expense line to be submitted.
@@ -150,9 +153,11 @@ to fix.
   becomes visible in accounting's review queue (US-5).
 - AC-2.2: Given a `submitted` request that accounting has not yet decided, when the
   employee withdraws it, then it transitions back to `draft` — editable again exactly as
-  in US-1 — and disappears from accounting's queue immediately. Withdraw is an action on
-  an existing request, not a distinct status the request ends up in (see Domain
-  language).
+  in US-1, except that, because the submission is recorded in the audit trail (US-8), the
+  request can no longer be deleted (a delete attempt returns 409); it can still be edited
+  and re-submitted — and it disappears from accounting's queue immediately. Withdraw is
+  an action on an existing request, not a distinct status the request ends up in (see
+  Domain language).
 - AC-2.3: Given a request already `approved` or `rejected`, when the employee attempts to
   edit, delete, or withdraw it, then the action is refused — a decided request is
   terminal and immutable (see Non-goals on in-place resubmission).
@@ -314,6 +319,12 @@ the fact.
   (and their audit history) are retained, not removable, mirroring the rest of the suite's
   treatment of financial/authorization-relevant records (specs/004 US-5, specs/006 soft
   deletion).
+- AC-8.4: Given a request has been submitted at least once, then its submission audit
+  entry (AC-8.1) is permanent, even if the request is later withdrawn back to `draft`
+  (US-2) — this is precisely why such a request can no longer be hard-deleted (AC-1.4,
+  AC-2.2): deleting it would orphan or destroy audit history that must outlive the
+  request's current status, consistent with audit entries never being editable or
+  deletable (AC-8.2).
 
 ## Non-goals
 
@@ -408,6 +419,11 @@ below; captured verbatim for the plan, not elaborated here.*
 - **On approve/reject, the requesting employee is actively notified** via the existing
   suite notification center (`notify-api`, ADR-0009) — a push, not merely something
   discoverable only by revisiting the request (AC-3.6).
+- **A request that has been submitted at least once is never hard-deletable, even after
+  being withdrawn back to `draft`** (ADR-0018): its audit trail (US-8) is immutable and
+  `onDelete: Restrict`-backed, so a delete attempt on such a request returns 409; it
+  remains editable and re-submittable (AC-1.4, AC-2.2, AC-8.4). Only a request that has
+  NEVER been submitted can be freely deleted.
 
 ## Open questions
 
