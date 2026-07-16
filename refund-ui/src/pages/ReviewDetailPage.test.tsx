@@ -141,6 +141,30 @@ describe('ReviewDetailPage — submitted (decidable) variant', () => {
     expect(input.getAttribute('aria-label')).toBe('Approved total for 2026-07-01 · Pens · EUR')
   })
 
+  // QE regression (specs/007-refund-service, T21 verification pass) — same
+  // defect as ReviewQueuePage.test.tsx's own "DEFECT (QE)" case: refund-api
+  // NEVER populates `owner.name` (verified live — `POST /requests` always
+  // calls `createDraftRequest(sub, email, null)`, requests.routes.ts, since
+  // the JWT carries no `name` claim). `RefundRequestDetail`'s type declares
+  // `owner.name: string` (non-nullable, requestsApi.ts) — wrong against the
+  // real contract. Expected to FAIL until the type is corrected to
+  // `string | null` and this line falls back to the email alone.
+  it('DEFECT (QE): a request with no owner name never renders "Requested by null"', async () => {
+    // `as unknown as RefundRequestDetail` — see ReviewQueuePage.test.tsx's
+    // matching DEFECT test doc comment: TypeScript's direct `as` refuses
+    // this (TS2352) because the declared type is wrong against the real
+    // wire contract, which is exactly the defect being demonstrated.
+    const noNameRequest = {
+      ...baseRequest,
+      owner: { ...baseRequest.owner, name: null },
+    } as unknown as RefundRequestDetail
+    vi.mocked(requestsApi.get).mockResolvedValue(noNameRequest)
+    renderReviewDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('review-detail-decidable')).not.toBeNull())
+    expect(screen.getByTestId('review-detail-requested-by').textContent).not.toContain('null')
+  })
+
   it('write-on-change-only: setApprovedTotal is called with the new cents on blur after an edit, and reloads', async () => {
     vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
     vi.mocked(reviewApi.setApprovedTotal).mockResolvedValue({ ...baseRequest.lines[0], approvedTotalCents: 750 })

@@ -22,6 +22,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "bun:test";
+import { Effect } from "effect";
 import type { ResolveResponse } from "../authz/resolveClient";
 import { setupTestAuth } from "../test-support/testAuth";
 import { truncateRefundTables } from "../test-support/dbCleanup";
@@ -45,6 +46,11 @@ const { db } = await import("../lib/db");
 // static top-level import would resolve before setupTestAuth()'s
 // mock.module("../authz/resolveClient") is registered.
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+// Real submit/withdraw transitions (T10) — used to drive the "retain-once-
+// submitted" fixture below through the SAME code path production traffic
+// uses (writes a real 'submitted' audit row), rather than hand-crafting a
+// draft-with-audit-row state directly.
+const { submitRequest, withdrawRequest } = await import("./lifecycle.repo");
 
 // ─── Fixture permission sets ────────────────────────────────────────────────
 
@@ -448,5 +454,55 @@ describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {
       headers: authHeaders(token),
     });
     expect(res.status).toBe(404);
+  });
+
+  // ─── Amended AC-1.4/AC-2.2/AC-8.4: "retain once submitted" ─────────────
+  //
+  // A request that has been submitted at least once — even after being
+  // withdrawn back to `draft` — must stay undeletable, because its
+  // submission audit entry (AC-8.1) is permanent (AC-8.4). Status alone is
+  // NOT the right guard here: after withdraw the row's status genuinely IS
+  // `draft` again, so this exercises attemptDeleteMany's P2003 (FK
+  // onDelete:Restrict) catch path in requests.repo.ts, not the simpler
+  // `status !== "draft"` branch the "409 when the request is not a draft"
+  // test above already covers. Drives the fixture through the REAL
+  // submit/withdraw repo functions (T10) — the same code path the
+  // lifecycle HTTP routes use — then exercises the actual DELETE route.
+  it("(AC-1.4/2.2/8.4) a draft that was submitted-then-withdrawn still cannot be hard-deleted — 409, not 204", async () => {
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", status: "draft" },
+    });
+    await createLineDirect(request.id, { requestedAmountCents: 1000 });
+
+    await Effect.runPromise(submitRequest(request.id, "emp-1", "emp1@x.com"));
+    await Effect.runPromise(withdrawRequest(request.id, "emp-1", "emp1@x.com"));
+
+    // Sanity check: withdraw really did put it back in `draft`.
+    const withdrawn = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(withdrawn.status).toBe("draft");
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { detail: string };
+    expect(body.detail).toMatch(/prior submission history/i);
+
+    // The request (and its audit trail) must still exist, untouched.
+    expect(await db.refundRequest.findUnique({ where: { id: request.id } })).not.toBeNull();
+    const auditRows = await db.refundAuditEntry.findMany({ where: { requestId: request.id } });
+    expect(auditRows.map((r) => r.action).sort()).toEqual(["submitted", "withdrawn"]);
+
+    // It must still be fully editable/re-submittable (AC-1.4/2.2) — deletion
+    // is the ONLY thing refused, everything else about being a draft holds.
+    const editRes = await db.refundLine.updateMany({
+      where: { requestId: request.id },
+      data: { motivo: "Edited after withdraw" },
+    });
+    expect(editRes.count).toBe(1);
   });
 });

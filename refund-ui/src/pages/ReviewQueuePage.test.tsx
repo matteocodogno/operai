@@ -111,6 +111,39 @@ describe('ReviewQueuePage — list states', () => {
     expect(reviewApi.listQueue).toHaveBeenCalledTimes(2)
   })
 
+  // QE regression (specs/007-refund-service, T21 verification pass) — the
+  // REAL refund-api wire contract sends `owner.name: null` for every request
+  // ever created: `POST /requests` always calls `createDraftRequest(sub,
+  // email, null)` (requests.routes.ts) because the JWT carries no `name`
+  // claim (jwt.middleware.ts only extracts `sub`/`email`) — verified live
+  // against a running refund-api (see QE report). `ReviewQueueItem`'s own
+  // type declares `owner.name: string` (non-nullable, reviewApi.ts), which
+  // is simply WRONG against that real contract — this test uses `as
+  // ReviewQueueItem` to force a runtime-accurate fixture through the
+  // (incorrect) compile-time type, the same way the real `fetch` response
+  // would. Expected to FAIL until reviewApi.ts's type is corrected to
+  // `name: string | null` and the row/aria-label fall back to the email.
+  it('DEFECT (QE): a request with no owner name never renders the literal string "null"', async () => {
+    // `as unknown as ReviewQueueItem`, not a plain `as`: TypeScript itself
+    // refuses the direct cast (TS2352, "types don't sufficiently overlap")
+    // because `owner.name: string` cannot legally hold `null` — which is
+    // exactly the point being demonstrated: the type is wrong against the
+    // real wire contract.
+    const noNameItem = {
+      ...queueItem,
+      id: 'req-no-name',
+      owner: { email: 'bob@welld.ch', name: null },
+    } as unknown as ReviewQueueItem
+    vi.mocked(reviewApi.listQueue).mockResolvedValue([noNameItem])
+
+    renderReviewQueuePage()
+
+    await waitFor(() => expect(screen.getByTestId('review-queue-list')).not.toBeNull())
+    const row = screen.getByTestId(`review-queue-row-${noNameItem.id}`)
+    expect(row.textContent).not.toContain('null')
+    expect(row.getAttribute('aria-label')).not.toContain('null')
+  })
+
   it('renders PermissionDenied on a 403 (no request:review at all, AC-5.4), no Retry', async () => {
     vi.mocked(reviewApi.listQueue).mockRejectedValue(
       new ApiError({ type: 'about:blank', title: 'Forbidden', status: 403, detail: 'No review grant.' }),
