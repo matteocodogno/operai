@@ -71,17 +71,17 @@ copy sourced from a centralized strings module (English-only for v1, no hardcode
   - `POST /requests/:id/submit`: refuse 0-line (422, AC-1.5) and incomplete-line (422 body lists offending line ids, AC-1.6); else → `submitted`, becomes read-only. `POST /requests/:id/withdraw`: `submitted`→`draft` (409 if not submitted). Each transition (submit, withdraw) writes an append-only audit row (actor/ts/action). Editing/deleting a non-draft → 409 (AC-2.3).
   - done when: integration tests cover the full transition matrix incl. the 422 offending-line payload, the withdraw round-trip, terminal-immutability 409s, and an audit row per transition.
 
-- [ ] T11: Accounting review read — entity-scoped queue + detail — refs: AC-5.1, AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-6.1, AC-6.3, AC-6.4, AC-6.5, AC-6.6 — deps: T10, T2
+- [x] T11: Accounting review read — entity-scoped queue + detail — refs: AC-5.1, AC-5.2, AC-5.3, AC-5.5, AC-5.6, AC-6.1, AC-6.3, AC-6.4, AC-6.5, AC-6.6 — deps: T10, T2
   - touch: `refund-api/src/review/` (routes, service), reuse the entity predicate (T6)
   - `GET /review/requests` (submitted ∧ in-scope; 403 without `request:review`). `GET /requests/:id` for accounting: full detail incl. **all** lines when ≥1 in scope (never filtered); 404 when scope matches none. Decided requests inspectable read-only. Per-currency subtotals as on the employee side.
   - done when: integration tests cover queue scoping (single-entity sees/omits, global sees all, withdrawn absent, only submitted present), whole-request line visibility for an in-scope mixed-entity request, out-of-scope deep-link 404, and non-accounting 403.
 
-- [ ] T12: Accounting decisions — set-approved-total / approve / reject + audit — refs: AC-6.5, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6, AC-8.1 — deps: T11
+- [x] T12: Accounting decisions — set-approved-total / approve / reject + audit — refs: AC-6.5, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6, AC-8.1 — deps: T11
   - touch: `refund-api/src/review/decide.*`, audit writer
   - `PUT …/lines/:lineId/approved-total` (submitted-only, entity-scoped, writes an `approved_total_set` audit row). `POST …/approve` → `approved`, each line's total finalized (default = requested for untouched lines), stamps decidedBy/decidedAt. `POST …/reject` requires non-empty motivation (422 if empty) → `rejected`, stamps motivation + decidedBy/decidedAt. Both are whole-request incl. out-of-scope lines. Decided → any change 409 (AC-7.4).
   - done when: integration tests cover approve (defaulting + stamps + audit), reject (empty→422, valid→motivation+stamps+audit), per-line total edits with audit rows, whole-request decision across a mixed-entity request, and decided-immutability 409s.
 
-- [ ] T13: Notify the employee on decision — refs: AC-3.3, AC-3.6 — deps: T12, T3
+- [x] T13: Notify the employee on decision — refs: AC-3.3, AC-3.6 — deps: T12, T3
   - touch: `refund-api/src/review/decide.*` (post-commit hook), `refund-api/src/lib/notify.ts`, env (`NOTIFY_INTERNAL_TOKEN`, notify-api base URL)
   - After an approve/reject commits, call `notify-api POST /system/notifications` (`X-Internal-Token`) with `recipientId=<owner sub>`, `originApp:"refund"`, title/body per outcome, `link.href:/refund/requests/:id`. Best-effort: a failed call is logged and never rolls back the decision.
   - done when: an integration test (notify-api mocked) asserts approve and reject each fire the call with the owner's sub + correct link, and that a mocked notify failure still returns a 200 decision.

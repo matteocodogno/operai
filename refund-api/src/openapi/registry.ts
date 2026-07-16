@@ -27,6 +27,12 @@ export function setupOpenAPI(app: OpenAPIHono): void {
         name: "System",
         description: "Health checks and identity-verification probes",
       },
+      {
+        name: "Review",
+        description:
+          "Entity-scoped accounting review queue and decisions, plus the " +
+          "post-decision employee notification (T11-T13, specs/007-refund-service).",
+      },
     ],
   });
 

@@ -10,6 +10,8 @@ import { requestsRouter } from "./requests/requests.routes";
 import { linesRouter } from "./requests/lines.routes";
 import { attachmentsRouter } from "./attachments/attachments.routes";
 import { lifecycleRouter } from "./requests/lifecycle.routes";
+import { reviewRouter } from "./review/review.routes";
+import { decideRouter } from "./review/decide.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -48,6 +50,11 @@ app.route("/", linesRouter);
 app.route("/", attachmentsRouter);
 // lifecycleRouter: submit/withdraw + audit (T10, specs/007-refund-service).
 app.route("/", lifecycleRouter);
+// reviewRouter: accounting review queue (T11, specs/007-refund-service).
+app.route("/", reviewRouter);
+// decideRouter: accounting decisions (set-approved-total/approve/reject),
+// specs/007-refund-service (T12; T13 adds the post-decision notify trigger).
+app.route("/", decideRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
