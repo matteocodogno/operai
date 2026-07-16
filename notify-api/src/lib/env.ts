@@ -40,16 +40,20 @@ const envSchema = z.object({
   // optional at the schema level so test/local can leave them unset.
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
-  // ─── System-to-system auth (T3, specs/006-user-invitations, ADR-0011) ──────
+  // ─── System-to-system auth (T3, specs/006-user-invitations, ADR-0011;
+  // reused by T3, specs/007-refund-service, ADR-0017 for a second internal
+  // caller/route) ──────────────────────────────────────────────────────────
   // Shared secret checked by internalTokenMiddleware against the
-  // `X-Internal-Token` header on POST /system/emails ONLY — never accepted on
-  // any jwtMiddleware-protected route, and jwtMiddleware never accepts this
-  // value (the two auth mechanisms are mutually exclusive by route, not
-  // layered, per ADR-0011). Required unconditionally — /system/emails has no
-  // meaningful "disabled" mode the way EMAIL_ENABLED does. A short/weak value
-  // materially weakens the entire trust boundary (ADR-0011 Risk: "leaked
-  // token = arbitrary email to arbitrary addresses"), so a minimum length is
-  // enforced here rather than left to operational discipline alone.
+  // `X-Internal-Token` header on POST /system/emails AND POST
+  // /system/notifications ONLY — never accepted on any jwtMiddleware-protected
+  // route, and jwtMiddleware never accepts this value (the two auth
+  // mechanisms are mutually exclusive by route, not layered, per ADR-0011).
+  // Required unconditionally — neither /system/* route has a meaningful
+  // "disabled" mode the way EMAIL_ENABLED does. A short/weak value materially
+  // weakens the entire trust boundary (ADR-0011 Risk, widened by ADR-0017:
+  // "leaked token = arbitrary email AND arbitrary in-app/SSE push"), so a
+  // minimum length is enforced here rather than left to operational
+  // discipline alone.
   NOTIFY_INTERNAL_TOKEN: z
     .string()
     .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),

@@ -32,9 +32,10 @@ export function setupOpenAPI(app: OpenAPIHono): void {
         name: "System",
         description:
           "Health checks and service metadata, plus the internal-only " +
-          "POST /system/emails send endpoint (X-Internal-Token, NOT a user " +
-          "JWT — ADR-0011). /system/* never accepts a Bearer JWT and the " +
-          "Notifications routes never accept the internal token.",
+          "POST /system/emails and POST /system/notifications endpoints " +
+          "(X-Internal-Token, NOT a user JWT — ADR-0011, ADR-0017). " +
+          "/system/* never accepts a Bearer JWT and the Notifications " +
+          "routes never accept the internal token.",
       },
     ],
   });
