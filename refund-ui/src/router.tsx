@@ -76,10 +76,24 @@ export function createAppRouter(basepath?: string) {
   })
 
   // Screen A1 (Review queue) — T14 placeholder, real screen T18.
+  //
+  // `validateSearch` carries a one-shot `confirmation` flash message across
+  // the Approve/Reject -> "return to queue" navigation (design.md F6 steps
+  // 4-5: "returned to Screen A1 … with an aria-live confirmation"). No
+  // existing screen in this suite passes an ephemeral message across a route
+  // transition (checked: RoleEditor.tsx navigates back to /roles with no
+  // confirmation at all) — TanStack Router's own `search` param is the
+  // pragmatic, idiomatic mechanism for exactly this (a decision surfaced as
+  // an ADR candidate in this task's implementation report, not a plan.md/
+  // design.md requirement). `ReviewQueuePage` reads it once on mount and
+  // strips it via a `replace` navigation so a page refresh never repeats it.
   const reviewRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/review',
     component: ReviewQueuePage,
+    validateSearch: (search: Record<string, unknown>): { confirmation?: string } => ({
+      confirmation: typeof search.confirmation === 'string' ? search.confirmation : undefined,
+    }),
   })
 
   // Screen A2 (Review detail & decide) — a sibling of `reviewRoute`, not

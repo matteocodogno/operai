@@ -46,7 +46,19 @@
  * interpolation can differ by language (a fixed prefix+suffix pair would not
  * survive translation) — same reasoning `Strings` being exported already
  * documents for the rest of this file's i18n-readiness.
+ *
+ * T17/T18 addition (specs/007-refund-service/tasks.md): `components.
+ * attachmentList` (upload/download copy shared by `AttachmentList`'s draft
+ * mode and `AttachmentDownloadLink`'s read-only mode), and the real
+ * `pages.reviewQueue`/`pages.reviewDetail` (Screens A1/A2, replacing T14's
+ * placeholders). `NO_MOTIVO_FALLBACK` is hoisted above `en` (not inlined
+ * per-use) so the same "(no description)" wording the submit-validation
+ * summary (T16) already uses is also reused by the approved-total input's
+ * disambiguating `aria-label` — a literal object can't reference its own
+ * other branches while being built.
  */
+
+const NO_MOTIVO_FALLBACK = '(no description)'
 
 const en = {
   appTitle: 'Refund (Rimborsi)',
@@ -111,8 +123,6 @@ const en = {
         deleteLineLabel: (motivo: string) => `Delete line “${motivo}”`,
         savingLabel: 'Saving…',
         updateError: 'Could not save this change. Check the fields and try again.',
-        attachmentsSeamLabel: 'Attachments',
-        attachmentsSeamComingSoon: 'Attaching receipts is coming soon.',
       },
       submit: {
         button: 'Submit for review',
@@ -143,7 +153,7 @@ const en = {
         heading: 'Some expense lines need attention before you can submit.',
         jumpLinkLabel: (label: string) => `Go to ${label}`,
         fallbackLineLabel: (lineId: string) => `Line ${lineId}`,
-        noMotivo: '(no description)',
+        noMotivo: NO_MOTIVO_FALLBACK,
       },
       statusBadges: {
         submittedNote: 'Every field is read-only while a decision is pending.',
@@ -159,11 +169,61 @@ const en = {
     },
     reviewQueue: {
       heading: 'Review queue',
-      placeholder: 'Requests awaiting your decision will be listed here.',
+      scopeHint: 'Showing requests for your scope',
+      loadingAnnouncement: 'Loading the review queue',
+      loadErrorFallback: 'Could not load the review queue.',
+      empty: 'Nothing awaiting your decision right now.',
+      row: {
+        openLabel: (employeeName: string, date: string) => `Open ${employeeName}’s request submitted ${date}`,
+        submittedLabel: (date: string) => `Submitted ${date}`,
+      },
     },
     reviewDetail: {
       heading: 'Review detail',
-      placeholder: 'This request’s full detail and decision actions will appear here.',
+      loadingAnnouncement: 'Loading this request',
+      loadErrorFallback: 'Could not load this request.',
+      requestedByLabel: (name: string, email: string) => `Requested by ${name} (${email})`,
+      notFound: {
+        heading: 'Request not found',
+        body: 'This request doesn’t exist or you don’t have access to it.',
+        backLink: 'Back to the review queue',
+      },
+      guardrail: {
+        title: 'This request has already been decided',
+        message: 'This request has already been decided and can no longer be changed.',
+      },
+      approvedTotal: {
+        label: 'Approved total',
+        ariaLabel: (date: string, motivo: string, currency: string) =>
+          `Approved total for ${date} · ${motivo || NO_MOTIVO_FALLBACK} · ${currency}`,
+        savingLabel: 'Saving…',
+        updateError: 'Could not save this change. Try again.',
+        invalidAmount: 'Enter a valid, non-negative amount.',
+      },
+      decide: {
+        approveButton: 'Approve',
+        rejectButton: 'Reject',
+        approveConfirmation: (employeeName: string) => `Approved — ${employeeName}’s request`,
+        rejectConfirmation: (employeeName: string) => `Rejected — ${employeeName}’s request`,
+        genericError: 'Could not record this decision. Try again.',
+      },
+      approveDialog: {
+        title: 'Approve this request?',
+        body: (employeeName: string) =>
+          `Approved totals become final the moment you confirm, and ${employeeName} is notified immediately.`,
+        confirmLabel: 'Approve',
+        confirmingLabel: 'Approving…',
+      },
+      rejectDialog: {
+        title: 'Reject this request?',
+        body: (employeeName: string) => `${employeeName} is notified immediately, with the reason below. This cannot be undone.`,
+        motivationLabel: 'Reason for rejection',
+        motivationHelp: 'Required — the employee will see this explanation.',
+        cancelLabel: 'Cancel',
+        cancelAriaLabel: 'Cancel',
+        confirmLabel: 'Reject',
+        confirmingLabel: 'Rejecting…',
+      },
     },
     notFound: {
       heading: 'Page not found',
@@ -197,6 +257,19 @@ const en = {
     permissionDenied: {
       heading: 'You no longer have refund access.',
       body: 'If this is unexpected, contact your administrator.',
+    },
+    attachmentList: {
+      attachButton: '+ Attach files',
+      removeLabel: (fileName: string) => `Remove ${fileName}`,
+      downloadLabel: (fileName: string) => `Download ${fileName}`,
+      downloadError: 'Could not open this attachment. Try again.',
+      dismissLabel: (fileName: string) => `Dismiss ${fileName}`,
+      statusQueued: 'Queued',
+      statusUploading: 'Uploading…',
+      statusStored: 'Uploaded',
+      statusFailed: 'Upload failed. Try again.',
+      rejectedTooLarge: 'File exceeds 10 MB and was not added.',
+      rejectedType: 'Unsupported file type — use PDF, JPEG, or PNG.',
     },
   },
   badges: {

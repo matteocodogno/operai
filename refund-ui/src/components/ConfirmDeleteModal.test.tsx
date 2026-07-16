@@ -149,6 +149,43 @@ describe('ConfirmDeleteModal', () => {
     expect(screen.getByText(/will be permanently deleted\. This cannot be undone\./)).not.toBeNull()
   })
 
+  it('T18: tone="positive" recolors the confirm button and spinner to --grn instead of --red', () => {
+    render(<ConfirmDeleteModal {...baseProps} tone="positive" isDeleting={true} />)
+
+    const confirmBtn = screen.getByTestId('confirm-delete-confirm')
+    expect(confirmBtn.getAttribute('style')).toContain('var(--grn)')
+    expect(confirmBtn.getAttribute('style')).not.toContain('var(--red)')
+  })
+
+  it('T18: title/confirmLabel/confirmingLabel override the default Delete copy', () => {
+    render(
+      <ConfirmDeleteModal
+        {...baseProps}
+        title="Approve this request?"
+        confirmLabel="Approve"
+        confirmingLabel="Approving…"
+        isDeleting={true}
+      />,
+    )
+
+    expect(screen.getByText('Approve this request?')).not.toBeNull()
+    expect(screen.getByText('Approving…')).not.toBeNull()
+    expect(screen.queryByText('Delete request?')).toBeNull()
+  })
+
+  it('T18: testIdPrefix namespaces every testid/internal id this dialog renders', () => {
+    render(<ConfirmDeleteModal {...baseProps} testIdPrefix="approve-dialog" />)
+
+    expect(screen.getByTestId('approve-dialog-modal')).not.toBeNull()
+    expect(screen.getByTestId('approve-dialog-cancel')).not.toBeNull()
+    expect(screen.getByTestId('approve-dialog-confirm')).not.toBeNull()
+    expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
+
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog.getAttribute('aria-labelledby')).toBe('approve-dialog-title')
+    expect(dialog.getAttribute('aria-describedby')).toBe('approve-dialog-body')
+  })
+
   it('renders an overriding `body` instead of the default copy, still inside aria-describedby', () => {
     render(
       <ConfirmDeleteModal
