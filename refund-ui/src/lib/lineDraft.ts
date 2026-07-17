@@ -19,11 +19,18 @@
  * type==travel_km, rejected if present for any other type") — carrying the
  * type-driven presence/validity logic here means `ExpenseLineComposer`/
  * `ExpenseLineRow` don't each reimplement the branch.
+ *
+ * `currency` (post-close change, specs/007): a separately-stored,
+ * independently-selectable field — no longer derived from `entity` — with
+ * its own no-default select (same "explicit, deliberate choice" pattern as
+ * `entity`/`type`, AC-1.2). Any entity/currency pair is valid; this module
+ * never cross-validates the two.
  */
 
 import type { ExpenseType } from './expenseTypes'
 import { requiresKm } from './expenseTypes'
 import type { Entity } from '../components/EntityBadge'
+import type { Currency } from './money'
 import type { LinePayload, RefundLine } from './requestsApi'
 import { todayIsoDate } from './dates'
 
@@ -34,17 +41,20 @@ export type LineDraftValue = {
   /** Major-unit amount as typed, e.g. "45.50" — never cents. */
   amount: string
   entity: Entity | ''
+  /** Independent of `entity` — no default, any entity/currency pair is valid. */
+  currency: Currency | ''
   /** Only meaningful when `type` requires km (`requiresKm`) — ignored otherwise. */
   km: string
 }
 
-/** A fresh draft for `ExpenseLineComposer` — no default type/entity (AC-1.2: "no default … an explicit, deliberate choice"). */
+/** A fresh draft for `ExpenseLineComposer` — no default type/entity/currency (AC-1.2: "no default … an explicit, deliberate choice"). */
 export const emptyLineDraft = (): LineDraftValue => ({
   date: todayIsoDate(),
   type: '',
   motivo: '',
   amount: '',
   entity: '',
+  currency: '',
   km: '',
 })
 
@@ -55,6 +65,7 @@ export const lineToDraft = (line: RefundLine): LineDraftValue => ({
   motivo: line.motivo,
   amount: centsToAmountInput(line.requestedAmountCents),
   entity: line.entity,
+  currency: line.currency,
   km: line.km !== null ? String(line.km) : '',
 })
 
@@ -80,7 +91,7 @@ export const centsToAmountInput = (cents: number): string => (cents / 100).toFix
  * absence/invalidity never blocks a draft of any other type.
  */
 export const isLineDraftComplete = (draft: LineDraftValue): boolean => {
-  if (!draft.date || !draft.type || draft.motivo.trim() === '' || !draft.entity) return false
+  if (!draft.date || !draft.type || draft.motivo.trim() === '' || !draft.entity || !draft.currency) return false
   if (amountToCents(draft.amount) === null) return false
   if (requiresKm(draft.type)) {
     const km = Number(draft.km)
@@ -103,6 +114,7 @@ export const lineDraftToPayload = (draft: LineDraftValue): LinePayload => {
     motivo: draft.motivo.trim(),
     requestedAmountCents: amountToCents(draft.amount) ?? 0,
     entity: draft.entity as Entity,
+    currency: draft.currency as Currency,
   }
   if (requiresKm(type)) {
     payload.km = Number(draft.km)

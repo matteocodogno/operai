@@ -8,8 +8,13 @@
  * never puts a `Decimal`/float amount on the wire (plan.md "Money handling").
  * Output format is plan.md's own literal spec ("## Money handling": "the UI
  * formats cents → `x,xx €`/`x,xx CHF`") — a COMMA decimal separator (the
- * Italian/European convention this suite's users expect for EUR and CHF
- * alike), followed by the currency symbol/code, space-separated.
+ * Italian/European convention this suite's users expect), followed by the
+ * currency symbol/code, space-separated. Extended (post-close change,
+ * specs/007) to the full four-currency set a line's now-independent
+ * `currency` field can carry — `USD`/`GBP` follow the exact same
+ * comma-decimal + suffix convention as `EUR`/`CHF`, deliberately NOT the
+ * `$45.50`/`£45.50` prefix convention those currencies use natively, so every
+ * amount in the UI reads consistently regardless of currency.
  *
  * Deliberately NOT `Intl.NumberFormat`: that API's output depends on the
  * runtime's bundled ICU data (full-icu vs. small-icu), which differs between
@@ -24,11 +29,13 @@
  * entirely removes the class of bug rather than papering over it).
  */
 
-export type Currency = 'EUR' | 'CHF'
+export type Currency = 'EUR' | 'CHF' | 'USD' | 'GBP'
 
 const CURRENCY_SUFFIX: Record<Currency, string> = {
   EUR: '€',
   CHF: 'CHF',
+  USD: '$',
+  GBP: '£',
 }
 
 /**

@@ -23,6 +23,7 @@ const fillNonKmLine = () => {
   fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Pens' } })
   fireEvent.change(screen.getByTestId('composer-amount'), { target: { value: '10.00' } })
   fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
+  fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'EUR' } })
 }
 
 describe('ExpenseLineComposer — km show/hide', () => {
@@ -79,12 +80,26 @@ describe('ExpenseLineComposer — Add disabled-until-valid', () => {
     fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Client visit' } })
     fireEvent.change(screen.getByTestId('composer-amount'), { target: { value: '45.50' } })
     fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
+    fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'EUR' } })
     expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', true)
 
     fireEvent.change(screen.getByTestId('composer-km'), { target: { value: '0' } })
     expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', true)
 
     fireEvent.change(screen.getByTestId('composer-km'), { target: { value: '120' } })
+    expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', false)
+  })
+
+  it('stays disabled until currency is also selected, independent of entity (no default, deliberate choice)', () => {
+    render(<ExpenseLineComposer onAdd={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('composer-date'), { target: { value: '2026-07-16' } })
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'stationery' } })
+    fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Pens' } })
+    fireEvent.change(screen.getByTestId('composer-amount'), { target: { value: '10.00' } })
+    fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
+    expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', true)
+
+    fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'EUR' } })
     expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', false)
   })
 })
@@ -104,12 +119,32 @@ describe('ExpenseLineComposer — submit behavior', () => {
         motivo: 'Pens',
         requestedAmountCents: 1000,
         entity: 'welld_it',
+        currency: 'EUR',
       })
     })
     await waitFor(() => {
       expect((screen.getByTestId('composer-motivo') as HTMLInputElement).value).toBe('')
     })
     expect((screen.getByTestId('composer-type') as HTMLSelectElement).value).toBe('')
+    expect((screen.getByTestId('composer-currency') as HTMLSelectElement).value).toBe('')
+  })
+
+  it('allows a mismatched entity/currency pair (e.g. WellD Italia + USD) with no client-side block', async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineComposer onAdd={onAdd} />)
+    fireEvent.change(screen.getByTestId('composer-date'), { target: { value: '2026-07-16' } })
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'stationery' } })
+    fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Client dinner' } })
+    fireEvent.change(screen.getByTestId('composer-amount'), { target: { value: '30.00' } })
+    fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
+    fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'USD' } })
+
+    expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', false)
+    fireEvent.click(screen.getByTestId('composer-add-button'))
+
+    await waitFor(() => {
+      expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ entity: 'welld_it', currency: 'USD' }))
+    })
   })
 
   it('keeps the draft and shows an inline error when onAdd rejects', async () => {

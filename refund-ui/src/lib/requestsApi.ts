@@ -77,13 +77,19 @@ export type RefundRequestDetail = {
   updatedAt: string
 }
 
-/** Body shared by `POST /requests/:id/lines` and `PUT /requests/:id/lines/:lineId` (plan.md). */
+/**
+ * Body shared by `POST /requests/:id/lines` and `PUT /requests/:id/lines/:lineId`
+ * (plan.md). `currency` (post-close change, specs/007): a separately-stored,
+ * independently-selectable field — REQUIRED, independent of `entity` (any
+ * combination is valid; refund-api no longer derives it from entity).
+ */
 export type LinePayload = {
   date: string
   type: ExpenseType
   motivo: string
   requestedAmountCents: number
   entity: Entity
+  currency: Currency
   /** Required (and `>0`) iff `type==='travel_km'`; must be absent for every other type. */
   km?: number
 }

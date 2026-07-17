@@ -15,6 +15,13 @@
  * else blank) and stays mounted, open for rapid successive adds (design.md:
  * "the composer resets and stays open").
  *
+ * Currency (post-close change, specs/007): a separately-stored,
+ * independently-selectable field, no longer derived from entity — its own
+ * `<select>` with the same explicit "Select a currency…" no-default pattern
+ * as entity/type (AC-1.2), required for "Add line" to enable. Any
+ * entity/currency combination is valid; this component never cross-validates
+ * the two.
+ *
  * A11y (design.md "## Accessibility"):
  *   - Every field has an explicit `<label htmlFor>`.
  *   - The `km` field, when shown, carries `aria-required="true"` and a
@@ -32,6 +39,7 @@ import { strings } from '../strings'
 import { EXPENSE_TYPES, requiresKm } from '../lib/expenseTypes'
 import type { ExpenseType } from '../lib/expenseTypes'
 import type { Entity } from './EntityBadge'
+import type { Currency } from '../lib/money'
 import type { LinePayload } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
@@ -43,10 +51,12 @@ export type ExpenseLineComposerProps = {
 }
 
 const ENTITY_OPTIONS: Entity[] = ['welld_it', 'welld_ch']
+const CURRENCY_OPTIONS: Currency[] = ['EUR', 'CHF', 'USD', 'GBP']
 
 export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps) {
   const t = strings.pages.requestDetail.composer
   const badgeStrings = strings.badges.entity
+  const currencyStrings = strings.badges.currency
 
   const [draft, setDraft] = useState<LineDraftValue>(emptyLineDraft())
   const [submitting, setSubmitting] = useState(false)
@@ -193,6 +203,29 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
             {ENTITY_OPTIONS.map((entity) => (
               <option key={entity} value={entity}>
                 {badgeStrings[entity]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="composer-currency" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+            {t.currencyLabel}
+          </label>
+          <select
+            id="composer-currency"
+            required
+            value={draft.currency}
+            disabled={submitting}
+            onChange={(e) => setDraft((prev) => ({ ...prev, currency: e.target.value as Currency | '' }))}
+            data-testid="composer-currency"
+            className="text-sm px-2.5 py-1.5 border rounded"
+            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+          >
+            <option value="">{t.currencyPlaceholder}</option>
+            {CURRENCY_OPTIONS.map((currency) => (
+              <option key={currency} value={currency}>
+                {currencyStrings[currency]}
               </option>
             ))}
           </select>

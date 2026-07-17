@@ -95,7 +95,7 @@ const baseRequest: RefundRequestDetail = {
       attachments: [],
     },
   ],
-  subtotals: [{ entity: 'welld_it', currency: 'EUR', requestedCents: 1000, approvedCents: null }],
+  subtotals: [{ currency: 'EUR', requestedCents: 1000, approvedCents: null }],
   createdAt: '2026-07-01T00:00:00.000Z',
   updatedAt: '2026-07-14T00:00:00.000Z',
 }
@@ -256,7 +256,7 @@ describe('ReviewDetailPage — decided (approved/rejected) read-only variant', (
       ...baseRequest,
       status: 'approved',
       lines: [{ ...baseRequest.lines[0], approvedTotalCents: 800 }],
-      subtotals: [{ entity: 'welld_it', currency: 'EUR', requestedCents: 1000, approvedCents: 800 }],
+      subtotals: [{ currency: 'EUR', requestedCents: 1000, approvedCents: 800 }],
       decidedAt: '2026-07-15T00:00:00.000Z',
       decidedBy: { email: 'acct@welld.ch' },
     }

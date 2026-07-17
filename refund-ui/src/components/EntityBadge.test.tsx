@@ -4,9 +4,13 @@
  * Component tests for EntityBadge (T15, specs/007-refund-service, design.md
  * Component inventory: "EntityBadge (WellD Italia·EUR / WellD CH·CHF chip)").
  *
- * Covers: both variants render a glyph AND a text label that spells out both
- * the entity name and its derived currency (never color-only, never
- * currency-only-inferred-from-color).
+ * Post-close change (specs/007): currency is now a separately-stored,
+ * independently-selectable line field, no longer derived from entity — this
+ * badge shows the entity ONLY (see `EntityBadge.tsx`'s doc comment and
+ * `CurrencyBadge.test.tsx` for the currency chip's own coverage).
+ *
+ * Covers: both variants render a glyph AND a text label naming the entity,
+ * never color-only.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -19,23 +23,14 @@ afterEach(() => {
 
 describe('EntityBadge', () => {
   it.each([
-    ['welld_it', 'WellD Italia · EUR', '🇮🇹'],
-    ['welld_ch', 'WellD CH · CHF', '🇨🇭'],
-  ] as const)('renders the %s variant with its glyph and Entity · Currency label', (entity, label, glyph) => {
+    ['welld_it', 'WellD Italia', '🇮🇹'],
+    ['welld_ch', 'WellD CH', '🇨🇭'],
+  ] as const)('renders the %s variant with its glyph and entity-name label, no currency', (entity, label, glyph) => {
     render(<EntityBadge entity={entity} />)
 
     const badge = screen.getByTestId('entity-badge')
     expect(badge.textContent).toBe(`${glyph}${label}`)
-  })
-
-  it('always spells out the currency in text, never leaves it color-only', () => {
-    render(<EntityBadge entity="welld_it" />)
-    expect(screen.getByTestId('entity-badge').textContent).toContain('EUR')
-
-    cleanup()
-
-    render(<EntityBadge entity="welld_ch" />)
-    expect(screen.getByTestId('entity-badge').textContent).toContain('CHF')
+    expect(badge.textContent).not.toMatch(/EUR|CHF|USD|GBP/)
   })
 
   it('the glyph is aria-hidden (label text alone carries the accessible name)', () => {

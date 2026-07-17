@@ -48,10 +48,11 @@ describe('centsToAmountInput', () => {
 })
 
 describe('emptyLineDraft', () => {
-  it('has no default type/entity (AC-1.2: explicit, deliberate choice)', () => {
+  it('has no default type/entity/currency (AC-1.2: explicit, deliberate choice)', () => {
     const draft = emptyLineDraft()
     expect(draft.type).toBe('')
     expect(draft.entity).toBe('')
+    expect(draft.currency).toBe('')
     expect(draft.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })
@@ -60,6 +61,7 @@ describe('lineToDraft / lineDraftToPayload round-trip', () => {
   it('round-trips a non-km line', () => {
     const draft = lineToDraft(baseLine)
     expect(draft.km).toBe('')
+    expect(draft.currency).toBe('EUR')
     const payload = lineDraftToPayload(draft)
     expect(payload).toEqual({
       date: '2026-07-01',
@@ -67,8 +69,17 @@ describe('lineToDraft / lineDraftToPayload round-trip', () => {
       motivo: 'Pens',
       requestedAmountCents: 1550,
       entity: 'welld_it',
+      currency: 'EUR',
     })
     expect(payload.km).toBeUndefined()
+  })
+
+  it('round-trips a line whose currency does not match its entity (independent fields, no cross-validation)', () => {
+    const mismatched: RefundLine = { ...baseLine, entity: 'welld_it', currency: 'USD' }
+    const draft = lineToDraft(mismatched)
+    const payload = lineDraftToPayload(draft)
+    expect(payload.entity).toBe('welld_it')
+    expect(payload.currency).toBe('USD')
   })
 
   it('round-trips a travel_km line, carrying km', () => {
@@ -87,6 +98,7 @@ describe('isLineDraftComplete', () => {
     motivo: 'Pens',
     amount: '10.00',
     entity: 'welld_it',
+    currency: 'EUR',
     km: '',
   }
 
@@ -105,6 +117,15 @@ describe('isLineDraftComplete', () => {
   it('is false if amount is not a valid non-negative number', () => {
     expect(isLineDraftComplete({ ...base, amount: '' })).toBe(false)
     expect(isLineDraftComplete({ ...base, amount: '-5' })).toBe(false)
+  })
+
+  it('is false if currency is not selected, independent of entity being selected', () => {
+    expect(isLineDraftComplete({ ...base, currency: '' })).toBe(false)
+  })
+
+  it('is true for any entity/currency combination — never cross-validated', () => {
+    expect(isLineDraftComplete({ ...base, entity: 'welld_it', currency: 'USD' })).toBe(true)
+    expect(isLineDraftComplete({ ...base, entity: 'welld_ch', currency: 'GBP' })).toBe(true)
   })
 
   it('for travel_km: requires km > 0, and does NOT require it for any other type', () => {

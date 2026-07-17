@@ -70,6 +70,7 @@ describe('line-level operations', () => {
     motivo: 'Pens',
     requestedAmountCents: 1000,
     entity: 'welld_it' as const,
+    currency: 'EUR' as const,
   }
 
   it('addLine POSTs /requests/:id/lines', async () => {

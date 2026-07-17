@@ -54,7 +54,7 @@ const queueItem: ReviewQueueItem = {
   status: 'submitted',
   owner: { email: 'alice@welld.ch', name: 'Alice' },
   submittedAt: '2026-07-14T00:00:00.000Z',
-  subtotals: [{ entity: 'welld_it', currency: 'EUR', requestedCents: 4550, approvedCents: null }],
+  subtotals: [{ currency: 'EUR', requestedCents: 4550, approvedCents: null }],
 }
 
 describe('ReviewQueuePage — list states', () => {

@@ -8,19 +8,24 @@
  * `SubtotalsPanel`: "reusing the same subtotal-formatting logic … just
  * condensed to one line instead of full cards").
  *
+ * Post-close change (specs/007): subtotals are now grouped by the stored
+ * **currency**, not entity — currency became a separately-stored,
+ * independently-selectable line field (see `EntityBadge.tsx`'s doc comment),
+ * so a request can carry EUR + CHF + USD subtotals with no entity grouping
+ * involved at all. `Subtotal` no longer carries an `entity` field; refund-api
+ * groups by currency alone.
+ *
  * `SubtotalsPanel` (../components/SubtotalsPanel.tsx) renders the full
- * per-entity card grid for Screen R2; this file holds only the shared type
+ * per-currency card grid for Screen R2; this file holds only the shared type
  * and the condensed-preview formatter so a page (R1) never has to import a
  * component module just to format a string.
  */
 
-import type { Entity } from '../components/EntityBadge'
 import type { Currency } from './money'
 import { formatMoney } from './money'
 
-/** One entity's requested/approved cents for a request — never blended across entities (AC-3.5). */
+/** One currency's requested/approved cents for a request — never blended across currencies (AC-3.5). */
 export type Subtotal = {
-  entity: Entity
   currency: Currency
   requestedCents: number
   approvedCents: number | null
@@ -28,8 +33,8 @@ export type Subtotal = {
 
 /**
  * Condenses a request's subtotals into a single-line preview, e.g.
- * "9,10 € · 50,00 CHF" — one segment per entity **present** in `subtotals`
- * (never a synthesized zero-value entry for an entity with no lines, per
+ * "9,10 € · 50,00 CHF" — one segment per currency **present** in `subtotals`
+ * (never a synthesized zero-value entry for a currency with no lines, per
  * design.md F3 step 3). Uses `approvedCents` when present and `useApproved`
  * is true (Screen A1/R1 rows for a decided request), else `requestedCents`.
  * Returns an empty string for a request with no lines yet (draft, zero
