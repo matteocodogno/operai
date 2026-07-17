@@ -5,7 +5,13 @@ import { NoAccessScreen } from './components/NoAccessScreen'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
-import { ensurePermissions, getCachedPermissions, getSession, revalidatePermissions } from './lib/session'
+import {
+  ensurePermissions,
+  getCachedPermissions,
+  getCachedSession,
+  getSession,
+  revalidatePermissions,
+} from './lib/session'
 import { readLastToolId, recordLastTool, resolveLastToolPath, TOOLS, type ToolId } from './lib/tools'
 
 // ---------------------------------------------------------------------------
@@ -121,17 +127,52 @@ const rootRoute = createRootRoute({ component: () => <Outlet /> })
 // service only ever honours its own ALLOWED_ORIGINS allowlist when deciding
 // where to send the user back to (ADR-0002), not because this value is
 // validated client-side.
+//
+// Bug fix (2026-07): this guard used to call `getSession()` unconditionally
+// on EVERY navigation — a real async `/get-session` network fetch. Because
+// `beforeLoad` returned a Promise, TanStack Router (`defaultPendingMs: 0`)
+// entered its pending state on every same-app inner-route navigation too
+// (e.g. `/refund/requests` → `/refund/review`), unmounting the mounted
+// remote for the round trip and remounting it once the (unchanged) session
+// check resolved — the exact same failure mode as the app-access guard
+// below (`createToolAccessBeforeLoad`'s own "Bug fix (2026-07)" doc), just
+// one guard earlier in the chain. Same fix, same shape: `getCachedSession()`
+// (shell/session, mirrors `getCachedPermissions()`) lets a warm navigation
+// resolve the decision SYNCHRONOUSLY from the last-confirmed session result
+// — no Promise returned from `beforeLoad`, so the router never enters its
+// pending state and the remote stays mounted. Only a cold cache (hard
+// refresh, deep link, first navigation of the tab — `getCachedSession()`
+// returns `null`) still awaits the real `getSession()` fetch, exactly as
+// before this fix; the pending fallback is expected there. `signOut()`
+// clears the session cache (session.ts), so a signed-out user is never
+// treated as still-authed by this fast path — the very next navigation
+// (cache now cleared) falls through to the real async check.
 // ---------------------------------------------------------------------------
+
+const buildSignInRedirectUrl = (): string =>
+  `${getAuthUrl()}/sign-in?redirect=${encodeURIComponent(window.location.href)}`
 
 const authedRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: '_authed',
-  beforeLoad: async () => {
-    const session = await getSession()
-    if (!session?.data) {
-      const signInUrl = `${getAuthUrl()}/sign-in?redirect=${encodeURIComponent(window.location.href)}`
-      throw redirect({ href: signInUrl })
+  beforeLoad: (): void | Promise<void> => {
+    const cachedSession = getCachedSession()
+
+    if (cachedSession !== null) {
+      // Synchronous fast path — see doc above for why returning here (not a
+      // Promise) is the whole point.
+      if (!cachedSession.data) {
+        throw redirect({ href: buildSignInRedirectUrl() })
+      }
+      return
     }
+
+    return (async () => {
+      const session = await getSession()
+      if (!session?.data) {
+        throw redirect({ href: buildSignInRedirectUrl() })
+      }
+    })()
   },
 })
 

@@ -536,14 +536,69 @@ export function onSignOut(hook: () => void): () => void {
  * clears the shared JWT cache + redirects"). It also runs every registered
  * sign-out hook (T10 — closes the shared SSE notification connection).
  */
-export const getSession = authClient.getSession
+type SessionResult = Awaited<ReturnType<typeof authClient.getSession>>
+
+/**
+ * In-memory session cache (module scope — cleared on sign-out, never
+ * persisted). Mirrors `cachedPermissions` above exactly: populated whenever
+ * `getSession()` resolves, and read synchronously by `getCachedSession()`.
+ *
+ * Bug fix (2026-07, shell/src/router.tsx's `_authed` guard): the guard used
+ * to call the bare `authClient.getSession` directly, an async network
+ * `/get-session` fetch on EVERY navigation. Because `beforeLoad` returned a
+ * Promise, TanStack Router (`defaultPendingMs: 0`) entered its pending state
+ * and unmounted the currently-mounted remote on every same-app inner-route
+ * change too — the exact same failure mode `cachedPermissions`/
+ * `getCachedPermissions()` was introduced to fix for the app-access guard.
+ * This cache is that same fix applied to the session guard.
+ */
+let cachedSession: SessionResult | null = null
+
+/**
+ * Fetches the cookie-based session via the better-auth client and populates
+ * the module-scope cache with the result — including a "no session" result
+ * (`{ data: null, ... }`), so `getCachedSession()` can distinguish "checked
+ * this session, genuinely signed out" from "never checked yet" (`null`).
+ * Same call signature/behavior as `authClient.getSession` itself — this is a
+ * drop-in wrapper, not a new contract.
+ */
+export const getSession = async (
+  ...args: Parameters<typeof authClient.getSession>
+): Promise<SessionResult> => {
+  const result = await authClient.getSession(...args)
+  cachedSession = result
+  return result
+}
+
 export const useSession = authClient.useSession
+
+/**
+ * Synchronously reads the module-scope session cache WITHOUT ever fetching —
+ * `null` when nothing has been resolved yet this session (cold cache: hard
+ * refresh, deep link, first navigation of the tab).
+ *
+ * Mirrors `getCachedPermissions()`'s doc exactly: `getSession()` is `async`
+ * (returns a Promise even on a cache hit), which is why it's unsuitable for
+ * the shell router's same-app fast path (router.tsx's `_authed` guard) — the
+ * instant `beforeLoad` returns a Promise, TanStack Router enters its pending
+ * state and (with `defaultPendingMs: 0`) immediately unmounts the current
+ * route's content. This getter is the synchronous escape hatch: a warm
+ * same-app navigation can check the cached session and return/redirect
+ * synchronously, so the mounted remote is never torn down for it.
+ */
+export const getCachedSession = (): SessionResult | null => cachedSession
+
+/** Clears the in-memory session cache. */
+export const clearSessionCache = (): void => {
+  cachedSession = null
+}
 
 export const signOut = async (
   ...args: Parameters<typeof authClient.signOut>
 ): Promise<Awaited<ReturnType<typeof authClient.signOut>>> => {
   clearJwtCache()
   clearPermissionsCache()
+  clearSessionCache()
   for (const hook of signOutHooks) {
     hook()
   }

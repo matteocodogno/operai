@@ -41,6 +41,13 @@ vi.mock('./lib/session', () => ({
   getSession: vi.fn(),
   useSession: vi.fn(() => ({ data: null })),
   signOut: vi.fn(),
+  // Bug fix (2026-07, shell/src/router.tsx's `_authed` guard): `null` (cold
+  // cache) keeps every test in this file exercising the async `getSession()`
+  // branch, exactly as before this getter existed — the synchronous
+  // warm-cache fast path is covered separately in
+  // router.session-guard.test.tsx (mirrors how getCachedPermissions is
+  // defaulted to `null` here and covered in router.access-guard.test.tsx).
+  getCachedSession: vi.fn(() => null),
 }))
 
 // router.tsx also dynamically imports estimai/App, refund/App, admin/App and
@@ -54,8 +61,8 @@ vi.mock('refund/App', () => ({ default: () => null }))
 vi.mock('admin/App', () => ({ default: () => null }))
 vi.mock('notify/App', () => ({ default: () => null }))
 
-// Import getSession AFTER vi.mock so we get the mocked version.
-import { getSession } from './lib/session'
+// Import getSession/getCachedSession AFTER vi.mock so we get the mocked versions.
+import { getCachedSession, getSession } from './lib/session'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -104,6 +111,14 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   })
+
+  // Re-assert the cold-cache default explicitly every test (not just relying
+  // on the vi.mock factory's initial `() => null`): vi.restoreAllMocks() in
+  // afterEach clears any per-test mockReturnValue/mockImplementation
+  // override, and for a plain vi.fn() (not a vi.spyOn) that also drops the
+  // factory's own default implementation — mirrors the same explicit reset
+  // router.access-guard.test.tsx does for getCachedPermissions.
+  vi.mocked(getCachedSession).mockReturnValue(null)
 })
 
 afterEach(() => {
@@ -214,6 +229,74 @@ describe('_authed layout route guard (beforeLoad)', () => {
 
       // Now the guard has completed (with a redirect throw, caught above).
       expect(resolved).toBe(true)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Bug fix (2026-07): the guard must resolve SYNCHRONOUSLY from a cached
+  // session (getCachedSession()) whenever one is present — no `getSession()`
+  // network call, and (critically for TanStack Router's defaultPendingMs: 0)
+  // a non-Promise return value, so the router never enters its pending state
+  // for a warm navigation. Only a cold cache (getCachedSession() -> null)
+  // still awaits the real getSession() check, exactly as before this fix —
+  // covered by the two describe blocks above. Same-app/app-switch chrome
+  // persistence and "no pending fallback" are proven at the integration
+  // level in router.session-guard.test.tsx; this file stays at the
+  // unit/beforeLoad level per its own module doc.
+  // -------------------------------------------------------------------------
+
+  describe('warm session cache — beforeLoad resolves synchronously (bug fix 2026-07)', () => {
+    it('does NOT call getSession() and returns a non-Promise value when a valid session is cached', async () => {
+      vi.mocked(getCachedSession).mockReturnValue({
+        data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
+
+      const beforeLoad = await getAuthedBeforeLoad()
+      expect(beforeLoad).toBeDefined()
+
+      const result = beforeLoad!({ location: { href: 'http://localhost:5173/estimai' } })
+
+      // The whole point of the fix: NOT a Promise. TanStack Router only
+      // enters its pending state when beforeLoad returns one.
+      expect(result).toBeUndefined()
+      expect(getSession).not.toHaveBeenCalled()
+    })
+
+    it('redirects to sign-in SYNCHRONOUSLY (no getSession() call) when the cached session indicates no session', async () => {
+      vi.mocked(getCachedSession).mockReturnValue({ data: null } as unknown as ReturnType<typeof getCachedSession>)
+
+      // The redirect target is built from window.location.href, not the
+      // beforeLoad ctx param (see buildSignInRedirectUrl in router.tsx) —
+      // set it explicitly, mirroring the "unauthenticated visitor" loop
+      // above, instead of relying on beforeEach's root-path default.
+      Object.defineProperty(window, 'location', {
+        value: { href: 'http://localhost:5173/estimai' },
+        writable: true,
+        configurable: true,
+      })
+
+      const beforeLoad = await getAuthedBeforeLoad()
+      expect(beforeLoad).toBeDefined()
+
+      let thrown: unknown
+      try {
+        // Not awaited on purpose — a synchronous throw doesn't need it, and
+        // awaiting a non-Promise thrown value would still work, but calling
+        // it this way proves the throw happens on the synchronous call
+        // itself, not inside a microtask.
+        beforeLoad!({ location: { href: 'http://localhost:5173/estimai' } })
+      } catch (err) {
+        thrown = err
+      }
+
+      expect(isRedirect(thrown), 'expected a synchronous TanStack Router redirect').toBe(true)
+      const response = thrown as Response & { options: { href: string; reloadDocument?: boolean } }
+      expect(response.headers.get('Location')).toBe(
+        `${AUTH_URL}/sign-in?redirect=${encodeURIComponent('http://localhost:5173/estimai')}`,
+      )
+      expect(response.options.reloadDocument).toBe(true)
+      expect(getSession).not.toHaveBeenCalled()
     })
   })
 })

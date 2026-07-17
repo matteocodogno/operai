@@ -56,6 +56,11 @@ vi.mock('./lib/session', () => ({
   // same-app synchronous fast path (covered in router.access-guard.test.tsx),
   // which additionally requires a warm permissions cache.
   getCachedPermissions: vi.fn(() => null),
+  // Same fix, same shape, for the `_authed` session guard — `null` (cold
+  // cache) keeps every test here exercising the async `getSession()` branch
+  // (see router.session-guard.test.tsx for the synchronous warm-cache fast
+  // path).
+  getCachedSession: vi.fn(() => null),
   // T11 (specs/005-notification-center): Header now mounts Bell, which reads
   // useUnreadCount() (shell/src/lib/notifications.ts) on every render of the
   // shared chrome these tests exercise. notifications.ts imports

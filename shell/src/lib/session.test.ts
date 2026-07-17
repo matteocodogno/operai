@@ -30,10 +30,14 @@ import { renderHook, waitFor } from '@testing-library/react'
 // Mock better-auth's client factory so importing ./authClient (a session.ts
 // dependency) doesn't perform real network/env work during these interceptor
 // tests. signOut is a vi.fn() so test (e) can assert it was delegated to.
+// getSession is a vi.fn() too (mockAuthClientGetSession) so the session-cache
+// tests below can control what the UNDERLYING better-auth call resolves to,
+// independent of session.ts's own `getSession` wrapper.
 const mockAuthClientSignOut = vi.fn().mockResolvedValue(undefined)
+const mockAuthClientGetSession = vi.fn()
 vi.mock('better-auth/react', () => ({
   createAuthClient: () => ({
-    getSession: vi.fn(),
+    getSession: mockAuthClientGetSession,
     useSession: vi.fn(),
     signOut: mockAuthClientSignOut,
   }),
@@ -43,6 +47,9 @@ const {
   apiFetch,
   clearJwtCache,
   signOut,
+  getSession,
+  getCachedSession,
+  clearSessionCache,
   ensurePermissions,
   revalidatePermissions,
   clearPermissionsCache,
@@ -97,9 +104,10 @@ beforeEach(() => {
   // a trusted origin in the existing interceptor tests.
   vi.stubEnv('VITE_API_URL', API_URL)
 
-  // Clear the module-level JWT + permissions caches before each test.
+  // Clear the module-level JWT + permissions + session caches before each test.
   clearJwtCache()
   clearPermissionsCache()
+  clearSessionCache()
 
   // Replace global fetch with a vi mock (restored after each test via afterEach).
   vi.stubGlobal('fetch', vi.fn())
@@ -115,6 +123,7 @@ beforeEach(() => {
   })
 
   mockAuthClientSignOut.mockClear()
+  mockAuthClientGetSession.mockReset()
 })
 
 afterEach(() => {
@@ -407,6 +416,66 @@ describe('apiFetch', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// getSession / getCachedSession / clearSessionCache — the session-cache fast
+// path (bug fix 2026-07, mirrors ensurePermissions/getCachedPermissions
+// above) consumed by shell/src/router.tsx's `_authed` guard so a warm
+// same-app navigation never pays an async `/get-session` round trip.
+// ---------------------------------------------------------------------------
+
+const SESSION_FIXTURE = {
+  data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
+}
+
+describe('getSession / getCachedSession', () => {
+  it('getCachedSession() returns null before getSession() has ever been called', () => {
+    expect(getCachedSession()).toBeNull()
+  })
+
+  it('getSession() populates the cache with the resolved session, readable via getCachedSession()', async () => {
+    mockAuthClientGetSession.mockResolvedValue(SESSION_FIXTURE)
+
+    const result = await getSession()
+
+    expect(result).toEqual(SESSION_FIXTURE)
+    expect(getCachedSession()).toEqual(SESSION_FIXTURE)
+  })
+
+  it('getSession() caches a "no session" result too (data: null), distinguishable from an unresolved cache', async () => {
+    mockAuthClientGetSession.mockResolvedValue({ data: null })
+
+    await getSession()
+
+    // Not null (a check DID happen) but its `.data` is falsy — the `_authed`
+    // guard's synchronous fast path relies on exactly this distinction.
+    expect(getCachedSession()).not.toBeNull()
+    expect(getCachedSession()?.data).toBeNull()
+  })
+
+  it('a second getSession() call re-fetches and replaces the cache (no dedup — mirrors the guard needing a fresh check on every cold navigation)', async () => {
+    mockAuthClientGetSession
+      .mockResolvedValueOnce(SESSION_FIXTURE)
+      .mockResolvedValueOnce({ data: null })
+
+    await getSession()
+    expect(getCachedSession()).toEqual(SESSION_FIXTURE)
+
+    await getSession()
+    expect(getCachedSession()).toEqual({ data: null })
+    expect(mockAuthClientGetSession).toHaveBeenCalledTimes(2)
+  })
+
+  it('clearSessionCache() resets the cache back to null', async () => {
+    mockAuthClientGetSession.mockResolvedValue(SESSION_FIXTURE)
+    await getSession()
+    expect(getCachedSession()).not.toBeNull()
+
+    clearSessionCache()
+
+    expect(getCachedSession()).toBeNull()
+  })
+})
+
 describe('signOut', () => {
   it('(e) clears the in-memory JWT cache before delegating to the better-auth client', async () => {
     const mockFetch = vi.mocked(fetch)
@@ -434,6 +503,16 @@ describe('signOut', () => {
     )
     // 1 initial fetch + 1 fetch after sign-out clears the cache = 2.
     expect(tokenCalls).toHaveLength(2)
+  })
+
+  it('clears the in-memory session cache — a signed-out user is never treated as still-authed by getCachedSession()', async () => {
+    mockAuthClientGetSession.mockResolvedValue(SESSION_FIXTURE)
+    await getSession()
+    expect(getCachedSession()).toEqual(SESSION_FIXTURE)
+
+    await signOut()
+
+    expect(getCachedSession()).toBeNull()
   })
 })
 

@@ -33,12 +33,13 @@ import type { PermissionsResult } from './lib/session'
 // replace. `vi.hoisted` lets the mock functions be configured per-test.
 // ---------------------------------------------------------------------------
 
-const { getSession, ensurePermissions, revalidatePermissions, usePermissions, getCachedPermissions } = vi.hoisted(() => ({
+const { getSession, ensurePermissions, revalidatePermissions, usePermissions, getCachedPermissions, getCachedSession } = vi.hoisted(() => ({
   getSession: vi.fn(),
   ensurePermissions: vi.fn(),
   revalidatePermissions: vi.fn(),
   usePermissions: vi.fn(),
   getCachedPermissions: vi.fn(),
+  getCachedSession: vi.fn(),
 }))
 
 vi.mock('./lib/session', () => ({
@@ -57,6 +58,13 @@ vi.mock('./lib/session', () => ({
   // (revalidate) branch exactly as before — tests that specifically want the
   // sync fast path override this per-test.
   getCachedPermissions,
+  // Same fix, same shape, for the `_authed` session guard — defaults to a
+  // warm, session-present cache (this file exercises the ACCESS guard, not
+  // the session guard; it must never redirect to sign-in) so the `_authed`
+  // guard resolves synchronously and out of the way of every test here. This
+  // ALSO means these tests never call the mocked `getSession()` — asserted
+  // nowhere here, but see router.session-guard.test.tsx for that behavior.
+  getCachedSession,
   // T11 (specs/005-notification-center): Header now mounts Bell, which reads
   // useUnreadCount() (shell/src/lib/notifications.ts) on every render of the
   // shared chrome these tests exercise via ShellLayout/Header. notifications.ts
@@ -123,6 +131,12 @@ beforeEach(() => {
   })
   usePermissions.mockReturnValue(permissionsWith(['estimai', 'refund', 'admin']))
   getCachedPermissions.mockReturnValue(null)
+  // Warm session cache by default — this file is about the ACCESS guard, not
+  // the session guard, so the `_authed` guard should resolve synchronously
+  // and never redirect to sign-in here.
+  getCachedSession.mockReturnValue({
+    data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
+  })
 })
 
 afterEach(() => {
