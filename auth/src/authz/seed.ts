@@ -45,8 +45,19 @@
  *      separate `accounting-global` role (Gate-2 decision D3 — "global"
  *      scope is composed by an admin adding an unconditioned grant on top of
  *      this same role, via the resolver's widest-wins union).
+ *   6. {@link seedRefundAdminRole} (post-close follow-up, specs/007-refund-
+ *      service) — a distinct, explicit `refund-admin` system role bundling
+ *      EVERY refund capability at once (`refund:access` + all six `request`
+ *      actions), the entity-scoped four (`review`/`set-approved-total`/
+ *      `approve`/`reject`) each granted UNCONDITIONED — i.e. global scope via
+ *      the resolver's pre-existing widest-wins union, the SAME mechanism
+ *      Gate-2 decision D3 already established, just pre-composed into a role
+ *      instead of left to a per-admin manual grant. This mirrors, but is
+ *      deliberately separate from, `seedAccountingRoleGrants` — it does NOT
+ *      create the previously-rejected `accounting-global` role; `refund-admin`
+ *      is its own named role an admin opts a specific user into.
  *
- * A SIXTH, per-user concern — assigning the baseline `employee` role (and
+ * A SEVENTH, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
  * `auth.config.ts`'s `databaseHooks.user.create.after` hook, via
@@ -64,6 +75,7 @@ import { REFUND_APP_ID, REFUND_CATALOG } from "./catalogs/refund";
 
 export const EMPLOYEE_ROLE_NAME = "employee";
 export const ACCOUNTING_ROLE_NAME = "accounting";
+export const REFUND_ADMIN_ROLE_NAME = "refund-admin";
 
 /** The four seed system roles (AC-6.2). Order is insignificant; upserts run sequentially for deterministic logging. */
 export const SYSTEM_ROLE_NAMES = [
@@ -211,6 +223,89 @@ export async function seedAccountingRoleGrants(): Promise<void> {
   }
 }
 
+/** The `request` resource actions the `refund-admin` role is granted — ALL six, every one UNCONDITIONED (global). */
+const REFUND_ADMIN_REQUEST_ACTIONS = [
+  "create",
+  "read",
+  "review",
+  "set-approved-total",
+  "approve",
+  "reject",
+] as const;
+
+/**
+ * Seeds the `refund-admin` role (post-close follow-up, specs/007-refund-
+ * service — "assign everything at once"): one role that grants EVERY refund
+ * capability, unconditioned, to whoever an admin assigns it to. Grants
+ * `refund:access` plus all six `request` actions — `create`/`read` the same
+ * way every grant of theirs already is (the catalog declares no supported
+ * condition for `create`, and `read`'s ownership check is enforced in code
+ * regardless of any condition value, so omitting `conditions` here changes
+ * nothing observable for those two) — and, deliberately, `review`/
+ * `set-approved-total`/`approve`/`reject` ALSO with no `conditions` row.
+ *
+ * That last part is a semantics decision, not a style choice: `refund-api`'s
+ * `canReadRequest` (requests.service.ts) only lets a NON-owner read a request
+ * via the `request:review` branch — an unconditioned `request:read` grant
+ * alone does NOT let this role read another user's request (`GET /requests`
+ * is hard-scoped to `listOwnRequests(sub)` regardless of any grant, and
+ * `GET /requests/:id`'s owner branch requires ownership AND `read`, so a
+ * non-owner `read` grant is inert there). Reading/deciding ANY request in
+ * ANY entity — the "true refund superuser" requirement — is achieved ONLY
+ * by granting `request:review` (and the three decision actions) with NO
+ * entity condition, which `entityScopeForPermission` (conditions.ts) then
+ * resolves to `GLOBAL_ENTITY_SCOPE`: `canReadRequest`'s accounting branch,
+ * the review queue (`GET /review/requests`), and every decide route
+ * (approve/reject/set-approved-total, `decide.routes.ts`) all accept that
+ * scope for every request regardless of owner or entity (ADR-0015's
+ * pre-existing widest-wins union — the SAME mechanism Gate-2 decision D3
+ * already established for a manually-composed "global" accounting grant,
+ * here pre-bundled into a role instead of left to a one-off admin action).
+ * `request:read` is still granted (matching the catalog's full action set,
+ * so admin-ui's rule composer shows this role holding it) but is NOT what
+ * makes cross-user reads work — see the paragraph above.
+ *
+ * Deliberately does NOT create an `accounting-global` role (Gate-2 decision
+ * D3, reaffirmed by {@link seedAccountingRoleGrants}'s doc comment) —
+ * `refund-admin` is a distinct, explicitly-named role, not that rejected
+ * shape. Idempotent: each (role, resource, action) grant is created only
+ * when absent, mirroring {@link seedAccountingRoleGrants}'s pattern exactly.
+ */
+export async function seedRefundAdminRole(): Promise<void> {
+  const refundAdminRole = await db.role.upsert({
+    where: { name: REFUND_ADMIN_ROLE_NAME },
+    update: {},
+    create: {
+      name: REFUND_ADMIN_ROLE_NAME,
+      description: "Refund Admin — every refund capability, across all entities",
+      isSystem: true,
+    },
+  });
+
+  const existingAccess = await db.permissionRule.findFirst({
+    where: { roleId: refundAdminRole.id, resource: REFUND_APP_ID, action: "access" },
+  });
+  if (!existingAccess) {
+    await db.permissionRule.create({
+      data: { roleId: refundAdminRole.id, resource: REFUND_APP_ID, action: "access" },
+    });
+  }
+
+  for (const action of REFUND_ADMIN_REQUEST_ACTIONS) {
+    const existing = await db.permissionRule.findFirst({
+      where: { roleId: refundAdminRole.id, resource: "request", action },
+    });
+    if (!existing) {
+      // Omit `conditions` → defaults to null (an unconditional grant) for
+      // EVERY action, including the four ADR-0015 entity-scoped ones — see
+      // this function's doc comment for why that's required, not incidental.
+      await db.permissionRule.create({
+        data: { roleId: refundAdminRole.id, resource: "request", action },
+      });
+    }
+  }
+}
+
 /**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
  * seed leaves `admin` with zero permission rules, so even the bootstrap admin
@@ -282,6 +377,7 @@ export async function seed(): Promise<void> {
   await seedRefundCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
+  await seedRefundAdminRole();
   await ensureBootstrapAdmin();
 }
 
@@ -359,7 +455,7 @@ if (import.meta.main) {
     .then(() => {
       console.log(
         "Seeded system roles + suite app-access catalog + EstimAI catalog + refund catalog " +
-          "+ admin app-access grants + accounting refund grants + bootstrap admin",
+          "+ admin app-access grants + accounting refund grants + refund-admin role + bootstrap admin",
       );
       process.exit(0);
     })
