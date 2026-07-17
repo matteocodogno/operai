@@ -28,11 +28,25 @@ enum RefundStatus {
 }
 
 // Reuses auth's `user.entity` string values verbatim (welld_it | welld_ch).
-// Currency is DERIVED from this at the API boundary (welld_it→EUR,
-// welld_ch→CHF) — never stored (plan.md § Money handling).
+// Currency used to be DERIVED from this — as of the 2026-07-17 amendment
+// (plan.md § Money handling) currency is an INDEPENDENTLY-STORED per-line
+// field (see `Currency` below): any (entity, currency) combination is valid,
+// so this enum no longer implies a currency.
 enum Entity {
   welld_it
   welld_ch
+}
+
+// Independently-stored per-line currency (2026-07-17 amendment — reverses
+// the original "derived from entity, never stored" decision, plan.md §
+// Money handling). Records what was ACTUALLY paid in, which may differ from
+// the entity's "home" currency (e.g. a welld_it line paid in CHF or USD).
+// Never constrained by `entity` at the DB or API level.
+enum Currency {
+  EUR
+  CHF
+  USD
+  GBP
 }
 
 // The twelve expense types from the spec's line-item table. `km` (RefundLine)
@@ -121,8 +135,11 @@ model RefundRequest {
 //
 // Money is stored as integer minor units (cents/centesimi), never Decimal or
 // float — exact, unambiguous, trivially summable for per-currency subtotals
-// (plan.md § Money handling). Currency is derived from `entity`, never
-// stored, so it can never disagree with the line's own entity.
+// (plan.md § Money handling). Currency is an INDEPENDENTLY-STORED field
+// (2026-07-17 amendment — reverses the original "derived from entity, never
+// stored" decision) — it records what was actually paid in, decoupled from
+// `entity`; any (entity, currency) combination is valid, and subtotals now
+// group purely by the stored `currency`, never by entity.
 model RefundLine {
   id        String        @id @default(cuid())
   requestId String
@@ -132,6 +149,7 @@ model RefundLine {
   type                 ExpenseType
   motivo               String
   entity               Entity
+  currency             Currency
   requestedAmountCents Int
   // Required and > 0 iff type == travel_km; rejected (422) if present for any
   // other type (AC-1.2/1.6). Nullable at the DB level — validated at the API

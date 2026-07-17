@@ -62,6 +62,7 @@ export function listOwnRequests(
               type: true,
               motivo: true,
               entity: true,
+              currency: true,
               requestedAmountCents: true,
               km: true,
               approvedTotalCents: true,

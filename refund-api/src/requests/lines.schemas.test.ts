@@ -11,6 +11,7 @@ const base = {
   type: "office_material" as const,
   motivo: "Printer paper",
   entity: "welld_it" as const,
+  currency: "EUR" as const,
   requestedAmountCents: 1500,
 };
 
@@ -49,13 +50,28 @@ describe("LineBodySchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a missing date/type/entity/requestedAmountCents", () => {
+  it("rejects a missing date/type/entity/currency/requestedAmountCents", () => {
     expect(LineBodySchema.safeParse({ ...base, date: undefined }).success).toBe(false);
     expect(LineBodySchema.safeParse({ ...base, type: undefined }).success).toBe(false);
     expect(LineBodySchema.safeParse({ ...base, entity: undefined }).success).toBe(false);
+    expect(LineBodySchema.safeParse({ ...base, currency: undefined }).success).toBe(false);
     expect(
       LineBodySchema.safeParse({ ...base, requestedAmountCents: undefined }).success,
     ).toBe(false);
+  });
+
+  it("rejects an invalid currency value", () => {
+    expect(LineBodySchema.safeParse({ ...base, currency: "JPY" }).success).toBe(false);
+  });
+
+  it("(entity, currency) are independent — any combination is valid, e.g. welld_it paid in CHF", () => {
+    const result = LineBodySchema.safeParse({ ...base, entity: "welld_it", currency: "CHF" });
+    expect(result.success).toBe(true);
+  });
+
+  it("(entity, currency) independence — welld_ch paid in USD is also valid", () => {
+    const result = LineBodySchema.safeParse({ ...base, entity: "welld_ch", currency: "USD" });
+    expect(result.success).toBe(true);
   });
 
   it("rejects a negative requestedAmountCents", () => {

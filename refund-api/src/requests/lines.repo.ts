@@ -32,6 +32,7 @@ const toLineData = (body: LineBody) => ({
   type: body.type as never,
   motivo: body.motivo,
   entity: body.entity as never,
+  currency: body.currency as never,
   requestedAmountCents: body.requestedAmountCents,
   km: body.km ?? null,
 });

@@ -42,6 +42,7 @@ function mkLine(entity: string): LineRow {
     type: "meal",
     motivo: "test line",
     entity,
+    currency: "EUR",
     requestedAmountCents: 1000,
     km: null,
     approvedTotalCents: null,

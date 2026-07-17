@@ -122,6 +122,7 @@ async function makeRequestWithLine(status: "draft" | "submitted" = "draft") {
       type: "postal",
       motivo: "Receipt line",
       entity: "welld_it",
+      currency: "EUR",
       requestedAmountCents: 500,
     },
   });

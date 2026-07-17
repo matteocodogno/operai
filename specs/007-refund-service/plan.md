@@ -5,6 +5,14 @@ status: approved
 
 # Plan: Refund service (Rimborsi) — expense requests, expense lines & accounting review
 
+## Amendments
+
+- **2026-07-17 (post-close):** currency reversed from "derived from `entity`, never stored"
+  to an **independently-stored per-line field** (`EUR|CHF|USD|GBP`) — any (entity, currency)
+  combination is valid; subtotals now group purely by currency, never by entity. See
+  § Money handling and § API contracts below for the full detail; `spec.md`'s AC-1.2/3.5/6.6
+  are amended to match.
+
 ## Context this plan fits (read before the design)
 
 - `refund-api` **does not exist yet.** This plan bootstraps it as a new Bun + Hono +
@@ -114,17 +122,31 @@ Amounts stored as **integer minor units** (`amountCents: Int`), not `Decimal`. J
 exact and unambiguous (no binary-float or Decimal-scale drift on a value that ends up on a
 paycheck); trivially and safely summable for the per-currency subtotals; matches the suite's
 "all displayed numbers are rounded" convention (the UI formats cents → `x,xx €`/`x,xx CHF`).
-`Int` (max ≈ 2.1 B cents ≈ 21 M EUR) far exceeds any single reimbursement line. **Currency is
-never stored** — it is *derived* from `entity` (`welld_it → EUR`, `welld_ch → CHF`) at the API
-boundary, so line entity is the single source of truth and cannot disagree with a stored
-currency. No cross-currency arithmetic ever occurs (Non-goals): subtotals are grouped by
-`entity`.
+`Int` (max ≈ 2.1 B cents ≈ 21 M EUR) far exceeds any single reimbursement line. No
+cross-currency arithmetic ever occurs (Non-goals).
+
+> **Amendment (2026-07-17, post-close):** the paragraph above originally read "Currency is
+> never stored — it is *derived* from `entity` … so line entity is the single source of truth
+> and cannot disagree with a stored currency … subtotals are grouped by `entity`." This is
+> REVERSED as of this amendment: **currency is now an INDEPENDENTLY-STORED per-line field**
+> (`Currency` enum: `EUR | CHF | USD | GBP`), decoupled from `entity` — any (entity, currency)
+> combination is valid (e.g. a `welld_it` line paid in CHF or USD is legitimate and must be
+> recorded as such). Reason for the reversal: the original derivation assumed an expense is
+> always paid in its owning entity's home currency, which does not hold in practice — the
+> employee needs to record what was **actually paid**, not what the entity implies. Subtotals
+> now group **purely by the stored `currency`**, never by `entity` and never blended — a
+> single request may therefore produce EUR + CHF + USD (+ GBP) subtotals regardless of how
+> many entities its lines touch. Landed via `prisma/migrations/20260717120000_add_line_currency`
+> (adds `currency` nullable, backfills existing rows from their `entity` using the OLD mapping
+> welld_it→EUR/welld_ch→CHF so no existing line's displayed currency changes, then sets
+> `NOT NULL`) — never edit `0001_init`.
 
 ### Enums
 
 ```prisma
 enum RefundStatus { draft submitted approved rejected }   // withdraw = submitted→draft; `withdrawn` is an audit event, not a status
 enum Entity       { welld_it welld_ch }                    // reuses auth's user.entity values
+enum Currency     { EUR CHF USD GBP }                       // 2026-07-17 amendment — independently-stored, decoupled from Entity
 enum ExpenseType {
   travel_highway travel_km travel_parking travel_train travel_other_public_transport
   company_manuals stationery representation_meals representation_gifts
@@ -164,6 +186,7 @@ model RefundLine {
   type               ExpenseType
   motivo             String
   entity             Entity
+  currency           Currency                                 // independently-stored (2026-07-17 amendment) — NOT derived from entity
   requestedAmountCents Int                                    // employee-entered (AC-1.2)
   km                 Int?                                     // required & >0 iff type==travel_km (AC-1.2)
   approvedTotalCents Int?                                     // set during review (AC-7.1/7.2)
@@ -218,7 +241,10 @@ model RefundAuditEntry {                                     // append-only, imm
 ### Migrations needed
 
 1. `0001_init` — enums, four tables, indexes, audit-immutability trigger/rule.
-   (No further migrations planned for the first iteration; never edit an applied migration.)
+2. `20260717120000_add_line_currency` (2026-07-17 amendment, post-close) — adds the
+   `Currency` enum + `RefundLine.currency` (nullable → backfilled from `entity` using the
+   OLD derivation mapping → `NOT NULL`). Never edit `0001_init`; never edit this one either
+   once applied — any further currency-related schema change is a NEW migration.
 
 ## API contracts
 
@@ -241,11 +267,14 @@ Auth on every route: `jwtMiddleware` then `authzMiddleware`. Denial semantics:
   "attachments":[{"id":"…","fileName":"receipt.pdf","contentType":"application/pdf","sizeBytes":20481}] }
 
 // RefundRequest detail (response) — per-currency subtotals, never blended (AC-3.5/6.6)
+// 2026-07-17 amendment: subtotals group PURELY by currency (independently-stored,
+// decoupled from entity) — `entity` is no longer a per-subtotal field, since a currency
+// group may now span both entities.
 { "id":"…","status":"approved","owner":{"userId":"…","email":"a@welld.ch","name":"…"},
   "submittedAt":"…","decidedAt":"…","decidedBy":{"email":"acct@welld.ch"},
   "rejectionMotivation":null,"lines":[ /* … */ ],
-  "subtotals":[ {"entity":"welld_it","currency":"EUR","requestedCents":9100,"approvedCents":8000},
-                {"entity":"welld_ch","currency":"CHF","requestedCents":5000,"approvedCents":5000} ],
+  "subtotals":[ {"currency":"CHF","requestedCents":5000,"approvedCents":5000},
+                {"currency":"EUR","requestedCents":9100,"approvedCents":8000} ],
   "createdAt":"…","updatedAt":"…" }
 ```
 
@@ -257,7 +286,7 @@ Auth on every route: `jwtMiddleware` then `authzMiddleware`. Denial semantics:
 | `GET /requests` | – | 200 `[{id,status,updatedAt,subtotals}]` (own only) | 401/403 |
 | `GET /requests/:id` | – | 200 detail | 404 (not owner & not in-scope accounting) |
 | `DELETE /requests/:id` | – | 204 | 404; **409** if status≠draft (AC-2.3/8.3) |
-| `POST /requests/:id/lines` | `{date,type,motivo,requestedAmountCents,entity,km?}` | 201 line | 404; **422** validation |
+| `POST /requests/:id/lines` | `{date,type,motivo,requestedAmountCents,entity,currency,km?}` | 201 line | 404; **422** validation |
 | `PUT /requests/:id/lines/:lineId` | same | 200 line | 404; 409 if not draft; 422 |
 | `DELETE /requests/:id/lines/:lineId` | – | 204 | 404; 409 if not draft |
 | `POST /requests/:id/lines/:lineId/attachments` | `{fileName,contentType,sizeBytes}` | 201 `{attachmentId,upload:{url,fields,objectKey}}` | 404; 409 if not draft; 422 (type/size) |
@@ -267,9 +296,11 @@ Auth on every route: `jwtMiddleware` then `authzMiddleware`. Denial semantics:
 | `POST /requests/:id/withdraw` | – | 200 request (draft) | 404; **409** if status≠submitted (AC-2.3) |
 | `GET /requests/:id/lines/:lineId/attachments/:aid/url` | – | 200 `{url,expiresAt}` (presigned GET) | 404 (owner or in-scope accounting only) |
 
-Line validation (`422`, AC-1.2/1.6): `date,type,motivo,requestedAmountCents,entity` required;
-`km` required and `> 0` **iff** `type==travel_km`, rejected if present for any other type;
-`requestedAmountCents >= 0` integer. Attachments never part of the required-field check (AC-1.7).
+Line validation (`422`, AC-1.2/1.6): `date,type,motivo,requestedAmountCents,entity,currency`
+required (2026-07-17 amendment adds `currency`: one of `EUR|CHF|USD|GBP`, independent of
+`entity` — any combination is valid); `km` required and `> 0` **iff** `type==travel_km`,
+rejected if present for any other type; `requestedAmountCents >= 0` integer. Attachments
+never part of the required-field check (AC-1.7).
 
 ### Accounting endpoints (require `refund:access` + `request:review`/`approve`/`reject`, entity-scoped)
 

@@ -130,6 +130,16 @@ const authHeaders = (token: string) => ({
   "Content-Type": "application/json",
 });
 
+// Default currency mirrors the OLD derivation (welld_it→EUR, welld_ch→CHF)
+// purely as a fixture convenience — production code no longer derives
+// currency from entity (2026-07-17 amendment); this file doesn't exercise
+// currency behavior itself (see requests.routes.test.ts/review.routes.test.ts
+// for the (entity, currency) independence and mixed-currency subtotal tests).
+const DEFAULT_CURRENCY_FOR_ENTITY: Record<"welld_it" | "welld_ch", "EUR" | "CHF"> = {
+  welld_it: "EUR",
+  welld_ch: "CHF",
+};
+
 async function createSubmittedRequest(
   lines: readonly { entity: "welld_it" | "welld_ch"; requestedAmountCents?: number }[],
   overrides: Partial<{ ownerUserId: string; ownerEmail: string }> = {},
@@ -152,6 +162,7 @@ async function createSubmittedRequest(
           type: "office_material",
           motivo: "Test line",
           entity: line.entity,
+          currency: DEFAULT_CURRENCY_FOR_ENTITY[line.entity],
           requestedAmountCents: line.requestedAmountCents ?? 1000,
         },
       }),

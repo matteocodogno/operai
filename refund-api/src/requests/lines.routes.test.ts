@@ -65,6 +65,7 @@ const validLineBody = (overrides: Record<string, unknown> = {}) => ({
   type: "office_material",
   motivo: "Printer paper",
   entity: "welld_it",
+  currency: "EUR",
   requestedAmountCents: 1500,
   ...overrides,
 });
@@ -98,6 +99,41 @@ describe("POST /requests/:id/lines", () => {
 
     const row = await db.refundLine.findUniqueOrThrow({ where: { id: body.id } });
     expect(row.requestId).toBe(request.id);
+  });
+
+  it("(entity, currency) are independent — a welld_it line paid in CHF stores and returns CHF, not the derived EUR", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(validLineBody({ entity: "welld_it", currency: "CHF" })),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; entity: string; currency: string };
+    expect(body.entity).toBe("welld_it");
+    expect(body.currency).toBe("CHF");
+
+    const row = await db.refundLine.findUniqueOrThrow({ where: { id: body.id } });
+    expect(row.entity).toBe("welld_it");
+    expect(row.currency).toBe("CHF");
+  });
+
+  it("an invalid currency value → 422", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify(validLineBody({ currency: "JPY" })),
+    });
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { detail: string };
+    expect(body.detail).toContain("currency");
   });
 
   it("(AC-1.6) missing required field → 422 naming the field", async () => {
@@ -226,6 +262,7 @@ describe("PUT /requests/:id/lines/:lineId", () => {
         type: "postal",
         motivo: "Old",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 100,
       },
     });
@@ -255,6 +292,7 @@ describe("PUT /requests/:id/lines/:lineId", () => {
         type: "postal",
         motivo: "Old",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 100,
       },
     });
@@ -295,6 +333,7 @@ describe("DELETE /requests/:id/lines/:lineId", () => {
         type: "postal",
         motivo: "Old",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 100,
       },
     });
@@ -318,6 +357,7 @@ describe("DELETE /requests/:id/lines/:lineId", () => {
         type: "postal",
         motivo: "Old",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 100,
       },
     });
@@ -341,6 +381,7 @@ describe("DELETE /requests/:id/lines/:lineId", () => {
         type: "postal",
         motivo: "Old",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 100,
       },
     });

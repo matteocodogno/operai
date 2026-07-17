@@ -19,13 +19,13 @@ import {
   requestInScope,
   entityScopeForPermission,
 } from "../authz/conditions";
-import {
-  currencyForEntity,
-  type EntityValue,
-  type Subtotal,
-  type RefundLineResponse,
-  type RequestDetail,
-  type RequestListItem,
+import type {
+  CurrencyValue,
+  EntityValue,
+  Subtotal,
+  RefundLineResponse,
+  RequestDetail,
+  RequestListItem,
 } from "./requests.schemas";
 
 // ─── Row shapes this module maps FROM (subset of what requests.repo.ts returns) ──
@@ -36,6 +36,7 @@ export interface LineRow {
   readonly type: string;
   readonly motivo: string;
   readonly entity: string;
+  readonly currency: string;
   readonly requestedAmountCents: number;
   readonly km: number | null;
   readonly approvedTotalCents: number | null;
@@ -65,26 +66,30 @@ export interface RequestRow {
 // ─── Subtotals (AC-3.5/6.6) ─────────────────────────────────────────────────
 
 /**
- * Per-currency subtotals grouped by entity — NEVER blended across entities
- * (plan.md § API contracts). `approvedCents` is `null` for an entity group
- * where NO line has an `approvedTotalCents` set yet (draft/submitted, before
- * T12's approve finalizes/defaults it) — distinguishing "not decided" from
- * "decided to zero". Sorted by entity for deterministic output.
+ * Per-currency subtotals — NEVER blended across currencies (plan.md § API
+ * contracts). 2026-07-17 amendment: grouped PURELY by the stored `currency`
+ * field, never by `entity` — currency is independently-stored and decoupled
+ * from entity, so a single request may now produce EUR + CHF + USD (+ GBP)
+ * subtotals regardless of how many entities its lines touch.
+ * `approvedCents` is `null` for a currency group where NO line has an
+ * `approvedTotalCents` set yet (draft/submitted, before T12's approve
+ * finalizes/defaults it) — distinguishing "not decided" from "decided to
+ * zero". Sorted by currency for deterministic output.
  */
 export function computeSubtotals(lines: readonly LineRow[]): Subtotal[] {
-  const byEntity = new Map<string, LineRow[]>();
+  const byCurrency = new Map<string, LineRow[]>();
   for (const line of lines) {
-    const group = byEntity.get(line.entity);
+    const group = byCurrency.get(line.currency);
     if (group) {
       group.push(line);
     } else {
-      byEntity.set(line.entity, [line]);
+      byCurrency.set(line.currency, [line]);
     }
   }
 
-  return Array.from(byEntity.entries())
+  return Array.from(byCurrency.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([entity, group]) => {
+    .map(([currency, group]) => {
       const requestedCents = group.reduce(
         (sum, l) => sum + l.requestedAmountCents,
         0,
@@ -94,8 +99,7 @@ export function computeSubtotals(lines: readonly LineRow[]): Subtotal[] {
         ? group.reduce((sum, l) => sum + (l.approvedTotalCents ?? 0), 0)
         : null;
       return {
-        entity: entity as EntityValue,
-        currency: currencyForEntity(entity as EntityValue),
+        currency: currency as CurrencyValue,
         requestedCents,
         approvedCents,
       };
@@ -112,14 +116,13 @@ const isoDateOnly = (d: Date): string => {
 };
 
 export function mapLine(line: LineRow): RefundLineResponse {
-  const entity = line.entity as EntityValue;
   return {
     id: line.id,
     date: isoDateOnly(line.date),
     type: line.type as RefundLineResponse["type"],
     motivo: line.motivo,
-    entity,
-    currency: currencyForEntity(entity),
+    entity: line.entity as EntityValue,
+    currency: line.currency as CurrencyValue,
     requestedAmountCents: line.requestedAmountCents,
     km: line.km,
     approvedTotalCents: line.approvedTotalCents,

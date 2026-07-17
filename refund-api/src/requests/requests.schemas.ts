@@ -38,16 +38,13 @@ export const REFUND_STATUS_VALUES = [
 ] as const;
 export type RefundStatusValue = (typeof REFUND_STATUS_VALUES)[number];
 
-export const CURRENCY_VALUES = ["EUR", "CHF"] as const;
+// 2026-07-17 amendment (specs/007-refund-service): currency is now an
+// INDEPENDENTLY-STORED per-line field, decoupled from `entity` — any
+// (entity, currency) combination is valid. This reverses the original
+// "currency derived from entity, never stored" decision; see plan.md §
+// Money handling and prisma/migrations/20260717120000_add_line_currency.
+export const CURRENCY_VALUES = ["EUR", "CHF", "USD", "GBP"] as const;
 export type CurrencyValue = (typeof CURRENCY_VALUES)[number];
-
-/**
- * Currency is DERIVED from entity at the API boundary — never stored
- * (plan.md § Money handling). welld_it → EUR, welld_ch → CHF.
- */
-export function currencyForEntity(entity: EntityValue): CurrencyValue {
-  return entity === "welld_it" ? "EUR" : "CHF";
-}
 
 export const EntitySchema = z.enum(ENTITY_VALUES);
 export const ExpenseTypeSchema = z.enum(EXPENSE_TYPE_VALUES);
@@ -95,8 +92,10 @@ export const RefundLineResponseSchema = z.object({
 });
 export type RefundLineResponse = z.infer<typeof RefundLineResponseSchema>;
 
+// 2026-07-17 amendment: grouped PURELY by the stored `currency`, never by
+// `entity` — a currency group may now span both entities, so `entity` is no
+// longer a per-subtotal field (see plan.md § Money handling amendment).
 export const SubtotalSchema = z.object({
-  entity: EntitySchema,
   currency: CurrencySchema,
   requestedCents: z.number().int(),
   approvedCents: z.number().int().nullable(),
