@@ -12,9 +12,12 @@
  *     outside this row's DOM subtree), not each field's individual blur,
  *     so tabbing between this row's own fields never fires a PUT per field.
  *     Includes an inline "×" delete (no confirm modal — design.md F1 step 6:
- *     "a draft line is cheap, reversible working state") and the real
- *     `AttachmentList` (T17, specs/007-refund-service/tasks.md) in
- *     upload/remove mode — fills the seam T16 left here.
+ *     "a draft line is cheap, reversible working state" — a `title` tooltip
+ *     is the delete-safety measure instead, post-close change specs/007) and
+ *     the real `AttachmentList` (T17, specs/007-refund-service/tasks.md) in
+ *     upload/remove mode — fills the seam T16 left here. `currency` (also
+ *     post-close, specs/007) is its own independently-editable `<select>`
+ *     next to `entity` — no longer derived from it.
  *   - `readOnly` (Screen R2 `submitted`/`rejected` variants, and Screen A2's
  *     own decided-request RO render, T18 F6 step 8): plain text, no inputs,
  *     no delete — editing controls are absent, not disabled (design.md F2
@@ -52,7 +55,9 @@ import { EXPENSE_TYPES, requiresKm } from '../lib/expenseTypes'
 import type { ExpenseType } from '../lib/expenseTypes'
 import type { Entity } from './EntityBadge'
 import EntityBadge from './EntityBadge'
+import type { Currency } from '../lib/money'
 import { formatMoney } from '../lib/money'
+import CurrencyBadge from './CurrencyBadge'
 import type { Attachment, LinePayload, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
@@ -81,6 +86,7 @@ export type ExpenseLineRowProps = {
 }
 
 const ENTITY_OPTIONS: Entity[] = ['welld_it', 'welld_ch']
+const CURRENCY_OPTIONS: Currency[] = ['EUR', 'CHF', 'USD', 'GBP']
 
 const draftsEqual = (a: LineDraftValue, b: LineDraftValue): boolean =>
   a.date === b.date &&
@@ -88,6 +94,7 @@ const draftsEqual = (a: LineDraftValue, b: LineDraftValue): boolean =>
   a.motivo === b.motivo &&
   a.amount === b.amount &&
   a.entity === b.entity &&
+  a.currency === b.currency &&
   a.km === b.km
 
 const typeLabel = (type: ExpenseType): string => EXPENSE_TYPES.find((o) => o.id === type)?.labelEn ?? type
@@ -106,6 +113,7 @@ export default function ExpenseLineRow({
   const t = strings.pages.requestDetail.lines
   const composerStrings = strings.pages.requestDetail.composer
   const badgeStrings = strings.badges.entity
+  const currencyStrings = strings.badges.currency
   const reviewStrings = strings.pages.reviewDetail.approvedTotal
 
   const [draft, setDraft] = useState<LineDraftValue>(() => lineToDraft(line))
@@ -204,6 +212,7 @@ export default function ExpenseLineRow({
           <span style={{ color: 'var(--soft)' }}>{line.date}</span>
           <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
           <EntityBadge entity={line.entity} />
+          <CurrencyBadge currency={line.currency} />
           {line.km !== null && (
             <span style={{ color: 'var(--muted)' }}>{line.km} km</span>
           )}
@@ -367,6 +376,26 @@ export default function ExpenseLineRow({
           </select>
         </div>
 
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`row-${line.id}-currency`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+            {composerStrings.currencyLabel}
+          </label>
+          <select
+            id={`row-${line.id}-currency`}
+            value={draft.currency}
+            onChange={(e) => setDraft((prev) => ({ ...prev, currency: e.target.value as Currency }))}
+            data-testid={`row-${line.id}-currency`}
+            className="text-sm px-2.5 py-1.5 border rounded"
+            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+          >
+            {CURRENCY_OPTIONS.map((currency) => (
+              <option key={currency} value={currency}>
+                {currencyStrings[currency]}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {showKm && (
           <div className="flex flex-col gap-1">
             <label htmlFor={`row-${line.id}-km`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
@@ -421,6 +450,7 @@ export default function ExpenseLineRow({
           onClick={() => void handleDelete()}
           disabled={deleting}
           aria-label={t.deleteLineLabel(draft.motivo || line.motivo)}
+          title={t.deleteLineTitle}
           data-testid={`row-${line.id}-delete`}
           className="text-lg leading-none transition-opacity hover:opacity-80 disabled:opacity-40"
           style={{ color: 'var(--muted)' }}

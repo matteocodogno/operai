@@ -54,7 +54,7 @@ const submittedItem: RequestListItem = {
   id: 'req-2',
   status: 'submitted',
   updatedAt: '2026-07-15T00:00:00.000Z',
-  subtotals: [{ entity: 'welld_it', currency: 'EUR', requestedCents: 4550, approvedCents: null }],
+  subtotals: [{ currency: 'EUR', requestedCents: 4550, approvedCents: null }],
 }
 
 describe('MyRequestsPage — list states', () => {

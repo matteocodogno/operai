@@ -47,6 +47,42 @@ describe('formatMoney — CHF', () => {
   })
 })
 
+describe('formatMoney — USD', () => {
+  it('formats whole dollars with two zero decimals', () => {
+    expect(formatMoney(10000, 'USD')).toBe('100,00 $')
+  })
+
+  it('formats a mixed cents amount', () => {
+    expect(formatMoney(4550, 'USD')).toBe('45,50 $')
+  })
+
+  it('pads single-digit cents to two decimal places (off-by-100 guard)', () => {
+    expect(formatMoney(5, 'USD')).toBe('0,05 $')
+  })
+
+  it('formats zero', () => {
+    expect(formatMoney(0, 'USD')).toBe('0,00 $')
+  })
+})
+
+describe('formatMoney — GBP', () => {
+  it('formats whole pounds with two zero decimals', () => {
+    expect(formatMoney(10000, 'GBP')).toBe('100,00 £')
+  })
+
+  it('formats a mixed cents amount', () => {
+    expect(formatMoney(4550, 'GBP')).toBe('45,50 £')
+  })
+
+  it('pads single-digit cents to two decimal places (off-by-100 guard)', () => {
+    expect(formatMoney(5, 'GBP')).toBe('0,05 £')
+  })
+
+  it('formats zero', () => {
+    expect(formatMoney(0, 'GBP')).toBe('0,00 £')
+  })
+})
+
 describe('formatMoney — integer-cents contract', () => {
   it('throws on a non-integer cents value rather than silently mis-rendering an amount', () => {
     expect(() => formatMoney(45.5, 'EUR')).toThrow(RangeError)

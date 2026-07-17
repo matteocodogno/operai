@@ -123,6 +123,8 @@ const en = {
         amountLabel: 'Requested amount',
         entityLabel: 'Entity',
         entityPlaceholder: 'Select an entity…',
+        currencyLabel: 'Currency',
+        currencyPlaceholder: 'Select a currency…',
         kmLabel: 'Distance (km)',
         kmHelp: 'Must be greater than 0',
         kmFieldAdded: 'Mileage field added — km is required for travel by car',
@@ -136,6 +138,8 @@ const en = {
         requestedLabel: 'Requested',
         approvedLabel: 'Approved',
         deleteLineLabel: (motivo: string) => `Delete line “${motivo}”`,
+        /** Hover tooltip (`title`) on the line-delete "×" — delete-safety change (post-close, specs/007): a draft line is cheap/reversible, so this stays no-confirm; the tooltip alone reduces mis-click risk. */
+        deleteLineTitle: 'Delete this expense line',
         savingLabel: 'Saving…',
         updateError: 'Could not save this change. Check the fields and try again.',
       },
@@ -284,6 +288,8 @@ const en = {
     attachmentList: {
       attachButton: '+ Attach files',
       removeLabel: (fileName: string) => `Remove ${fileName}`,
+      /** Hover tooltip (`title`) on the attachment-remove "×" — delete-safety change (post-close, specs/007); stays no-confirm (a draft attachment is cheap to re-add). */
+      removeTitle: 'Remove attachment',
       downloadLabel: (fileName: string) => `Download ${fileName}`,
       downloadError: 'Could not open this attachment. Try again.',
       dismissLabel: (fileName: string) => `Dismiss ${fileName}`,
@@ -303,8 +309,15 @@ const en = {
       rejected: 'Rejected',
     },
     entity: {
-      welld_it: 'WellD Italia · EUR',
-      welld_ch: 'WellD CH · CHF',
+      welld_it: 'WellD Italia',
+      welld_ch: 'WellD CH',
+    },
+    /** `CurrencyBadge`'s label per currency — see `EntityBadge.tsx`'s doc comment on the entity/currency split (specs/007 post-close change). */
+    currency: {
+      EUR: 'EUR',
+      CHF: 'CHF',
+      USD: 'USD',
+      GBP: 'GBP',
     },
   },
 } as const

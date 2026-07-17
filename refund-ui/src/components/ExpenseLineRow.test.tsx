@@ -54,7 +54,18 @@ describe('ExpenseLineRow — edit mode', () => {
       motivo: 'Pens and paper',
       requestedAmountCents: 1000,
       entity: 'welld_it',
+      currency: 'EUR',
     })
+  })
+
+  it('lets currency be changed independently of entity, committing a mismatched pair with no block', () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    fireEvent.change(screen.getByTestId('row-line-1-currency'), { target: { value: 'USD' } })
+    fireEvent.blur(screen.getByTestId('row-line-1-currency'), { relatedTarget: document.body })
+
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ entity: 'welld_it', currency: 'USD' }))
   })
 
   it('does NOT commit when focus moves to another field inside the same row', () => {
@@ -98,6 +109,12 @@ describe('ExpenseLineRow — edit mode', () => {
     expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
   })
 
+  it('the inline "×" carries a hover title tooltip (delete-safety, stays no-confirm)', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    expect(screen.getByTestId('row-line-1-delete').getAttribute('title')).toBe('Delete this expense line')
+  })
+
   it('renders the real AttachmentList in upload/remove mode (T17 fills the T16 seam)', () => {
     render(
       <ExpenseLineRow
@@ -131,6 +148,14 @@ describe('ExpenseLineRow — read-only modes', () => {
     const row = screen.getByTestId('expense-line-row-line-1')
     expect(row.textContent).toContain('10,00 €')
     expect(row.textContent).not.toContain('Approved')
+  })
+
+  it('readOnly shows the entity and currency as two separate badges (post-close split, specs/007)', () => {
+    render(<ExpenseLineRow line={{ ...line, entity: 'welld_it', currency: 'USD' }} mode="readOnly" onDownloadAttachment={vi.fn()} />)
+    const row = screen.getByTestId('expense-line-row-line-1')
+    expect(screen.getByTestId('entity-badge').textContent).toBe('🇮🇹WellD Italia')
+    expect(screen.getByTestId('currency-badge').textContent).toBe('$USD')
+    expect(row.textContent).not.toContain('WellD Italia · EUR')
   })
 
   it('readOnlyApproved shows both requested and approved (AC-3.2)', () => {

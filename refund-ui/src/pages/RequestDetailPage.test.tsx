@@ -145,6 +145,7 @@ describe('RequestDetailPage — draft variant', () => {
     fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Pens' } })
     fireEvent.change(screen.getByTestId('composer-amount'), { target: { value: '10.00' } })
     fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
+    fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'EUR' } })
     fireEvent.click(screen.getByTestId('composer-add-button'))
 
     await waitFor(() => expect(requestsApi.addLine).toHaveBeenCalledWith('req-1', expect.objectContaining({ motivo: 'Pens' })))
@@ -272,7 +273,7 @@ describe('RequestDetailPage — approved variant', () => {
       ...baseRequest,
       status: 'approved' as const,
       lines: [{ ...oneLine, approvedTotalCents: 800 }],
-      subtotals: [{ entity: 'welld_it' as const, currency: 'EUR' as const, requestedCents: 1000, approvedCents: 800 }],
+      subtotals: [{ currency: 'EUR' as const, requestedCents: 1000, approvedCents: 800 }],
       decidedAt: '2026-07-05T00:00:00.000Z',
       decidedBy: { email: 'acct@welld.ch' },
     }
@@ -283,7 +284,7 @@ describe('RequestDetailPage — approved variant', () => {
     await waitFor(() => expect(screen.getByTestId('request-detail-approved')).not.toBeNull())
     expect(screen.getByTestId('monthly-processing-note')).not.toBeNull()
     expect(screen.getByTestId('expense-line-row-line-1').textContent).toContain('8,00 €')
-    expect(screen.getByTestId('subtotals-panel-card-welld_it').textContent).toContain('8,00 €')
+    expect(screen.getByTestId('subtotals-panel-card-EUR').textContent).toContain('8,00 €')
   })
 })
 
