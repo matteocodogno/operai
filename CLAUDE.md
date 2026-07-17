@@ -225,6 +225,7 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 ### Git
 - Branch naming: `feat/`, `fix/`, `refactor/`, `chore/`
 - Commit style: Conventional Commits (`feat: add AI cost column to summary`)
+- **Integrating a feature branch: prefer `git merge --ff-only` or `git merge --squash`** so history stays linear and every commit on `main` is a Conventional Commit. Avoid `--no-ff` merge commits — a `Merge branch …` message is NOT a Conventional Commit and just adds noise. If a merge commit is genuinely unavoidable, give it a conventional subject (`chore(merge): …`); merge commits are in any case **exempt** from the convention and are **ignored by release-it/conventional-changelog** when the CHANGELOG is built (they never produce an entry), so they never affect a release.
 - `main` is always deployable
 - A pre-commit hook runs gitleaks; 1Password references are allowlisted in `.gitleaksignore`
 - Releases: `mise run release` (release-it — version bump + CHANGELOG from Conventional Commits)
