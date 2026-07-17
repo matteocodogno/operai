@@ -10,6 +10,13 @@ done: 2026-07-16
 
 # Refund service (Rimborsi): expense requests, expense lines & accounting review
 
+## Amendments
+
+- **2026-07-17 (post-close):** currency is now an independently-stored, required per-line
+  field (EUR/CHF/USD/GBP), decoupled from `entity` — reverses the original "derived from
+  entity, never stored" decision; subtotals now group purely by currency. See AC-1.2,
+  AC-3.5, AC-6.6, and the Domain language / Non-goals / Constraints sections below.
+
 ## Problem
 
 wellD employees today submit expense reimbursements ("Richiesta Rimborsi Spese") on a
@@ -56,14 +63,26 @@ Terms used throughout (to be reused in the plan, APIs, and UI copy):
   | 11 | postal | spese postali |
   | 12 | telephone | spese telefoniche |
 
-- **entity** — the wellD legal entity an expense line is claimed against: WellD Italia
-  (EUR) or WellD CH (CHF); carried per line, exactly as the source PDF's per-line
-  checkboxes. A request's lines may mix both entities; there is never a combined,
-  cross-currency total for a request — only **per-currency subtotals** (below).
+- **entity** — the wellD legal entity an expense line is claimed against: WellD Italia or
+  WellD CH; carried per line, exactly as the source PDF's per-line checkboxes. A request's
+  lines may mix both entities; there is never a combined, cross-currency total for a
+  request — only **per-currency subtotals** (below).
+- **currency** — the currency an expense line was actually paid in: EUR, CHF, USD, or GBP;
+  carried per line, **independently of `entity`** (2026-07-17 amendment — see below). Any
+  (entity, currency) combination is valid — a WellD Italia line may be paid in CHF or USD,
+  for example.
 - **per-currency subtotal** — for a request, the sum of its lines' requested amounts (and,
-  once decided, approved totals) grouped by entity/currency — one subtotal for its WellD
-  Italia (EUR) lines, one for its WellD CH (CHF) lines. No currency conversion is ever
-  performed and no single blended total is computed or shown (see Non-goals).
+  once decided, approved totals) grouped **purely by the stored `currency`** — one subtotal
+  per distinct currency present among the request's lines, never grouped by entity. No
+  currency conversion is ever performed and no single blended total is computed or shown
+  (see Non-goals).
+
+**Amendment (2026-07-17, post-close):** originally, currency was DERIVED from `entity`
+(WellD Italia → EUR, WellD CH → CHF) and never stored; per-currency subtotals were grouped
+by entity/currency together. This is REVERSED as of this amendment — currency is now an
+independently-stored per-line field, decoupled from entity, so the employee can record what
+was actually paid (e.g. a WellD Italia expense paid in CHF or USD). Subtotals now group
+purely by currency. AC-1.2, AC-3.5, and AC-6.6 below reflect the amended behavior.
 - **requested amount** — the amount the employee claims for a line (the PDF's `totale`),
   always entered directly by the employee — including for `travel-km` lines, where `km`
   is recorded alongside it for reference/audit only, not used to compute the amount (no
@@ -113,11 +132,13 @@ sessions) before committing it to review.
   and not yet in accounting's queue.
 - AC-1.2: Given a `draft` request, when the employee adds an expense line, then they can
   set its date, expense type (one of the twelve, US domain language), `motivo`, requested
-  amount, and entity (WellD Italia or WellD CH); `km` is additionally required, and must
-  be greater than zero, only when the expense type is `travel-km`, and is inapplicable
-  (not shown/not required) for every other type. The requested amount is always typed in
-  directly by the employee, including for `travel-km` lines — it is never auto-computed
-  from `km` (no mileage-rate configuration exists in this spec).
+  amount, entity (WellD Italia or WellD CH), and currency (EUR, CHF, USD, or GBP —
+  **independent of entity**: any (entity, currency) combination is valid, e.g. a WellD
+  Italia line paid in CHF or USD; see 2026-07-17 Amendment below); `km` is additionally
+  required, and must be greater than zero, only when the expense type is `travel-km`, and
+  is inapplicable (not shown/not required) for every other type. The requested amount is
+  always typed in directly by the employee, including for `travel-km` lines — it is never
+  auto-computed from `km` (no mileage-rate configuration exists in this spec).
 - AC-1.3: Given a `draft` request, when the employee attaches one or more receipt files
   to an expense line, then those attachments are associated with that specific line, and
   the employee can remove an attachment they added before submission.
@@ -131,10 +152,10 @@ sessions) before committing it to review.
   submit it (US-2), then submission is refused with a clear message — a request needs at
   least one expense line to be submitted.
 - AC-1.6: Given an expense line missing a required field for its type (date, type,
-  `motivo`, requested amount, entity, or `km` for mileage), when the employee attempts to
-  submit the containing request, then submission is refused and the incomplete line(s)
-  are identified to the employee. Attachments are never part of this required-field check
-  (see AC-1.7).
+  `motivo`, requested amount, entity, currency, or `km` for mileage), when the employee
+  attempts to submit the containing request, then submission is refused and the
+  incomplete line(s) are identified to the employee. Attachments are never part of this
+  required-field check (see AC-1.7).
 - AC-1.7: Given a `draft` request in which one, several, or all expense lines have no
   attachments at all, when the employee submits it, then submission proceeds normally —
   attaching a receipt is always optional and never blocks submission (accounting may
@@ -186,10 +207,10 @@ rejected, without having to ask accounting.
   the rejection motivation accounting recorded.
 - AC-3.4: Given a `submitted` request awaiting a decision, when the employee opens its
   detail, then it clearly reads as pending — not conflated with `approved` or `rejected`.
-- AC-3.5: Given a request containing lines for both entities, when the employee opens its
-  detail, then requested amounts (and, once decided, approved totals) are shown as
-  separate per-currency subtotals (EUR for WellD Italia lines, CHF for WellD CH lines) —
-  never combined into one cross-currency figure.
+- AC-3.5: Given a request containing lines in more than one currency, when the employee
+  opens its detail, then requested amounts (and, once decided, approved totals) are shown
+  as separate per-currency subtotals, **grouped purely by the stored currency** (never by
+  entity, per the 2026-07-17 amendment) — never combined into one cross-currency figure.
 - AC-3.6: Given a request transitions to `approved` or `rejected`, when the decision is
   saved, then the requesting employee is sent a notification through the suite's existing
   notification center (ADR-0009/notify-api) reflecting the outcome — this is a push,
@@ -263,9 +284,10 @@ supporting receipts, not a summary.
   any line for an entity outside their own scope — access is granted at the whole-request
   level, never filtered down to only the lines matching their scope, because the eventual
   decision is per-request, not per-line (US-7).
-- AC-6.6: Given a request containing lines across both entities, when its detail is
+- AC-6.6: Given a request containing lines in more than one currency, when its detail is
   viewed by an accounting user, then requested amounts (and, once decided, approved
-  totals) are shown as separate per-currency subtotals, exactly as the employee sees them
+  totals) are shown as separate per-currency subtotals, **grouped purely by the stored
+  currency** (never by entity), exactly as the employee sees them
   (AC-3.5) — never a combined cross-currency figure.
 
 ### US-7: Accounting sets approved amounts and decides a request
@@ -350,11 +372,11 @@ the fact.
   here.
 - **Multi-stage or manager approval chains.** A single `accounting` decision (approve or
   reject) is authoritative; no pre-approval or escalation step precedes it.
-- **Currency conversion or a cross-currency blended total.** Mixed-entity requests are
-  explicitly ALLOWED, per line (see Domain language, AC-3.5, AC-6.6) — but amounts are
-  always recorded and shown in the currency implied by each line's entity (EUR for WellD
-  Italia, CHF for WellD CH), only ever subtotaled per currency; no conversion is
-  performed and no single blended cross-currency total is ever computed or displayed.
+- **Currency conversion or a cross-currency blended total.** Mixed-entity AND
+  mixed-currency requests are explicitly ALLOWED, per line (see Domain language, AC-3.5,
+  AC-6.6) — currency is independently recorded per line (2026-07-17 amendment), only ever
+  subtotaled per currency; no conversion is performed and no single blended
+  cross-currency total is ever computed or displayed.
 - **The admin roles/departments/permissions GUI.** It already exists (specs/004); this
   spec only requires that refund's real permission catalog (create/list-own request,
   review/set-approved-total, approve, reject) be declarable and assignable through that
@@ -405,9 +427,12 @@ below; captured verbatim for the plan, not elaborated here.*
   storage** (data residency, CLAUDE.md); `refund-api` persists metadata + object keys and
   serves them via signed/download URLs. This is a plan/architecture detail, not
   elaborated further here — attaching a receipt itself is always optional (AC-1.7).
-- **Mixed-entity requests are allowed, per line.** A single request may contain lines for
-  both WellD Italia and WellD CH; amounts are only ever subtotaled per currency, never
-  combined into a cross-currency total (AC-3.5, AC-6.6, Non-goals).
+- **Mixed-entity and mixed-currency requests are allowed, per line.** A single request may
+  contain lines for both WellD Italia and WellD CH, in any mix of currencies (currency is
+  independently-stored per line as of the 2026-07-17 amendment, decoupled from entity —
+  any (entity, currency) combination is valid); amounts are only ever subtotaled per
+  currency, never combined into a cross-currency total, and never grouped by entity
+  (AC-3.5, AC-6.6, Non-goals).
 - **There is no mileage-rate configuration.** A `travel-km` line's requested amount is
   entered directly by the employee; `km` is recorded for reference/audit only (AC-1.2).
 - **Accounting review is entity-scoped.** An accounting user is scoped to one or both
