@@ -163,6 +163,7 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
                   onClick={() => void handleRemove(attachment.id)}
                   disabled={removingId === attachment.id}
                   aria-label={t.removeLabel(attachment.fileName)}
+                  title={t.removeTitle}
                   data-testid={`attachment-remove-${attachment.id}`}
                   className="text-sm leading-none transition-opacity hover:opacity-80 disabled:opacity-40"
                   style={{ color: 'var(--muted)' }}

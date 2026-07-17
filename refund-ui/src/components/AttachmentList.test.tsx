@@ -39,6 +39,12 @@ describe('AttachmentList — edit mode', () => {
     expect(screen.getByTestId('attachment-remove-a1')).not.toBeNull()
   })
 
+  it('the Remove button carries a hover title tooltip (delete-safety, stays no-confirm)', () => {
+    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={vi.fn()} onDownload={vi.fn()} />)
+
+    expect(screen.getByTestId('attachment-remove-a1').getAttribute('title')).toBe('Remove attachment')
+  })
+
   it('renders the "+ Attach files" trigger and a hidden multi-file input', () => {
     render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={vi.fn()} onRemove={vi.fn()} onDownload={vi.fn()} />)
 
