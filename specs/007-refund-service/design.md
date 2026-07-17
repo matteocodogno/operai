@@ -436,6 +436,13 @@ inventing an unrelated visual idiom.
   (AC-3.6) is entirely the shell's `ToastHost`/bell/notify-ui (`specs/005-notification-center`,
   ADR-0009) — its own accessibility contract already covers that surface; this document adds
   nothing to it and duplicates none of it.
+  - **Amendment (2026-07-17, post-close):** the "no toasts of its own" rule above is scoped to
+    the **lifecycle** actions (submit/withdraw/approve/reject) and still holds for them. A
+    later cross-app change added **debounced auto-save** of draft expense-line edits with a
+    transient, auto-dismissing **"Changes stored" success toast** (and an error toast on
+    failure) via a ported `ToastBanner` — a *content-app auto-save* feedback posture, distinct
+    from the consequential-lifecycle-state rule. Auto-save/its toast never applies to the
+    lifecycle actions, which keep their inline `aria-live` confirmations.
 - **Color/contrast:** `RequestStatusBadge` and `EntityBadge` both follow this repo's
   glyph+text+color convention — color is never the only signal (same rule `SystemBadge.tsx`,
   `WarningBadge.tsx`, `InvitationStatusBadge.tsx`, and `ConditionChip.tsx` all state
