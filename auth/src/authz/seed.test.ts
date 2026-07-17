@@ -42,11 +42,13 @@ import {
   assignBaselineRolesToNewUser,
   EMPLOYEE_ROLE_NAME,
   ensureBootstrapAdmin,
+  REFUND_ADMIN_ROLE_NAME,
   seed,
   seedAccountingRoleGrants,
   seedAdminRoleGrants,
   seedAppAccessCatalog,
   seedEstimaiCatalog,
+  seedRefundAdminRole,
   seedRefundCatalog,
   seedSystemRoles,
   SUITE_APPS,
@@ -249,6 +251,59 @@ describe("seedAccountingRoleGrants (T2, specs/007-refund-service — AC-5.4, AC-
   });
 });
 
+// ─── Post-close follow-up: `refund-admin` role ──────────────────────────────
+
+describe("seedRefundAdminRole (post-close follow-up, specs/007-refund-service)", () => {
+  test("creates a system `refund-admin` role with refund:access + all 6 request actions, every one UNCONDITIONED, idempotent on re-run", async () => {
+    await seedRefundAdminRole();
+    await seedRefundAdminRole(); // re-run must not duplicate
+
+    const role = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+    expect(role).not.toBeNull();
+    expect(role!.isSystem).toBe(true);
+
+    const rules = await db.permissionRule.findMany({ where: { roleId: role!.id } });
+
+    // Exactly 7 rules: refund:access + all 6 request actions.
+    expect(rules).toHaveLength(7);
+
+    const access = rules.find((r) => r.resource === REFUND_APP_ID && r.action === "access");
+    expect(access).toBeDefined();
+    expect(access?.conditions).toBeNull();
+
+    const requestActions = ["create", "read", "review", "set-approved-total", "approve", "reject"];
+    for (const action of requestActions) {
+      const rule = rules.find((r) => r.resource === "request" && r.action === action);
+      expect(rule).toBeDefined();
+      // Every action — INCLUDING the ADR-0015 entity-scoped four — carries
+      // NO conditions: an unconditioned grant resolves to GLOBAL_ENTITY_SCOPE
+      // in refund-api (conditions.ts's entityScopeForPermission), which is
+      // what makes this role a true cross-entity superuser rather than a
+      // scoped-to-nothing one.
+      expect(rule?.conditions).toBeNull();
+    }
+
+    expect(rules.map((r) => r.action).sort()).toEqual(
+      ["access", "create", "read", "review", "set-approved-total", "approve", "reject"].sort(),
+    );
+  });
+
+  test("is a distinct role from `accounting` — no `accounting-global` role is created either", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await seedRefundAdminRole();
+
+    const refundAdmin = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+    const accounting = await db.role.findUnique({ where: { name: ACCOUNTING_ROLE_NAME } });
+    expect(refundAdmin).not.toBeNull();
+    expect(accounting).not.toBeNull();
+    expect(refundAdmin!.id).not.toBe(accounting!.id);
+
+    const globalRole = await db.role.findUnique({ where: { name: "accounting-global" } });
+    expect(globalRole).toBeNull();
+  });
+});
+
 // ─── Baseline role assignment (AC-6.1, AC-6.3) ──────────────────────────────
 
 describe("assignBaselineRolesToNewUser (T11, AC-6.1/6.3)", () => {
@@ -402,6 +457,14 @@ describe("seed() — runs every deploy-time step", () => {
       where: { roleId: accounting!.id, resource: "request" },
     });
     expect(accountingRefundRules.length).toBeGreaterThanOrEqual(4);
+
+    // seed() also seeds the refund-admin role (post-close follow-up).
+    const refundAdmin = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+    expect(refundAdmin).not.toBeNull();
+    const refundAdminRules = await db.permissionRule.findMany({
+      where: { roleId: refundAdmin!.id },
+    });
+    expect(refundAdminRules.length).toBe(7);
   });
 });
 

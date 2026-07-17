@@ -9,7 +9,7 @@ export function setupOpenAPI(app: OpenAPIHono): void {
       title: "Operai Refund API",
       version: "0.1.0",
       description:
-        "Reimbursement request API for the Refund (Rimborsi) tool. " +
+        "Reimbursement request API for the Refund tool. " +
         "Employee expense requests, entity-scoped accounting review and " +
         "decisions, and an immutable financial audit trail (specs/007). " +
         "Requires a valid RS256 Bearer JWT issued by the Operai auth service.",

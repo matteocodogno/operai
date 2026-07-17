@@ -22,13 +22,13 @@
  * always sees the outcome on their next `GET /requests/:id` regardless of
  * push delivery.
  *
- * Copy is bilingual (IT + EN in one string, mirroring `auth`'s hosted
- * invite-page convention — signin/invite copy has no per-user locale to
- * select from either) and deliberately generic: no rejection motivation or
- * amount is included in the push body (ADR-0017 Compliance notes — "no
- * attachment content or full financial detail, only a status summary and a
- * link"); the full outcome is only ever visible after the employee opens the
- * already access-controlled `GET /requests/:id`.
+ * Copy is English-only (specs/007's i18n-for-v1 decision — see refund-ui's
+ * `strings.ts` doc comment for the same call made on the frontend side; no
+ * bilingual IT+EN string here either) and deliberately generic: no rejection
+ * motivation or amount is included in the push body (ADR-0017 Compliance
+ * notes — "no attachment content or full financial detail, only a status
+ * summary and a link"); the full outcome is only ever visible after the
+ * employee opens the already access-controlled `GET /requests/:id`.
  */
 
 import { env } from "./env";
@@ -46,17 +46,13 @@ const COPY: Record<
   { title: string; body: string; severity: "success" | "warning" }
 > = {
   approved: {
-    title: "Rimborso approvato · Refund approved",
-    body:
-      "La tua richiesta di rimborso è stata approvata. · " +
-      "Your refund request has been approved.",
+    title: "Refund approved",
+    body: "Your refund request has been approved.",
     severity: "success",
   },
   rejected: {
-    title: "Rimborso respinto · Refund rejected",
-    body:
-      "La tua richiesta di rimborso è stata respinta. · " +
-      "Your refund request has been rejected.",
+    title: "Refund rejected",
+    body: "Your refund request has been rejected.",
     severity: "warning",
   },
 };
