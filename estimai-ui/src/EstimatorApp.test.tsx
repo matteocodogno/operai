@@ -207,3 +207,105 @@ describe('EstimatorApp: saveError → ToastBanner render wiring (AC-1.3)', () =>
     expect(alert.textContent).toContain(errorDetail)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Test: showSavedToast → success <ToastBanner role="status"> render wiring
+// (content-app auto-save "changes stored" feedback)
+//
+// NON-VACUOUS: this test FAILS if EstimatorApp's
+//   {!saveError && showSavedToast && <ToastBanner tone="success" …/>}
+// is removed — screen.getByRole('status') throws.
+// ---------------------------------------------------------------------------
+
+const mockUpdateResponse = {
+  id: 'est-toast-success-test',
+  name: 'Original Name',
+  author: 'Test Author',
+  content: { params: fixtureParams, releases: [fixtureRelease], acts: fixtureActs },
+  createdAt: '2026-07-03T10:00:00.000Z',
+  updatedAt: '2026-07-03T10:00:00.000Z',
+}
+
+// NOTE: react-dnd (used by ActivityTable, mounted inside EstimatorApp) injects
+// its own unrelated `role="status"` "DndLiveRegion" element into the DOM, so
+// these tests locate the toast by its copy text rather than `getByRole('status')`
+// alone, then assert the role/aria-live on that specific element.
+
+describe('EstimatorApp: showSavedToast → success ToastBanner render wiring', () => {
+  it('shows a role="status" success toast after a successful auto-save', async () => {
+    vi.mocked(estimatesApi.update).mockResolvedValue(mockUpdateResponse)
+
+    render(
+      <EstimatorProvider
+        estimateId="est-toast-success-test"
+        initialName="Original Name"
+        initialAuthor="Test Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <NameChangeTrigger />
+        <EstimatorApp />
+      </EstimatorProvider>,
+    )
+
+    // No toast yet — save has not been triggered
+    expect(screen.queryByText('Changes stored')).toBeNull()
+
+    // Act: trigger a name edit → starts the debounce timer, then resolves
+    await act(async () => {
+      screen.getByTestId('trigger-edit').click()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500) // flush the 1500ms auto-save debounce
+    })
+
+    const toastText = screen.getByText('Changes stored')
+    const toast = toastText.closest('[role]')
+    expect(toast).not.toBeNull()
+    expect(toast?.getAttribute('role')).toBe('status')
+    expect(toast?.getAttribute('aria-live')).toBe('polite')
+
+    // The success toast auto-dismisses ~2s later (ToastBanner's own timer).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(screen.queryByText('Changes stored')).toBeNull()
+  })
+
+  it('never shows the success toast alongside the error toast', async () => {
+    const errorDetail = 'Save failed (500). Your work is safe in this tab.'
+    vi.mocked(estimatesApi.update).mockRejectedValue(
+      new estimatesApi.ApiError({
+        type: 'https://httpstatuses.com/500',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: errorDetail,
+      }),
+    )
+
+    render(
+      <EstimatorProvider
+        estimateId="est-toast-exclusive-test"
+        initialName="Original Name"
+        initialAuthor="Test Author"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+      >
+        <NameChangeTrigger />
+        <EstimatorApp />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByTestId('trigger-edit').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(screen.getByRole('alert')).toBeDefined()
+    expect(screen.queryByText('Changes stored')).toBeNull()
+  })
+})

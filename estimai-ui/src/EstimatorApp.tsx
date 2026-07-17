@@ -8,7 +8,7 @@ import ActivityTable from './components/ActivityTable'
 import SummaryTable from './components/SummaryTable'
 import ParametersPanel from './components/ParametersPanel'
 import { pertCalc } from './hooks/useEstimator'
-import { useEstimatorContext } from './context/EstimatorContext'
+import { SAVED_TOAST_MESSAGE, useEstimatorContext } from './context/EstimatorContext'
 import type { ProjectData } from './lib/projects'
 import { buildShareUrl } from './lib/shareUrl'
 import { exportPdf } from './lib/pdfExport'
@@ -58,7 +58,7 @@ export default function EstimatorApp() {
   const {
     projectId, name, author, params, releases, acts,
     summary, totals, byProfile,
-    saveStatus, saveError, clearSaveError,
+    saveStatus, saveError, clearSaveError, showSavedToast, dismissSavedToast,
     setName, setAuthor,
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
@@ -340,6 +340,9 @@ const exportPDF = useCallback(() => {
       </div>
 
       {saveError && <ToastBanner message={saveError} onDismiss={clearSaveError} />}
+      {!saveError && showSavedToast && (
+        <ToastBanner tone="success" message={SAVED_TOAST_MESSAGE} onDismiss={dismissSavedToast} />
+      )}
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
         {tab === 'activities' && (

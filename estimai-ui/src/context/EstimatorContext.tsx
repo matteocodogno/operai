@@ -9,6 +9,9 @@ import type { Template } from '../lib/templates'
 /** Debounce delay for auto-save (ms) */
 const AUTOSAVE_DEBOUNCE_MS = 1500
 
+/** Copy for the success toast shown on a completed auto-save. */
+export const SAVED_TOAST_MESSAGE = 'Changes stored'
+
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 export type EstimatorContextValue = {
@@ -35,6 +38,9 @@ export type EstimatorContextValue = {
   saveStatus: SaveStatus
   saveError: string | null
   clearSaveError: () => void
+  /** True right after a successful auto-save — drives the "Changes stored" success toast. */
+  showSavedToast: boolean
+  dismissSavedToast: () => void
 }
 
 const EstimatorContext = createContext<EstimatorContextValue | null>(null)
@@ -65,6 +71,7 @@ export function EstimatorProvider({
   const [acts, setActs] = useState<Activity[]>(initialActs ?? [])
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [showSavedToast, setShowSavedToast] = useState(false)
 
   /**
    * Track whether this is the initial mount (skip auto-save on first render)
@@ -76,6 +83,7 @@ export function EstimatorProvider({
   const savedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const clearSaveError = useCallback(() => setSaveError(null), [])
+  const dismissSavedToast = useCallback(() => setShowSavedToast(false), [])
 
   // Auto-save: debounced PUT to the API whenever state changes
   useEffect(() => {
@@ -95,6 +103,7 @@ export function EstimatorProvider({
         .then(() => {
           setSaveStatus('saved')
           setSaveError(null)
+          setShowSavedToast(true)
           clearTimeout(savedTimer.current)
           savedTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
         })
@@ -256,6 +265,8 @@ export function EstimatorProvider({
       saveStatus,
       saveError,
       clearSaveError,
+      showSavedToast,
+      dismissSavedToast,
     }),
     [
       estimateId,
@@ -279,6 +290,8 @@ export function EstimatorProvider({
       saveStatus,
       saveError,
       clearSaveError,
+      showSavedToast,
+      dismissSavedToast,
     ],
   )
 
