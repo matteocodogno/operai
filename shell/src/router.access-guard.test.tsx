@@ -33,11 +33,12 @@ import type { PermissionsResult } from './lib/session'
 // replace. `vi.hoisted` lets the mock functions be configured per-test.
 // ---------------------------------------------------------------------------
 
-const { getSession, ensurePermissions, revalidatePermissions, usePermissions } = vi.hoisted(() => ({
+const { getSession, ensurePermissions, revalidatePermissions, usePermissions, getCachedPermissions } = vi.hoisted(() => ({
   getSession: vi.fn(),
   ensurePermissions: vi.fn(),
   revalidatePermissions: vi.fn(),
   usePermissions: vi.fn(),
+  getCachedPermissions: vi.fn(),
 }))
 
 vi.mock('./lib/session', () => ({
@@ -49,6 +50,13 @@ vi.mock('./lib/session', () => ({
   usePermissions,
   ensurePermissions,
   revalidatePermissions,
+  // Bug fix (2026-07, shell/src/router.tsx's createToolAccessBeforeLoad): the
+  // synchronous same-app fast path reads the cache via this getter instead of
+  // ensurePermissions/revalidatePermissions. Defaults to `null` (cold cache)
+  // below so every EXISTING test in this file keeps exercising the async
+  // (revalidate) branch exactly as before — tests that specifically want the
+  // sync fast path override this per-test.
+  getCachedPermissions,
   // T11 (specs/005-notification-center): Header now mounts Bell, which reads
   // useUnreadCount() (shell/src/lib/notifications.ts) on every render of the
   // shared chrome these tests exercise via ShellLayout/Header. notifications.ts
@@ -114,6 +122,7 @@ beforeEach(() => {
     data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
   })
   usePermissions.mockReturnValue(permissionsWith(['estimai', 'refund', 'admin']))
+  getCachedPermissions.mockReturnValue(null)
 })
 
 afterEach(() => {
@@ -227,5 +236,138 @@ describe('revocation is blocked on the very next navigation, no reload required 
     await screen.findByTestId('estimai-app')
 
     expect(revalidatePermissions).toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Bug fix (2026-07): same-app (inner-route) navigation must resolve the
+// access guard SYNCHRONOUSLY from the cached permissions — no
+// `revalidatePermissions` call, no pending fallback, and (proven at the
+// integration level in router.integration.test.tsx) no remote teardown/
+// remount. An app switch, or a cold permissions cache, must still
+// force-revalidate and show the pending fallback exactly as before.
+// ---------------------------------------------------------------------------
+
+describe('same-app navigation resolves the access guard synchronously (bug fix 2026-07)', () => {
+  it('does NOT call revalidatePermissions and does NOT show the pending fallback for an inner-route change within the same tool', async () => {
+    const permissions = permissionsWith(['estimai', 'refund', 'admin'])
+    ensurePermissions.mockResolvedValue(permissions)
+    revalidatePermissions.mockResolvedValue(permissions)
+
+    // First navigation into /estimai is necessarily a cold-cache app entry —
+    // it goes through the async (revalidate) branch, which is what records
+    // 'estimai' as the last-used tool (recordLastTool runs at the END of
+    // that branch). Only AFTER that has this test simulate a warm cache.
+    const { router } = await renderShellAt('/estimai/requests')
+    const firstEstimaiNode = await screen.findByTestId('estimai-app')
+
+    getCachedPermissions.mockReturnValue(permissions)
+    revalidatePermissions.mockClear()
+
+    await router.navigate({ to: '/estimai/requests/123' })
+
+    // Same DOM node — the remote was never unmounted/remounted, only the
+    // inner route (which the remote's OWN router resolves) changed.
+    expect(await screen.findByTestId('estimai-app')).toBe(firstEstimaiNode)
+    expect(revalidatePermissions).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('route-pending')).toBeNull()
+  })
+
+  it('still enforces the access decision from the cached permissions on same-app navigation (redirects if the cache no longer grants the tool)', async () => {
+    const adminGranted = permissionsWith(['admin'])
+    ensurePermissions.mockResolvedValue(adminGranted)
+    revalidatePermissions.mockResolvedValue(adminGranted)
+
+    const { router } = await renderShellAt('/admin')
+    await screen.findByTestId('admin-app')
+
+    // Simulate the cached permissions snapshot no longer granting ANY app
+    // (redirect target is /no-access, which has NO `beforeLoad` of its own —
+    // isolating this assertion to the admin route's OWN synchronous
+    // decision, uncontaminated by a fallback tool's own guard also running).
+    getCachedPermissions.mockReturnValue(permissionsWith([]))
+    revalidatePermissions.mockClear()
+
+    await router.navigate({ to: '/admin/users' })
+
+    expect(await screen.findByRole('heading', { name: 'No apps available yet' })).not.toBeNull()
+    expect(screen.queryByTestId('admin-app')).toBeNull()
+    expect(router.state.location.pathname).toBe('/no-access')
+    // Proves the redirect came from the SYNCHRONOUS cached-permissions path,
+    // not a fallthrough to the async revalidate branch.
+    expect(revalidatePermissions).not.toHaveBeenCalled()
+  })
+
+  it('an app switch still force-revalidates and shows the pending fallback while it resolves', async () => {
+    const permissions = permissionsWith(['estimai', 'refund'])
+    ensurePermissions.mockResolvedValue(permissions)
+    revalidatePermissions.mockResolvedValue(permissions)
+
+    const { router } = await renderShellAt('/estimai')
+    await screen.findByTestId('estimai-app')
+
+    let resolveRevalidate!: (value: PermissionsResult) => void
+    revalidatePermissions.mockImplementation(
+      () =>
+        new Promise<PermissionsResult>((resolve) => {
+          resolveRevalidate = resolve
+        }),
+    )
+
+    const navigation = router.navigate({ to: '/refund' })
+
+    // The pending fallback shows for the DURATION of the forced revalidate.
+    // (Whether React keeps the outgoing estimai Suspense subtree in the DOM
+    // hidden via `display:none` while its own boundary re-suspends is a
+    // React/TanStack Suspense reconciliation detail, orthogonal to this
+    // guard's sync-vs-async behavior — not asserted here.)
+    expect(await screen.findByTestId('route-pending')).not.toBeNull()
+    expect(screen.queryByTestId('refund-app')).toBeNull()
+
+    resolveRevalidate(permissions)
+    await navigation
+
+    expect(await screen.findByTestId('refund-app')).not.toBeNull()
+    expect(screen.queryByTestId('route-pending')).toBeNull()
+  })
+
+  it('a cold permissions cache still force-revalidates even when a stale operai_last_tool (from a previous session) happens to match', async () => {
+    // Simulates a fresh page load / hard refresh: localStorage carries the
+    // last-used tool from a PRIOR session, but this session's in-memory
+    // permissions cache is empty (getCachedPermissions() -> null) —
+    // "same tool by localStorage" must never substitute for a real cache hit.
+    localStorage.setItem('operai_last_tool', 'estimai')
+    getCachedPermissions.mockReturnValue(null)
+    ensurePermissions.mockResolvedValue(permissionsWith(['estimai']))
+    revalidatePermissions.mockResolvedValue(permissionsWith(['estimai']))
+
+    await renderShellAt('/estimai')
+
+    expect(await screen.findByTestId('estimai-app')).not.toBeNull()
+    expect(revalidatePermissions).toHaveBeenCalled()
+  })
+
+  it('a preload does not corrupt same-app detection for the real navigation that follows it', async () => {
+    const permissions = permissionsWith(['estimai', 'refund'])
+    ensurePermissions.mockResolvedValue(permissions)
+    revalidatePermissions.mockResolvedValue(permissions)
+
+    const { router } = await renderShellAt('/estimai')
+    await screen.findByTestId('estimai-app')
+    revalidatePermissions.mockClear()
+
+    // Hover-intent preload of a DIFFERENT tool must not write operai_last_tool
+    // — if it did, the real navigation that follows would look like "same
+    // app" (last-written id === 'refund') and wrongly take the synchronous
+    // cached-permissions path instead of revalidating.
+    await router.preloadRoute({ to: '/refund' })
+    expect(localStorage.getItem('operai_last_tool')).toBe('estimai')
+
+    revalidatePermissions.mockClear()
+    await router.navigate({ to: '/refund' })
+
+    expect(await screen.findByTestId('refund-app')).not.toBeNull()
+    expect(revalidatePermissions).toHaveBeenCalled()
+    expect(localStorage.getItem('operai_last_tool')).toBe('refund')
   })
 })

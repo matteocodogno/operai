@@ -56,6 +56,13 @@ vi.mock('./lib/session', () => ({
   usePermissions: vi.fn(() => PERMISSIONS_FIXTURE),
   ensurePermissions: vi.fn(async () => PERMISSIONS_FIXTURE),
   revalidatePermissions: vi.fn(async () => PERMISSIONS_FIXTURE),
+  // Bug fix (2026-07, shell/src/router.tsx's createToolAccessBeforeLoad):
+  // `null` (cold cache) keeps every test in this file exercising the async
+  // (revalidate) branch, exactly as before this getter existed — these tests
+  // are about deep-link resolution and chrome persistence across a SWITCH,
+  // not the same-app synchronous fast path (covered in
+  // router.access-guard.test.tsx).
+  getCachedPermissions: vi.fn(() => null),
   // T11 (specs/005-notification-center): Header now mounts Bell, which reads
   // useUnreadCount() (shell/src/lib/notifications.ts) on every render of the
   // shared chrome these tests exercise. notifications.ts imports
@@ -114,6 +121,14 @@ beforeEach(() => {
     data: { user: { id: 'u1', email: 'consultant@welld.ch', name: 'Consultant' }, session: {} },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any)
+  // Every navigation in this file is either a first-ever (cold) entry or a
+  // genuine tool switch, never same-app — but `readLastToolId()` (router.tsx's
+  // access guard) reads REAL localStorage (only `./lib/session` is mocked,
+  // not `./lib/tools`), so a value left behind by an earlier test would leak
+  // into this one and could flip a "switch" into a false "same app" sync-path
+  // match. Clearing here keeps each test's same-app/switch detection
+  // independent of run order.
+  localStorage.clear()
 })
 
 afterEach(() => {
@@ -122,6 +137,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   vi.resetModules()
   window.history.pushState(null, '', '/')
+  localStorage.clear()
 })
 
 // ---------------------------------------------------------------------------

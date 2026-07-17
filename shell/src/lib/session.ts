@@ -429,6 +429,25 @@ export const ensurePermissions = async (
 export const revalidatePermissions = (): Promise<PermissionsResult> =>
   ensurePermissions({ force: true })
 
+/**
+ * Synchronously reads the module-scope permissions cache WITHOUT ever
+ * fetching — `null` when nothing has been resolved yet this session (cold
+ * cache: first tool navigation, hard refresh, deep link).
+ *
+ * `ensurePermissions`/`revalidatePermissions` are both `async` (they return
+ * a Promise even on a cache hit), which is exactly why they're unsuitable
+ * for the shell router's same-app fast path (router.tsx's
+ * `createToolAccessBeforeLoad`): a route's `beforeLoad` must return a
+ * non-Promise value to resolve SYNCHRONOUSLY within TanStack Router — the
+ * instant it returns a Promise (even one that settles on the same tick),
+ * the router enters its pending state and the `defaultPendingMs: 0` fallback
+ * unmounts the current route's content while it "awaits". This getter is the
+ * synchronous escape hatch: same-app navigation with a warm cache can check
+ * the cached permissions and return/throw synchronously, so the mounted
+ * remote is never torn down for an inner-route change.
+ */
+export const getCachedPermissions = (): PermissionsResult | null => cachedPermissions
+
 /** Clears the in-memory permissions cache (does not notify subscribers with a fetch). */
 export const clearPermissionsCache = (): void => {
   cachedPermissions = null

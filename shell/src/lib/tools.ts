@@ -95,3 +95,33 @@ export function recordLastTool(id: ToolId): void {
     // user just won't get the last-used redirect next time.
   }
 }
+
+/**
+ * Reads the tool id most recently recorded by `recordLastTool` — i.e. the
+ * tool the caller was in immediately BEFORE the navigation currently being
+ * resolved (see router.tsx's `createToolAccessBeforeLoad`: `recordLastTool`
+ * runs at the END of a tool route's `beforeLoad`, so while a NEW navigation's
+ * `beforeLoad` is running, this key still holds the PREVIOUS tool).
+ *
+ * Used by the shell router's app-access guard to distinguish same-app
+ * navigation (inner-route change within the tool the user is already in)
+ * from an app switch, WITHOUT touching the permissions cache — a plain
+ * synchronous localStorage read, unlike `resolveLastToolPath` (which also
+ * applies the default-tool fallback used for the root-landing redirect; that
+ * fallback is wrong here, where "no recorded tool" must mean "cannot be the
+ * same app", not "fall back to EstimAI").
+ *
+ * Same defensive contract as `resolveLastToolPath`: absent, unreadable, or an
+ * unrecognized/tampered value all resolve to `null` rather than throwing.
+ */
+export function readLastToolId(): ToolId | null {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return null
+    }
+    const stored = localStorage.getItem(LAST_TOOL_STORAGE_KEY)
+    return isToolId(stored) ? stored : null
+  } catch {
+    return null
+  }
+}

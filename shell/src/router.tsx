@@ -5,8 +5,8 @@ import { NoAccessScreen } from './components/NoAccessScreen'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
-import { ensurePermissions, getSession, revalidatePermissions } from './lib/session'
-import { recordLastTool, resolveLastToolPath, TOOLS, type ToolId } from './lib/tools'
+import { ensurePermissions, getCachedPermissions, getSession, revalidatePermissions } from './lib/session'
+import { readLastToolId, recordLastTool, resolveLastToolPath, TOOLS, type ToolId } from './lib/tools'
 
 // ---------------------------------------------------------------------------
 // Shell router — the integration keystone (T9, specs/003-suite-shell).
@@ -57,17 +57,34 @@ import { recordLastTool, resolveLastToolPath, TOOLS, type ToolId } from './lib/t
 //     exactly like `/estimai/$`/`/refund/$` (see "New admin-ui remote"
 //     below).
 //   - An app-access guard on EVERY tool route (`createToolAccessBeforeLoad`):
-//     resolves the caller's live permissions (`shell/session`'s
-//     `revalidatePermissions()`, ADR-0007) and, if the tool being navigated
+//     resolves the caller's live permissions and, if the tool being navigated
 //     to is not in the resolved `apps` set, redirects to a permitted tool
 //     (or `/no-access` if the user has none) INSTEAD of recording/mounting
-//     the tool. `revalidatePermissions()` (not the cached `ensurePermissions()`)
-//     is used deliberately here — it force-refetches `GET /authz/me` on every
-//     navigation into a tool route, so a just-revoked app is blocked on the
-//     very next navigation (AC-7.5), not merely on the next full page load.
-//     This is a real, if modest, network cost per tool navigation; the plan
-//     accepts it explicitly ("Navigations are user-paced, so revalidation is
-//     cheap" — plan.md "Immediate revocation (AC-4.3) — the mechanism").
+//     the tool. On an APP SWITCH (or a cold permissions cache), this
+//     force-refetches `GET /authz/me` via `shell/session`'s
+//     `revalidatePermissions()` (not the cached `ensurePermissions()`), so a
+//     just-revoked app is blocked on the very next navigation into it
+//     (AC-7.5), not merely on the next full page load. This is a real, if
+//     modest, network cost per app switch; the plan accepts it explicitly
+//     ("Navigations are user-paced, so revalidation is cheap" — plan.md
+//     "Immediate revocation (AC-4.3) — the mechanism").
+//
+//     Bug fix (2026-07): navigating WITHIN the same tool (e.g.
+//     `/refund/requests` → `/refund/requests/:id`) used to pay this same
+//     forced-revalidate + pending-fallback cost on every inner-route change,
+//     because the shell and each remote run separate TanStack routers over
+//     one shared browser history — the shell's splat route (`/estimai/$`
+//     etc.) re-matches on EVERY inner navigation the remote makes, re-running
+//     `beforeLoad`. With `defaultPendingMs: 0`, an async `beforeLoad` made
+//     the pending fallback immediately unmount the mounted remote for that
+//     ~1s round trip, then remount it — a visible tear-down/rebuild for what
+//     should have been an inner-route swap invisible to the shell. Same-app
+//     navigation with an already-warm permissions cache now resolves the
+//     guard SYNCHRONOUSLY (see `createToolAccessBeforeLoad` below) instead —
+//     no Promise returned from `beforeLoad`, so TanStack Router never enters
+//     its pending state and the remote stays mounted. An app switch, or a
+//     cold cache, still force-revalidates + shows the pending fallback
+//     exactly as before.
 //   - `/no-access` (Screen S1, design.md): rendered when the caller has zero
 //     granted apps at all — reached either via the root `/` redirect (below)
 //     or via a tool route's access guard.
@@ -228,19 +245,68 @@ const resolveAccessRedirectTarget = (apps: readonly string[]): string => {
 }
 
 /**
- * Builds a tool route's combined `beforeLoad`: revalidate permissions live
- * (force-refetch `GET /authz/me` via `revalidatePermissions()`, not the
- * cached `ensurePermissions()`, so a revocation is caught on THIS
- * navigation — AC-7.5), then either redirect away (tool not granted) or
- * record the tool as most-recently-used (T10) and let the route render.
+ * Builds a tool route's combined `beforeLoad`.
+ *
+ * Two paths, chosen synchronously up front:
+ *
+ * - **Same app, warm cache** (the caller is already in `toolId` — per
+ *   `readLastToolId()`, the tool recorded by the END of the PREVIOUS
+ *   navigation's `beforeLoad` — and a permissions result is already cached,
+ *   `getCachedPermissions()`): the access decision is made against that
+ *   cached snapshot and this function returns a plain, non-Promise value
+ *   (`undefined`, or throws `redirect` synchronously). Returning a
+ *   non-Promise is what matters — TanStack Router only enters its pending
+ *   state (and, with `defaultPendingMs: 0`, immediately unmounts the current
+ *   route's content) when `beforeLoad` returns a Promise. This is exactly
+ *   the inner-route-navigation case (module doc "Bug fix (2026-07)" above):
+ *   the mounted remote is never torn down for it.
+ * - **App switch, or cold cache** (different tool than last recorded, OR no
+ *   permissions cached yet this session — hard refresh, deep link): returns
+ *   a Promise that force-refetches `GET /authz/me` via
+ *   `revalidatePermissions()` (not the cached `ensurePermissions()`), so a
+ *   revocation is caught on THIS navigation (AC-7.5). This is an `async`
+ *   function value, which TanStack Router awaits — the pending fallback
+ *   shows, same as before this fix.
+ *
+ * Either path enforces the SAME access decision (redirect to a permitted
+ * tool, or `/no-access`, when `toolId` is absent from `apps`) — only the
+ * source of `apps` (cached vs. freshly revalidated) and the sync/async shape
+ * of the check differ.
+ *
+ * `recordLastTool` is skipped entirely when `cause === 'preload'`: a preload
+ * (e.g. hover-intent on a `Link`) is not a real visit, and writing
+ * `operai_last_tool` for it would corrupt the very same-app/switch detection
+ * this function relies on for the NEXT (real) navigation — a preload to a
+ * different tool must never make a subsequent genuine navigation into it
+ * look like "same app" and wrongly skip revalidation.
  */
-const createToolAccessBeforeLoad = (toolId: ToolId) => async () => {
-  const permissions = await revalidatePermissions()
-  if (!permissions.apps.includes(toolId)) {
-    throw redirect({ to: resolveAccessRedirectTarget(permissions.apps) })
+const createToolAccessBeforeLoad =
+  (toolId: ToolId) =>
+  ({ cause }: { cause: 'preload' | 'enter' | 'stay' }): void | Promise<void> => {
+    const isPreload = cause === 'preload'
+    const sameApp = !isPreload && readLastToolId() === toolId
+    const cachedPermissions = sameApp ? getCachedPermissions() : null
+
+    if (cachedPermissions !== null) {
+      // Synchronous fast path — see doc above for why returning here (not a
+      // Promise) is the whole point.
+      if (!cachedPermissions.apps.includes(toolId)) {
+        throw redirect({ to: resolveAccessRedirectTarget(cachedPermissions.apps) })
+      }
+      recordLastTool(toolId)
+      return
+    }
+
+    return (async () => {
+      const permissions = await revalidatePermissions()
+      if (!permissions.apps.includes(toolId)) {
+        throw redirect({ to: resolveAccessRedirectTarget(permissions.apps) })
+      }
+      if (!isPreload) {
+        recordLastTool(toolId)
+      }
+    })()
   }
-  recordLastTool(toolId)
-}
 
 const estimaiRoute = createRoute({
   getParentRoute: () => shellRoute,
@@ -317,14 +383,18 @@ export const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-// Content-area pending fallback shown while a tool route's `beforeLoad`
-// (createToolAccessBeforeLoad → revalidatePermissions() → GET /authz/me, ~1s)
-// resolves. Without it, TanStack Router keeps the OUTGOING remote mounted
-// during that window — and that remote's inner router, now seeing the new
-// (cross-basepath) URL, renders its own "Not Found" until the new route
-// resolves. `defaultPendingMs: 0` shows this immediately on navigation so the
-// stale remote is never displayed mid-switch; the shell chrome (header/sidebar/
-// footer) stays mounted since only the tool-route child is pending.
+// Content-area pending fallback shown ONLY while an app-switch (or cold-cache)
+// tool route's `beforeLoad` is awaiting its Promise (createToolAccessBeforeLoad
+// → revalidatePermissions() → GET /authz/me, ~1s) — same-app inner-route
+// navigation resolves that same `beforeLoad` synchronously (see
+// `createToolAccessBeforeLoad`'s doc) and therefore never triggers this
+// fallback at all. On a genuine app switch, without this fallback TanStack
+// Router would keep the OUTGOING remote mounted during that window — and that
+// remote's inner router, now seeing the new (cross-basepath) URL, would render
+// its own "Not Found" until the new route resolves. `defaultPendingMs: 0`
+// shows this immediately on an app-switch navigation so the stale remote is
+// never displayed mid-switch; the shell chrome (header/sidebar/footer) stays
+// mounted since only the tool-route child is pending.
 function RoutePendingFallback() {
   return (
     <div
