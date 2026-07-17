@@ -143,6 +143,72 @@ services:
       retries: 5
       start_period: 15s
 
+  # ─── minio (local S3-compatible object storage) ─────────────────────────────
+  # LOCAL-DEV-ONLY stand-in for the production EU-region bucket refund-api uses
+  # for receipt attachments (ADR-0016). S3-compatible, path-style addressing
+  # (refund-api/src/lib/storage.ts auto-enables forcePathStyle for any non-AWS
+  # endpoint); buckets are PRIVATE by default — matching the "bucket must be
+  # private, receipts served only via presigned URLs" requirement. In
+  # production this is a REAL EU-region bucket (Railway EU Amsterdam / AWS
+  # eu-south-1 / Scaleway), NEVER this container.
+  #
+  # IMPORTANT — run refund-api on the HOST (`mise run dev` / `cd refund-api &&
+  # bun run dev`), not inside compose, when testing attachments: it must reach
+  # MinIO at http://localhost:9000 so the presigned URLs it mints resolve
+  # IDENTICALLY for both refund-api and the browser. A compose-internal
+  # `minio:9000` host would break browser-side direct upload — a presigned
+  # signature is bound to the exact endpoint host.
+  #
+  # refund-api/.env for local dev (all five REFUND_S3_* are required at startup):
+  #   REFUND_S3_ENDPOINT=http://localhost:9000
+  #   REFUND_S3_REGION=us-east-1                       # placeholder; MinIO ignores it
+  #   REFUND_S3_BUCKET=operai-refund-attachments-dev
+  #   REFUND_S3_ACCESS_KEY_ID=minioadmin
+  #   REFUND_S3_SECRET_ACCESS_KEY=minioadmin
+  #   REFUND_S3_EU_ENDPOINT_HOSTS=localhost            # residency guard allowlist —
+  #     # required for a non-AWS endpoint, or refund-api process.exit(1)s at boot
+  #     # (OWASP A05 fail-closed guard, refund-api/src/lib/s3Residency.ts).
+  #
+  # Console UI: http://localhost:9001 (login minioadmin / minioadmin).
+  minio:
+    image: docker.io/minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - operai_minio_data:/data
+
+  # One-shot: waits for MinIO, creates the dev bucket if absent, and asserts it
+  # stays PRIVATE (no anonymous access), then exits. Re-running compose is
+  # idempotent (`mb --ignore-existing`).
+  minio-createbucket:
+    image: docker.io/minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin}; do
+        echo 'waiting for minio...'; sleep 1;
+      done &&
+      mc mb --ignore-existing local/${REFUND_S3_BUCKET:-operai-refund-attachments-dev} &&
+      mc anonymous set none local/${REFUND_S3_BUCKET:-operai-refund-attachments-dev} &&
+      echo 'minio bucket ready (private): ${REFUND_S3_BUCKET:-operai-refund-attachments-dev}'
+      "
+    restart: "no"
+
 volumes:
   operai_postgres_data:
+    driver: local
+  operai_minio_data:
     driver: local
