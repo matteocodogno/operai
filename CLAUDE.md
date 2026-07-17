@@ -32,7 +32,7 @@ operai/
 │   └── vite.config.ts
 │
 ├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006)
-├── refund-ui/           # Reimbursement tool — federated remote (placeholder; domain in a later spec)
+├── refund-ui/           # Reimbursement tool — federated remote: expense requests + accounting review/decision (specs/007)
 ├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions GUI (specs/004, admin-only)
 ├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
 │
@@ -53,9 +53,10 @@ operai/
 │   └── package.json
 │
 ├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
-├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011)
+├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011); + internal /system/notifications for cross-user push (specs/007, ADR-0017)
+├── refund-api/          # Bun + Hono + TypeScript backend — reimbursement persistence; authorization-enforcing resource server + EU object storage for receipt attachments (specs/007, ADR-0014/0015/0016)
 │
-├── docs/adr/            # Architecture Decision Records (0001–0013; see ## Architecture decisions)
+├── docs/adr/            # Architecture Decision Records (0001–0018; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run release`
 └── specs/               # Spec-driven workflow (see below)
@@ -281,13 +282,18 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
-`bun install`, `bun run db:migrate`, `bun run dev`. Both are JWKS resource servers and
+`bun install`, `bun run db:migrate`, `bun run dev`. All three are JWKS resource servers and
 **require `AUTH_AUDIENCE`** (the same suite-wide value auth stamps as the `aud` claim, ADR-0010)
 or they reject every token with 401. `notify-api` also serves the ticket-authed SSE stream
 (ADR-0008) and is pinned to a single instance in production (in-process ticket store + fan-out).
-The whole suite comes up with one command from the repo root: `mise run dev`.
+`refund-api` is additionally an **authorization**-enforcing resource server (ADR-0014) — it
+resolves the caller's live permissions from `auth GET /authz/resolve` on every request — and
+uses EU-region S3-compatible object storage for receipt attachments, reached only via
+presigned URLs (ADR-0016; `REFUND_S3_*` env, not yet provisioned in any environment as of
+specs/007's devops task — see `infra/README.md`). The whole suite comes up with one command
+from the repo root: `mise run dev`.
 
 ---
 
@@ -321,3 +327,8 @@ All tools share the Operai design system (DM Sans / DM Mono / Syne, dark ink pal
 - [0011] notify-api email as a second delivery channel + auth→notify-api service-to-service trust — a new `email` channel (raw address, Resend, bilingual) sits alongside the existing `inApp` (`sub`) channel; `auth` triggers sends via `POST /system/emails`, authenticated by a shared `NOTIFY_INTERNAL_TOKEN`, deliberately NOT a user JWT/JWKS path (ADR-0005) — leak of that token = arbitrary email over wellD's Resend domain, mitigated by internal-only exposure + fixed escaped templates; self-issued-audience service JWT is the named future hardening (see docs/adr/0011-notify-api-email-channel-service-trust.md)
 - [0012] Invitation activation via two better-auth hooks + soft-delete lifecycle — `user.create.after` matches a pending invite by OAuth-**verified** email (new users only); `session.create.before` blocks/re-activates a soft-deleted user's return sign-in; deletion is soft (`deletedAt`) with a synchronous session-revocation + `perm_epoch` bump cascade, resource servers untouched at delete time; the **accepted residual-JWT window** (a deleted user's already-issued short-lived JWT stays valid until it expires) is a deliberate ADR-0005-preserving trade-off, with a resource-server liveness/epoch check named as the escalation path (see docs/adr/0012-invitation-activation-hooks-soft-delete-lifecycle.md)
 - [0013] Invitation lifecycle expiry is derived, not scheduled — `expired` = `status=='pending' && expiresAt<=now`, computed on read, never written by a background job; reconcile-on-write flips stale `pending` rows before insert so the `email WHERE status='pending'` partial-unique index never blocks a fresh invite for a dead address; do not add a cron/queue expiry sweep for this or similar future lifecycle features (see docs/adr/0013-invitation-lifecycle-derived-expiry-state.md)
+- [0014] refund-api is the suite's first authorization-enforcing resource server — a new Bearer-authed `auth GET /authz/resolve` (forwards the caller's already-verified JWT, no new secret) is resolved via `refund-api`'s `authzMiddleware`, cached in-process by `(sub, perm_epoch)` with a 30s TTL backstop; capability-absent denials are 403, record-level ownership/entity failures are 404 (ADR-0005-style, no existence leak); an `auth` outage fails **closed** (503), never open — realizes ADR-0007's explicitly deferred resource-server side (see docs/adr/0014-refund-api-authorization-enforcing-resource-server.md)
+- [0015] Entity-scoped ABAC in refund-api evaluates specs/004's entity condition at **request** level — "at least one line's entity matches the caller's `user.entity`" — never per-line; "global" review scope is composed via the resolver's pre-existing widest-wins union (no `accounting-global` role is seeded); approve/reject/set-approved-total always apply **whole-request**, even across an out-of-scope line (see docs/adr/0015-entity-scoped-abac-refund-api.md)
+- [0016] Refund receipt attachments live in EU-region S3-compatible object storage, reached only via presigned URLs (policy-capped ≤10 MiB, `pdf`/`jpeg`/`png` POST; ~60s authz-gated GET) — never proxy file bytes through refund-api; two-phase `pending`→`confirm` upload, orphans reconciled on read (only `stored` ever surfaced), no cron (ADR-0013 posture); `REFUND_S3_REGION` is validated against an EU allowlist at startup (see docs/adr/0016-eu-object-storage-refund-attachments.md)
+- [0017] notify-api gains `POST /system/notifications` (internal-token, mirrors ADR-0011's `/system/emails`) for cross-user in-app push, activating ADR-0009's reserved `recipient` seam for refund-api's decision notifications; reuses the **same** `NOTIFY_INTERNAL_TOKEN` for a second caller — knowingly tripping ADR-0011's named "second internal caller" escalation trigger without acting on it yet; best-effort, never rolls back the decision; the user-JWT `POST /notifications` stays strictly self-only (OWASP A01) (see docs/adr/0017-system-notifications-cross-user-trigger.md)
+- [0018] refund-api's financial audit trail (`RefundAuditEntry`) is append-only at the **database** level, not just by absent route — a `CREATE RULE`/trigger blocks `UPDATE`/`DELETE` outright, and `onDelete: Restrict` makes any request with an audit row (i.e. anything past `draft`) physically undeletable; the reusable pattern for future financial/governance records in the suite (see docs/adr/0018-immutable-financial-audit-trail-refund.md)

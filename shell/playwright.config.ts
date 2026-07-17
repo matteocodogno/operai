@@ -18,6 +18,15 @@ import { defineConfig, devices } from '@playwright/test'
  *      shell).
  *   4. notify-api: `bun run dev` in `notify-api/` (localhost:8081) —
  *      required for specs/005's US-1..US-6 (bell/badge, center, SSE, toasts).
+ *   5. refund-api: `bun run dev` in `refund-api/` (localhost:8082) — required
+ *      for specs/007's headline journeys (refund-headline.spec.ts, T21):
+ *      compose/submit/review/decide/notify. NOTIFY_INTERNAL_TOKEN must be
+ *      byte-for-byte identical across auth/notify-api/refund-api's own
+ *      `.env` files (ADR-0017) or the post-decision notification silently
+ *      no-ops. Real object-storage credentials (`REFUND_S3_*`) are NOT
+ *      required to run these journeys — refund-headline.spec.ts deliberately
+ *      never attaches a receipt (AC-1.7: attachments are always optional),
+ *      since no EU bucket is provisioned for local/CI e2e.
  *
  * All five frontends (shell, estimai-ui, refund-ui, notify-ui, admin-ui) are
  * started here via `build && preview` (NOT `vite dev`) — dev-mode host + build-mode remote
@@ -58,6 +67,19 @@ const apiUrl =
 // notify-api/.env.example PORT=8081).
 const notifyApiUrl =
   process.env['E2E_NOTIFY_API_URL'] ?? process.env['VITE_NOTIFY_API_URL'] ?? 'http://localhost:8081'
+
+// refund-api base URL (specs/007-refund-service, T21). Mirrors apiUrl/
+// notifyApiUrl above. Needed on BOTH sides of the federation boundary:
+// refund-ui reads it directly (src/lib/refundApi.ts's `refundApiBase()`)
+// AND the shell needs it at ITS OWN build time too, because
+// `shell/src/lib/session.ts`'s `getTrustedOrigins()` (the allowlist
+// `apiFetch` checks before attaching the Bearer JWT, ADR-0001) is compiled
+// into the SHELL bundle, not refund-ui's — without this, refund-ui's calls
+// to refund-api would go out with no Authorization header and 401
+// unconditionally (see refundApi.ts's own "DRIFT" doc comment, closed by
+// T20's session.ts fix — this wires the actual env value through for e2e).
+const refundApiUrl =
+  process.env['E2E_REFUND_API_URL'] ?? process.env['VITE_REFUND_API_URL'] ?? 'http://localhost:8082'
 
 const shellUrl = 'http://localhost:5173'
 const estimaiRemoteOrigin = 'http://localhost:5175'
@@ -143,6 +165,7 @@ export default defineConfig({
       stderr: 'pipe',
       env: {
         SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+        VITE_REFUND_API_URL: refundApiUrl,
       },
     },
     {
@@ -193,6 +216,7 @@ export default defineConfig({
         VITE_AUTH_URL: authUrl,
         VITE_API_URL: apiUrl,
         VITE_NOTIFY_API_URL: notifyApiUrl,
+        VITE_REFUND_API_URL: refundApiUrl,
       },
     },
   ],

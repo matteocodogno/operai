@@ -35,7 +35,7 @@ export interface SuiteTool {
  */
 export const TOOLS: readonly SuiteTool[] = [
   { id: 'estimai', label: 'EstimAI', to: '/estimai' },
-  { id: 'refund', label: 'Refund (Rimborsi)', to: '/refund' },
+  { id: 'refund', label: 'Refund', to: '/refund' },
   { id: 'admin', label: 'Admin', to: '/admin' },
 ]
 

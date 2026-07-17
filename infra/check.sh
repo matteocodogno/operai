@@ -11,13 +11,15 @@
 #   AUTH_URL=https://auth.staging... API_URL=... NOTIFY_API_URL=... ./infra/check.sh
 #   ./infra/check.sh --prereqs           # tooling only (pre-deploy)
 #
-# Covers all three backends (auth, estimai-api, notify-api) and all four
-# remotes (estimai-ui, refund-ui, admin-ui, notify-ui), plus the shell CSP —
-# including the notify-api origin in connect-src, the classic SSE/EventSource
-# miss (specs/005-notification-center Risk R6). Also probes notify-api's
-# internal email-send gate (specs/006-user-invitations, ADR-0011) — see
-# § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same value configured on
-# both auth and notify-api) to get the strongest form of that check.
+# Covers all FOUR backends (auth, estimai-api, notify-api, refund-api) and all
+# four remotes (estimai-ui, refund-ui, admin-ui, notify-ui), plus the shell
+# CSP — including the notify-api origin in connect-src, the classic
+# SSE/EventSource miss (specs/005-notification-center Risk R6), and the
+# refund-api origin in connect-src (specs/007-refund-service T20). Also probes
+# notify-api's internal email-send gate (specs/006-user-invitations,
+# ADR-0011) — see § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same
+# value configured on auth, notify-api, AND refund-api as of ADR-0017) to get
+# the strongest form of that check.
 #
 # Exit code: 0 if every executed check passed, 1 otherwise.
 
@@ -27,6 +29,7 @@ set -uo pipefail
 AUTH_URL="${AUTH_URL:-https://auth.operai.welld.io}"
 API_URL="${API_URL:-https://estimai-api.operai.welld.io}"
 NOTIFY_API_URL="${NOTIFY_API_URL:-https://notify-api.operai.welld.io}"
+REFUND_API_URL="${REFUND_API_URL:-https://refund-api.operai.welld.io}"
 SHELL_URL="${SHELL_URL:-https://operai.welld.io}"
 ESTIMAI_URL="${ESTIMAI_URL:-https://estimai.operai.welld.io}"
 REFUND_URL="${REFUND_URL:-https://refund.operai.welld.io}"
@@ -87,9 +90,13 @@ else
   fail "notify-api /health not 200 ($NOTIFY_API_URL, got HTTP ${NOTIFY_HEALTH_CODE:-?})"
 fi
 
+# refund-api (specs/007-refund-service): same DB-connectivity-gates-status
+# contract as estimai-api/notify-api above.
+[[ "$(code "$REFUND_API_URL/health")" == 200 ]] && pass "refund-api /health 200 ($REFUND_API_URL)" || fail "refund-api /health not 200 ($REFUND_API_URL)"
+
 # JWKS: the resource-server verification key. MUST be /auth/jwks (better-auth's
-# rotating DB keypair), NOT /.well-known/jwks.json (orphaned env key). Both
-# estimai-api and notify-api verify against this same endpoint.
+# rotating DB keypair), NOT /.well-known/jwks.json (orphaned env key).
+# estimai-api, notify-api, and refund-api all verify against this same endpoint.
 JWKS="$(body "$AUTH_URL/auth/jwks")"
 if echo "$JWKS" | grep -q '"kty"' && echo "$JWKS" | grep -q 'RS256\|"RSA"'; then
   pass "JWKS at /auth/jwks serves an RS256 key set"
@@ -173,6 +180,18 @@ if [[ -n "$CSP" ]]; then
     pass "  CSP connect-src includes $NOTIFY_API_URL (SSE EventSource origin — R6)"
   else
     fail "  CSP connect-src is MISSING $NOTIFY_API_URL — the notification SSE stream will be blocked (specs/005 Risk R6: connect-src governs EventSource, not script-src)"
+  fi
+
+  # specs/007-refund-service T20 — the trusted-origin fix: refund-api must be
+  # in connect-src too (an ordinary fetch target via refund-ui's apiFetch
+  # calls, not SSE, but connect-src governs fetch/XHR origins as well as
+  # EventSource). Without this pin the shell's own CSP — independent of the
+  # session.ts trusted-origins allowlist check elsewhere — would block every
+  # refund-api call from the browser regardless of the Bearer header.
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$REFUND_API_URL"; then
+    pass "  CSP connect-src includes $REFUND_API_URL (refund-api origin — T20)"
+  else
+    fail "  CSP connect-src is MISSING $REFUND_API_URL — refund-ui's API calls will be blocked by the browser regardless of the Bearer-token trusted-origins fix (specs/007-refund-service T20)"
   fi
 else fail "no Content-Security-Policy header on the shell (shell/vercel.json)"; fi
 

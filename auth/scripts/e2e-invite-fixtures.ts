@@ -30,9 +30,24 @@
  *   bun run scripts/e2e-invite-fixtures.ts grant-role <email> <roleName>
  *   bun run scripts/e2e-invite-fixtures.ts seed-invitation <email> [roleName ...]
  *   bun run scripts/e2e-invite-fixtures.ts cleanup <emailOrPrefix>
+ *   bun run scripts/e2e-invite-fixtures.ts grant-refund-employee <email>
+ *   bun run scripts/e2e-invite-fixtures.ts grant-refund-accounting <email> <entity|global>
+ *
+ * The two `grant-refund-*` commands (specs/007-refund-service, T21 QE
+ * verification) plug the SAME kind of gap `grant-role` plugs above: refund
+ * permissions are deliberately admin-assigned, not automatic for the
+ * `employee` role (spec.md Constraints — "holding `employee` does not by
+ * itself grant refund access"), and there is no test-only "make me an
+ * accounting user with entity X" endpoint (nor should there be, for the same
+ * reason `grant-role` above has none). Both commands create/reuse REAL Role +
+ * PermissionRule rows via Prisma — the same tables `auth/src/authz/seed.ts`'s
+ * `seedAccountingRoleGrants` and the admin API's role editor write to — so
+ * refund-api's live `GET /authz/resolve` call resolves these test users
+ * through the exact same code path a real admin-granted user would.
  */
 import { db } from "../src/lib/db";
 import { generateInvitationToken } from "../src/invitations/token";
+import { ACCOUNTING_ROLE_NAME } from "../src/authz/seed";
 
 async function grantRole(email: string, roleName: string): Promise<void> {
   const user = await db.user.findUnique({ where: { email } });
@@ -81,6 +96,128 @@ async function seedInvitation(email: string, roleNames: string[]): Promise<void>
   console.log(JSON.stringify({ id: invitation.id, token: raw }));
 }
 
+/** e2e-only custom role carrying exactly the refund employee grants (specs/007). */
+const E2E_REFUND_EMPLOYEE_ROLE_NAME = "e2e-refund-employee";
+
+async function bumpEpoch(userId: string): Promise<void> {
+  await db.user.update({
+    where: { id: userId },
+    data: { permissionEpoch: { increment: 1 } },
+  });
+}
+
+async function assignRole(userId: string, roleId: string): Promise<void> {
+  await db.userRole.upsert({
+    where: { userId_roleId: { userId, roleId } },
+    update: {},
+    create: { userId, roleId },
+  });
+}
+
+/**
+ * Grants the (already test-auth-seeded) user at `email` the refund
+ * employee permission set — `refund:access`, `request:create`,
+ * `request:read` (ownership:own) — via a dedicated, idempotently-created
+ * `e2e-refund-employee` role (spec.md Constraints: these are NEVER on the
+ * built-in `employee` role by default; an admin grants them per-user or
+ * per-role, which this role stands in for).
+ */
+async function grantRefundEmployee(email: string): Promise<void> {
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) {
+    throw new Error(
+      `grant-refund-employee: no user row for ${email} — seed a session for this email first (POST /test-auth/session)`,
+    );
+  }
+
+  const role = await db.role.upsert({
+    where: { name: E2E_REFUND_EMPLOYEE_ROLE_NAME },
+    update: {},
+    create: { name: E2E_REFUND_EMPLOYEE_ROLE_NAME, isSystem: false },
+  });
+
+  const rules: { resource: string; action: string; conditions: object | null }[] = [
+    { resource: "refund", action: "access", conditions: null },
+    { resource: "request", action: "create", conditions: null },
+    { resource: "request", action: "read", conditions: { ownership: "own" } },
+  ];
+  for (const rule of rules) {
+    const existing = await db.permissionRule.findFirst({
+      where: { roleId: role.id, resource: rule.resource, action: rule.action },
+    });
+    if (existing) {
+      await db.permissionRule.update({
+        where: { id: existing.id },
+        data: { conditions: rule.conditions ?? undefined },
+      });
+    } else {
+      await db.permissionRule.create({
+        data: { roleId: role.id, resource: rule.resource, action: rule.action, conditions: rule.conditions ?? undefined },
+      });
+    }
+  }
+
+  await assignRole(user.id, role.id);
+  await bumpEpoch(user.id);
+  console.log(JSON.stringify({ ok: true, userId: user.id, roleId: role.id }));
+}
+
+/**
+ * Grants the (already test-auth-seeded) user at `email` the real,
+ * admin-seeded `accounting` role (auth/src/authz/seed.ts
+ * `seedAccountingRoleGrants` — entity-conditioned review/approve/reject/
+ * set-approved-total) AND sets `user.entity` to `entity` (`welld_it` |
+ * `welld_ch`) so ADR-0015's entity-scope predicate has a real attribute to
+ * match against. `entity === "global"` instead sets `user.entity` to null
+ * AND additionally grants an UNCONDITIONED `request:review`/`approve`/
+ * `reject`/`set-approved-total` set via a second `e2e-refund-global` role
+ * (plan.md's documented "widest-wins union" composition for a global
+ * reviewer — no `accounting-global` role is ever seeded, an admin composes
+ * it by adding an unconditioned grant on top).
+ */
+async function grantRefundAccounting(email: string, entity: string): Promise<void> {
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) {
+    throw new Error(
+      `grant-refund-accounting: no user row for ${email} — seed a session for this email first (POST /test-auth/session)`,
+    );
+  }
+
+  const accountingRole = await db.role.findFirst({ where: { name: ACCOUNTING_ROLE_NAME } });
+  if (!accountingRole) {
+    throw new Error(
+      `grant-refund-accounting: role "${ACCOUNTING_ROLE_NAME}" does not exist — has the seed run (bun run db:release)?`,
+    );
+  }
+  await assignRole(user.id, accountingRole.id);
+
+  if (entity === "global") {
+    const globalRole = await db.role.upsert({
+      where: { name: "e2e-refund-global" },
+      update: {},
+      create: { name: "e2e-refund-global", isSystem: false },
+    });
+    const actions = ["review", "set-approved-total", "approve", "reject"];
+    for (const action of actions) {
+      const existing = await db.permissionRule.findFirst({
+        where: { roleId: globalRole.id, resource: "request", action },
+      });
+      if (!existing) {
+        await db.permissionRule.create({
+          data: { roleId: globalRole.id, resource: "request", action, conditions: undefined },
+        });
+      }
+    }
+    await assignRole(user.id, globalRole.id);
+    await db.user.update({ where: { id: user.id }, data: { entity: null } });
+  } else {
+    await db.user.update({ where: { id: user.id }, data: { entity } });
+  }
+
+  await bumpEpoch(user.id);
+  console.log(JSON.stringify({ ok: true, userId: user.id, roleId: accountingRole.id, entity }));
+}
+
 async function cleanup(emailOrPrefix: string): Promise<void> {
   const users = await db.user.findMany({
     where: { email: { contains: emailOrPrefix } },
@@ -114,6 +251,10 @@ async function main(): Promise<void> {
       await seedInvitation(args[0]!, args.slice(1));
     } else if (cmd === "cleanup") {
       await cleanup(args[0]!);
+    } else if (cmd === "grant-refund-employee") {
+      await grantRefundEmployee(args[0]!);
+    } else if (cmd === "grant-refund-accounting") {
+      await grantRefundAccounting(args[0]!, args[1]!);
     } else {
       console.error("unknown command:", cmd);
       process.exit(1);

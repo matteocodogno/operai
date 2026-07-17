@@ -1,0 +1,143 @@
+import { createMiddleware } from "hono/factory";
+import {
+  createRemoteJWKSet,
+  jwtVerify,
+  errors as joseErrors,
+  type JWTPayload,
+} from "jose";
+import { env } from "../lib/env";
+
+// ─── Context variable types ───────────────────────────────────────────────────
+
+/**
+ * Variables set on context by jwtMiddleware on successful verification.
+ * Import this type into the Hono app/router generics for downstream route handlers.
+ */
+export type JwtVariables = {
+  userId: string;
+  email: string;
+  /**
+   * The `perm_epoch` claim from the verified JWT (auth/src/auth/auth.config.ts
+   * `definePayload`) — a monotonically-increasing staleness marker bumped
+   * whenever an admin changes this user's roles/permissions/departments.
+   * Consumed by authzMiddleware (T6, ADR-0014) as half of its
+   * `(sub, perm_epoch)` permission cache key: a grant change bumps the
+   * epoch, so the caller's NEXT refreshed token carries a new epoch, which
+   * is a cache-key miss at refund-api, forcing a fresh `/authz/resolve`
+   * call. Defaults to 0 for a token that (unexpectedly) omits the claim —
+   * treated as "epoch unknown", never as a reason to reject the token here;
+   * jwtMiddleware's job is identity only (WHO), not authorization (WHAT).
+   */
+  permEpoch: number;
+};
+
+// ─── JWKS key set — built ONCE at module scope ────────────────────────────────
+// createRemoteJWKSet returns a cached KeyLike resolver. It fetches the JWKS
+// on the first unknown `kid` and honours Cache-Control: max-age=3600 from the
+// auth service — no per-request fetch in the steady state.
+const JWKS = createRemoteJWKSet(new URL(env.AUTH_JWKS_URL));
+
+// ─── Problem JSON 401 helper ──────────────────────────────────────────────────
+
+const unauthorized = (detail: string, path: string) =>
+  Response.json(
+    {
+      type: "https://httpstatuses.com/401",
+      title: "Unauthorized",
+      status: 401,
+      detail,
+      instance: path,
+    },
+    { status: 401 },
+  );
+
+// ─── Middleware ───────────────────────────────────────────────────────────────
+
+/**
+ * JWT resource-server middleware (ADR-0005, audience enforcement per ADR-0010).
+ *
+ * This is the identity layer only — it proves WHO is calling. refund-api is
+ * the suite's first *authorization*-enforcing resource server (ADR-0014):
+ * capability/condition checks (WHAT they may do) are layered on top by a
+ * separate authzMiddleware (T6), which runs after this one and resolves the
+ * caller's permissions live from `auth GET /authz/resolve`.
+ *
+ * 1. Reads Authorization: Bearer <jwt>. Missing / malformed → 401 Problem JSON.
+ * 2. Verifies the RS256 signature against the auth service JWKS (cached remote fetch).
+ *    Algorithm is pinned to RS256 — alg:none / HS256 confusion rejected.
+ *    issuer is pinned to AUTH_ISSUER; audience is pinned to AUTH_AUDIENCE (ADR-0010) —
+ *    a token missing the `aud` claim, or carrying a value other than AUTH_AUDIENCE, fails
+ *    verification here.
+ * 3. Any verification failure (expired, bad signature, wrong issuer/kid/alg/audience) → 401.
+ * 4. On success: sets c.set('userId', sub) and c.set('email', email).
+ *
+ * NO database access occurs for unauthenticated requests.
+ */
+export const jwtMiddleware = createMiddleware<{
+  Variables: JwtVariables;
+}>(async (c, next) => {
+  // 1. Extract Bearer token from Authorization header.
+  const authHeader = c.req.header("Authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return unauthorized("A valid Bearer token is required", c.req.path);
+  }
+
+  const token = authHeader.slice(7); // strip "Bearer "
+
+  if (!token) {
+    return unauthorized("A valid Bearer token is required", c.req.path);
+  }
+
+  // 2. Verify RS256 signature, issuer, audience, and expiry via cached remote JWKS.
+  //    algorithms: ['RS256'] pins the algorithm — rejects alg:none and HS256.
+  let payload: JWTPayload;
+  try {
+    const result = await jwtVerify(token, JWKS, {
+      issuer: env.AUTH_ISSUER,
+      audience: env.AUTH_AUDIENCE,
+      algorithms: ["RS256"],
+    });
+    payload = result.payload;
+  } catch (err) {
+    // Translate all jose verification failures → 401 Problem JSON.
+    // We log the code (not full error) so no token details hit app logs.
+    const code =
+      err instanceof joseErrors.JOSEError
+        ? (err.code ?? err.constructor.name)
+        : "JWT_VERIFY_FAILED";
+
+    console.warn("[jwt] verification failed:", code);
+
+    return unauthorized(
+      "The provided token is invalid or has expired",
+      c.req.path,
+    );
+  }
+
+  // 3. Validate required claims are present.
+  const userId = payload.sub;
+  const email = typeof payload.email === "string" ? payload.email : undefined;
+
+  if (!userId) {
+    return unauthorized("Token is missing required 'sub' claim", c.req.path);
+  }
+
+  if (!email) {
+    return unauthorized("Token is missing required 'email' claim", c.req.path);
+  }
+
+  // 4. Set context variables for downstream route handlers.
+  //    perm_epoch (T6, ADR-0014): read straight off the already-verified
+  //    payload — no additional trust decision, just extraction. A
+  //    non-numeric/missing claim degrades to 0 rather than failing
+  //    verification (identity, not authorization, is this middleware's job).
+  const permEpoch =
+    typeof payload["perm_epoch"] === "number" ? payload["perm_epoch"] : 0;
+
+  c.set("userId", userId);
+  c.set("email", email);
+  c.set("permEpoch", permEpoch);
+
+  return next();
+});

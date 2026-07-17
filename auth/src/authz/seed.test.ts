@@ -35,15 +35,21 @@ import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { getAppCatalog } from "./catalog";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
+import { REFUND_APP_ID } from "./catalogs/refund";
 import {
+  ACCOUNTING_ROLE_NAME,
   ALL_APP_IDS,
   assignBaselineRolesToNewUser,
   EMPLOYEE_ROLE_NAME,
   ensureBootstrapAdmin,
+  REFUND_ADMIN_ROLE_NAME,
   seed,
+  seedAccountingRoleGrants,
   seedAdminRoleGrants,
   seedAppAccessCatalog,
   seedEstimaiCatalog,
+  seedRefundAdminRole,
+  seedRefundCatalog,
   seedSystemRoles,
   SUITE_APPS,
   SYSTEM_ROLE_NAMES,
@@ -87,11 +93,11 @@ describe("seedSystemRoles (T11, AC-6.2)", () => {
 });
 
 describe("seedAppAccessCatalog (T11, US-7)", () => {
-  test("registers a single access-only resource for refund and admin, idempotent on re-run", async () => {
+  test("registers a single access-only resource for admin, idempotent on re-run", async () => {
     await seedAppAccessCatalog();
     await seedAppAccessCatalog(); // re-run — full-replace upsert, must not duplicate
 
-    for (const appId of ["refund", "admin"]) {
+    for (const appId of ["admin"]) {
       const catalog = await getAppCatalog(appId);
       const accessResource = catalog.resources.find((r) => r.key === appId);
       expect(accessResource).toBeDefined();
@@ -104,6 +110,10 @@ describe("seedAppAccessCatalog (T11, US-7)", () => {
     // This is a code-shape assertion, not a DB-state one, so it stays true
     // regardless of what earlier test runs may have left in the shared DB.
     expect(SUITE_APPS.some((app) => app.appId === "estimai")).toBe(false);
+  });
+
+  test("refund is excluded from SUITE_APPS (T2, specs/007) — it declares/registers its own full catalog, not this one", () => {
+    expect(SUITE_APPS.some((app) => app.appId === "refund")).toBe(false);
   });
 });
 
@@ -143,6 +153,154 @@ describe("seedEstimaiCatalog (T26, AC-3.4)", () => {
     const estimateResource = mine?.resources.find((r) => r.key === "estimate");
     expect(estimateResource).toBeDefined();
     expect(estimateResource?.actions).toHaveLength(4);
+  });
+});
+
+// ─── T2, specs/007-refund-service ───────────────────────────────────────────
+
+describe("seedRefundCatalog (T2, specs/007-refund-service — AC-1.1, AC-5.4, AC-7.5, AC-8.2)", () => {
+  test("registers refund's full catalog — app access + request create/read/review/set-approved-total/approve/reject, idempotent on re-run", async () => {
+    await seedRefundCatalog();
+    await seedRefundCatalog(); // re-run — full-replace upsert, must not duplicate
+
+    const catalog = await getAppCatalog(REFUND_APP_ID);
+
+    const accessResource = catalog.resources.find((r) => r.key === REFUND_APP_ID);
+    expect(accessResource).toBeDefined();
+    expect(accessResource?.actions).toHaveLength(1);
+    expect(accessResource?.actions[0]?.key).toBe("access");
+    expect(accessResource?.actions[0]?.supportedConditions).toEqual([]);
+
+    const requestResource = catalog.resources.find((r) => r.key === "request");
+    expect(requestResource).toBeDefined();
+    expect(requestResource?.actions.map((a) => a.key).sort()).toEqual(
+      ["approve", "create", "read", "reject", "review", "set-approved-total"].sort(),
+    );
+
+    const byKey = new Map(requestResource?.actions.map((a) => [a.key, a.supportedConditions]));
+    expect(byKey.get("create")).toEqual([]);
+    expect(byKey.get("read")).toEqual(["ownership"]);
+    expect(byKey.get("review")).toEqual(["entity"]);
+    expect(byKey.get("set-approved-total")).toEqual(["entity"]);
+    expect(byKey.get("approve")).toEqual(["entity"]);
+    expect(byKey.get("reject")).toEqual(["entity"]);
+  });
+
+  test("GET /admin/catalog's backing read (getFullCatalog) includes refund's request resource", async () => {
+    await seedRefundCatalog();
+
+    const { getFullCatalog } = await import("./catalog");
+    const fullCatalog = await getFullCatalog();
+
+    const mine = fullCatalog.find((app) => app.appId === REFUND_APP_ID);
+    expect(mine).toBeDefined();
+    const requestResource = mine?.resources.find((r) => r.key === "request");
+    expect(requestResource).toBeDefined();
+    expect(requestResource?.actions).toHaveLength(6);
+  });
+});
+
+describe("seedAccountingRoleGrants (T2, specs/007-refund-service — AC-5.4, AC-6.4, AC-7.5; ADR-0015)", () => {
+  test("accounting gets refund:access + entity-conditioned review/set-approved-total/approve/reject; employee gets none; idempotent on re-run", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await seedAccountingRoleGrants(); // re-run must not duplicate
+
+    const accounting = await db.role.findUnique({ where: { name: ACCOUNTING_ROLE_NAME } });
+    expect(accounting).not.toBeNull();
+
+    const accountingRules = await db.permissionRule.findMany({
+      where: { roleId: accounting!.id },
+    });
+
+    // Exactly 5 rules: refund:access (unconditional) + 4 entity-conditioned request actions.
+    expect(accountingRules).toHaveLength(5);
+
+    const access = accountingRules.find(
+      (r) => r.resource === REFUND_APP_ID && r.action === "access",
+    );
+    expect(access).toBeDefined();
+    expect(access?.conditions).toBeNull();
+
+    for (const action of ["review", "set-approved-total", "approve", "reject"]) {
+      const rule = accountingRules.find((r) => r.resource === "request" && r.action === action);
+      expect(rule).toBeDefined();
+      expect(rule?.conditions).toEqual({ attributes: [{ key: "entity", match: "user" }] });
+    }
+
+    // No approve/reject/etc. rule carries an unconditioned (global) grant —
+    // this seed ships only the entity-scoped role, never an
+    // "accounting-global" role (Gate-2 decision D3; ADR-0015 point 4).
+    expect(accountingRules.every((r) => r.resource !== "accounting-global")).toBe(true);
+
+    // employee deliberately gets NOTHING refund-related — fully admin-assigned
+    // (Gate-2 decision D2).
+    const employee = await db.role.findUnique({ where: { name: EMPLOYEE_ROLE_NAME } });
+    const employeeRefundRules = await db.permissionRule.findMany({
+      where: { roleId: employee!.id, OR: [{ resource: REFUND_APP_ID }, { resource: "request" }] },
+    });
+    expect(employeeRefundRules).toHaveLength(0);
+  });
+
+  test("no `accounting-global` role is ever created by this seed", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+
+    const globalRole = await db.role.findUnique({ where: { name: "accounting-global" } });
+    expect(globalRole).toBeNull();
+  });
+});
+
+// ─── Post-close follow-up: `refund-admin` role ──────────────────────────────
+
+describe("seedRefundAdminRole (post-close follow-up, specs/007-refund-service)", () => {
+  test("creates a system `refund-admin` role with refund:access + all 6 request actions, every one UNCONDITIONED, idempotent on re-run", async () => {
+    await seedRefundAdminRole();
+    await seedRefundAdminRole(); // re-run must not duplicate
+
+    const role = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+    expect(role).not.toBeNull();
+    expect(role!.isSystem).toBe(true);
+
+    const rules = await db.permissionRule.findMany({ where: { roleId: role!.id } });
+
+    // Exactly 7 rules: refund:access + all 6 request actions.
+    expect(rules).toHaveLength(7);
+
+    const access = rules.find((r) => r.resource === REFUND_APP_ID && r.action === "access");
+    expect(access).toBeDefined();
+    expect(access?.conditions).toBeNull();
+
+    const requestActions = ["create", "read", "review", "set-approved-total", "approve", "reject"];
+    for (const action of requestActions) {
+      const rule = rules.find((r) => r.resource === "request" && r.action === action);
+      expect(rule).toBeDefined();
+      // Every action — INCLUDING the ADR-0015 entity-scoped four — carries
+      // NO conditions: an unconditioned grant resolves to GLOBAL_ENTITY_SCOPE
+      // in refund-api (conditions.ts's entityScopeForPermission), which is
+      // what makes this role a true cross-entity superuser rather than a
+      // scoped-to-nothing one.
+      expect(rule?.conditions).toBeNull();
+    }
+
+    expect(rules.map((r) => r.action).sort()).toEqual(
+      ["access", "create", "read", "review", "set-approved-total", "approve", "reject"].sort(),
+    );
+  });
+
+  test("is a distinct role from `accounting` — no `accounting-global` role is created either", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await seedRefundAdminRole();
+
+    const refundAdmin = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+    const accounting = await db.role.findUnique({ where: { name: ACCOUNTING_ROLE_NAME } });
+    expect(refundAdmin).not.toBeNull();
+    expect(accounting).not.toBeNull();
+    expect(refundAdmin!.id).not.toBe(accounting!.id);
+
+    const globalRole = await db.role.findUnique({ where: { name: "accounting-global" } });
+    expect(globalRole).toBeNull();
   });
 });
 
@@ -272,7 +430,7 @@ describe("assignBaselineRolesToNewUser (T11, AC-6.1/6.3)", () => {
 });
 
 describe("seed() — runs every deploy-time step", () => {
-  test("completes without error and leaves roles + catalogs (incl. EstimAI's, T26) in place", async () => {
+  test("completes without error and leaves roles + catalogs (incl. EstimAI's T26, refund's T2) in place", async () => {
     await seed();
 
     const roles = await db.role.findMany({
@@ -287,6 +445,26 @@ describe("seed() — runs every deploy-time step", () => {
     expect(estimaiCatalog.resources.some((r) => r.key === ESTIMAI_APP_ID)).toBe(true);
     const estimateResource = estimaiCatalog.resources.find((r) => r.key === "estimate");
     expect(estimateResource?.actions).toHaveLength(4);
+
+    const refundCatalog = await getAppCatalog(REFUND_APP_ID);
+    expect(refundCatalog.resources.some((r) => r.key === REFUND_APP_ID)).toBe(true);
+    const requestResource = refundCatalog.resources.find((r) => r.key === "request");
+    expect(requestResource?.actions).toHaveLength(6);
+
+    // seed() also attaches the accounting role's refund grants (T2).
+    const accounting = await db.role.findUnique({ where: { name: ACCOUNTING_ROLE_NAME } });
+    const accountingRefundRules = await db.permissionRule.findMany({
+      where: { roleId: accounting!.id, resource: "request" },
+    });
+    expect(accountingRefundRules.length).toBeGreaterThanOrEqual(4);
+
+    // seed() also seeds the refund-admin role (post-close follow-up).
+    const refundAdmin = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+    expect(refundAdmin).not.toBeNull();
+    const refundAdminRules = await db.permissionRule.findMany({
+      where: { roleId: refundAdmin!.id },
+    });
+    expect(refundAdminRules.length).toBe(7);
   });
 });
 

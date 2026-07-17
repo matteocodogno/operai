@@ -1,0 +1,43 @@
+- generic [ref=f7e3]:
+  - link "Skip to content" [ref=f7e4] [cursor=pointer]:
+    - /url: "#shell-main-content"
+  - banner [ref=f7e5]:
+    - generic [ref=f7e6]:
+      - button "Operai menu" [ref=f7e8] [cursor=pointer]:
+        - img "Operai" [ref=f7e9]
+      - generic [ref=f7e10]:
+        - button "System theme (auto)" [ref=f7e11] [cursor=pointer]: ◑
+        - link "Notifications" [ref=f7e12] [cursor=pointer]:
+          - /url: /notify
+          - img [ref=f7e13]
+        - button "QE User B" [ref=f7e18] [cursor=pointer]:
+          - generic "QE User B" [ref=f7e19]: Q
+  - generic [ref=f7e20]:
+    - navigation "Tool navigation" [ref=f7e21]:
+      - generic [ref=f7e22]:
+        - list [ref=f7e23]
+        - button "Collapse sidebar" [expanded] [ref=f7e25] [cursor=pointer]:
+          - img [ref=f7e26]
+          - generic [ref=f7e29]: Collapse
+    - main [ref=f7e30]:
+      - generic [ref=f7e31]:
+        - generic [ref=f7e32]:
+          - heading "Notifications" [active] [level=1] [ref=f7e33]
+          - button "Mark all as read" [ref=f7e34] [cursor=pointer]
+        - paragraph [ref=f7e35]: 0 notifications loaded
+        - generic [ref=f7e37]:
+          - heading "Nothing here yet" [level=2] [ref=f7e38]
+          - paragraph [ref=f7e39]: You’ll see notifications from EstimAI, Refund, and the rest of the suite here as they happen.
+  - contentinfo [ref=f7e40]:
+    - generic [ref=f7e41]:
+      - link "Legal information" [ref=f7e42] [cursor=pointer]:
+        - /url: https://welld.ch/legal
+      - generic [ref=f7e43]:
+        - generic [ref=f7e44]:
+          - text: Operai
+          - generic [ref=f7e45]: v0.0.0
+        - generic [ref=f7e46]: ·
+        - generic [ref=f7e47]:
+          - text: © 2026
+          - link "wellD" [ref=f7e48] [cursor=pointer]:
+            - /url: https://welld.ch

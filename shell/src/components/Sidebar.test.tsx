@@ -111,7 +111,7 @@ describe('Sidebar entries', () => {
     await renderSidebarAt('/estimai')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
 
     expect(estimaiLink.getAttribute('href')).toBe('/estimai')
     expect(refundLink.getAttribute('href')).toBe('/refund')
@@ -130,7 +130,7 @@ describe('Sidebar app-access filtering (T24, AC-7.1, AC-7.2)', () => {
     await renderSidebarAt('/estimai')
 
     expect(screen.getByRole('link', { name: 'EstimAI' })).toBeDefined()
-    expect(screen.queryByRole('link', { name: 'Refund (Rimborsi)' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Refund' })).toBeNull()
     expect(screen.getAllByRole('link')).toHaveLength(1)
   })
 
@@ -170,7 +170,7 @@ describe('Sidebar app-access filtering (T24, AC-7.1, AC-7.2)', () => {
 
     expect(screen.queryAllByRole('link')).toHaveLength(0)
     expect(screen.queryByText('EstimAI')).toBeNull()
-    expect(screen.queryByText('Refund (Rimborsi)')).toBeNull()
+    expect(screen.queryByText('Refund')).toBeNull()
     expect(screen.queryByText('Admin')).toBeNull()
     // The rest of the chrome (collapse toggle) still renders — only the tool
     // list itself is empty, not the whole component.
@@ -181,7 +181,7 @@ describe('Sidebar app-access filtering (T24, AC-7.1, AC-7.2)', () => {
     usePermissions.mockReturnValue(permissionsWith(['refund']))
     await renderSidebarAt('/refund')
 
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
     expect(refundLink.tabIndex).toBe(0)
   })
 })
@@ -191,7 +191,7 @@ describe('Sidebar active state (AC-3.1)', () => {
     await renderSidebarAt('/estimai')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
 
     expect(estimaiLink.getAttribute('aria-current')).toBe('page')
     expect(refundLink.getAttribute('aria-current')).toBeNull()
@@ -201,7 +201,7 @@ describe('Sidebar active state (AC-3.1)', () => {
     await renderSidebarAt('/refund/whatever')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = await screen.findByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = await screen.findByRole('link', { name: 'Refund' })
 
     expect(refundLink.getAttribute('aria-current')).toBe('page')
     expect(estimaiLink.getAttribute('aria-current')).toBeNull()
@@ -213,7 +213,7 @@ describe('Sidebar keyboard operation (roving tabindex + arrow keys)', () => {
     await renderSidebarAt('/refund')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
 
     expect(refundLink.tabIndex).toBe(0)
     expect(estimaiLink.tabIndex).toBe(-1)
@@ -223,7 +223,7 @@ describe('Sidebar keyboard operation (roving tabindex + arrow keys)', () => {
     await renderSidebarAt('/')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
 
     expect(estimaiLink.tabIndex).toBe(0)
     expect(refundLink.tabIndex).toBe(-1)
@@ -234,7 +234,7 @@ describe('Sidebar keyboard operation (roving tabindex + arrow keys)', () => {
     await renderSidebarAt('/estimai')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
 
     estimaiLink.focus()
     expect(document.activeElement).toBe(estimaiLink)
@@ -251,7 +251,7 @@ describe('Sidebar keyboard operation (roving tabindex + arrow keys)', () => {
     await renderSidebarAt('/estimai')
 
     const estimaiLink = screen.getByRole('link', { name: 'EstimAI' })
-    const refundLink = screen.getByRole('link', { name: 'Refund (Rimborsi)' })
+    const refundLink = screen.getByRole('link', { name: 'Refund' })
 
     estimaiLink.focus()
     await user.keyboard('{ArrowUp}')
