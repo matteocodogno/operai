@@ -40,7 +40,7 @@ describe('App (refund-ui, mounted under /refund)', () => {
 
     expect(await screen.findByTestId('refund-my-requests-page')).not.toBeNull()
     expect(window.location.pathname).toBe('/refund/requests')
-    expect(screen.getByRole('heading', { name: /refund \(rimborsi\)/i })).not.toBeNull()
+    expect(screen.getByRole('heading', { name: /^refund$/i })).not.toBeNull()
   })
 
   it('nav links carry the /refund basepath in their href', async () => {

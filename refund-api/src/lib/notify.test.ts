@@ -62,15 +62,21 @@ describe("notifyDecision", () => {
       recipientId: string;
       originApp: string;
       severity: string;
+      title: string;
+      body: string;
       link: { href: string };
     };
     expect(body.recipientId).toBe("emp-1");
     expect(body.originApp).toBe("refund");
     expect(body.severity).toBe("success");
     expect(body.link).toEqual({ href: "/refund/requests/req-1" });
+    // English-only copy (specs/007 i18n-for-v1 decision) — no bilingual
+    // IT+EN string, no "·" separator, no Italian text.
+    expect(body.title).toBe("Refund approved");
+    expect(body.body).toBe("Your refund request has been approved.");
   });
 
-  it("uses severity=warning for a rejected outcome and the same link shape", async () => {
+  it("uses severity=warning + English-only copy for a rejected outcome, and the same link shape", async () => {
     let capturedBody: string | undefined;
     globalThis.fetch = (async (_url: string, init?: RequestInit) => {
       capturedBody = init?.body as string;
@@ -83,9 +89,16 @@ describe("notifyDecision", () => {
       outcome: "rejected",
     });
 
-    const body = JSON.parse(capturedBody!) as { severity: string; link: { href: string } };
+    const body = JSON.parse(capturedBody!) as {
+      severity: string;
+      title: string;
+      body: string;
+      link: { href: string };
+    };
     expect(body.severity).toBe("warning");
     expect(body.link).toEqual({ href: "/refund/requests/req-2" });
+    expect(body.title).toBe("Refund rejected");
+    expect(body.body).toBe("Your refund request has been rejected.");
   });
 
   it("never throws on a non-2xx response", async () => {

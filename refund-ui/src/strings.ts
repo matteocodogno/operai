@@ -76,7 +76,7 @@ export const ownerDisplay = (owner: { email: string; name: string | null }): str
   owner.name && owner.name.trim().length > 0 ? owner.name : owner.email
 
 const en = {
-  appTitle: 'Refund (Rimborsi)',
+  appTitle: 'Refund',
   nav: {
     landmarkLabel: 'Refund navigation',
     myRequests: 'My requests',

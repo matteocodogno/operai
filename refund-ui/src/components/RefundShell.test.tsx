@@ -36,7 +36,7 @@ async function renderShellAt(path: string) {
   const routeTree = rootRoute.addChildren([requestsRoute, reviewRoute])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
-  await screen.findByRole('heading', { name: /refund \(rimborsi\)/i })
+  await screen.findByRole('heading', { name: /^refund$/i })
   return utils
 }
 
@@ -44,7 +44,7 @@ describe('RefundShell structure', () => {
   it('renders the tool heading', async () => {
     await renderShellAt('/requests')
 
-    expect(screen.getByRole('heading', { name: /refund \(rimborsi\)/i })).not.toBeNull()
+    expect(screen.getByRole('heading', { name: /^refund$/i })).not.toBeNull()
   })
 
   it('renders a real nav landmark labelled "Refund navigation"', async () => {

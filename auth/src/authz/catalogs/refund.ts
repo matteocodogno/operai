@@ -57,7 +57,7 @@ export const REFUND_CATALOG: AppCatalogInput = {
   resources: [
     {
       key: REFUND_APP_ID,
-      label: "Rimborsi",
+      label: "Refund",
       actions: [{ key: "access", label: "Access", supportedConditions: [] }],
     },
     {
