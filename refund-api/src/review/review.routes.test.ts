@@ -69,9 +69,21 @@ const accountingPerms = (entity: string | null): ResolveResponse => ({
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
 
+// Default currency mirrors the OLD derivation (welld_it→EUR, welld_ch→CHF)
+// purely as a fixture convenience — production code no longer derives
+// currency from entity (2026-07-17 amendment).
+const DEFAULT_CURRENCY_FOR_ENTITY: Record<"welld_it" | "welld_ch", "EUR" | "CHF"> = {
+  welld_it: "EUR",
+  welld_ch: "CHF",
+};
+
 async function createRequestWithLines(
   status: "draft" | "submitted" | "approved" | "rejected",
-  lines: readonly { entity: "welld_it" | "welld_ch"; requestedAmountCents?: number }[],
+  lines: readonly {
+    entity: "welld_it" | "welld_ch";
+    currency?: "EUR" | "CHF" | "USD" | "GBP";
+    requestedAmountCents?: number;
+  }[],
   overrides: Partial<{ ownerUserId: string; ownerEmail: string; ownerName: string | null }> = {},
 ) {
   const request = await db.refundRequest.create({
@@ -91,6 +103,7 @@ async function createRequestWithLines(
         type: "office_material",
         motivo: "Test line",
         entity: line.entity,
+        currency: line.currency ?? DEFAULT_CURRENCY_FOR_ENTITY[line.entity],
         requestedAmountCents: line.requestedAmountCents ?? 1000,
       },
     });
@@ -142,7 +155,7 @@ describe("GET /review/requests", () => {
       id: string;
       owner: { userId: string; email: string; name: string | null };
       submittedAt: string;
-      subtotals: { entity: string; currency: string; requestedCents: number; approvedCents: number | null }[];
+      subtotals: { currency: string; requestedCents: number; approvedCents: number | null }[];
     }[];
 
     expect(body).toHaveLength(1);
@@ -150,7 +163,32 @@ describe("GET /review/requests", () => {
     expect(body[0]?.owner).toEqual({ userId: "emp-a", email: "a@x.com", name: "Employee A" });
     expect(typeof body[0]?.submittedAt).toBe("string");
     expect(body[0]?.subtotals).toEqual([
-      { entity: "welld_it", currency: "EUR", requestedCents: 2000, approvedCents: null },
+      { currency: "EUR", requestedCents: 2000, approvedCents: null },
+    ]);
+  });
+
+  it("(2026-07-17 amendment) queue subtotals group by currency, not entity — a mixed-currency request shows three subtotals", async () => {
+    const mixed = await createRequestWithLines("submitted", [
+      { entity: "welld_it", currency: "EUR", requestedAmountCents: 1000 },
+      { entity: "welld_it", currency: "CHF", requestedAmountCents: 300 },
+      { entity: "welld_ch", currency: "USD", requestedAmountCents: 700 },
+    ]);
+
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await reviewRouter.request("/review/requests", { headers: authHeaders(token) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      id: string;
+      subtotals: { currency: string; requestedCents: number; approvedCents: number | null }[];
+    }[];
+
+    expect(body.map((r) => r.id)).toEqual([mixed.id]);
+    expect(body[0]?.subtotals).toEqual([
+      { currency: "CHF", requestedCents: 300, approvedCents: null },
+      { currency: "EUR", requestedCents: 1000, approvedCents: null },
+      { currency: "USD", requestedCents: 700, approvedCents: null },
     ]);
   });
 

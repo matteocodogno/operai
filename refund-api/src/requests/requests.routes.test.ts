@@ -99,23 +99,36 @@ const accountingPerms = (entity: string | null): ResolveResponse => ({
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
 
+// Default currency mirrors the OLD derivation (welld_it→EUR, welld_ch→CHF)
+// purely as a fixture convenience — production code no longer derives
+// currency from entity (2026-07-17 amendment); tests that care about
+// currency pass it explicitly (e.g. the (entity, currency) independence and
+// mixed-currency subtotal tests below).
+const DEFAULT_CURRENCY_FOR_ENTITY: Record<"welld_it" | "welld_ch", "EUR" | "CHF"> = {
+  welld_it: "EUR",
+  welld_ch: "CHF",
+};
+
 async function createLineDirect(
   requestId: string,
   overrides: Partial<{
     entity: "welld_it" | "welld_ch";
+    currency: "EUR" | "CHF" | "USD" | "GBP";
     requestedAmountCents: number;
     approvedTotalCents: number | null;
     type: string;
     motivo: string;
   }> = {},
 ) {
+  const entity = overrides.entity ?? "welld_it";
   return db.refundLine.create({
     data: {
       requestId,
       date: new Date("2026-06-01T00:00:00.000Z"),
       type: (overrides.type ?? "office_material") as never,
       motivo: overrides.motivo ?? "Test line",
-      entity: (overrides.entity ?? "welld_it") as never,
+      entity: entity as never,
+      currency: (overrides.currency ?? DEFAULT_CURRENCY_FOR_ENTITY[entity]) as never,
       requestedAmountCents: overrides.requestedAmountCents ?? 1000,
       approvedTotalCents: overrides.approvedTotalCents ?? null,
     },
@@ -255,7 +268,7 @@ describe("GET /requests/:id", () => {
     expect(body.id).toBe(request.id);
   });
 
-  it("(AC-3.5/6.6) subtotals are grouped per-currency by entity — never blended, for a mixed-entity request", async () => {
+  it("(AC-3.5/6.6) subtotals are grouped purely by currency — never blended, for a mixed-entity request", async () => {
     const request = await db.refundRequest.create({
       data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", status: "draft" },
     });
@@ -271,13 +284,62 @@ describe("GET /requests/:id", () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      subtotals: { entity: string; currency: string; requestedCents: number; approvedCents: number | null }[];
+      subtotals: { currency: string; requestedCents: number; approvedCents: number | null }[];
       lines: unknown[];
     };
     expect(body.lines).toHaveLength(3);
     expect(body.subtotals).toEqual([
-      { entity: "welld_ch", currency: "CHF", requestedCents: 500, approvedCents: null },
-      { entity: "welld_it", currency: "EUR", requestedCents: 3500, approvedCents: null },
+      { currency: "CHF", requestedCents: 500, approvedCents: null },
+      { currency: "EUR", requestedCents: 3500, approvedCents: null },
+    ]);
+  });
+
+  it("(2026-07-17 amendment) currency is INDEPENDENT of entity — a mixed-CURRENCY request (EUR + CHF + USD lines, some sharing the SAME entity) produces three subtotals", async () => {
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", status: "draft" },
+    });
+    // Two welld_it lines paid in two DIFFERENT currencies, plus a welld_ch
+    // line paid in a THIRD currency — proves grouping is by currency alone,
+    // never by entity, and that (entity, currency) is unconstrained.
+    await createLineDirect(request.id, {
+      entity: "welld_it",
+      currency: "EUR",
+      requestedAmountCents: 1000,
+    });
+    await createLineDirect(request.id, {
+      entity: "welld_it",
+      currency: "CHF",
+      requestedAmountCents: 300,
+    });
+    await createLineDirect(request.id, {
+      entity: "welld_ch",
+      currency: "USD",
+      requestedAmountCents: 700,
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      subtotals: { currency: string; requestedCents: number; approvedCents: number | null }[];
+      lines: { entity: string; currency: string }[];
+    };
+    expect(body.lines).toHaveLength(3);
+    expect(body.lines.map((l) => ({ entity: l.entity, currency: l.currency })).sort((a, b) =>
+      a.currency.localeCompare(b.currency),
+    )).toEqual([
+      { entity: "welld_it", currency: "CHF" },
+      { entity: "welld_it", currency: "EUR" },
+      { entity: "welld_ch", currency: "USD" },
+    ]);
+    expect(body.subtotals).toEqual([
+      { currency: "CHF", requestedCents: 300, approvedCents: null },
+      { currency: "EUR", requestedCents: 1000, approvedCents: null },
+      { currency: "USD", requestedCents: 700, approvedCents: null },
     ]);
   });
 
@@ -351,13 +413,13 @@ describe("GET /requests/:id", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       lines: { entity: string }[];
-      subtotals: { entity: string; currency: string; requestedCents: number; approvedCents: number | null }[];
+      subtotals: { currency: string; requestedCents: number; approvedCents: number | null }[];
     };
     // Never filtered down to the caller's own scope — both entities present.
     expect(body.lines.map((l) => l.entity).sort()).toEqual(["welld_ch", "welld_it"]);
     expect(body.subtotals).toEqual([
-      { entity: "welld_ch", currency: "CHF", requestedCents: 500, approvedCents: null },
-      { entity: "welld_it", currency: "EUR", requestedCents: 1000, approvedCents: null },
+      { currency: "CHF", requestedCents: 500, approvedCents: null },
+      { currency: "EUR", requestedCents: 1000, approvedCents: null },
     ]);
   });
 

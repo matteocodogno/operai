@@ -2,14 +2,16 @@
  * Zod validation for expense-line create/update bodies (T8,
  * specs/007-refund-service, AC-1.2/1.6).
  *
- * Required: date, type, motivo, requestedAmountCents (>=0 int), entity.
- * `km`: required and > 0 IFF type === "travel_km"; rejected (422) if present
- * for any other type. PUT reuses the SAME schema as POST — "editing a line
- * commits the whole line object" (plan.md § API contracts).
+ * Required: date, type, motivo, requestedAmountCents (>=0 int), entity,
+ * currency (2026-07-17 amendment — independently-stored, NOT derived from
+ * entity; any (entity, currency) combination is valid, see plan.md § Money
+ * handling). `km`: required and > 0 IFF type === "travel_km"; rejected (422)
+ * if present for any other type. PUT reuses the SAME schema as POST —
+ * "editing a line commits the whole line object" (plan.md § API contracts).
  */
 
 import { z } from "zod";
-import { EntitySchema, ExpenseTypeSchema } from "./requests.schemas";
+import { CurrencySchema, EntitySchema, ExpenseTypeSchema } from "./requests.schemas";
 
 const IsoDateOnlySchema = z
   .string()
@@ -21,6 +23,7 @@ export const LineBodySchema = z
     type: ExpenseTypeSchema,
     motivo: z.string().min(1, "motivo is required").max(2000),
     entity: EntitySchema,
+    currency: CurrencySchema,
     requestedAmountCents: z
       .number()
       .int("requestedAmountCents must be an integer")

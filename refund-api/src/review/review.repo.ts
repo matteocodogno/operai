@@ -59,6 +59,7 @@ export function listSubmittedRequests(): Effect.Effect<
               type: true,
               motivo: true,
               entity: true,
+              currency: true,
               requestedAmountCents: true,
               km: true,
               approvedTotalCents: true,

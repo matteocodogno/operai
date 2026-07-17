@@ -89,6 +89,7 @@ async function addCompleteLine(requestId: string) {
       type: "office_material",
       motivo: "Printer paper",
       entity: "welld_it",
+      currency: "EUR",
       requestedAmountCents: 1500,
     },
   });
@@ -103,6 +104,7 @@ async function addIncompleteLine(requestId: string) {
       type: "travel_km",
       motivo: "Client visit",
       entity: "welld_it",
+      currency: "EUR",
       requestedAmountCents: 1500,
       km: null, // required for travel_km — persisted incomplete on purpose
     },
@@ -223,6 +225,7 @@ describe("POST /requests/:id/submit", () => {
         type: "office_material",
         motivo: "Changed",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 1,
       }),
     );
@@ -267,6 +270,7 @@ describe("POST /requests/:id/withdraw", () => {
         type: "office_material",
         motivo: "Edited after withdraw",
         entity: "welld_it",
+        currency: "EUR",
         requestedAmountCents: 42,
       }),
     );
