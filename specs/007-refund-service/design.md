@@ -540,3 +540,42 @@ inventing an unrelated visual idiom.
   contract — a latent scale gap, not a client-side workaround this design invents, (7)
   `RefundShell`'s internal nav intentionally does not hide the Review-queue tab client-side,
   relying on `PermissionDenied` + the shell's own suite-level nav gating instead.
+
+---
+
+## Amendment — 2026-07-17: draft composer, summary rows + confirm-on-delete
+
+Post-close user-reported UX fix. In Screen R2's `draft` variant, every already-added
+`ExpenseLineRow` rendered in `edit` mode as a **full editable field form identical to the
+"Add expense line" composer** — Date/Type/Motivo/Amount/Entity/Currency all live inputs,
+always open — so a user could not visually tell the input form (the composer) apart from the
+already-committed lines below it. This amendment **supersedes** two pieces of this document's
+original text:
+
+1. **F1 step 4** ("Editing an existing line") and the Screen R2 `draft` bullet in the Screens
+   section, which described `edit` mode as always rendering the full field form. It now
+   defaults to a **compact read-only summary row** — date, type, motivo, `formatMoney` amount,
+   `EntityBadge`/`CurrencyBadge`, and a small "N files" attachment indicator (no upload UI) —
+   with native **Edit**/**Delete** buttons. Clicking **Edit** expands that one row inline into
+   the exact field layout this document originally specified (same blur-commit-as-one-PUT
+   semantics, same type-driven `km` field, same full `AttachmentList`); a **Done** button
+   collapses it back to the summary, explicitly re-using the same `commit()` blur-outside uses
+   (a click on a button living inside the row's own container never satisfies the "focus left
+   the row" check on its own, so this call is what keeps "Done just collapses" from silently
+   dropping an unsaved edit). A new "Expense lines (N)" heading sits above the list, making the
+   already-distinct composer card unambiguous now that committed lines no longer look like more
+   copies of it. The `readOnly`/`readOnlyApproved`/`review` renders (Screen R2's
+   `submitted`/`approved`/`rejected` variants and Screen A2) already used this same compact,
+   summary-shaped presentation pre-amendment — they are unchanged in behavior, just now
+   explicitly documented as sharing one presentation with `edit` mode's collapsed row.
+2. **F1 step 6** ("Deleting a line") and **AttachmentList's "×" Remove** (F1 step 5), both of
+   which specified no confirm modal — reasoning that a draft line/attachment is "cheap,
+   reversible working state." The user asked for the safety net back: both now open a
+   `ConfirmDeleteModal` (same ported component `ConfirmDeleteModal`/`AttachmentList` already
+   use elsewhere in this feature — namespaced `testIdPrefix`s, e.g.
+   `row-{lineId}-delete-confirm-*` / `attachment-remove-confirm-{attachmentId}-*`) naming the
+   line (type + motivo) or file before it actually deletes/removes. The `title` hover tooltip
+   on each trigger button is retained as a secondary affordance, not a replacement.
+
+No API/contract change — both amendments are purely client-side interaction changes to
+`refund-ui`'s `ExpenseLineRow`/`AttachmentList`/`RequestDetailPage`.

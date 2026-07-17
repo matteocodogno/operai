@@ -2,14 +2,19 @@
  * @vitest-environment jsdom
  *
  * Component tests for ExpenseLineRow (T16/T17, specs/007-refund-service/
- * tasks.md). Covers: `edit` mode's blur-commit-as-one-PUT behavior (not
- * per-keystroke), the `readOnly`/`readOnlyApproved` variants (AC-3.2: shows
- * both requested and approved), inline delete, the km field's type-driven
- * show/hide inside the row, and (T17) that each mode wires the real
- * `AttachmentList`/`AttachmentDownloadLink` rather than the T16 seam
- * placeholder — the attachment state machine itself is covered by
- * AttachmentList.test.tsx; these tests only assert the wiring (right mode,
- * right callbacks reach the child).
+ * tasks.md; post-close UX amendment, specs/007, 2026-07-17 — see
+ * `specs/007-refund-service/design.md`'s dated amendment note). Covers:
+ * `edit` mode's collapsed-summary-by-default render, Edit expanding it to
+ * the full field form and Done collapsing it back (still exercising the
+ * blur-commit-as-one-PUT behavior, not per-keystroke), the line-delete
+ * confirm modal (open → confirm → delete called; cancel → not deleted), the
+ * `readOnly`/`readOnlyApproved` variants (AC-3.2: shows both requested and
+ * approved), the km field's type-driven show/hide inside the expanded row,
+ * and (T17) that each mode wires the real `AttachmentList`/
+ * `AttachmentDownloadLink` rather than the T16 seam placeholder — the
+ * attachment state machine itself is covered by AttachmentList.test.tsx;
+ * these tests only assert the wiring (right mode, right callbacks reach the
+ * child).
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -36,10 +41,96 @@ const line: RefundLine = {
 
 const attachment: Attachment = { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 2048 }
 
-describe('ExpenseLineRow — edit mode', () => {
+/** Clicks "Edit" on a collapsed summary row, expanding it to the full field form. */
+const expandRow = (lineId = 'line-1') => fireEvent.click(screen.getByTestId(`row-${lineId}-edit`))
+
+describe('ExpenseLineRow — edit mode, collapsed (default) summary', () => {
+  it('renders a compact read-only summary — no field inputs — with Edit and Delete controls', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
+    expect(screen.queryByTestId('row-line-1-date')).toBeNull()
+    expect(screen.getByText('Pens')).not.toBeNull()
+    expect(screen.getByTestId('expense-line-row-line-1').textContent).toContain('10,00 €')
+    expect(screen.getByTestId('row-line-1-edit')).not.toBeNull()
+    expect(screen.getByTestId('row-line-1-delete')).not.toBeNull()
+  })
+
+  it('shows entity and currency as two separate badges, same as the read-only presentation', () => {
+    render(
+      <ExpenseLineRow line={{ ...line, entity: 'welld_it', currency: 'USD' }} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
+    expect(screen.getByTestId('entity-badge').textContent).toBe('🇮🇹WellD Italia')
+    expect(screen.getByTestId('currency-badge').textContent).toBe('$USD')
+  })
+
+  it('shows a small attachment indicator when the line has attachments, without the full upload UI', () => {
+    render(
+      <ExpenseLineRow line={{ ...line, attachments: [attachment] }} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
+    expect(screen.getByTestId('row-line-1-attachments-indicator').textContent).toContain('1 file')
+    expect(screen.queryByTestId('attachment-attach-button-line-1')).toBeNull()
+    expect(screen.queryByTestId('attachment-list-line-1')).toBeNull()
+  })
+
+  it('shows no attachment indicator when the line has no attachments', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expect(screen.queryByTestId('row-line-1-attachments-indicator')).toBeNull()
+  })
+
+  it('Edit carries a hover title tooltip naming the affordance', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expect(screen.getByTestId('row-line-1-edit').getAttribute('title')).toBe('Edit this expense line')
+    expect(screen.getByTestId('row-line-1-edit').getAttribute('aria-label')).toBe('Edit line “Pens”')
+  })
+
+  it('the Delete button carries a hover title tooltip and a line-naming aria-label', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expect(screen.getByTestId('row-line-1-delete').getAttribute('title')).toBe('Delete this expense line')
+    expect(screen.getByTestId('row-line-1-delete').getAttribute('aria-label')).toBe('Delete line “Pens”')
+  })
+})
+
+describe('ExpenseLineRow — edit mode, expand/collapse', () => {
+  it('clicking Edit expands the row to the full editable field layout and focuses the first field', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    expandRow()
+
+    expect(screen.getByTestId('row-line-1-motivo')).not.toBeNull()
+    expect(screen.getByTestId('row-line-1-date')).not.toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('row-line-1-date'))
+    expect(screen.queryByTestId('row-line-1-edit')).toBeNull()
+  })
+
+  it('clicking Done collapses the row back to the summary and focuses the Edit button', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn().mockResolvedValue(undefined)} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    expandRow()
+    fireEvent.click(screen.getByTestId('row-line-1-done'))
+
+    expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
+    expect(screen.getByTestId('row-line-1-edit')).not.toBeNull()
+    expect(document.activeElement).toBe(screen.getByTestId('row-line-1-edit'))
+  })
+
+  it('Done commits a pending edit via the same commit path as blur-outside (an edit is never silently dropped)', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    expandRow()
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    fireEvent.click(screen.getByTestId('row-line-1-done'))
+
+    await waitFor(() => expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ motivo: 'Pens and paper' })))
+  })
+})
+
+describe('ExpenseLineRow — expanded edit form', () => {
   it('commits a single PUT with the whole payload when focus leaves the row, not per keystroke', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
     render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
     expect(onCommit).not.toHaveBeenCalled()
@@ -61,6 +152,7 @@ describe('ExpenseLineRow — edit mode', () => {
   it('lets currency be changed independently of entity, committing a mismatched pair with no block', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
     render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-currency'), { target: { value: 'USD' } })
     fireEvent.blur(screen.getByTestId('row-line-1-currency'), { relatedTarget: document.body })
@@ -71,6 +163,7 @@ describe('ExpenseLineRow — edit mode', () => {
   it('does NOT commit when focus moves to another field inside the same row', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
     render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
     fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: screen.getByTestId('row-line-1-amount') })
@@ -81,6 +174,7 @@ describe('ExpenseLineRow — edit mode', () => {
   it('does not re-commit when nothing changed', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
     render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
 
     fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: document.body })
 
@@ -89,6 +183,7 @@ describe('ExpenseLineRow — edit mode', () => {
 
   it('shows km only once type is changed to travel_km, hides it for any other type', () => {
     render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
 
     expect(screen.queryByTestId('row-line-1-km')).toBeNull()
 
@@ -97,22 +192,6 @@ describe('ExpenseLineRow — edit mode', () => {
 
     fireEvent.change(screen.getByTestId('row-line-1-type'), { target: { value: 'postal' } })
     expect(screen.queryByTestId('row-line-1-km')).toBeNull()
-  })
-
-  it('calls onDelete when the inline "×" is clicked, with no confirm modal', async () => {
-    const onDelete = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
-
-    fireEvent.click(screen.getByTestId('row-line-1-delete'))
-
-    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
-    expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
-  })
-
-  it('the inline "×" carries a hover title tooltip (delete-safety, stays no-confirm)', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
-
-    expect(screen.getByTestId('row-line-1-delete').getAttribute('title')).toBe('Delete this expense line')
   })
 
   it('renders the real AttachmentList in upload/remove mode (T17 fills the T16 seam)', () => {
@@ -127,6 +206,7 @@ describe('ExpenseLineRow — edit mode', () => {
         onDownloadAttachment={vi.fn()}
       />,
     )
+    expandRow()
 
     expect(screen.queryByTestId('row-line-1-attachments-seam')).toBeNull()
     expect(screen.getByTestId('attachment-list-line-1')).not.toBeNull()
@@ -135,11 +215,60 @@ describe('ExpenseLineRow — edit mode', () => {
   })
 })
 
+describe('ExpenseLineRow — line-delete confirm modal (post-close amendment)', () => {
+  it('clicking Delete opens ConfirmDeleteModal naming the line, without calling onDelete yet', () => {
+    const onDelete = vi.fn()
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete'))
+
+    expect(screen.getByTestId('row-line-1-delete-confirm-modal')).not.toBeNull()
+    expect(screen.getByTestId('row-line-1-delete-confirm-modal').textContent).toContain('Stationery')
+    expect(screen.getByTestId('row-line-1-delete-confirm-modal').textContent).toContain('Pens')
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('confirming calls onDelete', async () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete'))
+    fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-confirm'))
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByTestId('row-line-1-delete-confirm-modal')).toBeNull())
+  })
+
+  it('canceling does not call onDelete and keeps the line as a summary', () => {
+    const onDelete = vi.fn()
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete'))
+    fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-cancel'))
+
+    expect(screen.queryByTestId('row-line-1-delete-confirm-modal')).toBeNull()
+    expect(onDelete).not.toHaveBeenCalled()
+    expect(screen.getByText('Pens')).not.toBeNull()
+  })
+
+  it('shows an inline error in the modal and keeps it open when onDelete rejects', async () => {
+    const onDelete = vi.fn().mockRejectedValue(new Error('boom'))
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete'))
+    fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-confirm'))
+
+    await waitFor(() => expect(screen.getByTestId('row-line-1-delete-confirm-error')).not.toBeNull())
+    expect(screen.getByTestId('row-line-1-delete-confirm-modal')).not.toBeNull()
+  })
+})
+
 describe('ExpenseLineRow — read-only modes', () => {
   it('readOnly renders no inputs and no delete control', () => {
     render(<ExpenseLineRow line={line} mode="readOnly" onDownloadAttachment={vi.fn()} />)
     expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
     expect(screen.queryByTestId('row-line-1-delete')).toBeNull()
+    expect(screen.queryByTestId('row-line-1-edit')).toBeNull()
     expect(screen.getByText('Pens')).not.toBeNull()
   })
 

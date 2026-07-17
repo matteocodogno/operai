@@ -407,27 +407,37 @@ export default function RequestDetailPage() {
           <div data-testid="request-detail-draft" className="flex flex-col gap-4">
             <ExpenseLineComposer onAdd={handleAddLine} />
 
-            {pageState.request.lines.length === 0 ? (
-              <p className="text-sm" style={{ color: 'var(--soft)' }} data-testid="request-detail-lines-empty">
-                {t.lines.emptyDraft}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {pageState.request.lines.map((line) => (
-                  <ExpenseLineRow
-                    key={line.id}
-                    line={line}
-                    mode="edit"
-                    onCommit={(payload) => handleUpdateLine(line.id, payload)}
-                    onDelete={() => handleDeleteLine(line.id)}
-                    onUploadAttachment={(file) => handleUploadAttachment(line.id, file)}
-                    onRemoveAttachment={(attachmentId) => handleRemoveAttachment(line.id, attachmentId)}
-                    onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
-                    registerRef={registerRowRef(line.id)}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="flex flex-col gap-2 pt-1 border-t" style={{ borderColor: 'var(--rule)' }}>
+              <h3
+                className="text-sm font-semibold"
+                style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}
+                data-testid="request-detail-lines-heading"
+              >
+                {t.lines.sectionHeading(pageState.request.lines.length)}
+              </h3>
+
+              {pageState.request.lines.length === 0 ? (
+                <p className="text-sm" style={{ color: 'var(--soft)' }} data-testid="request-detail-lines-empty">
+                  {t.lines.emptyDraft}
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {pageState.request.lines.map((line) => (
+                    <ExpenseLineRow
+                      key={line.id}
+                      line={line}
+                      mode="edit"
+                      onCommit={(payload) => handleUpdateLine(line.id, payload)}
+                      onDelete={() => handleDeleteLine(line.id)}
+                      onUploadAttachment={(file) => handleUploadAttachment(line.id, file)}
+                      onRemoveAttachment={(attachmentId) => handleRemoveAttachment(line.id, attachmentId)}
+                      onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                      registerRef={registerRowRef(line.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
 
             <SubtotalsPanel subtotals={pageState.request.subtotals} />
 
