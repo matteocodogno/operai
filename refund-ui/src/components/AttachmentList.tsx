@@ -20,7 +20,10 @@
  *     "uploading" span — from the UI's perspective all three phases are
  *     equally "in flight"; design.md only asks for these four states).
  *     Already-persisted attachments render via `AttachmentDownloadLink` plus
- *     a "×" Remove (draft-only, no confirm — design.md F1 step 5).
+ *     a "×" Remove (draft-only). Post-close UX amendment (specs/007,
+ *     2026-07-17 — overrides design.md F1 step 5's original no-confirm
+ *     decision): clicking "×" now opens a `ConfirmDeleteModal` naming the
+ *     file, confirm before it actually removes.
  *   - `readOnly` (accounting's Screen A2, and the employee's own
  *     submitted/approved/rejected views): persisted attachments render via
  *     `AttachmentDownloadLink` only — no upload/remove affordances at all.
@@ -44,7 +47,9 @@ import type { ChangeEvent } from 'react'
 import { strings } from '../strings'
 import type { Attachment } from '../lib/requestsApi'
 import { validateFileForUpload } from '../lib/attachmentsApi'
+import { ApiError } from '../lib/refundApi'
 import AttachmentDownloadLink from './AttachmentDownloadLink'
+import ConfirmDeleteModal from './ConfirmDeleteModal'
 
 export type AttachmentListMode = 'edit' | 'readOnly'
 
@@ -76,7 +81,10 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
   const t = strings.components.attachmentList
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [removingId, setRemovingId] = useState<string | null>(null)
+  const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null)
+  const [removeError, setRemoveError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attachmentPendingRemoval = attachments.find((a) => a.id === removeConfirmId) ?? null
 
   // Once the parent reloads the request after a successful upload, the newly
   // stored attachment shows up in `attachments` — drop the local duplicate
@@ -120,11 +128,25 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
     }
   }
 
-  const handleRemove = async (attachmentId: string) => {
-    if (!onRemove) return
-    setRemovingId(attachmentId)
+  const handleRemoveClick = (attachmentId: string) => {
+    setRemoveError(null)
+    setRemoveConfirmId(attachmentId)
+  }
+
+  const handleRemoveCancel = () => {
+    setRemoveConfirmId(null)
+    setRemoveError(null)
+  }
+
+  const handleRemoveConfirm = async () => {
+    if (!removeConfirmId || !onRemove) return
+    setRemovingId(removeConfirmId)
+    setRemoveError(null)
     try {
-      await onRemove(attachmentId)
+      await onRemove(removeConfirmId)
+      setRemoveConfirmId(null)
+    } catch (err) {
+      setRemoveError(err instanceof ApiError ? (err.detail ?? err.title) : t.removeConfirmError)
     } finally {
       setRemovingId(null)
     }
@@ -160,7 +182,7 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
               {mode === 'edit' && (
                 <button
                   type="button"
-                  onClick={() => void handleRemove(attachment.id)}
+                  onClick={() => handleRemoveClick(attachment.id)}
                   disabled={removingId === attachment.id}
                   aria-label={t.removeLabel(attachment.fileName)}
                   title={t.removeTitle}
@@ -230,6 +252,20 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
             data-testid={`attachment-input-${lineId}`}
           />
         </div>
+      )}
+
+      {attachmentPendingRemoval && (
+        <ConfirmDeleteModal
+          entityLabel="attachment"
+          itemName={attachmentPendingRemoval.fileName}
+          title={t.removeConfirmTitle}
+          body={<p>{t.removeConfirmBody(attachmentPendingRemoval.fileName)}</p>}
+          isDeleting={removingId === attachmentPendingRemoval.id}
+          errorMessage={removeError}
+          onConfirm={() => void handleRemoveConfirm()}
+          onCancel={handleRemoveCancel}
+          testIdPrefix={`attachment-remove-confirm-${attachmentPendingRemoval.id}`}
+        />
       )}
     </div>
   )

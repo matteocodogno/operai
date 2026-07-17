@@ -221,6 +221,82 @@ describe('RequestDetailPage — draft variant', () => {
   })
 })
 
+describe('RequestDetailPage — draft: summary rows + confirm-on-delete (post-close UX amendment, specs/007)', () => {
+  const withTwoLines = { ...baseRequest, lines: [oneLine, { ...oneLine, id: 'line-2', motivo: 'Taxi' }] }
+
+  it('shows an "Expense lines (N)" heading above the committed lines, and the composer stays visually/structurally separate', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withTwoLines)
+    renderRequestDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('request-detail-lines-heading')).not.toBeNull())
+    expect(screen.getByTestId('request-detail-lines-heading').textContent).toBe('Expense lines (2)')
+    // The composer is its own card, rendered before (structurally separate from) the lines heading/list.
+    const composer = screen.getByTestId('expense-line-composer')
+    const linesHeading = screen.getByTestId('request-detail-lines-heading')
+    expect(composer.compareDocumentPosition(linesHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('committed lines render as read-only summaries, not open field forms', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withTwoLines)
+    renderRequestDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('expense-line-row-line-1')).not.toBeNull())
+    expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
+    expect(screen.queryByTestId('row-line-2-motivo')).toBeNull()
+    expect(screen.getByTestId('row-line-1-edit')).not.toBeNull()
+    expect(screen.getByTestId('row-line-2-edit')).not.toBeNull()
+  })
+
+  it('Edit expands one row to fields; Done collapses it back, saving via the existing PUT', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withTwoLines)
+    vi.mocked(requestsApi.updateLine).mockResolvedValue(oneLine)
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-edit')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
+    expect(screen.getByTestId('row-line-1-motivo')).not.toBeNull()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens (updated)' } })
+    fireEvent.click(screen.getByTestId('row-line-1-done'))
+
+    await waitFor(() =>
+      expect(requestsApi.updateLine).toHaveBeenCalledWith('req-1', 'line-1', expect.objectContaining({ motivo: 'Pens (updated)' })),
+    )
+    await waitFor(() => expect(screen.queryByTestId('row-line-1-motivo')).toBeNull())
+  })
+
+  it('line delete: opens ConfirmDeleteModal, confirming calls the delete API and reloads', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValueOnce(withTwoLines).mockResolvedValueOnce(baseRequest)
+    vi.mocked(requestsApi.removeLine).mockResolvedValue(undefined)
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-delete')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete'))
+    expect(screen.getByTestId('row-line-1-delete-confirm-modal')).not.toBeNull()
+    expect(requestsApi.removeLine).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-confirm'))
+
+    await waitFor(() => expect(requestsApi.removeLine).toHaveBeenCalledWith('req-1', 'line-1'))
+    await waitFor(() => expect(requestsApi.get).toHaveBeenCalledTimes(2))
+  })
+
+  it('line delete: canceling the confirm modal never calls the delete API', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withTwoLines)
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-delete')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('row-line-1-delete'))
+    fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-cancel'))
+
+    expect(screen.queryByTestId('row-line-1-delete-confirm-modal')).toBeNull()
+    expect(requestsApi.removeLine).not.toHaveBeenCalled()
+  })
+})
+
 describe('RequestDetailPage — submitted variant', () => {
   const submittedRequest = { ...baseRequest, status: 'submitted' as const, lines: [oneLine] }
 
@@ -317,6 +393,9 @@ describe('RequestDetailPage — attachment wiring (T17)', () => {
     vi.mocked(attachmentsApi.uploadAttachment).mockResolvedValue({ ...stored, uploadStatus: 'stored' as const })
 
     renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-edit')).not.toBeNull())
+    // The attach input only exists once the summary row is expanded (post-close amendment, specs/007).
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
     await waitFor(() => expect(screen.getByTestId('attachment-input-line-1')).not.toBeNull())
 
     const file = new File([new Uint8Array(10)], 'receipt.pdf', { type: 'application/pdf' })
@@ -326,7 +405,7 @@ describe('RequestDetailPage — attachment wiring (T17)', () => {
     await waitFor(() => expect(requestsApi.get).toHaveBeenCalledTimes(2))
   })
 
-  it('draft mode: removing a persisted attachment calls attachmentsApi.removeAttachment, 409 surfaces GuardrailDialog', async () => {
+  it('draft mode: removing a persisted attachment (via its confirm modal) calls attachmentsApi.removeAttachment, 409 surfaces GuardrailDialog', async () => {
     const withAttachment = { ...baseRequest, lines: [{ ...oneLine, attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }] }] }
     vi.mocked(requestsApi.get).mockResolvedValue(withAttachment)
     vi.mocked(attachmentsApi.removeAttachment).mockRejectedValue(
@@ -334,9 +413,12 @@ describe('RequestDetailPage — attachment wiring (T17)', () => {
     )
 
     renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-edit')).not.toBeNull())
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
     await waitFor(() => expect(screen.getByTestId('attachment-remove-a1')).not.toBeNull())
 
     fireEvent.click(screen.getByTestId('attachment-remove-a1'))
+    fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-confirm'))
 
     await waitFor(() => expect(attachmentsApi.removeAttachment).toHaveBeenCalledWith('req-1', 'line-1', 'a1'))
     await waitFor(() => expect(screen.getByTestId('guardrail-dialog')).not.toBeNull())

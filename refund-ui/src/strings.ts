@@ -135,13 +135,29 @@ const en = {
       },
       lines: {
         emptyDraft: 'No expense lines yet — add one to get started.',
+        /** Heading above the committed-lines list (post-close UX amendment, specs/007, 2026-07-17): "Expense lines (N)". */
+        sectionHeading: (count: number) => `Expense lines (${count})`,
         requestedLabel: 'Requested',
         approvedLabel: 'Approved',
-        deleteLineLabel: (motivo: string) => `Delete line “${motivo}”`,
-        /** Hover tooltip (`title`) on the line-delete "×" — delete-safety change (post-close, specs/007): a draft line is cheap/reversible, so this stays no-confirm; the tooltip alone reduces mis-click risk. */
+        /** "N files"/"1 file" — the collapsed summary row's small attachment indicator (post-close amendment, specs/007). */
+        attachmentsIndicator: (count: number) => `${count} ${count === 1 ? 'file' : 'files'}`,
+        editButton: 'Edit',
+        deleteButton: 'Delete',
+        doneButton: 'Done',
+        editLineLabel: (motivo: string) => `Edit line “${motivo || NO_MOTIVO_FALLBACK}”`,
+        editLineTitle: 'Edit this expense line',
+        doneLabel: (motivo: string) => `Done editing line “${motivo || NO_MOTIVO_FALLBACK}”`,
+        doneTitle: 'Collapse this expense line back to a summary',
+        deleteLineLabel: (motivo: string) => `Delete line “${motivo || NO_MOTIVO_FALLBACK}”`,
+        /** Hover tooltip (`title`) on the summary row's Delete button. Post-close amendment (specs/007, 2026-07-17): deleting a committed line now opens `deleteLineConfirmTitle`/`deleteLineConfirmBody` — overrides the original no-confirm decision. */
         deleteLineTitle: 'Delete this expense line',
+        deleteLineConfirmEntityLabel: 'expense line',
+        deleteLineConfirmTitle: 'Delete this expense line?',
+        deleteLineConfirmBody: (typeLabel: string, motivo: string) =>
+          `“${typeLabel} — ${motivo || NO_MOTIVO_FALLBACK}” will be permanently deleted. This cannot be undone.`,
         savingLabel: 'Saving…',
         updateError: 'Could not save this change. Check the fields and try again.',
+        deleteError: 'Could not delete this expense line. Try again.',
       },
       submit: {
         button: 'Submit for review',
@@ -288,8 +304,11 @@ const en = {
     attachmentList: {
       attachButton: '+ Attach files',
       removeLabel: (fileName: string) => `Remove ${fileName}`,
-      /** Hover tooltip (`title`) on the attachment-remove "×" — delete-safety change (post-close, specs/007); stays no-confirm (a draft attachment is cheap to re-add). */
+      /** Hover tooltip (`title`) on the attachment-remove "×". Post-close amendment (specs/007, 2026-07-17): removing now opens `removeConfirmTitle`/`removeConfirmBody` — overrides the original no-confirm decision. */
       removeTitle: 'Remove attachment',
+      removeConfirmTitle: 'Remove this attachment?',
+      removeConfirmBody: (fileName: string) => `“${fileName}” will be removed. This cannot be undone.`,
+      removeConfirmError: 'Could not remove this attachment. Try again.',
       downloadLabel: (fileName: string) => `Download ${fileName}`,
       downloadError: 'Could not open this attachment. Try again.',
       dismissLabel: (fileName: string) => `Dismiss ${fileName}`,

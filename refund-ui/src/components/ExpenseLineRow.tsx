@@ -1,29 +1,45 @@
 /**
  * ExpenseLineRow — one expense line, in one of four modes (T16/T18,
- * specs/007-refund-service/tasks.md):
+ * specs/007-refund-service/tasks.md; **post-close UX amendment, specs/007,
+ * 2026-07-17** — see `specs/007-refund-service/design.md`'s dated amendment
+ * note for the full rationale):
  *
- *   - `edit` (Screen R2 `draft` variant): every field is a live input,
- *     buffered in local draft state exactly like `estimai-ui/src/components/
+ *   - `edit` (Screen R2 `draft` variant): a committed line renders as a
+ *     **compact read-only summary row** by default (date, type, motivo,
+ *     `formatMoney` amount, `EntityBadge`/`CurrencyBadge`, a small "N files"
+ *     attachment indicator when the line has attachments) with native
+ *     "Edit" and "Delete" buttons — NOT an always-open field form. Clicking
+ *     "Edit" expands the row inline into the full editable field layout
+ *     (Date/Type/Motivo/Amount/Entity/Currency, the type-driven `km` field,
+ *     and the full `AttachmentList` in upload/remove mode) exactly as this
+ *     component always rendered pre-amendment; fields are buffered in local
+ *     draft state exactly like `estimai-ui/src/components/
  *     ActivityTable.tsx`'s `EpicCell`/`MLCell` (value diverges from the
  *     committed line until focus leaves the row), then commits as ONE `PUT
  *     /requests/:id/lines/:lineId` carrying the whole line object — not
  *     per-keystroke, not per-field (design.md F1 step 4). Detected via the
- *     row container's own `onBlur` + `e.relatedTarget` (focus landing
- *     outside this row's DOM subtree), not each field's individual blur,
- *     so tabbing between this row's own fields never fires a PUT per field.
- *     Includes an inline "×" delete (no confirm modal — design.md F1 step 6:
- *     "a draft line is cheap, reversible working state" — a `title` tooltip
- *     is the delete-safety measure instead, post-close change specs/007) and
- *     the real `AttachmentList` (T17, specs/007-refund-service/tasks.md) in
- *     upload/remove mode — fills the seam T16 left here. `currency` (also
- *     post-close, specs/007) is its own independently-editable `<select>`
- *     next to `entity` — no longer derived from it.
+ *     row container's own `onBlur` + `e.relatedTarget` (focus landing outside
+ *     this row's DOM subtree), not each field's individual blur, so tabbing
+ *     between this row's own fields never fires a PUT per field. A **Done**
+ *     button collapses the row back to its summary — Done does not introduce
+ *     a second save path, it explicitly calls the SAME `commit()` the
+ *     blur-outside path uses (a click on a button living inside this row's
+ *     own container never satisfies the "focus left the row" blur check), so
+ *     an edit made and finished via Done is never silently dropped.
+ *     Deleting a committed line now opens a `ConfirmDeleteModal` (overrides
+ *     the original no-confirm decision — the user asked for the safety net
+ *     post-close) naming the line's type + motivo; a `title` tooltip on the
+ *     Edit/Delete buttons remains as a secondary affordance.
  *   - `readOnly` (Screen R2 `submitted`/`rejected` variants, and Screen A2's
  *     own decided-request RO render, T18 F6 step 8): plain text, no inputs,
  *     no delete — editing controls are absent, not disabled (design.md F2
- *     step 3). `AttachmentList` renders in download-only mode here too — a
- *     submitted/decided line's receipts stay viewable, just not editable
- *     (T17: "AttachmentDownloadLink … used by … the RO employee variants").
+ *     step 3). Shares the same summary presentation `edit` mode's collapsed
+ *     row uses (date/type/motivo/badges/amounts), just without Edit/Delete —
+ *     these renders were already compact/read-only pre-amendment, this just
+ *     makes the visual language explicitly the same one. `AttachmentList`
+ *     renders in download-only mode here too — a submitted/decided line's
+ *     receipts stay viewable, just not editable (T17: "AttachmentDownloadLink
+ *     … used by … the RO employee variants").
  *   - `readOnlyApproved` (Screen R2 `approved` variant, and A2's decided
  *     `approved` render): same as `readOnly` plus the line's finalized
  *     approved total alongside its requested amount (AC-3.2).
@@ -45,10 +61,17 @@
  * links can scroll to and focus it (design.md F2 step 1) — the container
  * carries `tabIndex={-1}` for exactly that programmatic-focus target, the
  * same technique `PermissionDenied.tsx`/`NotFoundPage.tsx` use for their own
- * mount-focus.
+ * mount-focus. This still works for a collapsed summary row (it focuses the
+ * row's own container, the same target it always has); expanding it further
+ * is a manual follow-on click, not attempted automatically.
+ *
+ * A11y (post-close amendment): expanding moves focus to the row's first
+ * field (Date); collapsing via Done returns focus to the row's own Edit
+ * button — `isFirstRenderRef` skips this focus-management effect on mount so
+ * every already-collapsed row doesn't steal focus on initial paint.
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FocusEvent } from 'react'
 import { strings } from '../strings'
 import { EXPENSE_TYPES, requiresKm } from '../lib/expenseTypes'
@@ -63,6 +86,7 @@ import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
 import { amountToCents, centsToAmountInput, isLineDraftComplete, lineDraftToPayload, lineToDraft } from '../lib/lineDraft'
 import AttachmentList from './AttachmentList'
+import ConfirmDeleteModal from './ConfirmDeleteModal'
 
 export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved' | 'review'
 
@@ -119,10 +143,19 @@ export default function ExpenseLineRow({
   const [draft, setDraft] = useState<LineDraftValue>(() => lineToDraft(line))
   const committedRef = useRef<LineDraftValue>(lineToDraft(line))
   const containerRef = useRef<HTMLDivElement>(null)
+  const firstFieldRef = useRef<HTMLInputElement>(null)
+  const editButtonRef = useRef<HTMLButtonElement>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [kmStatus, setKmStatus] = useState('')
   const [deleting, setDeleting] = useState(false)
+
+  // `edit` mode only — collapsed (summary) vs. expanded (full field form),
+  // and the line-delete confirm modal (post-close amendment).
+  const [expanded, setExpanded] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const isFirstRenderRef = useRef(true)
 
   // `review` mode only — the approved-total input's own local draft +
   // "last committed cents" (write-on-change-only comparison base).
@@ -136,6 +169,18 @@ export default function ExpenseLineRow({
     containerRef.current = node
     registerRef?.(node)
   }
+
+  // Focus management on expand/collapse (A11y) — skips the initial mount so
+  // every already-collapsed row doesn't steal focus on first paint.
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false
+      return
+    }
+    if (mode !== 'edit') return
+    if (expanded) firstFieldRef.current?.focus()
+    else editButtonRef.current?.focus()
+  }, [expanded, mode])
 
   const commitApprovedTotal = async () => {
     const cents = amountToCents(approvedDraft)
@@ -184,15 +229,150 @@ export default function ExpenseLineRow({
     else if (!willBeKm && wasKm) setKmStatus(composerStrings.kmFieldRemoved)
   }
 
-  const handleDelete = async () => {
+  const handleEditClick = () => {
+    setExpanded(true)
+  }
+
+  const handleDoneClick = () => {
+    // Done never introduces a second save path — it calls the SAME commit()
+    // the blur-outside path uses. A click on a button that lives inside this
+    // row's own container never satisfies handleRowBlur's "focus left the
+    // row" check, so without this an edit finished via Done would silently
+    // never be saved.
+    void commit()
+    setExpanded(false)
+  }
+
+  const handleDeleteClick = () => {
+    setDeleteError(null)
+    setDeleteConfirmOpen(true)
+  }
+
+  const handleDeleteCancel = () => {
+    setDeleteConfirmOpen(false)
+    setDeleteError(null)
+  }
+
+  const handleDeleteConfirm = async () => {
     setDeleting(true)
-    setError(null)
+    setDeleteError(null)
     try {
       await onDelete?.()
+      setDeleteConfirmOpen(false)
     } catch (err) {
-      setError(err instanceof ApiError ? (err.detail ?? err.title) : t.updateError)
+      setDeleteError(err instanceof ApiError ? (err.detail ?? err.title) : t.deleteError)
+    } finally {
       setDeleting(false)
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Shared summary content (date/type/badges/motivo/amounts) — reused by the
+  // read-only-family render (`readOnly`/`readOnlyApproved`/`review`) AND
+  // `edit` mode's collapsed summary row, so committed lines read as the same
+  // presentation everywhere they aren't the live editable form.
+  // -------------------------------------------------------------------------
+
+  const summaryCore = (
+    <>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span style={{ color: 'var(--soft)' }}>{line.date}</span>
+        <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
+        <EntityBadge entity={line.entity} />
+        <CurrencyBadge currency={line.currency} />
+        {line.km !== null && <span style={{ color: 'var(--muted)' }}>{line.km} km</span>}
+      </div>
+      <p className="text-sm" style={{ color: 'var(--text)' }}>
+        {line.motivo}
+      </p>
+      <dl className="flex items-center gap-4 text-sm">
+        <div className="flex items-center gap-1.5">
+          <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
+          <dd className="font-mono" style={{ color: 'var(--text)' }}>
+            {formatMoney(line.requestedAmountCents, line.currency)}
+          </dd>
+        </div>
+        {mode === 'readOnlyApproved' && (
+          <div className="flex items-center gap-1.5">
+            <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
+            <dd className="font-mono" style={{ color: 'var(--grn)' }}>
+              {formatMoney(line.approvedTotalCents ?? line.requestedAmountCents, line.currency)}
+            </dd>
+          </div>
+        )}
+      </dl>
+    </>
+  )
+
+  // -------------------------------------------------------------------------
+  // `edit` mode, collapsed — compact read-only summary row + Edit/Delete
+  // -------------------------------------------------------------------------
+
+  if (mode === 'edit' && !expanded) {
+    return (
+      <div
+        ref={setContainerRef}
+        tabIndex={-1}
+        data-testid={`expense-line-row-${line.id}`}
+        className="flex flex-col gap-2 rounded-md border px-4 py-3 outline-none"
+        style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--ink-soft)' }}
+      >
+        {summaryCore}
+
+        <div className="flex items-center justify-between gap-3 pt-1 border-t" style={{ borderColor: 'var(--rule)' }}>
+          {line.attachments.length > 0 ? (
+            <span
+              data-testid={`row-${line.id}-attachments-indicator`}
+              className="text-[11px]"
+              style={{ color: 'var(--muted)' }}
+            >
+              <span aria-hidden="true">📎</span> {t.attachmentsIndicator(line.attachments.length)}
+            </span>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              ref={editButtonRef}
+              type="button"
+              onClick={handleEditClick}
+              aria-label={t.editLineLabel(line.motivo)}
+              title={t.editLineTitle}
+              data-testid={`row-${line.id}-edit`}
+              className="text-[11px] font-medium border px-2 py-1 transition-opacity hover:opacity-80"
+              style={{ borderColor: 'var(--rule)', color: 'var(--acc)' }}
+            >
+              {t.editButton}
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteClick}
+              aria-label={t.deleteLineLabel(line.motivo)}
+              title={t.deleteLineTitle}
+              data-testid={`row-${line.id}-delete`}
+              className="text-[11px] font-medium border px-2 py-1 transition-opacity hover:opacity-80"
+              style={{ borderColor: 'var(--rule)', color: 'var(--muted)' }}
+            >
+              {t.deleteButton}
+            </button>
+          </div>
+        </div>
+
+        {deleteConfirmOpen && (
+          <ConfirmDeleteModal
+            entityLabel={t.deleteLineConfirmEntityLabel}
+            itemName={line.motivo}
+            title={t.deleteLineConfirmTitle}
+            body={<p>{t.deleteLineConfirmBody(typeLabel(line.type), line.motivo)}</p>}
+            isDeleting={deleting}
+            errorMessage={deleteError}
+            onConfirm={() => void handleDeleteConfirm()}
+            onCancel={handleDeleteCancel}
+            testIdPrefix={`row-${line.id}-delete-confirm`}
+          />
+        )}
+      </div>
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -208,34 +388,7 @@ export default function ExpenseLineRow({
         className="flex flex-col gap-2 rounded-md border px-4 py-3 outline-none"
         style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--ink-soft)' }}
       >
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span style={{ color: 'var(--soft)' }}>{line.date}</span>
-          <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
-          <EntityBadge entity={line.entity} />
-          <CurrencyBadge currency={line.currency} />
-          {line.km !== null && (
-            <span style={{ color: 'var(--muted)' }}>{line.km} km</span>
-          )}
-        </div>
-        <p className="text-sm" style={{ color: 'var(--text)' }}>
-          {line.motivo}
-        </p>
-        <dl className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-1.5">
-            <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
-            <dd className="font-mono" style={{ color: 'var(--text)' }}>
-              {formatMoney(line.requestedAmountCents, line.currency)}
-            </dd>
-          </div>
-          {mode === 'readOnlyApproved' && (
-            <div className="flex items-center gap-1.5">
-              <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
-              <dd className="font-mono" style={{ color: 'var(--grn)' }}>
-                {formatMoney(line.approvedTotalCents ?? line.requestedAmountCents, line.currency)}
-              </dd>
-            </div>
-          )}
-        </dl>
+        {summaryCore}
 
         {mode === 'review' && (
           <div className="flex items-center gap-2">
@@ -274,7 +427,7 @@ export default function ExpenseLineRow({
   }
 
   // -------------------------------------------------------------------------
-  // Editable render (draft)
+  // `edit` mode, expanded — the full editable field layout
   // -------------------------------------------------------------------------
 
   const showKm = draft.type !== '' && requiresKm(draft.type as ExpenseType)
@@ -294,6 +447,7 @@ export default function ExpenseLineRow({
             {composerStrings.dateLabel}
           </label>
           <input
+            ref={firstFieldRef}
             id={`row-${line.id}-date`}
             type="date"
             value={draft.date}
@@ -447,15 +601,14 @@ export default function ExpenseLineRow({
         />
         <button
           type="button"
-          onClick={() => void handleDelete()}
-          disabled={deleting}
-          aria-label={t.deleteLineLabel(draft.motivo || line.motivo)}
-          title={t.deleteLineTitle}
-          data-testid={`row-${line.id}-delete`}
-          className="text-lg leading-none transition-opacity hover:opacity-80 disabled:opacity-40"
-          style={{ color: 'var(--muted)' }}
+          onClick={handleDoneClick}
+          aria-label={t.doneLabel(draft.motivo || line.motivo)}
+          title={t.doneTitle}
+          data-testid={`row-${line.id}-done`}
+          className="text-[11px] font-medium border px-2 py-1 transition-opacity hover:opacity-80 shrink-0"
+          style={{ borderColor: 'var(--acc)', color: 'var(--acc)' }}
         >
-          ×
+          {t.doneButton}
         </button>
       </div>
     </div>
