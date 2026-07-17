@@ -2,8 +2,11 @@
  * @vitest-environment jsdom
  *
  * Component tests for AttachmentList (T17, specs/007-refund-service/
- * tasks.md). Covers: per-file client-side rejection (oversize/wrong type),
- * the queued→uploading→stored/failed phase state machine, remove-on-draft,
+ * tasks.md; post-close UX amendment, specs/007, 2026-07-17 — see
+ * `specs/007-refund-service/design.md`'s dated amendment note). Covers:
+ * per-file client-side rejection (oversize/wrong type), the
+ * queued→uploading→stored/failed phase state machine, the attachment-remove
+ * confirm modal (open → confirm → onRemove called; cancel → not removed),
  * and that `readOnly` mode exposes no upload/remove affordances.
  */
 
@@ -39,7 +42,7 @@ describe('AttachmentList — edit mode', () => {
     expect(screen.getByTestId('attachment-remove-a1')).not.toBeNull()
   })
 
-  it('the Remove button carries a hover title tooltip (delete-safety, stays no-confirm)', () => {
+  it('the Remove button carries a hover title tooltip', () => {
     render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={vi.fn()} onDownload={vi.fn()} />)
 
     expect(screen.getByTestId('attachment-remove-a1').getAttribute('title')).toBe('Remove attachment')
@@ -143,14 +146,49 @@ describe('AttachmentList — edit mode', () => {
     expect(screen.getAllByTestId('attachment-download-a2')).toHaveLength(1)
   })
 
-  it('removes a persisted attachment via onRemove, no confirm modal', async () => {
-    const onRemove = vi.fn().mockResolvedValue(undefined)
+  it('clicking Remove opens a ConfirmDeleteModal naming the file, without calling onRemove yet', () => {
+    const onRemove = vi.fn()
     render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
 
     fireEvent.click(screen.getByTestId('attachment-remove-a1'))
 
+    expect(screen.getByTestId('attachment-remove-confirm-a1-modal')).not.toBeNull()
+    expect(screen.getByTestId('attachment-remove-confirm-a1-modal').textContent).toContain('receipt.pdf')
+    expect(onRemove).not.toHaveBeenCalled()
+  })
+
+  it('confirming removes a persisted attachment via onRemove', async () => {
+    const onRemove = vi.fn().mockResolvedValue(undefined)
+    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('attachment-remove-a1'))
+    fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-confirm'))
+
     await waitFor(() => expect(onRemove).toHaveBeenCalledWith('a1'))
-    expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
+    await waitFor(() => expect(screen.queryByTestId('attachment-remove-confirm-a1-modal')).toBeNull())
+  })
+
+  it('canceling does not call onRemove and keeps the attachment', () => {
+    const onRemove = vi.fn()
+    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('attachment-remove-a1'))
+    fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-cancel'))
+
+    expect(screen.queryByTestId('attachment-remove-confirm-a1-modal')).toBeNull()
+    expect(onRemove).not.toHaveBeenCalled()
+    expect(screen.getByTestId('attachment-download-a1')).not.toBeNull()
+  })
+
+  it('shows an inline error in the modal and keeps it open when onRemove rejects', async () => {
+    const onRemove = vi.fn().mockRejectedValue(new Error('boom'))
+    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+
+    fireEvent.click(screen.getByTestId('attachment-remove-a1'))
+    fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-confirm'))
+
+    await waitFor(() => expect(screen.getByTestId('attachment-remove-confirm-a1-error')).not.toBeNull())
+    expect(screen.getByTestId('attachment-remove-confirm-a1-modal')).not.toBeNull()
   })
 })
 
