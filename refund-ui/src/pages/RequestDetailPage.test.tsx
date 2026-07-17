@@ -266,6 +266,45 @@ describe('RequestDetailPage — draft: summary rows + confirm-on-delete (post-cl
     await waitFor(() => expect(screen.queryByTestId('row-line-1-motivo')).toBeNull())
   })
 
+  it('shows a success "Changes stored" toast after a line save (content-app auto-save)', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withTwoLines)
+    vi.mocked(requestsApi.updateLine).mockResolvedValue(oneLine)
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-edit')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens (updated)' } })
+    fireEvent.click(screen.getByTestId('row-line-1-done'))
+
+    await waitFor(() => expect(screen.getByTestId('toast-banner')).not.toBeNull())
+    const toast = screen.getByTestId('toast-banner')
+    expect(toast.getAttribute('role')).toBe('status')
+    expect(toast.textContent).toContain('Changes stored')
+  })
+
+  it('shows an error toast with the RFC 7807 detail when a line save fails', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(withTwoLines)
+    vi.mocked(requestsApi.updateLine).mockRejectedValue(
+      new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'Motivo is required.' }),
+    )
+
+    renderRequestDetailPage()
+    await waitFor(() => expect(screen.getByTestId('row-line-1-edit')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('row-line-1-edit'))
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens (updated)' } })
+    // blur-outside (not Done) — Done unconditionally collapses the row even on
+    // failure; the row's own inline error is covered by ExpenseLineRow.test.tsx,
+    // this test only asserts the page-level toast.
+    fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: document.body })
+
+    await waitFor(() => expect(screen.getByTestId('toast-banner')).not.toBeNull())
+    const toast = screen.getByTestId('toast-banner')
+    expect(toast.getAttribute('role')).toBe('alert')
+    expect(toast.textContent).toContain('Motivo is required.')
+  })
+
   it('line delete: opens ConfirmDeleteModal, confirming calls the delete API and reloads', async () => {
     vi.mocked(requestsApi.get).mockResolvedValueOnce(withTwoLines).mockResolvedValueOnce(baseRequest)
     vi.mocked(requestsApi.removeLine).mockResolvedValue(undefined)

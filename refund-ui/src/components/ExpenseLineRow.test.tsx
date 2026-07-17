@@ -17,10 +17,12 @@
  * child).
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ExpenseLineRow from './ExpenseLineRow'
 import type { Attachment, RefundLine } from '../lib/requestsApi'
+import { ApiError } from '../lib/refundApi'
+import { strings } from '../strings'
 
 afterEach(() => {
   cleanup()
@@ -389,5 +391,190 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
     )
     expect(screen.getByTestId('attachment-download-a1')).not.toBeNull()
     expect(screen.queryByTestId('attachment-remove-a1')).toBeNull()
+  })
+})
+
+// -----------------------------------------------------------------------------
+// Debounced auto-save (content-app auto-save, specs/NNN) — fake timers so the
+// 1500ms debounce and its cancellation-on-flush can be asserted deterministically.
+// -----------------------------------------------------------------------------
+
+describe('ExpenseLineRow — debounced auto-save (edit mode, expanded)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('auto-commits a single PUT ~1500ms after the last edit to a valid, dirty line', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    expect(onCommit).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1499)
+    })
+    expect(onCommit).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ motivo: 'Pens and paper' }))
+  })
+
+  it('resets the debounce clock on every further edit — only the last edit is auto-saved', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens' } })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(onCommit).not.toHaveBeenCalled() // only 1000ms since the latest edit — not yet 1500ms
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500)
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenCalledWith(expect.objectContaining({ motivo: 'Pens and paper' }))
+  })
+
+  it('does NOT auto-save an incomplete/invalid draft, even after 1500ms — never a spurious PUT', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
+
+    // Clearing motivo (a required field) makes the draft incomplete per isLineDraftComplete.
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: '' } })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('blur-outside flushes immediately and cancels the pending debounce — no double-PUT', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+
+    await act(async () => {
+      fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: document.body })
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+
+    // The debounce timer scheduled by the earlier keystroke must not also fire.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+  })
+
+  it('Done flushes immediately and cancels the pending debounce — no double-PUT', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('row-line-1-done'))
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000)
+    })
+    expect(onCommit).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels the pending debounce timer on unmount (no act warning, no stray commit)', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    const { unmount } = render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    unmount()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000)
+    })
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+})
+
+// -----------------------------------------------------------------------------
+// onSaveOutcome — reports the tone/message of every commit (debounced or
+// flushed) so a page-level toast can surface it.
+// -----------------------------------------------------------------------------
+
+describe('ExpenseLineRow — onSaveOutcome', () => {
+  it('reports a success outcome with the "Changes stored" copy when a commit succeeds', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    const onSaveOutcome = vi.fn()
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} onSaveOutcome={onSaveOutcome} />,
+    )
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('row-line-1-done'))
+    })
+
+    expect(onSaveOutcome).toHaveBeenCalledWith({ tone: 'success', message: strings.pages.requestDetail.lines.savedToast })
+  })
+
+  it('reports an error outcome with the RFC 7807 detail when a commit fails', async () => {
+    const onCommit = vi.fn().mockRejectedValue(
+      new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'km is required for this type.' }),
+    )
+    const onSaveOutcome = vi.fn()
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} onSaveOutcome={onSaveOutcome} />,
+    )
+    expandRow()
+
+    // Use blur-outside (not Done) — Done unconditionally collapses the row
+    // even on failure, which would remove the inline error node this test
+    // also asserts on.
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    await act(async () => {
+      fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: document.body })
+    })
+
+    expect(onSaveOutcome).toHaveBeenCalledWith({ tone: 'error', message: 'km is required for this type.' })
+    expect(screen.getByTestId('row-line-1-error').textContent).toBe('km is required for this type.')
+  })
+
+  it('falls back to the generic updateError copy when the failure is not an ApiError', async () => {
+    const onCommit = vi.fn().mockRejectedValue(new Error('network down'))
+    const onSaveOutcome = vi.fn()
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} onSaveOutcome={onSaveOutcome} />,
+    )
+    expandRow()
+
+    fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('row-line-1-done'))
+    })
+
+    expect(onSaveOutcome).toHaveBeenCalledWith({ tone: 'error', message: strings.pages.requestDetail.lines.updateError })
   })
 })

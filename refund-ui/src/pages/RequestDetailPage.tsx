@@ -13,6 +13,8 @@ import GuardrailDialog from '../components/GuardrailDialog'
 import RequestStatusBadge from '../components/RequestStatusBadge'
 import ExpenseLineComposer from '../components/ExpenseLineComposer'
 import ExpenseLineRow from '../components/ExpenseLineRow'
+import type { LineSaveOutcome } from '../components/ExpenseLineRow'
+import ToastBanner from '../components/ToastBanner'
 import SubtotalsPanel from '../components/SubtotalsPanel'
 import SubmitValidationSummary from '../components/SubmitValidationSummary'
 import type { SubmitValidationSummaryItem } from '../components/SubmitValidationSummary'
@@ -51,10 +53,24 @@ const route = getRouteApi('/requests/$id')
  * A11y (design.md "## Accessibility"): focus moves to the status heading
  * immediately after submit/withdraw (`justTransitioned` + `headingRef`,
  * the same `tabIndex={-1}` + `ref.current?.focus()` technique
- * `PermissionDenied.tsx` uses); confirmations are `aria-live="polite"`
- * inline text, never a toast (design.md: "never a toast that could be
- * missed"); `SubmitValidationSummary`'s jump links focus+scroll the
+ * `PermissionDenied.tsx` uses); lifecycle confirmations (submit/withdraw/
+ * delete-request/decisions) stay `aria-live="polite"` inline text, never a
+ * toast (design.md: "never a toast that could be missed" — that anti-toast
+ * posture is specifically about consequential, once-per-request lifecycle
+ * actions). `SubmitValidationSummary`'s jump links focus+scroll the
  * offending `ExpenseLineRow` via `rowNodesRef`.
+ *
+ * Content-app auto-save (specs/NNN, distinct from the lifecycle posture
+ * above): a `draft`-status line's field edits auto-save debounced 1500ms
+ * after the last change (or immediately on blur-outside/Done —
+ * `ExpenseLineRow`'s own concern), and DO surface a page-level `ToastBanner`
+ * ("Changes stored" / the RFC 7807 `detail` on failure) via `lineSaveToast` +
+ * `ExpenseLineRow`'s `onSaveOutcome` — one toast at a time, success
+ * auto-dismisses. This is a narrower, lower-stakes confirmation than a
+ * lifecycle transition (it's reversible — the field can just be edited
+ * again) and is genuinely easy to miss without *some* transient feedback
+ * beyond the row's own inline "Saving…"/error text, which is why it's the
+ * one confirmation in this file that IS a toast.
  */
 
 type PageState =
@@ -89,6 +105,10 @@ export default function RequestDetailPage() {
   const [submitValidation, setSubmitValidation] = useState<SubmitValidationSummaryItem[]>([])
   const [liveMessage, setLiveMessage] = useState('')
   const [justTransitioned, setJustTransitioned] = useState(false)
+  // Draft-mode line auto-save toast (content-app auto-save) — one at a time,
+  // driven by ExpenseLineRow's onSaveOutcome. Distinct from `actionError`
+  // (Submit/Withdraw/Delete-request, which stay inline per design.md).
+  const [lineSaveToast, setLineSaveToast] = useState<LineSaveOutcome | null>(null)
 
   const headingRef = useRef<HTMLHeadingElement>(null)
   const rowNodesRef = useRef(new Map<string, HTMLDivElement>())
@@ -186,6 +206,9 @@ export default function RequestDetailPage() {
     (lineId: string) => runLineMutation(() => requestsApi.removeLine(id, lineId)),
     [id, runLineMutation],
   )
+
+  const handleLineSaveOutcome = useCallback((outcome: LineSaveOutcome) => setLineSaveToast(outcome), [])
+  const dismissLineSaveToast = useCallback(() => setLineSaveToast(null), [])
 
   const registerRowRef = useCallback(
     (lineId: string) => (node: HTMLDivElement | null) => {
@@ -407,6 +430,10 @@ export default function RequestDetailPage() {
           <div data-testid="request-detail-draft" className="flex flex-col gap-4">
             <ExpenseLineComposer onAdd={handleAddLine} />
 
+            {lineSaveToast && (
+              <ToastBanner tone={lineSaveToast.tone} message={lineSaveToast.message} onDismiss={dismissLineSaveToast} />
+            )}
+
             <div className="flex flex-col gap-2 pt-1 border-t" style={{ borderColor: 'var(--rule)' }}>
               <h3
                 className="text-sm font-semibold"
@@ -429,6 +456,7 @@ export default function RequestDetailPage() {
                       mode="edit"
                       onCommit={(payload) => handleUpdateLine(line.id, payload)}
                       onDelete={() => handleDeleteLine(line.id)}
+                      onSaveOutcome={handleLineSaveOutcome}
                       onUploadAttachment={(file) => handleUploadAttachment(line.id, file)}
                       onRemoveAttachment={(attachmentId) => handleRemoveAttachment(line.id, attachmentId)}
                       onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}

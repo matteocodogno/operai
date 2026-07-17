@@ -69,9 +69,23 @@
  * field (Date); collapsing via Done returns focus to the row's own Edit
  * button — `isFirstRenderRef` skips this focus-management effect on mount so
  * every already-collapsed row doesn't steal focus on initial paint.
+ *
+ * Debounced auto-save (content-app auto-save, specs/NNN): while `edit` mode
+ * is expanded, an in-progress `draft` that's both `isLineDraftComplete` and
+ * dirty (differs from `committedRef.current`) auto-commits via the same
+ * `commit()` the blur/Done paths already use, `LINE_AUTOSAVE_DEBOUNCE_MS`
+ * (1500ms) after the last change — an incomplete/invalid draft never
+ * auto-saves, so it can never trigger a spurious 422. The existing
+ * blur-outside / Done paths still commit immediately (an "immediate flush"),
+ * and `commit()` itself cancels any pending debounce timer at its very start
+ * so a flush and a still-pending debounce can never both PUT for the same
+ * edit. `onSaveOutcome`, if provided, reports the tone/message of every
+ * commit (success or failure) so a page-level toast (`ToastBanner`) can
+ * surface it — this row never renders its own toast, to keep "one toast at a
+ * time" a property of the page, not each row.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FocusEvent } from 'react'
 import { strings } from '../strings'
 import { EXPENSE_TYPES, requiresKm } from '../lib/expenseTypes'
@@ -90,6 +104,11 @@ import ConfirmDeleteModal from './ConfirmDeleteModal'
 
 export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved' | 'review'
 
+/** Debounce delay for a line edit's auto-save (ms) — mirrors estimai-ui's AUTOSAVE_DEBOUNCE_MS. */
+const LINE_AUTOSAVE_DEBOUNCE_MS = 1500
+
+export type LineSaveOutcome = { tone: 'success' | 'error'; message: string }
+
 export type ExpenseLineRowProps = {
   line: RefundLine
   mode: ExpenseLineRowMode
@@ -97,6 +116,8 @@ export type ExpenseLineRowProps = {
   onCommit?: (payload: LinePayload) => Promise<void>
   /** Required in `edit` mode — performs `DELETE /requests/:id/lines/:lineId`. */
   onDelete?: () => Promise<void>
+  /** `edit` mode only — reports every field-edit commit's outcome (debounced auto-save OR blur/Done flush), for a page-level toast. Delete/attachment mutations do not report here. */
+  onSaveOutcome?: (outcome: LineSaveOutcome) => void
   /** Lets the parent capture this row's container node for jump-to-on-validation-error focus. */
   registerRef?: (node: HTMLDivElement | null) => void
   /** Required in `edit` mode — the full mint→upload→confirm sequence for one file (`lib/attachmentsApi.ts`). */
@@ -128,6 +149,7 @@ export default function ExpenseLineRow({
   mode,
   onCommit,
   onDelete,
+  onSaveOutcome,
   registerRef,
   onUploadAttachment,
   onRemoveAttachment,
@@ -156,6 +178,12 @@ export default function ExpenseLineRow({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const isFirstRenderRef = useRef(true)
+
+  // `edit` mode, expanded, only — the debounced auto-save timer (content-app
+  // auto-save). `commit()` itself clears this at its very start, so an
+  // immediate flush (blur-outside / Done) always cancels a still-pending
+  // debounce before it can also PUT the same edit.
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // `review` mode only — the approved-total input's own local draft +
   // "last committed cents" (write-on-change-only comparison base).
@@ -201,19 +229,48 @@ export default function ExpenseLineRow({
     }
   }
 
-  const commit = async () => {
+  const commit = useCallback(async () => {
+    // An immediate flush (blur-outside / Done) and the debounced auto-save
+    // both funnel through this one function — cancel any still-pending
+    // debounce timer first so a flush can never be followed by a redundant
+    // late PUT for the same edit.
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = undefined
+    }
     if (!isLineDraftComplete(draft) || draftsEqual(draft, committedRef.current)) return
     setSaving(true)
     setError(null)
     try {
       await onCommit?.(lineDraftToPayload(draft))
       committedRef.current = draft
+      onSaveOutcome?.({ tone: 'success', message: t.savedToast })
     } catch (err) {
-      setError(err instanceof ApiError ? (err.detail ?? err.title) : t.updateError)
+      const message = err instanceof ApiError ? (err.detail ?? err.title) : t.updateError
+      setError(message)
+      onSaveOutcome?.({ tone: 'error', message })
     } finally {
       setSaving(false)
     }
-  }
+  }, [draft, onCommit, onSaveOutcome, t.savedToast, t.updateError])
+
+  // Debounced auto-save (content-app auto-save): while expanded, a complete
+  // AND dirty draft auto-commits LINE_AUTOSAVE_DEBOUNCE_MS after the last
+  // change. An incomplete/invalid draft is never scheduled — never a
+  // spurious 422. Re-runs (and so re-debounces) on every keystroke because
+  // `draft` — and therefore `commit`, which closes over it — changes
+  // identity each time.
+  useEffect(() => {
+    if (mode !== 'edit' || !expanded) return
+    if (!isLineDraftComplete(draft) || draftsEqual(draft, committedRef.current)) return
+    debounceTimerRef.current = setTimeout(() => void commit(), LINE_AUTOSAVE_DEBOUNCE_MS)
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+        debounceTimerRef.current = undefined
+      }
+    }
+  }, [draft, mode, expanded, commit])
 
   const handleRowBlur = (e: FocusEvent<HTMLDivElement>) => {
     if (containerRef.current?.contains(e.relatedTarget as Node)) return

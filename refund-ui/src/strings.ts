@@ -158,6 +158,8 @@ const en = {
         savingLabel: 'Saving…',
         updateError: 'Could not save this change. Check the fields and try again.',
         deleteError: 'Could not delete this expense line. Try again.',
+        /** Success toast copy for a debounced auto-save or an immediate blur/Done flush (content-app auto-save). */
+        savedToast: 'Changes stored',
       },
       submit: {
         button: 'Submit for review',
@@ -276,6 +278,9 @@ const en = {
   components: {
     errorBanner: {
       defaultRetryLabel: 'Retry',
+      dismissLabel: 'Dismiss',
+    },
+    toastBanner: {
       dismissLabel: 'Dismiss',
     },
     skeletonListRows: {
