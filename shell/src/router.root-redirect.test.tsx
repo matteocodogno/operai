@@ -48,6 +48,14 @@ vi.mock('./lib/session', () => ({
   usePermissions: vi.fn(() => PERMISSIONS_FIXTURE),
   ensurePermissions: vi.fn(async () => PERMISSIONS_FIXTURE),
   revalidatePermissions: vi.fn(async () => PERMISSIONS_FIXTURE),
+  // Bug fix (2026-07, shell/src/router.tsx's createToolAccessBeforeLoad):
+  // `null` (cold cache) keeps every test in this file exercising the async
+  // (revalidate) branch, exactly as before this getter existed. These tests
+  // deliberately pre-seed `operai_last_tool` to assert the ROOT REDIRECT
+  // target (AC-3.4) — that must never be confused with the tool route's own
+  // same-app synchronous fast path (covered in router.access-guard.test.tsx),
+  // which additionally requires a warm permissions cache.
+  getCachedPermissions: vi.fn(() => null),
   // T11 (specs/005-notification-center): Header now mounts Bell, which reads
   // useUnreadCount() (shell/src/lib/notifications.ts) on every render of the
   // shared chrome these tests exercise. notifications.ts imports
