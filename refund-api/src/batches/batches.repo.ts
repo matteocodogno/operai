@@ -1,0 +1,245 @@
+/**
+ * Prisma data-access layer for compiled-batch candidate preview + compile
+ * (T3, specs/008-refund-monthly-processing, plan.md § API contracts /
+ * § Atomic claim / no-double-pay).
+ *
+ * Two distinct read paths, deliberately different in shape:
+ *
+ *  - `fetchCandidateRows` (GET /batches/candidates, a dry run) fetches the
+ *    FULL unscoped eligible set — mirrors review.repo.ts's
+ *    `listSubmittedRequests` convention ("fetch everything, filter in the
+ *    service layer via the ONE shared `requestInScope` predicate") so
+ *    candidate-preview visibility can never desync from compile-time claim
+ *    visibility (ADR-0015 Risks, reused verbatim by this feature).
+ *
+ *  - `compileBatch` (POST /batches) pushes the entity-scope filter DOWN INTO
+ *    the locking `SELECT … FOR UPDATE` itself (raw SQL — Prisma's query
+ *    builder has no lock-clause support), so a global compile and a
+ *    DIFFERENT single-entity compile running concurrently never contend for
+ *    the same row locks in the first place (plan.md § Atomic claim: "the
+ *    `SELECT … FOR UPDATE` locks the EXACT candidate rows"). Postgres's
+ *    READ COMMITTED re-check semantics on `SELECT … FOR UPDATE` — a blocked
+ *    locker re-evaluates the WHERE clause against the row's post-commit
+ *    state once the lock is released — is what makes two overlapping
+ *    compiles claim disjoint sets even without any additional locking; the
+ *    subsequent `UPDATE … WHERE "batchId" IS NULL` is an extra
+ *    compare-and-swap belt (defense in depth, plan.md's own wording).
+ *
+ * `compileBatch` pre-generates the batch id (`crypto.randomUUID()`) so
+ * `pdfObjectKey` (`batches/pdf.ts`'s `batchPdfObjectKey`) can be computed
+ * and persisted in the SAME insert — `RefundBatch.pdfObjectKey` is a
+ * required, unique column (schema.prisma), so there is no null/placeholder
+ * state to paper over.
+ */
+
+import { Data, Effect } from "effect";
+import { randomUUID } from "node:crypto";
+import { db } from "../lib/db";
+import { Prisma } from "../lib/generated/prisma/client";
+import { GLOBAL_ENTITY_SCOPE, type EntityScope } from "../authz/conditions";
+import { DatabaseError, ValidationError } from "../lib/errors";
+import { writeAuditEntry } from "../requests/audit";
+import { batchPdfObjectKey } from "./pdf";
+import type { LineRow } from "../requests/requests.service";
+
+const toDbErr = (message: string) => (cause: unknown) =>
+  new DatabaseError({ message, cause });
+
+export interface CandidateRow {
+  readonly id: string;
+  readonly ownerUserId: string;
+  readonly ownerEmail: string;
+  readonly ownerName: string | null;
+  readonly decidedAt: Date | null;
+  readonly lines: readonly LineRow[];
+}
+
+const candidateSelect = {
+  id: true,
+  ownerUserId: true,
+  ownerEmail: true,
+  ownerName: true,
+  decidedAt: true,
+  lines: {
+    select: {
+      id: true,
+      date: true,
+      type: true,
+      motivo: true,
+      entity: true,
+      currency: true,
+      requestedAmountCents: true,
+      km: true,
+      approvedTotalCents: true,
+    },
+  },
+} as const;
+
+/**
+ * Every `approved ∧ batchId IS NULL ∧ decidedAt<=cutoff` request, regardless
+ * of entity (unscoped — filtered afterwards in batches.service.ts via
+ * `requestInScope`, the SAME predicate compile-time claiming uses). A dry
+ * run: no locking, no writes (AC-1.2's preview half).
+ */
+export function fetchCandidateRows(
+  cutoff: Date,
+): Effect.Effect<CandidateRow[], DatabaseError> {
+  return Effect.tryPromise({
+    try: () =>
+      db.refundRequest.findMany({
+        where: { status: "approved", batchId: null, decidedAt: { lte: cutoff } },
+        orderBy: { decidedAt: "asc" },
+        select: candidateSelect,
+      }),
+    catch: toDbErr("Failed to list batch candidates"),
+  });
+}
+
+// ─── Compile (atomic claim) ─────────────────────────────────────────────────
+
+export interface CompiledBatch {
+  readonly id: string;
+  readonly cutoff: Date;
+  readonly status: "compiled";
+  readonly createdByUserId: string;
+  readonly createdByEmail: string;
+  readonly createdAt: Date;
+  readonly pdfObjectKey: string;
+  readonly recipientEmailSnapshot: string;
+  readonly requests: CandidateRow[];
+}
+
+/**
+ * Raised (internally, inside the `$transaction` callback below) when the
+ * locked candidate set is empty — compile must refuse and create nothing
+ * (AC-1.4). Thrown-and-caught rather than an Effect-level `Effect.fail`
+ * because it must abort the Prisma transaction itself (any throw inside a
+ * `db.$transaction(async tx => …)` callback rolls the transaction back);
+ * `compileBatch`'s `Effect.tryPromise` `catch` below converts it to the
+ * public `ValidationError` (422, mirrors lifecycle.repo.ts's own
+ * `ValidationError` usage for a refused-not-failed precondition).
+ */
+class EmptyCandidateSetError extends Data.TaggedError("EmptyCandidateSetError")<{
+  readonly message: string;
+}> {}
+
+/**
+ * Locks the exact eligible-and-in-scope candidate rows (`SELECT … FOR
+ * UPDATE`, entity filter pushed into the SQL — see module doc), claims them
+ * (`batchId` CAS), creates the `RefundBatch` + `RefundBatchItem`s, and
+ * writes one `batch_compiled` audit row per claimed request — all inside
+ * ONE `db.$transaction` (plan.md § Atomic claim). Empty locked set → the
+ * transaction is aborted (throwing `EmptyCandidateSetError` rolls back
+ * everything Prisma's `$transaction` callback attempted) and nothing is
+ * created (AC-1.4).
+ */
+export function compileBatch(
+  cutoff: Date,
+  scope: EntityScope,
+  actorUserId: string,
+  actorEmail: string,
+  recipientEmail: string,
+): Effect.Effect<CompiledBatch, DatabaseError | ValidationError> {
+  return Effect.tryPromise({
+    try: () =>
+      db.$transaction(async (tx) => {
+        const entityFilter =
+          scope === GLOBAL_ENTITY_SCOPE
+            ? Prisma.sql``
+            : Prisma.sql`AND EXISTS (
+                SELECT 1 FROM "refund_line" rl
+                WHERE rl."requestId" = rr.id AND rl.entity = ${scope}::"Entity"
+              )`;
+
+        const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+          SELECT rr.id
+          FROM "refund_request" rr
+          WHERE rr.status = 'approved'::"RefundStatus"
+            AND rr."batchId" IS NULL
+            AND rr."decidedAt" <= ${cutoff}
+            ${entityFilter}
+          FOR UPDATE OF rr
+        `);
+        const lockedIds = locked.map((row) => row.id);
+
+        if (lockedIds.length === 0) {
+          throw new EmptyCandidateSetError({
+            message: "No eligible requests to compile for the given cutoff",
+          });
+        }
+
+        const batchId = randomUUID();
+        const pdfObjectKey = batchPdfObjectKey(batchId);
+
+        // The batch row must exist BEFORE any refund_request row can point
+        // its batchId FK at it — create it first, then claim.
+        const batch = await tx.refundBatch.create({
+          data: {
+            id: batchId,
+            cutoff,
+            status: "compiled",
+            createdByUserId: actorUserId,
+            createdByEmail: actorEmail,
+            pdfObjectKey,
+            recipientEmailSnapshot: recipientEmail,
+          },
+        });
+
+        // Compare-and-swap belt (plan.md): the FOR UPDATE lock + Postgres's
+        // READ COMMITTED re-check already guarantee `lockedIds` is disjoint
+        // from any other transaction's claim, but this extra
+        // `batchId IS NULL` guard is defense in depth.
+        const claim = await tx.refundRequest.updateMany({
+          where: { id: { in: lockedIds }, batchId: null },
+          data: { batchId },
+        });
+        if (claim.count !== lockedIds.length) {
+          // Should be unreachable given the row lock above — surfaced as a
+          // hard failure rather than silently claiming a partial set.
+          throw new Error(
+            `Batch claim CAS mismatch: locked ${lockedIds.length} rows but claimed ${claim.count}`,
+          );
+        }
+
+        await tx.refundBatchItem.createMany({
+          data: lockedIds.map((requestId) => ({ batchId, requestId })),
+        });
+
+        for (const requestId of lockedIds) {
+          await writeAuditEntry(tx, {
+            requestId,
+            batchId,
+            actorUserId,
+            actorEmail,
+            action: "batch_compiled",
+          });
+        }
+
+        const requests = await tx.refundRequest.findMany({
+          where: { id: { in: lockedIds } },
+          select: candidateSelect,
+        });
+
+        return {
+          id: batch.id,
+          cutoff: batch.cutoff,
+          status: "compiled" as const,
+          createdByUserId: batch.createdByUserId,
+          createdByEmail: batch.createdByEmail,
+          createdAt: batch.createdAt,
+          pdfObjectKey: batch.pdfObjectKey,
+          recipientEmailSnapshot: batch.recipientEmailSnapshot,
+          requests,
+        };
+      }),
+    catch: (cause) => {
+      if (cause instanceof EmptyCandidateSetError) {
+        return new ValidationError({ message: cause.message });
+      }
+      return new DatabaseError({
+        message: "Failed to compile refund batch",
+        cause,
+      });
+    },
+  });
+}

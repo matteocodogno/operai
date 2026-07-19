@@ -33,6 +33,13 @@ export function setupOpenAPI(app: OpenAPIHono): void {
           "Entity-scoped accounting review queue and decisions, plus the " +
           "post-decision employee notification (T11-T13, specs/007-refund-service).",
       },
+      {
+        name: "Batches",
+        description:
+          "Monthly compiled-batch processing — candidate preview, the " +
+          "atomic compile claim, and (in later tasks) reads, email, " +
+          "mark-paid, and discard (specs/008-refund-monthly-processing).",
+      },
     ],
   });
 
