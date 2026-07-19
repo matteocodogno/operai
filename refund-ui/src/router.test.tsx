@@ -21,6 +21,12 @@
  * (MyRequestsPage.test.tsx, NewRequestPage.test.tsx,
  * RequestDetailPage.test.tsx, ReviewQueuePage.test.tsx,
  * ReviewDetailPage.test.tsx).
+ *
+ * T9 update (specs/008-refund-monthly-processing/tasks.md): `/batches`,
+ * `/batches/new`, and `/batches/$id` (Screens B1/B2/B3) are added, still as
+ * static placeholders (real screens are T11-T13) — same "prove the route
+ * mounts, real fetch behavior belongs to the screen's own test file"
+ * posture already established above.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -59,7 +65,7 @@ afterEach(() => {
 })
 
 describe('router structure', () => {
-  it('mounts the index redirect and the five routes (requests, requests/new, requests/$id, review, review/$id) as direct children of root', async () => {
+  it('mounts the index redirect and the eight routes (requests, requests/new, requests/$id, review, review/$id, batches, batches/new, batches/$id) as direct children of root', async () => {
     const { createAppRouter } = await importRouter()
     const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
@@ -69,9 +75,19 @@ describe('router structure', () => {
       .sort()
 
     expect(childPaths).toEqual(
-      ['/', '/requests', '/requests/new', '/requests/$id', '/review', '/review/$id'].sort(),
+      [
+        '/',
+        '/requests',
+        '/requests/new',
+        '/requests/$id',
+        '/review',
+        '/review/$id',
+        '/batches',
+        '/batches/new',
+        '/batches/$id',
+      ].sort(),
     )
-    expect(routeTree.children).toHaveLength(6)
+    expect(routeTree.children).toHaveLength(9)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors admin-ui/estimai-ui, ADR-0006', async () => {
@@ -192,6 +208,37 @@ describe('the five routes render client-side', () => {
     })
   })
 
+  it('visiting /batches renders Screen B1 (refund-batch-history-page)', async () => {
+    window.history.pushState(null, '', '/batches')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByTestId('refund-batch-history-page')).not.toBeNull()
+  })
+
+  it('visiting /batches/new renders Screen B2 (refund-compile-batch-page)', async () => {
+    window.history.pushState(null, '', '/batches/new')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByTestId('refund-compile-batch-page')).not.toBeNull()
+  })
+
+  it('visiting /batches/$id resolves the id param and renders Screen B3 (refund-batch-detail-page)', async () => {
+    window.history.pushState(null, '', '/batches/batch-abc')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByTestId('refund-batch-detail-page')).not.toBeNull()
+    expect(screen.getByTestId('refund-batch-detail-id').textContent).toBe('batch-abc')
+  })
+
   it('root ("/") redirects to /requests', async () => {
     vi.mocked(apiFetch).mockResolvedValue(jsonResponse(200, []))
     window.history.pushState(null, '', '/')
@@ -213,6 +260,6 @@ describe('the five routes render client-side', () => {
 
     expect(await screen.findByTestId('refund-not-found-page')).not.toBeNull()
     expect(screen.getByRole('navigation', { name: 'Refund navigation' })).not.toBeNull()
-    expect(screen.getAllByRole('link')).toHaveLength(2)
+    expect(screen.getAllByRole('link')).toHaveLength(3)
   })
 })

@@ -5,6 +5,9 @@ import NewRequestPage from './pages/NewRequestPage'
 import RequestDetailPage from './pages/RequestDetailPage'
 import ReviewQueuePage from './pages/ReviewQueuePage'
 import ReviewDetailPage from './pages/ReviewDetailPage'
+import BatchHistoryPage from './pages/BatchHistoryPage'
+import CompileBatchPage from './pages/CompileBatchPage'
+import BatchDetailPage from './pages/BatchDetailPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 // ---------------------------------------------------------------------------
@@ -104,6 +107,34 @@ export function createAppRouter(basepath?: string) {
     component: ReviewDetailPage,
   })
 
+  // Screen B1 (Batch history, specs/008 T9 placeholder — real screen T13) —
+  // a sibling of every other route in this flat tree, entry point for every
+  // accounting monthly-processing flow (design.md F8, US-8).
+  const batchesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/batches',
+    component: BatchHistoryPage,
+  })
+
+  // Screen B2 (Compile & preview, T9 placeholder — real screen T11) — a
+  // sibling of `batchesRoute`, not nested, same "/x" + "/x/new" + "/x/$id"
+  // flat-sibling shape `requestsRoute`/`requestDetailRoute` already
+  // establish.
+  const compileBatchRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/batches/new',
+    component: CompileBatchPage,
+  })
+
+  // Screen B3 (Batch detail — also the email deep-link landing page, T9
+  // placeholder — real screen T12) — a sibling of `batchesRoute`, not
+  // nested.
+  const batchDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/batches/$id',
+    component: BatchDetailPage,
+  })
+
   // ---------------------------------------------------------------------------
   // Route tree
   // ---------------------------------------------------------------------------
@@ -115,6 +146,9 @@ export function createAppRouter(basepath?: string) {
     requestDetailRoute,
     reviewRoute,
     reviewDetailRoute,
+    batchesRoute,
+    compileBatchRoute,
+    batchDetailRoute,
   ])
 
   // `defaultNotFoundComponent` is the router-wide fallback for any path that

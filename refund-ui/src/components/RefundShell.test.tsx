@@ -33,7 +33,12 @@ async function renderShellAt(path: string) {
     path: '/review',
     component: () => <p>review</p>,
   })
-  const routeTree = rootRoute.addChildren([requestsRoute, reviewRoute])
+  const batchesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/batches',
+    component: () => <p>batches</p>,
+  })
+  const routeTree = rootRoute.addChildren([requestsRoute, reviewRoute, batchesRoute])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
   await screen.findByRole('heading', { name: /^refund$/i })
@@ -53,11 +58,11 @@ describe('RefundShell structure', () => {
     expect(screen.getByRole('navigation', { name: 'Refund navigation' })).not.toBeNull()
   })
 
-  it('renders exactly the two nav links, as real <a> elements (not buttons/divs)', async () => {
+  it('renders exactly the three nav links, as real <a> elements (not buttons/divs)', async () => {
     await renderShellAt('/requests')
 
     const links = screen.getAllByRole('link')
-    expect(links.map((link) => link.textContent)).toEqual(['My requests', 'Review queue'])
+    expect(links.map((link) => link.textContent)).toEqual(['My requests', 'Review queue', 'Monthly processing'])
     links.forEach((link) => expect(link.tagName).toBe('A'))
   })
 
@@ -81,5 +86,13 @@ describe('RefundShell nav active state (aria-current)', () => {
 
     expect(screen.getByRole('link', { name: 'Review queue' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: 'My requests' }).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('marks "Monthly processing" active on /batches, the others not active', async () => {
+    await renderShellAt('/batches')
+
+    expect(screen.getByRole('link', { name: 'Monthly processing' }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: 'My requests' }).getAttribute('aria-current')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Review queue' }).getAttribute('aria-current')).toBeNull()
   })
 })

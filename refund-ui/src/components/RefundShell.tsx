@@ -9,26 +9,31 @@ import { strings } from '../strings'
  * `createRootRoute({ component: RefundShell })`).
  *
  * Mirrors `admin-ui/src/components/AdminShell.tsx` exactly: a heading
- * identifying the tool, a small nav (here: "My requests" | "Review queue" —
- * design.md's `RefundShell` spec), and the `<Outlet/>` the five routes
- * (../pages/*.tsx) render into. No suite chrome duplicated here
- * (Header/UserMenu/bell/ThemeToggle, sign-out, …) — per ADR-0006 and
- * design.md's own `RefundShell` note ("No suite chrome duplicated … that
- * already wraps refund-ui from the shell"), that chrome already exists once
- * in the shell. No auth guard either — the shell's own `_authed` guard
- * already runs before refund-ui is ever mounted (same rationale as
- * AdminShell/estimai-ui's router).
+ * identifying the tool, a small nav (here: "My requests" | "Review queue" |
+ * "Monthly processing" — design.md's `RefundShell` spec), and the
+ * `<Outlet/>` the routes (../pages/*.tsx) render into. No suite chrome
+ * duplicated here (Header/UserMenu/bell/ThemeToggle, sign-out, …) — per
+ * ADR-0006 and design.md's own `RefundShell` note ("No suite chrome
+ * duplicated … that already wraps refund-ui from the shell"), that chrome
+ * already exists once in the shell. No auth guard either — the shell's own
+ * `_authed` guard already runs before refund-ui is ever mounted (same
+ * rationale as AdminShell/estimai-ui's router).
  *
- * The "Review queue" link is rendered UNCONDITIONALLY, regardless of whether
- * the signed-in user actually holds the `request:review` capability — this
- * is design.md's deliberate Gap #7, not an oversight: refund-ui has no cheap
- * way to know the caller's permissions client-side (ADR-0007 token
- * minimalism; `GET /authz/resolve`/`GET /authz/me` are resource-server/
- * session-cookie-gated seams this plan does not expose to refund-ui itself).
- * The suite-level shell nav is the actual UX-hiding mechanism (plan.md: "the
- * shell nav item is likewise gated"); this internal tab is a harmless dead
- * end for a non-accounting user, caught by `PermissionDenied` on Screen A1
- * once T15/T18 build it. T14 ships no such gating logic — just the link.
+ * The "Review queue" and "Monthly processing" links are rendered
+ * UNCONDITIONALLY, regardless of whether the signed-in user actually holds
+ * the `request:review` capability — this is design.md's deliberate Gap #7,
+ * not an oversight: refund-ui has no cheap way to know the caller's
+ * permissions client-side (ADR-0007 token minimalism; `GET
+ * /authz/resolve`/`GET /authz/me` are resource-server/session-cookie-gated
+ * seams this plan does not expose to refund-ui itself). The suite-level
+ * shell nav is the actual UX-hiding mechanism (plan.md: "the shell nav item
+ * is likewise gated"); these internal tabs are harmless dead ends for a
+ * non-accounting user, caught by `PermissionDenied` on Screen A1/B1 once
+ * their real screens are built. "Monthly processing" (specs/008 T9) is
+ * gated the SAME way "Review queue" already is — the client renders it, the
+ * API/`PermissionDenied` is the real gate (design.md's `RefundShell` entry:
+ * "gains a third nav item … rendered unconditionally next to 'My
+ * requests'/'Review queue'").
  */
 export default function RefundShell() {
   return (
@@ -59,6 +64,16 @@ export default function RefundShell() {
                 activeProps={{ style: { color: 'var(--acc)', borderColor: 'var(--acc)' } }}
               >
                 {strings.nav.reviewQueue}
+              </Link>
+            </li>
+            <li>
+              <Link
+                to="/batches"
+                className="inline-block border-b-2 border-transparent px-3 py-3 text-sm font-medium transition-colors hover:text-[var(--text)]"
+                style={{ color: 'var(--soft)' }}
+                activeProps={{ style: { color: 'var(--acc)', borderColor: 'var(--acc)' } }}
+              >
+                {strings.nav.monthlyProcessing}
               </Link>
             </li>
           </ul>

@@ -81,6 +81,7 @@ const en = {
     landmarkLabel: 'Refund navigation',
     myRequests: 'My requests',
     reviewQueue: 'Review queue',
+    monthlyProcessing: 'Monthly processing',
   },
   pages: {
     myRequests: {
@@ -274,6 +275,21 @@ const en = {
       heading: 'Page not found',
       body: 'This refund section doesn’t exist. Use the navigation above to pick My requests or Review queue.',
     },
+    /** Screen B1 (T9 placeholder — real screen T13, specs/008-refund-monthly-processing). */
+    batchHistory: {
+      heading: 'Monthly processing',
+      placeholder: 'The history of compiled monthly refund batches will appear here.',
+    },
+    /** Screen B2 (T9 placeholder — real screen T11, specs/008-refund-monthly-processing). */
+    compileBatch: {
+      heading: 'Compile a new batch',
+      placeholder: 'Choosing a cutoff and previewing the candidate set for a new batch will happen here.',
+    },
+    /** Screen B3 (T9 placeholder — real screen T12, specs/008-refund-monthly-processing). Also the eventual email deep-link landing page. */
+    batchDetail: {
+      heading: 'Batch',
+      placeholder: 'This batch’s details, PDF, email status, and mark-as-paid/discard actions will appear here.',
+    },
   },
   components: {
     errorBanner: {
@@ -331,6 +347,7 @@ const en = {
       submitted: 'Awaiting decision',
       approved: 'Approved',
       rejected: 'Rejected',
+      paid: 'Paid',
     },
     entity: {
       welld_it: 'WellD Italia',
