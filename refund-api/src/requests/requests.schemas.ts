@@ -30,11 +30,23 @@ export const EXPENSE_TYPE_VALUES = [
 ] as const;
 export type ExpenseTypeValue = (typeof EXPENSE_TYPE_VALUES)[number];
 
+// specs/008-refund-monthly-processing (ADR-0020) adds the fifth, terminal
+// `paid` value — QE fix (verification pass): this list had drifted from the
+// Prisma `RefundStatus` enum (which DOES include `paid`, migration
+// 20260719220430_add_batches), leaving the OpenAPI-documented contract
+// stale (a `paid` request's real `status` field was only reachable via an
+// `as RequestDetail["status"]` cast in requests.service.ts, bypassing this
+// schema's typing rather than extending it). Functionally harmless — Hono's
+// `c.json()` never runtime-validates a response against this schema, only
+// `/openapi.json`'s generated docs consumed it — but the docs themselves
+// were wrong. See `prisma/schema.prisma`'s `RefundStatus` enum for the
+// source of truth this list must always mirror.
 export const REFUND_STATUS_VALUES = [
   "draft",
   "submitted",
   "approved",
   "rejected",
+  "paid",
 ] as const;
 export type RefundStatusValue = (typeof REFUND_STATUS_VALUES)[number];
 

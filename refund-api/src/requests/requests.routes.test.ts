@@ -555,6 +555,49 @@ describe("GET /requests/:id", () => {
     expect(body.paidAt).toBeNull();
     expect(body.paidBy).toBeNull();
   });
+
+  // QE addition (specs/008-refund-monthly-processing verification pass,
+  // adversarial focus item): AC-5.5 — "any request regardless of status
+  // (including `paid`)" must still deny a non-owner, non-accounting caller.
+  // The plan/tasks AC→test map only exercised this on a `draft` request
+  // (line ~231 above); `paid` is a NEW status this spec introduces and
+  // `canReadRequest`'s ownership/scope predicate is status-independent, but
+  // that had no direct regression test pinning it for the new terminal
+  // value specifically — added here rather than assumed from the generic
+  // case.
+  it("(AC-5.5) a non-owner, non-accounting user gets 404 on a PAID request — never 403 or 200", async () => {
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date("2026-07-15T00:00:00.000Z"),
+        status: "paid",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+        paidAt: new Date("2026-07-18T09:30:00.000Z"),
+        paidByEmail: "acct1@x.com",
+      },
+    });
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: "owner-1",
+        ownerEmail: "owner1@x.com",
+        status: "paid",
+        decidedByUserId: "acct-1",
+        decidedByEmail: "acct1@x.com",
+        decidedAt: new Date("2026-07-14T00:00:00.000Z"),
+        batchId: batch.id,
+      },
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "stranger", email: "stranger@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {
