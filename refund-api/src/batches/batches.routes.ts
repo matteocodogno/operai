@@ -1,11 +1,15 @@
 /**
- * Candidate preview + compile endpoints (T3, specs/008-refund-monthly-processing).
+ * Candidate preview + compile + read endpoints (T3/T4,
+ * specs/008-refund-monthly-processing).
  *
- *   GET  /batches/candidates?cutoff= → 200 CandidatePreview (dry run, US-2)
- *   POST /batches {cutoff?}          → 201 BatchDetail (the atomic-claim core)
+ *   GET  /batches/candidates?cutoff= → 200 CandidatePreview (dry run, US-2, T3)
+ *   POST /batches {cutoff?}          → 201 BatchDetail (the atomic-claim core, T3)
+ *   GET  /batches                    → 200 BatchSummary[] (history, AC-8.1/8.2, T4)
+ *   GET  /batches/:id                → 200 BatchDetail (AC-2.1; 404, T4)
+ *   GET  /batches/:id/pdf-url        → 200 {url,expiresAt} (AC-3.4, T4)
  *
- * Capability gate for BOTH: `hasCapability(request, review)` — reused
- * verbatim via `scopeForReviewAction` (review.service.ts) — else 403
+ * Capability gate for candidates/compile: `hasCapability(request, review)` —
+ * reused verbatim via `scopeForReviewAction` (review.service.ts) — else 403
  * (AC-1.8). The candidate set (and what compile can claim) is entity-scoped
  * via the SAME predicate the 007 review queue uses (`requestInScope`,
  * ADR-0015); a conditioned grant with no resolved caller entity (`scope ===
@@ -13,16 +17,29 @@
  * empty-set 422 refusal for the POST (never a 403 — the capability itself
  * IS present).
  *
+ * Capability gate for every T4 read route (list/get/pdf-url):
+ * `hasCapability(request, review)` alone — deliberately NOT entity-scoped
+ * (plan.md § Resolved decisions D1: "any user holding the accounting/
+ * refund-admin refund capability can list every batch and open every
+ * batch's PDF regardless of their own entity scope"). Missing batch id →
+ * 404 (never a scope-driven 404 here — there is no scope to fail).
+ *
  * Compile is deliberately NOT gated by the request/response body's size in
  * any interesting way (`{cutoff?: ISO string}` only) — a small `bodyLimit`
  * still applies as defense-in-depth, mirroring decide.routes.ts's posture
- * for small-body mutations.
+ * for small-body mutations. The read routes below take no body at all, so
+ * none of them need a `bodyLimit`.
  *
- * T3 does NOT send the compilation email (T5) or mint anything beyond the
- * compile response's own presigned PDF GET — `notifyEmail` wiring and
- * `GET /batches/:id` / `GET /batches/:id/pdf-url` / `GET /batches` land in
- * T4/T5. `mapBatchDetail` (batches.service.ts) is written to be reused by
- * those once they land.
+ * `GET /batches/:id`'s and `GET /batches/:id/pdf-url`'s PDF link is minted
+ * via the shared `resolvePdfLink` (pdfLink.ts) — lazily regenerating the
+ * object if a prior `PutObject` never landed (ADR-0019 regenerable-cache
+ * posture), so a discarded/paid batch's PDF still resolves.
+ *
+ * T4 does NOT send the compilation email — `notifyEmail`/resend wiring
+ * lands in T5. Mark-paid (T6) and discard (T8) live in a SEPARATE router
+ * (`batches/decide.routes.ts`, mirrors `review/decide.routes.ts`'s
+ * decision-vs-read split) — terminal, capability-`approve`/`review`-gated
+ * state transitions, not reads.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
@@ -33,18 +50,28 @@ import { jwtMiddleware } from "../auth/jwt.middleware";
 import { ValidationError } from "../lib/errors";
 import { env } from "../lib/env";
 import { mintPresignedGet, putObject } from "../lib/storage";
+import { hasCapability } from "../authz/conditions";
 import { ProblemSchema } from "../requests/requests.schemas";
 import { renderBatchPdf } from "./pdf";
-import { compileBatch, fetchCandidateRows } from "./batches.repo";
+import {
+  compileBatch,
+  fetchBatchWithRequests,
+  fetchCandidateRows,
+  listBatchSummaries,
+} from "./batches.repo";
 import {
   filterCandidatesInScope,
   mapBatchDetail,
+  mapBatchSummary,
   mapCandidatePreview,
   scopeForReviewAction,
   toBatchPdfEmployees,
 } from "./batches.service";
+import { resolvePdfLink } from "./pdfLink";
 import {
   BatchDetailSchema,
+  BatchIdParamSchema,
+  BatchSummarySchema,
   CandidatePreviewSchema,
   CandidatesQuerySchema,
   CompileBodySchema,
@@ -65,6 +92,14 @@ const unprocessableProblem = (path: string, detail: string) => ({
   type: "https://httpstatuses.com/422",
   title: "Unprocessable Entity",
   status: 422 as const,
+  detail,
+  instance: path,
+});
+
+const notFoundProblem = (path: string, detail: string) => ({
+  type: "https://httpstatuses.com/404",
+  title: "Not Found",
+  status: 404 as const,
   detail,
   instance: path,
 });
@@ -118,6 +153,10 @@ batchesRouter.use("/batches/candidates", jwtMiddleware);
 batchesRouter.use("/batches/candidates", authzMiddleware);
 batchesRouter.use("/batches", jwtMiddleware);
 batchesRouter.use("/batches", authzMiddleware);
+batchesRouter.use("/batches/:id", jwtMiddleware);
+batchesRouter.use("/batches/:id", authzMiddleware);
+batchesRouter.use("/batches/:id/pdf-url", jwtMiddleware);
+batchesRouter.use("/batches/:id/pdf-url", authzMiddleware);
 
 /** `cutoff` defaults to "now" when unspecified (AC-1.1). */
 function resolveCutoff(raw: string | undefined): Date {
@@ -294,4 +333,160 @@ batchesRouter.openapi(compileRoute, async (c) => {
   const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
   return c.json(mapBatchDetail(batch, { url: pdfUrl, expiresAt }), 201);
+});
+
+// ─── GET /batches (history — AC-8.1/8.2, T4) ────────────────────────────────
+
+const batchListRoute = createRoute({
+  method: "get",
+  path: "/batches",
+  tags: ["Batches"],
+  summary: "List every compiled batch, every status (history)",
+  description:
+    "Every RefundBatch, newest first, regardless of status (AC-8.2). " +
+    "Capability-gated (`request:review`) but deliberately NOT entity-scoped " +
+    "(plan.md § Resolved decisions D1) — any accounting/refund-admin " +
+    "reviewer sees every batch. 403 if the caller holds no `request:review` " +
+    "grant at all (AC-8.3).",
+  security: [{ Bearer: [] }],
+  responses: {
+    200: {
+      content: { "application/json": { schema: BatchSummarySchema.array() } },
+      description: "Every batch, newest first",
+    },
+    401: { description: "Missing or invalid Bearer JWT" },
+    403: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Caller lacks the `request:review` capability",
+    },
+  },
+});
+
+batchesRouter.openapi(batchListRoute, async (c) => {
+  const authz = c.get("authz");
+
+  if (!hasCapability(authz.permissions, "request", "review")) {
+    return c.json(
+      forbiddenProblem(c.req.path, "You do not have permission to view refund batches"),
+      403,
+    );
+  }
+
+  const exit = await Effect.runPromiseExit(listBatchSummaries());
+  if (exit._tag === "Failure") {
+    throw new Error("Unexpected database failure listing refund batches");
+  }
+
+  return c.json(exit.value.map(mapBatchSummary), 200);
+});
+
+// ─── GET /batches/:id (detail — AC-2.1, T4) ─────────────────────────────────
+
+const getBatchRoute = createRoute({
+  method: "get",
+  path: "/batches/{id}",
+  tags: ["Batches"],
+  summary: "Get one batch's full detail (metadata + per-employee requests + PDF link)",
+  description:
+    "Regardless of status — `compiled`, `paid`, or `discarded` all resolve " +
+    "here (AC-2.1/6.3). Capability-gated (`request:review`), NOT " +
+    "entity-scoped (D1). The `pdf` link is minted (and, if the object is " +
+    "missing, lazily regenerated — ADR-0019) only AFTER the capability " +
+    "check passes.",
+  security: [{ Bearer: [] }],
+  request: { params: BatchIdParamSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: BatchDetailSchema } },
+      description: "The batch",
+    },
+    401: { description: "Missing or invalid Bearer JWT" },
+    403: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Caller lacks the `request:review` capability",
+    },
+    404: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "No batch with that id",
+    },
+  },
+});
+
+batchesRouter.openapi(getBatchRoute, async (c) => {
+  const authz = c.get("authz");
+  const { id } = c.req.valid("param");
+
+  if (!hasCapability(authz.permissions, "request", "review")) {
+    return c.json(
+      forbiddenProblem(c.req.path, "You do not have permission to view refund batches"),
+      403,
+    );
+  }
+
+  const exit = await Effect.runPromiseExit(fetchBatchWithRequests(id));
+  if (exit._tag === "Failure") {
+    throw new Error("Unexpected database failure fetching refund batch");
+  }
+  const batch = exit.value;
+  if (!batch) {
+    return c.json(notFoundProblem(c.req.path, `Refund batch ${id} not found`), 404);
+  }
+
+  const pdf = await resolvePdfLink(batch);
+  return c.json(mapBatchDetail(batch, pdf), 200);
+});
+
+// ─── GET /batches/:id/pdf-url (download link — AC-3.4, T4) ─────────────────
+
+const pdfUrlRoute = createRoute({
+  method: "get",
+  path: "/batches/{id}/pdf-url",
+  tags: ["Batches"],
+  summary: "Mint a short-lived presigned GET for the batch's compiled PDF",
+  description:
+    "Accounting-only, never employee-reachable (AC-3.4) — minted only AFTER " +
+    "the `request:review` capability check passes. Lazily regenerates the " +
+    "PDF object if it is missing (ADR-0019 regenerable-cache posture), so a " +
+    "discarded/paid batch's PDF still resolves (AC-1.10/6.3).",
+  security: [{ Bearer: [] }],
+  request: { params: BatchIdParamSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: BatchDetailSchema.shape.pdf } },
+      description: "A short-lived (~60s) presigned GET",
+    },
+    401: { description: "Missing or invalid Bearer JWT" },
+    403: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Caller lacks the `request:review` capability",
+    },
+    404: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "No batch with that id",
+    },
+  },
+});
+
+batchesRouter.openapi(pdfUrlRoute, async (c) => {
+  const authz = c.get("authz");
+  const { id } = c.req.valid("param");
+
+  if (!hasCapability(authz.permissions, "request", "review")) {
+    return c.json(
+      forbiddenProblem(c.req.path, "You do not have permission to view refund batches"),
+      403,
+    );
+  }
+
+  const exit = await Effect.runPromiseExit(fetchBatchWithRequests(id));
+  if (exit._tag === "Failure") {
+    throw new Error("Unexpected database failure fetching refund batch");
+  }
+  const batch = exit.value;
+  if (!batch) {
+    return c.json(notFoundProblem(c.req.path, `Refund batch ${id} not found`), 404);
+  }
+
+  const pdf = await resolvePdfLink(batch);
+  return c.json(pdf, 200);
 });

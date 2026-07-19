@@ -62,6 +62,12 @@ export const CompileBodySchema = z.object({
 });
 export type CompileBody = z.infer<typeof CompileBodySchema>;
 
+// ─── Shared :id param (GET/POST /batches/:id, .../pdf-url, .../email, .../mark-paid, .../discard, T4) ──
+
+export const BatchIdParamSchema = z.object({
+  id: z.string().min(1, "id is required"),
+});
+
 // ─── BatchDetail (AC-2.1; also POST /batches' 201 body, T3) ────────────────
 
 export const BatchActorSchema = z.object({
@@ -116,3 +122,24 @@ export const BatchDetailSchema = z.object({
   pdf: BatchPdfLinkSchema,
 });
 export type BatchDetail = z.infer<typeof BatchDetailSchema>;
+
+// ─── GET /batches (history — AC-8.1/8.2, T4) ───────────────────────────────
+
+export const BatchSummarySchema = z.object({
+  id: z.string(),
+  cutoff: z.string().datetime(),
+  status: BatchStatusSchema,
+  requestCount: z.number().int(),
+  subtotals: z.array(BatchSubtotalSchema),
+  emailStatus: z.enum(["sent", "failed"]).nullable(),
+  createdAt: z.string().datetime(),
+});
+export type BatchSummary = z.infer<typeof BatchSummarySchema>;
+
+// ─── POST /batches/:id/email (resend — AC-3.3, T5) ─────────────────────────
+
+export const BatchEmailActionResponseSchema = z.object({
+  emailStatus: z.enum(["sent", "failed"]),
+  emailDeliveryId: z.string().nullable(),
+});
+export type BatchEmailActionResponse = z.infer<typeof BatchEmailActionResponseSchema>;

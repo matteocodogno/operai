@@ -1,12 +1,15 @@
 /**
- * Integration tests for candidate preview + compile (T3,
- * specs/008-refund-monthly-processing, plan.md § Atomic claim / no-double-pay).
+ * Integration tests for candidate preview + compile (T3) and the batch read
+ * surfaces (T4, specs/008-refund-monthly-processing, plan.md § Atomic claim
+ * / no-double-pay, § API contracts).
  *
  * Strategy — mirrors decide.routes.test.ts's header comment: real Postgres
  * (compose, `refund` database), jwt/authz mocked via test-support/testAuth.ts,
  * object storage mocked (`../lib/storage`, mirrors attachments.routes.test.ts —
  * no live bucket required). `batchesRouter` is a NEW router module owned
- * exclusively by this file (testAuth.ts's no-shared-router-specifier rule).
+ * exclusively by this file (testAuth.ts's no-shared-router-specifier rule) —
+ * T4's GET /batches, GET /batches/:id, GET /batches/:id/pdf-url all live on
+ * this SAME router, so their tests are added here rather than a second file.
  *
  * AC coverage (T3 done-when)
  * ──────────────────────────
@@ -21,6 +24,15 @@
  * AC-7.1 one `batch_compiled` audit row per claimed request
  * (plus: RefundBatchItem rows created, pdfObjectKey follows the T2 key
  * scheme, and the compiled PDF is stored via `putObject`)
+ *
+ * AC coverage (T4 done-when)
+ * ──────────────────────────
+ * AC-8.2/8.3 GET /batches lists every status, 403 for non-accounting
+ * AC-2.1/2.3 GET /batches/:id detail (compiled/paid/discarded), 403, 404
+ * AC-6.3    a discarded batch's membership is STILL visible (via
+ *           RefundBatchItem, not the nulled live batchId pointer)
+ * AC-3.4    GET /batches/:id/pdf-url mints post-authz, 404, and lazily
+ *           regenerates the PDF object on a storage miss (ADR-0019)
  */
 
 import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
@@ -59,11 +71,19 @@ interface PutObjectCall {
 
 let putObjectCalls: PutObjectCall[] = [];
 let mintPresignedGetCalls: string[] = [];
+// T4's pdfLink.ts HEAD-checks the object before minting (lazy-regen on a
+// miss, ADR-0019) — every object this test suite ever `putObject`s is
+// tracked here so `headObject` can report it as present, matching real S3
+// semantics without a live bucket.
+const storedObjectKeys = new Set<string>();
 
 mock.module("../lib/storage", () => ({
   putObject: async (objectKey: string, body: Uint8Array, contentType: string) => {
     putObjectCalls.push({ objectKey, contentType, byteLength: body.byteLength });
+    storedObjectKeys.add(objectKey);
   },
+  headObject: async (objectKey: string) =>
+    storedObjectKeys.has(objectKey) ? { sizeBytes: 1, contentType: "application/pdf" } : null,
   mintPresignedGet: async (objectKey: string) => {
     mintPresignedGetCalls.push(objectKey);
     return `https://mock.example.com/${objectKey}?signed`;
@@ -162,6 +182,7 @@ beforeEach(async () => {
   __resetAuthzCacheForTests();
   putObjectCalls = [];
   mintPresignedGetCalls = [];
+  storedObjectKeys.clear();
 });
 
 afterAll(async () => {
@@ -514,5 +535,263 @@ describe("POST /batches", () => {
       where: { requestId: { in: requests.map((r) => r.id) }, action: "batch_compiled" },
     });
     expect(auditRows).toHaveLength(N);
+  });
+});
+
+// ─── GET /batches (history, T4) ─────────────────────────────────────────────
+
+describe("GET /batches", () => {
+  it("(AC-8.3) a non-accounting caller (no request:review) → 403", async () => {
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await batchesRouter.request("/batches", { headers: authHeaders(token) });
+    expect(res.status).toBe(403);
+  });
+
+  it("(AC-8.1/8.2) lists every batch, every status, newest first", async () => {
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    // A compiled batch, via the real compile flow.
+    const req1 = await createApprovedRequest([{ entity: "welld_it", approvedTotalCents: 500 }], {
+      ownerUserId: "emp-a",
+    });
+    const compileRes = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(compileRes.status).toBe(201);
+    const compiled = (await compileRes.json()) as { id: string };
+
+    // A paid batch and a discarded batch, seeded directly (T6/T8 land later).
+    const paidBatch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "paid",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/paid-${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+        paidAt: new Date(),
+        paidByEmail: "acct1@x.com",
+      },
+    });
+    const discardedBatch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "discarded",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/discarded-${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+        discardedAt: new Date(),
+        discardedByEmail: "acct1@x.com",
+      },
+    });
+
+    const res = await batchesRouter.request("/batches", { headers: authHeaders(token) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      id: string;
+      status: string;
+      requestCount: number;
+      subtotals: { currency: string; approvedCents: number }[];
+      emailStatus: string | null;
+    }[];
+
+    const byId = new Map(body.map((b) => [b.id, b]));
+    expect(byId.get(compiled.id)?.status).toBe("compiled");
+    expect(byId.get(compiled.id)?.requestCount).toBe(1);
+    expect(byId.get(compiled.id)?.subtotals).toEqual([{ currency: "EUR", approvedCents: 500 }]);
+    expect(byId.get(paidBatch.id)?.status).toBe("paid");
+    expect(byId.get(paidBatch.id)?.requestCount).toBe(0);
+    expect(byId.get(discardedBatch.id)?.status).toBe("discarded");
+    void req1;
+  });
+});
+
+// ─── GET /batches/:id (detail, T4) ──────────────────────────────────────────
+
+describe("GET /batches/:id", () => {
+  it("(AC-2.3) a non-accounting caller (no request:review) → 403", async () => {
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await batchesRouter.request("/batches/does-not-exist", {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("(404) no batch with that id", async () => {
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches/does-not-exist", {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("(AC-2.1) returns full detail for a compiled batch, including a freshly-minted PDF link", async () => {
+    await createApprovedRequest([{ entity: "welld_it", approvedTotalCents: 750 }], {
+      ownerUserId: "emp-a",
+      ownerEmail: "a@x.com",
+    });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const compileRes = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    const compiled = (await compileRes.json()) as { id: string };
+
+    const res = await batchesRouter.request(`/batches/${compiled.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      id: string;
+      status: string;
+      requestCount: number;
+      employees: { owner: { email: string }; requests: { status: string }[] }[];
+      pdf: { url: string; expiresAt: string };
+    };
+    expect(body.id).toBe(compiled.id);
+    expect(body.status).toBe("compiled");
+    expect(body.requestCount).toBe(1);
+    expect(body.employees[0]?.owner.email).toBe("a@x.com");
+    expect(body.employees[0]?.requests[0]?.status).toBe("approved");
+    expect(body.pdf.url).toContain(compiled.id);
+  });
+
+  it("(AC-6.3) a discarded batch's membership is still visible via RefundBatchItem, not the (nulled) live batchId", async () => {
+    const request = await createApprovedRequest(
+      [{ entity: "welld_it", approvedTotalCents: 250 }],
+      { ownerUserId: "emp-discarded", ownerEmail: "discarded@x.com" },
+    );
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "discarded",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+        discardedAt: new Date(),
+        discardedByEmail: "acct1@x.com",
+      },
+    });
+    await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+    // The live pointer is released (T8's actual behavior) — batchId back to null.
+    await db.refundRequest.update({ where: { id: request.id }, data: { batchId: null } });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request(`/batches/${batch.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      requestCount: number;
+      employees: { owner: { email: string } }[];
+      discardedAt: string | null;
+      discardedBy: { email: string } | null;
+    };
+    expect(body.status).toBe("discarded");
+    expect(body.requestCount).toBe(1);
+    expect(body.employees[0]?.owner.email).toBe("discarded@x.com");
+    expect(body.discardedAt).not.toBeNull();
+    expect(body.discardedBy).toEqual({ email: "acct1@x.com" });
+  });
+});
+
+// ─── GET /batches/:id/pdf-url (T4) ──────────────────────────────────────────
+
+describe("GET /batches/:id/pdf-url", () => {
+  it("(AC-3.4) a non-accounting caller (no request:review) → 403", async () => {
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await batchesRouter.request("/batches/does-not-exist/pdf-url", {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("(404) no batch with that id", async () => {
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches/does-not-exist/pdf-url", {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("mints a fresh presigned GET without re-rendering when the object already exists", async () => {
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const compileRes = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    const compiled = (await compileRes.json()) as { id: string; pdf: { url: string } };
+    putObjectCalls = []; // reset — compile already stored it once
+    mintPresignedGetCalls = [];
+
+    const res = await batchesRouter.request(`/batches/${compiled.id}/pdf-url`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string; expiresAt: string };
+    expect(body.url).toContain(compiled.id);
+    expect(putObjectCalls).toHaveLength(0); // NOT re-rendered — the object was already there
+    expect(mintPresignedGetCalls.length).toBe(1);
+  });
+
+  it("(ADR-0019) lazily regenerates the PDF when the stored object is missing", async () => {
+    const request = await createApprovedRequest(
+      [{ entity: "welld_it", approvedTotalCents: 900 }],
+      { ownerUserId: "emp-regen", ownerEmail: "regen@x.com" },
+    );
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "compiled",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+      },
+    });
+    await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+    // NEVER putObject'd for this batch — storedObjectKeys has no entry, so
+    // the mocked headObject() reports it missing (network blip on the
+    // original compile, R1).
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request(`/batches/${batch.id}/pdf-url`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    expect(body.url).toContain(batch.pdfObjectKey);
+    expect(putObjectCalls).toHaveLength(1); // regenerated
+    expect(putObjectCalls[0]?.objectKey).toBe(batch.pdfObjectKey);
+    expect(mintPresignedGetCalls).toEqual([batch.pdfObjectKey]);
   });
 });

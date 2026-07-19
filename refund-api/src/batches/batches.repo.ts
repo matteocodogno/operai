@@ -41,6 +41,7 @@ import { DatabaseError, ValidationError } from "../lib/errors";
 import { writeAuditEntry } from "../requests/audit";
 import { batchPdfObjectKey } from "./pdf";
 import type { LineRow } from "../requests/requests.service";
+import type { BatchStatusValue } from "./batches.schemas";
 
 const toDbErr = (message: string) => (cause: unknown) =>
   new DatabaseError({ message, cause });
@@ -50,6 +51,7 @@ export interface CandidateRow {
   readonly ownerUserId: string;
   readonly ownerEmail: string;
   readonly ownerName: string | null;
+  readonly status: string;
   readonly decidedAt: Date | null;
   readonly lines: readonly LineRow[];
 }
@@ -59,6 +61,7 @@ const candidateSelect = {
   ownerUserId: true,
   ownerEmail: true,
   ownerName: true,
+  status: true,
   decidedAt: true,
   lines: {
     select: {
@@ -95,17 +98,29 @@ export function fetchCandidateRows(
   });
 }
 
-// ─── Compile (atomic claim) ─────────────────────────────────────────────────
+// ─── Batch row shape (general — reused by T3's compile AND T4's reads /
+// T6's mark-paid / T8's discard, so every batch surface maps through the SAME
+// shape regardless of which action produced/fetched it) ────────────────────
 
-export interface CompiledBatch {
+export interface BatchRow {
   readonly id: string;
   readonly cutoff: Date;
-  readonly status: "compiled";
+  readonly status: BatchStatusValue;
   readonly createdByUserId: string;
   readonly createdByEmail: string;
   readonly createdAt: Date;
   readonly pdfObjectKey: string;
   readonly recipientEmailSnapshot: string;
+  readonly emailStatus: string | null;
+  readonly emailLastAttemptAt: Date | null;
+  readonly emailDeliveryId: string | null;
+  readonly paidAt: Date | null;
+  readonly paidByEmail: string | null;
+  readonly discardedAt: Date | null;
+  readonly discardedByEmail: string | null;
+}
+
+export interface BatchWithRequests extends BatchRow {
   readonly requests: CandidateRow[];
 }
 
@@ -139,7 +154,7 @@ export function compileBatch(
   actorUserId: string,
   actorEmail: string,
   recipientEmail: string,
-): Effect.Effect<CompiledBatch, DatabaseError | ValidationError> {
+): Effect.Effect<BatchWithRequests, DatabaseError | ValidationError> {
   return Effect.tryPromise({
     try: () =>
       db.$transaction(async (tx) => {
@@ -223,12 +238,19 @@ export function compileBatch(
         return {
           id: batch.id,
           cutoff: batch.cutoff,
-          status: "compiled" as const,
+          status: batch.status,
           createdByUserId: batch.createdByUserId,
           createdByEmail: batch.createdByEmail,
           createdAt: batch.createdAt,
           pdfObjectKey: batch.pdfObjectKey,
           recipientEmailSnapshot: batch.recipientEmailSnapshot,
+          emailStatus: batch.emailStatus,
+          emailLastAttemptAt: batch.emailLastAttemptAt,
+          emailDeliveryId: batch.emailDeliveryId,
+          paidAt: batch.paidAt,
+          paidByEmail: batch.paidByEmail,
+          discardedAt: batch.discardedAt,
+          discardedByEmail: batch.discardedByEmail,
           requests,
         };
       }),
@@ -241,5 +263,129 @@ export function compileBatch(
         cause,
       });
     },
+  });
+}
+
+// ─── Reads (GET /batches, GET /batches/:id, GET /batches/:id/pdf-url — T4) ──
+//
+// Membership for a READ is resolved via `RefundBatchItem` (the append-only
+// record), NEVER via the live `RefundRequest.batchId` pointer — a discarded
+// batch's requests have their `batchId` nulled (released to the pool), but
+// the batch itself must remain fully inspectable (AC-6.3/7.3): "which
+// requests it once held, who released them, when". `fetchBatchWithRequests`
+// and `listBatchSummaries` both join through `items`, then re-fetch each
+// member request's CURRENT row (owner/lines/status) by id — this is what
+// lets a `paid` batch's detail show `status:"paid"` per request (T6) and a
+// `discarded` batch still show its (now-released) members (T8).
+
+/**
+ * Full batch + its member requests (current data, joined via
+ * `RefundBatchItem`), or `null` if no such batch exists (→ caller returns
+ * 404). Backs `GET /batches/:id`, `GET /batches/:id/pdf-url`'s lazy-regen
+ * input, and the response re-fetch after mark-paid/discard (T6/T8).
+ */
+export function fetchBatchWithRequests(
+  batchId: string,
+): Effect.Effect<BatchWithRequests | null, DatabaseError> {
+  return Effect.tryPromise({
+    try: async () => {
+      const batch = await db.refundBatch.findUnique({
+        where: { id: batchId },
+        include: { items: { select: { requestId: true } } },
+      });
+      if (!batch) return null;
+
+      const requestIds = batch.items.map((item) => item.requestId);
+      const requests = requestIds.length
+        ? await db.refundRequest.findMany({
+            where: { id: { in: requestIds } },
+            select: candidateSelect,
+          })
+        : [];
+
+      return {
+        id: batch.id,
+        cutoff: batch.cutoff,
+        status: batch.status,
+        createdByUserId: batch.createdByUserId,
+        createdByEmail: batch.createdByEmail,
+        createdAt: batch.createdAt,
+        pdfObjectKey: batch.pdfObjectKey,
+        recipientEmailSnapshot: batch.recipientEmailSnapshot,
+        emailStatus: batch.emailStatus,
+        emailLastAttemptAt: batch.emailLastAttemptAt,
+        emailDeliveryId: batch.emailDeliveryId,
+        paidAt: batch.paidAt,
+        paidByEmail: batch.paidByEmail,
+        discardedAt: batch.discardedAt,
+        discardedByEmail: batch.discardedByEmail,
+        requests,
+      };
+    },
+    catch: toDbErr("Failed to fetch refund batch"),
+  });
+}
+
+export interface BatchSummaryRow {
+  readonly id: string;
+  readonly cutoff: Date;
+  readonly status: BatchStatusValue;
+  readonly createdAt: Date;
+  readonly emailStatus: string | null;
+  readonly requestCount: number;
+  readonly lines: readonly LineRow[];
+}
+
+/**
+ * Every batch, every status (AC-8.2), newest first. NOT entity-scoped
+ * (§ Resolved decisions D1, plan.md) — the route layer gates this on
+ * `request:review` alone, no scope filtering. Per-batch subtotals are
+ * computed by the caller (`mapBatchSummary`, batches.service.ts) from the
+ * `lines` this function already joins in, one query for the batch rows +
+ * one batched query for every member request's lines (avoids N+1).
+ */
+export function listBatchSummaries(): Effect.Effect<
+  BatchSummaryRow[],
+  DatabaseError
+> {
+  return Effect.tryPromise({
+    try: async () => {
+      const batches = await db.refundBatch.findMany({
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          cutoff: true,
+          status: true,
+          createdAt: true,
+          emailStatus: true,
+          items: { select: { requestId: true } },
+        },
+      });
+      if (batches.length === 0) return [];
+
+      const allRequestIds = Array.from(
+        new Set(batches.flatMap((batch) => batch.items.map((item) => item.requestId))),
+      );
+      const requests = allRequestIds.length
+        ? await db.refundRequest.findMany({
+            where: { id: { in: allRequestIds } },
+            select: candidateSelect,
+          })
+        : [];
+      const linesByRequestId = new Map(requests.map((r) => [r.id, r.lines]));
+
+      return batches.map((batch) => ({
+        id: batch.id,
+        cutoff: batch.cutoff,
+        status: batch.status,
+        createdAt: batch.createdAt,
+        emailStatus: batch.emailStatus,
+        requestCount: batch.items.length,
+        lines: batch.items.flatMap(
+          (item) => linesByRequestId.get(item.requestId) ?? [],
+        ),
+      }));
+    },
+    catch: toDbErr("Failed to list refund batches"),
   });
 }

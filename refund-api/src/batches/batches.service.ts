@@ -19,10 +19,11 @@ import { requestInScope, type EntityScope } from "../authz/conditions";
 import { computeSubtotals, type LineRow } from "../requests/requests.service";
 import type { Subtotal } from "../requests/requests.schemas";
 import type { BatchPdfEmployee } from "./pdf";
-import type { CandidateRow, CompiledBatch } from "./batches.repo";
+import type { BatchSummaryRow, CandidateRow, BatchWithRequests } from "./batches.repo";
 import type {
   BatchDetail,
   BatchSubtotal,
+  BatchSummary,
   CandidateEmployee,
   CandidatePreview,
 } from "./batches.schemas";
@@ -124,16 +125,19 @@ export interface BatchPdfLinkInput {
 }
 
 /**
- * Shared BatchDetail mapper — used by POST /batches' 201 response (T3) and,
- * once T4 lands, by GET /batches/:id and the post-mark-paid/discard
- * responses. `status`/`paidAt`/`paidBy`/`discardedAt`/`discardedBy`/`email`
- * are the CALLER's job to fill from the batch row's current state; this
- * function only ever sees a `compiled` batch as of T3 (mark-paid/discard
- * land in T6/T8), so those fields are fixed to their just-created values
- * here.
+ * Shared BatchDetail mapper — used by POST /batches' 201 response (T3),
+ * `GET /batches/:id` (T4), and the post-mark-paid/discard responses (T6/T8).
+ * Every field (`status`/`email`/`paidAt`/`paidBy`/`discardedAt`/
+ * `discardedBy`) is read directly off the caller-supplied `batch` row's
+ * CURRENT state (`BatchWithRequests`, batches.repo.ts) — nothing is
+ * hardcoded here, so this one function renders a `compiled`, `paid`, or
+ * `discarded` batch identically regardless of which route produced the row.
+ * Per-request `status` similarly comes from each `CandidateRow.status`
+ * (fetched fresh, not assumed) — `approved` while compiled/discarded,
+ * `paid` after T6's mark-paid.
  */
 export function mapBatchDetail(
-  batch: CompiledBatch,
+  batch: BatchWithRequests,
   pdf: BatchPdfLinkInput,
 ): BatchDetail {
   const allLines: LineRow[] = batch.requests.flatMap((r) => [...r.lines]);
@@ -150,7 +154,7 @@ export function mapBatchDetail(
         requests: requests
           .map((r) => ({
             id: r.id,
-            status: "approved",
+            status: r.status,
             subtotals: computeSubtotals(r.lines),
           }))
           .sort((a, b) => a.id.localeCompare(b.id)),
@@ -168,11 +172,28 @@ export function mapBatchDetail(
     createdAt: batch.createdAt.toISOString(),
     subtotals: toBatchSubtotals(computeSubtotals(allLines)),
     employees,
-    email: { status: null, lastAttemptAt: null },
-    paidAt: null,
-    paidBy: null,
-    discardedAt: null,
-    discardedBy: null,
+    email: {
+      status: (batch.emailStatus as "sent" | "failed" | null) ?? null,
+      lastAttemptAt: batch.emailLastAttemptAt?.toISOString() ?? null,
+    },
+    paidAt: batch.paidAt?.toISOString() ?? null,
+    paidBy: batch.paidByEmail ? { email: batch.paidByEmail } : null,
+    discardedAt: batch.discardedAt?.toISOString() ?? null,
+    discardedBy: batch.discardedByEmail ? { email: batch.discardedByEmail } : null,
     pdf,
+  };
+}
+
+// ─── BatchSummary (GET /batches history, T4) ───────────────────────────────
+
+export function mapBatchSummary(row: BatchSummaryRow): BatchSummary {
+  return {
+    id: row.id,
+    cutoff: row.cutoff.toISOString(),
+    status: row.status,
+    requestCount: row.requestCount,
+    subtotals: toBatchSubtotals(computeSubtotals(row.lines)),
+    emailStatus: (row.emailStatus as "sent" | "failed" | null) ?? null,
+    createdAt: row.createdAt.toISOString(),
   };
 }
