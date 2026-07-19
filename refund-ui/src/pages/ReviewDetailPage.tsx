@@ -6,6 +6,7 @@ import type { RefundRequestDetail } from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
 import { ApiError } from '../lib/refundApi'
+import { formatDateTime } from '../lib/dates'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import GuardrailDialog from '../components/GuardrailDialog'
@@ -34,6 +35,13 @@ const route = getRouteApi('/review/$id')
  *     own approved/rejected detail (design.md F6 step 8: "accounting's
  *     'inspect a past decision' need is met by the SAME read-only render
  *     path"), plus the "Requested by" identity line every A2 render shows.
+ *   - `paid` (T13, specs/008-refund-monthly-processing/tasks.md, design.md
+ *     F4 step 4): structured IDENTICALLY to `approved` (full
+ *     `readOnlyApproved` line list, `SubtotalsPanel showApproved`) PLUS a
+ *     "Paid on `<date>` by `<email>`" line, MINUS `MonthlyProcessingNote` —
+ *     this REPLACES the generic `readOnly` fallback branch that previously
+ *     (silently, incidentally) already covered `paid` before this feature
+ *     existed, without a `paidAt`/`paidBy` line (design.md Gap #7).
  *   - L    — SkeletonListRows while `GET /requests/:id` is in flight.
  *   - Err  — ErrorBanner + Retry.
  *   - NF   — neutral "doesn't exist or you don't have access" on a 404
@@ -373,7 +381,33 @@ export default function ReviewDetailPage() {
           </div>
         )}
 
-        {pageState.status === 'loaded' && pageState.request.status !== 'submitted' && pageState.request.status !== 'approved' && pageState.request.status !== 'rejected' && (
+        {pageState.status === 'loaded' && pageState.request.status === 'paid' && (
+          <div data-testid="review-detail-paid" className="flex flex-col gap-4">
+            {pageState.request.paidAt && pageState.request.paidBy && (
+              <p className="text-sm" style={{ color: 'var(--grn)' }} data-testid="review-detail-paid-line">
+                {t.paid.paidLine(formatDateTime(pageState.request.paidAt), pageState.request.paidBy)}
+              </p>
+            )}
+            <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
+            <div className="flex flex-col gap-2">
+              {pageState.request.lines.map((line) => (
+                <ExpenseLineRow
+                  key={line.id}
+                  line={line}
+                  mode="readOnlyApproved"
+                  onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                  registerRef={registerRowRef(line.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {pageState.status === 'loaded' &&
+          pageState.request.status !== 'submitted' &&
+          pageState.request.status !== 'approved' &&
+          pageState.request.status !== 'rejected' &&
+          pageState.request.status !== 'paid' && (
           <div data-testid="review-detail-readonly-fallback" className="flex flex-col gap-2">
             {pageState.request.lines.map((line) => (
               <ExpenseLineRow

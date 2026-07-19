@@ -77,7 +77,7 @@ English-only UI copy via `strings.ts`.
   - Header (`BatchStatusBadge`, cutoff, generated-at/by, ref), overall + per-employee groups (rows link to `/refund/review/$id`), **Download PDF** (`BatchPdfLink`), email status + **Resend** (`ToastBanner` feedback), **Mark-as-paid** (`MarkPaidDialog` — high-stakes checkbox-gated, focus-trapped, irreversible wording), **Discard** (`ConfirmDeleteModal` destructive). 409 races → `GuardrailDialog`. Status-driven variants (compiled/paid/discarded). This is also the email deep-link landing page. Integrates T4/T5/T6/T8.
   - done when: tests cover the status variants, MarkPaidDialog's disabled-until-checkbox + focus trap, mark-paid/discard success + 409 guardrail, resend toast, and PDF mint; a11y (focus-on-transition, `aria-live`).
 
-- [ ] T13: Screen B1 — Batch history + employee `paid` display — refs: AC-8.1–8.3, AC-5.1–5.3 — deps: T10
+- [x] T13: Screen B1 — Batch history + employee `paid` display — refs: AC-8.1–8.3, AC-5.1–5.3 — deps: T10
   - touch: `refund-ui/src/pages/BatchHistoryPage.tsx` (+test), `src/pages/RequestDetailPage.tsx` + `ReviewDetailPage.tsx` (+`paid` render branch)
   - B1: batch list (cutoff, `BatchStatusBadge`, count, per-currency totals) → open B3; loading/empty/error/PD. Employee/accounting request detail gains a `paid` branch (the `RequestStatusBadge` `paid` variant; 007's US-4 "on your paycheck" messaging now real). Confirm the employee wire contract for `batchId` (design note #4 — coordinate with T4).
   - done when: tests cover the history list + PD, and the `paid` request-detail branch; no hardcoded strings.

@@ -200,6 +200,10 @@ const en = {
         motivationHeading: 'Reason for rejection',
         newRequestLink: '+ New request',
       },
+      /** `paid` render branch (T13, specs/008-refund-monthly-processing/tasks.md, design.md F5) — sibling to draft/submitted/approved/rejected. */
+      paid: {
+        paidLine: (date: string) => `Paid on ${date}`,
+      },
       monthlyNote: {
         heading: 'Monthly processing',
         body: 'Approved reimbursements are processed together on a regular monthly cycle. No specific date or payout amount is promised here — check with accounting for the current schedule.',
@@ -270,15 +274,30 @@ const en = {
         confirmLabel: 'Reject',
         confirmingLabel: 'Rejecting…',
       },
+      /** `paid` render branch (T13, specs/008-refund-monthly-processing/tasks.md, design.md F4 step 4) — identical to `approved` PLUS this line, MINUS MonthlyProcessingNote. */
+      paid: {
+        paidLine: (date: string, email: string) => `Paid on ${date} by ${email}`,
+      },
     },
     notFound: {
       heading: 'Page not found',
       body: 'This refund section doesn’t exist. Use the navigation above to pick My requests or Review queue.',
     },
-    /** Screen B1 (T9 placeholder — real screen T13, specs/008-refund-monthly-processing). */
+    /** Screen B1 (T13, specs/008-refund-monthly-processing/tasks.md, design.md F8). Replaces T9's placeholder. */
     batchHistory: {
       heading: 'Monthly processing',
-      placeholder: 'The history of compiled monthly refund batches will appear here.',
+      newBatchButton: '+ Compile new batch',
+      loadingAnnouncement: 'Loading batch history',
+      loadErrorFallback: 'Could not load batch history.',
+      empty: {
+        heading: 'No compilations yet.',
+        body: 'Compile your first monthly batch to get started.',
+      },
+      row: {
+        openLabel: (cutoff: string, status: string) => `Open batch, cutoff ${cutoff}, ${status}`,
+        cutoffLabel: (date: string) => `Cutoff: ${date}`,
+        countLabel: (count: number) => `${count} request${count === 1 ? '' : 's'}`,
+      },
     },
     /** Screen B2 (T11, specs/008-refund-monthly-processing/tasks.md, design.md F1/Screen B2). */
     compileBatch: {

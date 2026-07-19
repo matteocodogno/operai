@@ -81,6 +81,8 @@ const baseRequest: RefundRequestDetail = {
   decidedAt: null,
   decidedBy: null,
   rejectionMotivation: null,
+  paidAt: null,
+  paidBy: null,
   lines: [
     {
       id: 'line-1',
@@ -286,5 +288,27 @@ describe('ReviewDetailPage — decided (approved/rejected) read-only variant', (
     expect(screen.getByTestId('review-detail-rejection-motivation').textContent).toContain('Missing receipt.')
     expect(screen.queryByTestId('review-detail-approve')).toBeNull()
     expect(screen.queryByTestId('row-line-1-approved-total')).toBeNull()
+  })
+
+  it('paid: shows requested + approved per line, a "Paid on <date> by <email>" line, no MonthlyProcessingNote, and no decide actions (T13, specs/008-refund-monthly-processing)', async () => {
+    const paidRequest: RefundRequestDetail = {
+      ...baseRequest,
+      status: 'paid',
+      lines: [{ ...baseRequest.lines[0], approvedTotalCents: 800 }],
+      subtotals: [{ currency: 'EUR', requestedCents: 1000, approvedCents: 800 }],
+      decidedAt: '2026-07-15T00:00:00.000Z',
+      decidedBy: { email: 'acct@welld.ch' },
+      paidAt: '2026-07-16T00:00:00.000Z',
+      paidBy: 'acct2@welld.ch',
+    }
+    vi.mocked(requestsApi.get).mockResolvedValue(paidRequest)
+    renderReviewDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('review-detail-paid')).not.toBeNull())
+    expect(screen.getByTestId('review-detail-paid-line').textContent).toContain('acct2@welld.ch')
+    expect(screen.getByTestId('expense-line-row-line-1').textContent).toContain('8,00 €')
+    expect(screen.queryByTestId('monthly-processing-note')).toBeNull()
+    expect(screen.queryByTestId('review-detail-approve')).toBeNull()
+    expect(screen.queryByTestId('review-detail-reject')).toBeNull()
   })
 })

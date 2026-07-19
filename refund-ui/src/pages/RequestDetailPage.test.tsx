@@ -83,6 +83,8 @@ const baseRequest: RefundRequestDetail = {
   decidedAt: null,
   decidedBy: null,
   rejectionMotivation: null,
+  paidAt: null,
+  paidBy: null,
   lines: [],
   subtotals: [],
   createdAt: '2026-07-01T00:00:00.000Z',
@@ -421,6 +423,30 @@ describe('RequestDetailPage — rejected variant', () => {
     expect(screen.getByTestId('request-detail-rejection-motivation').textContent).toContain('Missing receipt.')
     expect(screen.getByTestId('request-detail-new-request-link').getAttribute('href')).toBe('/requests/new')
     expect(screen.queryByTestId('monthly-processing-note')).toBeNull()
+  })
+})
+
+describe('RequestDetailPage — paid variant (T13, specs/008-refund-monthly-processing)', () => {
+  it('shows the "Paid on <date>" line, requested+approved per line, no MonthlyProcessingNote, and no "+ New request" link', async () => {
+    const paidRequest = {
+      ...baseRequest,
+      status: 'paid' as const,
+      lines: [{ ...oneLine, approvedTotalCents: 800 }],
+      subtotals: [{ currency: 'EUR' as const, requestedCents: 1000, approvedCents: 800 }],
+      decidedAt: '2026-07-05T00:00:00.000Z',
+      decidedBy: { email: 'acct@welld.ch' },
+      paidAt: '2026-07-16T00:00:00.000Z',
+      paidBy: 'acct@welld.ch',
+    }
+    vi.mocked(requestsApi.get).mockResolvedValue(paidRequest)
+
+    renderRequestDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('request-detail-paid')).not.toBeNull())
+    expect(screen.getByTestId('request-detail-paid-line').textContent).toMatch(/paid on/i)
+    expect(screen.getByTestId('expense-line-row-line-1').textContent).toContain('8,00 €')
+    expect(screen.queryByTestId('monthly-processing-note')).toBeNull()
+    expect(screen.queryByTestId('request-detail-new-request-link')).toBeNull()
   })
 })
 

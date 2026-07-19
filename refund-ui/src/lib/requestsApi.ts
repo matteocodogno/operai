@@ -71,6 +71,20 @@ export type RefundRequestDetail = {
   decidedAt: string | null
   decidedBy: { email: string } | null
   rejectionMotivation: string | null
+  /**
+   * Set only once `status==='paid'` (specs/008-refund-monthly-processing,
+   * T13, design.md F4/F5 — the SAME `GET /requests/:id` route both the
+   * employee and accounting sides use, plan.md line 80: "sees `paid` +
+   * `paidAt`"). `paidBy` is rendered only on the accounting-facing
+   * `ReviewDetailPage` ("Paid on `<date>` by `<email>`") — the employee-facing
+   * `RequestDetailPage` shows the date alone, never who processed it. Not
+   * shown explicitly in specs/008 plan.md's own shape table (drift note: this
+   * task's own report flags the exact field names as an assumption pending
+   * backend confirmation, the same posture this file's own doc comment
+   * already takes for the rest of this contract).
+   */
+  paidAt: string | null
+  paidBy: string | null
   lines: RefundLine[]
   subtotals: Subtotal[]
   createdAt: string

@@ -6,6 +6,7 @@ import type { Attachment, LinePayload, RefundRequestDetail } from '../lib/reques
 import { SubmitValidationApiError } from '../lib/requestsApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
 import { ApiError } from '../lib/refundApi'
+import { formatDate } from '../lib/dates'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
@@ -25,7 +26,7 @@ const route = getRouteApi('/requests/$id')
 /**
  * RequestDetailPage — Screen R2 (draft composer / request detail,
  * `/refund/requests/$id` — T16, specs/007-refund-service/tasks.md,
- * design.md "Screen R2"). Replaces T14's placeholder. One route, four
+ * design.md "Screen R2"). Replaces T14's placeholder. One route, five
  * `status`-driven render variants plus L/Err/NF/G, exactly as design.md
  * lists them:
  *
@@ -36,6 +37,16 @@ const route = getRouteApi('/requests/$id')
  *   - `approved`  — requested + approved per line and per currency;
  *                   MonthlyProcessingNote (only here — AC-4.2).
  *   - `rejected`  — rejection-motivation block; "+ New request" link.
+ *   - `paid`      — (T13, specs/008-refund-monthly-processing/tasks.md,
+ *                   design.md F5) the SAME requested+approved layout as
+ *                   `approved` (reuses `ExpenseLineRow`'s `readOnlyApproved`
+ *                   mode/`SubtotalsPanel showApproved` unchanged — reaching
+ *                   `paid` adds a fact on top of the already-final approved
+ *                   figures, it doesn't alter them) PLUS a "Paid on `<date>`"
+ *                   line reading `paidAt`; MonthlyProcessingNote and
+ *                   "+ New request" are structurally absent (not
+ *                   conditionally hidden), same discipline `draft`/
+ *                   `submitted` already get for MonthlyProcessingNote.
  *   - L    — SkeletonListRows while `GET /requests/:id` is in flight.
  *   - Err  — ErrorBanner + Retry (a genuine network/5xx failure).
  *   - NF   — neutral "doesn't exist or you don't have access" (never
@@ -595,6 +606,28 @@ export default function RequestDetailPage() {
             >
               {t.rejected.newRequestLink}
             </Link>
+          </div>
+        )}
+
+        {pageState.status === 'loaded' && pageState.request.status === 'paid' && (
+          <div data-testid="request-detail-paid" className="flex flex-col gap-4">
+            {pageState.request.paidAt && (
+              <p className="text-sm" style={{ color: 'var(--grn)' }} data-testid="request-detail-paid-line">
+                {t.paid.paidLine(formatDate(pageState.request.paidAt))}
+              </p>
+            )}
+            <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
+            <div className="flex flex-col gap-2">
+              {pageState.request.lines.map((line) => (
+                <ExpenseLineRow
+                  key={line.id}
+                  line={line}
+                  mode="readOnlyApproved"
+                  onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                  registerRef={registerRowRef(line.id)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

@@ -55,6 +55,8 @@ const created: RefundRequestDetail = {
   decidedAt: null,
   decidedBy: null,
   rejectionMotivation: null,
+  paidAt: null,
+  paidBy: null,
   lines: [],
   subtotals: [],
   createdAt: '2026-07-16T00:00:00.000Z',
