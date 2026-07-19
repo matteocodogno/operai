@@ -34,7 +34,16 @@ import {
   type RecordEmailDeliveryInput,
 } from "./emailDelivery.repo";
 
-export const EMAIL_TEMPLATES = ["invitation", "invitation_resend"] as const;
+export const EMAIL_TEMPLATES = [
+  "invitation",
+  "invitation_resend",
+  // specs/008-refund-monthly-processing T7 (ADR-0021) — the compiled-batch
+  // notification email. Carries an in-app deep link only (never an
+  // attachment, never a raw presigned URL) — same fixed/escaped shape as the
+  // invitation templates above, just a different per-template `data`
+  // (emails.schemas.ts).
+  "refund_batch_compiled",
+] as const;
 export type EmailTemplate = (typeof EMAIL_TEMPLATES)[number];
 
 export type EmailSendInput = {

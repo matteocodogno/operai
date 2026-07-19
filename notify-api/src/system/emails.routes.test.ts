@@ -1,6 +1,7 @@
 /**
  * Integration tests for POST /system/emails (T3, specs/006-user-invitations,
- * ADR-0011).
+ * ADR-0011; extended by T7, specs/008-refund-monthly-processing, ADR-0021
+ * for the `refund_batch_compiled` template).
  *
  * Strategy mirrors notifications/raise.routes.test.ts: real Postgres
  * (compose, host:5435, database: notify) — no DB mocking. `@/lib/resend` is
@@ -20,6 +21,14 @@
  * {deliveryId,status}; missing/wrong token → 401; a user JWT is rejected on
  * /system/*; bad to/template → 400; Resend failure surfaced as
  * {status:"failed"} (never a 5xx that fails the caller).
+ *
+ * done when (tasks.md T7): `refund_batch_compiled` sends 200 with the deep
+ * link + batch reference persisted as `template`; its per-template `data`
+ * shape is enforced both ways (invitation data rejected for this template
+ * and vice versa); the internal-token gate is unchanged for the new
+ * template; escaping itself is covered at the render layer
+ * (emailTemplates.test.ts) since this file asserts persistence/status, not
+ * rendered HTML content.
  */
 
 import { describe, it, expect, afterEach, mock } from "bun:test";
@@ -330,5 +339,196 @@ describe("POST /system/emails — validation failures → 400", () => {
       where: { to: { contains: TEST_ADDRESS_PREFIX } },
     });
     expect(after).toBe(before);
+  });
+});
+
+// ─── refund_batch_compiled template (T7, specs/008-refund-monthly-processing,
+// plan.md §Email, ADR-0021) ────────────────────────────────────────────────
+
+const validRefundBatchBody = (overrides?: Record<string, unknown>) => ({
+  to: `${TEST_ADDRESS_PREFIX}-accounting@example.com`,
+  template: "refund_batch_compiled",
+  data: {
+    batchUrl: "https://app.operai.welld.io/refund/batches/batch_abc123",
+    batchReference: "batch_abc123",
+    cutoff: "2026-07-19T23:59:59Z",
+    generatedAt: "2026-07-20T08:00:00Z",
+    requestCount: 4,
+  },
+  ...overrides,
+});
+
+describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
+  it("200: valid deep-link body → {deliveryId, status:'sent'}, EmailDelivery recorded with the new template", async () => {
+    const app = buildApp();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(validRefundBatchBody()),
+    });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { deliveryId: string; status: string };
+    expect(json.status).toBe("sent");
+
+    const row = await testDb.emailDelivery.findUnique({
+      where: { id: json.deliveryId },
+    });
+    expect(row?.to).toBe(`${TEST_ADDRESS_PREFIX}-accounting@example.com`);
+    expect(row?.template).toBe("refund_batch_compiled");
+    expect(row?.status).toBe("sent");
+  });
+
+  it("400: data.batchUrl missing", async () => {
+    const app = buildApp();
+    const body = validRefundBatchBody();
+    const { batchUrl: _batchUrl, ...restData } = (
+      body as { data: Record<string, unknown> }
+    ).data;
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...body, data: restData }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: data.batchUrl is not a valid URL", async () => {
+    const app = buildApp();
+    const body = validRefundBatchBody();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        data: { ...(body as { data: Record<string, unknown> }).data, batchUrl: "not-a-url" },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: data.batchReference missing", async () => {
+    const app = buildApp();
+    const body = validRefundBatchBody();
+    const { batchReference: _batchReference, ...restData } = (
+      body as { data: Record<string, unknown> }
+    ).data;
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...body, data: restData }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: data.cutoff is not a valid ISO 8601 datetime", async () => {
+    const app = buildApp();
+    const body = validRefundBatchBody();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        data: { ...(body as { data: Record<string, unknown> }).data, cutoff: "not-a-date" },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: data.requestCount is negative", async () => {
+    const app = buildApp();
+    const body = validRefundBatchBody();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        data: { ...(body as { data: Record<string, unknown> }).data, requestCount: -1 },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: data.requestCount is not an integer", async () => {
+    const app = buildApp();
+    const body = validRefundBatchBody();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        data: { ...(body as { data: Record<string, unknown> }).data, requestCount: 1.5 },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: the invitation `data` shape is rejected for template=refund_batch_compiled (per-template shape is enforced, not just presence of any `data`)", async () => {
+    const app = buildApp();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: `${TEST_ADDRESS_PREFIX}-accounting@example.com`,
+        template: "refund_batch_compiled",
+        data: {
+          inviteUrl: "https://auth.operai.welld.io/invite?id=inv_1&token=abc123",
+          inviterName: "Admin",
+          expiresAt: "2026-07-16T10:00:00Z",
+        },
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: the refund_batch_compiled `data` shape is rejected for template=invitation", async () => {
+    const app = buildApp();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: {
+        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: `${TEST_ADDRESS_PREFIX}-invitee@example.com`,
+        template: "invitation",
+        data: (validRefundBatchBody() as { data: Record<string, unknown> }).data,
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("401: internal-token gate is unchanged for the new template — missing token still rejected", async () => {
+    const app = buildApp();
+    const res = await app.request("/system/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validRefundBatchBody()),
+    });
+    expect(res.status).toBe(401);
   });
 });

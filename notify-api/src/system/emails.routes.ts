@@ -1,23 +1,27 @@
 /**
  * POST /system/emails — internal email-send endpoint (T3,
- * specs/006-user-invitations, plan.md §API contracts, ADR-0011).
+ * specs/006-user-invitations, plan.md §API contracts, ADR-0011; extended by
+ * T7, specs/008-refund-monthly-processing, ADR-0021 for
+ * `refund_batch_compiled`).
  *
  * Flow: internalTokenMiddleware (X-Internal-Token, NOT jwtMiddleware — see
  * that file's header for the mutual-exclusion invariant) → zod-validate body
- * → render the fixed bilingual template (system/emailTemplates.ts) → the
- * email channel (src/channels/email.channel.ts) sends via Resend (or stubs,
- * per EMAIL_ENABLED) and records one EmailDelivery row.
+ * against the per-template discriminated union (system/emails.schemas.ts) →
+ * render the fixed template (system/emailTemplates.ts) → the email channel
+ * (src/channels/email.channel.ts) sends via Resend (or stubs, per
+ * EMAIL_ENABLED) and records one EmailDelivery row.
  *
  * Failure handling (plan.md, ADR-0011): a Resend/network failure is a SOFT
  * failure. This route always returns 200 with `{ deliveryId, status, error? }`
- * — auth (the caller) treats non-"sent" as a signal to show "email failed,
- * resend" rather than ever seeing a 5xx that would fail the invitation-create
- * request. Only a bad request shape (missing/invalid `to`/`template`/`data`)
- * or a wrong/missing internal token produce a non-200.
+ * — the caller (auth or refund-api) treats non-"sent" as a signal to show
+ * "email failed, resend" rather than ever seeing a 5xx that would fail the
+ * triggering request (invitation-create, batch-compile). Only a bad request
+ * shape (missing/invalid `to`/`template`/`data`) or a wrong/missing internal
+ * token produce a non-200.
  *
  * Body-size cap (413): the payload is small by construction (an email address,
- * an enum, three short strings) — 16 KiB is a generous-but-bounded envelope
- * cap, mirroring raise.routes.ts's precedent.
+ * an enum, a handful of short strings) — 16 KiB is a generous-but-bounded
+ * envelope cap, mirroring raise.routes.ts's precedent.
  */
 
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
@@ -64,7 +68,7 @@ const sendEmailRoute = createRoute({
   summary: "Send a transactional email via the internal email channel",
   description:
     "Internal-only endpoint authenticated by X-Internal-Token (ADR-0011) — " +
-    "never a user JWT. Renders a fixed bilingual (IT+EN) template and sends " +
+    "never a user JWT. Renders a fixed, per-template escaped template and sends " +
     "via Resend, recording an EmailDelivery row. A Resend/network failure is " +
     'a soft failure surfaced as {"status":"failed"}, never a 5xx.',
   request: {
@@ -96,7 +100,7 @@ const sendEmailRoute = createRoute({
 
 systemEmailsRouter.openapi(sendEmailRoute, async (c) => {
   const body = c.req.valid("json");
-  const { subject, html } = renderEmailTemplate(body.template, body.data);
+  const { subject, html } = renderEmailTemplate(body);
 
   const result = await emailChannel.send({
     to: body.to,
