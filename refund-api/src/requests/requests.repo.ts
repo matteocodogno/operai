@@ -83,7 +83,15 @@ export function findRequestWithLines(
     try: () =>
       db.refundRequest.findUnique({
         where: { id },
-        include: { lines: linesWithStoredAttachments },
+        include: {
+          lines: linesWithStoredAttachments,
+          // AC-5.2 (specs/008-refund-monthly-processing): the claimed
+          // batch's paid provenance, surfaced as paidAt/paidBy on the
+          // response (requests.service.ts mapRequestDetail) — null for a
+          // request never claimed by a batch, or one claimed by a batch not
+          // yet marked paid.
+          batch: { select: { paidAt: true, paidByEmail: true } },
+        },
       }),
     catch: toDbErr("Failed to fetch refund request"),
   });

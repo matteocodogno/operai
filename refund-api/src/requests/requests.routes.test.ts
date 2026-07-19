@@ -456,6 +456,105 @@ describe("GET /requests/:id", () => {
     expect(body.decidedBy).toEqual({ email: "acct1@x.com" });
     expect(body.lines[0]?.approvedTotalCents).toBe(800);
   });
+
+  // ─── AC-5.2 (specs/008-refund-monthly-processing) additions ────────────
+  //
+  // A `paid` request's batch claim (RefundRequest.batchId → RefundBatch)
+  // carries the "when it was paid" (AC-5.2) — surfaced here as paidAt/paidBy
+  // on the SAME GET /requests/:id shape refund-ui's RequestDetailPage
+  // (employee, paidAt only) and ReviewDetailPage (accounting, + paidBy)
+  // already render (T13, merged).
+
+  it("(AC-5.2) a paid request returns paidAt/paidBy matching its batch's paidAt/paidByEmail", async () => {
+    const paidAt = new Date("2026-07-18T09:30:00.000Z");
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date("2026-07-15T00:00:00.000Z"),
+        status: "paid",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+        paidAt,
+        paidByEmail: "acct1@x.com",
+      },
+    });
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: "emp-1",
+        ownerEmail: "emp1@x.com",
+        status: "paid",
+        decidedByUserId: "acct-1",
+        decidedByEmail: "acct1@x.com",
+        decidedAt: new Date("2026-07-14T00:00:00.000Z"),
+        batchId: batch.id,
+      },
+    });
+    await createLineDirect(request.id, {
+      entity: "welld_it",
+      requestedAmountCents: 1000,
+      approvedTotalCents: 1000,
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      paidAt: string | null;
+      paidBy: string | null;
+    };
+    expect(body.status).toBe("paid");
+    expect(body.paidAt).toBe(paidAt.toISOString());
+    expect(body.paidBy).toBe("acct1@x.com");
+  });
+
+  it("(AC-5.2) an approved (not yet paid) request returns null paidAt/paidBy", async () => {
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: "emp-1",
+        ownerEmail: "emp1@x.com",
+        status: "approved",
+        decidedByUserId: "acct-1",
+        decidedByEmail: "acct1@x.com",
+        decidedAt: new Date(),
+      },
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; paidAt: string | null; paidBy: string | null };
+    expect(body.status).toBe("approved");
+    expect(body.paidAt).toBeNull();
+    expect(body.paidBy).toBeNull();
+  });
+
+  it("(AC-5.2) a draft request returns null paidAt/paidBy", async () => {
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-1", ownerEmail: "emp1@x.com", status: "draft" },
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; paidAt: string | null; paidBy: string | null };
+    expect(body.status).toBe("draft");
+    expect(body.paidAt).toBeNull();
+    expect(body.paidBy).toBeNull();
+  });
 });
 
 describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {

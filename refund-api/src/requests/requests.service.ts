@@ -61,6 +61,15 @@ export interface RequestRow {
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly lines: readonly LineRow[];
+  // AC-5.2 (specs/008-refund-monthly-processing): the request's CURRENT
+  // batch claim (RefundRequest.batchId → RefundBatch), if any — a `compiled`
+  // (not yet paid) batch has `paidAt`/`paidByEmail` still null, so no extra
+  // status gate is needed at the query layer; mapRequestDetail still asserts
+  // status==='paid' as belt-and-suspenders (see its own comment). Optional
+  // because listOwnRequests' lighter query never selects this relation — only
+  // findRequestWithLines (GET /requests/:id) does; mapRequestListItem never
+  // reads it.
+  readonly batch?: { readonly paidAt: Date | null; readonly paidByEmail: string | null } | null;
 }
 
 // ─── Subtotals (AC-3.5/6.6) ─────────────────────────────────────────────────
@@ -150,6 +159,13 @@ export function mapRequestDetail(request: RequestRow): RequestDetail {
       ? { email: request.decidedByEmail }
       : null,
     rejectionMotivation: request.rejectionMotivation,
+    // AC-5.2: only a `paid` request carries these — a `compiled` (not yet
+    // paid) batch claim already yields null paidAt/paidByEmail on its own,
+    // but gating on status explicitly keeps the contract exact regardless of
+    // batch lifecycle nuance.
+    paidAt:
+      request.status === "paid" ? (request.batch?.paidAt?.toISOString() ?? null) : null,
+    paidBy: request.status === "paid" ? (request.batch?.paidByEmail ?? null) : null,
     lines: request.lines.map(mapLine),
     subtotals: computeSubtotals(request.lines),
     createdAt: request.createdAt.toISOString(),

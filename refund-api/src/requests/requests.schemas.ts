@@ -128,6 +128,14 @@ export const RequestDetailSchema = z.object({
   decidedAt: z.string().datetime().nullable(),
   decidedBy: DecidedBySchema.nullable(),
   rejectionMotivation: z.string().nullable(),
+  // AC-5.2 (specs/008-refund-monthly-processing): derived from the request's
+  // claimed RefundBatch (RefundRequest.batchId → RefundBatch.paidAt/
+  // paidByEmail) — null unless status === 'paid' (i.e. the batch has itself
+  // been marked paid). The SAME GET /requests/:id route both the employee
+  // (paidAt only, RequestDetailPage) and accounting (paidAt + paidBy,
+  // ReviewDetailPage) sides consume — see refund-ui's requestsApi.ts.
+  paidAt: z.string().datetime().nullable(),
+  paidBy: z.string().nullable(),
   lines: z.array(RefundLineResponseSchema),
   subtotals: z.array(SubtotalSchema),
   createdAt: z.string().datetime(),
