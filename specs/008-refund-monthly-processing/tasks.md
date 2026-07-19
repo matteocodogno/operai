@@ -27,7 +27,7 @@ English-only UI copy via `strings.ts`.
   - Pure, deterministic renderer: input = a batch's `RefundBatchItem` set (per-employee → per-currency approved totals, cutoff, batch id/ref), output = a PDF buffer (numeric summary mirroring the source form; per-currency, never blended). Store at `refund/batches/{id}/compiled.pdf` (no PII in key) in the private EU bucket (ADR-0016). Regenerable cache (ADR-0019) — a discarded batch's PDF still resolves from its immutable items.
   - done when: unit tests render a deterministic PDF for a fixed multi-employee/multi-currency batch (byte-stable enough to assert key content via a text-extract or fixture), storage put mocked; no headless browser dependency.
 
-- [ ] T3: Candidate preview + compile (atomic claim) — refs: AC-1.1–1.8, AC-7.1 — deps: T2
+- [x] T3: Candidate preview + compile (atomic claim) — refs: AC-1.1–1.8, AC-7.1 — deps: T2
   - touch: `refund-api/src/batches/` (schemas, repo, service, routes), `src/index.ts`, OpenAPI
   - `GET /batches/candidates?cutoff=` → eligible `approved ∧ batchId IS NULL ∧ decidedAt<=cutoff`, entity-scoped via `scopeForReviewAction` (AC-1.2); grouped per-employee/per-currency. `POST /batches` (compile) → in one `$transaction`: `SELECT … FOR UPDATE` + `batchId IS NULL` CAS claim, create `RefundBatch` + `RefundBatchItem`s, set `RefundRequest.batchId`, write `batch_compiled` audit rows; then generate+store the PDF (T2) post-commit (regenerable). Empty candidate set → refuse (422/409 per spec AC-1.5). `hasCapability(request,review)` else 403.
   - done when: integration tests prove entity-scoped candidate filtering, the atomic claim (two concurrent compiles never double-claim — AC-1.2/1.5), empty-set refusal, audit rows written, and the batch is created with items + PDF key.
@@ -67,7 +67,7 @@ English-only UI copy via `strings.ts`.
   - touch: `refund-ui/src/components/` — `BatchStatusBadge` (compiled/paid/discarded), `BatchSubtotalsPanel`, `BatchEmployeeGroupList` (modes `preview`|`detail`), `BatchPdfLink` (mint-on-click signed GET, mirrors `AttachmentDownloadLink`), `formatBatchSubtotalsPreview` (lib)
   - done when: component tests cover the badges (glyph+color, non-color signal), the per-employee/per-currency group rendering, and `BatchPdfLink` mints on click (mocked); `pnpm test` green.
 
-- [ ] T11: Screen B2 — Compile & preview — refs: AC-1.1–1.8 — deps: T10
+- [x] T11: Screen B2 — Compile & preview — refs: AC-1.1–1.8 — deps: T10
   - touch: `refund-ui/src/pages/CompileBatchPage.tsx` (+test)
   - Cutoff picker → Preview (candidate set via `GET /batches/candidates`, per-employee/per-currency, `BatchSubtotalsPanel`) → Compile (frozen-cutoff WYSIWYG; `ConfirmDeleteModal` `tone="positive"`), empty-set refusal, loading/empty/error/PD states. On success → land on the batch detail (B3). Integrates T3.
   - done when: tests cover preview rendering, empty-set refusal messaging, compile→navigate-to-detail, and the PD (non-accounting) state.
