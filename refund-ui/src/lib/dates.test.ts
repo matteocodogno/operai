@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, todayIsoDate } from './dates'
+import { formatDate, formatDateTime, todayIsoDate } from './dates'
 
 describe('formatDate', () => {
   it('formats an ISO timestamp as day/month/year', () => {
@@ -13,6 +13,18 @@ describe('formatDate', () => {
 
   it('returns "—" for an unparseable input', () => {
     expect(formatDate('not-a-date')).toBe('—')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('formats an ISO timestamp with a date and a time component', () => {
+    const result = formatDateTime('2026-07-16T10:30:00.000Z')
+    expect(result).toContain('2026')
+    expect(result).toMatch(/\d{1,2}:\d{2}/)
+  })
+
+  it('returns "—" for an unparseable input', () => {
+    expect(formatDateTime('not-a-date')).toBe('—')
   })
 })
 

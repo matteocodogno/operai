@@ -280,10 +280,30 @@ const en = {
       heading: 'Monthly processing',
       placeholder: 'The history of compiled monthly refund batches will appear here.',
     },
-    /** Screen B2 (T9 placeholder — real screen T11, specs/008-refund-monthly-processing). */
+    /** Screen B2 (T11, specs/008-refund-monthly-processing/tasks.md, design.md F1/Screen B2). */
     compileBatch: {
       heading: 'Compile a new batch',
-      placeholder: 'Choosing a cutoff and previewing the candidate set for a new batch will happen here.',
+      cancelLink: 'Cancel',
+      cutoffLabel: 'Cutoff',
+      cutoffHelp: 'Defaults to the current moment — requests approved after this point are not included.',
+      previewButton: 'Preview',
+      loadingAnnouncement: 'Loading candidates',
+      loadErrorFallback: 'Could not load the candidate set.',
+      /** The compile-empty-set refusal (AC-1.4) — a real, successful, empty result, not an error. */
+      empty: 'No approved, unbatched requests are eligible as of this cutoff.',
+      compileButton: 'Compile this batch',
+      /** Post-compile one-shot confirmation, carried to Screen B3 via the `confirmation` search param (design.md F1 step 6). */
+      successConfirmation: (count: number) => `Batch compiled — ${count} request${count === 1 ? '' : 's'}, PDF ready`,
+      confirm: {
+        title: 'Compile this batch?',
+        body: (count: number, cutoff: string) =>
+          `Compile ${count} request${count === 1 ? '' : 's'} as of ${cutoff} into a new batch?`,
+        confirmLabel: 'Compile',
+        confirmingLabel: 'Compiling…',
+        /** 422 — a race: the candidate set changed since this screen's last preview (design.md F1 step 6). */
+        staleCandidatesError: 'This candidate set changed since you last previewed it. Refresh and try again.',
+        genericError: 'Could not compile this batch. Try again.',
+      },
     },
     /** Screen B3 (T9 placeholder — real screen T12, specs/008-refund-monthly-processing). Also the eventual email deep-link landing page. */
     batchDetail: {

@@ -22,6 +22,28 @@ export const formatDate = (iso: string): string => {
   }
 }
 
+/**
+ * Formats an ISO 8601 timestamp as e.g. "16 Jul 2026, 14:30" — for the places
+ * a bare date is ambiguous (specs/008-refund-monthly-processing, T11: the
+ * compile-confirm dialog's cutoff, T12's generated-at/paid-at/discarded-at
+ * timestamps). Returns "—" for an unparseable input, mirroring `formatDate`.
+ */
+export const formatDateTime = (iso: string): string => {
+  try {
+    const parsed = new Date(iso)
+    if (Number.isNaN(parsed.getTime())) return '—'
+    return parsed.toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return '—'
+  }
+}
+
 /** Today's date as a `yyyy-mm-dd` string — the default value for a new expense line's Date field. */
 export const todayIsoDate = (): string => {
   const now = new Date()
