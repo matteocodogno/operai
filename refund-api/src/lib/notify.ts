@@ -1,7 +1,8 @@
 /**
  * refund-api → notify-api internal cross-user in-app push client (T13,
  * specs/007-refund-service, plan.md "On decision → notify the employee"
- * (AC-3.6), ADR-0017).
+ * (AC-3.6), ADR-0017; +`notifyPaid`, T6, specs/008-refund-monthly-processing,
+ * plan.md § Email "Employee `paid` push (US-5, AC-5.1)").
  *
  * Deliberately isolated in its own module — mirrors `auth/src/lib/notify.ts`'s
  * pattern for calling out to another Operai service (and this service's own
@@ -94,6 +95,57 @@ export async function notifyDecision(input: NotifyDecisionInput): Promise<void> 
     console.error(
       `[notify] failed to reach notify-api for refund request ${input.requestId} ` +
         `(${input.outcome}) — decision NOT rolled back:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+// ─── Mark-paid fan-out (T6, specs/008-refund-monthly-processing, US-5) ─────
+
+export interface NotifyPaidInput {
+  readonly recipientId: string;
+  readonly requestId: string;
+}
+
+/**
+ * `POST {NOTIFY_INTERNAL_URL}/system/notifications` — one call per included
+ * request's OWNER (`recipientId`), fired after mark-paid's transaction has
+ * committed (batches/decide.routes.ts). Copy is deliberately generic — "no
+ * amount/other-employee detail in the push" (plan.md § Email, ADR-0017
+ * posture); the concrete `paid` state + `paidAt` live behind the already
+ * access-controlled `GET /requests/:id`.
+ *
+ * Never throws — every failure path is caught and logged internally (same
+ * contract as `notifyDecision` above).
+ */
+export async function notifyPaid(input: NotifyPaidInput): Promise<void> {
+  try {
+    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/notifications`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
+      },
+      body: JSON.stringify({
+        recipientId: input.recipientId,
+        originApp: "refund",
+        severity: "success",
+        title: "Refund paid",
+        body: "Your refund request has been paid.",
+        link: { href: `/refund/requests/${input.requestId}` },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(
+        `[notify] POST /system/notifications responded with HTTP ${response.status} ` +
+          `for refund request ${input.requestId} (paid) — mark-paid NOT rolled back`,
+      );
+    }
+  } catch (error) {
+    console.error(
+      `[notify] failed to reach notify-api for refund request ${input.requestId} ` +
+        "(paid) — mark-paid NOT rolled back:",
       error instanceof Error ? error.message : error,
     );
   }

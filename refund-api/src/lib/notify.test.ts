@@ -1,6 +1,7 @@
 /**
  * Unit tests for the notify-api client (T13, specs/007-refund-service,
- * AC-3.6, ADR-0017).
+ * AC-3.6, ADR-0017; +`notifyPaid`, T6, specs/008-refund-monthly-processing,
+ * US-5/AC-5.1).
  *
  * Mocks global `fetch` directly (this module IS the network boundary being
  * tested, unlike decide.routes.test.ts which mocks THIS module) — asserts
@@ -26,7 +27,7 @@ process.env["REFUND_S3_BUCKET"] = "test-bucket";
 process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
 process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
 
-const { notifyDecision } = await import("./notify");
+const { notifyDecision, notifyPaid } = await import("./notify");
 
 const originalFetch = globalThis.fetch;
 
@@ -116,6 +117,61 @@ describe("notifyDecision", () => {
 
     await expect(
       notifyDecision({ recipientId: "emp-1", requestId: "req-1", outcome: "rejected" }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("notifyPaid", () => {
+  it("POSTs to /system/notifications with the internal token, a generic 'Refund paid' body, and the request link", async () => {
+    let capturedUrl: string | undefined;
+    let capturedInit: RequestInit | undefined;
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      capturedUrl = url;
+      capturedInit = init;
+      return new Response(JSON.stringify({ id: "n1" }), { status: 201 });
+    }) as unknown as typeof fetch;
+
+    await notifyPaid({ recipientId: "emp-1", requestId: "req-1" });
+
+    expect(capturedUrl).toBe("http://localhost:8081/system/notifications");
+    expect(capturedInit?.method).toBe("POST");
+    const headers = capturedInit?.headers as Record<string, string>;
+    expect(headers["X-Internal-Token"]).toBe(
+      "test-notify-internal-token-at-least-32-characters",
+    );
+
+    const body = JSON.parse(capturedInit?.body as string) as {
+      recipientId: string;
+      originApp: string;
+      severity: string;
+      title: string;
+      body: string;
+      link: { href: string };
+    };
+    expect(body.recipientId).toBe("emp-1");
+    expect(body.originApp).toBe("refund");
+    expect(body.severity).toBe("success");
+    expect(body.link).toEqual({ href: "/refund/requests/req-1" });
+    // Generic — no amount/other-employee detail (ADR-0017 posture).
+    expect(body.title).toBe("Refund paid");
+    expect(body.body).toBe("Your refund request has been paid.");
+  });
+
+  it("never throws on a non-2xx response", async () => {
+    globalThis.fetch = (async () => new Response("nope", { status: 500 })) as unknown as typeof fetch;
+
+    await expect(
+      notifyPaid({ recipientId: "emp-1", requestId: "req-1" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("never throws on a network failure", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("connection refused");
+    }) as unknown as typeof fetch;
+
+    await expect(
+      notifyPaid({ recipientId: "emp-1", requestId: "req-1" }),
     ).resolves.toBeUndefined();
   });
 });

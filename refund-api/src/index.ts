@@ -13,6 +13,7 @@ import { lifecycleRouter } from "./requests/lifecycle.routes";
 import { reviewRouter } from "./review/review.routes";
 import { decideRouter } from "./review/decide.routes";
 import { batchesRouter } from "./batches/batches.routes";
+import { batchDecideRouter } from "./batches/decide.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -57,8 +58,12 @@ app.route("/", reviewRouter);
 // specs/007-refund-service (T12; T13 adds the post-decision notify trigger).
 app.route("/", decideRouter);
 // batchesRouter: compiled-batch candidate preview + compile (the atomic
-// claim), specs/008-refund-monthly-processing (T3).
+// claim) + reads + compilation email, specs/008-refund-monthly-processing
+// (T3/T4/T5).
 app.route("/", batchesRouter);
+// batchDecideRouter: batch terminal transitions — mark-paid + discard,
+// specs/008-refund-monthly-processing (T6/T8).
+app.route("/", batchDecideRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

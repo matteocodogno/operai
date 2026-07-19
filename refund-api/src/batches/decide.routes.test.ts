@@ -1,0 +1,334 @@
+/**
+ * Integration tests for the batch terminal transitions — mark-paid (T6),
+ * specs/008-refund-monthly-processing, plan.md § Atomic claim / no-double-pay
+ * "mark-paid / discard terminal CAS".
+ *
+ * Strategy — mirrors `review/decide.routes.test.ts`'s header comment: real
+ * Postgres (compose, `refund` database), jwt/authz mocked via
+ * test-support/testAuth.ts. `batchDecideRouter` is a NEW router module owned
+ * exclusively by this file (testAuth.ts's no-shared-router-specifier rule).
+ *
+ * Notify verification mocks `globalThis.fetch` directly (NOT
+ * `mock.module("../lib/notify", …)`) — same rationale as
+ * `review/decide.routes.test.ts`: `src/lib/notify.test.ts` unit-tests the
+ * REAL `notify.ts` in the same `bun test` process, so replacing that module
+ * here would leak into (and corrupt) that file's tests. Object storage
+ * (`../lib/storage`, reached transitively via `pdfLink.ts`'s `resolvePdfLink`
+ * for the response's `pdf` field) is also mocked here, mirroring
+ * `batches.routes.test.ts`'s own mock — this response field is incidental to
+ * T6's CAS/audit/notify behavior, so assertions below only check it is a
+ * non-empty presigned-looking URL, never the specific mock call counts
+ * (`pdfLink.ts` may already be linked against another test file's mock
+ * instance if it loaded first — see storage.test.ts's isolation-order note).
+ *
+ * AC coverage (T6 done-when)
+ * ──────────────────────────
+ * AC-4.1 mark-paid flips the batch AND every included request atomically
+ * AC-4.2 mark-paid succeeds even when the compilation email failed
+ * AC-4.3 terminal CAS: a second mark-paid 409s; concurrent mark-paid vs
+ *        mark-paid — exactly one wins
+ * AC-4.4 requires `request:approve` (not `review` alone) → 403 otherwise
+ * AC-5.1 fans out one `paid` push per included request's owner (mocked)
+ * AC-7.2 one `batch_paid` audit row per affected request
+ */
+
+import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
+import type { ResolveResponse } from "../authz/resolveClient";
+import { setupTestAuth } from "../test-support/testAuth";
+import { truncateRefundTables } from "../test-support/dbCleanup";
+
+process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
+process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
+process.env["AUTH_ISSUER"] = "http://localhost:3001";
+process.env["AUTH_BASE_URL"] = "http://localhost:3001";
+process.env["AUTH_AUDIENCE"] = "operai-suite";
+process.env["NODE_ENV"] = "test";
+process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
+process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["REFUND_S3_ENDPOINT"] =
+  "https://test.s3.railway-eu-amsterdam.example.com";
+process.env["REFUND_S3_REGION"] = "auto";
+process.env["REFUND_S3_EU_ENDPOINT_HOSTS"] = "s3.railway-eu-amsterdam.example.com";
+process.env["REFUND_S3_BUCKET"] = "test-bucket";
+process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
+process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
+process.env["REFUND_ACCOUNTING_DISTRIBUTION_EMAIL"] = "accounting@welld.ch";
+process.env["REFUND_APP_BASE_URL"] = "http://localhost:5173";
+
+const harness = setupTestAuth();
+await harness.init();
+
+// ─── Mock object storage — no live bucket (mirrors batches.routes.test.ts;
+// see file header re: possible cross-file module-cache sharing) ───────────
+
+const storedObjectKeys = new Set<string>();
+
+mock.module("../lib/storage", () => ({
+  putObject: async (objectKey: string) => {
+    storedObjectKeys.add(objectKey);
+  },
+  headObject: async (objectKey: string) =>
+    storedObjectKeys.has(objectKey) ? { sizeBytes: 1, contentType: "application/pdf" } : null,
+  mintPresignedGet: async (objectKey: string) => `https://mock.example.com/${objectKey}?signed`,
+}));
+
+const { batchDecideRouter } = await import("./decide.routes");
+const { db } = await import("../lib/db");
+const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+
+// ─── Fake the notify-api HTTP boundary (global fetch) — no live notify-api
+// required, and no module-cache pollution across test files (mirrors
+// review/decide.routes.test.ts) ─────────────────────────────────────────────
+
+interface NotifyPaidCall {
+  readonly recipientId: string;
+  readonly requestId: string;
+}
+
+let notifyPaidCalls: NotifyPaidCall[] = [];
+let notifyShouldFail = false;
+const originalFetch = globalThis.fetch;
+
+globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  if (typeof url === "string" && url.includes("/system/notifications")) {
+    const body = JSON.parse((init?.body as string) ?? "{}") as {
+      recipientId: string;
+      link?: { href: string };
+    };
+    const requestId = body.link?.href.split("/").pop() ?? "";
+    notifyPaidCalls.push({ recipientId: body.recipientId, requestId });
+    if (notifyShouldFail) {
+      return new Response("simulated notify-api outage", { status: 500 });
+    }
+    return new Response(JSON.stringify({ id: "n1" }), { status: 201 });
+  }
+  if (typeof url === "string" && url.includes("/system/emails")) {
+    return new Response(JSON.stringify({ deliveryId: "d1", status: "sent" }), { status: 200 });
+  }
+  return originalFetch(url, init);
+}) as unknown as typeof fetch;
+
+// ─── Fixture permission sets ────────────────────────────────────────────────
+
+const NO_GRANTS: ResolveResponse = {
+  sub: "",
+  epoch: 1,
+  permissions: [],
+  entity: null,
+  jobTitle: null,
+};
+
+/** Holds `request:review` but NOT `request:approve` — AC-4.4's negative case. */
+const reviewOnlyPerms: ResolveResponse = {
+  sub: "",
+  epoch: 1,
+  permissions: [
+    { resource: "refund", action: "access", conditions: null },
+    { resource: "request", action: "review", conditions: null },
+  ],
+  entity: null,
+  jobTitle: null,
+};
+
+const accountingPerms: ResolveResponse = {
+  sub: "",
+  epoch: 1,
+  permissions: [
+    { resource: "refund", action: "access", conditions: null },
+    { resource: "request", action: "review", conditions: null },
+    { resource: "request", action: "approve", conditions: null },
+  ],
+  entity: null,
+  jobTitle: null,
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const authHeaders = (token: string) => ({
+  Authorization: `Bearer ${token}`,
+  "Content-Type": "application/json",
+});
+
+async function createCompiledBatch(
+  requests: readonly { ownerUserId: string; ownerEmail: string; approvedTotalCents?: number }[],
+) {
+  const batch = await db.refundBatch.create({
+    data: {
+      cutoff: new Date("2026-07-19T00:00:00.000Z"),
+      status: "compiled",
+      createdByUserId: "acct-1",
+      createdByEmail: "acct1@x.com",
+      pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+      recipientEmailSnapshot: "accounting@welld.ch",
+    },
+  });
+
+  const requestIds: string[] = [];
+  for (const r of requests) {
+    const cents = r.approvedTotalCents ?? 1000;
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: r.ownerUserId,
+        ownerEmail: r.ownerEmail,
+        status: "approved",
+        decidedAt: new Date("2026-07-01T00:00:00.000Z"),
+        decidedByUserId: "acct-1",
+        decidedByEmail: "acct1@x.com",
+        batchId: batch.id,
+      },
+    });
+    await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "office_material",
+        motivo: "Test line",
+        entity: "welld_it",
+        currency: "EUR",
+        requestedAmountCents: cents,
+        approvedTotalCents: cents,
+      },
+    });
+    await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+    requestIds.push(request.id);
+  }
+
+  return { batch, requestIds };
+}
+
+beforeEach(async () => {
+  await truncateRefundTables();
+  __resetAuthzCacheForTests();
+  notifyPaidCalls = [];
+  notifyShouldFail = false;
+});
+
+afterAll(async () => {
+  await truncateRefundTables();
+});
+
+// ─── POST /batches/:id/mark-paid ────────────────────────────────────────────
+
+describe("POST /batches/:id/mark-paid", () => {
+  it("(AC-4.4) a caller with only `request:review` (no `request:approve`) → 403", async () => {
+    harness.setResolve(async () => reviewOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchDecideRouter.request("/batches/does-not-exist/mark-paid", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("(AC-4.4) no grants at all → 403", async () => {
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await batchDecideRouter.request("/batches/does-not-exist/mark-paid", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("(404) no batch with that id", async () => {
+    harness.setResolve(async () => accountingPerms);
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchDecideRouter.request("/batches/does-not-exist/mark-paid", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("(AC-4.1/4.2/5.1/7.2) flips the batch + every request to paid atomically, fans out notify, writes audit rows — even with a failed email", async () => {
+    const { batch, requestIds } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com", approvedTotalCents: 500 },
+      { ownerUserId: "emp-b", ownerEmail: "b@x.com", approvedTotalCents: 750 },
+    ]);
+    // AC-4.2 — mark-paid is never gated on the compilation email's delivery status.
+    await db.refundBatch.update({ where: { id: batch.id }, data: { emailStatus: "failed" } });
+
+    harness.setResolve(async () => accountingPerms);
+    const token = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+
+    const res = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      paidAt: string | null;
+      paidBy: { email: string } | null;
+      employees: { requests: { status: string }[] }[];
+      pdf: { url: string };
+    };
+    expect(body.status).toBe("paid");
+    expect(body.paidAt).not.toBeNull();
+    expect(body.paidBy).toEqual({ email: "approver@x.com" });
+    expect(body.employees.flatMap((e) => e.requests).every((r) => r.status === "paid")).toBe(true);
+    expect(body.pdf.url).toMatch(/^https:\/\//);
+
+    const dbRequests = await db.refundRequest.findMany({ where: { id: { in: requestIds } } });
+    expect(dbRequests.every((r) => r.status === "paid")).toBe(true);
+
+    // Per-owner notify fan-out (AC-5.1).
+    expect(notifyPaidCalls).toHaveLength(2);
+    expect(notifyPaidCalls.map((c) => c.recipientId).sort()).toEqual(["emp-a", "emp-b"]);
+
+    // One batch_paid audit row per affected request (AC-7.2).
+    const auditRows = await db.refundAuditEntry.findMany({
+      where: { batchId: batch.id, action: "batch_paid" },
+    });
+    expect(auditRows).toHaveLength(2);
+    expect(auditRows.every((r) => r.actorUserId === "acct-approver")).toBe(true);
+  });
+
+  it("(AC-4.3) a second mark-paid on an already-paid batch → 409", async () => {
+    const { batch } = await createCompiledBatch([{ ownerUserId: "emp-a", ownerEmail: "a@x.com" }]);
+
+    harness.setResolve(async () => accountingPerms);
+    const token = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+
+    const first = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(first.status).toBe(200);
+
+    const second = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(second.status).toBe(409);
+  });
+
+  it("(AC-4.3) concurrent double mark-paid: exactly one 200, one 409", async () => {
+    const { batch } = await createCompiledBatch([{ ownerUserId: "emp-a", ownerEmail: "a@x.com" }]);
+
+    harness.setResolve(async () => accountingPerms);
+    const tokenA = await harness.signToken({ sub: "acct-a", email: "acct-a@x.com" });
+    const tokenB = await harness.signToken({ sub: "acct-b", email: "acct-b@x.com" });
+
+    const markPaid = (token: string) =>
+      batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+
+    const [resA, resB] = await Promise.all([markPaid(tokenA), markPaid(tokenB)]);
+    const statuses = [resA.status, resB.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const refreshed = await db.refundBatch.findUniqueOrThrow({ where: { id: batch.id } });
+    expect(refreshed.status).toBe("paid");
+    // Exactly one batch_paid audit row for the single request, from whichever won.
+    const auditRows = await db.refundAuditEntry.findMany({
+      where: { batchId: batch.id, action: "batch_paid" },
+    });
+    expect(auditRows).toHaveLength(1);
+  });
+});
