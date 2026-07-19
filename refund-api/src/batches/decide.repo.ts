@@ -1,22 +1,23 @@
 /**
  * Prisma data-access layer for the batch terminal transitions — mark-paid
- * (T6), specs/008-refund-monthly-processing, plan.md § Atomic claim /
- * no-double-pay "mark-paid / discard terminal CAS", ADR-0020.
+ * (T6) and discard (T8), specs/008-refund-monthly-processing, plan.md §
+ * Atomic claim / no-double-pay "mark-paid / discard terminal CAS", ADR-0020.
  *
- * `UPDATE refund_batch SET status=… WHERE id=:B AND status='compiled'` —
- * the `status='compiled'` predicate is the compare-and-swap that makes the
- * transition happen EXACTLY once. A `rowCount` of 0 means either the batch
- * does not exist (checked separately, → 404) or it was already `paid`/
- * `discarded` (→ 409, AC-4.3). A concurrent mark-paid vs discard (T8) on
- * the SAME batch: Postgres's row-level lock on the UPDATE statement
- * serializes the two transactions; whichever commits first wins the CAS,
- * the other's `WHERE status='compiled'` re-evaluates against the
- * now-committed OTHER status and matches 0 rows — exactly one 200, one 409
- * (same technique `review/decide.repo.ts` already uses for
- * `approveTransaction`/`rejectTransaction`).
+ * Both actions share the SAME shape: `UPDATE refund_batch SET status=…
+ * WHERE id=:B AND status='compiled'` — the `status='compiled'` predicate is
+ * the compare-and-swap that makes the transition happen EXACTLY once. A
+ * `rowCount` of 0 means either the batch does not exist (checked
+ * separately, → 404) or it was already `paid`/`discarded` (→ 409,
+ * AC-4.3/6.2). A concurrent mark-paid vs discard on the SAME batch:
+ * Postgres's row-level lock on the UPDATE statement serializes the two
+ * transactions; whichever commits first wins the CAS, the other's `WHERE
+ * status='compiled'` re-evaluates against the now-committed OTHER status
+ * and matches 0 rows — exactly one 200, one 409 (same technique
+ * `review/decide.repo.ts` already uses for `approveTransaction`/
+ * `rejectTransaction`).
  *
- * Writes one `batch_paid` audit row PER AFFECTED REQUEST inside the same
- * transaction (`writeAuditEntry`, batchId set — AC-7.1/AC-7.2).
+ * Every transition writes one audit row PER AFFECTED REQUEST inside the
+ * same transaction (`writeAuditEntry`, batchId set — AC-7.1/AC-7.2/AC-7.3).
  */
 
 import { Effect } from "effect";
@@ -125,5 +126,75 @@ export function markBatchPaid(
         };
       }),
     catch: toDbErr("Failed to mark refund batch paid"),
+  }).pipe(Effect.flatMap((outcome) => toTransitionEffect(outcome, batchId)));
+}
+
+// ─── Discard (T8, AC-6.1-6.3) ───────────────────────────────────────────────
+
+export interface DiscardResult {
+  readonly batchId: string;
+  readonly releasedRequestIds: readonly string[];
+}
+
+/**
+ * Terminal CAS `compiled → discarded` + releases the batch's requests back
+ * to the candidate pool (`batchId = NULL`, status stays `approved` — AC-6.1)
+ * in ONE `$transaction`. `RefundBatchItem` rows are NEVER touched — they
+ * are the permanent membership record (AC-6.3/7.3, ADR-0020) and are what
+ * lets a discarded batch's PDF still resolve (T4's `resolvePdfLink`).
+ */
+export function discardBatch(
+  batchId: string,
+  actorUserId: string,
+  actorEmail: string,
+): Effect.Effect<DiscardResult, DatabaseError | NotFoundError | ConflictError> {
+  return Effect.tryPromise({
+    try: () =>
+      db.$transaction(async (tx): Promise<TransitionOutcome<DiscardResult>> => {
+        const existing = await tx.refundBatch.findUnique({
+          where: { id: batchId },
+          select: { id: true },
+        });
+        if (!existing) return { kind: "not-found" };
+
+        const claim = await tx.refundBatch.updateMany({
+          where: { id: batchId, status: "compiled" },
+          data: {
+            status: "discarded",
+            discardedAt: new Date(),
+            discardedByEmail: actorEmail,
+          },
+        });
+        if (claim.count === 0) return { kind: "conflict" };
+
+        const requests = await tx.refundRequest.findMany({
+          where: { batchId, status: "approved" },
+          select: { id: true },
+        });
+
+        // Release back to the candidate pool — batchId nulled, status stays
+        // approved (AC-6.1). RefundBatchItem rows are untouched (kept forever).
+        await tx.refundRequest.updateMany({
+          where: { batchId, status: "approved" },
+          data: { batchId: null },
+        });
+
+        for (const request of requests) {
+          await writeAuditEntry(tx, {
+            requestId: request.id,
+            batchId,
+            actorUserId,
+            actorEmail,
+            action: "batch_discarded",
+          });
+        }
+
+        return {
+          kind: "ok",
+          batchId,
+          releasedRequestIds: requests.map((r) => r.id),
+        };
+      }),
+    catch: toDbErr("Failed to discard refund batch"),
   }).pipe(Effect.flatMap((outcome) => toTransitionEffect(outcome, batchId)));
 }

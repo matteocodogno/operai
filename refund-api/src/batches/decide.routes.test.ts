@@ -1,7 +1,7 @@
 /**
- * Integration tests for the batch terminal transitions — mark-paid (T6),
- * specs/008-refund-monthly-processing, plan.md § Atomic claim / no-double-pay
- * "mark-paid / discard terminal CAS".
+ * Integration tests for the batch terminal transitions — mark-paid (T6) and
+ * discard (T8), specs/008-refund-monthly-processing, plan.md § Atomic claim
+ * / no-double-pay "mark-paid / discard terminal CAS".
  *
  * Strategy — mirrors `review/decide.routes.test.ts`'s header comment: real
  * Postgres (compose, `refund` database), jwt/authz mocked via
@@ -30,6 +30,14 @@
  * AC-4.4 requires `request:approve` (not `review` alone) → 403 otherwise
  * AC-5.1 fans out one `paid` push per included request's owner (mocked)
  * AC-7.2 one `batch_paid` audit row per affected request
+ *
+ * AC coverage (T8 done-when)
+ * ──────────────────────────
+ * AC-6.1 discard releases every included request back to the pool
+ *        (batchId nulled, status stays approved) — re-eligible immediately
+ * AC-6.2 terminal CAS: a second discard, or a discard on a paid batch, 409s
+ * AC-6.3 RefundBatchItem membership rows are retained (never deleted)
+ * AC-7.3 one `batch_discarded` audit row per affected request
  */
 
 import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
@@ -136,6 +144,18 @@ const accountingPerms: ResolveResponse = {
   permissions: [
     { resource: "refund", action: "access", conditions: null },
     { resource: "request", action: "review", conditions: null },
+    { resource: "request", action: "approve", conditions: null },
+  ],
+  entity: null,
+  jobTitle: null,
+};
+
+/** Holds `request:approve` but NOT `request:review` — discard's negative case (it's gated on `review`, not `approve`). */
+const approveOnlyPerms: ResolveResponse = {
+  sub: "",
+  epoch: 1,
+  permissions: [
+    { resource: "refund", action: "access", conditions: null },
     { resource: "request", action: "approve", conditions: null },
   ],
   entity: null,
@@ -330,5 +350,180 @@ describe("POST /batches/:id/mark-paid", () => {
       where: { batchId: batch.id, action: "batch_paid" },
     });
     expect(auditRows).toHaveLength(1);
+  });
+});
+
+// ─── POST /batches/:id/discard (T8) ─────────────────────────────────────────
+
+describe("POST /batches/:id/discard", () => {
+  it("(request:review required, not approve) a caller with only `request:approve` → 403", async () => {
+    harness.setResolve(async () => approveOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchDecideRouter.request("/batches/does-not-exist/discard", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("no grants at all → 403", async () => {
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await batchDecideRouter.request("/batches/does-not-exist/discard", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("(404) no batch with that id", async () => {
+    harness.setResolve(async () => reviewOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchDecideRouter.request("/batches/does-not-exist/discard", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("(AC-6.1/6.3/7.3) releases every request back to the pool, retains RefundBatchItem, writes audit rows", async () => {
+    const { batch, requestIds } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com" },
+      { ownerUserId: "emp-b", ownerEmail: "b@x.com" },
+    ]);
+
+    harness.setResolve(async () => reviewOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-discarder", email: "discarder@x.com" });
+
+    const res = await batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      discardedAt: string | null;
+      discardedBy: { email: string } | null;
+      requestCount: number;
+      employees: { requests: { status: string }[] }[];
+    };
+    expect(body.status).toBe("discarded");
+    expect(body.discardedAt).not.toBeNull();
+    expect(body.discardedBy).toEqual({ email: "discarder@x.com" });
+    // The batch remains fully inspectable — its (now-released) members still show.
+    expect(body.requestCount).toBe(2);
+    expect(body.employees.flatMap((e) => e.requests).every((r) => r.status === "approved")).toBe(true);
+
+    // AC-6.1 — released to the pool: batchId nulled, status still approved.
+    const dbRequests = await db.refundRequest.findMany({ where: { id: { in: requestIds } } });
+    expect(dbRequests.every((r) => r.batchId === null)).toBe(true);
+    expect(dbRequests.every((r) => r.status === "approved")).toBe(true);
+
+    // AC-6.3 — RefundBatchItem rows are retained forever, never deleted.
+    const items = await db.refundBatchItem.findMany({ where: { batchId: batch.id } });
+    expect(items.map((i) => i.requestId).sort()).toEqual([...requestIds].sort());
+
+    // AC-7.3 — one batch_discarded audit row per affected request.
+    const auditRows = await db.refundAuditEntry.findMany({
+      where: { batchId: batch.id, action: "batch_discarded" },
+    });
+    expect(auditRows).toHaveLength(2);
+    expect(auditRows.every((r) => r.actorUserId === "acct-discarder")).toBe(true);
+  });
+
+  it("(AC-6.1) a released request is immediately re-eligible for the next compile's candidate set", async () => {
+    const { batch, requestIds } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com" },
+    ]);
+
+    harness.setResolve(async () => reviewOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-discarder", email: "discarder@x.com" });
+
+    await batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    // Re-eligible: approved ∧ batchId IS NULL ∧ decidedAt<=now — exactly the
+    // candidate predicate T3's compile/candidates use.
+    const eligible = await db.refundRequest.findMany({
+      where: { status: "approved", batchId: null, id: { in: requestIds } },
+    });
+    expect(eligible.map((r) => r.id)).toEqual(requestIds);
+  });
+
+  it("(AC-6.2) a second discard on an already-discarded batch → 409", async () => {
+    const { batch } = await createCompiledBatch([{ ownerUserId: "emp-a", ownerEmail: "a@x.com" }]);
+
+    harness.setResolve(async () => reviewOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-discarder", email: "discarder@x.com" });
+
+    const first = await batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(first.status).toBe(200);
+
+    const second = await batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(second.status).toBe(409);
+  });
+
+  it("(AC-6.2) discard on an already-paid batch → 409", async () => {
+    const { batch } = await createCompiledBatch([{ ownerUserId: "emp-a", ownerEmail: "a@x.com" }]);
+
+    harness.setResolve(async () => accountingPerms);
+    const approverToken = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+    const paidRes = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(approverToken),
+    });
+    expect(paidRes.status).toBe(200);
+
+    harness.setResolve(async () => reviewOnlyPerms);
+    const discarderToken = await harness.signToken({ sub: "acct-discarder", email: "discarder@x.com" });
+    const discardRes = await batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+      method: "POST",
+      headers: authHeaders(discarderToken),
+    });
+    expect(discardRes.status).toBe(409);
+  });
+
+  it("(concurrent race) mark-paid vs discard on the same batch: exactly one wins", async () => {
+    const { batch } = await createCompiledBatch([{ ownerUserId: "emp-a", ownerEmail: "a@x.com" }]);
+
+    harness.setResolve(async () => accountingPerms); // holds BOTH review and approve
+    const token = await harness.signToken({ sub: "acct-both", email: "both@x.com" });
+
+    const [markPaidRes, discardRes] = await Promise.all([
+      batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+        method: "POST",
+        headers: authHeaders(token),
+      }),
+      batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+        method: "POST",
+        headers: authHeaders(token),
+      }),
+    ]);
+
+    const statuses = [markPaidRes.status, discardRes.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const refreshed = await db.refundBatch.findUniqueOrThrow({ where: { id: batch.id } });
+    expect(["paid", "discarded"]).toContain(refreshed.status);
+
+    // Exactly one terminal audit trail exists for the batch, not both.
+    const paidAudit = await db.refundAuditEntry.count({
+      where: { batchId: batch.id, action: "batch_paid" },
+    });
+    const discardedAudit = await db.refundAuditEntry.count({
+      where: { batchId: batch.id, action: "batch_discarded" },
+    });
+    expect(paidAudit + discardedAudit).toBe(1);
   });
 });

@@ -1,31 +1,32 @@
 /**
- * Batch terminal-transition endpoints — mark-paid (T6),
+ * Batch terminal-transition endpoints — mark-paid (T6) and discard (T8),
  * specs/008-refund-monthly-processing.
  *
  *   POST /batches/:id/mark-paid → 200 BatchDetail (AC-4.1-4.4, AC-5.1, AC-7.2)
+ *   POST /batches/:id/discard   → 200 BatchDetail (AC-6.1-6.3, AC-7.3)
  *
  * A SEPARATE router from `batches.routes.ts` — mirrors `review/decide.routes.ts`'s
- * decision-vs-read split (T11 review queue vs T12 approve/reject). Mark-paid
- * is terminal, capability-gated on `request:approve` (AC-4.4 — the SAME
- * accounting decision capability 007's approve/reject already uses, no new
- * permission), and NOT entity-scoped (plan.md § API contracts: "none
- * (whole-batch)") — a missing batch id is 404, an already-`paid`/
- * `discarded` batch is 409 (the CAS in `decide.repo.ts`).
+ * decision-vs-read split (T11 review queue vs T12 approve/reject). Both
+ * actions are terminal and NOT entity-scoped (plan.md § API contracts:
+ * "none (whole-batch)") — a missing batch id is 404, an already-`paid`/
+ * `discarded` batch is 409 (the CAS in `decide.repo.ts`). Mark-paid is
+ * gated on `request:approve` (AC-4.4 — the SAME accounting decision
+ * capability 007's approve/reject already uses, no new permission); discard
+ * is gated on `request:review` (the same capability compile/candidates use).
  *
- * Fans out a per-owner best-effort `paid` push (`notifyPaid`, lib/notify.ts,
- * ADR-0017/US-5) AFTER its transaction has committed — wrapped in its own
- * try/catch here as defense-in-depth on top of `notifyPaid`'s own
- * never-throws contract (mirrors `review/decide.routes.ts`'s
- * `notifyDecisionBestEffort`), so the mark-paid HTTP response can NEVER
- * fail or roll back because of a notify-side error.
+ * Mark-paid additionally fans out a per-owner best-effort `paid` push
+ * (`notifyPaid`, lib/notify.ts, ADR-0017/US-5) AFTER its transaction has
+ * committed — wrapped in its own try/catch here as defense-in-depth on top
+ * of `notifyPaid`'s own never-throws contract (mirrors
+ * `review/decide.routes.ts`'s `notifyDecisionBestEffort`), so the mark-paid
+ * HTTP response can NEVER fail or roll back because of a notify-side error.
+ * Discard has no employee-facing notify (only the release + audit trail).
  *
- * Re-fetches the batch via `fetchBatchWithRequests` (batches.repo.ts) and
- * reuses `mapBatchDetail` / `resolvePdfLink` — the SAME response shape
- * `GET /batches/:id` (T4) and the compile response (T3) already produce.
- *
- * Discard (T8) lands in this SAME router (mirrors mark-paid's shape almost
- * exactly — a different capability, a release instead of a status flip, no
- * notify fan-out).
+ * Both handlers re-fetch the batch via `fetchBatchWithRequests`
+ * (batches.repo.ts, joins through the append-only `RefundBatchItem`, so
+ * discard's now-released requests are still shown) and reuse
+ * `mapBatchDetail` / `resolvePdfLink` — the SAME response shape `GET
+ * /batches/:id` (T4) and the compile response (T3) already produce.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
@@ -36,7 +37,7 @@ import { hasCapability } from "../authz/conditions";
 import { ConflictError, NotFoundError } from "../lib/errors";
 import { notifyPaid } from "../lib/notify";
 import { ProblemSchema } from "../requests/requests.schemas";
-import { markBatchPaid } from "./decide.repo";
+import { discardBatch, markBatchPaid } from "./decide.repo";
 import { fetchBatchWithRequests } from "./batches.repo";
 import { mapBatchDetail } from "./batches.service";
 import { resolvePdfLink } from "./pdfLink";
@@ -92,6 +93,8 @@ export const batchDecideRouter = new OpenAPIHono<{ Variables: AuthzVariables }>(
 
 batchDecideRouter.use("/batches/:id/mark-paid", jwtMiddleware);
 batchDecideRouter.use("/batches/:id/mark-paid", authzMiddleware);
+batchDecideRouter.use("/batches/:id/discard", jwtMiddleware);
+batchDecideRouter.use("/batches/:id/discard", authzMiddleware);
 
 /** Re-fetches + re-maps the batch detail after a successful terminal transition. */
 async function fetchDetailAfterTransition(batchId: string) {
@@ -190,6 +193,73 @@ batchDecideRouter.openapi(markPaidRoute, async (c) => {
   for (const { requestId, ownerUserId } of paidRequestOwners) {
     // Post-commit, best-effort (US-5/ADR-0017) — never blocks or fails this response.
     await notifyPaidBestEffort(ownerUserId, requestId);
+  }
+
+  const detail = await fetchDetailAfterTransition(id);
+  return c.json(detail, 200);
+});
+
+// ─── POST /batches/:id/discard ──────────────────────────────────────────────
+
+const discardRoute = createRoute({
+  method: "post",
+  path: "/batches/{id}/discard",
+  tags: ["Batches"],
+  summary: "Discard a compiled batch (terminal, void)",
+  description:
+    "Terminal CAS `compiled → discarded`: a second discard, or a discard " +
+    "racing a concurrent mark-paid, 409s (AC-6.2). Every included request " +
+    "is released back to the candidate pool (`batchId` nulled, status " +
+    "stays `approved` — AC-6.1) and becomes eligible for a future compile " +
+    "again. `RefundBatchItem` membership rows are KEPT forever (AC-6.3/7.3) " +
+    "— the batch, and its PDF, remain fully inspectable after discard. " +
+    "Requires `request:review`.",
+  security: [{ Bearer: [] }],
+  request: { params: BatchIdParamSchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: BatchDetailSchema } },
+      description: "Discarded",
+    },
+    401: { description: "Missing or invalid Bearer JWT" },
+    403: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Caller lacks the `request:review` capability",
+    },
+    404: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "No batch with that id",
+    },
+    409: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "Batch is not `compiled` (already paid or discarded)",
+    },
+  },
+});
+
+batchDecideRouter.openapi(discardRoute, async (c) => {
+  const sub = c.get("userId");
+  const email = c.get("email");
+  const authz = c.get("authz");
+  const { id } = c.req.valid("param");
+
+  if (!hasCapability(authz.permissions, "request", "review")) {
+    return c.json(
+      forbiddenProblem(c.req.path, "You do not have permission to discard refund batches"),
+      403,
+    );
+  }
+
+  const exit = await Effect.runPromiseExit(discardBatch(id, sub, email));
+  if (exit._tag === "Failure") {
+    const cause = exit.cause;
+    if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
+      return c.json(notFoundProblem(c.req.path, cause.error.message), 404);
+    }
+    if (cause._tag === "Fail" && cause.error instanceof ConflictError) {
+      return c.json(conflictProblem(c.req.path, cause.error.message), 409);
+    }
+    throw new Error("Unexpected database failure discarding refund batch");
   }
 
   const detail = await fetchDetailAfterTransition(id);
