@@ -32,17 +32,17 @@ English-only UI copy via `strings.ts`.
   - `GET /batches/candidates?cutoff=` → eligible `approved ∧ batchId IS NULL ∧ decidedAt<=cutoff`, entity-scoped via `scopeForReviewAction` (AC-1.2); grouped per-employee/per-currency. `POST /batches` (compile) → in one `$transaction`: `SELECT … FOR UPDATE` + `batchId IS NULL` CAS claim, create `RefundBatch` + `RefundBatchItem`s, set `RefundRequest.batchId`, write `batch_compiled` audit rows; then generate+store the PDF (T2) post-commit (regenerable). Empty candidate set → refuse (422/409 per spec AC-1.5). `hasCapability(request,review)` else 403.
   - done when: integration tests prove entity-scoped candidate filtering, the atomic claim (two concurrent compiles never double-claim — AC-1.2/1.5), empty-set refusal, audit rows written, and the batch is created with items + PDF key.
 
-- [ ] T4: Batch reads — get batch, list history, signed PDF URL — refs: AC-2.1–2.3, AC-8.1–8.3 — deps: T3
+- [x] T4: Batch reads — get batch, list history, signed PDF URL — refs: AC-2.1–2.3, AC-8.1–8.3 — deps: T3
   - touch: `refund-api/src/batches/*` (read routes)
   - `GET /batches` (history, capability-gated, NOT entity-scoped — D1), `GET /batches/:id` (detail incl. per-employee/per-currency + email/paid/discarded status; 404 if missing), `GET /batches/:id/pdf-url` (mint short-lived authz-gated presigned GET — accounting-only, never employee-reachable, AC-3.4). Opening an individual request stays the existing 007 `GET /requests/:id` (entity-scoped, unchanged).
   - done when: integration tests cover capability-gated list/get (403 for non-accounting), the signed-URL mint only after authz, and 404 on missing batch.
 
-- [ ] T5: Compilation email — send/resend (app deep link) — refs: AC-3.1–3.5 — deps: T4, T7
+- [x] T5: Compilation email — send/resend (app deep link) — refs: AC-3.1–3.5 — deps: T4, T7
   - touch: `refund-api/src/batches/email.*`, `refund-api/src/lib/notify.ts` (or a new email caller), env `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` + deep-link base URL
   - On compile, auto-send (and a manual **resend** action) a compilation email to the configured accounting distribution address via notify-api `POST /system/emails` (new template T7) carrying an **app deep link** `/refund/batches/:id` (NOT a presigned URL, NOT an attachment — ADR-0021). Best-effort (soft-fail, AC-3.3): record `emailStatus`/`emailLastAttemptAt`/`emailDeliveryId` on the batch; never roll back the compile. `hasCapability(request,review)`.
   - done when: integration tests (notify-api mocked) prove send-on-compile + resend fire `/system/emails` with the deep link + configured recipient, emailStatus is tracked, and a mocked email failure doesn't fail the compile.
 
-- [ ] T6: Mark-paid (terminal CAS + employee notify) — refs: AC-4.1–4.4, AC-5.x, AC-7.2 — deps: T3
+- [x] T6: Mark-paid (terminal CAS + employee notify) — refs: AC-4.1–4.4, AC-5.x, AC-7.2 — deps: T3
   - touch: `refund-api/src/batches/decide.*`, reuse `src/lib/notify.ts` (ADR-0017)
   - `POST /batches/:id/mark-paid` → one `$transaction`: terminal CAS `UPDATE refund_batch SET status='paid' WHERE id=:B AND status='compiled'` (rowCount 0 → 409, AC-4.3), flip `UPDATE refund_request SET status='paid' WHERE batchId=:B AND status='approved'` (all-or-nothing), write `batch_paid` audit rows, stamp `paidAt`/`paidByEmail`. **`hasCapability(request,approve)`** else 403 (AC-4.4). Post-commit: fan out a per-owner in-app `paid` notification (reuse ADR-0017 `/system/notifications`), best-effort. Terminal — no undo.
   - done when: integration tests cover the CAS (double mark-paid → 409; concurrent mark-paid vs discard → exactly one wins), the all-or-nothing request flip, audit rows, the approve-capability gate, and the per-owner notify fan-out (mocked).
@@ -52,7 +52,7 @@ English-only UI copy via `strings.ts`.
   - Add ONE new English-only template for the batch-compilation email: subject + body carrying the app deep link (`/refund/batches/:id`) and a batch reference — escaped, fixed shape (ADR-0011). Do NOT add attachment support. Extend the `/system/emails` template enum + per-template data validation only.
   - done when: `bun test` + `bun run typecheck` green in notify-api; a test renders the new template with a deep link and asserts escaping + the fixed shape; the internal-token gate is unchanged.
 
-- [ ] T8: Discard a compiled batch — refs: AC-6.1–6.3, AC-7.3 — deps: T3
+- [x] T8: Discard a compiled batch — refs: AC-6.1–6.3, AC-7.3 — deps: T3
   - touch: `refund-api/src/batches/decide.*`
   - `POST /batches/:id/discard` → terminal CAS (`status='compiled'` → `discarded`; else 409, AC-6.2), null `RefundRequest.batchId` for the batch's requests (release back to the candidate pool — they become eligible again), KEEP `RefundBatchItem` rows forever (AC-6.3/7.3, the PDF still resolves), write `batch_discarded` audit rows, stamp `discardedAt`/`discardedByEmail`. `hasCapability(request,review)`.
   - done when: integration tests prove release-to-pool (a discarded batch's requests reappear as candidates), item-rows retained, the discarded PDF still resolves, terminal CAS 409s, and audit rows written.
