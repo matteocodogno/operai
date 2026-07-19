@@ -340,6 +340,24 @@ const en = {
       rejectedTooLarge: 'File exceeds 10 MB and was not added.',
       rejectedType: 'Unsupported file type — use PDF, JPEG, or PNG.',
     },
+    /** `BatchSubtotalsPanel` (T10, specs/008-refund-monthly-processing/tasks.md) — a one-figure-per-currency card, unlike `SubtotalsPanel`'s requested/approved pair. */
+    batchSubtotalsPanel: {
+      totalLabel: 'Approved total',
+    },
+    /** `BatchEmployeeGroupList` (T10, specs/008-refund-monthly-processing/tasks.md) — modes `preview`|`detail`. */
+    batchEmployeeGroupList: {
+      groupAriaLabel: (employeeName: string) => `${employeeName}’s requests`,
+      requestCountLabel: (count: number) => `${count} request${count === 1 ? '' : 's'}`,
+      /** `detail` mode only — each request row's link, disambiguating a list of otherwise-identical controls (design.md Accessibility). */
+      openRequestLabel: (employeeName: string, status: string, amount: string) =>
+        `Open ${employeeName}’s request, ${status}, ${amount}`,
+    },
+    /** `BatchPdfLink` (T10, specs/008-refund-monthly-processing/tasks.md) — mirrors `attachmentList`'s download states, scoped to a batch's compiled PDF. */
+    batchPdfLink: {
+      buttonLabel: 'Download PDF',
+      downloadLabel: (reference: string) => `Download compiled PDF for batch ${reference}`,
+      downloadError: 'Could not open this PDF. Try again.',
+    },
   },
   badges: {
     requestStatus: {
@@ -359,6 +377,12 @@ const en = {
       CHF: 'CHF',
       USD: 'USD',
       GBP: 'GBP',
+    },
+    /** `BatchStatusBadge` (T10, specs/008-refund-monthly-processing/tasks.md) — 3 variants matching `BatchStatus` verbatim. */
+    batchStatus: {
+      compiled: 'Compiled',
+      paid: 'Paid',
+      discarded: 'Discarded',
     },
   },
 } as const
