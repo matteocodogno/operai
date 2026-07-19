@@ -1,11 +1,18 @@
 /**
  * S3-compatible object storage wrapper (T9, specs/007-refund-service,
- * ADR-0016).
+ * ADR-0016; +`putObject`, T2, specs/008-refund-monthly-processing,
+ * ADR-0019).
  *
- * refund-api's own process NEVER touches receipt bytes — it only mints
- * presigned URLs (POST for upload, GET for download) and HEADs objects to
- * re-verify metadata at confirm time. Two-phase upload: mint → browser
- * uploads direct-to-bucket → confirm (HEAD re-validates size/content-type).
+ * For RECEIPT bytes, refund-api's own process NEVER touches them — it only
+ * mints presigned URLs (POST for upload, GET for download) and HEADs
+ * objects to re-verify metadata at confirm time. Two-phase upload: mint →
+ * browser uploads direct-to-bucket → confirm (HEAD re-validates
+ * size/content-type).
+ *
+ * The compiled-batch PDF (T2) is the one exception: refund-api generates
+ * those bytes itself (it authored them, unlike a receipt), so it legitimately
+ * `PutObject`s them directly via `putObject` below, then serves them back
+ * through the same `mintPresignedGet` pattern.
  *
  * DEPLOYMENT: the provisioned bucket is a Railway S3-compatible bucket in EU
  * Amsterdam — a custom, non-AWS endpoint. `forcePathStyle` and the EU-
@@ -18,6 +25,7 @@ import {
   HeadObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  PutObjectCommand,
   NotFound,
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
@@ -142,6 +150,29 @@ export async function mintPresignedGet(
     s3,
     new GetObjectCommand({ Bucket: env.REFUND_S3_BUCKET, Key: objectKey }),
     { expiresIn: expiresInSeconds },
+  );
+}
+
+// ─── PutObject (server-authored bytes — batch PDFs only, T2/ADR-0019) ───────
+
+/**
+ * Uploads bytes refund-api generated itself (currently: only the compiled-
+ * batch PDF, `src/batches/pdf.ts`). Unlike every other object in this
+ * bucket, these bytes never pass through a presigned browser upload —
+ * refund-api authored them, so it writes them directly.
+ */
+export async function putObject(
+  objectKey: string,
+  body: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: env.REFUND_S3_BUCKET,
+      Key: objectKey,
+      Body: body,
+      ContentType: contentType,
+    }),
   );
 }
 

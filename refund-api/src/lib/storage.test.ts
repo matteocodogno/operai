@@ -74,7 +74,7 @@ mock.module("@aws-sdk/s3-request-presigner", () => ({
 }));
 
 const storage = await import("./storage");
-const { S3Client, DeleteObjectCommand, NotFound } = await import(
+const { S3Client, DeleteObjectCommand, PutObjectCommand, NotFound } = await import(
   "@aws-sdk/client-s3"
 );
 
@@ -164,6 +164,33 @@ describe("deleteObject", () => {
     expect(
       (captured as unknown as { input: { Key: string; Bucket: string } }).input.Bucket,
     ).toBe("test-bucket");
+    sendSpy.mockRestore();
+  });
+});
+
+describe("putObject", () => {
+  it("sends a PutObjectCommand with the given key, body, content-type, and bucket (T2, specs/008)", async () => {
+    let captured: InstanceType<typeof PutObjectCommand> | null = null;
+    const sendSpy = spyOn(S3Client.prototype, "send").mockImplementationOnce(
+      async (command: unknown) => {
+        captured = command as InstanceType<typeof PutObjectCommand>;
+        return {} as never;
+      },
+    );
+
+    const body = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // "%PDF"
+    await storage.putObject("refund/batches/b1/compiled.pdf", body, "application/pdf");
+
+    expect(captured).toBeInstanceOf(PutObjectCommand);
+    const input = (
+      captured as unknown as {
+        input: { Key: string; Bucket: string; Body: unknown; ContentType: string };
+      }
+    ).input;
+    expect(input.Key).toBe("refund/batches/b1/compiled.pdf");
+    expect(input.Bucket).toBe("test-bucket");
+    expect(input.Body).toBe(body);
+    expect(input.ContentType).toBe("application/pdf");
     sendSpy.mockRestore();
   });
 });

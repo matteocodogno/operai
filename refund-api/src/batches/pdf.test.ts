@@ -1,0 +1,248 @@
+/**
+ * Unit tests for the compiled-batch PDF renderer (T2,
+ * specs/008-refund-monthly-processing, ADR-0019).
+ *
+ * `pdf-lib` FlateDecode-compresses content streams by default, so a saved
+ * PDF's drawn text never appears as a literal ASCII substring in the raw
+ * buffer — `Tj`/`TJ` operators carry it as hex-encoded strings inside a
+ * compressed stream. `extractPdfText` below inflates every
+ * `stream…endstream` block and hex-decodes the `<...> Tj` runs it finds,
+ * giving a plain-text approximation of what the PDF renders — enough to
+ * assert key content (AC-1.6/1.7/1.9) without a full PDF-parsing dependency.
+ *
+ * AC coverage (T2 done-when)
+ * ──────────────────────────
+ * - AC-1.6: header (cutoff/generated/generated-by/batch reference) +
+ *   one section per employee + per-currency subtotals, never blended
+ * - AC-1.7: no attachment bytes/refs ever appear (this module never reads
+ *   Attachment rows at all — asserted by construction, not by a negative
+ *   text search, since nothing attachment-shaped is ever passed in)
+ * - AC-1.9: a request whose lines are all $0-approved is rendered on the
+ *   same terms as any other (not silently dropped)
+ * - Determinism (ADR-0019 decision 5): two renders of the same input are
+ *   byte-identical; employee section order does not depend on input order
+ */
+
+import { describe, it, expect } from "bun:test";
+import zlib from "node:zlib";
+import { renderBatchPdf, batchPdfObjectKey, type BatchPdfEmployee } from "./pdf";
+import type { LineRow } from "../requests/requests.service";
+
+// ─── Text-extraction test helper (see module doc) ──────────────────────────
+
+function extractPdfText(buffer: Buffer): string {
+  const latin1 = buffer.toString("latin1");
+  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  let inflated = "";
+  let match: RegExpExecArray | null;
+  while ((match = streamRe.exec(latin1))) {
+    const raw = Buffer.from(match[1] as string, "latin1");
+    try {
+      inflated += zlib.inflateSync(raw).toString("latin1");
+    } catch {
+      // Not a Flate-compressed stream (e.g. an uncompressed xref/object
+      // stream in some layouts) — skip, nothing text-bearing there for us.
+    }
+  }
+
+  const hexRunRe = /<([0-9A-Fa-f]+)>\s*Tj/g;
+  const parts: string[] = [];
+  let hexMatch: RegExpExecArray | null;
+  while ((hexMatch = hexRunRe.exec(inflated))) {
+    parts.push(Buffer.from(hexMatch[1] as string, "hex").toString("latin1"));
+  }
+  return parts.join(" ");
+}
+
+// ─── Fixtures ────────────────────────────────────────────────────────────────
+
+function line(overrides: Partial<LineRow>): LineRow {
+  return {
+    id: "line-default",
+    date: new Date("2026-07-01T00:00:00Z"),
+    type: "office_material",
+    motivo: "supplies",
+    entity: "welld_ch",
+    currency: "EUR",
+    requestedAmountCents: 0,
+    km: null,
+    approvedTotalCents: 0,
+    ...overrides,
+  };
+}
+
+const CUTOFF = new Date("2026-07-19T00:00:00Z");
+const GENERATED_AT = new Date("2026-07-19T22:15:00Z");
+const BATCH_ID = "batch-abc123";
+const GENERATED_BY_EMAIL = "accounting@welld.ch";
+
+const aliceEmployee: BatchPdfEmployee = {
+  owner: { userId: "u-alice", email: "alice@welld.ch", name: "Alice Anderson" },
+  requests: [
+    {
+      id: "req-alice-1",
+      lines: [
+        line({
+          id: "l1",
+          entity: "welld_ch",
+          currency: "EUR",
+          requestedAmountCents: 4550,
+          approvedTotalCents: 4550,
+        }),
+        line({
+          id: "l2",
+          entity: "welld_ch",
+          currency: "CHF",
+          requestedAmountCents: 9000,
+          approvedTotalCents: 9000,
+        }),
+      ],
+    },
+  ],
+};
+
+// Bob has no display name (null) and every line approved at $0 (AC-1.9).
+const bobEmployee: BatchPdfEmployee = {
+  owner: { userId: "u-bob", email: "bob@welld.it", name: null },
+  requests: [
+    {
+      id: "req-bob-1",
+      lines: [
+        line({
+          id: "l3",
+          entity: "welld_it",
+          currency: "EUR",
+          requestedAmountCents: 0,
+          approvedTotalCents: 0,
+        }),
+      ],
+    },
+  ],
+};
+
+describe("batchPdfObjectKey", () => {
+  it("builds the batch-scoped, PII-free key (ADR-0019 § Object storage)", () => {
+    expect(batchPdfObjectKey("batch-abc123")).toBe(
+      "refund/batches/batch-abc123/compiled.pdf",
+    );
+  });
+});
+
+describe("renderBatchPdf", () => {
+  it("renders the AC-1.6 header fields (cutoff, generated, generated-by, batch reference)", async () => {
+    const buffer = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [aliceEmployee],
+    });
+
+    const text = extractPdfText(buffer);
+    expect(text).toContain(`Batch reference: ${BATCH_ID}`);
+    expect(text).toContain(`Cutoff: ${CUTOFF.toISOString()}`);
+    expect(text).toContain(`Generated: ${GENERATED_AT.toISOString()}`);
+    expect(text).toContain(`Generated by: ${GENERATED_BY_EMAIL}`);
+  });
+
+  it("renders one section per employee with per-currency subtotals, never blended", async () => {
+    const buffer = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [aliceEmployee, bobEmployee],
+    });
+
+    const text = extractPdfText(buffer);
+    expect(text).toContain("Employee: Alice Anderson (alice@welld.ch)");
+    // Never blended: EUR and CHF each appear as their own subtotal line.
+    expect(text).toContain("EUR 45,50");
+    expect(text).toContain("CHF 90,00");
+    // No combined/blended figure anywhere (e.g. summing 4550+9000 cents).
+    expect(text).not.toContain("135,50");
+  });
+
+  it("includes a $0-approved request on the same terms as any other (AC-1.9)", async () => {
+    const buffer = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [bobEmployee],
+    });
+
+    const text = extractPdfText(buffer);
+    // Bob has no display name — falls back to the bare email.
+    expect(text).toContain("Employee: bob@welld.it");
+    expect(text).toContain("EUR 0,00");
+  });
+
+  it("never embeds attachment file bytes or references (AC-1.7)", async () => {
+    const buffer = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [aliceEmployee],
+    });
+
+    // This module's BatchPdfInput carries no attachment field at all (see
+    // pdf.ts — BatchPdfRequest is `{ id, lines }`, LineRow's own
+    // `attachments` is never read by the renderer) — nothing attachment-
+    // shaped can appear in the output by construction. Sanity-check the
+    // buffer stays a small, text-only document (no embedded binary/image
+    // XObject bloats it).
+    expect(buffer.length).toBeLessThan(50_000);
+  });
+
+  it("is a deterministic pure function — two renders of the same input are byte-identical", async () => {
+    const input = {
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [aliceEmployee, bobEmployee],
+    };
+
+    const a = await renderBatchPdf(input);
+    const b = await renderBatchPdf(input);
+
+    expect(a.equals(b)).toBe(true);
+  });
+
+  it("orders employee sections independent of input order (stable by owner email)", async () => {
+    const forward = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [aliceEmployee, bobEmployee],
+    });
+    const reversed = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [bobEmployee, aliceEmployee],
+    });
+
+    expect(forward.equals(reversed)).toBe(true);
+
+    const text = extractPdfText(forward);
+    expect(text.indexOf("alice@welld.ch")).toBeLessThan(text.indexOf("bob@welld.it"));
+  });
+
+  it("stays a total function on an empty employee list (never throws)", async () => {
+    const buffer = await renderBatchPdf({
+      batchId: BATCH_ID,
+      cutoff: CUTOFF,
+      generatedAt: GENERATED_AT,
+      generatedByEmail: GENERATED_BY_EMAIL,
+      employees: [],
+    });
+
+    const text = extractPdfText(buffer);
+    expect(text).toContain("No requests included in this batch.");
+  });
+});
