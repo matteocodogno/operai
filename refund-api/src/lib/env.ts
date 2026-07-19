@@ -96,6 +96,30 @@ const envSchema = z
     NOTIFY_INTERNAL_URL: z
       .string()
       .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
+    // ─── Monthly batch processing (T14, specs/008-refund-monthly-processing,
+    // ADR-0021) ────────────────────────────────────────────────────────────
+    // The single configured accounting/payroll distribution address the
+    // compiled-batch email (AC-3.1/3.4) is sent to via notify-api
+    // `POST /system/emails` — see notifyEmail.ts (T7/T5). Deliberately NOT a
+    // per-user/role-resolved list (spec Constraints) — one fixed mailbox.
+    // Required; the service refuses to start without it (financial batch
+    // notifications must never silently no-op to an unconfigured recipient).
+    REFUND_ACCOUNTING_DISTRIBUTION_EMAIL: z
+      .string()
+      .email(
+        "REFUND_ACCOUNTING_DISTRIBUTION_EMAIL must be a valid email address",
+      ),
+    // Absolute base URL of the shell-hosted app (the shell's own public
+    // origin, e.g. https://operai.welld.io — NOT refund-api's own URL and
+    // NOT VITE_REFUND_API_URL, which is refund-api's origin), used to build
+    // the compiled-batch email's in-app deep link
+    // `${REFUND_APP_BASE_URL}/refund/batches/:id` (ADR-0021). The email
+    // carries this link, never a raw presigned S3 URL — the recipient must
+    // sign in and pass the same `request:review` authz check as any in-app
+    // batch view before a short-lived presigned GET is minted. Required.
+    REFUND_APP_BASE_URL: z
+      .string()
+      .url("REFUND_APP_BASE_URL must be a valid absolute URL"),
   })
   .superRefine((val, ctx) => {
     const residencyError = checkEuResidency(

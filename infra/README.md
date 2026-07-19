@@ -243,7 +243,10 @@ are called out. What the script does, step by step:
    see step 8), `REFUND_S3_ENDPOINT`/`REFUND_S3_REGION`/`REFUND_S3_BUCKET`/
    `REFUND_S3_ACCESS_KEY_ID`/`REFUND_S3_SECRET_ACCESS_KEY` (EU-region object
    storage, ADR-0016 — **NOT YET PROVISIONED**, see § Variable reference),
-   `NODE_ENV=production`. Confirm region **`europe-west4`** (data residency —
+   `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL`/`REFUND_APP_BASE_URL` (monthly batch
+   processing, T14, specs/008-refund-monthly-processing, ADR-0021 — see
+   § Variable reference), `NODE_ENV=production`. Confirm region
+   **`europe-west4`** (data residency —
    this service handles financial figures and receipt-attachment metadata that
    may carry PII, never logged). **Generate its domain** → this is
    **`<REFUND_API_URL>`**.
@@ -519,6 +522,8 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address (e.g. `http://notify-api.railway.internal:8081`) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
 | `NOTIFY_INTERNAL_TOKEN` | Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN`/`notify-api.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical (ADR-0017: now a THIRD caller sharing this secret). Consumed starting T13, not this bootstrap. | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR-0016) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
+| `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` | **NEW (T14, specs/008-refund-monthly-processing, ADR-0021).** The single configured accounting/payroll mailbox the compiled-batch email is sent to (AC-3.1/3.4) — one fixed address, never a per-employee or role-resolved list. No 1Password item required (not a credential — an ordinary business address), but confirm the real accounting distribution address with the client before go-live. | no |
+| `REFUND_APP_BASE_URL` | **NEW (T14, specs/008-refund-monthly-processing, ADR-0021).** Absolute base URL of the shell-hosted app — **the shell's own public origin**, e.g. `https://operai.welld.io`, same value as `refund-api.ALLOWED_ORIGINS`/every other backend's shell-origin row — **not** `<REFUND_API_URL>`. Used to build the compiled-batch email's in-app deep link `${REFUND_APP_BASE_URL}/refund/batches/:id`; the email never carries a raw presigned S3 URL. | no |
 | `NODE_ENV` | `production` | no |
 
 **`refund-api` deploy notes:** no `numReplicas` pin (unlike `notify-api`) —
@@ -570,7 +575,11 @@ address, distinct from `<NOTIFY_API_URL>`/`VITE_NOTIFY_API_URL` (the public
 address every other row above uses); **`shell.VITE_REFUND_API_URL ==
 refund-ui.VITE_REFUND_API_URL == <REFUND_API_URL>`** (T20 — two independent
 Vercel projects, one value; a drift here silently breaks the Bearer-attach
-trusted-origins check even though both builds succeed).
+trusted-origins check even though both builds succeed); **`refund-api.REFUND_APP_BASE_URL ==
+refund-api.ALLOWED_ORIGINS == <shell origin>`** (T14, specs/008-refund-monthly-processing,
+ADR-0021 — the compiled-batch email's deep link must resolve inside the same shell origin
+CORS/trustedOrigins already allow; a drift here doesn't break the build, it just mails a
+dead or untrusted link).
 
 ---
 
