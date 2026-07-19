@@ -22,7 +22,7 @@ English-only UI copy via `strings.ts`.
   - Add `RefundStatus` value `paid` (in its **own** statement before table DDL — `ALTER TYPE … ADD VALUE` can't share a tx with dependent DDL, ADR-0020); `enum BatchStatus { compiled paid discarded }`; `AuditAction` += `batch_compiled|batch_paid|batch_discarded`. New `RefundBatch` (cutoff, status, `pdfObjectKey @unique`, email status fields, paid/discarded stamps) + append-only `RefundBatchItem` (`@@unique([batchId,requestId])`, `onDelete: Restrict`). `RefundRequest.batchId?` (live claim pointer) + `RefundAuditEntry.batchId?`. Indexes per plan (candidate query `@@index([status,batchId,decidedAt])`). Never edit 007's migrations.
   - done when: `bun run db:migrate` applies cleanly (enum-value-then-DDL ordering works); `bun run db:generate` + `bun run typecheck` green; a test asserts the enum/table shape.
 
-- [ ] T2: Batch PDF generation (`pdf-lib`) + storage — refs: AC-1.9, AC-1.10, AC-2.4 — deps: T1
+- [x] T2: Batch PDF generation (`pdf-lib`) + storage — refs: AC-1.9, AC-1.10, AC-2.4 — deps: T1
   - touch: `refund-api/src/batches/pdf.ts` (+ test), `refund-api/src/lib/storage.ts` (put helper), `package.json` (add `pdf-lib`)
   - Pure, deterministic renderer: input = a batch's `RefundBatchItem` set (per-employee → per-currency approved totals, cutoff, batch id/ref), output = a PDF buffer (numeric summary mirroring the source form; per-currency, never blended). Store at `refund/batches/{id}/compiled.pdf` (no PII in key) in the private EU bucket (ADR-0016). Regenerable cache (ADR-0019) — a discarded batch's PDF still resolves from its immutable items.
   - done when: unit tests render a deterministic PDF for a fixed multi-employee/multi-currency batch (byte-stable enough to assert key content via a text-extract or fixture), storage put mocked; no headless browser dependency.
@@ -63,7 +63,7 @@ English-only UI copy via `strings.ts`.
   - touch: `refund-ui/src/router.tsx` (+`/refund/batches`, `/batches/new`, `/batches/$id`), `src/lib/batchesApi.ts`, `src/components/RefundShell.tsx` (+nav item, accounting-gated), `src/components/RequestStatusBadge.tsx` (+`paid` variant, glyph+text+color), `strings.ts`
   - done when: `pnpm build`+`lint` green; router mounts the 3 batch routes (placeholder screens); `RequestStatusBadge` renders the `paid` variant (test); no hardcoded strings.
 
-- [ ] T10: Batch components — refs: AC-1.x/2.x display, AC-2.4 (PDF) — deps: T9
+- [x] T10: Batch components — refs: AC-1.x/2.x display, AC-2.4 (PDF) — deps: T9
   - touch: `refund-ui/src/components/` — `BatchStatusBadge` (compiled/paid/discarded), `BatchSubtotalsPanel`, `BatchEmployeeGroupList` (modes `preview`|`detail`), `BatchPdfLink` (mint-on-click signed GET, mirrors `AttachmentDownloadLink`), `formatBatchSubtotalsPreview` (lib)
   - done when: component tests cover the badges (glyph+color, non-color signal), the per-employee/per-currency group rendering, and `BatchPdfLink` mints on click (mocked); `pnpm test` green.
 
@@ -84,7 +84,7 @@ English-only UI copy via `strings.ts`.
 
 ## DevOps
 
-- [ ] T14: Config/deploy wiring — refs: AC-3.1 (recipient), AC-2.4 (deep-link base) — deps: T1
+- [x] T14: Config/deploy wiring — refs: AC-3.1 (recipient), AC-2.4 (deep-link base) — deps: T1
   - touch: `refund-api/.env.example`/`.envrc`, root `mise.toml`/`compose.yaml` if needed, deploy config, `notify-api` env if the template needs config
   - Add `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` + the app base URL used to build batch deep links (`/refund/batches/:id`) to refund-api env (validated at startup). Document prod values (1Password). No new bucket (reuse 007's).
   - done when: refund-api starts with the new required env; `.env.example` documents them; local dev works.
