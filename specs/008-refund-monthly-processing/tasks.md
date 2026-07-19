@@ -17,7 +17,7 @@ English-only UI copy via `strings.ts`.
 
 ## refund-api (backend)
 
-- [ ] T1: Migration + schema — `paid` status, batch tables, audit extension — refs: AC-1.x (model), AC-4.1, AC-7.1 — deps: none
+- [x] T1: Migration + schema — `paid` status, batch tables, audit extension — refs: AC-1.x (model), AC-4.1, AC-7.1 — deps: none
   - touch: `refund-api/prisma/schema.prisma`, new migration `refund-api/prisma/migrations/*_add_batches/`
   - Add `RefundStatus` value `paid` (in its **own** statement before table DDL — `ALTER TYPE … ADD VALUE` can't share a tx with dependent DDL, ADR-0020); `enum BatchStatus { compiled paid discarded }`; `AuditAction` += `batch_compiled|batch_paid|batch_discarded`. New `RefundBatch` (cutoff, status, `pdfObjectKey @unique`, email status fields, paid/discarded stamps) + append-only `RefundBatchItem` (`@@unique([batchId,requestId])`, `onDelete: Restrict`). `RefundRequest.batchId?` (live claim pointer) + `RefundAuditEntry.batchId?`. Indexes per plan (candidate query `@@index([status,batchId,decidedAt])`). Never edit 007's migrations.
   - done when: `bun run db:migrate` applies cleanly (enum-value-then-DDL ordering works); `bun run db:generate` + `bun run typecheck` green; a test asserts the enum/table shape.
@@ -47,7 +47,7 @@ English-only UI copy via `strings.ts`.
   - `POST /batches/:id/mark-paid` → one `$transaction`: terminal CAS `UPDATE refund_batch SET status='paid' WHERE id=:B AND status='compiled'` (rowCount 0 → 409, AC-4.3), flip `UPDATE refund_request SET status='paid' WHERE batchId=:B AND status='approved'` (all-or-nothing), write `batch_paid` audit rows, stamp `paidAt`/`paidByEmail`. **`hasCapability(request,approve)`** else 403 (AC-4.4). Post-commit: fan out a per-owner in-app `paid` notification (reuse ADR-0017 `/system/notifications`), best-effort. Terminal — no undo.
   - done when: integration tests cover the CAS (double mark-paid → 409; concurrent mark-paid vs discard → exactly one wins), the all-or-nothing request flip, audit rows, the approve-capability gate, and the per-owner notify fan-out (mocked).
 
-- [ ] T7: notify-api — batch-compilation email template — refs: AC-3.1, AC-3.4 — deps: none
+- [x] T7: notify-api — batch-compilation email template — refs: AC-3.1, AC-3.4 — deps: none
   - touch: `notify-api/src/system/emailTemplates.ts`, `emails.schemas.ts` (new template enum + its `data` shape), tests
   - Add ONE new English-only template for the batch-compilation email: subject + body carrying the app deep link (`/refund/batches/:id`) and a batch reference — escaped, fixed shape (ADR-0011). Do NOT add attachment support. Extend the `/system/emails` template enum + per-template data validation only.
   - done when: `bun test` + `bun run typecheck` green in notify-api; a test renders the new template with a deep link and asserts escaping + the fixed shape; the internal-token gate is unchanged.
@@ -59,7 +59,7 @@ English-only UI copy via `strings.ts`.
 
 ## refund-ui (frontend)
 
-- [ ] T9: Batch foundation — routes, api client, nav, paid badge — refs: AC-5.3 (paid display), routing — deps: none
+- [x] T9: Batch foundation — routes, api client, nav, paid badge — refs: AC-5.3 (paid display), routing — deps: none
   - touch: `refund-ui/src/router.tsx` (+`/refund/batches`, `/batches/new`, `/batches/$id`), `src/lib/batchesApi.ts`, `src/components/RefundShell.tsx` (+nav item, accounting-gated), `src/components/RequestStatusBadge.tsx` (+`paid` variant, glyph+text+color), `strings.ts`
   - done when: `pnpm build`+`lint` green; router mounts the 3 batch routes (placeholder screens); `RequestStatusBadge` renders the `paid` variant (test); no hardcoded strings.
 
