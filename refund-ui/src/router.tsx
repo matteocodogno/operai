@@ -126,13 +126,23 @@ export function createAppRouter(basepath?: string) {
     component: CompileBatchPage,
   })
 
-  // Screen B3 (Batch detail — also the email deep-link landing page, T9
-  // placeholder — real screen T12) — a sibling of `batchesRoute`, not
-  // nested.
+  // Screen B3 (Batch detail — also the email deep-link landing page, T12,
+  // specs/008-refund-monthly-processing/tasks.md) — a sibling of
+  // `batchesRoute`, not nested.
+  //
+  // `validateSearch` carries the SAME one-shot `confirmation` flash-message
+  // technique `reviewRoute` already establishes, applied here to a DETAIL
+  // route instead of a list route (design.md F1 step 6, Gap #4):
+  // `CompileBatchPage` (T11) navigates here with a post-compile confirmation
+  // after a successful `POST /batches`; `BatchDetailPage` (T12) reads it once
+  // on mount, announces it, then strips it via a `replace` navigation.
   const batchDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/batches/$id',
     component: BatchDetailPage,
+    validateSearch: (search: Record<string, unknown>): { confirmation?: string } => ({
+      confirmation: typeof search.confirmation === 'string' ? search.confirmation : undefined,
+    }),
   })
 
   // ---------------------------------------------------------------------------

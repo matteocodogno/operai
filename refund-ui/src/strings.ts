@@ -305,10 +305,55 @@ const en = {
         genericError: 'Could not compile this batch. Try again.',
       },
     },
-    /** Screen B3 (T9 placeholder — real screen T12, specs/008-refund-monthly-processing). Also the eventual email deep-link landing page. */
+    /**
+     * Screen B3 (T12, specs/008-refund-monthly-processing/tasks.md, design.md
+     * F2/F3/F4/F6/Screen B3). Replaces T9's placeholder. Also the email
+     * deep-link landing page.
+     */
     batchDetail: {
       heading: 'Batch',
-      placeholder: 'This batch’s details, PDF, email status, and mark-as-paid/discard actions will appear here.',
+      loadingAnnouncement: 'Loading this batch',
+      loadErrorFallback: 'Could not load this batch.',
+      notFound: {
+        heading: 'Batch not found',
+        body: 'This batch doesn’t exist.',
+        backLink: 'Back to monthly processing',
+      },
+      meta: {
+        cutoffLabel: (date: string) => `Cutoff: ${date}`,
+        generatedLabel: (date: string, email: string) => `Generated ${date} by ${email}`,
+        referenceLabel: 'Reference',
+      },
+      /** Email delivery status — shared verbatim by Screen B3's own status line, `MarkPaidDialog`'s FYI line, and Screen B1's compact row indicator. */
+      email: {
+        sent: 'Email: Sent',
+        failed: 'Email: Failed',
+        notAttempted: 'Email: Not yet attempted',
+        resendButton: 'Resend email',
+        resendingLabel: 'Resending…',
+        resendSuccessToast: 'Email resent',
+        resendFailureToast: 'Could not send this email. Try again later.',
+      },
+      paidLine: (date: string, email: string) => `Paid on ${date} by ${email}`,
+      discardedLine: (date: string, email: string) => `Discarded on ${date} by ${email}`,
+      /** Shared 409-race message for both Mark-as-paid and Discard — both mean "someone else already closed this batch out" (design.md F4/F6). */
+      guardrail: {
+        title: 'This batch has already been resolved',
+        message: 'This batch has already been resolved and can no longer be changed.',
+      },
+      markPaid: {
+        button: 'Mark as paid',
+        confirmation: (count: number) => `Batch marked as paid — ${count} request${count === 1 ? '' : 's'} updated`,
+        genericError: 'Could not mark this batch as paid. Try again.',
+      },
+      discard: {
+        button: 'Discard batch',
+        entityLabel: 'batch',
+        body: (count: number) =>
+          `Discard this batch? Its ${count} request${count === 1 ? '' : 's'} will be released and become eligible for a future compilation. The batch’s own record remains visible in history. This cannot be undone.`,
+        confirmation: (count: number) => `Batch discarded — ${count} request${count === 1 ? '' : 's'} released`,
+        genericError: 'Could not discard this batch. Try again.',
+      },
     },
   },
   components: {
@@ -377,6 +422,26 @@ const en = {
       buttonLabel: 'Download PDF',
       downloadLabel: (reference: string) => `Download compiled PDF for batch ${reference}`,
       downloadError: 'Could not open this PDF. Try again.',
+    },
+    /**
+     * `MarkPaidDialog` (T12, specs/008-refund-monthly-processing/tasks.md,
+     * design.md F4 step 2 + Accessibility) — the irreversible, money-moving
+     * confirm. `acknowledgeLabel` is the full commitment sentence, not a
+     * terse "Confirm" (design.md: "so a screen-reader user tabbing to it
+     * hears the complete commitment they're making, not just a fragment").
+     */
+    markPaidDialog: {
+      title: 'Mark this batch as paid?',
+      requestCountLabel: (count: number) => `This batch has ${count} request${count === 1 ? '' : 's'}:`,
+      /** Appended to the email-status FYI line only when the batch's last send attempt failed. */
+      emailFailedFyi: 'you can still mark this batch paid',
+      consequence: (count: number) =>
+        `This will mark ${count} request${count === 1 ? '' : 's'} as paid, atomically. This cannot be undone — there is no way to reverse a paid batch.`,
+      acknowledgeLabel: 'I confirm these requests have been paid through payroll',
+      cancelLabel: 'Cancel',
+      cancelAriaLabel: 'Cancel',
+      confirmLabel: 'Mark as paid',
+      confirmingLabel: 'Marking as paid…',
     },
   },
   badges: {

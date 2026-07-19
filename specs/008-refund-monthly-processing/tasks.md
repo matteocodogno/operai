@@ -72,7 +72,7 @@ English-only UI copy via `strings.ts`.
   - Cutoff picker → Preview (candidate set via `GET /batches/candidates`, per-employee/per-currency, `BatchSubtotalsPanel`) → Compile (frozen-cutoff WYSIWYG; `ConfirmDeleteModal` `tone="positive"`), empty-set refusal, loading/empty/error/PD states. On success → land on the batch detail (B3). Integrates T3.
   - done when: tests cover preview rendering, empty-set refusal messaging, compile→navigate-to-detail, and the PD (non-accounting) state.
 
-- [ ] T12: Screen B3 — Batch detail (+ mark-paid, discard, email, PDF) — refs: AC-2.1–2.4, AC-3.2, AC-4.1–4.4, AC-6.1–6.3 — deps: T10
+- [x] T12: Screen B3 — Batch detail (+ mark-paid, discard, email, PDF) — refs: AC-2.1–2.4, AC-3.2, AC-4.1–4.4, AC-6.1–6.3 — deps: T10
   - touch: `refund-ui/src/pages/BatchDetailPage.tsx` (+test), `src/components/MarkPaidDialog.tsx` (NEW — checkbox-gated confirm) (+test)
   - Header (`BatchStatusBadge`, cutoff, generated-at/by, ref), overall + per-employee groups (rows link to `/refund/review/$id`), **Download PDF** (`BatchPdfLink`), email status + **Resend** (`ToastBanner` feedback), **Mark-as-paid** (`MarkPaidDialog` — high-stakes checkbox-gated, focus-trapped, irreversible wording), **Discard** (`ConfirmDeleteModal` destructive). 409 races → `GuardrailDialog`. Status-driven variants (compiled/paid/discarded). This is also the email deep-link landing page. Integrates T4/T5/T6/T8.
   - done when: tests cover the status variants, MarkPaidDialog's disabled-until-checkbox + focus trap, mark-paid/discard success + 409 guardrail, resend toast, and PDF mint; a11y (focus-on-transition, `aria-live`).
