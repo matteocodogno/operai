@@ -17,14 +17,34 @@ datasource db {
 // constraints add a second, DB-native line of defense for financial data —
 // consistent with this plan's overall "defense in depth" posture (ADR-0018).
 
-// draft|submitted|approved|rejected only. `withdrawn` is NOT a status — it is
+// draft|submitted|approved|rejected|paid. `withdrawn` is NOT a status — it is
 // an AuditAction recording the submitted→draft transition (Gate-2 D1,
-// plan.md Risk R6). Do not add a fifth value here.
+// plan.md Risk R6).
+//
+// `paid` (specs/008-refund-monthly-processing, ADR-0020) is a fifth, terminal
+// value — it SUPERSEDES the original 007 "do not add a fifth value here"
+// freeze (that freeze was never given its own ADR; ADR-0020 is the canonical
+// record of why it no longer holds). `paid` inherits every existing
+// mutation guard for free: 007's edit/delete/decide guards gate on
+// `status == 'draft'` or `status == 'submitted'` only — `paid` is neither,
+// so it is exactly as immutable as `approved`/`rejected` with zero guard
+// changes (verified against lines.repo/lifecycle.repo/decide.repo).
 enum RefundStatus {
   draft
   submitted
   approved
   rejected
+  paid
+}
+
+// Compiled-batch lifecycle (specs/008-refund-monthly-processing, ADR-0020).
+// Exactly three values, each reached at most once per batch, both exits
+// (paid, discarded) are terminal and mutually exclusive (compare-and-swap
+// on `status='compiled'` — see RefundBatch below).
+enum BatchStatus {
+  compiled
+  paid
+  discarded
 }
 
 // Reuses auth's `user.entity` string values verbatim (welld_it | welld_ch).
@@ -69,12 +89,21 @@ enum ExpenseType {
 
 // One row per audited state-relevant event (US-8, ADR-0018). Written inside
 // the same transaction as the event it records.
+//
+// batch_compiled|batch_paid|batch_discarded (specs/008-refund-monthly-processing,
+// ADR-0020/0022) extend this in place — one row per affected request per
+// batch action, `batchId` set on these three only (see RefundAuditEntry
+// below). No new table, no new trigger: the existing ADR-0018 immutability
+// trigger applies to these rows unchanged.
 enum AuditAction {
   submitted
   withdrawn
   approved
   rejected
   approved_total_set
+  batch_compiled
+  batch_paid
+  batch_discarded
 }
 
 // Two-phase presigned upload (ADR-0016, wired by T9): `pending` until the
@@ -101,7 +130,7 @@ enum UploadStatus {
 // welld_ch (AC-3.5/6.6) — so entity scoping is evaluated per-request via "at
 // least one line matches" (ADR-0015), never via a column on this table.
 model RefundRequest {
-  id                  String    @id @default(cuid())
+  id                  String       @id @default(cuid())
   ownerUserId         String
   ownerEmail          String
   ownerName           String?
@@ -112,16 +141,88 @@ model RefundRequest {
   decidedByEmail      String?
   // Non-null iff status == rejected (AC-7.3); left null/untouched otherwise.
   rejectionMotivation String?
+  // LIVE batch claim pointer (specs/008-refund-monthly-processing, ADR-0020).
+  // NULL = eligible for a future compile; non-null = currently claimed by a
+  // `compiled` or `paid` RefundBatch. Nulled on discard (released back to
+  // the candidate pool) and overwritable by a later batch once released —
+  // this field is NOT the permanent membership record (see RefundBatchItem
+  // for that). onDelete: Restrict — a claimed request cannot be deleted out
+  // from under its batch.
+  batchId             String?
+  batch               RefundBatch? @relation(fields: [batchId], references: [id], onDelete: Restrict)
 
   lines        RefundLine[]
   auditEntries RefundAuditEntry[]
+  batchItems   RefundBatchItem[]  @relation("BatchItemRequest")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([ownerUserId, status]) // list-own (AC-3.1)
   @@index([status]) // queue base filter (AC-5.1), combined with the line entity join at query time
+  @@index([status, batchId, decidedAt]) // candidate query: approved ∧ batchId NULL ∧ decidedAt<=cutoff (specs/008 AC-1.2)
   @@map("refund_request")
+}
+
+// RefundBatch — a compiled run: a frozen set of `approved` requests as of a
+// chosen cutoff, tied to one generated PDF (specs/008-refund-monthly-processing,
+// ADR-0019/0020). Never mutated in place beyond its own terminal-once status
+// transition and the email/paid/discarded provenance fields below.
+model RefundBatch {
+  id                     String      @id @default(cuid())
+  cutoff                 DateTime // AC-1.1 (defaults to now if not overridden — applied in the handler, not a DB default)
+  status                 BatchStatus @default(compiled)
+  createdByUserId        String // generating accounting user (AC-1.6 header)
+  createdByEmail         String
+  // refund/batches/{id}/compiled.pdf — no PII in the key (ADR-0019).
+  pdfObjectKey           String      @unique
+  // The configured distribution address, captured at compile time (ADR-0021).
+  recipientEmailSnapshot String
+  // Compilation-email delivery status surfaced in-app (AC-3.2), updated on
+  // send/resend. "sent" | "failed" | null (never attempted) — validated at
+  // the application boundary, not a DB enum (mirrors notify-api's own
+  // delivery-status convention).
+  emailStatus            String?
+  emailLastAttemptAt     DateTime?
+  emailDeliveryId        String? // notify-api EmailDelivery id, for support tracing
+  // Terminal-transition provenance (the audit trail is the authoritative
+  // record of *that* it happened — these back the AC-2.1/AC-6.1 in-app
+  // display without a join).
+  paidAt                 DateTime?
+  paidByEmail            String?
+  discardedAt            DateTime?
+  discardedByEmail       String?
+
+  items        RefundBatchItem[]
+  requests     RefundRequest[] // live "currently claimed by" pointer (nulled on discard)
+  auditEntries RefundAuditEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt]) // history list (AC-8.1/8.2)
+  @@map("refund_batch")
+}
+
+// RefundBatchItem — immutable membership snapshot (specs/008-refund-monthly-processing,
+// ADR-0020). Records that a request was ONCE in a batch, kept forever even
+// after discard and even if the request is later re-included in a different
+// batch (AC-6.3, AC-7.3). This — NOT RefundRequest.batchId — is the durable
+// membership of record and the input ADR-0019's PDF renderer reads from, so
+// a discarded batch's PDF still resolves (AC-1.10/6.3). onDelete: Restrict
+// on both FKs — never deleted, and makes a once-batched request/batch
+// physically undeletable.
+model RefundBatchItem {
+  id        String        @id @default(cuid())
+  batchId   String
+  batch     RefundBatch   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  requestId String
+  request   RefundRequest @relation("BatchItemRequest", fields: [requestId], references: [id], onDelete: Restrict)
+  createdAt DateTime      @default(now())
+
+  @@unique([batchId, requestId]) // a request appears once per batch
+  @@index([requestId]) // AC-7.3 "which batches has this request ever been in"
+  @@map("refund_batch_item")
 }
 
 // RefundLine — a single expense-line item, entity-scoped individually
@@ -155,8 +256,8 @@ model RefundLine {
   // other type (AC-1.2/1.6). Nullable at the DB level — validated at the API
   // boundary, not by a CHECK constraint, so the same table shape serves every
   // expense type without a partial/conditional column.
-  km                 Int?
-  approvedTotalCents Int?
+  km                   Int?
+  approvedTotalCents   Int?
 
   attachments Attachment[]
 
@@ -214,6 +315,13 @@ model RefundAuditEntry {
   requestId String
   request   RefundRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
   lineId    String?
+  // Set on batch_compiled|batch_paid|batch_discarded rows only; null on every
+  // pre-existing 007 action, which has no batch to reference
+  // (specs/008-refund-monthly-processing, ADR-0022). onDelete: Restrict
+  // matches the requestId FK above — a RefundBatch with audit history is as
+  // physically undeletable as a request with audit history.
+  batchId   String?
+  batch     RefundBatch?  @relation(fields: [batchId], references: [id], onDelete: Restrict)
 
   actorUserId String
   actorEmail  String
@@ -225,5 +333,6 @@ model RefundAuditEntry {
   createdAt DateTime @default(now())
 
   @@index([requestId, createdAt])
+  @@index([batchId]) // AC-7.1 "the full set of request IDs affected" per (batchId, action)
   @@map("refund_audit_entry")
 }
