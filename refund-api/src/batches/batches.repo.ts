@@ -389,3 +389,36 @@ export function listBatchSummaries(): Effect.Effect<
     catch: toDbErr("Failed to list refund batches"),
   });
 }
+
+// ─── Email delivery status write-back (T5) ─────────────────────────────────
+
+export interface EmailAttemptOutcome {
+  readonly status: "sent" | "failed";
+  readonly deliveryId: string | null;
+}
+
+/**
+ * Persists the outcome of a compilation-email send/resend attempt
+ * (AC-3.2) — `emailStatus`/`emailLastAttemptAt`/`emailDeliveryId`. Called
+ * AFTER the email send has already been attempted (batches/email.ts); a
+ * failure here is itself best-effort-logged by the caller, never allowed to
+ * fail the triggering compile/resend response.
+ */
+export function recordEmailAttempt(
+  batchId: string,
+  outcome: EmailAttemptOutcome,
+): Effect.Effect<void, DatabaseError> {
+  return Effect.tryPromise({
+    try: async () => {
+      await db.refundBatch.update({
+        where: { id: batchId },
+        data: {
+          emailStatus: outcome.status,
+          emailLastAttemptAt: new Date(),
+          emailDeliveryId: outcome.deliveryId,
+        },
+      });
+    },
+    catch: toDbErr("Failed to record batch email delivery status"),
+  });
+}

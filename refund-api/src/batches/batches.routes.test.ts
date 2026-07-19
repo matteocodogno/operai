@@ -33,6 +33,16 @@
  *           RefundBatchItem, not the nulled live batchId pointer)
  * AC-3.4    GET /batches/:id/pdf-url mints post-authz, 404, and lazily
  *           regenerates the PDF object on a storage miss (ADR-0019)
+ *
+ * AC coverage (T5 done-when)
+ * ──────────────────────────
+ * AC-3.1 compile auto-sends `/system/emails` with the app deep link + the
+ *        configured recipient; a mocked email failure still returns 201
+ *        (compile is never blocked/failed by email delivery)
+ * AC-3.2 the resulting emailStatus is visible on GET /batches/:id
+ * AC-3.3 resend mints a fresh `/system/emails` call, same address, works
+ *        on any status, never recompiles; always 200 regardless of outcome
+ * AC-3.4 the email `to` is only the configured distribution address
  */
 
 import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
@@ -87,6 +97,38 @@ mock.module("../lib/storage", () => ({
   mintPresignedGet: async (objectKey: string) => {
     mintPresignedGetCalls.push(objectKey);
     return `https://mock.example.com/${objectKey}?signed`;
+  },
+}));
+
+// ─── Mock the notify-api email caller — no live notify-api (T5) ────────────
+
+interface NotifyBatchCompiledCall {
+  readonly batchId: string;
+  readonly recipientEmail: string;
+  readonly requestCount: number;
+}
+
+let notifyBatchCompiledCalls: NotifyBatchCompiledCall[] = [];
+// Scriptable per test — defaults to "sent" (the common case); a test can
+// override this to exercise AC-3.3's "compile/resend succeeds even when the
+// email fails" soft-failure posture.
+let notifyBatchCompiledOutcome: { status: "sent" | "failed"; deliveryId: string | null } = {
+  status: "sent",
+  deliveryId: "delivery-1",
+};
+
+mock.module("../lib/notifyEmail", () => ({
+  notifyBatchCompiled: async (input: {
+    batchId: string;
+    recipientEmail: string;
+    requestCount: number;
+  }) => {
+    notifyBatchCompiledCalls.push({
+      batchId: input.batchId,
+      recipientEmail: input.recipientEmail,
+      requestCount: input.requestCount,
+    });
+    return notifyBatchCompiledOutcome;
   },
 }));
 
@@ -183,6 +225,8 @@ beforeEach(async () => {
   putObjectCalls = [];
   mintPresignedGetCalls = [];
   storedObjectKeys.clear();
+  notifyBatchCompiledCalls = [];
+  notifyBatchCompiledOutcome = { status: "sent", deliveryId: "delivery-1" };
 });
 
 afterAll(async () => {
@@ -355,7 +399,10 @@ describe("POST /batches", () => {
     expect(body.status).toBe("compiled");
     expect(body.requestCount).toBe(2);
     expect(body.subtotals).toEqual([{ currency: "EUR", approvedCents: 1500 }]);
-    expect(body.email).toEqual({ status: null, lastAttemptAt: null });
+    // T5: compile auto-sends the compilation email (AC-3.1) — the mock
+    // defaults to "sent" (see beforeEach).
+    expect(body.email.status).toBe("sent");
+    expect(body.email.lastAttemptAt).not.toBeNull();
     expect(body.paidAt).toBeNull();
     expect(body.pdf.url).toContain(body.id);
 
@@ -793,5 +840,171 @@ describe("GET /batches/:id/pdf-url", () => {
     expect(putObjectCalls).toHaveLength(1); // regenerated
     expect(putObjectCalls[0]?.objectKey).toBe(batch.pdfObjectKey);
     expect(mintPresignedGetCalls).toEqual([batch.pdfObjectKey]);
+  });
+});
+
+// ─── Compilation email — auto-send on compile (T5) ─────────────────────────
+
+describe("POST /batches — compilation email auto-send", () => {
+  it("(AC-3.1/3.4) sends the compilation email to the configured distribution address with the app deep link", async () => {
+    await createApprovedRequest([{ entity: "welld_it" }, { entity: "welld_it" }], {
+      ownerUserId: "emp-a",
+    });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; email: { status: string | null } };
+
+    expect(notifyBatchCompiledCalls).toHaveLength(1);
+    expect(notifyBatchCompiledCalls[0]?.batchId).toBe(body.id);
+    expect(notifyBatchCompiledCalls[0]?.recipientEmail).toBe("accounting@welld.ch");
+    expect(body.email.status).toBe("sent");
+
+    const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
+    expect(batchRow.emailStatus).toBe("sent");
+    expect(batchRow.emailDeliveryId).toBe("delivery-1");
+    expect(batchRow.emailLastAttemptAt).not.toBeNull();
+  });
+
+  it("(AC-3.1/3.3) a mocked email failure does NOT fail the compile — 201 with emailStatus:failed", async () => {
+    notifyBatchCompiledOutcome = { status: "failed", deliveryId: null };
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; email: { status: string | null } };
+    expect(body.email.status).toBe("failed");
+
+    const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
+    expect(batchRow.status).toBe("compiled"); // batch itself is unaffected
+    expect(batchRow.emailStatus).toBe("failed");
+  });
+
+  it("(AC-3.2) the emailStatus is visible on a subsequent GET /batches/:id", async () => {
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const compileRes = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    const compiled = (await compileRes.json()) as { id: string };
+
+    const res = await batchesRouter.request(`/batches/${compiled.id}`, {
+      headers: authHeaders(token),
+    });
+    const body = (await res.json()) as { email: { status: string | null; lastAttemptAt: string | null } };
+    expect(body.email.status).toBe("sent");
+    expect(body.email.lastAttemptAt).not.toBeNull();
+  });
+});
+
+// ─── POST /batches/:id/email (resend, T5) ──────────────────────────────────
+
+describe("POST /batches/:id/email", () => {
+  it("(AC-3.3) a non-accounting caller (no request:review) → 403", async () => {
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await batchesRouter.request("/batches/does-not-exist/email", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("(404) no batch with that id", async () => {
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches/does-not-exist/email", {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("(AC-3.3) resends to the SAME snapshotted address, works on a discarded batch, never recompiles", async () => {
+    const request = await createApprovedRequest(
+      [{ entity: "welld_it", approvedTotalCents: 400 }],
+      { ownerUserId: "emp-a" },
+    );
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "discarded",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+        discardedAt: new Date(),
+        discardedByEmail: "acct1@x.com",
+      },
+    });
+    await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+    notifyBatchCompiledCalls = []; // no compile happened for this batch
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request(`/batches/${batch.id}/email`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { emailStatus: string; emailDeliveryId: string | null };
+    expect(body.emailStatus).toBe("sent");
+    expect(body.emailDeliveryId).toBe("delivery-1");
+
+    expect(notifyBatchCompiledCalls).toHaveLength(1);
+    expect(notifyBatchCompiledCalls[0]?.recipientEmail).toBe("accounting@welld.ch");
+    expect(notifyBatchCompiledCalls[0]?.batchId).toBe(batch.id);
+
+    // The batch itself is unchanged — no recompile.
+    const refreshed = await db.refundBatch.findUniqueOrThrow({ where: { id: batch.id } });
+    expect(refreshed.status).toBe("discarded");
+    expect(refreshed.emailStatus).toBe("sent");
+  });
+
+  it("(AC-3.3) any status (any outcome) still returns 200", async () => {
+    notifyBatchCompiledOutcome = { status: "failed", deliveryId: null };
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "compiled",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+      },
+    });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request(`/batches/${batch.id}/email`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { emailStatus: string };
+    expect(body.emailStatus).toBe("failed");
   });
 });
