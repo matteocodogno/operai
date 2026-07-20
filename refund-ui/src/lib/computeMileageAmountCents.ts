@@ -17,23 +17,13 @@
  * 0.5)` is exact for every non-negative `x` here since amounts are always
  * ≥ 0 (a submittable line requires `km > 0` and `rate > 0`, AC-1.4/AC-4.5).
  *
- * DRIFT NOTE (flagged in this task's implementation report — refund-api's
- * T3/T4 rate module is UNIMPLEMENTED as of this task; this worktree has no
- * `refund-api/src/rates/` at all yet). `specs/009-mileage-rate/plan.md`'s own
- * "## API contracts" worked JSON example (`mileage.computedAmountCents:
- * 168000` for `km: 240` / `appliedRate.ratePerKmMicros: 700000`, plan.md line
- * 382) is INCONSISTENT with this same plan's Decision 3 / ADR-0025 formula by
- * a factor of 10: `240 × 700000 / 10_000 = 16800`, not `168000` — and 16800
- * is also the only value consistent with the plan's own stated rate ("CHF
- * 0.70/km × 240 km = CHF 168.00" ⇒ 16800 rappen; 168000 rappen would be CHF
- * 1'680.00, ~10× too much for that rate/distance). This module implements
- * the FORMULA (mathematically self-consistent, verified against its own
- * derivation and against ADR-0025's worked reasoning), NOT the JSON example's
- * literal figure — flagged for architect/backend-dev confirmation before
- * T3/T5 land, so refund-api's real implementation and this module don't
- * diverge 10× at integration (exactly the R1 failure mode the shared-vector
- * mitigation exists to prevent). See this module's test file for the
- * corrected canonical vectors.
+ * Canonical rule: `amountCents = roundHalfUp(km × ratePerKmMicros / 10_000)`
+ * (micros→major is /1e6, major→cents is ×100, net /1e4). refund-api implements
+ * the IDENTICAL rule and both sides share the same test vectors (R1): e.g.
+ * `240 × 700000 / 10_000 = 16800` rappen (CHF 0.70/km × 240 km = CHF 168.00),
+ * `100 × 700000 → 7000`, `1 × 15000 → 2` (half-up tie). (A worked JSON example
+ * in an early draft of plan.md showed `168000` here — a 10× error corrected in
+ * commit `eeeea25`; the normative formula was always right.)
  */
 
 /**

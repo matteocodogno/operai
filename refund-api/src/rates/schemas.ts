@@ -36,6 +36,12 @@ const CalendarDateSchema = IsoDateOnlyShapeSchema.refine(isValidCalendarDate, {
 // magnitude typed by the admin; negativity/zero is rejected below (AC-4.5).
 const RATE_PER_KM_DECIMAL_RE = /^\d+(\.\d{1,6})?$/;
 
+// Upper bound so an absurdly large input can never overflow the 32-bit
+// `ratePerKmMicros Int` column with a 500 (OWASP A08 hardening) — it is
+// rejected as a clean 422 instead. 100.000000 major units/km (= 1e8 micros)
+// is far above any real reimbursement rate yet well under Int32 max (~2.1e9).
+const MAX_RATE_PER_KM_MICROS = 100_000_000;
+
 export const AddRateBodySchema = z
   .object({
     entity: EntitySchema,
@@ -60,6 +66,12 @@ export const AddRateBodySchema = z
         code: z.ZodIssueCode.custom,
         path: ["ratePerKm"],
         message: "ratePerKm must be greater than zero",
+      });
+    } else if (micros > MAX_RATE_PER_KM_MICROS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ratePerKm"],
+        message: "ratePerKm is too large (maximum 100 per km)",
       });
     }
   });

@@ -235,6 +235,20 @@ describe("POST /rates", () => {
     expect(await db.mileageRate.count()).toBe(0);
   });
 
+  it("(AC-4.5, A08) an over-large value is rejected with 422 (never an Int overflow 500) and nothing is persisted", async () => {
+    const token = await harness.signToken({ sub: "admin-1", email: "admin@welld.ch" });
+    harness.setResolve(async () => rateManagePerms);
+
+    const tooLarge = await ratesRouter.request("/rates", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ entity: "welld_ch", ratePerKm: "99999999999", validFrom: "2026-08-01" }),
+    });
+    expect(tooLarge.status).toBe(422);
+
+    expect(await db.mileageRate.count()).toBe(0);
+  });
+
   it("(AC-4.5) a missing/invalid validFrom is rejected with 422 and nothing is persisted", async () => {
     const token = await harness.signToken({ sub: "admin-1", email: "admin@welld.ch" });
     harness.setResolve(async () => rateManagePerms);
