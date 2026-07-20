@@ -398,6 +398,22 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
   runs under the shell's origin). This includes `notify-api`'s SSE stream
   endpoint — its `Access-Control-Allow-Origin` is pinned to the shell origin
   too (plan.md). Redeploy the affected service after a change.
+- **`refund-api.ALLOWED_ORIGINS` gains admin-ui's OWN origin**
+  (specs/009-mileage-rate, T8, plan.md Risk R8) — admin-ui's new Mileage
+  Rates screen calls `refund-api`'s `/rates` endpoints directly (Bearer-authed,
+  cross-origin, via `shell/session`'s `apiFetch`), the plan's chosen wiring
+  (admin-ui hosts the screen; `refund-api` stays the sole data/logic owner —
+  see ADR-0023). When admin-ui runs COMPOSED inside the shell (the normal
+  path in production), the browser Origin is already the SHELL's — already
+  covered by the entry above, no change needed there. The NEW origin this
+  bullet adds is for admin-ui's OWN origin — its standalone dev server
+  (`http://localhost:5177`) and any Vercel Preview deploy of the `admin-ui`
+  project (`https://admin-ui-<hash>.vercel.app` — Vercel Preview URLs are
+  per-deploy, so exact-match CORS can't pin one in advance; treat Preview
+  verification of this specific flow as a manual step, same known gap noted
+  for the shell CSP below) — add these to `refund-api`'s `ALLOWED_ORIGINS`
+  per environment. Hono CORS layer ONLY; `refund-api` has no better-auth
+  `trustedOrigins` to keep in sync (unlike the `auth` service).
 - **OAuth redirect URIs** (better-auth mounts at `/auth`):
   - Google Cloud Console → your OAuth client → Authorized redirect URIs:
     `<AUTH_URL>/auth/callback/google`
@@ -515,7 +531,7 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | Variable | Value | Secret |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/refund` — **its own logical DB, `refund`** | yes |
-| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin) | no |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin) **+ admin-ui's own origin** (specs/009-mileage-rate, T8: `https://admin.operai.welld.io` — or its Preview URL, see § Phase 3 — for the `/rates` Mileage Rates screen's direct cross-origin call; composed-shell traffic is already covered by the shell origin alone) | no |
 | `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (same endpoint every resource server uses — **not** `/.well-known/jwks.json`) | no |
 | `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) — also the base URL `refund-api`'s `authzMiddleware` (T6) builds `GET /authz/resolve` against; no separate env var for that call | no |
 | `AUTH_AUDIENCE` | Byte-for-byte identical to `auth.AUTH_AUDIENCE`, `estimai-api.AUTH_AUDIENCE`, `notify-api.AUTH_AUDIENCE` — `refund-api` is the suite's THIRD JWKS resource server on this shared value. | no |
