@@ -40,6 +40,14 @@ export function setupOpenAPI(app: OpenAPIHono): void {
           "atomic compile claim, and (in later tasks) reads, email, " +
           "mark-paid, and discard (specs/008-refund-monthly-processing).",
       },
+      {
+        name: "Rates",
+        description:
+          "Per-entity, effective-dated mileage rates — admin-managed " +
+          "history/audit (rate:read/rate:manage) and the employee-facing " +
+          "effective-rate lookup (refund:access) that drives computed " +
+          "travel_km amounts (specs/009-mileage-rate).",
+      },
     ],
   });
 

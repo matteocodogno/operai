@@ -14,6 +14,8 @@ import { reviewRouter } from "./review/review.routes";
 import { decideRouter } from "./review/decide.routes";
 import { batchesRouter } from "./batches/batches.routes";
 import { batchDecideRouter } from "./batches/decide.routes";
+import { ratesRouter } from "./rates/routes";
+import { rateEffectiveRouter } from "./rates/effective.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -64,6 +66,12 @@ app.route("/", batchesRouter);
 // batchDecideRouter: batch terminal transitions — mark-paid + discard,
 // specs/008-refund-monthly-processing (T6/T8).
 app.route("/", batchDecideRouter);
+// ratesRouter: mileage-rate management (GET/POST /rates), gated by the new
+// rate:read/rate:manage capability — specs/009-mileage-rate (T4).
+app.route("/", ratesRouter);
+// rateEffectiveRouter: GET /rates/effective, the employee-facing live-recompute
+// read gated by refund:access only — specs/009-mileage-rate (T4).
+app.route("/", rateEffectiveRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 
