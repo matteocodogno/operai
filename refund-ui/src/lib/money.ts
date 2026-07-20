@@ -63,3 +63,22 @@ export const formatMoney = (cents: number, currency: Currency): string => {
 
   return `${negative ? '-' : ''}${whole},${decimals} ${CURRENCY_SUFFIX[currency]}`
 }
+
+/**
+ * Formats a per-km mileage rate for display, e.g. `"0,70 CHF/km"` — mirrors
+ * `formatMoney`'s comma-decimal + currency-suffix convention (specs/009-
+ * mileage-rate, T12/T13/T14: a single shared formatter for both the
+ * employee's live `km × rate = amount` breakdown (`MileageAmountField`, F1
+ * AC-1.8) and accounting's "Rate applied" display (`ExpenseLineRow`'s
+ * `summaryCore`, F4 AC-6.4), so the two surfaces always read identically.
+ *
+ * `ratePerKm` is `refund-api`'s own already-formatted decimal STRING
+ * (plan.md "## API contracts": `GET /rates/effective` → `"ratePerKm":
+ * "0.70"`; the `mileage.appliedRate.ratePerKm` line field is the same
+ * shape) — this only re-punctuates it (dot → comma) and appends the
+ * unit-suffixed currency; it never re-derives the value from
+ * `ratePerKmMicros` itself (that division is `computeMileageAmountCents`'s
+ * job, not display formatting).
+ */
+export const formatRatePerKm = (ratePerKm: string, currency: Currency): string =>
+  `${ratePerKm.replace('.', ',')} ${CURRENCY_SUFFIX[currency]}/km`

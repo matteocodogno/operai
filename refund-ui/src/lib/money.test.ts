@@ -5,7 +5,7 @@
  * (off-by-100), unit-tested per currency.
  */
 import { describe, expect, it } from 'vitest'
-import { formatMoney } from './money'
+import { formatMoney, formatRatePerKm } from './money'
 
 describe('formatMoney — EUR', () => {
   it('formats whole euros with two zero decimals', () => {
@@ -96,5 +96,16 @@ describe('formatMoney — integer-cents contract', () => {
   it('never produces float-division drift for values that are awkward in IEEE 754 (e.g. 3 cents)', () => {
     expect(formatMoney(3, 'EUR')).toBe('0,03 €')
     expect(formatMoney(103, 'CHF')).toBe('1,03 CHF')
+  })
+})
+
+describe('formatRatePerKm (specs/009-mileage-rate)', () => {
+  it('re-punctuates the dot decimal to a comma and appends the unit-suffixed currency', () => {
+    expect(formatRatePerKm('0.70', 'CHF')).toBe('0,70 CHF/km')
+    expect(formatRatePerKm('0.70', 'EUR')).toBe('0,70 €/km')
+  })
+
+  it('passes through whatever precision refund-api already formatted, unmodified beyond punctuation', () => {
+    expect(formatRatePerKm('0.725', 'CHF')).toBe('0,725 CHF/km')
   })
 })
