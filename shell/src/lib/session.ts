@@ -88,6 +88,24 @@ const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
  */
 export const getAuthBaseUrl = (): string => getAuthUrl()
 
+/**
+ * Returns the refund-api base URL from the Vite environment.
+ * Read lazily (not at module scope) — mirrors getAuthUrl() exactly, so tests
+ * can inject the value before the first call.
+ */
+const getRefundApiUrl = (): string => import.meta.env.VITE_REFUND_API_URL as string
+
+/**
+ * The refund-api base URL (`VITE_REFUND_API_URL`), exposed for federated
+ * remotes (T9, specs/009-mileage-rate, plan.md "admin-ui → refund-api call
+ * path"). admin-ui's new `ratesApi.ts` calls refund-api's `/rates` endpoints
+ * directly (a cross-service call, not proxied through auth) and — exactly
+ * like `getAuthBaseUrl()` above — ships no `VITE_REFUND_API_URL` of its own,
+ * so it must source refund-api's origin from the shell rather than its own
+ * `import.meta.env`. Mirrors `getAuthBaseUrl()` verbatim.
+ */
+export const getRefundApiBaseUrl = (): string => getRefundApiUrl()
+
 /** Clears the in-memory JWT cache. */
 export const clearJwtCache = (): void => {
   cachedJwt = null

@@ -57,6 +57,8 @@ const {
   EMPTY_PERMISSIONS,
   registerSuiteNavigate,
   navigateSuite,
+  getAuthBaseUrl,
+  getRefundApiBaseUrl,
 } = await import('./session')
 type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 
@@ -722,5 +724,32 @@ describe('navigateSuite', () => {
     expect(fn).toHaveBeenCalledOnce()
     expect(fn).toHaveBeenCalledWith('/refund/reports/7')
     expect(window.location.assign).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getRefundApiBaseUrl (T9, specs/009-mileage-rate) — mirrors getAuthBaseUrl()
+// exactly: a thin, lazily-read accessor over VITE_REFUND_API_URL, exposed so
+// a remote (admin-ui's new ratesApi.ts) can source refund-api's origin from
+// the shell instead of its own (nonexistent) import.meta.env.
+// ---------------------------------------------------------------------------
+
+describe('getAuthBaseUrl / getRefundApiBaseUrl', () => {
+  it('getAuthBaseUrl() returns the VITE_AUTH_URL configured on the shell', () => {
+    expect(getAuthBaseUrl()).toBe(AUTH_URL)
+  })
+
+  it('getRefundApiBaseUrl() returns the VITE_REFUND_API_URL configured on the shell', () => {
+    vi.stubEnv('VITE_REFUND_API_URL', REFUND_API_URL)
+
+    expect(getRefundApiBaseUrl()).toBe(REFUND_API_URL)
+  })
+
+  it('getRefundApiBaseUrl() reads the env lazily, not at module-evaluation time', () => {
+    vi.stubEnv('VITE_REFUND_API_URL', 'http://first.test')
+    expect(getRefundApiBaseUrl()).toBe('http://first.test')
+
+    vi.stubEnv('VITE_REFUND_API_URL', 'http://second.test')
+    expect(getRefundApiBaseUrl()).toBe('http://second.test')
   })
 })
