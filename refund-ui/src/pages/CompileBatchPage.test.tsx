@@ -128,6 +128,20 @@ describe('CompileBatchPage — empty candidate set (AC-1.4)', () => {
     expect(screen.getByTestId('compile-batch-compile-button')).toHaveProperty('disabled', true)
     expect(batchesApi.compile).not.toHaveBeenCalled()
   })
+
+  it('surfaces a warning modal for the empty candidate set, dismissable to the (still-empty) page', async () => {
+    vi.mocked(batchesApi.listCandidates).mockResolvedValue(emptyPreview)
+    renderCompileBatchPage()
+
+    // The empty result is unmissable — a modal, not just the muted inline line.
+    await waitFor(() => expect(screen.getByTestId('guardrail-dialog')).not.toBeNull())
+    expect(screen.getByTestId('guardrail-dialog').textContent).toMatch(/nothing to compile/i)
+
+    // Acknowledging dismisses the modal but leaves the user on the page (no forced navigation).
+    fireEvent.click(screen.getByTestId('guardrail-dialog-ok'))
+    await waitFor(() => expect(screen.queryByTestId('guardrail-dialog')).toBeNull())
+    expect(screen.getByTestId('compile-batch-empty-state')).not.toBeNull()
+  })
 })
 
 describe('CompileBatchPage — populated preview', () => {

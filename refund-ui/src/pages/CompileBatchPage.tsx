@@ -9,6 +9,7 @@ import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import PermissionDenied from '../components/PermissionDenied'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
+import GuardrailDialog from '../components/GuardrailDialog'
 import BatchSubtotalsPanel from '../components/BatchSubtotalsPanel'
 import BatchEmployeeGroupList from '../components/BatchEmployeeGroupList'
 
@@ -90,13 +91,20 @@ export default function CompileBatchPage() {
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
   const [compileDialog, setCompileDialog] = useState<CompileDialogState>({ open: false })
+  // Whether the current empty-candidate warning modal has been dismissed. Reset
+  // to `false` at the start of every load so a fresh preview that comes back
+  // empty re-surfaces the warning (the initial landing AND every "Preview").
+  const [emptyWarningAcknowledged, setEmptyWarningAcknowledged] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     Promise.resolve()
       .then(() => {
-        if (!cancelled) setPreviewState({ status: 'loading' })
+        if (!cancelled) {
+          setPreviewState({ status: 'loading' })
+          setEmptyWarningAcknowledged(false)
+        }
       })
       .then(() => batchesApi.listCandidates(activeCutoffIso))
       .then((preview) => {
@@ -162,6 +170,8 @@ export default function CompileBatchPage() {
   }, [previewState, activeCutoffIso, navigate, t])
 
   const canCompile = previewState.status === 'loaded' && previewState.preview.requestCount > 0
+  const showEmptyWarning =
+    previewState.status === 'loaded' && previewState.preview.requestCount === 0 && !emptyWarningAcknowledged
 
   return (
     <section aria-labelledby="refund-compile-batch-heading" data-testid="refund-compile-batch-page">
@@ -185,11 +195,15 @@ export default function CompileBatchPage() {
         </div>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap items-end gap-3" data-testid="compile-batch-cutoff-row">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="compile-batch-cutoff" className="text-sm font-medium" style={{ color: 'var(--text)' }}>
-                {t.cutoffLabel}
-              </label>
+          <div className="mt-4" data-testid="compile-batch-cutoff-row">
+            <label
+              htmlFor="compile-batch-cutoff"
+              className="block text-sm font-medium mb-1"
+              style={{ color: 'var(--text)' }}
+            >
+              {t.cutoffLabel}
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
               <input
                 id="compile-batch-cutoff"
                 type="datetime-local"
@@ -198,21 +212,26 @@ export default function CompileBatchPage() {
                 aria-describedby="compile-batch-cutoff-help"
                 data-testid="compile-batch-cutoff-input"
                 className="text-sm px-2.5 py-1.5 rounded-md border"
-                style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--ink-soft)', color: 'var(--text)' }}
+                style={{
+                  borderColor: 'var(--rule)',
+                  backgroundColor: 'var(--ink-soft)',
+                  color: 'var(--text)',
+                  colorScheme: 'dark',
+                }}
               />
-              <p id="compile-batch-cutoff-help" className="text-xs max-w-sm" style={{ color: 'var(--muted)' }}>
-                {t.cutoffHelp}
-              </p>
+              <button
+                type="button"
+                onClick={handlePreviewClick}
+                data-testid="compile-batch-preview-button"
+                className="py-1.5 px-3 text-sm font-medium border transition-opacity hover:opacity-80"
+                style={{ borderColor: 'var(--acc)', color: 'var(--acc)' }}
+              >
+                {t.previewButton}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handlePreviewClick}
-              data-testid="compile-batch-preview-button"
-              className="py-1.5 px-3 text-sm font-medium border transition-opacity hover:opacity-80"
-              style={{ borderColor: 'var(--acc)', color: 'var(--acc)' }}
-            >
-              {t.previewButton}
-            </button>
+            <p id="compile-batch-cutoff-help" className="text-xs max-w-sm mt-1" style={{ color: 'var(--muted)' }}>
+              {t.cutoffHelp}
+            </p>
           </div>
 
           <div className="mt-4">
@@ -259,6 +278,14 @@ export default function CompileBatchPage() {
             </button>
           </div>
         </>
+      )}
+
+      {showEmptyWarning && (
+        <GuardrailDialog
+          title={t.emptyWarning.title}
+          message={t.emptyWarning.message}
+          onAcknowledge={() => setEmptyWarningAcknowledged(true)}
+        />
       )}
 
       {compileDialog.open && previewState.status === 'loaded' && (

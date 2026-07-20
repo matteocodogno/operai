@@ -310,6 +310,12 @@ const en = {
       loadErrorFallback: 'Could not load the candidate set.',
       /** The compile-empty-set refusal (AC-1.4) — a real, successful, empty result, not an error. */
       empty: 'No approved, unbatched requests are eligible as of this cutoff.',
+      /** Warning modal shown when a preview returns an empty candidate set — so an empty result is unmissable, not a silent muted line. */
+      emptyWarning: {
+        title: 'Nothing to compile',
+        message:
+          'There are no approved, unbatched requests eligible as of this cutoff. Approve requests in the review queue first, or adjust the cutoff and preview again.',
+      },
       compileButton: 'Compile this batch',
       /** Post-compile one-shot confirmation, carried to Screen B3 via the `confirmation` search param (design.md F1 step 6). */
       successConfirmation: (count: number) => `Batch compiled — ${count} request${count === 1 ? '' : 's'}, PDF ready`,
