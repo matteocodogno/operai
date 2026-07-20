@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { strings } from '../strings'
 import * as batchesApi from '../lib/batchesApi'
@@ -91,27 +91,32 @@ export default function CompileBatchPage() {
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
   const [compileDialog, setCompileDialog] = useState<CompileDialogState>({ open: false })
-  // Whether the current empty-candidate warning modal has been dismissed. Reset
-  // to `false` at the start of every load so a fresh preview that comes back
-  // empty re-surfaces the warning (the initial landing AND every "Preview").
-  const [emptyWarningAcknowledged, setEmptyWarningAcknowledged] = useState(false)
+  // The empty-candidate warning modal is a response to an explicit "Preview"
+  // click, NOT to the initial auto-load (which the user reaches just by opening
+  // the screen) nor to error retries / post-cancel refreshes. `previewInitiatedRef`
+  // marks the in-flight load as user-initiated; the effect consumes it and only
+  // then opens the warning when the result is empty.
+  const previewInitiatedRef = useRef(false)
+  const [emptyWarningOpen, setEmptyWarningOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     Promise.resolve()
       .then(() => {
-        if (!cancelled) {
-          setPreviewState({ status: 'loading' })
-          setEmptyWarningAcknowledged(false)
-        }
+        if (!cancelled) setPreviewState({ status: 'loading' })
       })
       .then(() => batchesApi.listCandidates(activeCutoffIso))
       .then((preview) => {
-        if (!cancelled) setPreviewState({ status: 'loaded', preview })
+        if (cancelled) return
+        setPreviewState({ status: 'loaded', preview })
+        const userInitiated = previewInitiatedRef.current
+        previewInitiatedRef.current = false
+        if (userInitiated && preview.requestCount === 0) setEmptyWarningOpen(true)
       })
       .catch((error: unknown) => {
         if (cancelled) return
+        previewInitiatedRef.current = false
         if (error instanceof ApiError && error.status === 403) {
           setPreviewState({ status: 'forbidden' })
         } else {
@@ -131,6 +136,9 @@ export default function CompileBatchPage() {
   const handlePreviewClick = useCallback(() => {
     const iso = datetimeLocalToIso(cutoffInput)
     if (iso === null) return
+    // Mark this load as user-initiated so the effect surfaces the empty-set
+    // warning modal if it comes back with no candidates.
+    previewInitiatedRef.current = true
     setActiveCutoffIso(iso)
     setReloadToken((n) => n + 1)
   }, [cutoffInput])
@@ -170,8 +178,6 @@ export default function CompileBatchPage() {
   }, [previewState, activeCutoffIso, navigate, t])
 
   const canCompile = previewState.status === 'loaded' && previewState.preview.requestCount > 0
-  const showEmptyWarning =
-    previewState.status === 'loaded' && previewState.preview.requestCount === 0 && !emptyWarningAcknowledged
 
   return (
     <section aria-labelledby="refund-compile-batch-heading" data-testid="refund-compile-batch-page">
@@ -280,11 +286,11 @@ export default function CompileBatchPage() {
         </>
       )}
 
-      {showEmptyWarning && (
+      {emptyWarningOpen && (
         <GuardrailDialog
           title={t.emptyWarning.title}
           message={t.emptyWarning.message}
-          onAcknowledge={() => setEmptyWarningAcknowledged(true)}
+          onAcknowledge={() => setEmptyWarningOpen(false)}
         />
       )}
 

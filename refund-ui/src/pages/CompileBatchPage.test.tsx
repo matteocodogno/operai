@@ -129,11 +129,17 @@ describe('CompileBatchPage — empty candidate set (AC-1.4)', () => {
     expect(batchesApi.compile).not.toHaveBeenCalled()
   })
 
-  it('surfaces a warning modal for the empty candidate set, dismissable to the (still-empty) page', async () => {
+  it('does NOT warn on the initial auto-load, but pops a warning modal when Preview is clicked and the set is empty', async () => {
     vi.mocked(batchesApi.listCandidates).mockResolvedValue(emptyPreview)
     renderCompileBatchPage()
 
-    // The empty result is unmissable — a modal, not just the muted inline line.
+    // Landing on the screen shows the inline empty state — but NO modal (the
+    // user just opened the page, they didn't ask to preview).
+    await waitFor(() => expect(screen.getByTestId('compile-batch-empty-state')).not.toBeNull())
+    expect(screen.queryByTestId('guardrail-dialog')).toBeNull()
+
+    // An explicit Preview click that comes back empty surfaces the modal.
+    fireEvent.click(screen.getByTestId('compile-batch-preview-button'))
     await waitFor(() => expect(screen.getByTestId('guardrail-dialog')).not.toBeNull())
     expect(screen.getByTestId('guardrail-dialog').textContent).toMatch(/nothing to compile/i)
 
