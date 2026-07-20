@@ -91,7 +91,7 @@ English-only UI copy via `strings.ts`.
 
 ## Verification & close
 
-- [ ] T15: E2E headline journey (Playwright) — refs: AC-1.x, AC-3.x, AC-4.x, AC-5.x — deps: T11, T12, T13, T5, T6
+- [x] T15: E2E headline journey (Playwright) — refs: AC-1.x, AC-3.x, AC-4.x, AC-5.x — deps: T11, T12, T13, T5, T6
   - touch: `shell/e2e/` (per specs/007 convention)
   - Journey: accounting sets a cutoff → previews → compiles a mixed-employee/mixed-currency batch → downloads the PDF + sees the email status → marks paid → the employee sees their request as `paid`; plus a discard→re-eligible path.
   - done when: the e2e journeys pass against the running stack (attachments/email mocked where a live bucket/Resend isn't available — report honestly).
