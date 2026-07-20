@@ -96,7 +96,7 @@ English-only UI copy via `strings.ts`.
   - Journey: accounting sets a cutoff → previews → compiles a mixed-employee/mixed-currency batch → downloads the PDF + sees the email status → marks paid → the employee sees their request as `paid`; plus a discard→re-eligible path.
   - done when: the e2e journeys pass against the running stack (attachments/email mocked where a live bucket/Resend isn't available — report honestly).
 
-- [ ] T16: Close — all gates green, spec status → done — refs: (all) — deps: T1–T15
+- [x] T16: Close — all gates green, spec status → done — refs: (all) — deps: T1–T15
   - done when: every task checked; QE PASS + owasp resolved; a fresh passing `eval-report.md`; then `/wellforge:done 008-refund-monthly-processing`.
 
 ---

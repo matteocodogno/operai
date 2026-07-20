@@ -1,10 +1,11 @@
 ---
 id: 008
 slug: refund-monthly-processing
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-19
 approved: 2026-07-19
+done: 2026-07-20
 ---
 
 # Refund monthly processing: PDF compilation, email delivery & "mark as paid"
