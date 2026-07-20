@@ -235,7 +235,10 @@ decideRouter.openapi(setApprovedTotalRoute, async (c) => {
     setApprovedTotal(id, lineId, approvedTotalCents, scope, sub, email),
   );
   if (exit._tag === "Success") {
-    return c.json(mapLine(exit.value), 200);
+    // setApprovedTotal only ever succeeds while the request is `submitted`
+    // (ensureInScopeSubmittedRequest's guard) — a travel_km line here is
+    // always FROZEN (Decision 1), never live.
+    return c.json(mapLine(exit.value, "submitted"), 200);
   }
 
   const cause = exit.cause;
