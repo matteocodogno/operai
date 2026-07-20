@@ -52,7 +52,22 @@ const NOTIFY_API_URL =
 
 const uniqueSuffix = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 
-/** Composes a single expense line and submits the draft, returning the request id (mirrors refund-headline.spec.ts). */
+/**
+ * Composes a single expense line and submits the draft, returning the
+ * request id (mirrors refund-headline.spec.ts).
+ *
+ * specs/009-mileage-rate DEFECT FIX (QE pass): for `type: 'travel_km'`,
+ * `ExpenseLineComposer` now hides `composer-amount`/`composer-currency`
+ * entirely (AC-1.1/1.6 — a computed, read-only breakdown replaces them),
+ * so unconditionally filling them (this helper's ORIGINAL behavior) times
+ * out and fails for any travel_km fixture. This helper is now type-aware;
+ * no caller in THIS file passes `type: 'travel_km'` any more (Employee B's
+ * fixture below was swapped to `travel_train` — a manual-amount type — to
+ * avoid ALSO depending on a mileage rate being configured for its
+ * entity/date, which this monthly-processing suite has no reason to seed).
+ * specs/009's OWN mileage flow gets its dedicated coverage in
+ * `mileage-rate.spec.ts` (T15).
+ */
 async function composeAndSubmit(
   page: Page,
   line: { date: string; type: string; motivo: string; amount: string; entity: string; km?: string },
@@ -63,10 +78,12 @@ async function composeAndSubmit(
   await expect(page.getByTestId('refund-request-detail-page')).toBeVisible({ timeout: 20_000 })
   await expect(page.getByTestId('request-detail-draft')).toBeVisible({ timeout: 20_000 })
 
+  const isMileage = line.type === 'travel_km'
+
   await page.getByTestId('composer-date').fill(line.date)
   await page.getByTestId('composer-type').selectOption(line.type)
   await page.getByTestId('composer-motivo').fill(line.motivo)
-  await page.getByTestId('composer-amount').fill(line.amount)
+  if (!isMileage) await page.getByTestId('composer-amount').fill(line.amount)
   await page.getByTestId('composer-entity').selectOption(line.entity)
   if (line.km) await page.getByTestId('composer-km').fill(line.km)
   await page.getByTestId('composer-add-button').click()
@@ -139,13 +156,17 @@ test.describe('specs/008-refund-monthly-processing T15: headline journeys', () =
     const empBContext = await browser.newContext()
     await applySessionCookie(empBContext, empBSession)
     const empBPage = await empBContext.newPage()
+    // NOTE (QE pass, specs/009-mileage-rate): was `type: 'travel_km'` — swapped
+    // to `travel_train` (see composeAndSubmit's doc comment above). This suite
+    // cares about mixed-employee/mixed-currency batch mechanics, not mileage,
+    // so a manual-amount type preserves the original coverage intent without
+    // requiring a mileage rate to be configured for welld_ch/this date.
     const requestBId = await composeAndSubmit(empBPage, {
       date: '2026-07-02',
-      type: 'travel_km',
+      type: 'travel_train',
       motivo: `Batch fixture B ${tag}`,
       amount: '45',
       entity: 'welld_ch',
-      km: '80',
     })
 
     // ─── Accounting: approve both (untouched approved totals) ──────────────

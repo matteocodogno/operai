@@ -44,7 +44,21 @@ const NOTIFY_API_URL =
 
 const uniqueSuffix = () => `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 
-/** Waits for the composer's "Add line" button to re-enable, then submits it and waits for the row to appear. */
+/**
+ * Waits for the composer's "Add line" button to re-enable, then submits it
+ * and waits for the row to appear.
+ *
+ * specs/009-mileage-rate DEFECT FIX (QE pass): `composer-amount` no longer
+ * renders at all for `type: 'travel_km'` (AC-1.1/1.6 — a computed, read-only
+ * breakdown replaces it), so unconditionally filling it (this helper's
+ * ORIGINAL behavior) times out for a travel_km fixture. Guarded below; no
+ * caller in THIS file passes `type: 'travel_km'` any more (Journey 1's Line 2
+ * was swapped to `travel_train` — see below) since a travel_km line's amount
+ * is no longer freely choosable and would additionally require a mileage
+ * rate configured for its entity/date, which this 007 journey has no reason
+ * to depend on. specs/009's OWN mileage flow has its dedicated coverage in
+ * `mileage-rate.spec.ts` (T15).
+ */
 async function addExpenseLine(
   page: Page,
   line: { date: string; type: string; motivo: string; amount: string; entity: string; km?: string },
@@ -52,7 +66,7 @@ async function addExpenseLine(
   await page.getByTestId('composer-date').fill(line.date)
   await page.getByTestId('composer-type').selectOption(line.type)
   await page.getByTestId('composer-motivo').fill(line.motivo)
-  await page.getByTestId('composer-amount').fill(line.amount)
+  if (line.type !== 'travel_km') await page.getByTestId('composer-amount').fill(line.amount)
   await page.getByTestId('composer-entity').selectOption(line.entity)
   if (line.km) {
     await page.getByTestId('composer-km').fill(line.km)
@@ -104,14 +118,23 @@ test.describe('specs/007-refund-service T21: headline journeys', () => {
       amount: '50',
       entity: 'welld_it',
     })
-    // Line 2 — WellD CH (CHF), travel_km — proves the type-driven km field (AC-1.2) and the mixed-entity request (AC-3.5).
+    // Line 2 — WellD CH (CHF), a second manual-amount type — proves the
+    // mixed-entity request (AC-3.5). Was `travel_km` (which used to also
+    // exercise the type-driven km field, AC-1.2 007-era); swapped to
+    // `travel_train` under specs/009-mileage-rate (QE pass, DEFECT FIX): a
+    // travel_km line's amount is no longer freely choosable (it's a
+    // computed `km × the entity's in-effect mileage rate`, AC-1.1/2.1), so
+    // hardcoding `amount: '30'` here no longer reflects reality and would
+    // additionally require a mileage rate to be configured for welld_ch on
+    // this date — a dependency this 007 journey was never meant to carry.
+    // The travel_km line UX itself is covered by refund-ui's own component
+    // tests and by `mileage-rate.spec.ts`'s (T15) dedicated e2e journey.
     await addExpenseLine(empPage, {
       date: '2026-07-02',
-      type: 'travel_km',
+      type: 'travel_train',
       motivo: `Client visit ${tag}`,
       amount: '30',
       entity: 'welld_ch',
-      km: '120',
     })
 
     // Per-currency subtotals — never blended (AC-3.5).
