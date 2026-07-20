@@ -53,7 +53,25 @@ describe("REFUND_CATALOG (T2, AC-1.1/5.4/7.5/8.2)", () => {
     }
   });
 
-  test("declares exactly two resources — app access and `request` — nothing else", () => {
-    expect(REFUND_CATALOG.resources.map((r) => r.key).sort()).toEqual(["refund", "request"]);
+  test("declares exactly three resources — app access, `request`, and `rate` — nothing else", () => {
+    expect(REFUND_CATALOG.resources.map((r) => r.key).sort()).toEqual(
+      ["rate", "refund", "request"].sort(),
+    );
+  });
+});
+
+describe("REFUND_CATALOG `rate` resource (T1, specs/009-mileage-rate)", () => {
+  test("declares exactly `read` and `manage` actions", () => {
+    const rateResource = REFUND_CATALOG.resources.find((r) => r.key === "rate");
+    expect(rateResource).toBeDefined();
+    expect(rateResource?.actions.map((a) => a.key).sort()).toEqual(["manage", "read"]);
+  });
+
+  test("`read` and `manage` are both UNCONDITIONED — no entity scope, unlike `request` (Decision 2)", () => {
+    const rateResource = REFUND_CATALOG.resources.find((r) => r.key === "rate");
+    for (const key of ["read", "manage"]) {
+      const action = rateResource?.actions.find((a) => a.key === key);
+      expect(action?.supportedConditions).toEqual([]);
+    }
   });
 });
