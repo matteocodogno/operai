@@ -32,6 +32,13 @@ declare module 'shell/session' {
   export const apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   /** The auth service base URL (the shell's VITE_AUTH_URL) — remotes build /admin/* + /authz/* URLs against this. */
   export const getAuthBaseUrl: () => string
+  /**
+   * The refund-api base URL (the shell's VITE_REFUND_API_URL — T9,
+   * specs/009-mileage-rate). admin-ui's `ratesApi.ts` builds `/rates`
+   * request URLs against this, mirroring `getAuthBaseUrl()` — see
+   * plan.md's "admin-ui → refund-api call path" decision.
+   */
+  export const getRefundApiBaseUrl: () => string
   export const signOut: (...args: unknown[]) => Promise<unknown>
   export const clearJwtCache: () => void
 }
