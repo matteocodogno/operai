@@ -1,0 +1,38 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-20T18-30-00Z-orchestrate-009-mileage-rate",
+  "command": "orchestrate",
+  "feature": "009-mileage-rate",
+  "rigor": "production",
+  "started": "2026-07-20T12:00:00Z",
+  "finished": "2026-07-20T18:30:00Z",
+  "worktree": "isolation used for the parallel implementation batch (4 dependency-independent agents across separate repos: refund-api / auth / shell+admin-ui / refund-ui); each ff-merged feat/009-mileage-rate then committed on its own branch; the orchestrator cherry-picked the task commits linearly onto the feature branch (no --no-ff merge commits, per CLAUDE.md), skipping one agent's internal merge commit; checkboxes reconciled centrally",
+  "agents": [
+    { "agent": "product-owner", "stage": "spec", "outcome": "completed", "note": "spec.md: 6 stories, 27->31 ACs; folded 3 user-decided open questions (append-only rate entries, backdating allowed, show rate breakdown); 3 remaining open questions deferred to architect" },
+    { "agent": "architect", "stage": "plan", "outcome": "completed", "note": "plan.md: rate logic in refund-api (not auth), MileageRate append-only self-auditing table, snapshot-at-submit, new global rate permission, integer-micros precision; resolved all 3 open questions; REVISED at plan gate per user direction to host the management screen in admin-ui (chose call-path A: admin-ui->refund-api /rates cross-origin via shell/session apiFetch + getRefundApiBaseUrl(); rejected B: proxy via auth)" },
+    { "agent": "adr-writer", "stage": "plan", "outcome": "completed", "note": "ADRs 0023 (rate model + snapshot + admin-ui composition), 0024 (append-only self-auditing table), 0025 (money precision integer micros) + CLAUDE.md index" },
+    { "agent": "designer", "stage": "design", "outcome": "completed", "note": "design.md: 7 flows across two frontends; 1 NEW refund-ui component (MileageAmountField) + 3 NEW admin-ui (MileageRatesPage/AddRateEntryModal/RateInEffectBadge); flagged PermissionDenied message-prop gap + admin-ui no-strings.ts i18n tension (pre-existing)" },
+    { "agent": "backend-dev", "tasks": ["T1"], "outcome": "completed", "commits": ["454a2ff"], "note": "auth: rate resource (read/manage, unconditioned) + seed grants to admin/refund-admin; succeeded on self-contained inline instructions despite the artifact-commit slip (branch lacked plan.md at merge time)" },
+    { "agent": "backend-dev", "tasks": ["T2","T3","T4","T5","T6","T7","T8"], "outcome": "completed", "commits": ["7c9322b","5c13158","14f0223","53846ed","ef79856","62d628b","8111d67","0d8d0a5"], "note": "refund-api core: schema+migration+immutability trigger, pure resolve+compute, /rates module, line mapping + server-derived travel_km write, submit/withdraw snapshot, immutability+downstream tests, CORS; independently caught the 10x rounding-example bug and implemented the correct 16800/7000/2" },
+    { "agent": "frontend-dev", "tasks": ["T9","T10","T11"], "outcome": "completed", "commits": ["bcd9b9c","734e3db","1ccc2ff"], "note": "shell getRefundApiBaseUrl(); admin-ui ratesApi + Mileage Rates screen (history/add/audit, RateInEffectBadge, PermissionDenied message prop); nav gated on rate:read, add-button on rate:manage per design.md (drift note vs task's rate:manage-nav)" },
+    { "agent": "frontend-dev", "tasks": ["T12","T13","T14"], "outcome": "completed", "commits": ["0005767","ee1babc"], "note": "refund-ui: shared computeMileageAmountCents + ratesApi, MileageAmountField live breakdown, employee line hides amount/currency, accounting review applied-rate display; flagged the plan's 10x example bug (same one backend caught)" },
+    { "agent": "quality-engineer", "tasks": ["T1-T15"], "outcome": "PASS", "commits": ["e6e9f70"], "note": "every AC-1.1..AC-6.4 covered; gates green per repo (pre-existing dev-DB/test-order flakes confirmed unrelated); rounding parity + server-authoritative amount verified; T15 e2e authored (env-blocked, integration-proven); CAUGHT+FIXED a real regression: 007/008 e2e specs used travel_km with manual amounts -> made helpers travel_km-aware, swapped to travel_train" },
+    { "agent": "owasp-reviewer", "tasks": ["T1-T14"], "outcome": "PASS", "findings": { "critical": 0, "high": 0, "medium": 0, "low": 0 }, "note": "clean on POST /rates server-side authz + JWT-derived createdBy (adversarial test), server-authoritative travel_km amount/currency, DB-level MileageRate immutability, scoped CORS (no trustedOrigins widening), least-privilege GET /rates/effective; 2 informational (ratePerKm overflow->500, no dedicated 503 test)" },
+    { "agent": "orchestrator", "tasks": ["fix-round"], "outcome": "completed", "commits": ["0ff8301"], "note": "bounded ratePerKm (overflow -> 422 not 500, OWASP A08 informational) + refreshed stale refund-ui doc comment; skipped the narrow both-fields-invalid 422 mapping (cross-service contract change, satisfies AC-4.5 as-is)" },
+    { "agent": "evaluator", "stage": "eval", "outcome": "PASS", "note": "95/100 (threshold 80); AC satisfaction 5, spec fidelity 5, test quality 5, code quality 5, design fidelity 5, trajectory 2 (neutral floor, no run trace); no dimension below floor; independently re-ran suites + confirmed rounding parity" }
+  ],
+  "drift_events": [
+    { "at": "spec", "item": "6 open questions", "resolution": "3 user-decided via AskUserQuestion (append-only / backdating / show-rate); 3 architect-decided in the plan (snapshot-at-submit / global rate permission / micros precision)" },
+    { "at": "plan gate", "item": "rate-management screen location", "resolution": "user chose admin-ui over the architect's refund-ui recommendation; architect revised the plan (call-path A, refund-api keeps data+logic ownership)" },
+    { "at": "implementation start", "item": "spec/plan/design/tasks + ADRs not committed before dev agents dispatched", "resolution": "ORCHESTRATOR ERROR — worktree agents branched off a tip lacking the artifacts; flagged by the auth agent; artifacts committed as 63b918e, running agents told inline instructions were authoritative; all 4 completed correctly" },
+    { "at": "implementation", "item": "10x error in plan.md's worked computedAmountCents example (168000 vs correct 16800)", "resolution": "independently caught by BOTH backend and frontend devs; implemented the correct formula (16800/7000/2); plan example fixed in eeeea25; parity confirmed by QE + eval" },
+    { "at": "QE", "item": "007/008 e2e specs used travel_km with manual amount (now removed by AC-1.1/1.6)", "resolution": "QE made helpers travel_km-aware and swapped fixtures to travel_train; committed e6e9f70" },
+    { "at": "post-OWASP", "item": "ratePerKm overflow -> 500 (informational)", "resolution": "orchestrator fix round bounded it -> 422 (0ff8301)" }
+  ],
+  "collision_events": [],
+  "verdicts": { "qe": "PASS (all ACs covered; e2e authored, live run env-blocked)", "owasp": "PASS (0 findings; 2 informational, 1 fixed)", "eval": "PASS (95/100)" },
+  "result": "completed",
+  "notes": "16 tasks across auth/refund-api/shell/admin-ui/refund-ui + e2e. Extends specs/007+008. 2 human gates (spec, plan) approved; plan re-presented once after the user moved the rate screen to admin-ui. New ADRs 0023-0025. Feature branch feat/009-mileage-rate NOT yet merged to main/pushed (user's call) — note main still lacks 007/008 too; the whole refund stack (007/008/009 + earlier session fixes) is stacked on this branch. Follow-ups (non-blocking): run the T15 e2e in a 1Password-available env with a fresh refund-api process (its openapi didn't list /rates on the stale shared dev instance); devops test-DB isolation for auth's seed tests; optional tighten of admin-ui both-fields 422 mapping.",
+  "tokens": null,
+  "cost_usd": null
+}

@@ -1,10 +1,11 @@
 ---
 id: 009
 slug: mileage-rate
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-20
 approved: 2026-07-20
+done: 2026-07-20
 ---
 
 # Mileage rate: computed amounts for travel-km expense lines

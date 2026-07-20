@@ -79,12 +79,12 @@ e2e = Playwright. Domains in brackets guide agent dispatch.
   - Show the applied rate (value + validFrom) alongside each mileage line's amount during review, without disturbing the approved-total editing (AC-6.1). Legacy null `appliedRate` renders gracefully (amount only, no breakdown).
   - done when: component test renders applied rate + validFrom in review mode; null case omits the breakdown, keeps the amount.
 
-- [ ] T15: e2e — cross-service mileage flow — refs: US-4, US-1, US-2, US-3, US-6 — deps: T7, T8, T11, T13, T14  **[quality-engineer]**
+- [x] T15: e2e — cross-service mileage flow — refs: US-4, US-1, US-2, US-3, US-6 — deps: T7, T8, T11, T13, T14  **[quality-engineer]**
   - touch: `shell/e2e/mileage-rate.spec.ts` (seeded-session helper)
   - admin adds a rate in admin-ui → employee drafts a travel_km line + submits in refund-ui → accounting reviews and sees the applied rate; assert the computed amount and the snapshot freeze.
   - done when: the Playwright path passes against the running stack (or is authored + committed with each AC it exercises independently proven at integration level, mirroring 007/008 if 1Password-gated env blocks the live run).
 
-- [ ] T16: close — all gates green, spec status → done — deps: T1–T15
+- [x] T16: close — all gates green, spec status → done — deps: T1–T15
   - done when: every task checked, QE PASS + owasp clean (≥medium fixed), eval PASS; spec `status: done`.
 
 ## Coverage map (AC → task)
