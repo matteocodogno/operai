@@ -14,3 +14,24 @@ export const getSession = async () => null
 export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)
 export const signOut = async () => undefined
 export const clearJwtCache = () => undefined
+
+// usePermissions (specs/004-auth-roles-permissions) — added for RefundShell's
+// client-side accounting-tab gate (specs/008-refund-monthly-processing
+// follow-up). Unlike the other exports above, App.test.tsx does NOT
+// vi.mock('shell/session') and so resolves straight to this stub — its nav
+// assertions (App.test.tsx: "nav links carry the /refund basepath") expect
+// the pre-existing three-tab nav, so this default grants an unconditioned
+// request:review rather than mirroring EMPTY_PERMISSIONS. router.test.tsx and
+// RefundShell.test.tsx both override this via vi.mock to exercise the gate
+// itself (including the EMPTY_PERMISSIONS/no-grant cases) in isolation.
+export const usePermissions = () => ({
+  epoch: 0,
+  apps: ['refund'] as string[],
+  roles: [] as string[],
+  departments: [] as string[],
+  permissions: [{ resource: 'request', action: 'review' }] as {
+    resource: string
+    action: string
+    conditions?: unknown
+  }[],
+})

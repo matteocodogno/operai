@@ -31,6 +31,27 @@ declare module 'shell/session' {
   export const apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   export const signOut: (...args: unknown[]) => Promise<unknown>
   export const clearJwtCache: () => void
+
+  // Permission resolution (specs/004-auth-roles-permissions, ADR-0007) — added
+  // for RefundShell's client-side "hide the accounting nav tabs" UX gate
+  // (specs/008-refund-monthly-processing follow-up). Mirrors
+  // shell/src/lib/session.ts's `Permission`/`PermissionsResult`/`usePermissions`
+  // exactly; only the members refund-ui actually consumes are typed here.
+  export interface Permission {
+    resource: string
+    action: string
+    conditions?: unknown
+  }
+
+  export interface PermissionsResult {
+    epoch: number
+    apps: string[]
+    roles: string[]
+    departments: string[]
+    permissions: Permission[]
+  }
+
+  export const usePermissions: () => PermissionsResult
 }
 
 declare module 'shell/tokens.css' {

@@ -35,6 +35,19 @@ import { RouterProvider } from '@tanstack/react-router'
 
 vi.mock('shell/session', () => ({
   apiFetch: vi.fn(),
+  // RefundShell (the router's root component) reads usePermissions() to
+  // gate the "Review queue"/"Monthly processing" tabs (specs/008 follow-up,
+  // RefundShell.tsx); these ROUTING-level tests aren't about that gate, so
+  // grant request:review unconditionally to preserve the pre-existing
+  // "all three tabs render" shape. RefundShell.test.tsx covers the gate
+  // itself in isolation.
+  usePermissions: vi.fn(() => ({
+    epoch: 0,
+    apps: ['refund'],
+    roles: [],
+    departments: [],
+    permissions: [{ resource: 'request', action: 'review' }],
+  })),
 }))
 
 import { apiFetch } from 'shell/session'
