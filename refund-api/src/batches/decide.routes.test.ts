@@ -70,6 +70,13 @@ await harness.init();
 // see file header re: possible cross-file module-cache sharing) ───────────
 
 const storedObjectKeys = new Set<string>();
+// Scriptable per test (OWASP A04 fix round) — simulates a genuine object-
+// storage outage at the presign step, reached by every `resolvePdfLink`
+// call (pdfLink.ts) regardless of hit/miss. Used to prove mark-paid/discard
+// still return 200 with the COMMITTED state even when the incidental `pdf`
+// field on the response can't be resolved (pdfLink.ts never throws — a
+// failure here must never look like the terminal transition itself failed).
+let mintPresignedGetShouldFail = false;
 
 mock.module("../lib/storage", () => ({
   putObject: async (objectKey: string) => {
@@ -77,7 +84,12 @@ mock.module("../lib/storage", () => ({
   },
   headObject: async (objectKey: string) =>
     storedObjectKeys.has(objectKey) ? { sizeBytes: 1, contentType: "application/pdf" } : null,
-  mintPresignedGet: async (objectKey: string) => `https://mock.example.com/${objectKey}?signed`,
+  mintPresignedGet: async (objectKey: string) => {
+    if (mintPresignedGetShouldFail) {
+      throw new Error("simulated object-storage outage (mintPresignedGet)");
+    }
+    return `https://mock.example.com/${objectKey}?signed`;
+  },
 }));
 
 const { batchDecideRouter } = await import("./decide.routes");
@@ -221,6 +233,8 @@ beforeEach(async () => {
   __resetAuthzCacheForTests();
   notifyPaidCalls = [];
   notifyShouldFail = false;
+  storedObjectKeys.clear();
+  mintPresignedGetShouldFail = false;
 });
 
 afterAll(async () => {
@@ -305,6 +319,42 @@ describe("POST /batches/:id/mark-paid", () => {
     });
     expect(auditRows).toHaveLength(2);
     expect(auditRows.every((r) => r.actorUserId === "acct-approver")).toBe(true);
+  });
+
+  it("(OWASP A04 fix round) a failing PDF regen never blocks the COMMITTED mark-paid — still 200 with pdf: null", async () => {
+    const { batch, requestIds } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com", approvedTotalCents: 500 },
+    ]);
+
+    // Simulate a genuine object-storage outage AFTER the mark-paid
+    // transaction is guaranteed to run — resolvePdfLink (pdfLink.ts) is
+    // reached only from fetchDetailAfterTransition, i.e. strictly after
+    // markBatchPaid has already committed. This must never turn an
+    // already-applied financial action into a misleading 500.
+    mintPresignedGetShouldFail = true;
+
+    harness.setResolve(async () => accountingPerms);
+    const token = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+
+    const res = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      paidAt: string | null;
+      pdf: { url: string } | null;
+    };
+    expect(body.status).toBe("paid");
+    expect(body.paidAt).not.toBeNull();
+    expect(body.pdf).toBeNull();
+
+    // The transaction genuinely committed — not just the HTTP response shape.
+    const dbRequests = await db.refundRequest.findMany({ where: { id: { in: requestIds } } });
+    expect(dbRequests.every((r) => r.status === "paid")).toBe(true);
+    const dbBatch = await db.refundBatch.findUniqueOrThrow({ where: { id: batch.id } });
+    expect(dbBatch.status).toBe("paid");
   });
 
   it("(AC-4.3) a second mark-paid on an already-paid batch → 409", async () => {
@@ -432,6 +482,35 @@ describe("POST /batches/:id/discard", () => {
     });
     expect(auditRows).toHaveLength(2);
     expect(auditRows.every((r) => r.actorUserId === "acct-discarder")).toBe(true);
+  });
+
+  it("(OWASP A04 fix round) a failing PDF regen never blocks the COMMITTED discard — still 200 with pdf: null", async () => {
+    const { batch, requestIds } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com" },
+    ]);
+
+    mintPresignedGetShouldFail = true;
+
+    harness.setResolve(async () => reviewOnlyPerms);
+    const token = await harness.signToken({ sub: "acct-discarder", email: "discarder@x.com" });
+
+    const res = await batchDecideRouter.request(`/batches/${batch.id}/discard`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      discardedAt: string | null;
+      pdf: { url: string } | null;
+    };
+    expect(body.status).toBe("discarded");
+    expect(body.discardedAt).not.toBeNull();
+    expect(body.pdf).toBeNull();
+
+    // The release genuinely committed — not just the HTTP response shape.
+    const dbRequests = await db.refundRequest.findMany({ where: { id: { in: requestIds } } });
+    expect(dbRequests.every((r) => r.batchId === null && r.status === "approved")).toBe(true);
   });
 
   it("(AC-6.1) a released request is immediately re-eligible for the next compile's candidate set", async () => {

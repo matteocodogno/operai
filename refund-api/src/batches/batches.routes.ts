@@ -82,6 +82,7 @@ import {
   BatchDetailSchema,
   BatchEmailActionResponseSchema,
   BatchIdParamSchema,
+  BatchPdfLinkSchema,
   BatchSummarySchema,
   CandidatePreviewSchema,
   CandidatesQuerySchema,
@@ -120,6 +121,15 @@ const payloadTooLargeProblem = (path: string, limitBytes: number) => ({
   title: "Payload Too Large",
   status: 413 as const,
   detail: `Request body exceeds the maximum allowed size of ${(limitBytes / 1024).toFixed(0)} KB.`,
+  instance: path,
+});
+
+/** OWASP A04 fix round — GET /batches/:id/pdf-url's translation of a `resolvePdfLink` failure (pdfLink.ts never throws; see its module doc). */
+const serviceUnavailableProblem = (path: string, detail: string) => ({
+  type: "https://httpstatuses.com/503",
+  title: "Service Unavailable",
+  status: 503 as const,
+  detail,
   instance: path,
 });
 
@@ -255,7 +265,9 @@ const compileRoute = createRoute({
     "request (AC-1.2/1.5). Refuses with 422 if the locked candidate set is " +
     "empty — nothing is created (AC-1.4). 403 if the caller holds no " +
     "`request:review` grant at all (AC-1.8). The compilation email (T5) is " +
-    "NOT sent by this endpoint.",
+    "NOT sent by this endpoint. `pdf` is `null` (never a failed 201) if the " +
+    "render/store/presign step could not complete right now — the batch " +
+    "itself is still fully created (OWASP A04 fix round).",
   security: [{ Bearer: [] }],
   request: {
     body: {
@@ -323,7 +335,13 @@ batchesRouter.openapi(compileRoute, async (c) => {
 
   // Post-commit, best-effort (ADR-0019 regenerable-cache posture): a failed
   // PutObject does NOT lose the committed batch — pdfObjectKey is already
-  // persisted deterministically; a later read (T4) lazily re-renders on miss.
+  // persisted deterministically; a later read (T4, via resolvePdfLink)
+  // lazily re-renders on miss. `pdfStored` gates whether we even ATTEMPT to
+  // mint a link below — minting a presigned GET for an object we just know
+  // was never written would just hand back a URL that 404s at the bucket
+  // (OWASP A04 fix round: `pdf: null` is the honest response here, matching
+  // every other batch surface's fail-soft contract, pdfLink.ts).
+  let pdfStored = false;
   try {
     const pdfInput = {
       batchId: batch.id,
@@ -334,6 +352,7 @@ batchesRouter.openapi(compileRoute, async (c) => {
     };
     const pdfBuffer = await renderBatchPdf(pdfInput);
     await putObject(batch.pdfObjectKey, pdfBuffer, "application/pdf");
+    pdfStored = true;
   } catch (error) {
     console.error(
       `[batches] failed to render/store the compiled PDF for batch ${batch.id} — ` +
@@ -357,8 +376,19 @@ batchesRouter.openapi(compileRoute, async (c) => {
     batch.requests.length,
   );
 
-  const pdfUrl = await mintPresignedGet(batch.pdfObjectKey);
-  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  let pdf: { url: string; expiresAt: string } | null = null;
+  if (pdfStored) {
+    try {
+      const pdfUrl = await mintPresignedGet(batch.pdfObjectKey);
+      pdf = { url: pdfUrl, expiresAt: new Date(Date.now() + 60_000).toISOString() };
+    } catch (error) {
+      console.error(
+        `[batches] failed to presign the compiled PDF link for batch ${batch.id} — ` +
+          "responding with pdf: null (OWASP A04 fail-soft posture):",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
 
   return c.json(
     mapBatchDetail(
@@ -368,7 +398,7 @@ batchesRouter.openapi(compileRoute, async (c) => {
         emailLastAttemptAt: new Date(),
         emailDeliveryId: emailOutcome.deliveryId,
       },
-      { url: pdfUrl, expiresAt },
+      pdf,
     ),
     201,
   );
@@ -489,7 +519,9 @@ const getBatchRoute = createRoute({
     "here (AC-2.1/6.3). Capability-gated (`request:review`), NOT " +
     "entity-scoped (D1). The `pdf` link is minted (and, if the object is " +
     "missing, lazily regenerated — ADR-0019) only AFTER the capability " +
-    "check passes.",
+    "check passes. `pdf` is `null` (never a failed response) if that " +
+    "render/store/presign step could not complete right now (OWASP A04 " +
+    "fix round) — the rest of the batch detail is always still returned.",
   security: [{ Bearer: [] }],
   request: { params: BatchIdParamSchema },
   responses: {
@@ -544,12 +576,18 @@ const pdfUrlRoute = createRoute({
     "Accounting-only, never employee-reachable (AC-3.4) — minted only AFTER " +
     "the `request:review` capability check passes. Lazily regenerates the " +
     "PDF object if it is missing (ADR-0019 regenerable-cache posture), so a " +
-    "discarded/paid batch's PDF still resolves (AC-1.10/6.3).",
+    "discarded/paid batch's PDF still resolves (AC-1.10/6.3). Unlike `GET " +
+    "/batches/:id` (which folds a link failure into `pdf: null` on an " +
+    "otherwise-200 body), THIS route's entire purpose is the link — a " +
+    "resolve failure here is reported as 503, not a null-carrying 200 " +
+    "(OWASP A04 fix round; `pdfLink.ts`'s fail-soft posture never throws, " +
+    "so this is a deliberate translation at this ONE call site, not a gap " +
+    "in it).",
   security: [{ Bearer: [] }],
   request: { params: BatchIdParamSchema },
   responses: {
     200: {
-      content: { "application/json": { schema: BatchDetailSchema.shape.pdf } },
+      content: { "application/json": { schema: BatchPdfLinkSchema } },
       description: "A short-lived (~60s) presigned GET",
     },
     401: { description: "Missing or invalid Bearer JWT" },
@@ -560,6 +598,10 @@ const pdfUrlRoute = createRoute({
     404: {
       content: { "application/json": { schema: ProblemSchema } },
       description: "No batch with that id",
+    },
+    503: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description: "The PDF could not be rendered/stored/presigned right now — retry shortly",
     },
   },
 });
@@ -585,5 +627,11 @@ batchesRouter.openapi(pdfUrlRoute, async (c) => {
   }
 
   const pdf = await resolvePdfLink(batch);
+  if (!pdf) {
+    return c.json(
+      serviceUnavailableProblem(c.req.path, "The batch PDF is temporarily unavailable — try again shortly"),
+      503,
+    );
+  }
   return c.json(pdf, 200);
 });

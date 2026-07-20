@@ -135,10 +135,16 @@ export interface BatchPdfLinkInput {
  * Per-request `status` similarly comes from each `CandidateRow.status`
  * (fetched fresh, not assumed) — `approved` while compiled/discarded,
  * `paid` after T6's mark-paid.
+ *
+ * `pdf` is `null` when `resolvePdfLink` (pdfLink.ts) could not resolve a
+ * link (render/store failure, OWASP A04 fix round) — this mapper is
+ * deliberately as permissive of that as of any other field, so a PDF-side
+ * failure never blocks producing a `BatchDetail` for an otherwise-healthy
+ * batch (critically: a COMMITTED mark-paid/discard, decide.routes.ts).
  */
 export function mapBatchDetail(
   batch: BatchWithRequests,
-  pdf: BatchPdfLinkInput,
+  pdf: BatchPdfLinkInput | null,
 ): BatchDetail {
   const allLines: LineRow[] = batch.requests.flatMap((r) => [...r.lines]);
   const employees = sortedOwnerGroups(groupByOwner(batch.requests)).map(

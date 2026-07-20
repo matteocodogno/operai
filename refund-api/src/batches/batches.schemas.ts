@@ -91,6 +91,14 @@ export const BatchPdfLinkSchema = z.object({
 });
 export type BatchPdfLink = z.infer<typeof BatchPdfLinkSchema>;
 
+/**
+ * `null` means the PDF is temporarily unavailable (a render/store failure —
+ * OWASP A04 fix round, `pdfLink.ts`'s fail-soft posture) — NEVER treat this
+ * as an error case; every route that surfaces `BatchDetail` returns 200 with
+ * `pdf: null` rather than failing the whole response.
+ */
+export const NullableBatchPdfLinkSchema = BatchPdfLinkSchema.nullable();
+
 export const BatchRequestSummarySchema = z.object({
   id: z.string(),
   status: z.string(),
@@ -119,7 +127,7 @@ export const BatchDetailSchema = z.object({
   paidBy: BatchTerminalActorSchema.nullable(),
   discardedAt: z.string().datetime().nullable(),
   discardedBy: BatchTerminalActorSchema.nullable(),
-  pdf: BatchPdfLinkSchema,
+  pdf: NullableBatchPdfLinkSchema,
 });
 export type BatchDetail = z.infer<typeof BatchDetailSchema>;
 

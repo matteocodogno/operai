@@ -86,6 +86,12 @@ let mintPresignedGetCalls: string[] = [];
 // tracked here so `headObject` can report it as present, matching real S3
 // semantics without a live bucket.
 const storedObjectKeys = new Set<string>();
+// Scriptable per test (OWASP A04 fix round) — simulates a genuine object-
+// storage outage (network/credentials/bucket) at the presign step, the ONE
+// step every `resolvePdfLink` call always reaches (hit or lazily-regenerated
+// miss alike). `resolvePdfLink` (pdfLink.ts) must degrade this to
+// `pdf: null`, never let it surface as an uncaught rejection / 500.
+let mintPresignedGetShouldFail = false;
 
 mock.module("../lib/storage", () => ({
   putObject: async (objectKey: string, body: Uint8Array, contentType: string) => {
@@ -95,6 +101,9 @@ mock.module("../lib/storage", () => ({
   headObject: async (objectKey: string) =>
     storedObjectKeys.has(objectKey) ? { sizeBytes: 1, contentType: "application/pdf" } : null,
   mintPresignedGet: async (objectKey: string) => {
+    if (mintPresignedGetShouldFail) {
+      throw new Error("simulated object-storage outage (mintPresignedGet)");
+    }
     mintPresignedGetCalls.push(objectKey);
     return `https://mock.example.com/${objectKey}?signed`;
   },
@@ -225,6 +234,7 @@ beforeEach(async () => {
   putObjectCalls = [];
   mintPresignedGetCalls = [];
   storedObjectKeys.clear();
+  mintPresignedGetShouldFail = false;
   notifyBatchCompiledCalls = [];
   notifyBatchCompiledOutcome = { status: "sent", deliveryId: "delivery-1" };
 });
@@ -717,6 +727,44 @@ describe("GET /batches/:id", () => {
     expect(body.pdf.url).toContain(compiled.id);
   });
 
+  it("(OWASP A04 fix round) a forced PDF link failure degrades to pdf: null on an otherwise-normal 200, never a 500", async () => {
+    const request = await createApprovedRequest(
+      [{ entity: "welld_it", approvedTotalCents: 400 }],
+      { ownerUserId: "emp-fail", ownerEmail: "fail@x.com" },
+    );
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "compiled",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+      },
+    });
+    await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+
+    // Simulate a genuine object-storage outage at the presign step —
+    // resolvePdfLink (pdfLink.ts) must never let this surface as a 500.
+    mintPresignedGetShouldFail = true;
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request(`/batches/${batch.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      requestCount: number;
+      pdf: { url: string } | null;
+    };
+    expect(body.status).toBe("compiled");
+    expect(body.requestCount).toBe(1);
+    expect(body.pdf).toBeNull();
+  });
+
   it("(AC-6.3) a discarded batch's membership is still visible via RefundBatchItem, not the (nulled) live batchId", async () => {
     const request = await createApprovedRequest(
       [{ entity: "welld_it", approvedTotalCents: 250 }],
@@ -840,6 +888,37 @@ describe("GET /batches/:id/pdf-url", () => {
     expect(putObjectCalls).toHaveLength(1); // regenerated
     expect(putObjectCalls[0]?.objectKey).toBe(batch.pdfObjectKey);
     expect(mintPresignedGetCalls).toEqual([batch.pdfObjectKey]);
+  });
+
+  it("(OWASP A04 fix round) a forced link-resolution failure → clean 503, never a 500", async () => {
+    const request = await createApprovedRequest(
+      [{ entity: "welld_it", approvedTotalCents: 300 }],
+      { ownerUserId: "emp-fail", ownerEmail: "fail@x.com" },
+    );
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(CUTOFF),
+        status: "compiled",
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+      },
+    });
+    await db.refundBatchItem.create({ data: { batchId: batch.id, requestId: request.id } });
+
+    mintPresignedGetShouldFail = true;
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request(`/batches/${batch.id}/pdf-url`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { title: string; status: number; detail: string };
+    expect(body.status).toBe(503);
+    expect(body.title).toBe("Service Unavailable");
   });
 });
 

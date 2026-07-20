@@ -1,11 +1,42 @@
 /**
  * Compiled-batch PDF renderer (T2, specs/008-refund-monthly-processing,
- * ADR-0019).
+ * ADR-0019; Unicode-font hardening — OWASP A04, specs/008 QE/security
+ * finding).
  *
  * A pure, deterministic function: `RefundBatchItem`-derived data in, a PDF
  * `Buffer` out. Built with `pdf-lib` (pure TypeScript, zero native modules,
  * no headless browser — ADR-0019 decision 1) directly from primitives (text
- * runs, rules, the standard Helvetica font) — no HTML/CSS layout engine.
+ * runs, rules, an embedded Unicode font) — no HTML/CSS layout engine.
+ *
+ * FONT CHOICE (OWASP A04 fix — chosen over character sanitization): the
+ * standard 14 PDF fonts (Helvetica et al.) only support WinAnsi/CP1252 and
+ * `pdf-lib` THROWS when asked to draw a character outside that charset.
+ * `employee.owner.name` is an unprivileged, employee-controlled OAuth
+ * display name with no charset validation — any emoji/CJK/Cyrillic/Arabic
+ * name reaching this renderer previously crashed it, which (via
+ * `pdfLink.ts`'s lazy-regenerate-on-miss) turned into a permanently
+ * unreadable batch. This module now embeds Noto Sans (Regular + Bold,
+ * `fonts/NotoSans-*.ttf`, SIL Open Font License 1.1 — see
+ * `fonts/LICENSE_OFL.txt`) via `@pdf-lib/fontkit` instead of sanitizing
+ * characters out: Noto Sans correctly renders Latin Extended, Cyrillic,
+ * Greek, and many other scripts (materially more names render CORRECTLY
+ * than under Helvetica, which matters for a payroll-adjacent document), and
+ * — just as importantly — a custom fontkit-embedded font resolves any
+ * codepoint it doesn't cover (CJK ideographs, emoji, Arabic shaping, …) to
+ * that font's own `.notdef` glyph via the font's cmap instead of throwing;
+ * pdf-lib's `CustomFontEmbedder` has no WinAnsi-style encode-time charset
+ * check the way `StandardFonts` do. So the renderer is now a genuinely total
+ * function of its Unicode input: legitimate non-Latin names render
+ * correctly, anything the bundled font can't shape degrades to a harmless
+ * blank glyph, and nothing ever throws. Bundling two ~560KB TTFs was judged
+ * "reasonably sized" (ADR-0019's own bar) against the alternative of a
+ * lossy sanitize-to-`?` pass that would mangle real people's names on a
+ * document accounting relies on for payroll reconciliation. Full CJK/emoji
+ * *glyph* coverage was explicitly out of scope — those alphabets need
+ * several more MB of separate font families each, which was judged
+ * impractical to bundle here; those names still degrade safely (blank
+ * glyphs) rather than crashing the renderer, matching the ADR-0019
+ * "regenerable, not perfect" posture already established for this cache.
  *
  * DETERMINISM (ADR-0019 decision 5, ADR regenerable-cache posture): the only
  * "now" this module ever renders is the caller-supplied `generatedAt` — the
@@ -17,7 +48,10 @@
  * gap. Employees and their per-currency subtotals are also sorted into a
  * stable, input-order-independent sequence so a regenerated PDF (cache miss
  * on `pdf-url`, or a resend) is byte-identical to the one originally
- * compiled and possibly already emailed.
+ * compiled and possibly already emailed. The embedded font bytes are read
+ * once and cached module-scope (`loadFontBytes`) — the font FILES don't
+ * change between renders, so this doesn't affect determinism, it only avoids
+ * repeated disk reads across the many re-renders a regenerable cache implies.
  *
  * CONTENT (AC-1.6/1.7/1.9): one section per requesting employee, each
  * employee's approved lines subtotaled per currency — reusing
@@ -30,14 +64,36 @@
  * (AC-1.7); only the numeric/textual summary is rendered.
  *
  * Currency amounts render as ISO codes (`EUR 45,50`), not symbols — the
- * standard embedded PDF fonts' WinAnsi encoding does not reliably cover
- * every currency glyph across providers (ADR-0019 decision 2, plan.md Risk
- * R7).
+ * embedded font's coverage does not reliably cover every currency glyph
+ * across providers either (ADR-0019 decision 2, plan.md Risk R7).
  */
 
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
 import { computeSubtotals, type LineRow } from "../requests/requests.service";
 import type { Subtotal } from "../requests/requests.schemas";
+
+// ─── Embedded Unicode font (OWASP A04 fix — see module doc) ─────────────────
+
+const FONTS_DIR = import.meta.dir + "/fonts";
+
+interface LoadedFontBytes {
+  readonly regular: ArrayBuffer;
+  readonly bold: ArrayBuffer;
+}
+
+let fontBytesPromise: Promise<LoadedFontBytes> | undefined;
+
+/** Reads the bundled Noto Sans TTFs once and caches the bytes for the life of the process. */
+function loadFontBytes(): Promise<LoadedFontBytes> {
+  if (!fontBytesPromise) {
+    fontBytesPromise = Promise.all([
+      Bun.file(`${FONTS_DIR}/NotoSans-Regular.ttf`).arrayBuffer(),
+      Bun.file(`${FONTS_DIR}/NotoSans-Bold.ttf`).arrayBuffer(),
+    ]).then(([regular, bold]) => ({ regular, bold }));
+  }
+  return fontBytesPromise;
+}
 
 // ─── Object key (shared by the compile-time PutObject and the read-time mint) ──
 
@@ -174,6 +230,9 @@ function drawLine(
  */
 export async function renderBatchPdf(input: BatchPdfInput): Promise<Buffer> {
   const doc = await PDFDocument.create();
+  // Unicode-capable custom font (OWASP A04 fix, module doc) — must be
+  // registered before embedFont() is called with raw TTF bytes.
+  doc.registerFontkit(fontkit);
   // Close the "pdf-lib embeds current wall-clock time by default" gap — the
   // ONLY timestamp this document ever carries is the caller-supplied
   // generatedAt (module doc; ADR-0019 decision 5).
@@ -184,8 +243,9 @@ export async function renderBatchPdf(input: BatchPdfInput): Promise<Buffer> {
   doc.setCreator("wellD Operai refund-api");
   doc.setAuthor(input.generatedByEmail);
 
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
+  const fontBytes = await loadFontBytes();
+  const font = await doc.embedFont(fontBytes.regular, { subset: true });
+  const boldFont = await doc.embedFont(fontBytes.bold, { subset: true });
 
   const cursor: Cursor = { page: addPage(doc), y: PAGE_HEIGHT - MARGIN };
 

@@ -96,7 +96,16 @@ batchDecideRouter.use("/batches/:id/mark-paid", authzMiddleware);
 batchDecideRouter.use("/batches/:id/discard", jwtMiddleware);
 batchDecideRouter.use("/batches/:id/discard", authzMiddleware);
 
-/** Re-fetches + re-maps the batch detail after a successful terminal transition. */
+/**
+ * Re-fetches + re-maps the batch detail after a successful terminal
+ * transition. `resolvePdfLink` never throws (OWASP A04 fix round,
+ * pdfLink.ts) — a render/store failure here degrades to `pdf: null` on an
+ * otherwise-normal `BatchDetail`, which matters MORE here than anywhere else
+ * in this API: by the time this runs, `markBatchPaid`/`discardBatch`'s
+ * transaction has ALREADY COMMITTED (money moved / batch voided). This
+ * function must never let a PDF-side failure turn that into a misleading
+ * 500 on top of a real, already-applied financial action.
+ */
 async function fetchDetailAfterTransition(batchId: string) {
   const exit = await Effect.runPromiseExit(fetchBatchWithRequests(batchId));
   if (exit._tag === "Failure" || !exit.value) {
