@@ -12,6 +12,7 @@
  * needed rather than mocking `@tanstack/react-router`.
  */
 
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
@@ -30,7 +31,7 @@ function pendingPromise<T>(): Promise<T> {
   return new Promise(() => {})
 }
 
-function renderNewRequestPage() {
+function renderNewRequestPage(options?: { strictMode?: boolean }) {
   window.history.pushState(null, '', '/requests/new')
   const rootRoute = createRootRoute()
   const requestsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests', component: () => null })
@@ -38,7 +39,8 @@ function renderNewRequestPage() {
   const requestDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests/$id', component: () => null })
   const routeTree = rootRoute.addChildren([requestsRoute, newRequestRoute, requestDetailRoute])
   const router = createRouter({ routeTree })
-  return render(<RouterProvider router={router} />)
+  const tree = <RouterProvider router={router} />
+  return render(options?.strictMode ? <StrictMode>{tree}</StrictMode> : tree)
 }
 
 afterEach(() => {
@@ -97,5 +99,19 @@ describe('NewRequestPage', () => {
 
     await waitFor(() => expect(window.location.pathname).toBe('/requests/req-new'))
     expect(requestsApi.create).toHaveBeenCalledTimes(2)
+  })
+
+  it('creates exactly one draft under StrictMode double-invoke (regression: double-create bug)', async () => {
+    vi.mocked(requestsApi.create).mockResolvedValue(created)
+
+    renderNewRequestPage({ strictMode: true })
+
+    await waitFor(() => expect(window.location.pathname).toBe('/requests/req-new'))
+
+    // StrictMode mounts, unmounts, and remounts this component's effects on
+    // the same instance in dev — asserting a single call here is the whole
+    // point of the test: it fails against the pre-fix code (two POSTs, two
+    // drafts) and passes once the effect is made idempotent per `attempt`.
+    expect(requestsApi.create).toHaveBeenCalledTimes(1)
   })
 })

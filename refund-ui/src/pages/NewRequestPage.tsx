@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { strings } from '../strings'
 import * as requestsApi from '../lib/requestsApi'
@@ -15,6 +15,16 @@ import { ApiError } from '../lib/refundApi'
  * place to render this retry UI, and design.md is explicit this route's own
  * job is create-then-redirect, not a form of its own. `attempt` re-triggers
  * the effect for "Try again" without duplicating the create call inline.
+ *
+ * Bug fix (double-create on StrictMode double-invoke): React StrictMode
+ * mounts, unmounts, then remounts a component's effects on the same
+ * instance in dev — the previous `cancelled` flag only suppressed the
+ * post-unmount *state update* of the first run, not the `create()` network
+ * POST itself, so two `POST /requests` fired and two drafts were created.
+ * `firedForAttempt` records the last `attempt` value the effect has already
+ * fired `create()` for; the StrictMode remount sees the same `attempt` and
+ * is a no-op, while a real "Try again" click (which bumps `attempt`) still
+ * fires exactly once.
  */
 
 type CreateState = { status: 'creating' } | { status: 'error'; message: string }
@@ -23,28 +33,46 @@ export default function NewRequestPage() {
   const navigate = useNavigate()
   const [state, setState] = useState<CreateState>({ status: 'creating' })
   const [attempt, setAttempt] = useState(0)
+  const firedForAttempt = useRef<number | null>(null)
+  // Cancellation lives in a ref (not a per-invocation closure variable) so
+  // that StrictMode's phantom "cleanup" of the first invocation — which
+  // runs synchronously before the second, no-op invocation for the same
+  // `attempt` — can be un-done by that second invocation. Without this, the
+  // in-flight `create()` call started by the first invocation would resolve
+  // with `cancelled` stuck `true` forever and silently never navigate.
+  const cancelled = useRef(false)
   const t = strings.pages.newRequest
 
   useEffect(() => {
-    let cancelled = false
+    if (firedForAttempt.current === attempt) {
+      // StrictMode's remount of the same logical attempt: the create() call
+      // is already in flight from the first invocation. Un-cancel it and
+      // register a cleanup so a genuine later unmount still cancels it.
+      cancelled.current = false
+      return () => {
+        cancelled.current = true
+      }
+    }
+    firedForAttempt.current = attempt
+    cancelled.current = false
 
     Promise.resolve()
       .then(() => {
-        if (!cancelled) setState({ status: 'creating' })
+        if (!cancelled.current) setState({ status: 'creating' })
       })
       .then(() => requestsApi.create())
       .then((created) => {
-        if (cancelled) return
+        if (cancelled.current) return
         void navigate({ to: '/requests/$id', params: { id: created.id }, replace: true })
       })
       .catch((error: unknown) => {
-        if (cancelled) return
+        if (cancelled.current) return
         const message = error instanceof ApiError ? (error.detail ?? error.title) : t.createError
         setState({ status: 'error', message })
       })
 
     return () => {
-      cancelled = true
+      cancelled.current = true
     }
   }, [attempt, navigate, t.createError])
 
