@@ -43,4 +43,24 @@ describe('PermissionDenied', () => {
     expect(screen.queryAllByRole('button')).toHaveLength(0)
     expect(screen.queryByText(/retry/i)).toBeNull()
   })
+
+  // T11 (specs/009-mileage-rate) — the `message` prop, added for the Mileage
+  // Rates screen's first section-level 403 (design.md "Gaps").
+  it('renders the default body copy when no message prop is given', () => {
+    render(<PermissionDenied />)
+
+    expect(screen.getByRole('alert').textContent).toContain(
+      'If this is unexpected, contact your administrator.',
+    )
+  })
+
+  it('renders a caller-provided message instead of the generic copy', () => {
+    render(<PermissionDenied message="You don't have permission to manage mileage rates." />)
+
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toContain("You don't have permission to manage mileage rates.")
+    expect(alert.textContent).not.toContain('If this is unexpected, contact your administrator.')
+    // The heading stays the same regardless of the message override.
+    expect(alert.textContent).toContain('You no longer have admin access.')
+  })
 })

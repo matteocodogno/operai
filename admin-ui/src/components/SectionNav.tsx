@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import * as adminApi from '../lib/adminApi'
 
 // The four admin sections, in the IA order design.md uses consistently
 // throughout (Screens A1/B1/C1/D1 — Roles, Departments, Users, Audit).
@@ -12,6 +14,14 @@ const SECTIONS = [
   { to: '/users', label: 'Users' },
   { to: '/audit', label: 'Audit' },
 ] as const
+
+// Screen ADM-1 (T11, specs/009-mileage-rate) — a FIFTH section, but unlike
+// the four above it is proactively hidden for a caller who lacks `rate:read`
+// (design.md F7 — "the first capability-driven proactive UI hide" in this
+// app; every existing section is always in this list because every existing
+// section has no per-resource capability gate of its own, only the whole-tool
+// admin-ui guard the shell already runs before this component ever mounts).
+const RATES_SECTION = { to: '/rates', label: 'Mileage Rates' } as const
 
 /**
  * SectionNav — admin-ui's section switcher (T14, specs/004-auth-roles-permissions,
@@ -45,12 +55,49 @@ const SECTIONS = [
  * text labels, so plain native tab order is the correct, proportionate a11y
  * posture — adding Sidebar's extra keyboard handling here would solve a
  * problem this nav doesn't have.
+ *
+ * Mileage Rates gate (T11, specs/009-mileage-rate, design.md F7): fetches
+ * the caller's live effective permissions via `adminApi.getMe()` (`GET
+ * /authz/me` — the same call this app already exposes) on mount, and only
+ * then appends the "Mileage Rates" entry if `rate:read` is present. Defaults
+ * to HIDDEN (never briefly flashes the entry before hiding it) and fails
+ * CLOSED on any error — absence of a resolved grant is treated as no access,
+ * matching the suite's established "resolve, never throw" posture
+ * (shell/src/lib/session.ts's `usePermissions`/`EMPTY_PERMISSIONS` doc). This
+ * is UX only — refund-api enforces `rate:read`/`rate:manage` server-side on
+ * every `/rates` request regardless of what this nav shows (plan.md
+ * Security section); a reactive `PermissionDenied` on the route itself
+ * (MileageRatesPage.tsx) is the defense-in-depth fallback for a stale nav
+ * render or a direct URL visit.
  */
 export default function SectionNav() {
+  const [hasRateRead, setHasRateRead] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    adminApi
+      .getMe()
+      .then((me) => {
+        if (cancelled) return
+        const canRead = me.permissions.some((p) => p.resource === 'rate' && p.action === 'read')
+        setHasRateRead(canRead)
+      })
+      .catch(() => {
+        // Fail closed — leave hasRateRead at its default (false).
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const sections = hasRateRead ? [...SECTIONS, RATES_SECTION] : SECTIONS
+
   return (
     <nav aria-label="Admin sections">
       <ul className="mx-auto flex max-w-5xl gap-1 px-6">
-        {SECTIONS.map((section) => (
+        {sections.map((section) => (
           <li key={section.to}>
             <Link
               to={section.to}

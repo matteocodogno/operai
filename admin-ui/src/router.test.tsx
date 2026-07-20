@@ -10,9 +10,27 @@
  * separately covers the exposed remote's own hardcoded `/admin` basepath.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { RouterProvider } from '@tanstack/react-router'
+
+// ---------------------------------------------------------------------------
+// Module mock — adminApi.getMe() (T11, specs/009-mileage-rate). SectionNav.tsx
+// (mounted by AdminShell, the root route component every test in this file
+// renders through) now calls `adminApi.getMe()` on mount to resolve its
+// proactive `rate:read` gate (design.md F7). Every existing test here
+// predates that call and never cared about its result — a bare `vi.fn()`
+// resolves to `undefined` by default, which would crash `.then()` inside
+// SectionNav's effect, so `beforeEach` below gives it a default "no grants"
+// resolution (mirrors `EMPTY_PERMISSIONS`) that every pre-existing test
+// implicitly relies on (Mileage Rates stays hidden); the one test that needs
+// `rate:read` granted overrides it locally with `mockResolvedValueOnce`.
+// ---------------------------------------------------------------------------
+
+vi.mock('./lib/adminApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./lib/adminApi')>()
+  return { ...original, getMe: vi.fn() }
+})
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +52,17 @@ const importRouter = () => import('./router?t=' + Date.now())
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
+
+beforeEach(async () => {
+  const adminApi = await import('./lib/adminApi')
+  vi.mocked(adminApi.getMe).mockResolvedValue({
+    epoch: 0,
+    apps: ['admin'],
+    roles: [],
+    departments: [],
+    permissions: [],
+  })
+})
 
 afterEach(() => {
   cleanup()
@@ -59,12 +88,15 @@ describe('router structure', () => {
     // C2) is a sibling of its list route under the same root, not nested —
     // exactly like estimai-ui's '/estimates' + '/estimates/$estimateId' pair.
     // Combined centrally as T18/T19/T20 each added their own detail route.
+    // '/rates' (Screen ADM-1, T11, specs/009-mileage-rate) is the same flat
+    // shape — a fifth section route, sibling of the other four.
     expect(childPaths).toEqual(
       [
         '/',
         '/audit',
         '/departments',
         '/departments/$id',
+        '/rates',
         '/roles',
         '/roles/$id',
         '/users',
@@ -72,7 +104,7 @@ describe('router structure', () => {
         '/users/invitations',
       ].sort(),
     )
-    expect(routeTree.children).toHaveLength(9)
+    expect(routeTree.children).toHaveLength(10)
   })
 
   it('has no `_authed` (or other guard) layout route in the tree — mirrors estimai-ui/T13, AC-2.3', async () => {
@@ -152,5 +184,41 @@ describe('the four sections route client-side', () => {
     // Chrome (nav) is not replaced by the not-found fallback.
     expect(screen.getByRole('navigation', { name: 'Admin sections' })).not.toBeNull()
     expect(screen.getAllByRole('link')).toHaveLength(4)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// /rates — Screen ADM-1 (T11, specs/009-mileage-rate). A separate describe
+// block (not folded into the it.each table above) because reaching it with
+// its nav link ACTIVE requires `adminApi.getMe()` to resolve `rate:read` —
+// every other test above relies on the `beforeEach` default (no grants,
+// Mileage Rates stays hidden); this test overrides that default locally.
+// ---------------------------------------------------------------------------
+
+describe('/rates section (T11, specs/009-mileage-rate)', () => {
+  it('with rate:read granted, visiting /rates renders MileageRatesPage and activates the "Mileage Rates" nav link', async () => {
+    const adminApi = await import('./lib/adminApi')
+    vi.mocked(adminApi.getMe).mockResolvedValue({
+      epoch: 1,
+      apps: ['admin'],
+      roles: ['admin'],
+      departments: [],
+      permissions: [
+        { resource: 'rate', action: 'read', conditions: null },
+        { resource: 'rate', action: 'manage', conditions: null },
+      ],
+    })
+
+    window.history.pushState(null, '', '/rates')
+    const { createAppRouter } = await importRouter()
+    const router = createAppRouter()
+
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByTestId('admin-rates-page')).not.toBeNull()
+
+    const sectionNav = screen.getByRole('navigation', { name: 'Admin sections' })
+    const activeLink = await within(sectionNav).findByRole('link', { name: 'Mileage Rates' })
+    expect(activeLink.getAttribute('aria-current')).toBe('page')
   })
 })

@@ -31,9 +31,20 @@
  * substitute for it — some AT/browser combinations don't always move focus
  * reliably on mount, e.g. inside nested async boundaries).
  *
- * Presentational: no props, no data fetching — the screen that detects the
- * `403` (later tasks, e.g. T17–T21's list/detail screens) is responsible for
- * catching it and rendering this component instead of its normal content.
+ * Presentational: no required props, no data fetching — the screen that
+ * detects the `403` (T17–T21's list/detail screens, and T11's Mileage Rates
+ * screen) is responsible for catching it and rendering this component
+ * instead of its normal content.
+ *
+ * `message` (T11, specs/009-mileage-rate, design.md "Gaps" — first
+ * section-level 403 in this app): every screen up to this feature shares the
+ * whole-tool 403 boundary, so the generic "You no longer have admin access"
+ * copy has always been correct. The Mileage Rates screen's 403 is narrower —
+ * a caller can be a perfectly valid admin-ui user who simply lacks
+ * `rate:read`/`rate:manage` — and the generic copy would misleadingly
+ * suggest total admin lockout. `message` overrides the body copy for that
+ * case; omitted, every existing call site (`<PermissionDenied />`) is
+ * unaffected.
  *
  * Styling note: colors/fonts use the shared stylesheet's plain CSS custom
  * properties (`var(--text)`, `var(--muted)`, `var(--disp)`, …) rather than
@@ -45,7 +56,12 @@
 
 import { useEffect, useRef } from 'react'
 
-export default function PermissionDenied() {
+export type PermissionDeniedProps = {
+  /** Overrides the generic "If this is unexpected…" body copy. Omit for the default. */
+  message?: string
+}
+
+export default function PermissionDenied({ message }: PermissionDeniedProps = {}) {
   const headingRef = useRef<HTMLHeadingElement>(null)
 
   // Focus the heading on mount — same technique ShellLayout uses for its
@@ -71,7 +87,7 @@ export default function PermissionDenied() {
         You no longer have admin access.
       </h2>
       <p className="max-w-md text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>
-        If this is unexpected, contact your administrator.
+        {message ?? 'If this is unexpected, contact your administrator.'}
       </p>
     </div>
   )
