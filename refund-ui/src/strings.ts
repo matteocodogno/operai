@@ -161,6 +161,11 @@ const en = {
         deleteError: 'Could not delete this expense line. Try again.',
         /** Success toast copy for a debounced auto-save or an immediate blur/Done flush (content-app auto-save). */
         savedToast: 'Changes stored',
+        /** `summaryCore`'s new "Rate applied" row (specs/009-mileage-rate, T13/T14, AC-6.4) — shown whenever `line.mileage.appliedRate` is non-null, in every mode `summaryCore` renders in. */
+        rateAppliedLabel: 'Rate applied',
+        rateAppliedValue: (rate: string, validFrom: string) => `${rate} · valid from ${validFrom}`,
+        /** Replaces the "Requested" `<dd>`'s `formatMoney` call when a travel_km line's mileage is blocked (no rate configured, AC-2.2) — never a stale/zero amount. */
+        mileageBlockedAmount: '—',
       },
       submit: {
         button: 'Submit for review',
@@ -462,6 +467,23 @@ const en = {
      * terse "Confirm" (design.md: "so a screen-reader user tabbing to it
      * hears the complete commitment they're making, not just a fragment").
      */
+    /**
+     * `MileageAmountField` (T13, specs/009-mileage-rate/tasks.md, design.md
+     * "## Screens & states" Screen R2 state table) — the read-only
+     * `km × rate = amount` breakdown that replaces Amount/Currency for a
+     * `travel_km` line. `breakdown`/`blocked` are functions since their
+     * wording depends on runtime values (see this file's own doc comment on
+     * why interpolated copy is a function, not a template literal, for a
+     * future non-English locale's sake).
+     */
+    mileageAmountField: {
+      label: 'Amount',
+      idlePrompt: 'Enter a distance to calculate the amount.',
+      calculating: 'Calculating…',
+      breakdown: (km: number, rate: string, amount: string) => `${km} km × ${rate} = ${amount}`,
+      blocked: (entityLabel: string) => `No mileage rate configured yet for ${entityLabel}.`,
+      fetchError: 'Could not calculate the mileage amount. Try again.',
+    },
     markPaidDialog: {
       title: 'Mark this batch as paid?',
       requestCountLabel: (count: number) => `This batch has ${count} request${count === 1 ? '' : 's'}:`,

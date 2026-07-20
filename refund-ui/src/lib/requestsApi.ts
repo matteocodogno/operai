@@ -36,6 +36,26 @@ export type Attachment = {
   sizeBytes: number
 }
 
+/**
+ * `RefundLine.mileage` — present only for `travel_km` lines, `null`
+ * otherwise (specs/009-mileage-rate/plan.md "## API contracts": "the single
+ * carrier for AC-1.8 breakdown, AC-2.2 block, AC-6.4 review display, and
+ * AC-3.x freeze state"). `appliedRate` is the LIVE effective rate while the
+ * line is still draft (`snapshotted: false`) and the FROZEN rate captured at
+ * submit once `snapshotted: true`; it is `null` when `!rateInEffect` (AC-2.2
+ * — no rate configured for this line's entity/date) or for a legacy
+ * pre-feature line that was already submitted before this feature shipped
+ * (AC-1.7 — its stored amount/currency are never touched, and it never
+ * gained a snapshot to report).
+ */
+export type MileageInfo = {
+  km: number
+  rateInEffect: boolean
+  appliedRate: { ratePerKmMicros: number; ratePerKm: string; validFrom: string; currency: Currency } | null
+  computedAmountCents: number | null
+  snapshotted: boolean
+}
+
 export type RefundLine = {
   id: string
   date: string
@@ -47,6 +67,14 @@ export type RefundLine = {
   km: number | null
   approvedTotalCents: number | null
   attachments: Attachment[]
+  /**
+   * Optional (not just nullable) on this TYPE so existing test fixtures
+   * across the app that predate specs/009-mileage-rate keep compiling
+   * without every one of them being touched — treat a missing key exactly
+   * like `null` (no mileage data) at every read site. The real wire
+   * contract always sends the key (plan.md), null for non-travel_km.
+   */
+  mileage?: MileageInfo | null
 }
 
 export type RequestListItem = {
@@ -95,15 +123,25 @@ export type RefundRequestDetail = {
  * Body shared by `POST /requests/:id/lines` and `PUT /requests/:id/lines/:lineId`
  * (plan.md). `currency` (post-close change, specs/007): a separately-stored,
  * independently-selectable field — REQUIRED, independent of `entity` (any
- * combination is valid; refund-api no longer derives it from entity).
+ * combination is valid; refund-api no longer derives it from entity) — for
+ * every type EXCEPT `travel_km`.
+ *
+ * `requestedAmountCents`/`currency` (specs/009-mileage-rate amendment,
+ * AC-1.1/AC-1.6): for a `travel_km` line, both are server-derived —
+ * `lineDraftToPayload` (`lib/lineDraft.ts`) omits them from the wire body
+ * entirely rather than sending a client-guessed value, and refund-api
+ * ignores either one if sent anyway (plan.md: "a client-sent
+ * requestedAmountCents/currency on a travel_km line is ignored, not
+ * honored"). Optional here (not required) to make that omission
+ * representable — every OTHER type still always sends both.
  */
 export type LinePayload = {
   date: string
   type: ExpenseType
   motivo: string
-  requestedAmountCents: number
+  requestedAmountCents?: number
   entity: Entity
-  currency: Currency
+  currency?: Currency
   /** Required (and `>0`) iff `type==='travel_km'`; must be absent for every other type. */
   km?: number
 }

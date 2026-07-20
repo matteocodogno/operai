@@ -89,6 +89,26 @@ describe('lineToDraft / lineDraftToPayload round-trip', () => {
     const payload = lineDraftToPayload(draft)
     expect(payload.km).toBe(120)
   })
+
+  it('omits requestedAmountCents/currency from a travel_km payload — server-derived (specs/009-mileage-rate AC-1.1/1.6)', () => {
+    const kmLine: RefundLine = { ...baseLine, type: 'travel_km', km: 120, requestedAmountCents: 4550 }
+    const payload = lineDraftToPayload(lineToDraft(kmLine))
+    expect(payload).toEqual({
+      date: '2026-07-01',
+      type: 'travel_km',
+      motivo: 'Pens',
+      entity: 'welld_it',
+      km: 120,
+    })
+    expect(payload.requestedAmountCents).toBeUndefined()
+    expect(payload.currency).toBeUndefined()
+  })
+
+  it('still includes requestedAmountCents/currency for a non-travel_km payload (unchanged, AC-1.5)', () => {
+    const payload = lineDraftToPayload(lineToDraft(baseLine))
+    expect(payload.requestedAmountCents).toBe(1550)
+    expect(payload.currency).toBe('EUR')
+  })
 })
 
 describe('isLineDraftComplete', () => {
@@ -136,5 +156,15 @@ describe('isLineDraftComplete', () => {
     expect(isLineDraftComplete({ ...kmDraft, km: '10' })).toBe(true)
     // A non-km type is complete with km left blank.
     expect(isLineDraftComplete({ ...base, type: 'postal', km: '' })).toBe(true)
+  })
+
+  it('for travel_km: amount/currency are dropped from the check entirely (specs/009-mileage-rate AC-1.1)', () => {
+    const kmDraft = { ...base, type: 'travel_km' as const, km: '10', amount: '', currency: '' as const }
+    expect(isLineDraftComplete(kmDraft)).toBe(true)
+  })
+
+  it('for a non-travel_km type: currency/amount are still required (unchanged, AC-1.5)', () => {
+    expect(isLineDraftComplete({ ...base, currency: '' })).toBe(false)
+    expect(isLineDraftComplete({ ...base, amount: '' })).toBe(false)
   })
 })

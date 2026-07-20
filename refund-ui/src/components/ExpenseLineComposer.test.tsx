@@ -61,6 +61,37 @@ describe('ExpenseLineComposer — km show/hide', () => {
   })
 })
 
+describe('ExpenseLineComposer — travel_km hides Amount/Currency (specs/009-mileage-rate AC-1.1/1.5/1.6)', () => {
+  it('renders MileageAmountField instead of Amount/Currency once type=travel_km is selected', () => {
+    render(<ExpenseLineComposer onAdd={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'travel_km' } })
+
+    expect(screen.queryByTestId('composer-amount')).toBeNull()
+    expect(screen.queryByTestId('composer-currency')).toBeNull()
+    expect(screen.getByTestId('mileage-amount-field')).not.toBeNull()
+  })
+
+  it('shows Amount/Currency (and no MileageAmountField) for any other type, unaffected (AC-1.5)', () => {
+    render(<ExpenseLineComposer onAdd={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'postal' } })
+
+    expect(screen.getByTestId('composer-amount')).not.toBeNull()
+    expect(screen.getByTestId('composer-currency')).not.toBeNull()
+    expect(screen.queryByTestId('mileage-amount-field')).toBeNull()
+  })
+
+  it('switching from travel_km back to a manual type restores Amount/Currency', () => {
+    render(<ExpenseLineComposer onAdd={vi.fn()} />)
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'travel_km' } })
+    expect(screen.queryByTestId('composer-amount')).toBeNull()
+
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'stationery' } })
+    expect(screen.getByTestId('composer-amount')).not.toBeNull()
+    expect(screen.getByTestId('composer-currency')).not.toBeNull()
+    expect(screen.queryByTestId('mileage-amount-field')).toBeNull()
+  })
+})
+
 describe('ExpenseLineComposer — Add disabled-until-valid', () => {
   it('"Add expense line" is disabled with an empty draft', () => {
     render(<ExpenseLineComposer onAdd={vi.fn()} />)
@@ -73,14 +104,12 @@ describe('ExpenseLineComposer — Add disabled-until-valid', () => {
     expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', false)
   })
 
-  it('stays disabled for travel_km until km > 0 is also filled', () => {
+  it('stays disabled for travel_km until km > 0 is also filled — amount/currency are no longer part of the check (specs/009-mileage-rate AC-1.1/1.6)', () => {
     render(<ExpenseLineComposer onAdd={vi.fn()} />)
     fireEvent.change(screen.getByTestId('composer-date'), { target: { value: '2026-07-16' } })
     fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'travel_km' } })
     fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Client visit' } })
-    fireEvent.change(screen.getByTestId('composer-amount'), { target: { value: '45.50' } })
     fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
-    fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'EUR' } })
     expect(screen.getByTestId('composer-add-button')).toHaveProperty('disabled', true)
 
     fireEvent.change(screen.getByTestId('composer-km'), { target: { value: '0' } })
@@ -144,6 +173,28 @@ describe('ExpenseLineComposer — submit behavior', () => {
 
     await waitFor(() => {
       expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ entity: 'welld_it', currency: 'USD' }))
+    })
+  })
+
+  it('calls onAdd with km but WITHOUT requestedAmountCents/currency for a travel_km line (specs/009-mileage-rate AC-1.1/1.6)', async () => {
+    const onAdd = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineComposer onAdd={onAdd} />)
+    fireEvent.change(screen.getByTestId('composer-date'), { target: { value: '2026-07-16' } })
+    fireEvent.change(screen.getByTestId('composer-type'), { target: { value: 'travel_km' } })
+    fireEvent.change(screen.getByTestId('composer-motivo'), { target: { value: 'Client visit' } })
+    fireEvent.change(screen.getByTestId('composer-entity'), { target: { value: 'welld_it' } })
+    fireEvent.change(screen.getByTestId('composer-km'), { target: { value: '120' } })
+
+    fireEvent.click(screen.getByTestId('composer-add-button'))
+
+    await waitFor(() => {
+      expect(onAdd).toHaveBeenCalledWith({
+        date: '2026-07-16',
+        type: 'travel_km',
+        motivo: 'Client visit',
+        entity: 'welld_it',
+        km: 120,
+      })
     })
   })
 

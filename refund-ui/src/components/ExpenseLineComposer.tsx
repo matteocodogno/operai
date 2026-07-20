@@ -44,6 +44,7 @@ import type { LinePayload } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
 import { emptyLineDraft, isLineDraftComplete, lineDraftToPayload } from '../lib/lineDraft'
+import MileageAmountField from './MileageAmountField'
 
 export type ExpenseLineComposerProps = {
   /** Performs `POST /requests/:id/lines`. Rejects (ApiError) on failure — the composer stays open with the entered draft intact. */
@@ -166,24 +167,32 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
           />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="composer-amount" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
-            {t.amountLabel}
-          </label>
-          <input
-            id="composer-amount"
-            type="number"
-            step="0.01"
-            min="0"
-            required
-            value={draft.amount}
-            disabled={submitting}
-            onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
-            data-testid="composer-amount"
-            className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
-          />
-        </div>
+        {/* specs/009-mileage-rate AC-1.1: for travel_km, Amount is replaced by the
+            read-only computed breakdown (MileageAmountField) — not merely disabled. */}
+        {showKm ? (
+          <div className="flex flex-col gap-1">
+            <MileageAmountField entity={draft.entity} date={draft.date} km={draft.km} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="composer-amount" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+              {t.amountLabel}
+            </label>
+            <input
+              id="composer-amount"
+              type="number"
+              step="0.01"
+              min="0"
+              required
+              value={draft.amount}
+              disabled={submitting}
+              onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
+              data-testid="composer-amount"
+              className="text-sm px-2.5 py-1.5 border rounded"
+              style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+            />
+          </div>
+        )}
 
         <div className="flex flex-col gap-1">
           <label htmlFor="composer-entity" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
@@ -208,28 +217,32 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
           </select>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="composer-currency" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
-            {t.currencyLabel}
-          </label>
-          <select
-            id="composer-currency"
-            required
-            value={draft.currency}
-            disabled={submitting}
-            onChange={(e) => setDraft((prev) => ({ ...prev, currency: e.target.value as Currency | '' }))}
-            data-testid="composer-currency"
-            className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
-          >
-            <option value="">{t.currencyPlaceholder}</option>
-            {CURRENCY_OPTIONS.map((currency) => (
-              <option key={currency} value={currency}>
-                {currencyStrings[currency]}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* specs/009-mileage-rate AC-1.6: for travel_km, currency is entity-designated,
+            never independently selectable — the select is absent, not disabled. */}
+        {!showKm && (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="composer-currency" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+              {t.currencyLabel}
+            </label>
+            <select
+              id="composer-currency"
+              required
+              value={draft.currency}
+              disabled={submitting}
+              onChange={(e) => setDraft((prev) => ({ ...prev, currency: e.target.value as Currency | '' }))}
+              data-testid="composer-currency"
+              className="text-sm px-2.5 py-1.5 border rounded"
+              style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+            >
+              <option value="">{t.currencyPlaceholder}</option>
+              {CURRENCY_OPTIONS.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currencyStrings[currency]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {showKm && (
           <div className="flex flex-col gap-1">

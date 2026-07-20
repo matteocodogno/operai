@@ -20,7 +20,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import ExpenseLineRow from './ExpenseLineRow'
-import type { Attachment, RefundLine } from '../lib/requestsApi'
+import type { Attachment, MileageInfo, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import { strings } from '../strings'
 
@@ -42,6 +42,27 @@ const line: RefundLine = {
 }
 
 const attachment: Attachment = { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 2048 }
+
+const appliedRate: NonNullable<MileageInfo['appliedRate']> = {
+  ratePerKmMicros: 700000,
+  ratePerKm: '0.70',
+  validFrom: '2026-01-01',
+  currency: 'CHF',
+}
+
+const submittedMileageLine: RefundLine = {
+  id: 'line-km-1',
+  date: '2026-07-01',
+  type: 'travel_km',
+  motivo: 'Client visit',
+  entity: 'welld_ch',
+  currency: 'CHF',
+  requestedAmountCents: 16800,
+  km: 240,
+  approvedTotalCents: null,
+  attachments: [],
+  mileage: { km: 240, rateInEffect: true, appliedRate, computedAmountCents: 16800, snapshotted: true },
+}
 
 /** Clicks "Edit" on a collapsed summary row, expanding it to the full field form. */
 const expandRow = (lineId = 'line-1') => fireEvent.click(screen.getByTestId(`row-${lineId}-edit`))
@@ -391,6 +412,143 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
     )
     expect(screen.getByTestId('attachment-download-a1')).not.toBeNull()
     expect(screen.queryByTestId('attachment-remove-a1')).toBeNull()
+  })
+})
+
+// -----------------------------------------------------------------------------
+// specs/009-mileage-rate — travel_km lines: hidden amount/currency + the
+// live MileageAmountField in expanded edit mode (AC-1.1/1.5/1.6), and the
+// "Rate applied" dt/dd + km-annotation across every summaryCore render
+// (AC-6.4, AC-1.7/1.8).
+// -----------------------------------------------------------------------------
+
+describe('ExpenseLineRow — edit mode, expanded, travel_km (specs/009-mileage-rate)', () => {
+  const kmLine: RefundLine = {
+    ...line,
+    id: 'km-1',
+    type: 'travel_km',
+    km: 50,
+    mileage: { km: 50, rateInEffect: true, appliedRate: null, computedAmountCents: null, snapshotted: false },
+  }
+
+  it('hides Amount/Currency and renders MileageAmountField instead', () => {
+    render(<ExpenseLineRow line={kmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('row-km-1-edit'))
+
+    expect(screen.queryByTestId('row-km-1-amount')).toBeNull()
+    expect(screen.queryByTestId('row-km-1-currency')).toBeNull()
+    expect(screen.getByTestId('mileage-amount-field')).not.toBeNull()
+    // km itself is unaffected — still the plain existing field.
+    expect(screen.getByTestId('row-km-1-km')).not.toBeNull()
+  })
+
+  it('shows Amount/Currency (no MileageAmountField) once switched to a non-km type', () => {
+    render(<ExpenseLineRow line={kmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('row-km-1-edit'))
+    fireEvent.change(screen.getByTestId('row-km-1-type'), { target: { value: 'postal' } })
+
+    expect(screen.getByTestId('row-km-1-amount')).not.toBeNull()
+    expect(screen.getByTestId('row-km-1-currency')).not.toBeNull()
+    expect(screen.queryByTestId('mileage-amount-field')).toBeNull()
+  })
+
+  it('commits a PUT with km but WITHOUT requestedAmountCents/currency (AC-1.1/1.6)', async () => {
+    const onCommit = vi.fn().mockResolvedValue(undefined)
+    render(<ExpenseLineRow line={kmLine} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    fireEvent.click(screen.getByTestId('row-km-1-edit'))
+
+    fireEvent.change(screen.getByTestId('row-km-1-km'), { target: { value: '75' } })
+    fireEvent.blur(screen.getByTestId('row-km-1-km'), { relatedTarget: document.body })
+
+    await waitFor(() =>
+      expect(onCommit).toHaveBeenCalledWith({
+        date: kmLine.date,
+        type: 'travel_km',
+        motivo: kmLine.motivo,
+        entity: kmLine.entity,
+        km: 75,
+      }),
+    )
+  })
+})
+
+describe('ExpenseLineRow — summaryCore, travel_km (specs/009-mileage-rate)', () => {
+  it('collapsed edit-mode summary appends the live applied rate next to km, and shows the live computed amount (AC-1.7/1.8)', () => {
+    const draftKmLine: RefundLine = {
+      ...line,
+      id: 'km-2',
+      currency: 'CHF',
+      requestedAmountCents: 16800,
+      type: 'travel_km',
+      km: 240,
+      mileage: { km: 240, rateInEffect: true, appliedRate, computedAmountCents: 16800, snapshotted: false },
+    }
+    render(<ExpenseLineRow line={draftKmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    const row = screen.getByTestId('expense-line-row-km-2')
+    expect(row.textContent).toContain('240 km × 0,70 CHF/km')
+    expect(row.textContent).toContain('168,00 CHF')
+  })
+
+  it('shows "—" for the Requested amount when the mileage line is blocked (no rate in effect, AC-2.2)', () => {
+    const blockedLine: RefundLine = {
+      ...line,
+      id: 'km-3',
+      type: 'travel_km',
+      km: 10,
+      mileage: { km: 10, rateInEffect: false, appliedRate: null, computedAmountCents: null, snapshotted: false },
+    }
+    render(<ExpenseLineRow line={blockedLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+
+    const row = screen.getByTestId('expense-line-row-km-3')
+    expect(row.textContent).toContain('—')
+    expect(row.textContent).not.toContain('CHF')
+  })
+
+  it('renders "Rate applied" with the rate and valid-from once a travel_km line has ever been submitted (AC-6.4)', () => {
+    render(<ExpenseLineRow line={submittedMileageLine} mode="readOnly" onDownloadAttachment={vi.fn()} />)
+
+    const row = screen.getByTestId('expense-line-row-line-km-1')
+    expect(row.textContent).toContain('Rate applied')
+    expect(row.textContent).toContain('0,70 CHF/km')
+    expect(row.textContent).toContain('valid from')
+  })
+
+  it('renders "Rate applied" in review mode too, without disturbing the approved-total input (AC-6.1/6.4)', () => {
+    render(<ExpenseLineRow line={submittedMileageLine} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={vi.fn()} />)
+
+    expect(screen.getByTestId('expense-line-row-line-km-1').textContent).toContain('Rate applied')
+    const input = screen.getByTestId('row-line-km-1-approved-total') as HTMLInputElement
+    expect(input.value).toBe('168.00')
+  })
+
+  it('renders "Rate applied" in readOnlyApproved mode too', () => {
+    render(<ExpenseLineRow line={submittedMileageLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
+    expect(screen.getByTestId('expense-line-row-line-km-1').textContent).toContain('Rate applied')
+  })
+
+  it('omits the "Rate applied" row for a legacy pre-feature line (appliedRate null) — amount only, no error (AC-1.7, R3)', () => {
+    const legacyLine: RefundLine = {
+      ...submittedMileageLine,
+      id: 'legacy-1',
+      mileage: { km: 240, rateInEffect: true, appliedRate: null, computedAmountCents: null, snapshotted: true },
+    }
+    render(<ExpenseLineRow line={legacyLine} mode="readOnly" onDownloadAttachment={vi.fn()} />)
+
+    const row = screen.getByTestId('expense-line-row-legacy-1')
+    expect(row.textContent).not.toContain('Rate applied')
+    expect(row.textContent).toContain('168,00 CHF') // the stored amount still renders exactly as before this feature
+  })
+
+  it('omits the "Rate applied" row and the km-annotation for a non-travel_km line (mileage: null), unaffected (AC-1.5)', () => {
+    render(<ExpenseLineRow line={line} mode="readOnly" onDownloadAttachment={vi.fn()} />)
+    const row = screen.getByTestId('expense-line-row-line-1')
+    expect(row.textContent).not.toContain('Rate applied')
+  })
+
+  it('omits the "Rate applied" row for a fixture that predates this field entirely (mileage undefined) — no crash', () => {
+    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    expect(screen.getByTestId('expense-line-row-line-1').textContent).not.toContain('Rate applied')
   })
 })
 

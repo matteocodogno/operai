@@ -93,14 +93,16 @@ import type { ExpenseType } from '../lib/expenseTypes'
 import type { Entity } from './EntityBadge'
 import EntityBadge from './EntityBadge'
 import type { Currency } from '../lib/money'
-import { formatMoney } from '../lib/money'
+import { formatMoney, formatRatePerKm } from '../lib/money'
 import CurrencyBadge from './CurrencyBadge'
 import type { Attachment, LinePayload, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
+import { formatDate } from '../lib/dates'
 import type { LineDraftValue } from '../lib/lineDraft'
 import { amountToCents, centsToAmountInput, isLineDraftComplete, lineDraftToPayload, lineToDraft } from '../lib/lineDraft'
 import AttachmentList from './AttachmentList'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
+import MileageAmountField from './MileageAmountField'
 
 export type ExpenseLineRowMode = 'edit' | 'readOnly' | 'readOnlyApproved' | 'review'
 
@@ -330,6 +332,16 @@ export default function ExpenseLineRow({
   // presentation everywhere they aren't the live editable form.
   // -------------------------------------------------------------------------
 
+  // specs/009-mileage-rate — `line.mileage` is present (non-null) only for a
+  // travel_km line; `?? null` also covers pre-feature test fixtures that
+  // predate this field entirely (`RefundLine.mileage` is optional exactly
+  // for that reason, see requestsApi.ts's own doc comment).
+  const mileage = line.mileage ?? null
+  // AC-2.2: no rate configured for this line's (entity, date) — only ever
+  // true for a still-draft/withdrawn-to-draft line (a submitted+ line always
+  // had a rate in effect at submit time, and is then frozen, per Decision 1).
+  const mileageBlocked = mileage !== null && !mileage.rateInEffect
+
   const summaryCore = (
     <>
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -337,16 +349,21 @@ export default function ExpenseLineRow({
         <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
         <EntityBadge entity={line.entity} />
         <CurrencyBadge currency={line.currency} />
-        {line.km !== null && <span style={{ color: 'var(--muted)' }}>{line.km} km</span>}
+        {line.km !== null && (
+          <span style={{ color: 'var(--muted)' }}>
+            {line.km} km
+            {mileage?.appliedRate && ` × ${formatRatePerKm(mileage.appliedRate.ratePerKm, mileage.appliedRate.currency)}`}
+          </span>
+        )}
       </div>
       <p className="text-sm" style={{ color: 'var(--text)' }}>
         {line.motivo}
       </p>
-      <dl className="flex items-center gap-4 text-sm">
+      <dl className="flex flex-wrap items-center gap-4 text-sm">
         <div className="flex items-center gap-1.5">
           <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
           <dd className="font-mono" style={{ color: 'var(--text)' }}>
-            {formatMoney(line.requestedAmountCents, line.currency)}
+            {mileageBlocked ? t.mileageBlockedAmount : formatMoney(line.requestedAmountCents, line.currency)}
           </dd>
         </div>
         {mode === 'readOnlyApproved' && (
@@ -354,6 +371,22 @@ export default function ExpenseLineRow({
             <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
             <dd className="font-mono" style={{ color: 'var(--grn)' }}>
               {formatMoney(line.approvedTotalCents ?? line.requestedAmountCents, line.currency)}
+            </dd>
+          </div>
+        )}
+        {/* specs/009-mileage-rate AC-6.4 — the applied rate + valid-from, shown
+            alongside the amount in every mode. `appliedRate` is non-null only
+            once a travel_km line has ever been submitted under this feature
+            (Decision 1); a legacy pre-feature submitted line omits this pair
+            entirely (graceful degradation — amount only, no breakdown). */}
+        {mileage?.appliedRate && (
+          <div className="flex items-center gap-1.5">
+            <dt style={{ color: 'var(--soft)' }}>{t.rateAppliedLabel}</dt>
+            <dd className="font-mono" style={{ color: 'var(--text)' }}>
+              {t.rateAppliedValue(
+                formatRatePerKm(mileage.appliedRate.ratePerKm, mileage.appliedRate.currency),
+                formatDate(mileage.appliedRate.validFrom),
+              )}
             </dd>
           </div>
         )}
@@ -550,22 +583,30 @@ export default function ExpenseLineRow({
           />
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`row-${line.id}-amount`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
-            {composerStrings.amountLabel}
-          </label>
-          <input
-            id={`row-${line.id}-amount`}
-            type="number"
-            step="0.01"
-            min="0"
-            value={draft.amount}
-            onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
-            data-testid={`row-${line.id}-amount`}
-            className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
-          />
-        </div>
+        {/* specs/009-mileage-rate AC-1.1: for travel_km, Amount is replaced by the
+            read-only computed breakdown (MileageAmountField) — not merely disabled. */}
+        {showKm ? (
+          <div className="flex flex-col gap-1">
+            <MileageAmountField entity={draft.entity} date={draft.date} km={draft.km} />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`row-${line.id}-amount`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+              {composerStrings.amountLabel}
+            </label>
+            <input
+              id={`row-${line.id}-amount`}
+              type="number"
+              step="0.01"
+              min="0"
+              value={draft.amount}
+              onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
+              data-testid={`row-${line.id}-amount`}
+              className="text-sm px-2.5 py-1.5 border rounded"
+              style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+            />
+          </div>
+        )}
 
         <div className="flex flex-col gap-1">
           <label htmlFor={`row-${line.id}-entity`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
@@ -587,25 +628,29 @@ export default function ExpenseLineRow({
           </select>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`row-${line.id}-currency`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
-            {composerStrings.currencyLabel}
-          </label>
-          <select
-            id={`row-${line.id}-currency`}
-            value={draft.currency}
-            onChange={(e) => setDraft((prev) => ({ ...prev, currency: e.target.value as Currency }))}
-            data-testid={`row-${line.id}-currency`}
-            className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
-          >
-            {CURRENCY_OPTIONS.map((currency) => (
-              <option key={currency} value={currency}>
-                {currencyStrings[currency]}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* specs/009-mileage-rate AC-1.6: for travel_km, currency is entity-designated,
+            never independently selectable — the select is absent, not disabled. */}
+        {!showKm && (
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`row-${line.id}-currency`} className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+              {composerStrings.currencyLabel}
+            </label>
+            <select
+              id={`row-${line.id}-currency`}
+              value={draft.currency}
+              onChange={(e) => setDraft((prev) => ({ ...prev, currency: e.target.value as Currency }))}
+              data-testid={`row-${line.id}-currency`}
+              className="text-sm px-2.5 py-1.5 border rounded"
+              style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+            >
+              {CURRENCY_OPTIONS.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currencyStrings[currency]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {showKm && (
           <div className="flex flex-col gap-1">
