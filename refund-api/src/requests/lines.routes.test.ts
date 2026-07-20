@@ -250,6 +250,134 @@ describe("POST /requests/:id/lines", () => {
   });
 });
 
+// ─── POST /requests/:id/lines — travel_km write derivation (specs/009-mileage-rate, T5) ──
+
+async function addRate(entity: "welld_ch" | "welld_it", ratePerKmMicros: number, validFrom: string) {
+  return db.mileageRate.create({
+    data: {
+      entity,
+      currency: entity === "welld_ch" ? "CHF" : "EUR",
+      ratePerKmMicros,
+      validFrom: new Date(`${validFrom}T00:00:00.000Z`),
+      createdByUserId: "admin-1",
+      createdByEmail: "admin@welld.ch",
+    },
+  });
+}
+
+describe("POST /requests/:id/lines — travel_km write derivation (specs/009-mileage-rate)", () => {
+  it("(AC-1.1/1.8) computes the amount and returns the full mileage breakdown", async () => {
+    await addRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        date: "2026-06-01",
+        type: "travel_km",
+        motivo: "Client visit",
+        entity: "welld_ch",
+        km: 240,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      currency: string;
+      requestedAmountCents: number;
+      mileage: {
+        rateInEffect: boolean;
+        appliedRate: { ratePerKmMicros: number } | null;
+        computedAmountCents: number | null;
+        snapshotted: boolean;
+      } | null;
+    };
+    expect(body.currency).toBe("CHF");
+    expect(body.requestedAmountCents).toBe(16800); // 240km x CHF0.70/km = CHF168.00
+    expect(body.mileage?.rateInEffect).toBe(true);
+    expect(body.mileage?.appliedRate?.ratePerKmMicros).toBe(700000);
+    expect(body.mileage?.computedAmountCents).toBe(16800);
+    expect(body.mileage?.snapshotted).toBe(false);
+  });
+
+  it("(AC-1.6, Security A04) a client-sent currency/requestedAmountCents on a travel_km line is ignored", async () => {
+    await addRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        date: "2026-06-01",
+        type: "travel_km",
+        motivo: "Client visit",
+        entity: "welld_ch",
+        km: 100,
+        currency: "USD", // attacker/legacy-client attempt — must be ignored
+        requestedAmountCents: 999999, // attacker/legacy-client attempt — must be ignored
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { currency: string; requestedAmountCents: number };
+    expect(body.currency).toBe("CHF"); // entity-designated, NOT the client's "USD"
+    expect(body.requestedAmountCents).toBe(7000); // computed (100km x 0.70), NOT the client's 999999
+  });
+
+  it("(AC-2.2) no rate configured -> rateInEffect:false, computedAmountCents:null, amount cached as 0", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        date: "2026-06-01",
+        type: "travel_km",
+        motivo: "No rate yet",
+        entity: "welld_it",
+        km: 50,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      requestedAmountCents: number;
+      mileage: { rateInEffect: boolean; computedAmountCents: number | null } | null;
+    };
+    expect(body.mileage?.rateInEffect).toBe(false);
+    expect(body.mileage?.computedAmountCents).toBeNull();
+    expect(body.requestedAmountCents).toBe(0);
+  });
+
+  it("(AC-1.5) a non-travel_km line is completely unaffected — manual amount/currency honored", async () => {
+    const request = await makeRequest();
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await linesRouter.request(`/requests/${request.id}/lines`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        date: "2026-06-01",
+        type: "postal",
+        motivo: "Stamps",
+        entity: "welld_ch",
+        currency: "USD",
+        requestedAmountCents: 1234,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      currency: string;
+      requestedAmountCents: number;
+      mileage: unknown;
+    };
+    expect(body.currency).toBe("USD");
+    expect(body.requestedAmountCents).toBe(1234);
+    expect(body.mileage).toBeNull();
+  });
+});
+
 // ─── PUT /requests/:id/lines/:lineId ────────────────────────────────────────
 
 describe("PUT /requests/:id/lines/:lineId", () => {
@@ -271,15 +399,20 @@ describe("PUT /requests/:id/lines/:lineId", () => {
     const res = await linesRouter.request(`/requests/${request.id}/lines/${line.id}`, {
       method: "PUT",
       headers: authHeaders(token),
+      // NOT travel_km — a travel_km line's requestedAmountCents/currency are
+      // server-derived, never honored from the client (specs/009-mileage-rate,
+      // AC-1.6; see this file's separate "travel_km" describe block below for
+      // that behavior). This test's own intent is the generic "PUT replaces
+      // the whole line object" contract, unrelated to mileage.
       body: JSON.stringify(
-        validLineBody({ type: "travel_km", km: 15, motivo: "New", requestedAmountCents: 999 }),
+        validLineBody({ type: "office_material", motivo: "New", requestedAmountCents: 999 }),
       ),
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { motivo: string; km: number; requestedAmountCents: number };
+    const body = (await res.json()) as { motivo: string; km: number | null; requestedAmountCents: number };
     expect(body.motivo).toBe("New");
-    expect(body.km).toBe(15);
+    expect(body.km).toBeNull();
     expect(body.requestedAmountCents).toBe(999);
   });
 

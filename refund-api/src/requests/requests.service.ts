@@ -19,6 +19,8 @@ import {
   requestInScope,
   entityScopeForPermission,
 } from "../authz/conditions";
+import { computeMileageAmountCents } from "../rates/computeMileageAmountCents";
+import { microsToDecimalString } from "../rates/service";
 import type {
   CurrencyValue,
   EntityValue,
@@ -46,6 +48,21 @@ export interface LineRow {
     readonly contentType: string;
     readonly sizeBytes: number;
   }[];
+  // ─── specs/009-mileage-rate: applied-rate snapshot (Decision 1) ──────────
+  // The FROZEN values written inside the submit transaction (T6) — non-null
+  // only once the containing request has ever reached `submitted` AND this
+  // line's rate was successfully resolved at that moment. `undefined` is
+  // treated identically to `null` (callers that don't select these columns —
+  // e.g. batches.repo.ts's candidateSelect, which never needs the mileage
+  // breakdown — never break `mapLine`).
+  readonly appliedRateMicros?: number | null;
+  readonly appliedRateValidFrom?: Date | null;
+  // Populated ONLY by requests/mileageHydration.ts for a DRAFT travel_km
+  // line — the entity's CURRENTLY effective rate for this line's (entity,
+  // date), live-recomputed on every read (Decision 1, ADR-0013). `null`
+  // means no rate is in effect (AC-2.2); `undefined` means "not resolved for
+  // this row" (non-draft, non-travel_km, or a caller that doesn't hydrate).
+  readonly liveRate?: { readonly ratePerKmMicros: number; readonly validFrom: string } | null;
 }
 
 export interface RequestRow {
@@ -124,7 +141,71 @@ const isoDateOnly = (d: Date): string => {
   return iso.slice(0, 10);
 };
 
-export function mapLine(line: LineRow): RefundLineResponse {
+/**
+ * Builds the `mileage` breakdown for a travel_km line (specs/009-mileage-rate,
+ * AC-1.8, AC-2.2, AC-3.x, AC-6.4) — `null` for any other type.
+ *
+ * `isDraft` (the CONTAINING REQUEST's status, not the line's own state) is
+ * what distinguishes the two modes (Decision 1):
+ *   - draft (incl. withdrawn-back-to-draft, AC-3.2): LIVE — `line.liveRate`
+ *     (populated by requests/mileageHydration.ts's batched re-resolution)
+ *     drives `rateInEffect`/`appliedRate`/`computedAmountCents`;
+ *     `snapshotted: false`.
+ *   - ever-submitted (submitted/approved/rejected/paid, AC-3.1/3.3): FROZEN —
+ *     `line.appliedRateMicros`/`appliedRateValidFrom` (written once, inside
+ *     the submit transaction, T6) drive the same fields; `snapshotted:
+ *     true`. A legacy pre-feature submitted line has both null (R3) — shown
+ *     as `rateInEffect: false, appliedRate: null`, but `computedAmountCents`
+ *     still reflects the stored `requestedAmountCents` (the amount is never
+ *     hidden, only the rate breakdown is).
+ */
+function buildMileageInfo(
+  line: LineRow,
+  isDraft: boolean,
+): RefundLineResponse["mileage"] {
+  if (line.type !== "travel_km") return null;
+  const km = line.km ?? 0;
+
+  if (isDraft) {
+    const live = line.liveRate ?? null;
+    return {
+      km,
+      rateInEffect: live !== null,
+      appliedRate: live
+        ? {
+            ratePerKmMicros: live.ratePerKmMicros,
+            ratePerKm: microsToDecimalString(live.ratePerKmMicros),
+            validFrom: live.validFrom,
+            currency: line.currency as CurrencyValue,
+          }
+        : null,
+      computedAmountCents: live ? computeMileageAmountCents(km, live.ratePerKmMicros) : null,
+      snapshotted: false,
+    };
+  }
+
+  const frozenMicros = line.appliedRateMicros ?? null;
+  const frozenValidFrom = line.appliedRateValidFrom ?? null;
+  const isFrozenWithRate = frozenMicros !== null && frozenValidFrom !== null;
+  return {
+    km,
+    rateInEffect: isFrozenWithRate,
+    appliedRate: isFrozenWithRate
+      ? {
+          ratePerKmMicros: frozenMicros,
+          ratePerKm: microsToDecimalString(frozenMicros),
+          validFrom: isoDateOnly(frozenValidFrom),
+          currency: line.currency as CurrencyValue,
+        }
+      : null,
+    // The stored, frozen amount — always shown even for a legacy line with
+    // no rate breakdown (R3: "show the amount, omit the rate breakdown").
+    computedAmountCents: line.requestedAmountCents,
+    snapshotted: true,
+  };
+}
+
+export function mapLine(line: LineRow, requestStatus: string): RefundLineResponse {
   return {
     id: line.id,
     date: isoDateOnly(line.date),
@@ -141,6 +222,7 @@ export function mapLine(line: LineRow): RefundLineResponse {
       contentType: a.contentType,
       sizeBytes: a.sizeBytes,
     })),
+    mileage: buildMileageInfo(line, requestStatus === "draft"),
   };
 }
 
@@ -166,7 +248,7 @@ export function mapRequestDetail(request: RequestRow): RequestDetail {
     paidAt:
       request.status === "paid" ? (request.batch?.paidAt?.toISOString() ?? null) : null,
     paidBy: request.status === "paid" ? (request.batch?.paidByEmail ?? null) : null,
-    lines: request.lines.map(mapLine),
+    lines: request.lines.map((line) => mapLine(line, request.status)),
     subtotals: computeSubtotals(request.lines),
     createdAt: request.createdAt.toISOString(),
     updatedAt: request.updatedAt.toISOString(),

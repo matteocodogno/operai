@@ -2,12 +2,20 @@
  * Zod validation for expense-line create/update bodies (T8,
  * specs/007-refund-service, AC-1.2/1.6).
  *
- * Required: date, type, motivo, requestedAmountCents (>=0 int), entity,
- * currency (2026-07-17 amendment — independently-stored, NOT derived from
- * entity; any (entity, currency) combination is valid, see plan.md § Money
- * handling). `km`: required and > 0 IFF type === "travel_km"; rejected (422)
- * if present for any other type. PUT reuses the SAME schema as POST —
- * "editing a line commits the whole line object" (plan.md § API contracts).
+ * Required: date, type, motivo, entity; `km`: required and > 0 IFF
+ * type === "travel_km"; rejected (422) if present for any other type. PUT
+ * reuses the SAME schema as POST — "editing a line commits the whole line
+ * object" (plan.md § API contracts).
+ *
+ * `currency`/`requestedAmountCents` (specs/009-mileage-rate amendment):
+ * REQUIRED for every type EXCEPT `travel_km` (2026-07-17 amendment —
+ * independently-stored, NOT derived from entity; any (entity, currency)
+ * combination is valid, see 007 plan.md § Money handling — unchanged for
+ * every non-mileage type). For `travel_km`, both are OPTIONAL at the schema
+ * level and, if sent, IGNORED — never trusted (AC-1.6, Security A04): the
+ * server ALWAYS derives `currency` from `entity` (ENTITY_CURRENCY) and
+ * computes `requestedAmountCents` from `km x the effective rate`
+ * (lines.repo.ts).
  */
 
 import { z } from "zod";
@@ -23,11 +31,12 @@ export const LineBodySchema = z
     type: ExpenseTypeSchema,
     motivo: z.string().min(1, "motivo is required").max(2000),
     entity: EntitySchema,
-    currency: CurrencySchema,
+    currency: CurrencySchema.optional(),
     requestedAmountCents: z
       .number()
       .int("requestedAmountCents must be an integer")
-      .nonnegative("requestedAmountCents must be >= 0"),
+      .nonnegative("requestedAmountCents must be >= 0")
+      .optional(),
     km: z.number().int("km must be an integer").optional(),
   })
   .superRefine((val, ctx) => {
@@ -45,12 +54,32 @@ export const LineBodySchema = z
           message: "km must be > 0 when type is travel_km",
         });
       }
-    } else if (val.km !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["km"],
-        message: "km must not be provided unless type is travel_km",
-      });
+      // currency/requestedAmountCents are deliberately NOT validated here —
+      // server-derived, a client value (if sent) is simply ignored
+      // (lines.repo.ts), never rejected and never trusted.
+    } else {
+      if (val.km !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["km"],
+          message: "km must not be provided unless type is travel_km",
+        });
+      }
+      // Every non-travel_km type keeps 007's original required fields.
+      if (val.currency === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["currency"],
+          message: "currency is required unless type is travel_km",
+        });
+      }
+      if (val.requestedAmountCents === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["requestedAmountCents"],
+          message: "requestedAmountCents is required unless type is travel_km",
+        });
+      }
     }
   });
 

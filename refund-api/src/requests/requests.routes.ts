@@ -38,6 +38,7 @@ import {
   findRequestWithLines,
   listOwnRequests,
 } from "./requests.repo";
+import { hydrateDraftMileageLines } from "./mileageHydration";
 import {
   ProblemSchema,
   RequestDetailSchema,
@@ -248,7 +249,19 @@ requestsRouter.openapi(getRequestRoute, async (c) => {
     return c.json(notFoundProblem(c.req.path, `Refund request ${id} not found`), 404);
   }
 
-  return c.json(mapRequestDetail(request), 200);
+  // specs/009-mileage-rate (Decision 1, ADR-0013): a DRAFT request's
+  // travel_km lines are recomputed against the CURRENTLY effective rate on
+  // every read — never served stale (Risk R2). Ever-submitted requests pass
+  // through unchanged (their mileage lines are frozen — buildMileageInfo
+  // reads the stored snapshot columns directly).
+  const hydrationExit = await Effect.runPromiseExit(
+    hydrateDraftMileageLines(request.lines, request.status),
+  );
+  if (hydrationExit._tag === "Failure") {
+    throw new Error("Unexpected database failure resolving mileage rates");
+  }
+
+  return c.json(mapRequestDetail({ ...request, lines: hydrationExit.value }), 200);
 });
 
 // ─── DELETE /requests/:id — draft-only ─────────────────────────────────────

@@ -164,7 +164,9 @@ linesRouter.openapi(createLineRoute, async (c) => {
 
   const exit = await Effect.runPromiseExit(createLine(id, sub, body));
   if (exit._tag === "Success") {
-    return c.json(mapLine(exit.value), 201);
+    // ensureOwnedDraftRequest guarantees the request is `draft` — a travel_km
+    // line here is always LIVE (Decision 1), never frozen.
+    return c.json(mapLine(exit.value, "draft"), 201);
   }
 
   const cause = exit.cause;
@@ -224,7 +226,7 @@ linesRouter.openapi(updateLineRoute, async (c) => {
 
   const exit = await Effect.runPromiseExit(updateLine(id, lineId, sub, body));
   if (exit._tag === "Success") {
-    return c.json(mapLine(exit.value), 200);
+    return c.json(mapLine(exit.value, "draft"), 200);
   }
 
   const cause = exit.cause;

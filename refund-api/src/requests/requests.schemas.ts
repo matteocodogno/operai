@@ -103,6 +103,30 @@ export const AttachmentResponseSchema = z.object({
 });
 export type AttachmentResponse = z.infer<typeof AttachmentResponseSchema>;
 
+// specs/009-mileage-rate: the applied-rate breakdown for a travel_km line
+// (AC-1.8, AC-2.2, AC-3.x, AC-6.4) — `null` for every non-travel_km line.
+// `appliedRate` is the LIVE effective rate while draft (re-resolved on every
+// read, Decision 1/ADR-0013) or the FROZEN snapshot once the containing
+// request has ever been submitted (`snapshotted: true`); `null` when no rate
+// is/was in effect (AC-2.2) OR for a legacy pre-feature submitted line
+// (R3 — the amount is still shown via `requestedAmountCents`, just without a
+// rate breakdown).
+export const AppliedRateSchema = z.object({
+  ratePerKmMicros: z.number().int(),
+  ratePerKm: z.string(), // decimal string, display only
+  validFrom: z.string(), // YYYY-MM-DD
+  currency: CurrencySchema,
+});
+
+export const MileageInfoSchema = z.object({
+  km: z.number().int(),
+  rateInEffect: z.boolean(), // false => "no rate configured", submit blocked (AC-2.2)
+  appliedRate: AppliedRateSchema.nullable(),
+  computedAmountCents: z.number().int().nullable(), // = requestedAmountCents when rateInEffect
+  snapshotted: z.boolean(), // true once ever-submitted (frozen); false while draft (live)
+});
+export type MileageInfo = z.infer<typeof MileageInfoSchema>;
+
 export const RefundLineResponseSchema = z.object({
   id: z.string(),
   date: z.string(), // YYYY-MM-DD
@@ -114,6 +138,7 @@ export const RefundLineResponseSchema = z.object({
   km: z.number().int().nullable(),
   approvedTotalCents: z.number().int().nullable(),
   attachments: z.array(AttachmentResponseSchema),
+  mileage: MileageInfoSchema.nullable(),
 });
 export type RefundLineResponse = z.infer<typeof RefundLineResponseSchema>;
 

@@ -600,6 +600,211 @@ describe("GET /requests/:id", () => {
   });
 });
 
+// ─── GET /requests/:id — travel_km mileage (specs/009-mileage-rate, T5) ────
+
+async function addMileageRate(
+  entity: "welld_ch" | "welld_it",
+  ratePerKmMicros: number,
+  validFrom: string,
+) {
+  return db.mileageRate.create({
+    data: {
+      entity,
+      currency: entity === "welld_ch" ? "CHF" : "EUR",
+      ratePerKmMicros,
+      validFrom: new Date(`${validFrom}T00:00:00.000Z`),
+      createdByUserId: "admin-1",
+      createdByEmail: "admin@welld.ch",
+    },
+  });
+}
+
+describe("GET /requests/:id — draft travel_km live recompute (specs/009-mileage-rate)", () => {
+  it("(AC-2.4/AC-3.2) recomputes live after a rate change with no line edit; subtotals agree", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-mileage-1", ownerEmail: "emp-mileage-1@x.com", status: "draft" },
+    });
+    await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "travel_km",
+        motivo: "Client visit",
+        entity: "welld_ch",
+        currency: "CHF",
+        requestedAmountCents: 7000, // last write-time computed value (100km x 0.70)
+        km: 100,
+      },
+    });
+
+    // Admin adds a NEW, higher rate — no edit to the line itself.
+    await addMileageRate("welld_ch", 800000, "2026-05-01");
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-mileage-1", email: "emp-mileage-1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const detail = (await res.json()) as {
+      lines: {
+        requestedAmountCents: number;
+        mileage: {
+          computedAmountCents: number | null;
+          appliedRate: { ratePerKmMicros: number } | null;
+        } | null;
+      }[];
+      subtotals: { requestedCents: number }[];
+    };
+    const line = detail.lines[0]!;
+    expect(line.requestedAmountCents).toBe(8000); // 100km x 0.80 — LIVE recompute
+    expect(line.mileage?.appliedRate?.ratePerKmMicros).toBe(800000);
+    // Subtotals reflect the SAME live-recomputed value (no divergence).
+    expect(detail.subtotals[0]?.requestedCents).toBe(8000);
+  });
+
+  it("(AC-1.7) a pre-existing draft travel_km line (manual-amount, 007-era) adopts the computed UI on read", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-mileage-2", ownerEmail: "emp-mileage-2@x.com", status: "draft" },
+    });
+    // Simulate a line created BEFORE this feature shipped — manual amount,
+    // no appliedRate columns, inserted directly.
+    await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "travel_km",
+        motivo: "Legacy manual entry",
+        entity: "welld_ch",
+        currency: "USD", // legacy manually-chosen currency, pre-AC-1.6
+        requestedAmountCents: 12345, // legacy hand-typed amount
+        km: 240,
+      },
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-mileage-2", email: "emp-mileage-2@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    const detail = (await res.json()) as {
+      lines: { requestedAmountCents: number; mileage: { computedAmountCents: number | null } | null }[];
+    };
+    const line = detail.lines[0]!;
+    // The legacy manual amount is SUPERSEDED the moment it's next read
+    // (AC-1.7) — computed value wins, not the old 12345.
+    expect(line.requestedAmountCents).toBe(16800); // 240km x 0.70
+    expect(line.mileage?.computedAmountCents).toBe(16800);
+  });
+});
+
+describe("GET /requests/:id — frozen (ever-submitted) travel_km lines (specs/009-mileage-rate)", () => {
+  async function makeFrozenLine(status: "submitted" | "approved" | "rejected" | "paid") {
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-mileage-3", ownerEmail: "emp-mileage-3@x.com", status },
+    });
+    const rate = await addMileageRate("welld_ch", 700000, "2026-01-01");
+    // Simulate T6's submit-time snapshot write directly (T6 lands in a later
+    // task) — this is exactly the shape T6 writes inside its submit
+    // transaction.
+    await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "travel_km",
+        motivo: "Client visit",
+        entity: "welld_ch",
+        currency: "CHF",
+        requestedAmountCents: 16800,
+        km: 240,
+        appliedRateMicros: rate.ratePerKmMicros,
+        appliedRateValidFrom: rate.validFrom,
+        appliedRateEntryId: rate.id,
+      },
+    });
+    return request;
+  }
+
+  it("(AC-3.1/AC-3.3) shows the frozen snapshot, unaffected by a later rate change", async () => {
+    const request = await makeFrozenLine("submitted");
+
+    // A backdated rate change AFTER submission must never move the frozen amount.
+    await addMileageRate("welld_ch", 900000, "2026-05-01");
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const detail = (await res.json()) as {
+      lines: {
+        requestedAmountCents: number;
+        mileage: {
+          computedAmountCents: number | null;
+          appliedRate: { ratePerKmMicros: number } | null;
+          snapshotted: boolean;
+        } | null;
+      }[];
+    };
+    const line = detail.lines[0]!;
+    expect(line.requestedAmountCents).toBe(16800); // unchanged
+    expect(line.mileage?.computedAmountCents).toBe(16800);
+    expect(line.mileage?.appliedRate?.ratePerKmMicros).toBe(700000); // the ORIGINAL rate, not 900000
+    expect(line.mileage?.snapshotted).toBe(true);
+  });
+
+  it("(R3) a legacy submitted line with null appliedRate renders gracefully — amount shown, no breakdown", async () => {
+    const request = await db.refundRequest.create({
+      data: { ownerUserId: "emp-mileage-4", ownerEmail: "emp-mileage-4@x.com", status: "submitted" },
+    });
+    await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "travel_km",
+        motivo: "Pre-feature submitted line",
+        entity: "welld_ch",
+        currency: "USD", // legacy currency, never touched by this migration (AC-1.7 non-goal)
+        requestedAmountCents: 5000, // legacy manually-entered amount, permanently retained
+        km: 100,
+        // appliedRateMicros/appliedRateValidFrom/appliedRateEntryId all null (legacy)
+      },
+    });
+
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-mileage-4", email: "emp-mileage-4@x.com" });
+
+    const res = await requestsRouter.request(`/requests/${request.id}`, {
+      headers: authHeaders(token),
+    });
+    const detail = (await res.json()) as {
+      lines: {
+        currency: string;
+        requestedAmountCents: number;
+        mileage: {
+          rateInEffect: boolean;
+          appliedRate: unknown;
+          computedAmountCents: number | null;
+          snapshotted: boolean;
+        } | null;
+      }[];
+    };
+    const line = detail.lines[0]!;
+    expect(line.currency).toBe("USD"); // permanently retained, never touched
+    expect(line.requestedAmountCents).toBe(5000); // permanently retained
+    expect(line.mileage?.rateInEffect).toBe(false);
+    expect(line.mileage?.appliedRate).toBeNull();
+    expect(line.mileage?.computedAmountCents).toBe(5000); // amount still shown
+    expect(line.mileage?.snapshotted).toBe(true);
+  });
+});
+
 describe("DELETE /requests/:id (draft-only — AC-1.4/2.3)", () => {
   it("204 when the request is a draft", async () => {
     const request = await db.refundRequest.create({
