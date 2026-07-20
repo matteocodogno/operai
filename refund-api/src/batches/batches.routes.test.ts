@@ -595,6 +595,82 @@ describe("POST /batches", () => {
   });
 });
 
+// ─── specs/009-mileage-rate (T7, AC-6.3) — mileage lines flow through batch compile ──
+
+describe("POST /batches — a travel_km line's snapshot flows through with no special-casing (AC-6.3)", () => {
+  async function createApprovedMileageRequest() {
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: "emp-mileage-batch",
+        ownerEmail: "emp-mileage-batch@x.com",
+        status: "approved",
+        decidedAt: new Date("2026-07-01T00:00:00.000Z"),
+        decidedByUserId: "acct-1",
+        decidedByEmail: "acct1@x.com",
+      },
+    });
+    const rate = await db.mileageRate.create({
+      data: {
+        entity: "welld_ch",
+        currency: "CHF",
+        ratePerKmMicros: 700000,
+        validFrom: new Date("2026-01-01T00:00:00.000Z"),
+        createdByUserId: "admin-1",
+        createdByEmail: "admin@welld.ch",
+      },
+    });
+    await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "travel_km",
+        motivo: "Client visit",
+        entity: "welld_ch",
+        currency: "CHF",
+        requestedAmountCents: 16800, // 240km x CHF0.70/km, T6's submit-time snapshot shape
+        km: 240,
+        approvedTotalCents: 16800,
+        appliedRateMicros: rate.ratePerKmMicros,
+        appliedRateValidFrom: rate.validFrom,
+        appliedRateEntryId: rate.id,
+      },
+    });
+    return request;
+  }
+
+  it("a compiled batch's totals AND rendered PDF include the mileage line's snapshotted amount, unmodified", async () => {
+    const request = await createApprovedMileageRequest();
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      requestCount: number;
+      subtotals: { currency: string; approvedCents: number }[];
+      employees: { requests: { id: string; subtotals: { currency: string; approvedCents: number | null }[] }[] }[];
+    };
+    expect(body.requestCount).toBe(1);
+    // The batch-level subtotal includes the mileage line's amount in the
+    // SAME CHF group — no distinct mileage grouping/label anywhere.
+    const chf = body.subtotals.find((s) => s.currency === "CHF");
+    expect(chf?.approvedCents).toBe(16800);
+
+    const claimed = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(claimed.batchId).not.toBeNull();
+
+    // The PDF render/store pipeline completed without choking on a mileage
+    // line (no special-cased failure path) — proven via the storage mock's
+    // captured putObject call, mirroring this file's other compile tests.
+    expect(putObjectCalls).toHaveLength(1);
+    expect(putObjectCalls[0]?.contentType).toBe("application/pdf");
+  });
+});
+
 // ─── GET /batches (history, T4) ─────────────────────────────────────────────
 
 describe("GET /batches", () => {

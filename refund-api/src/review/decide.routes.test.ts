@@ -326,6 +326,78 @@ describe("PUT /review/requests/:id/lines/:lineId/approved-total", () => {
   });
 });
 
+// ─── specs/009-mileage-rate (T7, AC-6.1) — approved-total on a travel_km line ──
+
+describe("PUT .../approved-total on a travel_km (mileage) line — specs/009-mileage-rate, AC-6.1", () => {
+  async function createSubmittedMileageRequest() {
+    const request = await db.refundRequest.create({
+      data: {
+        ownerUserId: "emp-mileage-1",
+        ownerEmail: "emp-mileage-1@x.com",
+        status: "submitted",
+        submittedAt: new Date(),
+      },
+    });
+    const rate = await db.mileageRate.create({
+      data: {
+        entity: "welld_ch",
+        currency: "CHF",
+        ratePerKmMicros: 700000,
+        validFrom: new Date("2026-01-01T00:00:00.000Z"),
+        createdByUserId: "admin-1",
+        createdByEmail: "admin@welld.ch",
+      },
+    });
+    const line = await db.refundLine.create({
+      data: {
+        requestId: request.id,
+        date: new Date("2026-06-01T00:00:00.000Z"),
+        type: "travel_km",
+        motivo: "Client visit",
+        entity: "welld_ch",
+        currency: "CHF",
+        requestedAmountCents: 16800, // 240km x CHF0.70/km, T6's submit-time snapshot shape
+        km: 240,
+        appliedRateMicros: rate.ratePerKmMicros,
+        appliedRateValidFrom: rate.validFrom,
+        appliedRateEntryId: rate.id,
+      },
+    });
+    return { request, line };
+  }
+
+  it("the computed amount is NEVER a ceiling or floor — accounting may raise, lower, or zero it", async () => {
+    const { request, line } = await createSubmittedMileageRequest();
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const raise = await decideRouter.request(
+      `/review/requests/${request.id}/lines/${line.id}/approved-total`,
+      {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: JSON.stringify({ approvedTotalCents: 20000 }), // ABOVE the computed 16800
+      },
+    );
+    expect(raise.status).toBe(200);
+    const raisedBody = (await raise.json()) as { approvedTotalCents: number; requestedAmountCents: number };
+    expect(raisedBody.approvedTotalCents).toBe(20000);
+    expect(raisedBody.requestedAmountCents).toBe(16800); // the computed amount itself is untouched
+
+    const lower = await decideRouter.request(
+      `/review/requests/${request.id}/lines/${line.id}/approved-total`,
+      {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: JSON.stringify({ approvedTotalCents: 0 }), // zeroed
+      },
+    );
+    expect(lower.status).toBe(200);
+    const zeroedBody = (await lower.json()) as { approvedTotalCents: number };
+    expect(zeroedBody.approvedTotalCents).toBe(0);
+  });
+});
+
 // ─── POST .../approve ────────────────────────────────────────────────────────
 
 describe("POST /review/requests/:id/approve", () => {
