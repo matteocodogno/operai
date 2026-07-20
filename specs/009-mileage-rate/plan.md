@@ -379,7 +379,7 @@ block, AC-6.4 review display, and AC-3.x freeze state:
   "appliedRate": {                      // the frozen snapshot once submitted; the LIVE effective rate while draft; null if !rateInEffect or legacy
     "ratePerKmMicros": 700000, "ratePerKm": "0.70", "validFrom": "2026-01-01", "currency": "CHF"
   },
-  "computedAmountCents": 168000,        // = requestedAmountCents when rateInEffect; null if !rateInEffect
+  "computedAmountCents": 16800,         // 240km × CHF0.70/km = CHF168.00 = 16800 rappen; = requestedAmountCents when rateInEffect; null if !rateInEffect
   "snapshotted": true                   // true once the request has ever been submitted (frozen); false while draft (live)
 }
 ```
