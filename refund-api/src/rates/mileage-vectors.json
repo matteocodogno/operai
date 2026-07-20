@@ -1,0 +1,44 @@
+[
+  {
+    "description": "CHF 0.70/km x 240km = CHF 168.00 (16800 rappen) — no rounding needed",
+    "km": 240,
+    "ratePerKmMicros": 700000,
+    "expectedCents": 16800
+  },
+  {
+    "description": "CHF 0.70/km x 100km = CHF 70.00 (7000 rappen) — no rounding needed",
+    "km": 100,
+    "ratePerKmMicros": 700000,
+    "expectedCents": 7000
+  },
+  {
+    "description": "1km at a 0.015 major-unit/km rate = 1.5 cents exactly — half-up tie, rounds UP to 2",
+    "km": 1,
+    "ratePerKmMicros": 15000,
+    "expectedCents": 2
+  },
+  {
+    "description": "1km at a 0.005 major-unit/km rate = 0.5 cents exactly — half-up tie, rounds UP to 1",
+    "km": 1,
+    "ratePerKmMicros": 5000,
+    "expectedCents": 1
+  },
+  {
+    "description": "1km at a rate just under the tie point (0.4999 cents) — rounds DOWN to 0",
+    "km": 1,
+    "ratePerKmMicros": 4999,
+    "expectedCents": 0
+  },
+  {
+    "description": "EUR 1.00/km x 1000km = EUR 1000.00 (100000 centesimi) — large-value sanity check",
+    "km": 1000,
+    "ratePerKmMicros": 1000000,
+    "expectedCents": 100000
+  },
+  {
+    "description": "km=0 is never a valid submitted line (AC-1.4), but the pure formula still computes 0",
+    "km": 0,
+    "ratePerKmMicros": 700000,
+    "expectedCents": 0
+  }
+]
