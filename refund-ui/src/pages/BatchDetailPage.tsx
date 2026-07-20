@@ -369,7 +369,17 @@ export default function BatchDetailPage() {
             <BatchEmployeeGroupList mode="detail" groups={pageState.batch.employees} />
 
             <div className="flex flex-wrap items-center gap-3">
-              <BatchPdfLink batchId={pageState.batch.id} />
+              {pageState.batch.pdf ? (
+                <BatchPdfLink batchId={pageState.batch.id} />
+              ) : (
+                <span
+                  className="text-xs"
+                  style={{ color: 'var(--muted)' }}
+                  data-testid="batch-detail-pdf-unavailable"
+                >
+                  {strings.components.batchPdfLink.unavailable}
+                </span>
+              )}
               <span className="text-sm" style={{ color: 'var(--soft)' }} data-testid="batch-detail-email-status">
                 {t.email[pageState.batch.email.status ?? 'notAttempted']}
               </span>

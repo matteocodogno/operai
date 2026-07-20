@@ -441,6 +441,13 @@ const en = {
       buttonLabel: 'Download PDF',
       downloadLabel: (reference: string) => `Download compiled PDF for batch ${reference}`,
       downloadError: 'Could not open this PDF. Try again.',
+      /**
+       * Shown in place of the download control when `BatchDetail.pdf` is
+       * `null` (OWASP A04 fix round — refund-api's `resolvePdfLink`
+       * degrades a render/store failure to `null` rather than failing the
+       * whole request). A temporary, retryable state, not an error banner.
+       */
+      unavailable: 'PDF temporarily unavailable',
     },
     /**
      * `MarkPaidDialog` (T12, specs/008-refund-monthly-processing/tasks.md,

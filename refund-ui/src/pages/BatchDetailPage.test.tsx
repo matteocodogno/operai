@@ -178,6 +178,15 @@ describe('BatchDetailPage — PDF mint', () => {
     fireEvent.click(screen.getByTestId('batch-pdf-link-batch-1'))
     await waitFor(() => expect(batchesApi.getPdfUrl).toHaveBeenCalledWith('batch-1'))
   })
+
+  it('pdf: null (OWASP A04 fix round — refund-api degraded a render/store failure) renders a "PDF temporarily unavailable" state, not a broken download control', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue({ ...compiledBatch, pdf: null })
+    renderBatchDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
+    expect(screen.getByTestId('batch-detail-pdf-unavailable').textContent).toBe('PDF temporarily unavailable')
+    expect(screen.queryByTestId('batch-pdf-link-batch-1')).toBeNull()
+  })
 })
 
 describe('BatchDetailPage — resend email', () => {

@@ -103,8 +103,15 @@ export type BatchDetail = {
   paidBy: string | null
   discardedAt: string | null
   discardedBy: string | null
-  /** Minted post-authz, ~60s fresh — `BatchPdfLink` (T10) re-mints via `getPdfUrl` rather than trusting this on a long-lived screen. */
-  pdf: { url: string; expiresAt: string }
+  /**
+   * Minted post-authz, ~60s fresh — `BatchPdfLink` (T10) re-mints via
+   * `getPdfUrl` rather than trusting this on a long-lived screen. `null`
+   * when the PDF could not be rendered/stored/presigned right now
+   * (OWASP A04 fix round — refund-api's `resolvePdfLink` degrades any
+   * render/store failure to `null` instead of failing the whole request);
+   * this is a normal, temporary state, not an error to surface as one.
+   */
+  pdf: { url: string; expiresAt: string } | null
 }
 
 export type PdfUrlResponse = { url: string; expiresAt: string }
