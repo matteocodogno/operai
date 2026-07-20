@@ -58,6 +58,19 @@ export type RefundStatusValue = (typeof REFUND_STATUS_VALUES)[number];
 export const CURRENCY_VALUES = ["EUR", "CHF", "USD", "GBP"] as const;
 export type CurrencyValue = (typeof CURRENCY_VALUES)[number];
 
+// specs/009-mileage-rate: for `travel_km` lines ONLY, currency is no longer
+// independently chosen — it is forced server-side from `entity` (a narrow,
+// type-scoped reversal of the 2026-07-17 amendment above, which decoupled
+// currency from entity for every line suite-wide). Every other expense type
+// is unaffected — currency stays an independent, manually-entered field.
+// Reused by `rates/service.ts` (an entity's history always declares its
+// designated currency, even with zero rate entries) and
+// `requests/lines.repo.ts` (server-side currency derivation on write).
+export const ENTITY_CURRENCY: Record<EntityValue, CurrencyValue> = {
+  welld_ch: "CHF",
+  welld_it: "EUR",
+};
+
 export const EntitySchema = z.enum(ENTITY_VALUES);
 export const ExpenseTypeSchema = z.enum(EXPENSE_TYPE_VALUES);
 export const RefundStatusSchema = z.enum(REFUND_STATUS_VALUES);

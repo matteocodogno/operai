@@ -241,6 +241,11 @@ model RefundBatchItem {
 // stored" decision) — it records what was actually paid in, decoupled from
 // `entity`; any (entity, currency) combination is valid, and subtotals now
 // group purely by the stored `currency`, never by entity.
+//
+// specs/009-mileage-rate amendment: for `type == travel_km` lines ONLY,
+// `currency` is forced server-side from `entity` (welld_ch→CHF, welld_it→EUR)
+// rather than independently chosen — see appliedRate* below and
+// requests/lines.repo.ts. Every other type's currency field is unaffected.
 model RefundLine {
   id        String        @id @default(cuid())
   requestId String
@@ -259,6 +264,21 @@ model RefundLine {
   km                   Int?
   approvedTotalCents   Int?
 
+  // ─── specs/009-mileage-rate: applied-rate snapshot (Decision 1) ──────────
+  // All three are non-null ONLY once this line's containing request has ever
+  // reached `submitted` AND it is currently frozen — written together inside
+  // the submit transaction (lifecycle.repo.ts), cleared together back to null
+  // on withdraw-to-draft (AC-3.1/3.2). Null for: a draft/never-submitted
+  // travel_km line (live/derived-on-read, ADR-0013), any non-travel_km line,
+  // and a legacy pre-feature submitted travel_km line (AC-1.7, this
+  // migration never backfills). onDelete: Restrict — a MileageRate a line
+  // references can never be deleted (and MileageRate rows are never deleted
+  // anyway — append-only, AC-4.7).
+  appliedRateMicros    Int?
+  appliedRateValidFrom DateTime?    @db.Date
+  appliedRateEntryId   String?
+  appliedRate          MileageRate? @relation(fields: [appliedRateEntryId], references: [id], onDelete: Restrict)
+
   attachments Attachment[]
 
   createdAt DateTime @default(now())
@@ -266,7 +286,45 @@ model RefundLine {
 
   @@index([requestId])
   @@index([requestId, entity]) // backs the per-request "at least one line matches" entity-scope predicate (ADR-0015)
+  @@index([appliedRateEntryId]) // FK lookup / provenance queries
   @@map("refund_line")
+}
+
+// MileageRate — a per-entity, effective-dated mileage rate entry
+// (specs/009-mileage-rate, US-4/US-5). Append-only: the SAME
+// `BEFORE UPDATE/DELETE`-raising trigger pattern as `refund_audit_entry`
+// (ADR-0018) is added by this model's migration — no update/delete route is
+// ever written for it (AC-4.7/5.2). This table IS its own audit trail
+// (AC-5.1/5.3, ADR-0022 parallel) — actor/timestamp/entity/value/validFrom
+// all already live on the row; a separate audit table would be redundant
+// (RefundAuditEntry is FK'd `requestId NOT NULL` and cannot represent a
+// non-request-scoped event like a rate change).
+//
+// Two entirely independent per-entity series (AC-2.3) — `entity` scopes
+// resolution, never a single suite-wide rate. `currency` is set server-side
+// from `entity` (welld_ch→CHF, welld_it→EUR) at write time, stored
+// explicitly for snapshot/display provenance (never independently chosen).
+// `ratePerKmMicros` is an integer count of 1e-6 major currency units per km
+// (Decision 3) — never Decimal/float, mirrors 007's money-handling posture.
+// `validFrom` may be past, present, or future relative to `createdAt`
+// (AC-4.8) — effective-rate resolution is always computed on read
+// (`resolveEffectiveRate`, rates/resolve.ts), never a scheduled/cron flip
+// (ADR-0013, spec Non-goal).
+model MileageRate {
+  id              String   @id @default(cuid())
+  entity          Entity
+  currency        Currency
+  ratePerKmMicros Int
+  validFrom       DateTime @db.Date
+  createdByUserId String
+  createdByEmail  String
+  createdAt       DateTime @default(now())
+
+  lines RefundLine[]
+
+  @@index([entity, validFrom]) // effective-rate resolution: latest validFrom <= D per entity
+  @@index([entity, createdAt]) // chronological history/audit listing (AC-4.1/5.3)
+  @@map("mileage_rate")
 }
 
 // Attachment — a receipt file attached to a specific expense line (T5;
