@@ -22,6 +22,7 @@ import { findRequestWithLines } from "./requests.repo";
 import { RequestDetailSchema, RequestIdParamSchema } from "./requests.schemas";
 import { mapRequestDetail } from "./requests.service";
 import { submitRequest, withdrawRequest } from "./lifecycle.repo";
+import { hydrateDraftMileageLines } from "./mileageHydration";
 import { SubmitValidationProblemSchema } from "./lifecycle.schemas";
 
 // ─── Problem JSON helpers ────────────────────────────────────────────────────
@@ -78,13 +79,27 @@ function requireCreateCapabilityOr404(
  * mapped `RequestDetail` (never `null` — the caller just proved the request
  * exists and is owned by re-writing its status a moment ago); throws on an
  * unexpected DB failure so the global 500 handler takes over.
+ *
+ * specs/009-mileage-rate (AC-3.2): after a WITHDRAW, the request is back to
+ * `draft` — its travel_km lines must reflect the CURRENT rate config
+ * immediately in this very response, not a stale snapshot. Hydration is a
+ * no-op after a successful SUBMIT (status is already `submitted` there), so
+ * this is safe to run unconditionally for both transitions (mirrors GET
+ * /requests/:id's own hydrate-then-map sequence, requests.routes.ts).
  */
 async function fetchDetailAfterTransition(requestId: string) {
   const exit = await Effect.runPromiseExit(findRequestWithLines(requestId));
   if (exit._tag === "Failure" || !exit.value) {
     throw new Error("Unexpected database failure re-fetching refund request");
   }
-  return mapRequestDetail(exit.value);
+  const request = exit.value;
+  const hydrationExit = await Effect.runPromiseExit(
+    hydrateDraftMileageLines(request.lines, request.status),
+  );
+  if (hydrationExit._tag === "Failure") {
+    throw new Error("Unexpected database failure resolving mileage rates");
+  }
+  return mapRequestDetail({ ...request, lines: hydrationExit.value });
 }
 
 // ─── POST /requests/:id/submit ──────────────────────────────────────────────

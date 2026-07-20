@@ -315,6 +315,191 @@ describe("POST /requests/:id/withdraw", () => {
   });
 });
 
+// ─── specs/009-mileage-rate (T6) — submit/withdraw mileage snapshot ────────
+
+async function addMileageRate(
+  entity: "welld_ch" | "welld_it",
+  ratePerKmMicros: number,
+  validFrom: string,
+) {
+  return db.mileageRate.create({
+    data: {
+      entity,
+      currency: entity === "welld_ch" ? "CHF" : "EUR",
+      ratePerKmMicros,
+      validFrom: new Date(`${validFrom}T00:00:00.000Z`),
+      createdByUserId: "admin-1",
+      createdByEmail: "admin@welld.ch",
+    },
+  });
+}
+
+async function addMileageLine(requestId: string, km = 240, entity: "welld_ch" | "welld_it" = "welld_ch") {
+  return db.refundLine.create({
+    data: {
+      requestId,
+      date: new Date("2026-06-01T00:00:00.000Z"),
+      type: "travel_km",
+      motivo: "Client visit",
+      entity,
+      currency: entity === "welld_ch" ? "CHF" : "EUR",
+      requestedAmountCents: 0, // pre-write placeholder (mirrors lines.repo.ts's own default)
+      km,
+    },
+  });
+}
+
+describe("POST /requests/:id/submit — mileage snapshot (specs/009-mileage-rate, T6)", () => {
+  it("(AC-2.2) a travel_km line with NO rate in effect refuses the whole submission, naming it", async () => {
+    const request = await makeRequest();
+    const line = await addMileageLine(request.id);
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { offendingLineIds: string[] };
+    expect(body.offendingLineIds).toEqual([line.id]);
+
+    const reread = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(reread.status).toBe("draft");
+    expect(await db.refundAuditEntry.count({ where: { requestId: request.id } })).toBe(0);
+    // Nothing was frozen.
+    const rereadLine = await db.refundLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(rereadLine.appliedRateMicros).toBeNull();
+  });
+
+  it("(Decision 1, AC-2.1) a rate in effect -> submit snapshots requestedAmountCents + appliedRate*", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const line = await addMileageLine(request.id, 240, "welld_ch");
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+
+    const reread = await db.refundLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(reread.requestedAmountCents).toBe(16800); // 240km x CHF0.70/km
+    expect(reread.appliedRateMicros).toBe(700000);
+    expect(reread.appliedRateValidFrom?.toISOString().slice(0, 10)).toBe("2026-01-01");
+    expect(reread.appliedRateEntryId).not.toBeNull();
+
+    const audit = await db.refundAuditEntry.findMany({ where: { requestId: request.id } });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]?.action).toBe("submitted");
+  });
+
+  it("(AC-3.1) a later rate change never disturbs the frozen snapshot", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const line = await addMileageLine(request.id, 240, "welld_ch");
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    // A NEW rate change after submission.
+    await addMileageRate("welld_ch", 900000, "2026-05-01");
+
+    const reread = await db.refundLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(reread.requestedAmountCents).toBe(16800); // unchanged
+    expect(reread.appliedRateMicros).toBe(700000); // the ORIGINAL rate, not 900000
+  });
+
+  it("(AC-1.4) km<=0 combined with a mileage line still refuses via the completeness check first", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const badLine = await addIncompleteLine(request.id); // km: null
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    const res = await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { offendingLineIds: string[] };
+    expect(body.offendingLineIds).toEqual([badLine.id]);
+  });
+});
+
+describe("POST /requests/:id/withdraw — mileage snapshot clears (specs/009-mileage-rate, T6, AC-3.2)", () => {
+  it("clears appliedRate* back to null, and the response itself shows the LIVE recomputed amount", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const line = await addMileageLine(request.id, 240, "welld_ch");
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    // A rate change while submitted — must NOT be visible until re-drafted.
+    await addMileageRate("welld_ch", 900000, "2026-05-01");
+
+    const withdrawRes = await lifecycleRouter.request(`/requests/${request.id}/withdraw`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(withdrawRes.status).toBe(200);
+    const body = (await withdrawRes.json()) as {
+      lines: {
+        requestedAmountCents: number;
+        mileage: {
+          appliedRate: { ratePerKmMicros: number } | null;
+          snapshotted: boolean;
+        } | null;
+      }[];
+    };
+    const respLine = body.lines[0]!;
+    // The withdraw RESPONSE itself already reflects the new rate (AC-3.2) —
+    // no separate GET needed to see it.
+    expect(respLine.requestedAmountCents).toBe(21600); // 240km x CHF0.90/km = CHF216.00
+    expect(respLine.mileage?.appliedRate?.ratePerKmMicros).toBe(900000);
+    expect(respLine.mileage?.snapshotted).toBe(false);
+
+    const reread = await db.refundLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(reread.appliedRateMicros).toBeNull();
+    expect(reread.appliedRateValidFrom).toBeNull();
+    expect(reread.appliedRateEntryId).toBeNull();
+  });
+
+  it("resubmit after withdraw re-snapshots against whatever is effective then", async () => {
+    await addMileageRate("welld_ch", 700000, "2026-01-01");
+    const request = await makeRequest();
+    const line = await addMileageLine(request.id, 100, "welld_ch");
+    const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+    await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    await addMileageRate("welld_ch", 800000, "2026-05-01");
+    await lifecycleRouter.request(`/requests/${request.id}/withdraw`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    const resubmitRes = await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(resubmitRes.status).toBe(200);
+
+    const reread = await db.refundLine.findUniqueOrThrow({ where: { id: line.id } });
+    expect(reread.requestedAmountCents).toBe(8000); // 100km x CHF0.80/km — the NEW rate
+    expect(reread.appliedRateMicros).toBe(800000);
+  });
+});
+
 // ─── Full transition matrix (terminal immutability, AC-2.3/8.3) ────────────
 
 describe("terminal-state immutability", () => {
