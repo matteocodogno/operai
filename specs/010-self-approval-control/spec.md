@@ -1,10 +1,11 @@
 ---
 id: 010
 slug: self-approval-control
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-21
 approved: 2026-07-21
+done: 2026-07-21
 ---
 
 # Self-approval control: segregation of duties on refund approval

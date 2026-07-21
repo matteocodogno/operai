@@ -1,0 +1,35 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-21T16-30-00Z-orchestrate-010-self-approval-control",
+  "command": "orchestrate",
+  "feature": "010-self-approval-control",
+  "rigor": "production",
+  "started": "2026-07-21T14:00:00Z",
+  "finished": "2026-07-21T16:30:00Z",
+  "worktree": "isolation used for the parallel implementation batch (4 dependency-independent agents across separate repos: auth / refund-api / admin-ui / refund-ui); each ff-merged feat/010-self-approval-control (which carried spec/plan/tasks/ADR-0026, committed BEFORE dispatch — the 009 artifact-commit slip was not repeated) then committed on its own branch; the orchestrator cherry-picked the 5 task commits linearly onto the feature branch (no --no-ff merge commits, per CLAUDE.md); checkboxes reconciled centrally",
+  "agents": [
+    { "agent": "product-owner", "stage": "spec", "outcome": "completed", "note": "spec.md: 6 stories, 24 ACs; grounded against real code (approve supportedConditions, ownershipOwn 404 pattern, ConditionChip enum); flagged the deliberate 403-not-404 exception; 5 open questions all deferred to the architect" },
+    { "agent": "architect", "stage": "plan", "outcome": "completed", "note": "plan.md: attribute {key:self-approval,match:deny} (catalog-only auth change), inline enforcement in the approve decide path, 403 code:self_approval_forbidden, structured log (not audit row); resolved all 5 open questions; surfaced R1 (widest-wins can union the restriction away) for the gate" },
+    { "agent": "adr-writer", "stage": "plan", "outcome": "completed", "note": "ADR 0026 (self-approval condition + 403-not-404 exception, logging-not-audit-row folded in) + CLAUDE.md index" },
+    { "agent": "backend-dev", "tasks": ["T1"], "outcome": "completed", "commits": ["caac172"], "note": "auth: request.approve.supportedConditions -> [entity, self-approval] (the ONLY code change); roundtrip/validator/backward-compat tests; 326 auth tests pass" },
+    { "agent": "backend-dev", "tasks": ["T2","T3"], "outcome": "completed", "commits": ["2ad0273","42c4dda"], "note": "refund-api: approveSelfRestricted predicate (own branch, never entity path) + approveRestrictedForCaller; enforce in approve decide path with typed SelfApprovalDeniedError BEFORE entity-404/status-409, 403 code discriminator, refund.self_approval_denied log; 35+36 tests pass; INTRODUCED a typecheck regression (stale approveRequest call in db.batches-schema.test.ts) it mislabeled as pre-existing" },
+    { "agent": "frontend-dev", "tasks": ["T4"], "outcome": "completed", "commits": ["71ec117"], "note": "admin-ui: distinct self-approval chip + RoleEditor 'Segregation of duties' toggle, persists {key:self-approval,match:deny}, match widened user|deny; 295 tests pass" },
+    { "agent": "frontend-dev", "tasks": ["T5"], "outcome": "completed", "commits": ["9fac64f"], "note": "refund-ui: passively disable approve on owned restricted request (aria-disabled+tooltip); added code extension-member plumbing to ApiProblem/ApiError; 403 code->copy mapping; 462 tests pass" },
+    { "agent": "quality-engineer", "tasks": ["T1-T6"], "outcome": "FAIL_THEN_PASS", "commits": ["471baa9"], "note": "all 24 ACs mapped; CAUGHT the refund-api typecheck regression (real, not pre-existing) as a blocking defect; added missing AC-4.4 tests + 4 R1 widest-wins resolver tests; authored T6 e2e (env-blocked live run, integration-proven); confirmed all security-critical points (server-authoritative, ordering, approve-only, code discriminator, log hygiene, R1 documented)" },
+    { "agent": "orchestrator", "tasks": ["defect-fix"], "outcome": "completed", "commits": ["9286685"], "note": "fixed the one-line stale approveRequest call site (5th param false); typecheck clean, batch-schema test 14/14 -> QE PASS" },
+    { "agent": "owasp-reviewer", "tasks": ["T1-T5"], "outcome": "PASS", "findings": { "critical": 0, "high": 0, "medium": 0, "low": 0 }, "note": "server-authoritative & un-bypassable (approve takes no body), fail-closed (resolve-outage 503 path untouched, no 2xx-on-error), correct ordering (guarded so a non-existent request still 404s), non-leaking 403, catalog-gated to approve only, hygienic logging; R1 confirmed a documented pre-existing resolver property, not worsened" },
+    { "agent": "evaluator", "stage": "eval", "outcome": "PASS", "note": "93/100 (threshold 80); AC 5, spec fidelity 5, test quality 5, code quality 4 (the stale call-site nick), trajectory 3 (no run trace + the dev agent mislabeling its own regression); no dimension below floor; independently re-ran suites + observed the log events and both 403s" }
+  ],
+  "drift_events": [
+    { "at": "spec", "item": "6-question scope + delivery", "resolution": "user-decided via AskUserQuestion pre-spec (approve-only; spec-driven), then 3 architect-owned open questions deferred to the plan gate" },
+    { "at": "plan gate", "item": "widest-wins composition (R1) + observability mechanism", "resolution": "user confirmed widest-wins (as planned) and structured-logging (as planned) via AskUserQuestion; plan unchanged, approved" },
+    { "at": "T2/T3", "item": "refund-api typecheck regression (stale approveRequest call site) mislabeled 'pre-existing' by the dev agent", "resolution": "QE caught it as a real T3 signature-change regression; orchestrator fixed in one line (9286685)" },
+    { "at": "QE", "item": "AC-4.4 + R1 had no test", "resolution": "QE added them (471baa9)" }
+  ],
+  "collision_events": [],
+  "verdicts": { "qe": "PASS (after the typecheck-regression fix; all 24 ACs; e2e authored, live run env-blocked)", "owasp": "PASS (0 findings)", "eval": "PASS (93/100)" },
+  "result": "completed",
+  "notes": "7 tasks across auth/refund-api/admin-ui/refund-ui + e2e. Extends specs/004+007. 2 human gates (spec, plan) approved; the plan was NOT revised (both gate decisions matched the architect's recommendation). New ADR 0026. Spec artifacts committed BEFORE dispatching worktree agents (the 009 slip avoided). Non-blocking follow-ups: run the T6 e2e in a 1Password-available env; shared dev-DB employee-role seed pollution causes 4 auth full-suite failures unrelated to this feature (separate cleanup); R1 escalation (widthScore sub-term for the self-approval flag) named for if approve is ever granted from multiple roles. Feature branch feat/010-self-approval-control NOT yet merged to main/pushed (user's call).",
+  "tokens": null,
+  "cost_usd": null
+}

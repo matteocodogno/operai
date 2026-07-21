@@ -36,7 +36,7 @@ Derived from the approved `plan.md`. Levels: unit = pure fn; integration = route
   - Admin enables "cannot approve own request" on a role's approve rule (admin-ui) → a user with that role is blocked (403 / disabled button) approving their OWN request → the same user CAN approve another employee's request → reject/set-total on their own still work.
   - done when: the Playwright path passes against the running stack (or is authored + committed with each AC independently proven at integration/component level, per the 007/008/009 env-blocked posture).
 
-- [ ] T7: close — all gates green, spec status → done — deps: T1–T6
+- [x] T7: close — all gates green, spec status → done — deps: T1–T6
   - done when: every task checked, QE PASS + owasp clean (≥medium fixed), eval PASS; spec `status: done`.
 
 ## Coverage map (AC → task)
