@@ -110,9 +110,9 @@ describe('BatchHistoryPage — empty', () => {
     renderBatchHistoryPage()
 
     await waitFor(() => expect(screen.getByTestId('batch-history-empty-state')).not.toBeNull())
-    expect(screen.getByTestId('batch-history-empty-new-button').getAttribute('href')).toBe('/batches/new')
-    // The header CTA is hidden when empty — the centered empty-state CTA stands alone (no redundant second button).
-    expect(screen.queryByTestId('batch-history-new-button')).toBeNull()
+    // The header "+ Compile new batch" is the only CTA — no redundant centered button below the message.
+    expect(screen.getByTestId('batch-history-new-button').getAttribute('href')).toBe('/batches/new')
+    expect(screen.queryByTestId('batch-history-empty-new-button')).toBeNull()
   })
 })
 

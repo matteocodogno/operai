@@ -99,9 +99,7 @@ export default function BatchHistoryPage() {
         <h2 id="refund-batch-history-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
           {t.heading}
         </h2>
-        {/* Header CTA only once there ARE compilations — the empty state has its own
-            centered CTA, so showing this too would be a redundant second button. */}
-        {listState.status === 'loaded' && listState.items.length > 0 && (
+        {listState.status !== 'forbidden' && (
           <Link
             to="/batches/new"
             data-testid="batch-history-new-button"
@@ -135,14 +133,8 @@ export default function BatchHistoryPage() {
             <p className="max-w-md text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>
               {t.empty.body}
             </p>
-            <Link
-              to="/batches/new"
-              data-testid="batch-history-empty-new-button"
-              className="mt-2 text-sm py-1.5 px-3 font-medium transition-opacity hover:opacity-90"
-              style={{ color: 'white', backgroundColor: 'var(--acc)' }}
-            >
-              {t.newBatchButton}
-            </Link>
+            {/* No CTA here — the header's "+ Compile new batch" already serves this;
+                a centered second button would be redundant. */}
           </div>
         )}
 
