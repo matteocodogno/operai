@@ -109,6 +109,43 @@ export function requestInScope(
   return lines.some((line) => line.entity === callerEntityOrGlobal);
 }
 
+// ─── Self-approval restriction (specs/010-self-approval-control, ADR-0026) ─
+
+const SELF_APPROVAL_ATTRIBUTE_KEY = "self-approval";
+const SELF_APPROVAL_DENY_MATCH = "deny";
+
+/**
+ * Whether the resolved `request:approve` grant's `conditions` carry the
+ * self-approval segregation-of-duties restriction —
+ * `{key:"self-approval", match:"deny"}` in `attributes[]` (ADR-0026 point 1).
+ *
+ * POLARITY WARNING (plan.md D1, Risk R4): `entity`/`department`/`jobTitle`
+ * attributes use `match:"user"` — an AFFIRMATIVE scope narrowing ("the
+ * record's attribute must equal the actor's"). This is the OPPOSITE
+ * polarity — a DENY carve-out ("deny when the actor IS the record's owner").
+ * It is therefore its OWN branch, evaluated independently, and must NEVER be
+ * routed through `entityScopeForPermission` — the two are orthogonal axes on
+ * the same `attributes[]` array, not two points on one scope lattice. A
+ * future author who conflates them would silently misapply an affirmative
+ * scope check to a deny carve-out, or vice versa.
+ *
+ * Pure/DB-free — the caller (`review.service.ts`'s
+ * `approveRestrictedForCaller`) is responsible for locating the `approve`
+ * grant itself via `findPermission`; this function only inspects the
+ * conditions object it's handed.
+ */
+export function approveSelfRestricted(
+  conditions: ResolveConditions | null | undefined,
+): boolean {
+  return (
+    conditions?.attributes?.some(
+      (attribute) =>
+        attribute.key === SELF_APPROVAL_ATTRIBUTE_KEY &&
+        attribute.match === SELF_APPROVAL_DENY_MATCH,
+    ) ?? false
+  );
+}
+
 /**
  * Bridges a resolved permission's `conditions` to the `EntityScope` value
  * `requestInScope` expects (ADR-0015 point 1: "which case applies is

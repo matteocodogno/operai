@@ -13,6 +13,7 @@ import {
   ownershipOwn,
   requestInScope,
   entityScopeForPermission,
+  approveSelfRestricted,
   GLOBAL_ENTITY_SCOPE,
 } from "./conditions";
 import type { ResolvedPermission } from "./resolveClient";
@@ -176,5 +177,73 @@ describe("entityScopeForPermission", () => {
     expect(entityScopeForPermission(conditions, "welld_it")).toBe(
       GLOBAL_ENTITY_SCOPE,
     );
+  });
+});
+
+// ─── approveSelfRestricted (specs/010-self-approval-control, ADR-0026) ─────
+
+describe("approveSelfRestricted", () => {
+  it("returns true when attributes contains {key:'self-approval', match:'deny'}", () => {
+    expect(
+      approveSelfRestricted({
+        attributes: [{ key: "self-approval", match: "deny" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false when the self-approval attribute is absent", () => {
+    expect(
+      approveSelfRestricted({ attributes: [{ key: "entity", match: "user" }] }),
+    ).toBe(false);
+  });
+
+  it("returns false for null/undefined/empty conditions (no attribute to find)", () => {
+    expect(approveSelfRestricted(null)).toBe(false);
+    expect(approveSelfRestricted(undefined)).toBe(false);
+    expect(approveSelfRestricted({})).toBe(false);
+    expect(approveSelfRestricted({ ownership: "own" })).toBe(false);
+  });
+
+  it("returns false when the key matches but `match` is not 'deny' (wrong polarity)", () => {
+    expect(
+      approveSelfRestricted({
+        attributes: [{ key: "self-approval", match: "user" }],
+      }),
+    ).toBe(false);
+    expect(
+      approveSelfRestricted({
+        attributes: [{ key: "self-approval", match: "any" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("(AC-2.4 unit) composes independently alongside an entity attribute — both present, both readable", () => {
+    const conditions = {
+      attributes: [
+        { key: "entity", match: "user" },
+        { key: "self-approval", match: "deny" },
+      ],
+    };
+    expect(approveSelfRestricted(conditions)).toBe(true);
+    expect(entityScopeForPermission(conditions, "welld_it")).toBe("welld_it");
+  });
+
+  it("(AC-2.4 unit) a grant with ONLY entity (no self-approval) is unrestricted", () => {
+    const conditions = { attributes: [{ key: "entity", match: "user" }] };
+    expect(approveSelfRestricted(conditions)).toBe(false);
+  });
+
+  it("(R4) the entity-scope path ignores a self-approval attribute — never treats it as a scope narrowing", () => {
+    const conditions = {
+      attributes: [{ key: "self-approval", match: "deny" }],
+    };
+    expect(entityScopeForPermission(conditions, "welld_it")).toBe(
+      GLOBAL_ENTITY_SCOPE,
+    );
+  });
+
+  it("(R4) approveSelfRestricted ignores an entity attribute — never treats it as a deny carve-out", () => {
+    const conditions = { attributes: [{ key: "entity", match: "user" }] };
+    expect(approveSelfRestricted(conditions)).toBe(false);
   });
 });

@@ -15,6 +15,7 @@
 
 import type { AuthzContext } from "../auth/authz.middleware";
 import {
+  approveSelfRestricted,
   entityScopeForPermission,
   findPermission,
   hasCapability,
@@ -51,6 +52,23 @@ export function scopeForReviewAction(
   if (!hasCapability(authz.permissions, "request", action)) return undefined;
   const grant = findPermission(authz.permissions, "request", action);
   return entityScopeForPermission(grant?.conditions ?? null, authz.entity);
+}
+
+/**
+ * Whether the caller's OWN resolved `request:approve` grant carries the
+ * self-approval segregation-of-duties restriction (specs/010,
+ * ADR-0026) — composes INDEPENDENTLY of `scopeForReviewAction`'s entity
+ * scope (AC-1.3/AC-2.4: the two conditions are evaluated side by side, never
+ * one inside the other). `false` when the caller holds no `approve` grant at
+ * all — that case is (and remains) a wholesale capability-absent 403 handled
+ * upstream by `scopeForReviewAction`/`hasCapability`, before this helper is
+ * ever meaningfully consulted.
+ */
+export function approveRestrictedForCaller(authz: AuthzContext): boolean {
+  return approveSelfRestricted(
+    findPermission(authz.permissions, "request", "approve")?.conditions ??
+      null,
+  );
 }
 
 /** Filters queue rows to those in scope — reuses `requestInScope` verbatim (ADR-0015). */
