@@ -115,15 +115,15 @@ describe('SectionNav active state (aria-current)', () => {
 // capability-driven proactive UI hide in this app)
 // ---------------------------------------------------------------------------
 
-describe('SectionNav "Mileage Rates" gate (T11, specs/009-mileage-rate)', () => {
-  it('hides "Mileage Rates" by default (no grant resolved yet / resolved with no rate:read)', async () => {
+describe('SectionNav "Refund" gate (T11, specs/009-mileage-rate)', () => {
+  it('hides "Refund" by default (no grant resolved yet / resolved with no rate:read)', async () => {
     await renderNavAt('/roles')
 
-    expect(screen.queryByRole('link', { name: 'Mileage Rates' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Refund' })).toBeNull()
     expect(screen.getAllByRole('link')).toHaveLength(4)
   })
 
-  it('appends "Mileage Rates" once GET /authz/me resolves rate:read', async () => {
+  it('inserts "Refund" once GET /authz/me resolves rate:read, with Audit anchored last', async () => {
     const adminApi = await import('../lib/adminApi')
     vi.mocked(adminApi.getMe).mockResolvedValue({
       epoch: 1,
@@ -135,19 +135,19 @@ describe('SectionNav "Mileage Rates" gate (T11, specs/009-mileage-rate)', () => 
 
     await renderNavAt('/roles')
 
-    const link = await screen.findByRole('link', { name: 'Mileage Rates' })
+    const link = await screen.findByRole('link', { name: 'Refund' })
     expect(link.tagName).toBe('A')
-    // Appended after the four existing sections — IA order preserved.
+    // Refund joins the left group (after Users); Audit stays anchored to the far right.
     expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
       'Roles',
       'Departments',
       'Users',
+      'Refund',
       'Audit',
-      'Mileage Rates',
     ])
   })
 
-  it('marks "Mileage Rates" active with aria-current="page" when on /rates', async () => {
+  it('marks "Refund" active with aria-current="page" when on /rates', async () => {
     const adminApi = await import('../lib/adminApi')
     vi.mocked(adminApi.getMe).mockResolvedValue({
       epoch: 1,
@@ -159,7 +159,7 @@ describe('SectionNav "Mileage Rates" gate (T11, specs/009-mileage-rate)', () => 
 
     await renderNavAt('/rates')
 
-    const link = await screen.findByRole('link', { name: 'Mileage Rates' })
+    const link = await screen.findByRole('link', { name: 'Refund' })
     expect(link.getAttribute('aria-current')).toBe('page')
   })
 
@@ -178,7 +178,7 @@ describe('SectionNav "Mileage Rates" gate (T11, specs/009-mileage-rate)', () => 
     await waitFor(() => {
       expect(vi.mocked(adminApi.getMe)).toHaveBeenCalled()
     })
-    expect(screen.queryByRole('link', { name: 'Mileage Rates' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Refund' })).toBeNull()
   })
 
   it('fails closed (stays hidden) when GET /authz/me rejects', async () => {
@@ -190,6 +190,6 @@ describe('SectionNav "Mileage Rates" gate (T11, specs/009-mileage-rate)', () => 
     await waitFor(() => {
       expect(vi.mocked(adminApi.getMe)).toHaveBeenCalled()
     })
-    expect(screen.queryByRole('link', { name: 'Mileage Rates' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Refund' })).toBeNull()
   })
 })

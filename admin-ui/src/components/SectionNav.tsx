@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import * as adminApi from '../lib/adminApi'
 
-// The four admin sections, in the IA order design.md uses consistently
-// throughout (Screens A1/B1/C1/D1 — Roles, Departments, Users, Audit).
+// The left-anchored admin sections (Roles, Departments, Users), followed by
+// the capability-gated Refund section (below). Audit is rendered separately,
+// anchored to the FAR RIGHT (2026-07-21 UX change).
 // `to` paths are relative to admin-ui's own inner router (see ../router.tsx)
 // — TanStack Router prefixes them with the router's `basepath` (`/admin` when
 // mounted as the federated remote, none in the standalone dev/test bootstrap)
@@ -12,16 +13,18 @@ const SECTIONS = [
   { to: '/roles', label: 'Roles' },
   { to: '/departments', label: 'Departments' },
   { to: '/users', label: 'Users' },
-  { to: '/audit', label: 'Audit' },
 ] as const
 
-// Screen ADM-1 (T11, specs/009-mileage-rate) — a FIFTH section, but unlike
-// the four above it is proactively hidden for a caller who lacks `rate:read`
-// (design.md F7 — "the first capability-driven proactive UI hide" in this
-// app; every existing section is always in this list because every existing
-// section has no per-resource capability gate of its own, only the whole-tool
-// admin-ui guard the shell already runs before this component ever mounts).
-const RATES_SECTION = { to: '/rates', label: 'Mileage Rates' } as const
+// Audit — anchored to the far right of the nav (rendered via `ml-auto`), kept
+// visually separate from the day-to-day management sections.
+const AUDIT_SECTION = { to: '/audit', label: 'Audit' } as const
+
+// Screen ADM-1 (T11, specs/009-mileage-rate) — the refund tool's admin config
+// (currently the mileage-rate screen). Labelled "Refund" in the nav (renamed
+// from "Mileage Rates", 2026-07-21) and proactively hidden for a caller who
+// lacks `rate:read` (design.md F7 — "the first capability-driven proactive UI
+// hide" in this app).
+const REFUND_SECTION = { to: '/rates', label: 'Refund' } as const
 
 /**
  * SectionNav — admin-ui's section switcher (T14, specs/004-auth-roles-permissions,
@@ -92,25 +95,29 @@ export default function SectionNav() {
     }
   }, [])
 
-  const sections = hasRateRead ? [...SECTIONS, RATES_SECTION] : SECTIONS
+  // Left group: the management sections + (when permitted) Refund. Audit is
+  // rendered last with `ml-auto` so it stays anchored to the far right.
+  const leftSections = hasRateRead ? [...SECTIONS, REFUND_SECTION] : SECTIONS
+
+  const linkClass =
+    'inline-block border-b-2 border-transparent px-3 py-3 text-sm font-medium transition-colors hover:text-[var(--text)]'
+  const activeLinkProps = { style: { color: 'var(--acc)', borderColor: 'var(--acc)' } }
 
   return (
     <nav aria-label="Admin sections">
       <ul className="mx-auto flex max-w-5xl gap-1 px-6">
-        {sections.map((section) => (
+        {leftSections.map((section) => (
           <li key={section.to}>
-            <Link
-              to={section.to}
-              className="inline-block border-b-2 border-transparent px-3 py-3 text-sm font-medium transition-colors hover:text-[var(--text)]"
-              style={{ color: 'var(--soft)' }}
-              activeProps={{
-                style: { color: 'var(--acc)', borderColor: 'var(--acc)' },
-              }}
-            >
+            <Link to={section.to} className={linkClass} style={{ color: 'var(--soft)' }} activeProps={activeLinkProps}>
               {section.label}
             </Link>
           </li>
         ))}
+        <li key={AUDIT_SECTION.to} className="ml-auto">
+          <Link to={AUDIT_SECTION.to} className={linkClass} style={{ color: 'var(--soft)' }} activeProps={activeLinkProps}>
+            {AUDIT_SECTION.label}
+          </Link>
+        </li>
       </ul>
     </nav>
   )
