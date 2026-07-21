@@ -84,7 +84,7 @@ async function createRequestWithLines(
     currency?: "EUR" | "CHF" | "USD" | "GBP";
     requestedAmountCents?: number;
   }[],
-  overrides: Partial<{ ownerUserId: string; ownerEmail: string; ownerName: string | null }> = {},
+  overrides: Partial<{ ownerUserId: string; ownerEmail: string; ownerName: string | null; batchId: string }> = {},
 ) {
   const request = await db.refundRequest.create({
     data: {
@@ -93,6 +93,7 @@ async function createRequestWithLines(
       ownerName: overrides.ownerName ?? null,
       status,
       submittedAt: status === "draft" ? null : new Date(),
+      batchId: overrides.batchId ?? null,
     },
   });
   for (const line of lines) {
@@ -136,14 +137,14 @@ describe("GET /review/requests", () => {
     expect(res.status).toBe(401);
   });
 
-  it("(AC-5.1/5.2) lists submitted-in-scope requests with owner/date/subtotal, excluding draft/approved/rejected", async () => {
+  it("(AC-5.1/5.2, amended) lists submitted AND approved-not-yet-batched in-scope requests, excluding draft/rejected", async () => {
     const submitted = await createRequestWithLines("submitted", [{ entity: "welld_it", requestedAmountCents: 2000 }], {
       ownerUserId: "emp-a",
       ownerEmail: "a@x.com",
       ownerName: "Employee A",
     });
+    const approved = await createRequestWithLines("approved", [{ entity: "welld_it", requestedAmountCents: 500 }]);
     await createRequestWithLines("draft", [{ entity: "welld_it" }]);
-    await createRequestWithLines("approved", [{ entity: "welld_it" }]);
     await createRequestWithLines("rejected", [{ entity: "welld_it" }]);
 
     harness.setResolve(async () => accountingPerms("welld_it"));
@@ -153,18 +154,42 @@ describe("GET /review/requests", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       id: string;
+      status: string;
       owner: { userId: string; email: string; name: string | null };
       submittedAt: string;
       subtotals: { currency: string; requestedCents: number; approvedCents: number | null }[];
     }[];
 
-    expect(body).toHaveLength(1);
-    expect(body[0]?.id).toBe(submitted.id);
-    expect(body[0]?.owner).toEqual({ userId: "emp-a", email: "a@x.com", name: "Employee A" });
-    expect(typeof body[0]?.submittedAt).toBe("string");
-    expect(body[0]?.subtotals).toEqual([
-      { currency: "EUR", requestedCents: 2000, approvedCents: null },
-    ]);
+    // Both the pending (submitted) and the decided-but-unbatched (approved) request appear.
+    expect(body.map((r) => r.id).sort()).toEqual([submitted.id, approved.id].sort());
+    const submittedRow = body.find((r) => r.id === submitted.id);
+    const approvedRow = body.find((r) => r.id === approved.id);
+    expect(submittedRow?.status).toBe("submitted");
+    expect(approvedRow?.status).toBe("approved");
+    expect(submittedRow?.owner).toEqual({ userId: "emp-a", email: "a@x.com", name: "Employee A" });
+    expect(submittedRow?.subtotals).toEqual([{ currency: "EUR", requestedCents: 2000, approvedCents: null }]);
+  });
+
+  it("an approved request already compiled into a batch (batchId set) is excluded from the queue", async () => {
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date(),
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `batches/test-${Date.now()}.pdf`,
+        recipientEmailSnapshot: "accounting@welld.ch",
+      },
+    });
+    const unbatched = await createRequestWithLines("approved", [{ entity: "welld_it" }]);
+    await createRequestWithLines("approved", [{ entity: "welld_it" }], { batchId: batch.id });
+
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await reviewRouter.request("/review/requests", { headers: authHeaders(token) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string }[];
+    expect(body.map((r) => r.id)).toEqual([unbatched.id]);
   });
 
   it("(2026-07-17 amendment) queue subtotals group by currency, not entity — a mixed-currency request shows three subtotals", async () => {

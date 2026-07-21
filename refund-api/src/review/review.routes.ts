@@ -22,7 +22,7 @@ import { Effect } from "effect";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { ProblemSchema } from "../requests/requests.schemas";
-import { listSubmittedRequests } from "./review.repo";
+import { listReviewQueueRequests } from "./review.repo";
 import { ReviewQueueItemSchema } from "./review.schemas";
 import { filterQueueInScope, mapQueueItem, scopeForReviewAction } from "./review.service";
 
@@ -81,7 +81,7 @@ reviewRouter.openapi(listQueueRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(listSubmittedRequests());
+  const exit = await Effect.runPromiseExit(listReviewQueueRequests());
   if (exit._tag === "Failure") {
     throw new Error("Unexpected database failure listing the review queue");
   }

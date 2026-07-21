@@ -14,6 +14,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import ReviewQueuePage from './ReviewQueuePage'
 import type { ReviewQueueItem } from '../lib/reviewApi'
+import { strings } from '../strings'
 
 vi.mock('../lib/reviewApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/reviewApi')>()
@@ -84,6 +85,29 @@ describe('ReviewQueuePage — list states', () => {
     const row = screen.getByTestId(`review-queue-row-${queueItem.id}`)
     expect(row.textContent).toContain('Alice')
     expect(row.textContent).toContain('45,50 €')
+  })
+
+  it('shows a status badge per row so submitted and approved-not-processed are distinguishable', async () => {
+    const approvedItem: ReviewQueueItem = {
+      id: 'req-2',
+      status: 'approved',
+      owner: { email: 'bob@welld.ch', name: 'Bob' },
+      submittedAt: '2026-07-10T00:00:00.000Z',
+      subtotals: [{ currency: 'CHF', requestedCents: 1000, approvedCents: 1000 }],
+    }
+    vi.mocked(reviewApi.listQueue).mockResolvedValue([queueItem, approvedItem])
+
+    renderReviewQueuePage()
+
+    await waitFor(() => expect(screen.getByTestId('review-queue-list')).not.toBeNull())
+    const submittedRow = screen.getByTestId(`review-queue-row-${queueItem.id}`)
+    const approvedRow = screen.getByTestId(`review-queue-row-${approvedItem.id}`)
+    expect(submittedRow.querySelector('[data-testid="request-status-badge"]')?.textContent).toContain(
+      strings.badges.requestStatus.submitted,
+    )
+    expect(approvedRow.querySelector('[data-testid="request-status-badge"]')?.textContent).toContain(
+      strings.badges.requestStatus.approved,
+    )
   })
 
   it('renders each row as a link to /review/$id', async () => {

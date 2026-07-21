@@ -63,17 +63,18 @@ export function filterQueueInScope(
 
 export function mapQueueItem(row: QueueRequestRow): ReviewQueueItem {
   if (!row.submittedAt) {
-    // Invariant: every row this function receives was fetched via
-    // `status: "submitted"` (review.repo.ts), which lifecycle.repo.ts's
-    // `submitTransaction` always pairs with a `submittedAt` stamp in the
-    // SAME transaction — this should be unreachable. Defensive throw
-    // (→ the global 500 handler) rather than emitting a lying timestamp.
+    // Invariant: every row this function receives is `submitted` or `approved`
+    // (review.repo.ts) — both are stamped with `submittedAt` in
+    // lifecycle.repo.ts's `submitTransaction`, and approval never clears it —
+    // so this should be unreachable. Defensive throw (→ the global 500
+    // handler) rather than emitting a lying timestamp.
     throw new Error(
-      `Submitted refund request ${row.id} is missing its submittedAt timestamp`,
+      `Review-queue refund request ${row.id} is missing its submittedAt timestamp`,
     );
   }
   return {
     id: row.id,
+    status: row.status as ReviewQueueItem["status"],
     owner: {
       userId: row.ownerUserId,
       email: row.ownerEmail,

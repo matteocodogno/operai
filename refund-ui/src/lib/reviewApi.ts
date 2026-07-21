@@ -32,8 +32,10 @@ import type { Subtotal } from './subtotals'
 import { getJson, sendJson } from './refundApi'
 
 /**
- * One row of `GET /review/requests` — always `status: 'submitted'` (the
- * queue's own scope predicate). `owner.name` is `string | null` (QE-verified
+ * One row of `GET /review/requests` — `status` is `'submitted'` (awaiting a
+ * decision) or `'approved'` (decided but not yet compiled into a monthly
+ * batch); the queue now mixes both and the UI badge distinguishes them.
+ * `owner.name` is `string | null` (QE-verified
  * defect, specs/007-refund-service): `refund-api` never populates it — the
  * JWT carries no `name` claim, only `sub`/`email` — so it's `null` on every
  * real response. Never read `owner.name` directly for display; use
@@ -47,7 +49,7 @@ export type ReviewQueueItem = {
   subtotals: Subtotal[]
 }
 
-/** `GET /review/requests` — submitted ∧ in entity scope (AC-5.1/5.5/5.6). 403 if `request:review` is entirely absent (AC-5.4). */
+/** `GET /review/requests` — (submitted ∨ approved-not-yet-batched) ∧ in entity scope (AC-5.1/5.5/5.6). 403 if `request:review` is entirely absent (AC-5.4). */
 export const listQueue = (): Promise<ReviewQueueItem[]> => getJson<ReviewQueueItem[]>('/review/requests')
 
 /**

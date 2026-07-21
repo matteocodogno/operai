@@ -12,10 +12,13 @@
  */
 
 import { z } from "zod";
-import { OwnerSchema, SubtotalSchema } from "../requests/requests.schemas";
+import { OwnerSchema, RefundStatusSchema, SubtotalSchema } from "../requests/requests.schemas";
 
 export const ReviewQueueItemSchema = z.object({
   id: z.string(),
+  // `submitted` (awaiting decision) or `approved` (decided, not yet batched) —
+  // the queue now mixes both; the UI badge distinguishes them.
+  status: RefundStatusSchema,
   owner: OwnerSchema,
   submittedAt: z.string().datetime(),
   subtotals: z.array(SubtotalSchema),

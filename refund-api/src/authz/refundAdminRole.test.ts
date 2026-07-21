@@ -122,6 +122,7 @@ describe("refund-admin role grants (post-close follow-up, specs/007-refund-servi
     const queueRows: QueueRequestRow[] = [
       {
         id: "req-ch",
+        status: "submitted",
         ownerUserId: OUT_OF_SCOPE_OWNER_ID,
         ownerEmail: "someone@welld.ch",
         ownerName: null,

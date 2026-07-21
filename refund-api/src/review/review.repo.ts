@@ -19,6 +19,7 @@ import type { LineRow } from "../requests/requests.service";
 
 export interface QueueRequestRow {
   readonly id: string;
+  readonly status: string;
   readonly ownerUserId: string;
   readonly ownerEmail: string;
   readonly ownerName: string | null;
@@ -30,24 +31,38 @@ const toDbErr = (message: string) => (cause: unknown) =>
   new DatabaseError({ message, cause });
 
 /**
- * Every `submitted` request (AC-5.2 — `draft`/`approved`/`rejected` are
- * never mixed in), oldest-submitted-first (a simple FIFO queue ordering).
- * `lines` carries the full `LineRow` field set (not just `entity`) so the
- * SAME `computeSubtotals` helper `requests.service.ts` uses for the
- * employee's own list/detail views can be reused verbatim here too
- * (AC-5.1's "enough summary to prioritize" / AC-6.6's subtotal parity).
+ * The review-queue worklist: every request awaiting an accounting decision
+ * (`submitted`) PLUS every request already `approved` but not yet pulled into
+ * a monthly batch (`batchId IS NULL`) — the "approved but not processed" set
+ * the accounting user asked to keep visible here. An approved request drops
+ * off the queue the moment it is compiled into a batch (its `batchId` is set,
+ * specs/008/ADR-0020). `draft`/`rejected`/`paid`, and `approved` rows already
+ * in a batch, are excluded. Oldest-submitted-first (a simple FIFO ordering),
+ * mixed by status — the UI's status badge distinguishes the two.
+ *
+ * NOTE: this widens 007's AC-5.2 ("submitted only"); see the review-queue
+ * doc comment / spec 007 amendment. `lines` carries the full `LineRow` field
+ * set (not just `entity`) so the SAME `computeSubtotals` helper
+ * `requests.service.ts` uses for the employee's own list/detail views can be
+ * reused verbatim here too (AC-5.1's "enough summary to prioritize").
  */
-export function listSubmittedRequests(): Effect.Effect<
+export function listReviewQueueRequests(): Effect.Effect<
   QueueRequestRow[],
   DatabaseError
 > {
   return Effect.tryPromise({
     try: () =>
       db.refundRequest.findMany({
-        where: { status: "submitted" },
+        where: {
+          OR: [
+            { status: "submitted" },
+            { status: "approved", batchId: null },
+          ],
+        },
         orderBy: { submittedAt: "asc" },
         select: {
           id: true,
+          status: true,
           ownerUserId: true,
           ownerEmail: true,
           ownerName: true,

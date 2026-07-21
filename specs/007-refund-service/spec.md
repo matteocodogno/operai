@@ -16,6 +16,13 @@ done: 2026-07-16
   field (EUR/CHF/USD/GBP), decoupled from `entity` — reverses the original "derived from
   entity, never stored" decision; subtotals now group purely by currency. See AC-1.2,
   AC-3.5, AC-6.6, and the Domain language / Non-goals / Constraints sections below.
+- **2026-07-21 (post-close):** the review queue now ALSO shows `approved` requests that
+  have not yet been compiled into a monthly batch (`batchId IS NULL`), so accounting can
+  see approved-but-not-processed requests in one place — they drop off the queue once
+  batched (specs/008/ADR-0020). This widens AC-5.2 (which excluded `approved`); `draft`,
+  `rejected`, `paid`, and already-batched `approved` remain excluded. Entity scope is
+  unchanged; a per-row status badge distinguishes `submitted` from `approved`. The
+  decision endpoints stay submitted-only (an approved row is read-only in the queue).
 
 ## Problem
 
@@ -244,10 +251,12 @@ what's outstanding for me.
   `submitted` request containing at least one line for an entity that user is scoped to
   is listed, showing at minimum the requesting employee, submission date, and (per
   AC-5.2) enough summary to prioritize.
-- AC-5.2: Given the review queue, when an accounting user views it, then `draft`,
-  `approved`, and `rejected` requests are NOT mixed into it — the queue is exactly the
-  set of requests currently `submitted` and awaiting a decision that are also within
-  that user's entity scope. (A withdrawn request is, by definition, back in `draft` —
+- AC-5.2 (amended 2026-07-21 — see Amendments): Given the review queue, when an accounting
+  user views it, then `draft`, `rejected`, `paid`, and already-batched `approved` requests
+  are NOT mixed into it — the queue is the set of requests currently `submitted` (awaiting a
+  decision) OR `approved`-but-not-yet-batched (`batchId IS NULL`), within that user's entity
+  scope. (Originally `approved` was excluded entirely; the 2026-07-21 amendment includes
+  not-yet-processed approved requests.) (A withdrawn request is, by definition, back in `draft` —
   see Domain language — so it is excluded via the `draft` exclusion, not as a separate
   case.)
 - AC-5.3: Given a request that was `submitted` and then withdrawn by its owner (US-2),

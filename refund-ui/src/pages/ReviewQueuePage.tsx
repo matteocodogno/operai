@@ -9,14 +9,18 @@ import { formatSubtotalsPreview } from '../lib/subtotals'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import PermissionDenied from '../components/PermissionDenied'
+import RequestStatusBadge from '../components/RequestStatusBadge'
 
 const route = getRouteApi('/review')
 
 /**
  * ReviewQueuePage — Screen A1 ("Review queue", `/refund/review` — T18,
  * specs/007-refund-service/tasks.md, design.md "Screen A1"/F5). Replaces
- * T14's placeholder: the entity-scoped worklist of every `submitted`
- * request in the caller's scope — `GET /review/requests` is the live server
+ * T14's placeholder: the entity-scoped worklist of every `submitted` request
+ * PLUS every `approved`-but-not-yet-batched one (007 AC-5.2 amendment,
+ * 2026-07-21 — accounting wanted approved-but-not-processed requests to stay
+ * visible; a per-row status badge distinguishes the two) in the caller's
+ * scope — `GET /review/requests` is the live server
  * query design.md is explicit the UI renders exactly as returned (no
  * client-side "was this withdrawn?" logic).
  *
@@ -149,6 +153,7 @@ export default function ReviewQueuePage() {
                   style={{ borderColor: 'var(--rule)', backgroundColor: 'var(--ink-soft)' }}
                 >
                   <div className="flex items-center gap-3">
+                    <RequestStatusBadge status={item.status} />
                     <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>
                       {ownerName}
                     </span>
