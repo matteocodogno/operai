@@ -188,6 +188,41 @@ describe("POST /requests", () => {
     const res = await requestsRouter.request("/requests", { method: "POST" });
     expect(res.status).toBe(401);
   });
+
+  it(
+    "(AC-4.4, specs/010-self-approval-control, ADR-0026) creating a request is entirely " +
+      "unaffected even when the caller ALSO holds a restricted request:approve grant on " +
+      "themselves — the self-approval restriction is inert until an approve attempt",
+    async () => {
+      harness.setResolve(async () => ({
+        sub: "",
+        epoch: 1,
+        permissions: [
+          { resource: "refund", action: "access", conditions: null },
+          { resource: "request", action: "create", conditions: null },
+          { resource: "request", action: "read", conditions: { ownership: "own" } },
+          {
+            resource: "request",
+            action: "approve",
+            conditions: { attributes: [{ key: "self-approval", match: "deny" }] },
+          },
+        ],
+        entity: "welld_it",
+        jobTitle: null,
+      }));
+      const token = await harness.signToken({ sub: "emp-self-restricted", email: "e@x.com" });
+
+      const res = await requestsRouter.request("/requests", {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { status: string; owner: { userId: string } };
+      expect(body.status).toBe("draft");
+      expect(body.owner.userId).toBe("emp-self-restricted");
+    },
+  );
 });
 
 describe("GET /requests (list, own only — AC-3.1)", () => {

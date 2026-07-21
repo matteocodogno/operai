@@ -146,6 +146,38 @@ describe("POST /requests/:id/submit", () => {
     expect(audit[0]?.actorEmail).toBe(OWNER_EMAIL);
   });
 
+  it(
+    "(AC-4.4, specs/010-self-approval-control, ADR-0026) submitting the caller's own " +
+      "request is entirely unaffected even when they ALSO hold a restricted request:approve " +
+      "grant — the self-approval restriction only ever activates at an approve attempt, never " +
+      "at create/submit",
+    async () => {
+      const request = await makeRequest();
+      await addCompleteLine(request.id);
+      harness.setResolve(async () => ({
+        ...EMPLOYEE_PERMS,
+        permissions: [
+          ...EMPLOYEE_PERMS.permissions,
+          {
+            resource: "request",
+            action: "approve",
+            conditions: { attributes: [{ key: "self-approval", match: "deny" }] },
+          },
+        ],
+      }));
+      const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });
+
+      const res = await lifecycleRouter.request(`/requests/${request.id}/submit`, {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string };
+      expect(body.status).toBe("submitted");
+    },
+  );
+
   it("(AC-1.5) zero lines → 422, no audit row written", async () => {
     const request = await makeRequest();
     const token = await harness.signToken({ sub: OWNER_SUB, email: OWNER_EMAIL });

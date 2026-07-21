@@ -278,6 +278,81 @@ describe("dedupeWidest (pure) — union, dedup, widest-wins precedence", () => {
   test("empty input yields empty output — the vacuous case of default-deny", () => {
     expect(dedupeWidest([])).toEqual([]);
   });
+
+  // specs/010-self-approval-control, ADR-0026, plan.md Risk R1 — the
+  // self-approval attribute lives on the SAME `attributes[]` axis as
+  // `entity`, so it is subject to the identical widest-wins composition
+  // rules as every other attribute condition. These tests document (rather
+  // than newly derive) that property so it is a tested, known behavior — not
+  // a silently-discovered bypass.
+  test(
+    "(R1) a second role granting UNCONDITIONED approve unions away a self-approval-" +
+      "restricted grant on the same (resource,action) — the restriction stops biting",
+    () => {
+      const input = [
+        perm("request", "approve", {
+          attributes: [{ key: "self-approval", match: "deny" }],
+        }),
+        perm("request", "approve", null),
+      ];
+      expect(dedupeWidest(input)).toEqual([perm("request", "approve", null)]);
+    },
+  );
+
+  test(
+    "(R1) order-independence: the unconditioned approve grant wins regardless of which " +
+      "grant is supplied first",
+    () => {
+      const input = [
+        perm("request", "approve", null),
+        perm("request", "approve", {
+          attributes: [{ key: "self-approval", match: "deny" }],
+        }),
+      ];
+      expect(dedupeWidest(input)).toEqual([perm("request", "approve", null)]);
+    },
+  );
+
+  test(
+    "(R1) narrow tie: a self-approval-only grant and an entity-only grant score EQUALLY " +
+      "under widthScore (both ownershipTier 1, 1 attribute) — dedupeWidest cannot correctly " +
+      "join these two orthogonal-axis grants and keeps whichever was seen first, per plan.md's " +
+      "documented (not escalated) limitation",
+    () => {
+      const selfApprovalOnly = perm("request", "approve", {
+        attributes: [{ key: "self-approval", match: "deny" }],
+      });
+      const entityOnly = perm("request", "approve", {
+        attributes: [{ key: "entity", match: "user" }],
+      });
+
+      // Self-approval-only supplied first → it "wins" the tie (first-seen),
+      // even though this drops the entity scope a second role also granted.
+      expect(dedupeWidest([selfApprovalOnly, entityOnly])).toEqual([selfApprovalOnly]);
+      // Entity-only supplied first → IT wins instead, silently dropping the
+      // self-approval restriction. Neither outcome is a correct multi-axis
+      // join — this is the documented R1 gap, not a bug to fix here.
+      expect(dedupeWidest([entityOnly, selfApprovalOnly])).toEqual([entityOnly]);
+    },
+  );
+
+  test(
+    "(R1) a self-approval-restricted grant composed with a WIDER (any-ownership) grant on " +
+      "an unrelated attribute still loses to the unconditioned grant, consistent with entity's " +
+      "existing composition behavior",
+    () => {
+      const input = [
+        perm("request", "approve", {
+          attributes: [
+            { key: "entity", match: "user" },
+            { key: "self-approval", match: "deny" },
+          ],
+        }),
+        perm("request", "approve", null),
+      ];
+      expect(dedupeWidest(input)).toEqual([perm("request", "approve", null)]);
+    },
+  );
 });
 
 // ─── DB-backed: resolveEffectivePermissions ───────────────────────────────
