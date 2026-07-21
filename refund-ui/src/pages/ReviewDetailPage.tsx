@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getRouteApi, Link, useNavigate } from '@tanstack/react-router'
+import { useSession, usePermissions } from 'shell/session'
+import type { Permission } from 'shell/session'
 import { ownerDisplay, strings } from '../strings'
 import * as requestsApi from '../lib/requestsApi'
 import type { RefundRequestDetail } from '../lib/requestsApi'
@@ -61,6 +63,19 @@ const route = getRouteApi('/review/$id')
  * `confirmation` search param (design.md F6 steps 4-5: "returned to Screen
  * A1 … with an aria-live confirmation") — see router.tsx's `validateSearch`
  * on the `/review` route and ReviewQueuePage's own read-and-strip of it.
+ *
+ * Self-approval control (specs/010-self-approval-control, plan.md D5,
+ * ADR-0026): the Approve button is PASSIVELY disabled (`aria-disabled` +
+ * `title`, never hidden — the suite's house pattern, mirrors admin-ui's
+ * UserDetail.tsx "You can't delete your own account") when the caller owns
+ * this request (their `sub`, from `shell/session`'s `useSession()`, matches
+ * `request.owner.userId`) AND their resolved `request:approve` grant
+ * (`shell/session`'s `usePermissions()`) carries the
+ * `{key:"self-approval",match:"deny"}` attribute. This is convenience
+ * only — refund-api's 403 is the actual, authoritative control; a stale
+ * client computation can never let a denied approve through, only
+ * (worst case) show an enabled button the server still rejects, which
+ * `errorMessageFor`'s `self_approval_forbidden` mapping below handles.
  */
 
 type PageState =
@@ -76,8 +91,29 @@ type DecisionDialogState =
 
 type GuardrailState = { title: string; message: string } | null
 
+/** The free-form condition shape `request.approve`'s grant carries (ADR-0007) — only the one attribute shape this feature reads. */
+type ConditionAttribute = { key: string; match: string }
+type RuleConditions = { attributes?: ConditionAttribute[] }
+
+/**
+ * True iff the caller's resolved permission set grants `request:approve`
+ * with the self-approval deny attribute (specs/010, plan.md D1: an
+ * OPPOSITE-polarity `match:"deny"` sentinel — deliberately its own check,
+ * never routed through any entity/scope-matching logic, mirroring
+ * refund-api's `approveSelfRestricted` predicate).
+ */
+const approveSelfRestricted = (permissions: Permission[]): boolean =>
+  permissions.some((permission) => {
+    if (permission.resource !== 'request' || permission.action !== 'approve') return false
+    const conditions = permission.conditions as RuleConditions | undefined
+    return Boolean(conditions?.attributes?.some((attr) => attr.key === 'self-approval' && attr.match === 'deny'))
+  })
+
 const errorMessageFor = (error: unknown, fallback: string): string => {
-  if (error instanceof ApiError) return error.detail ?? error.title
+  if (error instanceof ApiError) {
+    if (error.code === 'self_approval_forbidden') return strings.pages.reviewDetail.decide.selfApprovalForbiddenError
+    return error.detail ?? error.title
+  }
   return fallback
 }
 
@@ -92,6 +128,12 @@ export default function ReviewDetailPage() {
   const [decisionDialog, setDecisionDialog] = useState<DecisionDialogState>({ open: false })
   const headingRef = useRef<HTMLHeadingElement>(null)
   const rowNodesRef = useRef(new Map<string, HTMLDivElement>())
+
+  // specs/010-self-approval-control (plan.md D5) — passive UI reflection only.
+  const currentUserId = useSession().data?.user?.id
+  const { permissions } = usePermissions()
+  const isOwner = pageState.status === 'loaded' && Boolean(currentUserId) && pageState.request.owner.userId === currentUserId
+  const approveDisabled = isOwner && approveSelfRestricted(permissions)
 
   useEffect(() => {
     let cancelled = false
@@ -182,8 +224,9 @@ export default function ReviewDetailPage() {
   // ---------------------------------------------------------------------------
 
   const handleApproveOpen = useCallback(() => {
+    if (approveDisabled) return // defensive — the button is already disabled for this owner+restriction combination
     setDecisionDialog({ open: true, kind: 'approve', deciding: false, error: null })
-  }, [])
+  }, [approveDisabled])
 
   const handleRejectOpen = useCallback(() => {
     setDecisionDialog({ open: true, kind: 'reject', deciding: false, error: null })
@@ -317,11 +360,14 @@ export default function ReviewDetailPage() {
               <button
                 type="button"
                 onClick={handleApproveOpen}
+                aria-disabled={approveDisabled}
+                title={approveDisabled ? t.decide.selfApprovalTooltip : undefined}
                 data-testid="review-detail-approve"
-                className="py-1.5 px-3 text-sm font-medium border transition-opacity hover:opacity-80"
+                className="py-1.5 px-3 text-sm font-medium border transition-opacity hover:opacity-80 aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
                 style={{ borderColor: 'var(--grn)', color: 'var(--grn)' }}
               >
                 {t.decide.approveButton}
+                {approveDisabled && <span className="sr-only"> — {t.decide.selfApprovalTooltip}</span>}
               </button>
               <button
                 type="button"

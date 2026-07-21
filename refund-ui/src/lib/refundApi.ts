@@ -57,7 +57,11 @@ export const refundApiBase = (): string => import.meta.env.VITE_REFUND_API_URL a
  * RFC 7807 Problem JSON shape — returned by refund-api for all non-2xx
  * responses (plan.md "## API contracts": "All errors are RFC-7807 Problem
  * JSON (type,title,status,detail,instance)"). Mirrors adminApi.ts/
- * estimatesApi.ts's identical `ApiProblem` verbatim.
+ * estimatesApi.ts's `ApiProblem`, PLUS an optional `code` extension member
+ * (specs/010-self-approval-control, plan.md D5 / ADR-0026): a stable,
+ * i18n-safe discriminator some 403s carry (e.g. `"self_approval_forbidden"`)
+ * to distinguish them from other same-status denials without parsing the
+ * (localized/variable) `detail` string.
  */
 export type ApiProblem = {
   type: string
@@ -65,18 +69,22 @@ export type ApiProblem = {
   status: number
   detail?: string
   instance?: string
+  code?: string
 }
 
 /**
  * Thrown by every refund-api call helper below on a non-2xx response.
  * Callers branch on `error.status` — refund-api's own contract table
- * (plan.md) names 401/403/404/409/422/503 across its various routes.
+ * (plan.md) names 401/403/404/409/422/503 across its various routes. `code`
+ * is the optional stable discriminator some 403s carry (specs/010); absent
+ * on most errors, including the pre-existing capability-absent 403.
  */
 export class ApiError extends Error {
   readonly status: number
   readonly title: string
   readonly detail: string | undefined
   readonly instance: string | undefined
+  readonly code: string | undefined
 
   constructor(problem: ApiProblem) {
     super(problem.title)
@@ -85,6 +93,7 @@ export class ApiError extends Error {
     this.title = problem.title
     this.detail = problem.detail
     this.instance = problem.instance
+    this.code = problem.code
   }
 }
 
@@ -104,6 +113,7 @@ const throwFromResponse = async (response: Response): Promise<never> => {
       status: body.status ?? response.status,
       detail: body.detail,
       instance: body.instance,
+      code: body.code,
     }
   } catch {
     problem = {

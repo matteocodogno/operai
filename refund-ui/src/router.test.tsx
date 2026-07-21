@@ -48,6 +48,12 @@ vi.mock('shell/session', () => ({
     departments: [],
     permissions: [{ resource: 'request', action: 'review' }],
   })),
+  // ReviewDetailPage reads useSession() for the self-approval-control passive
+  // disable check (specs/010-self-approval-control) — these ROUTING-level
+  // tests aren't about that check either; `data: null` (no signed-in
+  // identity) keeps the Approve button's enabled state exactly as before.
+  // ReviewDetailPage.test.tsx covers the disable/enable behavior itself.
+  useSession: vi.fn(() => ({ data: null })),
 }))
 
 import { apiFetch } from 'shell/session'

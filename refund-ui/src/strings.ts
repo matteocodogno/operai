@@ -261,6 +261,21 @@ const en = {
         approveConfirmation: (employeeName: string) => `Approved — ${employeeName}’s request`,
         rejectConfirmation: (employeeName: string) => `Rejected — ${employeeName}’s request`,
         genericError: 'Could not record this decision. Try again.',
+        /**
+         * specs/010-self-approval-control (plan.md D5, ADR-0026) — passive,
+         * convenience-only client reflection of the self-approval
+         * segregation-of-duties control; the server 403 is authoritative.
+         * `selfApprovalTooltip` explains the disabled Approve button
+         * (`aria-disabled` + `title` house pattern, mirrors
+         * admin-ui's UserDetail.tsx "You can't delete your own account").
+         * `selfApprovalForbiddenError` is the localized copy shown in the
+         * decision-dialog error slot if the action is somehow attempted
+         * anyway (stale state) and refund-api's 403 carries
+         * `code: "self_approval_forbidden"` — never the server's raw
+         * `detail` string, per CLAUDE.md's "no hardcoded strings" mandate.
+         */
+        selfApprovalTooltip: 'You cannot approve a refund request you submitted yourself.',
+        selfApprovalForbiddenError: 'You cannot approve a refund request you submitted yourself.',
       },
       approveDialog: {
         title: 'Approve this request?',

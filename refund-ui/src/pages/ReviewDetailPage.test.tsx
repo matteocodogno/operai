@@ -21,9 +21,10 @@
  * the decided (approved/rejected) read-only variant.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
+import type { Permission, PermissionsResult, ShellSessionState } from 'shell/session'
 import ReviewDetailPage from './ReviewDetailPage'
 import type { RefundRequestDetail } from '../lib/requestsApi'
 
@@ -42,9 +43,48 @@ vi.mock('../lib/attachmentsApi', async (importOriginal) => {
   return { ...original, getDownloadUrl: vi.fn() }
 })
 
+// specs/010-self-approval-control — `useSession`/`usePermissions` (shell/session)
+// ARE mocked here, deliberately (mirrors RefundShell.test.tsx's own rationale):
+// they're the two dependencies the passive Approve-disable check adds.
+// Defaults (`beforeEach`) return no signed-in identity and no permissions at
+// all, so every PRE-EXISTING test in this file keeps observing an always-
+// enabled Approve button exactly as before — `isOwner` is false whenever
+// `currentUserId` is undefined, regardless of what `usePermissions` returns.
+// The "self-approval control" describe block below overrides both mocks per
+// test to exercise the disable/enable/403-mapping behavior itself.
+const { useSessionMock, usePermissionsMock } = vi.hoisted(() => ({
+  useSessionMock: vi.fn<() => ShellSessionState>(),
+  usePermissionsMock: vi.fn<() => PermissionsResult>(),
+}))
+vi.mock('shell/session', () => ({
+  useSession: () => useSessionMock(),
+  usePermissions: () => usePermissionsMock(),
+}))
+
 import * as requestsApi from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
 import { ApiError } from '../lib/refundApi'
+
+/** Builds a full PermissionsResult from just the `permissions` a test cares about (mirrors RefundShell.test.tsx's `permissionsWith`). */
+const permissionsWith = (permissions: Permission[]): PermissionsResult => ({
+  epoch: 0,
+  apps: ['refund'],
+  roles: [],
+  departments: [],
+  permissions,
+})
+
+const REQUEST_APPROVE_SELF_RESTRICTED: Permission = {
+  resource: 'request',
+  action: 'approve',
+  conditions: { attributes: [{ key: 'self-approval', match: 'deny' }] },
+}
+const REQUEST_APPROVE_UNCONDITIONED: Permission = { resource: 'request', action: 'approve' }
+
+beforeEach(() => {
+  useSessionMock.mockReturnValue({ data: null })
+  usePermissionsMock.mockReturnValue(permissionsWith([]))
+})
 
 function pendingPromise<T>(): Promise<T> {
   return new Promise(() => {})
@@ -249,6 +289,98 @@ describe('ReviewDetailPage — submitted (decidable) variant', () => {
 
     await waitFor(() => expect(reviewApi.reject).toHaveBeenCalledWith('req-1', 'Missing receipt.'))
     await waitFor(() => expect(window.location.pathname).toBe('/review'))
+  })
+})
+
+// specs/010-self-approval-control (plan.md D5, ADR-0026) — T5: passive UI
+// reflection of the self-approval segregation-of-duties control. `baseRequest`
+// is owned by `u1` (owner.userId, above).
+describe('ReviewDetailPage — self-approval control (specs/010)', () => {
+  it('disables Approve with an explanatory tooltip when the caller owns the request AND their approve grant carries the self-approval restriction', async () => {
+    useSessionMock.mockReturnValue({ data: { user: { id: 'u1' } } })
+    usePermissionsMock.mockReturnValue(permissionsWith([REQUEST_APPROVE_SELF_RESTRICTED]))
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    const approveButton = await screen.findByTestId('review-detail-approve')
+    expect(approveButton.getAttribute('aria-disabled')).toBe('true')
+    expect(approveButton.getAttribute('title')).toBe('You cannot approve a refund request you submitted yourself.')
+
+    // Defense-in-depth: clicking the disabled button never opens ApproveDialog.
+    fireEvent.click(approveButton)
+    expect(screen.queryByTestId('approve-dialog-modal')).toBeNull()
+  })
+
+  it('leaves Reject (and the approved-total input) enabled even when Approve is self-approval-disabled', async () => {
+    useSessionMock.mockReturnValue({ data: { user: { id: 'u1' } } })
+    usePermissionsMock.mockReturnValue(permissionsWith([REQUEST_APPROVE_SELF_RESTRICTED]))
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    await screen.findByTestId('review-detail-approve')
+    const rejectButton = screen.getByTestId('review-detail-reject')
+    expect(rejectButton.getAttribute('aria-disabled')).not.toBe('true')
+    fireEvent.click(rejectButton)
+    expect(screen.getByTestId('reject-dialog-modal')).not.toBeNull()
+
+    const approvedTotalInput = screen.getByTestId('row-line-1-approved-total') as HTMLInputElement
+    expect(approvedTotalInput.disabled).toBe(false)
+  })
+
+  it('keeps Approve enabled when the caller does NOT own the request, even under a restricted approve grant', async () => {
+    useSessionMock.mockReturnValue({ data: { user: { id: 'someone-else' } } })
+    usePermissionsMock.mockReturnValue(permissionsWith([REQUEST_APPROVE_SELF_RESTRICTED]))
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    const approveButton = await screen.findByTestId('review-detail-approve')
+    expect(approveButton.getAttribute('aria-disabled')).not.toBe('true')
+    expect(approveButton.getAttribute('title')).toBeNull()
+
+    fireEvent.click(approveButton)
+    expect(screen.getByTestId('approve-dialog-modal')).not.toBeNull()
+  })
+
+  it('keeps Approve enabled when the caller owns the request but their approve grant lacks the self-approval attribute', async () => {
+    useSessionMock.mockReturnValue({ data: { user: { id: 'u1' } } })
+    usePermissionsMock.mockReturnValue(permissionsWith([REQUEST_APPROVE_UNCONDITIONED]))
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    const approveButton = await screen.findByTestId('review-detail-approve')
+    expect(approveButton.getAttribute('aria-disabled')).not.toBe('true')
+
+    fireEvent.click(approveButton)
+    expect(screen.getByTestId('approve-dialog-modal')).not.toBeNull()
+  })
+
+  it('maps a 403 with code "self_approval_forbidden" to localized copy in the decision-dialog error path (e.g. stale client state)', async () => {
+    // Caller appears un-owning/unrestricted client-side (button enabled), but
+    // the server denies anyway — proves the server 403 is authoritative and
+    // its `code` is mapped to strings.ts copy, never the raw server `detail`.
+    useSessionMock.mockReturnValue({ data: { user: { id: 'someone-else' } } })
+    usePermissionsMock.mockReturnValue(permissionsWith([REQUEST_APPROVE_SELF_RESTRICTED]))
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    vi.mocked(reviewApi.approve).mockRejectedValue(
+      new ApiError({
+        type: 'https://httpstatuses.com/403',
+        title: 'Forbidden',
+        status: 403,
+        detail: 'You cannot approve a refund request you submitted yourself.',
+        instance: '/review/requests/req-1/approve',
+        code: 'self_approval_forbidden',
+      }),
+    )
+    renderReviewDetailPage()
+
+    const approveButton = await screen.findByTestId('review-detail-approve')
+    fireEvent.click(approveButton)
+    fireEvent.click(screen.getByTestId('approve-dialog-confirm'))
+
+    await waitFor(() => expect(screen.getByTestId('approve-dialog-error')).not.toBeNull())
+    expect(screen.getByTestId('approve-dialog-error').textContent).toBe(
+      'You cannot approve a refund request you submitted yourself.',
+    )
   })
 })
 
