@@ -313,16 +313,7 @@ export default function EstimatesPage() {
             ))}
           </div>
         </div>
-
-        {/* FAB — only when list is populated */}
-        <button
-          onClick={() => void handleNew()}
-          className="fixed bottom-6 right-6 z-20 w-14 h-14 rounded-full text-white text-2xl flex items-center justify-center bg-[linear-gradient(130deg,var(--color-acc),#3a4cd8)] shadow-[0_4px_20px_rgba(91,106,247,.5)] hover:scale-105 active:scale-95 transition-transform"
-          aria-label="New Estimate"
-          title="New Estimate"
-        >
-          +
-        </button>
+        {/* No FAB — the header "+ New estimate" is the single, consistent CTA (matches the other screens). */}
       </>
     )
   }
