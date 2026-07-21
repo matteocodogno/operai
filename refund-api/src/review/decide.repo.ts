@@ -17,8 +17,13 @@
 
 import { Effect } from "effect";
 import { db } from "../lib/db";
-import { requestInScope, type EntityScope } from "../authz/conditions";
-import { ConflictError, DatabaseError, NotFoundError } from "../lib/errors";
+import { ownershipOwn, requestInScope, type EntityScope } from "../authz/conditions";
+import {
+  ConflictError,
+  DatabaseError,
+  NotFoundError,
+  SelfApprovalDeniedError,
+} from "../lib/errors";
 import { lineInclude } from "../requests/lines.repo";
 import { writeAuditEntry } from "../requests/audit";
 import type { LineRow } from "../requests/requests.service";
@@ -32,6 +37,11 @@ interface ScopeCheckLine {
 }
 interface ScopeCheckRow {
   readonly status: string;
+  // specs/010-self-approval-control, ADR-0026 — a harmless extra column on
+  // the shared scope-check select (plan.md D2); only `approveRequest`'s own
+  // self-approval branch below reads it, `ensureInScopeSubmittedRequest`
+  // (shared by set-approved-total/reject) never does.
+  readonly ownerUserId: string;
   readonly lines: readonly ScopeCheckLine[];
 }
 
@@ -42,7 +52,11 @@ function fetchScopeCheckRow(
     try: () =>
       db.refundRequest.findUnique({
         where: { id: requestId },
-        select: { status: true, lines: { select: { id: true, entity: true } } },
+        select: {
+          status: true,
+          ownerUserId: true,
+          lines: { select: { id: true, entity: true } },
+        },
       }),
     catch: toDbErr("Failed to look up refund request"),
   });
@@ -206,13 +220,63 @@ function approveTransaction(
   );
 }
 
+/**
+ * specs/010-self-approval-control, ADR-0026 — approve gains a dedicated
+ * ownership check the SHARED `ensureInScopeSubmittedRequest` gate deliberately
+ * does NOT carry (US-4: the restriction is approve-only; putting it in the
+ * shared gate would bleed into reject/set-approved-total). Fetches the row
+ * itself (reusing `fetchScopeCheckRow`, now selecting `ownerUserId`) so the
+ * self-approval branch can run BEFORE the entity-scope 404 and the status
+ * 409 (plan.md D2 ordering: capability 403 → self-approval 403 → entity 404
+ * → status 409 → approve) — AC-2.4 requires the ownership denial to win
+ * regardless of entity match, and the caller provably owns the record (they
+ * created it), so a 403 here leaks nothing a 404 would otherwise protect.
+ */
 export function approveRequest(
   requestId: string,
   scope: EntityScope | null,
   actorUserId: string,
   actorEmail: string,
-): Effect.Effect<void, DatabaseError | NotFoundError | ConflictError> {
-  return ensureInScopeSubmittedRequest(requestId, scope).pipe(
+  selfApprovalRestricted: boolean,
+): Effect.Effect<
+  void,
+  DatabaseError | NotFoundError | ConflictError | SelfApprovalDeniedError
+> {
+  return fetchScopeCheckRow(requestId).pipe(
+    Effect.flatMap(
+      (
+        row,
+      ): Effect.Effect<
+        ScopeCheckRow,
+        NotFoundError | ConflictError | SelfApprovalDeniedError
+      > => {
+        // Guarded by `row &&` — a genuinely non-existent request must still
+        // fall through to the ordinary 404 below, never a self-approval 403
+        // (no ownerUserId to compare against).
+        if (row && selfApprovalRestricted && ownershipOwn(row, actorUserId)) {
+          return Effect.fail(
+            new SelfApprovalDeniedError({
+              message: `Caller ${actorUserId} cannot approve refund request ${requestId} — they are its owner`,
+            }),
+          );
+        }
+        if (!row || scope === null || !requestInScope(row.lines, scope)) {
+          return Effect.fail(
+            new NotFoundError({
+              message: `Refund request ${requestId} not found`,
+            }),
+          );
+        }
+        if (row.status !== "submitted") {
+          return Effect.fail(
+            new ConflictError({
+              message: "Only a submitted request can be reviewed",
+            }),
+          );
+        }
+        return Effect.succeed(row);
+      },
+    ),
     Effect.flatMap(() => approveTransaction(requestId, actorUserId, actorEmail)),
   );
 }

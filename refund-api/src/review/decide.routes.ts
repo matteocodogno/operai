@@ -31,7 +31,7 @@ import { Effect } from "effect";
 import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
-import { ConflictError, NotFoundError } from "../lib/errors";
+import { ConflictError, NotFoundError, SelfApprovalDeniedError } from "../lib/errors";
 import { notifyDecision } from "../lib/notify";
 import { findRequestWithLines } from "../requests/requests.repo";
 import { mapLine, mapRequestDetail } from "../requests/requests.service";
@@ -44,7 +44,7 @@ import {
 } from "../requests/requests.schemas";
 import { approveRequest, rejectRequest, setApprovedTotal } from "./decide.repo";
 import { ApprovedTotalBodySchema, RejectBodySchema } from "./decide.schemas";
-import { scopeForReviewAction } from "./review.service";
+import { approveRestrictedForCaller, scopeForReviewAction } from "./review.service";
 
 /**
  * Fires the post-decision notification (T13, AC-3.6). Never throws — even
@@ -77,6 +77,41 @@ const forbiddenProblem = (path: string, detail: string) => ({
   detail,
   instance: path,
 });
+
+/**
+ * specs/010-self-approval-control, ADR-0026 point 6 — the distinguishable
+ * self-approval 403: same RFC 7807 shape as `forbiddenProblem`, plus a
+ * stable extension member `code: "self_approval_forbidden"` (AC-6.1's
+ * i18n-safe discriminator). The pre-existing capability-absent 403
+ * (`forbiddenProblem`) intentionally carries NO `code`.
+ */
+const selfApprovalForbiddenProblem = (path: string) => ({
+  type: "https://httpstatuses.com/403",
+  title: "Forbidden",
+  status: 403 as const,
+  detail: "You cannot approve a refund request you submitted yourself.",
+  instance: path,
+  code: "self_approval_forbidden" as const,
+});
+
+/**
+ * specs/010-self-approval-control, ADR-0026 point 5 (plan.md D4) — a
+ * structured, parseable log event on every self-approval denial (AC-6.2:
+ * distinct, attempted-but-denied, never "nothing happened"; AC-6.3: who /
+ * which request / when). Deliberately NOT a new `RefundAuditEntry` row (see
+ * ADR-0026 for the rejected alternative) — this is a security/operational
+ * event, not a financial state transition.
+ */
+function logSelfApprovalDenied(actorUserId: string, requestId: string): void {
+  console.log(
+    JSON.stringify({
+      event: "refund.self_approval_denied",
+      actorUserId,
+      requestId,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
 
 const notFoundProblem = (path: string, detail: string) => ({
   type: "https://httpstatuses.com/404",
@@ -263,7 +298,11 @@ const approveRoute = createRoute({
     "finalized to its set value, defaulting to the requested amount for " +
     "any line left untouched (AC-7.2). Whole-request, including lines for " +
     "an entity outside the caller's own scope (AC-7.6). Writes an " +
-    "'approved' audit row (AC-8.1).",
+    "'approved' audit row (AC-8.1). specs/010-self-approval-control: if the " +
+    "caller's `request:approve` grant carries the self-approval restriction " +
+    "and the caller owns the request, denied with 403 " +
+    "`code: self_approval_forbidden` BEFORE the entity-scope 404 and the " +
+    "status 409 (ADR-0026).",
   security: [{ Bearer: [] }],
   request: { params: RequestIdParamSchema },
   responses: {
@@ -274,7 +313,12 @@ const approveRoute = createRoute({
     401: { description: "Missing or invalid Bearer JWT" },
     403: {
       content: { "application/json": { schema: ProblemSchema } },
-      description: "Caller lacks the `request:approve` capability",
+      description:
+        "Caller lacks the `request:approve` capability, OR (specs/010, " +
+        "ADR-0026) the caller owns the request and their approve grant " +
+        "carries the self-approval restriction — distinguished by the " +
+        "extension member `code: \"self_approval_forbidden\"`, absent on " +
+        "the capability-absent case.",
     },
     404: {
       content: { "application/json": { schema: ProblemSchema } },
@@ -301,9 +345,17 @@ decideRouter.openapi(approveRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(approveRequest(id, scope, sub, email));
+  const selfApprovalRestricted = approveRestrictedForCaller(authz);
+
+  const exit = await Effect.runPromiseExit(
+    approveRequest(id, scope, sub, email, selfApprovalRestricted),
+  );
   if (exit._tag === "Failure") {
     const cause = exit.cause;
+    if (cause._tag === "Fail" && cause.error instanceof SelfApprovalDeniedError) {
+      logSelfApprovalDenied(sub, id);
+      return c.json(selfApprovalForbiddenProblem(c.req.path), 403);
+    }
     if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
       return c.json(notFoundProblem(c.req.path, cause.error.message), 404);
     }

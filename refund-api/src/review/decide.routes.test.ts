@@ -123,6 +123,46 @@ const accountingPerms = (entity: string | null): ResolveResponse => ({
   jobTitle: null,
 });
 
+// specs/010-self-approval-control, ADR-0026 — same shape as `accountingPerms`,
+// but the `approve` grant additionally carries the self-approval restriction
+// (`{key:"self-approval", match:"deny"}`), composed alongside the entity
+// attribute when `entity` is set (AC-2.4). review/reject/set-approved-total
+// grants are UNCHANGED — the restriction is approve-only (US-4).
+const restrictedAccountingPerms = (entity: string | null): ResolveResponse => ({
+  sub: "",
+  epoch: 1,
+  permissions: [
+    { resource: "refund", action: "access", conditions: null },
+    {
+      resource: "request",
+      action: "review",
+      conditions: entity ? { attributes: [{ key: "entity", match: "user" }] } : null,
+    },
+    {
+      resource: "request",
+      action: "set-approved-total",
+      conditions: entity ? { attributes: [{ key: "entity", match: "user" }] } : null,
+    },
+    {
+      resource: "request",
+      action: "approve",
+      conditions: {
+        attributes: [
+          ...(entity ? [{ key: "entity", match: "user" }] : []),
+          { key: "self-approval", match: "deny" },
+        ],
+      },
+    },
+    {
+      resource: "request",
+      action: "reject",
+      conditions: entity ? { attributes: [{ key: "entity", match: "user" }] } : null,
+    },
+  ],
+  entity,
+  jobTitle: null,
+});
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const authHeaders = (token: string) => ({
@@ -529,6 +569,234 @@ describe("POST /review/requests/:id/approve", () => {
       headers: authHeaders(token),
     });
     expect(res.status).toBe(409);
+  });
+});
+
+// ─── POST .../approve — self-approval restriction (specs/010, ADR-0026) ─────
+
+describe("POST /review/requests/:id/approve — self-approval restriction (specs/010-self-approval-control, ADR-0026)", () => {
+  it("(AC-2.1) owner + restricted approve grant → 403 code:self_approval_forbidden; request/line-totals/audit unchanged", async () => {
+    const { request, lines } = await createSubmittedRequest(
+      [{ entity: "welld_it", requestedAmountCents: 1000 }],
+      { ownerUserId: "acct-1", ownerEmail: "acct1@x.com" },
+    );
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string; detail: string };
+    expect(body.code).toBe("self_approval_forbidden");
+    expect(body.detail).toBe("You cannot approve a refund request you submitted yourself.");
+
+    const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(row.status).toBe("submitted");
+    expect(row.decidedAt).toBeNull();
+    const line = await db.refundLine.findUniqueOrThrow({ where: { id: lines[0]!.id } });
+    expect(line.approvedTotalCents).toBeNull();
+    const auditRows = await db.refundAuditEntry.findMany({ where: { requestId: request.id } });
+    expect(auditRows).toHaveLength(0);
+  });
+
+  it("(AC-2.2) a request the caller does NOT own is not blocked by the restriction — proceeds and approves", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }], {
+      ownerUserId: "emp-1",
+      ownerEmail: "emp1@x.com",
+    });
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("approved");
+  });
+
+  it("(AC-2.3) whole-request denial on a multi-line owned request — no partial approval", async () => {
+    const { request, lines } = await createSubmittedRequest(
+      [
+        { entity: "welld_it", requestedAmountCents: 1000 },
+        { entity: "welld_it", requestedAmountCents: 2000 },
+      ],
+      { ownerUserId: "acct-1", ownerEmail: "acct1@x.com" },
+    );
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+
+    for (const line of lines) {
+      const row = await db.refundLine.findUniqueOrThrow({ where: { id: line.id } });
+      expect(row.approvedTotalCents).toBeNull();
+    }
+    const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(row.status).toBe("submitted");
+  });
+
+  it("(AC-2.4) composes with entity — an owned request is denied REGARDLESS of entity match (self-approval wins over what would otherwise be a 404)", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_ch" }], {
+      ownerUserId: "acct-1",
+      ownerEmail: "acct1@x.com",
+    });
+    // acct-1 is scoped to welld_it — the request's line is welld_ch, out of
+    // entity scope — but acct-1 owns the request and is restricted, so the
+    // self-approval 403 must win over the entity 404 (D2 ordering).
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe("self_approval_forbidden");
+  });
+
+  it("(AC-2.4) a non-owned request is STILL entity-gated exactly as 007 AC-6.4/6.5 (404), unaffected by this feature", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_ch" }], {
+      ownerUserId: "emp-1",
+      ownerEmail: "emp1@x.com",
+    });
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("(AC-3.1) no restriction on the approve grant → owner self-approves successfully, exactly as 007 AC-7.2", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }], {
+      ownerUserId: "acct-1",
+      ownerEmail: "acct1@x.com",
+    });
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("approved");
+  });
+
+  it("(AC-6.1) the self-approval 403's `code` is distinct from the capability-absent 403 (no `code`)", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }], {
+      ownerUserId: "emp-1",
+      ownerEmail: "emp1@x.com",
+    });
+    harness.setResolve(async () => NO_GRANTS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBeUndefined();
+  });
+
+  it("(AC-6.2/6.3) a denied self-approval attempt emits a structured refund.self_approval_denied log event with actor/request/timestamp", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }], {
+      ownerUserId: "acct-1",
+      ownerEmail: "acct1@x.com",
+    });
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const originalLog = console.log;
+    const logCalls: unknown[] = [];
+    console.log = ((...args: unknown[]) => {
+      logCalls.push(args[0]);
+    }) as typeof console.log;
+    let res: Response;
+    try {
+      res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+    } finally {
+      console.log = originalLog;
+    }
+    expect(res.status).toBe(403);
+
+    const parsed = logCalls
+      .map((line) => {
+        try {
+          return JSON.parse(String(line)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .find((entry) => entry?.["event"] === "refund.self_approval_denied");
+
+    expect(parsed).toBeDefined();
+    expect(parsed?.["actorUserId"]).toBe("acct-1");
+    expect(parsed?.["requestId"]).toBe(request.id);
+    const timestamp = parsed?.["timestamp"];
+    expect(typeof timestamp).toBe("string");
+    const timestampStr = timestamp as string;
+    expect(new Date(timestampStr).toISOString()).toBe(timestampStr);
+  });
+});
+
+// ─── Reject / set-approved-total on the caller's OWN request — UNAFFECTED by
+// the self-approval restriction (specs/010, US-4, AC-4.1/4.2) ─────────────
+
+describe("Reject / set-approved-total on caller's own restricted request — not blocked (specs/010-self-approval-control, US-4)", () => {
+  it("(AC-4.1) reject on an owned request, with a restricted approve grant, is NOT blocked", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }], {
+      ownerUserId: "acct-1",
+      ownerEmail: "acct1@x.com",
+    });
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/reject`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ motivation: "Not eligible after all" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("rejected");
+  });
+
+  it("(AC-4.2) setting the approved total on an owned request, with a restricted approve grant, is NOT blocked", async () => {
+    const { request, lines } = await createSubmittedRequest([{ entity: "welld_it" }], {
+      ownerUserId: "acct-1",
+      ownerEmail: "acct1@x.com",
+    });
+    harness.setResolve(async () => restrictedAccountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(
+      `/review/requests/${request.id}/lines/${lines[0]!.id}/approved-total`,
+      {
+        method: "PUT",
+        headers: authHeaders(token),
+        body: JSON.stringify({ approvedTotalCents: 500 }),
+      },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { approvedTotalCents: number | null };
+    expect(body.approvedTotalCents).toBe(500);
   });
 });
 
