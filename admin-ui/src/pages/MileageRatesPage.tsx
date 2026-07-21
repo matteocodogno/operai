@@ -34,9 +34,9 @@ import AddRateEntryModal from '../components/AddRateEntryModal'
  *          F7's reactive/defense-in-depth path — the proactive path is
  *          SectionNav.tsx hiding the nav entry entirely).
  *   Err  — ErrorBanner + Retry (mirrors RolesPage.tsx/AuditPage.tsx).
- *   Empty (per entity) — "No rate configured yet for {entity}." + a
- *          repeated "+ Add rate entry" CTA when `rate:manage` (mirrors
- *          RolesPage.tsx's empty-state CTA-repeat convention).
+ *   Empty (per entity) — "No rate configured yet for {entity}." (no CTA of
+ *          its own — the entity header's "+ Add rate entry" button already
+ *          serves this, so a second button here would be redundant).
  *   Populated (per entity) — Rate / Valid from / Added by / Added on /
  *          Status table; the `inEffectToday` row carries `RateInEffectBadge`.
  *
@@ -146,9 +146,8 @@ export default function MileageRatesPage() {
   // The button that opened the currently-open modal — focus returns here on
   // a successful add (design.md ADM-M1 "Success" state: "focus returns to
   // the entity's '+ Add rate entry' button — new focus-return behavior").
-  // A plain ref (not a per-entity map) so it correctly tracks whichever of
-  // the two possible triggers (the header button, or the empty-state's
-  // repeated button) was actually clicked.
+  // A plain ref (not a per-entity map) so it tracks whichever entity's header
+  // "+ Add rate entry" button was actually clicked.
   const lastTriggerRef = useRef<HTMLButtonElement | null>(null)
 
   // See the module doc comment above re: why this is a Promise chain, not
@@ -346,16 +345,7 @@ export default function MileageRatesPage() {
                         <p className="text-sm" style={{ color: 'var(--soft)' }}>
                           No rate configured yet for {config.label}.
                         </p>
-                        {canManage && (
-                          <button
-                            type="button"
-                            onClick={(e) => handleAddOpen(entityRates.entity, e.currentTarget)}
-                            className="text-sm py-1.5 px-3 font-medium transition-opacity hover:opacity-90"
-                            style={{ color: 'white', backgroundColor: 'var(--acc)' }}
-                          >
-                            + Add rate entry
-                          </button>
-                        )}
+                        {/* No CTA here — the entity header's "+ Add rate entry" button already covers this (avoids a redundant second button). */}
                       </div>
                     )}
 
