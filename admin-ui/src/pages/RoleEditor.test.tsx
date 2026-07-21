@@ -267,6 +267,12 @@ describe('RoleEditor — building a conditioned rule', () => {
     fireEvent.change(screen.getByTestId('rule-composer-action'), { target: { value: 'edit' } })
 
     expect(screen.getByRole('radiogroup')).not.toBeNull()
+
+    // The Entity condition carries an explanatory help tooltip (title + aria-label).
+    const entityHelp = screen.getByTestId('rule-composer-attr-entity-help')
+    expect(entityHelp.getAttribute('title')).toMatch(/scope this permission to the user's own entity/i)
+    expect(entityHelp.getAttribute('aria-label')).toContain('Entity condition')
+
     fireEvent.click(screen.getByTestId('rule-composer-ownership-own'))
     fireEvent.click(screen.getByTestId('rule-composer-attr-entity'))
 

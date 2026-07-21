@@ -69,6 +69,19 @@ const ATTRIBUTE_LABELS: Record<AttributeConditionKey, string> = {
 
 const ATTRIBUTE_KEYS: AttributeConditionKey[] = ['entity', 'department', 'jobTitle']
 
+// Hover/focus help for each attribute condition (native `title` tooltip, the
+// same house pattern SystemBadge / disabled buttons use). An attribute
+// condition SCOPES the grant to records matching the user's own attribute
+// value instead of granting it globally.
+const ATTRIBUTE_HELP: Record<AttributeConditionKey, string> = {
+  entity:
+    "Scope this permission to the user's own entity (e.g. WellD CH or WellD Italia). Checked: they can act only on records matching their entity — for a refund request, one whose lines include their entity. Unchecked: it applies to every entity. A user with no entity set matches nothing.",
+  department:
+    "Scope this permission to the user's own department. Checked: they can act only on records matching their department. Unchecked: it applies regardless of department. A user with no department set matches nothing.",
+  jobTitle:
+    "Scope this permission to the user's own job title. Checked: they can act only on records matching their job title. Unchecked: it applies regardless of job title. A user with no job title set matches nothing.",
+}
+
 const humanizeAppId = (appId: string): string => (appId.length === 0 ? appId : appId.charAt(0).toUpperCase() + appId.slice(1))
 
 const findResource = (catalog: Catalog, appId: string, resourceKey: string): CatalogResource | undefined =>
@@ -704,15 +717,30 @@ export default function RoleEditor() {
                     </legend>
                     <div className="flex items-center gap-4 mt-1">
                       {availableAttributeKeys.map((key) => (
-                        <label key={key} className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text)' }}>
-                          <input
-                            type="checkbox"
-                            checked={composer.attributes.has(key)}
-                            onChange={() => handleAttributeToggle(key)}
-                            data-testid={`rule-composer-attr-${key}`}
-                          />
-                          {ATTRIBUTE_LABELS[key]}
-                        </label>
+                        <div key={key} className="flex items-center gap-1">
+                          <label className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text)' }}>
+                            <input
+                              type="checkbox"
+                              checked={composer.attributes.has(key)}
+                              onChange={() => handleAttributeToggle(key)}
+                              data-testid={`rule-composer-attr-${key}`}
+                            />
+                            {ATTRIBUTE_LABELS[key]}
+                          </label>
+                          {/* Help affordance — native `title` tooltip (house pattern); outside the
+                              <label> so clicking/focusing it never toggles the checkbox. */}
+                          <span
+                            role="img"
+                            tabIndex={0}
+                            aria-label={`${ATTRIBUTE_LABELS[key]} condition — ${ATTRIBUTE_HELP[key]}`}
+                            title={ATTRIBUTE_HELP[key]}
+                            data-testid={`rule-composer-attr-${key}-help`}
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold cursor-help select-none"
+                            style={{ border: '1px solid var(--rule)', color: 'var(--soft)' }}
+                          >
+                            ?
+                          </span>
+                        </div>
                       ))}
                     </div>
                   </fieldset>
