@@ -1,7 +1,7 @@
 ---
 id: 010
 slug: self-approval-control
-status: approved
+status: in-progress
 rigor: production
 created: 2026-07-21
 approved: 2026-07-21
