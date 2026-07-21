@@ -31,7 +31,7 @@ Derived from the approved `plan.md`. Levels: unit = pure fn; integration = route
   - Disable (not hide) the approve button + explanatory tooltip (`aria-disabled` + `title` house pattern) when the caller owns the request (their `sub` === `ownerUserId`) AND their resolved `request:approve` grant carries `{key:"self-approval",match:"deny"}`. Map a server 403 with `code:"self_approval_forbidden"` to localized copy (no hardcoded strings). Server 403 authoritative — the UI is convenience only.
   - done when: component tests cover the disabled+tooltip state for an owned restricted request, the enabled state otherwise, and the 403-`code`→copy mapping.
 
-- [ ] T6: e2e — segregation-of-duties journey — refs: US-1, US-2, US-3, US-4 — deps: T1, T3, T4, T5  **[quality-engineer]**
+- [x] T6: e2e — segregation-of-duties journey — refs: US-1, US-2, US-3, US-4 — deps: T1, T3, T4, T5  **[quality-engineer]**
   - touch: `shell/e2e/self-approval-control.spec.ts`
   - Admin enables "cannot approve own request" on a role's approve rule (admin-ui) → a user with that role is blocked (403 / disabled button) approving their OWN request → the same user CAN approve another employee's request → reject/set-total on their own still work.
   - done when: the Playwright path passes against the running stack (or is authored + committed with each AC independently proven at integration/component level, per the 007/008/009 env-blocked posture).
