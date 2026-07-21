@@ -226,7 +226,7 @@ export default function AddRateEntryModal({
                 aria-describedby={validFromError ? 'add-rate-valid-from-error' : undefined}
                 data-testid="add-rate-valid-from"
                 className="text-sm px-2.5 py-1.5 border rounded"
-                style={{ borderColor: validFromError ? 'var(--red)' : 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+                style={{ borderColor: validFromError ? 'var(--red)' : 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)', colorScheme: 'dark' }}
               />
               {validFromError && (
                 <p
