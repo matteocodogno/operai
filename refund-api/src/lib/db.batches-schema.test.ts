@@ -330,7 +330,7 @@ describe("RefundBatch / RefundBatchItem schema (specs/008 T1, ADR-0020/0022)", (
     });
 
     const exit = await Effect.runPromiseExit(
-      approveRequest(request.id, GLOBAL_ENTITY_SCOPE, "acct-2", "acct-2@example.com"),
+      approveRequest(request.id, GLOBAL_ENTITY_SCOPE, "acct-2", "acct-2@example.com", false),
     );
     expect(exit._tag).toBe("Failure");
     if (exit._tag === "Failure" && exit.cause._tag === "Fail") {
