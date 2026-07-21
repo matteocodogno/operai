@@ -66,13 +66,15 @@ describe('MyRequestsPage — list states', () => {
     expect(await screen.findByTestId('skeleton-list-rows')).not.toBeNull()
   })
 
-  it('renders the onboarding empty state with a "+ New request" CTA when there are no requests', async () => {
+  it('renders the onboarding empty state when there are no requests — header CTA only, no redundant centered button', async () => {
     vi.mocked(requestsApi.list).mockResolvedValue([])
 
     renderMyRequestsPage()
 
     await waitFor(() => expect(screen.getByTestId('my-requests-empty-state')).not.toBeNull())
-    expect(screen.getByTestId('my-requests-empty-new-button').getAttribute('href')).toBe('/requests/new')
+    // The header "+ New request" is the only CTA — no centered button in the empty state.
+    expect(screen.getByTestId('my-requests-new-button').getAttribute('href')).toBe('/requests/new')
+    expect(screen.queryByTestId('my-requests-empty-new-button')).toBeNull()
   })
 
   it('renders a row per request with its status badge, updated date, and subtotal preview', async () => {

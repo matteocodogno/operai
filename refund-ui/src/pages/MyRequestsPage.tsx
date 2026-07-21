@@ -120,14 +120,8 @@ export default function MyRequestsPage() {
             <p className="max-w-md text-sm leading-relaxed" style={{ color: 'var(--muted)' }}>
               {t.empty.body}
             </p>
-            <Link
-              to="/requests/new"
-              data-testid="my-requests-empty-new-button"
-              className="mt-2 text-sm py-1.5 px-3 font-medium transition-opacity hover:opacity-90"
-              style={{ color: 'white', backgroundColor: 'var(--acc)' }}
-            >
-              {t.newRequestButton}
-            </Link>
+            {/* No CTA here — the header's "+ New request" already serves this;
+                a centered second button would be redundant. */}
           </div>
         )}
 
