@@ -12,12 +12,20 @@
  * (`entity`/`department`/`jobTitle`) with no translation layer needed
  * between the API contract and the UI.
  *
+ * `self-approval` (T4, specs/010-self-approval-control, ADR-0026) is a NEW
+ * chip kind for the `{key:"self-approval", match:"deny"}` attribute — a
+ * deny carve-out on `request:approve`, the opposite polarity of the
+ * affirmative `entity`/`department`/`jobTitle` attributes above. It always
+ * renders as its OWN chip (attributes are separate array entries, so this
+ * falls out of the existing per-attribute chip mapping) — never merged with
+ * or hidden inside the entity chip (AC-1.4).
+ *
  * NEW, small component; follows the same glyph-or-icon-plus-text badge
  * convention as `SystemBadge` / estimai-ui's `StatusBadge`/`WarningBadge` —
  * colour is never the only signal (design.md "Accessibility — contrast").
  */
 
-export type ConditionChipKind = 'own' | 'any' | 'entity' | 'department' | 'jobTitle'
+export type ConditionChipKind = 'own' | 'any' | 'entity' | 'department' | 'jobTitle' | 'self-approval'
 
 const CONDITION_META: Record<ConditionChipKind, { glyph: string; label: string; colorVar: string }> = {
   own: { glyph: '◉', label: 'Own records', colorVar: 'var(--acc)' },
@@ -25,6 +33,7 @@ const CONDITION_META: Record<ConditionChipKind, { glyph: string; label: string; 
   entity: { glyph: '⌂', label: 'Entity', colorVar: 'var(--grn)' },
   department: { glyph: '▤', label: 'Department', colorVar: 'var(--grn)' },
   jobTitle: { glyph: '◈', label: 'Job title', colorVar: 'var(--grn)' },
+  'self-approval': { glyph: '⚖', label: 'No self-approval', colorVar: 'var(--red)' },
 }
 
 export type ConditionChipProps = {

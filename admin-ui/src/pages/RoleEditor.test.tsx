@@ -84,6 +84,23 @@ const catalogFixture: Catalog = [
       { key: 'access', label: 'Access EstimAI', actions: [{ key: 'access', label: 'Access', supportedConditions: [] }] },
     ],
   },
+  {
+    appId: 'refund',
+    resources: [
+      {
+        key: 'request',
+        label: 'Refund request',
+        actions: [
+          // AC-5.1/T1: `approve` declares BOTH `entity` and the new `self-approval`
+          // condition — the fixture mirrors the real refund catalog post-T1.
+          { key: 'approve', label: 'Approve', supportedConditions: ['entity', 'self-approval'] },
+          // `reject` intentionally lacks `self-approval` (AC-1.6/AC-4.3/D3) — used to
+          // prove the toggle is not offered where the catalog doesn't declare it.
+          { key: 'reject', label: 'Reject', supportedConditions: ['entity'] },
+        ],
+      },
+    ],
+  },
 ]
 
 const roleFixture: RoleDetail = {
@@ -218,7 +235,7 @@ describe('RoleEditor — off-catalog impossible', () => {
 
     const resourceSelect = screen.getByTestId('rule-composer-resource') as HTMLSelectElement
     const optionValues = Array.from(resourceSelect.querySelectorAll('option')).map((o) => o.textContent)
-    expect(optionValues).toEqual(['Select a resource…', 'Estimate', 'Access EstimAI'])
+    expect(optionValues).toEqual(['Select a resource…', 'Estimate', 'Access EstimAI', 'Refund request'])
   })
 
   it('the Action select only contains the selected resource\'s catalog actions', async () => {
@@ -309,6 +326,110 @@ describe('RoleEditor — building a conditioned rule', () => {
 
     expect(screen.queryByTestId('role-rule-0')).toBeNull()
     expect(screen.getByTestId('rules-empty-state')).not.toBeNull()
+  })
+})
+
+describe('RoleEditor — self-approval condition (T4, specs/010-self-approval-control, ADR-0026)', () => {
+  it('offers a self-approval toggle distinct from the entity checkbox for request.approve; not offered for reject (AC-1.1/1.6)', async () => {
+    await renderLoaded()
+    fireEvent.click(screen.getByTestId('rule-composer-toggle'))
+
+    fireEvent.change(screen.getByTestId('rule-composer-resource'), { target: { value: 'refund::request' } })
+    fireEvent.change(screen.getByTestId('rule-composer-action'), { target: { value: 'approve' } })
+
+    const selfApproval = screen.getByTestId('rule-composer-self-approval')
+    const entity = screen.getByTestId('rule-composer-attr-entity')
+    expect(selfApproval).not.toBeNull()
+    expect(entity).not.toBeNull()
+    expect(selfApproval).not.toBe(entity)
+    // Its own fieldset/legend — never folded into the entity/attribute group.
+    expect(screen.getByText('Segregation of duties')).not.toBeNull()
+    expect(selfApproval.closest('fieldset')).not.toBe(entity.closest('fieldset'))
+
+    // `reject`'s catalog entry doesn't declare `self-approval` (D3/AC-4.3) — the
+    // toggle disappears, while entity (which reject DOES support) stays offered.
+    fireEvent.change(screen.getByTestId('rule-composer-action'), { target: { value: 'reject' } })
+    expect(screen.queryByTestId('rule-composer-self-approval')).toBeNull()
+    expect(screen.getByTestId('rule-composer-attr-entity')).not.toBeNull()
+  })
+
+  it('composes entity + self-approval independently: two chips on Add, toggling one leaves the other checked (AC-1.3/2.4)', async () => {
+    await renderLoaded()
+    fireEvent.click(screen.getByTestId('rule-composer-toggle'))
+    fireEvent.change(screen.getByTestId('rule-composer-resource'), { target: { value: 'refund::request' } })
+    fireEvent.change(screen.getByTestId('rule-composer-action'), { target: { value: 'approve' } })
+
+    fireEvent.click(screen.getByTestId('rule-composer-attr-entity'))
+    fireEvent.click(screen.getByTestId('rule-composer-self-approval'))
+    expect((screen.getByTestId('rule-composer-attr-entity') as HTMLInputElement).checked).toBe(true)
+    expect((screen.getByTestId('rule-composer-self-approval') as HTMLInputElement).checked).toBe(true)
+
+    // Toggling entity off leaves self-approval untouched, and vice versa (AC-1.3).
+    fireEvent.click(screen.getByTestId('rule-composer-attr-entity'))
+    expect((screen.getByTestId('rule-composer-attr-entity') as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByTestId('rule-composer-self-approval') as HTMLInputElement).checked).toBe(true)
+
+    fireEvent.click(screen.getByTestId('rule-composer-attr-entity'))
+    fireEvent.click(screen.getByTestId('rule-composer-add'))
+
+    const newRow = screen.getByTestId('role-rule-1')
+    expect(newRow.textContent).toContain('Refund request · Approve')
+    expect(newRow.querySelector('[data-testid="condition-chip-entity"]')).not.toBeNull()
+    expect(newRow.querySelector('[data-testid="condition-chip-self-approval"]')).not.toBeNull()
+  })
+
+  it('renders both chips independently for an already-saved rule with both conditions, never conflated (AC-1.3 reopen, AC-1.4)', async () => {
+    const roleWithBoth: RoleDetail = {
+      ...roleFixture,
+      rules: [
+        {
+          resource: 'request',
+          action: 'approve',
+          conditions: {
+            attributes: [
+              { key: 'entity', match: 'user' },
+              { key: 'self-approval', match: 'deny' },
+            ],
+          },
+        },
+      ],
+    }
+    await renderLoaded(roleWithBoth)
+
+    const row = screen.getByTestId('role-rule-0')
+    expect(row.querySelector('[data-testid="condition-chip-entity"]')).not.toBeNull()
+    expect(row.querySelector('[data-testid="condition-chip-self-approval"]')).not.toBeNull()
+    // Exactly the two independent chips — never merged into one.
+    expect(row.querySelectorAll('[data-testid^="condition-chip-"]').length).toBe(2)
+  })
+
+  it('persists both conditions as independent attributes[] entries matching the plan contract (AC-1.2/1.3)', async () => {
+    await renderLoaded()
+    fireEvent.click(screen.getByTestId('rule-composer-toggle'))
+    fireEvent.change(screen.getByTestId('rule-composer-resource'), { target: { value: 'refund::request' } })
+    fireEvent.change(screen.getByTestId('rule-composer-action'), { target: { value: 'approve' } })
+    fireEvent.click(screen.getByTestId('rule-composer-attr-entity'))
+    fireEvent.click(screen.getByTestId('rule-composer-self-approval'))
+    fireEvent.click(screen.getByTestId('rule-composer-add'))
+
+    vi.mocked(adminApi.putRoleRules).mockResolvedValue(roleFixture)
+    fireEvent.click(screen.getByTestId('role-save-rules'))
+
+    await waitFor(() => {
+      expect(adminApi.putRoleRules).toHaveBeenCalledWith('role-1', [
+        ...roleFixture.rules,
+        {
+          resource: 'request',
+          action: 'approve',
+          conditions: {
+            attributes: [
+              { key: 'entity', match: 'user' },
+              { key: 'self-approval', match: 'deny' },
+            ],
+          },
+        },
+      ])
+    })
   })
 })
 

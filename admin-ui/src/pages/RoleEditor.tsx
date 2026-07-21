@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import * as adminApi from '../lib/adminApi'
 import type {
+  AttributeCondition,
   AttributeConditionKey,
   Catalog,
   CatalogAction,
@@ -65,9 +66,18 @@ const ATTRIBUTE_LABELS: Record<AttributeConditionKey, string> = {
   entity: 'Entity',
   department: 'Department',
   jobTitle: 'Job title',
+  'self-approval': 'Self-approval restriction',
 }
 
+// The affirmative "scope to the actor's own attribute" group (match:"user").
+// Deliberately does NOT include 'self-approval' (specs/010, ADR-0026) — that
+// condition is the opposite polarity (match:"deny") and gets its own,
+// independent composer toggle (AC-1.1), never folded into this checkbox
+// group or its chip presentation (AC-1.4).
 const ATTRIBUTE_KEYS: AttributeConditionKey[] = ['entity', 'department', 'jobTitle']
+
+/** The self-approval condition's catalog key (specs/010-self-approval-control, ADR-0026). */
+const SELF_APPROVAL_KEY: AttributeConditionKey = 'self-approval'
 
 // Hover/focus help for each attribute condition (native `title` tooltip, the
 // same house pattern SystemBadge / disabled buttons use). An attribute
@@ -80,6 +90,8 @@ const ATTRIBUTE_HELP: Record<AttributeConditionKey, string> = {
     "Scope this permission to the user's own department. Checked: they can act only on records matching their department. Unchecked: it applies regardless of department. A user with no department set matches nothing.",
   jobTitle:
     "Scope this permission to the user's own job title. Checked: they can act only on records matching their job title. Unchecked: it applies regardless of job title. A user with no job title set matches nothing.",
+  'self-approval':
+    "Segregation of duties: when checked, a user holding this role cannot approve a refund request they themselves submitted — the attempt is denied even if every other condition on this rule would otherwise allow it. Unchecked: self-approval is permitted, as today.",
 }
 
 const humanizeAppId = (appId: string): string => (appId.length === 0 ? appId : appId.charAt(0).toUpperCase() + appId.slice(1))
@@ -138,6 +150,8 @@ type ComposerState = {
   actionKey: string | null
   ownership: OwnershipCondition
   attributes: ReadonlySet<AttributeConditionKey>
+  /** The self-approval restriction toggle (specs/010, ADR-0026) — kept as an independent field, never merged into `attributes` (AC-1.1/1.3), since it's a distinct deny-carve-out, not an affirmative scope attribute. */
+  selfApproval: boolean
   statusMessage: string
 }
 
@@ -147,6 +161,7 @@ const CLOSED_COMPOSER: ComposerState = {
   actionKey: null,
   ownership: 'any',
   attributes: new Set(),
+  selfApproval: false,
   statusMessage: '',
 }
 
@@ -301,6 +316,9 @@ export default function RoleEditor() {
     () => ATTRIBUTE_KEYS.filter((key) => selectedAction?.supportedConditions.includes(key)),
     [selectedAction],
   )
+  // AC-1.6/US-4/D3: offered only when the selected action's catalog entry
+  // declares it (today, `request.approve` only) — never inferred/defaulted.
+  const supportsSelfApproval = selectedAction?.supportedConditions.includes(SELF_APPROVAL_KEY) ?? false
 
   const handleComposerOpen = useCallback(() => setComposer({ ...CLOSED_COMPOSER, open: true }), [])
   const handleComposerCancel = useCallback(() => setComposer(CLOSED_COMPOSER), [])
@@ -312,6 +330,7 @@ export default function RoleEditor() {
       actionKey: null,
       ownership: 'any',
       attributes: new Set(),
+      selfApproval: false,
       statusMessage: 'Action reset. Choose an action to see its available conditions.',
     }))
   }, [])
@@ -325,6 +344,7 @@ export default function RoleEditor() {
         actionKey: value || null,
         ownership: 'any',
         attributes: new Set(),
+        selfApproval: false,
         statusMessage: labels.length > 0 ? `Conditions available: ${labels.join(', ')}.` : 'This action has no conditions.',
       }))
     },
@@ -347,24 +367,42 @@ export default function RoleEditor() {
     })
   }, [])
 
+  // Independent of `handleAttributeToggle`/`attributes` (AC-1.3): toggling
+  // the self-approval restriction never touches the entity/department/
+  // jobTitle selection, and vice versa.
+  const handleSelfApprovalToggle = useCallback(() => {
+    setComposer((prev) => ({ ...prev, selfApproval: !prev.selfApproval }))
+  }, [])
+
   const handleAddRule = useCallback(() => {
     if (!selectedResource || !selectedAction) return
 
     let conditions: RuleConditions | null = null
-    if (supportsOwnership || composer.attributes.size > 0) {
+    if (supportsOwnership || composer.attributes.size > 0 || composer.selfApproval) {
       conditions = {}
       if (supportsOwnership) conditions.ownership = composer.ownership
-      if (composer.attributes.size > 0) {
-        conditions.attributes = availableAttributeKeys
-          .filter((key) => composer.attributes.has(key))
-          .map((key) => ({ key, match: 'user' as const }))
-      }
+      const attributeEntries: AttributeCondition[] = availableAttributeKeys
+        .filter((key) => composer.attributes.has(key))
+        .map((key) => ({ key, match: 'user' as const }))
+      // Self-approval composes independently, alongside any entity/department/
+      // jobTitle attributes — both persist as separate `attributes[]` entries
+      // on the same rule (AC-1.3/AC-2.4, ADR-0026's `match:"deny"` sentinel).
+      if (composer.selfApproval) attributeEntries.push({ key: SELF_APPROVAL_KEY, match: 'deny' })
+      if (attributeEntries.length > 0) conditions.attributes = attributeEntries
     }
 
     const rule: PermissionRule = { resource: selectedResource.key, action: selectedAction.key, conditions }
     setDraftRules((prev) => [...(prev ?? []), rule])
     setComposer(CLOSED_COMPOSER)
-  }, [selectedResource, selectedAction, supportsOwnership, composer.attributes, composer.ownership, availableAttributeKeys])
+  }, [
+    selectedResource,
+    selectedAction,
+    supportsOwnership,
+    composer.attributes,
+    composer.ownership,
+    composer.selfApproval,
+    availableAttributeKeys,
+  ])
 
   const handleRemoveRule = useCallback((index: number) => {
     setDraftRules((prev) => (prev ? prev.filter((_, i) => i !== index) : prev))
@@ -674,7 +712,7 @@ export default function RoleEditor() {
                   </p>
                 )}
 
-                {selectedAction && !supportsOwnership && availableAttributeKeys.length === 0 && (
+                {selectedAction && !supportsOwnership && availableAttributeKeys.length === 0 && !supportsSelfApproval && (
                   <p data-testid="rule-composer-no-conditions" className="text-xs" style={{ color: 'var(--soft)' }}>
                     This action has no conditions.
                   </p>
@@ -742,6 +780,45 @@ export default function RoleEditor() {
                           </span>
                         </div>
                       ))}
+                    </div>
+                  </fieldset>
+                )}
+
+                {/*
+                 * Self-approval restriction (specs/010-self-approval-control T4,
+                 * ADR-0026) — deliberately its OWN fieldset, separate from the
+                 * entity/department/jobTitle group above (AC-1.1): opposite
+                 * polarity (`match:"deny"` vs `match:"user"`), independently
+                 * toggleable, and composes with — never replaces — the entity
+                 * condition (AC-1.3/AC-2.4).
+                 */}
+                {selectedAction && supportsSelfApproval && (
+                  <fieldset>
+                    <legend className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+                      Segregation of duties
+                    </legend>
+                    <div className="flex items-center gap-1 mt-1">
+                      <label className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text)' }}>
+                        <input
+                          type="checkbox"
+                          checked={composer.selfApproval}
+                          onChange={handleSelfApprovalToggle}
+                          data-testid="rule-composer-self-approval"
+                        />
+                        Cannot approve own request
+                      </label>
+                      {/* Help affordance — same house pattern as the attribute-condition tooltips above. */}
+                      <span
+                        role="img"
+                        tabIndex={0}
+                        aria-label={`Self-approval restriction condition — ${ATTRIBUTE_HELP['self-approval']}`}
+                        title={ATTRIBUTE_HELP['self-approval']}
+                        data-testid="rule-composer-self-approval-help"
+                        className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold cursor-help select-none"
+                        style={{ border: '1px solid var(--rule)', color: 'var(--soft)' }}
+                      >
+                        ?
+                      </span>
                     </div>
                   </fieldset>
                 )}

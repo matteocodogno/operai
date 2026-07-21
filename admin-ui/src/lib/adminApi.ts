@@ -46,8 +46,18 @@ import { apiFetch, getAuthBaseUrl } from 'shell/session'
 // Shared shapes (mirrors the plan.md API contracts + Data model section)
 // ---------------------------------------------------------------------------
 
-/** Attribute condition targets — plan.md "conditions JSON shape" (AC-2.3). */
-export type AttributeConditionKey = 'entity' | 'department' | 'jobTitle'
+/**
+ * Attribute condition targets — plan.md "conditions JSON shape" (AC-2.3).
+ *
+ * `'self-approval'` (specs/010-self-approval-control T4, ADR-0026) is a NEW
+ * key added alongside the pre-existing entity/department/jobTitle keys — but
+ * it's a different *polarity*: those three mean "record attr must equal the
+ * actor's" (`match:"user"`), while self-approval means "deny when the actor
+ * IS the record's owner" (`match:"deny"`). It is declared by the catalog on
+ * `request:approve` only and is rendered/composed as its own, independent
+ * toggle — never folded into the entity/department/jobTitle checkbox group.
+ */
+export type AttributeConditionKey = 'entity' | 'department' | 'jobTitle' | 'self-approval'
 
 /** Condition types the catalog can declare as supported per action (AC-2.2/2.3). */
 export type ConditionType = 'ownership' | AttributeConditionKey
@@ -55,10 +65,15 @@ export type ConditionType = 'ownership' | AttributeConditionKey
 /** AC-2.2 — "Any records" vs "Own records only". */
 export type OwnershipCondition = 'own' | 'any'
 
-/** One attribute constraint — plan.md: `match:"user"` = record attr must equal the actor's. */
+/**
+ * One attribute constraint. `match:"user"` (plan.md) = record attr must
+ * equal the actor's (entity/department/jobTitle). `match:"deny"` (ADR-0026,
+ * specs/010) = the opposite polarity — deny when the actor IS the record's
+ * owner; used exclusively by `{key:"self-approval", match:"deny"}`.
+ */
 export type AttributeCondition = {
   key: AttributeConditionKey
-  match: 'user'
+  match: 'user' | 'deny'
 }
 
 /** `permission_rule.conditions` — plan.md's "conditions JSON shape" (per rule). */
