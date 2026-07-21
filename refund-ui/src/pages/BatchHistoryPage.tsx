@@ -99,7 +99,9 @@ export default function BatchHistoryPage() {
         <h2 id="refund-batch-history-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
           {t.heading}
         </h2>
-        {listState.status !== 'forbidden' && (
+        {/* Header CTA only once there ARE compilations — the empty state has its own
+            centered CTA, so showing this too would be a redundant second button. */}
+        {listState.status === 'loaded' && listState.items.length > 0 && (
           <Link
             to="/batches/new"
             data-testid="batch-history-new-button"

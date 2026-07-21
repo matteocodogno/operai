@@ -111,6 +111,8 @@ describe('BatchHistoryPage — empty', () => {
 
     await waitFor(() => expect(screen.getByTestId('batch-history-empty-state')).not.toBeNull())
     expect(screen.getByTestId('batch-history-empty-new-button').getAttribute('href')).toBe('/batches/new')
+    // The header CTA is hidden when empty — the centered empty-state CTA stands alone (no redundant second button).
+    expect(screen.queryByTestId('batch-history-new-button')).toBeNull()
   })
 })
 
@@ -120,6 +122,8 @@ describe('BatchHistoryPage — populated (AC-8.2: every status listed)', () => {
     renderBatchHistoryPage()
 
     await waitFor(() => expect(screen.getByTestId('batch-history-list')).not.toBeNull())
+    // The header CTA IS shown once there are compilations.
+    expect(screen.getByTestId('batch-history-new-button')).not.toBeNull()
     expect(screen.getByTestId('batch-history-row-batch-1')).not.toBeNull()
     expect(screen.getByTestId('batch-history-row-batch-2')).not.toBeNull()
     expect(screen.getByTestId('batch-history-row-batch-3')).not.toBeNull()
