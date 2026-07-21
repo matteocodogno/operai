@@ -615,6 +615,135 @@ describe("Admin roles API (T8)", () => {
     },
   );
 
+  // ─── specs/010-self-approval-control, T1 ───────────────────────────────────
+  // Exercises the REAL `REFUND_CATALOG` (not the generic `KNOWN_RESOURCE`
+  // fixture above) since AC-1.6/AC-5.2 are about the actual `request`
+  // resource's action set. `seedRefundCatalog` is idempotent (full-replace
+  // upsert keyed by appId), so calling it here is safe alongside any other
+  // suite that also registers it.
+
+  test(
+    "PUT /:id/rules persists a self-approval attribute on request:approve, bumps the epoch, " +
+      "and the resolver returns it on the very next call with no re-login (AC-1.2); disabling " +
+      "it and re-saving drops it again (AC-1.5)",
+    async () => {
+      asAdmin();
+      const { rolesRouter } = await import("./roles.routes");
+      const { seedRefundCatalog } = await import("../authz/seed");
+      const { resolveEffectivePermissions } = await import("../authz/resolver");
+      const { Effect } = await import("effect");
+
+      await seedRefundCatalog();
+
+      const role = await makeRole("self-approval");
+      const holder = await makeUser("self-approval-holder");
+      await db.userRole.create({ data: { userId: holder.id, roleId: role.id } });
+
+      const epochBefore = (
+        await db.user.findUniqueOrThrow({
+          where: { id: holder.id },
+          select: { permissionEpoch: true },
+        })
+      ).permissionEpoch;
+
+      const putRes = await rolesRouter.request(`/admin/roles/${role.id}/rules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules: [
+            {
+              resource: "request",
+              action: "approve",
+              conditions: { attributes: [{ key: "self-approval", match: "deny" }] },
+            },
+          ],
+        }),
+      });
+      expect(putRes.status).toBe(200);
+      const putBody = (await putRes.json()) as {
+        rules: Array<{ resource: string; action: string; conditions: unknown }>;
+      };
+      expect(putBody.rules).toHaveLength(1);
+      expect(putBody.rules[0]?.conditions).toEqual({
+        attributes: [{ key: "self-approval", match: "deny" }],
+      });
+
+      const epochAfter = (
+        await db.user.findUniqueOrThrow({
+          where: { id: holder.id },
+          select: { permissionEpoch: true },
+        })
+      ).permissionEpoch;
+      expect(epochAfter).toBeGreaterThan(epochBefore);
+
+      // Mirrors `/authz/resolve`'s backing resolution (resolve.routes.ts calls
+      // this same function) — verbatim, no re-login required (AC-1.2).
+      const permissions = await Effect.runPromise(resolveEffectivePermissions(holder.id));
+      const approveGrant = permissions.find(
+        (p) => p.resource === "request" && p.action === "approve",
+      );
+      expect(approveGrant?.conditions).toEqual({
+        attributes: [{ key: "self-approval", match: "deny" }],
+      });
+
+      // Disabling the restriction and re-saving drops it, symmetrically (AC-1.5).
+      const removeRes = await rolesRouter.request(`/admin/roles/${role.id}/rules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules: [{ resource: "request", action: "approve" }],
+        }),
+      });
+      expect(removeRes.status).toBe(200);
+
+      const permissionsAfterRemove = await Effect.runPromise(
+        resolveEffectivePermissions(holder.id),
+      );
+      const approveGrantAfterRemove = permissionsAfterRemove.find(
+        (p) => p.resource === "request" && p.action === "approve",
+      );
+      expect(approveGrantAfterRemove?.conditions).toBeNull();
+    },
+  );
+
+  test(
+    "PUT /:id/rules 422s attaching `self-approval` to reject/set-approved-total/review/read/create " +
+      "(AC-1.6/AC-5.2 — the catalog declares it on `approve` only)",
+    async () => {
+      asAdmin();
+      const { rolesRouter } = await import("./roles.routes");
+      const { seedRefundCatalog } = await import("../authz/seed");
+
+      await seedRefundCatalog();
+
+      for (const action of ["reject", "set-approved-total", "review", "read", "create"]) {
+        const role = await makeRole(`self-approval-unsupported-${action}`);
+
+        const res = await rolesRouter.request(`/admin/roles/${role.id}/rules`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rules: [
+              {
+                resource: "request",
+                action,
+                conditions: { attributes: [{ key: "self-approval", match: "deny" }] },
+              },
+            ],
+          }),
+        });
+
+        expect(res.status).toBe(422);
+        const body = (await res.json()) as { status: number; detail: string };
+        expect(body.status).toBe(422);
+        expect(body.detail).toContain("self-approval");
+
+        const rules = await db.permissionRule.findMany({ where: { roleId: role.id } });
+        expect(rules).toHaveLength(0);
+      }
+    },
+  );
+
   test("custom role assignable: creating a role, setting its rules, and assigning it to a user makes the resolver reflect it (AC-2.4)", async () => {
     asAdmin();
     const { rolesRouter } = await import("./roles.routes");

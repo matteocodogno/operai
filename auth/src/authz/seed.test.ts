@@ -183,7 +183,10 @@ describe("seedRefundCatalog (T2, specs/007-refund-service — AC-1.1, AC-5.4, AC
     expect(byKey.get("read")).toEqual(["ownership"]);
     expect(byKey.get("review")).toEqual(["entity"]);
     expect(byKey.get("set-approved-total")).toEqual(["entity"]);
-    expect(byKey.get("approve")).toEqual(["entity"]);
+    // `approve` additionally declares `self-approval` (specs/010, T1,
+    // AC-5.1; ADR-0026) — every other action's declared conditions are
+    // unchanged (AC-4.3).
+    expect(byKey.get("approve")).toEqual(["entity", "self-approval"]);
     expect(byKey.get("reject")).toEqual(["entity"]);
   });
 
@@ -242,6 +245,10 @@ describe("seedAccountingRoleGrants (T2, specs/007-refund-service — AC-5.4, AC-
     for (const action of ["review", "set-approved-total", "approve", "reject"]) {
       const rule = accountingRules.find((r) => r.resource === "request" && r.action === action);
       expect(rule).toBeDefined();
+      // Exact match — in particular `approve`'s conditions carry ONLY the
+      // pre-existing `entity` attribute, never `self-approval` (specs/010,
+      // T1, AC-3.2: the seed never retrofits the restriction onto any
+      // existing role).
       expect(rule?.conditions).toEqual({ attributes: [{ key: "entity", match: "user" }] });
     }
 
@@ -266,6 +273,30 @@ describe("seedAccountingRoleGrants (T2, specs/007-refund-service — AC-5.4, AC-
     const globalRole = await db.role.findUnique({ where: { name: "accounting-global" } });
     expect(globalRole).toBeNull();
   });
+
+  test(
+    "no seeded role/rule carries `self-approval` (specs/010, T1, AC-3.2/3.3) — the catalog " +
+      "gaining the option is additive-only, never retrofitted onto `accounting` or `refund-admin`",
+    async () => {
+      await seedSystemRoles();
+      await seedAccountingRoleGrants();
+      await seedRefundAdminRole();
+
+      const accounting = await db.role.findUniqueOrThrow({ where: { name: ACCOUNTING_ROLE_NAME } });
+      const refundAdmin = await db.role.findUniqueOrThrow({ where: { name: REFUND_ADMIN_ROLE_NAME } });
+
+      const rules = await db.permissionRule.findMany({
+        where: { roleId: { in: [accounting.id, refundAdmin.id] }, resource: "request", action: "approve" },
+      });
+      expect(rules.length).toBeGreaterThan(0);
+
+      for (const rule of rules) {
+        const conditions = rule.conditions as { attributes?: { key: string }[] } | null;
+        const carriesSelfApproval = conditions?.attributes?.some((a) => a.key === "self-approval") ?? false;
+        expect(carriesSelfApproval).toBe(false);
+      }
+    },
+  );
 });
 
 // ─── Post-close follow-up: `refund-admin` role ──────────────────────────────

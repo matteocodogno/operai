@@ -45,9 +45,9 @@ describe("REFUND_CATALOG (T2, AC-1.1/5.4/7.5/8.2)", () => {
     expect(read?.supportedConditions).toEqual(["ownership"]);
   });
 
-  test("review/set-approved-total/approve/reject each support only `entity` (ADR-0015)", () => {
+  test("review/set-approved-total/reject each support only `entity` (ADR-0015)", () => {
     const requestResource = REFUND_CATALOG.resources.find((r) => r.key === "request");
-    for (const key of ["review", "set-approved-total", "approve", "reject"]) {
+    for (const key of ["review", "set-approved-total", "reject"]) {
       const action = requestResource?.actions.find((a) => a.key === key);
       expect(action?.supportedConditions).toEqual(["entity"]);
     }
@@ -57,6 +57,23 @@ describe("REFUND_CATALOG (T2, AC-1.1/5.4/7.5/8.2)", () => {
     expect(REFUND_CATALOG.resources.map((r) => r.key).sort()).toEqual(
       ["rate", "refund", "request"].sort(),
     );
+  });
+});
+
+describe("REFUND_CATALOG self-approval condition (T1, specs/010-self-approval-control — AC-4.3, AC-5.1; ADR-0026)", () => {
+  test("`approve` supports both `entity` and `self-approval` — the declared surface grows from one to two", () => {
+    const requestResource = REFUND_CATALOG.resources.find((r) => r.key === "request");
+    const approve = requestResource?.actions.find((a) => a.key === "approve");
+    expect(approve?.supportedConditions).toEqual(["entity", "self-approval"]);
+  });
+
+  test("`self-approval` is declared on `approve` ONLY — absent from every other action, on every resource", () => {
+    const declaring = REFUND_CATALOG.resources.flatMap((resource) =>
+      resource.actions
+        .filter((action) => action.supportedConditions.includes("self-approval"))
+        .map((action) => `${resource.key}.${action.key}`),
+    );
+    expect(declaring).toEqual(["request.approve"]);
   });
 });
 

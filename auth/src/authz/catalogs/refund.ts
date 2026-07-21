@@ -12,6 +12,16 @@
  * against it and `refund-api`'s `authzMiddleware` (T6) can gate real routes
  * against the SAME declared (resource, action) pairs.
  *
+ * Extended by T1, specs/010-self-approval-control (plan.md Decision D1;
+ * ADR-0026): `request.approve` gains a SECOND supported condition,
+ * `self-approval` — a segregation-of-duties deny-carve-out
+ * (`{key:"self-approval", match:"deny"}`, opposite polarity from `entity`'s
+ * `match:"user"`), declared on `approve` ONLY (D3/AC-4.3) — never on
+ * `reject`/`set-approved-total`/`review`/`read`/`create`. This is the ONLY
+ * code change specs/010 makes in `auth`: the attribute rides the existing
+ * free-form `attributes[]` machinery (resolver `toRuleConditions`, the wire
+ * schemas, and `findRuleViolations`'s catalog gate) unchanged.
+ *
  * `refund` was previously an access-only stub registered by
  * `seedAppAccessCatalog`'s `SUITE_APPS` list (spec 004). This is refund's
  * FULL catalog — `refund` moves OUT of `SUITE_APPS` (exactly as `estimai`
@@ -33,7 +43,9 @@
  *       - `review`              — `["entity"]` (accounting: queue + full
  *                                  detail, entity-scoped per ADR-0015)
  *       - `set-approved-total`  — `["entity"]`
- *       - `approve`             — `["entity"]`
+ *       - `approve`             — `["entity", "self-approval"]` (specs/010,
+ *                                  ADR-0026 — the self-approval SoD condition
+ *                                  is declared here ONLY)
  *       - `reject`              — `["entity"]`
  *     Submit/withdraw/edit/delete of a draft are authorized by `create` +
  *     ownership of the request (the creator) per plan.md — they are
@@ -84,7 +96,14 @@ export const REFUND_CATALOG: AppCatalogInput = {
           label: "Set approved total",
           supportedConditions: ENTITY_SCOPED_CONDITIONS,
         },
-        { key: "approve", label: "Approve", supportedConditions: ENTITY_SCOPED_CONDITIONS },
+        {
+          key: "approve",
+          label: "Approve",
+          // `self-approval` (specs/010, ADR-0026) is declared on `approve`
+          // ONLY — never spread onto review/set-approved-total/reject, which
+          // keep `ENTITY_SCOPED_CONDITIONS` unchanged (D3/AC-4.3).
+          supportedConditions: [...ENTITY_SCOPED_CONDITIONS, "self-approval"],
+        },
         { key: "reject", label: "Reject", supportedConditions: ENTITY_SCOPED_CONDITIONS },
       ],
     },
