@@ -67,8 +67,17 @@
  *      grant is simply present or absent. Deliberately does NOT touch
  *      `employee` or `accounting` — rate configuration is an admin-only
  *      surface, not part of the accounting review workflow.
+ *   8. {@link seedSettingsAdminGrants} (T1, specs/011-refund-settings —
+ *      plan.md "Architecture §auth", Decision D2; ADR-0028) — grants
+ *      `settings:read` + `settings:manage` (`catalogs/refund.ts`'s new
+ *      `settings` resource) to the `admin` and `refund-admin` system roles,
+ *      mirroring {@link seedRateAdminGrants} exactly. This is a NEW,
+ *      DISTINCT permission — deliberately NOT a reuse of `rate:manage`
+ *      (ADR-0028) — so it gets its own seed function rather than piggy-
+ *      backing on the rate grants. Deliberately does NOT touch `employee` or
+ *      `accounting` — refund settings are an admin-only surface.
  *
- * A SEVENTH, per-user concern — assigning the baseline `employee` role (and
+ * A NINTH, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
  * `auth.config.ts`'s `databaseHooks.user.create.after` hook, via
@@ -357,6 +366,47 @@ export async function seedRateAdminGrants(): Promise<void> {
   }
 }
 
+/** The `settings` resource's two actions (T1, specs/011-refund-settings) — both UNCONDITIONED. */
+const SETTINGS_ACTIONS = ["read", "manage"] as const;
+
+/** The system roles granted `settings:read`/`settings:manage` (T1, specs/011-refund-settings). */
+const SETTINGS_ADMIN_ROLE_NAMES = [ADMIN_ROLE_NAME, REFUND_ADMIN_ROLE_NAME] as const;
+
+/**
+ * Seeds `settings:read`/`settings:manage` grants (T1, specs/011-refund-
+ * settings — plan.md "Architecture §auth", Decision D2; ADR-0028) onto the
+ * `admin` and `refund-admin` system roles. `catalogs/refund.ts`'s NEW
+ * `settings` resource declares both actions with NO `supportedConditions` —
+ * global, exactly like `rate` (ADR-0023/0028) — so, mirroring
+ * {@link seedRateAdminGrants} exactly, there is no `conditions` payload to
+ * compute here; each grant is either present or absent. This is a genuinely
+ * NEW permission, deliberately NOT a reuse of `rate:manage` (ADR-0028) — a
+ * distribution mailbox is not a rate, and conflating the two would make the
+ * two admin surfaces un-separable. Idempotent: each (role, resource, action)
+ * grant is created only when absent. Deliberately does NOT touch `employee`
+ * or `accounting` — refund settings are an admin-only surface.
+ */
+export async function seedSettingsAdminGrants(): Promise<void> {
+  for (const roleName of SETTINGS_ADMIN_ROLE_NAMES) {
+    const role = await db.role.upsert({
+      where: { name: roleName },
+      update: {},
+      create: { name: roleName, isSystem: true },
+    });
+
+    for (const action of SETTINGS_ACTIONS) {
+      const existing = await db.permissionRule.findFirst({
+        where: { roleId: role.id, resource: "settings", action },
+      });
+      if (!existing) {
+        await db.permissionRule.create({
+          data: { roleId: role.id, resource: "settings", action },
+        });
+      }
+    }
+  }
+}
+
 /**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
  * seed leaves `admin` with zero permission rules, so even the bootstrap admin
@@ -430,6 +480,7 @@ export async function seed(): Promise<void> {
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
   await seedRateAdminGrants();
+  await seedSettingsAdminGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -508,7 +559,7 @@ if (import.meta.main) {
       console.log(
         "Seeded system roles + suite app-access catalog + EstimAI catalog + refund catalog " +
           "+ admin app-access grants + accounting refund grants + refund-admin role + " +
-          "rate admin grants + bootstrap admin",
+          "rate admin grants + settings admin grants + bootstrap admin",
       );
       process.exit(0);
     })

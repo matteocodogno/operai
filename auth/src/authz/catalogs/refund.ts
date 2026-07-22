@@ -22,6 +22,9 @@
  * free-form `attributes[]` machinery (resolver `toRuleConditions`, the wire
  * schemas, and `findRuleViolations`'s catalog gate) unchanged.
  *
+ * Extended by T1, specs/011-refund-settings (plan.md "Architecture §auth",
+ * Decision D2; ADR-0028) with a FOURTH resource, `settings` — see below.
+ *
  * `refund` was previously an access-only stub registered by
  * `seedAppAccessCatalog`'s `SUITE_APPS` list (spec 004). This is refund's
  * FULL catalog — `refund` moves OUT of `SUITE_APPS` (exactly as `estimai`
@@ -29,7 +32,7 @@
  * here, alongside its own domain resources, not via two potentially-
  * conflicting full-replace upserts.
  *
- * Three resources:
+ * Four resources:
  *   - `refund` (the app-access resource, keyed by the app id itself) — a
  *     single `access` action, no conditions. Same shape every suite app's
  *     access resource gets.
@@ -58,13 +61,28 @@
  *     "Architecture §auth", Decision 2). Rate storage/logic itself lives
  *     entirely in `refund-api` — this catalog only declares the permission
  *     surface; `auth` never gains a rate data table or API.
+ *   - `settings` (T1, specs/011-refund-settings; ADR-0028) — the refund
+ *     config resource (currently one setting: the accounting distribution
+ *     email), with `read`/`manage` actions. Both deliberately declare NO
+ *     `supportedConditions` — global/unconditioned, the same shape as `rate`
+ *     (plan.md "Architecture §auth", Decision D2) — but this is a DISTINCT
+ *     resource from `rate`, not a third action on it: a distribution mailbox
+ *     is not a rate, and conflating the two would make the two admin
+ *     surfaces un-separable/un-auditable in isolation (ADR-0028). Unlike
+ *     `rate:read` (deliberately ungated for `GET /rates/effective`'s
+ *     employee-facing read, ADR-0023), `settings:read` IS a real
+ *     authorization boundary — a non-holder must not even learn the mailbox
+ *     exists (AC-3.2). Settings storage/logic itself lives entirely in
+ *     `refund-api` (the `refund_setting` table, ADR-0027) — this catalog
+ *     only declares the permission surface; `auth` never gains a settings
+ *     data table or API.
  *
  * Declaration only: registering this catalog does NOT itself grant anything
  * — `seedRefundCatalog` (catalog) and the SEPARATE `accounting`/`admin`/
  * `refund-admin` role grants (`seed.ts`'s `seedAccountingRoleGrants`/
- * `seedAdminRoleGrants`/`seedRefundAdminRole`/`seedRateAdminGrants`) are
- * independent steps, exactly as `seedEstimaiCatalog`/`seedAdminRoleGrants`
- * are for EstimAI/admin.
+ * `seedAdminRoleGrants`/`seedRefundAdminRole`/`seedRateAdminGrants`/
+ * `seedSettingsAdminGrants`) are independent steps, exactly as
+ * `seedEstimaiCatalog`/`seedAdminRoleGrants` are for EstimAI/admin.
  */
 
 import type { AppCatalogInput } from "../catalog";
@@ -110,6 +128,14 @@ export const REFUND_CATALOG: AppCatalogInput = {
     {
       key: "rate",
       label: "Mileage rate",
+      actions: [
+        { key: "read", label: "Read", supportedConditions: [] },
+        { key: "manage", label: "Manage", supportedConditions: [] },
+      ],
+    },
+    {
+      key: "settings",
+      label: "Refund settings",
       actions: [
         { key: "read", label: "Read", supportedConditions: [] },
         { key: "manage", label: "Manage", supportedConditions: [] },

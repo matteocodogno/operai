@@ -53,9 +53,9 @@ describe("REFUND_CATALOG (T2, AC-1.1/5.4/7.5/8.2)", () => {
     }
   });
 
-  test("declares exactly three resources — app access, `request`, and `rate` — nothing else", () => {
+  test("declares exactly four resources — app access, `request`, `rate`, and `settings` — nothing else", () => {
     expect(REFUND_CATALOG.resources.map((r) => r.key).sort()).toEqual(
-      ["rate", "refund", "request"].sort(),
+      ["rate", "refund", "request", "settings"].sort(),
     );
   });
 });
@@ -90,5 +90,36 @@ describe("REFUND_CATALOG `rate` resource (T1, specs/009-mileage-rate)", () => {
       const action = rateResource?.actions.find((a) => a.key === key);
       expect(action?.supportedConditions).toEqual([]);
     }
+  });
+});
+
+describe("REFUND_CATALOG `settings` resource (T1, specs/011-refund-settings — AC-3.1; ADR-0028)", () => {
+  test("declares exactly `read` and `manage` actions", () => {
+    const settingsResource = REFUND_CATALOG.resources.find((r) => r.key === "settings");
+    expect(settingsResource).toBeDefined();
+    expect(settingsResource?.actions.map((a) => a.key).sort()).toEqual(["manage", "read"]);
+  });
+
+  test("`read` and `manage` are both UNCONDITIONED — global, like `rate` (Decision D2)", () => {
+    const settingsResource = REFUND_CATALOG.resources.find((r) => r.key === "settings");
+    for (const key of ["read", "manage"]) {
+      const action = settingsResource?.actions.find((a) => a.key === key);
+      expect(action?.supportedConditions).toEqual([]);
+    }
+  });
+
+  test("`settings` is a DISTINCT resource from `rate` — NOT a reuse of rate:manage (ADR-0028)", () => {
+    const settingsResource = REFUND_CATALOG.resources.find((r) => r.key === "settings");
+    const rateResource = REFUND_CATALOG.resources.find((r) => r.key === "rate");
+    expect(settingsResource).toBeDefined();
+    expect(rateResource).toBeDefined();
+    expect(settingsResource).not.toBe(rateResource);
+  });
+
+  test("the `settings` resource key appears exactly once in the catalog — no duplicate/merged declaration", () => {
+    const settingsResourceCount = REFUND_CATALOG.resources.filter(
+      (r) => r.key === "settings",
+    ).length;
+    expect(settingsResourceCount).toBe(1);
   });
 });

@@ -51,6 +51,7 @@ import {
   seedRateAdminGrants,
   seedRefundAdminRole,
   seedRefundCatalog,
+  seedSettingsAdminGrants,
   seedSystemRoles,
   SUITE_APPS,
   SYSTEM_ROLE_NAMES,
@@ -218,6 +219,22 @@ describe("seedRefundCatalog (T2, specs/007-refund-service — AC-1.1, AC-5.4, AC
       expect(action.supportedConditions).toEqual([]);
     }
   });
+
+  test("GET /admin/catalog's backing read (getFullCatalog) includes refund's `settings` resource (T1, specs/011-refund-settings, ADR-0028)", async () => {
+    await seedRefundCatalog();
+
+    const { getFullCatalog } = await import("./catalog");
+    const fullCatalog = await getFullCatalog();
+
+    const mine = fullCatalog.find((app) => app.appId === REFUND_APP_ID);
+    expect(mine).toBeDefined();
+    const settingsResource = mine?.resources.find((r) => r.key === "settings");
+    expect(settingsResource).toBeDefined();
+    expect(settingsResource?.actions.map((a) => a.key).sort()).toEqual(["manage", "read"]);
+    for (const action of settingsResource?.actions ?? []) {
+      expect(action.supportedConditions).toEqual([]);
+    }
+  });
 });
 
 describe("seedAccountingRoleGrants (T2, specs/007-refund-service — AC-5.4, AC-6.4, AC-7.5; ADR-0015)", () => {
@@ -310,13 +327,15 @@ describe("seedRefundAdminRole (post-close follow-up, specs/007-refund-service)",
     expect(role).not.toBeNull();
     expect(role!.isSystem).toBe(true);
 
-    // Scoped to exclude `rate` (T1, specs/009-mileage-rate — seedRateAdminGrants
-    // ALSO grants this same shared `refund-admin` role rate:read/manage; since
-    // role rows persist across this whole file/run rather than being reset per
-    // test, an unscoped count here would be fragile to *when* that other seed
-    // step ran against this database, not just to this function's own output).
+    // Scoped to exclude `rate`/`settings` (T1, specs/009-mileage-rate + T1,
+    // specs/011-refund-settings — seedRateAdminGrants/seedSettingsAdminGrants
+    // ALSO grant this same shared `refund-admin` role rate:read/manage and
+    // settings:read/manage; since role rows persist across this whole
+    // file/run rather than being reset per test, an unscoped count here would
+    // be fragile to *when* those other seed steps ran against this database,
+    // not just to this function's own output).
     const rules = await db.permissionRule.findMany({
-      where: { roleId: role!.id, resource: { not: "rate" } },
+      where: { roleId: role!.id, resource: { notIn: ["rate", "settings"] } },
     });
 
     // Exactly 7 rules: refund:access + all 6 request actions.
@@ -394,6 +413,69 @@ describe("seedRateAdminGrants (T1, specs/009-mileage-rate — plan.md Architectu
         where: { roleId: role!.id, resource: "rate" },
       });
       expect(rateRules).toHaveLength(0);
+    }
+  });
+});
+
+// ─── T1, specs/011-refund-settings ──────────────────────────────────────────
+
+describe("seedSettingsAdminGrants (T1, specs/011-refund-settings — plan.md Architecture §auth, Decision D2; ADR-0028)", () => {
+  test("grants settings:read + settings:manage to `admin` and `refund-admin`, unconditioned, idempotent on re-run", async () => {
+    await seedSystemRoles();
+    await seedRefundAdminRole();
+    await seedSettingsAdminGrants();
+    await seedSettingsAdminGrants(); // re-run must not duplicate
+
+    for (const roleName of [ADMIN_ROLE_NAME, REFUND_ADMIN_ROLE_NAME]) {
+      const role = await db.role.findUnique({ where: { name: roleName } });
+      expect(role).not.toBeNull();
+
+      const settingsRules = await db.permissionRule.findMany({
+        where: { roleId: role!.id, resource: "settings" },
+      });
+      expect(settingsRules).toHaveLength(2);
+      expect(settingsRules.map((r) => r.action).sort()).toEqual(["manage", "read"]);
+      for (const rule of settingsRules) {
+        expect(rule.conditions).toBeNull();
+      }
+    }
+  });
+
+  test("does NOT grant `settings` to `employee` or `accounting`", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await seedSettingsAdminGrants();
+
+    for (const roleName of [EMPLOYEE_ROLE_NAME, ACCOUNTING_ROLE_NAME]) {
+      const role = await db.role.findUnique({ where: { name: roleName } });
+      const settingsRules = await db.permissionRule.findMany({
+        where: { roleId: role!.id, resource: "settings" },
+      });
+      expect(settingsRules).toHaveLength(0);
+    }
+  });
+
+  test("`settings` grants are separate from `rate` grants — NOT a reuse of rate:manage (ADR-0028)", async () => {
+    await seedSystemRoles();
+    await seedRefundAdminRole();
+    await seedRateAdminGrants();
+    await seedSettingsAdminGrants();
+
+    const admin = await db.role.findUniqueOrThrow({ where: { name: ADMIN_ROLE_NAME } });
+    const rateRules = await db.permissionRule.findMany({
+      where: { roleId: admin.id, resource: "rate" },
+    });
+    const settingsRules = await db.permissionRule.findMany({
+      where: { roleId: admin.id, resource: "settings" },
+    });
+    // Both present, but as distinct rows under distinct resource keys —
+    // revoking one (e.g. deleting the `rate` rows) must not implicate the
+    // other.
+    expect(rateRules).toHaveLength(2);
+    expect(settingsRules).toHaveLength(2);
+    const rateRuleIds = new Set(rateRules.map((r) => r.id));
+    for (const rule of settingsRules) {
+      expect(rateRuleIds.has(rule.id)).toBe(false);
     }
   });
 });
@@ -555,13 +637,15 @@ describe("seed() — runs every deploy-time step", () => {
     // seed() also seeds the refund-admin role (post-close follow-up), now
     // extended by T1 (specs/009-mileage-rate) with the `rate` resource's two
     // unconditioned actions on top of its original 7 (refund:access + 6
-    // request actions) — 9 total.
+    // request actions) — 9 total — and further extended by T1
+    // (specs/011-refund-settings, ADR-0028) with the `settings` resource's
+    // two unconditioned actions — 11 total.
     const refundAdmin = await db.role.findUnique({ where: { name: REFUND_ADMIN_ROLE_NAME } });
     expect(refundAdmin).not.toBeNull();
     const refundAdminRules = await db.permissionRule.findMany({
       where: { roleId: refundAdmin!.id },
     });
-    expect(refundAdminRules.length).toBe(9);
+    expect(refundAdminRules.length).toBe(11);
 
     // seed() also grants rate:read + rate:manage to `admin` (T1, specs/009-mileage-rate).
     const admin = await db.role.findUnique({ where: { name: ADMIN_ROLE_NAME } });
@@ -569,6 +653,12 @@ describe("seed() — runs every deploy-time step", () => {
       where: { roleId: admin!.id, resource: "rate" },
     });
     expect(adminRateRules.map((r) => r.action).sort()).toEqual(["manage", "read"]);
+
+    // seed() also grants settings:read + settings:manage to `admin` (T1, specs/011-refund-settings).
+    const adminSettingsRules = await db.permissionRule.findMany({
+      where: { roleId: admin!.id, resource: "settings" },
+    });
+    expect(adminSettingsRules.map((r) => r.action).sort()).toEqual(["manage", "read"]);
   });
 });
 
