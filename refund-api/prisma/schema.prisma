@@ -176,12 +176,23 @@ model RefundBatch {
   createdByEmail         String
   // refund/batches/{id}/compiled.pdf — no PII in the key (ADR-0019).
   pdfObjectKey           String      @unique
-  // The configured distribution address, captured at compile time (ADR-0021).
-  recipientEmailSnapshot String
+  // specs/011-refund-settings, ADR-0029 — AMENDS ADR-0021: this used to be
+  // the configured distribution address captured (frozen) at compile time;
+  // it is now nullable, per-attempt delivery PROVENANCE ONLY — "the address
+  // the last send/resend attempt targeted" — never the source of truth for
+  // where to send. The live `accounting-distribution-email` refund_setting
+  // (src/settings/) is resolved fresh at every send/resend instead (D6).
+  // Null until the first send/resend attempt (including when that attempt
+  // is blocked because the setting is unconfigured — see emailStatus below).
+  recipientEmailSnapshot String?
   // Compilation-email delivery status surfaced in-app (AC-3.2), updated on
-  // send/resend. "sent" | "failed" | null (never attempted) — validated at
-  // the application boundary, not a DB enum (mirrors notify-api's own
-  // delivery-status convention).
+  // send/resend. "sent" | "failed" | "blocked_unconfigured" | null (never
+  // attempted) — validated at the application boundary, not a DB enum
+  // (mirrors notify-api's own delivery-status convention). The third value
+  // (specs/011-refund-settings, ADR-0029) marks a send/resend attempt that
+  // never reached notify-api because the accounting-distribution-email
+  // setting was unconfigured — distinguishable from an ordinary "failed"
+  // notify-api/Resend outage.
   emailStatus            String?
   emailLastAttemptAt     DateTime?
   emailDeliveryId        String? // notify-api EmailDelivery id, for support tracing
@@ -325,6 +336,41 @@ model MileageRate {
   @@index([entity, validFrom]) // effective-rate resolution: latest validFrom <= D per entity
   @@index([entity, createdAt]) // chronological history/audit listing (AC-4.1/5.3)
   @@map("mileage_rate")
+}
+
+// RefundSetting — an append-only key/value refund-configuration store
+// (specs/011-refund-settings, D1/D3, ADR-0027). Introduces exactly one key
+// today (`accounting-distribution-email`, replacing the
+// REFUND_ACCOUNTING_DISTRIBUTION_EMAIL env var, ADR-0029) but the shape is
+// deliberately generic — a future setting is a new `key`, never a schema
+// migration (Domain language, spec.md).
+//
+// The CURRENT value of a key is DERIVED ON READ as the latest row for that
+// key (ADR-0013/0024 lineage) — there is no separate "current value" column
+// anywhere. Append-only: the SAME `BEFORE UPDATE/DELETE`-raising trigger
+// pattern as `mileage_rate`/`refund_audit_entry` (ADR-0018/0024) is added by
+// this model's migration — no update/delete route is ever written for it
+// (AC-5.2). This table IS its own audit trail (AC-5.1/5.3, D3) — actor/
+// timestamp/value all already live on the row; `RefundAuditEntry` cannot
+// represent a settings change (its `requestId` FK is NOT NULL and a settings
+// change has no request).
+//
+// `value: null` means "cleared" / "not configured" (AC-1.4) — a distinct,
+// intentional state from "no rows yet for this key" (also not-configured,
+// but with no audit history at all). `createdByUserId`/`createdByEmail` are
+// ALWAYS the verified JWT `sub`/email (never the request body), except for
+// the one documented cutover-seed row, whose actor is the literal
+// `"system:settings-cutover"` (D7, refund-api/scripts/seed-setting.ts).
+model RefundSetting {
+  id              String   @id @default(cuid())
+  key             String
+  value           String?
+  createdByUserId String
+  createdByEmail  String
+  createdAt       DateTime @default(now())
+
+  @@index([key, createdAt]) // latest-per-key (current value) + chronological history/audit
+  @@map("refund_setting")
 }
 
 // Attachment — a receipt file attached to a specific expense line (T5;
