@@ -243,9 +243,13 @@ are called out. What the script does, step by step:
    see step 8), `REFUND_S3_ENDPOINT`/`REFUND_S3_REGION`/`REFUND_S3_BUCKET`/
    `REFUND_S3_ACCESS_KEY_ID`/`REFUND_S3_SECRET_ACCESS_KEY` (EU-region object
    storage, ADR-0016 — **NOT YET PROVISIONED**, see § Variable reference),
-   `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL`/`REFUND_APP_BASE_URL` (monthly batch
-   processing, T14, specs/008-refund-monthly-processing, ADR-0021 — see
-   § Variable reference), `NODE_ENV=production`. Confirm region
+   `REFUND_APP_BASE_URL` (monthly batch processing, T14,
+   specs/008-refund-monthly-processing, ADR-0021 — see § Variable
+   reference), `NODE_ENV=production`. Do **NOT** set
+   `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` — as of specs/011-refund-settings
+   this is no longer a `refund-api` env var at all (AC-4.1); see
+   § "Cutover — accounting-distribution-email setting" below for the
+   one-time post-deploy step that replaces it. Confirm region
    **`europe-west4`** (data residency —
    this service handles financial figures and receipt-attachment metadata that
    may carry PII, never logged). **Generate its domain** → this is
@@ -538,9 +542,16 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address (e.g. `http://notify-api.railway.internal:8081`) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
 | `NOTIFY_INTERNAL_TOKEN` | Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN`/`notify-api.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical (ADR-0017: now a THIRD caller sharing this secret). Consumed starting T13, not this bootstrap. | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR-0016) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
-| `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` | **NEW (T14, specs/008-refund-monthly-processing, ADR-0021).** The single configured accounting/payroll mailbox the compiled-batch email is sent to (AC-3.1/3.4) — one fixed address, never a per-employee or role-resolved list. No 1Password item required (not a credential — an ordinary business address), but confirm the real accounting distribution address with the client before go-live. | no |
 | `REFUND_APP_BASE_URL` | **NEW (T14, specs/008-refund-monthly-processing, ADR-0021).** Absolute base URL of the shell-hosted app — **the shell's own public origin**, e.g. `https://operai.welld.io`, same value as `refund-api.ALLOWED_ORIGINS`/every other backend's shell-origin row — **not** `<REFUND_API_URL>`. Used to build the compiled-batch email's in-app deep link `${REFUND_APP_BASE_URL}/refund/batches/:id`; the email never carries a raw presigned S3 URL. | no |
 | `NODE_ENV` | `production` | no |
+
+**`REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` — REMOVED (specs/011-refund-settings,
+AC-4.1).** Do **NOT** set this on the `refund-api` Railway service — the
+running service does not read, require, or validate it at all anymore. The
+accounting-distribution-email is now an admin-managed, append-only
+`refund_setting` row (ADR-0027/0029), viewable/editable in Admin > Refund
+(`settings:read`/`settings:manage`). See the cutover runbook immediately
+below for moving the currently-deployed value across.
 
 **`refund-api` deploy notes:** no `numReplicas` pin (unlike `notify-api`) —
 its `authzMiddleware` in-process cache (T6, ADR-0014) is a per-replica
@@ -550,6 +561,45 @@ shared store, so normal Railway autoscale is fine. Region **must** be
 metadata that may carry PII, ADR-0016) and the service must never log
 request/response bodies (same `hono/logger` posture as every other backend,
 enforced in `refund-api/src/index.ts`, called out in `refund-api/Dockerfile`).
+
+**Cutover — accounting-distribution-email setting (T5, specs/011-refund-settings,
+D7).** A one-time, OPERATOR-RUN step, run **once**, immediately after this
+deploy lands (the migration that creates `refund_setting` — T2 — must already
+be applied). It is deliberately **not** a schema migration carrying the value
+and **not** a server startup env read (AC-4.1 stays strictly honored — the
+*running* `refund-api` process never touches
+`REFUND_ACCOUNTING_DISTRIBUTION_EMAIL`) — it is an idempotent maintenance
+script an operator invokes explicitly, passing the value themselves:
+
+```bash
+cd refund-api
+DATABASE_URL=<refund-api's production DATABASE_URL> \
+  bun run settings:seed <the value currently deployed as REFUND_ACCOUNTING_DISTRIBUTION_EMAIL>
+```
+
+1. **Before removing the env var from Railway**, read the current
+   `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` value off the `refund-api` service
+   (Railway dashboard → Variables).
+2. Run the command above against **production's** `DATABASE_URL` (the `refund`
+   database), passing that value. The script (`refund-api/scripts/seed-setting.ts`)
+   appends ONE `refund_setting` row for key `accounting-distribution-email`
+   **only if the key has no rows yet** — `createdByUserId:"system:settings-cutover"`,
+   `createdByEmail:"system-cutover@welld.ch"` (a documented, honest first audit
+   row — never attributed to a real admin who didn't actually make the
+   change). A second run (accidental re-run, redeploy, CI retry) is a
+   guaranteed no-op — it never appends a duplicate or overwrites anything
+   (the table is append-only at the DB level, ADR-0027).
+3. Verify: `GET /settings/accounting-distribution-email` (as an admin/
+   `refund-admin`, via Admin > Refund or the API directly) shows
+   `configured:true` with the expected value and `updatedByEmail:"system-cutover@welld.ch"`.
+4. **Only after verifying step 3**, remove `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL`
+   from the `refund-api` Railway service's variables (it is already unused by
+   the running code — this step is housekeeping, not a functional dependency).
+
+There is no cron/scheduled version of this script and none should ever be
+added (ADR-0013 posture, mirrors the mileage-rate/settings "derived-on-read,
+never scheduled" lineage) — it is a single deliberate command run by a human
+at cutover time, never a recurring job.
 
 **Object storage — provisioning (human action, before T9 lands).** ADR-0016
 names AWS S3 `eu-south-1` (Milan) or Scaleway Object Storage `fr-par` as
