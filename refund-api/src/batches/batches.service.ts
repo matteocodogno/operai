@@ -26,6 +26,7 @@ import type {
   BatchSummary,
   CandidateEmployee,
   CandidatePreview,
+  EmailStatusValue,
 } from "./batches.schemas";
 
 export { scopeForReviewAction, type ReviewAction } from "../review/review.service";
@@ -179,7 +180,7 @@ export function mapBatchDetail(
     subtotals: toBatchSubtotals(computeSubtotals(allLines)),
     employees,
     email: {
-      status: (batch.emailStatus as "sent" | "failed" | null) ?? null,
+      status: (batch.emailStatus as EmailStatusValue | null) ?? null,
       lastAttemptAt: batch.emailLastAttemptAt?.toISOString() ?? null,
     },
     paidAt: batch.paidAt?.toISOString() ?? null,
@@ -199,7 +200,7 @@ export function mapBatchSummary(row: BatchSummaryRow): BatchSummary {
     status: row.status,
     requestCount: row.requestCount,
     subtotals: toBatchSubtotals(computeSubtotals(row.lines)),
-    emailStatus: (row.emailStatus as "sent" | "failed" | null) ?? null,
+    emailStatus: (row.emailStatus as EmailStatusValue | null) ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }

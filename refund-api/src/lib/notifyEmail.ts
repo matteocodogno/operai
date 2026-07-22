@@ -39,7 +39,7 @@ export interface NotifyBatchCompiledInput {
   readonly cutoff: Date;
   readonly generatedAt: Date;
   readonly requestCount: number;
-  /** The single configured distribution address (`REFUND_ACCOUNTING_DISTRIBUTION_EMAIL`, snapshotted on the batch at compile time — AC-3.4, never a per-employee address). */
+  /** The single configured distribution address — specs/011-refund-settings, resolved LIVE from the `accounting-distribution-email` refund_setting at each attempt (ADR-0029, never a per-employee address, never a value baked in at a previous deploy). */
   readonly recipientEmail: string;
 }
 

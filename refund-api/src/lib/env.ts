@@ -98,17 +98,19 @@ const envSchema = z
       .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
     // ─── Monthly batch processing (T14, specs/008-refund-monthly-processing,
     // ADR-0021) ────────────────────────────────────────────────────────────
-    // The single configured accounting/payroll distribution address the
-    // compiled-batch email (AC-3.1/3.4) is sent to via notify-api
-    // `POST /system/emails` — see notifyEmail.ts (T7/T5). Deliberately NOT a
-    // per-user/role-resolved list (spec Constraints) — one fixed mailbox.
-    // Required; the service refuses to start without it (financial batch
-    // notifications must never silently no-op to an unconfigured recipient).
-    REFUND_ACCOUNTING_DISTRIBUTION_EMAIL: z
-      .string()
-      .email(
-        "REFUND_ACCOUNTING_DISTRIBUTION_EMAIL must be a valid email address",
-      ),
+    // specs/011-refund-settings (AC-4.1, D7, ADR-0029) — the accounting/
+    // payroll distribution address the compiled-batch email (AC-3.1/3.4) is
+    // sent to is NO LONGER a startup env var. It is now the admin-managed
+    // `accounting-distribution-email` refund_setting (src/settings/),
+    // resolved LIVE at every send/resend attempt (batches/email.ts). This
+    // service does NOT read, require, or validate
+    // `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` — or any environment variable
+    // — for it; startup succeeds with no such variable present at all. The
+    // one-time production cutover of the formerly-deployed env value into
+    // the new setting is a deliberate, documented operator step
+    // (`bun run settings:seed`, refund-api/scripts/seed-setting.ts,
+    // infra/README.md) — never a schema migration or a startup env read.
+    //
     // Absolute base URL of the shell-hosted app (the shell's own public
     // origin, e.g. https://operai.welld.io — NOT refund-api's own URL and
     // NOT VITE_REFUND_API_URL, which is refund-api's origin), used to build

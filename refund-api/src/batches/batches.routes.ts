@@ -37,13 +37,17 @@
  * object if a prior `PutObject` never landed (ADR-0019 regenerable-cache
  * posture), so a discarded/paid batch's PDF still resolves.
  *
- * The compilation email (T5, AC-3.1/3.3, ADR-0021) is sent via the SAME
- * `sendCompilationEmailBestEffort` helper (email.ts) at TWO trigger points:
- * post-commit at the end of the compile handler (auto-send) and from the
- * dedicated resend route below — both persist `emailStatus`/
- * `emailLastAttemptAt`/`emailDeliveryId` on the batch identically. Best
- * effort: a notify-api failure NEVER fails or rolls back the triggering
- * compile/resend response (ADR-0011 posture).
+ * The compilation email (T5, AC-3.1/3.3, ADR-0021; LIVE-resolution +
+ * blocked-send widened by specs/011-refund-settings, ADR-0029) is sent via
+ * the SAME `sendCompilationEmailBestEffort` helper (email.ts) at TWO
+ * trigger points: post-commit at the end of the compile handler (auto-send)
+ * and from the dedicated resend route below — both persist `emailStatus`/
+ * `emailLastAttemptAt`/`emailDeliveryId`/`recipientEmailSnapshot` (now
+ * per-attempt delivery provenance, not a compile-time freeze) on the batch
+ * identically. Best effort: a notify-api failure NEVER fails or rolls back
+ * the triggering compile/resend response (ADR-0011 posture); an
+ * UNCONFIGURED accounting-distribution-email setting also never fails
+ * compile (AC-2.1) but DOES turn a resend into a 422 (D5).
  *
  * Mark-paid (T6) and discard (T8) live in a SEPARATE router
  * (`batches/decide.routes.ts`, mirrors `review/decide.routes.ts`'s
@@ -57,7 +61,6 @@ import { bodyLimit } from "hono/body-limit";
 import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { ValidationError } from "../lib/errors";
-import { env } from "../lib/env";
 import { mintPresignedGet, putObject } from "../lib/storage";
 import { hasCapability } from "../authz/conditions";
 import { ProblemSchema } from "../requests/requests.schemas";
@@ -106,6 +109,25 @@ const unprocessableProblem = (path: string, detail: string) => ({
   status: 422 as const,
   detail,
   instance: path,
+});
+
+/**
+ * specs/011-refund-settings (D5, ADR-0029) — the distinguishable 422 a
+ * RESEND returns when the accounting-distribution-email setting is
+ * unconfigured: same RFC 7807 shape as `unprocessableProblem`, plus a
+ * stable extension member `code:"accounting_distribution_email_unconfigured"`
+ * (mirrors specs/010's `code` discriminator pattern, e.g.
+ * `review/decide.routes.ts`'s `selfApprovalForbiddenProblem`). Distinct from
+ * an ordinary notify-api/Resend outage, which stays a best-effort 200 with
+ * `emailStatus:"failed"` (ADR-0011) — never this 422.
+ */
+const accountingEmailUnconfiguredProblem = (path: string) => ({
+  type: "https://httpstatuses.com/422",
+  title: "Unprocessable Entity",
+  status: 422 as const,
+  detail: "Set the accounting distribution email in Admin > Refund first.",
+  instance: path,
+  code: "accounting_distribution_email_unconfigured" as const,
 });
 
 const notFoundProblem = (path: string, detail: string) => ({
@@ -319,9 +341,10 @@ batchesRouter.openapi(compileRoute, async (c) => {
     );
   }
 
-  const exit = await Effect.runPromiseExit(
-    compileBatch(cutoff, scope, sub, email, env.REFUND_ACCOUNTING_DISTRIBUTION_EMAIL),
-  );
+  // specs/011-refund-settings (D6, AC-2.1) — compile is fully decoupled
+  // from the accounting-distribution-email setting; no recipient is passed
+  // or read here at all.
+  const exit = await Effect.runPromiseExit(compileBatch(cutoff, scope, sub, email));
 
   if (exit._tag === "Failure") {
     const cause = exit.cause;
@@ -371,7 +394,6 @@ batchesRouter.openapi(compileRoute, async (c) => {
       id: batch.id,
       cutoff: batch.cutoff,
       createdAt: batch.createdAt,
-      recipientEmailSnapshot: batch.recipientEmailSnapshot,
     },
     batch.requests.length,
   );
@@ -412,13 +434,17 @@ const resendEmailRoute = createRoute({
   tags: ["Batches"],
   summary: "Resend the compilation email for an already-compiled batch",
   description:
-    "Mints a fresh `/system/emails` call to the SAME configured " +
-    "distribution address the batch was compiled with " +
-    "(`recipientEmailSnapshot`, AC-3.4) — never a live re-read of the env " +
-    "var. Works regardless of the batch's status (`compiled`, `paid`, or " +
-    "`discarded`, AC-3.3) and never recompiles or re-renders the PDF. " +
-    "Always 200 with the resulting `emailStatus`, even on a notify-api " +
-    "failure (AC-3.3).",
+    "Mints a fresh `/system/emails` call to the LIVE accounting-" +
+    "distribution-email setting (specs/011-refund-settings, D6, ADR-0029 — " +
+    "supersedes the original compile-time `recipientEmailSnapshot` freeze), " +
+    "resolved fresh at THIS attempt — never a value baked in at a previous " +
+    "deploy or send. Works regardless of the batch's status (`compiled`, " +
+    "`paid`, or `discarded`, AC-3.3) and never recompiles or re-renders the " +
+    "PDF. 200 with the resulting `emailStatus` on an ordinary notify-api " +
+    "outcome (sent/failed, AC-3.3); 422 with " +
+    "`code:\"accounting_distribution_email_unconfigured\"` when the setting " +
+    "is unconfigured (D5, specs/011) — distinguishable from an ordinary " +
+    "notify-api/Resend failure, which stays a 200 with `emailStatus:\"failed\"`.",
   security: [{ Bearer: [] }],
   request: { params: BatchIdParamSchema },
   responses: {
@@ -434,6 +460,11 @@ const resendEmailRoute = createRoute({
     404: {
       content: { "application/json": { schema: ProblemSchema } },
       description: "No batch with that id",
+    },
+    422: {
+      content: { "application/json": { schema: ProblemSchema } },
+      description:
+        "The accounting-distribution-email setting is unconfigured — nothing was sent",
     },
   },
 });
@@ -459,6 +490,16 @@ batchesRouter.openapi(resendEmailRoute, async (c) => {
   }
 
   const outcome = await sendCompilationEmailBestEffort(batch, batch.requests.length);
+
+  // D5 (specs/011-refund-settings) — a RESEND while unconfigured is a
+  // distinguishable 422, unlike the auto-send-on-compile path (AC-2.1),
+  // which never fails on this. The side effect (emailStatus persisted as
+  // "blocked_unconfigured") already happened inside
+  // sendCompilationEmailBestEffort regardless of this response.
+  if (outcome.status === "blocked_unconfigured") {
+    return c.json(accountingEmailUnconfiguredProblem(c.req.path), 422);
+  }
+
   return c.json({ emailStatus: outcome.status, emailDeliveryId: outcome.deliveryId }, 200);
 });
 

@@ -40,9 +40,23 @@
  *        configured recipient; a mocked email failure still returns 201
  *        (compile is never blocked/failed by email delivery)
  * AC-3.2 the resulting emailStatus is visible on GET /batches/:id
- * AC-3.3 resend mints a fresh `/system/emails` call, same address, works
- *        on any status, never recompiles; always 200 regardless of outcome
+ * AC-3.3 resend mints a fresh `/system/emails` call, works on any status,
+ *        never recompiles; 200 on an ordinary send/failure outcome
  * AC-3.4 the email `to` is only the configured distribution address
+ *
+ * AC coverage (T4, specs/011-refund-settings — LIVE recipient resolution +
+ * blocked-send, ADR-0029; supersedes ADR-0021's compile-time freeze)
+ * ──────────────────────────
+ * AC-2.1 compile succeeds identically (batch/items/audit/PDF) whether the
+ *        accounting-distribution-email setting is configured or not
+ * AC-2.2 unconfigured: auto-send persists `emailStatus:"blocked_unconfigured"`;
+ *        a resend returns 422 with `code:"accounting_distribution_email_unconfigured"`
+ * AC-2.3 configured: the LIVE setting value is used, never a value baked in
+ *        at a previous deploy or send
+ * AC-2.4 a batch blocked by an earlier unconfigured state reaches the
+ *        LATER-configured address on a subsequent resend
+ * AC-4.1 boot succeeds with no `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` present
+ *        (this file no longer sets it in `process.env` at all)
  */
 
 import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
@@ -65,8 +79,12 @@ process.env["REFUND_S3_EU_ENDPOINT_HOSTS"] = "s3.railway-eu-amsterdam.example.co
 process.env["REFUND_S3_BUCKET"] = "test-bucket";
 process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
 process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
-process.env["REFUND_ACCOUNTING_DISTRIBUTION_EMAIL"] = "accounting@welld.ch";
 process.env["REFUND_APP_BASE_URL"] = "http://localhost:5173";
+// specs/011-refund-settings (AC-4.1) — deliberately NO
+// REFUND_ACCOUNTING_DISTRIBUTION_EMAIL here: env.ts no longer declares it at
+// all, and the accounting-distribution-email is now the LIVE
+// `refund_setting` row seeded per-test via `seedAccountingDistributionEmail`
+// below (D6, ADR-0029).
 
 const harness = setupTestAuth();
 await harness.init();
@@ -226,6 +244,24 @@ async function createApprovedRequest(
   return request;
 }
 
+/**
+ * specs/011-refund-settings — seeds the LIVE accounting-distribution-email
+ * setting (D6, ADR-0029). This suite deliberately does NOT seed it by
+ * default in `beforeEach` (mirrors the real "unconfigured until an admin
+ * sets it" starting state, AC-4.3) — any test whose email assertions
+ * require a configured recipient calls this explicitly.
+ */
+async function seedAccountingDistributionEmail(value: string) {
+  await db.refundSetting.create({
+    data: {
+      key: "accounting-distribution-email",
+      value,
+      createdByUserId: "admin-1",
+      createdByEmail: "admin@welld.ch",
+    },
+  });
+}
+
 const CUTOFF = "2026-07-19T00:00:00.000Z";
 
 beforeEach(async () => {
@@ -378,6 +414,7 @@ describe("POST /batches", () => {
   });
 
   it("(AC-1.6/1.7/1.9/7.1) compiles: creates the batch + items, claims requests, writes audit rows, stores the PDF", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
     const req1 = await createApprovedRequest(
       [{ entity: "welld_it", approvedTotalCents: 1500 }],
       { ownerUserId: "emp-a", ownerEmail: "a@x.com" },
@@ -441,6 +478,9 @@ describe("POST /batches", () => {
     const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
     expect(batchRow.status).toBe("compiled");
     expect(batchRow.pdfObjectKey).toBe(`refund/batches/${body.id}/compiled.pdf`);
+    // recipientEmailSnapshot is now per-attempt delivery PROVENANCE (D6,
+    // ADR-0029) — populated by the post-commit auto-send reading the LIVE
+    // setting, not a compile-time freeze.
     expect(batchRow.recipientEmailSnapshot).toBe("accounting@welld.ch");
 
     // The PDF was rendered and stored post-commit (T2/ADR-0019).
@@ -1002,6 +1042,7 @@ describe("GET /batches/:id/pdf-url", () => {
 
 describe("POST /batches — compilation email auto-send", () => {
   it("(AC-3.1/3.4) sends the compilation email to the configured distribution address with the app deep link", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
     await createApprovedRequest([{ entity: "welld_it" }, { entity: "welld_it" }], {
       ownerUserId: "emp-a",
     });
@@ -1029,6 +1070,7 @@ describe("POST /batches — compilation email auto-send", () => {
   });
 
   it("(AC-3.1/3.3) a mocked email failure does NOT fail the compile — 201 with emailStatus:failed", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
     notifyBatchCompiledOutcome = { status: "failed", deliveryId: null };
     await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
 
@@ -1050,6 +1092,7 @@ describe("POST /batches — compilation email auto-send", () => {
   });
 
   it("(AC-3.2) the emailStatus is visible on a subsequent GET /batches/:id", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
     await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
 
     harness.setResolve(async () => accountingPerms(null));
@@ -1068,6 +1111,138 @@ describe("POST /batches — compilation email auto-send", () => {
     const body = (await res.json()) as { email: { status: string | null; lastAttemptAt: string | null } };
     expect(body.email.status).toBe("sent");
     expect(body.email.lastAttemptAt).not.toBeNull();
+  });
+
+  // ─── specs/011-refund-settings (T4, ADR-0029) — AC-2.1/2.2/2.3 ──────────
+
+  it("(AC-2.1) compile succeeds identically (batch+items+audit+PDF) when the setting is UNCONFIGURED", async () => {
+    // Deliberately NOT seeding the setting — starts unconfigured.
+    const req = await createApprovedRequest([{ entity: "welld_it", approvedTotalCents: 1200 }], {
+      ownerUserId: "emp-unconf",
+    });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      id: string;
+      requestCount: number;
+      email: { status: string | null };
+    };
+    expect(body.requestCount).toBe(1);
+    // AC-2.2 — never sent, distinguishable status; never a bare "failed".
+    expect(body.email.status).toBe("blocked_unconfigured");
+    expect(notifyBatchCompiledCalls).toHaveLength(0);
+
+    // Compilation itself is entirely unaffected — item + audit + PDF still created (AC-2.1).
+    expect(await db.refundBatchItem.count({ where: { batchId: body.id } })).toBe(1);
+    expect(
+      await db.refundAuditEntry.count({ where: { batchId: body.id, action: "batch_compiled" } }),
+    ).toBe(1);
+    expect(putObjectCalls).toHaveLength(1);
+
+    const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
+    expect(batchRow.emailStatus).toBe("blocked_unconfigured");
+    expect(batchRow.recipientEmailSnapshot).toBeNull();
+    void req;
+  });
+
+  it("(AC-2.2) a resend while unconfigured returns 422 with the distinguishable code, distinct from an ordinary notify-api failure", async () => {
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const compileRes = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    const compiled = (await compileRes.json()) as { id: string };
+    notifyBatchCompiledCalls = [];
+
+    const resendRes = await batchesRouter.request(`/batches/${compiled.id}/email`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(resendRes.status).toBe(422);
+    const problem = (await resendRes.json()) as { status: number; code: string; detail: string };
+    expect(problem.code).toBe("accounting_distribution_email_unconfigured");
+    expect(problem.detail).toContain("Admin > Refund");
+    // notify-api was never even called — distinct from an ordinary outage (ADR-0011's 200/"failed").
+    expect(notifyBatchCompiledCalls).toHaveLength(0);
+
+    const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: compiled.id } });
+    expect(batchRow.emailStatus).toBe("blocked_unconfigured");
+  });
+
+  it("(AC-2.3) configured: the LIVE setting value is used, never a value baked in earlier", async () => {
+    await seedAccountingDistributionEmail("first@welld.ch");
+    // A later change to the setting — the compile below must observe THIS
+    // value, not the first one, proving live (not cached/frozen) resolution.
+    await seedAccountingDistributionEmail("live@welld.ch");
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(res.status).toBe(201);
+    expect(notifyBatchCompiledCalls).toHaveLength(1);
+    expect(notifyBatchCompiledCalls[0]?.recipientEmail).toBe("live@welld.ch");
+  });
+
+  it("(AC-2.4) a batch blocked by an earlier unconfigured state reaches the LATER-configured address on resend", async () => {
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    // Compile while unconfigured — blocked (AC-2.2).
+    const compileRes = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    const compiled = (await compileRes.json()) as { id: string; email: { status: string | null } };
+    expect(compiled.email.status).toBe("blocked_unconfigured");
+
+    // Resend while STILL unconfigured — 422.
+    const blockedResend = await batchesRouter.request(`/batches/${compiled.id}/email`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(blockedResend.status).toBe(422);
+
+    // An admin now configures the setting (mirrors T3's PUT /settings/:key).
+    await seedAccountingDistributionEmail("newly-configured@welld.ch");
+    notifyBatchCompiledCalls = [];
+
+    // The SAME batch's resend now reaches the newly-configured address —
+    // an earlier unconfigured state does not permanently block it.
+    const resendRes = await batchesRouter.request(`/batches/${compiled.id}/email`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(resendRes.status).toBe(200);
+    const body = (await resendRes.json()) as { emailStatus: string };
+    expect(body.emailStatus).toBe("sent");
+    expect(notifyBatchCompiledCalls).toHaveLength(1);
+    expect(notifyBatchCompiledCalls[0]?.recipientEmail).toBe("newly-configured@welld.ch");
+
+    const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: compiled.id } });
+    expect(batchRow.emailStatus).toBe("sent");
+    expect(batchRow.recipientEmailSnapshot).toBe("newly-configured@welld.ch");
   });
 });
 
@@ -1096,7 +1271,8 @@ describe("POST /batches/:id/email", () => {
     expect(res.status).toBe(404);
   });
 
-  it("(AC-3.3) resends to the SAME snapshotted address, works on a discarded batch, never recompiles", async () => {
+  it("(AC-3.3) resends to the LIVE configured address, works on a discarded batch, never recompiles", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
     const request = await createApprovedRequest(
       [{ entity: "welld_it", approvedTotalCents: 400 }],
       { ownerUserId: "emp-a" },
@@ -1108,7 +1284,11 @@ describe("POST /batches/:id/email", () => {
         createdByUserId: "acct-1",
         createdByEmail: "acct1@x.com",
         pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
-        recipientEmailSnapshot: "accounting@welld.ch",
+        // A STALE value from a prior attempt (or, pre-ADR-0029, a compile-
+        // time freeze) — the live resend below must NOT reuse this; it must
+        // resolve the CURRENT setting instead (proves D6's live-resolution,
+        // not a lingering frozen snapshot).
+        recipientEmailSnapshot: "stale-prior-attempt@welld.ch",
         discardedAt: new Date(),
         discardedByEmail: "acct1@x.com",
       },
@@ -1129,6 +1309,7 @@ describe("POST /batches/:id/email", () => {
     expect(body.emailDeliveryId).toBe("delivery-1");
 
     expect(notifyBatchCompiledCalls).toHaveLength(1);
+    // The LIVE setting value, never the stale pre-existing snapshot.
     expect(notifyBatchCompiledCalls[0]?.recipientEmail).toBe("accounting@welld.ch");
     expect(notifyBatchCompiledCalls[0]?.batchId).toBe(batch.id);
 
@@ -1139,6 +1320,7 @@ describe("POST /batches/:id/email", () => {
   });
 
   it("(AC-3.3) any status (any outcome) still returns 200", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
     notifyBatchCompiledOutcome = { status: "failed", deliveryId: null };
     const batch = await db.refundBatch.create({
       data: {

@@ -110,7 +110,12 @@ export interface BatchRow {
   readonly createdByEmail: string;
   readonly createdAt: Date;
   readonly pdfObjectKey: string;
-  readonly recipientEmailSnapshot: string;
+  // specs/011-refund-settings, ADR-0029 — no longer the compile-time-frozen
+  // configured address (ADR-0021, superseded); nullable per-attempt
+  // delivery PROVENANCE ONLY, null until the first send/resend attempt. The
+  // live `accounting-distribution-email` setting (src/settings/) is the
+  // actual source of truth, resolved fresh at every attempt.
+  readonly recipientEmailSnapshot: string | null;
   readonly emailStatus: string | null;
   readonly emailLastAttemptAt: Date | null;
   readonly emailDeliveryId: string | null;
@@ -147,13 +152,18 @@ class EmptyCandidateSetError extends Data.TaggedError("EmptyCandidateSetError")<
  * transaction is aborted (throwing `EmptyCandidateSetError` rolls back
  * everything Prisma's `$transaction` callback attempted) and nothing is
  * created (AC-1.4).
+ *
+ * specs/011-refund-settings, ADR-0029 (D6) — compile no longer takes a
+ * recipient email at all: it is now FULLY DECOUPLED from the accounting-
+ * distribution-email setting (AC-2.1). `recipientEmailSnapshot` starts
+ * `null` on every freshly-compiled batch; the send path (batches/email.ts)
+ * resolves the live setting and records its own delivery provenance there.
  */
 export function compileBatch(
   cutoff: Date,
   scope: EntityScope,
   actorUserId: string,
   actorEmail: string,
-  recipientEmail: string,
 ): Effect.Effect<BatchWithRequests, DatabaseError | ValidationError> {
   return Effect.tryPromise({
     try: () =>
@@ -196,7 +206,7 @@ export function compileBatch(
             createdByUserId: actorUserId,
             createdByEmail: actorEmail,
             pdfObjectKey,
-            recipientEmailSnapshot: recipientEmail,
+            recipientEmailSnapshot: null,
           },
         });
 
@@ -390,19 +400,29 @@ export function listBatchSummaries(): Effect.Effect<
   });
 }
 
-// ─── Email delivery status write-back (T5) ─────────────────────────────────
+// ─── Email delivery status write-back (T5; widened T4 specs/011) ──────────
 
+/**
+ * `"blocked_unconfigured"` (specs/011-refund-settings, ADR-0029) marks a
+ * send/resend attempt that never reached notify-api because the
+ * `accounting-distribution-email` setting was unconfigured at attempt time
+ * — distinguishable from an ordinary `"failed"` notify-api/Resend outage
+ * (AC-2.2).
+ */
 export interface EmailAttemptOutcome {
-  readonly status: "sent" | "failed";
+  readonly status: "sent" | "failed" | "blocked_unconfigured";
   readonly deliveryId: string | null;
+  /** The live setting value THIS attempt targeted (D6) — `null` when the attempt was blocked_unconfigured. Persisted as `recipientEmailSnapshot`'s new nullable per-attempt-provenance meaning. */
+  readonly recipientEmail: string | null;
 }
 
 /**
  * Persists the outcome of a compilation-email send/resend attempt
- * (AC-3.2) — `emailStatus`/`emailLastAttemptAt`/`emailDeliveryId`. Called
- * AFTER the email send has already been attempted (batches/email.ts); a
- * failure here is itself best-effort-logged by the caller, never allowed to
- * fail the triggering compile/resend response.
+ * (AC-3.2) — `emailStatus`/`emailLastAttemptAt`/`emailDeliveryId`/
+ * `recipientEmailSnapshot` (repurposed to per-attempt provenance, D6).
+ * Called AFTER the email send has already been attempted (batches/email.ts);
+ * a failure here is itself best-effort-logged by the caller, never allowed
+ * to fail the triggering compile/resend response.
  */
 export function recordEmailAttempt(
   batchId: string,
@@ -416,6 +436,7 @@ export function recordEmailAttempt(
           emailStatus: outcome.status,
           emailLastAttemptAt: new Date(),
           emailDeliveryId: outcome.deliveryId,
+          recipientEmailSnapshot: outcome.recipientEmail,
         },
       });
     },

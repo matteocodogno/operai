@@ -74,7 +74,7 @@ describe("AC-7.3 — batch membership permanently attached across discard + re-i
 
     // ── Compile A: claims the request ────────────────────────────────────
     const batchA = await Effect.runPromise(
-      compileBatch(cutoff, GLOBAL_ENTITY_SCOPE, "acct-a", "a@x.com", "accounting@welld.ch"),
+      compileBatch(cutoff, GLOBAL_ENTITY_SCOPE, "acct-a", "a@x.com"),
     );
     expect(batchA.requests.map((r) => r.id)).toEqual([request.id]);
 
@@ -91,7 +91,7 @@ describe("AC-7.3 — batch membership permanently attached across discard + re-i
     // ── Compile B: the SAME (now-released) request is re-claimed into a
     // DIFFERENT batch ───────────────────────────────────────────────────
     const batchB = await Effect.runPromise(
-      compileBatch(cutoff, GLOBAL_ENTITY_SCOPE, "acct-b", "b@x.com", "accounting@welld.ch"),
+      compileBatch(cutoff, GLOBAL_ENTITY_SCOPE, "acct-b", "b@x.com"),
     );
     expect(batchB.id).not.toBe(batchA.id);
     expect(batchB.requests.map((r) => r.id)).toEqual([request.id]);

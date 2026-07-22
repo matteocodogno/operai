@@ -18,6 +18,17 @@
 import { z } from "zod";
 import { OwnerSchema, SubtotalSchema } from "../requests/requests.schemas";
 
+// specs/011-refund-settings, ADR-0029 — widened with "blocked_unconfigured"
+// (a send/resend attempt that never reached notify-api because the
+// accounting-distribution-email setting was unconfigured, AC-2.2),
+// distinguishable from an ordinary "failed" notify-api/Resend outage. ONE
+// constant reused across every boundary this status crosses (R2, plan.md §
+// Risks) — the `BatchEmailStatusSchema`/`BatchEmailActionResponseSchema`/
+// `BatchSummarySchema` enums below, and the two `as` casts in
+// batches.service.ts.
+export const EMAIL_STATUS_VALUES = ["sent", "failed", "blocked_unconfigured"] as const;
+export type EmailStatusValue = (typeof EMAIL_STATUS_VALUES)[number];
+
 export const BATCH_STATUS_VALUES = ["compiled", "paid", "discarded"] as const;
 export type BatchStatusValue = (typeof BATCH_STATUS_VALUES)[number];
 export const BatchStatusSchema = z.enum(BATCH_STATUS_VALUES);
@@ -80,7 +91,7 @@ export const BatchTerminalActorSchema = z.object({
 });
 
 export const BatchEmailStatusSchema = z.object({
-  status: z.enum(["sent", "failed"]).nullable(),
+  status: z.enum(EMAIL_STATUS_VALUES).nullable(),
   lastAttemptAt: z.string().datetime().nullable(),
 });
 export type BatchEmailStatus = z.infer<typeof BatchEmailStatusSchema>;
@@ -139,15 +150,15 @@ export const BatchSummarySchema = z.object({
   status: BatchStatusSchema,
   requestCount: z.number().int(),
   subtotals: z.array(BatchSubtotalSchema),
-  emailStatus: z.enum(["sent", "failed"]).nullable(),
+  emailStatus: z.enum(EMAIL_STATUS_VALUES).nullable(),
   createdAt: z.string().datetime(),
 });
 export type BatchSummary = z.infer<typeof BatchSummarySchema>;
 
-// ─── POST /batches/:id/email (resend — AC-3.3, T5) ─────────────────────────
+// ─── POST /batches/:id/email (resend — AC-3.3, T5; 422 on unconfigured, T4 specs/011) ──
 
 export const BatchEmailActionResponseSchema = z.object({
-  emailStatus: z.enum(["sent", "failed"]),
+  emailStatus: z.enum(EMAIL_STATUS_VALUES),
   emailDeliveryId: z.string().nullable(),
 });
 export type BatchEmailActionResponse = z.infer<typeof BatchEmailActionResponseSchema>;

@@ -40,7 +40,6 @@ process.env["REFUND_S3_EU_ENDPOINT_HOSTS"] = "s3.railway-eu-amsterdam.example.co
 process.env["REFUND_S3_BUCKET"] = "test-bucket";
 process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
 process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
-process.env["REFUND_ACCOUNTING_DISTRIBUTION_EMAIL"] = "accounting@welld.ch";
 process.env["REFUND_APP_BASE_URL"] = "http://localhost:5173";
 
 const harness = setupTestAuth();

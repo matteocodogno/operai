@@ -38,6 +38,12 @@
  * AC-6.2 terminal CAS: a second discard, or a discard on a paid batch, 409s
  * AC-6.3 RefundBatchItem membership rows are retained (never deleted)
  * AC-7.3 one `batch_discarded` audit row per affected request
+ *
+ * AC coverage (T4, specs/011-refund-settings)
+ * ──────────────────────────
+ * AC-2.5 mark-paid on a `blocked_unconfigured` batch succeeds exactly like
+ *        any other failed-delivery batch (AC-4.2) — an unconfigured
+ *        accounting-distribution-email setting is never a barrier
  */
 
 import { describe, it, expect, beforeEach, afterAll, mock } from "bun:test";
@@ -60,7 +66,6 @@ process.env["REFUND_S3_EU_ENDPOINT_HOSTS"] = "s3.railway-eu-amsterdam.example.co
 process.env["REFUND_S3_BUCKET"] = "test-bucket";
 process.env["REFUND_S3_ACCESS_KEY_ID"] = "test-key";
 process.env["REFUND_S3_SECRET_ACCESS_KEY"] = "test-secret";
-process.env["REFUND_ACCOUNTING_DISTRIBUTION_EMAIL"] = "accounting@welld.ch";
 process.env["REFUND_APP_BASE_URL"] = "http://localhost:5173";
 
 const harness = setupTestAuth();
@@ -319,6 +324,30 @@ describe("POST /batches/:id/mark-paid", () => {
     });
     expect(auditRows).toHaveLength(2);
     expect(auditRows.every((r) => r.actorUserId === "acct-approver")).toBe(true);
+  });
+
+  it("(AC-2.5, specs/011-refund-settings) mark-paid succeeds on a batch whose email was blocked_unconfigured — exactly like any other failed delivery (AC-4.2)", async () => {
+    const { batch } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com", approvedTotalCents: 500 },
+    ]);
+    // The setting was unconfigured at compile/send time (ADR-0029) — this
+    // is never a barrier to marking the batch paid, exactly as AC-4.2
+    // already establishes for an ordinary "failed" delivery above.
+    await db.refundBatch.update({
+      where: { id: batch.id },
+      data: { emailStatus: "blocked_unconfigured", recipientEmailSnapshot: null },
+    });
+
+    harness.setResolve(async () => accountingPerms);
+    const token = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+
+    const res = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string };
+    expect(body.status).toBe("paid");
   });
 
   it("(OWASP A04 fix round) a failing PDF regen never blocks the COMMITTED mark-paid — still 200 with pdf: null", async () => {
