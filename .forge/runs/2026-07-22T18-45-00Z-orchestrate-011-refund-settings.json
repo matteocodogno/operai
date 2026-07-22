@@ -1,0 +1,33 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-07-22T18-45-00Z-orchestrate-011-refund-settings",
+  "command": "orchestrate",
+  "feature": "011-refund-settings",
+  "rigor": "production",
+  "started": "2026-07-22T15:00:00Z",
+  "finished": "2026-07-22T18:45:00Z",
+  "worktree": "isolation used for the parallel implementation batch (4 dependency-independent agents across separate repos: auth / refund-api / admin-ui / refund-ui); each ff-merged feat/011-refund-settings (which carried spec/plan/tasks + ADRs 0027-0029, committed BEFORE dispatch); the orchestrator cherry-picked the 7 task commits linearly onto the feature branch (no --no-ff merge commits); checkboxes reconciled centrally",
+  "agents": [
+    { "agent": "product-owner", "stage": "spec", "outcome": "completed", "note": "spec.md: 5 stories, 19 ACs; grounded against env.ts/notifyEmail.ts/batches.routes.ts; flagged the sharp snapshot-vs-live tension itself (7th open question); all open questions deferred to architect" },
+    { "agent": "architect", "stage": "plan", "outcome": "completed", "note": "plan.md: append-only self-auditing refund_setting key/value store, new global settings permission, LIVE recipient resolution (supersedes ADR-0021 snapshot) + blocked-send 422 contract, operator-run idempotent seed cutover; resolved all 7 open questions" },
+    { "agent": "adr-writer", "stage": "plan", "outcome": "completed", "note": "ADRs 0027 (settings store), 0028 (settings permission — config != rate), 0029 (live recipient — AMENDS ADR-0021, first ADR-amends-ADR case; annotated 0021 with an Amended-by header) + CLAUDE.md index" },
+    { "agent": "backend-dev", "tasks": ["T1"], "outcome": "completed", "commits": ["f4d0ee5"], "note": "auth: new settings resource (read/manage, unconditioned) + seedSettingsAdminGrants to admin/refund-admin; 338 tests; flagged a pre-existing bun-types typecheck gap" },
+    { "agent": "backend-dev", "tasks": ["T2","T3","T4","T5"], "outcome": "completed", "commits": ["5964520","fde9cad","d4c7ed6","20908ec"], "note": "refund-api: RefundSetting append-only+immutable schema; settings module (GET/PUT + descriptor registry); LIVE resolution + blocked-send + env removal (compileBatch drops recipient param); cutover seed script + runbook; fixed a pre-existing tsconfig bun-types breakage; DELETED a stray root bun.lock caused by the orchestrator's package.json workspaces field (Bun honors it) — the trigger for the lerna.json fix" },
+    { "agent": "frontend-dev", "tasks": ["T6"], "outcome": "completed", "commits": ["255c0d1"], "note": "admin-ui: settingsApi + Refund-tab distribution-email panel (view/edit/clear/history, gated on settings:read, type=text so the server 422 path isn't short-circuited); flagged the pre-existing stale router.test.tsx label" },
+    { "agent": "frontend-dev", "tasks": ["T7"], "outcome": "completed", "commits": ["6b2219e"], "note": "refund-ui: map emailStatus blocked_unconfigured to distinguishable copy; widened BatchEmailStatus union; generic strings.ts keying so all batch views pick it up; 464 tests" },
+    { "agent": "quality-engineer", "tasks": ["T1-T8"], "outcome": "PASS", "commits": ["d5434d4"], "note": "19/19 ACs; gates green per repo (pre-existing jwt.middleware + shared-dev-DB auth pollution excluded); all 6 security-critical points confirmed; T8 e2e RUN LIVE 2/2 (first non-env-blocked e2e this session — restarted the stale dev server + regenerated the Prisma client); fixed 2 latent bugs in its own e2e helpers" },
+    { "agent": "owasp-reviewer", "tasks": ["T1-T7"], "outcome": "PASS", "findings": { "critical": 0, "high": 0, "medium": 0, "low": 0 }, "note": "authz on BOTH read+write checked before the registry lookup (no key-existence leak); batch detail never serializes the recipient address (no indirect leak); live resolution client-uninfluenceable; DB-level audit immutability; email validation before it becomes a to; env-var removal opens no unauth path" },
+    { "agent": "evaluator", "stage": "eval", "outcome": "PASS", "note": "96/100 (threshold 80); AC 5, spec fidelity 5, test quality 5, code quality 5, trajectory 3 (no run trace + 2 caught-and-fixed integration blemishes); independently re-ran suites; highlighted the negative live-resolution test (stale snapshot NOT reused)" }
+  ],
+  "drift_events": [
+    { "at": "spec", "item": "7-question scope + delivery", "resolution": "3 user-decided pre-spec (single email, extensible store, block-only-send); the rest architect-owned, resolved in the plan; user confirmed at the plan gate incl. the ADR-0021 supersession (live recipient) and cutover-by-seed-script" },
+    { "at": "integration", "item": "stale admin-ui router.test.tsx 'Mileage Rates'->'Refund' label left red on main by the 2026-07-21 nav rename (only SectionNav.test.tsx was re-run then)", "resolution": "fixed during integration (b88ab0e); main's admin-ui suite green again" },
+    { "at": "integration", "item": "orchestrator's Changesets root package.json 'workspaces' field breaks Bun (honors it -> stray root bun.lock) and makes pnpm attempt recursive exec (breaks the post-lint hook)", "resolution": "moved the package list to lerna.json — read by Changesets/@manypkg, ignored by BOTH pnpm and Bun; verified the full release flow still enumerates all 9 apps incl. backends (02d5db8); tangential infra self-correction, not part of the feature" }
+  ],
+  "collision_events": [],
+  "verdicts": { "qe": "PASS (19/19 ACs; T8 e2e run LIVE 2/2)", "owasp": "PASS (0 findings)", "eval": "PASS (96/100)" },
+  "result": "completed",
+  "notes": "9 tasks across auth/refund-api/admin-ui/refund-ui + e2e. Extends specs/007+008; amends ADR-0021. 2 human gates (spec, plan) approved. New ADRs 0027-0029. Spec artifacts committed BEFORE dispatching worktree agents. Ops follow-up (AC-4.2 cutover): run `bun run settings:seed <current-prod-email>` in refund-api once post-deploy, THEN remove REFUND_ACCOUNTING_DISTRIBUTION_EMAIL from the Railway env. Non-blocking follow-ups: the pre-existing shared dev-DB employee-role seed pollution (auth full-suite, unrelated); the WellForge post-edit prettier hook errors (no root prettier/.prettierrc) amplified by the root package.json — cosmetic. Feature branch feat/011-refund-settings NOT yet merged to main/pushed (user's call).",
+  "tokens": null,
+  "cost_usd": null
+}

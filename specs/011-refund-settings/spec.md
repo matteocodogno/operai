@@ -1,10 +1,11 @@
 ---
 id: 011
 slug: refund-settings
-status: in-progress
+status: done
 rigor: production
 created: 2026-07-22
 approved: 2026-07-22
+done: 2026-07-22
 ---
 
 # Refund settings: admin-managed accounting distribution email

@@ -43,12 +43,12 @@ Derived from the approved `plan.md`. Levels: unit = pure fn; integration = route
   - Map `emailStatus:"blocked_unconfigured"` to an actionable, distinguishable message ("Set the accounting distribution email in Admin > Refund first"), distinct from an ordinary delivery failure. Copy via `strings.ts`.
   - done when: component test renders the distinguishable blocked message for that status, and the ordinary `failed` status still renders its own copy.
 
-- [ ] T8: e2e — settings → batch email journey — refs: US-1, US-2, US-4 — deps: T1, T3, T4, T6, T7  **[quality-engineer]**
+- [x] T8: e2e — settings → batch email journey — refs: US-1, US-2, US-4 — deps: T1, T3, T4, T6, T7  **[quality-engineer]**
   - touch: `shell/e2e/refund-settings.spec.ts`
   - Admin sets the distribution email in Admin > Refund → compile a batch → its email targets that address; clear/unset → the send is blocked with the distinguishable message while compile + mark-paid still succeed.
   - done when: the Playwright path passes against the running stack (or is authored + committed with each AC independently proven at integration/component level, per the 007–010 env-blocked posture).
 
-- [ ] T9: close — all gates green, spec status → done — deps: T1–T8
+- [x] T9: close — all gates green, spec status → done — deps: T1–T8
   - done when: every task checked, QE PASS + owasp clean (≥medium fixed), eval PASS; spec `status: done`.
 
 ## Coverage map (AC → task)
