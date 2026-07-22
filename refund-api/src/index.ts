@@ -16,6 +16,7 @@ import { batchesRouter } from "./batches/batches.routes";
 import { batchDecideRouter } from "./batches/decide.routes";
 import { ratesRouter } from "./rates/routes";
 import { rateEffectiveRouter } from "./rates/effective.routes";
+import { settingsRouter } from "./settings/routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -72,6 +73,9 @@ app.route("/", ratesRouter);
 // rateEffectiveRouter: GET /rates/effective, the employee-facing live-recompute
 // read gated by refund:access only — specs/009-mileage-rate (T4).
 app.route("/", rateEffectiveRouter);
+// settingsRouter: refund-settings management (GET/PUT /settings/:key), gated
+// by the new settings:read/settings:manage capability — specs/011-refund-settings (T3).
+app.route("/", settingsRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

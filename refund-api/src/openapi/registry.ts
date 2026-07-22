@@ -48,6 +48,14 @@ export function setupOpenAPI(app: OpenAPIHono): void {
           "effective-rate lookup (refund:access) that drives computed " +
           "travel_km amounts (specs/009-mileage-rate).",
       },
+      {
+        name: "Settings",
+        description:
+          "Admin-managed refund configuration — an append-only key/value " +
+          "store (settings:read/settings:manage), currently exposing the " +
+          "accounting-distribution-email setting the compiled-batch email " +
+          "(specs/008) is sent to (specs/011-refund-settings).",
+      },
     ],
   });
 
