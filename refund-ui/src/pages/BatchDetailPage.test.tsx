@@ -20,6 +20,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { RouterProvider, createRootRoute, createRoute, createRouter } from '@tanstack/react-router'
 import BatchDetailPage from './BatchDetailPage'
 import type { BatchDetail } from '../lib/batchesApi'
+import { strings } from '../strings'
 
 vi.mock('../lib/batchesApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/batchesApi')>()
@@ -213,6 +214,38 @@ describe('BatchDetailPage — resend email', () => {
 
     await waitFor(() => expect(screen.getByTestId('toast-banner')).not.toBeNull())
     expect(screen.getByTestId('toast-banner').getAttribute('role')).toBe('alert')
+  })
+})
+
+describe('BatchDetailPage — delivery status display (specs/011-refund-settings AC-2.2)', () => {
+  it('emailStatus:"blocked_unconfigured" renders the distinguishable, actionable blocked message', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue({
+      ...compiledBatch,
+      email: { status: 'blocked_unconfigured', lastAttemptAt: '2026-07-21T00:01:00.000Z' },
+    })
+    renderBatchDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
+    expect(screen.getByTestId('batch-detail-email-status').textContent).toBe(
+      strings.pages.batchDetail.email.blocked_unconfigured,
+    )
+    expect(screen.getByTestId('batch-detail-email-status').textContent).not.toBe(
+      strings.pages.batchDetail.email.failed,
+    )
+  })
+
+  it('emailStatus:"failed" still renders its own, distinct ordinary-failure copy', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue({
+      ...compiledBatch,
+      email: { status: 'failed', lastAttemptAt: '2026-07-21T00:01:00.000Z' },
+    })
+    renderBatchDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
+    expect(screen.getByTestId('batch-detail-email-status').textContent).toBe(strings.pages.batchDetail.email.failed)
+    expect(screen.getByTestId('batch-detail-email-status').textContent).not.toBe(
+      strings.pages.batchDetail.email.blocked_unconfigured,
+    )
   })
 })
 

@@ -35,8 +35,15 @@ import { getJson, sendJson } from './refundApi'
 
 export type BatchStatus = 'compiled' | 'paid' | 'discarded'
 
-/** A batch's email delivery status (plan.md `RefundBatch.emailStatus`) — `null` only pre-first-attempt. */
-export type BatchEmailStatus = 'sent' | 'failed' | null
+/**
+ * A batch's email delivery status (plan.md `RefundBatch.emailStatus`) —
+ * `null` only pre-first-attempt. `"blocked_unconfigured"` (specs/011-refund-
+ * settings, ADR-0029/D5) is a distinct, actionable status: the accounting
+ * distribution email is unset at send/resend time, so refund-api never even
+ * attempts a delivery — deliberately distinguishable from an ordinary
+ * `"failed"` (a real Resend/notify-api outage, ADR-0011's best-effort `200`).
+ */
+export type BatchEmailStatus = 'sent' | 'failed' | 'blocked_unconfigured' | null
 
 /** One currency's approved total for a batch/candidate set — never blended (plan.md "### Money"). */
 export type BatchSubtotal = {

@@ -373,6 +373,14 @@ const en = {
       email: {
         sent: 'Email: Sent',
         failed: 'Email: Failed',
+        /**
+         * specs/011-refund-settings AC-2.2/ADR-0029 — the accounting
+         * distribution email was unset at send/resend time, so refund-api
+         * never attempted delivery. Deliberately actionable and distinct
+         * from `failed` (an ordinary Resend/notify-api outage): it names the
+         * fix and where to make it, not just that something went wrong.
+         */
+        blocked_unconfigured: 'Email: Blocked — set the accounting distribution email in Admin > Refund first.',
         notAttempted: 'Email: Not yet attempted',
         resendButton: 'Resend email',
         resendingLabel: 'Resending…',
