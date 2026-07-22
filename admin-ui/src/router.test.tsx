@@ -196,7 +196,7 @@ describe('the four sections route client-side', () => {
 // ---------------------------------------------------------------------------
 
 describe('/rates section (T11, specs/009-mileage-rate)', () => {
-  it('with rate:read granted, visiting /rates renders MileageRatesPage and activates the "Mileage Rates" nav link', async () => {
+  it('with rate:read granted, visiting /rates renders MileageRatesPage and activates the "Refund" nav link', async () => {
     const adminApi = await import('./lib/adminApi')
     vi.mocked(adminApi.getMe).mockResolvedValue({
       epoch: 1,
@@ -218,7 +218,7 @@ describe('/rates section (T11, specs/009-mileage-rate)', () => {
     expect(await screen.findByTestId('admin-rates-page')).not.toBeNull()
 
     const sectionNav = screen.getByRole('navigation', { name: 'Admin sections' })
-    const activeLink = await within(sectionNav).findByRole('link', { name: 'Mileage Rates' })
+    const activeLink = await within(sectionNav).findByRole('link', { name: 'Refund' })
     expect(activeLink.getAttribute('aria-current')).toBe('page')
   })
 })
