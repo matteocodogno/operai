@@ -5,6 +5,17 @@
 **Deciders:** wellD
 **Project:** Operai
 
+**Amended by:** [ADR-0029](0029-batch-email-recipient-live-resolution-amends-0021.md)
+(2026-07-22, `specs/011-refund-settings`) — Decision point 3 below ("Recipient is always exactly
+the one configured distribution address … on every compile and every resend") is superseded: the
+address is no longer a compile-time-frozen env var, it is now resolved **live** from an
+admin-managed `refund_setting` at every send/resend attempt, and `compileBatch` no longer accepts
+a recipient at all. Decision points 1, 2, and 4 below — the in-app deep-link design, the
+`notify-api` template/channel shape, and the soft-failure/never-blocks-compilation posture — are
+**unchanged** and remain fully in force. This ADR's `Status` stays `Accepted` per this
+repository's convention (no ADR here is ever marked `Superseded`); read ADR-0029 alongside this
+one for the current, accurate picture of recipient resolution.
+
 ---
 
 ## Context
@@ -63,7 +74,12 @@ any attachment concept.
    `REFUND_ACCOUNTING_DISTRIBUTION_EMAIL` (a new validated-at-startup env var), never derived from
    any employee's email, never a per-request or per-owner value, on every compile and every resend
    (AC-3.4). This is enforced by construction — `notifyEmail.ts` has no code path that accepts a
-   caller-supplied `to` at all, it always reads the one configured value.
+   caller-supplied `to` at all, it always reads the one configured value. **Superseded by
+   ADR-0029** (`specs/011-refund-settings`): the address is no longer a compile-time env var read
+   fixed once per batch — it is now resolved live, from an admin-managed `refund_setting`
+   (ADR-0027), at every send and resend attempt, and `compileBatch` no longer takes a recipient
+   parameter at all. The single-recipient invariant itself (exactly one address, never derived
+   from an employee) is unchanged; only *where that address comes from and when it's read* changed.
 4. **Soft-failure posture, unchanged from ADR-0011.** `notifyEmail.ts` never throws; a Resend/
    network/non-2xx failure is caught, logged without financial/PII detail (batch id + status
    only), and the resulting `status`/`deliveryId` are persisted on the batch
@@ -210,7 +226,9 @@ ADR-0016's presigned-GET-after-authz pattern for the actual PDF access step the 
 to, deliberately declining to reuse ADR-0016's presigned-URL-in-hand pattern for the *email body*
 itself. It also assumes ADR-0020's batch-read authorization model (capability-gated, not
 entity-scoped — the plan's Resolved Decision D1) as the check the deep link's landing page
-performs.
+performs. **Decision point 3's recipient-sourcing mechanism (compile-time env-var freeze) is
+superseded by ADR-0029**, which resolves the same single-recipient invariant live against
+ADR-0027's admin-managed `refund_setting` instead.
 
 ---
 
