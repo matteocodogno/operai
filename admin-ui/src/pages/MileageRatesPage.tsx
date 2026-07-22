@@ -3,6 +3,9 @@ import * as adminApi from '../lib/adminApi'
 import * as ratesApi from '../lib/ratesApi'
 import { ApiError } from '../lib/ratesApi'
 import type { MileageRateEntity, RatesResult } from '../lib/ratesApi'
+import * as settingsApi from '../lib/settingsApi'
+import { ApiError as SettingsApiError, ACCOUNTING_DISTRIBUTION_EMAIL_KEY } from '../lib/settingsApi'
+import type { SettingResult } from '../lib/settingsApi'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import PermissionDenied from '../components/PermissionDenied'
@@ -80,11 +83,34 @@ type AddModalState =
       generalError: string | null
     }
 
+/**
+ * State for the accounting-distribution-email panel (T6,
+ * specs/011-refund-settings/tasks.md, refs AC-1.1, AC-3.2, AC-5.3).
+ *
+ * `hidden` covers both "getMe() says no settings:read" (the proactive path,
+ * AC-3.2) and "GET /settings/:key came back 403 anyway" (the reactive path,
+ * mirrors the rate section's `forbidden` handling but as an outright absence
+ * rather than a PermissionDenied block — AC-3.2 requires the section not be
+ * shown at all, not shown-then-blocked).
+ */
+type SettingsState =
+  | { status: 'hidden' }
+  | { status: 'loading' }
+  | { status: 'loaded'; setting: SettingResult; canManage: boolean }
+  | { status: 'error'; message: string }
+
 const errorMessageFor = (error: unknown): string => {
   if (error instanceof ApiError) {
     return error.detail ?? error.title
   }
   return 'Could not load the mileage rates.'
+}
+
+const settingsErrorMessageFor = (error: unknown): string => {
+  if (error instanceof SettingsApiError) {
+    return error.detail ?? error.title
+  }
+  return 'Could not load the accounting distribution email.'
 }
 
 /** Whether `permissions` contains the given (resource, action) pair. */
@@ -143,6 +169,17 @@ export default function MileageRatesPage() {
   const [reloadToken, setReloadToken] = useState(0)
   const [addModal, setAddModal] = useState<AddModalState>({ open: false })
 
+  // Accounting distribution email panel (T6, specs/011-refund-settings) — an
+  // entirely independent fetch/state machine from the rate section above:
+  // different resource, different capability (`settings:read`/`manage`,
+  // ADR-0028), so it is gated and reloaded on its own rather than piggy-backing
+  // on the rate section's `listState`.
+  const [settingsState, setSettingsState] = useState<SettingsState>({ status: 'loading' })
+  const [settingsReloadToken, setSettingsReloadToken] = useState(0)
+  const [emailInput, setEmailInput] = useState('')
+  const [emailSaving, setEmailSaving] = useState(false)
+  const [emailFormError, setEmailFormError] = useState<string | null>(null)
+
   // The button that opened the currently-open modal — focus returns here on
   // a successful add (design.md ADM-M1 "Success" state: "focus returns to
   // the entity's '+ Add rate entry' button — new focus-return behavior").
@@ -187,6 +224,94 @@ export default function MileageRatesPage() {
 
   const handleRetry = useCallback(() => {
     setReloadToken((token) => token + 1)
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Accounting distribution email panel (T6, specs/011-refund-settings)
+  // ---------------------------------------------------------------------------
+
+  // Same Promise-chain rationale as the rate-list effect above
+  // (react-hooks/set-state-in-effect). Visibility is gated on `settings:read`
+  // via `adminApi.getMe()` — the SAME `GET /authz/me` call the rate section
+  // uses, fetched independently here (this panel's own data-fetch). A failed
+  // capability check, OR the capability being absent, hides the panel
+  // entirely (AC-3.2 — "not shown at all", not a PermissionDenied block) —
+  // fails CLOSED, UX-only; the real boundary is refund-api's server-side
+  // `settings:read`/`settings:manage` gate (plan.md Security section).
+  useEffect(() => {
+    let cancelled = false
+
+    Promise.resolve()
+      .then(() => {
+        if (!cancelled) setSettingsState({ status: 'loading' })
+      })
+      .then(() => adminApi.getMe().catch(() => null))
+      .then((me) => {
+        if (!me || !hasCapability(me.permissions, 'settings', 'read')) {
+          if (!cancelled) setSettingsState({ status: 'hidden' })
+          return null
+        }
+        const canManage = hasCapability(me.permissions, 'settings', 'manage')
+        return settingsApi.getSetting(ACCOUNTING_DISTRIBUTION_EMAIL_KEY).then((setting) => ({ setting, canManage }))
+      })
+      .then((loaded) => {
+        if (cancelled || !loaded) return
+        setSettingsState({ status: 'loaded', setting: loaded.setting, canManage: loaded.canManage })
+        setEmailInput(loaded.setting.value ?? '')
+        setEmailFormError(null)
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        if (error instanceof SettingsApiError && error.status === 403) {
+          setSettingsState({ status: 'hidden' })
+        } else {
+          setSettingsState({ status: 'error', message: settingsErrorMessageFor(error) })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [settingsReloadToken])
+
+  const handleSettingsRetry = useCallback(() => {
+    setSettingsReloadToken((token) => token + 1)
+  }, [])
+
+  const handleEmailInputChange = useCallback((value: string) => {
+    setEmailInput(value)
+    setEmailFormError(null)
+  }, [])
+
+  const handleEmailSave = useCallback(async () => {
+    const trimmed = emailInput.trim()
+    setEmailSaving(true)
+    setEmailFormError(null)
+    try {
+      const setting = await settingsApi.putSetting(ACCOUNTING_DISTRIBUTION_EMAIL_KEY, trimmed === '' ? null : trimmed)
+      setSettingsState((prev) => (prev.status === 'loaded' ? { ...prev, setting } : prev))
+      setEmailInput(setting.value ?? '')
+    } catch (error) {
+      // Leaves the shown current value unchanged (AC-1.3) — settingsState is
+      // only ever updated on a successful write, above.
+      setEmailFormError(settingsErrorMessageFor(error))
+    } finally {
+      setEmailSaving(false)
+    }
+  }, [emailInput])
+
+  const handleEmailClear = useCallback(async () => {
+    setEmailSaving(true)
+    setEmailFormError(null)
+    try {
+      const setting = await settingsApi.putSetting(ACCOUNTING_DISTRIBUTION_EMAIL_KEY, null)
+      setSettingsState((prev) => (prev.status === 'loaded' ? { ...prev, setting } : prev))
+      setEmailInput('')
+    } catch (error) {
+      setEmailFormError(settingsErrorMessageFor(error))
+    } finally {
+      setEmailSaving(false)
+    }
   }, [])
 
   // ---------------------------------------------------------------------------
@@ -404,6 +529,136 @@ export default function MileageRatesPage() {
           </div>
         )}
       </div>
+
+      {settingsState.status !== 'hidden' && (
+        <div
+          className="mt-10"
+          role="region"
+          aria-labelledby="admin-settings-heading"
+          data-testid="accounting-email-panel"
+        >
+          <h2 id="admin-settings-heading" className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
+            Accounting distribution email
+          </h2>
+          <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
+            The single mailbox the compiled monthly batch email (specs/008) is sent to. Clearing it
+            blocks the next send until it's set again — compiling and marking a batch as paid keep
+            working either way.
+          </p>
+
+          <div className="mt-4">
+            {settingsState.status === 'loading' && <SkeletonListRows rows={2} />}
+
+            {settingsState.status === 'error' && (
+              <ErrorBanner message={settingsState.message} onRetry={handleSettingsRetry} />
+            )}
+
+            {settingsState.status === 'loaded' && (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: 'var(--soft)' }}>
+                    Current value
+                  </span>
+                  <p
+                    className="mt-1 text-sm font-medium"
+                    data-testid="accounting-email-current-value"
+                    style={{ color: settingsState.setting.configured ? 'var(--text)' : 'var(--soft)' }}
+                  >
+                    {settingsState.setting.configured ? settingsState.setting.value : 'Not configured'}
+                  </p>
+                </div>
+
+                {settingsState.canManage && (
+                  <form
+                    className="flex flex-wrap items-start gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      void handleEmailSave()
+                    }}
+                  >
+                    <div className="flex flex-col gap-1">
+                      <label htmlFor="accounting-email-input" className="sr-only">
+                        Accounting distribution email
+                      </label>
+                      <input
+                        id="accounting-email-input"
+                        // NOT type="email" — the browser's own constraint
+                        // validation would silently swallow the submit event
+                        // for a malformed value, short-circuiting AC-1.3's
+                        // server-validated 422 path (the source of truth for
+                        // "well-formed", not the input element).
+                        type="text"
+                        value={emailInput}
+                        onChange={(e) => handleEmailInputChange(e.target.value)}
+                        placeholder="accounting@welld.ch"
+                        data-testid="accounting-email-input"
+                        disabled={emailSaving}
+                        className="text-sm py-1.5 px-2 border"
+                        style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--bg)' }}
+                      />
+                      {emailFormError && (
+                        <p
+                          role="alert"
+                          data-testid="accounting-email-error"
+                          className="text-xs"
+                          style={{ color: 'var(--org)' }}
+                        >
+                          {emailFormError}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={emailSaving}
+                      data-testid="accounting-email-save"
+                      className="text-sm py-1.5 px-3 font-medium transition-opacity hover:opacity-90 disabled:opacity-50"
+                      style={{ color: 'white', backgroundColor: 'var(--acc)' }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      disabled={emailSaving || !settingsState.setting.configured}
+                      onClick={() => void handleEmailClear()}
+                      data-testid="accounting-email-clear"
+                      className="text-sm py-1.5 px-3 font-medium border transition-opacity hover:opacity-80 disabled:opacity-50"
+                      style={{ borderColor: 'var(--rule)', color: 'var(--text)' }}
+                    >
+                      Clear
+                    </button>
+                  </form>
+                )}
+
+                <div>
+                  <h3 className="text-base font-semibold" style={{ fontFamily: 'var(--disp)' }}>
+                    Change history
+                  </h3>
+                  {settingsState.setting.history.length === 0 && (
+                    <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
+                      No changes recorded yet.
+                    </p>
+                  )}
+                  {settingsState.setting.history.length > 0 && (
+                    <ul className="mt-2 flex flex-col gap-1.5" data-testid="accounting-email-history">
+                      {settingsState.setting.history.map((entry, index) => (
+                        <li
+                          key={`${entry.changedAt}-${index}`}
+                          data-testid={`accounting-email-history-item-${index}`}
+                          className="text-[11px]"
+                          style={{ color: 'var(--text)' }}
+                        >
+                          {entry.value ?? 'Not configured'} — {entry.changedByEmail} —{' '}
+                          {formatTimestamp(entry.changedAt)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   )
 }

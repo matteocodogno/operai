@@ -35,6 +35,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import MileageRatesPage from './MileageRatesPage'
 import type { RatesResult } from '../lib/ratesApi'
 import type { EffectivePermissions } from '../lib/adminApi'
+import type { SettingResult } from '../lib/settingsApi'
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before importing the mocked modules.
@@ -50,9 +51,16 @@ vi.mock('../lib/adminApi', async (importOriginal) => {
   return { ...original, getMe: vi.fn() }
 })
 
+vi.mock('../lib/settingsApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/settingsApi')>()
+  return { ...original, getSetting: vi.fn(), putSetting: vi.fn() }
+})
+
 import * as ratesApi from '../lib/ratesApi'
 import { ApiError as RatesApiError } from '../lib/ratesApi'
 import * as adminApi from '../lib/adminApi'
+import * as settingsApi from '../lib/settingsApi'
+import { ApiError as SettingsApiError, ACCOUNTING_DISTRIBUTION_EMAIL_KEY } from '../lib/settingsApi'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -75,6 +83,43 @@ const readOnlyPermissions: EffectivePermissions = {
   roles: [],
   departments: [],
   permissions: [{ resource: 'rate', action: 'read', conditions: null }],
+}
+
+// T6, specs/011-refund-settings — grants BOTH settings:read and
+// settings:manage (mirrors ADR-0028's seed: the two are granted together to
+// admin/refund-admin), used for the accounting-distribution-email panel's
+// happy-path tests.
+const settingsManagePermissions: EffectivePermissions = {
+  epoch: 1,
+  apps: ['admin'],
+  roles: ['admin'],
+  departments: [],
+  permissions: [
+    { resource: 'rate', action: 'read', conditions: null },
+    { resource: 'rate', action: 'manage', conditions: null },
+    { resource: 'settings', action: 'read', conditions: null },
+    { resource: 'settings', action: 'manage', conditions: null },
+  ],
+}
+
+const configuredSetting: SettingResult = {
+  key: ACCOUNTING_DISTRIBUTION_EMAIL_KEY,
+  value: 'accounting@welld.ch',
+  configured: true,
+  updatedAt: '2026-07-20T09:12:00.000Z',
+  updatedByEmail: 'admin@welld.ch',
+  history: [
+    { value: 'accounting@welld.ch', changedAt: '2026-07-20T09:12:00.000Z', changedByEmail: 'admin@welld.ch' },
+  ],
+}
+
+const notConfiguredSetting: SettingResult = {
+  key: ACCOUNTING_DISTRIBUTION_EMAIL_KEY,
+  value: null,
+  configured: false,
+  updatedAt: null,
+  updatedByEmail: null,
+  history: [],
 }
 
 const populatedResult: RatesResult = {
@@ -132,7 +177,11 @@ describe('MileageRatesPage — loading', () => {
 
     render(<MileageRatesPage />)
 
-    expect(screen.getAllByTestId('skeleton-list-rows')).toHaveLength(2)
+    // 2 for the rate entities + 1 for the accounting-distribution-email panel
+    // (T6, specs/011-refund-settings) — it also starts 'loading' on the very
+    // first synchronous render, before its own getMe()/getSetting() calls
+    // resolve.
+    expect(screen.getAllByTestId('skeleton-list-rows')).toHaveLength(3)
     expect(screen.getByText('WellD CH')).not.toBeNull()
     expect(screen.getByText('WellD Italia')).not.toBeNull()
     expect(screen.queryByTestId('rates-table-welld_ch')).toBeNull()
@@ -409,5 +458,141 @@ describe('MileageRatesPage — add rate entry (Modal ADM-M1)', () => {
     })
     expect(screen.getByTestId('add-rate-value-error').textContent).toBe('Enter a rate greater than 0.')
     expect(ratesApi.addRate).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Accounting distribution email panel (T6, specs/011-refund-settings/tasks.md,
+// refs AC-1.1, AC-3.2, AC-5.3).
+// ---------------------------------------------------------------------------
+
+describe('MileageRatesPage — accounting distribution email panel', () => {
+  it('renders the current configured value and its history (AC-1.1, AC-5.3)', async () => {
+    vi.mocked(adminApi.getMe).mockResolvedValue(settingsManagePermissions)
+    vi.mocked(ratesApi.listRates).mockResolvedValue(populatedResult)
+    vi.mocked(settingsApi.getSetting).mockResolvedValue(configuredSetting)
+
+    render(<MileageRatesPage />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-panel')).not.toBeNull()
+    })
+    expect(screen.getByTestId('accounting-email-current-value').textContent).toBe('accounting@welld.ch')
+
+    const history = screen.getByTestId('accounting-email-history')
+    expect(history.textContent).toContain('accounting@welld.ch')
+    expect(history.textContent).toContain('admin@welld.ch')
+  })
+
+  it('renders a clear "not configured" state when the setting has never been set (AC-1.1)', async () => {
+    vi.mocked(adminApi.getMe).mockResolvedValue(settingsManagePermissions)
+    vi.mocked(ratesApi.listRates).mockResolvedValue(populatedResult)
+    vi.mocked(settingsApi.getSetting).mockResolvedValue(notConfiguredSetting)
+
+    render(<MileageRatesPage />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-current-value')).not.toBeNull()
+    })
+    expect(screen.getByTestId('accounting-email-current-value').textContent).toBe('Not configured')
+    expect(screen.queryByTestId('accounting-email-history')).toBeNull()
+    expect(screen.getByText('No changes recorded yet.')).not.toBeNull()
+  })
+
+  it('saves a valid email via settingsApi.putSetting and updates the shown value (AC-1.2)', async () => {
+    vi.mocked(adminApi.getMe).mockResolvedValue(settingsManagePermissions)
+    vi.mocked(ratesApi.listRates).mockResolvedValue(populatedResult)
+    vi.mocked(settingsApi.getSetting).mockResolvedValue(notConfiguredSetting)
+    vi.mocked(settingsApi.putSetting).mockResolvedValue({
+      ...configuredSetting,
+      value: 'new-accounting@welld.ch',
+      history: [
+        ...notConfiguredSetting.history,
+        { value: 'new-accounting@welld.ch', changedAt: '2026-07-22T10:00:00.000Z', changedByEmail: 'me@welld.ch' },
+      ],
+    })
+
+    render(<MileageRatesPage />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-input')).not.toBeNull()
+    })
+
+    fireEvent.change(screen.getByTestId('accounting-email-input'), {
+      target: { value: 'new-accounting@welld.ch' },
+    })
+    fireEvent.click(screen.getByTestId('accounting-email-save'))
+
+    await waitFor(() => {
+      expect(settingsApi.putSetting).toHaveBeenCalledWith(ACCOUNTING_DISTRIBUTION_EMAIL_KEY, 'new-accounting@welld.ch')
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-current-value').textContent).toBe('new-accounting@welld.ch')
+    })
+  })
+
+  it('a 422 on save shows the inline error and leaves the shown value unchanged (AC-1.3)', async () => {
+    vi.mocked(adminApi.getMe).mockResolvedValue(settingsManagePermissions)
+    vi.mocked(ratesApi.listRates).mockResolvedValue(populatedResult)
+    vi.mocked(settingsApi.getSetting).mockResolvedValue(configuredSetting)
+    vi.mocked(settingsApi.putSetting).mockRejectedValue(
+      new SettingsApiError({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: 'value must be a well-formed email address',
+      }),
+    )
+
+    render(<MileageRatesPage />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-input')).not.toBeNull()
+    })
+
+    fireEvent.change(screen.getByTestId('accounting-email-input'), { target: { value: 'not-an-email' } })
+    fireEvent.click(screen.getByTestId('accounting-email-save'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-error')).not.toBeNull()
+    })
+    expect(screen.getByTestId('accounting-email-error').textContent).toBe('value must be a well-formed email address')
+    // The shown current value is untouched — nothing was persisted.
+    expect(screen.getByTestId('accounting-email-current-value').textContent).toBe('accounting@welld.ch')
+  })
+
+  it('clears the setting via the Clear action (AC-1.4)', async () => {
+    vi.mocked(adminApi.getMe).mockResolvedValue(settingsManagePermissions)
+    vi.mocked(ratesApi.listRates).mockResolvedValue(populatedResult)
+    vi.mocked(settingsApi.getSetting).mockResolvedValue(configuredSetting)
+    vi.mocked(settingsApi.putSetting).mockResolvedValue(notConfiguredSetting)
+
+    render(<MileageRatesPage />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-clear')).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByTestId('accounting-email-clear'))
+
+    await waitFor(() => {
+      expect(settingsApi.putSetting).toHaveBeenCalledWith(ACCOUNTING_DISTRIBUTION_EMAIL_KEY, null)
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('accounting-email-current-value').textContent).toBe('Not configured')
+    })
+  })
+
+  it('is hidden entirely when getMe() lacks settings:read (AC-3.2)', async () => {
+    vi.mocked(adminApi.getMe).mockResolvedValue(managePermissions)
+    vi.mocked(ratesApi.listRates).mockResolvedValue(populatedResult)
+
+    render(<MileageRatesPage />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rates-table-welld_ch')).not.toBeNull()
+    })
+    expect(screen.queryByTestId('accounting-email-panel')).toBeNull()
+    expect(settingsApi.getSetting).not.toHaveBeenCalled()
   })
 })
