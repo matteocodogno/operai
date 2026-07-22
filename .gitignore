@@ -6,3 +6,7 @@
 # WellForge: transient token-event log (semantic run traces *.json ARE committed)
 .forge/runs/*.jsonl
 .claude/worktrees/
+
+# Changesets tooling at the repo root (root pnpm-lock.yaml IS committed)
+/node_modules/
+.changeset/.status.json

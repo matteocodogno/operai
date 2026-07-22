@@ -58,7 +58,7 @@ operai/
 │
 ├── docs/adr/            # Architecture Decision Records (0001–0022; see ## Architecture decisions)
 ├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
-├── mise.toml            # Node 24, corepack-managed pnpm; `mise run release`
+├── mise.toml            # Node 24, corepack-managed pnpm; `mise run changeset` / `release:version` / `release:tag`
 └── specs/               # Spec-driven workflow (see below)
 ```
 
@@ -225,10 +225,10 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 ### Git
 - Branch naming: `feat/`, `fix/`, `refactor/`, `chore/`
 - Commit style: Conventional Commits (`feat: add AI cost column to summary`)
-- **Integrating a feature branch: prefer `git merge --ff-only` or `git merge --squash`** so history stays linear and every commit on `main` is a Conventional Commit. Avoid `--no-ff` merge commits — a `Merge branch …` message is NOT a Conventional Commit and just adds noise. If a merge commit is genuinely unavoidable, give it a conventional subject (`chore(merge): …`); merge commits are in any case **exempt** from the convention and are **ignored by release-it/conventional-changelog** when the CHANGELOG is built (they never produce an entry), so they never affect a release.
+- **Integrating a feature branch: prefer `git merge --ff-only` or `git merge --squash`** so history stays linear and every commit on `main` is a Conventional Commit. Avoid `--no-ff` merge commits — a `Merge branch …` message is NOT a Conventional Commit and just adds noise. If a merge commit is genuinely unavoidable, give it a conventional subject (`chore(merge): …`). (Changelogs come from **Changesets**, not from commit messages — see below — so commit style no longer affects releases; keep it clean for history's sake anyway.)
 - `main` is always deployable
 - A pre-commit hook runs gitleaks; 1Password references are allowlisted in `.gitleaksignore`
-- Releases: `mise run release` (release-it — version bump + CHANGELOG from Conventional Commits)
+- **Versioning & releases: [Changesets](https://github.com/changesets/changesets), independent per-app SemVer + an aggregate `operai` umbrella version** (see `.changeset/README.md`). Each app (`@operai/auth`, `@operai/refund-ui`, …) is versioned on its own; the root `operai` version is bumped by the **largest** per-app bump in each release. Flow (all local, `mise`-driven): when a feature lands, record intent with **`mise run changeset`** (pick the affected app(s) + patch/minor/major, commit the `.changeset/*.md` with the feature — a cross-app change selects BOTH apps in one changeset, since the apps aren't npm-linked). To release: **`mise run release:version`** (applies pending changesets → per-app version bumps + `CHANGELOG.md`, then the umbrella `operai` bump + root `CHANGELOG.md`; commit these), then **`mise run release:tag`** (per-app `@operai/x@a.b.c` + `operai@a.b.c` git tags) and `git push --follow-tags`. Nothing is published to npm (all apps are `private`). Run `pnpm install` at the repo **root** once so `@changesets/cli` is available; the root `package.json`'s `workspaces` field is npm-style **on purpose** (pnpm ignores it → per-app installs and the per-app Vercel/Railway deploys are untouched; it only lets Changesets enumerate the apps).
 
 ### Frontend
 - **All files must be TypeScript** (`.ts` or `.tsx`) — never create `.js` or `.jsx` files

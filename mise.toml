@@ -7,9 +7,21 @@ postinstall = "corepack enable pnpm && corepack use pnpm@latest-10"
 [settings]
 experimental = true
 
-[tasks.release]
-description = "Cut a release (conventional-changelog, git tag, GitHub release)"
-run = "pnpm --package=release-it@^17 --package=@release-it/conventional-changelog@^8 dlx release-it"
+# --- Release (Changesets — independent per-app SemVer + an aggregate `operai`
+# umbrella version). See .changeset/README.md. Run `pnpm install` at the repo
+# ROOT once so `@changesets/cli` is available (pnpm ignores the root's
+# npm-style `workspaces`, so per-app installs/deploys are untouched). ---
+[tasks.changeset]
+description = "Record a changeset (which app(s) bump + why) — run when a feature lands"
+run = "pnpm exec changeset"
+
+[tasks."release:version"]
+description = "Apply pending changesets: bump each app + the umbrella operai version + CHANGELOGs"
+run = "node scripts/version.mjs"
+
+[tasks."release:tag"]
+description = "Tag a versioned+committed release (per-app + operai@x.y.z); review, then git push --follow-tags"
+run = "node scripts/tag.mjs"
 
 # Run the WHOLE Operai suite locally (Module Federation, specs/003 + specs/005
 # + specs/007): Postgres + MinIO (local S3 for refund receipts) + all FOUR

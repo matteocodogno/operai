@@ -1,0 +1,25 @@
+{
+  "name": "operai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Operai — wellD's AI-assisted consulting toolsuite (EstimAI + refund + admin + notify). This root holds the umbrella version + Changesets release tooling ONLY; each app (auth/estimai-api/notify-api/refund-api/shell/estimai-ui/refund-ui/notify-ui/admin-ui) is versioned independently and installed/built on its own (frontends via pnpm, backends via Bun). The `workspaces` field below is npm-style ON PURPOSE: pnpm ignores it (pnpm needs pnpm-workspace.yaml), so per-app installs and the per-app Vercel/Railway deploys are unchanged — it exists only so Changesets can enumerate the packages.",
+  "workspaces": [
+    "auth",
+    "estimai-api",
+    "notify-api",
+    "refund-api",
+    "shell",
+    "estimai-ui",
+    "refund-ui",
+    "notify-ui",
+    "admin-ui"
+  ],
+  "scripts": {
+    "changeset": "changeset",
+    "release:version": "node scripts/version.mjs",
+    "release:tag": "node scripts/tag.mjs"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.28.1"
+  }
+}
