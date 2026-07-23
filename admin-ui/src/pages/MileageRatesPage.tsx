@@ -541,9 +541,8 @@ export default function MileageRatesPage() {
             Accounting distribution email
           </h2>
           <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
-            The single mailbox the compiled monthly batch email (specs/008) is sent to. Clearing it
-            blocks the next send until it's set again — compiling and marking a batch as paid keep
-            working either way.
+            The email address that receives each monthly refund batch. Leave it blank to pause
+            sending.
           </p>
 
           <div className="mt-4">
@@ -593,7 +592,7 @@ export default function MileageRatesPage() {
                         placeholder="accounting@welld.ch"
                         data-testid="accounting-email-input"
                         disabled={emailSaving}
-                        className="text-sm py-1.5 px-2 border"
+                        className="w-72 max-w-full text-sm py-1.5 px-2 border rounded"
                         style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--bg)' }}
                       />
                       {emailFormError && (
