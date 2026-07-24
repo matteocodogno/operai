@@ -89,5 +89,9 @@ console.log(`API docs    → http://localhost:${env.PORT}/docs`);
 
 export default {
   port: env.PORT,
+  // Railway private networking is IPv6-only — bind to :: there so peer
+  // services can reach us over *.railway.internal. Off Railway (local dev),
+  // keep Bun's default (IPv4 0.0.0.0) to avoid IPv4-localhost edge cases.
+  ...(process.env["RAILWAY_PRIVATE_DOMAIN"] ? { hostname: "::" } : {}),
   fetch: app.fetch,
 };

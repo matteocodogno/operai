@@ -475,6 +475,59 @@ if `true`).
 
 ## Variable reference
 
+### Private networking & shared variables (the Layer-2 contract)
+
+All four backends are services in ONE Railway project/environment, so they talk
+to each other over Railway **private networking**. Getting these three buckets
+right is what removes the recurring "localhost in prod / missing origin"
+401·503·CORS class of bug. **Rule of thumb: a *call* between backends uses
+internal DNS; a *claim* or a *browser-facing* URL stays public.**
+
+**① Internal-DNS URLs** — one backend *calling* another. Use the target's
+private domain over **plain `http://`** (the private net carries no TLS), on the
+target's listen port. Each `src/index.ts` binds to IPv6 `::` when Railway's
+`RAILWAY_PRIVATE_DOMAIN` is present (handled in code) — that's what makes
+`*.railway.internal` reachable; without it Bun binds IPv4 `0.0.0.0` and internal
+calls silently fail.
+
+| Var | Owner(s) | Value |
+|---|---|---|
+| `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://auth.railway.internal:3001/auth/jwks` |
+| `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call) | `http://auth.railway.internal:3001` |
+| `NOTIFY_INTERNAL_URL` | auth, refund-api | `http://notify-api.railway.internal:8081` |
+
+Ports are each service's own `PORT` default (auth 3001, estimai-api 8080,
+notify-api 8081, refund-api 8082). Railway reference-variable form
+`http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:3001` also works and avoids hostname typos.
+
+**② Public — MUST stay the public URL (the trap).** These are identity *claims*
+or *browser-facing* URLs, not backend calls — repoint them at internal DNS and
+things break silently:
+
+| Var | Owner(s) | Why it stays public |
+|---|---|---|
+| `AUTH_ISSUER` | estimai-api, notify-api, refund-api | The JWT **`iss` claim**, string-compared at verify time (`jwt.middleware.ts` `issuer: env.AUTH_ISSUER`) — must equal auth's public `BETTER_AUTH_URL`. Internal DNS here → **every token rejected 401**. |
+| `UI_HOME_URL` | auth | Browser post-login redirect. |
+| `REFUND_APP_BASE_URL` | refund-api | Deep-link base opened in the recipient's browser. |
+| `ALLOWED_ORIGINS` | all | Browser Origins (the frontends' public URLs). |
+
+**③ Shared variables — define ONCE at the Railway *project* level, reference
+with `${{shared.NAME}}`.** These are byte-for-byte identical across services
+today, copied by hand — the source of drift (a mismatched `AUTH_AUDIENCE` is a
+suite-wide 401):
+
+| Var | Shared by |
+|---|---|
+| `AUTH_AUDIENCE` | auth + all 3 resource servers (ADR-0010) |
+| `AUTH_ISSUER` | all 3 resource servers (same public value) |
+| `NOTIFY_INTERNAL_TOKEN` | auth + refund-api + notify-api (secret; ADR-0011/0017) |
+
+Set each as a Railway **Shared Variable** once; each service then references
+`${{shared.AUTH_AUDIENCE}}` etc. — one place to change, no hand-copying.
+
+The per-service tables below reflect these conventions (a URL marked *internal*
+follows bucket ①).
+
 ### `auth` service (Railway)
 
 | Variable | Value / source | Secret |
@@ -500,9 +553,9 @@ if `true`).
 |---|---|
 | `DATABASE_URL` | `…@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/estimai` |
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` |
-| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) |
-| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (**not** `/.well-known/jwks.json`) |
-| `AUTH_AUDIENCE` | **NEW (ADR-0010).** Same value as `auth.AUTH_AUDIENCE` and `notify-api.AUTH_AUDIENCE` — `jwtVerify` pins `audience`; a token with a missing/wrong `aud` is rejected 401. | no |
+| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`; **public** claim — bucket ②; use `${{shared.AUTH_ISSUER}}`) |
+| `AUTH_JWKS_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001/auth/jwks` (**not** the public `<AUTH_URL>`, **not** `/.well-known/jwks.json`) |
+| `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — same value as every service; `jwtVerify` pins `audience`; a token with a missing/wrong `aud` is rejected 401. | no |
 | `NODE_ENV` | `production` · `MAX_ESTIMATE_BYTES`/`MAX_IMPORT_REQUEST_BYTES` optional (defaults) |
 
 ### `notify-api` service (Railway) — NEW (specs/005-notification-center)
@@ -511,9 +564,9 @@ if `true`).
 |---|---|---|
 | `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/notify` — **its own logical DB, `notify`, not `estimai`** | yes |
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin) — also what the SSE stream's `Access-Control-Allow-Origin` echoes | no |
-| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (same endpoint `estimai-api` uses — **not** `/.well-known/jwks.json`) | no |
-| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) | no |
-| `AUTH_AUDIENCE` | **NEW (ADR-0010).** Byte-for-byte identical to `auth.AUTH_AUDIENCE` and `estimai-api.AUTH_AUDIENCE` — `notify-api` is the suite's first real second JWKS resource server, so a drifted value here either rejects everything (401) or (worse, if unset elsewhere) allows cross-service token replay. | no |
+| `AUTH_JWKS_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001/auth/jwks` (same endpoint every resource server uses — **not** the public `<AUTH_URL>`, **not** `/.well-known/jwks.json`) | no |
+| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`; **public** claim — bucket ②; `${{shared.AUTH_ISSUER}}`) | no |
+| `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — byte-for-byte identical suite-wide; a drifted value here either rejects everything (401) or (worse, if unset elsewhere) allows cross-service token replay. | no |
 | `MAX_STREAM_DURATION` | Seconds an SSE connection may stay open before the server forces a reconnect (ADR-0008). Default `1800` (~30 min). | no |
 | `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/006, ADR-0011).** Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical. **Unconditionally required** (no default; `notify-api` refuses to start without it, min 32 chars) — unlike `EMAIL_ENABLED`/`RESEND_*` below, there is no "off" mode. Validated by `internalTokenMiddleware` against `X-Internal-Token` on `POST /system/emails` **only** — never accepted on any `jwtMiddleware` route. | **yes** |
 | `EMAIL_ENABLED` | **NEW (specs/006).** `"true"` (exact string, case-insensitive) to make real Resend calls; any other value (including unset) stubs the send and still records an `EmailDelivery` row. Default `false` — safe for first deploys before the Resend domain is verified (see § Resend domain setup). | no |
@@ -536,9 +589,10 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 |---|---|---|
 | `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/refund` — **its own logical DB, `refund`** | yes |
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin) **+ admin-ui's own origin** (specs/009-mileage-rate, T8: `https://admin.operai.welld.io` — or its Preview URL, see § Phase 3 — for the `/rates` Mileage Rates screen's direct cross-origin call; composed-shell traffic is already covered by the shell origin alone) | no |
-| `AUTH_JWKS_URL` | `<AUTH_URL>/auth/jwks` (same endpoint every resource server uses — **not** `/.well-known/jwks.json`) | no |
-| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`) — also the base URL `refund-api`'s `authzMiddleware` (T6) builds `GET /authz/resolve` against; no separate env var for that call | no |
-| `AUTH_AUDIENCE` | Byte-for-byte identical to `auth.AUTH_AUDIENCE`, `estimai-api.AUTH_AUDIENCE`, `notify-api.AUTH_AUDIENCE` — `refund-api` is the suite's THIRD JWKS resource server on this shared value. | no |
+| `AUTH_JWKS_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001/auth/jwks` (same endpoint every resource server uses — **not** the public `<AUTH_URL>`, **not** `/.well-known/jwks.json`) | no |
+| `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`; **public** claim — bucket ②, `${{shared.AUTH_ISSUER}}`). Pinned as the JWT `iss` in `jwt.middleware.ts`. NOTE: `refund-api`'s `GET /authz/resolve` call does **not** use this — it uses the separate `AUTH_BASE_URL` below (`resolveClient.ts`). | no |
+| `AUTH_BASE_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001` — the base `refund-api`'s `authzMiddleware`/`resolveClient.ts` builds `GET /authz/resolve` against (ADR-0014). A *call*, so internal DNS; distinct from `AUTH_ISSUER`. (This is the var that was `localhost` in prod → 503.) | no |
+| `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — byte-for-byte identical suite-wide; `refund-api` is the THIRD JWKS resource server on this shared value. | no |
 | `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address (e.g. `http://notify-api.railway.internal:8081`) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
 | `NOTIFY_INTERNAL_TOKEN` | Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN`/`notify-api.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical (ADR-0017: now a THIRD caller sharing this secret). Consumed starting T13, not this bootstrap. | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR-0016) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
