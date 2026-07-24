@@ -492,13 +492,21 @@ calls silently fail.
 
 | Var | Owner(s) | Value |
 |---|---|---|
-| `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://auth.railway.internal:3001/auth/jwks` |
-| `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call) | `http://auth.railway.internal:3001` |
-| `NOTIFY_INTERNAL_URL` | auth, refund-api | `http://notify-api.railway.internal:8081` |
+| `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` |
+| `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call) | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` |
+| `NOTIFY_INTERNAL_URL` | auth, refund-api | `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` |
 
-Ports are each service's own `PORT` default (auth 3001, estimai-api 8080,
-notify-api 8081, refund-api 8082). Railway reference-variable form
-`http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:3001` also works and avoids hostname typos.
+**Use the Railway reference-variable form above (`${{svc.PORT}}`) — do NOT
+hardcode the port.** A service listens on exactly ONE port (its `PORT`), and it
+is the SAME for public and private traffic. The literal numbers in
+`src/lib/env.ts` (auth 3001, estimai-api 8080, notify-api 8081, refund-api 8082)
+are only the **code defaults** that apply when `PORT` is unset — Railway may set
+a different value (e.g. notify-api's public domain targets **8080**, so its
+`PORT` is 8080, *not* the code default 8081; hardcoding `:8081` internally would
+fail to connect). For `${{svc.PORT}}` to resolve, **set `PORT` explicitly as a
+variable on each backend** (any consistent value), then reference it everywhere —
+the port is then unambiguous and can never drift from what the service actually
+binds.
 
 **② Public — MUST stay the public URL (the trap).** These are identity *claims*
 or *browser-facing* URLs, not backend calls — repoint them at internal DNS and
@@ -545,7 +553,8 @@ follows bucket ①).
 | `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/006, ADR-0011).** Shared secret sent as `X-Internal-Token`; byte-for-byte identical to `notify-api.NOTIFY_INTERNAL_TOKEN`. 1Password → `AIScream / OperAI - NOTIFY_INTERNAL_TOKEN` (≥32 random chars). A leaked value = arbitrary email over wellD's Resend domain (Risk R2) — never logged, rotate + redeploy both services together if compromised. | **yes** |
 | `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
 | `NODE_ENV` | `production` | no |
-| `PORT` / `ENABLE_TEST_AUTH` / `BETTER_AUTH_TRUSTED_ORIGINS` | **leave UNSET** (see Phase 1) | — |
+| `PORT` | **set explicitly** (any consistent value, e.g. `8080`) so private-networking callers can reference `${{auth.PORT}}` (see § Private networking) — the service binds `env.PORT`, default 3001 if unset, but leaving it unset makes `${{auth.PORT}}` unresolvable | no |
+| `ENABLE_TEST_AUTH` / `BETTER_AUTH_TRUSTED_ORIGINS` | **leave UNSET** (see Phase 1) | — |
 
 ### `estimai-api` service (Railway)
 
