@@ -23,6 +23,14 @@ run = "node scripts/version.mjs"
 description = "Tag a versioned+committed release (per-app + operai@x.y.z); review, then git push --follow-tags"
 run = "node scripts/tag.mjs"
 
+# --- env-doctor: validate the suite's cross-service env contract BEFORE deploy
+# (Phase 1). Usage: `mise run env:doctor -- --env production --dir ./resolved`
+# where <dir> holds one <service>.env per service (e.g. `op inject`ed). With no
+# --dir it reads each <service>/.env locally. See tools/env-doctor/README.md. ---
+[tasks."env:doctor"]
+description = "Check cross-service env vars for a target env (shared/internal/public/CORS invariants)"
+run = "bun tools/env-doctor/index.ts"
+
 # Run the WHOLE Operai suite locally (Module Federation, specs/003 + specs/005
 # + specs/007): Postgres + MinIO (local S3 for refund receipts) + all FOUR
 # backends + the four tool frontends, one command. Ports: auth 3001,
