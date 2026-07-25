@@ -140,5 +140,14 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
 
 /** A value using a Railway reference (e.g. `${{auth.PORT}}`) — self-consistent by construction, so shape checks defer. */
 export const isRailwayRef = (v: string): boolean => v.includes("${{");
-/** A value still holding an unresolved 1Password reference (`op://…`) — resolve via `op inject` first. */
+/**
+ * A value that stands in for a secret resolved out-of-band from 1Password:
+ * either an already-`op://` reference, or the committed-template `${OP:vault/item/field}`
+ * sentinel (a deliberately non-`op://` spelling so gitleaks' 1password-reference
+ * rule doesn't flag committed template files — see resolve.ts). Its concrete
+ * value is unknowable offline, so value-shape checks skip it; `--resolve` turns
+ * `${OP:…}` into a real `op inject` and proves it exists.
+ */
+export const isSecretRef = (v: string): boolean => v.startsWith("op://") || v.startsWith("${OP:");
+/** @deprecated use {@link isSecretRef} — kept as the narrower `op://`-only predicate. */
 export const isOpRef = (v: string): boolean => v.startsWith("op://");

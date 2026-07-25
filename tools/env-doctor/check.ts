@@ -15,10 +15,13 @@ import {
   PUBLIC_URL_VARS,
   REQUIRED_KEYS,
   SHARED_VARS,
-  isOpRef,
   isRailwayRef,
+  isSecretRef,
   type ServiceName,
 } from "./manifest";
+import type { ServiceEnv } from "./parse";
+
+export type { ServiceEnv };
 
 export type Level = "ok" | "warn" | "error";
 
@@ -29,13 +32,21 @@ export interface Finding {
   readonly fix?: string;
 }
 
-export type ServiceEnv = Record<string, string>;
 export type SuiteEnv = Partial<Record<ServiceName, ServiceEnv>>;
 
 export interface CheckOptions {
   readonly env: string;
   /** production/preview are prod-like: enforce https-public and railway.internal. Local relaxes those. */
   readonly isProdLike: boolean;
+  /**
+   * Whether the values were supposed to be fully resolved before checking
+   * (a pre-resolved `--dir`, or a `--resolve`d template run). When true, a
+   * lingering secret ref (`op://…`/`${OP:…}`) is a WARN — you claimed these
+   * were resolved but one isn't. When false (offline template mode, the
+   * default one-command run), secret refs are expected and accepted silently.
+   * Defaults to true to preserve Phase-1 `--dir` semantics.
+   */
+  readonly resolved?: boolean;
 }
 
 const XS = "cross-service";
@@ -57,8 +68,9 @@ function parseOrigins(v: string): string[] {
 }
 
 // ── Layer A: per-service required-key presence ──────────────────────────────
-function checkRequiredKeys(suite: SuiteEnv): Finding[] {
+function checkRequiredKeys(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   const out: Finding[] = [];
+  const resolved = opts.resolved ?? true;
   for (const svc of BACKENDS) {
     const env = suite[svc];
     if (!env) continue; // service not in scope for this run
@@ -66,12 +78,15 @@ function checkRequiredKeys(suite: SuiteEnv): Finding[] {
       const v = env[key];
       if (v === undefined || v === "") {
         out.push({ scope: svc, level: "error", message: `${key} is missing`, fix: `Set ${key} on ${svc}.` });
-      } else if (isOpRef(v)) {
+      } else if (isSecretRef(v) && resolved) {
+        // Values were meant to be resolved (pre-resolved --dir, or --resolve),
+        // yet this one still points at a secret store. In offline template mode
+        // (resolved=false) an unresolved secret ref is expected, so we stay quiet.
         out.push({
           scope: svc,
           level: "warn",
-          message: `${key} is an unresolved 1Password reference (${v})`,
-          fix: `Resolve it first (\`op inject\`) so the doctor can validate the real value.`,
+          message: `${key} is still an unresolved secret reference (${v})`,
+          fix: `Run with --resolve (or resolve it via \`op inject\`) so the doctor sees the real value.`,
         });
       }
     }
@@ -85,16 +100,32 @@ function checkSharedVars(suite: SuiteEnv): Finding[] {
   for (const { name, services } of SHARED_VARS) {
     const present = services
       .map((svc) => ({ svc, val: suite[svc]?.[name] }))
-      .filter((x) => x.val !== undefined && x.val !== "");
+      .filter((x): x is { svc: ServiceName; val: string } => x.val !== undefined && x.val !== "");
     if (present.length < 2) continue; // nothing to compare (missing is caught by Layer A)
-    const distinct = [...new Set(present.map((x) => x.val))];
-    if (distinct.length > 1) {
-      const detail = present.map((x) => `${x.svc}=${x.val}`).join(", ");
+
+    // A Railway reference resolves at deploy time to whatever the referenced
+    // shared var / secret holds — we can't know that offline, so it can't be
+    // compared byte-for-byte against a literal. Compare the concrete LITERALS;
+    // treat refs as "assumed to resolve to the shared value".
+    const literals = present.filter((x) => !isRailwayRef(x.val) && !isSecretRef(x.val));
+    const distinctLiterals = [...new Set(literals.map((x) => x.val))];
+    const detail = present.map((x) => `${x.svc}=${x.val}`).join(", ");
+
+    if (distinctLiterals.length > 1) {
       out.push({
         scope: XS,
         level: "error",
         message: `${name} is not identical across ${services.join(", ")} (${detail})`,
         fix: `Make ${name} one value everywhere — ideally a Railway project Shared Variable referenced as \${{shared.${name}}}.`,
+      });
+    } else if (distinctLiterals.length === 1 && literals.length < present.length) {
+      // Some services use a literal and others a ref — the ref MIGHT resolve to
+      // the same thing, but a mixed shape is a drift risk we can't verify offline.
+      out.push({
+        scope: XS,
+        level: "warn",
+        message: `${name} mixes a literal and a reference across ${services.join(", ")} (${detail}) — can't verify they match offline`,
+        fix: `Use the SAME form everywhere (ideally \${{shared.${name}}} on all), or --resolve to compare real values.`,
       });
     }
   }
@@ -106,10 +137,12 @@ function checkIssuerConsistency(suite: SuiteEnv): Finding[] {
   const out: Finding[] = [];
   const authIssuer = suite[ISSUER.authService]?.[ISSUER.authVar];
   if (!authIssuer) return out; // missing caught by Layer A
+  if (isRailwayRef(authIssuer) || isSecretRef(authIssuer)) return out; // auth side is a ref → nothing to compare against
   const norm = (s: string) => s.replace(/\/$/, "");
   for (const svc of ISSUER.resourceServers) {
     const iss = suite[svc]?.[ISSUER.issuerVar];
     if (iss === undefined || iss === "") continue;
+    if (isRailwayRef(iss) || isSecretRef(iss)) continue; // ref → assumed to resolve to auth's value
     if (norm(iss) !== norm(authIssuer)) {
       out.push({
         scope: XS,
@@ -128,7 +161,7 @@ function checkInternalUrls(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   for (const { name, services, target } of INTERNAL_URL_VARS) {
     for (const svc of services) {
       const v = suite[svc]?.[name];
-      if (v === undefined || v === "" || isOpRef(v)) continue;
+      if (v === undefined || v === "" || isSecretRef(v)) continue;
       if (isRailwayRef(v)) continue; // ${{svc.PORT}} form — self-consistent, the recommended shape
       const url = parseUrl(v);
       if (!url) {
@@ -173,7 +206,7 @@ function checkPublicUrls(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   for (const { name, services } of PUBLIC_URL_VARS) {
     for (const svc of services) {
       const v = suite[svc]?.[name];
-      if (v === undefined || v === "" || isOpRef(v) || isRailwayRef(v)) continue;
+      if (v === undefined || v === "" || isSecretRef(v) || isRailwayRef(v)) continue;
       const url = parseUrl(v);
       if (!url) {
         out.push({ scope: svc, level: "error", message: `${name} is not a valid URL (${v})` });
@@ -198,7 +231,7 @@ function checkCors(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   const origins = ORIGINS[opts.env] ?? {};
   for (const { backend, mustAllow } of CORS_REQUIREMENTS) {
     const raw = suite[backend]?.["ALLOWED_ORIGINS"];
-    if (raw === undefined || raw === "" || isOpRef(raw)) continue;
+    if (raw === undefined || raw === "" || isSecretRef(raw) || isRailwayRef(raw)) continue;
     const allowed = parseOrigins(raw);
     for (const fe of mustAllow) {
       const feOrigin = origins[fe];
@@ -227,7 +260,7 @@ function checkCors(suite: SuiteEnv, opts: CheckOptions): Finding[] {
 
 export function checkSuite(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   return [
-    ...checkRequiredKeys(suite),
+    ...checkRequiredKeys(suite, opts),
     ...checkSharedVars(suite),
     ...checkIssuerConsistency(suite),
     ...checkInternalUrls(suite, opts),

@@ -136,12 +136,52 @@ describe("env-doctor checker", () => {
     expect(errText(checkSuite(s, PROD))).toContain("AUTH_BASE_URL is missing");
   });
 
-  test("an unresolved op:// reference → warning (not error)", () => {
+  test("a lingering secret reference in a supposedly-resolved suite → warning (not error)", () => {
     const s = validSuite();
     // Assembled so the literal `op://…` doesn't appear in source (gitleaks' 1password-reference rule).
     s.auth!.NOTIFY_INTERNAL_TOKEN = "op:" + "//Operai-Prod/notify-token/password";
+    const f = checkSuite(s, PROD); // PROD ⇒ resolved defaults true
+    expect(warns(f).some((w) => w.message.includes("unresolved secret reference"))).toBe(true);
+    expect(errs(f)).toEqual([]);
+  });
+
+  test("offline template mode (resolved:false): a ${OP:…} secret is accepted, no warning", () => {
+    const s = validSuite();
+    s.auth!.NOTIFY_INTERNAL_TOKEN = "${OP:AIScream/OperAI - NOTIFY_INTERNAL_TOKEN/password}";
+    s["notify-api"]!.NOTIFY_INTERNAL_TOKEN = "${OP:AIScream/OperAI - NOTIFY_INTERNAL_TOKEN/password}";
+    s["refund-api"]!.NOTIFY_INTERNAL_TOKEN = "${OP:AIScream/OperAI - NOTIFY_INTERNAL_TOKEN/password}";
+    const f = checkSuite(s, { env: "production", isProdLike: true, resolved: false });
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("shared vars as ${{shared.X}} refs across all services → no drift error (ref form is drift-proof)", () => {
+    const s = validSuite();
+    for (const svc of ["auth", "estimai-api", "notify-api", "refund-api"] as const) {
+      s[svc]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    }
+    for (const svc of ["auth", "notify-api", "refund-api"] as const) {
+      s[svc]!.NOTIFY_INTERNAL_TOKEN = "${{shared.NOTIFY_INTERNAL_TOKEN}}";
+    }
     const f = checkSuite(s, PROD);
-    expect(warns(f).some((w) => w.message.includes("1Password reference"))).toBe(true);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("AUTH_ISSUER as a ${{shared.AUTH_ISSUER}} ref → issuer-consistency check defers (no false error)", () => {
+    const s = validSuite();
+    s["refund-api"]!.AUTH_ISSUER = "${{shared.AUTH_ISSUER}}"; // auth.BETTER_AUTH_URL stays a literal
+    const f = checkSuite(s, PROD);
+    expect(errs(f)).toEqual([]);
+  });
+
+  test("a shared var mixing a literal and a ref → warning (can't verify offline), not a hard error", () => {
+    const s = validSuite();
+    s.auth!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}"; // ref …
+    // estimai/notify/refund keep the literal AUD → mixed shapes
+    const f = checkSuite(s, PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f).some((w) => w.message.includes("mixes a literal and a reference"))).toBe(true);
   });
 
   test("local env relaxes the prod-only shape checks (localhost is fine)", () => {
