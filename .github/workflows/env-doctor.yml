@@ -1,0 +1,50 @@
+# env-doctor — pre-deploy env-contract gate.
+#
+# This PR job is OFFLINE and needs NO secrets: it runs the tool's tests and
+# validates the committed per-env templates (the cross-service contract). It
+# catches a broken template / drifted invariant before merge.
+#
+# The LIVE check (diff the committed templates against what's actually deployed
+# on Railway) needs a RAILWAY_TOKEN and hits real infrastructure, so it is NOT
+# run on PRs. To add it as a pre-deploy gate, uncomment the `live` job below and
+# add a `RAILWAY_TOKEN` (project token) repository secret — see
+# tools/env-doctor/README.md § Phase 3.
+name: env-doctor
+
+on:
+  pull_request:
+    paths:
+      - "tools/env-doctor/**"
+      - "infra/**"
+  workflow_dispatch: {}
+
+jobs:
+  offline:
+    name: contract (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Test env-doctor
+        run: bun test tools/env-doctor/
+      - name: Validate the committed production templates
+        run: bun tools/env-doctor/index.ts --env production
+
+  # live:
+  #   name: contract (live — deployed values)
+  #   runs-on: ubuntu-latest
+  #   # Gate to pre-deploy contexts only (e.g. a deploy environment / manual dispatch).
+  #   if: ${{ github.event_name == 'workflow_dispatch' }}
+  #   env:
+  #     RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: oven-sh/setup-bun@v2
+  #       with:
+  #         bun-version: latest
+  #     - name: Install the Railway CLI
+  #       run: bun add -g @railway/cli
+  #     - name: Diff deployed config against the contract
+  #       run: bun tools/env-doctor/index.ts --env production --live

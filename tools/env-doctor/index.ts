@@ -4,9 +4,12 @@
  *
  *   mise run env:doctor -- --env production            # Phase 2: read committed templates
  *   mise run env:doctor -- --env production --resolve  # + resolve ${OP:…} via `op inject`
+ *   mise run env:doctor -- --env production --live      # Phase 3: check the DEPLOYED values (Railway)
  *   mise run env:doctor -- --env production --dir ./x  # Phase 1: pre-resolved <service>.env files
  *
  * Source precedence:
+ *   0. `--live`        — pull the ACTUAL deployed variables from Railway (Phase 3),
+ *                        run the invariants on them, and diff public literals vs the template.
  *   1. `--dir <path>`  — one pre-resolved `<service>.env` per service (Phase 1).
  *   2. `templates/<env>/` — committed per-env templates (Phase 2, the default);
  *      `--resolve` expands `${OP:…}` secrets through `op inject` in memory.
@@ -19,6 +22,7 @@ import { SERVICES, type ServiceName } from "./manifest";
 import { checkSuite, hasErrors, type Finding, type SuiteEnv } from "./check";
 import { parseEnvFile } from "./parse";
 import { hasTemplates, loadTemplateSuite } from "./resolve";
+import { diffLiteral, loadLiveSuite } from "./live";
 
 const C = {
   red: (s: string) => `\x1b[31m${s}\x1b[0m`,
@@ -28,16 +32,18 @@ const C = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
 };
 
-function parseArgs(argv: string[]): { env: string; dir: string | null; resolve: boolean } {
+function parseArgs(argv: string[]): { env: string; dir: string | null; resolve: boolean; live: boolean } {
   let env = "production";
   let dir: string | null = null;
   let resolve = false;
+  let live = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--env") env = argv[++i] ?? env;
     else if (argv[i] === "--dir") dir = argv[++i] ?? null;
     else if (argv[i] === "--resolve") resolve = true;
+    else if (argv[i] === "--live") live = true;
   }
-  return { env, dir, resolve };
+  return { env, dir, resolve, live };
 }
 
 /** Load pre-resolved `<service>.env` files from `dir` (or each service's own `<svc>/.env` when dir is null). */
@@ -66,7 +72,10 @@ function print(findings: Finding[], env: string, loaded: ServiceName[], skipped:
   const byScope = new Map<string, Finding[]>();
   for (const f of findings) (byScope.get(f.scope) ?? byScope.set(f.scope, []).get(f.scope)!).push(f);
 
-  const scopes = [...loaded, "cross-service"].filter((s) => byScope.has(s) || loaded.includes(s as ServiceName));
+  // Show every loaded service, plus any scope that has a finding (e.g. a live
+  // fetch that errored before its service could be "loaded"), plus cross-service.
+  const order = [...loaded, ...[...byScope.keys()].filter((s) => !loaded.includes(s as ServiceName)), "cross-service"];
+  const scopes = [...new Set(order)].filter((s) => byScope.has(s) || loaded.includes(s as ServiceName));
   for (const scope of scopes) {
     const fs = byScope.get(scope) ?? [];
     const errs = fs.filter((f) => f.level === "error");
@@ -89,7 +98,7 @@ function print(findings: Finding[], env: string, loaded: ServiceName[], skipped:
 }
 
 function main(): void {
-  const { env, dir, resolve } = parseArgs(process.argv.slice(2));
+  const { env, dir, resolve, live } = parseArgs(process.argv.slice(2));
   const isProdLike = env === "production" || env === "preview";
 
   let suite: SuiteEnv;
@@ -99,7 +108,20 @@ function main(): void {
   let source: string;
   const extra: Finding[] = [];
 
-  if (dir) {
+  if (live) {
+    // Phase 3: the ACTUAL deployed variables from Railway.
+    const r = loadLiveSuite(env);
+    suite = r.suite;
+    loaded = r.loaded;
+    skipped = r.skipped;
+    source = `railway live (${env})`;
+    for (const e of r.errors) extra.push({ scope: e.scope, level: "error", message: e.message });
+    // Diff public literals against the committed template, if one exists.
+    if (hasTemplates(env)) {
+      const tpl = loadTemplateSuite(env);
+      extra.push(...diffLiteral(tpl.suite, suite));
+    }
+  } else if (dir) {
     // Phase 1: caller-provided, already-resolved <service>.env files.
     ({ suite, loaded, skipped } = loadFromFiles(dir));
     source = `--dir ${dir}`;
@@ -118,7 +140,7 @@ function main(): void {
     source = "<service>/.env";
   }
 
-  if (loaded.length === 0) {
+  if (loaded.length === 0 && !live) {
     console.error(
       C.red(`\nenv:doctor: no env source found for "${env}".`) +
         `\n  Expected one of:` +

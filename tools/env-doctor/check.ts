@@ -6,6 +6,7 @@
  * that's `index.ts`'s job. This is the tested core.
  */
 
+import { createHash } from "node:crypto";
 import {
   BACKENDS,
   CORS_REQUIREMENTS,
@@ -17,6 +18,7 @@ import {
   SHARED_VARS,
   isRailwayRef,
   isSecretRef,
+  isSecretVar,
   type ServiceName,
 } from "./manifest";
 import type { ServiceEnv } from "./parse";
@@ -50,6 +52,13 @@ export interface CheckOptions {
 }
 
 const XS = "cross-service";
+
+/** Render a value for a finding message — secrets become a non-reversible fingerprint. */
+export function showValue(name: string, v: string): string {
+  if (!isSecretVar(name)) return v;
+  const fp = createHash("sha256").update(v).digest("hex").slice(0, 8);
+  return `<redacted sha256:${fp}>`;
+}
 
 function parseUrl(v: string): URL | null {
   try {
@@ -109,7 +118,7 @@ function checkSharedVars(suite: SuiteEnv): Finding[] {
     // treat refs as "assumed to resolve to the shared value".
     const literals = present.filter((x) => !isRailwayRef(x.val) && !isSecretRef(x.val));
     const distinctLiterals = [...new Set(literals.map((x) => x.val))];
-    const detail = present.map((x) => `${x.svc}=${x.val}`).join(", ");
+    const detail = present.map((x) => `${x.svc}=${showValue(name, x.val)}`).join(", ");
 
     if (distinctLiterals.length > 1) {
       out.push({

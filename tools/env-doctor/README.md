@@ -7,6 +7,7 @@ bisect" loop with a red ✗ and a one-line fix.
 ```bash
 mise run env:doctor -- --env production            # check the committed templates (offline, CI-safe)
 mise run env:doctor -- --env production --resolve  # also resolve ${OP:…} secrets via `op inject`
+mise run env:doctor -- --env production --live      # check the ACTUAL deployed values on Railway
 ```
 
 ## Where values come from (source precedence)
@@ -42,6 +43,43 @@ strings across services still prove the shared var references the same thing.
 `--resolve` adds one guarantee on top: the 1Password items actually **exist** and
 are non-empty (catches a typo'd vault path / an unpopulated prod vault).
 
+## `--live` — checking what's actually deployed (Phase 3)
+
+Templates catch *authoring* mistakes; they trust that what you committed is what
+you deployed. `--live` closes that gap — it pulls each backend's real variables
+from Railway (`railway variable list --service <svc> --environment <env> --json`)
+and does two things:
+
+1. **Runs the same cross-service invariants on the live values** — an audience
+   drift or a `localhost` that only exists in the dashboard is caught here.
+2. **Diffs the deployed public literals against the committed template** — e.g.
+   "the dashboard's `AUTH_ISSUER` no longer matches the contract". Railway refs
+   and `${OP:…}`/secret vars are skipped (no comparable literal); extra
+   Railway-injected keys are ignored.
+
+Requirements: the `railway` CLI **logged in** (`railway login`) with the project
+**linked** (`railway link`), or a `RAILWAY_TOKEN` in CI. The environment name
+(`production`/`preview`) is passed straight to `--environment`.
+
+**Secrets never leak.** `railway … --json` prints raw values; the doctor holds
+them only in memory, never writes them to disk, and never echoes the raw output.
+Any value that reaches a finding is run through `showValue()` — secret-typed vars
+(`manifest.ts` `SECRET_VARS`: tokens, `DATABASE_URL`, OAuth/JWT/Resend/S3 creds)
+become a `sha256:xxxx` fingerprint, so a drift is still visible (two different
+fingerprints) without exposing the secret.
+
+## CI gate
+
+`.github/workflows/env-doctor.yml` runs on PRs touching `tools/env-doctor/**` or
+`infra/**`:
+
+- **offline job (active, no secrets):** `bun test tools/env-doctor/` + the
+  offline template check — fails the PR if the committed contract is broken.
+- **live job (commented opt-in):** the `--live` diff against deployed values.
+  Uncomment it and add a `RAILWAY_TOKEN` repo secret to gate a pre-deploy /
+  manual-dispatch context. It's off by default because it needs a secret and
+  hits real infrastructure.
+
 ## What it checks
 
 Per-service (Layer A): required keys present (the criticals + invariant inputs;
@@ -75,11 +113,12 @@ WARN, not ERROR).
 
 | File | Role |
 |---|---|
-| `manifest.ts` | the contract (shared/internal/public vars, CORS, origins, ref predicates) |
-| `check.ts` | pure checker over a resolved suite → findings |
+| `manifest.ts` | the contract (shared/internal/public/secret vars, CORS, origins, ref predicates) |
+| `check.ts` | pure checker over a resolved suite → findings (+ secret redaction) |
 | `resolve.ts` | Phase 2 — load `templates/<env>/`, optional in-memory `op inject` |
+| `live.ts` | Phase 3 — pull deployed vars from Railway + literal-drift diff |
 | `parse.ts` | shared `KEY=VALUE` parser |
-| `index.ts` | CLI (source selection, `--resolve`, colored output) |
+| `index.ts` | CLI (source selection, `--resolve`, `--live`, colored output) |
 | `templates/<env>/*.env` | the committed per-env contract |
 | `*.test.ts` | `bun test tools/env-doctor/` |
 
@@ -88,6 +127,7 @@ WARN, not ERROR).
 - **Phase 1 (done):** the checker + manifest + CLI, offline.
 - **Phase 2 (done):** committed per-env templates + one-command run, resolving
   `${OP:…}` secrets through `op inject` in memory (`--resolve`).
-- **Phase 3:** live-diff against the Railway/Vercel APIs (catch dashboard drift —
-  the one thing a template can't, since it trusts the file mirrors reality) + a
-  CI gate on PRs / pre-deploy.
+- **Phase 3 (done):** `--live` diffs the deployed Railway values against the
+  contract (with secret redaction) + a PR CI gate. Vercel frontends aren't pulled
+  yet — the doctor has no frontend-env invariants, so it would be inert; add
+  frontend checks to the manifest first, then a `vercel env`-backed loader.

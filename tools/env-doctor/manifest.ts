@@ -138,6 +138,26 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   ],
 };
 
+/**
+ * Vars whose VALUES are secret and must never be printed. In `--live` mode the
+ * doctor holds real deployed values in memory; any value surfaced in a finding
+ * for one of these is redacted to a non-reversible fingerprint (so drift is
+ * still visible — two different fingerprints — without leaking the secret).
+ */
+export const SECRET_VARS: ReadonlySet<string> = new Set([
+  "BETTER_AUTH_SECRET",
+  "NOTIFY_INTERNAL_TOKEN",
+  "DATABASE_URL", // carries the Postgres password
+  "GOOGLE_CLIENT_SECRET",
+  "GITHUB_CLIENT_SECRET",
+  "JWT_PRIVATE_KEY",
+  "JWT_PUBLIC_KEY",
+  "RESEND_API_KEY",
+  "REFUND_S3_ACCESS_KEY_ID",
+  "REFUND_S3_SECRET_ACCESS_KEY",
+]);
+export const isSecretVar = (name: string): boolean => SECRET_VARS.has(name);
+
 /** A value using a Railway reference (e.g. `${{auth.PORT}}`) — self-consistent by construction, so shape checks defer. */
 export const isRailwayRef = (v: string): boolean => v.includes("${{");
 /**
