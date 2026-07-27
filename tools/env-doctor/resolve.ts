@@ -19,7 +19,8 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SERVICES, type ServiceName } from "./manifest";
@@ -48,21 +49,26 @@ export function toOpInjectTemplate(text: string): string {
 /** How a template blob gets its 1Password refs resolved. Injectable so tests never touch real `op`. */
 export type OpRunner = (opInjectTemplate: string) => { code: number; stdout: string; stderr: string };
 
-/** Default runner: pipe the template through the 1Password CLI (`op inject`), reading resolved output on stdout. */
+/** Default runner: resolve the template through the 1Password CLI (`op inject -i`), reading resolved output on stdout. */
 export const opInjectRunner: OpRunner = (opInjectTemplate) => {
-  // node:child_process `input` reliably feeds stdin (Bun.spawnSync's stdin buffer
-  // did not — `op inject` saw an empty stdin). `op inject` reads the template on
-  // stdin and writes the resolved result to stdout.
-  const proc = spawnSync("op", ["inject"], {
-    input: opInjectTemplate,
-    encoding: "utf8",
-    maxBuffer: 16 * 1024 * 1024,
-  });
-  return {
-    code: proc.status ?? 1,
-    stdout: proc.stdout ?? "",
-    stderr: proc.stderr ?? proc.error?.message ?? "",
-  };
+  // Use `op inject -i <file>` (op's canonical mode) rather than piping on stdin:
+  // Bun's spawnSync stdin delivery raced `op`'s stdin peek ("expected data on
+  // stdin but none found"). The temp file holds only op:// REFERENCES (no resolved
+  // secret), is written 0600, and is removed immediately; the RESOLVED values come
+  // back on stdout and stay in memory.
+  const dir = mkdtempSync(join(tmpdir(), "env-doctor-op-"));
+  const file = join(dir, "template");
+  try {
+    writeFileSync(file, opInjectTemplate, { mode: 0o600 });
+    const proc = spawnSync("op", ["inject", "-i", file], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+    return {
+      code: proc.status ?? 1,
+      stdout: proc.stdout ?? "",
+      stderr: proc.stderr ?? proc.error?.message ?? "",
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 };
 
 export interface ResolveResult {
