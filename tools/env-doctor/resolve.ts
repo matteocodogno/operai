@@ -18,6 +18,7 @@
  * secret references the same item.
  */
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,15 +50,18 @@ export type OpRunner = (opInjectTemplate: string) => { code: number; stdout: str
 
 /** Default runner: pipe the template through the 1Password CLI (`op inject`), reading resolved output on stdout. */
 export const opInjectRunner: OpRunner = (opInjectTemplate) => {
-  const proc = Bun.spawnSync(["op", "inject"], {
-    stdin: Buffer.from(opInjectTemplate),
-    stdout: "pipe",
-    stderr: "pipe",
+  // node:child_process `input` reliably feeds stdin (Bun.spawnSync's stdin buffer
+  // did not — `op inject` saw an empty stdin). `op inject` reads the template on
+  // stdin and writes the resolved result to stdout.
+  const proc = spawnSync("op", ["inject"], {
+    input: opInjectTemplate,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
   });
   return {
-    code: proc.exitCode ?? 1,
-    stdout: proc.stdout.toString(),
-    stderr: proc.stderr.toString(),
+    code: proc.status ?? 1,
+    stdout: proc.stdout ?? "",
+    stderr: proc.stderr ?? proc.error?.message ?? "",
   };
 };
 
