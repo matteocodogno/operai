@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hasSecretSentinels, hasTemplates, loadTemplateSuite, toOpInjectTemplate, type OpRunner } from "./resolve";
+import { hasSecretSentinels, hasTemplates, loadTemplateSuite, resolveSecretsInValue, type OpReader } from "./resolve";
 import { checkSuite } from "./check";
 
 /** Build a throwaway templates root with the given `<service>.env` contents for one env. */
@@ -25,12 +25,17 @@ const AUTH_TPL = [
 ].join("\n");
 
 describe("env-doctor resolver", () => {
-  test("toOpInjectTemplate rewrites ${OP:…} → op://… (and only that)", () => {
-    const out = toOpInjectTemplate("A=${OP:Vault/Item/field}\nB=https://x\nC=${{shared.X}}");
-    expect(out).toContain(OP + "Vault/Item/field");
-    expect(out).toContain("B=https://x");
-    expect(out).toContain("${{shared.X}}"); // Railway refs untouched
-    expect(out).not.toContain("${OP:");
+  test("resolveSecretsInValue reads each ${OP:path} via op:// and substitutes the value", () => {
+    const read: OpReader = (ref) => ({ code: 0, stdout: `VAL(${ref})\n`, stderr: "" });
+    const r = resolveSecretsInValue("${OP:Vault/Item/field}", read);
+    expect(r.error).toBeUndefined();
+    expect(r.value).toBe(`VAL(${OP}Vault/Item/field)`); // trailing newline trimmed
+  });
+
+  test("resolveSecretsInValue surfaces the first failed reference", () => {
+    const read: OpReader = () => ({ code: 1, stdout: "", stderr: "isn't an item" });
+    const r = resolveSecretsInValue("${OP:Bad/Path/x}", read);
+    expect(r.error).toContain("op read failed for Bad/Path/x");
   });
 
   test("hasSecretSentinels detects ${OP:…} and is not confused by ${{railway.refs}}", () => {
@@ -54,41 +59,41 @@ describe("env-doctor resolver", () => {
     expect(r.suite.auth!.BETTER_AUTH_URL).toBe("https://auth.operai.welld.io");
   });
 
-  test("resolve:true pipes the op-inject template through the runner and parses its stdout", () => {
+  test("resolve:true reads each ${OP:…} ref (leaving ${{railway.refs}} untouched) and substitutes values", () => {
     const root = fixture("production", { auth: AUTH_TPL });
     const seen: string[] = [];
-    const run: OpRunner = (tpl) => {
-      seen.push(tpl);
-      // Simulate `op inject` resolving the 1Password ref to a real secret.
-      const stdout = tpl.replace(OP + "Employee/Paperclip - BETTER_AUTH_SECRET/password", "s3cr3t-value-x".padEnd(32, "x"));
-      return { code: 0, stdout, stderr: "" };
+    const read: OpReader = (ref) => {
+      seen.push(ref);
+      return { code: 0, stdout: "s3cr3t-value-x".padEnd(32, "x") + "\n", stderr: "" };
     };
-    const r = loadTemplateSuite("production", { dir: root, resolve: true, run });
-    expect(seen[0]).toContain(OP + "Employee/Paperclip - BETTER_AUTH_SECRET/password");
+    const r = loadTemplateSuite("production", { dir: root, resolve: true, read });
+    // Only the ${OP:…} secret is read — the ${{shared.…}} Railway ref is never passed to op.
+    expect(seen).toEqual([OP + "Employee/Paperclip - BETTER_AUTH_SECRET/password"]);
     expect(r.resolved).toBe(true);
     expect(r.suite.auth!.BETTER_AUTH_SECRET).toBe("s3cr3t-value-x".padEnd(32, "x"));
+    expect(r.suite.auth!.AUTH_AUDIENCE).toBe("${{shared.AUTH_AUDIENCE}}"); // untouched
   });
 
-  test("resolve:true with a failing runner → error surfaced, non-secret values still parsed", () => {
+  test("resolve:true with a failing read → error surfaced, non-secret values still parsed", () => {
     const root = fixture("production", { auth: AUTH_TPL });
-    const run: OpRunner = () => ({ code: 1, stdout: "", stderr: "[ERROR] not signed in" });
-    const r = loadTemplateSuite("production", { dir: root, resolve: true, run });
+    const read: OpReader = () => ({ code: 1, stdout: "", stderr: "[ERROR] not signed in" });
+    const r = loadTemplateSuite("production", { dir: root, resolve: true, read });
     expect(r.errors.length).toBe(1);
     expect(r.errors[0]!.scope).toBe("auth");
-    expect(r.errors[0]!.message).toContain("op inject failed");
+    expect(r.errors[0]!.message).toContain("op read failed");
     // Falls back to the unresolved template so the URL/audience checks still run.
     expect(r.suite.auth!.BETTER_AUTH_URL).toBe("https://auth.operai.welld.io");
     expect(r.resolved).toBe(false);
   });
 
-  test("a template with no ${OP:…} secrets does not invoke the runner even with resolve:true", () => {
+  test("a template with no ${OP:…} secrets does not invoke the reader even with resolve:true", () => {
     const root = fixture("production", { "estimai-api": "AUTH_AUDIENCE=${{shared.AUTH_AUDIENCE}}\nPORT=8080" });
     let called = false;
-    const run: OpRunner = () => {
+    const read: OpReader = () => {
       called = true;
       return { code: 0, stdout: "", stderr: "" };
     };
-    const r = loadTemplateSuite("production", { dir: root, resolve: true, run });
+    const r = loadTemplateSuite("production", { dir: root, resolve: true, read });
     expect(called).toBe(false);
     expect(r.resolved).toBe(true);
     expect(r.suite["estimai-api"]!.PORT).toBe("8080");

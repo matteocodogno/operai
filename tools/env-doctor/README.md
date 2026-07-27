@@ -6,7 +6,7 @@ bisect" loop with a red ✗ and a one-line fix.
 
 ```bash
 mise run env:doctor -- --env production            # check the committed templates (offline, CI-safe)
-mise run env:doctor -- --env production --resolve  # also resolve ${OP:…} secrets via `op inject`
+mise run env:doctor -- --env production --resolve  # also resolve ${OP:…} secrets via `op read`
 mise run env:doctor -- --env production --live      # check the ACTUAL deployed values on Railway
 ```
 
@@ -29,13 +29,16 @@ checked differently:
 |---|---|---|
 | **literal** (public identity / browser-facing URL) | `AUTH_ISSUER=https://auth.operai.welld.io` | fully CHECKED (https, public, consistent, CORS) |
 | **`${{railway.ref}}`** (internal DNS / shared var) | `AUTH_JWKS_URL=http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` | shape-checked; value deferred (Railway resolves it, drift-proof) |
-| **`${OP:vault/item/field}`** (1Password secret) | `BETTER_AUTH_SECRET=${OP:Employee/Paperclip - BETTER_AUTH_SECRET/password}` | left verbatim offline; `--resolve` expands it via `op inject` |
+| **`${OP:vault/item/field}`** (1Password secret) | `BETTER_AUTH_SECRET=${OP:Employee/Paperclip - BETTER_AUTH_SECRET/password}` | left verbatim offline; `--resolve` expands it via `op read` |
 | **`${{shared.X}}`** (suite-wide constant/secret) | `AUTH_AUDIENCE=${{shared.AUTH_AUDIENCE}}` | identity is drift-proof by construction; a stray literal alongside it WARNs |
 
 The `${OP:…}` spelling is deliberately **not** a literal `op://…`, so committed
-template files never trip gitleaks' 1password-reference rule. `--resolve` rewrites
-`${OP:…}` → `op://…` and pipes the template through `op inject`, capturing the
-resolved values on **stdout** — secrets are never written to disk.
+template files never trip gitleaks' 1password-reference rule. `--resolve` resolves
+each `${OP:path}` one reference at a time via `op read` (the assembled op-scheme
+reference — the same call `.envrc` uses) — **not** `op inject`, whose own
+`{{ }}` template language collides
+with Railway's `${{railway.refs}}`. Resolved values are held in memory, never
+written to disk.
 
 **Offline (default) is still a real check:** every literal (URLs, origins,
 audience, issuer, CORS) is validated, and identical `${{shared.X}}` / `${OP:…}`
@@ -115,7 +118,7 @@ WARN, not ERROR).
 |---|---|
 | `manifest.ts` | the contract (shared/internal/public/secret vars, CORS, origins, ref predicates) |
 | `check.ts` | pure checker over a resolved suite → findings (+ secret redaction) |
-| `resolve.ts` | Phase 2 — load `templates/<env>/`, optional in-memory `op inject` |
+| `resolve.ts` | Phase 2 — load `templates/<env>/`, optional in-memory `op read` |
 | `live.ts` | Phase 3 — pull deployed vars from Railway + literal-drift diff |
 | `parse.ts` | shared `KEY=VALUE` parser |
 | `index.ts` | CLI (source selection, `--resolve`, `--live`, colored output) |
@@ -126,7 +129,7 @@ WARN, not ERROR).
 
 - **Phase 1 (done):** the checker + manifest + CLI, offline.
 - **Phase 2 (done):** committed per-env templates + one-command run, resolving
-  `${OP:…}` secrets through `op inject` in memory (`--resolve`).
+  `${OP:…}` secrets through `op read` in memory (`--resolve`).
 - **Phase 3 (done):** `--live` diffs the deployed Railway values against the
   contract (with secret redaction) + a PR CI gate. Vercel frontends aren't pulled
   yet — the doctor has no frontend-env invariants, so it would be inert; add

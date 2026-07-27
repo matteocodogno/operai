@@ -3,7 +3,7 @@
  * env-doctor CLI — validate the suite's cross-service env contract BEFORE deploy.
  *
  *   mise run env:doctor -- --env production            # Phase 2: read committed templates
- *   mise run env:doctor -- --env production --resolve  # + resolve ${OP:…} via `op inject`
+ *   mise run env:doctor -- --env production --resolve  # + resolve ${OP:…} via `op read`
  *   mise run env:doctor -- --env production --live      # Phase 3: check the DEPLOYED values (Railway)
  *   mise run env:doctor -- --env production --dir ./x  # Phase 1: pre-resolved <service>.env files
  *
@@ -12,7 +12,7 @@
  *                        run the invariants on them, and diff public literals vs the template.
  *   1. `--dir <path>`  — one pre-resolved `<service>.env` per service (Phase 1).
  *   2. `templates/<env>/` — committed per-env templates (Phase 2, the default);
- *      `--resolve` expands `${OP:…}` secrets through `op inject` in memory.
+ *      `--resolve` expands `${OP:…}` secrets through `op read` in memory.
  *   3. `<service>/.env` — each service's own local file (quick local sanity check).
  */
 

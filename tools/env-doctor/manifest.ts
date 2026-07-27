@@ -166,7 +166,7 @@ export const isRailwayRef = (v: string): boolean => v.includes("${{");
  * sentinel (a deliberately non-`op://` spelling so gitleaks' 1password-reference
  * rule doesn't flag committed template files — see resolve.ts). Its concrete
  * value is unknowable offline, so value-shape checks skip it; `--resolve` turns
- * `${OP:…}` into a real `op inject` and proves it exists.
+ * `${OP:…}` into a real `op read` and proves it exists.
  */
 export const isSecretRef = (v: string): boolean => v.startsWith("op://") || v.startsWith("${OP:");
 /** @deprecated use {@link isSecretRef} — kept as the narrower `op://`-only predicate. */

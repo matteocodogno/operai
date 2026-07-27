@@ -95,7 +95,7 @@ function checkRequiredKeys(suite: SuiteEnv, opts: CheckOptions): Finding[] {
           scope: svc,
           level: "warn",
           message: `${key} is still an unresolved secret reference (${v})`,
-          fix: `Run with --resolve (or resolve it via \`op inject\`) so the doctor sees the real value.`,
+          fix: `Run with --resolve (or resolve it via \`op read\`) so the doctor sees the real value.`,
         });
       }
     }
