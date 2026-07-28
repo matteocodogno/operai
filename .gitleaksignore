@@ -39,3 +39,14 @@ refund-api/src/auth/jwt.middleware.test.ts:generic-api-key:162
 # already-exported env var, never hardcoded (see the positive-control check
 # immediately below it in the same file).
 infra/check.sh:curl-auth-header:114
+
+notify-api/.envrc:1password-reference:19
+auth/.envrc:1password-reference:19
+auth/.envrc:1password-reference:20
+auth/.envrc:1password-reference:21
+auth/.envrc:1password-reference:22
+auth/.envrc:1password-reference:23
+auth/.envrc:1password-reference:24
+auth/.envrc:1password-reference:25
+auth/.envrc:1password-reference:26
+auth/.envrc:1password-reference:27
