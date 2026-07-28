@@ -38,20 +38,40 @@ describe("loadLiveSuite (injectable runner — never hits Railway)", () => {
     expect(r.suite.auth!.SERVICE).toBe("auth");
   });
 
-  test("a non-zero exit → per-service error, service skipped", () => {
+  const noSleep = () => {};
+
+  test("a non-zero exit (after retries) → per-service error, service skipped", () => {
     const run: RailwayRunner = (svc) =>
       svc === "auth"
         ? { code: 1, stdout: "", stderr: "Unauthorized. Please login." }
         : { code: 0, stdout: '{"X":"y"}', stderr: "" };
-    const r = loadLiveSuite("production", { run, services: ["auth", "notify-api"] });
+    const r = loadLiveSuite("production", { run, services: ["auth", "notify-api"], sleep: noSleep });
     expect(r.loaded).toEqual(["notify-api"]);
     expect(r.errors[0]!.scope).toBe("auth");
     expect(r.errors[0]!.message).toContain("railway variable list failed");
   });
 
+  test("a transient failure is retried, then succeeds (no error)", () => {
+    let calls = 0;
+    const run: RailwayRunner = () => {
+      calls++;
+      return calls < 2 ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: '{"AUTH_AUDIENCE":"operai-suite"}', stderr: "" };
+    };
+    const r = loadLiveSuite("production", { run, services: ["auth"], sleep: noSleep });
+    expect(calls).toBe(2); // failed once, retried, succeeded
+    expect(r.loaded).toEqual(["auth"]);
+    expect(r.errors).toEqual([]);
+  });
+
+  test("the failure message includes stdout when stderr is empty (railway writes there)", () => {
+    const run: RailwayRunner = () => ({ code: 1, stdout: "Too Many Requests (429)", stderr: "" });
+    const r = loadLiveSuite("production", { run, services: ["auth"], retries: 1, sleep: noSleep });
+    expect(r.errors[0]!.message).toContain("Too Many Requests (429)");
+  });
+
   test("empty/garbage output → parse error, service skipped", () => {
     const run: RailwayRunner = () => ({ code: 0, stdout: "<<not json>>", stderr: "" });
-    const r = loadLiveSuite("production", { run, services: ["auth"] });
+    const r = loadLiveSuite("production", { run, services: ["auth"], sleep: noSleep });
     expect(r.loaded).toEqual([]);
     expect(r.errors[0]!.message).toContain("no variables parsed");
   });

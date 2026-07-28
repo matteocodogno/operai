@@ -74,23 +74,40 @@ export interface LoadLiveOptions {
   readonly run?: RailwayRunner;
   /** Restrict to a subset of backends (default: all). */
   readonly services?: ServiceName[];
+  /** Extra attempts per service on a non-zero exit (transient Railway rate-limit/blip). Default 2. */
+  readonly retries?: number;
+  /** Base backoff between attempts, ms (grows linearly). Default 700. */
+  readonly backoffMs?: number;
+  /** Injectable sleep so tests don't actually wait. Default `Bun.sleepSync`. */
+  readonly sleep?: (ms: number) => void;
 }
 
 /** Fetch live variables for every backend (frontends have no cross-service invariants yet). */
 export function loadLiveSuite(env: string, opts: LoadLiveOptions = {}): LiveResult {
   const run = opts.run ?? railwayRunner;
   const services = opts.services ?? BACKENDS;
+  const retries = opts.retries ?? 2;
+  const backoffMs = opts.backoffMs ?? 700;
+  const sleep = opts.sleep ?? ((ms: number) => Bun.sleepSync(ms));
   const suite: SuiteEnv = {};
   const loaded: ServiceName[] = [];
   const skipped: ServiceName[] = [];
   const errors: Array<{ scope: ServiceName; message: string }> = [];
 
   for (const svc of services) {
-    const { code, stdout, stderr } = run(svc, env);
+    // Retry transient failures — rapid sequential railway calls can be rate-limited,
+    // and the CLI often writes that reason to stdout, not stderr.
+    let res = run(svc, env);
+    for (let attempt = 1; attempt <= retries && res.code !== 0; attempt++) {
+      sleep(backoffMs * attempt);
+      res = run(svc, env);
+    }
+    const { code, stdout, stderr } = res;
     if (code !== 0) {
+      const detail = stderr.trim() || stdout.trim() || "(no output on stderr/stdout)";
       errors.push({
         scope: svc,
-        message: `railway variable list failed (exit ${code}) — is the CLI logged in and the project linked? ${stderr.trim()}`.trim(),
+        message: `railway variable list failed (exit ${code}, ${retries + 1} attempts) — logged in & project linked? ${detail}`,
       });
       skipped.push(svc);
       continue;
