@@ -123,6 +123,27 @@ describe("env-doctor checker", () => {
     expect(errText(checkSuite(s, PROD))).toContain("targets port 8081");
   });
 
+  test("internal URL host != target's actual RAILWAY_PRIVATE_DOMAIN → error (the 2026-07-31 prod outage)", () => {
+    const s = validSuite();
+    // Railway pins the private domain at service CREATION; a later rename does
+    // not move it. In production notify-api answers to `operai.railway.internal`
+    // while both callers hardcoded `notify-api.railway.internal` — a hostname
+    // that resolves to nothing, yet passes the `.railway.internal` suffix test.
+    s["notify-api"]!.RAILWAY_PRIVATE_DOMAIN = "operai.railway.internal";
+    s["refund-api"]!.NOTIFY_INTERNAL_URL = "http://notify-api.railway.internal:8080";
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain("notify-api.railway.internal");
+    expect(text).toContain("operai.railway.internal");
+  });
+
+  test("internal URL host matching the target's real private domain → no error", () => {
+    const s = validSuite();
+    s["notify-api"]!.RAILWAY_PRIVATE_DOMAIN = "operai.railway.internal";
+    s["refund-api"]!.NOTIFY_INTERNAL_URL = "http://operai.railway.internal:8080";
+    s.auth!.NOTIFY_INTERNAL_URL = "http://operai.railway.internal:8080";
+    expect(errs(checkSuite(s, PROD))).toEqual([]);
+  });
+
   test("Railway ${{svc.PORT}} reference form is accepted (no port/shape error)", () => {
     const s = validSuite();
     s["refund-api"]!.AUTH_JWKS_URL = "http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks";

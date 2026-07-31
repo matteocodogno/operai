@@ -193,6 +193,36 @@ function checkInternalUrls(suite: SuiteEnv, opts: CheckOptions): Finding[] {
           fix: `Use http://\${{${target}.RAILWAY_PRIVATE_DOMAIN}}:\${{${target}.PORT}} (a CALL, not a public URL).`,
         });
       }
+      // Host consistency vs the target service's ACTUAL private domain.
+      //
+      // Railway pins `RAILWAY_PRIVATE_DOMAIN` at service CREATION and it does
+      // NOT follow a later rename — in production `notify-api` answers to
+      // `operai.railway.internal` and `refund-api` to
+      // `operai-b6e4.railway.internal`, neither matching its display name. So
+      // the `.railway.internal` suffix test above is NOT sufficient: a
+      // hardcoded `http://notify-api.railway.internal:8080` passes it while
+      // resolving to nothing, which is exactly how auth's invitation emails and
+      // refund-api's decision/paid pushes silently failed in production
+      // (2026-07-31) — the URL looked right in the dashboard AND passed this
+      // doctor. Only checkable with --live (Railway injects the var); a no-op
+      // against the offline templates, where the recommended `${{…}}` ref form
+      // has already short-circuited above.
+      const targetPrivateDomain = suite[target]?.["RAILWAY_PRIVATE_DOMAIN"];
+      if (
+        opts.isProdLike &&
+        targetPrivateDomain &&
+        !isRailwayRef(targetPrivateDomain) &&
+        url.hostname.endsWith(".railway.internal") &&
+        url.hostname !== targetPrivateDomain
+      ) {
+        out.push({
+          scope: svc,
+          level: "error",
+          message: `${name} points at ${url.hostname}, but ${target}'s actual private domain is ${targetPrivateDomain} — that hostname does not resolve`,
+          fix: `Railway pins the private domain at service creation; it does NOT follow a rename. Use http://\${{${target}.RAILWAY_PRIVATE_DOMAIN}}:\${{${target}.PORT}} so it always resolves.`,
+        });
+      }
+
       // Port consistency vs the target service's PORT.
       const targetPort = suite[target]?.["PORT"];
       if (url.port && targetPort && !isRailwayRef(targetPort) && url.port !== targetPort) {

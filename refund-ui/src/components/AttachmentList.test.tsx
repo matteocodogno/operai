@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AttachmentList from './AttachmentList'
+import { ApiError } from '../lib/refundApi'
 import type { Attachment } from '../lib/requestsApi'
 
 afterEach(() => {
@@ -110,13 +111,46 @@ describe('AttachmentList — edit mode', () => {
     const input = screen.getByTestId('attachment-input-l1') as HTMLInputElement
     await userEvent.upload(input, pdfFile())
 
-    const failedStatus = await screen.findByText('Upload failed. Try again.')
+    // The cause is surfaced, not collapsed into the generic line.
+    const failedStatus = await screen.findByText('Upload failed: network blip')
     expect(failedStatus.getAttribute('role')).toBe('alert')
 
     const item = failedStatus.closest('li')!
     const dismiss = item.querySelector('button[aria-label^="Dismiss"]')!
     fireEvent.click(dismiss)
-    await waitFor(() => expect(screen.queryByText('Upload failed. Try again.')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Upload failed: network blip')).toBeNull())
+  })
+
+  // A `fetch` REJECTION (not a non-2xx response) is what a bucket missing its
+  // CORS rule looks like from the browser — the production failure mode on
+  // 2026-07-31. It must not read as a generic "try again", because retrying
+  // never helps until an operator fixes the bucket.
+  it('distinguishes an opaque storage/network rejection from an API error', async () => {
+    const onUpload = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+
+    await userEvent.upload(screen.getByTestId('attachment-input-l1') as HTMLInputElement, pdfFile())
+
+    const failed = await screen.findByText(/could not reach file storage/i)
+    expect(failed.getAttribute('role')).toBe('alert')
+  })
+
+  it("surfaces an API Problem's detail when the mint/confirm call fails", async () => {
+    const onUpload = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError({
+          type: 'https://httpstatuses.com/409',
+          status: 409,
+          title: 'Conflict',
+          detail: 'Request is not a draft',
+        }),
+      )
+    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+
+    await userEvent.upload(screen.getByTestId('attachment-input-l1') as HTMLInputElement, pdfFile())
+
+    expect(await screen.findByText('Request is not a draft')).not.toBeNull()
   })
 
   it('drops the local "stored" item once the same attachment id appears in the `attachments` prop (no duplicate row)', async () => {

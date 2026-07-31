@@ -125,8 +125,10 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
     (via `VITE_NOTIFY_API_URL`); it is also the origin the shell CSP's
     `connect-src` must allow for the SSE `EventSource` (R6 — see Phase 3).
   - `<NOTIFY_INTERNAL_URL>` = notify-api's Railway **private**-networking
-    address (e.g. `http://notify-api.railway.internal:8081`) — distinct from
-    `<NOTIFY_API_URL>` above. `auth`'s server-side `POST /system/emails` call
+    address, written as `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`
+    (notify-api's real private host is `operai.railway.internal`, NOT
+    `notify-api.railway.internal` — see the ⚠ box in § Cross-service wiring) —
+    distinct from `<NOTIFY_API_URL>` above. `auth`'s server-side `POST /system/emails` call
     (specs/006-user-invitations, ADR-0011) AND `refund-api`'s server-side
     `POST /system/notifications` call (specs/007, ADR-0017) both use this;
     never given to a browser, never the public domain — see § Phase 1 step 7.
@@ -261,10 +263,12 @@ are called out. What the script does, step by step:
 8. **Wire the invitation email channel + refund decision notifications**
    (specs/006-user-invitations ADR-0011, specs/007-refund-service ADR-0017):
    set `auth`'s **and** `refund-api`'s `NOTIFY_INTERNAL_URL` to notify-api's
-   **Railway private** networking address, e.g.
-   `http://notify-api.railway.internal:8081` (dashboard → notify-api service
-   → Settings → Networking → Private Networking shows the exact internal
-   hostname/port) — **not** `<NOTIFY_API_URL>`, the public domain from step 5
+   **Railway private** networking address, as the reference
+   `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` —
+   do NOT hand-type `notify-api.railway.internal`, which does not resolve
+   (dashboard → notify-api service → Settings → Networking → Private
+   Networking shows the real hostname: `operai.railway.internal`; see the ⚠
+   box in § Cross-service wiring) — **not** `<NOTIFY_API_URL>`, the public domain from step 5
    (plan.md Risk R2 / ADR-0011: this service-to-service call must stay off
    the public internet). Generate a strong shared secret (`openssl rand -hex
    32`) and set it as `NOTIFY_INTERNAL_TOKEN` on **all three** of `auth`,
@@ -490,6 +494,33 @@ target's listen port. Each `src/index.ts` binds to IPv6 `::` when Railway's
 `*.railway.internal` reachable; without it Bun binds IPv4 `0.0.0.0` and internal
 calls silently fail.
 
+> **⚠ A service's private domain is NOT derived from its current name.** Railway
+> pins `RAILWAY_PRIVATE_DOMAIN` when the service is **created** and never moves
+> it on a later rename. In this project two of four are already mismatched:
+>
+> | Service | Actual `RAILWAY_PRIVATE_DOMAIN` |
+> |---|---|
+> | `auth` | `auth.railway.internal` ✅ |
+> | `estimai-api` | `estimai-api.railway.internal` ✅ |
+> | **`notify-api`** | **`operai.railway.internal`** ❌ |
+> | **`refund-api`** | **`operai-b6e4.railway.internal`** ❌ |
+>
+> So **always write the `${{target.RAILWAY_PRIVATE_DOMAIN}}` reference, never a
+> hand-typed `http://<service-name>.railway.internal`** — the latter looks
+> perfectly correct in the dashboard and resolves to nothing. On 2026-07-31
+> both `auth` and `refund-api` held a literal
+> `http://notify-api.railway.internal:8080`, which silently killed every
+> invitation email and every refund decision/paid push for as long as it was
+> set (both call sites are best-effort by design — ADR-0011/ADR-0017 — so
+> nothing surfaced to users, only `[notify]`/`[notifyEmail] failed to reach
+> notify-api` lines in refund-api's logs). `env:doctor --live` now flags a
+> hardcoded internal host that doesn't match the target's real private domain.
+> Confirm any service's value with:
+>
+> ```bash
+> railway run --service <svc> -- node -e 'console.log(process.env.RAILWAY_PRIVATE_DOMAIN)'
+> ```
+
 | Var | Owner(s) | Value |
 |---|---|---|
 | `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` |
@@ -549,7 +580,7 @@ follows bucket ①).
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin; no wildcard/trailing slash) | no |
 | `UI_HOME_URL` | `https://operai.welld.io/` (post-login fallback; origin ∈ ALLOWED_ORIGINS) | no |
 | `AUTH_AUDIENCE` | **NEW (ADR-0010).** One suite-wide value (e.g. `operai-suite`), byte-for-byte identical to `estimai-api.AUTH_AUDIENCE` and `notify-api.AUTH_AUDIENCE`. Stamped as the JWT `audience` claim on every token `auth` mints; closes the cross-service token-replay gap now that `notify-api` is a second JWKS resource server. | no |
-| `NOTIFY_INTERNAL_URL` | **NEW (specs/006, ADR-0011).** notify-api's Railway **private**-networking address, e.g. `http://notify-api.railway.internal:8081` — **not** `<NOTIFY_API_URL>` (the public domain). Base URL for the `POST /system/emails` call (`src/lib/notify.ts`). | no |
+| `NOTIFY_INTERNAL_URL` | **NEW (specs/006, ADR-0011).** notify-api's Railway **private**-networking address — always write it as `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`, **never** a hand-typed `notify-api.railway.internal` (that host does not exist — see the ⚠ box in § Cross-service wiring), and **not** `<NOTIFY_API_URL>` (the public domain). Base URL for the `POST /system/emails` call (`src/lib/notify.ts`). | no |
 | `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/006, ADR-0011).** Shared secret sent as `X-Internal-Token`; byte-for-byte identical to `notify-api.NOTIFY_INTERNAL_TOKEN`. 1Password → `AIScream / OperAI - NOTIFY_INTERNAL_TOKEN` (≥32 random chars). A leaked value = arbitrary email over wellD's Resend domain (Risk R2) — never logged, rotate + redeploy both services together if compromised. | **yes** |
 | `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
 | `NODE_ENV` | `production` | no |
@@ -602,7 +633,7 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`; **public** claim — bucket ②, `${{shared.AUTH_ISSUER}}`). Pinned as the JWT `iss` in `jwt.middleware.ts`. NOTE: `refund-api`'s `GET /authz/resolve` call does **not** use this — it uses the separate `AUTH_BASE_URL` below (`resolveClient.ts`). | no |
 | `AUTH_BASE_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001` — the base `refund-api`'s `authzMiddleware`/`resolveClient.ts` builds `GET /authz/resolve` against (ADR-0014). A *call*, so internal DNS; distinct from `AUTH_ISSUER`. (This is the var that was `localhost` in prod → 503.) | no |
 | `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — byte-for-byte identical suite-wide; `refund-api` is the THIRD JWKS resource server on this shared value. | no |
-| `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address (e.g. `http://notify-api.railway.internal:8081`) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
+| `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address — always `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`, **never** a hand-typed `notify-api.railway.internal` (see the ⚠ box in § Cross-service wiring) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
 | `NOTIFY_INTERNAL_TOKEN` | Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN`/`notify-api.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical (ADR-0017: now a THIRD caller sharing this secret). Consumed starting T13, not this bootstrap. | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR-0016) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
 | `REFUND_APP_BASE_URL` | **NEW (T14, specs/008-refund-monthly-processing, ADR-0021).** Absolute base URL of the shell-hosted app — **the shell's own public origin**, e.g. `https://operai.welld.io`, same value as `refund-api.ALLOWED_ORIGINS`/every other backend's shell-origin row — **not** `<REFUND_API_URL>`. Used to build the compiled-batch email's in-app deep link `${REFUND_APP_BASE_URL}/refund/batches/:id`; the email never carries a raw presigned S3 URL. | no |
@@ -664,17 +695,70 @@ added (ADR-0013 posture, mirrors the mileage-rate/settings "derived-on-read,
 never scheduled" lineage) — it is a single deliberate command run by a human
 at cutover time, never a recurring job.
 
-**Object storage — provisioning (human action, before T9 lands).** ADR-0016
-names AWS S3 `eu-south-1` (Milan) or Scaleway Object Storage `fr-par` as
-primary candidates (Cloudflare R2 + EU jurisdiction restriction as fallback):
-"the exact vendor is an implementation-time choice within this allowlist."
-None of this is provisioned yet. Before `refund-api/src/lib/storage.ts` (T9)
-lands: (1) create the bucket in one of those EU regions/vendors: (2) create a
-1Password item for its access key/secret (mirror the `AIScream/OperAI - …`
-naming convention used by every other secret in this doc — do not invent a
-placeholder vault path); (3) wire that item into `refund-api/.envrc` following
-`auth/.envrc`'s `.env.cached` + `op read` pattern; (4) set the five
-`REFUND_S3_*` Railway vars above for production.
+**Object storage — provisioning (DONE).** ADR-0016 named AWS S3 `eu-south-1`
+(Milan) or Scaleway `fr-par` as primary candidates, leaving "the exact vendor
+an implementation-time choice within this allowlist." What was actually
+provisioned is a **Railway S3-compatible bucket** — a custom, non-AWS endpoint
+(`t3.storageapi.dev`), which is why `src/lib/s3Residency.ts` is endpoint-aware
+and `REFUND_S3_EU_ENDPOINT_HOSTS` exists at all. The five `REFUND_S3_*` vars
+are set directly on the `refund-api` Railway service (they are NOT in
+`deploy.sh` and were long absent from
+`tools/env-doctor/templates/production/refund-api.env`).
+
+> **Residency caveat — verify, don't assume.** `t3.storageapi.dev` is a
+> generic multi-region Railway storage host; allowlisting that suffix in
+> `REFUND_S3_EU_ENDPOINT_HOSTS` does **not** by itself prove the bucket sits
+> in the EU — the startup guard checks the *endpoint host*, not the geography.
+> `REFUND_S3_REGION` is `ams`, which reads as Amsterdam and is consistent with
+> ADR-0016, but it is a vendor string this repo cannot verify. Given data
+> residency is a hard requirement (CLAUDE.md § Data residency), confirm the
+> bucket's region once in the Railway dashboard and treat that as the record.
+
+Current production values (the two credential vars are secrets, held only on
+the Railway service — there is still no 1Password item for them):
+
+| Var | Value |
+|---|---|
+| `REFUND_S3_ENDPOINT` | `https://t3.storageapi.dev` |
+| `REFUND_S3_REGION` | `ams` |
+| `REFUND_S3_BUCKET` | `refund-receipt-g0jy7xar4e` |
+| `REFUND_S3_EU_ENDPOINT_HOSTS` | `t3.storageapi.dev` |
+| `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | secret |
+
+**Receipt bucket CORS — MANDATORY, and easy to miss.** The browser uploads
+receipts **directly to the bucket**, never through refund-api (ADR-0016):
+`refund-ui/src/lib/attachmentsApi.ts`'s `uploadToPresignedPost` issues a
+cross-origin `POST` from the shell origin straight to the presigned URL. The
+bucket must therefore carry a CORS rule naming that origin, or the browser
+blocks the upload and the user sees only "Upload failed". This bit us in
+production on 2026-07-31: the bucket had **no** CORS configuration at all, and
+nothing in this repo had ever set one.
+
+Downloads are NOT affected and do not need a rule — `AttachmentDownloadLink`
+uses `window.open`, a top-level navigation, which CORS does not govern. `GET`
+is included below only to keep a future fetch-based preview from breaking.
+
+Apply with any S3 client pointed at `REFUND_S3_ENDPOINT` (`PutBucketCors`):
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://operai.welld.io"],
+    "AllowedMethods": ["POST", "GET"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag", "Location"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+Only the **shell** origin belongs here: `refund-ui` is a federated remote
+reached through the shell (ADR-0006), so the browser `Origin` on the upload is
+always the shell's — this is deliberately narrower than refund-api's own
+`ALLOWED_ORIGINS` (which additionally carries admin-ui for the `/rates` +
+`/settings` calls, ADR-0023). Add a `http://localhost:5173` entry ONLY to a
+non-production bucket; `refund-api/.env.example` points local dev at the real
+bucket, so uploads will not work locally until you do.
 
 ### Frontend build-time vars (Vercel) — `VITE_*` are client-side; `*_REMOTE_URL` are Vite-config-side
 

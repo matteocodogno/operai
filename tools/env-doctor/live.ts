@@ -21,10 +21,26 @@ import { showValue, type Finding, type SuiteEnv } from "./check";
 /** How live variables are fetched for one service+environment. Injectable so tests never hit Railway. */
 export type RailwayRunner = (service: ServiceName, env: string) => { code: number; stdout: string; stderr: string };
 
-/** Default runner: `railway variable list --service <svc> --environment <env> --json`. */
+/**
+ * Default runner: `railway variable list --service <svc> --environment <env> --json`.
+ *
+ * `RAILWAY_PROJECT_ID`, when set, is forwarded as an explicit `--project`
+ * rather than relying on the directory link. Railway CLI 5.30.1 can report
+ * `railway link` as succeeding (and write a correct `~/.railway/config.json`)
+ * while every subsequent command still fails with "Project not found" — the
+ * explicit flag is the reliable escape hatch, and it is also what CI wants
+ * alongside `RAILWAY_TOKEN`.
+ */
 export const railwayRunner: RailwayRunner = (service, env) => {
+  const projectId = process.env["RAILWAY_PROJECT_ID"];
   const proc = Bun.spawnSync(
-    ["railway", "variable", "list", "--service", service, "--environment", env, "--json"],
+    [
+      "railway", "variable", "list",
+      "--service", service,
+      "--environment", env,
+      ...(projectId ? ["--project", projectId] : []),
+      "--json",
+    ],
     { stdout: "pipe", stderr: "pipe" },
   );
   return { code: proc.exitCode ?? 1, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };

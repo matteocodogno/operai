@@ -455,6 +455,10 @@ const en = {
       statusUploading: 'Uploading…',
       statusStored: 'Uploaded',
       statusFailed: 'Upload failed. Try again.',
+      /** Shown when the failure carried a diagnosable cause (an API Problem detail, or the direct-to-bucket POST's own error) instead of collapsing every cause into `statusFailed`. */
+      statusFailedDetail: (reason: string) => `Upload failed: ${reason}`,
+      /** Phase 2 (the cross-origin POST straight to the storage bucket) produced an opaque network error — offline, or the bucket is missing its CORS rule. See infra/README.md § "Receipt bucket CORS". */
+      statusFailedStorage: 'Upload failed — could not reach file storage. Try again, and tell an administrator if it keeps happening.',
       rejectedTooLarge: 'File exceeds 10 MB and was not added.',
       rejectedType: 'Unsupported file type — use PDF, JPEG, or PNG.',
     },

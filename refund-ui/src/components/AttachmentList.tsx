@@ -97,14 +97,36 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
     setUploadItems((prev) => prev.map((item) => (item.localId === localId ? next : item)))
   }
 
+  /**
+   * Surfaces WHY an upload failed instead of collapsing every cause into one
+   * generic line. Phase 2 of mint→upload→confirm is a cross-origin POST
+   * straight to the storage bucket (`lib/attachmentsApi.ts`'s
+   * `uploadToPresignedPost`), so a bucket missing its CORS rule surfaces as an
+   * opaque `TypeError` with no status — previously indistinguishable from a
+   * 409 "no longer a draft", which is exactly how a real production outage
+   * (2026-07-31) stayed undiagnosable from the UI. See infra/README.md
+   * § "Receipt bucket CORS".
+   */
+  const uploadFailureReason = (err: unknown): string => {
+    if (err instanceof ApiError) return err.detail ?? err.title
+    // A `fetch` rejection (as opposed to a non-2xx response) carries no status:
+    // the browser blocked it, or the network is down.
+    if (err instanceof TypeError) return t.statusFailedStorage
+    if (err instanceof Error && err.message) return t.statusFailedDetail(err.message)
+    return t.statusFailed
+  }
+
   const processFile = async (localId: string, file: File) => {
     if (!onUpload) return
     updateItem(localId, { localId, fileName: file.name, status: 'uploading' })
     try {
       const attachment = await onUpload(file)
       updateItem(localId, { localId, fileName: file.name, status: 'stored', attachment })
-    } catch {
-      updateItem(localId, { localId, fileName: file.name, status: 'failed', reason: t.statusFailed })
+    } catch (err) {
+      // Keep the raw cause in the console — the inline reason is user-facing
+      // copy, this is what an operator actually needs to debug.
+      console.error('[AttachmentList] upload failed for', file.name, err)
+      updateItem(localId, { localId, fileName: file.name, status: 'failed', reason: uploadFailureReason(err) })
     }
   }
 
