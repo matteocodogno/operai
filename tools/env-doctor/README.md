@@ -64,6 +64,24 @@ Requirements: the `railway` CLI **logged in** (`railway login`) with the project
 **linked** (`railway link`), or a `RAILWAY_TOKEN` in CI. The environment name
 (`production`/`preview`) is passed straight to `--environment`.
 
+> **Why the doctor passes `--project` itself.** Railway CLI 5.30.1 can report
+> `railway link` as succeeding — and write a perfectly correct
+> `~/.railway/config.json` — while every subsequent command still fails with
+> `Project not found`. Following the CLI's own instructions then loops forever.
+> So `linkedProjectId()` (`live.ts`) reads the project id the CLI just wrote and
+> forwards it explicitly:
+>
+> 1. `RAILWAY_PROJECT_ID` if set (CI, alongside `RAILWAY_TOKEN`; also the manual
+>    override) — **ignored if it still looks like an unexpanded `${…}`
+>    placeholder**, which the repo's root `.envrc` can cache when its `op read`
+>    doesn't resolve;
+> 2. otherwise the `projects` map in `~/.railway/config.json`, matched against
+>    the cwd or its nearest ancestor;
+> 3. otherwise nothing — the CLI's own resolution is left to try.
+>
+> Only the `projects` map is read. That file also holds your access/refresh
+> tokens; they are never read, logged, or forwarded.
+
 **Secrets never leak.** `railway … --json` prints raw values; the doctor holds
 them only in memory, never writes them to disk, and never echoes the raw output.
 Any value that reaches a finding is run through `showValue()` — secret-typed vars

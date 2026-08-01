@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { diffLiteral, loadLiveSuite, parseRailwayJson, type RailwayRunner } from "./live";
+import { afterEach, describe, expect, test } from "bun:test";
+import { diffLiteral, linkedProjectId, loadLiveSuite, parseRailwayJson, type RailwayRunner } from "./live";
 import { checkSuite } from "./check";
 import type { SuiteEnv } from "./check";
 
@@ -129,5 +129,31 @@ describe("secret redaction (Phase 3 holds real deployed secrets in memory)", () 
     expect(drift!.message).toContain("sha256:");
     expect(drift!.message).not.toContain("aaaaaaaa");
     expect(drift!.message).not.toContain("bbbbbbbb");
+  });
+});
+
+describe("linkedProjectId (works around Railway CLI 5.30.1's broken link resolution)", () => {
+  const ORIGINAL = process.env["RAILWAY_PROJECT_ID"];
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env["RAILWAY_PROJECT_ID"];
+    else process.env["RAILWAY_PROJECT_ID"] = ORIGINAL;
+  });
+
+  test("RAILWAY_PROJECT_ID wins over any on-disk link (CI / manual override)", () => {
+    process.env["RAILWAY_PROJECT_ID"] = "env-wins-1234";
+    expect(linkedProjectId("/nowhere/at/all")).toBe("env-wins-1234");
+  });
+
+  test("an UNEXPANDED ${RAILWAY_PROJECT_ID} placeholder is ignored, not forwarded", () => {
+    // The repo's own .envrc can cache this literal when `op read` doesn't
+    // resolve; forwarding it gives `Project "${RAILWAY_PROJECT_ID}" not found`.
+    process.env["RAILWAY_PROJECT_ID"] = "${RAILWAY_PROJECT_ID}";
+    expect(linkedProjectId("/definitely/not/a/linked/repo/path")).toBeNull();
+  });
+
+  test("an unlinked path falls back to null (the CLI's own resolution)", () => {
+    delete process.env["RAILWAY_PROJECT_ID"];
+    // No ancestor of this path can plausibly appear in ~/.railway/config.json.
+    expect(linkedProjectId("/definitely/not/a/linked/repo/path")).toBeNull();
   });
 });

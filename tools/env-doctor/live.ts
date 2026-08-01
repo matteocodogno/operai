@@ -14,6 +14,9 @@
  * in CI) and the project linked / passed via `--project`.
  */
 
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { BACKENDS, isRailwayRef, isSecretRef, isSecretVar, type ServiceName } from "./manifest";
 import { parseEnvFile, type ServiceEnv } from "./parse";
 import { showValue, type Finding, type SuiteEnv } from "./check";
@@ -22,17 +25,58 @@ import { showValue, type Finding, type SuiteEnv } from "./check";
 export type RailwayRunner = (service: ServiceName, env: string) => { code: number; stdout: string; stderr: string };
 
 /**
- * Default runner: `railway variable list --service <svc> --environment <env> --json`.
+ * The Railway project id to pass as an explicit `--project`, so we never depend
+ * on the CLI's own directory-link resolution.
  *
- * `RAILWAY_PROJECT_ID`, when set, is forwarded as an explicit `--project`
- * rather than relying on the directory link. Railway CLI 5.30.1 can report
- * `railway link` as succeeding (and write a correct `~/.railway/config.json`)
- * while every subsequent command still fails with "Project not found" — the
- * explicit flag is the reliable escape hatch, and it is also what CI wants
- * alongside `RAILWAY_TOKEN`.
+ * Railway CLI 5.30.1 reports `railway link` as succeeding AND writes a correct
+ * `~/.railway/config.json`, yet every subsequent command still fails with
+ * "Project not found" — so following the documented instructions leaves the
+ * doctor dead in the water. We therefore read the link the CLI just wrote and
+ * pass the id explicitly.
+ *
+ * Order: `RAILWAY_PROJECT_ID` (CI, alongside `RAILWAY_TOKEN`; also the manual
+ * override) → the `projects` map in `~/.railway/config.json`, keyed by absolute
+ * project path, matching the cwd or its nearest ancestor → null, which falls
+ * back to the CLI's own resolution.
+ *
+ * Only the `projects` map is ever touched. That file also holds the user's
+ * access/refresh tokens; they are never read, logged, or passed on.
  */
+export function linkedProjectId(cwd: string = process.cwd()): string | null {
+  const fromEnv = process.env["RAILWAY_PROJECT_ID"];
+  // Ignore an UNEXPANDED shell placeholder. This repo's root `.envrc` caches
+  // RAILWAY_PROJECT_ID via `op read`, and a failed/skipped resolution can leave
+  // the literal "${RAILWAY_PROJECT_ID}" in `.env.cached` — forwarding that as
+  // --project produces the baffling `Project "${RAILWAY_PROJECT_ID}" not found`
+  // instead of falling back to the on-disk link, which would have worked.
+  if (fromEnv && !fromEnv.includes("${")) return fromEnv;
+  let raw: string;
+  try {
+    raw = readFileSync(join(homedir(), ".railway", "config.json"), "utf8");
+  } catch {
+    return null; // never linked, or no readable config — let the CLI try
+  }
+  let projects: Record<string, { project?: unknown }>;
+  try {
+    projects = (JSON.parse(raw) as { projects?: Record<string, { project?: unknown }> }).projects ?? {};
+  } catch {
+    return null; // malformed config — not our problem to repair
+  }
+  // Walk up from cwd: `mise run env:doctor` may execute from a subdirectory of
+  // the linked repo root.
+  let dir = resolve(cwd);
+  for (;;) {
+    const id = projects[dir]?.project;
+    if (typeof id === "string" && id !== "") return id;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** Default runner: `railway variable list --service <svc> --environment <env> --json`. */
 export const railwayRunner: RailwayRunner = (service, env) => {
-  const projectId = process.env["RAILWAY_PROJECT_ID"];
+  const projectId = linkedProjectId();
   const proc = Bun.spawnSync(
     [
       "railway", "variable", "list",
@@ -121,9 +165,15 @@ export function loadLiveSuite(env: string, opts: LoadLiveOptions = {}): LiveResu
     const { code, stdout, stderr } = res;
     if (code !== 0) {
       const detail = stderr.trim() || stdout.trim() || "(no output on stderr/stdout)";
+      // "Project not found" after a successful `railway link` is the CLI 5.30.1
+      // bug (see `linkedProjectId`), not a user mistake — say so instead of
+      // sending them round the link loop a second time.
+      const hint = /project not found/i.test(detail)
+        ? " — if `railway link` already succeeded, this is the CLI's broken link resolution: set RAILWAY_PROJECT_ID=<id> (find it with `railway list --json`)"
+        : " — logged in & project linked?";
       errors.push({
         scope: svc,
-        message: `railway variable list failed (exit ${code}, ${retries + 1} attempts) — logged in & project linked? ${detail}`,
+        message: `railway variable list failed (exit ${code}, ${retries + 1} attempts)${hint} ${detail}`,
       });
       skipped.push(svc);
       continue;
