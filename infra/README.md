@@ -442,6 +442,14 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
   ordinary fetch target from `refund-ui`'s calls (via `shell/session`'s
   `apiFetch`) and `connect-src` governs `fetch`/`XHR` origins too, not just
   EventSource.
+  **`connect-src` must ALSO include the receipt-bucket origin**
+  (`https://t3.storageapi.dev`, ADR-0016): receipt uploads POST *directly* to
+  the bucket, so that request is subject to the shell's CSP even though no
+  Operai service is involved. Missing on 2026-07-31 — uploads stayed broken
+  after the bucket's CORS rule was fixed, because CSP blocks the request
+  before it ever leaves the page. `img-src` does NOT need the bucket today
+  (downloads use `window.open`), but would if inline receipt previews are ever
+  added.
   *(Known gap: Vercel Preview deploys get `*.vercel.app` URLs the pinned CSP
   won't match — assign preview subdomains or relax CSP via Edge Middleware;
   not implemented.)*
@@ -458,8 +466,9 @@ It checks backend `/health` for all FOUR backends (`auth`, `estimai-api`,
 every resource server verifies against — **not** `/.well-known/jwks.json`, an
 orphaned env-key endpoint), each remote's `remoteEntry.js` + CORS header (five:
 `estimai-ui`, `refund-ui`, `admin-ui`, `notify-ui`), the shell CSP pins
-(including the `notify-api` SSE `connect-src` pin, R6, and the `refund-api`
-`connect-src` pin, T20), and warns if `notify-api`'s health payload doesn't
+(including the `notify-api` SSE `connect-src` pin, R6, the `refund-api`
+`connect-src` pin, T20, and the receipt-bucket `connect-src` pin, ADR-0016 —
+override its default with `REFUND_BUCKET_ORIGIN`), and warns if `notify-api`'s health payload doesn't
 look JWKS-ready. It also probes `POST
 $NOTIFY_API_URL/system/emails` (specs/006, ADR-0011): a garbage
 `X-Internal-Token` must get 401 (proves the internal-token gate is deployed
@@ -751,6 +760,18 @@ Apply with any S3 client pointed at `REFUND_S3_ENDPOINT` (`PutBucketCors`):
   }
 ]
 ```
+
+> **The upload passes THREE independent gates — all must be right, and all
+> three fail identically ("Upload failed") from the user's side:**
+> 1. the shell CSP's `connect-src` must list the bucket origin (§ Phase 3);
+> 2. the bucket must carry the CORS rule below;
+> 3. refund-api's presigned POST policy must accept the file (size ≤10 MiB,
+>    `Content-Type` in `pdf`/`jpeg`/`png` — `src/lib/storage.ts`).
+>
+> Note that the compiled-batch PDF is NOT a counter-example when uploads are
+> broken: refund-api writes it server-side with `PutObject` (ADR-0019), so it
+> passes none of these gates. A working batch PDF tells you the credentials
+> and endpoint are fine — nothing more.
 
 Only the **shell** origin belongs here: `refund-ui` is a federated remote
 reached through the shell (ADR-0006), so the browser `Origin` on the upload is

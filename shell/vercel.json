@@ -21,7 +21,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://estimai.operai.welld.io https://refund.operai.welld.io https://admin.operai.welld.io https://notify.operai.welld.io; connect-src 'self' https://auth.operai.welld.io https://estimai-api.operai.welld.io https://estimai.operai.welld.io https://refund.operai.welld.io https://refund-api.operai.welld.io https://admin.operai.welld.io https://notify.operai.welld.io https://notify-api.operai.welld.io; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https://*.googleusercontent.com https://avatars.githubusercontent.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+          "value": "default-src 'self'; script-src 'self' https://estimai.operai.welld.io https://refund.operai.welld.io https://admin.operai.welld.io https://notify.operai.welld.io; connect-src 'self' https://auth.operai.welld.io https://estimai-api.operai.welld.io https://estimai.operai.welld.io https://refund.operai.welld.io https://refund-api.operai.welld.io https://admin.operai.welld.io https://notify.operai.welld.io https://notify-api.operai.welld.io https://t3.storageapi.dev; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https://*.googleusercontent.com https://avatars.githubusercontent.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
         },
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "X-Frame-Options", "value": "DENY" },

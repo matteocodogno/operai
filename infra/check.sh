@@ -14,8 +14,10 @@
 # Covers all FOUR backends (auth, estimai-api, notify-api, refund-api) and all
 # four remotes (estimai-ui, refund-ui, admin-ui, notify-ui), plus the shell
 # CSP — including the notify-api origin in connect-src, the classic
-# SSE/EventSource miss (specs/005-notification-center Risk R6), and the
-# refund-api origin in connect-src (specs/007-refund-service T20). Also probes
+# SSE/EventSource miss (specs/005-notification-center Risk R6), the
+# refund-api origin in connect-src (specs/007-refund-service T20), and the
+# receipt-bucket origin in connect-src (ADR-0016's direct-to-bucket upload —
+# override the default with REFUND_BUCKET_ORIGIN). Also probes
 # notify-api's internal email-send gate (specs/006-user-invitations,
 # ADR-0011) — see § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same
 # value configured on auth, notify-api, AND refund-api as of ADR-0017) to get
@@ -192,6 +194,19 @@ if [[ -n "$CSP" ]]; then
     pass "  CSP connect-src includes $REFUND_API_URL (refund-api origin — T20)"
   else
     fail "  CSP connect-src is MISSING $REFUND_API_URL — refund-ui's API calls will be blocked by the browser regardless of the Bearer-token trusted-origins fix (specs/007-refund-service T20)"
+  fi
+
+  # ADR-0016 — receipt uploads POST DIRECTLY to the object-storage bucket, not
+  # through refund-api, so the bucket's own origin needs its own connect-src
+  # pin. This is the THIRD independent gate on that one request: the bucket's
+  # CORS rule, refund-api's presigned policy, and this CSP entry. All three
+  # must be right; each fails identically from the user's side ("Upload
+  # failed"). Missing here on 2026-07-31, after the bucket CORS was fixed.
+  REFUND_BUCKET_ORIGIN="${REFUND_BUCKET_ORIGIN:-https://t3.storageapi.dev}"
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$REFUND_BUCKET_ORIGIN"; then
+    pass "  CSP connect-src includes $REFUND_BUCKET_ORIGIN (receipt-bucket upload origin — ADR-0016)"
+  else
+    fail "  CSP connect-src is MISSING $REFUND_BUCKET_ORIGIN — every receipt upload will be blocked by the browser before it leaves the page, even with the bucket's CORS rule correct (ADR-0016 direct-to-bucket POST)"
   fi
 else fail "no Content-Security-Policy header on the shell (shell/vercel.json)"; fi
 
