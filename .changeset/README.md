@@ -19,6 +19,12 @@ cross-app change (e.g. a refund-api contract + its refund-ui consumer) selects
 BOTH packages in the same changeset — the apps aren't npm-linked, so Changesets
 can't infer the coupling for you.
 
+CI (`.github/workflows/changeset-check.yml`) requires a changeset alongside
+any app-code change. For a deliberate no-release change (docs-only inside an
+app dir, CI/tooling-only, etc.), run `pnpm exec changeset add --empty` instead
+of the interactive flow above — Changesets' own escape hatch for an
+intentional no-op release note — and commit the resulting file.
+
 > Pre-1.0 note: while an app is `0.x`, a `minor` is the "breaking allowed"
 > lane and `patch` is everything else — SemVer treats `0.y.z` specially.
 

@@ -1,0 +1,70 @@
+# changeset-check — every app-code change under a Changesets-tracked package
+# dir must land with an accompanying .changeset/*.md file.
+#
+# IMPORTANT — read before assuming this blocks a bad merge:
+#
+#   The `pull_request` leg IS a real pre-merge gate, but ONLY once a required-
+#   status-check branch protection rule for this job is added on `main` (a
+#   separate, human decision — see infra/README.md and the plan this workflow
+#   was wired from). Without that rule, a failing PR check is still just a
+#   red ✗ someone can ignore and merge past.
+#
+#   The `push` leg is NOT a gate at all — GitHub Actions has no mechanism to
+#   intercept a `git push`. By the time this job runs, the commit is already
+#   on `main`. It exists purely as the fastest possible DETECTION signal
+#   (a same-commit, ~1-minute-later red ✗ in the Actions tab and a failed
+#   commit status on the exact SHA) for the repo's actual current practice —
+#   direct pushes and local-branch merges land on `main` without ever going
+#   through a merged GitHub PR (verified: `gh pr list --state merged` is
+#   empty for this repo's entire history). Do not mistake a passing `push`
+#   run for proof nothing bad could have landed — it only proves nothing bad
+#   landed IN THIS COMMIT'S DIFF, after the fact.
+#
+# Both triggers run the same check: scripts/check-changeset.mjs.
+name: changeset-check
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "auth/**"
+      - "estimai-api/**"
+      - "notify-api/**"
+      - "refund-api/**"
+      - "shell/**"
+      - "estimai-ui/**"
+      - "refund-ui/**"
+      - "notify-ui/**"
+      - "admin-ui/**"
+  push:
+    branches: [main]
+    paths:
+      - "auth/**"
+      - "estimai-api/**"
+      - "notify-api/**"
+      - "refund-api/**"
+      - "shell/**"
+      - "estimai-ui/**"
+      - "refund-ui/**"
+      - "notify-ui/**"
+      - "admin-ui/**"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — needed to diff base..head / before..sha
+      # Deliberate deviation from env-doctor.yml's oven-sh/setup-bun@v2
+      # precedent: mise-action reads the toolchain from mise.toml (node 24,
+      # corepack pnpm) instead of hardcoding it in the workflow, so CI and
+      # local match per the "CI and local toolchains match" mandate.
+      - uses: jdx/mise-action@v2
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/check-changeset.mjs
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_BEFORE_SHA: ${{ github.event.before }}
+          GH_HEAD_SHA: ${{ github.sha }}
