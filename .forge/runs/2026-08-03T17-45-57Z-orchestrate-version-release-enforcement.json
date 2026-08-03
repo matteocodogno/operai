@@ -1,0 +1,103 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-08-03T17-45-57Z-orchestrate-version-release-enforcement",
+  "command": "orchestrate",
+  "feature": "version-release-enforcement",
+  "rigor": "production",
+  "started": "2026-08-03T16:55:00Z",
+  "finished": "2026-08-03T17:45:57Z",
+  "notes": "Infra pipeline (no specs/NNN-slug — the approved plan of record was the artifact, at scratchpad/version-bump-plan.md). Goal: the suite version must bump on every production release; the footer still read v0.0.0.",
+  "agents": [
+    {
+      "agent": "devops",
+      "tasks": ["plan-of-record"],
+      "outcome": "completed",
+      "commits": [],
+      "note": "Read-only investigation + plan artifact. Corrected the briefing: 4 pending changesets not 3; only 2 of 5 frontends had changesets. Established that the root package.json must be treated as unreachable from an app's Vercel build root."
+    },
+    {
+      "agent": "devops",
+      "tasks": ["A-ci-gate", "B-version-mjs"],
+      "outcome": "completed",
+      "commits": ["c49d9bf"],
+      "worktree": "worktree-agent-a9b358607e4346d42"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["B-consumer", "C-remote-versions"],
+      "outcome": "completed",
+      "commits": ["6a13795"],
+      "worktree": "worktree-agent-a7a6803003ea3302a"
+    },
+    {
+      "agent": "adr-writer",
+      "tasks": ["ADR-0030"],
+      "outcome": "completed",
+      "commits": ["94cb128"],
+      "worktree": "worktree-agent-ac50575d146e14d31"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "note": "Round 1. Verified the untested cross-worktree seam (version.mjs writes / vite.config.ts reads) byte-correct end-to-end incl. 3 fail-loud cases. One defect: no test exercised the real Module Federation ./version import path."
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["defect-1-fix"],
+      "outcome": "completed",
+      "commits": ["05de0cd"],
+      "note": "Fix round 1 of max 2. Went beyond QE's suggestion: tests the REAL built remoteEntry.js container via get('./version'), no mocking. Found and fixed a genuine gotcha — Vitest's NODE_ENV=test/VITEST* leaked into the spawned build and silently disabled the MF plugin."
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "note": "Re-verification. Independently reproduced the red twice from scratch rather than trusting the reported output; read the generated MF glue to confirm get() is structurally independent of init(); confirmed the 4 original degrade tests untouched. 195/195 shell tests, 1070+ across all 5 frontends, gitleaks clean."
+    },
+    {
+      "agent": "devops",
+      "tasks": ["D-release-cut"],
+      "outcome": "completed",
+      "commits": ["11e751e"],
+      "note": "All 10 versions matched the approved table exactly. 10 tags created, none pushed. Proved the reported bug dead: shell bundle now carries 0.1.1, not 0.0.0."
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "devops",
+      "artifact": "plan-of-record",
+      "summary": "Briefing said 3 pending changesets; there were 4 (olive-moons-repeat.md landed in the most recent commit). Runbook rewritten against the real set.",
+      "resolved": true
+    },
+    {
+      "agent": "orchestrator",
+      "artifact": "plan-of-record",
+      "summary": "Plan §D.3 called for 3 synthetic 'first release, no functional change' changesets for estimai-ui/admin-ui/notify-ui. Dropped: the Frontend work genuinely modifies all five frontends, so one real changeset supersedes them and avoids a double-bump. Same approved outcome (all 5 leave 0.0.0) by a more honest route.",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "plan-of-record",
+      "summary": "Plan §E's verification grep for the bundled version used double quotes only; the minifier emits backtick template literals, so the plan's literal command is a false negative. Quote-agnostic pattern used instead, and carried into the release-cut verification.",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev",
+      "artifact": "plan-of-record",
+      "summary": "Plan §C assumed vi.mock of the MF bare specifiers would work per-test; in practice it was flaky and order-dependent (ES module cache). Switched to an injected remoteVersionSources prop, matching RemoteMount's existing loader-prop pattern. QE later flagged this as leaving the real path untested — closed in fix round 1.",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "verdicts": { "qe": "PASS", "eval": "not-run (infra pipeline — no eval stage)" },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null,
+  "open_followups": [
+    "The push-trigger CI leg is a DETECTOR, not a gate — GitHub Actions cannot intercept a push, and this repo has zero merged PRs ever (everything lands via direct push to main). Real pre-merge enforcement needs a branch-protection decision ('Require a pull request before merging'), deliberately left out of scope.",
+    "No GitHub Actions workflow runs the frontend test suites at all today (only changeset-check.yml and env-doctor.yml). The new shell integration test also introduces an implicit cross-app dependency: it needs pnpm install in all four remote directories before shell's tests can pass.",
+    "Residual test gap accepted by QE: a real browser doing a cross-origin import('estimai/version') with live init()/shared-singleton negotiation is still uncovered. The identical transport path is already proven live for the sibling ./App export (shell/e2e/mf-singleton.spec.ts, remote-failure.spec.ts).",
+    "The release is committed and tagged LOCALLY ONLY — nothing pushed. Branch chore/version-release-enforcement, 5 commits, 10 tags."
+  ]
+}
