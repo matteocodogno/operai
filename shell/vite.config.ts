@@ -5,11 +5,71 @@ import { readFileSync } from 'node:fs'
 
 // requiredVersion for shared singletons is sourced from this package's own
 // dependency ranges rather than hardcoded, so host and remote (estimai-ui,
-// refund-ui) cannot silently drift — mirrors estimai-ui/vite.config.ts. The same
-// `pkg` read also backs the `define` block below (T6, specs/003-suite-shell): the
-// shell's About dialog (AboutModal.tsx, via src/lib/appInfo.ts) shows the suite's
-// version, injected at build time exactly like estimai-ui/vite.config.ts does.
+// refund-ui) cannot silently drift — mirrors estimai-ui/vite.config.ts.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
+
+// __APP_VERSION__ (consumed by src/lib/appInfo.ts's APP_VERSION, rendered by
+// Footer.tsx and AboutModal.tsx) is the OPERAI UMBRELLA suite version, not
+// this package's own `version` field (which stays a meaningless `0.0.0` —
+// per-app SemVer for `@operai/shell` is a separate, real number tracked in
+// package.json for Changesets, but it is not what the footer/About dialog
+// show). Reading `pkg.version` here was the original bug this file now fixes
+// (see the version-bump plan): it rendered the shell's own package version
+// instead of the suite's.
+//
+// The umbrella version is sourced from a small, COMMITTED, generated file —
+// shell/src/lib/suiteVersion.generated.json — written by the root release
+// tooling (scripts/version.mjs) in the same step that bumps the root
+// package.json's `version`, so it can never drift between releases. This is
+// deliberately a same-directory read via `readFileSync(new URL(...,
+// import.meta.url))`, exactly like the `pkg` read above, and NEVER
+// `../../package.json` (the root manifest): the shell deploys on Vercel with
+// Root Directory = `shell`, "include files outside the Root Directory" is
+// off by default there, and CLAUDE.md's own architecture note explains the
+// whole monorepo is deliberately built so no app's build needs to reach
+// outside its own directory. Reaching for the root package.json here would
+// work locally and silently break in production the first time that Vercel
+// setting matters.
+function readSuiteVersion(): string {
+  let raw: string
+  try {
+    raw = readFileSync(new URL('./src/lib/suiteVersion.generated.json', import.meta.url), 'utf-8')
+  } catch (cause) {
+    // Fail LOUD, not soft: this file is committed and should always be
+    // present (mirrors the "validate at startup, exit on missing" posture
+    // CLAUDE.md mandates for the backends' env vars). Silently falling back
+    // to a placeholder here would ship a wrong-but-plausible-looking version
+    // number to production with no signal anything was wrong — worse than a
+    // build that fails with an actionable message pointing at the fix.
+    throw new Error(
+      'shell/src/lib/suiteVersion.generated.json is missing. This file is committed to the ' +
+        'repo and rewritten by scripts/version.mjs during a release cut (see CLAUDE.md, ' +
+        '"Versioning & releases"). Restore it from git, or run `mise run release:version` from ' +
+        'the repo root, then retry the build.',
+      { cause },
+    )
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (cause) {
+    throw new Error(
+      'shell/src/lib/suiteVersion.generated.json is not valid JSON. Expected {"version": "x.y.z"}.',
+      { cause },
+    )
+  }
+
+  const version = (parsed as { version?: unknown } | null)?.version
+  if (typeof version !== 'string' || version.trim() === '') {
+    throw new Error(
+      `shell/src/lib/suiteVersion.generated.json has no valid "version" string (got ${JSON.stringify(version)}). Expected {"version": "x.y.z"}.`,
+    )
+  }
+  return version
+}
+
+const suiteVersion = readSuiteVersion()
 
 // Module Federation host config.
 //
@@ -167,7 +227,7 @@ export default defineConfig({
     }),
   ],
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
+    __APP_VERSION__: JSON.stringify(suiteVersion),
   },
   build: {
     // Required by @module-federation/vite: federated chunks use top-level

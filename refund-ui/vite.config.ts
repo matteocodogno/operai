@@ -8,6 +8,13 @@ import { readFileSync } from 'node:fs'
 // (US-5, AC-5.1–AC-5.3). requiredVersion for shared singletons is sourced
 // from this package's own dependency ranges (mirrors estimai-ui/vite.config.ts,
 // shell/vite.config.ts) so the whole graph cannot silently drift.
+//
+// The same `pkg.version` now also backs `__REMOTE_VERSION__` (version-bump
+// plan §C): this remote's OWN version, exposed via Module Federation as
+// `./version` (see `exposes` below + src/version.ts) so the shell's About
+// dialog can show it alongside the suite's umbrella version. Same
+// same-directory `readFileSync('./package.json')` read already used for the
+// `shared.requiredVersion` entries — no new cross-directory risk.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // Build-time dev default only, overridable via env var — mirrors the
@@ -45,6 +52,7 @@ export default defineConfig({
       // `./session`/`./tokens.css`.
       exposes: {
         './App': './src/App.tsx',
+        './version': './src/version.ts',
       },
       remotes: {
         shell: {
@@ -66,6 +74,11 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    // Consumed by src/version.ts's REMOTE_VERSION — this remote's own
+    // version, exposed federated as `./version` (version-bump plan §C).
+    __REMOTE_VERSION__: JSON.stringify(pkg.version),
+  },
   build: {
     // Required by @module-federation/vite: federated chunks use top-level
     // await to resolve shared modules asynchronously at runtime.

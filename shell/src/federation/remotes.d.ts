@@ -47,3 +47,30 @@ declare module 'notify/App' {
   const App: ComponentType
   export default App
 }
+
+// Ambient declarations for the four remotes' `./version` exports (version-
+// bump plan §C: umbrella suite version in the footer + per-remote versions
+// in the About dialog). Same rationale as the `*/App` declarations above —
+// hand-written because `dts` generation stays disabled in vite.config.ts —
+// and same shape on all four: a single named `REMOTE_VERSION: string`
+// export (see each remote's src/version.ts). Consumed by
+// ../hooks/useRemoteVersions.ts via dynamic `import('estimai/version')`
+// etc., NOT a static import — see that module's doc for why a remote
+// missing this export entirely (i.e. one that predates this change) must
+// degrade gracefully rather than being a type error at the call site.
+
+declare module 'estimai/version' {
+  export const REMOTE_VERSION: string
+}
+
+declare module 'refund/version' {
+  export const REMOTE_VERSION: string
+}
+
+declare module 'admin/version' {
+  export const REMOTE_VERSION: string
+}
+
+declare module 'notify/version' {
+  export const REMOTE_VERSION: string
+}

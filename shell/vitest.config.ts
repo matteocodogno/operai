@@ -21,6 +21,23 @@ export default defineConfig({
       'refund/App': fileURLToPath(new URL('./src/federation/__stubs__/refundApp.tsx', import.meta.url)),
       'admin/App': fileURLToPath(new URL('./src/federation/__stubs__/adminApp.tsx', import.meta.url)),
       'notify/App': fileURLToPath(new URL('./src/federation/__stubs__/notifyApp.tsx', import.meta.url)),
+      // AboutModal.tsx dynamically imports each remote's `./version` module
+      // (../hooks/useRemoteVersions.ts) — same bare-specifier-only-resolves-
+      // at-runtime-via-MF situation as `*/App` above, same fix: alias to a
+      // local stub so Vite's import-analysis has something resolvable before
+      // a test's `vi.mock(...)` takes over (see AboutModal.test.tsx).
+      'estimai/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/estimaiVersion.ts', import.meta.url),
+      ),
+      'refund/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/refundVersion.ts', import.meta.url),
+      ),
+      'admin/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/adminVersion.ts', import.meta.url),
+      ),
+      'notify/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/notifyVersion.ts', import.meta.url),
+      ),
     },
   },
   test: {

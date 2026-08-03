@@ -8,6 +8,13 @@ import { readFileSync } from 'node:fs'
 // hardcoded (see the T12 comment further down). The suite-level About dialog
 // (which used to read the app version from here, via __APP_VERSION__) is now
 // owned by the shell — specs/003-suite-shell, T6/T14.
+//
+// The same `pkg.version` now also backs `__REMOTE_VERSION__` (version-bump
+// plan §C): this remote's OWN version, exposed via Module Federation as
+// `./version` (see `exposes` below + src/version.ts) so the shell's About
+// dialog can show it alongside the suite's umbrella version. Same
+// same-directory `readFileSync('./package.json')` read already used for the
+// `shared.requiredVersion` entries — no new cross-directory risk.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // T12 (specs/003-suite-shell/tasks.md): estimai-ui as a Module Federation
@@ -54,6 +61,7 @@ export default defineConfig({
       dts: false,
       exposes: {
         './App': './src/App.tsx',
+        './version': './src/version.ts',
       },
       remotes: {
         shell: {
@@ -75,6 +83,11 @@ export default defineConfig({
       },
     }),
   ],
+  define: {
+    // Consumed by src/version.ts's REMOTE_VERSION — this remote's own
+    // version, exposed federated as `./version` (version-bump plan §C).
+    __REMOTE_VERSION__: JSON.stringify(pkg.version),
+  },
   build: {
     // Required by @module-federation/vite: federated chunks use top-level
     // await to resolve shared modules asynchronously at runtime.
