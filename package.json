@@ -1,6 +1,6 @@
 {
   "name": "operai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Operai — wellD's AI-assisted consulting toolsuite (EstimAI + refund + admin + notify). This root holds the umbrella version + Changesets release tooling ONLY; each app (auth/estimai-api/notify-api/refund-api/shell/estimai-ui/refund-ui/notify-ui/admin-ui) is versioned independently and installed/built on its own (frontends via pnpm, backends via Bun). The package list lives in lerna.json (read by Changesets/@manypkg) NOT in a `workspaces` field or pnpm-workspace.yaml — because BOTH pnpm and Bun honor those and would try to treat the mixed pnpm+Bun apps as one workspace (breaking per-app installs/deploys), whereas neither reads lerna.json. So per-app installs + Vercel/Railway deploys are untouched.",
   "scripts": {
