@@ -208,6 +208,20 @@ if [[ -n "$CSP" ]]; then
   else
     fail "  CSP connect-src is MISSING $REFUND_BUCKET_ORIGIN — every receipt upload will be blocked by the browser before it leaves the page, even with the bucket's CORS rule correct (ADR-0016 direct-to-bucket POST)"
   fi
+
+  # The CSP above is only worth checking if browsers actually RE-READ it. CSP
+  # rides on the response header, and a 304 does not carry it — RFC 9111 keeps
+  # headers absent from a 304, so a cached document keeps enforcing the OLD
+  # policy. Editing only shell/vercel.json leaves index.html's ETag unchanged,
+  # so that 304 path never breaks on its own (2026-08-03: uploads still blocked
+  # by a CSP fixed and deployed two days earlier). `max-age=0, must-revalidate`
+  # is NOT sufficient — it still permits the 304.
+  SHELL_CC="$(hdrs "$SHELL_URL/" | grep -i '^cache-control:' | tr -d '\r')"
+  if echo "$SHELL_CC" | grep -qi 'no-store'; then
+    pass "  shell document is no-store (a CSP change actually reaches returning browsers)"
+  else
+    fail "  shell document is NOT no-store ($SHELL_CC) — a cached copy will keep enforcing a STALE CSP, because a 304 revalidation does not carry the header"
+  fi
 else fail "no Content-Security-Policy header on the shell (shell/vercel.json)"; fi
 
 # EstimAI old-URL → shell redirect (AC-4.3): only for a top-level document nav.

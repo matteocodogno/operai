@@ -27,6 +27,11 @@
         { "key": "X-Frame-Options", "value": "DENY" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
+    },
+    {
+      "//": "The SPA document must NOT be cacheable. CSP is delivered as a response HEADER, and a 304 revalidation does NOT carry it — RFC 9111 has the client keep headers absent from the 304, so a browser holding a pre-change copy goes on enforcing the OLD policy. Worse, editing only this file leaves index.html's bytes (and therefore its ETag) identical, so the 304 path never breaks on its own: on 2026-08-03 receipt uploads were still blocked by a CSP that had been fixed and deployed two days earlier. `max-age=0, must-revalidate` is NOT enough — it still permits the 304. Excludes the three paths with their own Cache-Control above so asset immutability is untouched.",
+      "source": "/((?!assets/|remoteEntry\\.js|runtime-config\\.json).*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-store, must-revalidate" }]
     }
   ]
 }

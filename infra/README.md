@@ -454,6 +454,29 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
   won't match — assign preview subdomains or relax CSP via Edge Middleware;
   not implemented.)*
 
+> **⚠ A CSP change does not reach a browser that has the document cached.** CSP
+> is a response **header**, and a `304 Not Modified` does not carry it — RFC
+> 9111 has the client keep any header absent from the 304, so the browser goes
+> on enforcing the **old** policy while `curl` against the same URL shows the
+> new one. And editing only `shell/vercel.json` leaves `index.html`'s bytes —
+> hence its ETag — identical, so nothing ever breaks that 304 loop. On
+> 2026-08-03 receipt uploads were still blocked by a CSP that had been fixed
+> and deployed two days earlier, with the correct header visibly live.
+>
+> `max-age=0, must-revalidate` is **not** enough — it still permits the 304.
+> The shell document is therefore served `Cache-Control: no-store` (the last
+> rule in `shell/vercel.json`, scoped by negative lookahead so `/assets/`,
+> `/remoteEntry.js`, and `/runtime-config.json` keep their own caching), and
+> `infra/check.sh` asserts it. A client poisoned before that rule shipped
+> self-heals after one more navigation; a hard reload
+> (<kbd>Cmd/Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>) fixes it immediately.
+>
+> The four remote UIs (`estimai-ui`, `refund-ui`, `admin-ui`, `notify-ui`) still
+> carry the default caching on their own documents. They are loaded as federated
+> remotes rather than as top-level documents, so the shell's CSP is the one that
+> governs in production — but apply the same rule to any of them that ever
+> becomes a directly-visited page.
+
 ---
 
 ## Phase 4 — Verify
