@@ -1,10 +1,11 @@
 ---
 id: 012
 slug: employee-address
-status: in-progress
+status: done
 rigor: production
 created: 2026-08-03
 approved: 2026-08-03
+done: 2026-08-04
 ---
 
 # Employee address: admin-managed, autocomplete-assisted capture
