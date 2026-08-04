@@ -32,12 +32,35 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const AUTH_DIR = path.resolve(__dirname, '../../../auth')
 
+const SCRIPT_ARGS = ['run', 'scripts/e2e-invite-fixtures.ts']
+
+/**
+ * Runs the fixture script with whichever env-loading path this machine has.
+ *
+ * `auth` supports TWO documented local setups (CLAUDE.md "Auth service"):
+ * a plain `auth/.env`, or direnv + 1Password via `auth/.envrc`. Bun auto-loads
+ * `.env`, so we try plain `bun` FIRST and only fall back to `direnv exec .`.
+ *
+ * The previous order (direnv-only) made this harness require an unlocked
+ * 1Password vault even on machines whose `auth/.env` already had everything
+ * the script needs — which is why specs/012's e2e could not be executed at
+ * all on 2026-08-04. Preferring `bun` costs nothing when direnv IS the setup
+ * (the fallback still runs) and unblocks the machines where it isn't.
+ */
 function runFixtureScript(args: string[]): string {
-  const output = execFileSync(
-    'direnv',
-    ['exec', '.', 'bun', 'run', 'scripts/e2e-invite-fixtures.ts', ...args],
-    { cwd: AUTH_DIR, encoding: 'utf-8' },
-  )
+  let output: string
+  try {
+    output = execFileSync('bun', [...SCRIPT_ARGS, ...args], {
+      cwd: AUTH_DIR,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch {
+    output = execFileSync('direnv', ['exec', '.', 'bun', ...SCRIPT_ARGS, ...args], {
+      cwd: AUTH_DIR,
+      encoding: 'utf-8',
+    })
+  }
   // The script's own stdout may be interleaved with Prisma's dev-mode query
   // logging (`auth/src/lib/db.ts` logs `query` in non-production) — the
   // fixture script's OWN result is always the single JSON object it prints
