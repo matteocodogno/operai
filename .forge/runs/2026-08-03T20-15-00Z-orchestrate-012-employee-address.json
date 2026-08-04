@@ -1,0 +1,147 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-08-03T20-15-00Z-orchestrate-012-employee-address",
+  "command": "orchestrate",
+  "feature": "012-employee-address",
+  "rigor": "production",
+  "started": "2026-08-03T20:15:00Z",
+  "finished": "2026-08-04T11:55:55Z",
+  "agents": [
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "note": "3 invocations: initial spec.md (6 stories, 24 ACs); fold-in of the 4 user-answered product questions (self-view read-only, store lat/lng, append-only audit, CH/IT bias worldwide-savable); fold-in of the 3 user-answered architect questions + the AC-5.2 drift amendment"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "note": "plan.md (1015 lines). Surfaced the AC-5.2 drift by verifying rather than assuming. 2 invocations: initial plan, then amendment applying the user's Option-C drift resolution",
+      "commits": ["98267d0"]
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "note": "ADR-0031..0034 + CLAUDE.md index mirror (exactly 4 lines added)",
+      "commits": ["98267d0"]
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "note": "design.md (845 lines), 6 flows, ~14 autocomplete states. Caught the country free-text vs ISO-code design<->plan mismatch. 2 invocations: initial, then country-control amendment",
+      "commits": ["98267d0"]
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T7", "T8", "T9", "T10", "T11", "T12", "T13"],
+      "outcome": "blocked",
+      "note": "ABORTED DISPATCH: spec artifacts were untracked in the main checkout, so the git worktree could not see specs/012-employee-address/ at all. Agent correctly refused to invent the API and Google request contracts and stopped instead of guessing. Orchestrator error, not agent error",
+      "worktree": "worktree-agent-a407e89df2522410a"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": ["T1", "T2", "T3", "T4", "T5", "T6"],
+      "outcome": "completed",
+      "commits": ["39ed2ee", "96a5a6e", "e041915", "70e0a8b", "f63c2a3"],
+      "worktree": "worktree-agent-a76f0562d31f0dcbb",
+      "note": "394 tests pass, typecheck clean. Flagged the countryCode 500-vs-422 gap rather than fixing it unilaterally"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T7", "T8", "T9", "T10", "T11", "T12", "T13"],
+      "outcome": "completed",
+      "commits": ["56b72eb"],
+      "worktree": "worktree-agent-a7970b4defe3da277",
+      "note": "Re-dispatch after the artifacts were committed. 401 tests pass. Built the suite's first ARIA combobox, shared by the Street and Country fields"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T14", "T15"],
+      "outcome": "completed",
+      "commits": ["619e60f", "01907ae"],
+      "worktree": "worktree-agent-a50c04055b8225e06",
+      "note": "200 tests pass. Fixed 5 pre-existing UserMenu tests broken by adding a real Link, outside its assigned touch list"
+    },
+    {
+      "agent": "devops",
+      "tasks": ["T16"],
+      "outcome": "partial",
+      "commits": ["50eabcc"],
+      "worktree": "worktree-agent-ac9738817ae4b09ad",
+      "note": "Documentation half only. GCP key provisioning requires console + 1Password access no agent has; 8 human steps enumerated in the report"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T17", "T18"],
+      "outcome": "partial",
+      "commits": ["6147038", "621604b"],
+      "note": "e2e spec written and statically verified (tsc, eslint, playwright --list) but NEVER EXECUTED — auth fixtures shell out through direnv/1Password. Changeset written for auth + admin-ui + shell, all minor"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "commits": ["26a2673"],
+      "note": "23/24 ACs pass. Found and closed an AC-5.4 test gap (no-op guard proven on only 3 of 8 fields; verified the new tests load-bearing by injecting a real regression). Fixed countryCode 500->422, the missing Playwright env var, and ruled fix on the hardcoded 'My profile'. FAIL stands on the unexecuted e2e and the then-red shell lint gate"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "completed",
+      "note": "0 critical, 0 high, 1 medium, 1 low. Medium: shell/vercel.json CSP omitted both Google domains, which would have silently and permanently disabled autocomplete in production (AC-3.2's deliberate silent degradation made it invisible). Confirmed all three access-control boundaries hold under adversarial probing"
+    },
+    {
+      "agent": "devops",
+      "outcome": "completed",
+      "commits": ["cf0ed86"],
+      "note": "Fixed the CSP medium and pinned all three Google origins in infra/check.sh. Proved the finding real by running check.sh against live production and observing the new assertions fail"
+    },
+    {
+      "agent": "evaluator",
+      "outcome": "PASS",
+      "score": 90,
+      "note": "No dimension below floor. Verified by probing the composed auth app and querying the live schema (pg_trigger empty, app role retains UPDATE/DELETE on audit_log — exactly as ADR-0033 claims). Found 3 defects the deterministic gates missed"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "completed",
+      "commits": ["d8f44e4"],
+      "note": "Eval fix round. Removed 3 hardcoded UI strings, reconciled 6 dead copy keys, fixed the AC-5.2 line-by-line scan evasion (proved load-bearing with a split-expression fixture), made AC-3.2 cases 1/2 genuinely distinguishable, fixed the pre-existing shell lint error, added 25 DB CHECK constraint tests. Reconciled the CHECK count to 4 via pg_constraint"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "AC-5.2 required database-level audit immutability, but auth's audit_log has none — no trigger, rule or revoked grant in any of the three migrations, and five test files call auditLog.deleteMany today. The user had constrained the plan to reuse that mechanism, so the AC was unsatisfiable as written. Escalated to the user with three options; user chose to amend AC-5.2 down to application-level immutability (2026-08-04) rather than add a trigger or a sibling table. Recorded as ADR-0033",
+      "resolved": true
+    },
+    {
+      "agent": "designer",
+      "artifact": "design.md",
+      "summary": "design.md specified a free-text country input while plan.md required ISO 3166-1 alpha-2 with a DB CHECK and server-side regex. A manually-typed 'Italia' would have 422'd on exactly the AC-3.1/AC-3.2 degraded path that must always work. Resolved to a bundled ISO list behind the same combobox primitive, with Intl.DisplayNames labels — the only option consistent with the already-approved plan and ADR-0031",
+      "resolved": true
+    },
+    {
+      "agent": "orchestrator",
+      "artifact": "specs/012-employee-address/",
+      "summary": "ORCHESTRATION DEFECT: the first implementation batch was dispatched while the spec artifacts were still untracked in git. Worktree isolation checks out a committed ref, so all four agents saw a tree with no spec at all. Caught because the admin-ui agent refused to invent the contracts and stopped. Fixed by committing the artifacts (98267d0) and re-dispatching; three agents were killed mid-run and re-launched",
+      "resolved": true
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "tasks.md",
+      "summary": "T13 and T17 were ticked complete while their done-when conditions were unmet — T13's 'no literal user-facing string remains' (three survived, one of them live on the error path) and T17's e2e execution (never run). Both corrected: T13's strings fixed in d8f44e4, T17 un-ticked and annotated",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "verdicts": {
+    "qe": "FAIL",
+    "owasp": "1 medium, 1 low — both fixed",
+    "eval": "PASS"
+  },
+  "result": "partial",
+  "result_detail": "All 24 ACs implemented and proven at unit/integration level; eval PASS 90/100; both security findings fixed. NOT closed: T16's GCP key provisioning is blocked on a human with console + 1Password access, and T17's e2e has never been executed for the same reason, so AC-1.2/6.1/6.2's end-to-end leg is unverified. Spec deliberately left in-progress rather than closed on an unmet gate; the user elected to run the e2e themselves and close afterwards",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}

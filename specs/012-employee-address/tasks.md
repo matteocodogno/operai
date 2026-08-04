@@ -120,7 +120,8 @@ T16 (infra) is independent of all three. T17 (e2e) joins the tracks.
 
 ## Integration & close
 
-- [x] T17: Write the end-to-end journey — refs: AC-1.2, AC-6.1, AC-6.2 — deps: T12, T15, T16
+- [ ] T17: Write the end-to-end journey — refs: AC-1.2, AC-6.1, AC-6.2 — deps: T12, T15, T16
+  - **Status 2026-08-04: spec WRITTEN and statically verified (`tsc`, `eslint`, `playwright test --list` all clean, commit `6147038`); NEVER EXECUTED.** `auth`'s fixture helper shells out through `direnv`, which resolves 1Password references from `auth/.envrc`; the vault is not unlocked in the agent environment, so the helper fails before seeding a session. Its "done when" is therefore unmet, so it stays unchecked — the eval flagged the earlier `[x]` as dishonest and was right. AC-1.2/6.1/6.2 rest on component + integration proof alone until this runs. **To close:** unlock 1Password, then `cd shell && VITE_GOOGLE_MAPS_API_KEY=e2e-stub-not-a-real-key pnpm e2e e2e/employee-address.spec.ts`.
   - touch: `shell/e2e/employee-address.spec.ts` (NEW)
   - Google **stubbed at the network layer** (`page.route('**/places.googleapis.com/**')`) so CI never hits a billed third party. Journey: seeded admin → `/admin/users/<id>` → section visible → type 3+ chars → stubbed suggestion → select → fields populate → save → reload → still shown; then sign in as a **non-admin** → `/admin/*` unreachable, `/account` reachable and read-only.
   - done when: the spec passes against the running stack and makes zero real requests to `places.googleapis.com`.
