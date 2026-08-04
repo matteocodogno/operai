@@ -55,6 +55,25 @@
  * `GuardrailDialog`, same shape as every other guardrail on this page. On
  * success, navigates back to `/users` (mirrors `RoleEditor.tsx`'s
  * delete-then-navigate-to-list pattern, design.md Screen U3).
+ *
+ * --- Address section (T12, specs/012-employee-address/tasks.md, AC-4.2) ---
+ * A fourth, independently-fetched block: `AddressSection` (T11), mounted
+ * ONLY for a caller who holds the literal `admin` role — plan.md's Constraint
+ * that this feature reuses the EXISTING `requireAdmin` gate rather than
+ * minting a new catalog permission (deliberate counterpoint to ADR-0028).
+ * Resolved via `adminApi.getMe()`'s `roles` field — the SAME `GET
+ * /authz/me` call `MileageRatesPage.tsx`'s `settings` panel already uses for
+ * its own proactive hide-if-uncapable gate (T6, specs/011-refund-settings) —
+ * fetched independently here (this page's own fetch, matching the
+ * established "every screen owns its own capability check" convention) and
+ * fails CLOSED (hidden, not a crash) if that call itself fails: UX-only,
+ * never the actual security boundary (that is `auth`'s server-side
+ * `requireAdmin` on `GET`/`PUT /admin/users/:id/address`, AC-4.1). AC-4.2
+ * requires ABSENCE, not a disabled variant — a denied caller's DOM has no
+ * `data-testid="address-section"` node at all, and no address fetch of any
+ * kind is ever issued for them. Scope note (design.md "Gaps" #3): this
+ * hide-if-uncapable pattern is deliberately NOT retro-applied to the
+ * Attributes/Roles/Departments sections above — out of this feature's scope.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -67,6 +86,7 @@ import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import GuardrailDialog from '../components/GuardrailDialog'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
+import AddressSection from '../components/AddressSection'
 
 const route = getRouteApi('/users/$id')
 
@@ -136,6 +156,12 @@ export default function UserDetail() {
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteGuardrailMessage, setDeleteGuardrailMessage] = useState<string | null>(null)
 
+  // --- Address section visibility (T12, specs/012-employee-address, AC-4.2) ---
+  // 'loading' and 'hidden' both render nothing — the section is ABSENT from
+  // the DOM in either case, never a disabled placeholder (AC-4.2 "a denied
+  // capability is invisible, not merely disabled").
+  const [addressCapability, setAddressCapability] = useState<'loading' | 'visible' | 'hidden'>('loading')
+
   // Fetch the user + the full role/department catalogs (needed to render
   // every option in the two checkbox fieldsets, not just the assigned ones).
   // The pending-edit state (entity/jobTitle/selectedRoleIds/
@@ -175,6 +201,30 @@ export default function UserDetail() {
       cancelled = true
     }
   }, [id, reloadToken])
+
+  // AC-4.2 — resolves whether AddressSection may render at all, via the SAME
+  // `GET /authz/me` call MileageRatesPage.tsx's settings panel already uses
+  // (T6, specs/011-refund-settings) for its own proactive hide-if-uncapable
+  // gate. Independent of the user-detail fetch above: a slow/failed
+  // capability check must never block the Attributes/Roles/Departments
+  // sections from loading. A failed call hides the section (fail closed,
+  // UX-only — the real boundary is `auth`'s server-side `requireAdmin`).
+  useEffect(() => {
+    let cancelled = false
+
+    adminApi
+      .getMe()
+      .then((me) => {
+        if (!cancelled) setAddressCapability(me.roles.includes('admin') ? 'visible' : 'hidden')
+      })
+      .catch(() => {
+        if (!cancelled) setAddressCapability('hidden')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const handleRetry = useCallback(() => {
     setReloadToken((token) => token + 1)
@@ -522,6 +572,10 @@ export default function UserDetail() {
                 )}
               </fieldset>
             </div>
+
+            {/* Address (T11/T12, specs/012-employee-address) — AC-4.2: absent from the
+                DOM entirely for a non-admin, never a disabled variant of itself. */}
+            {addressCapability === 'visible' && <AddressSection userId={state.user.id} />}
           </div>
         )}
       </div>

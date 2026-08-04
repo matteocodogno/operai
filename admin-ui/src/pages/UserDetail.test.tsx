@@ -28,6 +28,12 @@
  *       button is disabled-with-explanation on the acting admin's own page
  *       (same `useSession()` convention as Screen U1); a 422 (last-admin
  *       guard) surfaces via GuardrailDialog, not an inline dialog error.
+ *   (I) Address section visibility (T12, specs/012-employee-address, AC-4.2):
+ *       with `getMe().roles` lacking `admin`, `AddressSection` is ABSENT from
+ *       the DOM (`queryByTestId('address-section')` is `null`) — not merely
+ *       disabled, and no `GET /admin/users/:id/address` call is ever made for
+ *       such a caller. With `roles: ['admin']` it renders. A failed
+ *       `getMe()` call also hides it (fails closed, UX-only).
  *
  * Strategy mirrors ../pages/AuditPage.test.tsx: `../lib/adminApi` mocked at
  * module level, keeping the real `ApiError` class via `importOriginal`. A
@@ -59,6 +65,20 @@ vi.mock('../lib/adminApi', async (importOriginal) => {
     putUserRoles: vi.fn(),
     putUserDepartments: vi.fn(),
     deleteUser: vi.fn(),
+    getMe: vi.fn(),
+  }
+})
+
+// AddressSection (T11) fetches its own data independently of everything
+// above — mocked here purely so the (I) "visible" case doesn't issue a real
+// network call; every other test in this file never renders the section at
+// all (getMe defaults to no roles, see beforeEach) so these are unused there.
+vi.mock('../lib/addressApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../lib/addressApi')>()
+  return {
+    ...original,
+    getAddress: vi.fn(),
+    listAddressHistory: vi.fn(),
   }
 })
 
@@ -69,6 +89,8 @@ vi.mock('shell/session', () => ({
 
 import * as adminApi from '../lib/adminApi'
 import { ApiError } from '../lib/adminApi'
+import * as addressApi from '../lib/addressApi'
+import type { EffectivePermissions } from '../lib/adminApi'
 
 // ---------------------------------------------------------------------------
 // Test router harness
@@ -148,11 +170,17 @@ const setupLoaded = () => {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
+const noAdminPermissions: EffectivePermissions = { epoch: 0, apps: [], roles: [], departments: [], permissions: [] }
+
 beforeEach(() => {
   vi.stubEnv('VITE_AUTH_URL', 'http://auth.test')
   // Default: no session user — re-pinned explicitly each test, same rationale
   // as ../pages/UsersPage.test.tsx's identical beforeEach comment.
   useSessionMock.mockReturnValue({ data: null })
+  // Default: AddressSection stays hidden (AC-4.2) — every test besides the
+  // dedicated "address section visibility" describe block below re-pins this
+  // explicitly only when it needs the section visible.
+  vi.mocked(adminApi.getMe).mockResolvedValue(noAdminPermissions)
 })
 
 afterEach(() => {
@@ -437,6 +465,61 @@ describe('UserDetail', () => {
       })
       expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
       expect(screen.getByText(/last administrator/)).not.toBeNull()
+    })
+  })
+
+  // (I) Address section visibility — T12, specs/012-employee-address, AC-4.2
+  describe('address section visibility (AC-4.2)', () => {
+    it('is absent from the DOM when getMe().roles lacks "admin" — not merely disabled', async () => {
+      setupLoaded()
+      vi.mocked(adminApi.getMe).mockResolvedValue(noAdminPermissions)
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-name')).not.toBeNull()
+      })
+      // Give the independent getMe() effect a tick to resolve.
+      await waitFor(() => expect(adminApi.getMe).toHaveBeenCalled())
+
+      expect(screen.queryByTestId('address-section')).toBeNull()
+      expect(addressApi.getAddress).not.toHaveBeenCalled()
+    })
+
+    it('renders when getMe().roles includes "admin"', async () => {
+      setupLoaded()
+      vi.mocked(adminApi.getMe).mockResolvedValue({
+        epoch: 1,
+        apps: ['admin'],
+        roles: ['admin'],
+        departments: [],
+        permissions: [],
+      })
+      vi.mocked(addressApi.getAddress).mockResolvedValue({ userId: 'user-1', address: null })
+      vi.mocked(addressApi.listAddressHistory).mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 })
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-name')).not.toBeNull()
+      })
+
+      expect(await screen.findByTestId('address-section')).not.toBeNull()
+      await waitFor(() => expect(addressApi.getAddress).toHaveBeenCalledWith('user-1'))
+    })
+
+    it('fails closed (hidden, not a crash) when getMe() itself rejects', async () => {
+      setupLoaded()
+      vi.mocked(adminApi.getMe).mockRejectedValue(new Error('network error'))
+
+      renderUserDetail('user-1')
+
+      await waitFor(() => {
+        expect(screen.getByTestId('user-detail-name')).not.toBeNull()
+      })
+      await waitFor(() => expect(adminApi.getMe).toHaveBeenCalled())
+
+      expect(screen.queryByTestId('address-section')).toBeNull()
     })
   })
 })
