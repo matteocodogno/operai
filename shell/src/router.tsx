@@ -2,6 +2,7 @@ import { createRootRoute, createRoute, createRouter, redirect, Outlet } from '@t
 import { ShellLayout } from './components/ShellLayout'
 import { RemoteMount } from './components/RemoteMount'
 import { NoAccessScreen } from './components/NoAccessScreen'
+import { AccountScreen } from './components/AccountScreen'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
@@ -108,6 +109,20 @@ import { readLastToolId, recordLastTool, resolveLastToolPath, TOOLS, type ToolId
 //     still requires a session (the `_authed` guard above) and still renders
 //     inside the shared chrome — only the per-tool access check is skipped.
 //     Reached from the bell (T11), not the nav.
+//
+// T14/T15 (specs/012-employee-address, US-6 AC-6.1; ADR-0034) add:
+//   - `/account`: renders `AccountScreen` (T14) directly — the employee
+//     self-view of their own stored address. Structurally identical to
+//     `/notify` above (child of `shellRoute`, NO `beforeLoad` app-access
+//     guard, NOT listed in `shell/src/lib/tools.ts`'s `TOOLS`) and for the
+//     identical reason (plan.md "Where US-6 lives"): an employee may hold
+//     ZERO app grants, and this screen must still be reachable by every
+//     signed-in user regardless — a tool-gated placement would defeat the
+//     GDPR transparency purpose the spec states outright. Unlike `/notify`
+//     (and every tool route), `/account` doesn't mount a federated remote at
+//     all — `AccountScreen` is a shell-local component (T14) — so there is
+//     no `RemoteMount`/loader here, just a plain `component`. Reached from
+//     the new "My profile" entry in `UserMenu` (T15), not the nav/sidebar.
 // ---------------------------------------------------------------------------
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -393,6 +408,20 @@ const notifyRoute = createRoute({
 })
 
 // ---------------------------------------------------------------------------
+// `/account` — AccountScreen (T14/T15, specs/012-employee-address, US-6
+// AC-6.1, ADR-0034). Deliberately NO `beforeLoad` — see the T14/T15 module
+// doc above for why (mirrors `/notify` exactly). Not a splat/catch-all route
+// like the tool routes: `AccountScreen` mounts no inner router of its own
+// (unlike a federated remote), so there is no sub-path to catch.
+// ---------------------------------------------------------------------------
+
+const accountRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/account',
+  component: () => <AccountScreen />,
+})
+
+// ---------------------------------------------------------------------------
 // `/no-access` — Screen S1 (T25, design.md, AC-7.4). Reached either from the
 // root `/` redirect above (zero apps, nothing to land on) or from a tool
 // route's access guard (zero apps, redirected here instead of a permitted
@@ -419,6 +448,7 @@ export const routeTree = rootRoute.addChildren([
       refundRoute,
       adminRoute,
       notifyRoute,
+      accountRoute,
       noAccessRoute,
     ]),
   ]),

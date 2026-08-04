@@ -5,16 +5,26 @@
  * AC-1.4; originally T8, specs/002) — as-is structurally.
  *
  * Renders the signed-in user's avatar as a button that opens a dropdown menu
- * containing the full name/email and the sign-out control.
+ * containing the full name/email, a "My profile" link, and the sign-out control.
  *
  * Convention: receives all data and callbacks as props — no authClient, no fetch, no
  * session logic inside this component (project CLAUDE.md). The one exception is the
  * `onSignOut` default below: it's wired directly to the shell's shared session module
  * (`shell/session`, T4) so sign-out always terminates the suite-wide session rather than
  * a re-created auth client — still overridable via props for tests/composition.
+ *
+ * "My profile" (T15, specs/012-employee-address, US-6 AC-6.1, ADR-0034):
+ * one new `role="menuitem"` row, between the identity block and "Sign out"
+ * (design.md "`UserMenu` addition"), linking to the new `/account` route
+ * (T14's `AccountScreen`, router.tsx) — a real `<Link>` (not a `<button>` +
+ * manual navigate) so it participates in normal link semantics
+ * (open-in-new-tab, keyboard activation) like every other in-suite
+ * navigation. This is the ONLY existing entry point to that route (design.md
+ * F6: "any signed-in user → UserMenu → 'My profile' → /account").
  */
 
 import { useEffect, useRef, useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { signOut } from '../lib/session'
 
 type UserMenuUser = {
@@ -98,6 +108,14 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
               <div className="text-[11px] text-muted font-mono truncate">{secondary}</div>
             )}
           </div>
+          <Link
+            to="/account"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block w-full text-left text-[12px] text-soft hover:text-text hover:bg-ink-mid px-3 py-2 transition-colors font-mono"
+          >
+            My profile
+          </Link>
           <button
             role="menuitem"
             onClick={() => {
