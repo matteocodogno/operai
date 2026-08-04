@@ -15,9 +15,11 @@
 # four remotes (estimai-ui, refund-ui, admin-ui, notify-ui), plus the shell
 # CSP — including the notify-api origin in connect-src, the classic
 # SSE/EventSource miss (specs/005-notification-center Risk R6), the
-# refund-api origin in connect-src (specs/007-refund-service T20), and the
+# refund-api origin in connect-src (specs/007-refund-service T20), the
 # receipt-bucket origin in connect-src (ADR-0016's direct-to-bucket upload —
-# override the default with REFUND_BUCKET_ORIGIN). Also probes
+# override the default with REFUND_BUCKET_ORIGIN), and the Google Maps/Places
+# origins in script-src/connect-src (ADR-0032, specs/012-employee-address —
+# override the defaults with MAPS_ORIGIN/PLACES_ORIGIN). Also probes
 # notify-api's internal email-send gate (specs/006-user-invitations,
 # ADR-0011) — see § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same
 # value configured on auth, notify-api, AND refund-api as of ADR-0017) to get
@@ -207,6 +209,31 @@ if [[ -n "$CSP" ]]; then
     pass "  CSP connect-src includes $REFUND_BUCKET_ORIGIN (receipt-bucket upload origin — ADR-0016)"
   else
     fail "  CSP connect-src is MISSING $REFUND_BUCKET_ORIGIN — every receipt upload will be blocked by the browser before it leaves the page, even with the bucket's CORS rule correct (ADR-0016 direct-to-bucket POST)"
+  fi
+
+  # specs/012-employee-address (ADR-0032) — admin-ui's Google Places (New)
+  # address autocomplete runs Module-Federated inside the SHELL's document, so
+  # the shell's CSP (not admin-ui's own vercel.json) governs both the bootstrap
+  # <script> (script-src) and the SDK's own fetch/XHR calls (connect-src). A
+  # missing pin here degrades SILENTLY (AC-3.2 — console.warn only, no error
+  # banner), so this check is the only thing that fails loudly on a drift.
+  MAPS_ORIGIN="${MAPS_ORIGIN:-https://maps.googleapis.com}"
+  PLACES_ORIGIN="${PLACES_ORIGIN:-https://places.googleapis.com}"
+  SCRIPT_SRC="$(echo "$CSP" | grep -oiE 'script-src[^;]*')"
+  if [[ -n "$SCRIPT_SRC" ]] && echo "$SCRIPT_SRC" | grep -q "$MAPS_ORIGIN"; then
+    pass "  CSP script-src includes $MAPS_ORIGIN (Google Maps bootstrap script — ADR-0032)"
+  else
+    fail "  CSP script-src is MISSING $MAPS_ORIGIN — the Google Maps bootstrap <script> will be blocked outright, so google.maps.importLibrary never materializes (ADR-0032, specs/012-employee-address)"
+  fi
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$MAPS_ORIGIN"; then
+    pass "  CSP connect-src includes $MAPS_ORIGIN (Maps SDK internal calls — ADR-0032)"
+  else
+    fail "  CSP connect-src is MISSING $MAPS_ORIGIN (ADR-0032, specs/012-employee-address)"
+  fi
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$PLACES_ORIGIN"; then
+    pass "  CSP connect-src includes $PLACES_ORIGIN (Places API (New) autocomplete calls — ADR-0032)"
+  else
+    fail "  CSP connect-src is MISSING $PLACES_ORIGIN — address autocomplete will silently fall back to manual entry with no visible error (AC-3.2), and the T16 runbook's own 'confirm a 200' verification step can never pass (ADR-0032, specs/012-employee-address)"
   fi
 
   # The CSP above is only worth checking if browsers actually RE-READ it. CSP

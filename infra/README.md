@@ -432,7 +432,25 @@ suite, since every tool authenticates through `auth`). This is admin-ui's
    **Maps JavaScript API** only. Never leave it unrestricted; never reuse the
    existing `GOOGLE_CLIENT_ID`/`_SECRET` OAuth credentials for this — a
    separate, browser-exposed key with a different threat model entirely.
-4. **Daily quota cap + budget alert (R4).** This key is public by design —
+4. **Shell CSP — update `shell/vercel.json` too.** This is **the classic
+   miss for this repo** (see § Phase 3 "Shell CSP" below — it happened on
+   2026-07-31 with the receipt-bucket `connect-src` entry, and would recur
+   here without this step). `admin-ui` runs Module-Federated *inside the
+   shell's own document* (ADR-0006), so the **shell's** CSP governs the page,
+   not admin-ui's own `vercel.json` — exactly the same fact step 2's referrer
+   box relies on. Add `https://maps.googleapis.com` to `script-src` (the
+   `<script>` bootstrap `googlePlaces.ts` injects) and add BOTH
+   `https://maps.googleapis.com` and `https://places.googleapis.com` to
+   `connect-src` (the Places API (New) SDK's own fetch/XHR calls once
+   `google.maps.importLibrary` runs). Without this, the browser blocks the
+   bootstrap script outright — and because AC-3.2 makes the feature degrade
+   *silently* (a `console.warn`, no error banner), every admin in every CSP-
+   enforcing environment permanently falls back to manual entry with nothing
+   visibly wrong. It also means step 8's own verification (a
+   `places.googleapis.com` request returning 200) can never pass, because the
+   request is never made. `infra/check.sh` pins both origins (§ Phase 4) so a
+   future CSP edit that drops them fails loudly instead of silently.
+5. **Daily quota cap + budget alert (R4).** This key is public by design —
    referrer restrictions are spoofable by a non-browser client presenting a
    forged `Referer` header, so the residual risk is **billing theft, not
    data theft** (the key, API-restricted per step 3, grants nothing but
@@ -443,11 +461,11 @@ suite, since every tool authenticates through `auth`). This is admin-ui's
    - Billing → Budgets & alerts: create a budget alert on the project (or a
      budget scoped to this key's SKU) so a spike pages a human before it
      becomes an invoice surprise.
-5. **1Password.** Create a new sibling item next to the existing OAuth
+6. **1Password.** Create a new sibling item next to the existing OAuth
    credential — 1Password → `AIScream / OperAI - Google Maps API Key` — and
    store the key value there. Do **not** reuse the `AIScream / OperAI -
    GOOGLE OAuth` item; unrelated credentials, different restriction models.
-6. **Wire it as a build-time frontend var, not a `.envrc`/direnv value.**
+7. **Wire it as a build-time frontend var, not a `.envrc`/direnv value.**
    This key is consumed entirely client-side by `admin-ui`'s Vite build
    (`import.meta.env.VITE_GOOGLE_MAPS_API_KEY`) — the same shape as every
    other `VITE_*` in this repo, **not** the direnv/1Password-at-runtime
@@ -460,14 +478,17 @@ suite, since every tool authenticates through `auth`). This is admin-ui's
    — that module is for suite-wide service origins the shell configures for
    every tool; a single remote's own third-party credential doesn't belong
    in a module every remote imports.
-7. **Verify.** Load the **deployed shell** (not a local/standalone admin-ui
+8. **Verify.** Load the **deployed shell** (not a local/standalone admin-ui
    dev server — the referrer that matters is the shell's), sign in as an
    admin, open a user's detail page, focus the Street address field, and
    type 3 characters. Open devtools → Network and confirm a
    `places.googleapis.com` request returns **`200`** (and suggestions
    render). A `403`/`REQUEST_DENIED` here almost always means the referrer
    list carries admin-ui's origin instead of the shell's (step 2) — recheck
-   the restriction before suspecting the key value.
+   the restriction before suspecting the key value. If the request never
+   appears in the Network tab at all (not even a blocked/red entry), suspect
+   step 4's CSP pins instead — the browser refuses to make the call in the
+   first place.
 
 ---
 
@@ -525,6 +546,20 @@ suite, since every tool authenticates through `auth`). This is admin-ui's
   before it ever leaves the page. `img-src` does NOT need the bucket today
   (downloads use `window.open`), but would if inline receipt previews are ever
   added.
+  **`script-src` AND `connect-src` must include the two Google origins**
+  (`https://maps.googleapis.com`, `https://places.googleapis.com`,
+  specs/012-employee-address, ADR-0032 — see § Phase 2 step 4): `admin-ui`
+  runs Module-Federated inside the shell's document, so the shell's CSP (not
+  admin-ui's own `vercel.json`) governs the `<script>` bootstrap and the
+  Places API (New) SDK's fetch/XHR calls. `script-src` needs only
+  `maps.googleapis.com` (the bootstrap loader); `connect-src` needs BOTH —
+  `maps.googleapis.com` (the SDK's own internal calls) and
+  `places.googleapis.com` (autocomplete/place-details lookups). Same failure
+  shape as the two entries above: silently missing here means every admin
+  permanently falls back to manual address entry with no visible error
+  (AC-3.2's mandated silent degradation), and the T16 provisioning runbook's
+  own "confirm a 200" verification step can never pass. `check.sh` asserts
+  both pins so a future edit that drops either one fails loudly.
   *(Known gap: Vercel Preview deploys get `*.vercel.app` URLs the pinned CSP
   won't match — assign preview subdomains or relax CSP via Edge Middleware;
   not implemented.)*
@@ -565,8 +600,10 @@ every resource server verifies against — **not** `/.well-known/jwks.json`, an
 orphaned env-key endpoint), each remote's `remoteEntry.js` + CORS header (five:
 `estimai-ui`, `refund-ui`, `admin-ui`, `notify-ui`), the shell CSP pins
 (including the `notify-api` SSE `connect-src` pin, R6, the `refund-api`
-`connect-src` pin, T20, and the receipt-bucket `connect-src` pin, ADR-0016 —
-override its default with `REFUND_BUCKET_ORIGIN`), and warns if `notify-api`'s health payload doesn't
+`connect-src` pin, T20, the receipt-bucket `connect-src` pin, ADR-0016 —
+override its default with `REFUND_BUCKET_ORIGIN` — and the Google Maps
+`script-src`/`connect-src` pins, ADR-0032/specs/012-employee-address), and
+warns if `notify-api`'s health payload doesn't
 look JWKS-ready. It also probes `POST
 $NOTIFY_API_URL/system/emails` (specs/006, ADR-0011): a garbage
 `X-Internal-Token` must get 401 (proves the internal-token gate is deployed
