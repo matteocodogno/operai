@@ -48,6 +48,10 @@ model User {
   userDepartments UserDepartment[]
   auditLogs       AuditLog[]
 
+  // ─── Employee address (specs/012-employee-address, ADR-0031) ───────────────
+  // 1:1, optional — row absence IS "no address on file" (Domain language).
+  address EmployeeAddress?
+
   // ─── Invitations (spec 006-user-invitations, T4) ───────────────────────────
   invitationsSent     Invitation[] @relation("InvitationInviter")
   invitationsAccepted Invitation[] @relation("InvitationAcceptor")
@@ -262,6 +266,44 @@ model AuditLog {
   @@index([targetType, targetId])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// ─── Employee address (specs/012-employee-address, ADR-0031) ─────────────────
+// Employee home address (specs/012). One current address per user, or none —
+// the ROW's existence is the "address on file" flag (Domain language). There
+// is deliberately no history table: superseded values live only in
+// `audit_log` (US-5, via the same `withAudit` mechanism ADR-0033 leaves
+// entirely unchanged — this model has NO relation to AuditLog and this
+// migration touches no column, FK, or `onDelete` behaviour of `audit_log`).
+// Cascades on user delete; production deletion is soft (ADR-0012), so this
+// only ever fires for hard deletes (tests/fixtures).
+model EmployeeAddress {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The four REQUIRED structured components (AC-1.4). NOT NULL *is* the
+  // "all four or none" guarantee (ADR-0031 Decision point 2).
+  countryCode String // ISO 3166-1 alpha-2, upper-case; CHECK ~ '^[A-Z]{2}$'
+  city        String
+  street      String
+  houseNumber String // a STRING: "12b", "1/A", "s.n.c." are all real
+
+  // OPTIONAL components — never a reason a save is rejected (AC-1.4).
+  postalCode String?
+  region     String? // canton / state / province / administrative_area_level_1
+
+  // Coordinates — captured ONLY from a selected suggestion (AC-2.5), cleared
+  // on a subsequent hand-edit (AC-2.6). Both-or-neither, enforced by CHECK.
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  // Plain column, deliberately NOT a FK — same reasoning as
+  // User.deletedByUserId: the authoritative record is the audit_log row.
+  updatedByUserId String?
+
+  @@map("employee_address")
 }
 
 // ─── Invitations (spec 006-user-invitations) ─────────────────────────────────
