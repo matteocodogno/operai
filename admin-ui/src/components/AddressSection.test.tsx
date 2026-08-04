@@ -340,9 +340,14 @@ describe('AC-3.2 — the suggestion service degrades silently', () => {
     setupLoaded(noAddress)
     await renderSection()
 
+    // Loader-level failure: the FIRST-EVER search this editing session attempts
+    // degrades immediately, with NO preceding onResults anywhere — the SDK
+    // never became available at all (missing/invalid key, script blocked,
+    // offline), so no suggestion request has EVER succeeded here. This is what
+    // genuinely distinguishes case 1 from case 2 below (googlePlaces.test.ts
+    // already proves the real module funnels a loader rejection into
+    // onDegraded — this test proves AddressSection reacts to that correctly).
     fireEvent.change(streetInput(), { target: { value: 'Via Roma' } })
-    // googlePlaces.test.ts already proves a loader rejection funnels into onDegraded — this
-    // test proves AddressSection reacts to onDegraded correctly.
     act(() => capturedOptions!.onDegraded?.())
 
     await assertNothingBrokenAndSaveWorks()
@@ -351,6 +356,16 @@ describe('AC-3.2 — the suggestion service degrades silently', () => {
   it('case 2 — the suggest call itself rejects (e.g. OVER_QUERY_LIMIT): no alert, no spinner, save still works', async () => {
     setupLoaded(noAddress)
     await renderSection()
+
+    // Suggest-CALL-level failure: first prove the loader/session token already
+    // worked — a genuine, completed result list renders (AC-2.1) — so this
+    // case is NOT a loader problem. THEN a later search on that same,
+    // already-proven-working suggester degrades (e.g. OVER_QUERY_LIMIT) —
+    // this is what genuinely distinguishes case 2 from case 1 above: the
+    // failure is scoped to one request, not to the SDK never loading at all.
+    fireEvent.change(streetInput(), { target: { value: 'Bahn' } })
+    act(() => capturedOptions!.onResults(placeSuggestions))
+    await waitFor(() => expect(screen.getByRole('listbox')).toBeTruthy())
 
     fireEvent.change(streetInput(), { target: { value: 'Via Roma' } })
     act(() => capturedOptions!.onDegraded?.())

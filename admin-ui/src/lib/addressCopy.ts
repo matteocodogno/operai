@@ -6,14 +6,25 @@
  * app-wide gap this feature does not create or fix) — this module holds
  * `{ it, en }` pairs per key, the exact shape `auth/src/invite/invite.routes.ts`
  * already uses server-side (CLAUDE.md "no hardcoded UI strings… Italian and
- * English at minimum"). `AddressSection.tsx` and `AccountScreen.tsx` (shell)
- * are the only consumers; no literal user-facing string should appear in
- * either.
+ * English at minimum"). `AddressSection.tsx` (this remote, `admin-ui`) is the
+ * ONLY consumer — see the `account.*` note below for why `shell`'s
+ * `AccountScreen.tsx` is deliberately NOT one; no literal user-facing string
+ * should appear in `AddressSection.tsx`.
  *
  * Locale heuristic (design.md fills a plan gap): `navigator.language`
  * starting with `"it"` selects `it`, everything else falls back to `en` — a
  * stateless, one-line heuristic scoped to this feature's own copy, not a
  * general i18n runtime (out of scope, design.md "Gaps").
+ *
+ * **`account.*` keys deliberately do NOT live here (QE fix,
+ * specs/012-employee-address).** `shell`'s `AccountScreen.tsx`/`UserMenu.tsx`
+ * render that copy, and `shell` is a SEPARATE federated remote — per ADR-0006
+ * it cannot import `admin-ui`'s source at all, so an `account.*` entry in
+ * THIS module could never be reached by them; `shell` carries its own inline
+ * `{it,en}` copy for exactly this reason (see those files). An earlier
+ * revision of this module wrongly duplicated `account.*` keys here as if
+ * `AccountScreen.tsx` were a consumer of this file — it never was, and never
+ * could be; those six keys were dead code and have been removed.
  *
  * **Country names are NOT i18n keys.** Every option label in the Country
  * combobox is produced at RUNTIME by `Intl.DisplayNames({ type: 'region' })`
@@ -51,6 +62,11 @@ const COPY = {
     it: "Impossibile salvare l'indirizzo. Riprova.",
     en: "Couldn't save this address. Try again.",
   },
+  /** The address/history GET fetch failed with no server-supplied `ApiError` detail to fall back on (QE fix — was hardcoded, and wrongly reused for the SAVE failure too). */
+  'address.loadError': {
+    it: "Impossibile caricare l'indirizzo.",
+    en: 'Could not load this address.',
+  },
   'address.clear': { it: 'Cancella indirizzo', en: 'Clear address' },
   'address.clearPending': {
     it: "L'indirizzo sarà cancellato al salvataggio.",
@@ -81,21 +97,15 @@ const COPY = {
     it: "Nessuna modifica all'indirizzo registrata finora.",
     en: 'No address changes recorded yet.',
   },
+  /** sr-only field labels prefixed onto each history-panel row (QE fix — wired up; the compact list has no visible table headers, per design.md, but a screen-reader user still benefits from knowing which value is which). */
   'address.history.columns.changedBy': { it: 'Modificato da', en: 'Changed by' },
   'address.history.columns.changedOn': { it: 'Modificato il', en: 'Changed on' },
   'address.history.columns.previous': { it: 'Precedente', en: 'Previous' },
   'address.history.columns.new': { it: 'Nuovo', en: 'New' },
+  /** The history panel's own "Deleted user" fallback for a null `actorUserId` (QE fix — was hardcoded; mirrors `AuditPage.tsx`'s equivalent, still-hardcoded, `formatActor`, which is a pre-existing gap outside this feature's touch: scope). */
+  'address.history.deletedUser': { it: 'Utente eliminato', en: 'Deleted user' },
   'address.loading': { it: 'Caricamento indirizzo…', en: 'Loading address…' },
   'address.retry': { it: 'Riprova', en: 'Retry' },
-  'account.menuLabel': { it: 'Il mio profilo', en: 'My profile' },
-  'account.sectionTitle': { it: 'Indirizzo di casa', en: 'Home address' },
-  'account.loading': { it: 'Caricamento del tuo indirizzo…', en: 'Loading your address…' },
-  'account.error': { it: 'Impossibile caricare il tuo indirizzo.', en: "Couldn't load your address." },
-  'account.retry': { it: 'Riprova', en: 'Retry' },
-  'account.contactAdmin': {
-    it: 'Contatta un amministratore per aggiornarlo.',
-    en: 'Contact an admin to update this.',
-  },
 } as const satisfies Record<string, CopyEntry>
 
 export type AddressCopyKey = keyof typeof COPY
@@ -119,6 +129,25 @@ export const t = (
   }
   return text
 }
+
+// ---------------------------------------------------------------------------
+// Google attribution (QE fix, specs/012-employee-address) — deliberately NOT
+// a `COPY` entry, and deliberately NOT run through `t()`.
+//
+// design.md "Google attribution": "Never localized, never restyled… Google's
+// terms govern its presentation, not this repo's design system" — Places
+// API (New) terms require the "Powered by Google" mark, verbatim, whenever
+// predictions are shown outside a Google Map (true here by construction:
+// plan.md rejects a map). Trademark/attribution strings of this kind are
+// conventionally never localized by the integrator, so this is exported as
+// its own explicit, non-localized constant rather than folded into `COPY`
+// (which would wrongly imply an `it` translation is either needed or
+// permitted) — a recorded decision, not a stray literal left in
+// `AddressSection.tsx`. Only ever rendered inside the Street/address
+// suggestion popup (never the Country popup, which sources no Google data —
+// see design.md "Screens & states" and the component inventory).
+// ---------------------------------------------------------------------------
+export const GOOGLE_ATTRIBUTION_TEXT = 'Powered by Google'
 
 // ---------------------------------------------------------------------------
 // Country control support (design.md "Country control — resolved

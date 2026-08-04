@@ -17,6 +17,10 @@
  *       a proof (a dynamic `db[model].delete(...)` would evade a static
  *       regex) — it catches the failure mode actually worth defending
  *       against: someone adding a mutating call to a route/service module.
+ *       The scan runs against each file's WHOLE content (not line-by-line —
+ *       QE fix, specs/012-employee-address: a line-by-line scan let
+ *       `db.auditLog` on one line and `.deleteMany()` on the next evade the
+ *       tripwire entirely, since neither line alone matches the pattern).
  *       Excludes `**\/*.test.ts`, `src/test-setup.ts`, and
  *       `src/lib/generated/**` (the Prisma client, which necessarily
  *       *defines* those delegate methods). Test/fixture teardown
@@ -98,11 +102,25 @@ describe("AC-5.2(b) — no production code path mutates audit_log (tripwire)", (
     return false;
   }
 
-  // `\bauditLog\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\b`
+  // `\bauditLog\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\b` — the
+  // `\s*` between `auditLog` and the delegate method (and between the `.`
+  // and the method name) already matches a newline, by design: `\s` in a JS
+  // regex includes `\n`/`\r`. That only pays off, though, if the regex is
+  // tested against a file's WHOLE content — matched line-by-line (the
+  // pre-fix behavior), `db.auditLog` on one line and `.deleteMany()` on the
+  // next never appear together on any single tested line, so the tripwire
+  // missed the split-expression form entirely. `g` flag: both patterns are
+  // scanned via `matchAll` below (content-wide, possibly multiple hits per
+  // file), not `.test()` (single boolean check).
   const MUTATING_DELEGATE_CALL =
-    /\bauditLog\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\b/;
+    /\bauditLog\s*\.\s*(update|updateMany|delete|deleteMany|upsert)\b/g;
   // `(UPDATE|DELETE|TRUNCATE)\s+(FROM\s+)?["']?audit_log`
-  const RAW_SQL_MUTATION = /(UPDATE|DELETE|TRUNCATE)\s+(FROM\s+)?["']?audit_log/i;
+  const RAW_SQL_MUTATION = /(UPDATE|DELETE|TRUNCATE)\s+(FROM\s+)?["']?audit_log/gi;
+
+  /** 1-indexed line number of a match offset — content-wide scanning (see above) still reports a useful location. */
+  function lineNumberAt(content: string, index: number): number {
+    return content.slice(0, index).split("\n").length;
+  }
 
   test("zero matches for a mutating auditLog.* delegate call or raw SQL against audit_log", () => {
     const allFiles = collectTsFiles(SRC_ROOT);
@@ -127,13 +145,18 @@ describe("AC-5.2(b) — no production code path mutates audit_log (tripwire)", (
 
     const violations: string[] = [];
     for (const { absolutePath, relPath } of scanned) {
+      // Scanned as ONE string (QE fix) — never split into lines first, or a
+      // mutating call/statement broken across two lines evades detection.
       const content = readFileSync(absolutePath, "utf-8");
-      const lines = content.split("\n");
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]!;
-        if (MUTATING_DELEGATE_CALL.test(line) || RAW_SQL_MUTATION.test(line)) {
-          violations.push(`${relPath}:${i + 1}: ${line.trim()}`);
-        }
+      for (const match of content.matchAll(MUTATING_DELEGATE_CALL)) {
+        violations.push(
+          `${relPath}:${lineNumberAt(content, match.index)}: ${match[0].replace(/\s+/g, " ")}`,
+        );
+      }
+      for (const match of content.matchAll(RAW_SQL_MUTATION)) {
+        violations.push(
+          `${relPath}:${lineNumberAt(content, match.index)}: ${match[0].replace(/\s+/g, " ")}`,
+        );
       }
     }
 

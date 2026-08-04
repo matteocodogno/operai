@@ -3,6 +3,7 @@ import { ShellLayout } from './components/ShellLayout'
 import { RemoteMount } from './components/RemoteMount'
 import { NoAccessScreen } from './components/NoAccessScreen'
 import { AccountScreen } from './components/AccountScreen'
+import { RoutePendingFallback } from './components/RoutePendingFallback'
 import Header from './components/Header'
 import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
@@ -454,7 +455,11 @@ export const routeTree = rootRoute.addChildren([
   ]),
 ])
 
-// Content-area pending fallback shown ONLY while an app-switch (or cold-cache)
+// Content-area pending fallback (`RoutePendingFallback`, ./components/
+// RoutePendingFallback.tsx — QE fix, moved out of this file to fix a
+// react-refresh/only-export-components lint error: this module exports route/
+// router CONFIGURATION, not components, and Fast Refresh can't safely handle
+// a module mixing the two) shown ONLY while an app-switch (or cold-cache)
 // tool route's `beforeLoad` is awaiting its Promise (createToolAccessBeforeLoad
 // → revalidatePermissions() → GET /authz/me, ~1s) — same-app inner-route
 // navigation resolves that same `beforeLoad` synchronously (see
@@ -466,22 +471,6 @@ export const routeTree = rootRoute.addChildren([
 // shows this immediately on an app-switch navigation so the stale remote is
 // never displayed mid-switch; the shell chrome (header/sidebar/footer) stays
 // mounted since only the tool-route child is pending.
-function RoutePendingFallback() {
-  return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 px-6 py-16"
-      data-testid="route-pending"
-    >
-      <div
-        aria-hidden="true"
-        className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-acc"
-      />
-      <p className="sr-only" aria-live="polite">
-        Loading…
-      </p>
-    </div>
-  )
-}
 
 export const router = createRouter({
   routeTree,

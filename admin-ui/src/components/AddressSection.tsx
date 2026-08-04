@@ -46,7 +46,13 @@ import { createAddressSuggester } from '../lib/googlePlaces'
 import type { AddressComponents, AddressSuggester, PlaceSuggestion } from '../lib/googlePlaces'
 import { coordinatesForSave } from '../lib/addressCoordinates'
 import type { LatLng } from '../lib/addressCoordinates'
-import { ISO_3166_1_ALPHA2_CODES, countryDisplayName, resolveAddressLocale, t } from '../lib/addressCopy'
+import {
+  GOOGLE_ATTRIBUTION_TEXT,
+  ISO_3166_1_ALPHA2_CODES,
+  countryDisplayName,
+  resolveAddressLocale,
+  t,
+} from '../lib/addressCopy'
 import Combobox from './Combobox'
 import type { ComboboxOption } from './Combobox'
 import SkeletonListRows from './SkeletonListRows'
@@ -87,11 +93,32 @@ type PreClearSnapshot = {
 /** AC-1.4's four required structured components — the only keys `missingFields` can ever name. */
 type RequiredFieldKey = 'countryCode' | 'city' | 'street' | 'houseNumber'
 
-const errorMessageFor = (error: unknown): string => {
+/**
+ * Fallback message for the address/history GET fetch paths (F1/F5). An
+ * `ApiError` always wins (it carries a real server-supplied message);
+ * otherwise falls back to the localized `address.loadError` copy key (QE
+ * fix — was a hardcoded, always-English literal that ALSO leaked into the
+ * unrelated save-failure path below; see `saveErrorMessageFor`).
+ */
+const loadErrorMessageFor = (error: unknown, locale: ReturnType<typeof resolveAddressLocale>): string => {
   if (error instanceof ApiError) {
     return error.detail ?? error.title
   }
-  return 'Could not load this address.'
+  return t('address.loadError', undefined, locale)
+}
+
+/**
+ * Fallback message for the `PUT` save path (F2 step 7's "Unexpected
+ * failure"). Deliberately a SEPARATE function from `loadErrorMessageFor` (QE
+ * fix) — the two states are wired to different `addressCopy.ts` keys
+ * (`address.saveError` vs `address.loadError`) because "could not load"
+ * copy is simply wrong when what actually failed was a save.
+ */
+const saveErrorMessageFor = (error: unknown, locale: ReturnType<typeof resolveAddressLocale>): string => {
+  if (error instanceof ApiError) {
+    return error.detail ?? error.title
+  }
+  return t('address.saveError', undefined, locale)
 }
 
 const fieldsFromAddress = (address: AdminAddressView): FormFields => ({
@@ -112,7 +139,8 @@ const formatHistorySide = (value: unknown, locale: ReturnType<typeof resolveAddr
   return t('address.none', undefined, locale)
 }
 
-const formatHistoryActor = (actorUserId: string | null): string => actorUserId ?? 'Deleted user'
+const formatHistoryActor = (actorUserId: string | null, locale: ReturnType<typeof resolveAddressLocale>): string =>
+  actorUserId ?? t('address.history.deletedUser', undefined, locale)
 
 const formatHistoryTimestamp = (iso: string): string => {
   try {
@@ -235,7 +263,7 @@ export default function AddressSection({ userId }: AddressSectionProps) {
         preClearRef.current = null
       })
       .catch((error: unknown) => {
-        if (!cancelled) setLoadState({ status: 'error', message: errorMessageFor(error) })
+        if (!cancelled) setLoadState({ status: 'error', message: loadErrorMessageFor(error, locale) })
       })
 
     return () => {
@@ -260,13 +288,13 @@ export default function AddressSection({ userId }: AddressSectionProps) {
         if (!cancelled) setHistoryState({ status: 'loaded', entries: page.items })
       })
       .catch((error: unknown) => {
-        if (!cancelled) setHistoryState({ status: 'error', message: errorMessageFor(error) })
+        if (!cancelled) setHistoryState({ status: 'error', message: loadErrorMessageFor(error, locale) })
       })
 
     return () => {
       cancelled = true
     }
-  }, [userId, historyReloadToken])
+  }, [userId, historyReloadToken, locale])
 
   const handleRetry = useCallback(() => setReloadToken((n) => n + 1), [])
   const handleHistoryRetry = useCallback(() => setHistoryReloadToken((n) => n + 1), [])
@@ -449,7 +477,7 @@ export default function AddressSection({ userId }: AddressSectionProps) {
           setMissingFields(new Set(error.missingFields ?? []))
           return
         }
-        setSaveError(errorMessageFor(error))
+        setSaveError(saveErrorMessageFor(error, locale))
       })
   }, [userId, fields, pendingClear, coordsForSave, locale])
 
@@ -528,10 +556,13 @@ export default function AddressSection({ userId }: AddressSectionProps) {
               footer={
                 streetPopupOpen && streetOptions.length > 0 ? (
                   <li aria-hidden="true" className="px-3 py-1.5 text-[10px] border-t" style={{ borderColor: 'var(--rule)', color: 'var(--muted)' }}>
-                    {/* Google's required attribution when predictions render without a map (Places API terms). Placeholder text —
-                        the branded "Powered by Google" light/dark asset must be sourced from Google's Maps Platform branding kit
-                        (design.md "Google attribution" / plan.md gap #1, routed to devops/infra follow-up). */}
-                    Powered by Google
+                    {/* Google's required attribution when predictions render without a map (Places API terms). Text
+                        placeholder for the branded "Powered by Google" light/dark asset, which must be sourced from
+                        Google's Maps Platform branding kit (design.md "Google attribution" / plan.md gap #1, routed
+                        to devops/infra follow-up). The TEXT itself is deliberately NOT a `addressCopy.ts` `COPY`
+                        entry — `GOOGLE_ATTRIBUTION_TEXT` is its own non-localized constant (QE fix; see that
+                        constant's doc comment for why "Powered by Google" must never be translated). */}
+                    {GOOGLE_ATTRIBUTION_TEXT}
                   </li>
                 ) : undefined
               }
@@ -737,10 +768,21 @@ export default function AddressSection({ userId }: AddressSectionProps) {
                 {historyState.entries.map((entry) => (
                   <li key={entry.id} data-testid={`address-history-entry-${entry.id}`} className="text-xs" style={{ color: 'var(--text)' }}>
                     <span style={{ color: 'var(--soft)' }}>
-                      {formatHistoryActor(entry.actorUserId)} · {formatHistoryTimestamp(entry.createdAt)}
+                      {/* sr-only column labels (design.md "Changed by / Changed on / Previous → New") — the visible
+                          layout is a compact, un-headered list (design.md: "not necessarily a full paginated
+                          <table>"), but a screen-reader user still benefits from knowing which value is which. */}
+                      <span className="sr-only">{t('address.history.columns.changedBy', undefined, locale)}: </span>
+                      {formatHistoryActor(entry.actorUserId, locale)}
+                      {' · '}
+                      <span className="sr-only">{t('address.history.columns.changedOn', undefined, locale)}: </span>
+                      {formatHistoryTimestamp(entry.createdAt)}
                     </span>
                     <br />
-                    {formatHistorySide(entry.data?.before, locale)} → {formatHistorySide(entry.data?.after, locale)}
+                    <span className="sr-only">{t('address.history.columns.previous', undefined, locale)}: </span>
+                    {formatHistorySide(entry.data?.before, locale)}
+                    {' → '}
+                    <span className="sr-only">{t('address.history.columns.new', undefined, locale)}: </span>
+                    {formatHistorySide(entry.data?.after, locale)}
                   </li>
                 ))}
               </ul>
