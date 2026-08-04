@@ -13,6 +13,8 @@ import { catalogRouter } from "./authz/catalog.routes";
 import { departmentsRouter } from "./admin/departments.routes";
 import { rolesRouter } from "./admin/roles.routes";
 import { usersRouter } from "./admin/users.routes";
+import { userAddressRouter } from "./admin/userAddress.routes";
+import { addressRouter } from "./profile/address.routes";
 import { healthRouter } from "./health/health.routes";
 import { inviteRouter } from "./invite/invite.routes";
 import { invitationsRouter } from "./invitations/invitations.routes";
@@ -53,6 +55,8 @@ app.route("/", catalogRouter);
 app.route("/", departmentsRouter);
 app.route("/", rolesRouter);
 app.route("/", usersRouter);
+app.route("/", userAddressRouter);
+app.route("/", addressRouter);
 app.route("/", invitationsRouter);
 app.route("/", inviteRouter);
 
