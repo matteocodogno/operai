@@ -311,6 +311,104 @@ describe("GET /admin/audit (T7)", () => {
     expect(indices[0]).toBe(SEED_COUNT - 1);
   });
 
+  // ─── T5, specs/012-employee-address (AC-5.3) ─────────────────────────────
+  // Additive `targetType`/`targetId`/`action` filters on this SAME route —
+  // the only change this feature makes to the audit area.
+
+  test("targetType/targetId/action filters return only the matching employee's entries, newest-first (T5, AC-5.3)", async () => {
+    currentSession = {
+      user: { id: actorId, email: "actor@operai.test", name: "Actor" },
+      session: { id: "sess_1" },
+    };
+
+    const employeeAId = `t5-filter-employee-a-${RUN_ID}`;
+    const employeeBId = `t5-filter-employee-b-${RUN_ID}`;
+    const filterMarker = `t5-filter-${RUN_ID}`;
+
+    const rowsToClean: string[] = [];
+    const now = Date.now();
+
+    // Employee A: two "user.address.set" entries, strictly increasing time.
+    const rowA1 = await db.auditLog.create({
+      data: {
+        actorUserId: actorId,
+        action: "user.address.set",
+        targetType: "user",
+        targetId: employeeAId,
+        summary: `${filterMarker}-a1`,
+        createdAt: new Date(now - 3000),
+      },
+    });
+    const rowA2 = await db.auditLog.create({
+      data: {
+        actorUserId: actorId,
+        action: "user.address.set",
+        targetType: "user",
+        targetId: employeeAId,
+        summary: `${filterMarker}-a2`,
+        createdAt: new Date(now - 1000),
+      },
+    });
+    // Employee A also has an UNRELATED action — must be excluded by the
+    // `action` filter even though targetType/targetId match.
+    const rowAOther = await db.auditLog.create({
+      data: {
+        actorUserId: actorId,
+        action: "user.update_attributes",
+        targetType: "user",
+        targetId: employeeAId,
+        summary: `${filterMarker}-a-other`,
+        createdAt: new Date(now - 2000),
+      },
+    });
+    // Employee B: one "user.address.set" entry — must be excluded from
+    // employee A's filtered view even though the action matches.
+    const rowB1 = await db.auditLog.create({
+      data: {
+        actorUserId: actorId,
+        action: "user.address.set",
+        targetType: "user",
+        targetId: employeeBId,
+        summary: `${filterMarker}-b1`,
+        createdAt: new Date(now - 500),
+      },
+    });
+    rowsToClean.push(rowA1.id, rowA2.id, rowAOther.id, rowB1.id);
+
+    try {
+      const { auditRouter } = await import("./audit.routes");
+      const res = await auditRouter.request(
+        `/admin/audit?targetType=user&targetId=${employeeAId}&action=user.address.set&pageSize=100`,
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        items: Array<{ id: string; summary: string }>;
+      };
+
+      const summaries = body.items.map((item) => item.summary);
+      expect(summaries).toEqual([`${filterMarker}-a2`, `${filterMarker}-a1`]);
+      expect(summaries).not.toContain(`${filterMarker}-a-other`);
+      expect(summaries).not.toContain(`${filterMarker}-b1`);
+    } finally {
+      await db.auditLog.deleteMany({ where: { id: { in: rowsToClean } } });
+    }
+  });
+
+  test("an unfiltered query is unaffected by the additive filters (returns what it did before T5)", async () => {
+    currentSession = {
+      user: { id: actorId, email: "actor@operai.test", name: "Actor" },
+      session: { id: "sess_1" },
+    };
+
+    const { auditRouter } = await import("./audit.routes");
+    const res = await auditRouter.request("/admin/audit?page=1&pageSize=5");
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[]; pageSize: number };
+    expect(body.pageSize).toBe(5);
+    expect(body.items.length).toBe(5);
+  });
+
   test("no mutate route exists — PATCH/PUT/DELETE all 404 (immutability, AC-5.3)", async () => {
     currentSession = {
       user: { id: actorId, email: "actor@operai.test", name: "Actor" },

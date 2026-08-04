@@ -40,6 +40,12 @@ const AuditLogEntrySchema = z.object({
 const AuditLogQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  // Additive optional filters (T5, specs/012-employee-address — refs AC-5.3).
+  // admin-ui's Address history panel calls this with
+  // `targetType=user&targetId=<id>&action=user.address.set`.
+  targetType: z.string().min(1).optional(),
+  targetId: z.string().min(1).optional(),
+  action: z.string().min(1).optional(),
 });
 
 const AuditLogListResponseSchema = z.object({
@@ -115,9 +121,18 @@ export const auditRouter = new OpenAPIHono({
 auditRouter.use("/admin/audit", sessionMiddleware, requireAuth, requireAdmin);
 
 auditRouter.openapi(getAuditLogRoute, async (c) => {
-  const { page, pageSize } = c.req.valid("query");
+  const { page, pageSize, targetType, targetId, action } = c.req.valid("query");
 
-  const result = await listAuditLog({ page, pageSize });
+  // `exactOptionalPropertyTypes` forbids passing an explicit `undefined` for
+  // an optional property — omit the key entirely when the query param wasn't
+  // supplied (same pattern as `withAudit`'s `data` handling, ../authz/audit.ts).
+  const result = await listAuditLog({
+    page,
+    pageSize,
+    ...(targetType !== undefined ? { targetType } : {}),
+    ...(targetId !== undefined ? { targetId } : {}),
+    ...(action !== undefined ? { action } : {}),
+  });
 
   return c.json(
     {

@@ -111,12 +111,23 @@ export async function withAudit<T>({
   });
 }
 
-/** Pagination input for {@link listAuditLog}. */
+/**
+ * Pagination input for {@link listAuditLog}. `targetType`/`targetId`/`action`
+ * (T5, specs/012-employee-address — refs AC-5.3) are additive, optional
+ * filters on the existing `@@index([targetType, targetId])` — every other
+ * line of this function is unchanged.
+ */
 export interface AuditLogPageParams {
   /** 1-based page number. */
   page: number;
   /** Rows per page. */
   pageSize: number;
+  /** Optional filter, e.g. "user". */
+  targetType?: string;
+  /** Optional filter — the id of the affected record. */
+  targetId?: string;
+  /** Optional filter, e.g. "user.address.set". */
+  action?: string;
 }
 
 export interface AuditLogEntryWithActor extends AuditLog {
@@ -139,11 +150,23 @@ export interface AuditLogPage {
 export async function listAuditLog({
   page,
   pageSize,
+  targetType,
+  targetId,
+  action,
 }: AuditLogPageParams): Promise<AuditLogPage> {
   const skip = (page - 1) * pageSize;
 
+  // Additive optional filter (T5, AC-5.3) — an unfiltered call (all three
+  // undefined) produces `where: {}`, i.e. exactly today's unfiltered query.
+  const where: Prisma.AuditLogWhereInput = {
+    ...(targetType !== undefined ? { targetType } : {}),
+    ...(targetId !== undefined ? { targetId } : {}),
+    ...(action !== undefined ? { action } : {}),
+  };
+
   const [items, total] = await Promise.all([
     db.auditLog.findMany({
+      where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip,
       take: pageSize,
@@ -151,7 +174,7 @@ export async function listAuditLog({
         actor: { select: { id: true, name: true, email: true } },
       },
     }),
-    db.auditLog.count(),
+    db.auditLog.count({ where }),
   ]);
 
   return {
