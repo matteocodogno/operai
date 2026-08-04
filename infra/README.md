@@ -394,6 +394,81 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
    reachable on its own domain today; the shell mounting it at `/notify` is a
    separate, not-yet-merged app-code change, not an infra gap.
 
+**Google Maps API key — provisioning (`admin-ui`, T16, specs/012-employee-address,
+ADR-0032) — before setting `VITE_GOOGLE_MAPS_API_KEY` in the `admin-ui` Vercel
+project.** `admin-ui`'s AddressSection calls **Google Places API (New)**
+browser-direct from the admin's own browser — never proxied through `auth`
+(ADR-0032: routing a third party through the identity service would put
+Google's latency/availability on the critical path of every tool in the
+suite, since every tool authenticates through `auth`). This is admin-ui's
+**first** `VITE_*` var and its **first** third-party credential.
+
+1. **Enable the right APIs** on the wellD Google Cloud project — Cloud
+   Console → APIs & Services → Library: enable **"Places API (New)"**
+   *specifically* (not the legacy "Places API" — a project with only the old
+   one enabled returns `REQUEST_DENIED` for the new endpoints, plan.md R6)
+   and **"Maps JavaScript API"**.
+2. **Create a browser key** — APIs & Services → Credentials → Create
+   Credentials → API key, then edit it: **Application restriction = HTTP
+   referrers (web sites).**
+
+   > ⚠️ **The referrer list must contain the SHELL's origins, not
+   > admin-ui's.** admin-ui runs as a Module Federation remote *inside the
+   > shell's document* (ADR-0006) — the `Referer` header on every Google call
+   > from that page is the **top-level** URL, i.e. the shell's, **never**
+   > `admin.operai.welld.io`. Listing admin-ui's own origin here fails
+   > **100% of requests** — and because AC-3.2 makes the feature degrade
+   > silently (no error banner, no blocked save, just an address field that
+   > quietly never suggests anything), that failure is **invisible** until
+   > someone happens to notice. This is risk **R2** (plan.md/ADR-0032) and
+   > the single easiest way to ship this feature broken. Add exactly:
+   > - `https://operai.welld.io/*`
+   > - `http://localhost:5173/*`
+   > - the shell's Vercel preview pattern (confirm the exact wildcard in the
+   >   **`shell`** Vercel project's domain settings — Preview URLs are
+   >   per-deploy, same caveat as the CSP known-gap in § Phase 3)
+
+3. **API restriction:** "Restrict key" → select **Places API (New)** and
+   **Maps JavaScript API** only. Never leave it unrestricted; never reuse the
+   existing `GOOGLE_CLIENT_ID`/`_SECRET` OAuth credentials for this — a
+   separate, browser-exposed key with a different threat model entirely.
+4. **Daily quota cap + budget alert (R4).** This key is public by design —
+   referrer restrictions are spoofable by a non-browser client presenting a
+   forged `Referer` header, so the residual risk is **billing theft, not
+   data theft** (the key, API-restricted per step 3, grants nothing but
+   address lookups).
+   - Cloud Console → APIs & Services → Places API (New) → Quotas: set a hard
+     **daily request cap** sized to admin-only traffic (AC-4.2 — a handful of
+     wellD staff, not the whole suite).
+   - Billing → Budgets & alerts: create a budget alert on the project (or a
+     budget scoped to this key's SKU) so a spike pages a human before it
+     becomes an invoice surprise.
+5. **1Password.** Create a new sibling item next to the existing OAuth
+   credential — 1Password → `AIScream / OperAI - Google Maps API Key` — and
+   store the key value there. Do **not** reuse the `AIScream / OperAI -
+   GOOGLE OAuth` item; unrelated credentials, different restriction models.
+6. **Wire it as a build-time frontend var, not a `.envrc`/direnv value.**
+   This key is consumed entirely client-side by `admin-ui`'s Vite build
+   (`import.meta.env.VITE_GOOGLE_MAPS_API_KEY`) — the same shape as every
+   other `VITE_*` in this repo, **not** the direnv/1Password-at-runtime
+   pattern the backends use (§ Prerequisites step 2). Set
+   `VITE_GOOGLE_MAPS_API_KEY` in the **`admin-ui`** Vercel project's
+   Environment Variables (Production **and** Preview), sourced from the
+   1Password item above, then **redeploy** (build-time vars need a rebuild —
+   § Phase 2 step 3). It goes on no other Vercel project, and never on
+   Railway. Deliberately **not** a `shell/session` getter (ADR-0032 Option E)
+   — that module is for suite-wide service origins the shell configures for
+   every tool; a single remote's own third-party credential doesn't belong
+   in a module every remote imports.
+7. **Verify.** Load the **deployed shell** (not a local/standalone admin-ui
+   dev server — the referrer that matters is the shell's), sign in as an
+   admin, open a user's detail page, focus the Street address field, and
+   type 3 characters. Open devtools → Network and confirm a
+   `places.googleapis.com` request returns **`200`** (and suggestions
+   render). A `403`/`REQUEST_DENIED` here almost always means the referrer
+   list carries admin-ui's origin instead of the shell's (step 2) — recheck
+   the restriction before suspecting the key value.
+
 ---
 
 ## Phase 3 — Cross-wire origins + OAuth
@@ -817,6 +892,7 @@ bucket, so uploads will not work locally until you do.
 | **refund-ui** | `VITE_REFUND_API_URL` | **NEW (T20).** `<REFUND_API_URL>` — **required**: `refund-ui/src/lib/refundApi.ts` builds every refund-api URL from its *own* value (must byte-for-byte match the shell's copy above — see that row's note) |
 | | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` |
 | **admin-ui**, **notify-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own — `notify-ui`'s calls to `notify-api` go through the shared `shell/session` module's `VITE_NOTIFY_API_URL`, same pattern `admin-ui` uses for the auth service's admin API) |
+| **admin-ui** | `VITE_GOOGLE_MAPS_API_KEY` | **NEW (T16, specs/012-employee-address, ADR-0032).** Google Places API (New) + Maps JavaScript API browser key, referrer-restricted to the **shell's** origins (not admin-ui's own — see § Phase 2's "Google Maps API key — provisioning"). admin-ui's own third-party credential, deliberately **not** a `shell/session` getter. |
 
 Cross-service wiring: `auth.BETTER_AUTH_URL == estimai-api.AUTH_ISSUER ==
 notify-api.AUTH_ISSUER == refund-api.AUTH_ISSUER`; `estimai-api.AUTH_JWKS_URL
@@ -899,3 +975,81 @@ dead or untrusted link).
 - **Secrets** are only ever referenced from the direnv/1Password shell, never
   pasted literally or committed; `.pem` files are gitignored; the pre-commit
   gitleaks hook guards commits.
+
+---
+
+## Audit-log redaction — GDPR/nLPD subject-erasure requests (specs/012-employee-address, ADR-0033, Risk R5)
+
+As of specs/012, `auth`'s `audit_log` carries employee home addresses
+(`user.address.set` entries) in its `data.before`/`data.after` payload. Per
+**ADR-0033** — a deliberate, user-decided (2026-08-04) two-tier
+audit-assurance model for the suite — `audit_log` is **Tier 2
+(application-level immutability only)**: no mutating export from the audit
+module, no mutating route on the audit API, no production code path that
+updates or deletes a row. This is unlike the suite's Tier 1 tables
+(`RefundAuditEntry`/`MileageRate`/`RefundSetting`, ADR-0018/0024/0027), which
+carry a database-level `BEFORE UPDATE/DELETE` trigger and are permanently
+unremovable by design.
+
+That absence of a database-level guard is what makes a genuine GDPR/nLPD
+**subject-erasure request technically honourable at all** for this table —
+redacting the `data.before`/`data.after` payload of specific rows is
+possible precisely because nothing at the database layer forbids it (a Tier 1
+table would not permit this). The residual risk is **procedural, not
+technical**: an ad-hoc `UPDATE`/`DELETE` leaves no record of who redacted
+what, when, or why — the trail cannot record its own redaction. This runbook
+exists so a real request is handled consistently, not improvised under time
+pressure.
+
+1. **Who may perform a redaction.** A person with direct production database
+   access **and** explicit authorization for this specific request — e.g.
+   wellD's DPO/privacy lead, or an engineer they've directed. This is
+   deliberately **not** a self-service admin-panel action, because none
+   exists (by design — ADR-0033 §1(c): every mutating verb on `/admin/audit`
+   and `/admin/audit/{id}` returns `404`). Treat the absence of a UI for this
+   as a feature, not a gap to fill.
+2. **Scope the redaction to an enumerated `audit_log.id` set — never a broad
+   `WHERE`.** Identify the exact rows before touching anything:
+   ```sql
+   SELECT id, "targetType", "targetId", action, "createdAt"
+   FROM audit_log
+   WHERE "targetType" = 'user' AND "targetId" = '<the subject's user id>'
+     AND action = 'user.address.set';
+   ```
+   Record the returned `id` list — this is the set the redaction targets,
+   and only this set. Never issue an `UPDATE`/`DELETE` scoped directly by
+   `targetId`/`action`/a date range; always resolve to explicit `id`s first
+   and redact by `id IN (...)`.
+3. **Redact the payload, not the row.** Null or replace the address fields
+   inside `data.before`/`data.after` (the personal data) in place — leave
+   `id`, `targetType`, `targetId`, `action`, `actorUserId`, `createdAt`
+   untouched, so the *fact that a change happened* stays visible and only
+   the erased subject's personal-data content is removed:
+   ```sql
+   UPDATE audit_log
+   SET data = jsonb_set(jsonb_set(data, '{before}', 'null'::jsonb, true), '{after}', 'null'::jsonb, true)
+   WHERE id IN (<the enumerated id list from step 2>);
+   ```
+   Confirm the actual `data` shape recorded for `user.address.set` with a
+   `SELECT data FROM audit_log WHERE id = <one id>` before writing the
+   `UPDATE` — do not assume the JSON path above is byte-exact against the
+   handler's current `withAudit` call shape.
+4. **Record the act out-of-band — the trail cannot record its own
+   redaction.** Before or immediately after running the `UPDATE`, open a
+   ticket (or wellD's existing DPA/privacy log) recording: the requesting
+   subject, the enumerated `id` list from step 2, who ran the redaction, the
+   timestamp, and the legal basis (the erasure request's reference). This
+   ticket **is** the audit trail for the redaction itself — `audit_log` has
+   no mechanism to audit changes made to it.
+5. **Do not automate this.** No cron, no scheduled job, no self-service admin
+   action — consistent with this suite's standing "derived-on-read, never
+   scheduled" posture for one-time operator actions (ADR-0013 lineage,
+   mirrored by the accounting-distribution-email cutover script above in §
+   Variable reference). Every redaction is a deliberate, individually
+   authorized command run by a human against production, exactly once per
+   request.
+
+See **ADR-0033** for the full reasoning — why `audit_log` is Tier 2 rather
+than Tier 1, why that is a deliberate trade-off rather than an oversight, and
+the escalation path (dropping `AuditLog.actorUserId`'s FK first) if a future
+regulatory or product trigger requires raising `audit_log` to Tier 1.
