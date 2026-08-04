@@ -199,6 +199,21 @@ export default defineConfig({
       stderr: 'pipe',
       env: {
         SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+        // admin-ui's first import.meta.env.VITE_* var (specs/012-employee-
+        // address, T7/T16). googlePlaces.ts's loadPlacesLibrary() throws
+        // BEFORE ever checking window.google if this is falsy at BUILD time
+        // (this webServer entry runs `pnpm build && pnpm preview`) — so
+        // without it, employee-address.spec.ts's fully-stubbed
+        // window.google.maps.importLibrary (installFakeGooglePlaces) is
+        // never even reached, and the spec fails at its first suggestion
+        // assertion (AC-3.2's graceful-degradation path kicks in instead).
+        // A placeholder value is sufficient: the SDK itself is stubbed at
+        // the network layer in the spec, so this key's VALUE is never used
+        // for a real request — it only needs to be non-empty. Overridable
+        // via VITE_GOOGLE_MAPS_API_KEY in the environment (e.g. CI) for a
+        // real key once T16's provisioning is unblocked.
+        VITE_GOOGLE_MAPS_API_KEY:
+          process.env['VITE_GOOGLE_MAPS_API_KEY'] ?? 'e2e-stub-not-a-real-key',
       },
     },
     {

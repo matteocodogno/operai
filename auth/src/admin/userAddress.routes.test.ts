@@ -377,6 +377,83 @@ describe("Admin Employee Address API (T3)", () => {
     expect(body.address["region"]).toBeNull();
   });
 
+  // ── Regression: a malformed-but-non-blank countryCode 422s, never 500s ────
+  //
+  // Flagged by QE during specs/012 verification: "CHE" (or any string that
+  // isn't exactly two uppercase letters) is non-blank, so it sailed past
+  // `normalizeAndValidate`'s completeness check, reached
+  // `tx.employeeAddress.upsert(...)`, and was rejected by the DB's
+  // `employee_address_country_alpha2` CHECK — an uncaught Postgres error the
+  // global `app.onError` turned into a bare 500, not a 422. Unreachable from
+  // admin-ui (the Country combobox only ever emits a value from its bundled
+  // ISO 3166-1 alpha-2 list), but reachable by any raw API caller, and a
+  // convention violation regardless (every validation failure on this route
+  // is otherwise a 422 Problem JSON with a distinguishing `code`).
+
+  for (const badCountryCode of ["CHE", "1x", "C", "  CHE  ", "🇨🇭"]) {
+    test(`422s with code "address_country_invalid" when countryCode is ${JSON.stringify(badCountryCode)} — never 500s (regression)`, async () => {
+      const admin = await makeAdmin(`bad-country-admin-${unique()}`);
+      const employee = await makeUser(`bad-country-employee-${unique()}`);
+      actAs(admin.id, admin.email);
+      const { userAddressRouter } = await import("./userAddress.routes");
+
+      const res = await userAddressRouter.request(
+        `/admin/users/${employee.id}/address`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address: { ...CH_ADDRESS, countryCode: badCountryCode },
+          }),
+        },
+      );
+
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as {
+        code: string;
+        field: string;
+        type: string;
+        title: string;
+        status: number;
+        detail: string;
+        instance: string;
+      };
+      expect(body.code).toBe("address_country_invalid");
+      expect(body.field).toBe("countryCode");
+      // Still RFC 7807 Problem JSON (CLAUDE.md), not a bare 500 text/plain body.
+      expect(body.type).toBe("https://httpstatuses.com/422");
+      expect(body.status).toBe(422);
+
+      // Never persisted half-valid.
+      const row = await db.employeeAddress.findUnique({
+        where: { userId: employee.id },
+      });
+      expect(row).toBeNull();
+    });
+  }
+
+  test("a lowercase-but-otherwise-valid countryCode is normalized and accepted, not rejected (AC-1.4 sanity check against the new format guard)", async () => {
+    const admin = await makeAdmin(`lowercase-country-admin-${unique()}`);
+    const employee = await makeUser(`lowercase-country-employee-${unique()}`);
+    actAs(admin.id, admin.email);
+    const { userAddressRouter } = await import("./userAddress.routes");
+
+    const res = await userAddressRouter.request(
+      `/admin/users/${employee.id}/address`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: { ...CH_ADDRESS, countryCode: "ch" },
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { address: Record<string, unknown> };
+    expect(body.address["countryCode"]).toBe("CH");
+  });
+
   // ── AC-2.4 — a non-CH/IT address saves normally ───────────────────────────
 
   test("an FR address saves normally, on identical terms to a CH one (AC-2.4)", async () => {
@@ -695,6 +772,109 @@ describe("Admin Employee Address API (T3)", () => {
 
     // updatedAt is unchanged by the no-op second call.
     expect(secondBody.address.updatedAt).toBe(firstBody.address.updatedAt);
+  });
+
+  // ── AC-5.4 completeness: the no-op guard's semantic comparison covers ALL
+  // eight fields, not merely the required four ──────────────────────────────
+  //
+  // The tests above only ever change `countryCode`/`city`/`street` (three of
+  // the eight fields `normalizedAddressesEqual` compares). Flagged by QE
+  // during specs/012 verification: nothing previously proved that a change
+  // confined to ONLY an optional field (postalCode, region) or ONLY the
+  // coordinate pair is correctly detected as a REAL change rather than
+  // silently swallowed as a no-op — a plausible regression (e.g. a future
+  // edit to `normalizedAddressesEqual` that forgets to compare one of those
+  // fields) would have shipped with every other test here still green.
+
+  const BASE_WITH_COORDS = {
+    ...CH_ADDRESS,
+    latitude: 47.3702,
+    longitude: 8.5397,
+  };
+
+  const OPTIONAL_FIELD_CHANGES: Array<{
+    label: string;
+    changed: Record<string, unknown>;
+  }> = [
+    { label: "postalCode", changed: { postalCode: "8002" } },
+    { label: "region", changed: { region: "Bern" } },
+    { label: "latitude+longitude", changed: { latitude: 46.948, longitude: 7.4474 } },
+  ];
+
+  for (const { label, changed } of OPTIONAL_FIELD_CHANGES) {
+    test(`a change confined to ONLY ${label} is detected as genuine, not swallowed as a no-op (AC-5.4 completeness)`, async () => {
+      const admin = await makeAdmin(`noop-completeness-admin-${unique()}`);
+      const employee = await makeUser(`noop-completeness-employee-${unique()}`);
+      actAs(admin.id, admin.email);
+      const { userAddressRouter } = await import("./userAddress.routes");
+
+      await userAddressRouter.request(`/admin/users/${employee.id}/address`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: BASE_WITH_COORDS }),
+      });
+      const auditCountAfterFirst = await db.auditLog.count({
+        where: { targetType: "user", targetId: employee.id, action: "user.address.set" },
+      });
+
+      const secondRes = await userAddressRouter.request(
+        `/admin/users/${employee.id}/address`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: { ...BASE_WITH_COORDS, ...changed } }),
+        },
+      );
+      expect(secondRes.status).toBe(200);
+
+      const auditCountAfterSecond = await db.auditLog.count({
+        where: { targetType: "user", targetId: employee.id, action: "user.address.set" },
+      });
+      // A GENUINE change: exactly one more audit row, never treated as a no-op.
+      expect(auditCountAfterSecond).toBe(auditCountAfterFirst + 1);
+
+      const row = await db.employeeAddress.findUnique({ where: { userId: employee.id } });
+      for (const [key, value] of Object.entries(changed)) {
+        const stored = row ? (row as unknown as Record<string, unknown>)[key] : undefined;
+        if (typeof value === "number") {
+          expect(Number(stored)).toBeCloseTo(value, 5);
+        } else {
+          expect(stored).toBe(value);
+        }
+      }
+    });
+  }
+
+  test("re-submitting an unchanged coordinate pair (identical lat/lng) is still a no-op (AC-5.4 completeness)", async () => {
+    const admin = await makeAdmin(`noop-coords-admin-${unique()}`);
+    const employee = await makeUser(`noop-coords-employee-${unique()}`);
+    actAs(admin.id, admin.email);
+    const { userAddressRouter } = await import("./userAddress.routes");
+
+    await userAddressRouter.request(`/admin/users/${employee.id}/address`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: BASE_WITH_COORDS }),
+    });
+    const auditCountAfterFirst = await db.auditLog.count({
+      where: { targetType: "user", targetId: employee.id, action: "user.address.set" },
+    });
+
+    const secondRes = await userAddressRouter.request(
+      `/admin/users/${employee.id}/address`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        // Byte-identical resubmission, including the coordinates.
+        body: JSON.stringify({ address: BASE_WITH_COORDS }),
+      },
+    );
+    expect(secondRes.status).toBe(200);
+
+    const auditCountAfterSecond = await db.auditLog.count({
+      where: { targetType: "user", targetId: employee.id, action: "user.address.set" },
+    });
+    expect(auditCountAfterSecond).toBe(auditCountAfterFirst);
   });
 
   test("a no-op clear (address already absent) writes nothing", async () => {

@@ -21,11 +21,38 @@
  * (open-in-new-tab, keyboard activation) like every other in-suite
  * navigation. This is the ONLY existing entry point to that route (design.md
  * F6: "any signed-in user → UserMenu → 'My profile' → /account").
+ *
+ * i18n (QE fix, specs/012-employee-address): "My profile" is copy this
+ * feature ADDS, and design.md's own i18n table names it explicitly
+ * (`account.menuLabel` → "My profile" / "Il mio profilo") — unlike "Sign
+ * out" below (pre-existing, predates specs/012, a separate app-wide gap this
+ * feature does not create or fix, mirroring R11's posture for admin-ui). The
+ * `t()`/`resolveLocale()` pair mirrors `AccountScreen.tsx`'s identical
+ * stateless heuristic verbatim (`navigator.language` starting with `"it"` →
+ * `it`, else `en`) — the same convention, not a second one invented here.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { signOut } from '../lib/session'
+
+const COPY = {
+  myProfile: { en: 'My profile', it: 'Il mio profilo' },
+} as const
+
+type CopyKey = keyof typeof COPY
+
+/** `navigator.language` starting with "it" selects `it`, everything else falls back to `en`. */
+function resolveLocale(): 'it' | 'en' {
+  if (typeof navigator === 'undefined' || typeof navigator.language !== 'string') {
+    return 'en'
+  }
+  return navigator.language.toLowerCase().startsWith('it') ? 'it' : 'en'
+}
+
+function t(key: CopyKey): string {
+  return COPY[key][resolveLocale()]
+}
 
 type UserMenuUser = {
   name?: string | null
@@ -114,7 +141,7 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
             onClick={() => setOpen(false)}
             className="block w-full text-left text-[12px] text-soft hover:text-text hover:bg-ink-mid px-3 py-2 transition-colors font-mono"
           >
-            My profile
+            {t('myProfile')}
           </Link>
           <button
             role="menuitem"

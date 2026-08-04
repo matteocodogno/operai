@@ -108,3 +108,24 @@ export const AddressIncompleteProblemSchema = ProblemJsonSchema.extend({
   code: z.literal("address_incomplete"),
   missingFields: z.array(z.enum(REQUIRED_ADDRESS_FIELDS)),
 });
+
+/**
+ * The `422` shape for a present-but-malformed `countryCode` (e.g. `"CHE"`,
+ * `"1x"`) — a non-blank value that still fails the DB's
+ * `employee_address_country_alpha2` CHECK (`^[A-Z]{2}$`). Unreachable from
+ * the admin-ui UI (the Country combobox only ever emits a value from its
+ * bundled ISO 3166-1 alpha-2 list — design.md "Country control"), but
+ * reachable by any raw API caller. Distinguished from `address_incomplete`
+ * (a MISSING required field) by its own `code`, since this is a format
+ * failure on a field that IS present.
+ */
+export const AddressCountryInvalidProblemSchema = ProblemJsonSchema.extend({
+  code: z.literal("address_country_invalid"),
+  field: z.literal("countryCode"),
+});
+
+/** The full set of `422` shapes `PUT .../address` may return. */
+export const PutAddressErrorSchema = z.union([
+  AddressIncompleteProblemSchema,
+  AddressCountryInvalidProblemSchema,
+]);

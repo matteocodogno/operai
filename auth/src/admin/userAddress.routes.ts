@@ -43,13 +43,23 @@ import { db } from "../lib/db";
 import { withAudit } from "../authz/audit";
 import { formatAddress, type FormatLocale } from "../profile/address.format";
 import {
-  AddressIncompleteProblemSchema,
   GetAdminAddressResponseSchema,
   ProblemJsonSchema,
   PutAddressBodySchema,
+  PutAddressErrorSchema,
   type AddressInput,
   type RequiredAddressField,
 } from "../profile/address.schema";
+
+/**
+ * ISO 3166-1 alpha-2, post-normalization (already trimmed + upper-cased by
+ * `normalizeAndValidate`). Mirrors the DB's `employee_address_country_alpha2`
+ * CHECK exactly, so a malformed-but-non-blank code (e.g. `"CHE"`) is caught
+ * here as a `422` instead of reaching Postgres and surfacing as an uncaught
+ * `500` — see `addressCountryInvalid` below and its regression test
+ * ("a malformed but non-blank countryCode 422s, never 500s").
+ */
+const COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/;
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -243,6 +253,25 @@ function addressIncomplete(
   };
 }
 
+/**
+ * 422 for a present-but-malformed `countryCode` — the fix for the known
+ * issue flagged by QE: a non-blank value that isn't two uppercase letters
+ * (e.g. `"CHE"`) previously passed the completeness check, reached the DB,
+ * and surfaced as an uncaught `500` from the `employee_address_country_alpha2`
+ * CHECK. Caught here instead, before any write is attempted.
+ */
+function addressCountryInvalid(instance: string, countryCode: string) {
+  return {
+    type: "https://httpstatuses.com/422",
+    title: "Unprocessable Entity",
+    status: 422,
+    detail: `countryCode must be exactly two uppercase ISO 3166-1 alpha-2 letters, got "${countryCode}".`,
+    instance,
+    code: "address_country_invalid" as const,
+    field: "countryCode" as const,
+  };
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 export const userAddressRouter = new OpenAPIHono<{
@@ -358,10 +387,11 @@ const putAddressRoute = createRoute({
       description: "No user with this id, or the user is soft-deleted",
     },
     422: {
-      content: { "application/json": { schema: AddressIncompleteProblemSchema } },
+      content: { "application/json": { schema: PutAddressErrorSchema } },
       description:
         "AC-1.4 — one or more of the four required components (country, " +
-        "city, street, house/building number) is missing",
+        "city, street, house/building number) is missing, OR a present " +
+        "`countryCode` is not a valid ISO 3166-1 alpha-2 code",
     },
   },
 });
@@ -392,6 +422,17 @@ userAddressRouter.openapi(putAddressRoute, async (c) => {
     const { normalized, missingFields } = normalizeAndValidate(addressInput);
     if (missingFields.length > 0) {
       return c.json(addressIncomplete(c.req.path, missingFields), 422);
+    }
+    // `normalized` is non-null here (missingFields is empty), so
+    // `normalized.countryCode` is a trimmed, upper-cased, non-blank string —
+    // but "non-blank" does not mean "valid". Reject a malformed-but-present
+    // code (e.g. "CHE") with a 422 *before* it can reach the DB's
+    // `employee_address_country_alpha2` CHECK and surface as an uncaught 500.
+    if (!COUNTRY_CODE_PATTERN.test(normalized!.countryCode)) {
+      return c.json(
+        addressCountryInvalid(c.req.path, normalized!.countryCode),
+        422,
+      );
     }
     afterNormalized = normalized;
   }
