@@ -266,4 +266,167 @@ describe("resolveIdentities", () => {
       name: null,
     });
   });
+
+  describe("chunking (>100 ids, auth's MAX_IDS cap)", () => {
+    it("splits more than 100 uncached ids into multiple requests of at most 100 ids each, and resolves all of them", async () => {
+      const ids = Array.from({ length: 250 }, (_, i) => `user-${i}`);
+      const requestedBatches: string[][] = [];
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(init?.body as string) as { ids: string[] };
+        requestedBatches.push(body.ids);
+        return new Response(
+          JSON.stringify({
+            users: body.ids.map((id) => ({
+              id,
+              status: "active",
+              name: `Name-${id}`,
+            })),
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof fetch;
+
+      const result = await resolveIdentities(AUTH_HEADER, ids);
+
+      // 250 ids at a cap of 100/request => 3 requests (100, 100, 50), never
+      // one request carrying all 250 (that's exactly what auth 400s on).
+      expect(requestedBatches.length).toBe(3);
+      for (const batch of requestedBatches) {
+        expect(batch.length).toBeLessThanOrEqual(100);
+      }
+      expect(
+        requestedBatches.reduce((sum, batch) => sum + batch.length, 0),
+      ).toBe(250);
+
+      // Every id resolved — none silently dropped or left unresolved.
+      expect(result.size).toBe(250);
+      for (const id of ids) {
+        expect(result.get(id)).toEqual({
+          id,
+          status: "active",
+          name: `Name-${id}`,
+        });
+      }
+    });
+
+    it("issues chunk requests sequentially, not concurrently (paces against auth's per-caller rate limit)", async () => {
+      const ids = Array.from({ length: 201 }, (_, i) => `user-${i}`);
+      let inFlight = 0;
+      let maxConcurrent = 0;
+      const callOrder: number[] = [];
+
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        inFlight++;
+        maxConcurrent = Math.max(maxConcurrent, inFlight);
+        const body = JSON.parse(init?.body as string) as { ids: string[] };
+        callOrder.push(body.ids.length);
+        // Yield to the event loop so a concurrent (Promise.all-style) caller
+        // would have a chance to start a second fetch before this resolves.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        inFlight--;
+        return new Response(
+          JSON.stringify({
+            users: body.ids.map((id) => ({
+              id,
+              status: "active",
+              name: `Name-${id}`,
+            })),
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof fetch;
+
+      await resolveIdentities(AUTH_HEADER, ids);
+
+      expect(maxConcurrent).toBe(1);
+      expect(callOrder).toEqual([100, 100, 1]);
+    });
+
+    it("a single failing batch degrades ONLY its own ids to status:'unknown' — ids in batches that succeeded still resolve", async () => {
+      // 3 batches: [0..99] succeeds, [100..199] fails, [200..204] succeeds.
+      const batch1 = Array.from({ length: 100 }, (_, i) => `user-${i}`);
+      const batch2 = Array.from({ length: 100 }, (_, i) => `user-${100 + i}`);
+      const batch3 = Array.from({ length: 5 }, (_, i) => `user-${200 + i}`);
+      const ids = [...batch1, ...batch2, ...batch3];
+
+      let callCount = 0;
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        callCount++;
+        const body = JSON.parse(init?.body as string) as { ids: string[] };
+        if (callCount === 2) {
+          // The second batch's request fails outright.
+          throw new Error("connection refused");
+        }
+        return new Response(
+          JSON.stringify({
+            users: body.ids.map((id) => ({
+              id,
+              status: "active",
+              name: `Name-${id}`,
+            })),
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof fetch;
+
+      const result = await resolveIdentities(AUTH_HEADER, ids);
+
+      expect(callCount).toBe(3);
+      expect(result.size).toBe(205);
+
+      for (const id of batch1) {
+        expect(result.get(id)).toEqual({
+          id,
+          status: "active",
+          name: `Name-${id}`,
+        });
+      }
+      for (const id of batch2) {
+        expect(result.get(id)).toEqual({ id, status: "unknown", name: null });
+      }
+      for (const id of batch3) {
+        expect(result.get(id)).toEqual({
+          id,
+          status: "active",
+          name: `Name-${id}`,
+        });
+      }
+    });
+
+    it("never throws even when a middle batch's response is a non-2xx", async () => {
+      const batch1 = Array.from({ length: 100 }, (_, i) => `user-${i}`);
+      const batch2 = Array.from({ length: 50 }, (_, i) => `user-${100 + i}`);
+      const ids = [...batch1, ...batch2];
+
+      let callCount = 0;
+      globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+        callCount++;
+        if (callCount === 2) {
+          return new Response("bad request", { status: 400 });
+        }
+        const body = JSON.parse(init?.body as string) as { ids: string[] };
+        return new Response(
+          JSON.stringify({
+            users: body.ids.map((id) => ({
+              id,
+              status: "active",
+              name: `Name-${id}`,
+            })),
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof fetch;
+
+      const result = await resolveIdentities(AUTH_HEADER, ids);
+
+      expect(callCount).toBe(2);
+      for (const id of batch1) {
+        expect(result.get(id)?.status).toBe("active");
+      }
+      for (const id of batch2) {
+        expect(result.get(id)).toEqual({ id, status: "unknown", name: null });
+      }
+    });
+  });
 });

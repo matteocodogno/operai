@@ -27,8 +27,9 @@
  *     (collaborators.routes.ts, T8) is responsible for turning that
  *     rejection into a 503 `authorization_service_unavailable` and creating
  *     NO grant row.
- *   - `resolveIdentities` FAILS SOFT (never throws; a failure degrades every
- *     requested id to `status: "unknown"`). It answers a DECORATIVE display
+ *   - `resolveIdentities` FAILS SOFT (never throws; a failure degrades the
+ *     affected id(s) to `status: "unknown"` — scoped to the chunk of ids
+ *     that failed, see its own doc comment). It answers a DECORATIVE display
  *     question that never gates access (plan.md: "display-identity
  *     resolution... fails soft to an 'unknown' placeholder, because it is
  *     decorative and never gates access"). `estimai-api`'s read/write path
@@ -113,19 +114,54 @@ const unknownIdentity = (id: string): Identity => ({
   name: null,
 });
 
+// `auth POST /authz/users/identities` rejects a request with more than
+// MAX_IDS ids with a 400 (`auth/src/authz/identities.routes.ts`). Collaborator
+// counts on an estimate are explicitly uncapped (specs/013 Non-goals — "no
+// cap" was confirmed at the spec gate), so `resolveIdentities` may be asked
+// to resolve more than that in one call. This constant MUST stay in sync
+// with `auth`'s `MAX_IDS`.
+const IDENTITIES_MAX_IDS_PER_REQUEST = 100;
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 /**
- * Resolves display identity for up to 100 `auth` user ids, forwarding
+ * Resolves display identity for any number of `auth` user ids, forwarding
  * `authorizationHeader` verbatim. Distinct ids are deduplicated by the
  * caller before this is invoked (batched per list render — plan.md).
  *
- * NEVER THROWS (see file header). A network failure, a non-2xx response, or
- * an id `auth` doesn't return degrades that id to `{status:"unknown",
- * name:null}` rather than propagating an error — `GET /estimates` and
- * `GET /estimates/{id}` must keep returning 200 even when `auth` is
- * unreachable.
+ * `uncached` ids are split into batches of at most
+ * `IDENTITIES_MAX_IDS_PER_REQUEST` (`auth`'s hard cap) and requested ONE
+ * BATCH AT A TIME, sequentially, not with `Promise.all`. This is deliberate,
+ * not just simplicity:
+ *
+ *   - `auth` rate-limits `/authz/users/identities` per caller at 120
+ *     requests / 10 min (`IDENTITIES_RATE_LIMIT`/`IDENTITIES_RATE_WINDOW_MS`).
+ *     Firing every chunk of a very large fan-out concurrently would burn a
+ *     large slice of that budget in one burst and make it more likely a
+ *     single page render (which may itself trigger several resolves) trips
+ *     the limit — sequential dispatch paces the caller's own requests instead
+ *     of self-inflicting throttling on top of `auth`'s.
+ *   - This is a decorative, fail-soft, best-effort enrichment (see file
+ *     header) — it is not on the critical authorization path, so trading a
+ *     few extra round-trip latencies for a gentler request shape is the
+ *     right side of that trade-off.
+ *
+ * NEVER THROWS (see file header). Each chunk fails independently: a network
+ * failure or non-2xx response for one chunk degrades ONLY that chunk's ids to
+ * `{status:"unknown", name:null}` — ids in batches that succeeded (fetched
+ * before or after the failing one) still resolve normally. An id `auth`
+ * silently omits from a batch's response also degrades to "unknown".
+ * `GET /estimates` and `GET /estimates/{id}` must keep returning 200 even
+ * when `auth` is unreachable or partially failing.
  *
  * Serves cached entries (<60s old) without a network call at all; only the
- * ids that are cold or expired are actually fetched.
+ * ids that are cold or expired are actually fetched (and thus chunked).
  */
 export async function resolveIdentities(
   authorizationHeader: string,
@@ -148,50 +184,52 @@ export async function resolveIdentities(
     return result;
   }
 
-  try {
-    const res = await fetch(`${env.AUTH_BASE_URL}/authz/users/identities`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: authorizationHeader,
-      },
-      body: JSON.stringify({ ids: uncached }),
-    });
-
-    if (!res.ok) {
-      throw new Error(
-        `auth POST /authz/users/identities responded with HTTP ${res.status}`,
-      );
-    }
-
-    const body = (await res.json()) as { users: Identity[] };
-    const returned = new Set<string>();
-
-    for (const user of body.users) {
-      returned.add(user.id);
-      identityCache.set(user.id, {
-        identity: user,
-        expiresAt: now + IDENTITY_CACHE_TTL_MS,
+  for (const idsChunk of chunk(uncached, IDENTITIES_MAX_IDS_PER_REQUEST)) {
+    try {
+      const res = await fetch(`${env.AUTH_BASE_URL}/authz/users/identities`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authorizationHeader,
+        },
+        body: JSON.stringify({ ids: idsChunk }),
       });
-      result.set(user.id, user);
-    }
 
-    // Fail soft per-id too: an id auth silently omitted degrades to
-    // "unknown" rather than being absent from the returned Map (callers
-    // index by id and must get an entry for everything they asked about).
-    // Deliberately NOT cached — a same-request omission may be transient.
-    for (const id of uncached) {
-      if (!returned.has(id)) {
+      if (!res.ok) {
+        throw new Error(
+          `auth POST /authz/users/identities responded with HTTP ${res.status}`,
+        );
+      }
+
+      const body = (await res.json()) as { users: Identity[] };
+      const returned = new Set<string>();
+
+      for (const user of body.users) {
+        returned.add(user.id);
+        identityCache.set(user.id, {
+          identity: user,
+          expiresAt: now + IDENTITY_CACHE_TTL_MS,
+        });
+        result.set(user.id, user);
+      }
+
+      // Fail soft per-id too: an id auth silently omitted degrades to
+      // "unknown" rather than being absent from the returned Map (callers
+      // index by id and must get an entry for everything they asked about).
+      // Deliberately NOT cached — a same-request omission may be transient.
+      for (const id of idsChunk) {
+        if (!returned.has(id)) {
+          result.set(id, unknownIdentity(id));
+        }
+      }
+    } catch (error) {
+      console.error(
+        "[authClient] failed to resolve a batch of identities from auth — degrading this batch to 'unknown':",
+        error instanceof Error ? error.message : error,
+      );
+      for (const id of idsChunk) {
         result.set(id, unknownIdentity(id));
       }
-    }
-  } catch (error) {
-    console.error(
-      "[authClient] failed to resolve identities from auth — degrading to 'unknown':",
-      error instanceof Error ? error.message : error,
-    );
-    for (const id of uncached) {
-      result.set(id, unknownIdentity(id));
     }
   }
 
