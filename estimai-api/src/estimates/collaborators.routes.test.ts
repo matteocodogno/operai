@@ -1105,6 +1105,80 @@ describe("AC-5.2 — DELETE {collaboratorId} revokes access, same refusal as an 
   });
 });
 
+// ─── AC-5.3 — no live disconnection: revocation/downgrade is enforced on ────
+// the collaborator's NEXT request only, never a forced real-time kick (QE
+// gap-fill: AC-5.1/AC-5.2's "next request is refused" tests above already
+// prove the POSITIVE half of this AC; nothing anywhere proved the NEGATIVE
+// half plan.md itself concedes is untested ("no push/stream involvement
+// asserted (no SSE subscription exists for estimates)") — this makes that
+// absence an explicit, executed regression tripwire, the same style as the
+// "no /system/* route" mutual-exclusion check directly below and AC-10.4's
+// route-table check in orphaned-estimate.test.ts, rather than leaving the
+// property entirely parasitic on AC-5.1/AC-5.2. ─────────────────────────────
+
+describe("AC-5.3 — no live-disconnection mechanism exists for estimates (regression tripwire)", () => {
+  it("estimai-api registers no stream/SSE/WebSocket route anywhere the estimates domain touches (index.ts, estimates.routes.ts, collaborators.routes.ts) — revocation has nothing live to push to", async () => {
+    const filesToScan = ["../index.ts", "./estimates.routes.ts", "./collaborators.routes.ts"];
+    for (const relativePath of filesToScan) {
+      const source = await Bun.file(new URL(relativePath, import.meta.url)).text();
+      // A route path shaped like a live-connection endpoint (mirrors
+      // notify-api's OWN /notifications/stream — the ONE such route in the
+      // whole suite, ADR-0008 — which estimai-api must never grow a sibling
+      // of for estimates).
+      expect(source).not.toMatch(/\.(get|post|put|patch|delete|route)\(\s*["'`][^"'`]*\/(stream|sse|socket|ws)\b/i);
+      // No WebSocket/EventSource/SSE machinery imported or referenced at all.
+      expect(source).not.toMatch(/WebSocket|EventSource|text\/event-stream|upgradeWebSocket/);
+    }
+  });
+
+  it("revoking (DELETE {collaboratorId}) and downgrading (PATCH editor→viewer) a collaborator's access complete with 204/200 and NO thrown/rejected side effect beyond the best-effort notify call already covered by AC-7.2/AC-7.3 — there is no live session to forcibly terminate, so removal/downgrade is a plain DB write, nothing more", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t9-ac53-target";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: targetId,
+        email: "ac53-target@example.com",
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    // Downgrade — no exception, no partial state (a real "kick" would need
+    // some out-of-band channel; none is called here at all).
+    const patchRes = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ accessLevel: "viewer" }),
+      },
+    );
+    expect(patchRes.status).toBe(200);
+
+    // Revoke entirely — same: a plain, synchronous DB write and an HTTP
+    // response, nothing that could represent forcing an open session closed.
+    const deleteRes = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      { method: "DELETE", headers: bearerHeader(owner.id, owner.email) },
+    );
+    expect(deleteRes.status).toBe(204);
+
+    // Enforcement is confirmed on the collaborator's NEXT request only
+    // (AC-5.1/AC-5.2 already cover this positively) — restated here just to
+    // anchor that "next request" is the ONLY enforcement point exercised;
+    // nothing above simulated or asserted an in-flight/open-session kick,
+    // because the codebase has no such mechanism to simulate.
+    const grantAfter = await testDb.estimateCollaborator.findUnique({
+      where: { id: grant.id },
+    });
+    expect(grantAfter).toBeNull();
+  });
+});
+
 // ─── AC-6.1 / AC-6.2 — DELETE me: leave ────────────────────────────────────
 
 describe("AC-6.1 — a collaborator can remove themselves via DELETE .../collaborators/me", () => {

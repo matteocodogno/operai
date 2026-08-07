@@ -2751,6 +2751,118 @@ describe("T6 / AC-2.1/2.2/2.3 — GET /estimates includes owned UNION shared, wi
   });
 });
 
+// ─── AC-9.1 — the OWNER'S REAL HTTP `DELETE /estimates/{id}` cascades to
+// every grant, and EVERY former collaborator's NEXT real HTTP request is
+// refused exactly like AC-1.6's stranger (QE gap-fill: T4's
+// collaborator-schema.test.ts already proves the DB-level `onDelete:
+// Cascade` fires from a direct `db.estimate.delete()`; nothing anywhere
+// combined the OWNER'S ACTUAL DELETE ROUTE with a SUBSEQUENT collaborator
+// GET/list call over real HTTP — the exact user-observable behavior AC-9.1
+// and plan.md's own test-strategy row describe ("...disappears from every
+// former collaborator's estimates list — their next list/open request no
+// longer shows or serves it" / "both former collaborators' GET /estimates
+// exclude it and GET /estimates/{id} → 404"). This closes that gap. ───────
+
+describe("AC-9.1 — owner's real DELETE /estimates/{id} cascades; former collaborators refused like a stranger", () => {
+  it("2 real grants (viewer B, editor C) → owner DELETE (204) → both collaborators' GET /estimates exclude it AND GET /estimates/{id} → 404 byte-identical to a genuinely absent id", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+    const jwtC = await tokenC();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "AC-9.1 cascade-via-real-route estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_C_ID,
+        email: USER_C_EMAIL,
+        accessLevel: "editor",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    // Sanity: before deletion, both collaborators genuinely see it.
+    const preListB = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    const preRowsB = (await preListB.json()) as Array<{ id: string }>;
+    expect(preRowsB.some((r) => r.id === id)).toBe(true);
+    const preGetC = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtC}` },
+    });
+    expect(preGetC.status).toBe(200);
+
+    // The owner's REAL delete route.
+    const delRes = await app.request(`/estimates/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(delRes.status).toBe(204);
+
+    // The cascade fired: 0 grant rows remain for this estimate.
+    const remainingGrants = await testDb.estimateCollaborator.count({
+      where: { estimateId: id },
+    });
+    expect(remainingGrants).toBe(0);
+
+    // Former viewer B: gone from GET /estimates (list-side, AC-9.1).
+    const postListB = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(postListB.status).toBe(200);
+    const postRowsB = (await postListB.json()) as Array<{ id: string }>;
+    expect(postRowsB.some((r) => r.id === id)).toBe(false);
+
+    // Former viewer B: GET /estimates/{id} → 404.
+    const postGetB = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(postGetB.status).toBe(404);
+    const postGetBBody = await postGetB.json();
+
+    // Former editor C: gone from GET /estimates AND GET /estimates/{id} →
+    // 404 too — the cascade is not viewer-only.
+    const postListC = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtC}` },
+    });
+    const postRowsC = (await postListC.json()) as Array<{ id: string }>;
+    expect(postRowsC.some((r) => r.id === id)).toBe(false);
+
+    const postGetC = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtC}` },
+    });
+    expect(postGetC.status).toBe(404);
+
+    // AC-1.6's taxonomy, reused: two now-unrelated callers (a former viewer,
+    // a former editor) probing the SAME now-deleted id get byte-identical
+    // 404 Problem bodies — "not yours" and "does not exist" stay
+    // indistinguishable even post-cascade, not just for a caller who was
+    // always a stranger.
+    const postGetCBody = await postGetC.json();
+    expect(postGetBBody).toEqual(postGetCBody);
+  });
+});
+
 // ─── T6 / AC-5.2 (partial) — a removed collaborator is refused exactly like ──
 // a stranger. The removal MECHANISM (DELETE …/collaborators/{id}) is T9's
 // scope; this test only proves the READ-SIDE consequence already holds once
