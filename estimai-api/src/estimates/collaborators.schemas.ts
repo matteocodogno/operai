@@ -76,3 +76,28 @@ export const CollaboratorParamSchema = z.object({
   id: z.string().min(1, "id is required"),
   collaboratorId: z.string().min(1, "collaboratorId is required"),
 });
+
+// ─── Problem JSON schemas (OpenAPI doc-only, T11) ────────────────────────────
+//
+// Mirrors estimates.routes.ts's own local (non-exported) ProblemSchema /
+// ProblemWithCodeSchema shape byte-for-byte — kept as a separate copy here
+// (not imported from there) because those are private consts scoped to that
+// file, and this module is already where every other collaborator wire
+// shape lives. Consumed only by src/openapi/collaborators.docs.ts's
+// doc-only `registerPath` calls (see that file's header for why these
+// routes are documented separately from their `.get()/.post()/...`
+// handlers) — never by collaborators.routes.ts's actual response bodies,
+// which build their own plain Problem-JSON objects inline (see that file's
+// `problemNotFound`/`problemForbidden`/etc. helpers).
+
+export const ProblemSchema = z.object({
+  type: z.string(),
+  title: z.string(),
+  status: z.number(),
+  detail: z.string(),
+  instance: z.string(),
+});
+
+export const ProblemWithCodeSchema = ProblemSchema.extend({
+  code: z.string(),
+});

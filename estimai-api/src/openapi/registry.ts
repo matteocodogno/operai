@@ -28,6 +28,12 @@ export function setupOpenAPI(app: OpenAPIHono): void {
           "Estimate CRUD — create, list, get, update, delete, and bulk-import estimates",
       },
       {
+        name: "Collaborators",
+        description:
+          "Record-level estimate sharing (specs/013-estimate-sharing, ADR-0036) — " +
+          "list/add/change-level/remove collaborators and self-leave",
+      },
+      {
         name: "System",
         description: "Health checks and service metadata",
       },

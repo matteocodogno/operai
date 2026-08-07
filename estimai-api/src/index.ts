@@ -9,6 +9,7 @@ import { estimatesRouter, importEstimatesRouter } from "./estimates/estimates.ro
 import { registerCollaboratorRoutes } from "./estimates/collaborators.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
+import { registerCollaboratorOpenApiDocs } from "./openapi/collaborators.docs";
 
 const app = new OpenAPIHono();
 
@@ -35,23 +36,50 @@ app.use("*", requestLogger());
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
 app.route("/", healthRouter);
+
+// ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
+//
+// T11 (specs/013-estimate-sharing) — MUST be registered on `app` BEFORE
+// `importEstimatesRouter`/`estimatesRouter` are mounted below. Both of those
+// routers apply a wildcard `.use("*", jwtMiddleware)` to themselves (T5/T8);
+// `OpenAPIHono.route()` merges a mounted sub-router's routes (middleware
+// included) into the PARENT's own route table at call time, and Hono runs
+// every route entry that matches a given request path IN REGISTRATION
+// ORDER, stopping at the first one that returns a response instead of
+// calling `next()`. Registering `/openapi.json`/`/docs` AFTER that merge
+// (the previous order) meant the wildcard jwtMiddleware — merged in
+// earlier — always ran FIRST for those paths too and returned 401 before
+// `app.doc()`'s own handler ever got a turn, even though neither route
+// needs auth. Registering the doc routes here, BEFORE any jwt-gated router
+// is mounted, fixes that without touching estimates.routes.ts's/
+// collaborators.routes.ts's own middleware at all — `/estimates/*` still
+// requires a Bearer JWT exactly as before (verified by a supertest-style
+// check: GET /openapi.json → 200 unauthenticated, GET /estimates → 401
+// unauthenticated). `getOpenAPIDocument` is computed lazily PER REQUEST
+// (@hono/zod-openapi's `.doc()` internals), so this reordering does not
+// affect document COMPLETENESS — every route merged in by the `app.route()`
+// calls below is still present by the time any request actually arrives.
+setupOpenAPI(app);
+
 // importEstimatesRouter is mounted BEFORE estimatesRouter. The import route has
 // a larger bodyLimit (IMPORT_BODY_SIZE_LIMIT) and a completely separate middleware
 // chain — it is never subject to estimatesRouter's 2 MiB cap (OWASP A04 fix).
 app.route("/", importEstimatesRouter);
-// GET/POST /estimates/{id}/collaborators (T8, specs/013-estimate-sharing)
-// attach directly onto estimatesRouter — called AFTER estimates.routes.ts's
-// own module-load-time bodyLimit/jwtMiddleware `.use("*", …)` calls have
-// already run (guaranteed: the import above fully evaluates that module
-// first), so these routes inherit the same middleware chain. See
-// collaborators.routes.ts's file header for why this is a registration call
-// rather than a side-effect import mutating the singleton.
+// GET/POST/PATCH/DELETE /estimates/{id}/collaborators[...] (T8/T9,
+// specs/013-estimate-sharing) attach directly onto estimatesRouter — called
+// AFTER estimates.routes.ts's own module-load-time bodyLimit/jwtMiddleware
+// `.use("*", …)` calls have already run (guaranteed: the import above fully
+// evaluates that module first), so these routes inherit the same
+// middleware chain. See collaborators.routes.ts's file header for why this
+// is a registration call rather than a side-effect import mutating the
+// singleton. `registerCollaboratorOpenApiDocs` (T11) documents those same
+// five routes for `/openapi.json`/`/docs` WITHOUT wiring a second handler
+// — see that module's file header — and, like `registerCollaboratorRoutes`,
+// MUST run before `estimatesRouter` is mounted below for the merge to pick
+// it up.
 registerCollaboratorRoutes(estimatesRouter);
+registerCollaboratorOpenApiDocs(estimatesRouter);
 app.route("/", estimatesRouter);
-
-// ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
-
-setupOpenAPI(app);
 
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
