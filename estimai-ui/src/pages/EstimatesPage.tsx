@@ -2,12 +2,44 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { importProjectFromJson, uid, DEF_PARAMS } from '../lib/projects'
 import { TEMPLATES } from '../lib/templates'
-import type { EstimateListItem } from '../lib/estimatesApi'
+import type { EstimateIdentity, EstimateListItem } from '../lib/estimatesApi'
 import * as estimatesApi from '../lib/estimatesApi'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ImportOfferModal from '../components/ImportOfferModal'
 import ConfirmDeleteModal from '../components/ConfirmDeleteModal'
+import AccessLevelBadge from '../components/AccessLevelBadge'
+import { formatIdentity } from '../lib/identity'
 import { useImportOffer } from '../hooks/useImportOffer'
+
+/**
+ * Defensive fallback for a shared row whose `owner` came back `null` despite
+ * `access !== 'owner'` — `EstimateListItem`'s contract (estimatesApi.ts) says
+ * `owner` is populated whenever the row isn't the caller's own, but
+ * `formatIdentity` must never be handed `null`; routing a contract-violating
+ * response through the same "unknown" placeholder keeps AC-10.5's "never
+ * blank, never a raw id, never an error" bar even then (T14's `formatIdentity`
+ * is the one place that owns this decision — this fallback stays a plain
+ * data object, not a second rendering rule).
+ */
+const UNKNOWN_OWNER: EstimateIdentity = { status: 'unknown', name: null }
+
+/**
+ * `formatIdentity` (T14, ../lib/identity.ts) is typed to take a full
+ * `Identity` (id + status + name) — its own doc comment claims it "accepts
+ * this shape too despite the missing id" for the id-less `EstimateIdentity`
+ * embedded on `EstimateListItem.owner`, but the actual TS signature still
+ * requires `id`, so a bare `EstimateIdentity` doesn't type-check at this call
+ * site. `formatIdentity`'s implementation only ever reads `.status`/`.name`
+ * (verified by reading it), so padding in the row's own id as a throwaway,
+ * unused `id` is behaviorally inert — a narrow workaround kept local to this
+ * file rather than widening `identity.ts`'s exported type, which is outside
+ * this task's touch list (T23, specs/013-estimate-sharing/tasks.md). Flagged
+ * back to the caller as a real (if small) T14/T23 contract gap.
+ */
+const ownerIdentityFor = (item: EstimateListItem) => ({
+  id: item.id,
+  ...(item.owner ?? UNKNOWN_OWNER),
+})
 
 const formatDate = (iso: string): string => {
   try {
@@ -227,7 +259,11 @@ export default function EstimatesPage() {
     const { items } = listState
 
     if (items.length === 0) {
-      // Existing empty state — reused as-is (AC-2.3)
+      // Existing empty state — reused as-is, but the condition is now the
+      // COMBINED owned+shared list length (AC-2.3): `estimatesApi.list()`
+      // already returns both in one array (access-scoped by estimai-api,
+      // T6), so a user with only shared estimates never falls through to
+      // this branch.
       return (
         <div className="flex-1 flex flex-col items-center justify-center px-4 py-16 gap-10">
           <div className="flex flex-col items-center text-center gap-5 max-w-sm w-full">
@@ -284,12 +320,18 @@ export default function EstimatesPage() {
             {items.map((p) => (
               <div
                 key={p.id}
+                data-testid={p.access === 'owner' ? 'estimate-row-owned' : 'estimate-row-shared'}
                 className="flex items-center gap-4 px-4 py-3 rounded-md border border-rule bg-ink-soft hover:border-acc/40 transition-colors"
               >
                 <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleOpen(p.id)}>
-                  <div className="text-sm font-medium truncate">{p.name || 'Untitled'}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm font-medium truncate">{p.name || 'Untitled'}</div>
+                    {p.access !== 'owner' && <AccessLevelBadge level={p.access} />}
+                  </div>
                   <div className="text-[11px] text-muted font-mono mt-0.5">
-                    {p.author ? `${p.author} · ` : ''}{formatDate(p.updatedAt)}
+                    {p.access === 'owner'
+                      ? <>{p.author ? `${p.author} · ` : ''}{formatDate(p.updatedAt)}</>
+                      : <><span>{formatIdentity(ownerIdentityFor(p))}</span>{' · '}{formatDate(p.updatedAt)}</>}
                   </div>
                 </div>
 
@@ -300,14 +342,18 @@ export default function EstimatesPage() {
                   >
                     Open
                   </button>
-                  <button
-                    onClick={() => handleDeleteRequest(p)}
-                    className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-red transition-colors"
-                    title="Delete"
-                    aria-label={`Delete "${p.name || 'Untitled'}"`}
-                  >
-                    ×
-                  </button>
+                  {/* Owner-only action — absent on shared rows, including the orphaned-owner
+                      case (AC-10.4/AC-3.3): never rendered-then-disabled. */}
+                  {p.access === 'owner' && (
+                    <button
+                      onClick={() => handleDeleteRequest(p)}
+                      className="py-1 px-2.5 text-[11px] font-medium bg-ink border border-rule text-muted hover:text-red transition-colors"
+                      title="Delete"
+                      aria-label={`Delete "${p.name || 'Untitled'}"`}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

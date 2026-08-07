@@ -15,6 +15,17 @@
  *   (E) Chrome dedup (specs/003-suite-shell, T14, AC-4.2): the page no longer
  *       renders its own logo image or UserMenu — those are shell-owned now —
  *       but keeps its tool-scoped "Import JSON" and "+ New estimate" actions.
+ *   (F) Shared row (specs/013-estimate-sharing, T23, AC-2.1/AC-2.2/AC-10.4):
+ *       a shared row is distinguishable from an owned row by testid (never by
+ *       CSS class), carries an `AccessLevelBadge` + the owner's identity via
+ *       `formatIdentity`, and has no owner-only Delete action.
+ *   (G) Orphaned / unresolved owner identity (T23, AC-10.4/AC-10.5): a
+ *       `deleted` owner renders "Former wellD member", an `unknown` owner the
+ *       neutral placeholder — never blank, never a raw id, never an error —
+ *       and Delete stays absent on the orphaned row.
+ *   (H) Empty-state gating (T23, AC-2.3): the empty state keys off the
+ *       COMBINED owned+shared list length, so a user with only shared
+ *       estimates never sees "Ready to estimate your first project?".
  *
  * Strategy:
  *   • estimatesApi is mocked at the module level so tests control what list()
@@ -26,9 +37,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, waitFor, cleanup, within } from '@testing-library/react'
 import EstimatesPage from './EstimatesPage'
 import type { EstimateListItem } from '../lib/estimatesApi'
+import { strings } from '../strings'
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before imports of the modules under test.
@@ -69,6 +81,8 @@ const itemA: EstimateListItem = {
   name: 'Alpha Project',
   author: 'Consultant A',
   updatedAt: '2026-07-01T10:00:00.000Z',
+  access: 'owner',
+  owner: null,
 }
 
 const itemB: EstimateListItem = {
@@ -76,6 +90,8 @@ const itemB: EstimateListItem = {
   name: 'Beta Initiative',
   author: 'Consultant B',
   updatedAt: '2026-06-28T14:30:00.000Z',
+  access: 'owner',
+  owner: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +241,127 @@ describe('EstimatesPage', () => {
       // Tool-scoped controls remain.
       expect(screen.getByRole('button', { name: /Import JSON/i })).toBeDefined()
       expect(screen.getByRole('button', { name: /\+ New estimate/i })).toBeDefined()
+    })
+  })
+
+  // (F) Shared row — distinguishable by testid, badge + identity, no Delete
+  // (specs/013-estimate-sharing, T23, AC-2.1 / AC-2.2 / AC-10.4)
+  describe('(F) shared row — testid-distinguishable, AccessLevelBadge + owner identity, no Delete', () => {
+    it('renders owned and shared rows with distinct testids, an AccessLevelBadge and formatIdentity owner text on the shared row, and Delete only on the owned row', async () => {
+      const sharedItem: EstimateListItem = {
+        id: 'est-shared',
+        name: 'Shared Project',
+        author: '',
+        updatedAt: '2026-07-05T09:00:00.000Z',
+        access: 'editor',
+        owner: { status: 'active', name: 'Marco Rossi' },
+      }
+      vi.mocked(estimatesApi.list).mockResolvedValue([itemA, sharedItem])
+
+      render(<EstimatesPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Alpha Project')).toBeDefined()
+      })
+      expect(screen.getByText('Shared Project')).toBeDefined()
+
+      // Distinguishable by testid (role/testid), never by CSS class alone —
+      // a class-based assertion would still pass against an invisible change.
+      const ownedRow = screen.getByTestId('estimate-row-owned')
+      const sharedRow = screen.getByTestId('estimate-row-shared')
+
+      // AccessLevelBadge — its presence IS the "shared" indicator (design.md S6) —
+      // appears only on the shared row.
+      const badge = within(sharedRow).getByTestId('access-level-badge')
+      expect(badge.textContent).toContain(strings.sharing.dialog.levelEditor)
+      expect(within(ownedRow).queryByTestId('access-level-badge')).toBeNull()
+
+      // Owner identity via formatIdentity — not the free-text author field.
+      expect(within(sharedRow).getByText(/Marco Rossi/)).toBeDefined()
+
+      // Owner-only Delete "×" is present on the owned row, absent on the shared row.
+      expect(within(ownedRow).getByRole('button', { name: /Delete/i })).toBeDefined()
+      expect(within(sharedRow).queryByRole('button', { name: /Delete/i })).toBeNull()
+    })
+  })
+
+  // (G) Orphaned / unresolved owner identity — never blank, never a raw id,
+  // never an error (specs/013-estimate-sharing, T23, AC-10.4 / AC-10.5)
+  describe('(G) orphaned / unresolved owner identity', () => {
+    it('renders "Former wellD member" for a deleted owner and keeps Delete absent (orphaned row, AC-10.4)', async () => {
+      const orphanedItem: EstimateListItem = {
+        id: 'est-orphaned',
+        name: 'Orphaned Project',
+        author: '',
+        updatedAt: '2026-07-06T09:00:00.000Z',
+        access: 'viewer',
+        owner: { status: 'deleted', name: null },
+      }
+      vi.mocked(estimatesApi.list).mockResolvedValue([orphanedItem])
+
+      render(<EstimatesPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Orphaned Project')).toBeDefined()
+      })
+
+      const row = screen.getByTestId('estimate-row-shared')
+      expect(within(row).getByText(strings.sharing.identity.deleted)).toBeDefined()
+
+      // Never the raw id/cuid standing in for a name.
+      expect(within(row).queryByText('est-orphaned')).toBeNull()
+
+      // Orphaning changes nothing about this row's controls — Delete was
+      // already absent because it isn't the viewer's own estimate.
+      expect(within(row).queryByRole('button', { name: /Delete/i })).toBeNull()
+    })
+
+    it('renders the neutral placeholder for an unknown owner — never blank, never a raw id, never an error', async () => {
+      const unknownOwnerItem: EstimateListItem = {
+        id: 'est-unknown-owner',
+        name: 'Unknown Owner Project',
+        author: '',
+        updatedAt: '2026-07-07T09:00:00.000Z',
+        access: 'viewer',
+        owner: { status: 'unknown', name: null },
+      }
+      vi.mocked(estimatesApi.list).mockResolvedValue([unknownOwnerItem])
+
+      render(<EstimatesPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Unknown Owner Project')).toBeDefined()
+      })
+
+      const row = screen.getByTestId('estimate-row-shared')
+      expect(within(row).getByText(strings.sharing.identity.unknown)).toBeDefined()
+      expect(within(row).queryByText('est-unknown-owner')).toBeNull()
+    })
+  })
+
+  // (H) Empty-state gating keys off the COMBINED owned+shared list length
+  // (specs/013-estimate-sharing, T23, AC-2.3)
+  describe('(H) empty-state gating — combined owned+shared length, not owned-only', () => {
+    it('does NOT render the empty state when the user has only a shared estimate', async () => {
+      const sharedOnlyItem: EstimateListItem = {
+        id: 'est-shared-only',
+        name: 'Shared Only Project',
+        author: '',
+        updatedAt: '2026-07-08T09:00:00.000Z',
+        access: 'viewer',
+        owner: { status: 'active', name: 'Giulia Bianchi' },
+      }
+      vi.mocked(estimatesApi.list).mockResolvedValue([sharedOnlyItem])
+
+      render(<EstimatesPage />)
+
+      await waitFor(() => {
+        expect(screen.getByText('Shared Only Project')).toBeDefined()
+      })
+
+      expect(screen.queryByText('Ready to estimate your first project?')).toBeNull()
+      expect(screen.queryByTestId('estimate-row-owned')).toBeNull()
+      expect(screen.getByTestId('estimate-row-shared')).toBeDefined()
     })
   })
 })
