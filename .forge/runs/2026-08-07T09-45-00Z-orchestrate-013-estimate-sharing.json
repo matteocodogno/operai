@@ -1,0 +1,131 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-08-07T09-45-00Z-orchestrate-013-estimate-sharing",
+  "command": "orchestrate",
+  "feature": "013-estimate-sharing",
+  "rigor": "production",
+  "started": "2026-08-07T09:45:00Z",
+  "finished": "2026-08-07T15:25:08Z",
+  "agents": [
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "artifact": "specs/013-estimate-sharing/spec.md",
+      "note": "10 user stories, 33 ACs; 3 open questions resolved by the user and folded in (US-10 added). Approved at Gate 1."
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "artifact": "specs/013-estimate-sharing/plan.md",
+      "note": "All 33 ACs mapped to tests; security flagged YES (elevated); 6 ADR candidates. Approved at Gate 2."
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "artifact": "docs/adr/0035-0040",
+      "note": "Six ADRs written and indexed in CLAUDE.md."
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "artifact": "specs/013-estimate-sharing/design.md",
+      "note": "Toolbar decision: two permanent, differently-shaped entries. 2 REUSE / 6 EXTEND / 6 NEW (3 standalone components)."
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": ["T1"],
+      "outcome": "completed",
+      "commits": ["4c3054b"],
+      "worktree": "feat/013-t1-auth-rate-limit-index"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": ["T4"],
+      "outcome": "completed",
+      "commits": ["f328f02"],
+      "worktree": "feat/013-t4-estimate-collaborator-schema"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": ["T5"],
+      "outcome": "completed",
+      "commits": ["167f15d"],
+      "worktree": "feat/013-t5-estimai-api-outbound-clients"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T14"],
+      "outcome": "completed",
+      "commits": ["ad39532"],
+      "worktree": "feat/013-t14-estimai-ui-foundations"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": ["T2", "T3"],
+      "outcome": "completed",
+      "commits": ["47b67f6", "0915804"],
+      "worktree": "feat/013-t2-t3-auth-third-party-endpoints"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": ["T6"],
+      "outcome": "completed",
+      "commits": ["3d94b4d"],
+      "worktree": "feat/013-t6-access-scoping"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T15"],
+      "outcome": "completed",
+      "commits": ["0119c69"],
+      "worktree": "feat/013-t15-ui-api-clients"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": ["T19"],
+      "outcome": "completed",
+      "commits": ["456a37d"],
+      "worktree": "feat/013-t19-confirm-modal-generalization"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "designer",
+      "artifact": "plan.md",
+      "summary": "Queried whether EstimateListItem.owner:null collides with identity status 'unknown'. Verified against plan.md L499/L512 — no collision; null means 'your own row', 'unknown' is a distinct in-object status. No amendment needed.",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev (T2/T3)",
+      "artifact": "plan.md",
+      "summary": "plan.md's API contract for POST /authz/users/identities lists a 429 + Retry-After response, but neither the plan nor T1 provisions rate-limit config for that route. T3 shipped WITHOUT rate limiting and documented the gap in the file header. Any authenticated suite user can call it with up to 100 ids per request, unthrottled.",
+      "resolved": false
+    },
+    {
+      "agent": "frontend-dev (T15)",
+      "artifact": "tasks.md",
+      "summary": "Widening EstimateFull/EstimateListItem with required access/owner/version leaves stale fixture literals in co-located .test.tsx files that no task's touch list named — the tree does not typecheck standalone. Resolved by amending T16/T22/T23 touch lists to include their companion test files.",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev (T2/T3)",
+      "artifact": "tasks.md",
+      "summary": "Test files placed in auth/src/auth/ rather than the touch-listed auth/src/authz/, following the documented mock.module() collision hazard precedent set by authz-resolve.routes.test.ts. Accepted.",
+      "resolved": true
+    }
+  ],
+  "collision_events": [
+    {
+      "tasks": ["T2", "T3"],
+      "files": ["auth/src/index.ts", "auth/src/openapi/"],
+      "resolved_by": "Detected BEFORE dispatch (not at merge): added deps T2→T3 in tasks.md and dispatched both to a single agent sequentially. All 9 merged branches cherry-picked with zero conflicts."
+    }
+  ],
+  "verdicts": { "qe": null, "eval": null },
+  "result": "partial",
+  "result_note": "Paused by the user mid-implementation after batch 2 of 8. 9 of 26 tasks complete (T1, T2, T3, T4, T5, T6, T14, T15, T19), all merged to feat/013-estimate-sharing. QE and eval have not run. Resume at batch 3: T7, T8, T13, T16. BLOCKER: the shared local Postgres volume was recreated by a subagent, destroying the 'hercules' role — both backend suites fail with P1000 until it is restored; estimai-ui is green at 138/138. OPEN DRIFT: the /authz/users/identities rate limit (see drift_events).",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
