@@ -15,7 +15,7 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
 
 ## Track A — `auth`: the third-party endpoints
 
-- [ ] T1: Add the `lower(email)` functional index and the reusable in-process rate limiter — refs: AC-1.2 — deps: none
+- [x] T1: Add the `lower(email)` functional index and the reusable in-process rate limiter — refs: AC-1.2 — deps: none
   - touch: `auth/prisma/migrations/<new>/migration.sql`, `auth/src/lib/rateLimiter.ts` (new), `auth/src/lib/env.ts`
   - note: `CREATE INDEX user_email_lower_idx ON "user" (lower(email))` — new migration file only, never edit an existing one. The limiter is a sliding-window `Map<sub, timestamps[]>` with periodic prune, written behind one interface so a shared store is a later swap (plan R7). New env: `APP_ACCESS_CHECK_FLOOR_MS` (150), `APP_ACCESS_CHECK_RATE_LIMIT` (40), `APP_ACCESS_CHECK_RATE_WINDOW_MS` (600000), validated at startup with `process.exit(1)` on missing.
   - done when: `bun run db:migrate` applies cleanly; `EXPLAIN` on `WHERE lower(email) = $1` shows an index scan on `user_email_lower_idx`; a unit test proves the limiter admits N and rejects N+1 within the window and re-admits after it; `bun run typecheck` passes.
@@ -32,12 +32,12 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
 
 ## Track B — `estimai-api`: ACL, concurrency, collaborator routes
 
-- [ ] T4: Schema + migration — `EstimateCollaborator`, `version`, `lastModifiedByUserId` — refs: AC-4.1, AC-9.1, AC-10.1 — deps: none
+- [x] T4: Schema + migration — `EstimateCollaborator`, `version`, `lastModifiedByUserId` — refs: AC-4.1, AC-9.1, AC-10.1 — deps: none
   - touch: `estimai-api/prisma/schema.prisma`, `estimai-api/prisma/migrations/<new>/migration.sql`
   - note: exactly the plan's Data model block — `EstimateAccessLevel` enum, `estimate_collaborator` with `@@unique([estimateId,userId])` + the two indexes, `onDelete: Cascade` on `estimateId` (**not** `Restrict` — cargo-culting ADR-0018 here would make an estimate with collaborators undeletable and break AC-9.1). `version Int @default(1)` and nullable `lastModifiedByUserId` are additive with non-volatile defaults so no table rewrite; no backfill.
   - done when: `bun run db:migrate` applies to the compose Postgres; a test asserts a pre-existing estimate row reads `version = 1`; deleting an estimate with 2 grants leaves 0 rows in `estimate_collaborator`; generated Prisma client typechecks.
 
-- [ ] T5: Outbound clients + env + rate limiter (`auth` eligibility, `auth` identities w/ cache, `notify`) — refs: AC-1.2, AC-2.1, AC-7.1 — deps: none
+- [x] T5: Outbound clients + env + rate limiter (`auth` eligibility, `auth` identities w/ cache, `notify`) — refs: AC-1.2, AC-2.1, AC-7.1 — deps: none
   - touch: `estimai-api/src/lib/authClient.ts` (new), `estimai-api/src/lib/notify.ts` (new), `estimai-api/src/lib/rateLimiter.ts` (new), `estimai-api/src/lib/env.ts`
   - note: `authClient` exposes two single functions (`checkAppAccess`, `resolveIdentities`) forwarding the **caller's** Bearer JWT — single-function modules specifically so tests use `mock.module()` (the `refund-api` pattern; re-mocking `jose` collides across files in one bun worker). Identities are cached in-process by `sub`, 60 s TTL, batched per list render (distinct subs, self excluded) and **fail soft** to `status:"unknown"`; eligibility **fails closed**. `notify.ts` is a verbatim-contract reuse of `refund-api/src/lib/notify.ts` and **never throws**. New env: `AUTH_BASE_URL`, `NOTIFY_INTERNAL_URL`, `NOTIFY_INTERNAL_TOKEN` (≥32 chars), `SHARE_LOOKUP_FLOOR_MS` (300), `SHARE_ADD_RATE_LIMIT` (20), `SHARE_ADD_RATE_WINDOW_MS` (600000) — all validated at startup, `process.exit(1)` on missing.
   - done when: unit tests prove the identity cache serves a second call without a second fetch and expires at 60 s; a **fail-soft test** proves a throwing `resolveIdentities` still yields `status:"unknown"` rather than an error; a **fail-closed test** proves a throwing `checkAppAccess` surfaces as an error the caller maps to 503; `notify.ts` swallows and logs a rejection; startup aborts with a named message when any new var is absent.
@@ -74,7 +74,7 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
 
 ## Track C — `estimai-ui`
 
-- [ ] T14: Foundations — `strings.ts`, `formatIdentity`, `AccessLevelBadge` — refs: AC-2.1, AC-10.5 — deps: none
+- [x] T14: Foundations — `strings.ts`, `formatIdentity`, `AccessLevelBadge` — refs: AC-2.1, AC-10.5 — deps: none
   - touch: `estimai-ui/src/strings.ts` (new), `estimai-ui/src/lib/identity.ts` (new), `estimai-ui/src/components/AccessLevelBadge.tsx` (new)
   - note: every new user-facing string from design.md's i18n table lands in `strings.ts` with namespaced keys, typed so a second locale is mechanical (the `refund-ui/src/strings.ts` precedent). **Only new copy** — retro-fitting estimai-ui's existing inline English is explicitly out of scope. `formatIdentity` is the single function that renders `active` / `deleted` ("Former wellD member") / `unknown`, never a blank, a raw cuid, or a tooltip-only value. `AccessLevelBadge` follows `EntityBadge`'s rule: glyph **plus** text, never colour alone, glyph `aria-hidden`.
   - done when: unit tests cover all three `formatIdentity` states; `AccessLevelBadge` renders an accessible name of "Editor"/"Viewer" with the glyph hidden from AT; no new hardcoded user-facing string exists outside `strings.ts` (assert by lint/grep over the new files).
