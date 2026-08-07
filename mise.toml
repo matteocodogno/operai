@@ -60,10 +60,18 @@ run = "bun tools/env-doctor/index.ts"
 # / `refund-api/.envrc` explicitly — mise runs the task non-interactively, so
 # direnv's shell hook does NOT fire on its own (without this, the backends fall
 # back to placeholder creds and e.g. Google OAuth fails with `invalid_client`).
+#
+# Frontend env: admin-ui ALSO has its own `.envrc` (VITE_GOOGLE_MAPS_API_KEY,
+# specs/012 / ADR-0032) and so runs through `direnv exec .` too — note the
+# `cd` is load-bearing: direnv keys off the CURRENT directory, so
+# `pnpm --dir admin-ui` would leave the shell at the repo root and silently skip
+# the .envrc. The other three frontends have no .envrc and stay on `pnpm --dir`.
+#
 # Prereqs (once): direnv installed; each backend's .envrc allowed (`direnv allow
 # auth`, `direnv allow estimai-api`, `direnv allow notify-api`, `direnv allow
-# refund-api`); 1Password CLI signed in; ENABLE_TEST_AUTH=true for a seeded
-# local session; and migrations applied via `mise run db:migrate`.
+# refund-api`) plus `direnv allow admin-ui`; 1Password CLI signed in;
+# ENABLE_TEST_AUTH=true for a seeded local session; and migrations applied via
+# `mise run db:migrate`.
 #
 # HMR note: all-dev Module Federation works (verified — remotes mount, shared
 # React singleton holds, no dup-React). Editing a remote's MF-EXPOSED root
@@ -83,7 +91,7 @@ trap 'kill 0' EXIT INT TERM
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
 pnpm --dir refund-ui dev &
-pnpm --dir admin-ui dev &
+(cd admin-ui && direnv exec . pnpm dev) &
 pnpm --dir notify-ui dev &
 wait
 """
@@ -92,7 +100,7 @@ wait
 # (e.g. you started auth/estimai-api/notify-api/refund-api in their own terminals).
 [tasks."dev:web"]
 description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 (backends run separately)"
-run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir admin-ui dev & pnpm --dir notify-ui dev & wait"
+run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & wait"
 
 # Full stack, but the frontends run build + preview instead of dev: no HMR, but
 # deterministic and mirrors the Vercel deploy shape (independently built + served
@@ -102,7 +110,10 @@ run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui
 description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + built frontends"
 run = """
 docker compose up -d postgres minio minio-createbucket
-pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir admin-ui build && pnpm --dir notify-ui build
+# admin-ui builds through direnv: Vite bakes `import.meta.env.VITE_*` at BUILD
+# time, so without its .envrc here the preview bundle ships with no Maps key and
+# address autocomplete degrades silently (AC-3.2, specs/012) — invisibly.
+pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
