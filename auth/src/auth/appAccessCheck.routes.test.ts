@@ -241,6 +241,34 @@ describe("POST /authz/app-access-check (T2, specs/013-estimate-sharing)", () => 
     expect(overLimit.headers.get("Retry-After")).toBeTruthy();
   }, 30000);
 
+  test("a caller who FAILS the caller gate on every attempt (no (appId,access) grant) still gets rate-limited (429) after exhausting the window — repeated 403s consume budget (OWASP A04 regression: the limiter must be metered BEFORE the caller gate, not after)", async () => {
+    const caller = await mintTokenForNewUser("gate-fail-rate-limit-caller");
+    // Deliberately no grantAppAccess call — every single attempt below fails
+    // the caller gate and would return 403 forever if the rate limiter were
+    // (incorrectly) consulted only after that check, since a 403 short-
+    // circuits before ever reaching `appAccessCheckLimiter.consume()` in
+    // that ordering. Against the fixed ordering (limiter first), the
+    // budget is charged on every attempt regardless of the eventual 403,
+    // so the window still exhausts and the caller-gate-failing caller is
+    // themselves throttled.
+
+    const limit = env.APP_ACCESS_CHECK_RATE_LIMIT; // default 40
+    for (let i = 0; i < limit; i++) {
+      const { status, body } = await callCheck(caller.token, APP_ID, "someone@operai.test");
+      expect(status).toBe(403);
+      expect(body["code"]).toBe("app_access_required");
+    }
+
+    // The (limit+1)th attempt: with the fix, the budget is already exhausted
+    // by the loop above, so this is 429 — NOT another 403. Before the fix,
+    // this attempt (and every attempt after it, unboundedly) would still be
+    // 403, because none of the preceding 403s ever charged the limiter.
+    const overLimit = await callCheck(caller.token, APP_ID, "someone@operai.test");
+    expect(overLimit.status).toBe(429);
+    expect(overLimit.body["code"]).toBe("rate_limited");
+    expect(overLimit.headers.get("Retry-After")).toBeTruthy();
+  }, 30000);
+
   test("timing identity (AC-1.2): both negative causes' medians are >= the floor and differ by < 10% of the floor over 50 samples each", async () => {
     // Fixed nonexistent email — reused across all "no-such-user" samples.
     const noSuchUserEmail = `timing-nobody-${RUN_ID}@operai.test`;

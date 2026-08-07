@@ -55,8 +55,9 @@
  * own tighter per-add limit (plan.md "Rate limiting").
  *
  * Evaluation order: 401 (bearerJwtMiddleware) → 400 (malformed appId/email —
- * says nothing about accounts) → 403 (caller gate) → 429 (rate limit) →
- * the equalised-work lookup + floor → 200.
+ * says nothing about accounts) → 429 (rate limit) → 403 (caller gate) →
+ * the equalised-work lookup + floor → 200. The limiter is consumed BEFORE
+ * the caller gate deliberately — see the comment at the call site.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
@@ -194,6 +195,39 @@ appAccessCheckRouter.openapi(postAppAccessCheckRoute, async (c) => {
   const callerId = c.get("callerId");
   const { appId, email } = c.req.valid("json");
 
+  // ── 429: rate limit, per caller sub — consumed BEFORE the caller gate.
+  //
+  // This is the OPPOSITE order from estimai-api's
+  // `POST /estimates/{id}/collaborators`, which resolves its record-level
+  // 404/403 BEFORE touching its rate limiter. That is correct there because
+  // that pre-check is a cheap per-record ownership lookup, and running it
+  // first stops a stranger from burning a specific estimate's rate budget.
+  // HERE it is the reverse: the caller gate below is the expensive part —
+  // a `db.user.findUnique` PLUS a full `resolveEffectivePermissions` (two
+  // `findMany`s) — so it must be the thing metered. An authenticated caller
+  // who does not hold `(appId,"access")`, or a soft-deleted user riding
+  // ADR-0012's accepted residual-JWT window, gets an immediate 403 from the
+  // gate; if the limiter ran after that check it would never be charged,
+  // and that caller could loop unlimited requests against this identity
+  // service for free. Do not "harmonise" these two orders — they differ on
+  // purpose. The limiter counts every outcome, per plan.md.
+  const rateLimitResult = appAccessCheckLimiter.consume(callerId);
+  if (!rateLimitResult.allowed) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(rateLimitResult.retryAfterMs / 1000));
+    c.header("Retry-After", String(retryAfterSeconds));
+    return c.json(
+      {
+        type: "https://httpstatuses.com/429",
+        title: "Too Many Requests",
+        status: 429,
+        detail: "Too many app-access-check attempts. Try again later.",
+        instance: c.req.path,
+        code: "rate_limited",
+      },
+      429,
+    );
+  }
+
   // ── 403: caller gate — must hold (appId,"access") AND not be soft-deleted.
   const [callerRow, callerPermissions] = await Promise.all([
     db.user.findUnique({ where: { id: callerId }, select: { deletedAt: true } }),
@@ -215,24 +249,6 @@ appAccessCheckRouter.openapi(postAppAccessCheckRoute, async (c) => {
         code: "app_access_required",
       },
       403,
-    );
-  }
-
-  // ── 429: rate limit, per caller sub.
-  const rateLimitResult = appAccessCheckLimiter.consume(callerId);
-  if (!rateLimitResult.allowed) {
-    const retryAfterSeconds = Math.max(1, Math.ceil(rateLimitResult.retryAfterMs / 1000));
-    c.header("Retry-After", String(retryAfterSeconds));
-    return c.json(
-      {
-        type: "https://httpstatuses.com/429",
-        title: "Too Many Requests",
-        status: 429,
-        detail: "Too many app-access-check attempts. Try again later.",
-        instance: c.req.path,
-        code: "rate_limited",
-      },
-      429,
     );
   }
 
