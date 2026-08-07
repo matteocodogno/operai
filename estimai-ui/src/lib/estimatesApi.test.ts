@@ -15,11 +15,16 @@
  *       (d) non-2xx response thrown as ApiError with the correct status/title
  *   • The 413 / Problem-error path is tested explicitly (AC-1.4 caller side).
  *   • No hardcoded API URL: the base URL comes from VITE_API_URL via vi.stubEnv.
+ *   • T15 additions (specs/013-estimate-sharing/tasks.md): `update()` now
+ *     REQUIRES a `version` argument and always sends `If-Match`; both 409 and
+ *     428 must reject with `ConflictError` carrying `currentVersion`/
+ *     `lastModifiedBy` (409) or nothing extra (428) — never the base `ApiError`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiError,
+  ConflictError,
   create,
   get,
   importEstimates,
@@ -99,6 +104,9 @@ const fixedFull: EstimateFull = {
   content: fixedContent,
   createdAt: '2026-07-03T10:00:00.000Z',
   updatedAt: '2026-07-03T10:00:00.000Z',
+  version: 1,
+  access: 'owner',
+  owner: null,
 }
 
 const fixedListItem: EstimateListItem = {
@@ -106,6 +114,8 @@ const fixedListItem: EstimateListItem = {
   name: 'My Estimate',
   author: 'Consultant',
   updatedAt: '2026-07-03T10:00:00.000Z',
+  access: 'owner',
+  owner: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -289,19 +299,45 @@ describe('get(id)', () => {
   })
 })
 
-describe('update(id, body)', () => {
+describe('update(id, body, version)', () => {
   it('issues PUT to /estimates/:id with JSON body and returns updated EstimateFull', async () => {
-    const updatedFull: EstimateFull = { ...fixedFull, name: 'Updated Estimate', updatedAt: '2026-07-03T11:00:00.000Z' }
+    const updatedFull: EstimateFull = {
+      ...fixedFull,
+      name: 'Updated Estimate',
+      updatedAt: '2026-07-03T11:00:00.000Z',
+      version: 2,
+    }
     const upsertBody: EstimateUpsert = { ...fixedUpsert, name: 'Updated Estimate' }
     vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(updatedFull))
 
-    const result = await update('est-001', upsertBody)
+    const result = await update('est-001', upsertBody, 1)
 
     const { url, init } = lastCall()
     expect(url).toBe(`${ESTIMATES_URL}/est-001`)
     expect(init?.method).toBe('PUT')
     expect(JSON.parse(init?.body as string)).toEqual(upsertBody)
     expect(result).toEqual(updatedFull)
+    // The caller adopts the new version straight from the resolved EstimateFull.
+    expect(result.version).toBe(2)
+  })
+
+  it('always sends If-Match with the given version (ADR-0038 — required on every PUT)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedFull))
+    await update('est-001', fixedUpsert, 7)
+
+    const { init } = lastCall()
+    const headers = init?.headers as Record<string, string>
+    // Non-vacuous: omitting the header, or sending the wrong version, breaks this.
+    expect(headers['If-Match']).toBe('7')
+  })
+
+  it('sends a different If-Match string for a different version — proves the header is not hardcoded', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedFull))
+    await update('est-001', fixedUpsert, 42)
+
+    const { init } = lastCall()
+    const headers = init?.headers as Record<string, string>
+    expect(headers['If-Match']).toBe('42')
   })
 
   it('throws ApiError with status 413 when the updated content is too large (AC-1.4)', async () => {
@@ -311,7 +347,7 @@ describe('update(id, body)', () => {
 
     let thrown: unknown
     try {
-      await update('est-001', fixedUpsert)
+      await update('est-001', fixedUpsert, 1)
     } catch (err) {
       thrown = err
     }
@@ -320,11 +356,137 @@ describe('update(id, body)', () => {
     expect((thrown as ApiError).detail).toContain('Nothing was saved')
   })
 
+  it('throws ApiError with status 403 and code "insufficient_access" for a viewer (AC-3.1)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      makeResponse(403, {
+        type: 'https://httpstatuses.com/403',
+        title: 'Forbidden',
+        status: 403,
+        detail: 'You have view-only access to this estimate.',
+        code: 'insufficient_access',
+      }),
+    )
+
+    let thrown: unknown
+    try {
+      await update('est-001', fixedUpsert, 1)
+    } catch (err) {
+      thrown = err
+    }
+    expect(thrown).toBeInstanceOf(ApiError)
+    expect(thrown).not.toBeInstanceOf(ConflictError)
+    expect((thrown as ApiError).status).toBe(403)
+    expect((thrown as ApiError).code).toBe('insufficient_access')
+  })
+
   it('sends PUT — a POST would not match this assertion', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedFull))
-    await update('est-001', fixedUpsert)
+    await update('est-001', fixedUpsert, 1)
     // Non-vacuous: changing method to POST breaks this test.
     expect(lastCall().init?.method).toBe('PUT')
+  })
+
+  describe('conflict path — 409 and 428 both reject with ConflictError', () => {
+    it('rejects with ConflictError on 409, carrying currentVersion and lastModifiedBy (AC-4.1)', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(
+        makeResponse(409, {
+          type: 'https://httpstatuses.com/409',
+          title: 'Conflict',
+          status: 409,
+          detail: 'This estimate was changed since you loaded it.',
+          instance: '/estimates/est-001',
+          code: 'estimate_version_conflict',
+          currentVersion: 12,
+          updatedAt: '2026-08-07T09:12:04.221Z',
+          lastModifiedBy: { status: 'active', name: 'Marco Rossi' },
+        }),
+      )
+
+      let thrown: unknown
+      try {
+        await update('est-001', fixedUpsert, 11)
+      } catch (err) {
+        thrown = err
+      }
+
+      expect(thrown).toBeInstanceOf(ConflictError)
+      expect(thrown).toBeInstanceOf(ApiError)
+      const err = thrown as ConflictError
+      expect(err.status).toBe(409)
+      expect(err.code).toBe('estimate_version_conflict')
+      expect(err.currentVersion).toBe(12)
+      expect(err.updatedAt).toBe('2026-08-07T09:12:04.221Z')
+      expect(err.lastModifiedBy).toEqual({ status: 'active', name: 'Marco Rossi' })
+    })
+
+    it('rejects with ConflictError when lastModifiedBy resolution degrades to "unknown" (best-effort)', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(
+        makeResponse(409, {
+          type: 'https://httpstatuses.com/409',
+          title: 'Conflict',
+          status: 409,
+          code: 'estimate_version_conflict',
+          currentVersion: 3,
+          lastModifiedBy: { status: 'unknown', name: null },
+        }),
+      )
+
+      let thrown: unknown
+      try {
+        await update('est-001', fixedUpsert, 2)
+      } catch (err) {
+        thrown = err
+      }
+      expect(thrown).toBeInstanceOf(ConflictError)
+      expect((thrown as ConflictError).lastModifiedBy).toEqual({ status: 'unknown', name: null })
+    })
+
+    it('rejects with ConflictError (not the base ApiError) on 428 — the same path as 409', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(
+        makeResponse(428, {
+          type: 'https://httpstatuses.com/428',
+          title: 'Precondition Required',
+          status: 428,
+          detail: 'This save needs an If-Match precondition. Reload the estimate.',
+          code: 'precondition_required',
+        }),
+      )
+
+      let thrown: unknown
+      try {
+        await update('est-001', fixedUpsert, 1)
+      } catch (err) {
+        thrown = err
+      }
+
+      expect(thrown).toBeInstanceOf(ConflictError)
+      const err = thrown as ConflictError
+      expect(err.status).toBe(428)
+      expect(err.code).toBe('precondition_required')
+      // Nothing to compare against yet on a 428 — these must not be fabricated.
+      expect(err.currentVersion).toBeUndefined()
+      expect(err.lastModifiedBy).toBeUndefined()
+    })
+
+    it('does not mutate the request body on a 409 — nothing is written server-side, and neither is local state here', async () => {
+      vi.mocked(apiFetch).mockResolvedValueOnce(
+        makeResponse(409, {
+          type: 'https://httpstatuses.com/409',
+          title: 'Conflict',
+          status: 409,
+          code: 'estimate_version_conflict',
+          currentVersion: 5,
+        }),
+      )
+
+      await expect(update('est-001', fixedUpsert, 4)).rejects.toBeInstanceOf(ConflictError)
+      // The request that was actually sent still carried the caller's own body/version —
+      // confirms update() didn't silently retry or alter anything before rejecting.
+      const { init } = lastCall()
+      expect(JSON.parse(init?.body as string)).toEqual(fixedUpsert)
+      const headers = init?.headers as Record<string, string>
+      expect(headers['If-Match']).toBe('4')
+    })
   })
 })
 
