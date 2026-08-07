@@ -25,7 +25,8 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: implement exactly the plan's contract — `{eligible:true,userId}` / `{eligible:false}` with **one** key on every negative path; caller gate = caller holds `(appId,"access")` via the existing `resolveEffectivePermissions` and is not soft-deleted (else 403 `app_access_required`); target predicate includes `deletedAt IS NULL`; parameterised `lower(email) = $1` probe (**never** Prisma `mode:"insensitive"`, which emits `ILIKE` and cannot use the index); `resolveEffectivePermissions` runs on **every** path including no-such-user (sentinel id, result discarded) so the query shape is equal; `APP_ACCESS_CHECK_FLOOR_MS` floor on every `eligible:false`, success not floored; rate limit 40/10min per `sub` → 429 + `Retry-After`. `POST` so the email never reaches a URL or access log; the probed email must never appear in a log line.
   - done when: integration tests prove (a) no-such-user and user-without-`estimai:access` return **byte-identical** bodies, (b) a soft-deleted target is `eligible:false`, (c) a caller lacking `(appId,"access")` gets 403, (d) the **anti-enumeration snapshot test** asserts the negative body has exactly one key, (e) the timing test over 50 samples per cause shows both medians ≥ floor and differing by < 10% of the floor, (f) the 41st call in the window is 429. All green under `bun test`.
 
-- [ ] T3: `POST /authz/users/identities` — id-keyed identity resolution — refs: AC-2.1, AC-10.5 — deps: T1
+- [ ] T3: `POST /authz/users/identities` — id-keyed identity resolution — refs: AC-2.1, AC-10.5 — deps: T1, T2
+  - dep note: T2 was originally listed as a sibling, but both tasks register routes in `auth/src/index.ts` and `auth/src/openapi/` — a shared-file edge, so they are sequenced (or done by one agent) rather than run as parallel worktrees.
   - touch: `auth/src/authz/identities.routes.ts` (new), `auth/src/authz/identities.routes.test.ts` (new), `auth/src/index.ts`, `auth/src/openapi/`
   - note: ids only (1..100, each 1..64 chars); returns `{id,status:"active"|"deleted"|"unknown",name}` with `name` non-null **only** for `active`; emails are never returned; no email/name/query/prefix/wildcard/pagination input is accepted — this boundary IS the Non-goal, it must not erode.
   - done when: integration tests cover all three statuses; the **directory-shape contract test** proves a body carrying `email`, `name`, `query`, or `prefix` is rejected and >100 ids is rejected; a deleted user's `name` is asserted `null`; `bun test` green.
@@ -170,7 +171,7 @@ AC-10.4 T6,T12,T23 · AC-10.5 T3,T14,T23.
 | Batch | Tasks | Notes |
 |---|---|---|
 | 1 | **T1** ∥ **T4** ∥ **T5** ∥ **T14** | four independent roots (auth, api-schema, api-clients, ui-foundations) |
-| 2 | **T2** ∥ **T3** ∥ **T6** ∥ **T15** ∥ **T19** | |
+| 2 | **T2→T3** (one agent, shared `index.ts`) ∥ **T6** ∥ **T15** ∥ **T19** | |
 | 3 | **T7** ∥ **T8** ∥ **T16** ∥ **T13** | T8 needs T5+T6; T13 needs T1+T5 |
 | 4 | **T9** ∥ **T17** ∥ **T18** ∥ **T20** ∥ **T23** | |
 | 5 | **T10** ∥ **T11** ∥ **T12** ∥ **T21** | |
