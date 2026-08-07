@@ -69,12 +69,12 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: all three owner-gated except `/me`. **Register the literal `/me` route BEFORE the `{collaboratorId}` param route.** `PATCH` sends no notification (AC-7.3). An owner calling `/me` gets 404 `not_a_collaborator` (they delete the estimate instead). Enforcement is next-request — no live disconnection.
   - done when: `PATCH` editor→viewer makes the collaborator's next `PUT` 403 and viewer→editor makes it 200; `DELETE` leaves the former collaborator with a 404 whose body is identical to AC-1.6's and an estimates list excluding it; `DELETE /me` as a viewer is 204 and removes them from the owner's list; the owner's `DELETE /me` is 404 `not_a_collaborator`; `PATCH`/`DELETE` on a fabricated grant id is 404.
 
-- [ ] T10: Notification wiring — grant and owner-initiated removal — refs: AC-7.1, AC-7.2, AC-7.3 — deps: T8, T9
+- [x] T10: Notification wiring — grant and owner-initiated removal — refs: AC-7.1, AC-7.2, AC-7.3 — deps: T8, T9
   - touch: `estimai-api/src/estimates/collaborators.routes.ts`, `estimai-api/src/lib/notify.ts`
   - note: `POST /system/notifications` with `X-Internal-Token` (ADR-0017/ADR-0040), **after** the grant transaction commits, best-effort — a failure is logged and never rolls back the grant. Grant → `severity:"info"`, `originApp:"estimai"`, names the estimate + level, `link.href:"/estimai/estimates/{id}"`. Owner-initiated removal → names the estimate, **no link**. Self-leave sends nothing. Estimate name truncated to 120 chars (a deliberate, recorded widening of what leaves `estimai-api` — plan R9).
   - done when: tests prove notify is called exactly once on grant with the right recipient/originApp/link and once (link-less) on owner removal; and **never** on `PUT`, on `PATCH` level change, or on `DELETE /me`; a throwing notify client still yields 201 with the grant persisted; the **mutual-exclusion test** proves the collaborator routes reject `X-Internal-Token` and accept only a user JWT, and that `estimai-api` exposes no `/system/*` route.
 
-- [ ] T11: OpenAPI registration for every new/changed `estimai-api` route — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T7, T9
+- [x] T11: OpenAPI registration for every new/changed `estimai-api` route — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T7, T9
   - touch: `estimai-api/src/openapi/`, `estimai-api/src/estimates/collaborators.schemas.ts`
   - note: register the five collaborator routes plus the changed `GET`/`PUT` response shapes (`access`, `owner`, `version`, `ETag`, `If-Match`) and every new error `code`. Keep it consistent with the existing registry style.
   - done when: the Scalar reference renders all five collaborator routes with their documented status codes; a test asserts the OpenAPI document is generated without schema errors.
@@ -117,7 +117,7 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: email + level add form, live list with level switch and remove, per design.md S2. Every failure state must be a designed, reachable state: the generic 422 (whose copy must **not** hint at the cause), 409 already-a-collaborator, self-add, 429 rate-limited, 503 `auth` unavailable. a11y per design.md: `role="dialog" aria-modal aria-labelledby`, live-queried Tab trap (the focusable set changes as rows come and go), default focus on the email input, Escape closes the nested confirm layer first, each Remove button `aria-label="Remove {email}"`, a visually-hidden `aria-live="polite"` region for async outcomes, inline field errors `role="alert"`.
   - done when: tests cover the happy add, all five failure states rendering their distinct designed copy (with the generic 422 asserted to disclose no cause), level change, remove-with-confirm, the owner never appearing as a manageable row, focus landing on the email input, the trap holding after a row is added, and the live region announcing add/remove/level-change outcomes.
 
-- [ ] T21: `CollaboratorsDialog` — member mode + Leave — refs: AC-6.1, AC-6.2 — deps: T20
+- [x] T21: `CollaboratorsDialog` — member mode + Leave — refs: AC-6.1, AC-6.2 — deps: T20
   - touch: `estimai-ui/src/components/CollaboratorsDialog.tsx`
   - note: second render branch — no form, no list, a "Shared with you by {owner}" line and one Leave action. Default focus goes to the dialog heading (`tabIndex={-1}` + programmatic focus) since there is no input to land on.
   - done when: a member-mode test proves no add form and no collaborator list render, Leave is confirmed through the generalized modal and calls `DELETE …/collaborators/me`, and **no** Leave affordance exists when `access === "owner"`.
@@ -139,7 +139,7 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
 
 ## Cross-cutting
 
-- [ ] T12: Cross-service test — owner soft-delete leaves the estimate and grants untouched — refs: AC-10.1, AC-10.2, AC-10.3, AC-10.4 — deps: T9
+- [x] T12: Cross-service test — owner soft-delete leaves the estimate and grants untouched — refs: AC-10.1, AC-10.2, AC-10.3, AC-10.4 — deps: T9
   - touch: `estimai-api/src/estimates/orphaned-estimate.test.ts` (new)
   - note: AC-10.1 is satisfied by the **absence** of a mechanism (no FK across databases, ADR-0012 point 3 — resource servers do nothing at delete time), so the test must assert exactly that absence, including a network spy proving `auth`'s soft-delete path makes no call into `estimai-api`.
   - done when: after running `auth`'s soft-delete for the owner, the `estimate` row and every `estimate_collaborator` row are byte-identical; the editor's `GET`/`PUT` still succeed and the viewer's `GET` returns identical content; every remaining collaborator gets 403 `owner_only` on `DELETE /estimates/{id}` and on all collaborator-management routes; a route-table assertion proves no ownership-reassignment route exists.
