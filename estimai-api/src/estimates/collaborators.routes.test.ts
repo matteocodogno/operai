@@ -1,0 +1,675 @@
+/**
+ * Integration tests for GET / POST /estimates/{id}/collaborators (T8,
+ * specs/013-estimate-sharing).
+ *
+ * Strategy
+ * ────────
+ * - Real Postgres (compose, host:5435, database: estimai) via a FRESH Prisma
+ *   client pointed at the DATABASE_URL restored from `.env` — same
+ *   dotenv-restore-then-mock technique as `estimates.routes.test.ts`,
+ *   necessary because an earlier-run test file (`jwt.middleware.test.ts`)
+ *   unconditionally clobbers `process.env.DATABASE_URL` for the rest of the
+ *   `bun test` process.
+ * - A fully ISOLATED Hono app: a brand-new `OpenAPIHono` instance with a
+ *   trivial test-only auth middleware (NOT the real `jwtMiddleware`, NOT a
+ *   real RS256/JWKS setup) and `registerCollaboratorRoutes(router, deps)`
+ *   with per-test injectable `checkAppAccess`/`resolveIdentities`. This is
+ *   DELIBERATE, not a shortcut — see collaborators.routes.ts's file header:
+ *   `bun test` shares ONE process/module-cache across every `*.test.ts`
+ *   file, and `estimates.routes.test.ts` already owns its own
+ *   `mock.module("@/auth/jwt.middleware", …)` + dynamic-import-of-the-real-
+ *   `estimatesRouter-singleton dance for ITS OWN fixture users. Reusing that
+ *   singleton here (or mocking the same global specifiers) would make
+ *   whichever test file's mock happens to bind FIRST — an unpredictable,
+ *   filesystem-traversal-order race — win for BOTH files' requests for the
+ *   rest of the process. Building fully independent test doubles here
+ *   removes that race entirely; `registerCollaboratorRoutes` itself is
+ *   exercised identically to production (same function, real
+ *   `estimatesRouter`, real `jwtMiddleware`) via `index.ts`, which is not
+ *   under test here.
+ * - Fixture "identities" are opaque test-chosen ids/emails — no real JWTs,
+ *   no real `auth` HTTP calls. `checkAppAccess`/`resolveIdentities` are
+ *   provided per-test as plain async functions via `deps`.
+ *
+ * `done when` coverage (tasks.md T8)
+ * ───────────────────────────────────
+ * - 201 + the grant row exists and would surface in the target's list
+ *   (verified directly against `estimate`/`estimate_collaborator`, the same
+ *   query shape `estimates.repo.ts#listEstimates` uses — T6's own tests
+ *   already cover that query end-to-end)
+ * - both ineligible causes → byte-identical 422 body (AC-1.2)
+ * - duplicate (fast-path) → 409 `already_collaborator`, row count stays 1
+ * - stale-email-snapshot duplicate → 409 via the unique-constraint mapping
+ * - self-add by JWT email AND by an auth-resolved alias → 422 `cannot_share_with_self`
+ * - an editor's add attempt → 403 `owner_only`
+ * - the 21st attempt in the window → 429, with successes AND 409s/422s
+ *   already having counted
+ * - a throwing `auth` call → 503, no grant row created
+ * - GET is owner-only; the owner never appears in the list; `id` is the
+ *   grant's id, never a `sub`
+ */
+
+import { describe, it, expect, afterEach, mock } from "bun:test";
+import { Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { createMiddleware } from "hono/factory";
+import type { JwtVariables } from "@/auth/jwt.middleware";
+
+// ─── Env guards — mirrors estimates.routes.test.ts / authClient.test.ts's
+// `??=` pattern so this file boots correctly regardless of which test file
+// in the shared `bun test` process happens to trigger `@/lib/env`'s
+// (once-ever) validation first. ──────────────────────────────────────────
+
+process.env["DATABASE_URL"] ??= "postgresql://postgres:postgres@localhost:5435/estimai";
+process.env["ALLOWED_ORIGINS"] ??= "http://localhost:5173";
+process.env["AUTH_JWKS_URL"] ??= "http://localhost:3001/auth/jwks";
+process.env["AUTH_ISSUER"] ??= "http://localhost:3001";
+process.env["AUTH_AUDIENCE"] ??= "operai-suite";
+process.env["NODE_ENV"] ??= "test";
+process.env["AUTH_BASE_URL"] ??= "http://localhost:3001";
+process.env["NOTIFY_INTERNAL_TOKEN"] ??=
+  "test-notify-internal-token-at-least-32-characters";
+process.env["NOTIFY_INTERNAL_URL"] ??= "http://localhost:8081";
+
+// ─── Restore the REAL DATABASE_URL from .env (jwt.middleware.test.ts may
+// have already clobbered it for the rest of the process) and build a fresh
+// Prisma client pointed at it — same technique as estimates.routes.test.ts. ──
+
+import { config as dotenvConfig } from "dotenv";
+dotenvConfig({
+  path: new URL("../../.env", import.meta.url).pathname,
+  override: true,
+});
+
+const { PrismaClient } = await import("@/lib/generated/prisma/client");
+const { PrismaPg } = await import("@prisma/adapter-pg");
+
+const realDatabaseUrl = process.env["DATABASE_URL"]!;
+const freshAdapter = new PrismaPg({ connectionString: realDatabaseUrl });
+const freshDb = new PrismaClient({ adapter: freshAdapter });
+
+mock.module("@/lib/db", () => ({ db: freshDb }));
+
+const testDb = freshDb;
+
+// Dynamic import AFTER the @/lib/db mock is registered.
+const { registerCollaboratorRoutes } = await import("./collaborators.routes");
+const authClientModule = await import("@/lib/authClient");
+type CheckAppAccessFn = typeof authClientModule.checkAppAccess;
+type ResolveIdentitiesFn = typeof authClientModule.resolveIdentities;
+
+// ─── Test-only auth middleware ───────────────────────────────────────────
+//
+// NOT the real jwtMiddleware — see file header. Reads a deliberately
+// non-JWT-shaped `Bearer test|<userId>|<email>` token so there is no
+// confusion with a real credential and no crypto/JWKS setup needed at all.
+
+const TEST_BEARER_PREFIX = "Bearer test|";
+
+const testAuthMiddleware = createMiddleware<{ Variables: JwtVariables }>(async (c, next) => {
+  const header = c.req.header("Authorization");
+  if (!header || !header.startsWith(TEST_BEARER_PREFIX)) {
+    return c.json(
+      {
+        type: "https://httpstatuses.com/401",
+        title: "Unauthorized",
+        status: 401,
+        detail: "A valid test Bearer token is required",
+        instance: c.req.path,
+      },
+      401,
+    );
+  }
+  const [userId, email] = header.slice(TEST_BEARER_PREFIX.length).split("|");
+  if (!userId || !email) {
+    return c.json(
+      {
+        type: "https://httpstatuses.com/401",
+        title: "Unauthorized",
+        status: 401,
+        detail: "Malformed test Bearer token",
+        instance: c.req.path,
+      },
+      401,
+    );
+  }
+  c.set("userId", userId);
+  c.set("email", email);
+  return next();
+});
+
+const bearerHeader = (userId: string, email: string) => ({
+  Authorization: `Bearer test|${userId}|${email}`,
+  "Content-Type": "application/json",
+});
+
+// ─── App builder — one fresh isolated router per test ────────────────────
+
+interface TestDeps {
+  readonly checkAppAccess: CheckAppAccessFn;
+  readonly resolveIdentities: ResolveIdentitiesFn;
+}
+
+const alwaysIneligible: CheckAppAccessFn = async () => ({ eligible: false });
+const emptyIdentities: ResolveIdentitiesFn = async () => new Map();
+
+function buildApp(deps: Partial<TestDeps> = {}) {
+  const router = new OpenAPIHono<{ Variables: JwtVariables }>();
+  router.use("*", testAuthMiddleware);
+  registerCollaboratorRoutes(router, {
+    checkAppAccess: deps.checkAppAccess ?? alwaysIneligible,
+    resolveIdentities: deps.resolveIdentities ?? emptyIdentities,
+  });
+  const app = new Hono();
+  app.route("/", router);
+  return app;
+}
+
+/** An eligible target: `checkAppAccess` resolves `email` to `userId`, rejects everything else. */
+const eligibleFor = (email: string, userId: string): CheckAppAccessFn =>
+  async (_authHeader, _appId, submittedEmail) =>
+    submittedEmail === email ? { eligible: true, userId } : { eligible: false };
+
+// ─── Fixtures ──────────────────────────────────────────────────────────────
+
+let ownerCounter = 0;
+/** A fresh, never-reused owner id + email pair — keeps each test's rate-limit
+ * budget independent (the module-scope limiter in collaborators.routes.ts
+ * persists for the whole file's run). */
+const freshOwner = () => {
+  ownerCounter += 1;
+  const id = `t8-owner-${ownerCounter}-${Date.now()}`;
+  return { id, email: `${id}@example.com` };
+};
+
+const makeContent = () => ({
+  params: {},
+  releases: [],
+  acts: [],
+});
+
+const seedEstimate = async (ownerId: string, name = "T8 fixture estimate") => {
+  const content = makeContent();
+  const sizeBytes = new TextEncoder().encode(JSON.stringify(content)).length;
+  return testDb.estimate.create({
+    data: { userId: ownerId, name, author: "", sizeBytes, content },
+  });
+};
+
+const ownerIdsToClean = new Set<string>();
+afterEach(async () => {
+  if (ownerIdsToClean.size > 0) {
+    await testDb.estimate.deleteMany({ where: { userId: { in: Array.from(ownerIdsToClean) } } });
+    ownerIdsToClean.clear();
+  }
+});
+
+// ─── AC-1.1 — happy path: 201, grant row exists and would surface in the
+// target's list ─────────────────────────────────────────────────────────────
+
+describe("AC-1.1 — eligible email + level → collaborator created", () => {
+  it("POST → 201 with the created grant; the row exists and matches the target/estimate/level", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t8-target-ac11";
+    const targetEmail = "colleague-ac11@example.com";
+
+    const app = buildApp({ checkAppAccess: eligibleFor(targetEmail, targetId) });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      id: string;
+      email: string;
+      accessLevel: string;
+      createdAt: string;
+      identity: { status: string; name: string | null };
+    };
+    expect(body.email).toBe(targetEmail);
+    expect(body.accessLevel).toBe("viewer");
+    expect(typeof body.id).toBe("string");
+    expect(body.id).toBeTruthy();
+
+    // The grant row exists with the target's RESOLVED userId (never taken
+    // from the request body) — the same query shape estimates.repo.ts's
+    // listEstimates uses to surface shared estimates in the target's list.
+    const rows = await testDb.estimate.findMany({
+      where: { OR: [{ userId: targetId }, { collaborators: { some: { userId: targetId } } }] },
+    });
+    expect(rows.some((r) => r.id === estimate.id)).toBe(true);
+
+    const grant = await testDb.estimateCollaborator.findUnique({
+      where: { estimateId_userId: { estimateId: estimate.id, userId: targetId } },
+    });
+    expect(grant).not.toBeNull();
+    expect(grant?.email).toBe(targetEmail);
+    expect(grant?.accessLevel).toBe("viewer");
+    expect(grant?.grantedByUserId).toBe(owner.id);
+
+    // The owner's own GET .../collaborators also reflects it.
+    const listRes = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: bearerHeader(owner.id, owner.email),
+    });
+    expect(listRes.status).toBe(200);
+    const list = (await listRes.json()) as { collaborators: Array<{ id: string; email: string }> };
+    expect(list.collaborators.some((c) => c.id === body.id)).toBe(true);
+  });
+});
+
+// ─── AC-1.2 — the generic rejection: BOTH causes → byte-identical body ──────
+
+describe("AC-1.2 — the generic rejection is ONE fixed status/code/detail for BOTH causes", () => {
+  it("no-such-user and user-without-access both → 422 collaborator_not_eligible, byte-identical bodies, no grant created", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+
+    // Both causes collapse to eligible:false at the authClient layer — this
+    // mock cannot even express "why", by construction (mirrors auth's own
+    // ADR-0035 collapse).
+    const app = buildApp({ checkAppAccess: alwaysIneligible });
+
+    const resA = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: "no-such-user@example.com", accessLevel: "viewer" }),
+    });
+    const resB = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: "no-app-access@example.com", accessLevel: "viewer" }),
+    });
+
+    expect(resA.status).toBe(422);
+    expect(resB.status).toBe(422);
+    const bodyA = (await resA.json()) as { code: string; detail: string; status: number };
+    const bodyB = (await resB.json()) as { code: string; detail: string; status: number };
+    expect(bodyA.code).toBe("collaborator_not_eligible");
+    // Byte-identical status/code/detail across both causes.
+    expect(bodyA).toEqual(bodyB);
+
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(0);
+  });
+
+  it("floors the response to at least SHARE_LOOKUP_FLOOR_MS", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp({ checkAppAccess: alwaysIneligible });
+
+    const start = Date.now();
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: "floor-check@example.com", accessLevel: "viewer" }),
+    });
+    const elapsed = Date.now() - start;
+
+    expect(res.status).toBe(422);
+    // Default SHARE_LOOKUP_FLOOR_MS is 300ms (env.ts default, not overridden
+    // anywhere in this test process) — allow a couple ms of scheduling slack.
+    expect(elapsed).toBeGreaterThanOrEqual(295);
+  });
+});
+
+// ─── AC-1.3 — duplicate ─────────────────────────────────────────────────────
+
+describe("AC-1.3 — duplicate collaborator", () => {
+  it("adding the same email twice → second attempt 409 already_collaborator, row count stays 1", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t8-target-ac13";
+    const targetEmail = "dup-ac13@example.com";
+    const app = buildApp({ checkAppAccess: eligibleFor(targetEmail, targetId) });
+
+    const first = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "viewer" }),
+    });
+    expect(first.status).toBe(201);
+
+    const second = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "editor" }),
+    });
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as { code: string };
+    expect(body.code).toBe("already_collaborator");
+
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(1);
+  });
+
+  it("stale email-snapshot: a NEW email resolving to an EXISTING collaborator's userId → 409 via the unique-constraint mapping", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t8-target-stale-snapshot";
+
+    // Seed an existing grant directly, simulating a prior add under a
+    // DIFFERENT email that has since become stale.
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: targetId,
+        email: "old-address@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+
+    // The submitted email is DIFFERENT — findCollaboratorByEmail's
+    // (estimateId, email) fast path will NOT find it — but auth resolves it
+    // to the SAME userId as the existing grant.
+    const aliasEmail = "new-alias-address@example.com";
+    const app = buildApp({ checkAppAccess: eligibleFor(aliasEmail, targetId) });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: aliasEmail, accessLevel: "editor" }),
+    });
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("already_collaborator");
+
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(1);
+  });
+});
+
+// ─── AC-1.4 — self-add ───────────────────────────────────────────────────────
+
+describe("AC-1.4 — owner cannot add themselves", () => {
+  it("own JWT email → 422 cannot_share_with_self, WITHOUT any auth call", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+
+    let authCalled = false;
+    const app = buildApp({
+      checkAppAccess: async (...args) => {
+        authCalled = true;
+        return alwaysIneligible(...args);
+      },
+    });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: owner.email, accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("cannot_share_with_self");
+    expect(authCalled).toBe(false);
+  });
+
+  it("own JWT email in a different case/whitespace → still 422 cannot_share_with_self (normalisation)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: `  ${owner.email.toUpperCase()}  `, accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("cannot_share_with_self");
+  });
+
+  it("an ALIAS address that auth resolves to the caller's OWN userId → 422 cannot_share_with_self (the definitive, post-lookup check)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const aliasEmail = "owner-alias@example.com";
+    // The fast (step 4) check compares against owner.email and would MISS
+    // this — only the definitive (step 7) check, run after auth resolves
+    // aliasEmail -> owner.id, catches it.
+    const app = buildApp({ checkAppAccess: eligibleFor(aliasEmail, owner.id) });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: aliasEmail, accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("cannot_share_with_self");
+
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(0);
+  });
+});
+
+// ─── AC-1.5 / AC-3.3-style — a collaborator cannot add collaborators ────────
+
+describe("AC-1.5 — a collaborator (editor) cannot add collaborators", () => {
+  it("an editor's POST → 403 owner_only, no row created", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const editorId = "t8-editor-ac15";
+    const editorEmail = "editor-ac15@example.com";
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: editorId,
+        email: editorEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(editorId, editorEmail),
+      body: JSON.stringify({ email: "someone-else@example.com", accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(1); // only the seeded editor row
+  });
+});
+
+// ─── AC-1.6 — a stranger gets 404 ────────────────────────────────────────────
+
+describe("AC-1.6 — an unrelated caller gets 404, not 403", () => {
+  it("POST /estimates/{id}/collaborators with no relationship → 404", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader("t8-stranger", "stranger@example.com"),
+      body: JSON.stringify({ email: "someone@example.com", accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /estimates/{id}/collaborators with no relationship → 404", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: bearerHeader("t8-stranger-2", "stranger2@example.com"),
+    });
+
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── 503 — auth unreachable fails CLOSED ────────────────────────────────────
+
+describe("auth unreachable → 503, fail CLOSED, no grant created", () => {
+  it("a throwing checkAppAccess → 503 authorization_service_unavailable, zero rows created", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+
+    const app = buildApp({
+      checkAppAccess: async () => {
+        throw new Error("connection refused");
+      },
+    });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: "someone@example.com", accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("authorization_service_unavailable");
+
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(0);
+  });
+});
+
+// ─── Rate limiting — the 21st attempt in the window → 429 ──────────────────
+
+describe("rate limiting — SHARE_ADD_RATE_LIMIT attempts per window, counted on every outcome", () => {
+  it("the 21st POST attempt (after 20 mixed-outcome attempts) → 429 with Retry-After", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t8-rl-target";
+    const targetEmail = "rl-target@example.com";
+    const app = buildApp({ checkAppAccess: eligibleFor(targetEmail, targetId) });
+
+    // Attempt 1: self-add → 422 (counts).
+    const selfRes = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: owner.email, accessLevel: "viewer" }),
+    });
+    expect(selfRes.status).toBe(422);
+
+    // Attempt 2: success → 201 (counts).
+    const successRes = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "viewer" }),
+    });
+    expect(successRes.status).toBe(201);
+
+    // Attempts 3-20 (18 more): duplicate → 409 each (counts).
+    for (let i = 0; i < 18; i++) {
+      const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+        method: "POST",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ email: targetEmail, accessLevel: "viewer" }),
+      });
+      expect(res.status).toBe(409);
+    }
+
+    // 20 attempts consumed exactly the default SHARE_ADD_RATE_LIMIT budget —
+    // the 21st must now be rate-limited.
+    const res21 = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "viewer" }),
+    });
+    expect(res21.status).toBe(429);
+    expect(res21.headers.get("Retry-After")).toBeTruthy();
+    const body = (await res21.json()) as { code: string };
+    expect(body.code).toBe("rate_limited");
+  });
+});
+
+// ─── GET — owner-only, grant id (never sub), owner never listed ────────────
+
+describe("GET /estimates/{id}/collaborators", () => {
+  it("a collaborator (viewer) attempting GET → 403 owner_only", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const viewerId = "t8-viewer-get";
+    const viewerEmail = "viewer-get@example.com";
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: viewerId,
+        email: viewerEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: bearerHeader(viewerId, viewerEmail),
+    });
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+  });
+
+  it("the owner sees the grant's id (never the collaborator's sub) and never sees themselves listed", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t8-target-get-shape";
+    const targetEmail = "target-get-shape@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: targetId,
+        email: targetEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: bearerHeader(owner.id, owner.email),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      collaborators: Array<{ id: string; email: string; accessLevel: string }>;
+    };
+    expect(body.collaborators).toHaveLength(1);
+    const row = body.collaborators[0]!;
+    // The GRANT's id, not the collaborator's userId/sub.
+    expect(row.id).toBe(grant.id);
+    expect(row.id).not.toBe(targetId);
+    expect(row.email).toBe(targetEmail);
+    expect(row.accessLevel).toBe("editor");
+    // The owner is never a row in their own collaborator list.
+    expect(body.collaborators.some((c) => c.id === owner.id)).toBe(false);
+  });
+});

@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { estimatesRouter, importEstimatesRouter } from "./estimates/estimates.routes";
+import { registerCollaboratorRoutes } from "./estimates/collaborators.routes";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -38,6 +39,14 @@ app.route("/", healthRouter);
 // a larger bodyLimit (IMPORT_BODY_SIZE_LIMIT) and a completely separate middleware
 // chain — it is never subject to estimatesRouter's 2 MiB cap (OWASP A04 fix).
 app.route("/", importEstimatesRouter);
+// GET/POST /estimates/{id}/collaborators (T8, specs/013-estimate-sharing)
+// attach directly onto estimatesRouter — called AFTER estimates.routes.ts's
+// own module-load-time bodyLimit/jwtMiddleware `.use("*", …)` calls have
+// already run (guaranteed: the import above fully evaluates that module
+// first), so these routes inherit the same middleware chain. See
+// collaborators.routes.ts's file header for why this is a registration call
+// rather than a side-effect import mutating the singleton.
+registerCollaboratorRoutes(estimatesRouter);
 app.route("/", estimatesRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
