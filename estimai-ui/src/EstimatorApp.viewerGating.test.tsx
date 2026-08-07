@@ -44,6 +44,7 @@ import type { EstimateAccess } from './lib/estimatesApi'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
+  useRouter: () => ({ invalidate: vi.fn() }),
   Outlet: () => null,
   createRootRoute: vi.fn(),
   createRoute: vi.fn(),

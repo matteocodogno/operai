@@ -40,6 +40,13 @@ import type { Parameters, Release, Activity } from './types'
 
 vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => vi.fn(),
+  // T18 (specs/013-estimate-sharing/tasks.md) added a `useRouter()` call to
+  // EstimatorApp.tsx (ConflictBanner's "Reload latest" → router.invalidate())
+  // — required here so this pre-existing mock still satisfies every hook the
+  // real component now calls. This file's own stale `EstimateFull` fixture
+  // (missing version/access/owner, a pnpm build failure) is unrelated and
+  // belongs to T22 — left exactly as found.
+  useRouter: () => ({ invalidate: vi.fn() }),
   Outlet: () => null,
   createRootRoute: vi.fn(),
   createRoute: vi.fn(),

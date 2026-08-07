@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
+import { useNavigate, useRouter } from '@tanstack/react-router'
 import Header from './components/Header'
 import { authClient } from './lib/authClient'
 import MetricsBar from './components/MetricsBar'
@@ -23,6 +24,8 @@ import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
 import ToastBanner from './components/ToastBanner'
+import ConflictBanner from './components/ConflictBanner'
+import * as estimatesApi from './lib/estimatesApi'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
 
@@ -34,6 +37,8 @@ export default function EstimatorApp() {
   // facade) is what actually supplies the session.
   const { data: session } = authClient.useSession()
   const sessionUser = session?.user ?? null
+  const navigate = useNavigate()
+  const router = useRouter()
 
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
@@ -64,7 +69,7 @@ export default function EstimatorApp() {
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP, loadTemplate,
-    canEdit,
+    canEdit, conflict,
   } = useEstimatorContext()
 
   // T17 (specs/013-estimate-sharing/tasks.md; design.md S5 "single canEdit
@@ -72,6 +77,36 @@ export default function EstimatorApp() {
   // below reads this same value, never re-deriving `canEdit` itself (plan
   // risk R5).
   const readOnly = !canEdit
+
+  // T18 (specs/013-estimate-sharing/tasks.md; design.md S4) — the two
+  // ConflictBanner actions.
+  //
+  // "Reload latest": a route invalidate re-runs the current route's loader
+  // (estimatesApi.get), which returns a fresh `version` — EstimatePage.tsx's
+  // `providerKey={estimate.version}` then remounts a brand-new
+  // EstimatorProvider on that key, discarding only what was superseded.
+  const handleReloadLatest = useCallback(() => {
+    void router.invalidate()
+  }, [router])
+
+  // "Save as a copy instead": POST /estimates of the CURRENT local content
+  // (the in-progress edits the conflict never touched, AC-4.2) — a zero-API-
+  // cost escape hatch that never risks the server's refusal again, since it
+  // creates a brand-new estimate rather than retrying the guarded PUT.
+  const handleSaveAsCopy = useCallback(() => {
+    void estimatesApi
+      .create({ name, author, content: { params, releases, acts } })
+      .then((created) => {
+        navigate({ to: '/estimates/$estimateId', params: { estimateId: created.id } })
+      })
+      .catch((err: unknown) => {
+        // No designed inline failure state for this escape hatch (design.md
+        // leaves it unspecified) — the ConflictBanner simply stays up so the
+        // user can retry either action; logged so a real failure isn't
+        // silently invisible.
+        console.error('Save as a copy failed:', err)
+      })
+  }, [name, author, params, releases, acts, navigate])
 
   // The author is the logged-in user — there is no manual author input anymore.
   // Backfill it from the session for estimates created without one (e.g. new or
@@ -348,9 +383,20 @@ const exportPDF = useCallback(() => {
         </div>
       </div>
 
-      {saveError && <ToastBanner message={saveError} onDismiss={clearSaveError} />}
-      {!saveError && showSavedToast && (
-        <ToastBanner tone="success" message={SAVED_TOAST_MESSAGE} onDismiss={dismissSavedToast} />
+      {/* T18 (design.md S4): the ConflictBanner owns this zone EXCLUSIVELY
+          while a conflict is active — it never stacks with the ordinary
+          save toast (EstimatorContext.tsx already clears saveError/
+          showSavedToast the moment it enters `conflict`, but the explicit
+          branch here makes that exclusivity a render-time guarantee too). */}
+      {conflict ? (
+        <ConflictBanner conflict={conflict} onReloadLatest={handleReloadLatest} onSaveAsCopy={handleSaveAsCopy} />
+      ) : (
+        <>
+          {saveError && <ToastBanner message={saveError} onDismiss={clearSaveError} />}
+          {!saveError && showSavedToast && (
+            <ToastBanner tone="success" message={SAVED_TOAST_MESSAGE} onDismiss={dismissSavedToast} />
+          )}
+        </>
       )}
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">

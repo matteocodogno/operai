@@ -1,6 +1,7 @@
 import type { ChangeEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import type { SaveStatus } from '../context/EstimatorContext'
+import { strings } from '../strings'
 
 type HeaderProps = {
   name: string
@@ -51,7 +52,7 @@ export default function Header({ name, saveStatus, onNameChange, readOnly = fals
                   ? 'text-grn'
                   : saveStatus === 'saving'
                     ? 'text-soft'
-                    : saveStatus === 'error'
+                    : saveStatus === 'error' || saveStatus === 'conflict'
                       ? 'text-org'
                       : 'text-grn'
               }`}
@@ -62,7 +63,13 @@ export default function Header({ name, saveStatus, onNameChange, readOnly = fals
                 ? 'Saving…'
                 : saveStatus === 'error'
                   ? 'Save failed'
-                  : '✓ Saved'}
+                  : /* T18 (design.md S4): the 4th state — autosave is
+                       suspended while a conflict is active, so this makes
+                       that suppression visible rather than silently falling
+                       through to "✓ Saved". */
+                    saveStatus === 'conflict'
+                    ? strings.conflict.savingSuspended
+                    : '✓ Saved'}
             </span>
           )}
           <button

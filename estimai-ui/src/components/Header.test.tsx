@@ -109,3 +109,25 @@ describe('Header — readOnly (viewer) gating (T17, AC-3.1/AC-3.2)', () => {
     expect(screen.getByText('✓ Saved')).toBeDefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// T18 (specs/013-estimate-sharing/tasks.md; design.md S4) — the 4th
+// save-status state: "Not saving — reload to continue", shown whenever
+// autosave is suspended (saveStatus === 'conflict').
+// ---------------------------------------------------------------------------
+
+describe('Header — the 4th "conflict" save-status state (T18, AC-4.2)', () => {
+  it('renders "Not saving — reload to continue" instead of falling through to "✓ Saved"', () => {
+    render(<Header name="My Project" saveStatus="conflict" onNameChange={() => {}} />)
+
+    expect(screen.getByText('Not saving — reload to continue')).toBeDefined()
+    expect(screen.queryByText('✓ Saved')).toBeNull()
+  })
+
+  it('renders the 4th state in the same error tone (text-org) as "Save failed" (design.md S4)', () => {
+    render(<Header name="My Project" saveStatus="conflict" onNameChange={() => {}} />)
+    const conflictSpan = screen.getByText('Not saving — reload to continue')
+
+    expect(conflictSpan.className).toContain('text-org')
+  })
+})
