@@ -4,9 +4,17 @@ import type { Parameters } from "../types";
 interface ParametersPanelProps {
   params: Parameters;
   onUpdate: (key: keyof Parameters, value: string) => void;
+  /**
+   * T17 (specs/013-estimate-sharing/tasks.md; design.md S5): fed from
+   * context's single `canEdit` gate (`!canEdit`). Defaults to `false` so
+   * every pre-existing call site keeps its exact prior full-edit behaviour.
+   * Every number input becomes `readOnly` (not `disabled`) — stays
+   * focusable/AT-readable, browser blocks typing.
+   */
+  readOnly?: boolean;
 }
 
-export default function ParametersPanel({ params, onUpdate }: ParametersPanelProps) {
+export default function ParametersPanel({ params, onUpdate, readOnly = false }: ParametersPanelProps) {
   const parameterFields = [
     { k:"parallelism" as const,       label:"Parallelism factor",                  hint:"% of work runnable in parallel with FTE > 1",      step:0.05, max:1 },
     { k:"sprintDays" as const,        label:"Sprint duration (working days)",       hint:"Drives planning/ceremony overhead calculation",    step:1 },
@@ -31,6 +39,7 @@ export default function ParametersPanel({ params, onUpdate }: ParametersPanelPro
             <input
               type="number"
               value={params[k]}
+              readOnly={readOnly}
               min={0}
               max={max}
               step={step}

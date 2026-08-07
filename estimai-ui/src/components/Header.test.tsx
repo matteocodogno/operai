@@ -73,3 +73,39 @@ describe('Header', () => {
     expect(onNameChange).toHaveBeenCalledWith('New Name')
   })
 })
+
+// ---------------------------------------------------------------------------
+// T17 (specs/013-estimate-sharing/tasks.md; design.md S5) — readOnly gating.
+//
+// design.md's table for Header: "name input becomes readOnly; the
+// save-status span is omitted entirely (nothing ever autosaves, so there's
+// nothing to report — not shown blank)".
+// ---------------------------------------------------------------------------
+
+describe('Header — readOnly (viewer) gating (T17, AC-3.1/AC-3.2)', () => {
+  it('makes the project-name input readOnly, not disabled, when readOnly', () => {
+    render(<Header name="Shared Project" saveStatus="idle" onNameChange={() => {}} readOnly />)
+
+    const nameInput = screen.getByPlaceholderText('Project name…') as HTMLInputElement
+    expect(nameInput.readOnly).toBe(true)
+    expect(nameInput.disabled).toBe(false)
+    expect(nameInput.value).toBe('Shared Project')
+  })
+
+  it('omits the save-status indicator entirely when readOnly (not shown blank)', () => {
+    render(<Header name="Shared Project" saveStatus="saved" onNameChange={() => {}} readOnly />)
+
+    expect(screen.queryByText('✓ Saved')).toBeNull()
+    expect(screen.queryByText('Saving…')).toBeNull()
+    expect(screen.queryByText('Save failed')).toBeNull()
+  })
+
+  it('keeps the project-name input editable (not readOnly) when readOnly is false (the default)', () => {
+    render(<Header name="My Project" saveStatus="saved" onNameChange={() => {}} />)
+
+    const nameInput = screen.getByPlaceholderText('Project name…') as HTMLInputElement
+    expect(nameInput.readOnly).toBe(false)
+    // The save-status indicator is still present for an editor/owner.
+    expect(screen.getByText('✓ Saved')).toBeDefined()
+  })
+})

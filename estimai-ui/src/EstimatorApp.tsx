@@ -9,6 +9,7 @@ import SummaryTable from './components/SummaryTable'
 import ParametersPanel from './components/ParametersPanel'
 import { pertCalc } from './hooks/useEstimator'
 import { SAVED_TOAST_MESSAGE, useEstimatorContext } from './context/EstimatorContext'
+import { strings } from './strings'
 import type { ProjectData } from './lib/projects'
 import { buildShareUrl } from './lib/shareUrl'
 import { exportPdf } from './lib/pdfExport'
@@ -63,7 +64,14 @@ export default function EstimatorApp() {
     updAct, addAct, delAct, reorderActs,
     updRel, addRel, delRel,
     updP, loadTemplate,
+    canEdit,
   } = useEstimatorContext()
+
+  // T17 (specs/013-estimate-sharing/tasks.md; design.md S5 "single canEdit
+  // gate"): the ONE place this component derives readOnly — every child
+  // below reads this same value, never re-deriving `canEdit` itself (plan
+  // risk R5).
+  const readOnly = !canEdit
 
   // The author is the logged-in user — there is no manual author input anymore.
   // Backfill it from the session for estimates created without one (e.g. new or
@@ -258,6 +266,7 @@ const exportPDF = useCallback(() => {
         name={name}
         saveStatus={saveStatus}
         onNameChange={setName}
+        readOnly={readOnly}
       />
 
       <MetricsBar
@@ -346,22 +355,31 @@ const exportPDF = useCallback(() => {
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
         {tab === 'activities' && (
-          acts.length === 0 && !dismissedPicker
-            ? <TemplatePicker
-                onSelect={t => { loadTemplate(t); setDismissedPicker(true) }}
-                onBlank={() => setDismissedPicker(true)}
-              />
-            : <ActivityTable
-                activities={acts}
-                releaseNames={rnames}
-                globalAiGain={params.aiGain}
-                activityWarnings={warnings.activityWarnings}
-                onUpdate={updAct}
-                onDelete={delAct}
-                onAdd={addAct}
-                onAddRelease={addRel}
-                onReorder={reorderActs}
-              />
+          acts.length === 0 && !canEdit
+            // T17 (design.md S5): TemplatePicker's whole contract is content
+            // creation — the wrong verb for a viewer. A small inline state
+            // replaces it; no call to action, because there is none
+            // available to a viewer.
+            ? <div className="flex flex-col items-center px-5.5 py-12 gap-8">
+                <p className="text-muted text-sm">{strings.sharing.emptyActivitiesViewer}</p>
+              </div>
+            : acts.length === 0 && !dismissedPicker
+              ? <TemplatePicker
+                  onSelect={t => { loadTemplate(t); setDismissedPicker(true) }}
+                  onBlank={() => setDismissedPicker(true)}
+                />
+              : <ActivityTable
+                  activities={acts}
+                  releaseNames={rnames}
+                  globalAiGain={params.aiGain}
+                  activityWarnings={warnings.activityWarnings}
+                  onUpdate={updAct}
+                  onDelete={delAct}
+                  onAdd={addAct}
+                  onAddRelease={addRel}
+                  onReorder={reorderActs}
+                  readOnly={readOnly}
+                />
         )}
         {tab === 'summary' && (
           <SummaryTable
@@ -374,10 +392,11 @@ const exportPDF = useCallback(() => {
             onUpdateRelease={updRel}
             onAddRelease={addRel}
             onDeleteRelease={handleDeleteRelease}
+            readOnly={readOnly}
           />
         )}
         {tab === 'parameters' && (
-          <ParametersPanel params={params} onUpdate={updP} />
+          <ParametersPanel params={params} onUpdate={updP} readOnly={readOnly} />
         )}
       </main>
 

@@ -38,6 +38,24 @@ interface ActivityTableProps {
   onAddRelease: () => string;
   onReorder: (fromIndex: number, toIndex: number) => void;
   activityWarnings: Map<string, WarningCode[]>;
+  /**
+   * T17 (specs/013-estimate-sharing/tasks.md; design.md S5 "Viewer mode"):
+   * fed straight from context's single `canEdit` gate (`!canEdit`) — never
+   * re-derived here. Defaults to `false` so every pre-existing call site
+   * (this feature predates viewer access) keeps its exact prior full-edit
+   * behaviour without passing it explicitly.
+   *
+   * Text/number cells become `readOnly` (not `disabled` — stays focusable/
+   * AT-readable, keyboard grid navigation for reading still works); the
+   * Profile/Release `<select>` columns (no native `readOnly`) render as
+   * plain text spans in the same grid column instead; the drag handle
+   * renders empty/non-interactive; the per-row delete "×" cell renders
+   * empty (column kept for grid-template stability); "+ Add Activity" (both
+   * the header and footer buttons) is absent; the "＋ New release…" option
+   * never exists in the Release column because that column isn't a
+   * `<select>` at all in this mode.
+   */
+  readOnly?: boolean;
 }
 
 function pertCalc(o: number, ml: number, p: number): number {
@@ -61,13 +79,14 @@ type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number
 // EpicCell — holds value in local state and only commits to the store on blur/Enter.
 // This prevents epic regrouping (and consequent focus loss) while the user is mid-edit.
 function EpicCell({
-  id, value, rowIdx, onUpdateRef, navRef,
+  id, value, rowIdx, onUpdateRef, navRef, readOnly,
 }: {
   id: string
   value: string
   rowIdx: number
   onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
   navRef: React.MutableRefObject<NavHandler>
+  readOnly?: boolean
 }) {
   const [draft, setDraft] = useState(value)
   const focused = useRef(false)
@@ -75,6 +94,7 @@ function EpicCell({
   return (
     <input
       value={draft}
+      readOnly={readOnly}
       onChange={(e: ChangeEvent<HTMLInputElement>) => setDraft(e.target.value)}
       onFocus={() => { focused.current = true }}
       onBlur={() => {
@@ -96,13 +116,14 @@ function EpicCell({
 // a stable columns[] closure. Receives ref objects (not values) so it always reads fresh data.
 function MLCell({
   id, value, rowIdx,
-  onUpdateRef, navRef,
+  onUpdateRef, navRef, readOnly,
 }: {
   id: string
   value: number
   rowIdx: number
   onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
   navRef: React.MutableRefObject<NavHandler>
+  readOnly?: boolean
 }) {
   const [focused, setFocused] = useState(false)
   const derived = deriveOP(Number(value))
@@ -113,6 +134,7 @@ function MLCell({
       <input
         type="number"
         value={value}
+        readOnly={readOnly}
         step={0.5}
         min={0}
         onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, "ml", e.target.value)}
@@ -146,7 +168,7 @@ function MLCell({
 // AiGainCell — shows "30%" when blurred, bare number when focused for easy editing.
 function AiGainCell({
   id, stored, globalAiGain, rowIdx,
-  onUpdateRef, navRef,
+  onUpdateRef, navRef, readOnly,
 }: {
   id: string
   stored: number | undefined
@@ -154,6 +176,7 @@ function AiGainCell({
   rowIdx: number
   onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
   navRef: React.MutableRefObject<NavHandler>
+  readOnly?: boolean
 }) {
   const [focused, setFocused] = useState(false)
   const displayPct = stored !== undefined ? Math.round(stored * 100) : ''
@@ -164,7 +187,7 @@ function AiGainCell({
       <input
         type="number"
         value={focused ? displayPct : ''}
-        readOnly={!focused}
+        readOnly={readOnly || !focused}
         step={5}
         min={0}
         max={100}
@@ -192,13 +215,14 @@ function AiGainCell({
 
 // NotesCell — collapses to a narrow icon; expands to a floating input on click.
 function NotesCell({
-  id, value, rowIdx, onUpdateRef, navRef,
+  id, value, rowIdx, onUpdateRef, navRef, readOnly,
 }: {
   id: string
   value: string
   rowIdx: number
   onUpdateRef: React.MutableRefObject<(id: string, field: keyof Activity, value: string) => void>
   navRef: React.MutableRefObject<NavHandler>
+  readOnly?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -225,6 +249,7 @@ function NotesCell({
         <input
           ref={inputRef}
           value={value}
+          readOnly={readOnly}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, 'notes', e.target.value)}
           onBlur={() => setOpen(false)}
           onKeyDown={(e) => {
@@ -282,6 +307,34 @@ function SortableRow({
   );
 }
 
+// PlainRow — T17's viewer-mode row (specs/013-estimate-sharing/tasks.md;
+// design.md S5: "drag handle renders empty, non-interactive"). Deliberately
+// does NOT call useSortable — that hook requires a surrounding DndContext,
+// which the readOnly render path skips entirely (there is nothing to drag).
+// Mirrors SortableRow's markup shape (outer row + leading handle-shaped
+// placeholder cell) so the grid columns still line up, but the placeholder
+// carries no glyph, no listeners, and no title tooltip.
+function PlainRow({
+  children,
+  className,
+  style,
+}: {
+  children: React.ReactNode;
+  className: string;
+  style: React.CSSProperties;
+}) {
+  return (
+    <div style={style} className={className}>
+      <div
+        className="flex items-center justify-center select-none"
+        style={{ fontSize: 14 }}
+        aria-hidden="true"
+      />
+      {children}
+    </div>
+  );
+}
+
 const ActivityTable = memo(function ActivityTable({
   activities,
   releaseNames,
@@ -292,6 +345,7 @@ const ActivityTable = memo(function ActivityTable({
   onAdd,
   onAddRelease,
   onReorder,
+  readOnly = false,
 }: ActivityTableProps) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
@@ -315,6 +369,10 @@ const ActivityTable = memo(function ActivityTable({
   const actWarningsRef   = useRef<Map<string, WarningCode[]>>(new Map());
   const visibleRowIdxRef = useRef<Map<string, number>>(new Map());
   const visibleIdsRef    = useRef<string[]>([]);
+  // T17 (specs/013-estimate-sharing/tasks.md): same ref pattern as the rest of
+  // this block — `columns` below has [] deps, so every cell closure reads the
+  // CURRENT readOnly value through this ref rather than closing over a stale one.
+  const readOnlyRef      = useRef(readOnly);
   activitiesRef.current    = activities;
   onUpdateRef.current      = onUpdate;
   onDeleteRef.current      = onDelete;
@@ -323,10 +381,12 @@ const ActivityTable = memo(function ActivityTable({
   releaseNamesRef.current  = releaseNames;
   globalAiGainRef.current  = globalAiGain;
   actWarningsRef.current   = activityWarnings;
+  readOnlyRef.current      = readOnly;
 
   // ── Global keyboard shortcut: Alt+N → add new activity ───────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (readOnlyRef.current) return; // T17: a viewer never mutates, not even via shortcut
       const tag = (document.activeElement as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
       if (e.shiftKey && e.key === 'N') {
@@ -361,7 +421,10 @@ const ActivityTable = memo(function ActivityTable({
         } else {
           if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
           else if (rowIdx < maxRow) focusCell(rowIdx + 1, 0);
-          else onAddRef.current(currentEpic());
+          // T17: Tab past the last cell of the last row must not silently add a
+          // row for a viewer — there is no visible "+ Add Activity" button to
+          // match this fallback, so it would be a hidden mutation path.
+          else if (!readOnlyRef.current) onAddRef.current(currentEpic());
         }
         break;
       }
@@ -428,6 +491,7 @@ const ActivityTable = memo(function ActivityTable({
           rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
           onUpdateRef={onUpdateRef}
           navRef={navRef}
+          readOnly={readOnlyRef.current}
         />
       ),
     }),
@@ -439,6 +503,7 @@ const ActivityTable = memo(function ActivityTable({
         return (
           <input
             value={info.getValue()}
+            readOnly={readOnlyRef.current}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "act", e.target.value)}
             onKeyDown={(e) => navRef.current(e, rowIdx, 1, true)}
             data-cell={`${rowIdx}-1`}
@@ -453,6 +518,21 @@ const ActivityTable = memo(function ActivityTable({
       header: "Profile",
       cell: (info) => {
         const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        // T17 (design.md S5): <select> has no native readOnly — a viewer sees
+        // plain text in the same grid column/position instead of a disabled
+        // select, but the cell stays a valid keyboard-nav target for reading.
+        if (readOnlyRef.current) {
+          return (
+            <span
+              tabIndex={0}
+              onKeyDown={(e) => navRef.current(e, rowIdx, 2, false)}
+              data-cell={`${rowIdx}-2`}
+              className="block py-0.75 px-1.25 text-[11px] truncate"
+            >
+              {info.getValue()}
+            </span>
+          );
+        }
         return (
           <select
             value={info.getValue()}
@@ -474,6 +554,7 @@ const ActivityTable = memo(function ActivityTable({
           <input
             type="number"
             value={info.getValue()}
+            readOnly={readOnlyRef.current}
             step={0.5}
             min={0}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "o", e.target.value)}
@@ -493,6 +574,7 @@ const ActivityTable = memo(function ActivityTable({
           rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
           onUpdateRef={onUpdateRef}
           navRef={navRef}
+          readOnly={readOnlyRef.current}
         />
       ),
     }),
@@ -504,6 +586,7 @@ const ActivityTable = memo(function ActivityTable({
           <input
             type="number"
             value={info.getValue()}
+            readOnly={readOnlyRef.current}
             step={0.5}
             min={0}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "p", e.target.value)}
@@ -535,6 +618,7 @@ const ActivityTable = memo(function ActivityTable({
           <input
             type="number"
             value={info.getValue()}
+            readOnly={readOnlyRef.current}
             step={0.5}
             min={0}
             onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "risk", e.target.value)}
@@ -574,6 +658,7 @@ const ActivityTable = memo(function ActivityTable({
             rowIdx={rowIdx}
             onUpdateRef={onUpdateRef}
             navRef={navRef}
+            readOnly={readOnlyRef.current}
           />
         );
       },
@@ -589,6 +674,7 @@ const ActivityTable = memo(function ActivityTable({
             rowIdx={rowIdx}
             onUpdateRef={onUpdateRef}
             navRef={navRef}
+            readOnly={readOnlyRef.current}
           />
         );
       },
@@ -597,6 +683,22 @@ const ActivityTable = memo(function ActivityTable({
       header: "Release",
       cell: (info) => {
         const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
+        // T17 (design.md S5): same rationale as the Profile column above —
+        // no native readOnly on <select>, and the "＋ New release…" sentinel
+        // is itself a mutation route into addRel, so a viewer never sees a
+        // <select> here at all, just the current release name as text.
+        if (readOnlyRef.current) {
+          return (
+            <span
+              tabIndex={0}
+              onKeyDown={(e) => navRef.current(e, rowIdx, 9, false)}
+              data-cell={`${rowIdx}-9`}
+              className="block py-0.75 px-1.25 text-[11px] truncate"
+            >
+              {info.getValue()}
+            </span>
+          );
+        }
         return (
           <select
             value={info.getValue()}
@@ -637,15 +739,20 @@ const ActivityTable = memo(function ActivityTable({
     columnHelper.display({
       id: "actions",
       header: "",
-      cell: (info) => (
-        <button
-          onClick={() => onDeleteRef.current(info.row.original.id)}
-          className="bg-transparent text-[15px] py-0 text-muted/0 group-hover:text-muted hover:!text-red focus:text-muted transition-colors"
-          title="Delete activity"
-        >
-          ×
-        </button>
-      ),
+      cell: (info) => {
+        // T17 (design.md S5): column kept for grid-template stability, not
+        // removed — an empty cell, never a disabled button.
+        if (readOnlyRef.current) return null;
+        return (
+          <button
+            onClick={() => onDeleteRef.current(info.row.original.id)}
+            className="bg-transparent text-[15px] py-0 text-muted/0 group-hover:text-muted hover:!text-red focus:text-muted transition-colors"
+            title="Delete activity"
+          >
+            ×
+          </button>
+        );
+      },
     }),
   ], []); // deps intentionally empty: all mutable values go through refs (activitiesRef, onUpdateRef, etc.)
 
@@ -774,9 +881,11 @@ const ActivityTable = memo(function ActivityTable({
             </button>
           )}
         </div>
-        <button onClick={() => onAdd(currentEpic())} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
-          + Add Activity
-        </button>
+        {!readOnly && (
+          <button onClick={() => onAdd(currentEpic())} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
+            + Add Activity
+          </button>
+        )}
       </div>
 
       {releaseNames.length > 1 && (
@@ -843,79 +952,104 @@ const ActivityTable = memo(function ActivityTable({
             )}
           </div>
 
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-            <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
-              {epicOrder.map(({ epicKey, groupId }) => {
-                const label     = epicKey || '(no epic)';
-                const epicActs  = epicGroups.get(epicKey) ?? [];
-                const isCollapsed = collapsedEpics.has(epicKey);
-                const subtotal  = epicActs.reduce(
-                  (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0), 0
-                );
+          {(() => {
+            const epicRows = epicOrder.map(({ epicKey, groupId }) => {
+              const label     = epicKey || '(no epic)';
+              const epicActs  = epicGroups.get(epicKey) ?? [];
+              const isCollapsed = collapsedEpics.has(epicKey);
+              const subtotal  = epicActs.reduce(
+                (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0), 0
+              );
 
-                const activeEpicKey = activeId ? activities.find(a => a.id === activeId)?.epic : null;
-                const isDropTarget = activeId !== null && overEpic === epicKey && activeEpicKey !== epicKey;
+              const activeEpicKey = activeId ? activities.find(a => a.id === activeId)?.epic : null;
+              const isDropTarget = activeId !== null && overEpic === epicKey && activeEpicKey !== epicKey;
 
-                return (
-                  <div key={groupId}>
-                    <div
-                      className={`flex items-center gap-2 py-1.25 px-2 border-b border-rule cursor-pointer select-none border-l-2 transition-colors ${
-                        isDropTarget
-                          ? 'bg-acc/10 border-l-acc'
-                          : 'bg-ink-mid/60 border-l-acc/40 hover:bg-ink-mid'
-                      }`}
-                      onClick={() => toggleEpic(epicKey)}
-                    >
-                      <span className="text-[9px] text-acc w-2.5 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
-                      <span className="text-[11px] font-semibold text-acc-hi flex-1 truncate">{label}</span>
-                      <span className="text-[10px] text-muted shrink-0">
-                        {epicActs.length} {epicActs.length === 1 ? 'activity' : 'activities'}
-                      </span>
-                      <span className="text-[11px] font-mono font-semibold text-text ml-3 shrink-0">
-                        Exp. {subtotal.toFixed(1)} d
-                      </span>
-                    </div>
-
-                    {!isCollapsed && epicActs.map((act, idx) => {
-                      const row = rowById.get(act.id);
-                      if (!row) return null;
-                      const risky = Number(act.risk) > 0;
-                      const suppressTransform = activeId !== null && activeEpicKey !== epicKey;
-                      return (
-                        <SortableRow
-                          key={row.id}
-                          id={act.id}
-                          suppressTransform={suppressTransform}
-                          className={`group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
-                            act.id === focusedActId
-                              ? "bg-acc/[0.06] border-l-acc"
-                              : risky
-                                ? "bg-[rgba(245,166,35,.04)] border-l-org"
-                                : idx % 2 === 0
-                                  ? "bg-ink-soft border-l-transparent"
-                                  : "bg-ink border-l-transparent"
-                          }`}
-                          style={{ gridTemplateColumns: COL_W }}
-                        >
-                          {row.getVisibleCells().map(cell =>
-                            flexRender(cell.column.columnDef.cell, cell.getContext())
-                          )}
-                        </SortableRow>
-                      );
-                    })}
+              return (
+                <div key={groupId}>
+                  <div
+                    className={`flex items-center gap-2 py-1.25 px-2 border-b border-rule cursor-pointer select-none border-l-2 transition-colors ${
+                      isDropTarget
+                        ? 'bg-acc/10 border-l-acc'
+                        : 'bg-ink-mid/60 border-l-acc/40 hover:bg-ink-mid'
+                    }`}
+                    onClick={() => toggleEpic(epicKey)}
+                  >
+                    <span className="text-[9px] text-acc w-2.5 shrink-0">{isCollapsed ? '▶' : '▼'}</span>
+                    <span className="text-[11px] font-semibold text-acc-hi flex-1 truncate">{label}</span>
+                    <span className="text-[10px] text-muted shrink-0">
+                      {epicActs.length} {epicActs.length === 1 ? 'activity' : 'activities'}
+                    </span>
+                    <span className="text-[11px] font-mono font-semibold text-text ml-3 shrink-0">
+                      Exp. {subtotal.toFixed(1)} d
+                    </span>
                   </div>
-                );
-              })}
-            </SortableContext>
-          </DndContext>
 
-          <button
-            onClick={() => onAdd(currentEpic())}
-            className="w-full py-2 text-xs font-medium text-acc-hi bg-ink-soft hover:bg-ink-mid border-t border-rule rounded-b-md transition-colors"
-            title="Add activity (Shift+N)"
-          >
-            + Add Activity
-          </button>
+                  {!isCollapsed && epicActs.map((act, idx) => {
+                    const row = rowById.get(act.id);
+                    if (!row) return null;
+                    const risky = Number(act.risk) > 0;
+                    const rowClassName = `group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
+                      act.id === focusedActId
+                        ? "bg-acc/[0.06] border-l-acc"
+                        : risky
+                          ? "bg-[rgba(245,166,35,.04)] border-l-org"
+                          : idx % 2 === 0
+                            ? "bg-ink-soft border-l-transparent"
+                            : "bg-ink border-l-transparent"
+                    }`;
+                    const rowChildren = row.getVisibleCells().map(cell =>
+                      flexRender(cell.column.columnDef.cell, cell.getContext())
+                    );
+
+                    // T17 (design.md S5): a viewer's row never calls
+                    // useSortable — that hook requires a surrounding
+                    // DndContext, which is skipped entirely below when
+                    // readOnly (there is nothing to drag).
+                    if (readOnly) {
+                      return (
+                        <PlainRow key={row.id} className={rowClassName} style={{ gridTemplateColumns: COL_W }}>
+                          {rowChildren}
+                        </PlainRow>
+                      );
+                    }
+
+                    const suppressTransform = activeId !== null && activeEpicKey !== epicKey;
+                    return (
+                      <SortableRow
+                        key={row.id}
+                        id={act.id}
+                        suppressTransform={suppressTransform}
+                        className={rowClassName}
+                        style={{ gridTemplateColumns: COL_W }}
+                      >
+                        {rowChildren}
+                      </SortableRow>
+                    );
+                  })}
+                </div>
+              );
+            });
+
+            return readOnly ? (
+              <>{epicRows}</>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+                <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
+                  {epicRows}
+                </SortableContext>
+              </DndContext>
+            );
+          })()}
+
+          {!readOnly && (
+            <button
+              onClick={() => onAdd(currentEpic())}
+              className="w-full py-2 text-xs font-medium text-acc-hi bg-ink-soft hover:bg-ink-mid border-t border-rule rounded-b-md transition-colors"
+              title="Add activity (Shift+N)"
+            >
+              + Add Activity
+            </button>
+          )}
         </div>
       </div>
 

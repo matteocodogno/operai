@@ -15,6 +15,14 @@ interface SummaryTableProps {
   onUpdateRelease: (id: string, field: keyof Release, value: string | number) => void;
   onAddRelease: () => void;
   onDeleteRelease: (id: string) => void;
+  /**
+   * T17 (specs/013-estimate-sharing/tasks.md; design.md S5): fed from
+   * context's single `canEdit` gate (`!canEdit`). Defaults to `false` so
+   * every pre-existing call site keeps its exact prior full-edit behaviour.
+   * Release name/FTE inputs become `readOnly` (not `disabled`); the
+   * "+ Release" pill and each release's "×" delete button are absent.
+   */
+  readOnly?: boolean;
 }
 
 interface ThProps {
@@ -51,7 +59,7 @@ function Td({ children, right, bold, colorClass, className }: TdProps) {
   );
 }
 
-export default function SummaryTable({ summary, releases, totals, params, byProfile, releaseWarnings, onUpdateRelease, onAddRelease, onDeleteRelease }: SummaryTableProps) {
+export default function SummaryTable({ summary, releases, totals, params, byProfile, releaseWarnings, onUpdateRelease, onAddRelease, onDeleteRelease, readOnly = false }: SummaryTableProps) {
   const [showAI, setShowAI] = useState(false)
 
   return (
@@ -64,6 +72,7 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
           <div key={rel.id} className={`bg-ink-soft border rounded-[10px] py-[9px] px-[13px] flex items-center gap-[9px] ${ws?.length ? 'border-org/40' : 'border-rule'}`}>
             <input
               value={rel.name}
+              readOnly={readOnly}
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRelease(rel.id, "name", e.target.value)}
               className="w-[106px] text-xs font-medium"
             />
@@ -71,6 +80,7 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
             <input
               type="number"
               value={rel.fte}
+              readOnly={readOnly}
               min={1}
               step={1}
               onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRelease(rel.id, "fte", e.target.value)}
@@ -79,14 +89,16 @@ export default function SummaryTable({ summary, releases, totals, params, byProf
             {ws?.map(code => (
               <WarningBadge key={code} code={code} className="text-[11px]" />
             ))}
-            {releases.length > 1 && (
+            {!readOnly && releases.length > 1 && (
               <button onClick={() => onDeleteRelease(rel.id)} className="bg-transparent text-muted text-sm">×</button>
             )}
           </div>
         )})}
-        <button onClick={onAddRelease} className="bg-transparent text-soft py-[9px] px-[13px] border border-dashed border-rule rounded-[10px] text-xs">
-          + Release
-        </button>
+        {!readOnly && (
+          <button onClick={onAddRelease} className="bg-transparent text-soft py-[9px] px-[13px] border border-dashed border-rule rounded-[10px] text-xs">
+            + Release
+          </button>
+        )}
 
         <div className="flex-1" />
 
