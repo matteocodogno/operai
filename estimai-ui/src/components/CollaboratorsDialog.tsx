@@ -1,19 +1,34 @@
 /**
- * CollaboratorsDialog — add/list/change-level/remove collaborators on an
- * estimate (T20, specs/013-estimate-sharing/tasks.md; design.md "## Screens &
- * states → S2 — CollaboratorsDialog, owner mode").
+ * CollaboratorsDialog — add/list/change-level/remove/leave collaborators on
+ * an estimate (T20/T21, specs/013-estimate-sharing/tasks.md; design.md
+ * "## Screens & states → S2 — owner mode, S3 — collaborator/member mode").
  *
- * Scope (T20, owner mode only — see tasks.md "Scope boundary"): this file
- * implements the OWNER branch in full. Member mode (S3 — "Shared with you by
- * {owner}" + Leave) is T21's second render branch on this same component;
- * until then, a non-owner `access` renders nothing (see the guard at the top
- * of the default export). The toolbar entry that opens this dialog (the
- * "Collaborators (n)" button / "Shared by X" chip) is T22 — out of scope here.
- * This component is self-sufficient: it owns its own collaborator-list fetch,
- * its own add/remove/level-change mutations, and reads the signed-in user's
- * own email via `authClient.useSession()` (the same pattern EstimatorApp.tsx
- * already uses for author backfill) for the client-side self-add short-circuit
- * — there is no parent page wiring it any of that yet.
+ * Two render branches, one component (design.md's Component inventory:
+ * "CollaboratorsDialog.tsx, member mode — NEW (same file, second render
+ * branch)"), selected by `access` in the default export below:
+ *   - `access === 'owner'`      → `OwnerCollaboratorsDialog` (T20): email +
+ *     level add form, live list with per-row level switch and remove.
+ *   - `access === 'viewer' | 'editor'` → `MemberCollaboratorsDialog` (T21):
+ *     deliberately spare — no add form, no collaborator list (the API never
+ *     returns other collaborators to a non-owner; `GET …/collaborators` is
+ *     owner-only and 403s a collaborator, so there is nothing to fetch here),
+ *     just a "Shared with you by {owner}" line, the caller's own access
+ *     level, and one Leave action.
+ * Both branches own their own state/mutations independently; the outer
+ * default export itself has no hooks, so switching `access` across a
+ * re-render swaps which component mounts rather than tripping the Rules of
+ * Hooks (see the comment at the guard below).
+ *
+ * `OwnerCollaboratorsDialog` is self-sufficient: it owns its own
+ * collaborator-list fetch, its own add/remove/level-change mutations, and
+ * reads the signed-in user's own email via `authClient.useSession()` (the
+ * same pattern EstimatorApp.tsx already uses for author backfill) for the
+ * client-side self-add short-circuit. `MemberCollaboratorsDialog` needs no
+ * fetch of its own — the owner identity it displays arrives as a prop
+ * (`owner`, the same `EstimateIdentity` shape `estimatesApi.ts`'s
+ * `EstimateFull`/`EstimateListItem` already embed) from whatever page loaded
+ * the estimate; T22 (the toolbar wiring) is the first real caller of either
+ * branch — out of scope here.
  *
  * Presentational data source aside, this follows ConfirmDeleteModal.tsx's
  * dialog shell (backdrop, header/body/footer, role="dialog") and
@@ -38,24 +53,31 @@
  *     visibly different message from the generic 422, on purpose.
  *
  * A11y (design.md "## Accessibility → CollaboratorsDialog (S2/S3)"):
- *   - role="dialog" aria-modal="true" aria-labelledby.
+ *   - role="dialog" aria-modal="true" aria-labelledby, both branches.
  *   - Focus trap: queried LIVE over every currently-enabled focusable element
- *     inside the dialog (`input, button, select`) — the set changes as rows
- *     are added/removed, so a fixed two-button trap (ConfirmDeleteModal's)
- *     would break here; this reuses InviteUserModal's live-query technique.
- *   - Default focus: the email input (owner mode's natural first action).
- *   - Escape closes the dialog UNLESS the nested Remove-confirm layer is
- *     open, in which case Escape (and Tab) are left entirely to that layer —
- *     both this dialog's Escape and Tab handlers short-circuit while
- *     `removeTarget` is set, matching ConfirmDeleteModal's own semantics
- *     rather than fighting its independent trap/Escape listener.
+ *     inside the dialog (`input, button, select`) — the owner branch's set
+ *     changes as rows are added/removed, so a fixed two-button trap
+ *     (ConfirmDeleteModal's) would break there; this reuses InviteUserModal's
+ *     live-query technique. The member branch's set is static (Close, Leave)
+ *     but reuses the same live-query mechanism for consistency.
+ *   - Default focus: the email input in owner mode (its natural first
+ *     action); the dialog HEADING in member mode (`tabIndex={-1}` +
+ *     programmatic focus on mount — `PermissionDenied.tsx`'s technique),
+ *     since there is no input to land on there.
+ *   - Escape closes the dialog UNLESS a nested confirm layer is open (Remove
+ *     in owner mode, Leave in member mode), in which case Escape (and Tab)
+ *     are left entirely to that layer — both branches' Escape/Tab handlers
+ *     short-circuit while their respective confirm-target state is set,
+ *     matching ConfirmDeleteModal's own semantics rather than fighting its
+ *     independent trap/Escape listener.
  *   - Every Remove button carries `aria-label="Remove {email}"` (never a bare
  *     "×") — the visible glyph stays "×", the accessible name does not.
  *   - A visually-hidden `aria-live="polite"` region (always mounted, a
  *     sibling of the interactive elements it describes — Bell.tsx's pattern)
- *     announces add/remove/level-change outcomes.
- *   - Inline field errors (generic 422, 409, self, rate-limit, 503) are
- *     `role="alert"` — assertive, matching ToastBanner's error convention.
+ *     announces add/remove/level-change outcomes in owner mode.
+ *   - Inline field errors (generic 422, 409, self, rate-limit, 503, leave
+ *     failure) are `role="alert"` — assertive, matching ToastBanner's error
+ *     convention.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -71,7 +93,8 @@ import {
   RateLimitedError,
 } from '../lib/collaboratorsApi'
 import type { CollaboratorGrant } from '../lib/collaboratorsApi'
-import type { EstimateAccess } from '../lib/estimatesApi'
+import type { EstimateAccess, EstimateIdentity } from '../lib/estimatesApi'
+import { formatIdentity } from '../lib/identity'
 import AccessLevelBadge from './AccessLevelBadge'
 import type { AccessLevel } from './AccessLevelBadge'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
@@ -113,6 +136,17 @@ export type CollaboratorsDialogProps = {
   estimateId: string
   /** The caller's relationship to this estimate — determines dialog mode. */
   access: EstimateAccess
+  /**
+   * The estimate's owner identity (`estimatesApi.ts`'s `EstimateFull.owner` /
+   * `EstimateListItem.owner`) — required content for member mode's "Shared
+   * with you by {owner}" line (S3); owner mode ignores it entirely (an owner
+   * has no owner of their own estimate to display, mirroring why that field
+   * is `null` on the API response in that case). Optional here — rather than
+   * required-and-always-passed — purely so T20's existing owner-mode call
+   * sites/tests, which never had a reason to pass it, keep compiling
+   * unchanged.
+   */
+  owner?: EstimateIdentity | null
   onClose: () => void
 }
 
@@ -122,20 +156,25 @@ type ListStatus = 'loading' | 'error' | 'ready'
 // Component
 // ---------------------------------------------------------------------------
 
-export default function CollaboratorsDialog({ estimateId, access, onClose }: CollaboratorsDialogProps) {
-  // Member mode (S3) + Leave are T21's second render branch on this same
-  // component (specs/013-estimate-sharing/tasks.md T21, deps: T20) — out of
-  // this task's scope. Nothing currently renders this dialog for a
-  // non-owner (T22, the toolbar wiring, is also not yet built), so this is
-  // an inert guard, not a reachable dead-end in the shipped product. Kept as
-  // a thin wrapper (rather than an early `return null` inside the owner
-  // implementation itself) so every hook below always runs in the same
-  // order on every render — an early return before hooks would violate the
-  // Rules of Hooks the moment `access` ever changed across a re-render.
-  if (access !== 'owner') {
-    return null
+export default function CollaboratorsDialog({ estimateId, access, owner, onClose }: CollaboratorsDialogProps) {
+  // Two mutually-exclusive branch components, chosen by `access`. Neither
+  // branch is skipped conditionally *within itself* — each owns and always
+  // runs its own hooks in the same order every time IT renders — so this
+  // top-level switch (which itself has zero hooks) never risks the Rules of
+  // Hooks, even though `access` could in principle change across a
+  // re-render (React just unmounts one branch and mounts the other, same as
+  // any other conditional-component-type render).
+  if (access === 'owner') {
+    return <OwnerCollaboratorsDialog estimateId={estimateId} onClose={onClose} />
   }
-  return <OwnerCollaboratorsDialog estimateId={estimateId} onClose={onClose} />
+  return (
+    <MemberCollaboratorsDialog
+      estimateId={estimateId}
+      access={access}
+      owner={owner ?? null}
+      onClose={onClose}
+    />
+  )
 }
 
 type OwnerCollaboratorsDialogProps = {
@@ -609,6 +648,206 @@ function OwnerCollaboratorsDialog({ estimateId, onClose }: OwnerCollaboratorsDia
           title={strings.sharing.dialog.removeConfirmTitle}
           bodyText={strings.sharing.dialog.removeConfirmBody(removeTarget.email)}
           confirmLabel={strings.sharing.dialog.removeConfirmButton}
+        />
+      )}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Member mode (T21, design.md S3)
+// ---------------------------------------------------------------------------
+
+type MemberCollaboratorsDialogProps = {
+  estimateId: string
+  /**
+   * Narrowed to the two non-owner values — the default export above only
+   * ever mounts this branch when `access !== 'owner'`, so `AccessLevel`
+   * (`'viewer' | 'editor'`, `EstimateAccess`'s own non-owner half) is exact
+   * here, not a cast.
+   */
+  access: AccessLevel
+  owner: EstimateIdentity | null
+  onClose: () => void
+}
+
+/**
+ * Deliberately spare (design.md S3): no add form, no collaborator list — the
+ * API never returns other collaborators to a non-owner (`GET
+ * …/collaborators` is owner-only and 403s a collaborator per plan.md), so
+ * there is nothing here to fetch or hide. Just who shared it, the caller's
+ * own level, and one Leave action.
+ */
+function MemberCollaboratorsDialog({ estimateId, access, owner, onClose }: MemberCollaboratorsDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const isMountedRef = useRef(true)
+  useEffect(
+    () => () => {
+      isMountedRef.current = false
+    },
+    [],
+  )
+
+  // Defensive fallback: `owner` should always be non-null when access !==
+  // 'owner' (estimatesApi.ts: "null when access === 'owner'" — the inverse
+  // holds), but `formatIdentity` already has a designed "unknown" state for
+  // exactly this kind of malformed input, so route through it rather than
+  // rendering a blank name if a future caller ever gets this wrong.
+  const ownerIdentity: EstimateIdentity = owner ?? { status: 'unknown', name: null }
+  const ownerLabel = formatIdentity(ownerIdentity)
+
+  // ---- leave flow -----------------------------------------------------
+  const [leaveConfirming, setLeaveConfirming] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
+
+  const handleConfirmLeave = useCallback(async () => {
+    setLeaving(true)
+    setLeaveError(null)
+    try {
+      await collaboratorsApi.leave(estimateId)
+      if (!isMountedRef.current) return
+      // Success closes both the confirm layer and the dialog itself — the
+      // caller no longer has anything to view (design.md: "it will
+      // disappear from your estimates list").
+      setLeaveConfirming(false)
+      onClose()
+    } catch {
+      if (!isMountedRef.current) return
+      setLeaveError(strings.sharing.errors.genericLeaveFailed)
+    } finally {
+      if (isMountedRef.current) setLeaving(false)
+    }
+  }, [estimateId, onClose])
+
+  // ---- a11y: default focus (heading, not an input) + Tab trap + Escape ----
+
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // The nested Leave-confirm layer owns Escape/Tab entirely while open
+      // — same semantics as the owner branch's Remove-confirm layer.
+      if (leaveConfirming) return
+
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+        return
+      }
+
+      if (e.key !== 'Tab' || !dialogRef.current) return
+
+      // Live-queried, same technique as the owner branch — the set here is
+      // static (Close, Leave) but reuses the mechanism for consistency
+      // rather than hand-rolling a second, fixed-two-button trap.
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll<HTMLElement>('input, button, select'),
+      ).filter((el) => !(el as HTMLButtonElement).disabled)
+      if (focusable.length === 0) return
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, leaveConfirming])
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        onClick={onClose}
+        data-testid="collaborators-dialog-backdrop"
+      >
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={DIALOG_TITLE_ID}
+          className="bg-ink-soft border border-rule rounded-lg shadow-2xl w-full max-w-md mx-4 p-5"
+          onClick={(e) => e.stopPropagation()}
+          data-testid="collaborators-dialog"
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <h2
+              ref={headingRef}
+              id={DIALOG_TITLE_ID}
+              tabIndex={-1}
+              className="font-disp text-sm font-bold text-text focus:outline-none"
+            >
+              {strings.sharing.dialog.title}
+            </h2>
+            <button
+              onClick={onClose}
+              className="text-muted hover:text-text text-lg leading-none transition-colors"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* No add form, no collaborator list (design.md S3) — just who
+              shared it and the caller's own level. */}
+          <p className="text-sm text-text mb-2" data-testid="collaborators-dialog-shared-by">
+            {strings.sharing.dialog.sharedWithYouBy(ownerLabel)}
+          </p>
+
+          <div className="flex items-center gap-2 mb-5" data-testid="collaborators-dialog-your-access">
+            <span className="text-sm text-text">{strings.sharing.dialog.yourAccessLevel(levelLabel(access))}</span>
+            {/* Visual echo of the text above — aria-hidden so AT doesn't hear the level announced twice. */}
+            <span aria-hidden="true">
+              <AccessLevelBadge level={access} />
+            </span>
+          </div>
+
+          <button
+            onClick={() => {
+              setLeaveConfirming(true)
+              setLeaveError(null)
+            }}
+            data-testid="collaborators-dialog-leave-button"
+            className="self-start py-1.5 px-3 text-sm font-medium text-red border border-red/50 hover:bg-red/10 transition-colors"
+          >
+            {strings.sharing.dialog.leaveAction}
+          </button>
+        </div>
+      </div>
+
+      {leaveConfirming && (
+        <ConfirmDeleteModal
+          estimateName={ownerLabel}
+          isDeleting={leaving}
+          errorMessage={leaveError}
+          onConfirm={() => void handleConfirmLeave()}
+          onCancel={() => {
+            setLeaveConfirming(false)
+            setLeaveError(null)
+          }}
+          title={strings.sharing.dialog.leaveConfirmTitle}
+          bodyText={strings.sharing.dialog.leaveConfirmBody}
+          confirmLabel={strings.sharing.dialog.leaveConfirmButton}
         />
       )}
     </>

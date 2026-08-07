@@ -1,14 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * Tests for CollaboratorsDialog — owner mode (T20, specs/013-estimate-sharing/
- * tasks.md). Scope: everything T20's done-when names. Member mode (T21) and
- * the toolbar entry that opens this dialog (T22) are out of scope — this
- * dialog is rendered directly here, exactly as a future call site would.
+ * Tests for CollaboratorsDialog — owner mode (T20) and member mode (T21),
+ * specs/013-estimate-sharing/tasks.md. The toolbar entry that opens this
+ * dialog (T22) is out of scope — this dialog is rendered directly here,
+ * exactly as a future call site would.
  *
  * Strategy:
  *   • `../lib/collaboratorsApi` is mocked at the module level (list/add/
- *     remove/updateLevel), keeping the REAL typed error classes via
+ *     remove/updateLevel/leave), keeping the REAL typed error classes via
  *     importOriginal — so tests reject with `instanceof`-correct errors and
  *     the component's own `instanceof` branching is exercised for real.
  *   • `../lib/authClient` is mocked with a fixed signed-in owner
@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react'
 import CollaboratorsDialog from './CollaboratorsDialog'
 import type { CollaboratorGrant } from '../lib/collaboratorsApi'
-import type { ApiProblem } from '../lib/estimatesApi'
+import type { ApiProblem, EstimateIdentity } from '../lib/estimatesApi'
 import { strings } from '../strings'
 
 // ---------------------------------------------------------------------------
@@ -87,6 +87,17 @@ const problem = (status: number, code: string, detail?: string): ApiProblem => (
 
 const renderDialog = (onClose = vi.fn()) => {
   render(<CollaboratorsDialog estimateId="est-1" access="owner" onClose={onClose} />)
+  return { onClose }
+}
+
+const activeOwnerIdentity: EstimateIdentity = { status: 'active', name: 'Marco Rossi' }
+
+const renderMemberDialog = (
+  access: 'viewer' | 'editor' = 'viewer',
+  owner: EstimateIdentity = activeOwnerIdentity,
+  onClose = vi.fn(),
+) => {
+  render(<CollaboratorsDialog estimateId="est-1" access={access} owner={owner} onClose={onClose} />)
   return { onClose }
 }
 
@@ -437,6 +448,126 @@ describe('CollaboratorsDialog — owner mode (T20, specs/013)', () => {
       const region = await screen.findByTestId('collaborators-dialog-live-region')
       expect(region.getAttribute('aria-live')).toBe('polite')
       expect(region.textContent).toBe('')
+    })
+  })
+})
+
+describe('CollaboratorsDialog — member mode (T21, specs/013)', () => {
+  describe('spare content (AC-6.1) — no form, no list', () => {
+    it('renders the dialog as accessible, labelled by its heading, with no add form and no collaborator list', () => {
+      renderMemberDialog()
+
+      const dialog = screen.getByRole('dialog', { name: strings.sharing.dialog.title })
+      expect(dialog.getAttribute('aria-modal')).toBe('true')
+
+      // Never calls the owner-only list endpoint — there is nothing to fetch.
+      expect(collaboratorsApi.list).not.toHaveBeenCalled()
+
+      expect(screen.queryByTestId('collaborators-dialog-email-input')).toBeNull()
+      expect(screen.queryByTestId('collaborators-dialog-add-button')).toBeNull()
+      expect(screen.queryByTestId('collaborators-dialog-list')).toBeNull()
+      expect(screen.queryByRole('list')).toBeNull()
+    })
+
+    it('shows who shared it and the caller\'s own access level', () => {
+      renderMemberDialog('editor', activeOwnerIdentity)
+
+      expect(screen.getByTestId('collaborators-dialog-shared-by').textContent).toBe(
+        strings.sharing.dialog.sharedWithYouBy('Marco Rossi'),
+      )
+      expect(screen.getByTestId('collaborators-dialog-your-access').textContent).toContain(
+        strings.sharing.dialog.yourAccessLevel(strings.sharing.dialog.levelEditor),
+      )
+    })
+  })
+
+  describe('orphaned owner (AC-10.5)', () => {
+    it('renders "Former wellD member" via formatIdentity when the owner is soft-deleted, and Leave still works', () => {
+      renderMemberDialog('viewer', { status: 'deleted', name: null })
+
+      expect(screen.getByTestId('collaborators-dialog-shared-by').textContent).toBe(
+        strings.sharing.dialog.sharedWithYouBy(strings.sharing.identity.deleted),
+      )
+      expect(screen.getByTestId('collaborators-dialog-leave-button')).toBeDefined()
+    })
+  })
+
+  describe('Leave (US-6, AC-6.1)', () => {
+    it('confirms through the generalized ConfirmDeleteModal and calls DELETE …/collaborators/me', async () => {
+      vi.mocked(collaboratorsApi.leave).mockResolvedValue(undefined)
+      const { onClose } = renderMemberDialog()
+
+      fireEvent.click(screen.getByTestId('collaborators-dialog-leave-button'))
+      expect(screen.getByTestId('confirm-delete-modal')).toBeDefined()
+      expect(screen.getByText(strings.sharing.dialog.leaveConfirmTitle)).toBeDefined()
+
+      fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+      await waitFor(() => expect(collaboratorsApi.leave).toHaveBeenCalledWith('est-1'))
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    })
+
+    it('shows an inline error and stays open on failure, without closing the dialog', async () => {
+      vi.mocked(collaboratorsApi.leave).mockRejectedValue(new Error('network'))
+      const { onClose } = renderMemberDialog()
+
+      fireEvent.click(screen.getByTestId('collaborators-dialog-leave-button'))
+      fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+      const errorEl = await screen.findByTestId('confirm-delete-error')
+      expect(errorEl.textContent).toBe(strings.sharing.errors.genericLeaveFailed)
+      expect(onClose).not.toHaveBeenCalled()
+      expect(screen.getByTestId('confirm-delete-modal')).toBeDefined()
+    })
+  })
+
+  describe('no Leave affordance for an owner (AC-6.2)', () => {
+    it('renders nothing member-specific when access is "owner" — no Leave button anywhere', async () => {
+      vi.mocked(collaboratorsApi.list).mockResolvedValue([])
+      renderDialog()
+      await screen.findByTestId('collaborators-dialog-empty')
+
+      expect(screen.queryByTestId('collaborators-dialog-leave-button')).toBeNull()
+      expect(screen.queryByTestId('collaborators-dialog-shared-by')).toBeNull()
+    })
+  })
+
+  describe('a11y — default focus on the heading (no input to land on)', () => {
+    it('moves default focus to the dialog heading on open', () => {
+      renderMemberDialog()
+      const heading = screen.getByRole('heading', { name: strings.sharing.dialog.title })
+      expect(document.activeElement).toBe(heading)
+      expect(heading.getAttribute('tabindex')).toBe('-1')
+    })
+
+    it('Escape closes the dialog when no nested confirm is open', () => {
+      const { onClose } = renderMemberDialog()
+      fireEvent.keyDown(window, { key: 'Escape' })
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('Escape closes only the nested Leave-confirm layer first, leaving the dialog open', () => {
+      const { onClose } = renderMemberDialog()
+
+      fireEvent.click(screen.getByTestId('collaborators-dialog-leave-button'))
+      expect(screen.getByTestId('confirm-delete-modal')).toBeDefined()
+
+      fireEvent.keyDown(window, { key: 'Escape' })
+
+      expect(screen.queryByTestId('confirm-delete-modal')).toBeNull()
+      expect(onClose).not.toHaveBeenCalled()
+      expect(screen.getByTestId('collaborators-dialog')).toBeDefined()
+    })
+
+    it('Tab wraps between the two focusable elements (Close, Leave)', () => {
+      renderMemberDialog()
+      const leaveButton = screen.getByTestId('collaborators-dialog-leave-button')
+      leaveButton.focus()
+      expect(document.activeElement).toBe(leaveButton)
+
+      fireEvent.keyDown(window, { key: 'Tab' })
+
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
     })
   })
 })

@@ -77,6 +77,7 @@ const en = {
       genericRemoveFailed: 'Could not remove this collaborator. Try again.',
       genericLevelChangeFailed: "Could not update this collaborator's access. Try again.",
       loadFailed: 'Could not load collaborators.',
+      genericLeaveFailed: 'Could not leave this estimate. Try again.',
     },
     identity: {
       deleted: 'Former wellD member',
