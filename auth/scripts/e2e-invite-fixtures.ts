@@ -32,6 +32,7 @@
  *   bun run scripts/e2e-invite-fixtures.ts cleanup <emailOrPrefix>
  *   bun run scripts/e2e-invite-fixtures.ts grant-refund-employee <email>
  *   bun run scripts/e2e-invite-fixtures.ts grant-refund-accounting <email> <entity|global>
+ *   bun run scripts/e2e-invite-fixtures.ts grant-estimai-access <email>
  *
  * The two `grant-refund-*` commands (specs/007-refund-service, T21 QE
  * verification) plug the SAME kind of gap `grant-role` plugs above: refund
@@ -43,6 +44,21 @@
  * PermissionRule rows via Prisma — the same tables `auth/src/authz/seed.ts`'s
  * `seedAccountingRoleGrants` and the admin API's role editor write to — so
  * refund-api's live `GET /authz/resolve` call resolves these test users
+ * through the exact same code path a real admin-granted user would.
+ *
+ * `grant-estimai-access` (specs/013-estimate-sharing, T25 QE e2e) plugs the
+ * identical gap for EstimAI's own `(estimai, access)` grant: the baseline
+ * `employee` role assigned on sign-up (`assignBaselineRolesToNewUser`)
+ * carries NO `estimai:access` PermissionRule (verified against
+ * `auth/src/authz/seed.ts` — nothing grants it by default), yet T2's `POST
+ * /authz/app-access-check` (ADR-0035) gates BOTH the calling owner (caller
+ * gate: must hold `(appId,"access")` themselves) and the target collaborator
+ * (eligibility: must hold it too) on exactly this grant. Without a way to
+ * seed it, the T25 collaboration journey could never reach a real 201 — it
+ * would 503 (owner ineligible to even ask) or floor-422 (target ineligible)
+ * on every attempt. Mirrors `grantRefundEmployee`'s shape exactly: one
+ * idempotent dedicated role, one PermissionRule, one assignment, one epoch
+ * bump.
  * through the exact same code path a real admin-granted user would.
  */
 import { db } from "../src/lib/db";
@@ -218,6 +234,45 @@ async function grantRefundAccounting(email: string, entity: string): Promise<voi
   console.log(JSON.stringify({ ok: true, userId: user.id, roleId: accountingRole.id, entity }));
 }
 
+/** e2e-only custom role carrying exactly the EstimAI app-access grant (specs/013). */
+const E2E_ESTIMAI_ACCESS_ROLE_NAME = "e2e-estimai-access";
+
+/**
+ * Grants the (already test-auth-seeded) user at `email` `(estimai, access)`
+ * — via a dedicated, idempotently-created `e2e-estimai-access` role, the
+ * same shape {@link grantRefundEmployee} uses. Needed by BOTH sides of a
+ * specs/013 collaborator-add call: the owner (caller gate on `auth POST
+ * /authz/app-access-check`) and the target collaborator (the eligibility
+ * check itself).
+ */
+async function grantEstimaiAccess(email: string): Promise<void> {
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) {
+    throw new Error(
+      `grant-estimai-access: no user row for ${email} — seed a session for this email first (POST /test-auth/session)`,
+    );
+  }
+
+  const role = await db.role.upsert({
+    where: { name: E2E_ESTIMAI_ACCESS_ROLE_NAME },
+    update: {},
+    create: { name: E2E_ESTIMAI_ACCESS_ROLE_NAME, isSystem: false },
+  });
+
+  const existing = await db.permissionRule.findFirst({
+    where: { roleId: role.id, resource: "estimai", action: "access" },
+  });
+  if (!existing) {
+    await db.permissionRule.create({
+      data: { roleId: role.id, resource: "estimai", action: "access", conditions: undefined },
+    });
+  }
+
+  await assignRole(user.id, role.id);
+  await bumpEpoch(user.id);
+  console.log(JSON.stringify({ ok: true, userId: user.id, roleId: role.id }));
+}
+
 async function cleanup(emailOrPrefix: string): Promise<void> {
   const users = await db.user.findMany({
     where: { email: { contains: emailOrPrefix } },
@@ -255,6 +310,8 @@ async function main(): Promise<void> {
       await grantRefundEmployee(args[0]!);
     } else if (cmd === "grant-refund-accounting") {
       await grantRefundAccounting(args[0]!, args[1]!);
+    } else if (cmd === "grant-estimai-access") {
+      await grantEstimaiAccess(args[0]!);
     } else {
       console.error("unknown command:", cmd);
       process.exit(1);
