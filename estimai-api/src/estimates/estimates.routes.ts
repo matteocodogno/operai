@@ -1,6 +1,7 @@
 /**
  * Estimates CRUD router (T4+T5, specs/001-estimate-persistence;
- * widened for sharing in T6, specs/013-estimate-sharing).
+ * widened for sharing in T6, specs/013-estimate-sharing; optimistic
+ * concurrency added in T7, ADR-0038).
  *
  * All routes are protected by jwtMiddleware (set userId/email on context).
  * Every repository call is scoped by userId derived from the verified JWT sub.
@@ -8,10 +9,12 @@
  * Endpoints on estimatesRouter (2 MiB body limit):
  *   POST   /estimates          → 201 EstimateFull        (AC-1.1)
  *   GET    /estimates          → 200 EstimateListItem[]  (AC-2.1, AC-2.3; T6: owned ∪ shared)
- *   GET    /estimates/:id      → 200 EstimateFull        (AC-2.2; T6: any relationship suffices)
- *   PUT    /estimates/:id      → 200 EstimateFull        (AC-1.2; T6: response shape widened only —
- *                                                          predicate is still owner-only, T7 adds
- *                                                          the version CAS + editor-grant predicate)
+ *   GET    /estimates/:id      → 200 EstimateFull, ETag: "<version>"   (AC-2.2; T6: any relationship
+ *                                                          suffices; T7: ETag header)
+ *   PUT    /estimates/:id      → 200 EstimateFull, ETag: "<new version>" (AC-1.2; T7: REQUIRED
+ *                                                          If-Match, version CAS + owner/editor-grant
+ *                                                          predicate in ONE statement, 428/403/404/409 —
+ *                                                          see the updateEstimateRoute doc comment)
  *   DELETE /estimates/:id      → 204 (no body)           (AC-3.1; still owner-only)
  *
  * Endpoints on importEstimatesRouter (larger body limit — see BODY LIMIT DESIGN):
@@ -35,8 +38,9 @@
  * — a deliberate narrowing of ADR-0005's blanket "not owned = 404"):
  *   - NO relationship at all (stranger)              → 404 (AC-1.6, ADR-0005 intact)
  *   - a relationship exists but the level is short    → 403 with a stable `code`
- *     (currently only DELETE's "owner_only" — a collaborator attempting to
- *     delete already knows the estimate exists, so 404 would be a lie)
+ *     (DELETE's "owner_only"; PUT's "insufficient_access" for a viewer, T7 —
+ *     a collaborator attempting either already knows the estimate exists,
+ *     so 404 would be a lie)
  * `GET` is the one operation where ANY relationship (owner/editor/viewer)
  * is sufficient — there is no 403 on the read path.
  *
@@ -55,7 +59,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { Effect } from "effect";
 import { bodyLimit } from "hono/body-limit";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
-import { ForbiddenError, NotFoundError, SizeError } from "@/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, SizeError } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { resolveIdentities, type Identity as ResolvedIdentity } from "@/lib/authClient";
 import {
@@ -65,6 +69,7 @@ import {
   EstimateIdParamSchema,
   ImportRequestSchema,
   ImportResponseSchema,
+  IdentitySchema,
   type Identity,
 } from "./estimates.schemas";
 import {
@@ -118,6 +123,44 @@ const problemForbidden = (path: string, detail: string, code: string) => ({
   instance: path,
 });
 
+// T7 (specs/013-estimate-sharing, ADR-0038) — `If-Match` is REQUIRED on PUT.
+// Absent or malformed → 428, checked BEFORE the size guard and BEFORE any
+// DB access (plan.md's fixed evaluation order: 401 → 400 → 428 → 413 →
+// 404/403 → 409), so a request that never carried a usable precondition is
+// rejected before it can influence, or be influenced by, the CAS at all.
+const PRECONDITION_REQUIRED_DETAIL =
+  "This save needs an If-Match precondition. Reload the estimate.";
+
+const problemPreconditionRequired = (path: string) => ({
+  type: "https://httpstatuses.com/428",
+  title: "Precondition Required",
+  status: 428 as const,
+  detail: PRECONDITION_REQUIRED_DETAIL,
+  code: "precondition_required",
+  instance: path,
+});
+
+// T7 — the 409 half of optimistic concurrency (plan.md "Optimistic
+// concurrency (US-4)"). `currentVersion`/`updatedAt` are DB facts;
+// `lastModifiedBy` is a best-effort display identity (never blocks the 409 —
+// resolveIdentities fails soft) and NEVER carries estimate content.
+const problemConflict = (
+  path: string,
+  currentVersion: number,
+  updatedAt: string,
+  lastModifiedBy: Identity,
+) => ({
+  type: "https://httpstatuses.com/409",
+  title: "Conflict",
+  status: 409 as const,
+  detail: "The estimate was modified by someone else. Reload to see the latest version.",
+  code: "estimate_version_conflict",
+  currentVersion,
+  updatedAt,
+  lastModifiedBy,
+  instance: path,
+});
+
 const ProblemSchema = z.object({
   type: z.string(),
   title: z.string(),
@@ -129,6 +172,30 @@ const ProblemSchema = z.object({
 const ProblemWithCodeSchema = ProblemSchema.extend({
   code: z.string(),
 });
+
+const ConflictProblemSchema = ProblemWithCodeSchema.extend({
+  currentVersion: z.number().int(),
+  updatedAt: z.string().datetime(),
+  lastModifiedBy: IdentitySchema,
+});
+
+/**
+ * Parses the `If-Match` request header into the expected `version` integer.
+ *
+ * The wire contract (plan.md) is `If-Match: "<version>"` — a quoted integer,
+ * mirroring the `ETag: "<version>"` this same handler emits on success. Any
+ * other shape (absent, empty, non-numeric, zero/negative, a wildcard `*`) is
+ * MALFORMED and returns `null` — T7's contract draws no distinction between
+ * "missing" and "malformed", both map to the same 428 (plan.md/tasks.md:
+ * "If-Match is REQUIRED, not optional... absent/malformed → 428").
+ */
+const parseIfMatch = (raw: string | undefined | null): number | null => {
+  if (!raw) return null;
+  const match = /^"(\d+)"$/.exec(raw.trim());
+  if (!match?.[1]) return null;
+  const version = Number(match[1]);
+  return Number.isInteger(version) && version >= 1 ? version : null;
+};
 
 // ─── Display identity helper (T6, specs/013-estimate-sharing) ───────────────
 //
@@ -148,19 +215,33 @@ const toWireIdentity = (resolved: ResolvedIdentity): Identity => ({
 const UNKNOWN_IDENTITY: Identity = { status: "unknown", name: null };
 
 /**
- * Resolves the owner's display identity for a single non-owned row.
- * `access === "owner"` rows never call this — the caller returns `null`
- * for those without invoking `auth` at all (their own row never needs a
- * third-party identity lookup).
+ * Resolves a single `auth` user id (owner OR, as of T7, a 409's
+ * `lastModifiedBy`) to a display Identity. `access === "owner"` rows never
+ * call this for the owner field — the caller returns `null` for those
+ * without invoking `auth` at all (their own row never needs a third-party
+ * identity lookup).
  */
-const resolveOwnerIdentity = async (
-  authHeader: string,
-  ownerId: string,
-): Promise<Identity> => {
-  const identities = await resolveIdentities(authHeader, [ownerId]);
-  const found = identities.get(ownerId);
+const resolveIdentityFor = async (authHeader: string, subjectId: string): Promise<Identity> => {
+  const identities = await resolveIdentities(authHeader, [subjectId]);
+  const found = identities.get(subjectId);
   return found ? toWireIdentity(found) : UNKNOWN_IDENTITY;
 };
+
+const resolveOwnerIdentity = resolveIdentityFor;
+
+/**
+ * Resolves the 409 conflict body's `lastModifiedBy` (T7). `null` means the
+ * row predates this feature's `lastModifiedByUserId` column (never written
+ * by a CAS write yet) — returned as UNKNOWN_IDENTITY without an `auth` call,
+ * matching the same never-blocks-the-409 posture as a resolution failure.
+ */
+const resolveLastModifiedByIdentity = async (
+  authHeader: string,
+  lastModifiedByUserId: string | null,
+): Promise<Identity> =>
+  lastModifiedByUserId === null
+    ? UNKNOWN_IDENTITY
+    : resolveIdentityFor(authHeader, lastModifiedByUserId);
 
 /** Maps a repo EstimateListRow (raw ownerId) to the wire EstimateListItem. */
 const toWireListItem = (
@@ -439,14 +520,16 @@ const getEstimateRoute = createRoute({
     "Returns the full estimate including content to ANY caller with a " +
     "relationship to it — owner, editor, or viewer (T6, AC-3.1). Returns 404 " +
     "if the estimate does not exist or the caller has no relationship to it " +
-    "at all (AC-1.6 — no existence leak, ADR-0005/ADR-0037).",
+    "at all (AC-1.6 — no existence leak, ADR-0005/ADR-0037). The response " +
+    'carries an `ETag: "<version>"` header (T7) — the precondition value a ' +
+    "subsequent PUT must echo back via `If-Match`.",
   request: {
     params: EstimateIdParamSchema,
   },
   responses: {
     200: {
       content: { "application/json": { schema: EstimateFullSchema } },
-      description: "Full estimate (AC-2.2)",
+      description: 'Full estimate (AC-2.2). ETag: "<version>" (T7, AC-4.1).',
     },
     401: {
       content: { "application/json": { schema: ProblemSchema } },
@@ -480,6 +563,8 @@ estimatesRouter.openapi(getEstimateRoute, async (c) => {
   const owner =
     row.access === "owner" ? null : await resolveOwnerIdentity(authHeader, row.ownerId);
 
+  // T7 — the precondition value a subsequent PUT must echo via If-Match.
+  c.header("ETag", `"${row.version}"`);
   return c.json(toWireFull(row, owner), 200);
 });
 
@@ -491,10 +576,31 @@ const updateEstimateRoute = createRoute({
   tags: ["Estimates"],
   summary: "Update an estimate",
   description:
-    "Updates the estimate in place (same id, no duplicate). updatedAt is advanced. " +
-    "Returns 404 if the estimate does not exist or is not owned by the caller (AC-4.1).",
+    "Updates the estimate in place (same id, no duplicate) via optimistic " +
+    "concurrency (T7, specs/013-estimate-sharing, ADR-0038 — amends " +
+    "ADR-0004's last-write-wins). `If-Match` is REQUIRED and must echo the " +
+    "estimate's current `ETag`/`version`; a stale value yields 409, an " +
+    "absent or malformed one yields 428. Evaluation order is fixed: " +
+    "401 → 400 → 428 → 413 → 404/403 → 409, so a stranger's probe (even " +
+    "carrying a syntactically valid If-Match) can never elicit a 409 that " +
+    "would confirm the record exists. Owner or editor-level collaborators " +
+    "may write; a viewer gets 403 (AC-3.1).",
   request: {
     params: EstimateIdParamSchema,
+    headers: z.object({
+      // Deliberately z.string().optional() at the SCHEMA level — this is
+      // documentation only. `If-Match` is REQUIRED by the *handler*
+      // (parseIfMatch → 428), not by zod-openapi's request validation: if
+      // this were a required schema field, a missing header would be
+      // rejected as a 400 by the framework's own validation, which runs
+      // BEFORE the handler body — silently breaking the plan's fixed
+      // evaluation order (401 → 400 → 428 → ...) by turning "missing
+      // precondition" into the wrong status code entirely.
+      "if-match": z
+        .string()
+        .optional()
+        .describe('Required. The estimate\'s current version, e.g. "3" (T7, AC-4.1/4.3/4.4).'),
+    }),
     body: {
       required: true,
       content: {
@@ -505,7 +611,7 @@ const updateEstimateRoute = createRoute({
   responses: {
     200: {
       content: { "application/json": { schema: EstimateFullSchema } },
-      description: "Updated estimate (AC-1.2)",
+      description: 'Updated estimate (AC-1.2). ETag: "<new version>" (T7).',
     },
     400: {
       content: { "application/json": { schema: ProblemSchema } },
@@ -515,13 +621,28 @@ const updateEstimateRoute = createRoute({
       content: { "application/json": { schema: ProblemSchema } },
       description: "Missing or invalid Bearer JWT",
     },
+    403: {
+      content: { "application/json": { schema: ProblemWithCodeSchema } },
+      description:
+        'A relationship exists but the caller\'s level is insufficient — code: "insufficient_access" (T7, AC-3.1)',
+    },
     404: {
       content: { "application/json": { schema: ProblemSchema } },
-      description: "Not found or not owned (AC-4.1)",
+      description: "No relationship to this estimate (AC-1.6)",
+    },
+    409: {
+      content: { "application/json": { schema: ConflictProblemSchema } },
+      description:
+        'The stored version no longer matches If-Match — code: "estimate_version_conflict" (T7, AC-4.1/4.3/4.4). Nothing was written.',
     },
     413: {
       content: { "application/json": { schema: ProblemSchema } },
       description: "Content exceeds MAX_ESTIMATE_BYTES; prior stored version untouched (AC-1.4)",
+    },
+    428: {
+      content: { "application/json": { schema: ProblemWithCodeSchema } },
+      description:
+        'If-Match is missing or malformed — code: "precondition_required" (T7, AC-4.4).',
     },
   },
 });
@@ -530,6 +651,16 @@ estimatesRouter.openapi(updateEstimateRoute, async (c) => {
   const userId = c.get("userId");
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
+  const authHeader = c.req.header("Authorization") ?? "";
+
+  // T7 — If-Match is REQUIRED, checked before any size/DB work (fixed
+  // evaluation order: 401 → 400 → 428 → 413 → 404/403 → 409). A silent
+  // fallback to last-write-wins here would reintroduce exactly the clobber
+  // this feature exists to close, across a mixed old/new client fleet.
+  const expectedVersion = parseIfMatch(c.req.header("If-Match"));
+  if (expectedVersion === null) {
+    return c.json(problemPreconditionRequired(c.req.path), 428);
+  }
 
   // T5: enforce size guard BEFORE any DB write (AC-1.4 — prior version stays intact).
   const sizeErr = checkContentSize(body.content, env.MAX_ESTIMATE_BYTES);
@@ -540,23 +671,45 @@ estimatesRouter.openapi(updateEstimateRoute, async (c) => {
     );
   }
 
-  const effect = updateEstimate(id, userId, body.name, body.author, body.content);
+  const effect = updateEstimate(id, userId, expectedVersion, body.name, body.author, body.content);
 
   const exit = await Effect.runPromiseExit(effect);
 
   if (exit._tag === "Failure") {
     const cause = exit.cause;
-    if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
-      return c.json(problemNotFound(c.req.path, cause.error.message), 404);
+    if (cause._tag === "Fail") {
+      const err = cause.error;
+      if (err instanceof NotFoundError) {
+        return c.json(problemNotFound(c.req.path, err.message), 404);
+      }
+      if (err instanceof ForbiddenError) {
+        return c.json(problemForbidden(c.req.path, err.message, err.code), 403);
+      }
+      if (err instanceof ConflictError) {
+        const lastModifiedBy = await resolveLastModifiedByIdentity(
+          authHeader,
+          err.lastModifiedByUserId,
+        );
+        return c.json(
+          problemConflict(c.req.path, err.currentVersion, err.updatedAt, lastModifiedBy),
+          409,
+        );
+      }
     }
     throw new Error("Unexpected database failure updating estimate");
   }
 
-  // updateEstimate's predicate is still owner-only (T7 scope — version CAS +
-  // editor-collaborator predicate, If-Match/ETag, 403 insufficient_access for
-  // a viewer/editor's PUT) — a success here always means the caller is the
-  // owner, so `owner` is always null and no identity round trip is needed.
-  return c.json(toWireFull(exit.value, null), 200);
+  const row = exit.value;
+  // Success means the caller is the owner OR an editor-level collaborator
+  // (a viewer can never match the CAS predicate) — resolve the owner
+  // identity whenever the caller themselves is not the owner, same rule as
+  // GET/list (AC-2.1/10.5).
+  const owner =
+    row.access === "owner" ? null : await resolveOwnerIdentity(authHeader, row.ownerId);
+
+  // T7 — the new precondition value for the next write.
+  c.header("ETag", `"${row.version}"`);
+  return c.json(toWireFull(row, owner), 200);
 });
 
 // ─── DELETE /estimates/:id — Delete ──────────────────────────────────────────

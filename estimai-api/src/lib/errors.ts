@@ -27,6 +27,30 @@ export class ForbiddenError extends Data.TaggedError("ForbiddenError")<{
   readonly cause?: unknown;
 }> {}
 
+/**
+ * Optimistic-concurrency conflict (T7, specs/013-estimate-sharing, ADR-0038
+ * "amends ADR-0004" — supersedes last-write-wins).
+ *
+ * Raised by `updateEstimate`'s single-statement CAS when the caller's access
+ * level IS sufficient (owner or editor — otherwise a ForbiddenError/
+ * NotFoundError would already have fired first, per the plan's fixed
+ * evaluation order 404/403 → 409) but the supplied `If-Match` version no
+ * longer matches the stored row: someone else's write landed first.
+ *
+ * Carries everything the 409 Problem body needs (plan.md's API contract) —
+ * `currentVersion`/`updatedAt` are DB facts and always present; the caller's
+ * `lastModifiedByUserId` (a raw `sub`) is resolved to a display Identity in
+ * estimates.routes.ts (best-effort, via authClient.resolveIdentities, which
+ * never throws — ADR-0039) because that requires the caller's own Bearer
+ * token, which this DB-only layer does not have.
+ */
+export class ConflictError extends Data.TaggedError("ConflictError")<{
+  readonly message: string;
+  readonly currentVersion: number;
+  readonly updatedAt: string;
+  readonly lastModifiedByUserId: string | null;
+}> {}
+
 export class AuthError extends Data.TaggedError("AuthError")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -49,6 +73,7 @@ export type AppError =
   | DatabaseError
   | NotFoundError
   | ForbiddenError
+  | ConflictError
   | AuthError
   | ValidationError
   | SizeError;

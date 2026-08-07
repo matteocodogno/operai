@@ -13,10 +13,12 @@
  *  - list:    where: OR[{userId}, {collaborators: {some: {userId}}}] — owner UNION grantee
  *  - getById: where: { id } gated by resolveAccess() — ANY relationship (owner, editor,
  *             or viewer) is sufficient to read; no relationship → 404 (AC-1.6)
- *  - update:  STILL owner-only (updateMany({ where: { id, userId } })) — T7
- *             (specs/013) adds the version CAS + editor-collaborator predicate;
- *             this file only widens the RESPONSE shape (version/access/owner) so
- *             it type-checks against the now-shared EstimateFull contract.
+ *  - update:  version-CAS + editor-collaborator predicate, ONE statement (T7,
+ *             specs/013): updateMany({ where: { id, version, OR: [owner,
+ *             editor-collaborator] }, data: { ..., version: increment(1) } }).
+ *             A viewer's write can never match the OR, so `count === 0` for a
+ *             viewer regardless of whether the supplied version is current —
+ *             no separate access check, no TOCTOU window.
  *  - delete:  deleteMany({ where: { id, userId } }) unchanged (owner-only, AC-3.3);
  *             count===0 now branches through resolveAccess() to distinguish
  *             "no relationship" (404) from "collaborator, not owner" (403 owner_only)
@@ -35,7 +37,7 @@
 import { Effect } from "effect";
 import type { InputJsonValue } from "@prisma/client/runtime/client";
 import { db } from "@/lib/db";
-import { DatabaseError, ForbiddenError, NotFoundError } from "@/lib/errors";
+import { ConflictError, DatabaseError, ForbiddenError, NotFoundError } from "@/lib/errors";
 import { resolveAccess, type AccessLevel } from "./access";
 import type { EstimateContent } from "./estimates.schemas";
 
@@ -229,55 +231,127 @@ export const getEstimateById = (
   });
 
 /**
- * Update an existing estimate in place, scoped to userId.
- * updatedAt is advanced automatically by Prisma (@updatedAt).
- * sizeBytes is recomputed from the new content.
+ * Update an existing estimate in place via optimistic concurrency (T7,
+ * specs/013-estimate-sharing, ADR-0038 — amends ADR-0004's last-write-wins).
  *
- * T6 SCOPE NOTE: this predicate is STILL owner-only
- * (`updateMany({ where: { id, userId } })`), unchanged from spec 001/T5.
- * T7 (specs/013, deps: T6) replaces this with the version-CAS + editor-grant
- * predicate (`where: { id, version, OR: [owner, editor-collaborator] }`,
- * `version: { increment: 1 }`) — do not read the current owner-only gate as
- * the final behaviour. This function's return type is widened here (adds
- * version/access/owner/collaboratorCount) only so it satisfies the now-shared
- * EstimateFull response contract; T7 will populate a real post-CAS version.
+ * ONE STATEMENT, no TOCTOU window (plan.md "Optimistic concurrency (US-4)"):
+ * the access predicate (owner OR an editor-level collaborator grant) lives
+ * INSIDE the same `updateMany` WHERE clause as the version compare-and-swap.
+ * A viewer never satisfies the OR, so their update always misses regardless
+ * of whether `expectedVersion` is current — this is what makes the
+ * CAS-predicate test's "viewer with a *correct* If-Match still gets 403, not
+ * 409" true structurally, not by a separate check.
  *
- * count === 0 → NotFoundError (id absent OR owned by a different user → 404).
- * Since the predicate is still owner-only, success here means the caller IS
- * the owner — access is always "owner" on the success path.
+ * `updatedAt` is advanced automatically by Prisma (`@updatedAt`); `version`
+ * is incremented by exactly 1 in the same statement Postgres uses to
+ * serialise two concurrent writers (AC-4.3) — `sizeBytes` is recomputed from
+ * the new content and `lastModifiedByUserId` is stamped to the caller.
+ *
+ * `count === 1` (success): re-fetch the fresh row. Access on the success path
+ * is always "owner" or "editor" (a viewer's row can never match the OR), so
+ * it is derived cheaply by comparing the row's own `userId` (the immutable
+ * owner sub) to the caller — no second `resolveAccess` round trip needed.
+ *
+ * `count === 0` (the CAS matched nothing): the single WHERE clause makes this
+ * ambiguous by construction — id absent, no relationship, insufficient
+ * level, AND a stale version all produce the same `count === 0`. Disambiguate
+ * with a fresh `resolveAccess` read, evaluated BEFORE any conflict is
+ * reported (plan.md's fixed evaluation order 404/403 → 409, so a stranger's
+ * probe — even carrying a syntactically valid `If-Match` — can never elicit
+ * a 409 that would confirm the record exists):
+ *   - no relationship at all      → NotFoundError (404, AC-1.6/ADR-0005)
+ *   - a relationship, but viewer  → ForbiddenError code:"insufficient_access" (403, AC-3.1)
+ *   - owner or editor             → the version must have been stale → ConflictError (409)
  */
 export const updateEstimate = (
   id: string,
   userId: string,
+  expectedVersion: number,
   name: string,
   author: string,
   content: EstimateContent,
-): Effect.Effect<EstimateFullRow, DatabaseError | NotFoundError> =>
-  Effect.tryPromise({
-    try: async () => {
-      const sizeBytes = computeSizeBytes(content);
-      const { count } = await db.estimate.updateMany({
-        where: { id, userId },
-        data: { name, author, sizeBytes, content: content as unknown as InputJsonValue },
+): Effect.Effect<
+  EstimateFullRow,
+  DatabaseError | NotFoundError | ForbiddenError | ConflictError
+> =>
+  Effect.gen(function* () {
+    const sizeBytes = computeSizeBytes(content);
+
+    const { count } = yield* Effect.tryPromise({
+      try: () =>
+        db.estimate.updateMany({
+          where: {
+            id,
+            version: expectedVersion,
+            OR: [{ userId }, { collaborators: { some: { userId, accessLevel: "editor" } } }],
+          },
+          data: {
+            name,
+            author,
+            sizeBytes,
+            content: content as unknown as InputJsonValue,
+            version: { increment: 1 },
+            lastModifiedByUserId: userId,
+          },
+        }),
+      catch: (cause) => new DatabaseError({ message: "Failed to update estimate", cause }),
+    });
+
+    if (count === 1) {
+      const row = yield* Effect.tryPromise({
+        try: () => db.estimate.findFirst({ where: { id } }),
+        catch: (cause) =>
+          new DatabaseError({ message: "Failed to refetch updated estimate", cause }),
       });
-      if (count === 0) return null;
-      // Re-fetch to get the full row (including updatedAt stamped by @updatedAt).
-      const row = await db.estimate.findFirst({ where: { id, userId } });
-      return row ?? null;
-    },
-    catch: (cause) =>
-      new DatabaseError({ message: "Failed to update estimate", cause }),
-  }).pipe(
-    Effect.flatMap((row) =>
-      row !== null
-        ? Effect.succeed(toFullRow(row, "owner", userId))
-        : Effect.fail(
-            new NotFoundError({
-              message: `Estimate ${id} not found`,
-            }),
-          ),
-    ),
-  );
+      if (row === null) {
+        // Vanishingly unlikely race — deleted by the owner in the instant
+        // between the CAS commit and this re-fetch. Treated as NotFound,
+        // never a 500 or a stale/synthetic success response.
+        return yield* Effect.fail(new NotFoundError({ message: `Estimate ${id} not found` }));
+      }
+      const access: AccessLevel = row.userId === userId ? "owner" : "editor";
+      return toFullRow(row, access, row.userId);
+    }
+
+    // count === 0 — disambiguate via a fresh resolveAccess read. Access is
+    // decided BEFORE the conflict is reported (see doc comment above).
+    const resolved = yield* resolveAccess(id, userId);
+
+    if (resolved === null) {
+      return yield* Effect.fail(new NotFoundError({ message: `Estimate ${id} not found` }));
+    }
+
+    if (resolved.level === "viewer") {
+      return yield* Effect.fail(
+        new ForbiddenError({
+          message: "You have view-only access to this estimate.",
+          code: "insufficient_access",
+        }),
+      );
+    }
+
+    // Caller holds sufficient access (owner or editor) but the CAS still
+    // missed — the only remaining explanation is a stale `version`.
+    const conflictRow = yield* Effect.tryPromise({
+      try: () => db.estimate.findFirst({ where: { id } }),
+      catch: (cause) =>
+        new DatabaseError({ message: "Failed to fetch estimate for conflict report", cause }),
+    });
+
+    if (conflictRow === null) {
+      // Deleted between resolveAccess and this fetch — genuinely gone now.
+      return yield* Effect.fail(new NotFoundError({ message: `Estimate ${id} not found` }));
+    }
+
+    return yield* Effect.fail(
+      new ConflictError({
+        message: "The estimate was modified by someone else. Reload to see the latest version.",
+        currentVersion: conflictRow.version,
+        updatedAt: conflictRow.updatedAt.toISOString(),
+        lastModifiedByUserId: conflictRow.lastModifiedByUserId,
+      }),
+    );
+  });
 
 /**
  * Delete an estimate by id. The delete predicate stays owner-only, unchanged

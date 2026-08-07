@@ -370,10 +370,10 @@ describe("AC-1.2 — update in place, no duplicate, updatedAt advances", () => {
     // Wait 1 ms so updatedAt can advance (Postgres timestamp has ms precision).
     await Bun.sleep(10);
 
-    // Update
+    // Update — T7: If-Match is REQUIRED; a freshly-created row is version 1.
     const putRes = await app.request(`/estimates/${created.id}`, {
       method: "PUT",
-      headers: bearerHeader(jwt),
+      headers: { ...bearerHeader(jwt), "If-Match": '"1"' },
       body: JSON.stringify({
         name: "AC-1.2 Estimate (edited)",
         author: "Alice",
@@ -622,9 +622,12 @@ describe("AC-4.1 — IDOR: user B cannot read/update/delete user A's estimates",
 
     // CRITICAL: B's PUT must return 404.
     // Without userId scoping in updateEstimate, this would succeed and return 200.
+    // T7: a well-formed If-Match is supplied so the request actually reaches
+    // the access check — an absent one would 428 first and prove nothing
+    // about the IDOR scoping this test exists to guard.
     const res = await app.request(`/estimates/${aId}`, {
       method: "PUT",
-      headers: bearerHeader(jwtB),
+      headers: { ...bearerHeader(jwtB), "If-Match": '"1"' },
       body: JSON.stringify({
         name: "HIJACKED",
         author: "Eve",
@@ -707,10 +710,12 @@ describe("Atomic ownership — write path is owner-scoped (A01 regression guard)
       updatedAt: string;
     };
 
-    // Attack: user B attempts to overwrite A's estimate
+    // Attack: user B attempts to overwrite A's estimate (T7: well-formed
+    // If-Match, so the access predicate — not the precondition check — is
+    // what this test proves).
     const attackRes = await app.request(`/estimates/${aId}`, {
       method: "PUT",
-      headers: bearerHeader(jwtB),
+      headers: { ...bearerHeader(jwtB), "If-Match": '"1"' },
       body: JSON.stringify({
         name: "HIJACKED by B",
         author: "Eve",
@@ -986,10 +991,13 @@ describe("AC-1.4 — PUT with over-size content → 413 Problem, prior stored ve
       updatedAt: string;
     };
 
-    // Attempt a PUT with over-size content — must be rejected.
+    // Attempt a PUT with over-size content — must be rejected. T7: a
+    // well-formed If-Match is supplied so the request reaches the size
+    // guard (428 precedes 413 in the fixed evaluation order) — this test
+    // proves the SIZE check, not the precondition check.
     const putRes = await app.request(`/estimates/${id}`, {
       method: "PUT",
-      headers: bearerHeader(jwt),
+      headers: { ...bearerHeader(jwt), "If-Match": '"1"' },
       body: JSON.stringify({ name: "Updated name", author: "Alice", content: makeOverSizeContent() }),
     });
     expect(putRes.status).toBe(413);
@@ -1056,7 +1064,7 @@ describe("AC-1.4 regression — in-limit POST / PUT still return 201 / 200", () 
     const updatedContent = makeContent("updated-in-limit");
     const putRes = await app.request(`/estimates/${id}`, {
       method: "PUT",
-      headers: bearerHeader(jwt),
+      headers: { ...bearerHeader(jwt), "If-Match": '"1"' },
       body: JSON.stringify({ name: "In-limit updated", author: "Alice", content: updatedContent }),
     });
     expect(putRes.status).toBe(200);
@@ -2216,7 +2224,7 @@ describe("coerce fix (2) — POST /estimates with string-valued numeric fields �
     // PUT with string-valued content — before the fix this would be 400.
     const putRes = await app.request(`/estimates/${id}`, {
       method: "PUT",
-      headers: bearerHeader(jwt),
+      headers: { ...bearerHeader(jwt), "If-Match": '"1"' },
       body: JSON.stringify({
         name: "PaperJudge PUT Test (updated)",
         author: "QA",
@@ -2429,10 +2437,12 @@ describe("T6 / AC-1.6 — denial taxonomy: a stranger's 404 is byte-identical to
     expect(postRes.status).toBe(201);
     const { id } = (await postRes.json()) as { id: string };
 
+    // T7: well-formed If-Match on every attempt — this test proves the
+    // ACCESS check (404), not the precondition check (428).
     const strangerAttempt = () =>
       app.request(`/estimates/${id}`, {
         method: "PUT",
-        headers: bearerHeader(jwtC),
+        headers: { ...bearerHeader(jwtC), "If-Match": '"1"' },
         body: JSON.stringify({
           name: "hijack attempt",
           author: "Eve",
@@ -2807,3 +2817,353 @@ describe("T6 / AC-5.2 (read-side) — once a grant is gone, the former collabora
 // invocation as the T6 blocks above — a regression in the widened
 // listEstimates/getEstimateById/deleteEstimate predicates would fail one of
 // those pre-existing AC-1.1 through AC-4.2 tests.)
+
+// ─── T7 / AC-3.1/3.2, AC-4.1/4.2/4.3/4.4 — optimistic concurrency ────────────
+//
+// version CAS, REQUIRED If-Match, ETag, 428/403/404/409 — plan.md
+// "Optimistic concurrency (US-4)", ADR-0038 (amends ADR-0004's last-write-wins).
+
+describe("T7 — optimistic concurrency: version CAS, If-Match required, ETag, 409/428", () => {
+  const putWith = (
+    app: ReturnType<typeof buildApp>,
+    jwt: string,
+    id: string,
+    ifMatch: string | undefined,
+    name: string,
+    content: ReturnType<typeof makeContent>,
+  ) =>
+    app.request(`/estimates/${id}`, {
+      method: "PUT",
+      headers: {
+        ...bearerHeader(jwt),
+        ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}),
+      },
+      body: JSON.stringify({ name, author: "Alice", content }),
+    });
+
+  // ── ETag wiring (T7 note: "T6 did not add the ETag response header to GET
+  // — that header wiring is yours, to land alongside the CAS") ──────────────
+
+  it("GET /estimates/{id} carries an ETag header matching the current version", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "ETag on GET", author: "Alice", content: makeContent() }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    expect(getRes.status).toBe(200);
+    expect(getRes.headers.get("ETag")).toBe('"1"');
+  });
+
+  it("PUT /estimates/{id} 200 carries an ETag reflecting the NEW version", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "ETag on PUT", author: "Alice", content: makeContent("v1") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const putRes = await putWith(app, jwt, id, '"1"', "ETag on PUT v2", makeContent("v2"));
+    expect(putRes.status).toBe(200);
+    expect(putRes.headers.get("ETag")).toBe('"2"');
+    const body = (await putRes.json()) as { version: number };
+    expect(body.version).toBe(2);
+  });
+
+  // ── If-Match REQUIRED — absent/malformed → 428, not a silent LWW fallback ─
+
+  it("PUT without an If-Match header → 428 precondition_required; nothing written", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({
+        name: "No If-Match original",
+        author: "Alice",
+        content: makeContent("orig"),
+      }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const res = await putWith(app, jwt, id, undefined, "should not save", makeContent("attack"));
+    expect(res.status).toBe(428);
+    const body = (await res.json()) as { code: string; status: number };
+    expect(body.code).toBe("precondition_required");
+    expect(body.status).toBe(428);
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    const row = (await getRes.json()) as { name: string; version: number };
+    expect(row.name).toBe("No If-Match original");
+    expect(row.version).toBe(1);
+  });
+
+  it("PUT with a malformed If-Match → 428 for every malformed shape", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Malformed If-Match", author: "Alice", content: makeContent() }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const malformedValues = ["1", "abc", '"abc"', "*", '""', '"0"', '"-1"', '" 1 "'];
+    for (const malformed of malformedValues) {
+      const res = await putWith(app, jwt, id, malformed, "x", makeContent("x"));
+      expect(res.status).toBe(428);
+    }
+  });
+
+  it("evaluation order: 428 precedes 404 — a stranger with NO If-Match still gets 428, not 404", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtC = await tokenC();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({ name: "Order 428 vs 404", author: "Alice", content: makeContent() }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const res = await putWith(app, jwtC, id, undefined, "x", makeContent("x"));
+    expect(res.status).toBe(428);
+  });
+
+  it("evaluation order: 428 precedes 413 — over-size content with NO If-Match still gets 428, not 413", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Order 428 vs 413", author: "Alice", content: makeContent() }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const res = await putWith(app, jwt, id, undefined, "x", makeOverSizeContent());
+    expect(res.status).toBe(428);
+  });
+
+  // ── AC-4.1/4.3 — a stale save is refused; nothing overwritten ────────────
+
+  it("PUT with a stale If-Match → 409 estimate_version_conflict; body carries currentVersion/updatedAt/lastModifiedBy; stored content is the WINNER's, not the loser's", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Original", author: "Alice", content: makeContent("orig") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    // First save succeeds: version 1 → 2.
+    const firstPut = await putWith(app, jwt, id, '"1"', "First save", makeContent("first"));
+    expect(firstPut.status).toBe(200);
+
+    // Second save still carries the now-stale "1" → 409, nothing written.
+    const staleRes = await putWith(app, jwt, id, '"1"', "Stale save", makeContent("stale"));
+    expect(staleRes.status).toBe(409);
+    const conflictBody = (await staleRes.json()) as {
+      code: string;
+      currentVersion: number;
+      updatedAt: string;
+      lastModifiedBy: { status: string; name: string | null };
+    };
+    expect(conflictBody.code).toBe("estimate_version_conflict");
+    expect(conflictBody.currentVersion).toBe(2);
+    expect(() => new Date(conflictBody.updatedAt)).not.toThrow();
+    // No live `auth` server in this test environment — resolveIdentities
+    // fails SOFT (ADR-0039) to "unknown", proving the 409 is never blocked
+    // by identity resolution.
+    expect(conflictBody.lastModifiedBy).toEqual({ status: "unknown", name: null });
+
+    // Nothing was written by the stale attempt — the FIRST save's content survives.
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    const row = (await getRes.json()) as { name: string; content: unknown; version: number };
+    expect(row.name).toBe("First save");
+    expect(row.content).toEqual(makeContent("first"));
+    expect(row.version).toBe(2);
+  });
+
+  // ── AC-4.3 — two simultaneous saves → exactly one wins ───────────────────
+
+  it("AC-4.3 — two concurrent PUTs with the same If-Match (Promise.all) → exactly one 200 and one 409; version increments by exactly 1; stored content equals the winner's", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Concurrency base", author: "Alice", content: makeContent("base") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const [resX, resY] = await Promise.all([
+      putWith(app, jwt, id, '"1"', "Save X", makeContent("x")),
+      putWith(app, jwt, id, '"1"', "Save Y", makeContent("y")),
+    ]);
+
+    const statuses = [resX.status, resY.status].sort((a, b) => a - b);
+    expect(statuses).toEqual([200, 409]);
+
+    const winnerRes = resX.status === 200 ? resX : resY;
+    const winnerBody = (await winnerRes.json()) as {
+      version: number;
+      name: string;
+      content: unknown;
+    };
+    // Exactly ONE increment — not two, not zero.
+    expect(winnerBody.version).toBe(2);
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwt}` },
+    });
+    const row = (await getRes.json()) as { version: number; name: string; content: unknown };
+    expect(row.version).toBe(2);
+    expect(row.name).toBe(winnerBody.name);
+    expect(row.content).toEqual(winnerBody.content);
+  });
+
+  // ── AC-4.4 — same detection for a solo owner's two tabs ──────────────────
+
+  it("AC-4.4 — same owner, two tabs: the second If-Match:\"1\" save → 409 (not silently accepted as LWW)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Two tabs", author: "Alice", content: makeContent("t") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const tab1 = await putWith(app, jwt, id, '"1"', "Tab 1 save", makeContent("tab1"));
+    expect(tab1.status).toBe(200);
+
+    const tab2 = await putWith(app, jwt, id, '"1"', "Tab 2 save (stale)", makeContent("tab2"));
+    expect(tab2.status).toBe(409);
+  });
+
+  // ── CAS-predicate test (T7 doneWhen, named explicitly) ───────────────────
+  //
+  // Proves the access predicate lives INSIDE the CAS statement, not a
+  // separate check: a viewer whose If-Match is CORRECT still gets 403, never
+  // 409 — a 409 would imply their write was merely out of date, when in fact
+  // their level can never satisfy the predicate regardless of version.
+
+  it("CAS-predicate test: a viewer with a CORRECT If-Match still gets 403 insufficient_access, not 409; row untouched", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({ name: "Viewer CAS", author: "Alice", content: makeContent("v") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    // B's If-Match is CORRECT (matches the current version 1) — isolates the
+    // access predicate as the reason for refusal, not a stale version.
+    const res = await putWith(app, jwtB, id, '"1"', "viewer attempt", makeContent("viewer-attack"));
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("insufficient_access");
+
+    // The row is byte-identical — the rejected PUT wrote nothing.
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    const row = (await getRes.json()) as { name: string; content: unknown; version: number };
+    expect(row.name).toBe("Viewer CAS");
+    expect(row.content).toEqual(makeContent("v"));
+    expect(row.version).toBe(1);
+  });
+
+  it("an unrelated user always gets 404, never 409, even with a syntactically valid If-Match", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtC = await tokenC();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({ name: "Stranger CAS", author: "Alice", content: makeContent() }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const res = await putWith(
+      app,
+      jwtC,
+      id,
+      '"1"',
+      "stranger attempt",
+      makeContent("stranger-attack"),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  // ── AC-3.2 — an editor collaborator has the owner's write capability ─────
+
+  it("editor collaborator's PUT with a correct If-Match → 200; version increments; owner identity populated (not null)", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({ name: "Editor CAS", author: "Alice", content: makeContent("e") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "editor",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    const res = await putWith(app, jwtB, id, '"1"', "Editor save", makeContent("editor-save"));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      version: number;
+      access: string;
+      owner: unknown;
+      content: unknown;
+    };
+    expect(body.version).toBe(2);
+    expect(body.access).toBe("editor");
+    expect(body.owner).not.toBeNull();
+    expect(body.content).toEqual(makeContent("editor-save"));
+
+    // The owner also sees the editor's write (same document, single source of truth).
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    const row = (await getRes.json()) as { name: string; version: number };
+    expect(row.name).toBe("Editor save");
+    expect(row.version).toBe(2);
+  });
+});
