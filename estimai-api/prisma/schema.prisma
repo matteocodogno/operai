@@ -9,16 +9,45 @@ datasource db {
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
+enum EstimateAccessLevel {
+  viewer
+  editor
+}
+
 model Estimate {
-  id        String   @id @default(cuid())
-  userId    String
-  name      String
-  author    String   @default("")
-  sizeBytes Int
-  content   Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                   String   @id @default(cuid())
+  userId               String                       // owner's auth `sub` — unchanged, fixed at creation
+  name                 String
+  author               String   @default("")        // free-text label INSIDE the document —
+                                                     // NOT the owner's account identity. Never
+                                                     // use it to render AC-2.1's owner.
+  sizeBytes            Int
+  content              Json
+  version              Int      @default(1)         // NEW — optimistic concurrency (US-4)
+  lastModifiedByUserId String?                      // NEW — `sub` of the last successful writer,
+                                                     // for the 409 conflict message only
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  collaborators EstimateCollaborator[]
 
   @@index([userId, updatedAt(sort: Desc)])
   @@map("estimate")
+}
+
+model EstimateCollaborator {
+  id              String              @id @default(cuid())
+  estimateId      String
+  estimate        Estimate            @relation(fields: [estimateId], references: [id], onDelete: Cascade) // AC-9.1
+  userId          String                                             // collaborator's auth `sub`
+  email           String                                             // lower-cased snapshot at grant time
+  accessLevel     EstimateAccessLevel
+  grantedByUserId String                                             // owner's `sub` at grant time
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@unique([estimateId, userId])          // the authoritative "one grant per person" invariant
+  @@index([userId, estimateId])           // the collaborator's own list query
+  @@index([estimateId, email])            // AC-1.3 duplicate fast path, no auth round trip
+  @@map("estimate_collaborator")
 }
