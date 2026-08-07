@@ -2,11 +2,11 @@
 import { env } from "./lib/env";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
-import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { estimatesRouter, importEstimatesRouter } from "./estimates/estimates.routes";
 import { registerCollaboratorRoutes } from "./estimates/collaborators.routes";
+import { corsMiddleware } from "./lib/cors";
 import { requestLogger } from "./lib/logger";
 import { setupOpenAPI } from "./openapi/registry";
 import { registerCollaboratorOpenApiDocs } from "./openapi/collaborators.docs";
@@ -15,15 +15,8 @@ const app = new OpenAPIHono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
-app.use(
-  "*",
-  cors({
-    origin: env.ALLOWED_ORIGINS,
-    allowHeaders: ["Content-Type", "Authorization"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true,
-  }),
-);
+// See src/lib/cors.ts for the policy itself and why it's a separate module.
+app.use("*", corsMiddleware);
 
 // Log method / PATH ONLY (no query string) / status / duration — NEVER log
 // bodies (data-residency constraint: estimate content must not appear in
