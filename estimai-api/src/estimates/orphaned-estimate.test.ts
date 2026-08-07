@@ -291,9 +291,22 @@ const bearerHeader = (userId: string, email: string) => ({
 
 const collaboratorsRouter = new OpenAPIHono<{ Variables: JwtVariables }>();
 collaboratorsRouter.use("*", testAuthMiddleware);
+// notifyCollaboratorGranted/notifyCollaboratorRemoved (T10 widened
+// CollaboratorRouteDeps to require these) are stubbed as inert `mock()`
+// spies rather than plain no-op functions: every AC-10.4 route below is
+// exercised expecting a pre-notify 403 (`owner_only`, thrown by
+// `resolveAccess`/the owner-only guard before any notify call site is
+// reached), so asserting zero calls on both spies is a free correctness
+// strengthening — it would catch a future regression that let a
+// non-owner request reach the grant/removal notify path. See the
+// "AC-10.4 — notify spies" describe block below for the assertions.
+const notifyCollaboratorGranted = mock(async () => {});
+const notifyCollaboratorRemoved = mock(async () => {});
 registerCollaboratorRoutes(collaboratorsRouter, {
   checkAppAccess: async () => ({ eligible: false }),
   resolveIdentities: async () => new Map(),
+  notifyCollaboratorGranted,
+  notifyCollaboratorRemoved,
 });
 
 // ─── Fixture ids ─────────────────────────────────────────────────────────
@@ -624,6 +637,11 @@ describe("AC-10.4 — every owner-only operation is now permanently unavailable 
     const viewerAccess = await Effect.runPromise(resolveAccess(estimateId, VIEWER_ID));
     expect(editorAccess?.level).toBe("editor");
     expect(viewerAccess?.level).toBe("viewer");
+  });
+
+  it("neither notify stub was ever called — every request above was rejected before reaching a notify call site", () => {
+    expect(notifyCollaboratorGranted).not.toHaveBeenCalled();
+    expect(notifyCollaboratorRemoved).not.toHaveBeenCalled();
   });
 });
 
