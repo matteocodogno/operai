@@ -341,7 +341,7 @@ export const update = async (
 ): Promise<EstimateFull> => {
   const response = await apiFetch(`${apiBase()}/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'If-Match': String(version) },
+    headers: { 'Content-Type': 'application/json', 'If-Match': `"${version}"` },
     body: JSON.stringify(body),
   })
   if (response.status === 409 || response.status === 428) {

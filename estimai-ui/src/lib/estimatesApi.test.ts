@@ -327,8 +327,11 @@ describe('update(id, body, version)', () => {
 
     const { init } = lastCall()
     const headers = init?.headers as Record<string, string>
-    // Non-vacuous: omitting the header, or sending the wrong version, breaks this.
-    expect(headers['If-Match']).toBe('7')
+    // Non-vacuous: omitting the header, sending the wrong version, or sending it
+    // unquoted (e.g. '7' instead of '"7"') breaks this — the server's `parseIfMatch`
+    // is a strict `/^"(\d+)"$/` and 428s on anything else (the exact defect this
+    // test guards against).
+    expect(headers['If-Match']).toBe('"7"')
   })
 
   it('sends a different If-Match string for a different version — proves the header is not hardcoded', async () => {
@@ -337,7 +340,7 @@ describe('update(id, body, version)', () => {
 
     const { init } = lastCall()
     const headers = init?.headers as Record<string, string>
-    expect(headers['If-Match']).toBe('42')
+    expect(headers['If-Match']).toBe('"42"')
   })
 
   it('throws ApiError with status 413 when the updated content is too large (AC-1.4)', async () => {
@@ -485,7 +488,7 @@ describe('update(id, body, version)', () => {
       const { init } = lastCall()
       expect(JSON.parse(init?.body as string)).toEqual(fixedUpsert)
       const headers = init?.headers as Record<string, string>
-      expect(headers['If-Match']).toBe('4')
+      expect(headers['If-Match']).toBe('"4"')
     })
   })
 })
