@@ -528,32 +528,60 @@ describe("AC-1.5 — a collaborator (editor) cannot add collaborators", () => {
 // ─── AC-1.6 — a stranger gets 404 ────────────────────────────────────────────
 
 describe("AC-1.6 — an unrelated caller gets 404, not 403", () => {
-  it("POST /estimates/{id}/collaborators with no relationship → 404", async () => {
+  it("POST /estimates/{id}/collaborators with no relationship → 404, byte-identical to a genuinely absent id", async () => {
     const owner = freshOwner();
     ownerIdsToClean.add(owner.id);
     const estimate = await seedEstimate(owner.id);
     const app = buildApp();
 
-    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
-      method: "POST",
-      headers: bearerHeader("t8-stranger", "stranger@example.com"),
-      body: JSON.stringify({ email: "someone@example.com", accessLevel: "viewer" }),
-    });
+    const strangerAttempt = () =>
+      app.request(`/estimates/${estimate.id}/collaborators`, {
+        method: "POST",
+        headers: bearerHeader("t8-stranger", "stranger@example.com"),
+        body: JSON.stringify({ email: "someone@example.com", accessLevel: "viewer" }),
+      });
 
-    expect(res.status).toBe(404);
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    // The SAME id is now genuinely absent — plan.md claims every
+    // `…/collaborators` route's stranger 404 is byte-identical to a
+    // genuinely absent id (AC-1.6), the same property
+    // estimates.routes.test.ts's T6/AC-1.6 block proves for the plain
+    // estimate routes. A differing `detail`/`code` here would be an
+    // existence leak.
+    await testDb.estimate.delete({ where: { id: estimate.id } });
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
   });
 
-  it("GET /estimates/{id}/collaborators with no relationship → 404", async () => {
+  it("GET /estimates/{id}/collaborators with no relationship → 404, byte-identical to a genuinely absent id", async () => {
     const owner = freshOwner();
     ownerIdsToClean.add(owner.id);
     const estimate = await seedEstimate(owner.id);
     const app = buildApp();
 
-    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
-      headers: bearerHeader("t8-stranger-2", "stranger2@example.com"),
-    });
+    const strangerAttempt = () =>
+      app.request(`/estimates/${estimate.id}/collaborators`, {
+        headers: bearerHeader("t8-stranger-2", "stranger2@example.com"),
+      });
 
-    expect(res.status).toBe(404);
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    await testDb.estimate.delete({ where: { id: estimate.id } });
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
   });
 });
 
@@ -856,7 +884,52 @@ describe("AC-5.1 — PATCH level change takes effect on the collaborator's next 
     expect(unchanged?.accessLevel).toBe("viewer");
   });
 
-  it("PATCH by an unrelated stranger → 404", async () => {
+  it("PATCH by a viewer (not the owner) → 403 owner_only, level unchanged (AC-3.3 — no collaborator, whatever their own level, may manage collaborators)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const viewerId = "t9-patch-by-viewer";
+    const viewerEmail = "patch-by-viewer@example.com";
+    const targetGrant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-patch-target-viewer-case",
+        email: "patch-target-viewer-case@example.com",
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: viewerId,
+        email: viewerEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${targetGrant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(viewerId, viewerEmail),
+        body: JSON.stringify({ accessLevel: "viewer" }),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+
+    const unchanged = await testDb.estimateCollaborator.findUnique({
+      where: { id: targetGrant.id },
+    });
+    expect(unchanged?.accessLevel).toBe("editor");
+  });
+
+  it("PATCH by an unrelated stranger → 404, byte-identical to a genuinely absent id", async () => {
     const owner = freshOwner();
     ownerIdsToClean.add(owner.id);
     const estimate = await seedEstimate(owner.id);
@@ -871,16 +944,32 @@ describe("AC-5.1 — PATCH level change takes effect on the collaborator's next 
     });
     const app = buildApp();
 
-    const res = await app.request(
-      `/estimates/${estimate.id}/collaborators/${grant.id}`,
-      {
-        method: "PATCH",
-        headers: bearerHeader("t9-patch-stranger", "patch-stranger@example.com"),
-        body: JSON.stringify({ accessLevel: "editor" }),
-      },
-    );
+    const strangerAttempt = () =>
+      app.request(
+        `/estimates/${estimate.id}/collaborators/${grant.id}`,
+        {
+          method: "PATCH",
+          headers: bearerHeader("t9-patch-stranger", "patch-stranger@example.com"),
+          body: JSON.stringify({ accessLevel: "editor" }),
+        },
+      );
 
-    expect(res.status).toBe(404);
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    // resolveAccess (the "no relationship to the ESTIMATE" check) runs
+    // BEFORE the collaborator-grant lookup, so a stranger's 404 here is the
+    // "Estimate not found" flavor, not the AC-5.4 fabricated-grant flavor —
+    // deleting the estimate (cascades the grant row too) makes the SAME id
+    // genuinely absent and must produce a byte-identical body.
+    await testDb.estimate.delete({ where: { id: estimate.id } });
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
   });
 
   it("PATCH on a fabricated grant id (AC-5.4) → 404, even for the real owner", async () => {
@@ -1035,7 +1124,48 @@ describe("AC-5.2 — DELETE {collaboratorId} revokes access, same refusal as an 
     expect(stillThere).not.toBeNull();
   });
 
-  it("DELETE by an unrelated stranger → 404, grant unchanged", async () => {
+  it("DELETE by a viewer (not the owner) → 403 owner_only, grant unchanged (AC-3.3 — no collaborator, whatever their own level, may manage collaborators)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const viewerId = "t9-delete-by-viewer";
+    const viewerEmail = "delete-by-viewer@example.com";
+    const targetGrant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-delete-target-viewer-case",
+        email: "delete-target-viewer-case@example.com",
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: viewerId,
+        email: viewerEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${targetGrant.id}`,
+      { method: "DELETE", headers: bearerHeader(viewerId, viewerEmail) },
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+
+    const stillThere = await testDb.estimateCollaborator.findUnique({
+      where: { id: targetGrant.id },
+    });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it("DELETE by an unrelated stranger → 404, grant unchanged, byte-identical to a genuinely absent id", async () => {
     const owner = freshOwner();
     ownerIdsToClean.add(owner.id);
     const estimate = await seedEstimate(owner.id);
@@ -1050,17 +1180,30 @@ describe("AC-5.2 — DELETE {collaboratorId} revokes access, same refusal as an 
     });
     const app = buildApp();
 
-    const res = await app.request(
-      `/estimates/${estimate.id}/collaborators/${grant.id}`,
-      {
-        method: "DELETE",
-        headers: bearerHeader("t9-delete-stranger", "delete-stranger@example.com"),
-      },
-    );
+    const strangerAttempt = () =>
+      app.request(
+        `/estimates/${estimate.id}/collaborators/${grant.id}`,
+        {
+          method: "DELETE",
+          headers: bearerHeader("t9-delete-stranger", "delete-stranger@example.com"),
+        },
+      );
 
-    expect(res.status).toBe(404);
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
     const stillThere = await testDb.estimateCollaborator.findUnique({ where: { id: grant.id } });
     expect(stillThere).not.toBeNull();
+
+    // Same id, now genuinely absent (cascades the grant row too) — must
+    // produce a byte-identical 404 Problem body (AC-1.6).
+    await testDb.estimate.delete({ where: { id: estimate.id } });
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
   });
 
   it("DELETE on a fabricated grant id (AC-5.4) → 404, even for the real owner", async () => {
@@ -1274,20 +1417,34 @@ describe("AC-6.2 — the owner has no grant to leave", () => {
     expect(stillOwned).not.toBeNull();
   });
 
-  it("a genuine stranger's DELETE .../me → the SAME 404 not_a_collaborator (no existence leak beyond that)", async () => {
+  it("a genuine stranger's DELETE .../me → the SAME 404 not_a_collaborator (no existence leak beyond that), byte-identical to a genuinely absent id", async () => {
     const owner = freshOwner();
     ownerIdsToClean.add(owner.id);
     const estimate = await seedEstimate(owner.id);
     const app = buildApp();
 
-    const res = await app.request(`/estimates/${estimate.id}/collaborators/me`, {
-      method: "DELETE",
-      headers: bearerHeader("t9-ac62-stranger", "ac62-stranger@example.com"),
-    });
+    const strangerAttempt = () =>
+      app.request(`/estimates/${estimate.id}/collaborators/me`, {
+        method: "DELETE",
+        headers: bearerHeader("t9-ac62-stranger", "ac62-stranger@example.com"),
+      });
 
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { code: string };
-    expect(body.code).toBe("not_a_collaborator");
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+    expect((strangerBody as { code: string }).code).toBe("not_a_collaborator");
+
+    // `/me` never calls resolveAccess at all (this file's header) — it
+    // looks up the caller's OWN grant directly, so the SAME body must come
+    // back whether the estimate exists (and the caller merely has no grant
+    // on it) or has been deleted outright.
+    await testDb.estimate.delete({ where: { id: estimate.id } });
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
   });
 });
 
