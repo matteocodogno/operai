@@ -251,7 +251,14 @@ describe('T17 named early check — viewer mount has zero enabled mutating contr
   it('export (Client/PDF/Excel) and Share buttons stay present and enabled for a viewer (AC-3.1)', () => {
     renderEditor('viewer')
 
-    const shareBtn = screen.getByRole('button', { name: /share/i }) as HTMLButtonElement
+    // T22 (specs/013-estimate-sharing/tasks.md) relabelled "Share" → "Share
+    // link" AND added a "Shared by {owner} · {level}" chip that renders in
+    // this exact 'viewer' access mode — a loose /share/i match now hits
+    // BOTH (the chip's copy also contains "Shared"), so this query is
+    // pinned to the exact label to keep asserting the SAME button T17
+    // always meant ("Share link" is a strict superset of the old "Share"
+    // label — AC-8.1's behavior-untouched rename, not a reinterpretation).
+    const shareBtn = screen.getByRole('button', { name: /share link/i }) as HTMLButtonElement
     const clientBtn = screen.getByRole('button', { name: /client/i }) as HTMLButtonElement
     const pdfBtn = screen.getByRole('button', { name: /pdf/i }) as HTMLButtonElement
     const excelBtn = screen.getByRole('button', { name: /excel/i }) as HTMLButtonElement

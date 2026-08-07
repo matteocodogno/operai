@@ -25,9 +25,22 @@ import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
 import ToastBanner from './components/ToastBanner'
 import ConflictBanner from './components/ConflictBanner'
+import CollaboratorsDialog from './components/CollaboratorsDialog'
+import { formatIdentity } from './lib/identity'
 import * as estimatesApi from './lib/estimatesApi'
 import { Analytics } from '@vercel/analytics/react';
 import { SpeedInsights } from "@vercel/speed-insights/react"
+
+/**
+ * T22 (specs/013-estimate-sharing/tasks.md; design.md "## Toolbar
+ * composition decision"): tiny local label helper for the "Shared by
+ * {owner} · {level}" chip. Mirrors `CollaboratorsDialog.tsx`'s own private
+ * `levelLabel` — duplicated here rather than exported from that
+ * already-merged, self-contained file for a single two-line helper.
+ */
+function accessLevelLabel(level: 'editor' | 'viewer'): string {
+  return level === 'editor' ? strings.sharing.dialog.levelEditor : strings.sharing.dialog.levelViewer
+}
 
 export default function EstimatorApp() {
   // The suite-level chrome (logo/About, avatar menu + sign-out, theme toggle)
@@ -45,6 +58,7 @@ export default function EstimatorApp() {
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
   const [showQr, setShowQr] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [showCollaborators, setShowCollaborators] = useState(false)
   const [dismissedPicker, setDismissedPicker] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
   const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -70,6 +84,7 @@ export default function EstimatorApp() {
     updRel, addRel, delRel,
     updP, loadTemplate,
     canEdit, conflict,
+    access, owner, collaboratorCount,
   } = useEstimatorContext()
 
   // T17 (specs/013-estimate-sharing/tasks.md; design.md S5 "single canEdit
@@ -343,8 +358,51 @@ const exportPDF = useCallback(() => {
             className="py-1 px-2.5 text-[11px] font-medium text-acc border border-acc/30 hover:border-acc hover:bg-acc/5 transition-colors flex items-center gap-1"
             title="Copy shareable link to clipboard"
           >
-            <span>{shareCopied ? '✓' : '⤴'}</span> {shareCopied ? 'Copied!' : 'Share'}
+            <span>{shareCopied ? '✓' : '⤴'}</span>{' '}
+            {shareCopied ? strings.sharing.toolbar.shareLinkCopied : strings.sharing.toolbar.shareLink}
           </button>
+          <div className="w-px h-4 bg-rule mx-0.5" />
+          {/* T22 (specs/013-estimate-sharing/tasks.md; design.md "## Toolbar
+              composition decision"): a SECOND, differently-shaped entry —
+              never folded into "Share link" above (AC-8.1/AC-8.2). Owner
+              sees an actionable button that opens CollaboratorsDialog in
+              owner mode; a collaborator sees a non-actionable-looking chip
+              that opens the same dialog in its read-only member mode. */}
+          {access === 'owner' ? (
+            <button
+              onClick={() => setShowCollaborators(true)}
+              className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
+              title="Manage collaborators"
+              aria-label={
+                collaboratorCount
+                  ? strings.sharing.toolbar.collaboratorsWithCount(collaboratorCount)
+                  : undefined
+              }
+              data-testid="collaborators-button"
+            >
+              <span aria-hidden="true">👥</span> {strings.sharing.toolbar.collaborators}
+              {!!collaboratorCount && (
+                <span
+                  aria-hidden="true"
+                  className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold leading-none bg-muted/20 text-muted"
+                >
+                  {collaboratorCount}
+                </span>
+              )}
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowCollaborators(true)}
+              className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule rounded-full hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
+              title="View collaboration details"
+              data-testid="collaborators-chip"
+            >
+              {strings.sharing.toolbar.sharedByChip(
+                formatIdentity(owner ?? { status: 'unknown', name: null }),
+                accessLevelLabel(access),
+              )}
+            </button>
+          )}
           <div className="w-px h-4 bg-rule mx-0.5" />
           <button
             onClick={exportClient}
@@ -474,6 +532,14 @@ const exportPDF = useCallback(() => {
           shareUrl={buildShareUrl({ id: projectId, name, author, params, releases, acts })}
           projectName={name}
           onClose={() => setShowQr(false)}
+        />
+      )}
+      {showCollaborators && (
+        <CollaboratorsDialog
+          estimateId={projectId}
+          access={access}
+          owner={owner}
+          onClose={() => setShowCollaborators(false)}
         />
       )}
 

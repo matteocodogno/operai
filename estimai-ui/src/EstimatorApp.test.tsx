@@ -44,8 +44,8 @@ vi.mock('@tanstack/react-router', () => ({
   // EstimatorApp.tsx (ConflictBanner's "Reload latest" → router.invalidate())
   // — required here so this pre-existing mock still satisfies every hook the
   // real component now calls. This file's own stale `EstimateFull` fixture
-  // (missing version/access/owner, a pnpm build failure) is unrelated and
-  // belongs to T22 — left exactly as found.
+  // (missing version/access/owner, the last remaining `pnpm build` failure
+  // on this branch) is fixed below by T22 (see `mockUpdateResponse`).
   useRouter: () => ({ invalidate: vi.fn() }),
   Outlet: () => null,
   createRootRoute: vi.fn(),
@@ -88,8 +88,10 @@ vi.mock('./lib/estimatesApi', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 import * as estimatesApi from './lib/estimatesApi'
+import type { EstimateAccess, EstimateIdentity } from './lib/estimatesApi'
 import { EstimatorProvider, useEstimatorContext } from './context/EstimatorContext'
 import EstimatorApp from './EstimatorApp'
+import { strings } from './strings'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -224,6 +226,12 @@ describe('EstimatorApp: saveError → ToastBanner render wiring (AC-1.3)', () =>
 // is removed — screen.getByRole('status') throws.
 // ---------------------------------------------------------------------------
 
+// T22 (specs/013-estimate-sharing/tasks.md): this fixture was missing
+// `version`/`access`/`owner` — all required on `EstimateFull` since T15
+// widened that type (T16's fixture note flagged this file's stale literal
+// as the last remaining `pnpm build` failure on the branch, deliberately
+// left for T22 to fix). `collaboratorCount` stays absent — optional, and
+// this fixture predates the toolbar's Collaborators button reading it.
 const mockUpdateResponse = {
   id: 'est-toast-success-test',
   name: 'Original Name',
@@ -231,6 +239,9 @@ const mockUpdateResponse = {
   content: { params: fixtureParams, releases: [fixtureRelease], acts: fixtureActs },
   createdAt: '2026-07-03T10:00:00.000Z',
   updatedAt: '2026-07-03T10:00:00.000Z',
+  version: 2,
+  access: 'owner' as const,
+  owner: null,
 }
 
 // NOTE: react-dnd (used by ActivityTable, mounted inside EstimatorApp) injects
@@ -314,5 +325,111 @@ describe('EstimatorApp: showSavedToast → success ToastBanner render wiring', (
 
     expect(screen.getByRole('alert')).toBeDefined()
     expect(screen.queryByText('Changes stored')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Test: toolbar composition — "Share link" + "Collaborators"/chip (T22,
+// specs/013-estimate-sharing/tasks.md; design.md "## Toolbar composition
+// decision", AC-8.1/AC-8.2).
+//
+// NON-VACUOUS: these tests FAIL if EstimatorApp.tsx folds the two sharing
+// mechanisms into one control (e.g. a single "Share ▾" dropdown), if the
+// Collaborators button/chip is missing from either access mode, if the
+// count badge stops reflecting `collaboratorCount`, or if the Share button's
+// existing click handler (buildShareUrl + clipboard write + "Copied!"
+// feedback) is altered.
+// ---------------------------------------------------------------------------
+
+function renderToolbar(
+  access: EstimateAccess,
+  owner?: EstimateIdentity | null,
+  collaboratorCount?: number,
+) {
+  return render(
+    <EstimatorProvider
+      estimateId="est-toolbar-test"
+      initialName="Toolbar Test"
+      initialAuthor="Test Author"
+      initialParams={fixtureParams}
+      initialReleases={[fixtureRelease]}
+      initialActs={fixtureActs}
+      initialAccess={access}
+      initialVersion={1}
+      initialOwner={owner}
+      initialCollaboratorCount={collaboratorCount}
+    >
+      <EstimatorApp />
+    </EstimatorProvider>,
+  )
+}
+
+describe('EstimatorApp: toolbar composition — Share link + Collaborators (T22, AC-8.1/AC-8.2)', () => {
+  beforeEach(() => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
+  })
+
+  it('owner: "Share link" and "Collaborators" are both present, as two separately-labelled entries', () => {
+    renderToolbar('owner', null, 3)
+
+    const shareBtn = screen.getByRole('button', { name: /share link/i })
+    const collabBtn = screen.getByTestId('collaborators-button')
+
+    expect(shareBtn).toBeDefined()
+    expect(collabBtn).toBeDefined()
+    expect(shareBtn).not.toBe(collabBtn)
+    // Never folded into one control (no shared "Share ▾" dropdown) — each
+    // has its own, distinct accessible text.
+    expect(shareBtn.textContent).not.toContain('Collaborators')
+    expect(collabBtn.textContent).not.toContain('Share')
+    // The owner never sees the member-mode chip.
+    expect(screen.queryByTestId('collaborators-chip')).toBeNull()
+  })
+
+  it('owner: the Collaborators count badge reflects collaboratorCount', () => {
+    renderToolbar('owner', null, 3)
+
+    const collabBtn = screen.getByTestId('collaborators-button')
+    expect(collabBtn.textContent).toContain('3')
+    expect(collabBtn.getAttribute('aria-label')).toBe(strings.sharing.toolbar.collaboratorsWithCount(3))
+  })
+
+  it('owner: no count badge when collaboratorCount is 0 or absent', () => {
+    renderToolbar('owner', null, 0)
+
+    const collabBtn = screen.getByTestId('collaborators-button')
+    expect(collabBtn.getAttribute('aria-label')).toBeNull()
+    expect(collabBtn.textContent).toBe(`👥 ${strings.sharing.toolbar.collaborators}`)
+  })
+
+  it('collaborator (viewer): the chip renders in place of the Collaborators button', () => {
+    renderToolbar('viewer', { status: 'active', name: 'Marco R.' })
+
+    expect(screen.queryByTestId('collaborators-button')).toBeNull()
+    const chip = screen.getByTestId('collaborators-chip')
+    expect(chip.textContent).toBe(strings.sharing.toolbar.sharedByChip('Marco R.', 'Viewer'))
+    // "Share link" stays present and unaffected alongside the chip.
+    expect(screen.getByRole('button', { name: /share link/i })).toBeDefined()
+  })
+
+  it('collaborator (editor): the chip names the Editor level', () => {
+    renderToolbar('editor', { status: 'active', name: 'Marco R.' })
+
+    const chip = screen.getByTestId('collaborators-chip')
+    expect(chip.textContent).toBe(strings.sharing.toolbar.sharedByChip('Marco R.', 'Editor'))
+  })
+
+  it('the existing Share-link handler is invoked unchanged — copies the buildShareUrl link and shows "Copied!"', async () => {
+    renderToolbar('owner', null, 0)
+
+    const shareBtn = screen.getByRole('button', { name: /share link/i })
+    await act(async () => {
+      shareBtn.click()
+    })
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
+    const [url] = vi.mocked(navigator.clipboard.writeText).mock.calls[0] as [string]
+    expect(url.startsWith(`${window.location.origin}/share#data=`)).toBe(true)
+    expect(screen.getByText(strings.sharing.toolbar.shareLinkCopied)).toBeDefined()
   })
 })

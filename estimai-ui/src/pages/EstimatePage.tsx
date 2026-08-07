@@ -19,7 +19,11 @@ const route = getRouteApi('/estimates/$estimateId')
  * as initial state, alongside the caller's `access` and `version` (T16); all
  * subsequent mutations flow through the context and are auto-saved via
  * debounced, `If-Match`-guarded PUT to the API when `canEdit` — never for a
- * viewer (AC-1.1, AC-1.2, AC-2.2, AC-3.1, AC-4.1, AC-4.2).
+ * viewer (AC-1.1, AC-1.2, AC-2.2, AC-3.1, AC-4.1, AC-4.2). `owner` and
+ * `collaboratorCount` (T22, specs/013-estimate-sharing/tasks.md) are also
+ * threaded straight through from `EstimateFull` — the toolbar's
+ * Collaborators button/"Shared by" chip and `CollaboratorsDialog` read them
+ * from context rather than this page re-fetching or re-deriving anything.
  */
 export default function EstimatePage() {
   const { estimateId } = route.useParams()
@@ -51,6 +55,8 @@ export default function EstimatePage() {
       initialActs={estimate.content.acts}
       initialAccess={estimate.access}
       initialVersion={estimate.version}
+      initialOwner={estimate.owner}
+      initialCollaboratorCount={estimate.collaboratorCount}
     >
       <EstimatorApp />
     </EstimatorProvider>

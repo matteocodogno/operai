@@ -99,6 +99,21 @@ export type EstimatorContextValue = {
    * deliberately no in-place "clear conflict" setter here.
    */
   conflict: ConflictInfo | null
+  /**
+   * The estimate's owner identity (T22, specs/013-estimate-sharing/
+   * tasks.md; `EstimateFull.owner`) — `null` when `access === 'owner'`
+   * (there is no "owner of your own estimate" to resolve), populated for a
+   * collaborator so the toolbar's "Shared by {owner} · {level}" chip (and
+   * `CollaboratorsDialog`'s member mode) has a name to render without a
+   * fetch of its own. Fixed for the provider's lifetime, same as `access`.
+   */
+  owner: EstimateIdentity | null
+  /**
+   * `EstimateFull.collaboratorCount` — present only when `access ===
+   * 'owner'` (plan.md), `undefined` otherwise. Drives the toolbar
+   * Collaborators button's count badge (T22).
+   */
+  collaboratorCount: number | undefined
 }
 
 const EstimatorContext = createContext<EstimatorContextValue | null>(null)
@@ -126,6 +141,18 @@ type Props = {
    * supplies `EstimateFull.version`.
    */
   initialVersion?: number
+  /**
+   * `EstimateFull.owner` (T22, specs/013-estimate-sharing/tasks.md).
+   * Defaults to `null` — the same back-compat reason as `initialAccess`:
+   * every pre-existing call site predating T22 never had an owner identity
+   * to pass, and `null` is also the API's own value for an owned estimate.
+   */
+  initialOwner?: EstimateIdentity | null
+  /**
+   * `EstimateFull.collaboratorCount` (T22). Defaults to `undefined`, same
+   * back-compat reasoning.
+   */
+  initialCollaboratorCount?: number
   children: React.ReactNode
 }
 
@@ -138,6 +165,8 @@ export function EstimatorProvider({
   initialActs,
   initialAccess,
   initialVersion,
+  initialOwner,
+  initialCollaboratorCount,
   children,
 }: Props) {
   const [name, setName] = useState(initialName ?? '')
@@ -154,6 +183,12 @@ export function EstimatorProvider({
   // a session's own access level mid-mount (AC-5.1 is next-load only).
   const access: EstimateAccess = initialAccess ?? 'owner'
   const canEdit = access !== 'viewer'
+
+  // owner/collaboratorCount are likewise fixed for the provider's lifetime
+  // (T22, specs/013-estimate-sharing/tasks.md) — plain consts, not state;
+  // nothing in this feature changes them mid-mount.
+  const owner: EstimateIdentity | null = initialOwner ?? null
+  const collaboratorCount: number | undefined = initialCollaboratorCount
 
   // version is real state (not just a ref) so consumers (T18's badge/banner
   // copy) can react to it; the value the *next* autosave actually sends as
@@ -414,6 +449,8 @@ export function EstimatorProvider({
       canEdit,
       version,
       conflict,
+      owner,
+      collaboratorCount,
     }),
     [
       estimateId,
@@ -443,6 +480,8 @@ export function EstimatorProvider({
       canEdit,
       version,
       conflict,
+      owner,
+      collaboratorCount,
     ],
   )
 
