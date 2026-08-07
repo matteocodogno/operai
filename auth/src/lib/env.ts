@@ -61,6 +61,24 @@ const envSchema = z.object({
   NOTIFY_INTERNAL_TOKEN: z
     .string()
     .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
+  // ─── App-access eligibility check (specs/013-estimate-sharing, T1/T2) ───────
+  // `POST /authz/app-access-check` is a decision endpoint directly callable by
+  // any end user holding their own JWT (plan.md "The catch, and how it is
+  // resolved") — it must never let a caller distinguish "no such user" from
+  // "user exists, no app access" by response time. FLOOR is the minimum
+  // wall-clock time every `eligible:false` response takes regardless of which
+  // negative cause produced it (`await sleep(max(0, floor - elapsed))`); the
+  // success path is not floored. RATE_LIMIT/_WINDOW_MS bound the suite's
+  // FIRST rate limiter (plan.md "Rate limiting") — 40 attempts per caller
+  // `sub` per window, sliding-window in-process (rateLimiter.ts), since this
+  // is the directly-callable surface behind estimai-api's own 20/10min limit.
+  APP_ACCESS_CHECK_FLOOR_MS: z.coerce.number().int().nonnegative().default(150),
+  APP_ACCESS_CHECK_RATE_LIMIT: z.coerce.number().int().positive().default(40),
+  APP_ACCESS_CHECK_RATE_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(600000),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

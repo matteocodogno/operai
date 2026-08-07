@@ -1,0 +1,18 @@
+-- CreateIndex (hand-written — a functional index Prisma's schema cannot
+-- express, same convention as this migration history's own
+-- 20260713222008_invitation_lifecycle partial-unique index and
+-- 20260804094012_employee_address's hand-appended CHECKs).
+--
+-- specs/013-estimate-sharing (T1, plan.md "Timing identity (AC-1.2) — the
+-- concrete mechanism"). `POST /authz/app-access-check` (T2) probes
+-- `WHERE lower(email) = $1 AND "deletedAt" IS NULL LIMIT 1` so the
+-- "no such user" and "user exists, no EstimAI access" paths cost the exact
+-- same single indexed lookup — a Prisma `mode: "insensitive"` filter would
+-- instead emit ILIKE, which cannot use this (or any B-tree) index and would
+-- force a sequential scan, reintroducing a measurable timing delta between
+-- the two negative causes and breaking the AC-1.2 anti-enumeration property.
+--
+-- Non-unique: "user".email already carries its own case-sensitive UNIQUE
+-- constraint (schema.prisma); this index exists purely to make the
+-- case-insensitive lookup path an index scan.
+CREATE INDEX "user_email_lower_idx" ON "user" (lower(email));
