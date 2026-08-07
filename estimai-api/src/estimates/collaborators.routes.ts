@@ -64,11 +64,14 @@
  *      (an email-snapshot mismatch cannot create a duplicate grant)
  *   9. after commit, best-effort notify (AC-7.1)
  *
- * STEP 9 IS DELIBERATELY NOT IMPLEMENTED HERE — notification wiring is
- * specs/013's T10 (deps: T8, T9), per explicit scope direction for this
- * task. `src/lib/notify.ts` already exists with both payload functions
- * ready; T10 wires `notifyCollaboratorGranted` in AFTER this INSERT
- * commits. Nothing here calls it.
+ * STEP 9 (T10, specs/013's notification wiring, deps: T8, T9): AFTER the
+ * INSERT above commits, `deps.notifyCollaboratorGranted` (defaulting to
+ * `src/lib/notify.ts`'s real export) fires once, best-effort — see
+ * `bestEffortNotify`/`resolveEstimateNameForNotify` further down this file.
+ * A notify failure (thrown, rejected, or a non-2xx from notify-api) is
+ * caught and logged; it NEVER rolls back the grant or changes this
+ * handler's 201 response — the collaborator sees the estimate in their
+ * list on their next `GET /estimates` regardless of push delivery.
  *
  * THE GENERIC REJECTION (AC-1.2) — the security core of this endpoint: ONE
  * fixed status (422), ONE fixed code (`collaborator_not_eligible`), ONE
@@ -116,6 +119,10 @@ import {
   resolveIdentities as realResolveIdentities,
   type Identity as ResolvedIdentity,
 } from "@/lib/authClient";
+import {
+  notifyCollaboratorGranted as realNotifyCollaboratorGranted,
+  notifyCollaboratorRemoved as realNotifyCollaboratorRemoved,
+} from "@/lib/notify";
 import { createSlidingWindowRateLimiter } from "@/lib/rateLimiter";
 import { resolveAccess } from "./access";
 import {
@@ -127,6 +134,7 @@ import {
   deleteCollaboratorById,
   findCollaboratorByUserId,
   deleteCollaboratorByUserId,
+  findEstimateName,
   AlreadyCollaboratorError,
 } from "./collaborators.repo";
 import {
@@ -229,6 +237,52 @@ const problemTooManyRequests = (path: string, detail: string, code: string) => (
   instance: path,
 });
 
+// ─── T10 — best-effort notify helpers ───────────────────────────────────────
+//
+// `notify.ts`'s exports already promise never to throw/reject (T5's doc
+// comment) — this wrapper is deliberate DEFENSE IN DEPTH, mirroring
+// `refund-api/src/review/decide.routes.ts`'s `notifyDecisionBestEffort`
+// (the established pattern for this exact "outbound push AFTER a commit"
+// shape in this monorepo): a test-injected `deps.notifyCollaboratorGranted`/
+// `Removed` double COULD throw (T10's own done-when requires proving a
+// throwing notify client still yields 201 with the grant persisted), and
+// this `try/catch` is what makes that true regardless of what the real
+// `notify.ts` promises. Never awaited by the caller for its result — only
+// for ordering (it must run strictly after the DB write it reports on).
+
+async function bestEffortNotify(
+  notifyCall: () => Promise<void>,
+  logContext: string,
+): Promise<void> {
+  try {
+    await notifyCall();
+  } catch (error) {
+    console.error(
+      `[collaborators] notify threw unexpectedly for ${logContext} — the change was NOT rolled back:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+/**
+ * Resolves the estimate's current `name` for a post-commit notification body
+ * (AC-7.1/AC-7.2). Best-effort itself — a `DatabaseError` or a (practically
+ * unreachable, since the caller just wrote to this same row) vanished
+ * estimate falls back to a generic placeholder rather than ever blocking or
+ * failing the already-committed grant/removal response.
+ */
+async function resolveEstimateNameForNotify(estimateId: string): Promise<string> {
+  const nameExit = await Effect.runPromiseExit(findEstimateName(estimateId));
+  if (nameExit._tag === "Success" && nameExit.value !== null) {
+    return nameExit.value;
+  }
+  console.error(
+    `[collaborators] could not resolve estimate ${estimateId}'s name for a post-commit ` +
+      "notification — falling back to a generic placeholder",
+  );
+  return "this estimate";
+}
+
 // ─── Display identity helper (ADR-0039 — fails SOFT, never gates access) ────
 
 const toWireIdentity = (resolved: ResolvedIdentity): Collaborator["identity"] => ({
@@ -267,11 +321,21 @@ const addCollaboratorLimiter = createSlidingWindowRateLimiter({
 export interface CollaboratorRouteDeps {
   readonly checkAppAccess: typeof realCheckAppAccess;
   readonly resolveIdentities: typeof realResolveIdentities;
+  // T10 — same injectability rationale as checkAppAccess/resolveIdentities
+  // above (see file header): notify.ts calls `fetch` against an outbound
+  // service exactly like authClient.ts does, so a test file that wants to
+  // assert "called exactly once with X" (AC-7.1/7.2) or "never called"
+  // (AC-7.3) needs a per-test double, not a shared module-cache singleton
+  // another test file's `mock.module()` could silently win or lose against.
+  readonly notifyCollaboratorGranted: typeof realNotifyCollaboratorGranted;
+  readonly notifyCollaboratorRemoved: typeof realNotifyCollaboratorRemoved;
 }
 
 const defaultDeps: CollaboratorRouteDeps = {
   checkAppAccess: realCheckAppAccess,
   resolveIdentities: realResolveIdentities,
+  notifyCollaboratorGranted: realNotifyCollaboratorGranted,
+  notifyCollaboratorRemoved: realNotifyCollaboratorRemoved,
 };
 
 // ─── Registration ─────────────────────────────────────────────────────────────
@@ -501,9 +565,21 @@ export function registerCollaboratorRoutes(
 
     const created = insertExit.value;
 
-    // ── Step 9 (best-effort notify, AC-7.1) is DELIBERATELY NOT IMPLEMENTED
-    // HERE — see this file's header. specs/013 T10 wires it in after this
-    // point, using src/lib/notify.ts's notifyCollaboratorGranted.
+    // ── Step 9: best-effort notify (AC-7.1), strictly AFTER the INSERT
+    // above has committed — see this file's header and
+    // bestEffortNotify/resolveEstimateNameForNotify. Never blocks or fails
+    // this 201 response.
+    const grantEstimateName = await resolveEstimateNameForNotify(estimateId);
+    await bestEffortNotify(
+      () =>
+        deps.notifyCollaboratorGranted({
+          recipientId: targetUserId,
+          estimateId,
+          estimateName: grantEstimateName,
+          accessLevel,
+        }),
+      `estimate ${estimateId} (collaborator granted, recipient ${targetUserId})`,
+    );
 
     const identity = await resolveOneIdentity(authHeader, targetUserId);
 
@@ -544,10 +620,10 @@ export function registerCollaboratorRoutes(
   // NO NOTIFICATION IS FIRED BY `PATCH` (AC-7.3 — a level change is
   // deliberately silent) OR BY `DELETE .../me` (AC-7.2 excludes self-leave).
   // The owner-initiated `DELETE .../collaborators/{collaboratorId}` DOES
-  // carry a best-effort removal notification per plan.md, but wiring it in
-  // is explicitly T10's scope (deps: T8, T9) — `src/lib/notify.ts` already
-  // exports `notifyCollaboratorRemoved`, ready for T10 to call AFTER this
-  // DELETE commits; nothing in this file calls it yet.
+  // carry a best-effort removal notification (T10, specs/013): AFTER the
+  // DELETE below commits, `deps.notifyCollaboratorRemoved` fires once, with
+  // NO `link` (plan.md: "the target would 404") — see
+  // `bestEffortNotify`/`resolveEstimateNameForNotify` further up this file.
 
   // ─── DELETE /estimates/{id}/collaborators/me — leave (self, US-6, AC-6.1/6.2) ──
 
@@ -724,11 +800,24 @@ export function registerCollaboratorRoutes(
     if (deleteExit._tag === "Failure") {
       throw new Error("Unexpected database failure removing the collaborator");
     }
+    const removed = deleteExit.value;
 
-    // Owner-initiated removal notification (AC-7.2) is DELIBERATELY NOT
-    // IMPLEMENTED HERE — see this section's header. T10 wires
-    // notifyCollaboratorRemoved in AFTER this DELETE commits (best-effort,
-    // never rolls back this removal).
+    // Owner-initiated removal notification (AC-7.2, T10), best-effort,
+    // strictly AFTER the DELETE above has committed — never rolls back
+    // this removal. NO `link` (plan.md: "the target would 404"). Recipient
+    // is the JUST-DELETED grant's own `userId`, read from the row
+    // `deleteCollaboratorById` returned (its pre-deletion snapshot) rather
+    // than re-queried — the row is already gone.
+    const removalEstimateName = await resolveEstimateNameForNotify(estimateId);
+    await bestEffortNotify(
+      () =>
+        deps.notifyCollaboratorRemoved({
+          recipientId: removed.userId,
+          estimateId,
+          estimateName: removalEstimateName,
+        }),
+      `estimate ${estimateId} (collaborator removed, recipient ${removed.userId})`,
+    );
 
     return new Response(null, { status: 204 });
   });

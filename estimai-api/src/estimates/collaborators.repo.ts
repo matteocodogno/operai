@@ -290,3 +290,37 @@ export const deleteCollaboratorByUserId = (
     catch: (cause) =>
       new DatabaseError({ message: "Failed to remove the caller's own collaborator grant", cause }),
   });
+
+// ─── T10 — notification wiring ─────────────────────────────────────────────
+
+/**
+ * Reads a single estimate's current `name` (T10, specs/013-estimate-sharing,
+ * plan.md "Notifications (US-7)"). The ONLY thing `POST`/owner-initiated
+ * `DELETE .../collaborators/{collaboratorId}` need from the `estimate` row
+ * that isn't already carried by `resolveAccess`'s narrower `{level, version,
+ * ownerId}` shape (T6, access.ts) — kept as its own single-field query here
+ * rather than widening `resolveAccess` itself, since that function is shared
+ * by every estimate-scoped read/write path in estimates.repo.ts and has no
+ * other reason to carry `name`.
+ *
+ * Called ONLY after the grant/removal transaction has already committed
+ * (plan.md step 9 / AC-7.2) — never gates access itself. Returns `null` on
+ * the (effectively unreachable, since the caller just wrote to this same
+ * row) chance the estimate vanished between the write and this read; the
+ * caller falls back to an empty name rather than failing the already-
+ * committed response.
+ */
+export const findEstimateName = (
+  estimateId: string,
+): Effect.Effect<string | null, DatabaseError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const row = await db.estimate.findUnique({
+        where: { id: estimateId },
+        select: { name: true },
+      });
+      return row?.name ?? null;
+    },
+    catch: (cause) =>
+      new DatabaseError({ message: "Failed to look up the estimate's name", cause }),
+  });

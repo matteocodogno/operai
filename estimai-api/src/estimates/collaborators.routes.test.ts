@@ -100,6 +100,12 @@ const authClientModule = await import("@/lib/authClient");
 type CheckAppAccessFn = typeof authClientModule.checkAppAccess;
 type ResolveIdentitiesFn = typeof authClientModule.resolveIdentities;
 
+// T10 — the same injectable-double treatment as checkAppAccess/resolveIdentities
+// above, for the identical cross-file module-cache-race reason (file header).
+const notifyModule = await import("@/lib/notify");
+type NotifyCollaboratorGrantedFn = typeof notifyModule.notifyCollaboratorGranted;
+type NotifyCollaboratorRemovedFn = typeof notifyModule.notifyCollaboratorRemoved;
+
 // T9 — `updateEstimate` and `resolveAccess` are DB-only (no Bearer header,
 // no HTTP router involved), the SAME functions estimates.routes.ts's real
 // `PUT`/`GET /estimates/{id}` call. Exercising them directly here, after a
@@ -162,10 +168,17 @@ const bearerHeader = (userId: string, email: string) => ({
 interface TestDeps {
   readonly checkAppAccess: CheckAppAccessFn;
   readonly resolveIdentities: ResolveIdentitiesFn;
+  readonly notifyCollaboratorGranted: NotifyCollaboratorGrantedFn;
+  readonly notifyCollaboratorRemoved: NotifyCollaboratorRemovedFn;
 }
 
 const alwaysIneligible: CheckAppAccessFn = async () => ({ eligible: false });
 const emptyIdentities: ResolveIdentitiesFn = async () => new Map();
+// T10 — silent no-op defaults so every T8/T9 test written before T10 existed
+// keeps working unchanged; only the AC-7.x tests below override these with
+// spies.
+const noopNotifyGranted: NotifyCollaboratorGrantedFn = async () => {};
+const noopNotifyRemoved: NotifyCollaboratorRemovedFn = async () => {};
 
 function buildApp(deps: Partial<TestDeps> = {}) {
   const router = new OpenAPIHono<{ Variables: JwtVariables }>();
@@ -173,6 +186,8 @@ function buildApp(deps: Partial<TestDeps> = {}) {
   registerCollaboratorRoutes(router, {
     checkAppAccess: deps.checkAppAccess ?? alwaysIneligible,
     resolveIdentities: deps.resolveIdentities ?? emptyIdentities,
+    notifyCollaboratorGranted: deps.notifyCollaboratorGranted ?? noopNotifyGranted,
+    notifyCollaboratorRemoved: deps.notifyCollaboratorRemoved ?? noopNotifyRemoved,
   });
   const app = new Hono();
   app.route("/", router);
@@ -1199,5 +1214,246 @@ describe("AC-6.2 — the owner has no grant to leave", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { code: string };
     expect(body.code).toBe("not_a_collaborator");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// T10 — notification wiring (AC-7.1, AC-7.2, AC-7.3, specs/013-estimate-sharing)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// notify.ts's own HTTP-payload shape (originApp:"estimai", the granted link,
+// the removed link's absence, truncation, never-throws) is already fully
+// covered by src/lib/notify.test.ts (T5) — these tests are scoped to the
+// WIRING: does collaborators.routes.ts call the right notify function, with
+// the right input, exactly once, on exactly the right paths, and does a
+// notify failure ever leak into the HTTP response or roll back the DB write.
+
+describe("AC-7.1 — POST grant → notifyCollaboratorGranted called exactly once, with the right input", () => {
+  it("recipientId is the target's RESOLVED userId, plus estimateId/estimateName/accessLevel — and the grant persists even when notify THROWS", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id, "AC-7.1 fixture estimate");
+    const targetId = "t10-ac71-target";
+    const targetEmail = "ac71-target@example.com";
+
+    const notifyCollaboratorGranted = mock<NotifyCollaboratorGrantedFn>(async () => {
+      throw new Error("notify-api unreachable (test double)");
+    });
+
+    const app = buildApp({
+      checkAppAccess: eligibleFor(targetEmail, targetId),
+      notifyCollaboratorGranted,
+    });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "editor" }),
+    });
+
+    // The 201 and the persisted grant are UNAFFECTED by the throwing double
+    // (bestEffortNotify's defense-in-depth catch, T10) — the notify failure
+    // never rolls back the already-committed INSERT.
+    expect(res.status).toBe(201);
+    const grant = await testDb.estimateCollaborator.findUnique({
+      where: { estimateId_userId: { estimateId: estimate.id, userId: targetId } },
+    });
+    expect(grant).not.toBeNull();
+
+    expect(notifyCollaboratorGranted.mock.calls.length).toBe(1);
+    const [input] = notifyCollaboratorGranted.mock.calls[0]!;
+    expect(input).toEqual({
+      recipientId: targetId,
+      estimateId: estimate.id,
+      estimateName: "AC-7.1 fixture estimate",
+      accessLevel: "editor",
+    });
+  });
+
+  it("is NOT called on the generic-rejection path (AC-1.2) — notify only ever fires after a successful INSERT", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const notifyCollaboratorGranted = mock<NotifyCollaboratorGrantedFn>(async () => {});
+    const app = buildApp({ checkAppAccess: alwaysIneligible, notifyCollaboratorGranted });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: "never-eligible@example.com", accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(422);
+    expect(notifyCollaboratorGranted.mock.calls.length).toBe(0);
+  });
+});
+
+describe("AC-7.2 — owner-initiated DELETE {collaboratorId} → notifyCollaboratorRemoved called once, no link; self-leave sends nothing", () => {
+  it("recipientId is the REMOVED collaborator's userId, no `link` field in the input at all — and the removal persists even when notify THROWS", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id, "AC-7.2 fixture estimate");
+    const targetId = "t10-ac72-target";
+    const targetEmail = "ac72-target@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: targetId,
+        email: targetEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+
+    const notifyCollaboratorRemoved = mock<NotifyCollaboratorRemovedFn>(async () => {
+      throw new Error("notify-api unreachable (test double)");
+    });
+    const app = buildApp({ notifyCollaboratorRemoved });
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      { method: "DELETE", headers: bearerHeader(owner.id, owner.email) },
+    );
+
+    // 204 and the removal are UNAFFECTED by the throwing double.
+    expect(res.status).toBe(204);
+    const rowGone = await testDb.estimateCollaborator.findUnique({ where: { id: grant.id } });
+    expect(rowGone).toBeNull();
+
+    expect(notifyCollaboratorRemoved.mock.calls.length).toBe(1);
+    const [input] = notifyCollaboratorRemoved.mock.calls[0]!;
+    // NotifyCollaboratorRemovedInput has no `link` field AT ALL (see
+    // src/lib/notify.ts) — the type system, not a runtime check, is what
+    // makes "no link" true here; this asserts the exact input shape has
+    // nothing beyond recipientId/estimateId/estimateName.
+    expect(input).toEqual({
+      recipientId: targetId,
+      estimateId: estimate.id,
+      estimateName: "AC-7.2 fixture estimate",
+    });
+    expect(Object.keys(input)).toEqual(["recipientId", "estimateId", "estimateName"]);
+  });
+
+  it("self-leave (DELETE .../me) calls NEITHER notify function", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const viewerId = "t10-ac72-selfleave";
+    const viewerEmail = "ac72-selfleave@example.com";
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: viewerId,
+        email: viewerEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+
+    const notifyCollaboratorGranted = mock<NotifyCollaboratorGrantedFn>(async () => {});
+    const notifyCollaboratorRemoved = mock<NotifyCollaboratorRemovedFn>(async () => {});
+    const app = buildApp({ notifyCollaboratorGranted, notifyCollaboratorRemoved });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators/me`, {
+      method: "DELETE",
+      headers: bearerHeader(viewerId, viewerEmail),
+    });
+
+    expect(res.status).toBe(204);
+    expect(notifyCollaboratorRemoved.mock.calls.length).toBe(0);
+    expect(notifyCollaboratorGranted.mock.calls.length).toBe(0);
+  });
+});
+
+describe("AC-7.3 — no notification for a PATCH level change (silent by design)", () => {
+  it("editor→viewer PATCH calls NEITHER notify function", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const editorId = "t10-ac73-editor";
+    const editorEmail = "ac73-editor@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: editorId,
+        email: editorEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+
+    const notifyCollaboratorGranted = mock<NotifyCollaboratorGrantedFn>(async () => {});
+    const notifyCollaboratorRemoved = mock<NotifyCollaboratorRemovedFn>(async () => {});
+    const app = buildApp({ notifyCollaboratorGranted, notifyCollaboratorRemoved });
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ accessLevel: "viewer" }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(notifyCollaboratorGranted.mock.calls.length).toBe(0);
+    expect(notifyCollaboratorRemoved.mock.calls.length).toBe(0);
+  });
+});
+
+describe("AC-7.3 — no notification anywhere in estimates.routes.ts (PUT /estimates/{id} and every other CRUD route)", () => {
+  it("estimates.routes.ts contains no reference to @/lib/notify or a notifyCollaborator* call — the file that owns PUT/GET/DELETE /estimates/{id} never imports the notify client at all, so no runtime path there can ever fire a push", async () => {
+    // A static/contract guard, not a runtime spy: PUT's handler lives in a
+    // COMPLETELY SEPARATE file from collaborators.routes.ts (T10's only
+    // touch point), and per plan.md/tasks.md T10's scope, that file is never
+    // touched by this feature. Grepping its source is a stronger, regression-
+    // proof guarantee than a runtime assertion could be — a future edit that
+    // accidentally wires notify.ts into estimates.routes.ts would fail this
+    // test immediately, without needing to enumerate every CRUD route.
+    const source = await Bun.file(
+      new URL("./estimates.routes.ts", import.meta.url),
+    ).text();
+    expect(source).not.toContain("lib/notify");
+    expect(source).not.toContain("notifyCollaborator");
+  });
+});
+
+describe("Mutual exclusion (ADR-0011's invariant, extended to the third token holder) — collaborator routes accept ONLY a user JWT, never X-Internal-Token; estimai-api exposes no /system/* route", () => {
+  it("a request carrying X-Internal-Token but NO Authorization Bearer header is rejected (401), not treated as an alternative credential", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: {
+        "X-Internal-Token": "test-notify-internal-token-at-least-32-characters",
+      },
+    });
+
+    // registerCollaboratorRoutes adds NO auth logic of its own — the ENTIRE
+    // credential check is the router's own Bearer-JWT middleware (the real
+    // jwtMiddleware in production, testAuthMiddleware here). Neither reads
+    // X-Internal-Token at all, so it is simply absent evidence, not an
+    // alternative credential — the request is unauthenticated, full stop.
+    expect(res.status).toBe(401);
+  });
+
+  it("estimai-api registers no /system/* route anywhere (index.ts, collaborators.routes.ts, estimates.routes.ts, health.routes.ts) — it is an outbound notify-api CALLER only, never an inbound internal-token SERVER (ADR-0040)", async () => {
+    const filesToScan = [
+      "../index.ts",
+      "./estimates.routes.ts",
+      "./collaborators.routes.ts",
+      "../health/health.routes.ts",
+    ];
+    for (const relativePath of filesToScan) {
+      const source = await Bun.file(new URL(relativePath, import.meta.url)).text();
+      // Matches a route-registration call targeting a "/system" path
+      // (e.g. `.get("/system/...`, `.post('/system/...`) — NOT merely the
+      // substring "/system" appearing in a comment or doc string, so this
+      // stays robust to prose mentioning ADR-0011/0017/0040's /system/*
+      // precedent in notify-api.
+      expect(source).not.toMatch(/\.(get|post|put|patch|delete|route)\(\s*["'`]\/system/);
+    }
   });
 });
