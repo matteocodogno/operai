@@ -74,6 +74,7 @@ vi.mock('../lib/projects', async (importOriginal) => {
 
 // Import mocked modules after vi.mock declarations.
 import * as estimatesApi from '../lib/estimatesApi'
+import ConfirmDeleteModal from './ConfirmDeleteModal'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -292,5 +293,92 @@ describe('ConfirmDeleteModal (T10, specs/001)', () => {
       expect(estimatesApi.remove).toHaveBeenCalledWith('est-alpha')
       expect(estimatesApi.remove).toHaveBeenCalledTimes(1)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (G) T19 — generalized title / bodyText / confirmLabel props (specs/013)
+//
+// Renders ConfirmDeleteModal directly (not via EstimatesPage, whose call site
+// deliberately omits the new props to prove the default-copy path). Confirms
+// custom copy renders, and that the focus-trap + Escape semantics documented
+// in design.md's Accessibility section are unchanged when the copy is
+// overridden — same shape, different words.
+// ---------------------------------------------------------------------------
+
+describe('ConfirmDeleteModal — generalized title/bodyText/confirmLabel (T19, specs/013)', () => {
+  const baseProps = {
+    estimateName: 'Alpha Project',
+    isDeleting: false,
+    errorMessage: null as string | null,
+  }
+
+  it('renders custom title, bodyText and confirmLabel instead of the delete-estimate defaults', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+
+    render(
+      <ConfirmDeleteModal
+        {...baseProps}
+        title="Remove collaborator?"
+        bodyText="jane@welld.ch will lose access to this estimate immediately."
+        confirmLabel="Remove"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    )
+
+    expect(screen.getByText('Remove collaborator?')).toBeDefined()
+    expect(
+      screen.getByText('jane@welld.ch will lose access to this estimate immediately.'),
+    ).toBeDefined()
+    expect(screen.getByTestId('confirm-delete-confirm').textContent).toBe('Remove')
+
+    // Defaults must not leak through when overridden.
+    expect(screen.queryByText('Delete estimate?')).toBeNull()
+    expect(screen.queryByText(/will be permanently deleted/i)).toBeNull()
+  })
+
+  it('keeps the focus-trap and Escape semantics unchanged with custom copy', async () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+
+    render(
+      <ConfirmDeleteModal
+        {...baseProps}
+        title="Leave this estimate?"
+        bodyText="You will lose access immediately and it will disappear from your estimates list."
+        confirmLabel="Leave"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    )
+
+    // Default focus lands on Cancel, same as the delete-estimate flow.
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByTestId('confirm-delete-cancel'))
+    })
+
+    // Escape cancels without invoking confirm — same shape as ConfirmDeleteModal's
+    // existing Escape semantics (design.md Accessibility: "matches
+    // ConfirmDeleteModal's existing Escape semantics").
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    expect(onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the exact default title/body/label when the new props are omitted', () => {
+    const onConfirm = vi.fn()
+    const onCancel = vi.fn()
+
+    render(
+      <ConfirmDeleteModal {...baseProps} onConfirm={onConfirm} onCancel={onCancel} />,
+    )
+
+    expect(screen.getByText('Delete estimate?')).toBeDefined()
+    expect(
+      screen.getByText('‘Alpha Project’ will be permanently deleted. This cannot be undone.'),
+    ).toBeDefined()
+    expect(screen.getByTestId('confirm-delete-confirm').textContent).toBe('Delete')
   })
 })

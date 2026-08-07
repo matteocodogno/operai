@@ -5,15 +5,22 @@
  * Presentational: all data and callbacks arrive via props. EstimatesPage owns
  * the state and the API call.
  *
+ * Generalized (T19, specs/013-estimate-sharing, AC-5.2/AC-6.1) — `title` /
+ * `bodyText` / `confirmLabel` are optional overrides so this same dialog also
+ * backs the Remove-collaborator and Leave-estimate confirmations (design.md's
+ * component inventory). All three default to today's exact copy, so
+ * `EstimatesPage`'s existing call site needs no change. `isDeleting` /
+ * `errorMessage` keep their existing contract verbatim (design.md S2/S3).
+ *
  * A11y (design.md Screen C):
  *   • role="dialog" aria-modal="true" aria-labelledby="confirm-delete-title"
- *   • Focus trap: Tab cycles only between Cancel and Delete while modal is open.
+ *   • Focus trap: Tab cycles only between Cancel and Confirm while modal is open.
  *   • Default focus: "Cancel" (safe default — avoids accidental destruction).
- *   • Escape = Cancel; no delete is triggered.
+ *   • Escape = Cancel; no confirm action is triggered.
  *   • Contrast: --color-red (#f55a5a dark / #d93636 light) on ink-soft bg — ≥ 5.5:1 AA.
  *
  * States (per design.md):
- *   • idle      — title + body + Cancel + Delete buttons
+ *   • idle      — title + body + Cancel + Confirm buttons
  *   • deleting  — "Deleting…" + spinner, both buttons disabled
  *   • error     — inline error text between body and footer; both buttons re-enabled
  */
@@ -25,16 +32,26 @@ import { useEffect, useRef } from 'react'
 // ---------------------------------------------------------------------------
 
 export type ConfirmDeleteModalProps = {
-  /** Name of the estimate being deleted — shown in the body copy. */
+  /** Name of the estimate being deleted — shown in the default body copy. */
   estimateName: string
-  /** Whether the DELETE request is currently in-flight. */
+  /** Whether the confirm action is currently in-flight. */
   isDeleting: boolean
-  /** Inline error message shown if the DELETE request failed; null = no error. */
+  /** Inline error message shown if the action failed; null = no error. */
   errorMessage: string | null
-  /** Called when the user confirms deletion (clicks "Delete"). */
+  /** Called when the user confirms (clicks the confirm button). */
   onConfirm: () => void
   /** Called when the user cancels (clicks "Cancel", "×", or presses Escape). */
   onCancel: () => void
+  /** Dialog heading. Defaults to today's exact copy: "Delete estimate?" */
+  title?: string
+  /**
+   * Body copy. Defaults to today's exact copy, built from `estimateName`
+   * ("'{name}' will be permanently deleted. This cannot be undone."). Pass a
+   * fully-composed string (e.g. "{email} will lose access …") for other flows.
+   */
+  bodyText?: string
+  /** Confirm-button label shown in the idle state. Defaults to "Delete". */
+  confirmLabel?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +64,9 @@ export default function ConfirmDeleteModal({
   errorMessage,
   onConfirm,
   onCancel,
+  title = 'Delete estimate?',
+  bodyText,
+  confirmLabel = 'Delete',
 }: ConfirmDeleteModalProps) {
   const cancelBtnRef = useRef<HTMLButtonElement>(null)
   const deleteBtnRef = useRef<HTMLButtonElement>(null)
@@ -94,6 +114,9 @@ export default function ConfirmDeleteModal({
   }, [onCancel])
 
   const displayName = estimateName || 'Untitled'
+  const body =
+    bodyText ??
+    `‘${displayName}’ will be permanently deleted. This cannot be undone.`
 
   return (
     <div
@@ -114,7 +137,7 @@ export default function ConfirmDeleteModal({
             id="confirm-delete-title"
             className="font-disp text-sm font-bold text-text"
           >
-            Delete estimate?
+            {title}
           </h2>
           <button
             onClick={onCancel}
@@ -127,9 +150,7 @@ export default function ConfirmDeleteModal({
         </div>
 
         {/* Body */}
-        <p className="text-sm text-text leading-relaxed mb-4">
-          &lsquo;{displayName}&rsquo; will be permanently deleted. This cannot be undone.
-        </p>
+        <p className="text-sm text-text leading-relaxed mb-4">{body}</p>
 
         {/* Inline error (between body and footer, per design.md) */}
         {errorMessage && (
@@ -169,7 +190,7 @@ export default function ConfirmDeleteModal({
                 Deleting…
               </span>
             ) : (
-              'Delete'
+              confirmLabel
             )}
           </button>
         </div>
