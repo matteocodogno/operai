@@ -115,23 +115,59 @@ export const EstimateUpsertSchema = z.object({
 
 export type EstimateUpsert = z.infer<typeof EstimateUpsertSchema>;
 
+// ─── Access / identity shapes (T6, specs/013-estimate-sharing) ──────────────
+//
+// AccessLevelSchema mirrors src/estimates/access.ts's AccessLevel — kept as an
+// independent zod definition (rather than z.nativeEnum over the string union)
+// so this schema file has no import-time dependency on access.ts; the two are
+// structurally identical by construction and access.ts's AccessLevel is used
+// to type the repo layer.
+//
+// IdentitySchema mirrors src/lib/authClient.ts's Identity shape MINUS the
+// `id` field — the wire response never puts a raw `sub`/cuid into a payload
+// (plan.md "Display identity"); `estimai-api` looks the identity up by the
+// owner's `userId` internally and only ever serialises {status, name}.
+
+export const AccessLevelSchema = z.enum(["owner", "editor", "viewer"]);
+export type AccessLevel = z.infer<typeof AccessLevelSchema>;
+
+export const IdentitySchema = z.object({
+  status: z.enum(["active", "deleted", "unknown"]),
+  name: z.string().nullable(),
+});
+export type Identity = z.infer<typeof IdentitySchema>;
+
 // ─── Response shapes ─────────────────────────────────────────────────────────
 
 /**
  * Lean list item — returned by GET /estimates.
  * No `content` — avoids fetching large JSONB for the list view.
+ *
+ * `access` — the caller's own relationship to this estimate ("owner" for
+ * rows the caller created, "editor"/"viewer" for rows they hold a grant on).
+ * `owner`  — `null` when `access === "owner"` (never expose an identity
+ * object for your own row); otherwise the estimate owner's live-resolved
+ * display identity (AC-2.1, AC-10.5).
  */
 export const EstimateListItemSchema = z.object({
   id: z.string(),
   name: z.string(),
   author: z.string(),
   updatedAt: z.string().datetime(),
+  access: AccessLevelSchema,
+  owner: IdentitySchema.nullable(),
 });
 
 export type EstimateListItem = z.infer<typeof EstimateListItemSchema>;
 
 /**
  * Full estimate — returned by POST (201) and GET /estimates/{id} (200).
+ *
+ * `version` — optimistic-concurrency counter (T4); the CAS/If-Match/ETag
+ * wiring around it is T7's scope, this field only carries the current value.
+ * `access`/`owner` — same meaning as EstimateListItem.
+ * `collaboratorCount` — present ONLY when `access === "owner"` (a
+ * collaborator is never told how many other collaborators exist, AC-5.4).
  */
 export const EstimateFullSchema = z.object({
   id: z.string(),
@@ -140,6 +176,10 @@ export const EstimateFullSchema = z.object({
   content: EstimateContentSchema,
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  version: z.number().int(),
+  access: AccessLevelSchema,
+  owner: IdentitySchema.nullable(),
+  collaboratorCount: z.number().int().optional(),
 });
 
 export type EstimateFull = z.infer<typeof EstimateFullSchema>;

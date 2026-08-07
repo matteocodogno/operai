@@ -41,6 +41,7 @@ import {
 
 let userAPrivateKey: CryptoKey;
 let userBPrivateKey: CryptoKey;
+let userCPrivateKey: CryptoKey;
 
 // Local in-memory JWKS used by the mocked jwtMiddleware.
 // Type is the ReturnType of createLocalJWKSet from jose.
@@ -50,13 +51,20 @@ let localJWKS: Awaited<ReturnType<typeof createLocalJWKSet>>;
 // two public keys share the same kid in the in-memory JWKS.
 const TEST_KID_A = "operai-auth-rs256-v1";
 const TEST_KID_B = "operai-auth-rs256-v2";
+// USER_C (T6, specs/013-estimate-sharing) — a third fixture user with NO
+// relationship (no ownership, no grant) to any estimate. Used for the
+// AC-1.6 denial-taxonomy tests: an unrelated stranger must get 404,
+// byte-identical to a genuinely absent id.
+const TEST_KID_C = "operai-auth-rs256-v3";
 const TEST_ISSUER = "http://localhost:3001";
 const TEST_AUDIENCE = "operai-suite"; // ADR-0010 — must match AUTH_AUDIENCE below
 
 const USER_A_ID = "test-user-a-t4";
 const USER_B_ID = "test-user-b-t4";
+const USER_C_ID = "test-user-c-t6";
 const USER_A_EMAIL = "user-a-t4@example.com";
 const USER_B_EMAIL = "user-b-t4@example.com";
+const USER_C_EMAIL = "user-c-t6@example.com";
 
 // Proxy so we can swap the local JWKS after beforeAll runs.
 //
@@ -215,6 +223,8 @@ const tokenA = () =>
   signToken(userAPrivateKey, TEST_KID_A, USER_A_ID, USER_A_EMAIL);
 const tokenB = () =>
   signToken(userBPrivateKey, TEST_KID_B, USER_B_ID, USER_B_EMAIL);
+const tokenC = () =>
+  signToken(userCPrivateKey, TEST_KID_C, USER_C_ID, USER_C_EMAIL);
 
 const bearerHeader = (token: string) => ({
   Authorization: `Bearer ${token}`,
@@ -254,8 +264,10 @@ const makeContent = (label = "v1") => ({
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
 beforeAll(async () => {
-  // Generate TWO fixture RS256 keypairs: one for user A, one for user B.
-  // Each key gets its own kid to avoid ERR_JWKS_MULTIPLE_MATCHING_KEYS.
+  // Generate THREE fixture RS256 keypairs: user A, user B, and user C (T6 —
+  // a third party with NO relationship to any estimate, for the denial-
+  // taxonomy tests). Each key gets its own kid to avoid
+  // ERR_JWKS_MULTIPLE_MATCHING_KEYS.
   const kpA = await generateKeyPair("RS256", { extractable: true });
   userAPrivateKey = kpA.privateKey;
   const pubJwkA = await exportJWK(kpA.publicKey);
@@ -264,20 +276,28 @@ beforeAll(async () => {
   userBPrivateKey = kpB.privateKey;
   const pubJwkB = await exportJWK(kpB.publicKey);
 
+  const kpC = await generateKeyPair("RS256", { extractable: true });
+  userCPrivateKey = kpC.privateKey;
+  const pubJwkC = await exportJWK(kpC.publicKey);
+
   // Each key registered with its own kid — jose resolves the correct key per token.
   localJWKS = createLocalJWKSet({
     keys: [
       { ...pubJwkA, use: "sig", alg: "RS256", kid: TEST_KID_A },
       { ...pubJwkB, use: "sig", alg: "RS256", kid: TEST_KID_B },
+      { ...pubJwkC, use: "sig", alg: "RS256", kid: TEST_KID_C },
     ],
   });
   jwksProxy = localJWKS;
 });
 
-// Clean up test data after each test to keep runs idempotent.
+// Clean up test data after each test to keep runs idempotent. Only A/B/C's
+// OWNED estimates need explicit cleanup — EstimateCollaborator rows cascade
+// away with their estimate (AC-9.1, T4's onDelete: Cascade), and B/C never
+// own an estimate in the T6 tests below (only grants).
 afterEach(async () => {
   await testDb.estimate.deleteMany({
-    where: { userId: { in: [USER_A_ID, USER_B_ID] } },
+    where: { userId: { in: [USER_A_ID, USER_B_ID, USER_C_ID] } },
   });
 });
 
@@ -2330,3 +2350,460 @@ describe("coerce fix (4) — garbage string in a numeric field is rejected at en
     expect(res.status).toBe(400);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// T6 — Access resolution + denial taxonomy (specs/013-estimate-sharing)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Collaborator grants are seeded DIRECTLY via testDb.estimateCollaborator
+// (T8/T9's collaborator-management routes don't exist yet) — this is
+// deliberately a T6-scoped test of the read/list/delete access predicates,
+// not of the (not-yet-built) grant-creation flow.
+//
+// USER_C has NO relationship (no ownership, no grant) to anything — the
+// "stranger" fixture for the AC-1.6 404 tests.
+//
+// No live `auth` server runs in this test environment, so every
+// resolveIdentities() call degrades to {status:"unknown", name:null}
+// (ADR-0039, fail-soft) — asserted explicitly below as the CORRECT
+// behaviour, not a test gap.
+
+describe("T6 / AC-1.6 — denial taxonomy: a stranger's 404 is byte-identical to a genuinely absent id", () => {
+  it("GET /estimates/{id}: same id, stranger-with-no-relationship vs. genuinely-deleted → identical Problem bodies", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtC = await tokenC();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-1.6 GET estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    // C has no relationship at all — 404.
+    const strangerRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtC}` },
+    });
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    // Owner deletes — the SAME id is now genuinely absent.
+    const delRes = await app.request(`/estimates/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(delRes.status).toBe(204);
+
+    const absentRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtC}` },
+    });
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    // The whole point of AC-1.6/ADR-0005: "not yours" and "does not exist"
+    // must be indistinguishable, even to the same caller probing the same
+    // id twice.
+    expect(strangerBody).toEqual(absentBody);
+  });
+
+  it("PUT /estimates/{id}: same id, stranger-with-no-relationship vs. genuinely-deleted → identical Problem bodies", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtC = await tokenC();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-1.6 PUT estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const strangerAttempt = () =>
+      app.request(`/estimates/${id}`, {
+        method: "PUT",
+        headers: bearerHeader(jwtC),
+        body: JSON.stringify({
+          name: "hijack attempt",
+          author: "Eve",
+          content: makeContent("hijack"),
+        }),
+      });
+
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    const delRes = await app.request(`/estimates/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(delRes.status).toBe(204);
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
+  });
+
+  it("DELETE /estimates/{id}: same id, stranger-with-no-relationship vs. genuinely-deleted → identical Problem bodies", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtC = await tokenC();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-1.6 DELETE estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const strangerAttempt = () =>
+      app.request(`/estimates/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${jwtC}` },
+      });
+
+    const strangerRes = await strangerAttempt();
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    // Owner deletes for real this time.
+    const delRes = await app.request(`/estimates/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(delRes.status).toBe(204);
+
+    const absentRes = await strangerAttempt();
+    expect(absentRes.status).toBe(404);
+    const absentBody = await absentRes.json();
+
+    expect(strangerBody).toEqual(absentBody);
+  });
+});
+
+// ─── T6 / AC-3.3 — a collaborator (editor or viewer) cannot delete ───────────
+
+describe("T6 / AC-3.3 — a collaborator (editor or viewer) cannot delete the estimate", () => {
+  it("editor collaborator's DELETE /estimates/{id} → 403 owner_only; estimate + grant unchanged", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-3.3 editor estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "editor",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    const delRes = await app.request(`/estimates/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(delRes.status).toBe(403);
+    const body = (await delRes.json()) as { code: string; status: number };
+    expect(body.code).toBe("owner_only");
+    expect(body.status).toBe(403);
+
+    // The estimate and the grant are both unchanged — B's attempt did nothing.
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(getRes.status).toBe(200);
+    const grantCount = await testDb.estimateCollaborator.count({
+      where: { estimateId: id },
+    });
+    expect(grantCount).toBe(1);
+  });
+
+  it("viewer collaborator's DELETE /estimates/{id} → 403 owner_only", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-3.3 viewer estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    const delRes = await app.request(`/estimates/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(delRes.status).toBe(403);
+    const body = (await delRes.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+  });
+});
+
+// ─── T6 / AC-2.1/2.2/2.3 — GET /estimates: owned ∪ shared, access + owner ────
+
+describe("T6 / AC-2.1/2.2/2.3 — GET /estimates includes owned UNION shared, with access/owner populated", () => {
+  it("a user with ONLY grants (no owned estimates) gets a non-empty list; owner is null on owned rows, populated on shared rows", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-2.1 shared list estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    // Owner's list: their own row is access:"owner", owner:null.
+    const listA = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(listA.status).toBe(200);
+    const rowsA = (await listA.json()) as Array<{
+      id: string;
+      access: string;
+      owner: unknown;
+    }>;
+    const ownRow = rowsA.find((r) => r.id === id);
+    expect(ownRow).toBeDefined();
+    expect(ownRow?.access).toBe("owner");
+    expect(ownRow?.owner).toBeNull();
+
+    // B has ZERO owned estimates — the list must still be NON-EMPTY (AC-2.3),
+    // containing the shared row with access:"viewer" and a populated
+    // (never-null) owner identity.
+    const listB = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(listB.status).toBe(200);
+    const rowsB = (await listB.json()) as Array<{
+      id: string;
+      access: string;
+      owner: { status: string; name: string | null } | null;
+    }>;
+    expect(rowsB.length).toBeGreaterThan(0);
+    const sharedRow = rowsB.find((r) => r.id === id);
+    expect(sharedRow).toBeDefined();
+    expect(sharedRow?.access).toBe("viewer");
+    expect(sharedRow?.owner).not.toBeNull();
+    // No live `auth` server in this test environment — resolveIdentities
+    // fails SOFT (ADR-0039). "unknown" is the correct degraded value here,
+    // proving GET /estimates never breaks when `auth` is unreachable.
+    expect(sharedRow?.owner?.status).toBe("unknown");
+  });
+
+  it("GET /estimates/{id} as the editor collaborator: access:'editor', owner populated, no collaboratorCount", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-2.1 editor GET estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "editor",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as {
+      access: string;
+      owner: { status: string } | null;
+      collaboratorCount?: number;
+    };
+    expect(body.access).toBe("editor");
+    expect(body.owner).not.toBeNull();
+    expect(body.owner?.status).toBe("unknown");
+    // A collaborator is never told how many other collaborators exist.
+    expect(body.collaboratorCount).toBeUndefined();
+  });
+
+  it("GET /estimates/{id} as the owner: access:'owner', owner:null, collaboratorCount reflects the grant count", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-2.1 owner GET estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtA}` },
+    });
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as {
+      access: string;
+      owner: unknown;
+      collaboratorCount?: number;
+      version: number;
+    };
+    expect(body.access).toBe("owner");
+    expect(body.owner).toBeNull();
+    expect(body.collaboratorCount).toBe(1);
+    // T4's version column is exposed on every EstimateFull response.
+    expect(body.version).toBe(1);
+  });
+});
+
+// ─── T6 / AC-5.2 (partial) — a removed collaborator is refused exactly like ──
+// a stranger. The removal MECHANISM (DELETE …/collaborators/{id}) is T9's
+// scope; this test only proves the READ-SIDE consequence already holds once
+// a grant row is gone — i.e. resolveAccess() correctly treats "grant deleted"
+// identically to "grant never existed".
+
+describe("T6 / AC-5.2 (read-side) — once a grant is gone, the former collaborator is refused exactly like a stranger", () => {
+  it("GET /estimates/{id} after the grant row is deleted → 404, identical to a stranger's 404", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+    const jwtC = await tokenC();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-5.2 revoked estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    // B can read it while the grant exists.
+    const beforeRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(beforeRes.status).toBe(200);
+
+    // Revoke (T9's route doesn't exist yet — delete the row directly).
+    await testDb.estimateCollaborator.delete({ where: { id: grant.id } });
+
+    const afterRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(afterRes.status).toBe(404);
+    const afterBody = await afterRes.json();
+
+    const strangerRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtC}` },
+    });
+    expect(strangerRes.status).toBe(404);
+    const strangerBody = await strangerRes.json();
+
+    expect(afterBody).toEqual(strangerBody);
+  });
+});
+
+// ─── T6 regression: existing spec-001 estimate tests still pass unchanged ────
+// (covered structurally: every describe block above this comment in this
+// file is unmodified spec-001/T5 test code, run in the same `bun test`
+// invocation as the T6 blocks above — a regression in the widened
+// listEstimates/getEstimateById/deleteEstimate predicates would fail one of
+// those pre-existing AC-1.1 through AC-4.2 tests.)

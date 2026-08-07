@@ -1,15 +1,18 @@
 /**
- * Estimates CRUD router (T4+T5, specs/001-estimate-persistence).
+ * Estimates CRUD router (T4+T5, specs/001-estimate-persistence;
+ * widened for sharing in T6, specs/013-estimate-sharing).
  *
  * All routes are protected by jwtMiddleware (set userId/email on context).
  * Every repository call is scoped by userId derived from the verified JWT sub.
  *
  * Endpoints on estimatesRouter (2 MiB body limit):
  *   POST   /estimates          → 201 EstimateFull        (AC-1.1)
- *   GET    /estimates          → 200 EstimateListItem[]  (AC-2.1, AC-2.3)
- *   GET    /estimates/:id      → 200 EstimateFull        (AC-2.2)
- *   PUT    /estimates/:id      → 200 EstimateFull        (AC-1.2)
- *   DELETE /estimates/:id      → 204 (no body)           (AC-3.1)
+ *   GET    /estimates          → 200 EstimateListItem[]  (AC-2.1, AC-2.3; T6: owned ∪ shared)
+ *   GET    /estimates/:id      → 200 EstimateFull        (AC-2.2; T6: any relationship suffices)
+ *   PUT    /estimates/:id      → 200 EstimateFull        (AC-1.2; T6: response shape widened only —
+ *                                                          predicate is still owner-only, T7 adds
+ *                                                          the version CAS + editor-grant predicate)
+ *   DELETE /estimates/:id      → 204 (no body)           (AC-3.1; still owner-only)
  *
  * Endpoints on importEstimatesRouter (larger body limit — see BODY LIMIT DESIGN):
  *   POST   /estimates/import   → 200 ImportResponse      (AC-5.2, AC-5.4)
@@ -28,11 +31,17 @@
  *   - The two routers are mounted separately in index.ts so their bodyLimit
  *     middleware chains are completely independent (no double-capping).
  *
- * Ownership violations (AC-4.1) surface as 404 — the repo filters by userId so
- * "not yours" and "does not exist" are indistinguishable to the caller.
+ * DENIAL TAXONOMY (T6, plan.md "Access resolution inside estimai-api", ADR-0037
+ * — a deliberate narrowing of ADR-0005's blanket "not owned = 404"):
+ *   - NO relationship at all (stranger)              → 404 (AC-1.6, ADR-0005 intact)
+ *   - a relationship exists but the level is short    → 403 with a stable `code`
+ *     (currently only DELETE's "owner_only" — a collaborator attempting to
+ *     delete already knows the estimate exists, so 404 would be a lie)
+ * `GET` is the one operation where ANY relationship (owner/editor/viewer)
+ * is sufficient — there is no 403 on the read path.
  *
  * All errors are RFC 7807 Problem JSON via the global onError handler, with the
- * NotFoundError/SizeError paths handled inline (404/413 respectively).
+ * NotFoundError/ForbiddenError/SizeError paths handled inline (404/403/413).
  *
  * T5: per-estimate size guard enforced on POST and PUT before any DB write.
  *   - computeSizeBytes() from estimates.repo.ts measures the UTF-8 byte length
@@ -46,8 +55,9 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { Effect } from "effect";
 import { bodyLimit } from "hono/body-limit";
 import { jwtMiddleware, type JwtVariables } from "@/auth/jwt.middleware";
-import { NotFoundError, SizeError } from "@/lib/errors";
+import { ForbiddenError, NotFoundError, SizeError } from "@/lib/errors";
 import { env } from "@/lib/env";
+import { resolveIdentities, type Identity as ResolvedIdentity } from "@/lib/authClient";
 import {
   EstimateUpsertSchema,
   EstimateFullSchema,
@@ -55,6 +65,7 @@ import {
   EstimateIdParamSchema,
   ImportRequestSchema,
   ImportResponseSchema,
+  type Identity,
 } from "./estimates.schemas";
 import {
   createEstimate,
@@ -63,6 +74,8 @@ import {
   updateEstimate,
   deleteEstimate,
   computeSizeBytes,
+  type EstimateFullRow,
+  type EstimateListRow,
 } from "./estimates.repo";
 
 // ─── Problem JSON helpers ─────────────────────────────────────────────────────
@@ -91,12 +104,92 @@ const problemPayloadTooLarge = (path: string, actualBytes: number, limitBytes: n
   instance: path,
 });
 
+// T6 (specs/013-estimate-sharing) — the 403 half of the denial taxonomy
+// (ADR-0037): a relationship to the record exists but the caller's level is
+// insufficient for the attempted operation. `code` is the stable
+// machine-readable discriminant the plan's API contracts specify
+// (e.g. "owner_only").
+const problemForbidden = (path: string, detail: string, code: string) => ({
+  type: "https://httpstatuses.com/403",
+  title: "Forbidden",
+  status: 403 as const,
+  detail,
+  code,
+  instance: path,
+});
+
 const ProblemSchema = z.object({
   type: z.string(),
   title: z.string(),
   status: z.number(),
   detail: z.string(),
   instance: z.string(),
+});
+
+const ProblemWithCodeSchema = ProblemSchema.extend({
+  code: z.string(),
+});
+
+// ─── Display identity helper (T6, specs/013-estimate-sharing) ───────────────
+//
+// Repo functions return the raw estimate `ownerId` (a `sub`) — never a
+// resolved identity (that requires an outbound `auth` call using the
+// CALLER'S OWN Bearer token, which only exists here in the route handler).
+// This module resolves it via authClient.resolveIdentities (fails SOFT —
+// never throws, degrades to "unknown" — plan.md "Display identity" /
+// ADR-0039) and strips the `id` field before it ever reaches the wire: the
+// response Identity shape is {status, name} only, never a raw sub/cuid.
+
+const toWireIdentity = (resolved: ResolvedIdentity): Identity => ({
+  status: resolved.status,
+  name: resolved.name,
+});
+
+const UNKNOWN_IDENTITY: Identity = { status: "unknown", name: null };
+
+/**
+ * Resolves the owner's display identity for a single non-owned row.
+ * `access === "owner"` rows never call this — the caller returns `null`
+ * for those without invoking `auth` at all (their own row never needs a
+ * third-party identity lookup).
+ */
+const resolveOwnerIdentity = async (
+  authHeader: string,
+  ownerId: string,
+): Promise<Identity> => {
+  const identities = await resolveIdentities(authHeader, [ownerId]);
+  const found = identities.get(ownerId);
+  return found ? toWireIdentity(found) : UNKNOWN_IDENTITY;
+};
+
+/** Maps a repo EstimateListRow (raw ownerId) to the wire EstimateListItem. */
+const toWireListItem = (
+  row: EstimateListRow,
+  identities: Map<string, ResolvedIdentity>,
+) => ({
+  id: row.id,
+  name: row.name,
+  author: row.author,
+  updatedAt: row.updatedAt,
+  access: row.access,
+  owner:
+    row.access === "owner"
+      ? null
+      : toWireIdentity(identities.get(row.ownerId) ?? { id: row.ownerId, ...UNKNOWN_IDENTITY }),
+});
+
+/** Maps a repo EstimateFullRow (raw ownerId) to the wire EstimateFull. */
+const toWireFull = (row: EstimateFullRow, owner: Identity | null) => ({
+  id: row.id,
+  name: row.name,
+  author: row.author,
+  content: row.content,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+  version: row.version,
+  access: row.access,
+  owner,
+  ...(row.collaboratorCount !== undefined ? { collaboratorCount: row.collaboratorCount } : {}),
 });
 
 // ─── Size guard helper (reusable by T6 import endpoint) ─────────────────────
@@ -273,7 +366,8 @@ estimatesRouter.openapi(createEstimateRoute, async (c) => {
     throw new Error("Unexpected database failure creating estimate");
   }
 
-  return c.json(exit.value, 201);
+  // The creator is always the owner — no `auth` identity round trip needed.
+  return c.json(toWireFull(exit.value, null), 201);
 });
 
 // ─── GET /estimates — List ────────────────────────────────────────────────────
@@ -284,14 +378,15 @@ const listEstimatesRoute = createRoute({
   tags: ["Estimates"],
   summary: "List estimates for the current user",
   description:
-    "Returns all estimates owned by the authenticated user, ordered newest-first. " +
-    "Returns an empty array for a user with no estimates (AC-2.3) — this is not an error.",
+    "Returns every estimate the caller owns OR holds a collaborator grant on, " +
+    "ordered newest-first (T6, AC-2.1/2.2/2.3). Returns an empty array for a " +
+    "user with no estimates and no grants — this is not an error.",
   responses: {
     200: {
       content: {
         "application/json": { schema: z.array(EstimateListItemSchema) },
       },
-      description: "List of estimates (AC-2.1, AC-2.3)",
+      description: "List of estimates, owned and shared (AC-2.1, AC-2.3)",
     },
     401: {
       content: { "application/json": { schema: ProblemSchema } },
@@ -302,6 +397,7 @@ const listEstimatesRoute = createRoute({
 
 estimatesRouter.openapi(listEstimatesRoute, async (c) => {
   const userId = c.get("userId");
+  const authHeader = c.req.header("Authorization") ?? "";
 
   const effect = listEstimates(userId);
 
@@ -311,7 +407,25 @@ estimatesRouter.openapi(listEstimatesRoute, async (c) => {
     throw new Error("Unexpected database failure listing estimates");
   }
 
-  return c.json(exit.value, 200);
+  const rows = exit.value;
+
+  // Batch-resolve display identity for every DISTINCT non-owned row's owner
+  // in one call (plan.md "one batch per list render, distinct owner subs,
+  // self excluded") — never one auth round trip per row. resolveIdentities
+  // never throws (fails soft to "unknown" — AC keeps GET /estimates at 200
+  // even when `auth` is unreachable).
+  const ownerIdsToResolve = Array.from(
+    new Set(rows.filter((row) => row.access !== "owner").map((row) => row.ownerId)),
+  );
+  const identities =
+    ownerIdsToResolve.length > 0
+      ? await resolveIdentities(authHeader, ownerIdsToResolve)
+      : new Map<string, ResolvedIdentity>();
+
+  return c.json(
+    rows.map((row) => toWireListItem(row, identities)),
+    200,
+  );
 });
 
 // ─── GET /estimates/:id — Get full estimate ───────────────────────────────────
@@ -322,8 +436,10 @@ const getEstimateRoute = createRoute({
   tags: ["Estimates"],
   summary: "Get a single estimate",
   description:
-    "Returns the full estimate including content. Returns 404 if the estimate " +
-    "does not exist or is not owned by the caller (AC-4.1 — no existence leak).",
+    "Returns the full estimate including content to ANY caller with a " +
+    "relationship to it — owner, editor, or viewer (T6, AC-3.1). Returns 404 " +
+    "if the estimate does not exist or the caller has no relationship to it " +
+    "at all (AC-1.6 — no existence leak, ADR-0005/ADR-0037).",
   request: {
     params: EstimateIdParamSchema,
   },
@@ -338,7 +454,7 @@ const getEstimateRoute = createRoute({
     },
     404: {
       content: { "application/json": { schema: ProblemSchema } },
-      description: "Not found or not owned (AC-4.1)",
+      description: "No relationship to this estimate (AC-1.6)",
     },
   },
 });
@@ -346,6 +462,7 @@ const getEstimateRoute = createRoute({
 estimatesRouter.openapi(getEstimateRoute, async (c) => {
   const userId = c.get("userId");
   const { id } = c.req.valid("param");
+  const authHeader = c.req.header("Authorization") ?? "";
 
   const effect = getEstimateById(id, userId);
 
@@ -359,7 +476,11 @@ estimatesRouter.openapi(getEstimateRoute, async (c) => {
     throw new Error("Unexpected database failure fetching estimate");
   }
 
-  return c.json(exit.value, 200);
+  const row = exit.value;
+  const owner =
+    row.access === "owner" ? null : await resolveOwnerIdentity(authHeader, row.ownerId);
+
+  return c.json(toWireFull(row, owner), 200);
 });
 
 // ─── PUT /estimates/:id — Update ─────────────────────────────────────────────
@@ -431,7 +552,11 @@ estimatesRouter.openapi(updateEstimateRoute, async (c) => {
     throw new Error("Unexpected database failure updating estimate");
   }
 
-  return c.json(exit.value, 200);
+  // updateEstimate's predicate is still owner-only (T7 scope — version CAS +
+  // editor-collaborator predicate, If-Match/ETag, 403 insufficient_access for
+  // a viewer/editor's PUT) — a success here always means the caller is the
+  // owner, so `owner` is always null and no identity round trip is needed.
+  return c.json(toWireFull(exit.value, null), 200);
 });
 
 // ─── DELETE /estimates/:id — Delete ──────────────────────────────────────────
@@ -442,7 +567,10 @@ const deleteEstimateRoute = createRoute({
   tags: ["Estimates"],
   summary: "Delete an estimate",
   description:
-    "Deletes the estimate. Returns 204 on success, 404 if not found or not owned (AC-4.1).",
+    "Deletes the estimate; every EstimateCollaborator grant cascades away " +
+    "(AC-9.1). Owner-only (AC-3.3) — a collaborator (editor or viewer) gets " +
+    "403 owner_only, NOT 404, because they already know the estimate exists " +
+    "(T6, ADR-0037). 404 is reserved for callers with no relationship at all.",
   request: {
     params: EstimateIdParamSchema,
   },
@@ -454,9 +582,13 @@ const deleteEstimateRoute = createRoute({
       content: { "application/json": { schema: ProblemSchema } },
       description: "Missing or invalid Bearer JWT",
     },
+    403: {
+      content: { "application/json": { schema: ProblemWithCodeSchema } },
+      description: "Caller is a collaborator, not the owner — code: owner_only (AC-3.3)",
+    },
     404: {
       content: { "application/json": { schema: ProblemSchema } },
-      description: "Not found or not owned (AC-4.1)",
+      description: "No relationship to this estimate (AC-1.6)",
     },
   },
 });
@@ -473,6 +605,12 @@ estimatesRouter.openapi(deleteEstimateRoute, async (c) => {
     const cause = exit.cause;
     if (cause._tag === "Fail" && cause.error instanceof NotFoundError) {
       return c.json(problemNotFound(c.req.path, cause.error.message), 404);
+    }
+    if (cause._tag === "Fail" && cause.error instanceof ForbiddenError) {
+      return c.json(
+        problemForbidden(c.req.path, cause.error.message, cause.error.code),
+        403,
+      );
     }
     throw new Error("Unexpected database failure deleting estimate");
   }
