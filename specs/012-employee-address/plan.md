@@ -699,7 +699,20 @@ GOOGLE OAuth`, a new sibling item holds this key):
 | **Per-request timeout** | **3000 ms** ⇒ treated as "no suggestions" | AC-3.2: never a hanging spinner |
 | **Max rendered** | 5 | |
 | **Session token** | One `AutocompleteSessionToken` per editing session; minted on first keystroke, passed to every `fetchAutocompleteSuggestions`, **consumed** by the terminating `place.fetchFields`; a new token after each selection or after 3 min idle | correct per-session billing |
-| **`includedPrimaryTypes`** | `['address']` | excludes businesses/POIs. A **type** filter — not geographic |
+| **`includedPrimaryTypes`** | `['street_address','route','premise','subpremise']` | excludes businesses/POIs. A **type** filter — not geographic |
+
+> **Correction (2026-08-07).** This row originally read `['address']`, which is a
+> **legacy** Autocomplete `types` value that Places API (New) rejects outright:
+> `400 INVALID_ARGUMENT — "Invalid included_primary_types 'address'"`. Because
+> AC-3.2 mandates silent degradation, the failure was invisible — every
+> suggestion request 400'd and the field simply never suggested anything, with no
+> error shown. `googlePlaces.test.ts` asserted the legacy value, so it locked the
+> defect in rather than catching it; a unit test can prove the request *shape*
+> but never that Google accepts it. Replacement verified against the live API:
+> `['street_address']` alone returns nothing for a partial street query, and
+> `['geocode']` offers cities (which can never satisfy AC-1.4's house-number
+> rule), so the four street-level types above are the correct set. AC-2.4 was
+> re-verified — a UK address still resolves.
 | **`locationBias`** | rectangle `{ west: 5.9, south: 35.4, east: 18.6, north: 47.9 }` (covers CH + IT incl. Sicily/Sardinia) | **AC-2.4** |
 | **`includedRegionCodes`** | **MUST NOT BE SET.** ⚠ | See below |
 | **`language`** | the UI locale (`it`/`en`) | |

@@ -80,9 +80,32 @@ describe('buildAutocompleteRequest', () => {
     )
   })
 
-  it('restricts to the address type only (a type filter, not geographic)', () => {
+  it('restricts to street-level place types (a type filter, not geographic)', () => {
     const request = buildAutocompleteRequest('Via Roma', 'token', 'it')
-    expect(request.includedPrimaryTypes).toEqual(['address'])
+    expect(request.includedPrimaryTypes).toEqual([
+      'street_address',
+      'route',
+      'premise',
+      'subpremise',
+    ])
+  })
+
+  it("never sends the LEGACY 'address' type — Places API (New) 400s on it", () => {
+    // Regression guard. `['address']` is a legacy Autocomplete `types` value;
+    // the new API rejects the whole request with
+    // `400 INVALID_ARGUMENT — Invalid included_primary_types 'address'`.
+    // AC-3.2's silent degradation then swallows it, so EVERY suggestion request
+    // fails with nothing visibly wrong — which is precisely how it shipped
+    // undetected (observed 2026-08-07). The previous version of this test
+    // asserted the broken value, so it locked the bug in rather than catching
+    // it: a unit test can only prove the request SHAPE, never that Google
+    // accepts it.
+    const request = buildAutocompleteRequest('Via Roma', 'token', 'it')
+    expect(request.includedPrimaryTypes).not.toContain('address')
+    // Also guard the other too-broad option: `geocode` is accepted by the API
+    // but offers cities as suggestions, which can never satisfy AC-1.4's
+    // house-number requirement.
+    expect(request.includedPrimaryTypes).not.toContain('geocode')
   })
 
   it('carries the requested language', () => {

@@ -35,7 +35,7 @@
  *     keystroke, passed to every suggest call, consumed by the terminating
  *     `place.fetchFields()`; a new token begins after each completed
  *     selection or 3 minutes of idleness (correct per-session billing).
- *   - `includedPrimaryTypes: ['address']` (a TYPE filter, excludes
+ *   - `includedPrimaryTypes: ADDRESS_PRIMARY_TYPES` (a TYPE filter, excludes
  *     businesses/POIs — not geographic, so it does not affect AC-2.4).
  *   - Details field mask `['addressComponents', 'location']` only (minimal
  *     billing tier).
@@ -159,6 +159,27 @@ export type AutocompleteRequestShape = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Street-level place types accepted by Places API (New).
+ *
+ * ⚠ NOT `['address']`. That is a **legacy** Autocomplete `types` value; the new
+ * API rejects it outright with `400 INVALID_ARGUMENT — "Invalid
+ * included_primary_types 'address'"`, which AC-3.2's silent degradation then
+ * hides, so every suggestion request fails with nothing visibly wrong. (That is
+ * exactly what shipped: plan.md's request-contract table carried the legacy
+ * value into the new API. Observed 2026-08-07, fixed here.)
+ *
+ * Verified against the live API rather than chosen from the docs:
+ *   - `['street_address']` alone returns NOTHING for a partial street query —
+ *     a half-typed street matches `route`, not a numbered address.
+ *   - `['geocode']` works but is too broad for an address field: typing
+ *     "Milano" offers the CITY as a selectable suggestion, which can never
+ *     satisfy AC-1.4's house-number requirement.
+ *   - These four return street-level results only — no cities, no businesses —
+ *     and still resolve non-CH/IT addresses (AC-2.4 verified with a UK query).
+ */
+export const ADDRESS_PRIMARY_TYPES = ['street_address', 'route', 'premise', 'subpremise'] as const
+
+/**
  * Builds the request object passed to
  * `AutocompleteSuggestion.fetchAutocompleteSuggestions()`.
  *
@@ -173,7 +194,9 @@ export const buildAutocompleteRequest = (
 ): AutocompleteRequestShape => ({
   input,
   sessionToken,
-  includedPrimaryTypes: ['address'],
+  // Spread, not the constant itself: the request object is handed to Google's
+  // SDK, and a shared mutable reference would let it corrupt every later call.
+  includedPrimaryTypes: [...ADDRESS_PRIMARY_TYPES],
   locationBias: CH_IT_LOCATION_BIAS,
   language,
 })
