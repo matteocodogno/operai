@@ -31,6 +31,12 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: ids only (1..100, each 1..64 chars); returns `{id,status:"active"|"deleted"|"unknown",name}` with `name` non-null **only** for `active`; emails are never returned; no email/name/query/prefix/wildcard/pagination input is accepted — this boundary IS the Non-goal, it must not erode.
   - done when: integration tests cover all three statuses; the **directory-shape contract test** proves a body carrying `email`, `name`, `query`, or `prefix` is rejected and >100 ids is rejected; a deleted user's `name` is asserted `null`; `bun test` green.
 
+- [ ] T27: Rate-limit `POST /authz/users/identities` — close the shipped-contract gap — refs: AC-2.1, AC-10.5 — deps: T3
+  - touch: `auth/src/authz/identities.routes.ts`, `auth/src/authz/identities.routes.test.ts` (or its actual location under `auth/src/auth/`), `auth/src/lib/env.ts`, `auth/.env.example`
+  - origin: **drift**, raised by the T2/T3 agent and decided by the user on 2026-08-07. `plan.md`'s API contract for this endpoint lists `429 + Retry-After`, but neither the plan nor T1 provisioned rate-limit config for it, so T3 shipped it unthrottled and documented the gap rather than inventing constants. The user chose to implement rather than amend the contract.
+  - note: reuse T1's existing `auth/src/lib/rateLimiter.ts` — do **not** write a second limiter. New env `IDENTITIES_RATE_LIMIT` (default `120`) / `IDENTITIES_RATE_WINDOW_MS` (default `600000`), validated at startup like the `APP_ACCESS_CHECK_*` pair. 120/10 min sits far above real usage (roughly one batched call per list render) while still bounding the 100-id fan-out. Return `429` Problem + `Retry-After`, matching `app-access-check`'s shape. Unlike that endpoint this one needs **no** response-time floor — it resolves ids the caller already holds and leaks no existence signal (ADR-0039), so there is nothing to equalise.
+  - done when: the 121st call in the window returns 429 with a `Retry-After` header; a test proves the limiter is keyed per caller `sub` (one caller's exhaustion does not throttle another); the existing identities tests still pass; `bun run typecheck` clean and startup aborts with a named message when either new var is absent.
+
 ## Track B — `estimai-api`: ACL, concurrency, collaborator routes
 
 - [x] T4: Schema + migration — `EstimateCollaborator`, `version`, `lastModifiedByUserId` — refs: AC-4.1, AC-9.1, AC-10.1 — deps: none
@@ -173,7 +179,7 @@ AC-10.4 T6,T12,T23 · AC-10.5 T3,T14,T23.
 |---|---|---|
 | 1 | **T1** ∥ **T4** ∥ **T5** ∥ **T14** | four independent roots (auth, api-schema, api-clients, ui-foundations) |
 | 2 | **T2→T3** (one agent, shared `index.ts`) ∥ **T6** ∥ **T15** ∥ **T19** | |
-| 3 | **T7** ∥ **T8** ∥ **T16** ∥ **T13** | T8 needs T5+T6; T13 needs T1+T5 |
+| 3 | **T7** ∥ **T8** ∥ **T16** ∥ **T13** ∥ **T27** | T8 needs T5+T6; T13 needs T1+T5; T27 needs T3 |
 | 4 | **T9** ∥ **T17** ∥ **T18** ∥ **T20** ∥ **T23** | |
 | 5 | **T10** ∥ **T11** ∥ **T12** ∥ **T21** | |
 | 6 | **T22** → **T24** | |
