@@ -40,6 +40,7 @@ refund-api/src/auth/jwt.middleware.test.ts:generic-api-key:162
 # immediately below it in the same file).
 infra/check.sh:curl-auth-header:114
 
+admin-ui/.envrc:1password-reference:19
 notify-api/.envrc:1password-reference:19
 auth/.envrc:1password-reference:19
 auth/.envrc:1password-reference:20
