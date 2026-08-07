@@ -26,14 +26,21 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
 ┌───────────────────────────────┐             ┌───────────────────────────────┐
 │ shell   https://operai.welld.io│──┐ loads    │ auth        (Bun+Hono)        │
 │         (host, entry point)    │  │ remote-  │  https://auth.operai.welld.io │
-├───────────────────────────────┤  │ Entry.js ├───────────────────────────────┤
-│ estimai-ui  estimai.operai…    │◄─┤ at run-  │ estimai-api (Bun+Hono)        │
-│ refund-ui   refund.operai…     │◄─┤ time, in │  https://estimai-api.operai… │
+├───────────────────────────────┤  │ Entry.js │  numReplicas: 1 (R7, specs/013│
+│ estimai-ui  estimai.operai…    │◄─┤ at run-  │  — see below), app-access-    │
+│ refund-ui   refund.operai…     │◄─┤ time, in │  check limiter is in-process  │
 │ admin-ui    admin.operai…      │◄─┤ browser  ├───────────────────────────────┤
-│ notify-ui   notify.operai…     │◄─┘          │ notify-api  (Bun+Hono)        │
-└───────────────────────────────┘              │  https://notify-api.operai…  │
-   shell owns session; remotes                 │  numReplicas: 1 (R2 — see    │
-   delegate to shell/session                   │  below), SSE + ticket store  │
+│ notify-ui   notify.operai…     │◄─┘          │ estimai-api (Bun+Hono)        │
+└───────────────────────────────┘              │  https://estimai-api.operai… │
+   shell owns session; remotes                 │  numReplicas: 1 (R7, specs/013│
+   delegate to shell/session                   │  — see below), share-add     │
+                                                │  limiter + identity cache are │
+                                                │  in-process, single-instance  │
+                                                ├───────────────────────────────┤
+                                                │ notify-api  (Bun+Hono)        │
+                                                │  https://notify-api.operai…  │
+                                                │  numReplicas: 1 (R2 — see    │
+                                                │  below), SSE + ticket store  │
                                                 │  are single-instance only    │
                                                 ├───────────────────────────────┤
                                                 │ refund-api  (Bun+Hono)        │
@@ -52,9 +59,16 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
                                                 │ refund-api → auth /auth/jwks  │
                                                 │ refund-api → auth /authz/     │
                                                 │   resolve (ADR-0014)          │
+                                                │ estimai-api → auth /authz/    │
+                                                │   app-access-check +          │
+                                                │   /authz/users/identities     │
+                                                │   (specs/013, ADR-0035/0039)  │
                                                 │ refund-api → notify-api       │
                                                 │   /system/notifications       │
                                                 │   (ADR-0017)                  │
+                                                │ estimai-api → notify-api      │
+                                                │   /system/notifications       │
+                                                │   (specs/013, ADR-0040)       │
                                                 └───────────────────────────────┘
 ```
 
@@ -79,8 +93,22 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
   both seams onto Postgres `LISTEN`/`NOTIFY` + a shared ticket table.
   `refund-api` has no equivalent constraint — its `authzMiddleware` cache
   (ADR-0014) is a per-replica performance optimization with a 30s TTL
-  backstop, not a correctness-dependent single-instance store, so it deploys
-  like `estimai-api` (no replica pin).
+  backstop, not a correctness-dependent single-instance store.
+  **`auth` and `estimai-api` are now ALSO pinned to a single replica each**
+  (specs/013-estimate-sharing, T13, plan.md Risk R7) — `auth`'s
+  `APP_ACCESS_CHECK_*` rate limiter (T1, `src/lib/rateLimiter.ts`) and
+  `estimai-api`'s `SHARE_ADD_*` rate limiter + 60s in-process identity cache
+  (T5, `src/lib/rateLimiter.ts`/`authClient.ts`) are both `Map`-based,
+  per-process state — a second replica of either service would silently
+  multiply the effective rate limit by the replica count (an attacker
+  round-robined across N replicas gets N× the intended budget) and serve a
+  stale identity from whichever replica's cache happens to answer. Same
+  failure shape as `notify-api`'s SSE constraint above, same fix if this is
+  ever revisited: swap the `Map` for a shared store (Redis/Postgres) behind
+  the limiter's existing one-interface design (plan.md R7 "Early check") —
+  do not enable autoscale/multiple replicas for `auth` or `estimai-api`
+  without doing that first. See § Variable reference's per-service
+  `railway.json` notes below for the actual pins.
 - **`notify-api` and `estimai-api` are cross-valid JWKS resource servers**
   (ADR-0010) — both verify the same `auth`-issued tokens, so both (plus
   `auth`, which stamps the claim) require an identical **`AUTH_AUDIENCE`**
@@ -113,6 +141,27 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
   attachments never transit `refund-api`'s own process (presigned
   direct-to-bucket upload/download). See § Variable reference's `refund-api`
   section and this task's follow-up note on provisioning (not yet done).
+- **`estimai-api` → `auth` `/authz/app-access-check` + `/authz/users/identities`,
+  `estimai-api` → `notify-api` `/system/notifications`** (specs/013-estimate-sharing,
+  T13, ADR-0035/ADR-0036/ADR-0039/ADR-0040): estimate sharing (US-1..US-7)
+  adds `estimai-api`'s first outbound calls to two sibling services, using
+  its own `AUTH_BASE_URL` env var (a NEW var — distinct from the
+  pre-existing `AUTH_ISSUER`/`AUTH_JWKS_URL` claim-verification values).
+  Both `auth` calls forward the CALLER's own Bearer JWT (no new credential;
+  `POST /authz/app-access-check` fails CLOSED on error per ADR-0035,
+  `POST /authz/users/identities` fails SOFT to `status:"unknown"` per
+  ADR-0039 — deliberately different failure postures on the same service,
+  see each ADR). `estimai-api` deliberately does **not** become an
+  authorization-enforcing resource server like `refund-api` (ADR-0036) —
+  per-record ACLs live in `estimai-api`'s own `estimate_collaborator` table,
+  not in `auth`'s catalog. The `notify-api` call reuses `refund-api`'s exact
+  `/system/notifications` contract and the SAME `NOTIFY_INTERNAL_TOKEN`
+  secret, making `estimai-api` the token's THIRD holder (ADR-0040 — see
+  § "`NOTIFY_INTERNAL_TOKEN`" below). Both calls are additionally bounded by
+  `estimai-api`'s own `SHARE_ADD_RATE_LIMIT`/`_WINDOW_MS` and
+  `SHARE_LOOKUP_FLOOR_MS` (plan.md AC-1.2's anti-enumeration timing floor,
+  mirroring `auth`'s own `APP_ACCESS_CHECK_FLOOR_MS`) — see § Variable
+  reference's `estimai-api` section for all six new vars.
 - **The public URL placeholders** used below — keep them straight; all need
   the `https://` scheme:
   - `<AUTH_URL>` = the **auth** service (e.g. `https://auth.operai.welld.io`). It
@@ -203,13 +252,28 @@ are called out. What the script does, step by step:
    `GOOGLE_*`/`GITHUB_*`, `JWT_*`, `ALLOWED_ORIGINS=<shell origin>`, `UI_HOME_URL`,
    `AUTH_AUDIENCE` (ADR-0010 — one suite-wide value; see below),
    `NOTIFY_INTERNAL_URL`/`NOTIFY_INTERNAL_TOKEN` (specs/006-user-invitations,
-   ADR-0011 — see below), `BOOTSTRAP_ADMIN_EMAIL`, `NODE_ENV=production`), then
-   deploy. **Generate its domain** (dashboard → Settings → Networking, or a
+   ADR-0011 — see below), `BOOTSTRAP_ADMIN_EMAIL`, `NODE_ENV=production`, and —
+   **optional, code defaults apply if unset (specs/013-estimate-sharing,
+   T1/T2/T27)** — `APP_ACCESS_CHECK_FLOOR_MS`/`APP_ACCESS_CHECK_RATE_LIMIT`/
+   `APP_ACCESS_CHECK_RATE_WINDOW_MS` and `IDENTITIES_RATE_LIMIT`/
+   `IDENTITIES_RATE_WINDOW_MS`), then deploy. Pin **`numReplicas: 1`**
+   (`auth/railway.json` — plan.md Risk R7, see § Topology above; the
+   in-process `APP_ACCESS_CHECK`/`IDENTITIES` rate limiters are per-instance
+   state). **Generate its domain** (dashboard → Settings → Networking, or a
    custom `auth.operai.welld.io`) → this is **`<AUTH_URL>`**.
 4. **Deploy `estimai-api`** (root dir `estimai-api`): set `DATABASE_URL` (dbname
    `estimai`), `ALLOWED_ORIGINS`, `AUTH_ISSUER=<AUTH_URL>`,
    `AUTH_JWKS_URL=<AUTH_URL>/auth/jwks`, `AUTH_AUDIENCE` (byte-for-byte identical
-   to `auth`'s), `NODE_ENV`. **Generate its domain** → **`<API_URL>`**.
+   to `auth`'s), `NODE_ENV`, and — **NEW (specs/013-estimate-sharing, T13)** —
+   `AUTH_BASE_URL` (internal, bucket ① — same private-DNS shape as
+   `refund-api`'s own `AUTH_BASE_URL`, see step 8 below), `NOTIFY_INTERNAL_URL`
+   + `NOTIFY_INTERNAL_TOKEN` (internal + shared-secret, set at step 8
+   alongside `auth`'s and `refund-api`'s), and `SHARE_LOOKUP_FLOOR_MS`/
+   `SHARE_ADD_RATE_LIMIT`/`SHARE_ADD_RATE_WINDOW_MS` (optional — code
+   defaults `300`/`20`/`600000` apply if unset). Pin **`numReplicas: 1`**
+   (`estimai-api/railway.json` — plan.md Risk R7, see § Topology above; the
+   in-process share-add rate limiter and identity cache are per-instance
+   state). **Generate its domain** → **`<API_URL>`**.
 5. **Deploy `notify-api`** (root dir `notify-api`, reads `notify-api/railway.json`
    — note it pins **`numReplicas: 1`**, do not change this without first reading
    plan.md Risk R2): set `DATABASE_URL` (dbname `notify`, **not** `estimai`),
@@ -260,10 +324,12 @@ are called out. What the script does, step by step:
    must equal `estimai-api.AUTH_ISSUER`, `notify-api.AUTH_ISSUER`, and
    `refund-api.AUTH_ISSUER`) and redeploy `auth`. Re-run the script with
    `AUTH_PUBLIC_URL=<AUTH_URL>` once the domain exists.
-8. **Wire the invitation email channel + refund decision notifications**
-   (specs/006-user-invitations ADR-0011, specs/007-refund-service ADR-0017):
-   set `auth`'s **and** `refund-api`'s `NOTIFY_INTERNAL_URL` to notify-api's
-   **Railway private** networking address, as the reference
+8. **Wire the invitation email channel + refund decision notifications +
+   estimate-sharing notifications** (specs/006-user-invitations ADR-0011,
+   specs/007-refund-service ADR-0017, specs/013-estimate-sharing ADR-0040):
+   set `auth`'s, `refund-api`'s, **and now `estimai-api`'s**
+   `NOTIFY_INTERNAL_URL` to notify-api's **Railway private** networking
+   address, as the reference
    `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` —
    do NOT hand-type `notify-api.railway.internal`, which does not resolve
    (dashboard → notify-api service → Settings → Networking → Private
@@ -271,15 +337,21 @@ are called out. What the script does, step by step:
    box in § Cross-service wiring) — **not** `<NOTIFY_API_URL>`, the public domain from step 5
    (plan.md Risk R2 / ADR-0011: this service-to-service call must stay off
    the public internet). Generate a strong shared secret (`openssl rand -hex
-   32`) and set it as `NOTIFY_INTERNAL_TOKEN` on **all three** of `auth`,
-   `notify-api`, **and `refund-api`** — byte-for-byte identical, stored once
-   in 1Password and referenced by all three services' `.envrc` (ADR-0017:
-   this is now a THIRD caller sharing one secret, a named-but-not-yet-acted-on
-   escalation trigger from ADR-0011). Set `notify-api`'s `EMAIL_ENABLED=true`
-   with real `RESEND_API_KEY`/`RESEND_FROM` only once the Resend sending
-   domain is verified (see § Resend domain setup below) — until then, leave
-   `EMAIL_ENABLED=false` so invite emails are stubbed (recorded, not actually
-   sent) rather than failing loudly.
+   32`) and set it as `NOTIFY_INTERNAL_TOKEN` on **all four** of `auth`,
+   `notify-api`, `refund-api`, **and `estimai-api`** — byte-for-byte identical,
+   stored once in 1Password (`AIScream / OperAI - NOTIFY_INTERNAL_TOKEN`) and
+   referenced by all four services (ADR-0040: `estimai-api` is now a FOURTH
+   caller sharing one secret — see § "`NOTIFY_INTERNAL_TOKEN`" above for the
+   named hard stop). Also set `estimai-api`'s `AUTH_BASE_URL` to
+   `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` here (same
+   private-DNS shape as `refund-api`'s own `AUTH_BASE_URL` two rows up in §
+   Variable reference's ① table) — it is the base for `estimai-api`'s
+   `POST /authz/app-access-check` and `POST /authz/users/identities` calls
+   (specs/013-estimate-sharing, ADR-0035/0039). Set `notify-api`'s
+   `EMAIL_ENABLED=true` with real `RESEND_API_KEY`/`RESEND_FROM` only once
+   the Resend sending domain is verified (see § Resend domain setup below) —
+   until then, leave `EMAIL_ENABLED=false` so invite emails are stubbed
+   (recorded, not actually sent) rather than failing loudly.
 
 **`AUTH_AUDIENCE` (ADR-0010) — one value, FOUR services (as of specs/007).**
 `notify-api` was the suite's first real second JWKS resource server, so a
@@ -291,26 +363,34 @@ stamps the `audience` claim on every JWT it issues; `estimai-api`,
 value** (local default: `operai-suite`, see each service's `.env.example`) — a
 drifted value fails every request closed (401) in that environment, not open.
 
-**`NOTIFY_INTERNAL_TOKEN` (ADR-0011, extended by ADR-0017) — shared secret,
-THREE services (as of specs/007), no user identity.** `auth` calls
-`notify-api`'s `POST /system/emails` to send invite/resend emails, and
-`refund-api` calls `notify-api`'s `POST /system/notifications` to push
-decision notifications — both deliberately NOT the JWKS/Bearer-JWT pattern
-above (the invitee has no `User` row/`sub` yet for the email case; the
-notification case reuses the same internal-token shape rather than forwarding
-a caller's JWT to a different service for a system-initiated push). All three
+**`NOTIFY_INTERNAL_TOKEN` (ADR-0011, extended by ADR-0017, extended again by
+ADR-0040) — shared secret, FOUR services (as of specs/013-estimate-sharing),
+no user identity.** `auth` calls `notify-api`'s `POST /system/emails` to send
+invite/resend emails; `refund-api` calls `notify-api`'s
+`POST /system/notifications` to push decision notifications; and now
+`estimai-api` calls the SAME `POST /system/notifications` endpoint to push
+collaborator grant/removal notifications (specs/013-estimate-sharing,
+AC-7.1/AC-7.2) — none of the three callers use the JWKS/Bearer-JWT pattern
+above (the invitee has no `User` row/`sub` yet for the email case; the two
+notification cases reuse the same internal-token shape rather than forwarding
+a caller's JWT to a different service for a system-initiated push). All four
 services validate a single shared secret via the `X-Internal-Token` header.
-**`auth.NOTIFY_INTERNAL_TOKEN`, `notify-api.NOTIFY_INTERNAL_TOKEN`, and
-`refund-api.NOTIFY_INTERNAL_TOKEN` must be byte-for-byte identical**, sourced
-from one 1Password item, ≥32 random chars, never logged by any service —
-plan.md Risk R2: a leaked token lets an attacker send arbitrary email over
-wellD's Resend domain (and, as of specs/007, push arbitrary in-app
+**`auth.NOTIFY_INTERNAL_TOKEN`, `notify-api.NOTIFY_INTERNAL_TOKEN`,
+`refund-api.NOTIFY_INTERNAL_TOKEN`, and `estimai-api.NOTIFY_INTERNAL_TOKEN`
+must be byte-for-byte identical**, sourced from ONE 1Password item
+(`AIScream / OperAI - NOTIFY_INTERNAL_TOKEN` — see the per-service tables
+below; `estimai-api` is wired as a fourth reader of this SAME item, never a
+newly minted one), ≥32 random chars, never logged by any service — plan.md
+Risk R2: a leaked token lets an attacker send arbitrary email over wellD's
+Resend domain (and, as of specs/007/specs/013, push arbitrary in-app
 notifications to any user). Rotate by generating a new value, updating
-1Password, and redeploying **all three** services together (a stale value on
-any one side fails every send/push closed, 401, not open). ADR-0017 names
-this "a THIRD internal caller sharing one secret" as an explicit,
-knowingly-deferred escalation trigger from ADR-0011 — not re-litigated here,
-just flagged.
+1Password, and redeploying **all four** services together (a stale value on
+any one side fails every send/push closed, 401, not open). ADR-0017 named
+"a THIRD internal caller sharing one secret" as an explicit,
+knowingly-deferred escalation trigger from ADR-0011; ADR-0040 is that
+trigger firing a **second** time for `estimai-api` as the fourth holder —
+and it names a hard stop: a fifth caller, or any suspected leak, must not
+defer a third time. Not re-litigated here, just flagged.
 
 **Resend domain setup (plan.md Risk R5, ADR-0011 compliance notes).** Before
 setting `EMAIL_ENABLED=true` in production:
@@ -668,8 +748,8 @@ calls silently fail.
 | Var | Owner(s) | Value |
 |---|---|---|
 | `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` |
-| `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call) | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` |
-| `NOTIFY_INTERNAL_URL` | auth, refund-api | `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` |
+| `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call); estimai-api (the `POST /authz/app-access-check` + `POST /authz/users/identities` calls, specs/013-estimate-sharing, ADR-0035/0039) | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` |
+| `NOTIFY_INTERNAL_URL` | auth, refund-api, estimai-api (specs/013-estimate-sharing, ADR-0040) | `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` |
 
 **Use the Railway reference-variable form above (`${{svc.PORT}}`) — do NOT
 hardcode the port.** A service listens on exactly ONE port (its `PORT`), and it
@@ -703,7 +783,7 @@ suite-wide 401):
 |---|---|
 | `AUTH_AUDIENCE` | auth + all 3 resource servers (ADR-0010) |
 | `AUTH_ISSUER` | all 3 resource servers (same public value) |
-| `NOTIFY_INTERNAL_TOKEN` | auth + refund-api + notify-api (secret; ADR-0011/0017) |
+| `NOTIFY_INTERNAL_TOKEN` | auth + refund-api + notify-api + estimai-api (secret; ADR-0011/0017/0040) |
 
 Set each as a Railway **Shared Variable** once; each service then references
 `${{shared.AUTH_AUDIENCE}}` etc. — one place to change, no hand-copying.
@@ -727,9 +807,20 @@ follows bucket ①).
 | `NOTIFY_INTERNAL_URL` | **NEW (specs/006, ADR-0011).** notify-api's Railway **private**-networking address — always write it as `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`, **never** a hand-typed `notify-api.railway.internal` (that host does not exist — see the ⚠ box in § Cross-service wiring), and **not** `<NOTIFY_API_URL>` (the public domain). Base URL for the `POST /system/emails` call (`src/lib/notify.ts`). | no |
 | `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/006, ADR-0011).** Shared secret sent as `X-Internal-Token`; byte-for-byte identical to `notify-api.NOTIFY_INTERNAL_TOKEN`. 1Password → `AIScream / OperAI - NOTIFY_INTERNAL_TOKEN` (≥32 random chars). A leaked value = arbitrary email over wellD's Resend domain (Risk R2) — never logged, rotate + redeploy both services together if compromised. | **yes** |
 | `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
+| `APP_ACCESS_CHECK_FLOOR_MS` / `APP_ACCESS_CHECK_RATE_LIMIT` / `APP_ACCESS_CHECK_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T1/T2).** In-process anti-enumeration floor + rate limit for `POST /authz/app-access-check` (ADR-0035). Optional — code defaults `150`/`40`/`600000` apply if unset; set explicitly only to tune per environment. | no |
+| `IDENTITIES_RATE_LIMIT` / `IDENTITIES_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T27).** In-process rate limit for `POST /authz/users/identities` (reuses the same `rateLimiter.ts` module as the pair above, a second instance keyed separately). Optional — code defaults `120`/`600000` apply if unset. No response-time floor needed (ADR-0039 — this endpoint leaks no existence signal the caller doesn't already hold). | no |
 | `NODE_ENV` | `production` | no |
 | `PORT` | **set explicitly** (any consistent value, e.g. `8080`) so private-networking callers can reference `${{auth.PORT}}` (see § Private networking) — the service binds `env.PORT`, default 3001 if unset, but leaving it unset makes `${{auth.PORT}}` unresolvable | no |
 | `ENABLE_TEST_AUTH` / `BETTER_AUTH_TRUSTED_ORIGINS` | **leave UNSET** (see Phase 1) | — |
+
+**`auth` deploy constraint — NEW (specs/013-estimate-sharing, T13, plan.md
+Risk R7):** `railway.json` now pins **`numReplicas: 1`** — the
+`APP_ACCESS_CHECK_*`/`IDENTITIES_RATE_*` limiters above are in-process
+`Map`-based sliding windows, correct for exactly one running instance (same
+shape as `notify-api`'s existing SSE constraint, § Topology above). Do not
+enable autoscale/multiple replicas without first moving the limiter behind a
+shared store (the module is written behind one interface specifically so
+that swap doesn't require a rewrite).
 
 ### `estimai-api` service (Railway)
 
@@ -740,7 +831,21 @@ follows bucket ①).
 | `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`; **public** claim — bucket ②; use `${{shared.AUTH_ISSUER}}`) |
 | `AUTH_JWKS_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001/auth/jwks` (**not** the public `<AUTH_URL>`, **not** `/.well-known/jwks.json`) |
 | `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — same value as every service; `jwtVerify` pins `audience`; a token with a missing/wrong `aud` is rejected 401. | no |
+| `AUTH_BASE_URL` | **NEW (specs/013-estimate-sharing, T13).** **internal** (bucket ①): `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` — base for the Bearer-forwarded `POST /authz/app-access-check` (fails CLOSED, ADR-0035) and `POST /authz/users/identities` (fails SOFT, ADR-0039) calls. **Required** — `src/lib/env.ts` `process.exit(1)`s if absent. | no |
+| `NOTIFY_INTERNAL_URL` | **NEW (specs/013-estimate-sharing, T13).** **internal** (bucket ①): `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` — **not** `<NOTIFY_API_URL>`, the public domain. **Required.** | no |
+| `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/013-estimate-sharing, T13, ADR-0040).** Byte-for-byte identical to `auth`/`notify-api`/`refund-api`'s own — same 1Password item (`AIScream / OperAI - NOTIFY_INTERNAL_TOKEN`), `estimai-api` is the FOURTH reader, never a new item. **Required**, ≥32 chars. | **yes** |
+| `SHARE_LOOKUP_FLOOR_MS` / `SHARE_ADD_RATE_LIMIT` / `SHARE_ADD_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T13).** Anti-enumeration floor (AC-1.2) + rate limit for `POST /estimates/{id}/collaborators`. Optional — code defaults `300`/`20`/`600000` apply if unset. | no |
 | `NODE_ENV` | `production` · `MAX_ESTIMATE_BYTES`/`MAX_IMPORT_REQUEST_BYTES` optional (defaults) |
+
+**`estimai-api` deploy constraint — NEW (specs/013-estimate-sharing, T13,
+plan.md Risk R7):** `railway.json` now pins **`numReplicas: 1`** — the
+`SHARE_ADD_*` rate limiter AND the 60s in-process identity cache
+(`src/lib/authClient.ts`) are both per-process state, correct for exactly one
+running instance (same shape as `notify-api`'s existing SSE constraint, §
+Topology above). A second replica would silently multiply the effective
+`SHARE_ADD_RATE_LIMIT` by the replica count and serve a stale cached identity
+from whichever replica answers. Do not enable autoscale/multiple replicas
+without first moving both behind a shared store.
 
 ### `notify-api` service (Railway) — NEW (specs/005-notification-center)
 
