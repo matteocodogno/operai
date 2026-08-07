@@ -132,7 +132,16 @@ function ShellLayoutFrame({ header, sidebar, footer }: ShellLayoutProps) {
         <main
           id={SHELL_MAIN_CONTENT_ID}
           tabIndex={-1}
-          className={`min-w-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
+          // `relative` is load-bearing, not cosmetic: it makes <main> the
+          // containing block for absolutely-positioned descendants. Without it
+          // their containing block is the INITIAL containing block, so <main>'s
+          // `overflow-y-auto` never clips them and they stretch <html> itself —
+          // giving a second, dead scroll on top of <main>'s own ("scroll twice").
+          // Tailwind's `sr-only` is `position: absolute`, so ANY remote with
+          // screen-reader text far down a taller-than-viewport page trips this
+          // (found on /admin/users/:id, 2026-08-07: <html> 1582px vs 900px
+          // viewport). Keep `relative` here.
+          className={`relative min-w-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
         >
           <Outlet />
         </main>
