@@ -201,4 +201,46 @@ describe("POST /authz/users/identities (T3, specs/013-estimate-sharing)", () => 
     });
     expect(res.status).toBe(401);
   });
+
+  // ── T27: rate limiting (specs/013-estimate-sharing) — closes the drift
+  // documented in this route's header comment: plan.md's contract lists
+  // 429 + Retry-After, but T3 shipped unthrottled. T27 reuses T1's
+  // rateLimiter.ts with its own IDENTITIES_RATE_LIMIT/_WINDOW_MS pair.
+  test("the (limit+1)th attempt within the window is rate-limited (429 + Retry-After), and the limiter is keyed per caller sub — a fresh caller is unaffected", async () => {
+    const caller = await mintTokenForNewUser("rate-limit-caller");
+    const target = await mintTokenForNewUser("rate-limit-target");
+
+    const limit = env.IDENTITIES_RATE_LIMIT; // default 120
+    for (let i = 0; i < limit; i++) {
+      const { status } = await callIdentities(caller.token, { ids: [target.userId] });
+      expect(status).toBe(200);
+    }
+
+    const overLimit = await callIdentities(caller.token, { ids: [target.userId] });
+    expect(overLimit.status).toBe(429);
+    expect(overLimit.body["code"]).toBe("rate_limited");
+
+    const freshCaller = await mintTokenForNewUser("rate-limit-fresh-caller");
+    const stillOk = await callIdentities(freshCaller.token, { ids: [target.userId] });
+    expect(stillOk.status).toBe(200);
+  }, 30000);
+
+  test("a 429 response carries a Retry-After header", async () => {
+    const caller = await mintTokenForNewUser("retry-after-caller");
+    const target = await mintTokenForNewUser("retry-after-target");
+
+    const limit = env.IDENTITIES_RATE_LIMIT;
+    for (let i = 0; i < limit; i++) {
+      const { status } = await callIdentities(caller.token, { ids: [target.userId] });
+      expect(status).toBe(200);
+    }
+
+    const res = await identitiesRouter.request("/authz/users/identities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${caller.token}` },
+      body: JSON.stringify({ ids: [target.userId] }),
+    });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBeTruthy();
+  }, 30000);
 });

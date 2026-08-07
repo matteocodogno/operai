@@ -79,6 +79,21 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(600000),
+  // ─── Identities rate limit (specs/013-estimate-sharing, T27) ────────────────
+  // `POST /authz/users/identities` (T3) shipped WITHOUT rate limiting — a
+  // documented drift against plan.md's API contract, which lists `429 +
+  // Retry-After` for this route, because neither plan.md nor T1 provisioned a
+  // limit/window for it (T1 only introduced APP_ACCESS_CHECK_* above). T27
+  // closes that gap by reusing T1's `createSlidingWindowRateLimiter`
+  // (rateLimiter.ts) with its OWN limit/window, keyed by caller `sub` exactly
+  // like APP_ACCESS_CHECK_RATE_LIMIT/_WINDOW_MS above. 120/10min sits far
+  // above real usage (roughly one batched call per list render) while still
+  // bounding the 100-id-per-call fan-out. Unlike APP_ACCESS_CHECK_*, this
+  // route gets NO response-time floor — it resolves ids the caller already
+  // holds and leaks no existence signal (ADR-0039), so there is nothing to
+  // equalise; a floor here would only slow every list render.
+  IDENTITIES_RATE_LIMIT: z.coerce.number().int().positive().default(120),
+  IDENTITIES_RATE_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

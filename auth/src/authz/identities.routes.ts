@@ -35,22 +35,27 @@
  * `status:"unknown"` rather than surfacing an error, in explicit, named
  * contrast to T2's fail-CLOSED authorization decision (ADR-0039).
  *
- * DRIFT NOTE (reported, not silently resolved — see T2/T3 implementation
- * report): plan.md's API-contracts block lists a `429 + Retry-After`
- * response for this route, but neither T1 (which introduced the ONLY new
- * rate-limit env vars, `APP_ACCESS_CHECK_*`, scoped to T2's endpoint) nor
- * this task's `done when` provisions a limit/window for
- * `/authz/users/identities`. Rather than invent undocumented, unvalidated
- * constants (violating this service's "every env var validated at startup"
- * convention, CLAUDE.md), this endpoint ships WITHOUT rate limiting and the
- * 429 is omitted from its OpenAPI responses below. A future task should add
- * `IDENTITIES_RATE_LIMIT`/`_WINDOW_MS` (or similar) to `env.ts` if this is
- * confirmed as a real requirement, not a stale contract entry.
+ * RATE LIMITING (T27, specs/013-estimate-sharing — closes a drift): plan.md's
+ * API-contracts block lists a `429 + Retry-After` response for this route,
+ * but T1/T3 shipped it unthrottled because neither plan.md nor T1's env
+ * additions (`APP_ACCESS_CHECK_*`, scoped to T2's endpoint) provisioned a
+ * limit/window for THIS route. T27 closes that gap by reusing T1's
+ * `createSlidingWindowRateLimiter` (`../lib/rateLimiter`) with its own
+ * `IDENTITIES_RATE_LIMIT`/`IDENTITIES_RATE_WINDOW_MS` env pair, keyed by
+ * caller `sub`, mirroring `appAccessCheck.routes.ts`'s 429 Problem JSON +
+ * `Retry-After` shape exactly. Deliberately UNLIKE that endpoint: this route
+ * gets NO response-time floor. `app-access-check`'s floor exists to equalise
+ * two negative causes that would otherwise leak an enumeration signal; this
+ * endpoint only resolves ids the caller already holds and never returns an
+ * existence-implying distinction worth equalising (ADR-0039) — a floor here
+ * would only slow every list render for no security benefit.
  */
 
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 import { db } from "../lib/db";
+import { env } from "../lib/env";
+import { createSlidingWindowRateLimiter } from "../lib/rateLimiter";
 import { bearerJwtMiddleware, type ResolveAuthVariables } from "./resolveAuth.middleware";
 
 const MAX_IDS = 100;
@@ -94,6 +99,10 @@ const ProblemJsonSchema = z.object({
   instance: z.string(),
 });
 
+const ProblemJsonWithCodeSchema = ProblemJsonSchema.extend({
+  code: z.string(),
+});
+
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 const postIdentitiesRoute = createRoute({
@@ -125,9 +134,10 @@ const postIdentitiesRoute = createRoute({
       content: { "application/json": { schema: ProblemJsonSchema } },
       description: "Missing, invalid, expired, or wrong-issuer/audience Bearer token",
     },
-    // 429 deliberately omitted — see the DRIFT NOTE in this file's header
-    // doc comment: plan.md's contract lists one, but no rate-limit
-    // env var / done-when test backs it for this specific route.
+    429: {
+      content: { "application/json": { schema: ProblemJsonWithCodeSchema } },
+      description: "Caller exceeded the rate limit (T27)",
+    },
   },
 });
 
@@ -159,7 +169,37 @@ export const identitiesRouter = new OpenAPIHono<{
 
 identitiesRouter.use("/authz/users/identities", bearerJwtMiddleware);
 
+// T27's rate limiter — module-scope singleton (T1's `createSlidingWindowRateLimiter`)
+// so every request against this single process shares one sliding-window map,
+// keyed by caller `sub`, independent of `appAccessCheckLimiter`'s own map/config.
+const identitiesLimiter = createSlidingWindowRateLimiter({
+  limit: env.IDENTITIES_RATE_LIMIT,
+  windowMs: env.IDENTITIES_RATE_WINDOW_MS,
+});
+
 identitiesRouter.openapi(postIdentitiesRoute, async (c) => {
+  const callerId = c.get("callerId");
+
+  // ── 429: rate limit, per caller sub (T27). No response-time floor here —
+  // see the header doc comment for why this route deliberately diverges from
+  // app-access-check's equalisation posture.
+  const rateLimitResult = identitiesLimiter.consume(callerId);
+  if (!rateLimitResult.allowed) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(rateLimitResult.retryAfterMs / 1000));
+    c.header("Retry-After", String(retryAfterSeconds));
+    return c.json(
+      {
+        type: "https://httpstatuses.com/429",
+        title: "Too Many Requests",
+        status: 429,
+        detail: "Too many identity-resolution attempts. Try again later.",
+        instance: c.req.path,
+        code: "rate_limited",
+      },
+      429,
+    );
+  }
+
   const { ids } = c.req.valid("json");
 
   // De-duplicate — a caller sending the same id twice should not pay for or
