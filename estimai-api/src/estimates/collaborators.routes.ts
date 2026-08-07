@@ -3,6 +3,14 @@
  * (T8, specs/013-estimate-sharing — refs AC-1.1, AC-1.2, AC-1.3, AC-1.4,
  * AC-1.5, AC-5.4; plan.md "API contracts — estimai-api — new").
  *
+ * ALSO — PATCH /estimates/{id}/collaborators/{collaboratorId},
+ * DELETE /estimates/{id}/collaborators/{collaboratorId}, and
+ * DELETE /estimates/{id}/collaborators/me — manage / revoke / leave (T9,
+ * specs/013-estimate-sharing — refs AC-5.1, AC-5.2, AC-5.3, AC-6.1, AC-6.2).
+ * See the dedicated "T9" section further down this file for that trio's
+ * documentation (registration-order constraint, notification scope
+ * boundary, next-request-only enforcement).
+ *
  * Routes attach to the existing `estimatesRouter` (not a new router) per
  * plan.md's contract header — "all under the existing estimatesRouter,
  * jwtMiddleware + 2 MiB bodyLimit" — via an exported `registerCollaboratorRoutes(router)`
@@ -114,10 +122,16 @@ import {
   listCollaborators,
   findCollaboratorByEmail,
   insertCollaborator,
+  findCollaboratorById,
+  updateCollaboratorAccessLevel,
+  deleteCollaboratorById,
+  findCollaboratorByUserId,
+  deleteCollaboratorByUserId,
   AlreadyCollaboratorError,
 } from "./collaborators.repo";
 import {
   AddCollaboratorRequestSchema,
+  UpdateCollaboratorRequestSchema,
   type Collaborator,
 } from "./collaborators.schemas";
 
@@ -146,11 +160,18 @@ const EmailSyntaxSchema = z.string().max(320).email();
 
 // ─── Problem JSON helpers (local — mirrors estimates.routes.ts's pattern) ────
 
-const problemNotFound = (path: string, detail: string) => ({
+// `code` is OPTIONAL and omitted by default so the "no relationship to this
+// estimate" 404 (resolveAccess === null, used across GET/POST/PATCH/DELETE)
+// stays byte-identical to AC-1.6's stranger 404 in estimates.routes.ts —
+// neither carries a `code` field. T9's `DELETE .../collaborators/me` is the
+// one call site that passes `code: "not_a_collaborator"` (plan.md), which is
+// NOT compared against AC-1.6 anywhere, so widening its shape is safe.
+const problemNotFound = (path: string, detail: string, code?: string) => ({
   type: "https://httpstatuses.com/404",
   title: "Not Found",
   status: 404 as const,
   detail,
+  ...(code !== undefined ? { code } : {}),
   instance: path,
 });
 
@@ -496,5 +517,219 @@ export function registerCollaboratorRoutes(
       },
       201,
     );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // T9 — manage / revoke / leave (specs/013-estimate-sharing, refs AC-5.1,
+  // AC-5.2, AC-5.3, AC-6.1, AC-6.2; plan.md "API contracts — estimai-api —
+  // new")
+  // ═══════════════════════════════════════════════════════════════════════
+  //
+  // All three routes below are OWNER-GATED except `/me`. `/me` is registered
+  // FIRST, before the two `{collaboratorId}` param routes — Hono's router
+  // would otherwise match the literal path segment "me" as a VALUE for
+  // `:collaboratorId` on `DELETE .../collaborators/{collaboratorId}`, since
+  // both are registered for the same method (`DELETE`) on the same prefix.
+  // (`PATCH` has no `/me` route at all, so no such collision exists for it —
+  // the ordering constraint is specifically about `DELETE`.)
+  //
+  // ENFORCEMENT IS NEXT-REQUEST (AC-5.3) — a `PATCH` level change or a
+  // `DELETE` takes effect the moment it commits, but there is deliberately
+  // NO push/stream/live-kick mechanism for an already-open session; the
+  // collaborator's CURRENT request (if one happens to be in flight) is
+  // unaffected, and their NEXT request re-runs `resolveAccess`/
+  // `findCollaboratorByUserId` fresh, which is what actually enforces it.
+  // Nothing here subscribes to or emits any event.
+  //
+  // NO NOTIFICATION IS FIRED BY `PATCH` (AC-7.3 — a level change is
+  // deliberately silent) OR BY `DELETE .../me` (AC-7.2 excludes self-leave).
+  // The owner-initiated `DELETE .../collaborators/{collaboratorId}` DOES
+  // carry a best-effort removal notification per plan.md, but wiring it in
+  // is explicitly T10's scope (deps: T8, T9) — `src/lib/notify.ts` already
+  // exports `notifyCollaboratorRemoved`, ready for T10 to call AFTER this
+  // DELETE commits; nothing in this file calls it yet.
+
+  // ─── DELETE /estimates/{id}/collaborators/me — leave (self, US-6, AC-6.1/6.2) ──
+
+  router.delete("/estimates/:id/collaborators/me", async (c) => {
+    const callerId = c.get("userId");
+    const estimateId = c.req.param("id");
+    const path = c.req.path;
+
+    const ownGrantExit = await Effect.runPromiseExit(
+      findCollaboratorByUserId(estimateId, callerId),
+    );
+    if (ownGrantExit._tag === "Failure") {
+      throw new Error(
+        "Unexpected database failure looking up the caller's own collaborator grant",
+      );
+    }
+
+    // Covers three cases IDENTICALLY, by construction (no separate branch
+    // needed): a genuine stranger, a collaborator on a DIFFERENT estimate,
+    // and — the AC-6.2 case — the OWNER themselves. An owner never has an
+    // `EstimateCollaborator` row of their own (AC-1.4), so they have no
+    // grant to leave; they delete the estimate instead. This is NOT the
+    // AC-1.6 "no relationship" 404 (no `resolveAccess` call happens here at
+    // all, and this body intentionally carries a `code`) — it is scoped
+    // narrowly to "does the caller hold a grant", which is all `/me` needs.
+    if (ownGrantExit.value === null) {
+      return c.json(
+        problemNotFound(
+          path,
+          "You are not a collaborator on this estimate.",
+          "not_a_collaborator",
+        ),
+        404,
+      );
+    }
+
+    const deleteExit = await Effect.runPromiseExit(
+      deleteCollaboratorByUserId(estimateId, callerId),
+    );
+    if (deleteExit._tag === "Failure") {
+      throw new Error(
+        "Unexpected database failure removing the caller's own collaborator grant",
+      );
+    }
+
+    // NO notification — self-leave is explicitly excluded (AC-7.2).
+
+    return new Response(null, { status: 204 });
+  });
+
+  // ─── PATCH /estimates/{id}/collaborators/{collaboratorId} — level change (owner only, AC-5.1) ──
+
+  router.patch("/estimates/:id/collaborators/:collaboratorId", async (c) => {
+    const callerId = c.get("userId");
+    const estimateId = c.req.param("id");
+    const collaboratorId = c.req.param("collaboratorId");
+    const authHeader = c.req.header("Authorization") ?? "";
+    const path = c.req.path;
+
+    const accessExit = await Effect.runPromiseExit(resolveAccess(estimateId, callerId));
+    if (accessExit._tag === "Failure") {
+      throw new Error("Unexpected database failure resolving estimate access");
+    }
+    const resolved = accessExit.value;
+
+    if (resolved === null) {
+      return c.json(problemNotFound(path, `Estimate ${estimateId} not found`), 404);
+    }
+    if (resolved.level !== "owner") {
+      return c.json(
+        problemForbidden(
+          path,
+          "Only the owner can change a collaborator's access level.",
+          "owner_only",
+        ),
+        403,
+      );
+    }
+
+    let rawBody: unknown;
+    try {
+      rawBody = await c.req.json();
+    } catch {
+      return c.json(problemBadRequest(path, "Request body must be valid JSON.", "invalid_input"), 400);
+    }
+    const bodyResult = UpdateCollaboratorRequestSchema.safeParse(rawBody);
+    if (!bodyResult.success) {
+      return c.json(
+        problemBadRequest(
+          path,
+          bodyResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "),
+          "invalid_input",
+        ),
+        400,
+      );
+    }
+
+    // AC-5.4 — a fabricated grant id (or one lifted from a DIFFERENT
+    // estimate, including one shaped like the owner's own `sub`) → 404.
+    // Scoped by BOTH `collaboratorId` AND `estimateId`.
+    const existingExit = await Effect.runPromiseExit(
+      findCollaboratorById(estimateId, collaboratorId),
+    );
+    if (existingExit._tag === "Failure") {
+      throw new Error("Unexpected database failure looking up the collaborator grant");
+    }
+    if (existingExit.value === null) {
+      return c.json(problemNotFound(path, `Collaborator grant ${collaboratorId} not found`), 404);
+    }
+
+    const updateExit = await Effect.runPromiseExit(
+      updateCollaboratorAccessLevel(collaboratorId, bodyResult.data.accessLevel),
+    );
+    if (updateExit._tag === "Failure") {
+      throw new Error("Unexpected database failure updating the collaborator's access level");
+    }
+    const updated = updateExit.value;
+
+    // NO notification — level changes are deliberately silent (AC-7.3).
+    // Takes effect on the collaborator's NEXT request — there is no live
+    // disconnection mechanism (AC-5.3); see this section's header note.
+
+    const identity = await resolveOneIdentity(authHeader, updated.userId);
+
+    return c.json(
+      {
+        id: updated.id,
+        email: updated.email,
+        accessLevel: updated.accessLevel,
+        createdAt: updated.createdAt,
+        identity,
+      },
+      200,
+    );
+  });
+
+  // ─── DELETE /estimates/{id}/collaborators/{collaboratorId} — revoke (owner only, AC-5.2) ──
+
+  router.delete("/estimates/:id/collaborators/:collaboratorId", async (c) => {
+    const callerId = c.get("userId");
+    const estimateId = c.req.param("id");
+    const collaboratorId = c.req.param("collaboratorId");
+    const path = c.req.path;
+
+    const accessExit = await Effect.runPromiseExit(resolveAccess(estimateId, callerId));
+    if (accessExit._tag === "Failure") {
+      throw new Error("Unexpected database failure resolving estimate access");
+    }
+    const resolved = accessExit.value;
+
+    if (resolved === null) {
+      return c.json(problemNotFound(path, `Estimate ${estimateId} not found`), 404);
+    }
+    if (resolved.level !== "owner") {
+      return c.json(
+        problemForbidden(path, "Only the owner can remove a collaborator.", "owner_only"),
+        403,
+      );
+    }
+
+    // AC-5.4 — a fabricated grant id (or one lifted from a DIFFERENT
+    // estimate) → 404. Scoped by BOTH `collaboratorId` AND `estimateId`.
+    const existingExit = await Effect.runPromiseExit(
+      findCollaboratorById(estimateId, collaboratorId),
+    );
+    if (existingExit._tag === "Failure") {
+      throw new Error("Unexpected database failure looking up the collaborator grant");
+    }
+    if (existingExit.value === null) {
+      return c.json(problemNotFound(path, `Collaborator grant ${collaboratorId} not found`), 404);
+    }
+
+    const deleteExit = await Effect.runPromiseExit(deleteCollaboratorById(collaboratorId));
+    if (deleteExit._tag === "Failure") {
+      throw new Error("Unexpected database failure removing the collaborator");
+    }
+
+    // Owner-initiated removal notification (AC-7.2) is DELIBERATELY NOT
+    // IMPLEMENTED HERE — see this section's header. T10 wires
+    // notifyCollaboratorRemoved in AFTER this DELETE commits (best-effort,
+    // never rolls back this removal).
+
+    return new Response(null, { status: 204 });
   });
 }

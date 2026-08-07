@@ -53,6 +53,8 @@ import { describe, it, expect, afterEach, mock } from "bun:test";
 import { Hono } from "hono";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { createMiddleware } from "hono/factory";
+import { Effect } from "effect";
+import { ForbiddenError } from "@/lib/errors";
 import type { JwtVariables } from "@/auth/jwt.middleware";
 
 // ─── Env guards — mirrors estimates.routes.test.ts / authClient.test.ts's
@@ -97,6 +99,18 @@ const { registerCollaboratorRoutes } = await import("./collaborators.routes");
 const authClientModule = await import("@/lib/authClient");
 type CheckAppAccessFn = typeof authClientModule.checkAppAccess;
 type ResolveIdentitiesFn = typeof authClientModule.resolveIdentities;
+
+// T9 — `updateEstimate` and `resolveAccess` are DB-only (no Bearer header,
+// no HTTP router involved), the SAME functions estimates.routes.ts's real
+// `PUT`/`GET /estimates/{id}` call. Exercising them directly here, after a
+// T9 route call has already mutated the DB, is the most faithful proof of
+// AC-5.1/AC-5.2's "next request" semantics available WITHOUT re-creating the
+// full estimates.routes.ts app (which would reintroduce the exact
+// mock.module("@/auth/jwt.middleware", …) cross-file race this file's
+// header explains at length — estimates.routes.test.ts already owns that
+// mock for ITS OWN fixtures).
+const { updateEstimate } = await import("./estimates.repo");
+const { resolveAccess } = await import("./access");
 
 // ─── Test-only auth middleware ───────────────────────────────────────────
 //
@@ -671,5 +685,519 @@ describe("GET /estimates/{id}/collaborators", () => {
     expect(row.accessLevel).toBe("editor");
     // The owner is never a row in their own collaborator list.
     expect(body.collaborators.some((c) => c.id === owner.id)).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// T9 — PATCH / DELETE {collaboratorId} / DELETE me (manage, revoke, leave)
+// (specs/013-estimate-sharing — refs AC-5.1, AC-5.2, AC-5.3, AC-6.1, AC-6.2)
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─── AC-5.1 — a level change takes effect on the collaborator's NEXT
+// request, proven by calling the REAL `updateEstimate` (what the actual
+// `PUT /estimates/{id}` route calls) directly after a PATCH ────────────────
+
+describe("AC-5.1 — PATCH level change takes effect on the collaborator's next request", () => {
+  it("editor → viewer: the collaborator's next write attempt is refused (ForbiddenError, not a version conflict)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const collaboratorId = "t9-ac51-editor-to-viewer";
+    const collaboratorEmail = "ac51-e2v@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: collaboratorId,
+        email: collaboratorEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    // Sanity: editor can currently write.
+    const beforeExit = await Effect.runPromiseExit(
+      updateEstimate(estimate.id, collaboratorId, 1, "before", "", makeContent()),
+    );
+    expect(beforeExit._tag).toBe("Success");
+
+    const patchRes = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ accessLevel: "viewer" }),
+      },
+    );
+    expect(patchRes.status).toBe(200);
+    const patchBody = (await patchRes.json()) as { accessLevel: string };
+    expect(patchBody.accessLevel).toBe("viewer");
+
+    // The collaborator's NEXT write (correct version this time) is refused —
+    // a ForbiddenError, never a success and never a ConflictError (proves
+    // the access predicate, not the version, is what stopped it).
+    const afterExit = await Effect.runPromiseExit(
+      updateEstimate(estimate.id, collaboratorId, 2, "after", "", makeContent()),
+    );
+    expect(afterExit._tag).toBe("Failure");
+    if (afterExit._tag === "Failure") {
+      expect(afterExit.cause._tag).toBe("Fail");
+      if (afterExit.cause._tag === "Fail") {
+        expect(afterExit.cause.error).toBeInstanceOf(ForbiddenError);
+      }
+    }
+
+    // The stored content is untouched by the refused write.
+    const row = await testDb.estimate.findUniqueOrThrow({ where: { id: estimate.id } });
+    expect(row.name).toBe("before");
+    expect(row.version).toBe(2);
+  });
+
+  it("viewer → editor: the collaborator's next write attempt succeeds", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const collaboratorId = "t9-ac51-viewer-to-editor";
+    const collaboratorEmail = "ac51-v2e@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: collaboratorId,
+        email: collaboratorEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    // Sanity: viewer currently cannot write.
+    const beforeExit = await Effect.runPromiseExit(
+      updateEstimate(estimate.id, collaboratorId, 1, "before", "", makeContent()),
+    );
+    expect(beforeExit._tag).toBe("Failure");
+
+    const patchRes = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ accessLevel: "editor" }),
+      },
+    );
+    expect(patchRes.status).toBe(200);
+
+    // The collaborator's NEXT write now succeeds.
+    const afterExit = await Effect.runPromiseExit(
+      updateEstimate(estimate.id, collaboratorId, 1, "after", "", makeContent()),
+    );
+    expect(afterExit._tag).toBe("Success");
+    const row = await testDb.estimate.findUniqueOrThrow({ where: { id: estimate.id } });
+    expect(row.name).toBe("after");
+    expect(row.version).toBe(2);
+  });
+
+  it("PATCH by an editor (not the owner) → 403 owner_only, level unchanged", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const editorId = "t9-patch-by-editor";
+    const editorEmail = "patch-by-editor@example.com";
+    const targetGrant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-patch-target",
+        email: "patch-target@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: editorId,
+        email: editorEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${targetGrant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(editorId, editorEmail),
+        body: JSON.stringify({ accessLevel: "editor" }),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+
+    const unchanged = await testDb.estimateCollaborator.findUnique({
+      where: { id: targetGrant.id },
+    });
+    expect(unchanged?.accessLevel).toBe("viewer");
+  });
+
+  it("PATCH by an unrelated stranger → 404", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-patch-stranger-target",
+        email: "patch-stranger-target@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader("t9-patch-stranger", "patch-stranger@example.com"),
+        body: JSON.stringify({ accessLevel: "editor" }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it("PATCH on a fabricated grant id (AC-5.4) → 404, even for the real owner", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/does-not-exist`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ accessLevel: "editor" }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it("PATCH with a malformed accessLevel → 400, level unchanged", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-patch-bad-body",
+        email: "patch-bad-body@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "PATCH",
+        headers: bearerHeader(owner.id, owner.email),
+        body: JSON.stringify({ accessLevel: "owner" }),
+      },
+    );
+
+    expect(res.status).toBe(400);
+    const unchanged = await testDb.estimateCollaborator.findUnique({ where: { id: grant.id } });
+    expect(unchanged?.accessLevel).toBe("viewer");
+  });
+});
+
+// ─── AC-5.2 / AC-5.4 — DELETE {collaboratorId}: owner-initiated revoke ─────
+
+describe("AC-5.2 — DELETE {collaboratorId} revokes access, same refusal as an unrelated user", () => {
+  it("204; the removed collaborator's resolveAccess (what GET/PUT gate on) returns null — same as a stranger's — and they drop out of the OR-listing query", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const targetId = "t9-ac52-target";
+    const targetEmail = "ac52-target@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: targetId,
+        email: targetEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    // Before removal: has a relationship, and would surface in their list.
+    const beforeAccess = await Effect.runPromiseExit(resolveAccess(estimate.id, targetId));
+    expect(beforeAccess._tag).toBe("Success");
+    if (beforeAccess._tag === "Success") {
+      expect(beforeAccess.value).not.toBeNull();
+    }
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      { method: "DELETE", headers: bearerHeader(owner.id, owner.email) },
+    );
+    expect(res.status).toBe(204);
+
+    const rowGone = await testDb.estimateCollaborator.findUnique({ where: { id: grant.id } });
+    expect(rowGone).toBeNull();
+
+    // Same taxonomy as AC-1.6's unrelated stranger: resolveAccess → null.
+    // estimates.routes.ts's GET/PUT/DELETE `/estimates/{id}` handlers feed
+    // this SAME null branch through the SAME unparameterised `problemNotFound`
+    // call for both a genuine stranger and a just-removed collaborator (T6,
+    // unchanged by T9) — so the two 404 Problem bodies are byte-identical BY
+    // CONSTRUCTION, not by a second, separately-maintained check here.
+    const afterAccess = await Effect.runPromiseExit(resolveAccess(estimate.id, targetId));
+    expect(afterAccess._tag).toBe("Success");
+    if (afterAccess._tag === "Success") {
+      expect(afterAccess.value).toBeNull();
+    }
+
+    // Excluded from the OR-listing query estimates.repo.ts#listEstimates uses
+    // (same shape as T8's AC-1.1 test).
+    const listedRows = await testDb.estimate.findMany({
+      where: { OR: [{ userId: targetId }, { collaborators: { some: { userId: targetId } } }] },
+    });
+    expect(listedRows.some((r) => r.id === estimate.id)).toBe(false);
+
+    // Also gone from the owner's own GET .../collaborators.
+    const listRes = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: bearerHeader(owner.id, owner.email),
+    });
+    const list = (await listRes.json()) as { collaborators: Array<{ id: string }> };
+    expect(list.collaborators.some((c) => c.id === grant.id)).toBe(false);
+  });
+
+  it("DELETE by an editor (not the owner) → 403 owner_only, grant unchanged", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const editorId = "t9-delete-by-editor";
+    const editorEmail = "delete-by-editor@example.com";
+    const targetGrant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-delete-target",
+        email: "delete-target@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: editorId,
+        email: editorEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${targetGrant.id}`,
+      { method: "DELETE", headers: bearerHeader(editorId, editorEmail) },
+    );
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("owner_only");
+
+    const stillThere = await testDb.estimateCollaborator.findUnique({
+      where: { id: targetGrant.id },
+    });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it("DELETE by an unrelated stranger → 404, grant unchanged", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: "t9-delete-stranger-target",
+        email: "delete-stranger-target@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/${grant.id}`,
+      {
+        method: "DELETE",
+        headers: bearerHeader("t9-delete-stranger", "delete-stranger@example.com"),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    const stillThere = await testDb.estimateCollaborator.findUnique({ where: { id: grant.id } });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it("DELETE on a fabricated grant id (AC-5.4) → 404, even for the real owner", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(
+      `/estimates/${estimate.id}/collaborators/does-not-exist`,
+      { method: "DELETE", headers: bearerHeader(owner.id, owner.email) },
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it("a grant id that belongs to a DIFFERENT estimate → 404 (never cross-estimate reachable)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimateA = await seedEstimate(owner.id, "T9 estimate A");
+    const estimateB = await seedEstimate(owner.id, "T9 estimate B");
+    const grantOnB = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimateB.id,
+        userId: "t9-cross-estimate-target",
+        email: "cross-estimate-target@example.com",
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    // Ask estimate A's collaborators route to delete estimate B's grant id.
+    const res = await app.request(
+      `/estimates/${estimateA.id}/collaborators/${grantOnB.id}`,
+      { method: "DELETE", headers: bearerHeader(owner.id, owner.email) },
+    );
+
+    expect(res.status).toBe(404);
+    const stillThere = await testDb.estimateCollaborator.findUnique({ where: { id: grantOnB.id } });
+    expect(stillThere).not.toBeNull();
+  });
+});
+
+// ─── AC-6.1 / AC-6.2 — DELETE me: leave ────────────────────────────────────
+
+describe("AC-6.1 — a collaborator can remove themselves via DELETE .../collaborators/me", () => {
+  it("a viewer's DELETE .../me → 204 (not 403 — proves the literal /me route is NOT swallowed as a fabricated {collaboratorId}), removes them from the owner's list and from the OR-listing query", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const viewerId = "t9-ac61-viewer";
+    const viewerEmail = "ac61-viewer@example.com";
+    const grant = await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: viewerId,
+        email: viewerEmail,
+        accessLevel: "viewer",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators/me`, {
+      method: "DELETE",
+      headers: bearerHeader(viewerId, viewerEmail),
+    });
+
+    // A viewer is never the owner of anything, so IF the literal "me" path
+    // segment had been swallowed by the owner-gated `{collaboratorId}` route
+    // instead (the exact bug the required registration order prevents),
+    // this would come back 403 owner_only, not 204.
+    expect(res.status).toBe(204);
+
+    const rowGone = await testDb.estimateCollaborator.findUnique({ where: { id: grant.id } });
+    expect(rowGone).toBeNull();
+
+    const listRes = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      headers: bearerHeader(owner.id, owner.email),
+    });
+    const list = (await listRes.json()) as { collaborators: Array<{ id: string }> };
+    expect(list.collaborators.some((c) => c.id === grant.id)).toBe(false);
+
+    const listedRows = await testDb.estimate.findMany({
+      where: { OR: [{ userId: viewerId }, { collaborators: { some: { userId: viewerId } } }] },
+    });
+    expect(listedRows.some((r) => r.id === estimate.id)).toBe(false);
+  });
+
+  it("an editor's DELETE .../me → 204 as well", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const editorId = "t9-ac61-editor";
+    const editorEmail = "ac61-editor@example.com";
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: estimate.id,
+        userId: editorId,
+        email: editorEmail,
+        accessLevel: "editor",
+        grantedByUserId: owner.id,
+      },
+    });
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators/me`, {
+      method: "DELETE",
+      headers: bearerHeader(editorId, editorEmail),
+    });
+
+    expect(res.status).toBe(204);
+    const count = await testDb.estimateCollaborator.count({ where: { estimateId: estimate.id } });
+    expect(count).toBe(0);
+  });
+});
+
+describe("AC-6.2 — the owner has no grant to leave", () => {
+  it("the owner's DELETE .../me → 404 not_a_collaborator (never a success, never a 403)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators/me`, {
+      method: "DELETE",
+      headers: bearerHeader(owner.id, owner.email),
+    });
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("not_a_collaborator");
+
+    // The estimate itself is completely unaffected.
+    const stillOwned = await testDb.estimate.findUnique({ where: { id: estimate.id } });
+    expect(stillOwned).not.toBeNull();
+  });
+
+  it("a genuine stranger's DELETE .../me → the SAME 404 not_a_collaborator (no existence leak beyond that)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id);
+    const app = buildApp();
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators/me`, {
+      method: "DELETE",
+      headers: bearerHeader("t9-ac62-stranger", "ac62-stranger@example.com"),
+    });
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe("not_a_collaborator");
   });
 });
