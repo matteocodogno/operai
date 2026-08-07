@@ -100,7 +100,16 @@ const fixtureActs: Activity[] = [
   },
 ]
 
-// A successful mock response shape
+// A successful mock response shape.
+//
+// T15 (specs/013-estimate-sharing/tasks.md) widened `EstimateFull` with
+// `version`/`access`/`owner` (T16's fixture note: "the tree does not
+// typecheck until they are fixed"). `version: 1` matches every fixture
+// provider render below, none of which pass `initialVersion` — so the
+// EstimatorProvider default (also 1, see EstimatorContext.tsx) and this
+// mock's starting version agree; `access: 'owner'` matches the (also
+// defaulted) `initialAccess` so tests (A)-(E), predating T16, keep their
+// original full-edit behaviour unchanged.
 const mockSuccessResponse = {
   id: 'est-001',
   name: 'Test Estimate',
@@ -108,6 +117,9 @@ const mockSuccessResponse = {
   content: { params: fixtureParams, releases: [fixtureRelease], acts: fixtureActs },
   createdAt: '2026-07-03T10:00:00.000Z',
   updatedAt: '2026-07-03T10:00:00.000Z',
+  version: 1,
+  access: 'owner' as const,
+  owner: null,
 }
 
 // ---------------------------------------------------------------------------
@@ -912,5 +924,238 @@ describe('(E) Rename cascade: renaming a release keeps its activities linked', (
     // After the rename the release is 'v2.0' and BOTH activities still link to it.
     expect(screen.getByTestId('e-release-name').textContent).toBe('v2.0')
     expect(screen.getByTestId('e-linked-count').textContent).toBe('2')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// (F) T16 (specs/013-estimate-sharing/tasks.md) — access-derived `canEdit`
+//     gating and 409/428 conflict suppression:
+//
+//   (a) a viewer fires ZERO PUTs, even after a state change (AC-3.1/AC-3.3
+//       — defense in depth, independent of T17's UI-level gating: the
+//       context itself must refuse, not just hide the controls)
+//   (b) an editor/owner save sends `If-Match` with the currently-known
+//       version and adopts the server's returned version for the next
+//       save (AC-3.2, ADR-0038)
+//   (c) a ConflictError (409 or 428) enters `conflict`, and SUSPENDS every
+//       future autosave attempt — advancing timers by 10× the debounce
+//       after the conflict fires NO further PUT (plan.md "Test strategy":
+//       "the autosave-suppression test")
+//   (d) name/author/params/releases/acts are left untouched by a conflict
+//       (AC-4.2) — the user's in-progress edits stay visible
+// ---------------------------------------------------------------------------
+
+// Mirrors EstimatorContext.tsx's private AUTOSAVE_DEBOUNCE_MS (not exported —
+// the debounce interval is an internal implementation detail, not part of
+// the public context contract) so this file's "10× the debounce" assertion
+// stays self-documenting rather than a bare magic number.
+const AUTOSAVE_DEBOUNCE_MS = 1500
+
+function ConflictConsumer() {
+  const ctx = useEstimatorContext()
+  return (
+    <div>
+      <span data-testid="f-access">{ctx.access}</span>
+      <span data-testid="f-can-edit">{String(ctx.canEdit)}</span>
+      <span data-testid="f-version">{ctx.version}</span>
+      <span data-testid="f-conflict-status">{ctx.conflict ? ctx.conflict.status : ''}</span>
+      <span data-testid="f-save-status">{ctx.saveStatus}</span>
+      <span data-testid="f-name">{ctx.name}</span>
+      <span data-testid="f-acts">{ctx.acts.length}</span>
+      <span data-testid="f-releases">{ctx.releases.length}</span>
+      <button data-testid="f-edit-1" onClick={() => ctx.setName('Edit 1')}>
+        Edit 1
+      </button>
+      <button data-testid="f-edit-2" onClick={() => ctx.setName('Edit 2')}>
+        Edit 2
+      </button>
+    </div>
+  )
+}
+
+describe('(F) T16: canEdit gating + conflict suppression', () => {
+  it('a viewer fires zero PUTs, even after a state change (AC-3.1/AC-3.3)', async () => {
+    render(
+      <EstimatorProvider
+        estimateId="est-viewer"
+        initialName="Viewer Estimate"
+        initialAuthor="Owner"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+        initialAccess="viewer"
+        initialVersion={3}
+      >
+        <ConflictConsumer />
+      </EstimatorProvider>,
+    )
+
+    expect(screen.getByTestId('f-access').textContent).toBe('viewer')
+    expect(screen.getByTestId('f-can-edit').textContent).toBe('false')
+
+    // Nothing in the real UI would let a viewer call setName (T17 gates
+    // every mutating control on canEdit), but the context-level effect
+    // itself must independently refuse to schedule a save if state ever
+    // changes under it regardless — the strongest guarantee, and the one
+    // this test proves directly.
+    await act(async () => {
+      screen.getByTestId('f-edit-1').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(vi.mocked(estimatesApi.update)).not.toHaveBeenCalled()
+  })
+
+  it('an editor save sends If-Match with the known version and adopts the returned version (AC-3.2)', async () => {
+    vi.mocked(estimatesApi.update).mockResolvedValueOnce({
+      ...mockSuccessResponse,
+      name: 'Edit 1',
+      access: 'editor',
+      version: 4,
+    })
+
+    render(
+      <EstimatorProvider
+        estimateId="est-editor"
+        initialName="Editor Estimate"
+        initialAuthor="Owner"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+        initialAccess="editor"
+        initialVersion={3}
+      >
+        <ConflictConsumer />
+      </EstimatorProvider>,
+    )
+
+    expect(screen.getByTestId('f-can-edit').textContent).toBe('true')
+    expect(screen.getByTestId('f-version').textContent).toBe('3')
+
+    await act(async () => {
+      screen.getByTestId('f-edit-1').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(vi.mocked(estimatesApi.update)).toHaveBeenCalledTimes(1)
+    const [, , sentVersion] = vi.mocked(estimatesApi.update).mock.calls[0]
+    expect(sentVersion).toBe(3)
+
+    // The returned version (4) is adopted — the *next* save would use it.
+    expect(screen.getByTestId('f-version').textContent).toBe('4')
+  })
+
+  it('a 409 ConflictError enters conflict, leaves state untouched, and suspends further autosaves (AC-4.1/AC-4.2)', async () => {
+    vi.mocked(estimatesApi.update).mockRejectedValueOnce(
+      new estimatesApi.ConflictError({
+        type: 'https://httpstatuses.com/409',
+        title: 'Conflict',
+        status: 409,
+        code: 'estimate_version_conflict',
+        currentVersion: 5,
+        updatedAt: '2026-07-03T12:00:00.000Z',
+        lastModifiedBy: { status: 'active', name: 'Jane Doe' },
+      }),
+    )
+
+    render(
+      <EstimatorProvider
+        estimateId="est-conflict"
+        initialName="Original"
+        initialAuthor="Owner"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+        initialAccess="owner"
+        initialVersion={3}
+      >
+        <ConflictConsumer />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByTestId('f-edit-1').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    // Exactly one PUT fired, and it was refused.
+    expect(vi.mocked(estimatesApi.update)).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('f-conflict-status').textContent).toBe('409')
+    expect(screen.getByTestId('f-save-status').textContent).toBe('conflict')
+
+    // AC-4.2: the user's in-progress edit is still present — never reverted
+    // or discarded by conflict detection.
+    expect(screen.getByTestId('f-name').textContent).toBe('Edit 1')
+    expect(screen.getByTestId('f-acts').textContent).toBe('2')
+    expect(screen.getByTestId('f-releases').textContent).toBe('1')
+
+    // THE autosave-suppression test (plan.md "Test strategy"): a further
+    // edit, then advancing timers by 10× the debounce, must fire NO
+    // additional PUT — otherwise the debounce becomes a retry storm
+    // against a server that will keep 409-ing.
+    await act(async () => {
+      screen.getByTestId('f-edit-2').click()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_DEBOUNCE_MS * 10)
+    })
+
+    expect(vi.mocked(estimatesApi.update)).toHaveBeenCalledTimes(1)
+    // The second edit is still reflected locally — only autosave is
+    // suspended, never the user's ability to keep typing.
+    expect(screen.getByTestId('f-name').textContent).toBe('Edit 2')
+  })
+
+  it('a 428 ConflictError (stale client, no version yet) also enters conflict and suspends autosave', async () => {
+    vi.mocked(estimatesApi.update).mockRejectedValueOnce(
+      new estimatesApi.ConflictError({
+        type: 'https://httpstatuses.com/428',
+        title: 'Precondition Required',
+        status: 428,
+        code: 'precondition_required',
+        // No currentVersion/updatedAt/lastModifiedBy on 428 — there is
+        // nothing yet to compare against (ConflictError's own contract).
+      }),
+    )
+
+    render(
+      <EstimatorProvider
+        estimateId="est-428"
+        initialName="Original"
+        initialAuthor="Owner"
+        initialParams={fixtureParams}
+        initialReleases={[fixtureRelease]}
+        initialActs={fixtureActs}
+        initialAccess="owner"
+        initialVersion={1}
+      >
+        <ConflictConsumer />
+      </EstimatorProvider>,
+    )
+
+    await act(async () => {
+      screen.getByTestId('f-edit-1').click()
+    })
+    await act(async () => {
+      await vi.runAllTimersAsync()
+    })
+
+    expect(screen.getByTestId('f-conflict-status').textContent).toBe('428')
+    expect(screen.getByTestId('f-save-status').textContent).toBe('conflict')
+
+    await act(async () => {
+      screen.getByTestId('f-edit-2').click()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_DEBOUNCE_MS * 10)
+    })
+
+    expect(vi.mocked(estimatesApi.update)).toHaveBeenCalledTimes(1)
   })
 })

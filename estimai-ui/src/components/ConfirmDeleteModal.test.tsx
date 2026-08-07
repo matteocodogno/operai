@@ -80,11 +80,18 @@ import ConfirmDeleteModal from './ConfirmDeleteModal'
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// T15 (specs/013-estimate-sharing/tasks.md) widened EstimateListItem with
+// `access`/`owner` (T16's fixture note) — both fixtures here are the
+// caller's own estimates, so `access: 'owner'` / `owner: null` matches
+// estimatesApi's documented contract ("owner is null when access is
+// 'owner' — there is no 'owner of your own estimate' to resolve").
 const itemAlpha: EstimateListItem = {
   id: 'est-alpha',
   name: 'Alpha Project',
   author: 'Consultant A',
   updatedAt: '2026-07-01T10:00:00.000Z',
+  access: 'owner',
+  owner: null,
 }
 
 const itemBeta: EstimateListItem = {
@@ -92,6 +99,8 @@ const itemBeta: EstimateListItem = {
   name: 'Beta Initiative',
   author: 'Consultant B',
   updatedAt: '2026-06-28T14:30:00.000Z',
+  access: 'owner',
+  owner: null,
 }
 
 // ---------------------------------------------------------------------------
