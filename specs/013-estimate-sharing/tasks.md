@@ -122,7 +122,7 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: second render branch — no form, no list, a "Shared with you by {owner}" line and one Leave action. Default focus goes to the dialog heading (`tabIndex={-1}` + programmatic focus) since there is no input to land on.
   - done when: a member-mode test proves no add form and no collaborator list render, Leave is confirmed through the generalized modal and calls `DELETE …/collaborators/me`, and **no** Leave affordance exists when `access === "owner"`.
 
-- [ ] T22: Toolbar composition — "Share link" relabel + "Collaborators" entry / member chip — refs: AC-8.1, AC-8.2 — deps: T20, T21
+- [x] T22: Toolbar composition — "Share link" relabel + "Collaborators" entry / member chip — refs: AC-8.1, AC-8.2 — deps: T20, T21
   - touch: `estimai-ui/src/EstimatorApp.tsx`, `estimai-ui/src/EstimatorApp.test.tsx`
   - note: design.md's decision — **two permanent, differently-shaped entries, never a shared button or a dropdown-with-modes**. The existing Share button is relabelled "Share link" with icon, behaviour, colour and handler **unchanged** (AC-8.1); the new "Collaborators" control (people glyph, neutral border, count badge) sits in its own group behind the existing divider; a collaborator sees a non-actionable "Shared by {owner} · {level}" chip in that slot instead.
   - done when: a test proves both entries are simultaneously present and separately labelled for an owner, that the chip (not the button) renders for a collaborator, and that the existing share-link handler is invoked unchanged; the count badge reflects `collaboratorCount`.
@@ -132,7 +132,7 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: rows with `access !== "owner"` render a "Shared" indicator, the owner label via `formatIdentity`, and an `AccessLevelBadge`; owner-only actions (Delete) are absent on those rows. The empty state keys off the **combined** list length so a user with only shared estimates never sees it.
   - done when: tests prove a shared row is distinguishable from an owned row by role/testid (**not** by class), that a `deleted` owner renders "Former wellD member" and an `unknown` owner the neutral placeholder — neither a blank nor a raw cuid — that a list of only shared estimates does not render the empty state, and that Delete is absent on shared rows.
 
-- [ ] T24: Link-share regression guard — refs: AC-8.1, AC-8.2 — deps: T22
+- [x] T24: Link-share regression guard — refs: AC-8.1, AC-8.2 — deps: T22
   - touch: `estimai-ui/src/pages/SharedEstimatePage.test.tsx` (new), `estimai-ui/src/lib/shareUrl.ts` (unchanged — guarded only)
   - note: `SharedEstimatePage` and `shareUrl.ts` must be **untouched**. This task only adds the guard.
   - done when: existing `buildShareUrl` behaviour tests still pass unmodified; a contract test proves `SharedEstimatePage` performs **no** `apiFetch` call; a render with a `#data=` payload shows no collaborator list, no level chip, and no "Shared with you" text — only the existing plain `author` field.
