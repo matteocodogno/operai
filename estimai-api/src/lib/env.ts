@@ -25,6 +25,52 @@ const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
+
+  // ─── Estimate sharing outbound clients (T5, specs/013-estimate-sharing) ───
+  //
+  // Base URL of the `auth` service, used ONLY to call the Bearer-FORWARDED
+  // (never a service credential) `POST /authz/app-access-check` (eligibility
+  // decision, fails CLOSED on error — plan.md "Why estimai-api does NOT
+  // become an authorization-enforcing resource server") and
+  // `POST /authz/users/identities` (display-identity resolution, fails SOFT
+  // to `status:"unknown"` — src/lib/authClient.ts). Distinct concept from
+  // AUTH_ISSUER/AUTH_JWKS_URL (JWT claim-verification values, not necessarily
+  // dereferenceable as an HTTP base), mirrors refund-api's AUTH_BASE_URL.
+  AUTH_BASE_URL: z.string().url("AUTH_BASE_URL must be a valid URL"),
+
+  // ─── notify-api internal call (T5/T10, ADR-0017, ADR-0040) ────────────────
+  //
+  // estimai-api becomes the THIRD holder of this shared secret (plan.md
+  // "Notifications (US-7) — the third internal caller"). MUST be
+  // byte-for-byte identical to auth's / refund-api's / notify-api's own
+  // NOTIFY_INTERNAL_TOKEN. Best-effort — src/lib/notify.ts NEVER throws.
+  NOTIFY_INTERNAL_TOKEN: z
+    .string()
+    .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
+  // notify-api's base URL for this internal call. Production (Railway):
+  // notify-api's PRIVATE-networking address, NOT its public domain — this
+  // call should never traverse the public internet (mirrors refund-api's
+  // NOTIFY_INTERNAL_URL posture).
+  NOTIFY_INTERNAL_URL: z
+    .string()
+    .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
+
+  // ─── Third-party lookup timing/rate-limit knobs (plan.md "The third-party
+  // lookup", AC-1.2) ──────────────────────────────────────────────────────
+  //
+  // Response-time floor applied to the WHOLE generic-rejection response of
+  // `POST /estimates/{id}/collaborators` (both AC-1.2 causes), covering the
+  // round trip to `auth`'s own floor. Default 300ms.
+  SHARE_LOOKUP_FLOOR_MS: z.coerce.number().int().nonnegative().default(300),
+  // In-process sliding-window rate limit for `POST /estimates/{id}/collaborators`,
+  // counted on EVERY attempt (success, duplicate, self, and generic rejection
+  // alike). Defaults: 20 attempts / 10 minutes per caller `sub`.
+  SHARE_ADD_RATE_LIMIT: z.coerce.number().int().positive().default(20),
+  SHARE_ADD_RATE_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(600000),
 });
 
 const result = envSchema.safeParse(process.env);

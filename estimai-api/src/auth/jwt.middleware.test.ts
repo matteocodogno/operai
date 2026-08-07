@@ -71,6 +71,12 @@ process.env["AUTH_JWKS_URL"] = "http://localhost:3001/.well-known/jwks.json";
 process.env["AUTH_ISSUER"] = TEST_ISSUER;
 process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
 process.env["NODE_ENV"] = "test";
+// Required since T5 (specs/013-estimate-sharing) — env.ts now validates these
+// at module-eval time regardless of whether this test file exercises them.
+process.env["AUTH_BASE_URL"] = "http://localhost:3001";
+process.env["NOTIFY_INTERNAL_TOKEN"] =
+  "test-notify-internal-token-at-least-32-characters";
+process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
 
 // Dynamic import ensures the mock.module() registration and process.env
 // assignments above are fully in effect before jwt.middleware.ts is evaluated.
