@@ -27,11 +27,14 @@ operai/
 │   │   ├── types.ts                 # Shared TypeScript interfaces
 │   │   ├── EstimatorApp.tsx         # Top-level layout + state + XLSX export
 │   │   └── main.tsx
-│   ├── e2e/             # Playwright e2e (seeded-session helper)
-│   ├── package.json
+│   ├── package.json     # NOTE: no e2e here — every estimai journey lives in shell/e2e/ (see below)
 │   └── vite.config.ts
 │
 ├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006)
+│   └── e2e/             # Playwright e2e for the WHOLE suite — every remote's journeys run through the
+│                        # host, since a remote has no standalone authed bootstrap (specs/003 retired
+│                        # estimai-ui/e2e/ when it became a federated remote). helpers/: adminSession,
+│                        # seedSession, estimaiFixtures, inviteFixtures, refundFixtures
 ├── refund-ui/           # Reimbursement tool — federated remote: expense requests + accounting review/decision (specs/007)
 ├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions GUI (specs/004, admin-only)
 ├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
@@ -75,7 +78,8 @@ operai/
 - **Export:** `exceljs` + `xlsx` for XLSX, `jspdf` + `jspdf-autotable` for PDF
 - **Sharing:** `lz-string` (URL-encoded estimates) + `qrcode`
 - **Auth:** better-auth client; in-memory JWT + `apiFetch` interceptor (see ADR-0001)
-- **Testing:** Vitest (unit/component) + Playwright (e2e)
+- **Testing:** Vitest (unit/component) here; e2e lives in `shell/` (`cd shell && pnpm e2e`) — a
+  federated remote has no standalone authed bootstrap, so its journeys run through the host
 - **Fonts:** DM Sans, DM Mono, Syne (Google Fonts)
 - **Styling:** Tailwind CSS 4
 - **Lint/format:** ESLint 9 (flat config) + Prettier
@@ -269,7 +273,15 @@ pnpm dev              # http://localhost:5173
 pnpm lint             # ESLint
 pnpm build            # tsc -b + vite build (typecheck happens here)
 pnpm test             # vitest
-pnpm e2e              # Playwright (needs the stack up)
+```
+
+`estimai-ui` has **no** `e2e` script. Playwright for every remote runs from the shell host:
+
+```bash
+cd shell
+pnpm e2e                              # whole suite (needs the stack up: mise run dev)
+pnpm e2e estimate-sharing.spec.ts     # one spec
+pnpm e2e:ui                           # interactive
 ```
 
 ### Auth service
