@@ -24,9 +24,12 @@
  * around that interpolation can differ by language — the same reasoning
  * `refund-ui/src/strings.ts` documents for its own interpolated entries.
  *
- * design.md's "IT" column is carried alongside "EN" in this file's source
- * comments/tests only where useful for translators; the *shipped* dictionary
- * (`strings`/`en`) is English-only for v1, exactly like `refund-ui`'s.
+ * design.md's "## i18n" table (`specs/013-estimate-sharing/design.md`) carries
+ * the Italian translation for every key below — that's a design artifact only;
+ * no Italian string exists anywhere in this file or its tests. The *shipped*
+ * dictionary (`strings`/`en`) is English-only for v1, exactly like
+ * `refund-ui`'s. When the suite-wide locale switch is eventually built, that
+ * design.md table is where the `it` object's copy comes from.
  */
 
 const en = {
