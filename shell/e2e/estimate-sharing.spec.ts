@@ -183,6 +183,15 @@ test.describe('specs/013-estimate-sharing T25: headline journeys', () => {
       timeout: 15_000,
     })
     await expect(sharedRow).toContainText('Viewer')
+    // The owner's RESOLVED name, not just the access-level badge — a
+    // completely broken identity contract (e.g. `auth POST
+    // /authz/users/identities` unreachable/misconfigured) still renders a
+    // non-crashing "Unknown wellD member" placeholder (ADR-0039 fail-soft)
+    // and would pass an assertion that only checked the badge. Asserting
+    // the real owner name here is the one place this e2e can catch that
+    // failure mode end-to-end, at negligible added fragility (same
+    // already-queried `sharedRow` locator, no new navigation/wait).
+    await expect(sharedRow, 'Shared row must show the owner\'s resolved name, never the "Unknown wellD member" fail-soft placeholder, when identity resolution is working').toContainText('E2E Share Owner')
     // Owner-only Delete must be absent on a shared row (AC-3.3/5.1's mirror on the list side).
     await expect(sharedRow.getByRole('button', { name: /^Delete/ })).toHaveCount(0)
 

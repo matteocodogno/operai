@@ -36,6 +36,21 @@ import {
   SignJWT,
   createLocalJWKSet,
 } from "jose";
+// `@/lib/authClient` is NEVER `mock.module()`-replaced in this file (see
+// `collaborators.routes.ts`'s header comment on why: `estimates.routes.ts`
+// imports `resolveIdentities` as a plain top-level binding, not an
+// injectable param, so a `mock.module()` swap here — in a `bun test` run
+// that shares ONE module cache across every `*.test.ts` file — would risk
+// leaking into whichever OTHER test file happens to import
+// `@/lib/authClient` or `collaborators.routes.ts` next, a filesystem-order
+// race nobody wants). Instead, the tests below stub the underlying global
+// `fetch` call `resolveIdentities` itself makes (exactly the technique
+// `authClient.test.ts` already uses to test this same function) — the REAL,
+// unmocked `resolveIdentities` and the REAL route-handler wire-mapping code
+// both run; only the outbound HTTP transport is faked. `__resetIdentityCacheForTests`
+// clears `resolveIdentities`' in-process 60s identity cache between tests so
+// one test's stubbed identity can never leak into the next via a cache hit.
+import { __resetIdentityCacheForTests } from "@/lib/authClient";
 
 // ─── Fixture keypair & module mock ───────────────────────────────────────────
 
@@ -193,6 +208,60 @@ const buildApp = () => {
   return app;
 };
 
+// ─── Deliberate identity-resolution fixtures (T6/T12) ────────────────────────
+//
+// Faithful to `auth`'s REAL contract, proven by `auth/src/auth/identities.routes.test.ts`
+// against a real soft-deleted row: `{id, status:"active", name}` for a live
+// user, `{id, status:"deleted", name:null}` for a soft-deleted one. Used to
+// stub the outbound `fetch` `resolveIdentities` makes to
+// `${AUTH_BASE_URL}/authz/users/identities`, so tests below can prove the
+// RESOLVED path (not just the accidental-failure degraded path) reaches the
+// wire — see the module-level comment on the `@/lib/authClient` import.
+
+const REAL_FETCH = globalThis.fetch;
+
+type IdentityFixture = { id: string; status: "active" | "deleted" | "unknown"; name: string | null };
+
+/**
+ * Replaces `globalThis.fetch` so any call to
+ * `${AUTH_BASE_URL}/authz/users/identities` resolves with `users` (echoing
+ * back only the ids actually requested, mirroring `auth`'s real per-id
+ * response shape); any other URL falls through to the REAL fetch untouched.
+ * Callers MUST restore via `restoreFetch()` (see `afterEach` below) and
+ * SHOULD call `__resetIdentityCacheForTests()` first so a previous test's
+ * cached identity for the same id can never mask this stub.
+ */
+function stubIdentitiesFetch(users: readonly IdentityFixture[]): void {
+  const byId = new Map(users.map((u) => [u.id, u]));
+  globalThis.fetch = (async (url: string, init?: RequestInit): Promise<Response> => {
+    if (!url.endsWith("/authz/users/identities")) {
+      return REAL_FETCH(url, init);
+    }
+    const { ids } = JSON.parse(String(init?.body ?? "{}")) as { ids: string[] };
+    const resolved = ids
+      .map((id) => byId.get(id))
+      .filter((u): u is IdentityFixture => u !== undefined);
+    return new Response(JSON.stringify({ users: resolved }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+}
+
+/** Simulates `auth` being genuinely unreachable — a real fault, not a network accident. */
+function stubIdentitiesFetchDown(): void {
+  globalThis.fetch = (async (url: string, init?: RequestInit): Promise<Response> => {
+    if (!url.endsWith("/authz/users/identities")) {
+      return REAL_FETCH(url, init);
+    }
+    throw new Error("simulated auth outage — /authz/users/identities unreachable");
+  }) as typeof fetch;
+}
+
+function restoreFetch(): void {
+  globalThis.fetch = REAL_FETCH;
+}
+
 // ─── JWT helpers ─────────────────────────────────────────────────────────────
 
 const signToken = async (
@@ -299,6 +368,12 @@ afterEach(async () => {
   await testDb.estimate.deleteMany({
     where: { userId: { in: [USER_A_ID, USER_B_ID, USER_C_ID] } },
   });
+  // Undo any `stubIdentitiesFetch`/`stubIdentitiesFetchDown` from this test
+  // and clear resolveIdentities' in-process cache so no test's stubbed
+  // identity can leak into the next test (or into another *.test.ts file
+  // sharing this same `bun test` process/module cache).
+  restoreFetch();
+  __resetIdentityCacheForTests();
 });
 
 // ─── AC-1.1: POST → GET/{id} deep-equals content + name/author ───────────────
@@ -2643,7 +2718,15 @@ describe("T6 / AC-2.1/2.2/2.3 — GET /estimates includes owned UNION shared, wi
 
     // B has ZERO owned estimates — the list must still be NON-EMPTY (AC-2.3),
     // containing the shared row with access:"viewer" and a populated
-    // (never-null) owner identity.
+    // (never-null) owner identity RESOLVED to the owner's real, active
+    // identity — not merely "some non-null value". `auth`'s real
+    // `/authz/users/identities` is stubbed here (fixture shape proven
+    // correct against a real DB row by
+    // `auth/src/auth/identities.routes.test.ts`), so this proves the
+    // RESOLVED path — not the fail-soft degraded path (see the dedicated
+    // fault-injection test below for that) — actually reaches the wire.
+    stubIdentitiesFetch([{ id: USER_A_ID, status: "active", name: "Alice A" }]);
+
     const listB = await app.request("/estimates", {
       headers: { Authorization: `Bearer ${jwtB}` },
     });
@@ -2657,14 +2740,55 @@ describe("T6 / AC-2.1/2.2/2.3 — GET /estimates includes owned UNION shared, wi
     const sharedRow = rowsB.find((r) => r.id === id);
     expect(sharedRow).toBeDefined();
     expect(sharedRow?.access).toBe("viewer");
-    expect(sharedRow?.owner).not.toBeNull();
-    // No live `auth` server in this test environment — resolveIdentities
-    // fails SOFT (ADR-0039). "unknown" is the correct degraded value here,
-    // proving GET /estimates never breaks when `auth` is unreachable.
-    expect(sharedRow?.owner?.status).toBe("unknown");
+    expect(sharedRow?.owner).toEqual({ status: "active", name: "Alice A" });
   });
 
-  it("GET /estimates/{id} as the editor collaborator: access:'editor', owner populated, no collaboratorCount", async () => {
+  it("FAULT INJECTION (ADR-0039) — GET /estimates: auth /authz/users/identities deliberately down → owner degrades to {status:'unknown', name:null}, response still 200", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-2.1 shared list estimate (fault injection)",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    // Deliberate fault injection — not an accident of this environment
+    // lacking a live `auth` server. Whatever the real deployment's `auth`
+    // reachability is, THIS test forces the failure and asserts the
+    // documented fail-soft contract (ADR-0039).
+    stubIdentitiesFetchDown();
+
+    const listB = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(listB.status).toBe(200);
+    const rowsB = (await listB.json()) as Array<{
+      id: string;
+      owner: { status: string; name: string | null } | null;
+    }>;
+    const sharedRow = rowsB.find((r) => r.id === id);
+    expect(sharedRow?.owner).toEqual({ status: "unknown", name: null });
+  });
+
+  it("GET /estimates/{id} as the editor collaborator: access:'editor', owner RESOLVED to the real active identity, no collaboratorCount", async () => {
     const app = buildApp();
     const jwtA = await tokenA();
     const jwtB = await tokenB();
@@ -2691,20 +2815,127 @@ describe("T6 / AC-2.1/2.2/2.3 — GET /estimates includes owned UNION shared, wi
       },
     });
 
+    // Same rationale as the list test above — proves the RESOLVED path,
+    // not just "owner is some non-null object".
+    stubIdentitiesFetch([{ id: USER_A_ID, status: "active", name: "Alice A" }]);
+
     const getRes = await app.request(`/estimates/${id}`, {
       headers: { Authorization: `Bearer ${jwtB}` },
     });
     expect(getRes.status).toBe(200);
     const body = (await getRes.json()) as {
       access: string;
-      owner: { status: string } | null;
+      owner: { status: string; name: string | null } | null;
       collaboratorCount?: number;
     };
     expect(body.access).toBe("editor");
-    expect(body.owner).not.toBeNull();
-    expect(body.owner?.status).toBe("unknown");
+    expect(body.owner).toEqual({ status: "active", name: "Alice A" });
     // A collaborator is never told how many other collaborators exist.
     expect(body.collaboratorCount).toBeUndefined();
+  });
+
+  it("FAULT INJECTION (ADR-0039) — GET /estimates/{id}: auth /authz/users/identities deliberately down → owner degrades to {status:'unknown', name:null}, response still 200", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T6 AC-2.1 editor GET estimate (fault injection)",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "editor",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    stubIdentitiesFetchDown();
+
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as {
+      access: string;
+      owner: { status: string; name: string | null } | null;
+    };
+    expect(body.access).toBe("editor");
+    expect(body.owner).toEqual({ status: "unknown", name: null });
+  });
+
+  it("AC-10.5 (api-level) — a soft-deleted owner's identity resolves to {status:'deleted', name:null} on GET /estimates for a remaining collaborator, never blank/raw/stale", async () => {
+    const app = buildApp();
+    const jwtA = await tokenA();
+    const jwtB = await tokenB();
+
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwtA),
+      body: JSON.stringify({
+        name: "T12 AC-10.5 orphaned-owner estimate",
+        author: "Alice",
+        content: makeContent(),
+      }),
+    });
+    expect(postRes.status).toBe(201);
+    const { id } = (await postRes.json()) as { id: string };
+
+    await testDb.estimateCollaborator.create({
+      data: {
+        estimateId: id,
+        userId: USER_B_ID,
+        email: USER_B_EMAIL,
+        accessLevel: "viewer",
+        grantedByUserId: USER_A_ID,
+      },
+    });
+
+    // Simulates `auth`'s REAL response for a soft-deleted user (fixture
+    // shape proven correct against a real soft-deleted DB row by
+    // `auth/src/auth/identities.routes.test.ts`'s "resolves a soft-deleted
+    // user to status:deleted with name:null" case) — decoupled here from
+    // actually running `auth`'s soft-delete flow, which
+    // `orphaned-estimate.test.ts` (AC-10.1) already separately proves
+    // never touches estimai-api's data. This test's job is the OTHER half
+    // of the seam: given `auth` reports the owner as deleted, does
+    // estimai-api's real route-handler wire-mapping code (`toWireIdentity`/
+    // `resolveOwnerIdentity`) actually render the AC-10.5 placeholder
+    // shape, rather than an error, a blank, or a raw id.
+    stubIdentitiesFetch([{ id: USER_A_ID, status: "deleted", name: null }]);
+
+    const listB = await app.request("/estimates", {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(listB.status).toBe(200);
+    const rowsB = (await listB.json()) as Array<{
+      id: string;
+      owner: { status: string; name: string | null } | null;
+    }>;
+    const sharedRow = rowsB.find((r) => r.id === id);
+    expect(sharedRow?.owner).toEqual({ status: "deleted", name: null });
+
+    // Same assertion on the single-estimate GET, per plan.md's AC-10.5 row
+    // covering "the estimate's row in a list" AND the equivalent detail view.
+    const getRes = await app.request(`/estimates/${id}`, {
+      headers: { Authorization: `Bearer ${jwtB}` },
+    });
+    expect(getRes.status).toBe(200);
+    const body = (await getRes.json()) as {
+      owner: { status: string; name: string | null } | null;
+    };
+    expect(body.owner).toEqual({ status: "deleted", name: null });
   });
 
   it("GET /estimates/{id} as the owner: access:'owner', owner:null, collaboratorCount reflects the grant count", async () => {
@@ -3069,7 +3300,7 @@ describe("T7 — optimistic concurrency: version CAS, If-Match required, ETag, 4
 
   // ── AC-4.1/4.3 — a stale save is refused; nothing overwritten ────────────
 
-  it("PUT with a stale If-Match → 409 estimate_version_conflict; body carries currentVersion/updatedAt/lastModifiedBy; stored content is the WINNER's, not the loser's", async () => {
+  it("PUT with a stale If-Match → 409 estimate_version_conflict; body carries currentVersion/updatedAt/lastModifiedBy RESOLVED to the real active identity; stored content is the WINNER's, not the loser's", async () => {
     const app = buildApp();
     const jwt = await tokenA();
     const postRes = await app.request("/estimates", {
@@ -3083,6 +3314,12 @@ describe("T7 — optimistic concurrency: version CAS, If-Match required, ETag, 4
     const firstPut = await putWith(app, jwt, id, '"1"', "First save", makeContent("first"));
     expect(firstPut.status).toBe(200);
 
+    // The 409's `lastModifiedBy` resolves USER_A's id (the winner of the
+    // race above) — stub the RESOLVED path, same rationale as the AC-2.1
+    // owner-identity tests above: this proves a non-"unknown" identity
+    // actually reaches the wire, not just "some non-null object".
+    stubIdentitiesFetch([{ id: USER_A_ID, status: "active", name: "Alice A" }]);
+
     // Second save still carries the now-stale "1" → 409, nothing written.
     const staleRes = await putWith(app, jwt, id, '"1"', "Stale save", makeContent("stale"));
     expect(staleRes.status).toBe(409);
@@ -3095,10 +3332,7 @@ describe("T7 — optimistic concurrency: version CAS, If-Match required, ETag, 4
     expect(conflictBody.code).toBe("estimate_version_conflict");
     expect(conflictBody.currentVersion).toBe(2);
     expect(() => new Date(conflictBody.updatedAt)).not.toThrow();
-    // No live `auth` server in this test environment — resolveIdentities
-    // fails SOFT (ADR-0039) to "unknown", proving the 409 is never blocked
-    // by identity resolution.
-    expect(conflictBody.lastModifiedBy).toEqual({ status: "unknown", name: null });
+    expect(conflictBody.lastModifiedBy).toEqual({ status: "active", name: "Alice A" });
 
     // Nothing was written by the stale attempt — the FIRST save's content survives.
     const getRes = await app.request(`/estimates/${id}`, {
@@ -3108,6 +3342,29 @@ describe("T7 — optimistic concurrency: version CAS, If-Match required, ETag, 4
     expect(row.name).toBe("First save");
     expect(row.content).toEqual(makeContent("first"));
     expect(row.version).toBe(2);
+  });
+
+  it("FAULT INJECTION (ADR-0039) — PUT with a stale If-Match: auth /authz/users/identities deliberately down → lastModifiedBy degrades to {status:'unknown', name:null}, 409 still returned (never blocked by identity resolution)", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+    const postRes = await app.request("/estimates", {
+      method: "POST",
+      headers: bearerHeader(jwt),
+      body: JSON.stringify({ name: "Original (fault injection)", author: "Alice", content: makeContent("orig") }),
+    });
+    const { id } = (await postRes.json()) as { id: string };
+
+    const firstPut = await putWith(app, jwt, id, '"1"', "First save", makeContent("first"));
+    expect(firstPut.status).toBe(200);
+
+    stubIdentitiesFetchDown();
+
+    const staleRes = await putWith(app, jwt, id, '"1"', "Stale save", makeContent("stale"));
+    expect(staleRes.status).toBe(409);
+    const conflictBody = (await staleRes.json()) as {
+      lastModifiedBy: { status: string; name: string | null };
+    };
+    expect(conflictBody.lastModifiedBy).toEqual({ status: "unknown", name: null });
   });
 
   // ── AC-4.3 — two simultaneous saves → exactly one wins ───────────────────
