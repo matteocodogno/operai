@@ -387,7 +387,10 @@ contract. No missing endpoint found.
 
 **G-5 (scope creep check):** No UI has been designed beyond what the ACs require. Three
 items were explicitly checked and excluded:
-- Conflict / stale-write warning: non-goal (last-write-wins, spec §Non-goals).
+- Conflict / stale-write warning: non-goal (last-write-wins, spec §Non-goals). **Amended 2026-08-07 by
+  `specs/013-estimate-sharing`** ([ADR-0038](../../docs/adr/0038-optimistic-concurrency-version-if-match-cas-amends-0004.md)):
+  last-write-wins is no longer the posture — saves now require a `version`/`If-Match`
+  precondition. This design remains accurate for what spec 001 shipped.
 - Per-user quota display: non-goal.
 - Removing local estimates after successful import: explicitly prohibited by AC-5.4.
 

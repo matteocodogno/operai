@@ -127,7 +127,11 @@ work is lost in the transition.
 None. Resolved during refinement (2026-07-02):
 
 - ~~Conflict handling~~ — **last-write-wins** accepted; no stale-write warning
-  (see Non-goals).
+  (see Non-goals). **Amended 2026-08-07 by `specs/013-estimate-sharing`**
+  (see [ADR-0038](../../docs/adr/0038-optimistic-concurrency-version-if-match-cas-amends-0004.md)):
+  once collaborators can save the same estimate, saves require an integer `version` +
+  `If-Match` precondition instead of unconditional last-write-wins. This decision was
+  correct for spec 001's single-owner scope and is not rewritten here.
 - ~~Limits~~ — **no count cap**; a per-estimate **maximum size** guard rejects
   over-large payloads (AC-1.4). The concrete size threshold is an implementation
   detail for the plan.

@@ -5,6 +5,19 @@
 **Deciders:** wellD  
 **Project:** Operai — EstimAI
 
+**Amended by:** [ADR-0038](0038-optimistic-concurrency-version-if-match-cas-amends-0004.md)
+(2026-08-07, `specs/013-estimate-sharing`) — the last-write-wins acceptance is superseded: this
+ADR's Decision text (implicit in its silence on conflict detection) and its Risks entry
+"Last-write-wins across tabs/devices... This is the spec's accepted behaviour... not a defect"
+are both superseded, for every write, from that feature forward — saves now require optimistic
+concurrency via an integer `version` column and a mandatory `If-Match` compare-and-swap, refused
+with `428`/`409` on a missing or stale precondition. **Not** superseded — this ADR's persistence
+shape stays entirely in force: the whole-document `content` JSONB column, the denormalised
+`name`/`author`/`sizeBytes` listing columns, the 1 MiB `MAX_ESTIMATE_BYTES` size guard, and
+semantic-deep-equal round-trip fidelity are all unchanged. This ADR's `Status` stays `Accepted`
+per this repository's convention (no ADR here is ever marked `Superseded`); read ADR-0038
+alongside this one for the current, accurate picture of concurrency control on estimate writes.
+
 ---
 
 ## Context
@@ -149,7 +162,11 @@ Store the serialised JSON as a `text` column instead of `jsonb`.
 - **Last-write-wins across tabs/devices:** Two concurrent editors of the same
   estimate will overwrite each other silently. This is the spec's accepted behaviour
   (non-goal, decided 2026-07-02) — not a defect, flagged here so it is not later
-  treated as one.
+  treated as one. **Superseded by ADR-0038** (`specs/013-estimate-sharing`,
+  2026-08-07): once collaborators can save the same estimate, silent clobbering is a
+  real, likely failure mode, not an edge case — see ADR-0038 for the `version` +
+  `If-Match` mechanism that replaces this posture for every write, from that feature
+  forward.
 
 ## Compliance notes
 

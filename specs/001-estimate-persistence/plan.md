@@ -200,7 +200,7 @@ GET /estimates/{id}                   Full estimate (AC-2.2)
 
 PUT /estimates/{id}                   Update in place, no duplicate (AC-1.2)
   body: EstimateUpsert
-  200 → EstimateFull  (same id; updatedAt advanced; last-write-wins, no version check)
+  200 → EstimateFull  (same id; updatedAt advanced; last-write-wins, no version check; amended by specs/013-estimate-sharing/ADR-0038, see note below)
   404 → not found OR not owned (AC-4.1)
   413 → size Problem; prior stored version untouched (no partial write, AC-1.4)
   401 → unauthenticated
@@ -220,6 +220,14 @@ POST /estimates/import                One-time bulk import (US-5, AC-5.2/5.4)
   as long as the request was well-formed; per-estimate outcome is in `results`.
   401 → unauthenticated
 ```
+
+> **Amended 2026-08-07 by `specs/013-estimate-sharing`**
+> ([ADR-0038](../../docs/adr/0038-optimistic-concurrency-version-if-match-cas-amends-0004.md)):
+> `PUT /estimates/{id}` no longer accepts unconditional last-write-wins — it now requires
+> an `If-Match` version precondition, returning `428` (missing/malformed precondition) or
+> `409 estimate_version_conflict` (stale version) instead of always succeeding. This plan's
+> contract as written reflects what spec 001 shipped; see specs/013's plan for the current
+> `PUT` contract.
 
 ### Size guard (AC-1.4)
 
