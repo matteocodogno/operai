@@ -1,0 +1,106 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-08-08T00-05-00Z-orchestrate-013-estimate-sharing-close",
+  "command": "orchestrate",
+  "feature": "013-estimate-sharing",
+  "rigor": "production",
+  "started": "2026-08-07T18:30:00Z",
+  "finished": "2026-08-08T00:05:00Z",
+  "note": "Continuation of run 2026-08-07T09-45-00Z-orchestrate-013-estimate-sharing, which was paused by the user after batch 2 and recorded result 'partial'. This trace covers batches 3-6, the defect-fix rounds, QE, owasp, eval and close.",
+  "agents": [
+    { "agent": "backend-dev", "tasks": ["T7"], "outcome": "completed", "commits": ["b0a3363"], "worktree": "feat/013-t7-optimistic-concurrency" },
+    { "agent": "backend-dev", "tasks": ["T8"], "outcome": "completed", "commits": ["9f2b905"], "worktree": "feat/013-t8-collaborator-add-path" },
+    { "agent": "backend-dev", "tasks": ["T27"], "outcome": "completed", "commits": ["85407e0"], "worktree": "feat/013-t27-identities-rate-limit" },
+    { "agent": "devops", "tasks": ["T13"], "outcome": "completed", "commits": ["db521c3"], "worktree": "feat/013-t13-env-wiring" },
+    { "agent": "frontend-dev", "tasks": ["T16"], "outcome": "completed", "commits": ["7ff8ef9"], "worktree": "feat/013-t16-context-conflict-state" },
+    { "agent": "backend-dev", "tasks": ["T9"], "outcome": "completed", "commits": ["de25537"], "worktree": "feat/013-t9-collaborator-manage-routes" },
+    { "agent": "frontend-dev", "tasks": ["T17", "T18"], "outcome": "completed", "commits": ["0c11dc3", "04c4830"], "worktree": "feat/013-t17-t18-viewer-gating-conflict-banner" },
+    { "agent": "frontend-dev", "tasks": ["T20"], "outcome": "completed", "commits": ["e2a669a"], "worktree": "feat/013-t20-collaborators-dialog-owner" },
+    { "agent": "frontend-dev", "tasks": ["T23"], "outcome": "completed", "commits": ["77218b1"], "worktree": "feat/013-t23-estimates-list-shared-rows" },
+    { "agent": "backend-dev", "tasks": ["T10", "T11"], "outcome": "completed", "commits": ["T10", "T11"], "worktree": "feat/013-t10-t11-notify-openapi", "note": "Confirmed and fixed a real pre-existing bug: estimatesRouter's wildcard jwtMiddleware shadowed /openapi.json, returning 401 instead of the spec." },
+    { "agent": "quality-engineer", "tasks": ["T12"], "outcome": "completed", "commits": ["fbfa119"], "worktree": "feat/013-t12-orphaned-estimate-test", "note": "Adversarially verified both key assertions bite (injected a stray fetch and a fake ownership route; both tripped)." },
+    { "agent": "frontend-dev", "tasks": ["T21"], "outcome": "completed", "commits": ["68c4af3"], "worktree": "feat/013-t21-collaborators-dialog-member" },
+    { "agent": "frontend-dev", "tasks": ["T22", "T24"], "outcome": "completed", "commits": ["a73a268", "e1d3991"], "worktree": "feat/013-t22-t24-toolbar-and-link-share-guard" },
+    { "agent": "quality-engineer", "tasks": ["T25"], "outcome": "completed_with_defects", "commits": ["808d753"], "note": "e2e failed against then-current code, surfacing three real defects invisible to the transport-mocked unit suites." },
+    { "agent": "backend-dev", "outcome": "completed", "commits": ["0cdc4db"], "worktree": "fix/013-estimai-api-cors", "note": "Defect fix: CORS missing If-Match/PATCH/exposeHeaders." },
+    { "agent": "frontend-dev", "outcome": "completed", "commits": ["3b68b58"], "worktree": "fix/013-ui-if-match-quoting", "note": "Defect fix: unquoted If-Match made every save 428." },
+    { "agent": "backend-dev", "outcome": "completed", "commits": ["255c2f5"], "note": "Defect fix: cross-merge typecheck break between T10 and T12." },
+    { "agent": "owasp-reviewer", "outcome": "REVIEW_REQUIRED", "findings": "0 critical, 0 high, 2 medium", "note": "Both mediums fixed; CORS widening and the five other named surfaces verified clean." },
+    { "agent": "backend-dev", "outcome": "completed", "commits": ["b006ae0"], "worktree": "fix/013-app-access-check-limiter-order", "note": "OWASP A04 fix, proven to fail against the old ordering." },
+    { "agent": "backend-dev", "outcome": "completed", "commits": ["a74d5ee"], "worktree": "fix/013-identity-resolution-chunking", "note": "OWASP A04 fix, proven to fail against the unchunked version." },
+    { "agent": "quality-engineer", "outcome": "PASS", "commits": ["cc9e2bf"], "note": "Full gate run; 33/33 ACs; both e2e journeys live-observed; closed AC-5.3/AC-9.1 gaps; raised 3 WEAK findings and one critical CVE." },
+    { "agent": "quality-engineer", "outcome": "completed", "commits": ["ce7d486"], "note": "Closed the 3 WEAK gaps; each new test sabotage-verified to fail against broken production code." },
+    { "agent": "devops", "outcome": "completed", "commits": ["6e63835"], "note": "Pinned seroval >=1.5.3 via pnpm override, clearing the security floor's critical-CVE block." },
+    { "agent": "evaluator", "outcome": "PASS", "score": 92.0, "note": "All six dimensions scored 4; every floor met. Independently re-ran the e2e. Found a test-integrity defect QE missed." },
+    { "agent": "quality-engineer", "outcome": "completed", "commits": ["4a6f5af"], "note": "Fixed eval's finding: tests asserted the degraded identity state as expected, passing only because auth returned 401." },
+    { "agent": "adr-writer", "outcome": "completed", "commits": ["3cf47e3"], "note": "Back-linked ADR-0004's LWW amendment to ADR-0038 and annotated spec 001's three stale LWW assertions." },
+    { "agent": "frontend-dev", "outcome": "completed", "commits": ["ed21b98"], "note": "Corrected a false claim in strings.ts about Italian translations shipping in code." }
+  ],
+  "drift_events": [
+    {
+      "agent": "backend-dev (T2/T3)",
+      "artifact": "plan.md",
+      "summary": "plan.md's contract for POST /authz/users/identities listed 429 + Retry-After but provisioned no rate-limit config, so T3 shipped it unthrottled. User chose to implement rather than amend the contract; became T27.",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer (T25)",
+      "artifact": "tasks.md / CLAUDE.md",
+      "summary": "T25 named estimai-ui/e2e/, which no longer exists — specs/003 T18 retired estimai-ui's standalone e2e suite when it became a federated remote, and all estimai e2e journeys now live in shell/e2e/. CLAUDE.md's project-structure listing is stale on this point.",
+      "resolved": false
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "docs/adr/0004 + specs/001",
+      "summary": "ADR-0038's supersession of ADR-0004's last-write-wins posture had a forward link but no back-links; spec 001's spec/plan/design still asserted LWW unannotated.",
+      "resolved": true
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "estimai-api tests",
+      "summary": "Tests asserted owner.status === 'unknown' — the fail-soft degraded state — and passed only because the integration auth returned 401. A correctly-wired auth would have failed them. plan.md's AC-10.5 api-level assertion was never implemented.",
+      "resolved": true
+    }
+  ],
+  "collision_events": [
+    {
+      "tasks": ["T2", "T3"],
+      "files": ["auth/src/index.ts", "auth/src/openapi/"],
+      "resolved_by": "Detected before dispatch; added deps T2→T3 and gave both to one agent."
+    },
+    {
+      "tasks": ["T17", "T18"],
+      "files": ["estimai-ui/src/components/Header.tsx", "estimai-ui/src/EstimatorApp.tsx"],
+      "resolved_by": "Detected before dispatch; added deps T17→T18 and gave both to one agent."
+    },
+    {
+      "tasks": ["T10", "T11"],
+      "files": ["estimai-api/src/estimates/collaborators.routes.ts"],
+      "resolved_by": "Detected before dispatch; combined into one agent."
+    },
+    {
+      "tasks": ["T13", "T27"],
+      "files": ["auth/.env.example"],
+      "resolved_by": "SILENT semantic collision — git merged both additions cleanly but duplicated the IDENTITIES_RATE_* block. Caught by post-merge inspection, de-duplicated in commit on the feature branch."
+    },
+    {
+      "tasks": ["T10", "T12"],
+      "files": ["estimai-api/src/estimates/orphaned-estimate.test.ts"],
+      "resolved_by": "SILENT type-level collision — T12's test double was built against the pre-T10 CollaboratorRouteDeps shape; both merged in the same batch. bun test passed (Bun does not typecheck); caught later by tsc --noEmit. Fixed in 255c2f5."
+    }
+  ],
+  "verdicts": { "qe": "PASS", "eval": "PASS", "eval_score": 92.0, "owasp": "0 critical, 0 high, 2 medium (both fixed)" },
+  "result": "completed",
+  "final_state": {
+    "auth": "460 pass / 0 fail, typecheck clean",
+    "estimai-api": "199 pass / 0 fail, typecheck clean",
+    "estimai-ui": "224 pass / 0 fail, lint clean, build clean, 0 critical CVEs",
+    "e2e": "shell/e2e/estimate-sharing.spec.ts — 2 passed (1.3m), live-observed",
+    "tasks": "27/27",
+    "adrs": "0035-0040"
+  },
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}

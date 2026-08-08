@@ -149,12 +149,12 @@ Track roots: **T1** (A), **T4** (B), **T14** (C) have no dependencies and start 
   - note: wire `AUTH_BASE_URL`, `NOTIFY_INTERNAL_URL`, `NOTIFY_INTERNAL_TOKEN` (identical value to `auth`/`refund-api`/`notify-api`), `SHARE_LOOKUP_FLOOR_MS`, `SHARE_ADD_RATE_LIMIT`/`_WINDOW_MS`, `APP_ACCESS_CHECK_FLOOR_MS`, `APP_ACCESS_CHECK_RATE_LIMIT`/`_WINDOW_MS`. Secrets are 1Password references via direnv — **never** a literal; add `.gitleaksignore` entries if the pre-commit hook flags the references. Record that `estimai-api` and `auth` must stay **single-instance** while the limiter and identity cache are in-process (plan R7, the same constraint `notify-api` already carries).
   - done when: `mise run dev` brings the whole suite up with the new vars resolving; the gitleaks pre-commit hook passes; `infra/README.md` documents the new vars and the single-instance constraint; a startup test proves each service exits non-zero with a named message when a new var is missing.
 
-- [ ] T25: End-to-end two-user flows — refs: AC-1.1, AC-2.1, AC-3.1, AC-4.4, AC-5.2, AC-6.1 — deps: T11, T22, T23, T13
+- [x] T25: End-to-end two-user flows — refs: AC-1.1, AC-2.1, AC-3.1, AC-4.4, AC-5.2, AC-6.1 — deps: T11, T22, T23, T13
   - touch: `estimai-ui/e2e/estimate-sharing.spec.ts` (new)
   - note: uses the existing seeded-session helper. Covers: owner shares → collaborator sees the estimate in their list with the right badge → viewer cannot edit → owner promotes to editor → editor saves → owner revokes → the estimate disappears from the collaborator's list. Plus the two-tab conflict flow (two browser contexts, **same** user, second tab's autosave surfaces the banner).
   - done when: `pnpm e2e` passes both specs against the locally running stack.
 
-- [ ] T26: Close — all gates green, spec status → done — refs: all — deps: T2, T3, T10, T11, T12, T13, T24, T25
+- [x] T26: Close — all gates green, spec status → done — refs: all — deps: T2, T3, T10, T11, T12, T13, T24, T25
   - touch: `specs/013-estimate-sharing/spec.md`
   - note: the `production` done gate — every task checked, QE PASS, and a fresh passing `eval-report.md`. Run via `/wellforge:done`, never a hand-edit.
   - done when: lint, typecheck, unit, integration and e2e are green across `auth`, `estimai-api` and `estimai-ui`; the security floor (gitleaks, no hardcoded credentials, critical-CVE audit) passes; the owasp-reviewer pass has no finding ≥ medium open; `eval-report.md` is a PASS; spec frontmatter reads `status: done`.

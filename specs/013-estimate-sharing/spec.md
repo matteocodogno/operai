@@ -1,10 +1,11 @@
 ---
 id: 013
 slug: estimate-sharing
-status: in-progress
+status: done
 rigor: production
 created: 2026-08-07
 approved: 2026-08-07
+done: 2026-08-08
 ---
 
 # Estimate sharing: invite registered EstimAI users to collaborate on an estimate
