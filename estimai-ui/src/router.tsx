@@ -1,7 +1,6 @@
 import { createRootRoute, createRoute, createRouter, redirect, Outlet } from '@tanstack/react-router'
 import EstimatesPage from './pages/EstimatesPage'
 import EstimatePage from './pages/EstimatePage'
-import SharedEstimatePage from './pages/SharedEstimatePage'
 import { createProject } from './lib/projects'
 import * as estimatesApi from './lib/estimatesApi'
 import type { EstimateFull } from './lib/estimatesApi'
@@ -83,17 +82,11 @@ export function createAppRouter(basepath?: string) {
     component: EstimatePage,
   })
 
-  const shareRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: '/share',
-    component: SharedEstimatePage,
-  })
-
   // ---------------------------------------------------------------------------
   // Route tree
   // ---------------------------------------------------------------------------
 
-  const routeTree = rootRoute.addChildren([indexRoute, estimatesRoute, estimateRoute, shareRoute])
+  const routeTree = rootRoute.addChildren([indexRoute, estimatesRoute, estimateRoute])
 
   return createRouter({ routeTree, basepath })
 }

@@ -248,22 +248,18 @@ describe('T17 named early check — viewer mount has zero enabled mutating contr
     expect(vi.mocked(estimatesApi.update)).not.toHaveBeenCalled()
   })
 
-  it('export (Client/PDF/Excel) and Share buttons stay present and enabled for a viewer (AC-3.1)', () => {
+  it('export (Client/PDF/Excel) buttons stay present and enabled for a viewer (AC-3.1)', () => {
     renderEditor('viewer')
 
-    // T22 (specs/013-estimate-sharing/tasks.md) relabelled "Share" → "Share
-    // link" AND added a "Shared by {owner} · {level}" chip that renders in
-    // this exact 'viewer' access mode — a loose /share/i match now hits
-    // BOTH (the chip's copy also contains "Shared"), so this query is
-    // pinned to the exact label to keep asserting the SAME button T17
-    // always meant ("Share link" is a strict superset of the old "Share"
-    // label — AC-8.1's behavior-untouched rename, not a reinterpretation).
-    const shareBtn = screen.getByRole('button', { name: /share link/i }) as HTMLButtonElement
+    // The "Share link" button this test also used to assert was removed on
+    // 2026-08-09 with the whole anonymous link-share mechanism (specs/013 US-8
+    // amendment). The exports remain the point of AC-3.1: read-only means no
+    // content editing, NOT feature removal.
     const clientBtn = screen.getByRole('button', { name: /client/i }) as HTMLButtonElement
     const pdfBtn = screen.getByRole('button', { name: /pdf/i }) as HTMLButtonElement
     const excelBtn = screen.getByRole('button', { name: /excel/i }) as HTMLButtonElement
 
-    for (const btn of [shareBtn, clientBtn, pdfBtn, excelBtn]) {
+    for (const btn of [clientBtn, pdfBtn, excelBtn]) {
       expect(btn.disabled).toBe(false)
     }
   })

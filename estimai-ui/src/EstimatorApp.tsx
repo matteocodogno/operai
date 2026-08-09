@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import ExcelJS from 'exceljs'
 import { useNavigate, useRouter } from '@tanstack/react-router'
@@ -11,8 +11,6 @@ import ParametersPanel from './components/ParametersPanel'
 import { pertCalc } from './hooks/useEstimator'
 import { SAVED_TOAST_MESSAGE, useEstimatorContext } from './context/EstimatorContext'
 import { strings } from './strings'
-import type { ProjectData } from './lib/projects'
-import { buildShareUrl } from './lib/shareUrl'
 import { exportPdf } from './lib/pdfExport'
 import { renderGanttPng } from './lib/ganttChart'
 import { svgToDataUrl } from './lib/logoUtils'
@@ -20,7 +18,6 @@ import { computeActivityNums } from './lib/activityNums'
 import { computeHealthWarnings } from './lib/healthWarnings'
 import ShortcutsModal from './components/ShortcutsModal'
 import HealthWarningsModal from './components/HealthWarningsModal'
-import QrModal from './components/QrModal'
 import TemplatePicker from './components/TemplatePicker'
 import HelpDrawer from './components/HelpDrawer'
 import ToastBanner from './components/ToastBanner'
@@ -56,12 +53,9 @@ export default function EstimatorApp() {
   const [tab, setTab] = useState<'activities' | 'summary' | 'parameters'>('activities')
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showHealthWarnings, setShowHealthWarnings] = useState(false)
-  const [showQr, setShowQr] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showCollaborators, setShowCollaborators] = useState(false)
   const [dismissedPicker, setDismissedPicker] = useState(false)
-  const [shareCopied, setShareCopied] = useState(false)
-  const shareCopiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -69,7 +63,6 @@ export default function EstimatorApp() {
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
       if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
-      if (e.shiftKey && e.key === 'Q') { e.preventDefault(); setShowQr(v => !v) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -295,20 +288,8 @@ export default function EstimatorApp() {
   }, [summary, totals, params, name, author])
 
 const exportPDF = useCallback(() => {
-    const data = { id: projectId, name, author, params, releases, acts }
-    const shareUrl = buildShareUrl(data)
-    exportPdf({ name, author, acts, summary, totals, params, shareUrl })
-  }, [projectId, name, author, params, releases, acts, summary, totals])
-
-  const handleShare = useCallback(() => {
-    const data: ProjectData = { id: projectId, name, author, params, releases, acts }
-    const url = buildShareUrl(data)
-    navigator.clipboard.writeText(url).then(() => {
-      setShareCopied(true)
-      if (shareCopiedTimer.current) clearTimeout(shareCopiedTimer.current)
-      shareCopiedTimer.current = setTimeout(() => setShareCopied(false), 2000)
-    })
-  }, [projectId, name, author, params, releases, acts])
+    exportPdf({ name, author, acts, summary, totals, params })
+  }, [name, author, acts, summary, totals, params])
 
   return (
     <div className="min-h-full w-full">
@@ -353,21 +334,12 @@ const exportPDF = useCallback(() => {
         ))}
         <div className="flex-1" />
         <div className="flex items-center gap-1 mb-1">
-          <button
-            onClick={handleShare}
-            className="py-1 px-2.5 text-[11px] font-medium text-acc border border-acc/30 hover:border-acc hover:bg-acc/5 transition-colors flex items-center gap-1"
-            title="Copy shareable link to clipboard"
-          >
-            <span>{shareCopied ? '✓' : '⤴'}</span>{' '}
-            {shareCopied ? strings.sharing.toolbar.shareLinkCopied : strings.sharing.toolbar.shareLink}
-          </button>
-          <div className="w-px h-4 bg-rule mx-0.5" />
-          {/* T22 (specs/013-estimate-sharing/tasks.md; design.md "## Toolbar
-              composition decision"): a SECOND, differently-shaped entry —
-              never folded into "Share link" above (AC-8.1/AC-8.2). Owner
-              sees an actionable button that opens CollaboratorsDialog in
-              owner mode; a collaborator sees a non-actionable-looking chip
-              that opens the same dialog in its read-only member mode. */}
+          {/* Sharing an estimate is account-based only: the owner opens
+              CollaboratorsDialog in owner mode, a collaborator sees a
+              non-actionable-looking chip that opens the same dialog in its
+              read-only member mode. The anonymous "Share link" (lz-string
+              payload in a URL fragment + /share page) that used to sit here
+              was removed on 2026-08-09 — see specs/013's US-8 amendment. */}
           {access === 'owner' ? (
             <button
               onClick={() => setShowCollaborators(true)}
@@ -527,13 +499,6 @@ const exportPDF = useCallback(() => {
       )}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
       {showHelp && <HelpDrawer onClose={() => setShowHelp(false)} />}
-      {showQr && (
-        <QrModal
-          shareUrl={buildShareUrl({ id: projectId, name, author, params, releases, acts })}
-          projectName={name}
-          onClose={() => setShowQr(false)}
-        />
-      )}
       {showCollaborators && (
         <CollaboratorsDialog
           estimateId={projectId}

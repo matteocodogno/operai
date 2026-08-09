@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { ReleaseSummary, Totals, Parameters, Activity } from '../types'
 import { renderGanttPng } from './ganttChart'
-import { svgToDataUrl, generateQrWithLogo } from './logoUtils'
+import { svgToDataUrl } from './logoUtils'
 
 // ── A4 layout constants (mm) ──────────────────────────────────────────────────
 const PAGE_W = 210
@@ -48,21 +48,18 @@ export interface ExportPdfOptions {
   summary: ReleaseSummary[]
   totals: Totals
   params: Parameters
-  shareUrl?: string
 }
 
 export async function exportPdf({
-  name, author, acts, summary, totals, params, shareUrl,
+  name, author, acts, summary, totals, params,
 }: ExportPdfOptions): Promise<void> {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
 
-  // ── Async assets (logo + QR) ─────────────────────────────────────────────
-  const [logoDataUrl, qrDataUrl] = await Promise.all([
-    svgToDataUrl('/estimai-light.svg', 256),
-    shareUrl
-      ? generateQrWithLogo(shareUrl, { size: 300, dark: NAVY, light: '#ffffff' })
-      : Promise.resolve(null),
-  ])
+  // ── Async assets (logo) ───────────────────────────────────────────────────
+  // A "Scan to view online" QR used to sit bottom-right, encoding the anonymous
+  // share link. That link mechanism was removed on 2026-08-09 (see specs/013's
+  // US-8 amendment); with no account-free view to point at, the QR went too.
+  const logoDataUrl = await svgToDataUrl('/estimai-light.svg', 256)
 
   // ── Section heading helper ────────────────────────────────────────────────
   // 4 px accent bar + uppercase bold label at full document ink
@@ -295,30 +292,6 @@ export async function exportPdf({
   doc.setFontSize(7.5)
   doc.setTextColor(HDR)
   doc.text(pItems.join('   ·   '), ML + 4, paramY + 10.5)
-
-  // ── QR code (flat box, bottom-right, above footer) ────────────────────────
-  if (qrDataUrl) {
-    const QR = 34
-    const PAD = 3
-    const BOX_W = QR + PAD * 2
-    const BOX_H = QR + PAD * 2 + 5   // 5 mm caption
-    const bx = PAGE_W - MR - BOX_W
-    const by = PAGE_H - FOOTER_H - BOX_H - 2
-
-    // Flat border, no border-radius — matches document aesthetic
-    doc.setFillColor('#ffffff')
-    doc.rect(bx, by, BOX_W, BOX_H, 'F')
-    doc.setDrawColor(RULE)
-    doc.setLineWidth(0.3)
-    doc.rect(bx, by, BOX_W, BOX_H, 'S')
-
-    doc.addImage(qrDataUrl, 'PNG', bx + PAD, by + PAD, QR, QR)
-
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(5.5)
-    doc.setTextColor(MUTED)
-    doc.text('Scan to view online', bx + BOX_W / 2, by + PAD + QR + 4, { align: 'center' })
-  }
 
   // ── Footer ────────────────────────────────────────────────────────────────
   const footerLineY = PAGE_H - FOOTER_H + 2

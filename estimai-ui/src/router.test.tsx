@@ -79,7 +79,7 @@ describe('router has no _authed guard (T13, AC-2.3)', () => {
     expect(childIds).not.toContain('_authed')
   })
 
-  it('exposes the same four app routes as direct children of root, none of them guarded', async () => {
+  it('exposes the same three app routes as direct children of root, none of them guarded', async () => {
     const { createAppRouter } = await importRouter()
     const routeTree = createAppRouter().routeTree as unknown as { children?: RouteTreeNode[] }
 
@@ -88,9 +88,13 @@ describe('router has no _authed guard (T13, AC-2.3)', () => {
       .filter((path): path is string => path !== undefined)
       .sort()
 
-    expect(childPaths).toEqual(['/', '/estimates', '/estimates/$estimateId', '/share'].sort())
-    // Exactly these four — no extra `_authed` (or any other) wrapper route.
-    expect(routeTree.children).toHaveLength(4)
+    // `/share` was the fourth until 2026-08-09, when the anonymous link-share
+    // was removed (specs/013 US-8 amendment). Asserting its ABSENCE matters:
+    // that route rendered estimate content with no session at all.
+    expect(childPaths).toEqual(['/', '/estimates', '/estimates/$estimateId'].sort())
+    expect(childPaths).not.toContain('/share')
+    // Exactly these three — no extra `_authed` (or any other) wrapper route.
+    expect(routeTree.children).toHaveLength(3)
   })
 })
 
@@ -99,18 +103,19 @@ describe('no independent sign-in redirect (T13, AC-2.3)', () => {
     // Deliberately do NOT mock ./lib/authClient or ./lib/api — proving the
     // route resolves with NO session check in the path at all, not merely
     // that a mocked session check passes.
-    window.history.pushState(null, '', '/share')
+    window.history.pushState(null, '', '/estimates')
     const { createAppRouter } = await importRouter()
     const router = createAppRouter()
 
     render(<RouterProvider router={router} />)
 
-    // /share with no hash payload renders its own "invalid/missing data"
-    // state directly — proof the route's component mounted without any
-    // sign-in redirect happening first.
-    await screen.findByText(/invalid or missing share data/i)
+    // EstimatesPage mounts and announces its own loading state directly —
+    // proof the route's component rendered without any sign-in redirect
+    // happening first. (This used to ride on `/share`, which no longer
+    // exists; `/estimates` makes the same point on a real app route.)
+    await screen.findByText(/loading your estimates/i)
 
-    expect(window.location.pathname).toBe('/share')
+    expect(window.location.pathname).toBe('/estimates')
     expect(window.location.href).not.toContain('/sign-in')
   })
 })

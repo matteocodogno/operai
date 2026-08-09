@@ -329,16 +329,18 @@ describe('EstimatorApp: showSavedToast → success ToastBanner render wiring', (
 })
 
 // ---------------------------------------------------------------------------
-// Test: toolbar composition — "Share link" + "Collaborators"/chip (T22,
-// specs/013-estimate-sharing/tasks.md; design.md "## Toolbar composition
-// decision", AC-8.1/AC-8.2).
+// Test: toolbar composition — "Collaborators"/chip is the ONLY sharing entry.
 //
-// NON-VACUOUS: these tests FAIL if EstimatorApp.tsx folds the two sharing
-// mechanisms into one control (e.g. a single "Share ▾" dropdown), if the
-// Collaborators button/chip is missing from either access mode, if the
-// count badge stops reflecting `collaboratorCount`, or if the Share button's
-// existing click handler (buildShareUrl + clipboard write + "Copied!"
-// feedback) is altered.
+// Originally T22 (specs/013) asserted TWO entries side by side: the anonymous
+// "Share link" and the account-based "Collaborators". The link mechanism was
+// removed on 2026-08-09 (specs/013 US-8 amendment), so the assertions below
+// are inverted: the toolbar must expose the Collaborators affordance and NO
+// link-sharing affordance at all.
+//
+// NON-VACUOUS: these tests FAIL if the Collaborators button/chip goes missing
+// from either access mode, if the count badge stops reflecting
+// `collaboratorCount`, or if any share-a-link control is reintroduced into the
+// toolbar (which would resurrect an account-free view of estimate data).
 // ---------------------------------------------------------------------------
 
 function renderToolbar(
@@ -364,26 +366,23 @@ function renderToolbar(
   )
 }
 
-describe('EstimatorApp: toolbar composition — Share link + Collaborators (T22, AC-8.1/AC-8.2)', () => {
+describe('EstimatorApp: toolbar composition — Collaborators is the only sharing entry', () => {
   beforeEach(() => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
   })
 
-  it('owner: "Share link" and "Collaborators" are both present, as two separately-labelled entries', () => {
+  it('owner: "Collaborators" is present and no link-sharing control exists', () => {
     renderToolbar('owner', null, 3)
 
-    const shareBtn = screen.getByRole('button', { name: /share link/i })
     const collabBtn = screen.getByTestId('collaborators-button')
-
-    expect(shareBtn).toBeDefined()
     expect(collabBtn).toBeDefined()
-    expect(shareBtn).not.toBe(collabBtn)
-    // Never folded into one control (no shared "Share ▾" dropdown) — each
-    // has its own, distinct accessible text.
-    expect(shareBtn.textContent).not.toContain('Collaborators')
-    expect(collabBtn.textContent).not.toContain('Share')
     // The owner never sees the member-mode chip.
     expect(screen.queryByTestId('collaborators-chip')).toBeNull()
+
+    // The removed anonymous share link must not come back in any guise.
+    expect(screen.queryByRole('button', { name: /share link/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^share/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /qr/i })).toBeNull()
   })
 
   it('owner: the Collaborators count badge reflects collaboratorCount', () => {
@@ -408,8 +407,8 @@ describe('EstimatorApp: toolbar composition — Share link + Collaborators (T22,
     expect(screen.queryByTestId('collaborators-button')).toBeNull()
     const chip = screen.getByTestId('collaborators-chip')
     expect(chip.textContent).toBe(strings.sharing.toolbar.sharedByChip('Marco R.', 'Viewer'))
-    // "Share link" stays present and unaffected alongside the chip.
-    expect(screen.getByRole('button', { name: /share link/i })).toBeDefined()
+    // A collaborator gets no link-sharing escape hatch either.
+    expect(screen.queryByRole('button', { name: /share link/i })).toBeNull()
   })
 
   it('collaborator (editor): the chip names the Editor level', () => {
@@ -419,17 +418,19 @@ describe('EstimatorApp: toolbar composition — Share link + Collaborators (T22,
     expect(chip.textContent).toBe(strings.sharing.toolbar.sharedByChip('Marco R.', 'Editor'))
   })
 
-  it('the existing Share-link handler is invoked unchanged — copies the buildShareUrl link and shows "Copied!"', async () => {
+  it('no toolbar control writes an estimate payload to the clipboard', async () => {
     renderToolbar('owner', null, 0)
 
-    const shareBtn = screen.getByRole('button', { name: /share link/i })
+    // Click every toolbar button except the exports (which really do generate
+    // files) and Collaborators (which opens a dialog). None of the rest may
+    // copy anything: the old share handler wrote an lz-string estimate payload
+    // straight to the clipboard.
+    const skip = /client|pdf|excel|collaborators/i
+    const buttons = screen.getAllByRole('button').filter((b) => !skip.test(b.textContent ?? ''))
     await act(async () => {
-      shareBtn.click()
+      for (const b of buttons) b.click()
     })
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1)
-    const [url] = vi.mocked(navigator.clipboard.writeText).mock.calls[0] as [string]
-    expect(url.startsWith(`${window.location.origin}/share#data=`)).toBe(true)
-    expect(screen.getByText(strings.sharing.toolbar.shareLinkCopied)).toBeDefined()
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
   })
 })

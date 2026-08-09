@@ -35,8 +35,6 @@
 const en = {
   sharing: {
     toolbar: {
-      shareLink: 'Share link',
-      shareLinkCopied: 'Copied!',
       collaborators: 'Collaborators',
       collaboratorsWithCount: (n: number) => `Collaborators (${n})`,
       sharedByChip: (owner: string, level: string) => `Shared by ${owner} · ${level}`,

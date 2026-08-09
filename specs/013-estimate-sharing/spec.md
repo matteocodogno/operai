@@ -236,6 +236,24 @@ someone's estimate, so I discover shared work without polling my estimates list.
 
 ### US-8: The existing read-only link share stays untouched and distinct
 
+> **SUPERSEDED 2026-08-09 — this story no longer describes the product.** The
+> anonymous link share it protects was removed entirely at the user's direction:
+> the toolbar "Share link" button, `shareUrl.ts`, `SharedEstimatePage`, the
+> `/share` route, `QrModal`, the client PDF's "Scan to view online" QR, and the
+> `lz-string`/`qrcode` dependencies are all gone. Account-based collaboration
+> (US-1–US-7, US-9, US-10) is now the *only* way to share an estimate.
+>
+> AC-8.1 and AC-8.2 below are therefore **no longer satisfiable and are not
+> expected to hold** — they are retained verbatim as the record of what was true
+> when this spec shipped, not as live requirements. T24's regression guard was
+> deleted with `SharedEstimatePage.test.tsx`; the assertions that replaced it
+> (in `EstimatorApp.test.tsx` and `router.test.tsx`) now prove the *absence* of
+> any link-share affordance or `/share` route.
+>
+> Consequence accepted at removal time: an estimate can no longer be shown to
+> anyone without an Operai account and EstimAI app access (AC-1.2), so there is
+> no longer a client-facing read-only view.
+
 As any user, I want the existing "Share" link (no account required) to keep working
 exactly as it does today, so quick, disposable read-only sharing outside the
 collaboration model still works.

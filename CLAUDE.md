@@ -21,8 +21,8 @@ operai/
 │   │   │   ├── useEstimator.ts      # All estimation computation logic
 │   │   │   └── useTheme.ts
 │   │   ├── lib/                     # api (apiFetch interceptor), authClient, pdfExport,
-│   │   │                            # ganttChart, healthWarnings, shareUrl, projects, …
-│   │   ├── pages/                   # EstimatesPage, EstimatePage, SharedEstimatePage
+│   │   │                            # ganttChart, healthWarnings, projects, …
+│   │   ├── pages/                   # EstimatesPage, EstimatePage
 │   │   ├── router.tsx               # TanStack Router (_authed guard)
 │   │   ├── types.ts                 # Shared TypeScript interfaces
 │   │   ├── EstimatorApp.tsx         # Top-level layout + state + XLSX export
@@ -76,7 +76,9 @@ operai/
 - **Routing:** TanStack Router
 - **Tables:** TanStack Table v8
 - **Export:** `exceljs` + `xlsx` for XLSX, `jspdf` + `jspdf-autotable` for PDF
-- **Sharing:** `lz-string` (URL-encoded estimates) + `qrcode`
+- **Sharing:** account-based collaborators only (specs/013). The anonymous
+  link share (`lz-string` payload in a URL fragment + `qrcode`) was removed on
+  2026-08-09 — an estimate is never viewable without an Operai account.
 - **Auth:** better-auth client; in-memory JWT + `apiFetch` interceptor (see ADR-0001)
 - **Testing:** Vitest (unit/component) here; e2e lives in `shell/` (`cd shell && pnpm e2e`) — a
   federated remote has no standalone authed bootstrap, so its journeys run through the host
