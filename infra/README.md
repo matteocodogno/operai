@@ -174,7 +174,7 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
     (via `VITE_NOTIFY_API_URL`); it is also the origin the shell CSP's
     `connect-src` must allow for the SSE `EventSource` (R6 — see Phase 3).
   - `<NOTIFY_INTERNAL_URL>` = notify-api's Railway **private**-networking
-    address, written as `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`
+    address, written as `http://operai.railway.internal:8080`
     (notify-api's real private host is `operai.railway.internal`, NOT
     `notify-api.railway.internal` — see the ⚠ box in § Cross-service wiring) —
     distinct from `<NOTIFY_API_URL>` above. `auth`'s server-side `POST /system/emails` call
@@ -330,7 +330,7 @@ are called out. What the script does, step by step:
    set `auth`'s, `refund-api`'s, **and now `estimai-api`'s**
    `NOTIFY_INTERNAL_URL` to notify-api's **Railway private** networking
    address, as the reference
-   `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` —
+   `http://operai.railway.internal:8080` —
    do NOT hand-type `notify-api.railway.internal`, which does not resolve
    (dashboard → notify-api service → Settings → Networking → Private
    Networking shows the real hostname: `operai.railway.internal`; see the ⚠
@@ -722,16 +722,44 @@ calls silently fail.
 > pins `RAILWAY_PRIVATE_DOMAIN` when the service is **created** and never moves
 > it on a later rename. In this project two of four are already mismatched:
 >
-> | Service | Actual `RAILWAY_PRIVATE_DOMAIN` |
-> |---|---|
-> | `auth` | `auth.railway.internal` ✅ |
-> | `estimai-api` | `estimai-api.railway.internal` ✅ |
-> | **`notify-api`** | **`operai.railway.internal`** ❌ |
-> | **`refund-api`** | **`operai-b6e4.railway.internal`** ❌ |
+> | Service (display name) | Actual `RAILWAY_PRIVATE_DOMAIN` | Key to use inside `${{…}}` |
+> |---|---|---|
+> | `auth` | `auth.railway.internal` ✅ | `auth` |
+> | `estimai-api` | `estimai-api.railway.internal` ✅ | `estimai-api` |
+> | **`notify-api`** | **`operai.railway.internal`** ❌ | **`operai`** |
+> | **`refund-api`** | **`operai-b6e4.railway.internal`** ❌ | **`operai-b6e4`** |
 >
-> So **always write the `${{target.RAILWAY_PRIVATE_DOMAIN}}` reference, never a
-> hand-typed `http://<service-name>.railway.internal`** — the latter looks
-> perfectly correct in the dashboard and resolves to nothing. On 2026-07-31
+> So **never write `http://<display-name>.railway.internal`** — it looks
+> perfectly correct in the dashboard and resolves to nothing. Use the
+> `${{target.RAILWAY_PRIVATE_DOMAIN}}` reference where it resolves, and the
+> literal from the third column where it does not (see immediately below).
+>
+> **…and for `notify-api` the `${{…}}` reference does not resolve at all —
+> verified 2026-08-10.** Both spellings come back as an **empty string**, so the
+> value silently collapses:
+>
+> | Written | Resolves to |
+> |---|---|
+> | `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` | `http://:` |
+> | `http://${{operai.RAILWAY_PRIVATE_DOMAIN}}:8080` | `http://:8080` |
+>
+> This is NOT a blanket rule about references: `${{Postgres.RAILWAY_PRIVATE_DOMAIN}}`
+> in every service's `DATABASE_URL` and `${{auth.RAILWAY_PRIVATE_DOMAIN}}` in
+> `AUTH_JWKS_URL`/`AUTH_BASE_URL` both resolve correctly today — those services'
+> reference keys match their display names, `notify-api`'s does not.
+>
+> **So: prefer the reference, but VERIFY the resolved value in the Variables tab
+> before redeploying.** A value containing `http://:` means the key matched no
+> service. When the reference will not resolve — as with `notify-api` — write
+> the literal private domain, copied from that service's **Settings → Private
+> Networking** panel (shown with a green check and "Ready to talk privately")
+> and cross-checked against the third column above; never derive it from the
+> display name. Railway pins the private domain at service **creation** and
+> never moves it on a rename, so the literal is stable. The failure mode this
+> box exists to prevent is a `<display-name>.railway.internal` host that never
+> existed — not the literal form itself.
+>
+> Re-verify after any service is recreated (as opposed to merely renamed). On 2026-07-31
 > both `auth` and `refund-api` held a literal
 > `http://notify-api.railway.internal:8080`, which silently killed every
 > invitation email and every refund decision/paid push for as long as it was
@@ -749,7 +777,7 @@ calls silently fail.
 |---|---|---|
 | `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` |
 | `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call); estimai-api (the `POST /authz/app-access-check` + `POST /authz/users/identities` calls, specs/013-estimate-sharing, ADR-0035/0039) | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` |
-| `NOTIFY_INTERNAL_URL` | auth, refund-api, estimai-api (specs/013-estimate-sharing, ADR-0040) | `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` |
+| `NOTIFY_INTERNAL_URL` | auth, refund-api, estimai-api (specs/013-estimate-sharing, ADR-0040) | `http://operai.railway.internal:8080` |
 
 **Use the Railway reference-variable form above (`${{svc.PORT}}`) — do NOT
 hardcode the port.** A service listens on exactly ONE port (its `PORT`), and it
@@ -804,7 +832,7 @@ follows bucket ①).
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin; no wildcard/trailing slash) | no |
 | `UI_HOME_URL` | `https://operai.welld.io/` (post-login fallback; origin ∈ ALLOWED_ORIGINS) | no |
 | `AUTH_AUDIENCE` | **NEW (ADR-0010).** One suite-wide value (e.g. `operai-suite`), byte-for-byte identical to `estimai-api.AUTH_AUDIENCE` and `notify-api.AUTH_AUDIENCE`. Stamped as the JWT `audience` claim on every token `auth` mints; closes the cross-service token-replay gap now that `notify-api` is a second JWKS resource server. | no |
-| `NOTIFY_INTERNAL_URL` | **NEW (specs/006, ADR-0011).** notify-api's Railway **private**-networking address — always write it as `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`, **never** a hand-typed `notify-api.railway.internal` (that host does not exist — see the ⚠ box in § Cross-service wiring), and **not** `<NOTIFY_API_URL>` (the public domain). Base URL for the `POST /system/emails` call (`src/lib/notify.ts`). | no |
+| `NOTIFY_INTERNAL_URL` | **NEW (specs/006, ADR-0011).** notify-api's Railway **private**-networking address — always write it as `http://operai.railway.internal:8080`, **never** a hand-typed `notify-api.railway.internal` (that host does not exist — see the ⚠ box in § Cross-service wiring), and **not** `<NOTIFY_API_URL>` (the public domain). Base URL for the `POST /system/emails` call (`src/lib/notify.ts`). | no |
 | `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/006, ADR-0011).** Shared secret sent as `X-Internal-Token`; byte-for-byte identical to `notify-api.NOTIFY_INTERNAL_TOKEN`. 1Password → `AIScream / OperAI - NOTIFY_INTERNAL_TOKEN` (≥32 random chars). A leaked value = arbitrary email over wellD's Resend domain (Risk R2) — never logged, rotate + redeploy both services together if compromised. | **yes** |
 | `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
 | `APP_ACCESS_CHECK_FLOOR_MS` / `APP_ACCESS_CHECK_RATE_LIMIT` / `APP_ACCESS_CHECK_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T1/T2).** In-process anti-enumeration floor + rate limit for `POST /authz/app-access-check` (ADR-0035). Optional — code defaults `150`/`40`/`600000` apply if unset; set explicitly only to tune per environment. | no |
@@ -832,7 +860,7 @@ that swap doesn't require a rewrite).
 | `AUTH_JWKS_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001/auth/jwks` (**not** the public `<AUTH_URL>`, **not** `/.well-known/jwks.json`) |
 | `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — same value as every service; `jwtVerify` pins `audience`; a token with a missing/wrong `aud` is rejected 401. | no |
 | `AUTH_BASE_URL` | **NEW (specs/013-estimate-sharing, T13).** **internal** (bucket ①): `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` — base for the Bearer-forwarded `POST /authz/app-access-check` (fails CLOSED, ADR-0035) and `POST /authz/users/identities` (fails SOFT, ADR-0039) calls. **Required** — `src/lib/env.ts` `process.exit(1)`s if absent. | no |
-| `NOTIFY_INTERNAL_URL` | **NEW (specs/013-estimate-sharing, T13).** **internal** (bucket ①): `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}` — **not** `<NOTIFY_API_URL>`, the public domain. **Required.** | no |
+| `NOTIFY_INTERNAL_URL` | **NEW (specs/013-estimate-sharing, T13).** **internal** (bucket ①): `http://operai.railway.internal:8080` — **not** `<NOTIFY_API_URL>`, the public domain. **Required.** | no |
 | `NOTIFY_INTERNAL_TOKEN` | **NEW (specs/013-estimate-sharing, T13, ADR-0040).** Byte-for-byte identical to `auth`/`notify-api`/`refund-api`'s own — same 1Password item (`AIScream / OperAI - NOTIFY_INTERNAL_TOKEN`), `estimai-api` is the FOURTH reader, never a new item. **Required**, ≥32 chars. | **yes** |
 | `SHARE_LOOKUP_FLOOR_MS` / `SHARE_ADD_RATE_LIMIT` / `SHARE_ADD_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T13).** Anti-enumeration floor (AC-1.2) + rate limit for `POST /estimates/{id}/collaborators`. Optional — code defaults `300`/`20`/`600000` apply if unset. | no |
 | `NODE_ENV` | `production` · `MAX_ESTIMATE_BYTES`/`MAX_IMPORT_REQUEST_BYTES` optional (defaults) |
@@ -882,7 +910,7 @@ in `notify-api/src/index.ts` and called out in `notify-api/Dockerfile`).
 | `AUTH_ISSUER` | `<AUTH_URL>` (== auth `BETTER_AUTH_URL`; **public** claim — bucket ②, `${{shared.AUTH_ISSUER}}`). Pinned as the JWT `iss` in `jwt.middleware.ts`. NOTE: `refund-api`'s `GET /authz/resolve` call does **not** use this — it uses the separate `AUTH_BASE_URL` below (`resolveClient.ts`). | no |
 | `AUTH_BASE_URL` | **internal** (bucket ①): `http://auth.railway.internal:3001` — the base `refund-api`'s `authzMiddleware`/`resolveClient.ts` builds `GET /authz/resolve` against (ADR-0014). A *call*, so internal DNS; distinct from `AUTH_ISSUER`. (This is the var that was `localhost` in prod → 503.) | no |
 | `AUTH_AUDIENCE` | **ADR-0010.** `${{shared.AUTH_AUDIENCE}}` — byte-for-byte identical suite-wide; `refund-api` is the THIRD JWKS resource server on this shared value. | no |
-| `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address — always `http://${{notify-api.RAILWAY_PRIVATE_DOMAIN}}:${{notify-api.PORT}}`, **never** a hand-typed `notify-api.railway.internal` (see the ⚠ box in § Cross-service wiring) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
+| `NOTIFY_INTERNAL_URL` | notify-api's **private**-networking address — always `http://operai.railway.internal:8080`, **never** a hand-typed `notify-api.railway.internal` (see the ⚠ box in § Cross-service wiring) — for the decision→notification push (`POST /system/notifications`, T13, ADR-0017). **Not** `<NOTIFY_API_URL>` (the public domain). | no |
 | `NOTIFY_INTERNAL_TOKEN` | Same 1Password item as `auth.NOTIFY_INTERNAL_TOKEN`/`notify-api.NOTIFY_INTERNAL_TOKEN` — byte-for-byte identical (ADR-0017: now a THIRD caller sharing this secret). Consumed starting T13, not this bootstrap. | **yes** |
 | `REFUND_S3_ENDPOINT` / `REFUND_S3_REGION` / `REFUND_S3_BUCKET` / `REFUND_S3_ACCESS_KEY_ID` / `REFUND_S3_SECRET_ACCESS_KEY` | EU-region S3-compatible object storage for receipt attachments (ADR-0016) — `REFUND_S3_REGION` validated against an EU allowlist at startup once T9 lands. **NOT YET PROVISIONED as of T19** — no bucket exists, no 1Password item exists. See this task's final report / § "Object storage — provisioning" below before T9. | **yes** |
 | `REFUND_APP_BASE_URL` | **NEW (T14, specs/008-refund-monthly-processing, ADR-0021).** Absolute base URL of the shell-hosted app — **the shell's own public origin**, e.g. `https://operai.welld.io`, same value as `refund-api.ALLOWED_ORIGINS`/every other backend's shell-origin row — **not** `<REFUND_API_URL>`. Used to build the compiled-batch email's in-app deep link `${REFUND_APP_BASE_URL}/refund/batches/:id`; the email never carries a raw presigned S3 URL. | no |
