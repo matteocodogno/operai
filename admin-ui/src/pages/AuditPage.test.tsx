@@ -53,6 +53,7 @@ import { ApiError } from '../lib/adminApi'
 const entryA: AuditLogEntry = {
   id: 'audit-1',
   actorUserId: 'user-admin-1',
+  actor: { id: 'user-admin-1', name: 'Luca Camerini', email: 'luca.camerini@welld.ch' },
   action: 'role.create',
   targetType: 'role',
   targetId: 'role-accounting-lead',
@@ -64,6 +65,7 @@ const entryA: AuditLogEntry = {
 const entryB: AuditLogEntry = {
   id: 'audit-2',
   actorUserId: null,
+  actor: null,
   action: 'user_role.revoke',
   targetType: 'user',
   targetId: 'user-42',
@@ -137,6 +139,8 @@ describe('AuditPage', () => {
     expect(screen.getByText('Created role "Accounting Lead"')).not.toBeNull()
     expect(screen.getByText('role.create')).not.toBeNull()
     expect(screen.getByText('role · role-accounting-lead')).not.toBeNull()
+    // Actor shows the resolved full name AND keeps the raw id for correlation.
+    expect(screen.getByText('Luca Camerini')).not.toBeNull()
     expect(screen.getByText('user-admin-1')).not.toBeNull()
 
     expect(screen.getByText('Revoked role "admin" from user-42')).not.toBeNull()

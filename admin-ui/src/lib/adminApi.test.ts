@@ -192,6 +192,7 @@ const fixedCatalog: Catalog = [
 const fixedAuditEntry: AuditLogEntry = {
   id: 'audit-1',
   actorUserId: 'user-1',
+  actor: { id: 'user-1', name: 'Ada Lovelace', email: 'ada@welld.ch' },
   action: 'role.create',
   targetType: 'role',
   targetId: 'role-1',

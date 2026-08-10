@@ -241,9 +241,21 @@ export type Catalog = CatalogApp[]
 
 // --- Audit (GET /admin/audit) ------------------------------------------------
 
+/**
+ * The resolved identity behind `actorUserId`, joined server-side by
+ * `listAuditLog()`. Null exactly when `actorUserId` is null (the user row was
+ * hard-deleted — `AuditLog.actor` is `onDelete: SetNull`).
+ */
+export type AuditLogActor = {
+  id: string
+  name: string
+  email: string
+}
+
 export type AuditLogEntry = {
   id: string
   actorUserId: string | null
+  actor: AuditLogActor | null
   action: string
   targetType: string
   targetId: string | null

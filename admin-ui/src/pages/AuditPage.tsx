@@ -55,8 +55,20 @@ const formatTimestamp = (iso: string): string => {
   }
 }
 
-const formatActor = (actorUserId: string | null): string =>
-  actorUserId ?? 'Deleted user'
+/**
+ * The actor's display name, from the `actor` identity `GET /admin/audit` joins
+ * onto every row. An auditor scans this column for *who* — a bare cuid answers
+ * that only after a second lookup — so the name leads and the raw id stays
+ * underneath for correlation with the rest of the admin API.
+ *
+ * `actor` is null exactly when `actorUserId` is (`onDelete: SetNull` on a hard
+ * delete), leaving no name to resolve; the defensive "Unknown user" branch
+ * covers an id whose join came back empty, so the cell is never blank.
+ */
+const formatActorName = (entry: AuditLogEntry): string => {
+  if (entry.actor) return entry.actor.name.trim() || entry.actor.email
+  return entry.actorUserId ? 'Unknown user' : 'Deleted user'
+}
 
 const formatTarget = (entry: AuditLogEntry): string =>
   entry.targetId ? `${entry.targetType} · ${entry.targetId}` : entry.targetType
@@ -234,7 +246,15 @@ export default function AuditPage() {
                             {formatTimestamp(entry.createdAt)}
                           </td>
                           <td className="py-1.5 px-2" style={{ color: 'var(--text)' }}>
-                            {formatActor(entry.actorUserId)}
+                            <span className="block">{formatActorName(entry)}</span>
+                            {entry.actorUserId && (
+                              <span
+                                className="block text-[9px] break-all"
+                                style={{ fontFamily: 'var(--mono)', color: 'var(--soft)' }}
+                              >
+                                {entry.actorUserId}
+                              </span>
+                            )}
                           </td>
                           <td className="py-1.5 px-2" style={{ fontFamily: 'var(--mono)', color: 'var(--text)' }}>
                             {entry.action}
