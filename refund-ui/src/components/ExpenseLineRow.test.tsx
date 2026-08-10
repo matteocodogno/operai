@@ -842,16 +842,14 @@ describe('ExpenseLineRow — onSaveOutcome', () => {
   })
 
   it('reports an error outcome with the RFC 7807 detail when a commit fails', async () => {
-    const onCommit = vi
-      .fn()
-      .mockRejectedValue(
-        new ApiError({
-          type: 'about:blank',
-          title: 'Unprocessable Entity',
-          status: 422,
-          detail: 'km is required for this type.',
-        }),
-      )
+    const onCommit = vi.fn().mockRejectedValue(
+      new ApiError({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: 'km is required for this type.',
+      }),
+    )
     const onSaveOutcome = vi.fn()
     render(
       <ExpenseLineRow
