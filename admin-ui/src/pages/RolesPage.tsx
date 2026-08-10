@@ -68,9 +68,7 @@ type CreateModalState =
       generalError: string | null
     }
 
-type DeleteModalState =
-  | { open: false }
-  | { open: true; role: Role; isDeleting: boolean; error: string | null }
+type DeleteModalState = { open: false } | { open: true; role: Role; isDeleting: boolean; error: string | null }
 
 const errorMessageFor = (error: unknown): string => {
   if (error instanceof ApiError) {
@@ -155,7 +153,9 @@ export default function RolesPage() {
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         setCreateModal((prev) =>
-          prev.open ? { ...prev, submitting: false, nameError: error.detail ?? 'A role with this name already exists.' } : prev,
+          prev.open
+            ? { ...prev, submitting: false, nameError: error.detail ?? 'A role with this name already exists.' }
+            : prev,
         )
       } else {
         setCreateModal((prev) =>
@@ -192,7 +192,8 @@ export default function RolesPage() {
           ? {
               ...prev,
               isDeleting: false,
-              error: error instanceof ApiError ? (error.detail ?? 'Delete failed. Try again.') : 'Delete failed. Try again.',
+              error:
+                error instanceof ApiError ? (error.detail ?? 'Delete failed. Try again.') : 'Delete failed. Try again.',
             }
           : prev,
       )

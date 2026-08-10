@@ -131,9 +131,7 @@ describe('AuditPage', () => {
     // 6 columns: expand toggle (sr-only label) + the 5 named columns.
     expect(columnHeaders.length).toBe(6)
     const headerTexts = Array.from(columnHeaders).map((th) => th.textContent?.trim())
-    expect(headerTexts).toEqual(
-      expect.arrayContaining(['Timestamp', 'Actor', 'Action', 'Target', 'Summary']),
-    )
+    expect(headerTexts).toEqual(expect.arrayContaining(['Timestamp', 'Actor', 'Action', 'Target', 'Summary']))
 
     // Row content for both entries.
     expect(screen.getByText('Created role "Accounting Lead"')).not.toBeNull()

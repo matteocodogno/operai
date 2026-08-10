@@ -62,14 +62,10 @@ const errorMessageFor = (error: unknown, fallback: string): string => {
 }
 
 type LoadState =
-  | { status: 'loading' }
-  | { status: 'loaded'; department: DepartmentDetailData }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; department: DepartmentDetailData } | { status: 'error'; message: string }
 
 type RolesCatalogState =
-  | { status: 'loading' }
-  | { status: 'loaded'; roles: Role[] }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; roles: Role[] } | { status: 'error'; message: string }
 
 export default function DepartmentDetail() {
   const { id } = route.useParams()
@@ -389,9 +385,7 @@ export default function DepartmentDetail() {
 
             {rolesCatalog.status === 'loading' && <SkeletonListRows rows={2} />}
 
-            {rolesCatalog.status === 'error' && (
-              <ErrorBanner message={rolesCatalog.message} onRetry={handleRetry} />
-            )}
+            {rolesCatalog.status === 'error' && <ErrorBanner message={rolesCatalog.message} onRetry={handleRetry} />}
 
             {rolesCatalog.status === 'loaded' && rolesCatalog.roles.length === 0 && (
               <p className="text-sm" style={{ color: 'var(--soft)' }} data-testid="department-roles-empty">
@@ -489,8 +483,7 @@ export default function DepartmentDetail() {
                     data-testid={`department-member-${member.id}`}
                   >
                     <span style={{ color: 'var(--text)' }}>
-                      {member.name ?? member.email}{' '}
-                      <span style={{ color: 'var(--soft)' }}>({member.email})</span>
+                      {member.name ?? member.email} <span style={{ color: 'var(--soft)' }}>({member.email})</span>
                     </span>
                     <button
                       type="button"
@@ -557,7 +550,12 @@ export default function DepartmentDetail() {
                 </form>
 
                 {pickerStatus === 'error' && pickerMessage && (
-                  <p role="alert" className="text-sm" style={{ color: 'var(--org)' }} data-testid="department-picker-message">
+                  <p
+                    role="alert"
+                    className="text-sm"
+                    style={{ color: 'var(--org)' }}
+                    data-testid="department-picker-message"
+                  >
                     {pickerMessage}
                   </p>
                 )}

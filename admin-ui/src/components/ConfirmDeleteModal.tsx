@@ -181,24 +181,13 @@ export default function ConfirmDeleteModal({
         {/* Body — a <div>, not a <p>, so an overriding `body` can nest block
             content (e.g. a scrollable <ul> of names) without invalid
             <ul>-inside-<p> markup; aria-describedby targets it either way. */}
-        <div
-          id="confirm-delete-body"
-          className="text-sm leading-relaxed mb-4"
-          style={{ color: 'var(--text)' }}
-        >
-          {body ?? (
-            <p>&lsquo;{displayName}&rsquo; will be permanently deleted. This cannot be undone.</p>
-          )}
+        <div id="confirm-delete-body" className="text-sm leading-relaxed mb-4" style={{ color: 'var(--text)' }}>
+          {body ?? <p>&lsquo;{displayName}&rsquo; will be permanently deleted. This cannot be undone.</p>}
         </div>
 
         {/* Inline error (between body and footer) */}
         {errorMessage && (
-          <p
-            className="text-sm mb-3"
-            style={{ color: 'var(--org)' }}
-            role="alert"
-            data-testid="confirm-delete-error"
-          >
+          <p className="text-sm mb-3" style={{ color: 'var(--org)' }} role="alert" data-testid="confirm-delete-error">
             {errorMessage}
           </p>
         )}

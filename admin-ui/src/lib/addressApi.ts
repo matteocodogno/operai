@@ -229,10 +229,7 @@ export const getAddress = async (userId: string): Promise<AdminAddressResponse> 
  * accepted but writes nothing server-side. Throws ApiError on 401, 403, 404,
  * or 422 (`code: "address_incomplete"` + `missingFields` — AC-1.4).
  */
-export const putAddress = async (
-  userId: string,
-  address: AddressInput | null,
-): Promise<AdminAddressResponse> =>
+export const putAddress = async (userId: string, address: AddressInput | null): Promise<AdminAddressResponse> =>
   sendJson<AdminAddressResponse>(`/admin/users/${userId}/address`, 'PUT', { address })
 
 // ---------------------------------------------------------------------------

@@ -81,7 +81,11 @@ const catalogFixture: Catalog = [
           { key: 'edit', label: 'Edit', supportedConditions: ['ownership', 'entity'] },
         ],
       },
-      { key: 'access', label: 'Access EstimAI', actions: [{ key: 'access', label: 'Access', supportedConditions: [] }] },
+      {
+        key: 'access',
+        label: 'Access EstimAI',
+        actions: [{ key: 'access', label: 'Access', supportedConditions: [] }],
+      },
     ],
   },
   {
@@ -238,7 +242,7 @@ describe('RoleEditor — off-catalog impossible', () => {
     expect(optionValues).toEqual(['Select a resource…', 'Estimate', 'Access EstimAI', 'Refund request'])
   })
 
-  it('the Action select only contains the selected resource\'s catalog actions', async () => {
+  it("the Action select only contains the selected resource's catalog actions", async () => {
     await renderLoaded()
     fireEvent.click(screen.getByTestId('rule-composer-toggle'))
 
@@ -495,7 +499,12 @@ describe('RoleEditor — delete (custom role)', () => {
   it('surfaces a GuardrailDialog (not the inline modal error) on a 422 delete', async () => {
     await renderLoaded()
     vi.mocked(adminApi.deleteRole).mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: "Can't remove the last admin." }),
+      new ApiError({
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: "Can't remove the last admin.",
+      }),
     )
 
     fireEvent.click(screen.getByTestId('role-delete-button'))
@@ -527,7 +536,12 @@ describe('RoleEditor — header PATCH', () => {
   it('shows an inline name error on a 409 duplicate name', async () => {
     await renderLoaded()
     vi.mocked(adminApi.patchRole).mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Conflict', status: 409, detail: 'A role named "hr" already exists.' }),
+      new ApiError({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'A role named "hr" already exists.',
+      }),
     )
 
     fireEvent.change(screen.getByTestId('role-name-input'), { target: { value: 'hr' } })

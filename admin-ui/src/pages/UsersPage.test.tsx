@@ -638,9 +638,7 @@ describe('UsersPage', () => {
       await waitFor(() => {
         expect(screen.queryByTestId('invite-user-modal')).toBeNull()
       })
-      expect(screen.getByTestId('users-invite-announcement').textContent).toBe(
-        'Invitation sent to newperson@welld.ch',
-      )
+      expect(screen.getByTestId('users-invite-announcement').textContent).toBe('Invitation sent to newperson@welld.ch')
     })
 
     it('announces a failed email delivery outcome without treating it as an error (design.md F1 step 3)', async () => {

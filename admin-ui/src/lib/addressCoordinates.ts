@@ -23,9 +23,7 @@ import type { AddressComponents } from './googlePlaces'
 
 export type LatLng = { lat: number; lng: number }
 
-export type CoordinatesForSaveResult =
-  | { latitude: number; longitude: number }
-  | { latitude: null; longitude: null }
+export type CoordinatesForSaveResult = { latitude: number; longitude: number } | { latitude: null; longitude: null }
 
 const NO_COORDINATES: CoordinatesForSaveResult = { latitude: null, longitude: null }
 

@@ -357,7 +357,12 @@ describe('InvitationsPage', () => {
     it('422 unknown role/department id shows a general error banner, modal stays open', async () => {
       vi.mocked(adminApi.listInvitations).mockResolvedValue(pageOf([]))
       vi.mocked(adminApi.createInvitation).mockRejectedValue(
-        new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'Unknown role id(s): role-x' }),
+        new ApiError({
+          type: 'about:blank',
+          title: 'Unprocessable Entity',
+          status: 422,
+          detail: 'Unknown role id(s): role-x',
+        }),
       )
 
       renderInvitationsPage()

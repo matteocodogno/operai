@@ -437,15 +437,13 @@ export const listRoles = async (): Promise<Role[]> => getJson<Role[]>('/admin/ro
  * Creates a role. Returns the created role (201).
  * Throws ApiError on 409 (duplicate name), 403, or 401.
  */
-export const createRole = async (body: RoleCreateInput): Promise<Role> =>
-  sendJson<Role>('/admin/roles', 'POST', body)
+export const createRole = async (body: RoleCreateInput): Promise<Role> => sendJson<Role>('/admin/roles', 'POST', body)
 
 /**
  * GET /admin/roles/:id
  * Returns the role plus its full rule set. Throws ApiError on 404, 403, or 401.
  */
-export const getRole = async (id: string): Promise<RoleDetail> =>
-  getJson<RoleDetail>(`/admin/roles/${id}`)
+export const getRole = async (id: string): Promise<RoleDetail> => getJson<RoleDetail>(`/admin/roles/${id}`)
 
 /**
  * PATCH /admin/roles/:id
@@ -480,8 +478,7 @@ export const putRoleRules = async (id: string, rules: PermissionRuleInput[]): Pr
 // ---------------------------------------------------------------------------
 
 /** GET /admin/departments — list every department. */
-export const listDepartments = async (): Promise<Department[]> =>
-  getJson<Department[]>('/admin/departments')
+export const listDepartments = async (): Promise<Department[]> => getJson<Department[]>('/admin/departments')
 
 /**
  * POST /admin/departments
@@ -503,10 +500,8 @@ export const getDepartment = async (id: string): Promise<DepartmentDetail> =>
  * PATCH /admin/departments/:id
  * Renames / redescribes a department. Throws ApiError on 404, 409, 403, or 401.
  */
-export const patchDepartment = async (
-  id: string,
-  body: DepartmentPatchInput,
-): Promise<Department> => sendJson<Department>(`/admin/departments/${id}`, 'PATCH', body)
+export const patchDepartment = async (id: string, body: DepartmentPatchInput): Promise<Department> =>
+  sendJson<Department>(`/admin/departments/${id}`, 'PATCH', body)
 
 /**
  * DELETE /admin/departments/:id
@@ -555,8 +550,7 @@ export const listUsers = async (params: UserListParams = {}): Promise<Paginated<
  * Returns a user's attributes, roles, and departments. Throws ApiError on
  * 404, 403, or 401.
  */
-export const getUser = async (id: string): Promise<UserDetail> =>
-  getJson<UserDetail>(`/admin/users/${id}`)
+export const getUser = async (id: string): Promise<UserDetail> => getJson<UserDetail>(`/admin/users/${id}`)
 
 /**
  * PATCH /admin/users/:id
@@ -681,9 +675,7 @@ export type InvitationListParams = PageParams & {
  * Paginated, filterable by effective status, searchable by email (AC-1.6).
  * Throws ApiError on 403 or 401.
  */
-export const listInvitations = async (
-  params: InvitationListParams = {},
-): Promise<Paginated<InvitationDetail>> =>
+export const listInvitations = async (params: InvitationListParams = {}): Promise<Paginated<InvitationDetail>> =>
   getJson<Paginated<InvitationDetail>>(
     `/admin/invitations${buildQuery({
       status: params.status,
@@ -752,6 +744,4 @@ export const getCatalog = async (): Promise<Catalog> => {
  * Read-only — no mutate route exists (AC-5.3). Throws ApiError on 403 or 401.
  */
 export const listAudit = async (params: PageParams = {}): Promise<Paginated<AuditLogEntry>> =>
-  getJson<Paginated<AuditLogEntry>>(
-    `/admin/audit${buildQuery({ page: params.page, pageSize: params.pageSize })}`,
-  )
+  getJson<Paginated<AuditLogEntry>>(`/admin/audit${buildQuery({ page: params.page, pageSize: params.pageSize })}`)

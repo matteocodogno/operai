@@ -91,10 +91,11 @@ const ATTRIBUTE_HELP: Record<AttributeConditionKey, string> = {
   jobTitle:
     "Scope this permission to the user's own job title. Checked: they can act only on records matching their job title. Unchecked: it applies regardless of job title. A user with no job title set matches nothing.",
   'self-approval':
-    "Segregation of duties: when checked, a user holding this role cannot approve a refund request they themselves submitted — the attempt is denied even if every other condition on this rule would otherwise allow it. Unchecked: self-approval is permitted, as today.",
+    'Segregation of duties: when checked, a user holding this role cannot approve a refund request they themselves submitted — the attempt is denied even if every other condition on this rule would otherwise allow it. Unchecked: self-approval is permitted, as today.',
 }
 
-const humanizeAppId = (appId: string): string => (appId.length === 0 ? appId : appId.charAt(0).toUpperCase() + appId.slice(1))
+const humanizeAppId = (appId: string): string =>
+  appId.length === 0 ? appId : appId.charAt(0).toUpperCase() + appId.slice(1)
 
 const findResource = (catalog: Catalog, appId: string, resourceKey: string): CatalogResource | undefined =>
   catalog.find((app) => app.appId === appId)?.resources.find((r) => r.key === resourceKey)
@@ -177,9 +178,11 @@ export default function RoleEditor() {
   const [draftRules, setDraftRules] = useState<PermissionRule[] | null>(null)
 
   const [headerEdit, setHeaderEdit] = useState<{ name: string; description: string } | null>(null)
-  const [headerSave, setHeaderSave] = useState<{ saving: boolean; nameError: string | null; generalError: string | null }>(
-    { saving: false, nameError: null, generalError: null },
-  )
+  const [headerSave, setHeaderSave] = useState<{
+    saving: boolean
+    nameError: string | null
+    generalError: string | null
+  }>({ saving: false, nameError: null, generalError: null })
 
   const [composer, setComposer] = useState<ComposerState>(CLOSED_COMPOSER)
   const [saveRulesState, setSaveRulesState] = useState<{ saving: boolean; error: string | null }>({
@@ -237,7 +240,10 @@ export default function RoleEditor() {
         if (error instanceof ApiError && error.status === 403) {
           setCatalogState({ status: 'forbidden' })
         } else {
-          setCatalogState({ status: 'error', message: errorMessageFor(error, 'Could not load the permission catalog.') })
+          setCatalogState({
+            status: 'error',
+            message: errorMessageFor(error, 'Could not load the permission catalog.'),
+          })
         }
       })
 
@@ -251,7 +257,7 @@ export default function RoleEditor() {
 
   // --- Header (inline name/description PATCH) ---
   const handleNameInputChange = useCallback((value: string, role: RoleDetail) => {
-    setHeaderEdit((prev) => ({ name: value, description: prev?.description ?? (role.description ?? '') }))
+    setHeaderEdit((prev) => ({ name: value, description: prev?.description ?? role.description ?? '' }))
   }, [])
 
   const handleDescriptionInputChange = useCallback((value: string, role: RoleDetail) => {
@@ -266,12 +272,18 @@ export default function RoleEditor() {
         name: headerEdit.name,
         description: headerEdit.description.trim() || null,
       })
-      setRoleState((prev) => (prev.status === 'loaded' ? { status: 'loaded', role: { ...prev.role, ...updated } } : prev))
+      setRoleState((prev) =>
+        prev.status === 'loaded' ? { status: 'loaded', role: { ...prev.role, ...updated } } : prev,
+      )
       setHeaderEdit({ name: updated.name, description: updated.description ?? '' })
       setHeaderSave({ saving: false, nameError: null, generalError: null })
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        setHeaderSave({ saving: false, nameError: error.detail ?? 'A role with this name already exists.', generalError: null })
+        setHeaderSave({
+          saving: false,
+          nameError: error.detail ?? 'A role with this name already exists.',
+          generalError: null,
+        })
       } else {
         setHeaderSave({ saving: false, nameError: null, generalError: 'Could not save changes. Try again.' })
       }
@@ -337,7 +349,8 @@ export default function RoleEditor() {
 
   const handleActionChange = useCallback(
     (value: string) => {
-      const supported: ConditionType[] = selectedResource?.actions.find((a) => a.key === value)?.supportedConditions ?? []
+      const supported: ConditionType[] =
+        selectedResource?.actions.find((a) => a.key === value)?.supportedConditions ?? []
       const labels = supported.map((c) => (c === 'ownership' ? 'ownership' : ATTRIBUTE_LABELS[c].toLowerCase()))
       setComposer((prev) => ({
         ...prev,
@@ -345,7 +358,8 @@ export default function RoleEditor() {
         ownership: 'any',
         attributes: new Set(),
         selfApproval: false,
-        statusMessage: labels.length > 0 ? `Conditions available: ${labels.join(', ')}.` : 'This action has no conditions.',
+        statusMessage:
+          labels.length > 0 ? `Conditions available: ${labels.join(', ')}.` : 'This action has no conditions.',
       }))
     },
     [selectedResource],
@@ -518,7 +532,7 @@ export default function RoleEditor() {
             {role.isSystem && <SystemBadge />}
           </div>
           <textarea
-            value={headerEdit?.description ?? (role.description ?? '')}
+            value={headerEdit?.description ?? role.description ?? ''}
             onChange={(e) => handleDescriptionInputChange(e.target.value, role)}
             aria-label="Role description"
             data-testid="role-description-input"
@@ -645,7 +659,11 @@ export default function RoleEditor() {
                 </legend>
 
                 <div className="flex flex-col gap-1">
-                  <label htmlFor="rule-composer-resource" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+                  <label
+                    htmlFor="rule-composer-resource"
+                    className="text-xs font-medium"
+                    style={{ color: 'var(--soft)' }}
+                  >
                     Resource
                   </label>
                   <select
@@ -672,7 +690,11 @@ export default function RoleEditor() {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label htmlFor="rule-composer-action" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+                  <label
+                    htmlFor="rule-composer-action"
+                    className="text-xs font-medium"
+                    style={{ color: 'var(--soft)' }}
+                  >
                     Action
                   </label>
                   <select
@@ -712,18 +734,29 @@ export default function RoleEditor() {
                   </p>
                 )}
 
-                {selectedAction && !supportsOwnership && availableAttributeKeys.length === 0 && !supportsSelfApproval && (
-                  <p data-testid="rule-composer-no-conditions" className="text-xs" style={{ color: 'var(--soft)' }}>
-                    This action has no conditions.
-                  </p>
-                )}
+                {selectedAction &&
+                  !supportsOwnership &&
+                  availableAttributeKeys.length === 0 &&
+                  !supportsSelfApproval && (
+                    <p data-testid="rule-composer-no-conditions" className="text-xs" style={{ color: 'var(--soft)' }}>
+                      This action has no conditions.
+                    </p>
+                  )}
 
                 {selectedAction && supportsOwnership && (
                   <div>
-                    <span id="rule-composer-ownership-label" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+                    <span
+                      id="rule-composer-ownership-label"
+                      className="text-xs font-medium"
+                      style={{ color: 'var(--soft)' }}
+                    >
                       Ownership
                     </span>
-                    <div role="radiogroup" aria-labelledby="rule-composer-ownership-label" className="flex items-center gap-4 mt-1">
+                    <div
+                      role="radiogroup"
+                      aria-labelledby="rule-composer-ownership-label"
+                      className="flex items-center gap-4 mt-1"
+                    >
                       <label className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text)' }}>
                         <input
                           type="radio"
@@ -854,7 +887,11 @@ export default function RoleEditor() {
       <div className="mt-4">
         {saveRulesState.error && (
           <div className="mb-2">
-            <ErrorBanner message={saveRulesState.error} onRetry={handleReloadCatalogAfterStaleSave} retryLabel="Reload catalog" />
+            <ErrorBanner
+              message={saveRulesState.error}
+              onRetry={handleReloadCatalogAfterStaleSave}
+              retryLabel="Reload catalog"
+            />
           </div>
         )}
         <div className="flex items-center gap-3">

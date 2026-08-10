@@ -157,9 +157,7 @@ describe('DepartmentDetail — load states', () => {
 
     expect(screen.getByText('Engineering', { selector: 'h2' })).not.toBeNull()
     expect((screen.getByTestId('department-name-input') as HTMLInputElement).value).toBe('Engineering')
-    expect((screen.getByTestId('department-description-input') as HTMLTextAreaElement).value).toBe(
-      'Builds the product',
-    )
+    expect((screen.getByTestId('department-description-input') as HTMLTextAreaElement).value).toBe('Builds the product')
 
     await waitFor(() => {
       expect(screen.getByTestId('department-roles-list')).not.toBeNull()

@@ -237,10 +237,7 @@ const lastCall = (): { url: string; init: RequestInit | undefined } => {
   return { url: String(input), init }
 }
 
-const expectApiError = async (
-  fn: () => Promise<unknown>,
-  status: number,
-): Promise<ApiError> => {
+const expectApiError = async (fn: () => Promise<unknown>, status: number): Promise<ApiError> => {
   let thrown: unknown
   try {
     await fn()
@@ -327,10 +324,7 @@ describe('roles', () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
       problemResponse(409, 'Conflict', 'A role named "accounting" already exists'),
     )
-    const err = await expectApiError(
-      () => createRole({ name: 'accounting' }),
-      409,
-    )
+    const err = await expectApiError(() => createRole({ name: 'accounting' }), 409)
     expect(err.detail).toContain('already exists')
   })
 
@@ -383,9 +377,7 @@ describe('roles', () => {
   it('putRoleRules(id, rules) issues PUT /admin/roles/:id/rules wrapping the array as { rules }', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(fixedRoleDetail))
 
-    const rules: PermissionRuleInput[] = [
-      { resource: 'estimate', action: 'edit', conditions: { ownership: 'own' } },
-    ]
+    const rules: PermissionRuleInput[] = [{ resource: 'estimate', action: 'edit', conditions: { ownership: 'own' } }]
     const result = await putRoleRules('role-1', rules)
 
     const { url, init } = lastCall()
@@ -400,10 +392,7 @@ describe('roles', () => {
       problemResponse(422, 'Unprocessable Entity', 'estimate.frobnicate is not a registered action'),
     )
     await expectApiError(
-      () =>
-        putRoleRules('role-1', [
-          { resource: 'estimate', action: 'frobnicate', conditions: null },
-        ]),
+      () => putRoleRules('role-1', [{ resource: 'estimate', action: 'frobnicate', conditions: null }]),
       422,
     )
   })
@@ -576,11 +565,7 @@ describe('users', () => {
 
   it('putUserRoles(id, roleIds) throws ApiError on 422 (last-admin guard, AC-6.4)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(
-        422,
-        'Unprocessable Entity',
-        'This is the last administrator; assign another admin first',
-      ),
+      problemResponse(422, 'Unprocessable Entity', 'This is the last administrator; assign another admin first'),
     )
     const err = await expectApiError(() => putUserRoles('user-1', []), 422)
     expect(err.detail).toContain('last administrator')
@@ -733,7 +718,9 @@ describe('invitations', () => {
   })
 
   it('createInvitation(body) throws ApiError on 422 (unknown role/department id)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(422, 'Unprocessable Entity', 'Unknown role id(s): role-x'))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      problemResponse(422, 'Unprocessable Entity', 'Unknown role id(s): role-x'),
+    )
     await expectApiError(() => createInvitation({ email: 'alice@welld.ch', roleIds: ['role-x'] }), 422)
   })
 

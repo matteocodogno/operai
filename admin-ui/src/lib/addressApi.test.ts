@@ -109,7 +109,7 @@ const validInput: AddressInput = {
 // ---------------------------------------------------------------------------
 
 describe('base URL wiring', () => {
-  it('builds its request URL from getAuthBaseUrl(), never admin-ui\'s own import.meta.env', async () => {
+  it("builds its request URL from getAuthBaseUrl(), never admin-ui's own import.meta.env", async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(okResponse(noAddress))
 
     await getAddress(USER_ID)
@@ -206,16 +206,13 @@ describe('putAddress()', () => {
       }),
     )
 
-    const err = await expectApiError(
-      () => putAddress(USER_ID, { ...validInput, city: '', houseNumber: '' }),
-      422,
-    )
+    const err = await expectApiError(() => putAddress(USER_ID, { ...validInput, city: '', houseNumber: '' }), 422)
     expect(err.code).toBe('address_incomplete')
     expect(err.missingFields).toEqual(['city', 'houseNumber'])
     expect(err.detail).toBe('Address is incomplete: city, houseNumber are required.')
   })
 
-  it('throws ApiError on 403 (not an admin — including against the caller\'s own id, AC-4.1)', async () => {
+  it("throws ApiError on 403 (not an admin — including against the caller's own id, AC-4.1)", async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden'))
     await expectApiError(() => putAddress(USER_ID, validInput), 403)
   })

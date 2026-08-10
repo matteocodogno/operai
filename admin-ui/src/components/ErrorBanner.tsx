@@ -42,7 +42,11 @@ export default function ErrorBanner({ message, onRetry, retryLabel = 'Retry', on
       role="alert"
       data-testid="error-banner"
       className="flex items-center justify-between gap-4 px-4 py-3 rounded-md border text-sm"
-      style={{ borderColor: 'var(--org)', backgroundColor: 'color-mix(in srgb, var(--org) 10%, transparent)', color: 'var(--org)' }}
+      style={{
+        borderColor: 'var(--org)',
+        backgroundColor: 'color-mix(in srgb, var(--org) 10%, transparent)',
+        color: 'var(--org)',
+      }}
     >
       <span>{message}</span>
       <span className="flex items-center gap-3 shrink-0">

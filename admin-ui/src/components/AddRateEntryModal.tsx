@@ -91,9 +91,7 @@ export default function AddRateEntryModal({
         validFromInputRef.current,
         cancelBtnRef.current,
         submitBtnRef.current,
-      ].filter(
-        (el): el is HTMLInputElement | HTMLButtonElement => el !== null && !el.disabled,
-      )
+      ].filter((el): el is HTMLInputElement | HTMLButtonElement => el !== null && !el.disabled)
       if (focusable.length === 0) return
 
       const first = focusable[0]
@@ -191,7 +189,11 @@ export default function AddRateEntryModal({
                 aria-describedby={rateError ? 'add-rate-value-error' : undefined}
                 data-testid="add-rate-value"
                 className="text-sm px-2.5 py-1.5 border rounded"
-                style={{ borderColor: rateError ? 'var(--red)' : 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+                style={{
+                  borderColor: rateError ? 'var(--red)' : 'var(--rule)',
+                  color: 'var(--text)',
+                  backgroundColor: 'var(--ink)',
+                }}
               />
               {rateError && (
                 <p
@@ -226,7 +228,12 @@ export default function AddRateEntryModal({
                 aria-describedby={validFromError ? 'add-rate-valid-from-error' : undefined}
                 data-testid="add-rate-valid-from"
                 className="text-sm px-2.5 py-1.5 border rounded"
-                style={{ borderColor: validFromError ? 'var(--red)' : 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)', colorScheme: 'dark' }}
+                style={{
+                  borderColor: validFromError ? 'var(--red)' : 'var(--rule)',
+                  color: 'var(--text)',
+                  backgroundColor: 'var(--ink)',
+                  colorScheme: 'dark',
+                }}
               />
               {validFromError && (
                 <p

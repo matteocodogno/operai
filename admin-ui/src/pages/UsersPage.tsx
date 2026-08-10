@@ -102,17 +102,12 @@ const formatEntity = (entity: UserSummary['entity']): string => {
 }
 
 type UsersState =
-  | { status: 'loading' }
-  | { status: 'loaded'; result: Paginated<UserSummary> }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; result: Paginated<UserSummary> } | { status: 'error'; message: string }
 
-type DeleteModalState =
-  | { open: false }
-  | { open: true; user: UserSummary; isDeleting: boolean; error: string | null }
+type DeleteModalState = { open: false } | { open: true; user: UserSummary; isDeleting: boolean; error: string | null }
 
 type BulkDeleteModalState =
-  | { open: false }
-  | { open: true; users: UserSummary[]; isDeleting: boolean; error: string | null }
+  { open: false } | { open: true; users: UserSummary[]; isDeleting: boolean; error: string | null }
 
 type BulkResultState = {
   deletedCount: number
@@ -333,7 +328,9 @@ export default function UsersPage() {
         )
         return
       }
-      setInviteModal((prev) => (prev.open ? { ...prev, submitting: false, generalError: errorMessageFor(error) } : prev))
+      setInviteModal((prev) =>
+        prev.open ? { ...prev, submitting: false, generalError: errorMessageFor(error) } : prev,
+      )
     }
   }, [inviteModal])
 
@@ -368,9 +365,7 @@ export default function UsersPage() {
         setGuardrailMessage(LAST_ADMIN_DELETE_MESSAGE)
         return
       }
-      setDeleteModal((prev) =>
-        prev.open ? { ...prev, isDeleting: false, error: errorMessageFor(error) } : prev,
-      )
+      setDeleteModal((prev) => (prev.open ? { ...prev, isDeleting: false, error: errorMessageFor(error) } : prev))
     }
   }, [deleteModal])
 
@@ -383,9 +378,9 @@ export default function UsersPage() {
     const identity = deleteModal.user.name ?? deleteModal.user.email
     return (
       <p>
-        Delete {identity}? They will immediately lose all access to Operai — every active session
-        ends and they can no longer sign in. Their record and data are retained for audit, but
-        there is no undo: regaining access requires a brand-new invitation.
+        Delete {identity}? They will immediately lose all access to Operai — every active session ends and they can no
+        longer sign in. Their record and data are retained for audit, but there is no undo: regaining access requires a
+        brand-new invitation.
       </p>
     )
   }, [deleteModal])
@@ -399,8 +394,7 @@ export default function UsersPage() {
     [state, currentUserId],
   )
 
-  const allSelectableSelected =
-    selectableUsers.length > 0 && selectableUsers.every((u) => selectedIds.has(u.id))
+  const allSelectableSelected = selectableUsers.length > 0 && selectableUsers.every((u) => selectedIds.has(u.id))
   const someSelectableSelected = selectableUsers.some((u) => selectedIds.has(u.id))
 
   const handleToggleRow = useCallback((userId: string) => {
@@ -453,9 +447,7 @@ export default function UsersPage() {
       setSelectedIds(new Set())
       setReloadToken((token) => token + 1)
     } catch (error) {
-      setBulkDeleteModal((prev) =>
-        prev.open ? { ...prev, isDeleting: false, error: errorMessageFor(error) } : prev,
-      )
+      setBulkDeleteModal((prev) => (prev.open ? { ...prev, isDeleting: false, error: errorMessageFor(error) } : prev))
     }
   }, [bulkDeleteModal])
 
@@ -469,9 +461,8 @@ export default function UsersPage() {
     return (
       <>
         <p>
-          Delete {users.length} selected users? Anyone in this selection who is the last remaining
-          administrator, or your own account, is automatically skipped — everyone else in the
-          batch is still deleted.
+          Delete {users.length} selected users? Anyone in this selection who is the last remaining administrator, or
+          your own account, is automatically skipped — everyone else in the batch is still deleted.
         </p>
         <ul className="mt-2 max-h-32 overflow-y-auto text-xs" style={{ color: 'var(--soft)' }}>
           {users.map((u) => (
@@ -552,8 +543,7 @@ export default function UsersPage() {
         </button>
       </div>
       <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
-        Browse every signed-in user, then open one to set attributes and assign roles or
-        departments.
+        Browse every signed-in user, then open one to set attributes and assign roles or departments.
       </p>
 
       {catalogError && <ErrorBanner message={catalogError} />}
@@ -616,11 +606,7 @@ export default function UsersPage() {
         {state.status === 'error' && <ErrorBanner message={state.message} onRetry={handleRetry} />}
 
         {state.status === 'loaded' && state.result.total === 0 && (
-          <p
-            className="text-sm py-6 text-center"
-            style={{ color: 'var(--soft)' }}
-            data-testid="users-empty-state"
-          >
+          <p className="text-sm py-6 text-center" style={{ color: 'var(--soft)' }} data-testid="users-empty-state">
             No users match your search.
           </p>
         )}

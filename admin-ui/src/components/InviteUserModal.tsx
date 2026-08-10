@@ -144,9 +144,9 @@ export default function InviteUserModal({
 
       if (e.key !== 'Tab' || !dialogRef.current) return
 
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>('input, button'),
-      ).filter((el) => !(el as HTMLButtonElement | HTMLInputElement).disabled)
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('input, button')).filter(
+        (el) => !(el as HTMLButtonElement | HTMLInputElement).disabled,
+      )
       if (focusable.length === 0) return
 
       const first = focusable[0]
@@ -277,7 +277,12 @@ export default function InviteUserModal({
             />
 
             {generalError && (
-              <p role="alert" data-testid="invite-user-general-error" className="text-xs" style={{ color: 'var(--red)' }}>
+              <p
+                role="alert"
+                data-testid="invite-user-general-error"
+                className="text-xs"
+                style={{ color: 'var(--red)' }}
+              >
                 {generalError}
               </p>
             )}

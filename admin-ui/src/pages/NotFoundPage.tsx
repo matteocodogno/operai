@@ -39,8 +39,7 @@ export default function NotFoundPage() {
         Page not found
       </h2>
       <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
-        This admin section doesn&rsquo;t exist. Use the navigation above to pick Roles, Departments,
-        Users, or Audit.
+        This admin section doesn&rsquo;t exist. Use the navigation above to pick Roles, Departments, Users, or Audit.
       </p>
     </section>
   )

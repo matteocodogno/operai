@@ -21,45 +21,44 @@
  *   (AC-1.3).
  */
 
-import { apiFetch, getRefundApiBaseUrl } from "shell/session";
+import { apiFetch, getRefundApiBaseUrl } from 'shell/session'
 
 // ---------------------------------------------------------------------------
 // Shared shapes (mirrors plan.md's "API contracts" — Settings surface)
 // ---------------------------------------------------------------------------
 
 /** The only registered refund-setting key this feature introduces (D1/D3). */
-export const ACCOUNTING_DISTRIBUTION_EMAIL_KEY =
-  "accounting-distribution-email";
+export const ACCOUNTING_DISTRIBUTION_EMAIL_KEY = 'accounting-distribution-email'
 
 /** One entry in a setting's chronological change history (AC-5.3). */
 export type SettingHistoryEntry = {
-  value: string | null;
-  changedAt: string;
-  changedByEmail: string;
-};
+  value: string | null
+  changedAt: string
+  changedByEmail: string
+}
 
 /** `GET /settings/:key` / `PUT /settings/:key` response shape (plan.md). */
 export type SettingResult = {
-  key: string;
-  value: string | null;
-  configured: boolean;
-  updatedAt: string | null;
-  updatedByEmail: string | null;
+  key: string
+  value: string | null
+  configured: boolean
+  updatedAt: string | null
+  updatedByEmail: string | null
   /** Chronological (plan.md's documented order, mirrors AC-5.3). */
-  history: SettingHistoryEntry[];
-};
+  history: SettingHistoryEntry[]
+}
 
 /**
  * RFC 7807 Problem JSON shape — returned by refund-api for all non-2xx
  * responses (mirrors `ratesApi.ts`'s `ApiProblem` verbatim).
  */
 export type ApiProblem = {
-  type: string;
-  title: string;
-  status: number;
-  detail?: string;
-  instance?: string;
-};
+  type: string
+  title: string
+  status: number
+  detail?: string
+  instance?: string
+}
 
 // ---------------------------------------------------------------------------
 // Typed error class
@@ -77,18 +76,18 @@ export type ApiProblem = {
  *            persisted, no audit row
  */
 export class ApiError extends Error {
-  readonly status: number;
-  readonly title: string;
-  readonly detail: string | undefined;
-  readonly instance: string | undefined;
+  readonly status: number
+  readonly title: string
+  readonly detail: string | undefined
+  readonly instance: string | undefined
 
   constructor(problem: ApiProblem) {
-    super(problem.title);
-    this.name = "ApiError";
-    this.status = problem.status;
-    this.title = problem.title;
-    this.detail = problem.detail;
-    this.instance = problem.instance;
+    super(problem.title)
+    this.name = 'ApiError'
+    this.status = problem.status
+    this.title = problem.title
+    this.detail = problem.detail
+    this.instance = problem.instance
   }
 }
 
@@ -102,7 +101,7 @@ export class ApiError extends Error {
 // import.meta.env here yields `undefined` and the request collapses to a
 // broken relative URL. The shell owns the one configured origin — mirrors
 // `ratesApi.ts`'s `refundApiBase()`.
-const refundApiBase = (): string => getRefundApiBaseUrl();
+const refundApiBase = (): string => getRefundApiBaseUrl()
 
 /**
  * Parses a non-2xx Response as an RFC 7807 Problem and throws an `ApiError`.
@@ -110,53 +109,49 @@ const refundApiBase = (): string => getRefundApiBaseUrl();
  * Problem is constructed from the HTTP status (mirrors `ratesApi.ts`).
  */
 const throwFromResponse = async (response: Response): Promise<never> => {
-  let problem: ApiProblem;
+  let problem: ApiProblem
   try {
-    const body = (await response.json()) as Partial<ApiProblem>;
+    const body = (await response.json()) as Partial<ApiProblem>
     problem = {
       type: body.type ?? `https://httpstatuses.com/${response.status}`,
       title: body.title ?? response.statusText,
       status: body.status ?? response.status,
       detail: body.detail,
       instance: body.instance,
-    };
+    }
   } catch {
     problem = {
       type: `https://httpstatuses.com/${response.status}`,
       title: response.statusText || String(response.status),
       status: response.status,
-    };
+    }
   }
-  throw new ApiError(problem);
-};
+  throw new ApiError(problem)
+}
 
-const jsonHeaders = { "Content-Type": "application/json" };
+const jsonHeaders = { 'Content-Type': 'application/json' }
 
 /** GET helper — no body, throws ApiError on non-2xx. */
 const getJson = async <T>(path: string): Promise<T> => {
-  const response = await apiFetch(`${refundApiBase()}${path}`);
+  const response = await apiFetch(`${refundApiBase()}${path}`)
   if (!response.ok) {
-    return throwFromResponse(response);
+    return throwFromResponse(response)
   }
-  return response.json() as Promise<T>;
-};
+  return response.json() as Promise<T>
+}
 
 /** PUT helper — JSON body, throws ApiError on non-2xx. */
-const sendJson = async <T>(
-  path: string,
-  method: string,
-  body: unknown,
-): Promise<T> => {
+const sendJson = async <T>(path: string, method: string, body: unknown): Promise<T> => {
   const response = await apiFetch(`${refundApiBase()}${path}`, {
     method,
     headers: jsonHeaders,
     body: JSON.stringify(body),
-  });
+  })
   if (!response.ok) {
-    return throwFromResponse(response);
+    return throwFromResponse(response)
   }
-  return response.json() as Promise<T>;
-};
+  return response.json() as Promise<T>
+}
 
 // ---------------------------------------------------------------------------
 // Settings management
@@ -169,7 +164,7 @@ const sendJson = async <T>(
  * key), or 401.
  */
 export const getSetting = async (key: string): Promise<SettingResult> =>
-  getJson<SettingResult>(`/settings/${encodeURIComponent(key)}`);
+  getJson<SettingResult>(`/settings/${encodeURIComponent(key)}`)
 
 /**
  * PUT /settings/{key}
@@ -178,10 +173,7 @@ export const getSetting = async (key: string): Promise<SettingResult> =>
  * Throws ApiError on 422 (malformed email, AC-1.3 — nothing persisted, no
  * audit row), 403 (missing `settings:manage`), 404 (unknown key), or 401.
  */
-export const putSetting = async (
-  key: string,
-  value: string | null,
-): Promise<SettingResult> =>
-  sendJson<SettingResult>(`/settings/${encodeURIComponent(key)}`, "PUT", {
+export const putSetting = async (key: string, value: string | null): Promise<SettingResult> =>
+  sendJson<SettingResult>(`/settings/${encodeURIComponent(key)}`, 'PUT', {
     value,
-  });
+  })

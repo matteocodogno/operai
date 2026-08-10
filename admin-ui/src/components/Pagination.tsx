@@ -61,11 +61,7 @@ export default function Pagination({ page, pageSize, total, onPageChange }: Pagi
       : `Page ${currentPage} of ${totalPages} — Showing ${rangeStart}–${rangeEnd} of ${total}`
 
   return (
-    <nav
-      aria-label="Pagination"
-      data-testid="pagination"
-      className="flex items-center justify-between gap-4 px-1 py-2"
-    >
+    <nav aria-label="Pagination" data-testid="pagination" className="flex items-center justify-between gap-4 px-1 py-2">
       <button
         type="button"
         onClick={goToPrevious}

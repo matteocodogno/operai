@@ -49,9 +49,7 @@ describe('PermissionDenied', () => {
   it('renders the default body copy when no message prop is given', () => {
     render(<PermissionDenied />)
 
-    expect(screen.getByRole('alert').textContent).toContain(
-      'If this is unexpected, contact your administrator.',
-    )
+    expect(screen.getByRole('alert').textContent).toContain('If this is unexpected, contact your administrator.')
   })
 
   it('renders a caller-provided message instead of the generic copy', () => {

@@ -108,9 +108,7 @@ const configuredSetting: SettingResult = {
   configured: true,
   updatedAt: '2026-07-20T09:12:00.000Z',
   updatedByEmail: 'admin@welld.ch',
-  history: [
-    { value: 'accounting@welld.ch', changedAt: '2026-07-20T09:12:00.000Z', changedByEmail: 'admin@welld.ch' },
-  ],
+  history: [{ value: 'accounting@welld.ch', changedAt: '2026-07-20T09:12:00.000Z', changedByEmail: 'admin@welld.ch' }],
 }
 
 const notConfiguredSetting: SettingResult = {

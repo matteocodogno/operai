@@ -80,9 +80,9 @@ export default function CreateDepartmentModal({
 
       if (e.key !== 'Tab' || !formRef.current) return
 
-      const focusable = Array.from(
-        formRef.current.querySelectorAll<HTMLElement>('input, textarea, button'),
-      ).filter((el) => !(el as HTMLButtonElement | HTMLInputElement).disabled)
+      const focusable = Array.from(formRef.current.querySelectorAll<HTMLElement>('input, textarea, button')).filter(
+        (el) => !(el as HTMLButtonElement | HTMLInputElement).disabled,
+      )
       if (focusable.length === 0) return
 
       const first = focusable[0]
@@ -188,8 +188,7 @@ export default function CreateDepartmentModal({
               className="block text-xs font-medium mb-1"
               style={{ color: 'var(--soft)' }}
             >
-              Description{' '}
-              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+              Description <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
             </label>
             <textarea
               id="create-department-description"

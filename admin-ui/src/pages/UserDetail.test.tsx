@@ -420,7 +420,7 @@ describe('UserDetail', () => {
       expect(adminApi.deleteUser).not.toHaveBeenCalled()
     })
 
-    it('disables Delete on the caller\'s own detail page, with title + aria-disabled + sr-only explanation', async () => {
+    it("disables Delete on the caller's own detail page, with title + aria-disabled + sr-only explanation", async () => {
       useSessionMock.mockReturnValue({ data: { user: { id: 'user-1' } } })
       setupLoaded()
 

@@ -114,7 +114,12 @@ export default function SectionNav() {
           </li>
         ))}
         <li key={AUDIT_SECTION.to} className="ml-auto">
-          <Link to={AUDIT_SECTION.to} className={linkClass} style={{ color: 'var(--soft)' }} activeProps={activeLinkProps}>
+          <Link
+            to={AUDIT_SECTION.to}
+            className={linkClass}
+            style={{ color: 'var(--soft)' }}
+            activeProps={activeLinkProps}
+          >
             {AUDIT_SECTION.label}
           </Link>
         </li>

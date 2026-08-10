@@ -49,17 +49,12 @@ import CreateDepartmentModal from '../components/CreateDepartmentModal'
  */
 
 type ListState =
-  | { status: 'loading' }
-  | { status: 'loaded'; items: Department[] }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; items: Department[] } | { status: 'error'; message: string }
 
-type CreateModalState =
-  | { open: false }
-  | { open: true; isSubmitting: boolean; errorMessage: string | null }
+type CreateModalState = { open: false } | { open: true; isSubmitting: boolean; errorMessage: string | null }
 
 type DeleteModalState =
-  | { open: false }
-  | { open: true; item: Department; isDeleting: boolean; errorMessage: string | null }
+  { open: false } | { open: true; item: Department; isDeleting: boolean; errorMessage: string | null }
 
 const errorMessageFor = (error: unknown, fallback: string): string => {
   if (error instanceof ApiError) return error.detail ?? error.title
@@ -100,15 +95,9 @@ export default function DepartmentsPage() {
 
   const handleRetry = useCallback(() => setReloadToken((t) => t + 1), [])
 
-  const handleOpen = useCallback(
-    (id: string) => navigate({ to: '/departments/$id', params: { id } }),
-    [navigate],
-  )
+  const handleOpen = useCallback((id: string) => navigate({ to: '/departments/$id', params: { id } }), [navigate])
 
-  const openCreateModal = useCallback(
-    () => setCreateModal({ open: true, isSubmitting: false, errorMessage: null }),
-    [],
-  )
+  const openCreateModal = useCallback(() => setCreateModal({ open: true, isSubmitting: false, errorMessage: null }), [])
   const closeCreateModal = useCallback(() => setCreateModal({ open: false }), [])
 
   const handleCreateSubmit = useCallback(

@@ -215,7 +215,10 @@ describe('AC-2.2 — selecting a suggestion', () => {
 
     fireEvent.change(streetInput(), { target: { value: 'Via Roma' } })
     act(() => capturedOptions!.onResults(placeSuggestions))
-    selectSuggestionMock.mockResolvedValue({ ...placeDetails, components: { ...placeDetails.components, houseNumber: '' } })
+    selectSuggestionMock.mockResolvedValue({
+      ...placeDetails,
+      components: { ...placeDetails.components, houseNumber: '' },
+    })
     fireEvent.click(screen.getByTestId('address-street-combobox-option-place-1'))
 
     await waitFor(() => expect(document.activeElement).toBe(houseNumberInput()))

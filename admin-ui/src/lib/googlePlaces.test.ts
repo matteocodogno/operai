@@ -82,12 +82,7 @@ describe('buildAutocompleteRequest', () => {
 
   it('restricts to street-level place types (a type filter, not geographic)', () => {
     const request = buildAutocompleteRequest('Via Roma', 'token', 'it')
-    expect(request.includedPrimaryTypes).toEqual([
-      'street_address',
-      'route',
-      'premise',
-      'subpremise',
-    ])
+    expect(request.includedPrimaryTypes).toEqual(['street_address', 'route', 'premise', 'subpremise'])
   })
 
   it("never sends the LEGACY 'address' type — Places API (New) 400s on it", () => {
@@ -211,10 +206,7 @@ describe('createAddressSuggester', () => {
     expect(MIN_QUERY_LENGTH).toBe(3)
     const onResults = vi.fn()
     const onBelowThreshold = vi.fn()
-    const suggester = createAddressSuggester(
-      { onResults, onBelowThreshold, language: 'en' },
-      { loadPlacesLibrary },
-    )
+    const suggester = createAddressSuggester({ onResults, onBelowThreshold, language: 'en' }, { loadPlacesLibrary })
 
     suggester.search('ab')
     await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 10)
@@ -278,7 +270,9 @@ describe('createAddressSuggester', () => {
     resolveFirst({ suggestions: [{ placePrediction: makePrediction('stale') }] })
     await vi.advanceTimersByTimeAsync(0)
 
-    expect(onResults).not.toHaveBeenCalledWith([{ id: 'stale', mainText: 'stale main', secondaryText: 'stale secondary' }])
+    expect(onResults).not.toHaveBeenCalledWith([
+      { id: 'stale', mainText: 'stale main', secondaryText: 'stale secondary' },
+    ])
   })
 
   it('caps at MAX_SUGGESTIONS and maps id/mainText/secondaryText', async () => {

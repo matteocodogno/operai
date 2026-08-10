@@ -112,9 +112,7 @@ describe('DepartmentsPage — list states', () => {
     })
 
     const table = screen.getByTestId('departments-table')
-    const headerTexts = Array.from(table.querySelectorAll('th[scope="col"]')).map((th) =>
-      th.textContent?.trim(),
-    )
+    const headerTexts = Array.from(table.querySelectorAll('th[scope="col"]')).map((th) => th.textContent?.trim())
     expect(headerTexts).toEqual(expect.arrayContaining(['Name', 'Description']))
 
     expect(screen.getByText('Engineering')).not.toBeNull()

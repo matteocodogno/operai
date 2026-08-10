@@ -74,14 +74,10 @@ const EMPTY_FIELDS: FormFields = {
 }
 
 type LoadState =
-  | { status: 'loading' }
-  | { status: 'loaded'; address: AdminAddressView | null }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; address: AdminAddressView | null } | { status: 'error'; message: string }
 
 type HistoryState =
-  | { status: 'loading' }
-  | { status: 'loaded'; entries: AddressHistoryEntry[] }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; entries: AddressHistoryEntry[] } | { status: 'error'; message: string }
 
 type PreClearSnapshot = {
   fields: FormFields
@@ -504,7 +500,13 @@ export default function AddressSection({ userId }: AddressSectionProps) {
 
   const fieldError = (key: RequiredFieldKey, describedById: string) =>
     missingFields.has(key) ? (
-      <p id={describedById} role="alert" data-testid={`address-error-${key}`} className="text-xs mt-1" style={{ color: 'var(--red)' }}>
+      <p
+        id={describedById}
+        role="alert"
+        data-testid={`address-error-${key}`}
+        className="text-xs mt-1"
+        style={{ color: 'var(--red)' }}
+      >
         {t('address.field.requiredError', undefined, locale)}
       </p>
     ) : null
@@ -555,7 +557,11 @@ export default function AddressSection({ userId }: AddressSectionProps) {
               testId="address-street-combobox"
               footer={
                 streetPopupOpen && streetOptions.length > 0 ? (
-                  <li aria-hidden="true" className="px-3 py-1.5 text-[10px] border-t" style={{ borderColor: 'var(--rule)', color: 'var(--muted)' }}>
+                  <li
+                    aria-hidden="true"
+                    className="px-3 py-1.5 text-[10px] border-t"
+                    style={{ borderColor: 'var(--rule)', color: 'var(--muted)' }}
+                  >
                     {/* Google's required attribution when predictions render without a map (Places API terms). Text
                         placeholder for the branded "Powered by Google" light/dark asset, which must be sourced from
                         Google's Maps Platform branding kit (design.md "Google attribution" / plan.md gap #1, routed
@@ -582,7 +588,11 @@ export default function AddressSection({ userId }: AddressSectionProps) {
 
           {/* House / building number */}
           <div>
-            <label htmlFor={houseNumberInputId} className="block text-xs font-medium mb-1" style={{ color: 'var(--soft)' }}>
+            <label
+              htmlFor={houseNumberInputId}
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--soft)' }}
+            >
               {t('address.field.houseNumber', undefined, locale)}
               {requiredMark}
             </label>
@@ -605,7 +615,11 @@ export default function AddressSection({ userId }: AddressSectionProps) {
 
           {/* Postal code — optional */}
           <div>
-            <label htmlFor={postalCodeInputId} className="block text-xs font-medium mb-1" style={{ color: 'var(--soft)' }}>
+            <label
+              htmlFor={postalCodeInputId}
+              className="block text-xs font-medium mb-1"
+              style={{ color: 'var(--soft)' }}
+            >
               {t('address.field.postalCode', undefined, locale)}
             </label>
             <input
@@ -692,14 +706,24 @@ export default function AddressSection({ userId }: AddressSectionProps) {
           </div>
 
           {/* Coordinate-staleness status (AC-2.6) — calm, aria-live="polite", never styled as an error */}
-          <p className="text-xs" aria-live="polite" data-testid="address-coords-status" style={{ color: 'var(--soft)' }}>
+          <p
+            className="text-xs"
+            aria-live="polite"
+            data-testid="address-coords-status"
+            style={{ color: 'var(--soft)' }}
+          >
             {coordStatus === 'captured' && t('address.coords.captured', undefined, locale)}
             {coordStatus === 'cleared' && t('address.coords.cleared', undefined, locale)}
             {coordStatus === 'none' && t('address.coords.none', undefined, locale)}
           </p>
 
           {pendingClear && (
-            <p className="text-xs" aria-live="polite" style={{ color: 'var(--soft)' }} data-testid="address-clear-pending-notice">
+            <p
+              className="text-xs"
+              aria-live="polite"
+              style={{ color: 'var(--soft)' }}
+              data-testid="address-clear-pending-notice"
+            >
               {t('address.clearPending', undefined, locale)}{' '}
               <button
                 type="button"
@@ -746,7 +770,11 @@ export default function AddressSection({ userId }: AddressSectionProps) {
           )}
 
           {/* History panel (F5, AC-5.3) — independent load/error state */}
-          <div className="border-t pt-3 mt-2" style={{ borderColor: 'var(--rule)' }} data-testid="address-history-panel">
+          <div
+            className="border-t pt-3 mt-2"
+            style={{ borderColor: 'var(--rule)' }}
+            data-testid="address-history-panel"
+          >
             <h4 className="text-xs font-semibold mb-2" style={{ color: 'var(--text)' }}>
               {t('address.history.title', undefined, locale)}
             </h4>
@@ -754,7 +782,11 @@ export default function AddressSection({ userId }: AddressSectionProps) {
             {historyState.status === 'loading' && <SkeletonListRows rows={2} />}
 
             {historyState.status === 'error' && (
-              <ErrorBanner message={historyState.message} onRetry={handleHistoryRetry} retryLabel={t('address.retry', undefined, locale)} />
+              <ErrorBanner
+                message={historyState.message}
+                onRetry={handleHistoryRetry}
+                retryLabel={t('address.retry', undefined, locale)}
+              />
             )}
 
             {historyState.status === 'loaded' && historyState.entries.length === 0 && (
@@ -766,7 +798,12 @@ export default function AddressSection({ userId }: AddressSectionProps) {
             {historyState.status === 'loaded' && historyState.entries.length > 0 && (
               <ul className="flex flex-col gap-2">
                 {historyState.entries.map((entry) => (
-                  <li key={entry.id} data-testid={`address-history-entry-${entry.id}`} className="text-xs" style={{ color: 'var(--text)' }}>
+                  <li
+                    key={entry.id}
+                    data-testid={`address-history-entry-${entry.id}`}
+                    className="text-xs"
+                    style={{ color: 'var(--text)' }}
+                  >
                     <span style={{ color: 'var(--soft)' }}>
                       {/* sr-only column labels (design.md "Changed by / Changed on / Previous → New") — the visible
                           layout is a compact, un-headered list (design.md: "not necessarily a full paginated

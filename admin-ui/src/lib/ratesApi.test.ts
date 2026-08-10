@@ -159,9 +159,7 @@ describe('listRates()', () => {
   })
 
   it('throws ApiError on 403 (missing rate:read, AC-4.6)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(403, 'Forbidden', 'Missing capability: rate:read'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden', 'Missing capability: rate:read'))
 
     const err = await expectApiError(() => listRates(), 403)
     expect(err.detail).toBe('Missing capability: rate:read')
@@ -212,9 +210,7 @@ describe('addRate()', () => {
   })
 
   it('throws ApiError on 403 (missing rate:manage, AC-4.6)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(403, 'Forbidden', 'Missing capability: rate:manage'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(403, 'Forbidden', 'Missing capability: rate:manage'))
     await expectApiError(() => addRate(input), 403)
   })
 

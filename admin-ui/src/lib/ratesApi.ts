@@ -205,5 +205,4 @@ export const listRates = async (): Promise<RatesResult> => getJson<RatesResult>(
  * (missing `rate:manage`), or 401. There is no PUT/PATCH/DELETE — rate
  * entries are strictly append-only (AC-4.7).
  */
-export const addRate = async (body: AddRateInput): Promise<RateEntry> =>
-  sendJson<RateEntry>('/rates', 'POST', body)
+export const addRate = async (body: AddRateInput): Promise<RateEntry> => sendJson<RateEntry>('/rates', 'POST', body)

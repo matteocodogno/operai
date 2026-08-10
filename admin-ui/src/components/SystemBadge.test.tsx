@@ -27,15 +27,13 @@ describe('SystemBadge', () => {
     expect(badge.textContent).toContain('System')
 
     const glyph = badge.querySelector('[aria-hidden="true"]')
-    expect(glyph).not.toBeNull();
+    expect(glyph).not.toBeNull()
     expect(glyph!.textContent).not.toBe('')
   })
 
   it('carries an explanatory title', () => {
     render(<SystemBadge />)
 
-    expect(screen.getByTestId('system-badge').getAttribute('title')).toBe(
-      "System roles can't be deleted",
-    )
+    expect(screen.getByTestId('system-badge').getAttribute('title')).toBe("System roles can't be deleted")
   })
 })

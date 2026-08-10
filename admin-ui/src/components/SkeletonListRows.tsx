@@ -39,11 +39,7 @@ export default function SkeletonListRows({ rows = 3 }: SkeletonListRowsProps) {
           {/* Action buttons placeholder */}
           <div className="flex items-center gap-1 shrink-0">
             {[0, 1, 2, 3].map((j) => (
-              <div
-                key={j}
-                className="h-6 w-10 rounded"
-                style={{ backgroundColor: 'var(--ink-mid)', opacity: 0.4 }}
-              />
+              <div key={j} className="h-6 w-10 rounded" style={{ backgroundColor: 'var(--ink-mid)', opacity: 0.4 }} />
             ))}
           </div>
         </div>

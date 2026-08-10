@@ -133,7 +133,7 @@ describe('CreateDepartmentModal', () => {
   })
 
   it('renders a server errorMessage (e.g. 409 duplicate name) inline', () => {
-    render(<CreateDepartmentModal {...baseProps} errorMessage="A department named &quot;HR&quot; already exists" />)
+    render(<CreateDepartmentModal {...baseProps} errorMessage='A department named "HR" already exists' />)
 
     const error = screen.getByTestId('create-department-error')
     expect(error.textContent).toContain('already exists')

@@ -81,10 +81,7 @@ export default function CreateRoleModal({
         descriptionInputRef.current,
         cancelBtnRef.current,
         submitBtnRef.current,
-      ].filter(
-        (el): el is HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement =>
-          el !== null && !el.disabled,
-      )
+      ].filter((el): el is HTMLInputElement | HTMLTextAreaElement | HTMLButtonElement => el !== null && !el.disabled)
       if (focusable.length === 0) return
 
       const first = focusable[0]
@@ -174,7 +171,11 @@ export default function CreateRoleModal({
                 aria-describedby={nameError ? 'create-role-name-error' : undefined}
                 data-testid="create-role-name"
                 className="text-sm px-2.5 py-1.5 border rounded"
-                style={{ borderColor: nameError ? 'var(--red)' : 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+                style={{
+                  borderColor: nameError ? 'var(--red)' : 'var(--rule)',
+                  color: 'var(--text)',
+                  backgroundColor: 'var(--ink)',
+                }}
               />
               {nameError && (
                 <p
@@ -190,13 +191,8 @@ export default function CreateRoleModal({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label
-                htmlFor="create-role-description"
-                className="text-xs font-medium"
-                style={{ color: 'var(--soft)' }}
-              >
-                Description{' '}
-                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+              <label htmlFor="create-role-description" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
+                Description <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
               </label>
               <textarea
                 ref={descriptionInputRef}
@@ -212,7 +208,12 @@ export default function CreateRoleModal({
             </div>
 
             {generalError && (
-              <p role="alert" data-testid="create-role-general-error" className="text-xs" style={{ color: 'var(--red)' }}>
+              <p
+                role="alert"
+                data-testid="create-role-general-error"
+                className="text-xs"
+                style={{ color: 'var(--red)' }}
+              >
                 {generalError}
               </p>
             )}

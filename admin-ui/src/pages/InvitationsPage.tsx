@@ -52,8 +52,7 @@ const STATUS_OPTIONS: { value: EffectiveInvitationStatus | ''; label: string }[]
 ]
 
 /** Rows past their terminal state have nothing left to do (design.md F1a step 4). */
-const isActionable = (status: EffectiveInvitationStatus): boolean =>
-  status === 'pending' || status === 'expired'
+const isActionable = (status: EffectiveInvitationStatus): boolean => status === 'pending' || status === 'expired'
 
 /** design.md F1a — "expires in Xh"/"expired Xh ago" restated in words, never a bare countdown. */
 const formatExpiry = (invitation: InvitationDetail): string => {
@@ -97,8 +96,7 @@ type InviteModalState =
     }
 
 type RevokeModalState =
-  | { open: false }
-  | { open: true; invitation: InvitationDetail; isRevoking: boolean; error: string | null }
+  { open: false } | { open: true; invitation: InvitationDetail; isRevoking: boolean; error: string | null }
 
 export default function InvitationsPage() {
   const [query, setQuery] = useState('')
@@ -250,13 +248,23 @@ export default function InvitationsPage() {
       if (error instanceof ApiError && error.status === 422) {
         setInviteModal((prev) =>
           prev.open
-            ? { ...prev, submitting: false, generalError: error.detail ?? 'One or more selected roles/departments no longer exist.' }
+            ? {
+                ...prev,
+                submitting: false,
+                generalError: error.detail ?? 'One or more selected roles/departments no longer exist.',
+              }
             : prev,
         )
         return
       }
       setInviteModal((prev) =>
-        prev.open ? { ...prev, submitting: false, generalError: errorMessageFor(error, 'Could not create the invitation. Try again.') } : prev,
+        prev.open
+          ? {
+              ...prev,
+              submitting: false,
+              generalError: errorMessageFor(error, 'Could not create the invitation. Try again.'),
+            }
+          : prev,
       )
     }
   }, [inviteModal])
@@ -272,7 +280,10 @@ export default function InvitationsPage() {
       const updated = await adminApi.resendInvitation(invitation.id)
       setState((prev) =>
         prev.status === 'loaded'
-          ? { status: 'loaded', result: { ...prev.result, items: prev.result.items.map((i) => (i.id === updated.id ? updated : i)) } }
+          ? {
+              status: 'loaded',
+              result: { ...prev.result, items: prev.result.items.map((i) => (i.id === updated.id ? updated : i)) },
+            }
           : prev,
       )
       setAnnouncement(`New link sent to ${updated.email}, expires in 72 hours`)
@@ -303,7 +314,10 @@ export default function InvitationsPage() {
       const updated = await adminApi.revokeInvitation(invitation.id)
       setState((prev) =>
         prev.status === 'loaded'
-          ? { status: 'loaded', result: { ...prev.result, items: prev.result.items.map((i) => (i.id === updated.id ? updated : i)) } }
+          ? {
+              status: 'loaded',
+              result: { ...prev.result, items: prev.result.items.map((i) => (i.id === updated.id ? updated : i)) },
+            }
           : prev,
       )
       setRevokeModal({ open: false })
@@ -313,7 +327,9 @@ export default function InvitationsPage() {
       // page-load and click. Surfaced inline in the dialog so the admin sees
       // why it didn't apply (design.md F1a step 3), not assumed impossible.
       setRevokeModal((prev) =>
-        prev.open ? { ...prev, isRevoking: false, error: errorMessageFor(error, 'Could not revoke this invitation.') } : prev,
+        prev.open
+          ? { ...prev, isRevoking: false, error: errorMessageFor(error, 'Could not revoke this invitation.') }
+          : prev,
       )
     }
   }, [revokeModal])
@@ -322,8 +338,8 @@ export default function InvitationsPage() {
     if (!revokeModal.open) return null
     return (
       <p>
-        Revoke the invitation to {revokeModal.invitation.email}? Its link stops working immediately.
-        This can&rsquo;t be undone — inviting them again requires sending a brand-new invitation.
+        Revoke the invitation to {revokeModal.invitation.email}? Its link stops working immediately. This can&rsquo;t be
+        undone — inviting them again requires sending a brand-new invitation.
       </p>
     )
   }, [revokeModal])

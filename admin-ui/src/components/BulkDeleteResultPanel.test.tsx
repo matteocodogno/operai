@@ -22,23 +22,17 @@ afterEach(() => {
 
 describe('BulkDeleteResultPanel', () => {
   it('renders role="status" with the deleted/total summary', () => {
-    render(
-      <BulkDeleteResultPanel deletedCount={2} totalCount={3} skipped={[]} onDismiss={vi.fn()} />,
-    )
+    render(<BulkDeleteResultPanel deletedCount={2} totalCount={3} skipped={[]} onDismiss={vi.fn()} />)
 
     const panel = screen.getByTestId('bulk-delete-result-panel')
     expect(panel.getAttribute('role')).toBe('status')
-    expect(screen.getByTestId('bulk-delete-result-summary').textContent).toBe(
-      'Deleted 2 of 3 selected users.',
-    )
+    expect(screen.getByTestId('bulk-delete-result-summary').textContent).toBe('Deleted 2 of 3 selected users.')
   })
 
   it('uses singular "user" wording when totalCount is 1', () => {
     render(<BulkDeleteResultPanel deletedCount={1} totalCount={1} skipped={[]} onDismiss={vi.fn()} />)
 
-    expect(screen.getByTestId('bulk-delete-result-summary').textContent).toBe(
-      'Deleted 1 of 1 selected user.',
-    )
+    expect(screen.getByTestId('bulk-delete-result-summary').textContent).toBe('Deleted 1 of 1 selected user.')
   })
 
   it('renders one <li> per skipped user with its label + verbatim server reason', () => {

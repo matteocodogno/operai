@@ -346,9 +346,9 @@ export default function UserDetail() {
     const identity = state.user.name ?? state.user.email
     return (
       <p>
-        Delete {identity}? They will immediately lose all access to Operai — every active session
-        ends and they can no longer sign in. Their record and data are retained for audit, but
-        there is no undo: regaining access requires a brand-new invitation.
+        Delete {identity}? They will immediately lose all access to Operai — every active session ends and they can no
+        longer sign in. Their record and data are retained for audit, but there is no undo: regaining access requires a
+        brand-new invitation.
       </p>
     )
   }, [state])
@@ -407,7 +407,11 @@ export default function UserDetail() {
 
               <div className="flex flex-col gap-3 max-w-sm">
                 <div>
-                  <label htmlFor="user-entity-select" className="block text-xs font-medium mb-1" style={{ color: 'var(--soft)' }}>
+                  <label
+                    htmlFor="user-entity-select"
+                    className="block text-xs font-medium mb-1"
+                    style={{ color: 'var(--soft)' }}
+                  >
                     Entity
                   </label>
                   <select
@@ -428,7 +432,11 @@ export default function UserDetail() {
                 </div>
 
                 <div>
-                  <label htmlFor="user-jobtitle-input" className="block text-xs font-medium mb-1" style={{ color: 'var(--soft)' }}>
+                  <label
+                    htmlFor="user-jobtitle-input"
+                    className="block text-xs font-medium mb-1"
+                    style={{ color: 'var(--soft)' }}
+                  >
                     Job title
                   </label>
                   <input
@@ -501,7 +509,11 @@ export default function UserDetail() {
                   >
                     {rolesSaving ? 'Saving…' : 'Save roles'}
                   </button>
-                  <span className="text-xs" style={{ color: 'var(--soft)' }} data-testid="roles-effective-immediately-hint">
+                  <span
+                    className="text-xs"
+                    style={{ color: 'var(--soft)' }}
+                    data-testid="roles-effective-immediately-hint"
+                  >
                     Effective immediately — no separate publish step.
                   </span>
                 </div>
@@ -566,7 +578,12 @@ export default function UserDetail() {
                 </div>
 
                 {departmentsError && (
-                  <p role="alert" data-testid="departments-error" className="text-sm mt-2" style={{ color: 'var(--org)' }}>
+                  <p
+                    role="alert"
+                    data-testid="departments-error"
+                    className="text-sm mt-2"
+                    style={{ color: 'var(--org)' }}
+                  >
                     {departmentsError}
                   </p>
                 )}

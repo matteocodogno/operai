@@ -105,11 +105,7 @@ export default function GuardrailDialog({
         </h2>
 
         {/* Body */}
-        <p
-          id="guardrail-dialog-message"
-          className="text-sm leading-relaxed mb-4"
-          style={{ color: 'var(--text)' }}
-        >
+        <p id="guardrail-dialog-message" className="text-sm leading-relaxed mb-4" style={{ color: 'var(--text)' }}>
           {message}
         </p>
 

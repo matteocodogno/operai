@@ -219,7 +219,12 @@ describe('RolesPage — create (Modal M1)', () => {
   it('shows an inline field error on a 409 duplicate name, and keeps the modal open', async () => {
     vi.mocked(adminApi.listRoles).mockResolvedValue([customRole])
     vi.mocked(adminApi.createRole).mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Conflict', status: 409, detail: 'A role named "Accounting Lead" already exists.' }),
+      new ApiError({
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'A role named "Accounting Lead" already exists.',
+      }),
     )
 
     render(<RolesPage />)
@@ -254,9 +259,7 @@ describe('RolesPage — create (Modal M1)', () => {
 
 describe('RolesPage — delete (Dialog D1)', () => {
   it('deletes a custom role via ConfirmDeleteModal and refreshes the list', async () => {
-    vi.mocked(adminApi.listRoles)
-      .mockResolvedValueOnce([systemRole, customRole])
-      .mockResolvedValueOnce([systemRole])
+    vi.mocked(adminApi.listRoles).mockResolvedValueOnce([systemRole, customRole]).mockResolvedValueOnce([systemRole])
     vi.mocked(adminApi.deleteRole).mockResolvedValue(undefined)
 
     render(<RolesPage />)
@@ -291,7 +294,12 @@ describe('RolesPage — delete (Dialog D1)', () => {
   it('shows an inline error in ConfirmDeleteModal when deleteRole fails', async () => {
     vi.mocked(adminApi.listRoles).mockResolvedValue([customRole])
     vi.mocked(adminApi.deleteRole).mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Delete failed. Try again.' }),
+      new ApiError({
+        type: 'about:blank',
+        title: 'Internal Server Error',
+        status: 500,
+        detail: 'Delete failed. Try again.',
+      }),
     )
 
     render(<RolesPage />)

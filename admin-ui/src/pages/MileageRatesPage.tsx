@@ -409,9 +409,8 @@ export default function MileageRatesPage() {
         Mileage Rates
       </h2>
       <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
-        Two entirely independent per-km rate series, one per entity. A new entry never edits or
-        removes a past one — history accumulates, and an already-submitted claim keeps the rate
-        that applied to it forever.
+        Two entirely independent per-km rate series, one per entity. A new entry never edits or removes a past one —
+        history accumulates, and an already-submitted claim keeps the rate that applied to it forever.
       </p>
 
       <div className="mt-4">
@@ -541,8 +540,7 @@ export default function MileageRatesPage() {
             Accounting distribution email
           </h2>
           <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
-            The email address that receives each monthly refund batch. Leave it blank to pause
-            sending.
+            The email address that receives each monthly refund batch. Leave it blank to pause sending.
           </p>
 
           <div className="mt-4">

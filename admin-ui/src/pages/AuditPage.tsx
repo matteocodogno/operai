@@ -84,9 +84,7 @@ const formatDiffSide = (value: unknown): string => {
 }
 
 type AuditState =
-  | { status: 'loading' }
-  | { status: 'loaded'; result: Paginated<AuditLogEntry> }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; result: Paginated<AuditLogEntry> } | { status: 'error'; message: string }
 
 const errorMessageFor = (error: unknown): string => {
   if (error instanceof ApiError) {
@@ -156,16 +154,14 @@ export default function AuditPage() {
         Audit
       </h2>
       <p className="mt-2 text-sm" style={{ color: 'var(--soft)' }}>
-        A read-only, reverse-chronological history of every authorization change — roles,
-        departments, and user assignments. Nothing here can be edited or deleted.
+        A read-only, reverse-chronological history of every authorization change — roles, departments, and user
+        assignments. Nothing here can be edited or deleted.
       </p>
 
       <div className="mt-4">
         {state.status === 'loading' && <SkeletonListRows rows={5} />}
 
-        {state.status === 'error' && (
-          <ErrorBanner message={state.message} onRetry={handleRetry} />
-        )}
+        {state.status === 'error' && <ErrorBanner message={state.message} onRetry={handleRetry} />}
 
         {state.status === 'loaded' && state.result.total === 0 && (
           <p className="text-sm py-6 text-center" style={{ color: 'var(--soft)' }} data-testid="audit-empty-state">
@@ -225,7 +221,10 @@ export default function AuditPage() {
                     const diffRowId = `audit-diff-${entry.id}`
                     return (
                       <Fragment key={entry.id}>
-                        <tr className="border-b" style={{ borderColor: 'color-mix(in srgb, var(--rule) 50%, transparent)' }}>
+                        <tr
+                          className="border-b"
+                          style={{ borderColor: 'color-mix(in srgb, var(--rule) 50%, transparent)' }}
+                        >
                           <td className="py-1.5 px-2">
                             <button
                               type="button"
@@ -309,12 +308,7 @@ export default function AuditPage() {
               </table>
             </div>
 
-            <Pagination
-              page={page}
-              pageSize={PAGE_SIZE}
-              total={state.result.total}
-              onPageChange={setPage}
-            />
+            <Pagination page={page} pageSize={PAGE_SIZE} total={state.result.total} onPageChange={setPage} />
           </>
         )}
       </div>
