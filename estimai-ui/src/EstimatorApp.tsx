@@ -476,8 +476,19 @@ const exportPDF = useCallback(() => {
         )}
       </main>
 
-      {/* Fixed footer */}
-      <footer className="fixed bottom-0 right-0 z-10 px-4 py-2 pointer-events-none">
+      {/* Shortcuts affordance, pinned to the bottom of the SCROLLPORT, not the
+          viewport. It used to be `fixed bottom-0 right-0`, which anchored it to
+          the viewport — and inside the shell the viewport's bottom-right corner
+          is where the shell's own `<footer>` (version + copyright) sits, so the
+          two overlapped (reported 2026-08-10).
+
+          `sticky` keeps the always-visible behaviour `fixed` gave us while
+          scoping it to `<main>`'s own scroll container (ShellLayout gives
+          `<main>` `relative` + `overflow-y-auto`), so it now stops above the
+          shell chrome instead of on top of it. A remote must not position
+          anything against the viewport — that space belongs to the shell
+          (ADR-0006). */}
+      <footer className="sticky bottom-0 z-10 flex justify-end px-4 py-2 pointer-events-none">
         <button
           onClick={() => setShowShortcuts(v => !v)}
           className="pointer-events-auto flex items-center gap-1.5 text-[11px] text-muted hover:text-soft transition-colors font-mono"
