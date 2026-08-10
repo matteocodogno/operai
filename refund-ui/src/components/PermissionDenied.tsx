@@ -49,7 +49,11 @@ export default function PermissionDenied() {
   }, [])
 
   return (
-    <div role="alert" data-testid="permission-denied" className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+    <div
+      role="alert"
+      data-testid="permission-denied"
+      className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center"
+    >
       <h2
         ref={headingRef}
         tabIndex={-1}

@@ -170,11 +170,7 @@ export default function ConfirmDeleteModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
-          <h2
-            id={titleId}
-            className="text-sm font-bold"
-            style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}
-          >
+          <h2 id={titleId} className="text-sm font-bold" style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}>
             {title ?? t.title(entityLabel)}
           </h2>
           <button
@@ -196,7 +192,12 @@ export default function ConfirmDeleteModal({
 
         {/* Inline error (between body and footer) */}
         {errorMessage && (
-          <p className="text-sm mb-3" style={{ color: 'var(--org)' }} role="alert" data-testid={`${testIdPrefix}-error`}>
+          <p
+            className="text-sm mb-3"
+            style={{ color: 'var(--org)' }}
+            role="alert"
+            data-testid={`${testIdPrefix}-error`}
+          >
             {errorMessage}
           </p>
         )}
@@ -231,7 +232,7 @@ export default function ConfirmDeleteModal({
                 {confirmingLabel ?? t.deletingLabel}
               </span>
             ) : (
-              confirmLabel ?? t.deleteLabel
+              (confirmLabel ?? t.deleteLabel)
             )}
           </button>
         </div>

@@ -30,7 +30,7 @@ describe('computeMileageAmountCents — canonical vectors', () => {
 })
 
 describe('computeMileageAmountCents — rounding rule', () => {
-  it('rounds half up, not half-even (a banker\'s-rounding implementation would give 4 here, not 5)', () => {
+  it("rounds half up, not half-even (a banker's-rounding implementation would give 4 here, not 5)", () => {
     // 3 km @ 15000 micros/km = 45,000 micro-units / 10_000 = 4.5 → half-up = 5
     expect(computeMileageAmountCents(3, 15000)).toBe(5)
   })

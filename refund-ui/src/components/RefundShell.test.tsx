@@ -177,7 +177,10 @@ describe('RefundShell accounting nav tab gating', () => {
 
   it('does not render "Review queue"/"Monthly processing" for a permission on a different resource/action', async () => {
     usePermissions.mockReturnValue(
-      permissionsWith([{ resource: 'request', action: 'create' }, { resource: 'department', action: 'review' }]),
+      permissionsWith([
+        { resource: 'request', action: 'create' },
+        { resource: 'department', action: 'review' },
+      ]),
     )
 
     await renderShellAt('/requests')

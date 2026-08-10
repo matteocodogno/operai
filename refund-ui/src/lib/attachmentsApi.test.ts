@@ -79,7 +79,13 @@ describe('mint / confirm / remove / getDownloadUrl', () => {
 
   it('confirmUpload POSTs the /confirm sub-route with no body', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      jsonResponse(200, { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024, uploadStatus: 'stored' }),
+      jsonResponse(200, {
+        id: 'a1',
+        fileName: 'receipt.pdf',
+        contentType: 'application/pdf',
+        sizeBytes: 1024,
+        uploadStatus: 'stored',
+      }),
     )
     await confirmUpload('r1', 'l1', 'a1')
     const [url, init] = vi.mocked(apiFetch).mock.calls[0]
@@ -95,7 +101,9 @@ describe('mint / confirm / remove / getDownloadUrl', () => {
   })
 
   it('getDownloadUrl GETs the /url sub-route', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(200, { url: 'https://signed', expiresAt: '2026-07-16T00:01:00.000Z' }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(200, { url: 'https://signed', expiresAt: '2026-07-16T00:01:00.000Z' }),
+    )
     const result = await getDownloadUrl('r1', 'l1', 'a1')
     expect(result.url).toBe('https://signed')
     const [url] = vi.mocked(apiFetch).mock.calls[0]
@@ -108,7 +116,10 @@ describe('uploadToPresignedPost', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await uploadToPresignedPost({ url: 'https://bucket.example/upload', fields: { key: 'refund/x', policy: 'p' } }, pdfFile())
+    await uploadToPresignedPost(
+      { url: 'https://bucket.example/upload', fields: { key: 'refund/x', policy: 'p' } },
+      pdfFile(),
+    )
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(apiFetch).not.toHaveBeenCalled()
@@ -125,7 +136,9 @@ describe('uploadToPresignedPost', () => {
   it('throws when the bucket responds non-2xx', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 403 })))
 
-    await expect(uploadToPresignedPost({ url: 'https://bucket.example/upload', fields: {} }, pdfFile())).rejects.toThrow(/403/)
+    await expect(
+      uploadToPresignedPost({ url: 'https://bucket.example/upload', fields: {} }, pdfFile()),
+    ).rejects.toThrow(/403/)
   })
 })
 
@@ -133,10 +146,19 @@ describe('uploadAttachment (composed mint -> upload -> confirm)', () => {
   it('calls mint, then the bucket, then confirm, in order, and returns the stored attachment', async () => {
     vi.mocked(apiFetch)
       .mockResolvedValueOnce(
-        jsonResponse(201, { attachmentId: 'a1', upload: { url: 'https://bucket.example/upload', fields: { key: 'k' }, objectKey: 'k' } }),
+        jsonResponse(201, {
+          attachmentId: 'a1',
+          upload: { url: 'https://bucket.example/upload', fields: { key: 'k' }, objectKey: 'k' },
+        }),
       )
       .mockResolvedValueOnce(
-        jsonResponse(200, { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024, uploadStatus: 'stored' }),
+        jsonResponse(200, {
+          id: 'a1',
+          fileName: 'receipt.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 1024,
+          uploadStatus: 'stored',
+        }),
       )
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -153,7 +175,9 @@ describe('uploadAttachment (composed mint -> upload -> confirm)', () => {
   })
 
   it('propagates a mint-time 409 (request no longer draft) without touching the bucket', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
@@ -163,7 +187,10 @@ describe('uploadAttachment (composed mint -> upload -> confirm)', () => {
 
   it('propagates a bucket-upload failure without calling confirm', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      jsonResponse(201, { attachmentId: 'a1', upload: { url: 'https://bucket.example/upload', fields: {}, objectKey: 'k' } }),
+      jsonResponse(201, {
+        attachmentId: 'a1',
+        upload: { url: 'https://bucket.example/upload', fields: {}, objectKey: 'k' },
+      }),
     )
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 500 })))
 

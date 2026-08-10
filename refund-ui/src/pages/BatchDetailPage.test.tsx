@@ -109,7 +109,9 @@ describe('BatchDetailPage — loading / error / not found / PD', () => {
 
   it('shows ErrorBanner + Retry on a non-404/403 failure', async () => {
     vi.mocked(batchesApi.get)
-      .mockRejectedValueOnce(new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }))
+      .mockRejectedValueOnce(
+        new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }),
+      )
       .mockResolvedValueOnce(compiledBatch)
     renderBatchDetailPage()
 
@@ -157,9 +159,7 @@ describe('BatchDetailPage — status-driven variants', () => {
     expect(reference.textContent).toContain('Batch reference')
     expect(reference.textContent).toContain(compiledBatch.id)
     expect(reference.getAttribute('title')).toBeTruthy()
-    expect(screen.getByTestId('batch-detail-generated').textContent).toContain(
-      compiledBatch.createdBy.email,
-    )
+    expect(screen.getByTestId('batch-detail-generated').textContent).toContain(compiledBatch.createdBy.email)
   })
 
   it('paid: shows the paid stamp line, no Mark-as-paid/Discard', async () => {
@@ -247,9 +247,7 @@ describe('BatchDetailPage — delivery status display (specs/011-refund-settings
     expect(screen.getByTestId('batch-detail-email-status').textContent).toBe(
       strings.pages.batchDetail.email.blocked_unconfigured,
     )
-    expect(screen.getByTestId('batch-detail-email-status').textContent).not.toBe(
-      strings.pages.batchDetail.email.failed,
-    )
+    expect(screen.getByTestId('batch-detail-email-status').textContent).not.toBe(strings.pages.batchDetail.email.failed)
   })
 
   it('emailStatus:"failed" still renders its own, distinct ordinary-failure copy', async () => {
@@ -287,7 +285,9 @@ describe('BatchDetailPage — mark as paid (design.md F4)', () => {
 
   it('on a 409 (already resolved), shows GuardrailDialog and reloads to the real state', async () => {
     vi.mocked(batchesApi.get).mockResolvedValueOnce(compiledBatch).mockResolvedValueOnce(paidBatch)
-    vi.mocked(batchesApi.markPaid).mockRejectedValue(new ApiError({ type: 'about:blank', title: 'Conflict', status: 409 }))
+    vi.mocked(batchesApi.markPaid).mockRejectedValue(
+      new ApiError({ type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     renderBatchDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
@@ -320,7 +320,9 @@ describe('BatchDetailPage — discard (design.md F6)', () => {
 
   it('on a 409 (already resolved), shows GuardrailDialog and reloads', async () => {
     vi.mocked(batchesApi.get).mockResolvedValueOnce(compiledBatch).mockResolvedValueOnce(paidBatch)
-    vi.mocked(batchesApi.discard).mockRejectedValue(new ApiError({ type: 'about:blank', title: 'Conflict', status: 409 }))
+    vi.mocked(batchesApi.discard).mockRejectedValue(
+      new ApiError({ type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     renderBatchDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())

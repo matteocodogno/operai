@@ -132,7 +132,8 @@ export default function ReviewDetailPage() {
   // specs/010-self-approval-control (plan.md D5) — passive UI reflection only.
   const currentUserId = useSession().data?.user?.id
   const { permissions } = usePermissions()
-  const isOwner = pageState.status === 'loaded' && Boolean(currentUserId) && pageState.request.owner.userId === currentUserId
+  const isOwner =
+    pageState.status === 'loaded' && Boolean(currentUserId) && pageState.request.owner.userId === currentUserId
   const approveDisabled = isOwner && approveSelfRestricted(permissions)
 
   useEffect(() => {
@@ -454,18 +455,18 @@ export default function ReviewDetailPage() {
           pageState.request.status !== 'approved' &&
           pageState.request.status !== 'rejected' &&
           pageState.request.status !== 'paid' && (
-          <div data-testid="review-detail-readonly-fallback" className="flex flex-col gap-2">
-            {pageState.request.lines.map((line) => (
-              <ExpenseLineRow
-                key={line.id}
-                line={line}
-                mode="readOnly"
-                onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
-                registerRef={registerRowRef(line.id)}
-              />
-            ))}
-          </div>
-        )}
+            <div data-testid="review-detail-readonly-fallback" className="flex flex-col gap-2">
+              {pageState.request.lines.map((line) => (
+                <ExpenseLineRow
+                  key={line.id}
+                  line={line}
+                  mode="readOnly"
+                  onDownloadAttachment={(attachmentId) => handleDownloadAttachment(line.id, attachmentId)}
+                  registerRef={registerRowRef(line.id)}
+                />
+              ))}
+            </div>
+          )}
       </div>
 
       {decisionDialog.open && decisionDialog.kind === 'approve' && pageState.status === 'loaded' && (

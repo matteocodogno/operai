@@ -143,8 +143,7 @@ export const listCandidates = (cutoff?: string): Promise<CandidatePreview> =>
   getJson<CandidatePreview>(`/batches/candidates${cutoff ? `?cutoff=${encodeURIComponent(cutoff)}` : ''}`)
 
 /** `POST /batches` — compile (atomic claim). `422` on an empty candidate set (AC-1.4); `403` without `request:review` (AC-1.8). */
-export const compile = (cutoff?: string): Promise<BatchDetail> =>
-  sendJson<BatchDetail>('/batches', 'POST', { cutoff })
+export const compile = (cutoff?: string): Promise<BatchDetail> => sendJson<BatchDetail>('/batches', 'POST', { cutoff })
 
 /** `GET /batches` — history, every status (AC-8.2), NOT entity-scoped (plan.md Resolved decision D1). */
 export const list = (): Promise<BatchSummary[]> => getJson<BatchSummary[]>('/batches')

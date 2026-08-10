@@ -23,7 +23,8 @@ afterEach(() => {
 
 const stored: Attachment = { id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 2048 }
 
-const pdfFile = (name = 'new-receipt.pdf', sizeBytes = 1024): File => new File([new Uint8Array(sizeBytes)], name, { type: 'application/pdf' })
+const pdfFile = (name = 'new-receipt.pdf', sizeBytes = 1024): File =>
+  new File([new Uint8Array(sizeBytes)], name, { type: 'application/pdf' })
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -37,20 +38,47 @@ function deferred<T>() {
 
 describe('AttachmentList — edit mode', () => {
   it('renders persisted attachments with a download link and a Remove button', () => {
-    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[stored]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     expect(screen.getByTestId('attachment-download-a1')).not.toBeNull()
     expect(screen.getByTestId('attachment-remove-a1')).not.toBeNull()
   })
 
   it('the Remove button carries a hover title tooltip', () => {
-    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[stored]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     expect(screen.getByTestId('attachment-remove-a1').getAttribute('title')).toBe('Remove attachment')
   })
 
   it('renders the "+ Attach files" trigger and a hidden multi-file input', () => {
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={vi.fn()} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     expect(screen.getByTestId('attachment-attach-button-l1')).not.toBeNull()
     const input = screen.getByTestId('attachment-input-l1') as HTMLInputElement
@@ -61,7 +89,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('rejects an oversize file client-side with an inline reason, without calling onUpload', async () => {
     const onUpload = vi.fn()
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     const bigFile = pdfFile('big.pdf', 10 * 1024 * 1024 + 1)
     const input = screen.getByTestId('attachment-input-l1') as HTMLInputElement
@@ -74,7 +111,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('rejects an unsupported file type client-side with an inline reason, without calling onUpload', async () => {
     const onUpload = vi.fn()
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     // fireEvent.change (not userEvent.upload) — userEvent.upload filters the
     // FileList against the input's own `accept` attribute before firing the
@@ -91,7 +137,16 @@ describe('AttachmentList — edit mode', () => {
   it('walks a valid file through queued/uploading -> stored via aria-live status text', async () => {
     const { promise, resolve } = deferred<Attachment>()
     const onUpload = vi.fn().mockReturnValue(promise)
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     const input = screen.getByTestId('attachment-input-l1') as HTMLInputElement
     await userEvent.upload(input, pdfFile())
@@ -106,7 +161,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('shows a failed state with a dismissible reason when onUpload rejects', async () => {
     const onUpload = vi.fn().mockRejectedValue(new Error('network blip'))
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     const input = screen.getByTestId('attachment-input-l1') as HTMLInputElement
     await userEvent.upload(input, pdfFile())
@@ -127,7 +191,16 @@ describe('AttachmentList — edit mode', () => {
   // never helps until an operator fixes the bucket.
   it('distinguishes an opaque storage/network rejection from an API error', async () => {
     const onUpload = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     await userEvent.upload(screen.getByTestId('attachment-input-l1') as HTMLInputElement, pdfFile())
 
@@ -136,17 +209,24 @@ describe('AttachmentList — edit mode', () => {
   })
 
   it("surfaces an API Problem's detail when the mint/confirm call fails", async () => {
-    const onUpload = vi
-      .fn()
-      .mockRejectedValue(
-        new ApiError({
-          type: 'https://httpstatuses.com/409',
-          status: 409,
-          title: 'Conflict',
-          detail: 'Request is not a draft',
-        }),
-      )
-    render(<AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />)
+    const onUpload = vi.fn().mockRejectedValue(
+      new ApiError({
+        type: 'https://httpstatuses.com/409',
+        status: 409,
+        title: 'Conflict',
+        detail: 'Request is not a draft',
+      }),
+    )
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    )
 
     await userEvent.upload(screen.getByTestId('attachment-input-l1') as HTMLInputElement, pdfFile())
 
@@ -157,7 +237,14 @@ describe('AttachmentList — edit mode', () => {
     const { promise, resolve } = deferred<Attachment>()
     const onUpload = vi.fn().mockReturnValue(promise)
     const { rerender } = render(
-      <AttachmentList lineId="l1" attachments={[]} mode="edit" onUpload={onUpload} onRemove={vi.fn()} onDownload={vi.fn()} />,
+      <AttachmentList
+        lineId="l1"
+        attachments={[]}
+        mode="edit"
+        onUpload={onUpload}
+        onRemove={vi.fn()}
+        onDownload={vi.fn()}
+      />,
     )
 
     const input = screen.getByTestId('attachment-input-l1') as HTMLInputElement
@@ -182,7 +269,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('clicking Remove opens a ConfirmDeleteModal naming the file, without calling onRemove yet', () => {
     const onRemove = vi.fn()
-    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[stored]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={onRemove}
+        onDownload={vi.fn()}
+      />,
+    )
 
     fireEvent.click(screen.getByTestId('attachment-remove-a1'))
 
@@ -193,7 +289,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('confirming removes a persisted attachment via onRemove', async () => {
     const onRemove = vi.fn().mockResolvedValue(undefined)
-    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[stored]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={onRemove}
+        onDownload={vi.fn()}
+      />,
+    )
 
     fireEvent.click(screen.getByTestId('attachment-remove-a1'))
     fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-confirm'))
@@ -204,7 +309,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('canceling does not call onRemove and keeps the attachment', () => {
     const onRemove = vi.fn()
-    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[stored]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={onRemove}
+        onDownload={vi.fn()}
+      />,
+    )
 
     fireEvent.click(screen.getByTestId('attachment-remove-a1'))
     fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-cancel'))
@@ -216,7 +330,16 @@ describe('AttachmentList — edit mode', () => {
 
   it('shows an inline error in the modal and keeps it open when onRemove rejects', async () => {
     const onRemove = vi.fn().mockRejectedValue(new Error('boom'))
-    render(<AttachmentList lineId="l1" attachments={[stored]} mode="edit" onUpload={vi.fn()} onRemove={onRemove} onDownload={vi.fn()} />)
+    render(
+      <AttachmentList
+        lineId="l1"
+        attachments={[stored]}
+        mode="edit"
+        onUpload={vi.fn()}
+        onRemove={onRemove}
+        onDownload={vi.fn()}
+      />,
+    )
 
     fireEvent.click(screen.getByTestId('attachment-remove-a1'))
     fireEvent.click(screen.getByTestId('attachment-remove-confirm-a1-confirm'))

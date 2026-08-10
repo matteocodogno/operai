@@ -121,7 +121,9 @@ describe('ReviewQueuePage — list states', () => {
 
   it('renders ErrorBanner and retries on click', async () => {
     vi.mocked(reviewApi.listQueue)
-      .mockRejectedValueOnce(new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }))
+      .mockRejectedValueOnce(
+        new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }),
+      )
       .mockResolvedValueOnce([queueItem])
 
     renderReviewQueuePage()

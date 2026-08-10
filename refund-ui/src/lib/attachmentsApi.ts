@@ -47,11 +47,7 @@ export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024 // 10 MiB
 
 export type AttachmentContentType = 'application/pdf' | 'image/jpeg' | 'image/png'
 
-export const ALLOWED_CONTENT_TYPES: readonly AttachmentContentType[] = [
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-]
+export const ALLOWED_CONTENT_TYPES: readonly AttachmentContentType[] = ['application/pdf', 'image/jpeg', 'image/png']
 
 export const isAllowedContentType = (contentType: string): contentType is AttachmentContentType =>
   (ALLOWED_CONTENT_TYPES as readonly string[]).includes(contentType)
@@ -86,8 +82,7 @@ export const mintUpload = (
   requestId: string,
   lineId: string,
   body: { fileName: string; contentType: AttachmentContentType; sizeBytes: number },
-): Promise<MintedUpload> =>
-  sendJson<MintedUpload>(`/requests/${requestId}/lines/${lineId}/attachments`, 'POST', body)
+): Promise<MintedUpload> => sendJson<MintedUpload>(`/requests/${requestId}/lines/${lineId}/attachments`, 'POST', body)
 
 // ---------------------------------------------------------------------------
 // Phase 2 — direct-to-bucket upload (NOT refund-api, NOT apiFetch)
@@ -121,7 +116,11 @@ export const uploadToPresignedPost = async (
 // ---------------------------------------------------------------------------
 
 export const confirmUpload = (requestId: string, lineId: string, attachmentId: string): Promise<AttachmentStored> =>
-  sendJson<AttachmentStored>(`/requests/${requestId}/lines/${lineId}/attachments/${attachmentId}/confirm`, 'POST', undefined)
+  sendJson<AttachmentStored>(
+    `/requests/${requestId}/lines/${lineId}/attachments/${attachmentId}/confirm`,
+    'POST',
+    undefined,
+  )
 
 // ---------------------------------------------------------------------------
 // Composed 3-phase upload — the one place mint→upload→confirm sequencing

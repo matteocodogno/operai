@@ -47,7 +47,9 @@ import { strings } from '../strings'
  */
 export default function RefundShell() {
   const { permissions } = usePermissions()
-  const canReview = permissions.some((permission) => permission.resource === 'request' && permission.action === 'review')
+  const canReview = permissions.some(
+    (permission) => permission.resource === 'request' && permission.action === 'review',
+  )
 
   return (
     <div className="min-h-screen" style={{ color: 'var(--text)', fontFamily: 'var(--body)' }}>

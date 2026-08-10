@@ -34,9 +34,7 @@ describe('SubmitValidationSummary', () => {
 
   it('calls onJump with the corresponding line id when a jump link is clicked', () => {
     const onJump = vi.fn()
-    render(
-      <SubmitValidationSummary items={[{ lineId: 'l1', label: '16 Jul 2026 · Client visit' }]} onJump={onJump} />,
-    )
+    render(<SubmitValidationSummary items={[{ lineId: 'l1', label: '16 Jul 2026 · Client visit' }]} onJump={onJump} />)
 
     fireEvent.click(screen.getByTestId('submit-validation-summary-jump-l1'))
 

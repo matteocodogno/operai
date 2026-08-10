@@ -75,9 +75,18 @@ export type AttachmentListProps = {
 }
 
 const newLocalId = (): string =>
-  typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `local-${Math.random().toString(36).slice(2)}`
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `local-${Math.random().toString(36).slice(2)}`
 
-export default function AttachmentList({ lineId, attachments, mode, onUpload, onRemove, onDownload }: AttachmentListProps) {
+export default function AttachmentList({
+  lineId,
+  attachments,
+  mode,
+  onUpload,
+  onRemove,
+  onDownload,
+}: AttachmentListProps) {
   const t = strings.components.attachmentList
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [removingId, setRemovingId] = useState<string | null>(null)
@@ -141,7 +150,12 @@ export default function AttachmentList({ lineId, attachments, mode, onUpload, on
       if (rejection) {
         setUploadItems((prev) => [
           ...prev,
-          { localId, fileName: file.name, status: 'rejected', reason: rejection === 'tooLarge' ? t.rejectedTooLarge : t.rejectedType },
+          {
+            localId,
+            fileName: file.name,
+            status: 'rejected',
+            reason: rejection === 'tooLarge' ? t.rejectedTooLarge : t.rejectedType,
+          },
         ])
         continue
       }

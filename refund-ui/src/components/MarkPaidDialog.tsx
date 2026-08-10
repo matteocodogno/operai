@@ -92,7 +92,10 @@ export default function MarkPaidDialog({
         { current: confirmBtnRef.current, disabled: !canConfirm },
       ]
       const focusable = candidates
-        .filter((c): c is FocusableRef & { current: HTMLInputElement | HTMLButtonElement } => c.current !== null && !c.disabled)
+        .filter(
+          (c): c is FocusableRef & { current: HTMLInputElement | HTMLButtonElement } =>
+            c.current !== null && !c.disabled,
+        )
         .map((c) => c.current)
 
       if (focusable.length === 0) return
@@ -136,7 +139,11 @@ export default function MarkPaidDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
-          <h2 id="mark-paid-dialog-title" className="text-sm font-bold" style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}>
+          <h2
+            id="mark-paid-dialog-title"
+            className="text-sm font-bold"
+            style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}
+          >
             {t.title}
           </h2>
           <button
@@ -150,7 +157,11 @@ export default function MarkPaidDialog({
           </button>
         </div>
 
-        <div id="mark-paid-dialog-body" className="text-sm leading-relaxed mb-3 flex flex-col gap-3" style={{ color: 'var(--text)' }}>
+        <div
+          id="mark-paid-dialog-body"
+          className="text-sm leading-relaxed mb-3 flex flex-col gap-3"
+          style={{ color: 'var(--text)' }}
+        >
           <p>{t.requestCountLabel(requestCount)}</p>
           <BatchSubtotalsPanel subtotals={subtotals} />
           <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="mark-paid-dialog-email-fyi">

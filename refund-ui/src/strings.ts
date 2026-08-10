@@ -286,7 +286,8 @@ const en = {
       },
       rejectDialog: {
         title: 'Reject this request?',
-        body: (employeeName: string) => `${employeeName} is notified immediately, with the reason below. This cannot be undone.`,
+        body: (employeeName: string) =>
+          `${employeeName} is notified immediately, with the reason below. This cannot be undone.`,
         motivationLabel: 'Reason for rejection',
         motivationHelp: 'Required — the employee will see this explanation.',
         cancelLabel: 'Cancel',
@@ -439,8 +440,7 @@ const en = {
       deletingLabel: 'Deleting…',
       untitledFallback: 'Untitled',
       /** Default body copy when the caller doesn't override `body` — see this file's doc comment. */
-      defaultBody: (itemName: string) =>
-        `‘${itemName}’ will be permanently deleted. This cannot be undone.`,
+      defaultBody: (itemName: string) => `‘${itemName}’ will be permanently deleted. This cannot be undone.`,
     },
     guardrailDialog: {
       defaultAcknowledgeLabel: 'OK',
@@ -467,7 +467,8 @@ const en = {
       /** Shown when the failure carried a diagnosable cause (an API Problem detail, or the direct-to-bucket POST's own error) instead of collapsing every cause into `statusFailed`. */
       statusFailedDetail: (reason: string) => `Upload failed: ${reason}`,
       /** Phase 2 (the cross-origin POST straight to the storage bucket) produced an opaque network error — offline, or the bucket is missing its CORS rule. See infra/README.md § "Receipt bucket CORS". */
-      statusFailedStorage: 'Upload failed — could not reach file storage. Try again, and tell an administrator if it keeps happening.',
+      statusFailedStorage:
+        'Upload failed — could not reach file storage. Try again, and tell an administrator if it keeps happening.',
       rejectedTooLarge: 'File exceeds 10 MB and was not added.',
       rejectedType: 'Unsupported file type — use PDF, JPEG, or PNG.',
     },

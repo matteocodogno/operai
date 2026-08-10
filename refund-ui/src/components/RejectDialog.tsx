@@ -39,7 +39,13 @@ export type RejectDialogProps = {
 
 type FocusableRef = { current: HTMLTextAreaElement | HTMLButtonElement | null; disabled: boolean }
 
-export default function RejectDialog({ employeeName, isDeciding, errorMessage, onConfirm, onCancel }: RejectDialogProps) {
+export default function RejectDialog({
+  employeeName,
+  isDeciding,
+  errorMessage,
+  onConfirm,
+  onCancel,
+}: RejectDialogProps) {
   const t = strings.pages.reviewDetail.rejectDialog
   const [motivation, setMotivation] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -70,7 +76,10 @@ export default function RejectDialog({ employeeName, isDeciding, errorMessage, o
         { current: confirmBtnRef.current, disabled: !canConfirm },
       ]
       const focusable = candidates
-        .filter((c): c is FocusableRef & { current: HTMLTextAreaElement | HTMLButtonElement } => c.current !== null && !c.disabled)
+        .filter(
+          (c): c is FocusableRef & { current: HTMLTextAreaElement | HTMLButtonElement } =>
+            c.current !== null && !c.disabled,
+        )
         .map((c) => c.current)
 
       if (focusable.length === 0) return
@@ -112,7 +121,11 @@ export default function RejectDialog({ employeeName, isDeciding, errorMessage, o
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-3">
-          <h2 id="reject-dialog-title" className="text-sm font-bold" style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}>
+          <h2
+            id="reject-dialog-title"
+            className="text-sm font-bold"
+            style={{ fontFamily: 'var(--disp)', color: 'var(--text)' }}
+          >
             {t.title}
           </h2>
           <button

@@ -199,9 +199,11 @@ describe('ExpenseLineComposer — submit behavior', () => {
   })
 
   it('keeps the draft and shows an inline error when onAdd rejects', async () => {
-    const onAdd = vi.fn().mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'km is required' }),
-    )
+    const onAdd = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'km is required' }),
+      )
     render(<ExpenseLineComposer onAdd={onAdd} />)
     fillNonKmLine()
 

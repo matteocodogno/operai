@@ -113,7 +113,9 @@ describe('RequestDetailPage — loading / error / not found', () => {
 
   it('shows ErrorBanner + Retry on a non-404 failure', async () => {
     vi.mocked(requestsApi.get)
-      .mockRejectedValueOnce(new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }))
+      .mockRejectedValueOnce(
+        new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }),
+      )
       .mockResolvedValueOnce(baseRequest)
     renderRequestDetailPage()
 
@@ -123,9 +125,7 @@ describe('RequestDetailPage — loading / error / not found', () => {
   })
 
   it('shows a neutral not-found state on 404 (never "permission denied")', async () => {
-    vi.mocked(requestsApi.get).mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Not Found', status: 404 }),
-    )
+    vi.mocked(requestsApi.get).mockRejectedValue(new ApiError({ type: 'about:blank', title: 'Not Found', status: 404 }))
     renderRequestDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('request-detail-not-found')).not.toBeNull())
@@ -136,7 +136,9 @@ describe('RequestDetailPage — loading / error / not found', () => {
 
 describe('RequestDetailPage — draft variant', () => {
   it('adds a line via the composer and re-fetches the request', async () => {
-    vi.mocked(requestsApi.get).mockResolvedValueOnce(baseRequest).mockResolvedValueOnce({ ...baseRequest, lines: [oneLine] })
+    vi.mocked(requestsApi.get)
+      .mockResolvedValueOnce(baseRequest)
+      .mockResolvedValueOnce({ ...baseRequest, lines: [oneLine] })
     vi.mocked(requestsApi.addLine).mockResolvedValue(oneLine)
 
     renderRequestDetailPage()
@@ -150,7 +152,9 @@ describe('RequestDetailPage — draft variant', () => {
     fireEvent.change(screen.getByTestId('composer-currency'), { target: { value: 'EUR' } })
     fireEvent.click(screen.getByTestId('composer-add-button'))
 
-    await waitFor(() => expect(requestsApi.addLine).toHaveBeenCalledWith('req-1', expect.objectContaining({ motivo: 'Pens' })))
+    await waitFor(() =>
+      expect(requestsApi.addLine).toHaveBeenCalledWith('req-1', expect.objectContaining({ motivo: 'Pens' })),
+    )
     await waitFor(() => expect(screen.getByTestId('expense-line-row-line-1')).not.toBeNull())
   })
 
@@ -263,7 +267,11 @@ describe('RequestDetailPage — draft: summary rows + confirm-on-delete (post-cl
     fireEvent.click(screen.getByTestId('row-line-1-done'))
 
     await waitFor(() =>
-      expect(requestsApi.updateLine).toHaveBeenCalledWith('req-1', 'line-1', expect.objectContaining({ motivo: 'Pens (updated)' })),
+      expect(requestsApi.updateLine).toHaveBeenCalledWith(
+        'req-1',
+        'line-1',
+        expect.objectContaining({ motivo: 'Pens (updated)' }),
+      ),
     )
     await waitFor(() => expect(screen.queryByTestId('row-line-1-motivo')).toBeNull())
   })
@@ -471,7 +479,15 @@ describe('RequestDetailPage — attachment wiring (T17)', () => {
   })
 
   it('draft mode: removing a persisted attachment (via its confirm modal) calls attachmentsApi.removeAttachment, 409 surfaces GuardrailDialog', async () => {
-    const withAttachment = { ...baseRequest, lines: [{ ...oneLine, attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }] }] }
+    const withAttachment = {
+      ...baseRequest,
+      lines: [
+        {
+          ...oneLine,
+          attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }],
+        },
+      ],
+    }
     vi.mocked(requestsApi.get).mockResolvedValue(withAttachment)
     vi.mocked(attachmentsApi.removeAttachment).mockRejectedValue(
       new ApiError({ type: 'about:blank', title: 'Conflict', status: 409, detail: 'Not a draft.' }),
@@ -493,10 +509,18 @@ describe('RequestDetailPage — attachment wiring (T17)', () => {
     const submittedWithAttachment = {
       ...baseRequest,
       status: 'submitted' as const,
-      lines: [{ ...oneLine, attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }] }],
+      lines: [
+        {
+          ...oneLine,
+          attachments: [{ id: 'a1', fileName: 'receipt.pdf', contentType: 'application/pdf', sizeBytes: 1024 }],
+        },
+      ],
     }
     vi.mocked(requestsApi.get).mockResolvedValue(submittedWithAttachment)
-    vi.mocked(attachmentsApi.getDownloadUrl).mockResolvedValue({ url: 'https://signed.example/a1', expiresAt: '2026-07-16T00:01:00.000Z' })
+    vi.mocked(attachmentsApi.getDownloadUrl).mockResolvedValue({
+      url: 'https://signed.example/a1',
+      expiresAt: '2026-07-16T00:01:00.000Z',
+    })
 
     renderRequestDetailPage()
     await waitFor(() => expect(screen.getByTestId('attachment-download-a1')).not.toBeNull())

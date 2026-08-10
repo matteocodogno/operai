@@ -23,7 +23,13 @@ export type ApproveDialogProps = {
   onCancel: () => void
 }
 
-export default function ApproveDialog({ employeeName, isDeciding, errorMessage, onConfirm, onCancel }: ApproveDialogProps) {
+export default function ApproveDialog({
+  employeeName,
+  isDeciding,
+  errorMessage,
+  onConfirm,
+  onCancel,
+}: ApproveDialogProps) {
   const t = strings.pages.reviewDetail.approveDialog
 
   return (

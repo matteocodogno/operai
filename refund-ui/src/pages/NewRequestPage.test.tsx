@@ -35,8 +35,16 @@ function renderNewRequestPage(options?: { strictMode?: boolean }) {
   window.history.pushState(null, '', '/requests/new')
   const rootRoute = createRootRoute()
   const requestsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests', component: () => null })
-  const newRequestRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests/new', component: NewRequestPage })
-  const requestDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests/$id', component: () => null })
+  const newRequestRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/requests/new',
+    component: NewRequestPage,
+  })
+  const requestDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/requests/$id',
+    component: () => null,
+  })
   const routeTree = rootRoute.addChildren([requestsRoute, newRequestRoute, requestDetailRoute])
   const router = createRouter({ routeTree })
   const tree = <RouterProvider router={router} />

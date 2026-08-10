@@ -28,7 +28,9 @@ describe('AttachmentDownloadLink', () => {
     fireEvent.click(screen.getByTestId('attachment-download-a1'))
 
     await waitFor(() => expect(onDownload).toHaveBeenCalledWith('a1'))
-    await waitFor(() => expect(openSpy).toHaveBeenCalledWith('https://signed.example/a1', '_blank', 'noopener,noreferrer'))
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('https://signed.example/a1', '_blank', 'noopener,noreferrer'),
+    )
     expect(screen.queryByTestId('attachment-download-a1-error')).toBeNull()
   })
 

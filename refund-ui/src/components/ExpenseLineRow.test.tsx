@@ -69,7 +69,9 @@ const expandRow = (lineId = 'line-1') => fireEvent.click(screen.getByTestId(`row
 
 describe('ExpenseLineRow — edit mode, collapsed (default) summary', () => {
   it('renders a compact read-only summary — no field inputs — with Edit and Delete controls', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
 
     expect(screen.queryByTestId('row-line-1-motivo')).toBeNull()
     expect(screen.queryByTestId('row-line-1-date')).toBeNull()
@@ -81,7 +83,13 @@ describe('ExpenseLineRow — edit mode, collapsed (default) summary', () => {
 
   it('shows entity and currency as two separate badges, same as the read-only presentation', () => {
     render(
-      <ExpenseLineRow line={{ ...line, entity: 'welld_it', currency: 'USD' }} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+      <ExpenseLineRow
+        line={{ ...line, entity: 'welld_it', currency: 'USD' }}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
     )
     expect(screen.getByTestId('entity-badge').textContent).toBe('🇮🇹WellD Italia')
     expect(screen.getByTestId('currency-badge').textContent).toBe('$USD')
@@ -89,7 +97,13 @@ describe('ExpenseLineRow — edit mode, collapsed (default) summary', () => {
 
   it('shows a small attachment indicator when the line has attachments, without the full upload UI', () => {
     render(
-      <ExpenseLineRow line={{ ...line, attachments: [attachment] }} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+      <ExpenseLineRow
+        line={{ ...line, attachments: [attachment] }}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
     )
     expect(screen.getByTestId('row-line-1-attachments-indicator').textContent).toContain('1 file')
     expect(screen.queryByTestId('attachment-attach-button-line-1')).toBeNull()
@@ -97,18 +111,24 @@ describe('ExpenseLineRow — edit mode, collapsed (default) summary', () => {
   })
 
   it('shows no attachment indicator when the line has no attachments', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expect(screen.queryByTestId('row-line-1-attachments-indicator')).toBeNull()
   })
 
   it('Edit carries a hover title tooltip naming the affordance', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expect(screen.getByTestId('row-line-1-edit').getAttribute('title')).toBe('Edit this expense line')
     expect(screen.getByTestId('row-line-1-edit').getAttribute('aria-label')).toBe('Edit line “Pens”')
   })
 
   it('the Delete button carries a hover title tooltip and a line-naming aria-label', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expect(screen.getByTestId('row-line-1-delete').getAttribute('title')).toBe('Delete this expense line')
     expect(screen.getByTestId('row-line-1-delete').getAttribute('aria-label')).toBe('Delete line “Pens”')
   })
@@ -116,7 +136,9 @@ describe('ExpenseLineRow — edit mode, collapsed (default) summary', () => {
 
 describe('ExpenseLineRow — edit mode, expand/collapse', () => {
   it('clicking Edit expands the row to the full editable field layout and focuses the first field', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
 
     expandRow()
 
@@ -127,7 +149,15 @@ describe('ExpenseLineRow — edit mode, expand/collapse', () => {
   })
 
   it('clicking Done collapses the row back to the summary and focuses the Edit button', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn().mockResolvedValue(undefined)} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow
+        line={line}
+        mode="edit"
+        onCommit={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
 
     expandRow()
     fireEvent.click(screen.getByTestId('row-line-1-done'))
@@ -139,7 +169,9 @@ describe('ExpenseLineRow — edit mode, expand/collapse', () => {
 
   it('Done commits a pending edit via the same commit path as blur-outside (an edit is never silently dropped)', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
 
     expandRow()
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
@@ -152,7 +184,9 @@ describe('ExpenseLineRow — edit mode, expand/collapse', () => {
 describe('ExpenseLineRow — expanded edit form', () => {
   it('commits a single PUT with the whole payload when focus leaves the row, not per keystroke', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
@@ -174,7 +208,9 @@ describe('ExpenseLineRow — expanded edit form', () => {
 
   it('lets currency be changed independently of entity, committing a mismatched pair with no block', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-currency'), { target: { value: 'USD' } })
@@ -185,7 +221,9 @@ describe('ExpenseLineRow — expanded edit form', () => {
 
   it('does NOT commit when focus moves to another field inside the same row', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
@@ -196,7 +234,9 @@ describe('ExpenseLineRow — expanded edit form', () => {
 
   it('does not re-commit when nothing changed', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.blur(screen.getByTestId('row-line-1-motivo'), { relatedTarget: document.body })
@@ -205,7 +245,9 @@ describe('ExpenseLineRow — expanded edit form', () => {
   })
 
   it('shows km only once type is changed to travel_km, hides it for any other type', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     expect(screen.queryByTestId('row-line-1-km')).toBeNull()
@@ -241,7 +283,9 @@ describe('ExpenseLineRow — expanded edit form', () => {
 describe('ExpenseLineRow — line-delete confirm modal (post-close amendment)', () => {
   it('clicking Delete opens ConfirmDeleteModal naming the line, without calling onDelete yet', () => {
     const onDelete = vi.fn()
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />,
+    )
 
     fireEvent.click(screen.getByTestId('row-line-1-delete'))
 
@@ -253,7 +297,9 @@ describe('ExpenseLineRow — line-delete confirm modal (post-close amendment)', 
 
   it('confirming calls onDelete', async () => {
     const onDelete = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />,
+    )
 
     fireEvent.click(screen.getByTestId('row-line-1-delete'))
     fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-confirm'))
@@ -264,7 +310,9 @@ describe('ExpenseLineRow — line-delete confirm modal (post-close amendment)', 
 
   it('canceling does not call onDelete and keeps the line as a summary', () => {
     const onDelete = vi.fn()
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />,
+    )
 
     fireEvent.click(screen.getByTestId('row-line-1-delete'))
     fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-cancel'))
@@ -276,7 +324,9 @@ describe('ExpenseLineRow — line-delete confirm modal (post-close amendment)', 
 
   it('shows an inline error in the modal and keeps it open when onDelete rejects', async () => {
     const onDelete = vi.fn().mockRejectedValue(new Error('boom'))
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={onDelete} onDownloadAttachment={vi.fn()} />,
+    )
 
     fireEvent.click(screen.getByTestId('row-line-1-delete'))
     fireEvent.click(screen.getByTestId('row-line-1-delete-confirm-confirm'))
@@ -303,7 +353,13 @@ describe('ExpenseLineRow — read-only modes', () => {
   })
 
   it('readOnly shows the entity and currency as two separate badges (post-close split, specs/007)', () => {
-    render(<ExpenseLineRow line={{ ...line, entity: 'welld_it', currency: 'USD' }} mode="readOnly" onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow
+        line={{ ...line, entity: 'welld_it', currency: 'USD' }}
+        mode="readOnly"
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
     const row = screen.getByTestId('expense-line-row-line-1')
     expect(screen.getByTestId('entity-badge').textContent).toBe('🇮🇹WellD Italia')
     expect(screen.getByTestId('currency-badge').textContent).toBe('$USD')
@@ -359,7 +415,14 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
 
   it('write-on-change-only: does NOT call onApprovedTotalChange when the field blurs untouched', () => {
     const onApprovedTotalChange = vi.fn()
-    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+    render(
+      <ExpenseLineRow
+        line={line}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={onApprovedTotalChange}
+      />,
+    )
 
     fireEvent.blur(screen.getByTestId('row-line-1-approved-total'))
 
@@ -368,7 +431,14 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
 
   it('calls onApprovedTotalChange with the new cents value once changed and blurred', async () => {
     const onApprovedTotalChange = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+    render(
+      <ExpenseLineRow
+        line={line}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={onApprovedTotalChange}
+      />,
+    )
 
     const input = screen.getByTestId('row-line-1-approved-total')
     fireEvent.change(input, { target: { value: '7.50' } })
@@ -379,7 +449,14 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
 
   it('reverting to the original default before blur still counts as untouched — no write', () => {
     const onApprovedTotalChange = vi.fn()
-    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+    render(
+      <ExpenseLineRow
+        line={line}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={onApprovedTotalChange}
+      />,
+    )
 
     const input = screen.getByTestId('row-line-1-approved-total')
     fireEvent.change(input, { target: { value: '7.50' } })
@@ -391,13 +468,22 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
 
   it('shows an inline error on an invalid amount, without calling onApprovedTotalChange', () => {
     const onApprovedTotalChange = vi.fn()
-    render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={onApprovedTotalChange} />)
+    render(
+      <ExpenseLineRow
+        line={line}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={onApprovedTotalChange}
+      />,
+    )
 
     const input = screen.getByTestId('row-line-1-approved-total')
     fireEvent.change(input, { target: { value: '' } })
     fireEvent.blur(input)
 
-    expect(screen.getByTestId('row-line-1-approved-total-error').textContent).toBe('Enter a valid, non-negative amount.')
+    expect(screen.getByTestId('row-line-1-approved-total-error').textContent).toBe(
+      'Enter a valid, non-negative amount.',
+    )
     expect(onApprovedTotalChange).not.toHaveBeenCalled()
   })
 
@@ -432,7 +518,9 @@ describe('ExpenseLineRow — edit mode, expanded, travel_km (specs/009-mileage-r
   }
 
   it('hides Amount/Currency and renders MileageAmountField instead', () => {
-    render(<ExpenseLineRow line={kmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={kmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     fireEvent.click(screen.getByTestId('row-km-1-edit'))
 
     expect(screen.queryByTestId('row-km-1-amount')).toBeNull()
@@ -443,7 +531,9 @@ describe('ExpenseLineRow — edit mode, expanded, travel_km (specs/009-mileage-r
   })
 
   it('shows Amount/Currency (no MileageAmountField) once switched to a non-km type', () => {
-    render(<ExpenseLineRow line={kmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={kmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     fireEvent.click(screen.getByTestId('row-km-1-edit'))
     fireEvent.change(screen.getByTestId('row-km-1-type'), { target: { value: 'postal' } })
 
@@ -454,7 +544,15 @@ describe('ExpenseLineRow — edit mode, expanded, travel_km (specs/009-mileage-r
 
   it('commits a PUT with km but WITHOUT requestedAmountCents/currency (AC-1.1/1.6)', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={kmLine} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow
+        line={kmLine}
+        mode="edit"
+        onCommit={onCommit}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
     fireEvent.click(screen.getByTestId('row-km-1-edit'))
 
     fireEvent.change(screen.getByTestId('row-km-1-km'), { target: { value: '75' } })
@@ -483,7 +581,15 @@ describe('ExpenseLineRow — summaryCore, travel_km (specs/009-mileage-rate)', (
       km: 240,
       mileage: { km: 240, rateInEffect: true, appliedRate, computedAmountCents: 16800, snapshotted: false },
     }
-    render(<ExpenseLineRow line={draftKmLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow
+        line={draftKmLine}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
 
     const row = screen.getByTestId('expense-line-row-km-2')
     expect(row.textContent).toContain('240 km × 0,70 CHF/km')
@@ -498,7 +604,15 @@ describe('ExpenseLineRow — summaryCore, travel_km (specs/009-mileage-rate)', (
       km: 10,
       mileage: { km: 10, rateInEffect: false, appliedRate: null, computedAmountCents: null, snapshotted: false },
     }
-    render(<ExpenseLineRow line={blockedLine} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow
+        line={blockedLine}
+        mode="edit"
+        onCommit={vi.fn()}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+      />,
+    )
 
     const row = screen.getByTestId('expense-line-row-km-3')
     expect(row.textContent).toContain('—')
@@ -515,7 +629,14 @@ describe('ExpenseLineRow — summaryCore, travel_km (specs/009-mileage-rate)', (
   })
 
   it('renders "Rate applied" in review mode too, without disturbing the approved-total input (AC-6.1/6.4)', () => {
-    render(<ExpenseLineRow line={submittedMileageLine} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={vi.fn()} />)
+    render(
+      <ExpenseLineRow
+        line={submittedMileageLine}
+        mode="review"
+        onDownloadAttachment={vi.fn()}
+        onApprovedTotalChange={vi.fn()}
+      />,
+    )
 
     expect(screen.getByTestId('expense-line-row-line-km-1').textContent).toContain('Rate applied')
     const input = screen.getByTestId('row-line-km-1-approved-total') as HTMLInputElement
@@ -547,7 +668,9 @@ describe('ExpenseLineRow — summaryCore, travel_km (specs/009-mileage-rate)', (
   })
 
   it('omits the "Rate applied" row for a fixture that predates this field entirely (mileage undefined) — no crash', () => {
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={vi.fn()} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expect(screen.getByTestId('expense-line-row-line-1').textContent).not.toContain('Rate applied')
   })
 })
@@ -568,7 +691,9 @@ describe('ExpenseLineRow — debounced auto-save (edit mode, expanded)', () => {
 
   it('auto-commits a single PUT ~1500ms after the last edit to a valid, dirty line', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
@@ -588,7 +713,9 @@ describe('ExpenseLineRow — debounced auto-save (edit mode, expanded)', () => {
 
   it('resets the debounce clock on every further edit — only the last edit is auto-saved', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens' } })
@@ -610,7 +737,9 @@ describe('ExpenseLineRow — debounced auto-save (edit mode, expanded)', () => {
 
   it('does NOT auto-save an incomplete/invalid draft, even after 1500ms — never a spurious PUT', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     // Clearing motivo (a required field) makes the draft incomplete per isLineDraftComplete.
@@ -624,7 +753,9 @@ describe('ExpenseLineRow — debounced auto-save (edit mode, expanded)', () => {
 
   it('blur-outside flushes immediately and cancels the pending debounce — no double-PUT', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
@@ -643,7 +774,9 @@ describe('ExpenseLineRow — debounced auto-save (edit mode, expanded)', () => {
 
   it('Done flushes immediately and cancels the pending debounce — no double-PUT', async () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
-    render(<ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />)
+    render(
+      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} />,
+    )
     expandRow()
 
     fireEvent.change(screen.getByTestId('row-line-1-motivo'), { target: { value: 'Pens and paper' } })
@@ -686,7 +819,14 @@ describe('ExpenseLineRow — onSaveOutcome', () => {
     const onCommit = vi.fn().mockResolvedValue(undefined)
     const onSaveOutcome = vi.fn()
     render(
-      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} onSaveOutcome={onSaveOutcome} />,
+      <ExpenseLineRow
+        line={line}
+        mode="edit"
+        onCommit={onCommit}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+        onSaveOutcome={onSaveOutcome}
+      />,
     )
     expandRow()
 
@@ -695,16 +835,33 @@ describe('ExpenseLineRow — onSaveOutcome', () => {
       fireEvent.click(screen.getByTestId('row-line-1-done'))
     })
 
-    expect(onSaveOutcome).toHaveBeenCalledWith({ tone: 'success', message: strings.pages.requestDetail.lines.savedToast })
+    expect(onSaveOutcome).toHaveBeenCalledWith({
+      tone: 'success',
+      message: strings.pages.requestDetail.lines.savedToast,
+    })
   })
 
   it('reports an error outcome with the RFC 7807 detail when a commit fails', async () => {
-    const onCommit = vi.fn().mockRejectedValue(
-      new ApiError({ type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'km is required for this type.' }),
-    )
+    const onCommit = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError({
+          type: 'about:blank',
+          title: 'Unprocessable Entity',
+          status: 422,
+          detail: 'km is required for this type.',
+        }),
+      )
     const onSaveOutcome = vi.fn()
     render(
-      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} onSaveOutcome={onSaveOutcome} />,
+      <ExpenseLineRow
+        line={line}
+        mode="edit"
+        onCommit={onCommit}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+        onSaveOutcome={onSaveOutcome}
+      />,
     )
     expandRow()
 
@@ -724,7 +881,14 @@ describe('ExpenseLineRow — onSaveOutcome', () => {
     const onCommit = vi.fn().mockRejectedValue(new Error('network down'))
     const onSaveOutcome = vi.fn()
     render(
-      <ExpenseLineRow line={line} mode="edit" onCommit={onCommit} onDelete={vi.fn()} onDownloadAttachment={vi.fn()} onSaveOutcome={onSaveOutcome} />,
+      <ExpenseLineRow
+        line={line}
+        mode="edit"
+        onCommit={onCommit}
+        onDelete={vi.fn()}
+        onDownloadAttachment={vi.fn()}
+        onSaveOutcome={onSaveOutcome}
+      />,
     )
     expandRow()
 
@@ -733,6 +897,9 @@ describe('ExpenseLineRow — onSaveOutcome', () => {
       fireEvent.click(screen.getByTestId('row-line-1-done'))
     })
 
-    expect(onSaveOutcome).toHaveBeenCalledWith({ tone: 'error', message: strings.pages.requestDetail.lines.updateError })
+    expect(onSaveOutcome).toHaveBeenCalledWith({
+      tone: 'error',
+      message: strings.pages.requestDetail.lines.updateError,
+    })
   })
 })

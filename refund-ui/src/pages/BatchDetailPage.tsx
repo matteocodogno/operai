@@ -340,7 +340,9 @@ export default function BatchDetailPage() {
         {pageState.status === 'loaded' && (
           <div data-testid="batch-detail-loaded" className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm" style={{ color: 'var(--soft)' }}>
-              <span data-testid="batch-detail-cutoff">{t.meta.cutoffLabel(formatDateTime(pageState.batch.cutoff))}</span>
+              <span data-testid="batch-detail-cutoff">
+                {t.meta.cutoffLabel(formatDateTime(pageState.batch.cutoff))}
+              </span>
               <span data-testid="batch-detail-generated">
                 {t.meta.generatedLabel(formatDateTime(pageState.batch.createdAt), pageState.batch.createdBy.email)}
               </span>
@@ -373,11 +375,7 @@ export default function BatchDetailPage() {
               {pageState.batch.pdf ? (
                 <BatchPdfLink batchId={pageState.batch.id} />
               ) : (
-                <span
-                  className="text-xs"
-                  style={{ color: 'var(--muted)' }}
-                  data-testid="batch-detail-pdf-unavailable"
-                >
+                <span className="text-xs" style={{ color: 'var(--muted)' }} data-testid="batch-detail-pdf-unavailable">
                   {strings.components.batchPdfLink.unavailable}
                 </span>
               )}
@@ -396,7 +394,9 @@ export default function BatchDetailPage() {
               </button>
             </div>
 
-            {emailToast && <ToastBanner message={emailToast.message} tone={emailToast.tone} onDismiss={dismissEmailToast} />}
+            {emailToast && (
+              <ToastBanner message={emailToast.message} tone={emailToast.tone} onDismiss={dismissEmailToast} />
+            )}
 
             {pageState.batch.status === 'compiled' && (
               <div className="flex items-center gap-3">

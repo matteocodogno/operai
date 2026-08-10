@@ -32,7 +32,11 @@ function renderMyRequestsPage() {
   const rootRoute = createRootRoute()
   const requestsRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests', component: MyRequestsPage })
   const newRequestRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests/new', component: () => null })
-  const requestDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/requests/$id', component: () => null })
+  const requestDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/requests/$id',
+    component: () => null,
+  })
   const routeTree = rootRoute.addChildren([requestsRoute, newRequestRoute, requestDetailRoute])
   const router = createRouter({ routeTree })
   return render(<RouterProvider router={router} />)
@@ -100,7 +104,9 @@ describe('MyRequestsPage — list states', () => {
 
   it('renders ErrorBanner and retries on click', async () => {
     vi.mocked(requestsApi.list)
-      .mockRejectedValueOnce(new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }))
+      .mockRejectedValueOnce(
+        new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }),
+      )
       .mockResolvedValueOnce([draftItem])
 
     renderMyRequestsPage()

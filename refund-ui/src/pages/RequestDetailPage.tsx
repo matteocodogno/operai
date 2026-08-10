@@ -90,9 +90,7 @@ type PageState =
   | { status: 'error'; message: string }
   | { status: 'loaded'; request: RefundRequestDetail }
 
-type DeleteModalState =
-  | { open: false }
-  | { open: true; isDeleting: boolean; error: string | null }
+type DeleteModalState = { open: false } | { open: true; isDeleting: boolean; error: string | null }
 
 type GuardrailState = { title: string; message: string } | null
 
@@ -267,7 +265,8 @@ export default function RequestDetailPage() {
   )
 
   const handleRemoveAttachment = useCallback(
-    (lineId: string, attachmentId: string) => runLineMutation(() => attachmentsApi.removeAttachment(id, lineId, attachmentId)),
+    (lineId: string, attachmentId: string) =>
+      runLineMutation(() => attachmentsApi.removeAttachment(id, lineId, attachmentId)),
     [id, runLineMutation],
   )
 
@@ -485,7 +484,12 @@ export default function RequestDetailPage() {
             )}
 
             {actionError && (
-              <p role="alert" data-testid="request-detail-action-error" className="text-sm" style={{ color: 'var(--red)' }}>
+              <p
+                role="alert"
+                data-testid="request-detail-action-error"
+                className="text-sm"
+                style={{ color: 'var(--red)' }}
+              >
                 {actionError}
               </p>
             )}
@@ -502,7 +506,11 @@ export default function RequestDetailPage() {
                 {submitting ? t.submit.submittingLabel : t.submit.button}
               </button>
               {pageState.request.lines.length === 0 && (
-                <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="request-detail-submit-blocked-note">
+                <p
+                  className="text-xs"
+                  style={{ color: 'var(--muted)' }}
+                  data-testid="request-detail-submit-blocked-note"
+                >
                   {t.submit.blockedNote}
                 </p>
               )}
@@ -537,7 +545,12 @@ export default function RequestDetailPage() {
               ))}
             </div>
             {actionError && (
-              <p role="alert" data-testid="request-detail-action-error" className="text-sm" style={{ color: 'var(--red)' }}>
+              <p
+                role="alert"
+                data-testid="request-detail-action-error"
+                className="text-sm"
+                style={{ color: 'var(--red)' }}
+              >
                 {actionError}
               </p>
             )}

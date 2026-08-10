@@ -32,13 +32,17 @@ afterEach(() => {
 
 describe('listCandidates', () => {
   it('GETs /batches/candidates with no query when no cutoff is given', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(200, { cutoff: '2026-07-19T00:00:00Z', requestCount: 0, subtotals: [], employees: [] }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(200, { cutoff: '2026-07-19T00:00:00Z', requestCount: 0, subtotals: [], employees: [] }),
+    )
     await listCandidates()
     expect(String(vi.mocked(apiFetch).mock.calls[0]?.[0])).toBe(`${REFUND_API_URL}/batches/candidates`)
   })
 
   it('GETs /batches/candidates?cutoff=<ISO> when a cutoff is given', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(200, { cutoff: '2026-07-19T00:00:00Z', requestCount: 0, subtotals: [], employees: [] }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(200, { cutoff: '2026-07-19T00:00:00Z', requestCount: 0, subtotals: [], employees: [] }),
+    )
     await listCandidates('2026-07-19T00:00:00Z')
     expect(String(vi.mocked(apiFetch).mock.calls[0]?.[0])).toBe(
       `${REFUND_API_URL}/batches/candidates?cutoff=${encodeURIComponent('2026-07-19T00:00:00Z')}`,
@@ -87,14 +91,18 @@ describe('get', () => {
   })
 
   it('throws ApiError(404) for a nonexistent batch', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(404, { type: 'about:blank', title: 'Not Found', status: 404 }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(404, { type: 'about:blank', title: 'Not Found', status: 404 }),
+    )
     await expect(get('missing')).rejects.toMatchObject({ status: 404 })
   })
 })
 
 describe('getPdfUrl', () => {
   it('GETs /batches/:id/pdf-url', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(200, { url: 'https://eu-bucket/x', expiresAt: '2026-07-19T00:01:00Z' }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(200, { url: 'https://eu-bucket/x', expiresAt: '2026-07-19T00:01:00Z' }),
+    )
     await getPdfUrl('b1')
     expect(String(vi.mocked(apiFetch).mock.calls[0]?.[0])).toBe(`${REFUND_API_URL}/batches/b1/pdf-url`)
   })
@@ -122,12 +130,16 @@ describe('markPaid', () => {
   })
 
   it('throws ApiError(409) once already resolved (AC-4.3)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     await expect(markPaid('b1')).rejects.toMatchObject({ status: 409 })
   })
 
   it('throws ApiError(403) without request:approve specifically (AC-4.4)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(403, { type: 'about:blank', title: 'Forbidden', status: 403 }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(403, { type: 'about:blank', title: 'Forbidden', status: 403 }),
+    )
     await expect(markPaid('b1')).rejects.toMatchObject({ status: 403 })
   })
 })
@@ -143,7 +155,9 @@ describe('discard', () => {
   })
 
   it('throws ApiError(409) once already resolved (AC-6.2)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     await expect(discard('b1')).rejects.toMatchObject({ status: 409 })
   })
 })

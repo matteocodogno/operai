@@ -91,7 +91,12 @@ describe('line-level operations', () => {
 
   it('removeLine DELETEs /requests/:id/lines/:lineId, 409 when not draft', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409, detail: 'Only draft requests can be edited' }),
+      jsonResponse(409, {
+        type: 'about:blank',
+        title: 'Conflict',
+        status: 409,
+        detail: 'Only draft requests can be edited',
+      }),
     )
     await expect(requestsApi.removeLine('r1', 'l1')).rejects.toMatchObject({ status: 409 })
   })

@@ -18,7 +18,15 @@ afterEach(() => {
 
 describe('ApproveDialog', () => {
   it('renders under the approve-dialog testIdPrefix, recolored --grn, with refund-specific copy', () => {
-    render(<ApproveDialog employeeName="Alice" isDeciding={false} errorMessage={null} onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    render(
+      <ApproveDialog
+        employeeName="Alice"
+        isDeciding={false}
+        errorMessage={null}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
 
     expect(screen.getByTestId('approve-dialog-modal')).not.toBeNull()
     expect(screen.getByText('Approve this request?')).not.toBeNull()
@@ -29,7 +37,15 @@ describe('ApproveDialog', () => {
   })
 
   it('shows the in-flight label and disables both buttons while deciding', () => {
-    render(<ApproveDialog employeeName="Alice" isDeciding={true} errorMessage={null} onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    render(
+      <ApproveDialog
+        employeeName="Alice"
+        isDeciding={true}
+        errorMessage={null}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
 
     expect(screen.getByText('Approving…')).not.toBeNull()
     expect(screen.getByTestId('approve-dialog-cancel').hasAttribute('disabled')).toBe(true)

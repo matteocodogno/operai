@@ -123,7 +123,12 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
             onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))}
             data-testid="composer-date"
             className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)', colorScheme: 'dark' }}
+            style={{
+              borderColor: 'var(--rule)',
+              color: 'var(--text)',
+              backgroundColor: 'var(--ink)',
+              colorScheme: 'dark',
+            }}
           />
         </div>
 

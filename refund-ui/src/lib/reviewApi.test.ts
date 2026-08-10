@@ -55,7 +55,9 @@ describe('setApprovedTotal', () => {
   })
 
   it('throws ApiError(409) once decided (AC-7.4)', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      jsonResponse(409, { type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     await expect(setApprovedTotal('r1', 'l1', 800)).rejects.toMatchObject({ status: 409 })
   })
 })
@@ -80,7 +82,12 @@ describe('approve / reject', () => {
 
   it('reject throws ApiError(422) on an empty motivation (defense-in-depth, AC-7.3)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      jsonResponse(422, { type: 'about:blank', title: 'Unprocessable Entity', status: 422, detail: 'motivation is required' }),
+      jsonResponse(422, {
+        type: 'about:blank',
+        title: 'Unprocessable Entity',
+        status: 422,
+        detail: 'motivation is required',
+      }),
     )
     await expect(reject('r1', '')).rejects.toMatchObject({ status: 422 })
   })

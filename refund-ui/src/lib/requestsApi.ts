@@ -154,12 +154,10 @@ export type LinePayload = {
 export const list = (): Promise<RequestListItem[]> => getJson<RequestListItem[]>('/requests')
 
 /** `POST /requests` — no body; creates a new `draft` (design.md F1 step 1). */
-export const create = (): Promise<RefundRequestDetail> =>
-  sendJson<RefundRequestDetail>('/requests', 'POST', undefined)
+export const create = (): Promise<RefundRequestDetail> => sendJson<RefundRequestDetail>('/requests', 'POST', undefined)
 
 /** `GET /requests/:id` — full detail. Throws `ApiError` with `status===404` if not owned/in-scope. */
-export const get = (id: string): Promise<RefundRequestDetail> =>
-  getJson<RefundRequestDetail>(`/requests/${id}`)
+export const get = (id: string): Promise<RefundRequestDetail> => getJson<RefundRequestDetail>(`/requests/${id}`)
 
 /** `DELETE /requests/:id` — 204 only when `status==='draft'`, else `ApiError` with `status===409`. */
 export const remove = (id: string): Promise<void> => deleteJson(`/requests/${id}`)

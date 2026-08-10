@@ -37,7 +37,11 @@ function renderCompileBatchPage() {
   window.history.pushState(null, '', '/batches/new')
   const rootRoute = createRootRoute()
   const batchesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/batches', component: () => null })
-  const compileBatchRoute = createRoute({ getParentRoute: () => rootRoute, path: '/batches/new', component: CompileBatchPage })
+  const compileBatchRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/batches/new',
+    component: CompileBatchPage,
+  })
   const batchDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/batches/$id', component: () => null })
   const routeTree = rootRoute.addChildren([batchesRoute, compileBatchRoute, batchDetailRoute])
   const router = createRouter({ routeTree })
@@ -96,7 +100,9 @@ describe('CompileBatchPage — loading / error / PD', () => {
 
   it('shows ErrorBanner + Retry on a non-403 failure, and Retry re-fetches', async () => {
     vi.mocked(batchesApi.listCandidates)
-      .mockRejectedValueOnce(new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }))
+      .mockRejectedValueOnce(
+        new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }),
+      )
       .mockResolvedValueOnce(populatedPreview)
     renderCompileBatchPage()
 

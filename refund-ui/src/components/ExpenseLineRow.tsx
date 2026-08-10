@@ -99,7 +99,13 @@ import type { Attachment, LinePayload, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
 import { formatDate } from '../lib/dates'
 import type { LineDraftValue } from '../lib/lineDraft'
-import { amountToCents, centsToAmountInput, isLineDraftComplete, lineDraftToPayload, lineToDraft } from '../lib/lineDraft'
+import {
+  amountToCents,
+  centsToAmountInput,
+  isLineDraftComplete,
+  lineDraftToPayload,
+  lineToDraft,
+} from '../lib/lineDraft'
 import AttachmentList from './AttachmentList'
 import ConfirmDeleteModal from './ConfirmDeleteModal'
 import MileageAmountField from './MileageAmountField'
@@ -352,7 +358,8 @@ export default function ExpenseLineRow({
         {line.km !== null && (
           <span style={{ color: 'var(--muted)' }}>
             {line.km} km
-            {mileage?.appliedRate && ` × ${formatRatePerKm(mileage.appliedRate.ratePerKm, mileage.appliedRate.currency)}`}
+            {mileage?.appliedRate &&
+              ` × ${formatRatePerKm(mileage.appliedRate.ratePerKm, mileage.appliedRate.currency)}`}
           </span>
         )}
       </div>
@@ -504,14 +511,24 @@ export default function ExpenseLineRow({
               </span>
             )}
             {approvedError && (
-              <span role="alert" data-testid={`row-${line.id}-approved-total-error`} className="text-xs" style={{ color: 'var(--red)' }}>
+              <span
+                role="alert"
+                data-testid={`row-${line.id}-approved-total-error`}
+                className="text-xs"
+                style={{ color: 'var(--red)' }}
+              >
                 {approvedError}
               </span>
             )}
           </div>
         )}
 
-        <AttachmentList lineId={line.id} attachments={line.attachments} mode="readOnly" onDownload={onDownloadAttachment} />
+        <AttachmentList
+          lineId={line.id}
+          attachments={line.attachments}
+          mode="readOnly"
+          onDownload={onDownloadAttachment}
+        />
       </div>
     )
   }
@@ -544,7 +561,12 @@ export default function ExpenseLineRow({
             onChange={(e) => setDraft((prev) => ({ ...prev, date: e.target.value }))}
             data-testid={`row-${line.id}-date`}
             className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)', colorScheme: 'dark' }}
+            style={{
+              borderColor: 'var(--rule)',
+              color: 'var(--text)',
+              backgroundColor: 'var(--ink)',
+              colorScheme: 'dark',
+            }}
           />
         </div>
 

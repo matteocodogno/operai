@@ -101,7 +101,11 @@ function renderReviewDetailPage(id = 'req-1') {
       confirmation: typeof search.confirmation === 'string' ? search.confirmation : undefined,
     }),
   })
-  const reviewDetailRoute = createRoute({ getParentRoute: () => rootRoute, path: '/review/$id', component: ReviewDetailPage })
+  const reviewDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/review/$id',
+    component: ReviewDetailPage,
+  })
   const routeTree = rootRoute.addChildren([reviewRoute, reviewDetailRoute])
   const router = createRouter({ routeTree })
   return render(<RouterProvider router={router} />)
@@ -151,7 +155,9 @@ describe('ReviewDetailPage — loading / error / not found', () => {
 
   it('shows ErrorBanner + Retry on a non-404 failure', async () => {
     vi.mocked(requestsApi.get)
-      .mockRejectedValueOnce(new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }))
+      .mockRejectedValueOnce(
+        new ApiError({ type: 'about:blank', title: 'Internal Server Error', status: 500, detail: 'Boom.' }),
+      )
       .mockResolvedValueOnce(baseRequest)
     renderReviewDetailPage()
 
@@ -259,8 +265,15 @@ describe('ReviewDetailPage — submitted (decidable) variant', () => {
   it('Approve 409 surfaces GuardrailDialog instead of navigating away', async () => {
     vi.mocked(requestsApi.get)
       .mockResolvedValueOnce(baseRequest)
-      .mockResolvedValueOnce({ ...baseRequest, status: 'rejected', decidedAt: '2026-07-15T00:00:00.000Z', rejectionMotivation: 'Beat you to it.' })
-    vi.mocked(reviewApi.approve).mockRejectedValue(new ApiError({ type: 'about:blank', title: 'Conflict', status: 409 }))
+      .mockResolvedValueOnce({
+        ...baseRequest,
+        status: 'rejected',
+        decidedAt: '2026-07-15T00:00:00.000Z',
+        rejectionMotivation: 'Beat you to it.',
+      })
+    vi.mocked(reviewApi.approve).mockRejectedValue(
+      new ApiError({ type: 'about:blank', title: 'Conflict', status: 409 }),
+    )
     renderReviewDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('review-detail-approve')).not.toBeNull())
@@ -273,7 +286,11 @@ describe('ReviewDetailPage — submitted (decidable) variant', () => {
 
   it('Reject: RejectDialog stays disabled until motivation is entered; confirming calls reviewApi.reject and navigates back', async () => {
     vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
-    vi.mocked(reviewApi.reject).mockResolvedValue({ ...baseRequest, status: 'rejected', rejectionMotivation: 'Missing receipt.' })
+    vi.mocked(reviewApi.reject).mockResolvedValue({
+      ...baseRequest,
+      status: 'rejected',
+      rejectionMotivation: 'Missing receipt.',
+    })
     renderReviewDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('review-detail-reject')).not.toBeNull())

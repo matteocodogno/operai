@@ -186,7 +186,12 @@ export default function MileageAmountField({ entity, date, km }: MileageAmountFi
           {statusText}
         </p>
         {displayLoading && (
-          <span aria-hidden="true" data-testid="mileage-amount-loading" className="text-[11px]" style={{ color: 'var(--muted)' }}>
+          <span
+            aria-hidden="true"
+            data-testid="mileage-amount-loading"
+            className="text-[11px]"
+            style={{ color: 'var(--muted)' }}
+          >
             {t.calculating}
           </span>
         )}

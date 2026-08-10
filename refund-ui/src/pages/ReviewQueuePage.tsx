@@ -131,7 +131,11 @@ export default function ReviewQueuePage() {
         {listState.status === 'error' && <ErrorBanner message={listState.message} onRetry={handleRetry} />}
 
         {listState.status === 'loaded' && listState.items.length === 0 && (
-          <p className="text-sm py-16 text-center" style={{ color: 'var(--muted)' }} data-testid="review-queue-empty-state">
+          <p
+            className="text-sm py-16 text-center"
+            style={{ color: 'var(--muted)' }}
+            data-testid="review-queue-empty-state"
+          >
             {t.empty}
           </p>
         )}

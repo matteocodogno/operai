@@ -168,7 +168,9 @@ export default function CompileBatchPage() {
       })
     } catch (err) {
       if (err instanceof ApiError && err.status === 422) {
-        setCompileDialog((prev) => (prev.open ? { ...prev, compiling: false, error: t.confirm.staleCandidatesError } : prev))
+        setCompileDialog((prev) =>
+          prev.open ? { ...prev, compiling: false, error: t.confirm.staleCandidatesError } : prev,
+        )
       } else {
         setCompileDialog((prev) =>
           prev.open ? { ...prev, compiling: false, error: errorMessageFor(err, t.confirm.genericError) } : prev,

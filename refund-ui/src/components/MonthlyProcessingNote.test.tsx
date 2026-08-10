@@ -14,7 +14,9 @@ describe('MonthlyProcessingNote', () => {
   it('renders fixed copy with no date or amount (AC-4.1)', () => {
     render(<MonthlyProcessingNote />)
     const note = screen.getByTestId('monthly-processing-note')
-    expect(note.textContent).not.toMatch(/\d{1,2}(st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)/i)
+    expect(note.textContent).not.toMatch(
+      /\d{1,2}(st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)/i,
+    )
     expect(note.textContent).not.toMatch(/[€$£]\s?\d/)
     expect(note.textContent).not.toMatch(/CHF\s?\d/)
   })

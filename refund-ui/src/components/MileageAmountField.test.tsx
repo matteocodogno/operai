@@ -239,17 +239,15 @@ describe('MileageAmountField — stale-response guard', () => {
     const firstPromise = new Promise<ratesApi.EffectiveRate>((resolve) => {
       resolveFirst = resolve
     })
-    vi.mocked(ratesApi.getEffectiveRate)
-      .mockReturnValueOnce(firstPromise)
-      .mockResolvedValueOnce({
-        entity: 'welld_ch',
-        date: '2026-07-15',
-        currency: 'CHF',
-        inEffect: true,
-        ratePerKmMicros: 700000,
-        ratePerKm: '0.70',
-        validFrom: '2026-01-01',
-      })
+    vi.mocked(ratesApi.getEffectiveRate).mockReturnValueOnce(firstPromise).mockResolvedValueOnce({
+      entity: 'welld_ch',
+      date: '2026-07-15',
+      currency: 'CHF',
+      inEffect: true,
+      ratePerKmMicros: 700000,
+      ratePerKm: '0.70',
+      validFrom: '2026-01-01',
+    })
 
     const { rerender } = render(<MileageAmountField entity="welld_ch" date="2026-07-15" km="10" />)
     await act(async () => {
