@@ -90,14 +90,14 @@ const paidBatch: BatchDetail = {
   ...compiledBatch,
   status: 'paid',
   paidAt: '2026-07-20T09:00:00.000Z',
-  paidBy: 'acct@welld.ch',
+  paidBy: { email: 'acct@welld.ch' },
 }
 
 const discardedBatch: BatchDetail = {
   ...compiledBatch,
   status: 'discarded',
   discardedAt: '2026-07-20T09:00:00.000Z',
-  discardedBy: 'acct@welld.ch',
+  discardedBy: { email: 'acct@welld.ch' },
 }
 
 describe('BatchDetailPage — loading / error / not found / PD', () => {
@@ -148,12 +148,28 @@ describe('BatchDetailPage — status-driven variants', () => {
     expect(screen.getByTestId('batch-employee-group-list')).not.toBeNull()
   })
 
+  it('meta row: labels the batch id as the batch reference and names who generated it', async () => {
+    vi.mocked(batchesApi.get).mockResolvedValue(compiledBatch)
+    renderBatchDetailPage()
+
+    await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
+    const reference = screen.getByTestId('batch-detail-reference')
+    expect(reference.textContent).toContain('Batch reference')
+    expect(reference.textContent).toContain(compiledBatch.id)
+    expect(reference.getAttribute('title')).toBeTruthy()
+    expect(screen.getByTestId('batch-detail-generated').textContent).toContain(
+      compiledBatch.createdBy.email,
+    )
+  })
+
   it('paid: shows the paid stamp line, no Mark-as-paid/Discard', async () => {
     vi.mocked(batchesApi.get).mockResolvedValue(paidBatch)
     renderBatchDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
-    expect(screen.getByTestId('batch-detail-paid-line').textContent).toContain('acct@welld.ch')
+    const paidLine = screen.getByTestId('batch-detail-paid-line').textContent
+    expect(paidLine).toContain('acct@welld.ch')
+    expect(paidLine).not.toContain('[object Object]')
     expect(screen.queryByTestId('batch-detail-mark-paid')).toBeNull()
     expect(screen.queryByTestId('batch-detail-discard')).toBeNull()
   })
@@ -163,7 +179,9 @@ describe('BatchDetailPage — status-driven variants', () => {
     renderBatchDetailPage()
 
     await waitFor(() => expect(screen.getByTestId('batch-detail-loaded')).not.toBeNull())
-    expect(screen.getByTestId('batch-detail-discarded-line').textContent).toContain('acct@welld.ch')
+    const discardedLine = screen.getByTestId('batch-detail-discarded-line').textContent
+    expect(discardedLine).toContain('acct@welld.ch')
+    expect(discardedLine).not.toContain('[object Object]')
     expect(screen.queryByTestId('batch-detail-mark-paid')).toBeNull()
     expect(screen.queryByTestId('batch-detail-discard')).toBeNull()
   })

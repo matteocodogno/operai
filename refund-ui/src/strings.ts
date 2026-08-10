@@ -367,7 +367,16 @@ const en = {
       meta: {
         cutoffLabel: (date: string) => `Cutoff: ${date}`,
         generatedLabel: (date: string, email: string) => `Generated ${date} by ${email}`,
-        referenceLabel: 'Reference',
+        /**
+         * The batch's own id doubles as its human-facing reference — the same
+         * value appears in the accounting email's subject/body
+         * (notify-api/src/system/emailTemplates.ts) and on the compiled PDF
+         * (refund-api/src/batches/pdf.ts). There is no separate reference
+         * number, so the label says what it is FOR rather than just naming it.
+         */
+        referenceLabel: 'Batch reference',
+        referenceTooltip:
+          'Quote this when referring to the batch — it appears in the accounting email and on the compiled PDF.',
       },
       /** Email delivery status — shared verbatim by Screen B3's own status line, `MarkPaidDialog`'s FYI line, and Screen B1's compact row indicator. */
       email: {

@@ -346,6 +346,7 @@ export default function BatchDetailPage() {
               </span>
               <span
                 data-testid="batch-detail-reference"
+                title={t.meta.referenceTooltip}
                 className="text-xs px-1.5 py-0.5 rounded"
                 style={{ fontFamily: 'var(--mono)', color: 'var(--muted)', backgroundColor: 'var(--ink-soft)' }}
               >
@@ -355,13 +356,13 @@ export default function BatchDetailPage() {
 
             {pageState.batch.status === 'paid' && pageState.batch.paidAt && pageState.batch.paidBy && (
               <p className="text-sm" style={{ color: 'var(--grn)' }} data-testid="batch-detail-paid-line">
-                {t.paidLine(formatDateTime(pageState.batch.paidAt), pageState.batch.paidBy)}
+                {t.paidLine(formatDateTime(pageState.batch.paidAt), pageState.batch.paidBy.email)}
               </p>
             )}
 
             {pageState.batch.status === 'discarded' && pageState.batch.discardedAt && pageState.batch.discardedBy && (
               <p className="text-sm" style={{ color: 'var(--muted)' }} data-testid="batch-detail-discarded-line">
-                {t.discardedLine(formatDateTime(pageState.batch.discardedAt), pageState.batch.discardedBy)}
+                {t.discardedLine(formatDateTime(pageState.batch.discardedAt), pageState.batch.discardedBy.email)}
               </p>
             )}
 

@@ -95,6 +95,15 @@ export type BatchEmployeeGroup = {
   requests: BatchRequestRow[]
 }
 
+/**
+ * Who closed a batch out. An OBJECT carrying only `email` — unlike
+ * `createdBy`, which also has a `userId` — because refund-api records
+ * terminal actors as a bare `paidByEmail`/`discardedByEmail` column and
+ * wraps them in `BatchTerminalActorSchema` (refund-api/src/batches/
+ * batches.schemas.ts).
+ */
+export type BatchTerminalActor = { email: string }
+
 /** `GET /batches/:id` (and the 200/201 body of compile/mark-paid/discard) — AC-2.1. */
 export type BatchDetail = {
   id: string
@@ -107,9 +116,9 @@ export type BatchDetail = {
   employees: BatchEmployeeGroup[]
   email: { status: BatchEmailStatus; lastAttemptAt: string | null }
   paidAt: string | null
-  paidBy: string | null
+  paidBy: BatchTerminalActor | null
   discardedAt: string | null
-  discardedBy: string | null
+  discardedBy: BatchTerminalActor | null
   /**
    * Minted post-authz, ~60s fresh — `BatchPdfLink` (T10) re-mints via
    * `getPdfUrl` rather than trusting this on a long-lived screen. `null`
