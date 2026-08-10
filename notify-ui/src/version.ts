@@ -16,5 +16,4 @@
  * never be mistaken for a shipped release (mirrors shell/src/lib/appInfo.ts's
  * `APP_VERSION` fallback and its rationale).
  */
-export const REMOTE_VERSION: string =
-  typeof __REMOTE_VERSION__ !== 'undefined' ? __REMOTE_VERSION__ : 'unknown'
+export const REMOTE_VERSION: string = typeof __REMOTE_VERSION__ !== 'undefined' ? __REMOTE_VERSION__ : 'unknown'

@@ -234,7 +234,9 @@ describe('NotificationCenterPage', () => {
     // first mount (design.md Flow 3, step 4: "the previous batch is already
     // readAt-set and carries no affordance") — the SAME notification now
     // comes back read.
-    vi.mocked(listNotifications).mockResolvedValueOnce(listOf([{ ...unreadNotification, readAt: '2026-07-13T09:05:00.000Z' }]))
+    vi.mocked(listNotifications).mockResolvedValueOnce(
+      listOf([{ ...unreadNotification, readAt: '2026-07-13T09:05:00.000Z' }]),
+    )
 
     renderCenterPage()
 

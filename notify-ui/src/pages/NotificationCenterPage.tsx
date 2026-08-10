@@ -51,9 +51,7 @@ import type { Notification } from '../lib/notificationsApi'
  */
 
 type CenterState =
-  | { status: 'loading' }
-  | { status: 'loaded'; items: Notification[] }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'loaded'; items: Notification[] } | { status: 'error'; message: string }
 
 const errorMessageFor = (error: unknown): string => {
   if (error instanceof Error) return error.message
@@ -89,9 +87,7 @@ export default function NotificationCenterPage() {
 
         if (!capturedRef.current) {
           capturedRef.current = true
-          const unread = new Set(
-            response.items.filter((item) => item.readAt === null).map((item) => item.id),
-          )
+          const unread = new Set(response.items.filter((item) => item.readAt === null).map((item) => item.id))
           setWasUnreadIds(unread)
           // Flow 3, step 1: instant local badge clear, then best-effort
           // server-side mark-all-read. Never blocks/affects the rendered
@@ -157,8 +153,7 @@ export default function NotificationCenterPage() {
           RemoteMount's/Pagination's `aria-live="polite"` sr-only convention. */}
       <p className="sr-only" aria-live="polite">
         {state.status === 'loading' && 'Loading your notifications'}
-        {state.status === 'loaded' &&
-          `${state.items.length} notification${state.items.length === 1 ? '' : 's'} loaded`}
+        {state.status === 'loaded' && `${state.items.length} notification${state.items.length === 1 ? '' : 's'} loaded`}
         {state.status === 'error' && 'Could not load your notifications'}
       </p>
 
@@ -190,16 +185,12 @@ export default function NotificationCenterPage() {
         )}
 
         {state.status === 'loaded' && state.items.length === 0 && (
-          <div
-            data-testid="notify-empty-state"
-            className="flex flex-col items-center gap-2 px-4 py-16 text-center"
-          >
+          <div data-testid="notify-empty-state" className="flex flex-col items-center gap-2 px-4 py-16 text-center">
             <h2 className="text-lg font-semibold" style={{ fontFamily: 'var(--disp)' }}>
               Nothing here yet
             </h2>
             <p className="max-w-sm text-sm" style={{ color: 'var(--soft)' }}>
-              You&rsquo;ll see notifications from EstimAI, Refund, and the rest of the suite here
-              as they happen.
+              You&rsquo;ll see notifications from EstimAI, Refund, and the rest of the suite here as they happen.
             </p>
           </div>
         )}
