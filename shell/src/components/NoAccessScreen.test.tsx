@@ -18,9 +18,7 @@ describe('NoAccessScreen (Screen S1)', () => {
     render(<NoAccessScreen />)
 
     expect(screen.getByRole('heading', { name: 'No apps available yet' })).toBeDefined()
-    expect(
-      screen.getByText('Ask your administrator to grant you access to a tool.'),
-    ).toBeDefined()
+    expect(screen.getByText('Ask your administrator to grant you access to a tool.')).toBeDefined()
   })
 
   it('moves focus to the heading on mount so assistive tech announces it immediately', () => {

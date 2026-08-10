@@ -297,7 +297,7 @@ const loadNotifyApp = () => import('notify/App')
 // ---------------------------------------------------------------------------
 
 const resolveAccessRedirectTarget = (apps: readonly string[]): string => {
-  const permitted = TOOLS.find(tool => apps.includes(tool.id))
+  const permitted = TOOLS.find((tool) => apps.includes(tool.id))
   return permitted ? permitted.to : '/no-access'
 }
 

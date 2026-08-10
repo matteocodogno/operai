@@ -42,10 +42,7 @@ const REMOTE_DIRS: Record<(typeof REMOTE_VERSION_SOURCES)[number]['id'], string>
 }
 
 const remotesDtsSource = readFileSync(path.join(__dirname, 'remotes.d.ts'), 'utf-8')
-const shellViteConfigSource = readFileSync(
-  path.resolve(__dirname, '../../vite.config.ts'),
-  'utf-8',
-)
+const shellViteConfigSource = readFileSync(path.resolve(__dirname, '../../vite.config.ts'), 'utf-8')
 
 describe.each(REMOTE_VERSION_SOURCES)(
   "'$id' — the id agrees across useRemoteVersions, remotes.d.ts, and both sides' vite.config.ts",
@@ -63,12 +60,7 @@ describe.each(REMOTE_VERSION_SOURCES)(
     })
 
     it(`${REMOTE_DIRS[id]}/vite.config.ts's federation() call self-identifies as name: '${id}' and exposes './version'`, () => {
-      const remoteViteConfigPath = path.resolve(
-        __dirname,
-        '../../../',
-        REMOTE_DIRS[id],
-        'vite.config.ts',
-      )
+      const remoteViteConfigPath = path.resolve(__dirname, '../../../', REMOTE_DIRS[id], 'vite.config.ts')
       const source = readFileSync(remoteViteConfigPath, 'utf-8')
       expect(source).toMatch(new RegExp(`federation\\(\\{\\s*name:\\s*'${id}'`, 's'))
       expect(source).toMatch(/exposes:\s*\{[^}]*'\.\/version':\s*'\.\/src\/version\.ts'/s)
@@ -77,5 +69,5 @@ describe.each(REMOTE_VERSION_SOURCES)(
 )
 
 it('REMOTE_VERSION_SOURCES covers exactly the four known remote directories, no more, no less', () => {
-  expect(new Set(REMOTE_VERSION_SOURCES.map(s => s.id))).toEqual(new Set(Object.keys(REMOTE_DIRS)))
+  expect(new Set(REMOTE_VERSION_SOURCES.map((s) => s.id))).toEqual(new Set(Object.keys(REMOTE_DIRS)))
 })

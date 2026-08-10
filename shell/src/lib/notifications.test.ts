@@ -41,12 +41,7 @@ vi.mock('better-auth/react', () => ({
   }),
 }))
 
-const {
-  raiseNotification,
-  useUnreadCount,
-  resetUnreadCount,
-  closeSseConnection,
-} = await import('./notifications')
+const { raiseNotification, useUnreadCount, resetUnreadCount, closeSseConnection } = await import('./notifications')
 const { apiFetch, signOut } = await import('./session')
 
 // ---------------------------------------------------------------------------
@@ -272,9 +267,7 @@ describe('raiseNotification', () => {
       }),
     )
 
-    await expect(
-      raiseNotification({ title: '', body: 'x', originApp: 'estimai' }),
-    ).rejects.toThrow()
+    await expect(raiseNotification({ title: '', body: 'x', originApp: 'estimai' })).rejects.toThrow()
   })
 })
 
@@ -401,48 +394,44 @@ describe('resetUnreadCount', () => {
 // ---------------------------------------------------------------------------
 
 describe('SSE connection manager', () => {
-  it(
-    'on error: closes the dead connection, mints a FRESH ticket, opens a new EventSource, and re-syncs the count from REST',
-    async () => {
-      const { result, unmount } = renderHook(() => useUnreadCount())
+  it('on error: closes the dead connection, mints a FRESH ticket, opens a new EventSource, and re-syncs the count from REST', async () => {
+    const { result, unmount } = renderHook(() => useUnreadCount())
 
-      await waitFor(() => {
-        expect(MockEventSource.instances).toHaveLength(1)
-      })
-      const first = MockEventSource.instances[0]
-      expect(first.url).toBe(`${NOTIFY_URL}/notifications/stream?ticket=ticket-1`)
-      expect(first.closed).toBe(false)
+    await waitFor(() => {
+      expect(MockEventSource.instances).toHaveLength(1)
+    })
+    const first = MockEventSource.instances[0]
+    expect(first.url).toBe(`${NOTIFY_URL}/notifications/stream?ticket=ticket-1`)
+    expect(first.closed).toBe(false)
 
-      // What the server will report once the reconnect's resync resolves.
-      serverUnreadCount = 7
+    // What the server will report once the reconnect's resync resolves.
+    serverUnreadCount = 7
 
-      act(() => {
-        first.triggerError()
-      })
+    act(() => {
+      first.triggerError()
+    })
 
-      // The dead connection is closed immediately — this is what stops the
-      // browser's OWN built-in retry against the now-consumed ticket's URL.
-      expect(first.closed).toBe(true)
+    // The dead connection is closed immediately — this is what stops the
+    // browser's OWN built-in retry against the now-consumed ticket's URL.
+    expect(first.closed).toBe(true)
 
-      await waitFor(
-        () => {
-          expect(MockEventSource.instances).toHaveLength(2)
-        },
-        { timeout: 3000 },
-      )
-      const second = MockEventSource.instances[1]
-      // A fresh ticket — never the consumed one.
-      expect(second.url).toBe(`${NOTIFY_URL}/notifications/stream?ticket=ticket-2`)
-      expect(second.url).not.toBe(first.url)
+    await waitFor(
+      () => {
+        expect(MockEventSource.instances).toHaveLength(2)
+      },
+      { timeout: 3000 },
+    )
+    const second = MockEventSource.instances[1]
+    // A fresh ticket — never the consumed one.
+    expect(second.url).toBe(`${NOTIFY_URL}/notifications/stream?ticket=ticket-2`)
+    expect(second.url).not.toBe(first.url)
 
-      await waitFor(() => {
-        expect(result.current).toBe(7)
-      })
+    await waitFor(() => {
+      expect(result.current).toBe(7)
+    })
 
-      unmount()
-    },
-    10_000,
-  )
+    unmount()
+  }, 10_000)
 })
 
 // ---------------------------------------------------------------------------
@@ -591,9 +580,7 @@ describe('trusted origins', () => {
     expect(response.status).toBe(200)
 
     const mockFetch = vi.mocked(fetch)
-    const calls = mockFetch.mock.calls.filter(
-      ([url]) => resolveUrl(url) === `${NOTIFY_URL}/notifications/unread-count`,
-    )
+    const calls = mockFetch.mock.calls.filter(([url]) => resolveUrl(url) === `${NOTIFY_URL}/notifications/unread-count`)
     expect(calls.length).toBeGreaterThanOrEqual(1)
     const [, init] = calls[calls.length - 1]
     expect((init as RequestInit & { headers: Record<string, string> })?.headers).toMatchObject({

@@ -94,9 +94,9 @@ export function useRemoteVersions(
     let cancelled = false
 
     for (const source of sources) {
-      resolveOne(source, timeoutMs).then(version => {
+      resolveOne(source, timeoutMs).then((version) => {
         if (!cancelled) {
-          setVersions(current => ({ ...current, [source.id]: version }))
+          setVersions((current) => ({ ...current, [source.id]: version }))
         }
       })
     }

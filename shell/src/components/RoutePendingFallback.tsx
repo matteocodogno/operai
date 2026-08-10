@@ -27,14 +27,8 @@
  */
 export function RoutePendingFallback() {
   return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 px-6 py-16"
-      data-testid="route-pending"
-    >
-      <div
-        aria-hidden="true"
-        className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-acc"
-      />
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16" data-testid="route-pending">
+      <div aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-acc" />
       <p className="sr-only" aria-live="polite">
         Loading…
       </p>

@@ -97,7 +97,7 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
   return (
     <div className="relative" ref={rootRef}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="flex items-center rounded-full shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-acc/50"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -131,9 +131,7 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
         >
           <div className="px-3 py-2 border-b border-rule">
             <div className="text-[12px] text-text font-medium truncate">{displayName}</div>
-            {secondary && (
-              <div className="text-[11px] text-muted font-mono truncate">{secondary}</div>
-            )}
+            {secondary && <div className="text-[11px] text-muted font-mono truncate">{secondary}</div>}
           </div>
           <Link
             to="/account"

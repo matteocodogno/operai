@@ -166,17 +166,13 @@ function ShellHeaderPlaceholder() {
 
 function ShellSidebarPlaceholder() {
   return (
-    <p className="px-4 py-3 text-sm text-muted">
-      Sidebar placeholder — tool switcher (EstimAI, Refund) lands in T7.
-    </p>
+    <p className="px-4 py-3 text-sm text-muted">Sidebar placeholder — tool switcher (EstimAI, Refund) lands in T7.</p>
   )
 }
 
 function ShellFooterPlaceholder() {
   return (
-    <p className="px-4 py-3 text-sm text-muted">
-      Footer placeholder — legal link, version, company info land in T8.
-    </p>
+    <p className="px-4 py-3 text-sm text-muted">Footer placeholder — legal link, version, company info land in T8.</p>
   )
 }
 

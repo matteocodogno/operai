@@ -419,9 +419,7 @@ async function openConnection(): Promise<void> {
     return
   }
 
-  const es = new EventSource(
-    `${getNotifyBaseUrl()}/notifications/stream?ticket=${encodeURIComponent(ticket)}`,
-  )
+  const es = new EventSource(`${getNotifyBaseUrl()}/notifications/stream?ticket=${encodeURIComponent(ticket)}`)
   connectionState.eventSource = es
   connectionState.connecting = false
 

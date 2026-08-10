@@ -108,8 +108,8 @@ export default function ToastHost() {
   useEffect(() => {
     const unsubscribe = subscribeToasts((event: ToastEvent) => {
       const item: ToastItem = { id: event.notification.id, notification: event.notification }
-      setVisible(current => {
-        if (current.some(existing => existing.id === item.id)) {
+      setVisible((current) => {
+        if (current.some((existing) => existing.id === item.id)) {
           // Same notification id already showing — never double-pop it.
           return current
         }
@@ -124,8 +124,8 @@ export default function ToastHost() {
   }, [])
 
   const dismiss = (id: string): void => {
-    setVisible(current => {
-      const next = current.filter(item => item.id !== id)
+    setVisible((current) => {
+      const next = current.filter((item) => item.id !== id)
       if (next.length < MAX_VISIBLE_TOASTS) {
         const promoted = queueRef.current.shift()
         if (promoted) {
@@ -142,7 +142,7 @@ export default function ToastHost() {
 
   return (
     <div className="pointer-events-none fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
-      {visible.map(item => (
+      {visible.map((item) => (
         <Toast key={item.id} item={item} onDismiss={() => dismiss(item.id)} />
       ))}
     </div>

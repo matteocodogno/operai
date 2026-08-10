@@ -40,7 +40,7 @@ export default function LogoMenu({ onAbout, imgClassName = 'h-8 w-8' }: Props) {
   return (
     <div className="relative shrink-0" ref={rootRef}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="flex items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-acc/50"
         aria-haspopup="menu"
         aria-expanded={open}

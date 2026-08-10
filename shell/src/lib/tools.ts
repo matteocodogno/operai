@@ -47,12 +47,12 @@ export const LAST_TOOL_STORAGE_KEY = 'operai_last_tool'
 
 /** Narrows an arbitrary value (e.g. a raw localStorage read) to a known ToolId. */
 export function isToolId(value: unknown): value is ToolId {
-  return typeof value === 'string' && TOOLS.some(tool => tool.id === value)
+  return typeof value === 'string' && TOOLS.some((tool) => tool.id === value)
 }
 
 /** Resolves a tool id to its mount path. Unknown ids fall back to the default tool. */
 export function toolPath(id: ToolId): string {
-  return TOOLS.find(tool => tool.id === id)?.to ?? (TOOLS.find(tool => tool.id === DEFAULT_TOOL_ID) as SuiteTool).to
+  return TOOLS.find((tool) => tool.id === id)?.to ?? (TOOLS.find((tool) => tool.id === DEFAULT_TOOL_ID) as SuiteTool).to
 }
 
 /**

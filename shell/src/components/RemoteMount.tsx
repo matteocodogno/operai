@@ -38,16 +38,7 @@
  * the old boundary (and its `hasError` state) and mounts an entirely fresh one
  * instead of requiring a second, separate "reset" code path.
  */
-import {
-  Component,
-  Suspense,
-  lazy,
-  useCallback,
-  useMemo,
-  useState,
-  type ComponentType,
-  type ReactNode,
-} from 'react'
+import { Component, Suspense, lazy, useCallback, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 
 export interface RemoteMountProps<P extends object = Record<string, never>> {
   /**
@@ -80,7 +71,7 @@ export function RemoteMount<P extends object = Record<string, never>>({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `attempt` is a deliberate recompute trigger, not a stale-closure risk
   const LazyRemote = useMemo(() => lazy(loader), [loader, attempt])
 
-  const retry = useCallback(() => setAttempt(current => current + 1), [])
+  const retry = useCallback(() => setAttempt((current) => current + 1), [])
 
   return (
     <RemoteErrorBoundary key={attempt} moduleLabel={moduleLabel} onRetry={retry}>
@@ -106,14 +97,8 @@ export function RemoteMount<P extends object = Record<string, never>>({
 
 function RemoteLoadingFallback({ moduleLabel }: { moduleLabel: string }) {
   return (
-    <div
-      className="flex flex-col items-center justify-center gap-3 px-6 py-16"
-      data-testid="remote-mount-loading"
-    >
-      <div
-        aria-hidden="true"
-        className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-acc"
-      />
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-16" data-testid="remote-mount-loading">
+      <div aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-acc" />
       {/* Announcement-only: mirrors EstimatesPage's `aria-live="polite"` sr-only
           loading text convention rather than a new async-state pattern. */}
       <p className="sr-only" aria-live="polite">{`Loading ${moduleLabel}…`}</p>
@@ -121,18 +106,9 @@ function RemoteLoadingFallback({ moduleLabel }: { moduleLabel: string }) {
   )
 }
 
-function RemoteErrorFallback({
-  moduleLabel,
-  onRetry,
-}: {
-  moduleLabel: string
-  onRetry: () => void
-}) {
+function RemoteErrorFallback({ moduleLabel, onRetry }: { moduleLabel: string; onRetry: () => void }) {
   return (
-    <div
-      className="flex items-center justify-center px-6 py-16"
-      data-testid="remote-mount-error"
-    >
+    <div className="flex items-center justify-center px-6 py-16" data-testid="remote-mount-error">
       <div
         role="alert"
         className="flex max-w-md items-center justify-between gap-4 rounded-md border border-org/40 bg-org/10 px-4 py-3 text-sm text-org"

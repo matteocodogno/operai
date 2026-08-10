@@ -17,19 +17,8 @@
  * muted "—" rather than blocking the dialog or throwing.
  */
 import { useEffect } from 'react'
-import {
-  APP_NAME,
-  APP_DESCRIPTION,
-  APP_TAGLINE,
-  APP_AUTHOR,
-  APP_AUTHOR_URL,
-  APP_VERSION,
-} from '../lib/appInfo'
-import {
-  REMOTE_VERSION_SOURCES,
-  useRemoteVersions,
-  type RemoteVersionSource,
-} from '../hooks/useRemoteVersions'
+import { APP_NAME, APP_DESCRIPTION, APP_TAGLINE, APP_AUTHOR, APP_AUTHOR_URL, APP_VERSION } from '../lib/appInfo'
+import { REMOTE_VERSION_SOURCES, useRemoteVersions, type RemoteVersionSource } from '../hooks/useRemoteVersions'
 
 interface Props {
   onClose: () => void
@@ -66,15 +55,12 @@ export default function AboutModal({ onClose, remoteVersionSources = REMOTE_VERS
   }, [onClose])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
         role="dialog"
         aria-label={`About ${APP_NAME}`}
         className="bg-ink-soft border border-rule rounded-lg shadow-2xl w-full max-w-sm mx-4 p-5"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-3">
@@ -113,10 +99,8 @@ export default function AboutModal({ onClose, remoteVersionSources = REMOTE_VERS
         </div>
 
         <div className="flex flex-col mt-3 pt-3 border-t border-rule/50">
-          <p className="text-[9px] font-mono uppercase tracking-widest text-muted mb-1.5">
-            Components
-          </p>
-          {remoteVersionSources.map(source => {
+          <p className="text-[9px] font-mono uppercase tracking-widest text-muted mb-1.5">Components</p>
+          {remoteVersionSources.map((source) => {
             const version = remoteVersions[source.id]
             return (
               <InfoRow key={source.id} label={source.label}>

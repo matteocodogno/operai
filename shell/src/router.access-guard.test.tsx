@@ -33,14 +33,15 @@ import type { PermissionsResult } from './lib/session'
 // replace. `vi.hoisted` lets the mock functions be configured per-test.
 // ---------------------------------------------------------------------------
 
-const { getSession, ensurePermissions, revalidatePermissions, usePermissions, getCachedPermissions, getCachedSession } = vi.hoisted(() => ({
-  getSession: vi.fn(),
-  ensurePermissions: vi.fn(),
-  revalidatePermissions: vi.fn(),
-  usePermissions: vi.fn(),
-  getCachedPermissions: vi.fn(),
-  getCachedSession: vi.fn(),
-}))
+const { getSession, ensurePermissions, revalidatePermissions, usePermissions, getCachedPermissions, getCachedSession } =
+  vi.hoisted(() => ({
+    getSession: vi.fn(),
+    ensurePermissions: vi.fn(),
+    revalidatePermissions: vi.fn(),
+    usePermissions: vi.fn(),
+    getCachedPermissions: vi.fn(),
+    getCachedSession: vi.fn(),
+  }))
 
 vi.mock('./lib/session', () => ({
   getSession,

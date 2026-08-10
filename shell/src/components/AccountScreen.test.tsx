@@ -59,7 +59,7 @@ describe('AccountScreen (US-6)', () => {
   it('renders a loading state with a polite aria-live announcement, zero interactive elements', async () => {
     let resolveAddress!: (value: AddressView | null) => void
     mockedGetMyAddress.mockReturnValue(
-      new Promise<AddressView | null>(resolve => {
+      new Promise<AddressView | null>((resolve) => {
         resolveAddress = resolve
       }),
     )

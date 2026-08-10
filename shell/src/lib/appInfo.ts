@@ -40,5 +40,4 @@ export const LEGAL_URL = 'https://welld.ch/legal'
  * shell's own `0.0.0` instead of the suite's version). `'unknown'` cannot be
  * mistaken for a shipped release under any circumstance.
  */
-export const APP_VERSION: string =
-  typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'
+export const APP_VERSION: string = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'

@@ -144,8 +144,6 @@ describe.each(REMOTES)('$id remote — real built ./version federation expose', 
     const container = (await import(pathToFileURL(remoteEntryPath).href)) as {
       get: (moduleName: string) => Promise<() => unknown>
     }
-    await expect(container.get('./this-module-does-not-exist')).rejects.toThrow(
-      /does not exist in container/,
-    )
+    await expect(container.get('./this-module-does-not-exist')).rejects.toThrow(/does not exist in container/)
   })
 })

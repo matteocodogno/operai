@@ -51,10 +51,7 @@
 import { useEffect, useState } from 'react'
 import { getMyAddress, type AddressView } from '../lib/profileApi'
 
-type AccountState =
-  | { status: 'loading' }
-  | { status: 'error' }
-  | { status: 'loaded'; address: AddressView | null }
+type AccountState = { status: 'loading' } | { status: 'error' } | { status: 'loaded'; address: AddressView | null }
 
 const COPY = {
   sectionTitle: { en: 'Home address', it: 'Indirizzo di casa' },
@@ -110,7 +107,7 @@ export function AccountScreen() {
         if (!cancelled) setState({ status: 'loading' })
       })
       .then(() => getMyAddress())
-      .then(address => {
+      .then((address) => {
         if (!cancelled) setState({ status: 'loaded', address })
       })
       .catch(() => {
@@ -122,7 +119,7 @@ export function AccountScreen() {
     }
   }, [reloadToken])
 
-  const retry = () => setReloadToken(current => current + 1)
+  const retry = () => setReloadToken((current) => current + 1)
 
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4 px-6 py-12" data-testid="account-screen">
@@ -133,10 +130,7 @@ export function AccountScreen() {
       <div data-testid="account-address-region">
         {state.status === 'loading' && (
           <div className="flex items-center gap-3 py-2" data-testid="account-loading">
-            <div
-              aria-hidden="true"
-              className="h-5 w-5 animate-spin rounded-full border-2 border-rule border-t-acc"
-            />
+            <div aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-rule border-t-acc" />
             <p className="sr-only" aria-live="polite">
               {t('loading')}
             </p>

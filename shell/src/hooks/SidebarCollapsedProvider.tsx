@@ -8,17 +8,13 @@
  * and ShellLayout's rail-width both read the state via `useSidebarCollapsed`.
  */
 import { useCallback, useState, type ReactNode } from 'react'
-import {
-  SIDEBAR_COLLAPSED_STORAGE_KEY,
-  SidebarCollapsedContext,
-  readStoredCollapsed,
-} from './sidebarCollapsed'
+import { SIDEBAR_COLLAPSED_STORAGE_KEY, SidebarCollapsedContext, readStoredCollapsed } from './sidebarCollapsed'
 
 export function SidebarCollapsedProvider({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState<boolean>(readStoredCollapsed)
 
   const toggle = useCallback(() => {
-    setCollapsed(prev => {
+    setCollapsed((prev) => {
       const next = !prev
       try {
         localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next))
@@ -30,9 +26,5 @@ export function SidebarCollapsedProvider({ children }: { children: ReactNode }) 
     })
   }, [])
 
-  return (
-    <SidebarCollapsedContext.Provider value={{ collapsed, toggle }}>
-      {children}
-    </SidebarCollapsedContext.Provider>
-  )
+  return <SidebarCollapsedContext.Provider value={{ collapsed, toggle }}>{children}</SidebarCollapsedContext.Provider>
 }

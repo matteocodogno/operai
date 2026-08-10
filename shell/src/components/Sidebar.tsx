@@ -137,15 +137,15 @@ export default function Sidebar() {
   // when the user genuinely has zero access — either way the correct nav is
   // an empty list, never the full unfiltered TOOLS array.
   const { apps } = usePermissions()
-  const visibleTools = TOOLS.filter(tool => apps.includes(tool.id))
+  const visibleTools = TOOLS.filter((tool) => apps.includes(tool.id))
   // Admin is pinned to the bottom section (above the collapse toggle), kept out
   // of the scrollable workflow-tool list — it's an admin-only affordance, not a
   // day-to-day tool. The roving-tabindex arrow-key group covers only the main
   // tools; Admin is a standalone tab stop like the collapse toggle beneath it.
-  const mainTools = visibleTools.filter(tool => tool.id !== 'admin')
-  const adminTool = visibleTools.find(tool => tool.id === 'admin')
+  const mainTools = visibleTools.filter((tool) => tool.id !== 'admin')
+  const adminTool = visibleTools.find((tool) => tool.id === 'admin')
 
-  const activeIndex = mainTools.findIndex(tool => matchRoute({ to: tool.to, fuzzy: true }) !== false)
+  const activeIndex = mainTools.findIndex((tool) => matchRoute({ to: tool.to, fuzzy: true }) !== false)
 
   const [rovingIndex, setRovingIndex] = useState(() => (activeIndex >= 0 ? activeIndex : 0))
   const itemRefs = useRef<Array<HTMLAnchorElement | null>>([])
@@ -201,12 +201,12 @@ export default function Sidebar() {
           <li key={tool.id}>
             <Link
               to={tool.to}
-              ref={node => {
+              ref={(node) => {
                 itemRefs.current[index] = node
               }}
               tabIndex={index === safeRovingIndex ? 0 : -1}
               onFocus={() => setRovingIndex(index)}
-              onKeyDown={event => handleKeyDown(event, index)}
+              onKeyDown={(event) => handleKeyDown(event, index)}
               // Hover tooltip surfaces the label the collapsed rail hides.
               title={collapsed ? tool.label : undefined}
               className={itemClass(collapsed)}

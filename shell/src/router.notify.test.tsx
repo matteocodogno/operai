@@ -203,9 +203,9 @@ describe('/notify route registration (T13, AC-2.1)', () => {
 
 describe('/notify absent from the permission-filtered sidebar TOOLS list (plan.md "Shell changes")', () => {
   it('TOOLS (shell/src/lib/tools.ts) contains no entry for "notify"', () => {
-    const ids: string[] = TOOLS.map(tool => tool.id)
+    const ids: string[] = TOOLS.map((tool) => tool.id)
     expect(ids.includes('notify')).toBe(false)
-    expect(TOOLS.some(tool => tool.to === '/notify')).toBe(false)
+    expect(TOOLS.some((tool) => tool.to === '/notify')).toBe(false)
   })
 
   it('Sidebar renders no "notify" link even when permissions grant every known app', async () => {

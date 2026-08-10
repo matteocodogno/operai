@@ -85,15 +85,12 @@ const AUTH_URL = 'http://auth.test'
  *
  * The `_authed` route is the first (and only) child of the root route.
  */
-const getAuthedBeforeLoad = async (): Promise<
-  ((ctx: { location: { href: string } }) => Promise<void>) | undefined
-> => {
+const getAuthedBeforeLoad = async (): Promise<((ctx: { location: { href: string } }) => Promise<void>) | undefined> => {
   const mod = await import('./router?t=' + Date.now())
   const authedNode = mod.routeTree.children?.[0]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (authedNode as any)?.options?.beforeLoad as
-    | ((ctx: { location: { href: string } }) => Promise<void>)
-    | undefined
+    ((ctx: { location: { href: string } }) => Promise<void>) | undefined
 }
 
 // ---------------------------------------------------------------------------

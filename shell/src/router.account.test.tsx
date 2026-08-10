@@ -32,15 +32,13 @@ import { RouterProvider } from '@tanstack/react-router'
 // replace (mirrors router.notify.test.tsx / router.access-guard.test.tsx).
 // ---------------------------------------------------------------------------
 
-const { getSession, usePermissions, ensurePermissions, revalidatePermissions, apiFetch } = vi.hoisted(
-  () => ({
-    getSession: vi.fn(),
-    usePermissions: vi.fn(),
-    ensurePermissions: vi.fn(),
-    revalidatePermissions: vi.fn(),
-    apiFetch: vi.fn(),
-  }),
-)
+const { getSession, usePermissions, ensurePermissions, revalidatePermissions, apiFetch } = vi.hoisted(() => ({
+  getSession: vi.fn(),
+  usePermissions: vi.fn(),
+  ensurePermissions: vi.fn(),
+  revalidatePermissions: vi.fn(),
+  apiFetch: vi.fn(),
+}))
 
 vi.mock('./lib/session', () => ({
   getSession,
@@ -187,9 +185,7 @@ describe('/account route registration (T15, AC-6.1, ADR-0034)', () => {
 
     await renderShellAt('/account')
 
-    expect(
-      await screen.findByText('Bahnhofstrasse 12b, 8001 Zürich, Zürich, Switzerland'),
-    ).not.toBeNull()
+    expect(await screen.findByText('Bahnhofstrasse 12b, 8001 Zürich, Zürich, Switzerland')).not.toBeNull()
     // The chrome's tool switcher is still there — /account isn't a full-page takeover.
     expect(screen.getByRole('link', { name: 'EstimAI' })).not.toBeNull()
   })
@@ -209,7 +205,7 @@ describe('/account route registration (T15, AC-6.1, ADR-0034)', () => {
 describe('/account absent from the permission-filtered sidebar TOOLS list (mirrors /notify)', () => {
   it('TOOLS (shell/src/lib/tools.ts) contains no entry for "account"', async () => {
     const { TOOLS } = await import('./lib/tools')
-    expect(TOOLS.some(tool => tool.to === '/account')).toBe(false)
+    expect(TOOLS.some((tool) => tool.to === '/account')).toBe(false)
   })
 })
 

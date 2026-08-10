@@ -86,8 +86,7 @@ const makeResponse = (status: number, body: unknown = {}): Response =>
     headers: { 'Content-Type': 'application/json' },
   })
 
-const tokenResponse = (token: string): Response =>
-  makeResponse(200, { token })
+const tokenResponse = (token: string): Response => makeResponse(200, { token })
 
 const unauthorizedResponse = (): Response => makeResponse(401, { error: 'Unauthorized' })
 
@@ -145,9 +144,7 @@ describe('apiFetch', () => {
 
       // First call: GET /auth/token → returns JWT.
       // Second call: GET TARGET_URL → 200 OK.
-      mockFetch
-        .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-        .mockResolvedValueOnce(okResponse())
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
 
       await apiFetch(TARGET_URL)
 
@@ -184,9 +181,7 @@ describe('apiFetch', () => {
       await apiFetch(TARGET_URL)
 
       // /auth/token fetched only once across both apiFetch calls.
-      const tokenCalls = mockFetch.mock.calls.filter(
-        ([url]) => url === `${AUTH_URL}/auth/token`,
-      )
+      const tokenCalls = mockFetch.mock.calls.filter(([url]) => url === `${AUTH_URL}/auth/token`)
       expect(tokenCalls).toHaveLength(1)
 
       // Both target requests carry the Bearer header.
@@ -222,9 +217,9 @@ describe('apiFetch', () => {
 
       // The retry must use the refreshed JWT.
       const retryCall = mockFetch.mock.calls[3]
-      expect(
-        (retryCall[1] as RequestInit & { headers: Record<string, string> }).headers,
-      ).toMatchObject({ Authorization: `Bearer ${REFRESHED_JWT}` })
+      expect((retryCall[1] as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${REFRESHED_JWT}`,
+      })
     })
 
     it('/auth/token is called exactly ONCE during the refresh (not more)', async () => {
@@ -238,9 +233,7 @@ describe('apiFetch', () => {
 
       await apiFetch(TARGET_URL)
 
-      const tokenCalls = mockFetch.mock.calls.filter(
-        ([url]) => url === `${AUTH_URL}/auth/token`,
-      )
+      const tokenCalls = mockFetch.mock.calls.filter(([url]) => url === `${AUTH_URL}/auth/token`)
       // Initial fetch + one refresh = 2 total /auth/token calls.
       expect(tokenCalls).toHaveLength(2)
     })
@@ -256,7 +249,7 @@ describe('apiFetch', () => {
       // Call sequence: 1. GET /auth/token → JWT; 2. GET /estimates → 200 OK.
       mockFetch
         .mockResolvedValueOnce(tokenResponse(FAKE_JWT)) // /auth/token
-        .mockResolvedValueOnce(okResponse())             // relative target
+        .mockResolvedValueOnce(okResponse()) // relative target
 
       await apiFetch(SAME_ORIGIN_PATH)
 
@@ -265,26 +258,24 @@ describe('apiFetch', () => {
 
       // The target request (second call) must carry the Bearer header.
       const [, init] = mockFetch.mock.calls[1]
-      expect(
-        (init as RequestInit & { headers: Record<string, string> }).headers,
-      ).toMatchObject({ Authorization: `Bearer ${FAKE_JWT}` })
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
     })
 
     it('sends Authorization header for a request to the auth-origin URL', async () => {
       const mockFetch = vi.mocked(fetch)
 
       const authOriginUrl = `${AUTH_URL}/some-endpoint`
-      mockFetch
-        .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-        .mockResolvedValueOnce(okResponse())
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
 
       await apiFetch(authOriginUrl)
 
       expect(mockFetch).toHaveBeenCalledTimes(2)
       const [, init] = mockFetch.mock.calls[1]
-      expect(
-        (init as RequestInit & { headers: Record<string, string> }).headers,
-      ).toMatchObject({ Authorization: `Bearer ${FAKE_JWT}` })
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
     })
 
     // T20 (specs/007-refund-service, tasks.md "Trusted-origin fix"): proves
@@ -299,17 +290,15 @@ describe('apiFetch', () => {
       const mockFetch = vi.mocked(fetch)
 
       const refundOriginUrl = `${REFUND_API_URL}/requests`
-      mockFetch
-        .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-        .mockResolvedValueOnce(okResponse())
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
 
       await apiFetch(refundOriginUrl)
 
       expect(mockFetch).toHaveBeenCalledTimes(2)
       const [, init] = mockFetch.mock.calls[1]
-      expect(
-        (init as RequestInit & { headers: Record<string, string> }).headers,
-      ).toMatchObject({ Authorization: `Bearer ${FAKE_JWT}` })
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
     })
 
     it('does NOT send Authorization header for a third-party URL', async () => {
@@ -326,7 +315,7 @@ describe('apiFetch', () => {
       expect(url).toBe(THIRD_PARTY_URL)
 
       // init may be undefined (passthrough) or lack an Authorization key.
-      const headers = (init as RequestInit & { headers?: Record<string, string> } | undefined)?.headers
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
       expect(headers?.['Authorization']).toBeUndefined()
     })
 
@@ -372,9 +361,7 @@ describe('apiFetch', () => {
 
       const expectedRedirect = encodeURIComponent(window.location.href)
       expect(window.location.assign).toHaveBeenCalledOnce()
-      expect(window.location.assign).toHaveBeenCalledWith(
-        `${AUTH_URL}/sign-in?redirect=${expectedRedirect}`,
-      )
+      expect(window.location.assign).toHaveBeenCalledWith(`${AUTH_URL}/sign-in?redirect=${expectedRedirect}`)
     })
 
     it('does NOT redirect when the retry succeeds (200)', async () => {
@@ -409,9 +396,7 @@ describe('apiFetch', () => {
       // hit /auth/token again.
       await apiFetch(TARGET_URL)
 
-      const tokenCalls = mockFetch.mock.calls.filter(
-        ([url]) => url === `${AUTH_URL}/auth/token`,
-      )
+      const tokenCalls = mockFetch.mock.calls.filter(([url]) => url === `${AUTH_URL}/auth/token`)
       // 2 from the failed flow + 1 for the fresh call after cache clear = 3.
       expect(tokenCalls).toHaveLength(3)
     })
@@ -455,9 +440,7 @@ describe('getSession / getCachedSession', () => {
   })
 
   it('a second getSession() call re-fetches and replaces the cache (no dedup — mirrors the guard needing a fresh check on every cold navigation)', async () => {
-    mockAuthClientGetSession
-      .mockResolvedValueOnce(SESSION_FIXTURE)
-      .mockResolvedValueOnce({ data: null })
+    mockAuthClientGetSession.mockResolvedValueOnce(SESSION_FIXTURE).mockResolvedValueOnce({ data: null })
 
     await getSession()
     expect(getCachedSession()).toEqual(SESSION_FIXTURE)
@@ -483,9 +466,7 @@ describe('signOut', () => {
     const mockFetch = vi.mocked(fetch)
 
     // Prime the cache with a JWT.
-    mockFetch
-      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-      .mockResolvedValueOnce(okResponse())
+    mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
     await apiFetch(TARGET_URL)
 
     await signOut()
@@ -495,14 +476,10 @@ describe('signOut', () => {
 
     // The cache was cleared before delegating: a subsequent apiFetch must
     // re-fetch /auth/token rather than reuse the stale JWT.
-    mockFetch
-      .mockResolvedValueOnce(tokenResponse('post-signout-jwt'))
-      .mockResolvedValueOnce(okResponse())
+    mockFetch.mockResolvedValueOnce(tokenResponse('post-signout-jwt')).mockResolvedValueOnce(okResponse())
     await apiFetch(TARGET_URL)
 
-    const tokenCalls = mockFetch.mock.calls.filter(
-      ([url]) => url === `${AUTH_URL}/auth/token`,
-    )
+    const tokenCalls = mockFetch.mock.calls.filter(([url]) => url === `${AUTH_URL}/auth/token`)
     // 1 initial fetch + 1 fetch after sign-out clears the cache = 2.
     expect(tokenCalls).toHaveLength(2)
   })
@@ -562,9 +539,7 @@ describe('ensurePermissions', () => {
 
   it('returns the cached value on a second call — no second /authz/me fetch', async () => {
     const mockFetch = vi.mocked(fetch)
-    mockFetch
-      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-      .mockResolvedValueOnce(permissionsResponse())
+    mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(permissionsResponse())
 
     const first = await ensurePermissions()
     const second = await ensurePermissions()
@@ -576,9 +551,7 @@ describe('ensurePermissions', () => {
 
   it('dedupes concurrent callers into a single in-flight /authz/me request', async () => {
     const mockFetch = vi.mocked(fetch)
-    mockFetch
-      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-      .mockResolvedValueOnce(permissionsResponse())
+    mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(permissionsResponse())
 
     const [a, b] = await Promise.all([ensurePermissions(), ensurePermissions()])
 
@@ -602,9 +575,7 @@ describe('ensurePermissions', () => {
 
   it('resolves to EMPTY_PERMISSIONS on a network-level failure instead of throwing', async () => {
     const mockFetch = vi.mocked(fetch)
-    mockFetch
-      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-      .mockRejectedValueOnce(new TypeError('network error'))
+    mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockRejectedValueOnce(new TypeError('network error'))
 
     await expect(ensurePermissions()).resolves.toEqual(EMPTY_PERMISSIONS)
   })
@@ -616,9 +587,7 @@ describe('revalidatePermissions', () => {
     mockFetch
       .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
       .mockResolvedValueOnce(permissionsResponse({ epoch: 1, apps: ['estimai'] }))
-      .mockResolvedValueOnce(
-        permissionsResponse({ epoch: 2, apps: ['estimai', 'refund'] }),
-      )
+      .mockResolvedValueOnce(permissionsResponse({ epoch: 2, apps: ['estimai', 'refund'] }))
 
     const first = await ensurePermissions()
     expect(first.apps).toEqual(['estimai'])
@@ -640,9 +609,7 @@ describe('revalidatePermissions', () => {
 describe('signOut clears the permissions cache', () => {
   it('forces a fresh /authz/me fetch on the next ensurePermissions() call after sign-out', async () => {
     const mockFetch = vi.mocked(fetch)
-    mockFetch
-      .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
-      .mockResolvedValueOnce(permissionsResponse({ epoch: 1 }))
+    mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(permissionsResponse({ epoch: 1 }))
     await ensurePermissions()
 
     await signOut()
@@ -679,9 +646,7 @@ describe('usePermissions', () => {
     mockFetch
       .mockResolvedValueOnce(tokenResponse(FAKE_JWT))
       .mockResolvedValueOnce(permissionsResponse({ epoch: 1, apps: ['estimai'] }))
-      .mockResolvedValueOnce(
-        permissionsResponse({ epoch: 2, apps: ['estimai', 'refund'] }),
-      )
+      .mockResolvedValueOnce(permissionsResponse({ epoch: 2, apps: ['estimai', 'refund'] }))
 
     const { result } = renderHook(() => usePermissions())
 

@@ -94,10 +94,14 @@ describe('ToastHost', () => {
       emit(makeNotification({ severity: 'info' }))
       expect(screen.getByText('Export finished')).toBeDefined()
 
-      act(() => { vi.advanceTimersByTime(5999) })
+      act(() => {
+        vi.advanceTimersByTime(5999)
+      })
       expect(screen.getByText('Export finished')).toBeDefined()
 
-      act(() => { vi.advanceTimersByTime(1) })
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
       expect(screen.queryByText('Export finished')).toBeNull()
     })
 
@@ -107,11 +111,15 @@ describe('ToastHost', () => {
       emit(makeNotification({ id: 'w1', title: 'Warning toast', severity: 'warning' }))
       emit(makeNotification({ id: 'e1', title: 'Error toast', severity: 'error' }))
 
-      act(() => { vi.advanceTimersByTime(8000) })
+      act(() => {
+        vi.advanceTimersByTime(8000)
+      })
       expect(screen.queryByText('Warning toast')).toBeNull()
       expect(screen.getByText('Error toast')).toBeDefined()
 
-      act(() => { vi.advanceTimersByTime(2000) })
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
       expect(screen.queryByText('Error toast')).toBeNull()
     })
 
@@ -121,14 +129,20 @@ describe('ToastHost', () => {
       emit(makeNotification({ severity: 'info' }))
       const toast = screen.getByRole('status')
 
-      act(() => { vi.advanceTimersByTime(5000) })
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
       fireEvent.mouseEnter(toast)
       // Paused: the remaining ~1000ms must not elapse while hovered.
-      act(() => { vi.advanceTimersByTime(5000) })
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
       expect(screen.getByText('Export finished')).toBeDefined()
 
       fireEvent.mouseLeave(toast)
-      act(() => { vi.advanceTimersByTime(1000) })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
       expect(screen.queryByText('Export finished')).toBeNull()
     })
   })
@@ -144,7 +158,9 @@ describe('ToastHost', () => {
 
       // Advance well past every severity's auto-dismiss window — a dismissed
       // toast must never come back via a timer that was still pending.
-      act(() => { vi.advanceTimersByTime(20_000) })
+      act(() => {
+        vi.advanceTimersByTime(20_000)
+      })
       expect(screen.queryByText('Export finished')).toBeNull()
     })
 
@@ -204,7 +220,7 @@ describe('ToastHost', () => {
       emit(makeNotification({ id: 'n2', title: 'Second' }))
       emit(makeNotification({ id: 'n3', title: 'Third' }))
 
-      const titles = screen.getAllByText(/^(First|Second|Third)$/).map(el => el.textContent)
+      const titles = screen.getAllByText(/^(First|Second|Third)$/).map((el) => el.textContent)
       expect(titles).toEqual(['Third', 'Second', 'First'])
     })
 

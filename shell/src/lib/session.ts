@@ -150,14 +150,18 @@ const getTrustedOrigins = (): Set<string> => {
   if (authUrl) {
     try {
       trusted.add(new URL(authUrl).origin)
-    } catch { /* ignore invalid env value */ }
+    } catch {
+      /* ignore invalid env value */
+    }
   }
 
   const apiUrl = import.meta.env.VITE_API_URL as string | undefined
   if (apiUrl) {
     try {
       trusted.add(new URL(apiUrl).origin)
-    } catch { /* ignore invalid env value */ }
+    } catch {
+      /* ignore invalid env value */
+    }
   }
 
   // T10 (specs/005-notification-center): notify-api origin — raiseNotification,
@@ -167,7 +171,9 @@ const getTrustedOrigins = (): Set<string> => {
   if (notifyUrl) {
     try {
       trusted.add(new URL(notifyUrl).origin)
-    } catch { /* ignore invalid env value */ }
+    } catch {
+      /* ignore invalid env value */
+    }
   }
 
   // T20 (specs/007-refund-service, tasks.md "Trusted-origin fix"): refund-api
@@ -181,7 +187,9 @@ const getTrustedOrigins = (): Set<string> => {
   if (refundUrl) {
     try {
       trusted.add(new URL(refundUrl).origin)
-    } catch { /* ignore invalid env value */ }
+    } catch {
+      /* ignore invalid env value */
+    }
   }
 
   return trusted
@@ -190,8 +198,7 @@ const getTrustedOrigins = (): Set<string> => {
 /**
  * Returns true when the request targets an origin the app trusts with its JWT.
  */
-const isTrustedOrigin = (input: RequestInfo | URL): boolean =>
-  getTrustedOrigins().has(resolveOrigin(input))
+const isTrustedOrigin = (input: RequestInfo | URL): boolean => getTrustedOrigins().has(resolveOrigin(input))
 
 /**
  * Fetches a fresh RS256 JWT from the auth service token endpoint.
@@ -248,10 +255,7 @@ const redirectToSignIn = (): void => {
  * integration / e2e layer. The unit tests here cover the interceptor
  * contract only.
  */
-export const apiFetch = async (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-): Promise<Response> => {
+export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   const trusted = isTrustedOrigin(input)
 
   // For untrusted origins: pass through unauthenticated, without credentials.
@@ -417,9 +421,7 @@ const fetchPermissions = async (): Promise<PermissionsResult> => {
  * - Concurrent callers while a (non-forced) fetch is already in flight share
  *   that single in-flight request instead of firing duplicate ones.
  */
-export const ensurePermissions = async (
-  options?: { force?: boolean },
-): Promise<PermissionsResult> => {
+export const ensurePermissions = async (options?: { force?: boolean }): Promise<PermissionsResult> => {
   if (!options?.force) {
     if (cachedPermissions !== null) {
       return cachedPermissions
@@ -444,8 +446,7 @@ export const ensurePermissions = async (
  * Convenience alias for `ensurePermissions({ force: true })` — used by the
  * shell's per-navigation route guard (AC-7.5).
  */
-export const revalidatePermissions = (): Promise<PermissionsResult> =>
-  ensurePermissions({ force: true })
+export const revalidatePermissions = (): Promise<PermissionsResult> => ensurePermissions({ force: true })
 
 /**
  * Synchronously reads the module-scope permissions cache WITHOUT ever
@@ -487,9 +488,7 @@ export const clearPermissionsCache = (): void => {
  * resolves — never throws, never suspends.
  */
 export function usePermissions(): PermissionsResult {
-  const [permissions, setPermissions] = useState<PermissionsResult>(
-    () => cachedPermissions ?? EMPTY_PERMISSIONS,
-  )
+  const [permissions, setPermissions] = useState<PermissionsResult>(() => cachedPermissions ?? EMPTY_PERMISSIONS)
 
   useEffect(() => {
     permissionsListeners.add(setPermissions)
@@ -580,9 +579,7 @@ let cachedSession: SessionResult | null = null
  * Same call signature/behavior as `authClient.getSession` itself — this is a
  * drop-in wrapper, not a new contract.
  */
-export const getSession = async (
-  ...args: Parameters<typeof authClient.getSession>
-): Promise<SessionResult> => {
+export const getSession = async (...args: Parameters<typeof authClient.getSession>): Promise<SessionResult> => {
   const result = await authClient.getSession(...args)
   cachedSession = result
   return result

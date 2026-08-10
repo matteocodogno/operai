@@ -36,16 +36,10 @@ export function NoAccessScreen() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-      <h1
-        ref={headingRef}
-        tabIndex={-1}
-        className="font-disp text-lg font-semibold text-text outline-none"
-      >
+      <h1 ref={headingRef} tabIndex={-1} className="font-disp text-lg font-semibold text-text outline-none">
         No apps available yet
       </h1>
-      <p className="max-w-sm text-sm text-muted">
-        Ask your administrator to grant you access to a tool.
-      </p>
+      <p className="max-w-sm text-sm text-muted">Ask your administrator to grant you access to a tool.</p>
     </div>
   )
 }
