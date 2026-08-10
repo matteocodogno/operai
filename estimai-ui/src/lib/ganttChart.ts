@@ -1,36 +1,36 @@
 import type { ReleaseSummary } from '../types'
 
 // ── Light chart palette ────────────────────────────────────────────────────────
-const BG        = '#f8f8fc'   // very light cool grey
-const GRID_COL  = '#e4e4ee'   // subtle grid lines
-const TITLE_FG  = '#0d0d14'   // chart title
-const LABEL_FG  = '#0d0d14'   // release label text
-const AXIS_FG   = '#6b6b88'   // month axis labels
-const BAR_MAIN  = '#5b6af7'   // expected elapsed bar
-const BAR_RANGE = '#f5a623'   // best–worst range extension (same orange as Range column)
+const BG = '#f8f8fc' // very light cool grey
+const GRID_COL = '#e4e4ee' // subtle grid lines
+const TITLE_FG = '#0d0d14' // chart title
+const LABEL_FG = '#0d0d14' // release label text
+const AXIS_FG = '#6b6b88' // month axis labels
+const BAR_MAIN = '#5b6af7' // expected elapsed bar
+const BAR_RANGE = '#f5a623' // best–worst range extension (same orange as Range column)
 
 /**
  * Draws a horizontal Gantt-style bar chart and returns the PNG as a base64 string
  * (no data: prefix — ready for ExcelJS addImage).
  */
 export function renderGanttPng(rows: ReleaseSummary[], wdm: number): string {
-  const active = rows.filter(s => s.res)
+  const active = rows.filter((s) => s.res)
   if (!active.length) return ''
 
-  const maxEl = Math.max(...active.map(s => s.res!.worst), 1)
+  const maxEl = Math.max(...active.map((s) => s.res!.worst), 1)
 
-  const SCALE   = 2          // retina
+  const SCALE = 2 // retina
   const LABEL_W = 120
-  const BAR_W   = 500
-  const ROW_H   = 48
-  const PAD     = { top: 52, right: 32, bottom: 28, left: 16 }
-  const W       = PAD.left + LABEL_W + BAR_W + PAD.right
-  const H       = PAD.top + active.length * ROW_H + PAD.bottom
+  const BAR_W = 500
+  const ROW_H = 48
+  const PAD = { top: 52, right: 32, bottom: 28, left: 16 }
+  const W = PAD.left + LABEL_W + BAR_W + PAD.right
+  const H = PAD.top + active.length * ROW_H + PAD.bottom
 
-  const canvas  = document.createElement('canvas')
-  canvas.width  = W * SCALE
+  const canvas = document.createElement('canvas')
+  canvas.width = W * SCALE
   canvas.height = H * SCALE
-  const ctx     = canvas.getContext('2d')!
+  const ctx = canvas.getContext('2d')!
   ctx.scale(SCALE, SCALE)
 
   // Background
@@ -53,7 +53,7 @@ export function renderGanttPng(rows: ReleaseSummary[], wdm: number): string {
     ctx.lineTo(gx, H - PAD.bottom)
     ctx.stroke()
 
-    const mo = ((maxEl * t / 4) / wdm).toFixed(1)
+    const mo = ((maxEl * t) / 4 / wdm).toFixed(1)
     ctx.fillStyle = AXIS_FG
     ctx.font = '9px system-ui, sans-serif'
     ctx.textAlign = 'center'
@@ -62,7 +62,7 @@ export function renderGanttPng(rows: ReleaseSummary[], wdm: number): string {
 
   active.forEach((s, i) => {
     const res = s.res!
-    const y   = PAD.top + i * ROW_H
+    const y = PAD.top + i * ROW_H
 
     // Release label
     ctx.fillStyle = LABEL_FG

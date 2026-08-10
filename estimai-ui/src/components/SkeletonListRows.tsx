@@ -27,10 +27,7 @@ export default function SkeletonListRows() {
           {/* Action buttons placeholder */}
           <div className="flex items-center gap-1 shrink-0">
             {[0, 1, 2, 3].map((j) => (
-              <div
-                key={j}
-                className="h-6 w-10 rounded bg-ink-mid opacity-40"
-              />
+              <div key={j} className="h-6 w-10 rounded bg-ink-mid opacity-40" />
             ))}
           </div>
         </div>

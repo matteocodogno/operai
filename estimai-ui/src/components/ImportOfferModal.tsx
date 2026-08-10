@@ -142,10 +142,7 @@ export default function ImportOfferModal({
         {/* Header                                                           */}
         {/* ---------------------------------------------------------------- */}
         <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-rule shrink-0">
-          <h2
-            id="import-modal-title"
-            className="font-disp text-sm font-bold text-text"
-          >
+          <h2 id="import-modal-title" className="font-disp text-sm font-bold text-text">
             {title}
           </h2>
           {/* Close / × button: hidden during importing to prevent premature cancel */}
@@ -164,32 +161,27 @@ export default function ImportOfferModal({
         {/* Body                                                             */}
         {/* ---------------------------------------------------------------- */}
         <div className="px-5 py-4 flex flex-col gap-4">
-
           {/* PHASE: offer */}
           {phase === 'offer' && (
             <>
               <p className="text-sm text-text leading-relaxed">
-                <span className="font-semibold text-acc">{n} estimate{n !== 1 ? 's' : ''}</span>
-                {' '}found in this browser that {n !== 1 ? 'are' : 'is'} not yet in your account.
-                Import {n !== 1 ? 'them' : 'it'} now to access from any device.
-                Your local copies are always kept.
+                <span className="font-semibold text-acc">
+                  {n} estimate{n !== 1 ? 's' : ''}
+                </span>{' '}
+                found in this browser that {n !== 1 ? 'are' : 'is'} not yet in your account. Import{' '}
+                {n !== 1 ? 'them' : 'it'} now to access from any device. Your local copies are always kept.
               </p>
 
               {/* Name preview — up to 3 names */}
               {localEstimates.length > 0 && (
                 <ul className="flex flex-col gap-0.5">
                   {localEstimates.slice(0, 3).map((p) => (
-                    <li
-                      key={p.id}
-                      className="text-[11px] text-soft font-mono truncate"
-                    >
+                    <li key={p.id} className="text-[11px] text-soft font-mono truncate">
                       · {p.name || 'Untitled'}
                     </li>
                   ))}
                   {localEstimates.length > 3 && (
-                    <li className="text-[11px] text-muted font-mono">
-                      + {localEstimates.length - 3} more
-                    </li>
+                    <li className="text-[11px] text-muted font-mono">+ {localEstimates.length - 3} more</li>
                   )}
                 </ul>
               )}
@@ -248,9 +240,7 @@ export default function ImportOfferModal({
                           <td className="py-1.5 px-2">
                             <StatusBadge status={r.status} />
                             {r.status === 'failed' && r.error && (
-                              <div className="text-muted text-[10px] mt-0.5 truncate max-w-[180px]">
-                                {r.error}
-                              </div>
+                              <div className="text-muted text-[10px] mt-0.5 truncate max-w-[180px]">{r.error}</div>
                             )}
                           </td>
                         </tr>
@@ -260,9 +250,7 @@ export default function ImportOfferModal({
                 </table>
               </div>
 
-              <p className="text-[11px] text-muted">
-                Your local copies have not been removed.
-              </p>
+              <p className="text-[11px] text-muted">Your local copies have not been removed.</p>
             </>
           )}
         </div>
@@ -273,10 +261,7 @@ export default function ImportOfferModal({
         <div className="px-5 pb-4 pt-2 flex items-center justify-end gap-3 shrink-0">
           {phase === 'offer' && (
             <>
-              <button
-                onClick={onDecline}
-                className="text-sm text-muted hover:text-text transition-colors"
-              >
+              <button onClick={onDecline} className="text-sm text-muted hover:text-text transition-colors">
                 Skip for now
               </button>
               <button

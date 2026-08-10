@@ -67,9 +67,7 @@ export type UseImportOfferReturn = {
 export const useImportOffer = (onListRefresh: () => void): UseImportOfferReturn => {
   // Lazy initializer: reads localStorage and sessionStorage once on mount,
   // no effect needed, no cascading render.
-  const [{ show: showOffer, projects: localEstimates }, setOfferState] = useState(
-    computeInitialOffer,
-  )
+  const [{ show: showOffer, projects: localEstimates }, setOfferState] = useState(computeInitialOffer)
   const [phase, setPhase] = useState<ImportPhase>('offer')
   const [results, setResults] = useState<EstimateImportResult[] | null>(null)
 

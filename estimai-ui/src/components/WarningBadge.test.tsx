@@ -46,9 +46,7 @@ describe('WarningBadge', () => {
     const icon = screen.getByRole('img')
 
     fireEvent.focus(icon)
-    expect(screen.getByRole('tooltip').textContent).toContain(
-      WARNING_META['wide-range'].description,
-    )
+    expect(screen.getByRole('tooltip').textContent).toContain(WARNING_META['wide-range'].description)
 
     fireEvent.blur(icon)
     expect(screen.queryByRole('tooltip')).toBeNull()

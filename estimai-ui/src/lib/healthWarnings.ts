@@ -68,14 +68,14 @@ export function computeHealthWarnings(
 
   for (const rel of releases) {
     const ws: WarningCode[] = []
-    if (!activities.some(a => a.release === rel.name)) ws.push('no-activities')
-    const s = summary.find(r => r.name === rel.name)
+    if (!activities.some((a) => a.release === rel.name)) ws.push('no-activities')
+    const s = summary.find((r) => r.name === rel.name)
     if (s?.res && s.res.worst > 2 * s.res.best) ws.push('wide-range')
     if (ws.length) releaseWarnings.set(rel.id, ws)
   }
 
   const activityCount = [...activityWarnings.values()].reduce((n, ws) => n + ws.length, 0)
-  const releaseCount  = [...releaseWarnings.values()].reduce((n, ws) => n + ws.length, 0)
+  const releaseCount = [...releaseWarnings.values()].reduce((n, ws) => n + ws.length, 0)
 
   return { activityWarnings, releaseWarnings, activityCount, releaseCount, totalCount: activityCount + releaseCount }
 }

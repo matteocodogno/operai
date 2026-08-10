@@ -25,7 +25,7 @@ export const DEF_PARAMS: Parameters = {
   qaTestDays: 0,
   pmDays: 0,
   aiCostCoef: 10,
-  aiGain: 0.30,
+  aiGain: 0.3,
 }
 
 export function loadProjects(): ProjectMeta[] {
@@ -54,8 +54,8 @@ export function saveProjectData(data: ProjectData): void {
   localStorage.setItem(projectKey(data.id), JSON.stringify(data))
   const meta: ProjectMeta = { id: data.id, name: data.name, author: data.author, updatedAt: new Date().toISOString() }
   const existing = loadProjects()
-  const idx = existing.findIndex(p => p.id === data.id)
-  const next = idx >= 0 ? existing.map(p => p.id === data.id ? meta : p) : [...existing, meta]
+  const idx = existing.findIndex((p) => p.id === data.id)
+  const next = idx >= 0 ? existing.map((p) => (p.id === data.id ? meta : p)) : [...existing, meta]
   saveProjects(next)
 }
 
@@ -76,7 +76,7 @@ export function duplicateProject(id: string): string | null {
 
 export function deleteProject(id: string): void {
   localStorage.removeItem(projectKey(id))
-  saveProjects(loadProjects().filter(p => p.id !== id))
+  saveProjects(loadProjects().filter((p) => p.id !== id))
 }
 
 export function getLastProjectId(): string | null {
@@ -92,7 +92,8 @@ export function importProjectFromJson(raw: string): string {
     throw new Error('Invalid JSON file.')
   }
   if (
-    typeof parsed !== 'object' || parsed === null ||
+    typeof parsed !== 'object' ||
+    parsed === null ||
     !Array.isArray((parsed as ProjectData).acts) ||
     !Array.isArray((parsed as ProjectData).releases) ||
     typeof (parsed as ProjectData).params !== 'object'

@@ -7,7 +7,7 @@ interface Props {
 }
 
 function epicCount(t: Template): number {
-  return new Set(t.activities.map(a => a.epic)).size
+  return new Set(t.activities.map((a) => a.epic)).size
 }
 
 export default function TemplatePicker({ onSelect, onBlank }: Props) {
@@ -18,7 +18,7 @@ export default function TemplatePicker({ onSelect, onBlank }: Props) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-3xl">
-        {TEMPLATES.map(t => (
+        {TEMPLATES.map((t) => (
           <button
             key={t.id}
             onClick={() => onSelect(t)}

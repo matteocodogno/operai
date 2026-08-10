@@ -243,9 +243,7 @@ describe('add(estimateId, request)', () => {
 
   it('distinguishes the two different 422s by class, not just status (both share status:422)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(422, 'cannot_share_with_self'))
-    const selfErr = await add(ESTIMATE_ID, { email: 'me@welld.ch', accessLevel: 'viewer' }).catch(
-      (e: unknown) => e,
-    )
+    const selfErr = await add(ESTIMATE_ID, { email: 'me@welld.ch', accessLevel: 'viewer' }).catch((e: unknown) => e)
 
     vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(422, 'collaborator_not_eligible'))
     const notEligibleErr = await add(ESTIMATE_ID, { email: 'stranger@example.com', accessLevel: 'viewer' }).catch(
@@ -260,7 +258,9 @@ describe('add(estimateId, request)', () => {
   })
 
   it('throws RateLimitedError on 429 code:"rate_limited", carrying retryAfterSeconds from the header', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(429, 'rate_limited', 'Too many attempts.', {}, { 'Retry-After': '30' }))
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      problemResponse(429, 'rate_limited', 'Too many attempts.', {}, { 'Retry-After': '30' }),
+    )
 
     let thrown: unknown
     try {

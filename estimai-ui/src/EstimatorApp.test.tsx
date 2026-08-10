@@ -343,11 +343,7 @@ describe('EstimatorApp: showSavedToast → success ToastBanner render wiring', (
 // toolbar (which would resurrect an account-free view of estimate data).
 // ---------------------------------------------------------------------------
 
-function renderToolbar(
-  access: EstimateAccess,
-  owner?: EstimateIdentity | null,
-  collaboratorCount?: number,
-) {
+function renderToolbar(access: EstimateAccess, owner?: EstimateIdentity | null, collaboratorCount?: number) {
   return render(
     <EstimatorProvider
       estimateId="est-toolbar-test"

@@ -132,14 +132,14 @@ function ContextConsumer() {
   const rel = ctx.releases[0]
   const releaseResult = rel
     ? computeRelease(
-        ctx.acts.filter(a => a.release === rel.name),
+        ctx.acts.filter((a) => a.release === rel.name),
         rel,
         ctx.params,
       )
     : null
 
   // Compute expected PERT for each activity
-  const pertValues = ctx.acts.map(a => pertCalc(a.o, a.ml, a.p))
+  const pertValues = ctx.acts.map((a) => pertCalc(a.o, a.ml, a.p))
   const expectedValues = ctx.acts.map((a, i) => pertValues[i] + (Number(a.risk) || 0))
 
   return (
@@ -888,7 +888,7 @@ describe('(D) 413 size-limit rejection: specific message + state preserved (T11 
 // Consumer that exposes updRel and the count of activities linked to r1 by name.
 function RenameConsumer() {
   const ctx = useEstimatorContext()
-  const linked = ctx.acts.filter(a => a.release === ctx.releases[0]?.name).length
+  const linked = ctx.acts.filter((a) => a.release === ctx.releases[0]?.name).length
   return (
     <div>
       <span data-testid="e-release-name">{ctx.releases[0]?.name}</span>

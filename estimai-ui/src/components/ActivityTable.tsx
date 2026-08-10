@@ -1,11 +1,5 @@
-import { memo, useMemo, useRef, useState, useEffect, useCallback, type ChangeEvent } from "react";
-import {
-  useReactTable,
-  getCoreRowModel,
-  flexRender,
-  createColumnHelper,
-  type Row,
-} from "@tanstack/react-table";
+import { memo, useMemo, useRef, useState, useEffect, useCallback, type ChangeEvent } from 'react'
+import { useReactTable, getCoreRowModel, flexRender, createColumnHelper, type Row } from '@tanstack/react-table'
 import {
   DndContext,
   closestCenter,
@@ -15,29 +9,25 @@ import {
   type DragEndEvent,
   type DragStartEvent,
   type DragOverEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { type Activity, PROFILES } from "../types";
-import { computeActivityNums } from "../lib/activityNums";
-import { deriveOP } from "../hooks/useEstimator";
-import { type WarningCode } from "../lib/healthWarnings";
-import WarningBadge from "./WarningBadge";
+} from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { type Activity, PROFILES } from '../types'
+import { computeActivityNums } from '../lib/activityNums'
+import { deriveOP } from '../hooks/useEstimator'
+import { type WarningCode } from '../lib/healthWarnings'
+import WarningBadge from './WarningBadge'
 
 interface ActivityTableProps {
-  activities: Activity[];
-  releaseNames: string[];
-  globalAiGain: number;
-  onUpdate: (id: string, field: keyof Activity, value: string) => void;
-  onDelete: (id: string) => void;
-  onAdd: (epic?: string) => void;
-  onAddRelease: () => string;
-  onReorder: (fromIndex: number, toIndex: number) => void;
-  activityWarnings: Map<string, WarningCode[]>;
+  activities: Activity[]
+  releaseNames: string[]
+  globalAiGain: number
+  onUpdate: (id: string, field: keyof Activity, value: string) => void
+  onDelete: (id: string) => void
+  onAdd: (epic?: string) => void
+  onAddRelease: () => string
+  onReorder: (fromIndex: number, toIndex: number) => void
+  activityWarnings: Map<string, WarningCode[]>
   /**
    * T17 (specs/013-estimate-sharing/tasks.md; design.md S5 "Viewer mode"):
    * fed straight from context's single `canEdit` gate (`!canEdit`) — never
@@ -55,31 +45,36 @@ interface ActivityTableProps {
    * never exists in the Release column because that column isn't a
    * `<select>` at all in this mode.
    */
-  readOnly?: boolean;
+  readOnly?: boolean
 }
 
 function pertCalc(o: number, ml: number, p: number): number {
-  return ((Number(o)||0) + 4*(Number(ml)||0) + (Number(p)||0)) / 6;
+  return ((Number(o) || 0) + 4 * (Number(ml) || 0) + (Number(p) || 0)) / 6
 }
 
-const COL_W = "28px 48px minmax(80px,0.6fr) minmax(120px,2fr) 100px 60px 60px 60px 60px 60px 68px 52px 32px 120px" +
-  " 28px 28px";
-const RIGHT_COLS = new Set(["o", "ml", "p", "pert", "risk", "expected", "aiGain"]);
-const CENTER_COLS = new Set(["notes"]);
+const COL_W =
+  '28px 48px minmax(80px,0.6fr) minmax(120px,2fr) 100px 60px 60px 60px 60px 60px 68px 52px 32px 120px' + ' 28px 28px'
+const RIGHT_COLS = new Set(['o', 'ml', 'p', 'pert', 'risk', 'expected', 'aiGain'])
+const CENTER_COLS = new Set(['notes'])
 
 // Navigable column indices (excludes num/drag-handle, pert, expected, actions)
 // 0:epic  1:act  2:prof  3:o  4:ml  5:p  6:risk  7:aiGain  8:notes  9:release
-const NAV_COL_MAX = 9;
+const NAV_COL_MAX = 9
 
-const columnHelper = createColumnHelper<Activity>();
-const NEW_RELEASE_SENTINEL = "__new__";
+const columnHelper = createColumnHelper<Activity>()
+const NEW_RELEASE_SENTINEL = '__new__'
 
-type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number, isText: boolean) => void;
+type NavHandler = (e: React.KeyboardEvent<HTMLElement>, row: number, col: number, isText: boolean) => void
 
 // EpicCell — holds value in local state and only commits to the store on blur/Enter.
 // This prevents epic regrouping (and consequent focus loss) while the user is mid-edit.
 function EpicCell({
-  id, value, rowIdx, onUpdateRef, navRef, readOnly,
+  id,
+  value,
+  rowIdx,
+  onUpdateRef,
+  navRef,
+  readOnly,
 }: {
   id: string
   value: string
@@ -96,13 +91,19 @@ function EpicCell({
       value={draft}
       readOnly={readOnly}
       onChange={(e: ChangeEvent<HTMLInputElement>) => setDraft(e.target.value)}
-      onFocus={() => { focused.current = true }}
+      onFocus={() => {
+        focused.current = true
+      }}
       onBlur={() => {
         focused.current = false
         onUpdateRef.current(id, 'epic', draft)
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Escape') { setDraft(value); e.preventDefault(); return }
+        if (e.key === 'Escape') {
+          setDraft(value)
+          e.preventDefault()
+          return
+        }
         navRef.current(e, rowIdx, 0, true)
       }}
       data-cell={`${rowIdx}-0`}
@@ -115,8 +116,12 @@ function EpicCell({
 // MLCell — standalone component so it can hold isFocused state while living inside
 // a stable columns[] closure. Receives ref objects (not values) so it always reads fresh data.
 function MLCell({
-  id, value, rowIdx,
-  onUpdateRef, navRef, readOnly,
+  id,
+  value,
+  rowIdx,
+  onUpdateRef,
+  navRef,
+  readOnly,
 }: {
   id: string
   value: number
@@ -137,7 +142,7 @@ function MLCell({
         readOnly={readOnly}
         step={0.5}
         min={0}
-        onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, "ml", e.target.value)}
+        onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, 'ml', e.target.value)}
         onKeyDown={(e) => navRef.current(e, rowIdx, 4, false)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
@@ -156,8 +161,15 @@ function MLCell({
             </div>
           </div>
           {/* Caret */}
-          <div className="absolute top-full left-1/2 -translate-x-1/2"
-            style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '5px solid var(--rule)' }}
+          <div
+            className="absolute top-full left-1/2 -translate-x-1/2"
+            style={{
+              width: 0,
+              height: 0,
+              borderLeft: '5px solid transparent',
+              borderRight: '5px solid transparent',
+              borderTop: '5px solid var(--rule)',
+            }}
           />
         </div>
       )}
@@ -167,8 +179,13 @@ function MLCell({
 
 // AiGainCell — shows "30%" when blurred, bare number when focused for easy editing.
 function AiGainCell({
-  id, stored, globalAiGain, rowIdx,
-  onUpdateRef, navRef, readOnly,
+  id,
+  stored,
+  globalAiGain,
+  rowIdx,
+  onUpdateRef,
+  navRef,
+  readOnly,
 }: {
   id: string
   stored: number | undefined
@@ -204,9 +221,7 @@ function AiGainCell({
       />
       {!focused && (
         <span className="text-right py-0.75 px-1.25 text-xs text-acc-hi w-full select-none">
-          {displayPct !== '' ? `${displayPct}%` : (
-            <span className="text-muted/50">{placeholderPct}%</span>
-          )}
+          {displayPct !== '' ? `${displayPct}%` : <span className="text-muted/50">{placeholderPct}%</span>}
         </span>
       )}
     </div>
@@ -215,7 +230,12 @@ function AiGainCell({
 
 // NotesCell — collapses to a narrow icon; expands to a floating input on click.
 function NotesCell({
-  id, value, rowIdx, onUpdateRef, navRef, readOnly,
+  id,
+  value,
+  rowIdx,
+  onUpdateRef,
+  navRef,
+  readOnly,
 }: {
   id: string
   value: string
@@ -230,7 +250,10 @@ function NotesCell({
 
   function handleOpen() {
     setOpen(true)
-    setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0)
+    setTimeout(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }, 0)
   }
 
   return (
@@ -253,7 +276,10 @@ function NotesCell({
           onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(id, 'notes', e.target.value)}
           onBlur={() => setOpen(false)}
           onKeyDown={(e) => {
-            if (e.key === 'Escape') { setOpen(false); return }
+            if (e.key === 'Escape') {
+              setOpen(false)
+              return
+            }
             navRef.current(e, rowIdx, 8, true)
           }}
           data-cell={`${rowIdx}-8`}
@@ -272,23 +298,24 @@ function SortableRow({
   style,
   suppressTransform,
 }: {
-  id: string;
-  children: React.ReactNode;
-  className: string;
-  style: React.CSSProperties;
-  suppressTransform?: boolean;
+  id: string
+  children: React.ReactNode
+  className: string
+  style: React.CSSProperties
+  suppressTransform?: boolean
 }) {
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
-    useSortable({ id });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+  })
 
   const rowStyle: React.CSSProperties = {
     ...style,
     transform: suppressTransform ? undefined : CSS.Transform.toString(transform),
     transition: suppressTransform ? undefined : transition,
     opacity: isDragging ? 0.5 : 1,
-    position: "relative",
-    zIndex: isDragging ? 1 : "auto",
-  };
+    position: 'relative',
+    zIndex: isDragging ? 1 : 'auto',
+  }
 
   return (
     <div ref={setNodeRef} style={rowStyle} className={className}>
@@ -304,7 +331,7 @@ function SortableRow({
       </div>
       {children}
     </div>
-  );
+  )
 }
 
 // PlainRow — T17's viewer-mode row (specs/013-estimate-sharing/tasks.md;
@@ -319,20 +346,16 @@ function PlainRow({
   className,
   style,
 }: {
-  children: React.ReactNode;
-  className: string;
-  style: React.CSSProperties;
+  children: React.ReactNode
+  className: string
+  style: React.CSSProperties
 }) {
   return (
     <div style={style} className={className}>
-      <div
-        className="flex items-center justify-center select-none"
-        style={{ fontSize: 14 }}
-        aria-hidden="true"
-      />
+      <div className="flex items-center justify-center select-none" style={{ fontSize: 14 }} aria-hidden="true" />
       {children}
     </div>
-  );
+  )
 }
 
 const ActivityTable = memo(function ActivityTable({
@@ -347,522 +370,535 @@ const ActivityTable = memo(function ActivityTable({
   onReorder,
   readOnly = false,
 }: ActivityTableProps) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set());
-  const [filteredReleases, setFilteredReleases] = useState<Set<string>>(new Set());
-  const [focusedActId, setFocusedActId] = useState<string | null>(null);
-  const lastFocusedEpicRef = useRef<string | undefined>(undefined);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [overEpic, setOverEpic] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const [collapsedEpics, setCollapsedEpics] = useState<Set<string>>(new Set())
+  const [filteredReleases, setFilteredReleases] = useState<Set<string>>(new Set())
+  const [focusedActId, setFocusedActId] = useState<string | null>(null)
+  const lastFocusedEpicRef = useRef<string | undefined>(undefined)
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [overEpic, setOverEpic] = useState<string | null>(null)
 
   // ── Stable refs for column closures ──────────────────────────────────────
   // columns has [] deps; all mutable values are accessed via refs so the array
   // reference never changes → TanStack Table keeps rows mounted → no focus loss.
-  const activitiesRef    = useRef(activities);
-  const onUpdateRef      = useRef(onUpdate);
-  const onDeleteRef      = useRef(onDelete);
-  const onAddRef         = useRef(onAdd);
-  const onAddReleaseRef  = useRef(onAddRelease);
-  const releaseNamesRef  = useRef(releaseNames);
-  const globalAiGainRef  = useRef(globalAiGain);
-  const activityNumsRef  = useRef<Map<string, string>>(new Map());
-  const actWarningsRef   = useRef<Map<string, WarningCode[]>>(new Map());
-  const visibleRowIdxRef = useRef<Map<string, number>>(new Map());
-  const visibleIdsRef    = useRef<string[]>([]);
+  const activitiesRef = useRef(activities)
+  const onUpdateRef = useRef(onUpdate)
+  const onDeleteRef = useRef(onDelete)
+  const onAddRef = useRef(onAdd)
+  const onAddReleaseRef = useRef(onAddRelease)
+  const releaseNamesRef = useRef(releaseNames)
+  const globalAiGainRef = useRef(globalAiGain)
+  const activityNumsRef = useRef<Map<string, string>>(new Map())
+  const actWarningsRef = useRef<Map<string, WarningCode[]>>(new Map())
+  const visibleRowIdxRef = useRef<Map<string, number>>(new Map())
+  const visibleIdsRef = useRef<string[]>([])
   // T17 (specs/013-estimate-sharing/tasks.md): same ref pattern as the rest of
   // this block — `columns` below has [] deps, so every cell closure reads the
   // CURRENT readOnly value through this ref rather than closing over a stale one.
-  const readOnlyRef      = useRef(readOnly);
-  activitiesRef.current    = activities;
-  onUpdateRef.current      = onUpdate;
-  onDeleteRef.current      = onDelete;
-  onAddRef.current         = onAdd;
-  onAddReleaseRef.current  = onAddRelease;
-  releaseNamesRef.current  = releaseNames;
-  globalAiGainRef.current  = globalAiGain;
-  actWarningsRef.current   = activityWarnings;
-  readOnlyRef.current      = readOnly;
+  const readOnlyRef = useRef(readOnly)
+  activitiesRef.current = activities
+  onUpdateRef.current = onUpdate
+  onDeleteRef.current = onDelete
+  onAddRef.current = onAdd
+  onAddReleaseRef.current = onAddRelease
+  releaseNamesRef.current = releaseNames
+  globalAiGainRef.current = globalAiGain
+  actWarningsRef.current = activityWarnings
+  readOnlyRef.current = readOnly
 
   // ── Global keyboard shortcut: Alt+N → add new activity ───────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (readOnlyRef.current) return; // T17: a viewer never mutates, not even via shortcut
-      const tag = (document.activeElement as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (readOnlyRef.current) return // T17: a viewer never mutates, not even via shortcut
+      const tag = (document.activeElement as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
       if (e.shiftKey && e.key === 'N') {
-        e.preventDefault();
-        onAddRef.current(currentEpic());
+        e.preventDefault()
+        onAddRef.current(currentEpic())
       }
     }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // ── Keyboard navigation ───────────────────────────────────────────────────
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null)
 
   function focusCell(rowIdx: number, colIdx: number) {
-    const el = containerRef.current?.querySelector<HTMLElement>(`[data-cell="${rowIdx}-${colIdx}"]`);
-    el?.focus();
-    if (el instanceof HTMLInputElement) el.select();
+    const el = containerRef.current?.querySelector<HTMLElement>(`[data-cell="${rowIdx}-${colIdx}"]`)
+    el?.focus()
+    if (el instanceof HTMLInputElement) el.select()
   }
 
   // Stored in a ref so column closures always call the latest version.
-  const navRef = useRef<NavHandler>(() => {});
+  const navRef = useRef<NavHandler>(() => {})
   navRef.current = (e, rowIdx, colIdx, isText) => {
-    const maxRow = visibleIdsRef.current.length - 1;
+    const maxRow = visibleIdsRef.current.length - 1
 
     switch (e.key) {
       case 'Tab': {
-        e.preventDefault();
+        e.preventDefault()
         if (e.shiftKey) {
-          if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
-          else if (rowIdx > 0) focusCell(rowIdx - 1, NAV_COL_MAX);
+          if (colIdx > 0) focusCell(rowIdx, colIdx - 1)
+          else if (rowIdx > 0) focusCell(rowIdx - 1, NAV_COL_MAX)
         } else {
-          if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
-          else if (rowIdx < maxRow) focusCell(rowIdx + 1, 0);
+          if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1)
+          else if (rowIdx < maxRow) focusCell(rowIdx + 1, 0)
           // T17: Tab past the last cell of the last row must not silently add a
           // row for a viewer — there is no visible "+ Add Activity" button to
           // match this fallback, so it would be a hidden mutation path.
-          else if (!readOnlyRef.current) onAddRef.current(currentEpic());
+          else if (!readOnlyRef.current) onAddRef.current(currentEpic())
         }
-        break;
+        break
       }
       case 'Enter':
       case 'ArrowDown': {
-        e.preventDefault();
-        if (rowIdx < maxRow) focusCell(rowIdx + 1, colIdx);
-        break;
+        e.preventDefault()
+        if (rowIdx < maxRow) focusCell(rowIdx + 1, colIdx)
+        break
       }
       case 'ArrowUp': {
-        e.preventDefault();
-        if (rowIdx > 0) focusCell(rowIdx - 1, colIdx);
-        break;
+        e.preventDefault()
+        if (rowIdx > 0) focusCell(rowIdx - 1, colIdx)
+        break
       }
       case 'ArrowRight': {
         if (!isText) {
-          e.preventDefault();
-          if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
+          e.preventDefault()
+          if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1)
         } else {
-          const inp = e.currentTarget as HTMLInputElement;
+          const inp = e.currentTarget as HTMLInputElement
           if (inp.selectionStart === inp.value.length) {
-            e.preventDefault();
-            if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1);
+            e.preventDefault()
+            if (colIdx < NAV_COL_MAX) focusCell(rowIdx, colIdx + 1)
           }
         }
-        break;
+        break
       }
       case 'ArrowLeft': {
         if (!isText) {
-          e.preventDefault();
-          if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
+          e.preventDefault()
+          if (colIdx > 0) focusCell(rowIdx, colIdx - 1)
         } else {
-          const inp = e.currentTarget as HTMLInputElement;
+          const inp = e.currentTarget as HTMLInputElement
           if (inp.selectionStart === 0) {
-            e.preventDefault();
-            if (colIdx > 0) focusCell(rowIdx, colIdx - 1);
+            e.preventDefault()
+            if (colIdx > 0) focusCell(rowIdx, colIdx - 1)
           }
         }
-        break;
+        break
       }
     }
-  };
+  }
 
   // ── Column definitions (stable — [] deps) ─────────────────────────────────
-  const activityNums = useMemo(() => computeActivityNums(activities), [activities]);
-  activityNumsRef.current = activityNums;
+  const activityNums = useMemo(() => computeActivityNums(activities), [activities])
+  activityNumsRef.current = activityNums
 
-  const columns = useMemo(() => [
-    columnHelper.display({
-      id: "num",
-      header: "#",
-      cell: (info) => (
-        <div className="font-mono text-[10px] text-muted text-center select-none">
-          {activityNumsRef.current.get(info.row.original.id) ?? ''}
-        </div>
-      ),
-    }),
-    columnHelper.accessor("epic", {
-      header: "Epic",
-      cell: (info) => (
-        <EpicCell
-          id={info.row.original.id}
-          value={info.getValue()}
-          rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
-          onUpdateRef={onUpdateRef}
-          navRef={navRef}
-          readOnly={readOnlyRef.current}
-        />
-      ),
-    }),
-    columnHelper.accessor("act", {
-      header: "Activity",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        const isUnnamed = info.getValue() === 'New activity';
-        return (
-          <input
-            value={info.getValue()}
-            readOnly={readOnlyRef.current}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "act", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 1, true)}
-            data-cell={`${rowIdx}-1`}
-            placeholder="Activity…"
-            className={`py-0.75 px-1.25 text-xs ${isUnnamed ? 'text-org/70 italic' : ''}`}
-            title={isUnnamed ? 'Rename this activity before sharing with a client' : undefined}
-          />
-        );
-      },
-    }),
-    columnHelper.accessor("prof", {
-      header: "Profile",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        // T17 (design.md S5): <select> has no native readOnly — a viewer sees
-        // plain text in the same grid column/position instead of a disabled
-        // select, but the cell stays a valid keyboard-nav target for reading.
-        if (readOnlyRef.current) {
-          return (
-            <span
-              tabIndex={0}
-              onKeyDown={(e) => navRef.current(e, rowIdx, 2, false)}
-              data-cell={`${rowIdx}-2`}
-              className="block py-0.75 px-1.25 text-[11px] truncate"
-            >
-              {info.getValue()}
-            </span>
-          );
-        }
-        return (
-          <select
-            value={info.getValue()}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => onUpdateRef.current(info.row.original.id, "prof", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 2, false)}
-            data-cell={`${rowIdx}-2`}
-            className="py-0.75 px-1.25 text-[11px]"
-          >
-            {PROFILES.map(p => <option key={p}>{p}</option>)}
-          </select>
-        );
-      },
-    }),
-    columnHelper.accessor("o", {
-      header: "O",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        return (
-          <input
-            type="number"
-            value={info.getValue()}
-            readOnly={readOnlyRef.current}
-            step={0.5}
-            min={0}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "o", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 3, false)}
-            data-cell={`${rowIdx}-3`}
-            className="text-right py-0.75 px-1.25 text-grn text-xs"
-          />
-        );
-      },
-    }),
-    columnHelper.accessor("ml", {
-      header: "ML",
-      cell: (info) => (
-        <MLCell
-          id={info.row.original.id}
-          value={info.row.original.ml}
-          rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
-          onUpdateRef={onUpdateRef}
-          navRef={navRef}
-          readOnly={readOnlyRef.current}
-        />
-      ),
-    }),
-    columnHelper.accessor("p", {
-      header: "P",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        return (
-          <input
-            type="number"
-            value={info.getValue()}
-            readOnly={readOnlyRef.current}
-            step={0.5}
-            min={0}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "p", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 5, false)}
-            data-cell={`${rowIdx}-5`}
-            className="text-right py-0.75 px-1.25 text-red text-xs"
-          />
-        );
-      },
-    }),
-    columnHelper.display({
-      id: "pert",
-      header: "PERT",
-      cell: (info) => {
-        const row = info.row.original;
-        return (
-          <div className="text-right font-mono text-xs text-acc-hi pr-0.75">
-            {pertCalc(row.o, row.ml, row.p).toFixed(1)}
+  const columns = useMemo(
+    () => [
+      columnHelper.display({
+        id: 'num',
+        header: '#',
+        cell: (info) => (
+          <div className="font-mono text-[10px] text-muted text-center select-none">
+            {activityNumsRef.current.get(info.row.original.id) ?? ''}
           </div>
-        );
-      },
-    }),
-    columnHelper.accessor("risk", {
-      header: "Risk",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        const risky = Number(info.getValue()) > 0;
-        return (
-          <input
-            type="number"
-            value={info.getValue()}
-            readOnly={readOnlyRef.current}
-            step={0.5}
-            min={0}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => onUpdateRef.current(info.row.original.id, "risk", e.target.value)}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 6, false)}
-            data-cell={`${rowIdx}-6`}
-            className={`text-right py-0.75 px-1.25 text-xs ${risky ? "text-org" : "text-text"}`}
-          />
-        );
-      },
-    }),
-    columnHelper.display({
-      id: "expected",
-      header: "Exp.",
-      cell: (info) => {
-        const row = info.row.original;
-        const exp = pertCalc(row.o, row.ml, row.p) + (Number(row.risk)||0);
-        return (
-          <div className="text-right font-mono text-[13px] font-semibold pr-0.75">
-            {exp.toFixed(1)}
-          </div>
-        );
-      },
-    }),
-    columnHelper.display({
-      id: "aiGain",
-      header: "AI%",
-      cell: (info) => {
-        const row = info.row.original;
-        const rowIdx = visibleRowIdxRef.current.get(row.id) ?? 0;
-        const stored = row.aiGain !== undefined && row.aiGain !== null && (row.aiGain as unknown as string) !== ""
-          ? Number(row.aiGain) : undefined;
-        return (
-          <AiGainCell
-            id={row.id}
-            stored={stored}
-            globalAiGain={globalAiGainRef.current}
-            rowIdx={rowIdx}
-            onUpdateRef={onUpdateRef}
-            navRef={navRef}
-            readOnly={readOnlyRef.current}
-          />
-        );
-      },
-    }),
-    columnHelper.accessor("notes", {
-      header: "💬",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        return (
-          <NotesCell
+        ),
+      }),
+      columnHelper.accessor('epic', {
+        header: 'Epic',
+        cell: (info) => (
+          <EpicCell
             id={info.row.original.id}
             value={info.getValue()}
-            rowIdx={rowIdx}
+            rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
             onUpdateRef={onUpdateRef}
             navRef={navRef}
             readOnly={readOnlyRef.current}
           />
-        );
-      },
-    }),
-    columnHelper.accessor("release", {
-      header: "Release",
-      cell: (info) => {
-        const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0;
-        // T17 (design.md S5): same rationale as the Profile column above —
-        // no native readOnly on <select>, and the "＋ New release…" sentinel
-        // is itself a mutation route into addRel, so a viewer never sees a
-        // <select> here at all, just the current release name as text.
-        if (readOnlyRef.current) {
+        ),
+      }),
+      columnHelper.accessor('act', {
+        header: 'Activity',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          const isUnnamed = info.getValue() === 'New activity'
           return (
-            <span
-              tabIndex={0}
+            <input
+              value={info.getValue()}
+              readOnly={readOnlyRef.current}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                onUpdateRef.current(info.row.original.id, 'act', e.target.value)
+              }
+              onKeyDown={(e) => navRef.current(e, rowIdx, 1, true)}
+              data-cell={`${rowIdx}-1`}
+              placeholder="Activity…"
+              className={`py-0.75 px-1.25 text-xs ${isUnnamed ? 'text-org/70 italic' : ''}`}
+              title={isUnnamed ? 'Rename this activity before sharing with a client' : undefined}
+            />
+          )
+        },
+      }),
+      columnHelper.accessor('prof', {
+        header: 'Profile',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          // T17 (design.md S5): <select> has no native readOnly — a viewer sees
+          // plain text in the same grid column/position instead of a disabled
+          // select, but the cell stays a valid keyboard-nav target for reading.
+          if (readOnlyRef.current) {
+            return (
+              <span
+                tabIndex={0}
+                onKeyDown={(e) => navRef.current(e, rowIdx, 2, false)}
+                data-cell={`${rowIdx}-2`}
+                className="block py-0.75 px-1.25 text-[11px] truncate"
+              >
+                {info.getValue()}
+              </span>
+            )
+          }
+          return (
+            <select
+              value={info.getValue()}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                onUpdateRef.current(info.row.original.id, 'prof', e.target.value)
+              }
+              onKeyDown={(e) => navRef.current(e, rowIdx, 2, false)}
+              data-cell={`${rowIdx}-2`}
+              className="py-0.75 px-1.25 text-[11px]"
+            >
+              {PROFILES.map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </select>
+          )
+        },
+      }),
+      columnHelper.accessor('o', {
+        header: 'O',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          return (
+            <input
+              type="number"
+              value={info.getValue()}
+              readOnly={readOnlyRef.current}
+              step={0.5}
+              min={0}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                onUpdateRef.current(info.row.original.id, 'o', e.target.value)
+              }
+              onKeyDown={(e) => navRef.current(e, rowIdx, 3, false)}
+              data-cell={`${rowIdx}-3`}
+              className="text-right py-0.75 px-1.25 text-grn text-xs"
+            />
+          )
+        },
+      }),
+      columnHelper.accessor('ml', {
+        header: 'ML',
+        cell: (info) => (
+          <MLCell
+            id={info.row.original.id}
+            value={info.row.original.ml}
+            rowIdx={visibleRowIdxRef.current.get(info.row.original.id) ?? 0}
+            onUpdateRef={onUpdateRef}
+            navRef={navRef}
+            readOnly={readOnlyRef.current}
+          />
+        ),
+      }),
+      columnHelper.accessor('p', {
+        header: 'P',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          return (
+            <input
+              type="number"
+              value={info.getValue()}
+              readOnly={readOnlyRef.current}
+              step={0.5}
+              min={0}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                onUpdateRef.current(info.row.original.id, 'p', e.target.value)
+              }
+              onKeyDown={(e) => navRef.current(e, rowIdx, 5, false)}
+              data-cell={`${rowIdx}-5`}
+              className="text-right py-0.75 px-1.25 text-red text-xs"
+            />
+          )
+        },
+      }),
+      columnHelper.display({
+        id: 'pert',
+        header: 'PERT',
+        cell: (info) => {
+          const row = info.row.original
+          return (
+            <div className="text-right font-mono text-xs text-acc-hi pr-0.75">
+              {pertCalc(row.o, row.ml, row.p).toFixed(1)}
+            </div>
+          )
+        },
+      }),
+      columnHelper.accessor('risk', {
+        header: 'Risk',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          const risky = Number(info.getValue()) > 0
+          return (
+            <input
+              type="number"
+              value={info.getValue()}
+              readOnly={readOnlyRef.current}
+              step={0.5}
+              min={0}
+              onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                onUpdateRef.current(info.row.original.id, 'risk', e.target.value)
+              }
+              onKeyDown={(e) => navRef.current(e, rowIdx, 6, false)}
+              data-cell={`${rowIdx}-6`}
+              className={`text-right py-0.75 px-1.25 text-xs ${risky ? 'text-org' : 'text-text'}`}
+            />
+          )
+        },
+      }),
+      columnHelper.display({
+        id: 'expected',
+        header: 'Exp.',
+        cell: (info) => {
+          const row = info.row.original
+          const exp = pertCalc(row.o, row.ml, row.p) + (Number(row.risk) || 0)
+          return <div className="text-right font-mono text-[13px] font-semibold pr-0.75">{exp.toFixed(1)}</div>
+        },
+      }),
+      columnHelper.display({
+        id: 'aiGain',
+        header: 'AI%',
+        cell: (info) => {
+          const row = info.row.original
+          const rowIdx = visibleRowIdxRef.current.get(row.id) ?? 0
+          const stored =
+            row.aiGain !== undefined && row.aiGain !== null && (row.aiGain as unknown as string) !== ''
+              ? Number(row.aiGain)
+              : undefined
+          return (
+            <AiGainCell
+              id={row.id}
+              stored={stored}
+              globalAiGain={globalAiGainRef.current}
+              rowIdx={rowIdx}
+              onUpdateRef={onUpdateRef}
+              navRef={navRef}
+              readOnly={readOnlyRef.current}
+            />
+          )
+        },
+      }),
+      columnHelper.accessor('notes', {
+        header: '💬',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          return (
+            <NotesCell
+              id={info.row.original.id}
+              value={info.getValue()}
+              rowIdx={rowIdx}
+              onUpdateRef={onUpdateRef}
+              navRef={navRef}
+              readOnly={readOnlyRef.current}
+            />
+          )
+        },
+      }),
+      columnHelper.accessor('release', {
+        header: 'Release',
+        cell: (info) => {
+          const rowIdx = visibleRowIdxRef.current.get(info.row.original.id) ?? 0
+          // T17 (design.md S5): same rationale as the Profile column above —
+          // no native readOnly on <select>, and the "＋ New release…" sentinel
+          // is itself a mutation route into addRel, so a viewer never sees a
+          // <select> here at all, just the current release name as text.
+          if (readOnlyRef.current) {
+            return (
+              <span
+                tabIndex={0}
+                onKeyDown={(e) => navRef.current(e, rowIdx, 9, false)}
+                data-cell={`${rowIdx}-9`}
+                className="block py-0.75 px-1.25 text-[11px] truncate"
+              >
+                {info.getValue()}
+              </span>
+            )
+          }
+          return (
+            <select
+              value={info.getValue()}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                const val = e.target.value
+                if (val === NEW_RELEASE_SENTINEL) {
+                  const newName = onAddReleaseRef.current()
+                  onUpdateRef.current(info.row.original.id, 'release', newName)
+                } else {
+                  onUpdateRef.current(info.row.original.id, 'release', val)
+                }
+              }}
               onKeyDown={(e) => navRef.current(e, rowIdx, 9, false)}
               data-cell={`${rowIdx}-9`}
-              className="block py-0.75 px-1.25 text-[11px] truncate"
+              className="py-0.75 px-1.25 text-[11px]"
             >
-              {info.getValue()}
-            </span>
-          );
-        }
-        return (
-          <select
-            value={info.getValue()}
-            onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-              const val = e.target.value;
-              if (val === NEW_RELEASE_SENTINEL) {
-                const newName = onAddReleaseRef.current();
-                onUpdateRef.current(info.row.original.id, "release", newName);
-              } else {
-                onUpdateRef.current(info.row.original.id, "release", val);
-              }
-            }}
-            onKeyDown={(e) => navRef.current(e, rowIdx, 9, false)}
-            data-cell={`${rowIdx}-9`}
-            className="py-0.75 px-1.25 text-[11px]"
-          >
-            {releaseNamesRef.current.map(r => <option key={r}>{r}</option>)}
-            <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
-          </select>
-        );
-      },
-    }),
-    columnHelper.display({
-      id: "warn",
-      header: "",
-      cell: (info) => {
-        const ws = actWarningsRef.current.get(info.row.original.id)
-        if (!ws?.length) return null
-        return (
-          <div className="flex items-center gap-0.5">
-            {ws.map(code => (
-              <WarningBadge key={code} code={code} className="text-[11px]" />
-            ))}
-          </div>
-        )
-      },
-    }),
-    columnHelper.display({
-      id: "actions",
-      header: "",
-      cell: (info) => {
-        // T17 (design.md S5): column kept for grid-template stability, not
-        // removed — an empty cell, never a disabled button.
-        if (readOnlyRef.current) return null;
-        return (
-          <button
-            onClick={() => onDeleteRef.current(info.row.original.id)}
-            className="bg-transparent text-[15px] py-0 text-muted/0 group-hover:text-muted hover:!text-red focus:text-muted transition-colors"
-            title="Delete activity"
-          >
-            ×
-          </button>
-        );
-      },
-    }),
-  ], []); // deps intentionally empty: all mutable values go through refs (activitiesRef, onUpdateRef, etc.)
+              {releaseNamesRef.current.map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+              <option value={NEW_RELEASE_SENTINEL}>＋ New release…</option>
+            </select>
+          )
+        },
+      }),
+      columnHelper.display({
+        id: 'warn',
+        header: '',
+        cell: (info) => {
+          const ws = actWarningsRef.current.get(info.row.original.id)
+          if (!ws?.length) return null
+          return (
+            <div className="flex items-center gap-0.5">
+              {ws.map((code) => (
+                <WarningBadge key={code} code={code} className="text-[11px]" />
+              ))}
+            </div>
+          )
+        },
+      }),
+      columnHelper.display({
+        id: 'actions',
+        header: '',
+        cell: (info) => {
+          // T17 (design.md S5): column kept for grid-template stability, not
+          // removed — an empty cell, never a disabled button.
+          if (readOnlyRef.current) return null
+          return (
+            <button
+              onClick={() => onDeleteRef.current(info.row.original.id)}
+              className="bg-transparent text-[15px] py-0 text-muted/0 group-hover:text-muted hover:!text-red focus:text-muted transition-colors"
+              title="Delete activity"
+            >
+              ×
+            </button>
+          )
+        },
+      }),
+    ],
+    [],
+  ) // deps intentionally empty: all mutable values go through refs (activitiesRef, onUpdateRef, etc.)
 
-  const table = useReactTable({ data: activities, columns, getCoreRowModel: getCoreRowModel() });
+  const table = useReactTable({ data: activities, columns, getCoreRowModel: getCoreRowModel() })
 
   const rowById = useMemo(() => {
-    const m = new Map<string, Row<Activity>>();
-    for (const r of table.getRowModel().rows) m.set(r.original.id, r);
-    return m;
+    const m = new Map<string, Row<Activity>>()
+    for (const r of table.getRowModel().rows) m.set(r.original.id, r)
+    return m
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activities]);
+  }, [activities])
 
   const displayedActivities = useMemo(
-    () => filteredReleases.size > 0
-      ? activities.filter(a => filteredReleases.has(a.release))
-      : activities,
-    [activities, filteredReleases]
-  );
+    () => (filteredReleases.size > 0 ? activities.filter((a) => filteredReleases.has(a.release)) : activities),
+    [activities, filteredReleases],
+  )
 
   const epicOrder = useMemo(() => {
-    const seen = new Set<string>();
-    const order: Array<{ epicKey: string; groupId: string }> = [];
+    const seen = new Set<string>()
+    const order: Array<{ epicKey: string; groupId: string }> = []
     for (const a of displayedActivities) {
-      if (!seen.has(a.epic)) { seen.add(a.epic); order.push({ epicKey: a.epic, groupId: a.id }); }
+      if (!seen.has(a.epic)) {
+        seen.add(a.epic)
+        order.push({ epicKey: a.epic, groupId: a.id })
+      }
     }
-    return order;
-  }, [displayedActivities]);
+    return order
+  }, [displayedActivities])
 
   const epicGroups = useMemo(() => {
-    const map = new Map<string, Activity[]>();
+    const map = new Map<string, Activity[]>()
     for (const a of displayedActivities) {
-      if (!map.has(a.epic)) map.set(a.epic, []);
-      map.get(a.epic)!.push(a);
+      if (!map.has(a.epic)) map.set(a.epic, [])
+      map.get(a.epic)!.push(a)
     }
-    return map;
-  }, [displayedActivities]);
+    return map
+  }, [displayedActivities])
 
-  const allIds = useMemo(() => activities.map(a => a.id), [activities]);
+  const allIds = useMemo(() => activities.map((a) => a.id), [activities])
 
   const visibleIds = useMemo(() => {
-    const ids: string[] = [];
+    const ids: string[] = []
     for (const { epicKey } of epicOrder) {
-      if (collapsedEpics.has(epicKey)) continue;
-      for (const a of epicGroups.get(epicKey) ?? []) ids.push(a.id);
+      if (collapsedEpics.has(epicKey)) continue
+      for (const a of epicGroups.get(epicKey) ?? []) ids.push(a.id)
     }
-    return ids;
-  }, [epicOrder, epicGroups, collapsedEpics]);
+    return ids
+  }, [epicOrder, epicGroups, collapsedEpics])
 
   // Keep refs in sync for use inside column closures
-  visibleIdsRef.current = visibleIds;
-  visibleRowIdxRef.current = useMemo(
-    () => new Map(visibleIds.map((id, i) => [id, i])),
-    [visibleIds]
-  );
+  visibleIdsRef.current = visibleIds
+  visibleRowIdxRef.current = useMemo(() => new Map(visibleIds.map((id, i) => [id, i])), [visibleIds])
 
   function toggleRelease(name: string) {
-    setFilteredReleases(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name); else next.add(name);
-      return next;
-    });
+    setFilteredReleases((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
   }
 
   function toggleEpic(epicKey: string) {
-    setCollapsedEpics(prev => {
-      const next = new Set(prev);
-      if (next.has(epicKey)) next.delete(epicKey);
-      else next.add(epicKey);
-      return next;
-    });
+    setCollapsedEpics((prev) => {
+      const next = new Set(prev)
+      if (next.has(epicKey)) next.delete(epicKey)
+      else next.add(epicKey)
+      return next
+    })
   }
 
-  const allCollapsed = epicOrder.length > 0 && epicOrder.every(({ epicKey }) => collapsedEpics.has(epicKey));
+  const allCollapsed = epicOrder.length > 0 && epicOrder.every(({ epicKey }) => collapsedEpics.has(epicKey))
 
   function toggleAllEpics() {
     if (allCollapsed) {
-      setCollapsedEpics(new Set());
+      setCollapsedEpics(new Set())
     } else {
-      setCollapsedEpics(new Set(epicOrder.map(({ epicKey }) => epicKey)));
+      setCollapsedEpics(new Set(epicOrder.map(({ epicKey }) => epicKey)))
     }
   }
 
   function currentEpic(): string | undefined {
-    return lastFocusedEpicRef.current
-      ?? activitiesRef.current[activitiesRef.current.length - 1]?.epic;
+    return lastFocusedEpicRef.current ?? activitiesRef.current[activitiesRef.current.length - 1]?.epic
   }
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string);
+    setActiveId(event.active.id as string)
   }
 
   function handleDragOver(event: DragOverEvent) {
-    const overId = event.over?.id as string | undefined;
-    const epic = overId ? (activities.find(a => a.id === overId)?.epic ?? null) : null;
-    setOverEpic(epic);
+    const overId = event.over?.id as string | undefined
+    const epic = overId ? (activities.find((a) => a.id === overId)?.epic ?? null) : null
+    setOverEpic(epic)
   }
 
   function handleDragEnd(event: DragEndEvent) {
-    setActiveId(null);
-    setOverEpic(null);
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const fromIndex = allIds.indexOf(active.id as string);
-    const toIndex   = allIds.indexOf(over.id as string);
-    if (fromIndex === -1 || toIndex === -1) return;
-    onReorder(fromIndex, toIndex);
-    const overAct   = activities.find(a => a.id === over.id);
-    const activeAct = activities.find(a => a.id === active.id);
+    setActiveId(null)
+    setOverEpic(null)
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const fromIndex = allIds.indexOf(active.id as string)
+    const toIndex = allIds.indexOf(over.id as string)
+    if (fromIndex === -1 || toIndex === -1) return
+    onReorder(fromIndex, toIndex)
+    const overAct = activities.find((a) => a.id === over.id)
+    const activeAct = activities.find((a) => a.id === active.id)
     if (overAct && activeAct && overAct.epic !== activeAct.epic) {
-      onUpdate(active.id as string, 'epic', overAct.epic);
+      onUpdate(active.id as string, 'epic', overAct.epic)
     }
   }
 
@@ -882,7 +918,11 @@ const ActivityTable = memo(function ActivityTable({
           )}
         </div>
         {!readOnly && (
-          <button onClick={() => onAdd(currentEpic())} className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs" title="Add activity (Shift+N)">
+          <button
+            onClick={() => onAdd(currentEpic())}
+            className="bg-acc text-white py-1.5 px-3.25 font-medium text-xs"
+            title="Add activity (Shift+N)"
+          >
             + Add Activity
           </button>
         )}
@@ -891,8 +931,8 @@ const ActivityTable = memo(function ActivityTable({
       {releaseNames.length > 1 && (
         <div className="flex items-center gap-1.5 mb-3 flex-wrap">
           <span className="text-[10px] text-muted font-mono uppercase tracking-wide shrink-0">Release:</span>
-          {releaseNames.map(name => {
-            const active = filteredReleases.has(name);
+          {releaseNames.map((name) => {
+            const active = filteredReleases.has(name)
             return (
               <button
                 key={name}
@@ -905,7 +945,7 @@ const ActivityTable = memo(function ActivityTable({
               >
                 {name}
               </button>
-            );
+            )
           })}
           {filteredReleases.size > 0 && (
             <button
@@ -921,20 +961,20 @@ const ActivityTable = memo(function ActivityTable({
       <div className="overflow-x-auto">
         <div
           ref={containerRef}
-          style={{ width: "100%" }}
+          style={{ width: '100%' }}
           onFocusCapture={useCallback((e: React.FocusEvent<HTMLDivElement>) => {
-            const cell = (e.target as HTMLElement).dataset.cell;
-            if (!cell) return;
-            const rowIdx = parseInt(cell.split('-')[0], 10);
-            const id = visibleIdsRef.current[rowIdx];
+            const cell = (e.target as HTMLElement).dataset.cell
+            if (!cell) return
+            const rowIdx = parseInt(cell.split('-')[0], 10)
+            const id = visibleIdsRef.current[rowIdx]
             if (id) {
-              setFocusedActId(id);
-              lastFocusedEpicRef.current = activitiesRef.current.find(a => a.id === id)?.epic;
+              setFocusedActId(id)
+              lastFocusedEpicRef.current = activitiesRef.current.find((a) => a.id === id)?.epic
             }
           }, [])}
           onBlurCapture={useCallback((e: React.FocusEvent<HTMLDivElement>) => {
             if (!containerRef.current?.contains(e.relatedTarget as Node)) {
-              setFocusedActId(null);
+              setFocusedActId(null)
             }
           }, [])}
         >
@@ -943,34 +983,35 @@ const ActivityTable = memo(function ActivityTable({
             style={{ gridTemplateColumns: COL_W }}
           >
             <div />
-            {table.getHeaderGroups().map(headerGroup =>
-              headerGroup.headers.map(header => (
-                <div key={header.id} className={RIGHT_COLS.has(header.id) ? "text-right" : CENTER_COLS.has(header.id) ? "text-center" : "text-left"}>
+            {table.getHeaderGroups().map((headerGroup) =>
+              headerGroup.headers.map((header) => (
+                <div
+                  key={header.id}
+                  className={
+                    RIGHT_COLS.has(header.id) ? 'text-right' : CENTER_COLS.has(header.id) ? 'text-center' : 'text-left'
+                  }
+                >
                   {flexRender(header.column.columnDef.header, header.getContext())}
                 </div>
-              ))
+              )),
             )}
           </div>
 
           {(() => {
             const epicRows = epicOrder.map(({ epicKey, groupId }) => {
-              const label     = epicKey || '(no epic)';
-              const epicActs  = epicGroups.get(epicKey) ?? [];
-              const isCollapsed = collapsedEpics.has(epicKey);
-              const subtotal  = epicActs.reduce(
-                (s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0), 0
-              );
+              const label = epicKey || '(no epic)'
+              const epicActs = epicGroups.get(epicKey) ?? []
+              const isCollapsed = collapsedEpics.has(epicKey)
+              const subtotal = epicActs.reduce((s, a) => s + pertCalc(a.o, a.ml, a.p) + (Number(a.risk) || 0), 0)
 
-              const activeEpicKey = activeId ? activities.find(a => a.id === activeId)?.epic : null;
-              const isDropTarget = activeId !== null && overEpic === epicKey && activeEpicKey !== epicKey;
+              const activeEpicKey = activeId ? activities.find((a) => a.id === activeId)?.epic : null
+              const isDropTarget = activeId !== null && overEpic === epicKey && activeEpicKey !== epicKey
 
               return (
                 <div key={groupId}>
                   <div
                     className={`flex items-center gap-2 py-1.25 px-2 border-b border-rule cursor-pointer select-none border-l-2 transition-colors ${
-                      isDropTarget
-                        ? 'bg-acc/10 border-l-acc'
-                        : 'bg-ink-mid/60 border-l-acc/40 hover:bg-ink-mid'
+                      isDropTarget ? 'bg-acc/10 border-l-acc' : 'bg-ink-mid/60 border-l-acc/40 hover:bg-ink-mid'
                     }`}
                     onClick={() => toggleEpic(epicKey)}
                   >
@@ -984,61 +1025,68 @@ const ActivityTable = memo(function ActivityTable({
                     </span>
                   </div>
 
-                  {!isCollapsed && epicActs.map((act, idx) => {
-                    const row = rowById.get(act.id);
-                    if (!row) return null;
-                    const risky = Number(act.risk) > 0;
-                    const rowClassName = `group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
-                      act.id === focusedActId
-                        ? "bg-acc/[0.06] border-l-acc"
-                        : risky
-                          ? "bg-[rgba(245,166,35,.04)] border-l-org"
-                          : idx % 2 === 0
-                            ? "bg-ink-soft border-l-transparent"
-                            : "bg-ink border-l-transparent"
-                    }`;
-                    const rowChildren = row.getVisibleCells().map(cell =>
-                      flexRender(cell.column.columnDef.cell, cell.getContext())
-                    );
+                  {!isCollapsed &&
+                    epicActs.map((act, idx) => {
+                      const row = rowById.get(act.id)
+                      if (!row) return null
+                      const risky = Number(act.risk) > 0
+                      const rowClassName = `group grid gap-0.75 py-1 px-2 border-b border-rule items-center border-l-2 ${
+                        act.id === focusedActId
+                          ? 'bg-acc/[0.06] border-l-acc'
+                          : risky
+                            ? 'bg-[rgba(245,166,35,.04)] border-l-org'
+                            : idx % 2 === 0
+                              ? 'bg-ink-soft border-l-transparent'
+                              : 'bg-ink border-l-transparent'
+                      }`
+                      const rowChildren = row
+                        .getVisibleCells()
+                        .map((cell) => flexRender(cell.column.columnDef.cell, cell.getContext()))
 
-                    // T17 (design.md S5): a viewer's row never calls
-                    // useSortable — that hook requires a surrounding
-                    // DndContext, which is skipped entirely below when
-                    // readOnly (there is nothing to drag).
-                    if (readOnly) {
+                      // T17 (design.md S5): a viewer's row never calls
+                      // useSortable — that hook requires a surrounding
+                      // DndContext, which is skipped entirely below when
+                      // readOnly (there is nothing to drag).
+                      if (readOnly) {
+                        return (
+                          <PlainRow key={row.id} className={rowClassName} style={{ gridTemplateColumns: COL_W }}>
+                            {rowChildren}
+                          </PlainRow>
+                        )
+                      }
+
+                      const suppressTransform = activeId !== null && activeEpicKey !== epicKey
                       return (
-                        <PlainRow key={row.id} className={rowClassName} style={{ gridTemplateColumns: COL_W }}>
+                        <SortableRow
+                          key={row.id}
+                          id={act.id}
+                          suppressTransform={suppressTransform}
+                          className={rowClassName}
+                          style={{ gridTemplateColumns: COL_W }}
+                        >
                           {rowChildren}
-                        </PlainRow>
-                      );
-                    }
-
-                    const suppressTransform = activeId !== null && activeEpicKey !== epicKey;
-                    return (
-                      <SortableRow
-                        key={row.id}
-                        id={act.id}
-                        suppressTransform={suppressTransform}
-                        className={rowClassName}
-                        style={{ gridTemplateColumns: COL_W }}
-                      >
-                        {rowChildren}
-                      </SortableRow>
-                    );
-                  })}
+                        </SortableRow>
+                      )
+                    })}
                 </div>
-              );
-            });
+              )
+            })
 
             return readOnly ? (
               <>{epicRows}</>
             ) : (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+              >
                 <SortableContext items={visibleIds} strategy={verticalListSortingStrategy}>
                   {epicRows}
                 </SortableContext>
               </DndContext>
-            );
+            )
           })()}
 
           {!readOnly && (
@@ -1054,16 +1102,28 @@ const ActivityTable = memo(function ActivityTable({
       </div>
 
       <div className="flex gap-4 mt-3 text-[11px] text-soft font-mono flex-wrap">
-        <span><span className="text-grn">O</span> = Optimistic</span>
+        <span>
+          <span className="text-grn">O</span> = Optimistic
+        </span>
         <span>ML = Most Likely (auto-derives O &amp; P)</span>
-        <span><span className="text-red">P</span> = Pessimistic</span>
-        <span><span className="text-acc-hi">PERT</span> = (O+4×ML+P)/6</span>
-        <span><span className="text-org">Risk</span> = buffer days</span>
-        <span><strong className="text-text">Exp.</strong> = PERT+Risk</span>
-        <span><span className="text-acc-hi">AI%</span> = per-activity gain (blank = global default)</span>
+        <span>
+          <span className="text-red">P</span> = Pessimistic
+        </span>
+        <span>
+          <span className="text-acc-hi">PERT</span> = (O+4×ML+P)/6
+        </span>
+        <span>
+          <span className="text-org">Risk</span> = buffer days
+        </span>
+        <span>
+          <strong className="text-text">Exp.</strong> = PERT+Risk
+        </span>
+        <span>
+          <span className="text-acc-hi">AI%</span> = per-activity gain (blank = global default)
+        </span>
       </div>
     </>
-  );
-});
+  )
+})
 
-export default ActivityTable;
+export default ActivityTable

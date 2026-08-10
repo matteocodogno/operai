@@ -25,7 +25,11 @@ function WarnBadge({ code }: { code: WarningCode }) {
 }
 
 export default function HealthWarningsModal({
-  activityWarnings, releaseWarnings, activities, releases, onClose,
+  activityWarnings,
+  releaseWarnings,
+  activities,
+  releases,
+  onClose,
 }: Props) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -36,19 +40,17 @@ export default function HealthWarningsModal({
   }, [onClose])
 
   const activityNums = computeActivityNums(activities)
-  const warnedActivities = activities.filter(a => activityWarnings.has(a.id))
-  const warnedReleases   = releases.filter(r => releaseWarnings.has(r.id))
-  const totalCount = [...activityWarnings.values()].reduce((n, ws) => n + ws.length, 0)
-                   + [...releaseWarnings.values()].reduce((n, ws) => n + ws.length, 0)
+  const warnedActivities = activities.filter((a) => activityWarnings.has(a.id))
+  const warnedReleases = releases.filter((r) => releaseWarnings.has(r.id))
+  const totalCount =
+    [...activityWarnings.values()].reduce((n, ws) => n + ws.length, 0) +
+    [...releaseWarnings.values()].reduce((n, ws) => n + ws.length, 0)
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
         className="bg-ink-soft border border-rule rounded-lg shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] flex flex-col"
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-rule shrink-0">
@@ -60,7 +62,9 @@ export default function HealthWarningsModal({
               </span>
             )}
           </div>
-          <button onClick={onClose} className="text-muted hover:text-text text-lg leading-none transition-colors">×</button>
+          <button onClick={onClose} className="text-muted hover:text-text text-lg leading-none transition-colors">
+            ×
+          </button>
         </div>
 
         {/* Body */}
@@ -82,13 +86,19 @@ export default function HealthWarningsModal({
                   <table className="w-full text-[11px]">
                     <thead>
                       <tr className="border-b border-rule">
-                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider w-8">#</th>
-                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">Activity</th>
-                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">Warning</th>
+                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider w-8">
+                          #
+                        </th>
+                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">
+                          Activity
+                        </th>
+                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">
+                          Warning
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {warnedActivities.map(a => {
+                      {warnedActivities.map((a) => {
                         const codes = activityWarnings.get(a.id)!
                         return codes.map((code, ci) => (
                           <tr key={`${a.id}-${code}`} className="border-b border-rule/50">
@@ -98,7 +108,9 @@ export default function HealthWarningsModal({
                                   {activityNums.get(a.id) ?? '—'}
                                 </td>
                                 <td className="py-1.5 px-2" rowSpan={codes.length}>
-                                  <div className="font-medium text-text truncate max-w-[160px]">{a.act || '(unnamed)'}</div>
+                                  <div className="font-medium text-text truncate max-w-[160px]">
+                                    {a.act || '(unnamed)'}
+                                  </div>
                                   {a.epic && <div className="text-[10px] text-muted">{a.epic}</div>}
                                 </td>
                               </>
@@ -123,12 +135,16 @@ export default function HealthWarningsModal({
                   <table className="w-full text-[11px]">
                     <thead>
                       <tr className="border-b border-rule">
-                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">Release</th>
-                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">Warning</th>
+                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">
+                          Release
+                        </th>
+                        <th className="text-left py-1 px-2 text-[9px] font-mono text-soft uppercase tracking-wider">
+                          Warning
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {warnedReleases.map(r => {
+                      {warnedReleases.map((r) => {
                         const codes = releaseWarnings.get(r.id)!
                         return codes.map((code, ci) => (
                           <tr key={`${r.id}-${code}`} className="border-b border-rule/50">

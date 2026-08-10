@@ -139,7 +139,6 @@ const renderWithItems = async () => {
 // ---------------------------------------------------------------------------
 
 describe('ConfirmDeleteModal (T10, specs/001)', () => {
-
   // (E) Per-row aria-label — checked first since it does not require opening the modal
   describe('(E) per-row delete aria-label', () => {
     it('each delete button has an aria-label that includes the estimate name', async () => {
@@ -186,7 +185,7 @@ describe('ConfirmDeleteModal (T10, specs/001)', () => {
       vi.mocked(estimatesApi.remove).mockResolvedValue(undefined)
       vi.mocked(estimatesApi.list)
         .mockResolvedValueOnce([itemAlpha, itemBeta]) // initial load
-        .mockResolvedValueOnce([itemBeta])             // after delete
+        .mockResolvedValueOnce([itemBeta]) // after delete
 
       render(<EstimatesPage />)
       await waitFor(() => {
@@ -338,9 +337,7 @@ describe('ConfirmDeleteModal — generalized title/bodyText/confirmLabel (T19, s
     )
 
     expect(screen.getByText('Remove collaborator?')).toBeDefined()
-    expect(
-      screen.getByText('jane@welld.ch will lose access to this estimate immediately.'),
-    ).toBeDefined()
+    expect(screen.getByText('jane@welld.ch will lose access to this estimate immediately.')).toBeDefined()
     expect(screen.getByTestId('confirm-delete-confirm').textContent).toBe('Remove')
 
     // Defaults must not leak through when overridden.
@@ -380,14 +377,10 @@ describe('ConfirmDeleteModal — generalized title/bodyText/confirmLabel (T19, s
     const onConfirm = vi.fn()
     const onCancel = vi.fn()
 
-    render(
-      <ConfirmDeleteModal {...baseProps} onConfirm={onConfirm} onCancel={onCancel} />,
-    )
+    render(<ConfirmDeleteModal {...baseProps} onConfirm={onConfirm} onCancel={onCancel} />)
 
     expect(screen.getByText('Delete estimate?')).toBeDefined()
-    expect(
-      screen.getByText('‘Alpha Project’ will be permanently deleted. This cannot be undone.'),
-    ).toBeDefined()
+    expect(screen.getByText('‘Alpha Project’ will be permanently deleted. This cannot be undone.')).toBeDefined()
     expect(screen.getByTestId('confirm-delete-confirm').textContent).toBe('Delete')
   })
 })

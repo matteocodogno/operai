@@ -25,8 +25,8 @@ import ConflictBanner from './components/ConflictBanner'
 import CollaboratorsDialog from './components/CollaboratorsDialog'
 import { formatIdentity } from './lib/identity'
 import * as estimatesApi from './lib/estimatesApi'
-import { Analytics } from '@vercel/analytics/react';
-import { SpeedInsights } from "@vercel/speed-insights/react"
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 
 /**
  * T22 (specs/013-estimate-sharing/tasks.md; design.md "## Toolbar
@@ -61,23 +61,50 @@ export default function EstimatorApp() {
     function onKey(e: KeyboardEvent) {
       const tag = (document.activeElement as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
-      if (e.shiftKey && e.key === '?') { e.preventDefault(); setShowShortcuts(v => !v) }
-      if (e.shiftKey && e.key === 'H') { e.preventDefault(); setShowHealthWarnings(v => !v) }
+      if (e.shiftKey && e.key === '?') {
+        e.preventDefault()
+        setShowShortcuts((v) => !v)
+      }
+      if (e.shiftKey && e.key === 'H') {
+        e.preventDefault()
+        setShowHealthWarnings((v) => !v)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const {
-    projectId, name, author, params, releases, acts,
-    summary, totals, byProfile,
-    saveStatus, saveError, clearSaveError, showSavedToast, dismissSavedToast,
-    setName, setAuthor,
-    updAct, addAct, delAct, reorderActs,
-    updRel, addRel, delRel,
-    updP, loadTemplate,
-    canEdit, conflict,
-    access, owner, collaboratorCount,
+    projectId,
+    name,
+    author,
+    params,
+    releases,
+    acts,
+    summary,
+    totals,
+    byProfile,
+    saveStatus,
+    saveError,
+    clearSaveError,
+    showSavedToast,
+    dismissSavedToast,
+    setName,
+    setAuthor,
+    updAct,
+    addAct,
+    delAct,
+    reorderActs,
+    updRel,
+    addRel,
+    delRel,
+    updP,
+    loadTemplate,
+    canEdit,
+    conflict,
+    access,
+    owner,
+    collaboratorCount,
   } = useEstimatorContext()
 
   // T17 (specs/013-estimate-sharing/tasks.md; design.md S5 "single canEdit
@@ -125,75 +152,170 @@ export default function EstimatorApp() {
     if (sessionAuthor) setAuthor(sessionAuthor)
   }, [author, sessionUser, setAuthor])
 
-  const rnames = useMemo(() => releases.map(r => r.name), [releases])
+  const rnames = useMemo(() => releases.map((r) => r.name), [releases])
 
-  const handleDeleteRelease = useCallback((id: string) => {
-    const rel = releases.find(r => r.id === id)
-    const count = acts.filter(a => a.release === rel?.name).length
-    const label = rel?.name || 'this release'
-    const msg = count > 0
-      ? `Delete "${label}" and its ${count} ${count === 1 ? 'activity' : 'activities'}?`
-      : `Delete "${label}"?`
-    if (!confirm(msg)) return
-    delRel(id)
-  }, [releases, acts, delRel])
-
-  const warnings = useMemo(
-    () => computeHealthWarnings(acts, releases, summary),
-    [acts, releases, summary]
+  const handleDeleteRelease = useCallback(
+    (id: string) => {
+      const rel = releases.find((r) => r.id === id)
+      const count = acts.filter((a) => a.release === rel?.name).length
+      const label = rel?.name || 'this release'
+      const msg =
+        count > 0
+          ? `Delete "${label}" and its ${count} ${count === 1 ? 'activity' : 'activities'}?`
+          : `Delete "${label}"?`
+      if (!confirm(msg)) return
+      delRel(id)
+    },
+    [releases, acts, delRel],
   )
+
+  const warnings = useMemo(() => computeHealthWarnings(acts, releases, summary), [acts, releases, summary])
 
   const exportXLSX = useCallback(() => {
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ['Parameter', 'Value'], ['Project', name], ['Author', author], ['Date', new Date().toLocaleDateString()], [],
-      ['Parallelism factor', params.parallelism], ['Sprint duration (days)', params.sprintDays],
-      ['Working days / month', params.workingDaysMonth], ['QA Deploy per release', params.qaDeployDays],
-      ['QA Test per release', params.qaTestDays], ['PM overhead per release', params.pmDays],
-    ]), 'Parameters')
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        ['Parameter', 'Value'],
+        ['Project', name],
+        ['Author', author],
+        ['Date', new Date().toLocaleDateString()],
+        [],
+        ['Parallelism factor', params.parallelism],
+        ['Sprint duration (days)', params.sprintDays],
+        ['Working days / month', params.workingDaysMonth],
+        ['QA Deploy per release', params.qaDeployDays],
+        ['QA Test per release', params.qaTestDays],
+        ['PM overhead per release', params.pmDays],
+      ]),
+      'Parameters',
+    )
     const nums = computeActivityNums(acts)
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ['#', 'Epic', 'Activity', 'Profile', 'Optimistic', 'Most Likely', 'Pessimistic', 'PERT', 'Risk Buffer', 'Expected', 'AI Gain %', 'Notes', 'Release'],
-      ...acts.map(a => {
-        const pv = pertCalc(a.o, a.ml, a.p)
-        const actGain = (a.aiGain !== undefined && a.aiGain !== null && (a.aiGain as unknown as string) !== '')
-          ? Number(a.aiGain)
-          : params.aiGain
-        return [nums.get(a.id) ?? '', a.epic, a.act, a.prof, +a.o, +a.ml, +a.p, +pv.toFixed(1), +a.risk, +(pv + (Number(a.risk) || 0)).toFixed(1), Math.round(actGain * 100), a.notes, a.release]
-      }),
-    ]), 'Detail')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-      ['Release', 'FTE', 'Ind. M/D', 'Planning', 'Baseline', 'Elapsed Days', 'Total M/D', 'Months', 'Best', 'Worst', 'Range', 'AI Cost', 'AI-assisted Elapsed', 'Total M/D (AI)'],
-      ...summary.map(s => s.res
-        ? [s.name, s.fte, s.res.ind, s.res.plan, s.res.base, s.res.el, s.res.tm, s.res.mo, s.res.best, s.res.worst, `${s.res.best}–${s.res.worst} days`, s.res.aiCost, s.res.aiElapsed, s.res.aiTotalMD]
-        : [s.name, s.fte, ...Array(12).fill('—')],
-      ),
-      ['TOTAL', '', totals.ind.toFixed(1), '', totals.base.toFixed(1), totals.el, totals.tm, totals.mo, totals.best, totals.worst, `${totals.best}–${totals.worst} days`, totals.aiCost, totals.aiElapsed, totals.aiTotalMD],
-    ]), 'Summary')
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        [
+          '#',
+          'Epic',
+          'Activity',
+          'Profile',
+          'Optimistic',
+          'Most Likely',
+          'Pessimistic',
+          'PERT',
+          'Risk Buffer',
+          'Expected',
+          'AI Gain %',
+          'Notes',
+          'Release',
+        ],
+        ...acts.map((a) => {
+          const pv = pertCalc(a.o, a.ml, a.p)
+          const actGain =
+            a.aiGain !== undefined && a.aiGain !== null && (a.aiGain as unknown as string) !== ''
+              ? Number(a.aiGain)
+              : params.aiGain
+          return [
+            nums.get(a.id) ?? '',
+            a.epic,
+            a.act,
+            a.prof,
+            +a.o,
+            +a.ml,
+            +a.p,
+            +pv.toFixed(1),
+            +a.risk,
+            +(pv + (Number(a.risk) || 0)).toFixed(1),
+            Math.round(actGain * 100),
+            a.notes,
+            a.release,
+          ]
+        }),
+      ]),
+      'Detail',
+    )
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.aoa_to_sheet([
+        [
+          'Release',
+          'FTE',
+          'Ind. M/D',
+          'Planning',
+          'Baseline',
+          'Elapsed Days',
+          'Total M/D',
+          'Months',
+          'Best',
+          'Worst',
+          'Range',
+          'AI Cost',
+          'AI-assisted Elapsed',
+          'Total M/D (AI)',
+        ],
+        ...summary.map((s) =>
+          s.res
+            ? [
+                s.name,
+                s.fte,
+                s.res.ind,
+                s.res.plan,
+                s.res.base,
+                s.res.el,
+                s.res.tm,
+                s.res.mo,
+                s.res.best,
+                s.res.worst,
+                `${s.res.best}–${s.res.worst} days`,
+                s.res.aiCost,
+                s.res.aiElapsed,
+                s.res.aiTotalMD,
+              ]
+            : [s.name, s.fte, ...Array(12).fill('—')],
+        ),
+        [
+          'TOTAL',
+          '',
+          totals.ind.toFixed(1),
+          '',
+          totals.base.toFixed(1),
+          totals.el,
+          totals.tm,
+          totals.mo,
+          totals.best,
+          totals.worst,
+          `${totals.best}–${totals.worst} days`,
+          totals.aiCost,
+          totals.aiElapsed,
+          totals.aiTotalMD,
+        ],
+      ]),
+      'Summary',
+    )
     XLSX.writeFile(wb, `${name.replace(/\s+/g, '_')}_estimate.xlsx`)
   }, [acts, summary, totals, params, name, author])
 
   const exportClient = useCallback(async () => {
     const wdm = params.workingDaysMonth || 20
-    const active = summary.filter(s => s.res)
+    const active = summary.filter((s) => s.res)
 
-    const wb  = new ExcelJS.Workbook()
+    const wb = new ExcelJS.Workbook()
     wb.creator = author || 'EstimAI'
     wb.created = new Date()
-    const ws  = wb.addWorksheet('Estimate')
+    const ws = wb.addWorksheet('Estimate')
 
     // ── Column widths ──────────────────────────────────────────────────
     ws.columns = [
       { key: 'release', width: 22 },
-      { key: 'mo',      width: 18 },
-      { key: 'best',    width: 18 },
-      { key: 'worst',   width: 18 },
-      { key: 'tm',      width: 18 },
+      { key: 'mo', width: 18 },
+      { key: 'best', width: 18 },
+      { key: 'worst', width: 18 },
+      { key: 'tm', width: 18 },
     ]
 
     // ── Logo + project info (rows 1-2) ─────────────────────────────────
     ws.getRow(1).height = 36
-    ws.getRow(2).height = 8  // spacer
+    ws.getRow(2).height = 8 // spacer
 
     const logoDataUrl = await svgToDataUrl('/estimai-light.svg', 128)
     const logoImgId = wb.addImage({ base64: logoDataUrl.split(',')[1], extension: 'png' })
@@ -221,7 +343,13 @@ export default function EstimatorApp() {
     dateCell.font = { size: 9, color: { argb: 'FF888888' } }
 
     // ── Table header (row 3) ───────────────────────────────────────────
-    const TABLE_HEADERS = ['Release', 'Duration (months)', 'Best case (months)', 'Worst case (months)', 'Effort (man-days)']
+    const TABLE_HEADERS = [
+      'Release',
+      'Duration (months)',
+      'Best case (months)',
+      'Worst case (months)',
+      'Effort (man-days)',
+    ]
     const headerRow = ws.getRow(3)
     TABLE_HEADERS.forEach((h, i) => {
       const cell = headerRow.getCell(i + 1)
@@ -250,7 +378,13 @@ export default function EstimatorApp() {
 
     // ── Total row ──────────────────────────────────────────────────────
     const totalRow = ws.getRow(nextRow)
-    const totalVals = ['TOTAL', +totals.mo.toFixed(1), +(totals.best / wdm).toFixed(1), +(totals.worst / wdm).toFixed(1), totals.tm]
+    const totalVals = [
+      'TOTAL',
+      +totals.mo.toFixed(1),
+      +(totals.best / wdm).toFixed(1),
+      +(totals.worst / wdm).toFixed(1),
+      totals.tm,
+    ]
     totalVals.forEach((v, i) => {
       const cell = totalRow.getCell(i + 1)
       cell.value = v
@@ -262,13 +396,13 @@ export default function EstimatorApp() {
     // ── Gantt chart image ──────────────────────────────────────────────
     const png = renderGanttPng(summary, wdm)
     if (png) {
-      const chartRows  = active.length
-      const chartH     = 52 + chartRows * 48 + 28   // must match ganttChart.ts layout
-      const chartW     = 668                          // (16+120+500+32) logical px
+      const chartRows = active.length
+      const chartH = 52 + chartRows * 48 + 28 // must match ganttChart.ts layout
+      const chartW = 668 // (16+120+500+32) logical px
 
       const imgId = wb.addImage({ base64: png, extension: 'png' })
       ws.addImage(imgId, {
-        tl:  { col: 0, row: nextRow + 1 } as ExcelJS.Anchor,
+        tl: { col: 0, row: nextRow + 1 } as ExcelJS.Anchor,
         ext: { width: chartW, height: chartH },
       })
       // Reserve rows for the image so the sheet scrolls correctly
@@ -278,27 +412,22 @@ export default function EstimatorApp() {
 
     // ── Download ───────────────────────────────────────────────────────
     const buffer = await wb.xlsx.writeBuffer()
-    const blob   = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    const url    = URL.createObjectURL(blob)
-    const a      = document.createElement('a')
-    a.href       = url
-    a.download   = `${name.replace(/\s+/g, '_') || 'estimate'}_client.xlsx`
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${name.replace(/\s+/g, '_') || 'estimate'}_client.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }, [summary, totals, params, name, author])
 
-const exportPDF = useCallback(() => {
+  const exportPDF = useCallback(() => {
     exportPdf({ name, author, acts, summary, totals, params })
   }, [name, author, acts, summary, totals, params])
 
   return (
     <div className="min-h-full w-full">
-      <Header
-        name={name}
-        saveStatus={saveStatus}
-        onNameChange={setName}
-        readOnly={readOnly}
-      />
+      <Header name={name} saveStatus={saveStatus} onNameChange={setName} readOnly={readOnly} />
 
       <MetricsBar
         totals={totals}
@@ -308,11 +437,13 @@ const exportPDF = useCallback(() => {
       />
 
       <div className="flex items-end gap-px px-5.5 pt-2.5 pb-0 border-b border-rule bg-ink-soft">
-        {([
-          ['activities', 'Activities', warnings.activityCount],
-          ['summary',    'Summary',    warnings.releaseCount],
-          ['parameters', 'Parameters', 0],
-        ] as const).map(([k, l, warnCount]) => (
+        {(
+          [
+            ['activities', 'Activities', warnings.activityCount],
+            ['summary', 'Summary', warnings.releaseCount],
+            ['parameters', 'Parameters', 0],
+          ] as const
+        ).map(([k, l, warnCount]) => (
           <button
             key={k}
             onClick={() => setTab(k)}
@@ -324,9 +455,11 @@ const exportPDF = useCallback(() => {
           >
             {l}
             {warnCount > 0 && (
-              <span className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold leading-none ${
-                tab === k ? 'bg-white/20 text-white' : 'bg-org/20 text-org'
-              }`}>
+              <span
+                className={`inline-flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-bold leading-none ${
+                  tab === k ? 'bg-white/20 text-white' : 'bg-org/20 text-org'
+                }`}
+              >
                 {warnCount}
               </span>
             )}
@@ -346,9 +479,7 @@ const exportPDF = useCallback(() => {
               className="py-1 px-2.5 text-[11px] font-medium text-muted border border-rule hover:text-text hover:border-text/40 transition-colors flex items-center gap-1"
               title="Manage collaborators"
               aria-label={
-                collaboratorCount
-                  ? strings.sharing.toolbar.collaboratorsWithCount(collaboratorCount)
-                  : undefined
+                collaboratorCount ? strings.sharing.toolbar.collaboratorsWithCount(collaboratorCount) : undefined
               }
               data-testid="collaborators-button"
             >
@@ -399,11 +530,9 @@ const exportPDF = useCallback(() => {
           </button>
           <div className="w-px h-4 bg-rule mx-0.5" />
           <button
-            onClick={() => setShowHelp(v => !v)}
+            onClick={() => setShowHelp((v) => !v)}
             className={`w-6 h-6 rounded-full text-[11px] font-bold border transition-colors flex items-center justify-center ${
-              showHelp
-                ? 'border-acc bg-acc/10 text-acc'
-                : 'border-rule text-muted hover:border-acc/50 hover:text-acc'
+              showHelp ? 'border-acc bg-acc/10 text-acc' : 'border-rule text-muted hover:border-acc/50 hover:text-acc'
             }`}
             title="Model reference"
             aria-label="Model reference"
@@ -430,33 +559,37 @@ const exportPDF = useCallback(() => {
       )}
 
       <main className="flex-1 p-5 px-5.5 overflow-x-auto">
-        {tab === 'activities' && (
-          acts.length === 0 && !canEdit
+        {tab === 'activities' &&
+          (acts.length === 0 && !canEdit ? (
             // T17 (design.md S5): TemplatePicker's whole contract is content
             // creation — the wrong verb for a viewer. A small inline state
             // replaces it; no call to action, because there is none
             // available to a viewer.
-            ? <div className="flex flex-col items-center px-5.5 py-12 gap-8">
-                <p className="text-muted text-sm">{strings.sharing.emptyActivitiesViewer}</p>
-              </div>
-            : acts.length === 0 && !dismissedPicker
-              ? <TemplatePicker
-                  onSelect={t => { loadTemplate(t); setDismissedPicker(true) }}
-                  onBlank={() => setDismissedPicker(true)}
-                />
-              : <ActivityTable
-                  activities={acts}
-                  releaseNames={rnames}
-                  globalAiGain={params.aiGain}
-                  activityWarnings={warnings.activityWarnings}
-                  onUpdate={updAct}
-                  onDelete={delAct}
-                  onAdd={addAct}
-                  onAddRelease={addRel}
-                  onReorder={reorderActs}
-                  readOnly={readOnly}
-                />
-        )}
+            <div className="flex flex-col items-center px-5.5 py-12 gap-8">
+              <p className="text-muted text-sm">{strings.sharing.emptyActivitiesViewer}</p>
+            </div>
+          ) : acts.length === 0 && !dismissedPicker ? (
+            <TemplatePicker
+              onSelect={(t) => {
+                loadTemplate(t)
+                setDismissedPicker(true)
+              }}
+              onBlank={() => setDismissedPicker(true)}
+            />
+          ) : (
+            <ActivityTable
+              activities={acts}
+              releaseNames={rnames}
+              globalAiGain={params.aiGain}
+              activityWarnings={warnings.activityWarnings}
+              onUpdate={updAct}
+              onDelete={delAct}
+              onAdd={addAct}
+              onAddRelease={addRel}
+              onReorder={reorderActs}
+              readOnly={readOnly}
+            />
+          ))}
         {tab === 'summary' && (
           <SummaryTable
             summary={summary}
@@ -471,9 +604,7 @@ const exportPDF = useCallback(() => {
             readOnly={readOnly}
           />
         )}
-        {tab === 'parameters' && (
-          <ParametersPanel params={params} onUpdate={updP} readOnly={readOnly} />
-        )}
+        {tab === 'parameters' && <ParametersPanel params={params} onUpdate={updP} readOnly={readOnly} />}
       </main>
 
       {/* Shortcuts affordance, pinned to the bottom of the SCROLLPORT, not the
@@ -490,11 +621,13 @@ const exportPDF = useCallback(() => {
           (ADR-0006). */}
       <footer className="sticky bottom-0 z-10 flex justify-end px-4 py-2 pointer-events-none">
         <button
-          onClick={() => setShowShortcuts(v => !v)}
+          onClick={() => setShowShortcuts((v) => !v)}
           className="pointer-events-auto flex items-center gap-1.5 text-[11px] text-muted hover:text-soft transition-colors font-mono"
           title="Keyboard shortcuts (Shift+?)"
         >
-          <kbd className="inline-flex items-center px-1 py-0.5 rounded border border-rule bg-ink-mid text-[10px] leading-none">⇧?</kbd>
+          <kbd className="inline-flex items-center px-1 py-0.5 rounded border border-rule bg-ink-mid text-[10px] leading-none">
+            ⇧?
+          </kbd>
           <span>shortcuts</span>
         </button>
       </footer>

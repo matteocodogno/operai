@@ -239,10 +239,7 @@ export const list = async (estimateId: string): Promise<CollaboratorGrant[]> => 
  * `CollaboratorNotEligibleError` (422), `RateLimitedError` (429), or
  * `AuthorizationServiceUnavailableError` (503).
  */
-export const add = async (
-  estimateId: string,
-  request: AddCollaboratorRequest,
-): Promise<CollaboratorGrant> => {
+export const add = async (estimateId: string, request: AddCollaboratorRequest): Promise<CollaboratorGrant> => {
   const response = await apiFetch(apiBase(estimateId), {
     method: 'POST',
     headers: jsonHeaders,

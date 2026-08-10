@@ -100,8 +100,14 @@ const localData1 = {
   name: 'Alpha Local',
   author: 'Consultant',
   params: {
-    parallelism: 0.7, sprintDays: 10, workingDaysMonth: 20,
-    qaDeployDays: 0, qaTestDays: 0, pmDays: 0, aiCostCoef: 10, aiGain: 0.3,
+    parallelism: 0.7,
+    sprintDays: 10,
+    workingDaysMonth: 20,
+    qaDeployDays: 0,
+    qaTestDays: 0,
+    pmDays: 0,
+    aiCostCoef: 10,
+    aiGain: 0.3,
   },
   releases: [],
   acts: [],
@@ -112,8 +118,14 @@ const localData2 = {
   name: 'Beta Local',
   author: 'Consultant',
   params: {
-    parallelism: 0.7, sprintDays: 10, workingDaysMonth: 20,
-    qaDeployDays: 0, qaTestDays: 0, pmDays: 0, aiCostCoef: 10, aiGain: 0.3,
+    parallelism: 0.7,
+    sprintDays: 10,
+    workingDaysMonth: 20,
+    qaDeployDays: 0,
+    qaTestDays: 0,
+    pmDays: 0,
+    aiCostCoef: 10,
+    aiGain: 0.3,
   },
   releases: [],
   acts: [],
@@ -146,7 +158,6 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('ImportOfferModal (T12, specs/001)', () => {
-
   // -------------------------------------------------------------------------
   // (A) offer-shown
   // -------------------------------------------------------------------------

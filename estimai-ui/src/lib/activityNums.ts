@@ -11,7 +11,10 @@ export function computeActivityNums(activities: Activity[]): Map<string, string>
   const epicOrder: string[] = []
   const seen = new Set<string>()
   for (const a of activities) {
-    if (!seen.has(a.epic)) { seen.add(a.epic); epicOrder.push(a.epic) }
+    if (!seen.has(a.epic)) {
+      seen.add(a.epic)
+      epicOrder.push(a.epic)
+    }
   }
 
   const groups = new Map<string, Activity[]>()

@@ -13,15 +13,11 @@ import { strings } from '../strings'
 
 describe('formatIdentity', () => {
   it('renders the resolved name for an active identity', () => {
-    expect(formatIdentity({ id: 'usr_1', status: 'active', name: 'Ada Lovelace' })).toBe(
-      'Ada Lovelace',
-    )
+    expect(formatIdentity({ id: 'usr_1', status: 'active', name: 'Ada Lovelace' })).toBe('Ada Lovelace')
   })
 
   it('renders the "Former wellD member" placeholder for a deleted identity', () => {
-    expect(formatIdentity({ id: 'usr_2', status: 'deleted', name: null })).toBe(
-      strings.sharing.identity.deleted,
-    )
+    expect(formatIdentity({ id: 'usr_2', status: 'deleted', name: null })).toBe(strings.sharing.identity.deleted)
     // A deleted identity's name is authoritatively null on the wire, but even
     // if a stray name were present the placeholder still wins — deleted
     // means deleted, never a lingering active-looking name (AC-10.5).
@@ -31,21 +27,13 @@ describe('formatIdentity', () => {
   })
 
   it('renders the "Unknown wellD member" placeholder for an unknown identity', () => {
-    expect(formatIdentity({ id: 'usr_3', status: 'unknown', name: null })).toBe(
-      strings.sharing.identity.unknown,
-    )
+    expect(formatIdentity({ id: 'usr_3', status: 'unknown', name: null })).toBe(strings.sharing.identity.unknown)
   })
 
   it('falls back to the unknown placeholder rather than blank for a malformed active identity', () => {
-    expect(formatIdentity({ id: 'usr_4', status: 'active', name: null })).toBe(
-      strings.sharing.identity.unknown,
-    )
-    expect(formatIdentity({ id: 'usr_5', status: 'active', name: '' })).toBe(
-      strings.sharing.identity.unknown,
-    )
-    expect(formatIdentity({ id: 'usr_6', status: 'active', name: '   ' })).toBe(
-      strings.sharing.identity.unknown,
-    )
+    expect(formatIdentity({ id: 'usr_4', status: 'active', name: null })).toBe(strings.sharing.identity.unknown)
+    expect(formatIdentity({ id: 'usr_5', status: 'active', name: '' })).toBe(strings.sharing.identity.unknown)
+    expect(formatIdentity({ id: 'usr_6', status: 'active', name: '   ' })).toBe(strings.sharing.identity.unknown)
   })
 
   it('never returns a raw id in place of a name', () => {

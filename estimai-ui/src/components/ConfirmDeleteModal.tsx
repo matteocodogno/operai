@@ -114,9 +114,7 @@ export default function ConfirmDeleteModal({
   }, [onCancel])
 
   const displayName = estimateName || 'Untitled'
-  const body =
-    bodyText ??
-    `‘${displayName}’ will be permanently deleted. This cannot be undone.`
+  const body = bodyText ?? `‘${displayName}’ will be permanently deleted. This cannot be undone.`
 
   return (
     <div
@@ -133,10 +131,7 @@ export default function ConfirmDeleteModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
-          <h2
-            id="confirm-delete-title"
-            className="font-disp text-sm font-bold text-text"
-          >
+          <h2 id="confirm-delete-title" className="font-disp text-sm font-bold text-text">
             {title}
           </h2>
           <button
@@ -154,11 +149,7 @@ export default function ConfirmDeleteModal({
 
         {/* Inline error (between body and footer, per design.md) */}
         {errorMessage && (
-          <p
-            className="text-sm text-org mb-3"
-            role="alert"
-            data-testid="confirm-delete-error"
-          >
+          <p className="text-sm text-org mb-3" role="alert" data-testid="confirm-delete-error">
             {errorMessage}
           </p>
         )}

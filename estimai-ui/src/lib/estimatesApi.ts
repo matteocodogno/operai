@@ -334,11 +334,7 @@ export const get = async (id: string): Promise<EstimateFull> => {
  *   • `ApiError` on 404 (no relationship), 403 (`code: "insufficient_access"`
  *     — viewer, AC-3.1), 413 (size), 400 (validation), or 401.
  */
-export const update = async (
-  id: string,
-  body: EstimateUpsert,
-  version: number,
-): Promise<EstimateFull> => {
+export const update = async (id: string, body: EstimateUpsert, version: number): Promise<EstimateFull> => {
   const response = await apiFetch(`${apiBase()}/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'If-Match': `"${version}"` },

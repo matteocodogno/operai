@@ -250,7 +250,7 @@ export function EstimatorProvider({
 
       estimatesApi
         .update(estimateId, { name, author, content }, versionRef.current)
-        .then(updated => {
+        .then((updated) => {
           // (b) AC-3.2/ADR-0038: adopt the server's new version so the
           // *next* autosave's If-Match is correct.
           versionRef.current = updated.version
@@ -298,17 +298,13 @@ export function EstimatorProvider({
               // 1.0 MB. Nothing was saved.") when available; it already names the
               // sizes. Fall back to a fixed message if the detail is absent.
               setSaveError(
-                err.detail ??
-                  'This estimate is too large to save. Remove some activities to reduce its size.',
+                err.detail ?? 'This estimate is too large to save. Remove some activities to reduce its size.',
               )
             } else {
               // Non-413: generic save failure — show the server detail if present
               // (e.g. a 500 with an operator-facing message), otherwise fall back
               // to a status-code message. Either way, no size-limit phrasing.
-              setSaveError(
-                err.detail ??
-                  `Save failed (${String(err.status)}). Your work is safe in this tab.`,
-              )
+              setSaveError(err.detail ?? `Save failed (${String(err.status)}). Your work is safe in this tab.`)
             }
           } else {
             setSaveError('Save failed. Check your connection. Your work is safe in this tab.')
@@ -319,13 +315,13 @@ export function EstimatorProvider({
     return () => clearTimeout(saveTimer.current)
   }, [estimateId, name, author, params, releases, acts, canEdit, conflict])
 
-  const rnames = useMemo(() => releases.map(r => r.name), [releases])
+  const rnames = useMemo(() => releases.map((r) => r.name), [releases])
   const { summary, totals, byProfile } = useEstimator(acts, releases, params)
 
   const updAct = useCallback(
     (id: string, f: keyof Activity, v: string) =>
-      setActs(prev =>
-        prev.map(a => {
+      setActs((prev) =>
+        prev.map((a) => {
           if (a.id !== id) return a
           const u = { ...a, [f]: v }
           if (f === 'ml') {
@@ -341,7 +337,7 @@ export function EstimatorProvider({
 
   const addAct = useCallback(
     (epic?: string) =>
-      setActs(prev => {
+      setActs((prev) => {
         const last = prev[prev.length - 1]
         return [
           ...prev,
@@ -363,11 +359,11 @@ export function EstimatorProvider({
     [rnames],
   )
 
-  const delAct = useCallback((id: string) => setActs(prev => prev.filter(a => a.id !== id)), [])
+  const delAct = useCallback((id: string) => setActs((prev) => prev.filter((a) => a.id !== id)), [])
 
   const reorderActs = useCallback(
     (fromIndex: number, toIndex: number) =>
-      setActs(prev => {
+      setActs((prev) => {
         const next = [...prev]
         const [moved] = next.splice(fromIndex, 1)
         next.splice(toIndex, 0, moved)
@@ -381,39 +377,33 @@ export function EstimatorProvider({
       // Activities link to a release by name, so a rename must cascade to
       // every activity pointing at the old name or they become orphaned.
       if (f === 'name') {
-        const oldName = releases.find(r => r.id === id)?.name
+        const oldName = releases.find((r) => r.id === id)?.name
         const newName = String(v)
         if (oldName !== undefined && oldName !== newName) {
-          setActs(prev =>
-            prev.map(a => (a.release === oldName ? { ...a, release: newName } : a)),
-          )
+          setActs((prev) => prev.map((a) => (a.release === oldName ? { ...a, release: newName } : a)))
         }
       }
-      setRels(prev => prev.map(r => (r.id === id ? { ...r, [f]: v } : r)))
+      setRels((prev) => prev.map((r) => (r.id === id ? { ...r, [f]: v } : r)))
     },
     [releases],
   )
 
   const addRel = useCallback((): string => {
     const newName = `Release ${releases.length + 1}`
-    setRels(prev => [...prev, { id: uid(), name: newName, fte: 1 }])
+    setRels((prev) => [...prev, { id: uid(), name: newName, fte: 1 }])
     return newName
   }, [releases])
 
-  const delRel = useCallback(
-    (id: string) => setRels(prev => prev.filter(r => r.id !== id)),
-    [],
-  )
+  const delRel = useCallback((id: string) => setRels((prev) => prev.filter((r) => r.id !== id)), [])
 
   const updP = useCallback(
-    (k: keyof Parameters, v: string) =>
-      setParams(prev => ({ ...prev, [k]: parseFloat(v) || 0 })),
+    (k: keyof Parameters, v: string) => setParams((prev) => ({ ...prev, [k]: parseFloat(v) || 0 })),
     [],
   )
 
   const loadTemplate = useCallback((t: Template) => {
-    const newReleases: Release[] = t.releases.map(r => ({ ...r, id: uid() }))
-    const newActs: Activity[] = t.activities.map(a => ({ ...a, id: uid(), num: '' }))
+    const newReleases: Release[] = t.releases.map((r) => ({ ...r, id: uid() }))
+    const newActs: Activity[] = t.activities.map((a) => ({ ...a, id: uid(), num: '' }))
     setRels(newReleases)
     setActs(newActs)
   }, [])

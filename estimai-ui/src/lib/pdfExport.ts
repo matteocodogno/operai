@@ -12,32 +12,28 @@ const MR = 14
 const CW = PAGE_W - ML - MR
 
 // ── Brand palette ─────────────────────────────────────────────────────────────
-const NAVY  = '#1e1e3a'   // table header background
-const HDR   = '#0d0d14'   // page header background (app --ink)
-const ACC   = '#8b96ff'   // accent purple
+const NAVY = '#1e1e3a' // table header background
+const HDR = '#0d0d14' // page header background (app --ink)
+const ACC = '#8b96ff' // accent purple
 const BORDER_ACC = '#5b6af7' // header bottom border
-const SOFT  = '#8888aa'   // muted text in header (app --soft)
-const GRN   = '#2ec27e'
-const ORG   = '#f5a623'
+const SOFT = '#8888aa' // muted text in header (app --soft)
+const GRN = '#2ec27e'
+const ORG = '#f5a623'
 const MUTED = '#7878a8'
-const RULE  = '#dcdcec'
-const ALT   = '#f5f5fc'
-const THD   = '#eaeaf6'
-const INK   = '#1a1a2e'
+const RULE = '#dcdcec'
+const ALT = '#f5f5fc'
+const THD = '#eaeaf6'
+const INK = '#1a1a2e'
 
 function rgb(hex: string): [number, number, number] {
-  return [
-    parseInt(hex.slice(1, 3), 16),
-    parseInt(hex.slice(3, 5), 16),
-    parseInt(hex.slice(5, 7), 16),
-  ]
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)]
 }
 
 /** Derive PERT from three estimates (handles ML-only by deriving O and P). */
 function pertLocal(o: number | string, ml: number | string, p: number | string): number {
   const M = +ml || 0
-  const O = +o  || M * 0.75
-  const P = +p  || M * 1.60
+  const O = +o || M * 0.75
+  const P = +p || M * 1.6
   return (O + 4 * M + P) / 6
 }
 
@@ -50,9 +46,7 @@ export interface ExportPdfOptions {
   params: Parameters
 }
 
-export async function exportPdf({
-  name, author, acts, summary, totals, params,
-}: ExportPdfOptions): Promise<void> {
+export async function exportPdf({ name, author, acts, summary, totals, params }: ExportPdfOptions): Promise<void> {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
 
   // ── Async assets (logo) ───────────────────────────────────────────────────
@@ -107,10 +101,10 @@ export async function exportPdf({
 
   // ── KPI strip ─────────────────────────────────────────────────────────────
   const kpis: { label: string; value: string; color: string }[] = [
-    { label: 'Total Elapsed', value: `${totals.el} d`,                  color: ACC },
-    { label: 'Man-days',      value: `${totals.tm}`,                    color: ACC },
-    { label: 'Duration',      value: `${totals.mo.toFixed(1)} mo`,      color: GRN },
-    { label: 'Range',         value: `${totals.best}–${totals.worst} d`, color: ORG },
+    { label: 'Total Elapsed', value: `${totals.el} d`, color: ACC },
+    { label: 'Man-days', value: `${totals.tm}`, color: ACC },
+    { label: 'Duration', value: `${totals.mo.toFixed(1)} mo`, color: GRN },
+    { label: 'Range', value: `${totals.best}–${totals.worst} d`, color: ORG },
   ]
   const kpiW = CW / kpis.length
   kpis.forEach(({ label, value, color }, i) => {
@@ -132,13 +126,31 @@ export async function exportPdf({
   // ── Release summary ───────────────────────────────────────────────────────
   secHeading(48, 'RELEASE SUMMARY')
 
-  const bodyRows: string[][] = summary.map(s => {
+  const bodyRows: string[][] = summary.map((s) => {
     if (!s.res) return [s.name, String(s.fte), '—', '—', '—', '—', '—', '—']
     const { el, tm, mo, best, worst } = s.res
-    return [s.name, String(s.fte), String(el), String(tm), mo.toFixed(1), String(best), String(worst), `${best}–${worst} d`]
+    return [
+      s.name,
+      String(s.fte),
+      String(el),
+      String(tm),
+      mo.toFixed(1),
+      String(best),
+      String(worst),
+      `${best}–${worst} d`,
+    ]
   })
   const totalRowIndex = bodyRows.length
-  bodyRows.push(['TOTAL', '', String(totals.el), String(totals.tm), totals.mo.toFixed(1), String(totals.best), String(totals.worst), `${totals.best}–${totals.worst} d`])
+  bodyRows.push([
+    'TOTAL',
+    '',
+    String(totals.el),
+    String(totals.tm),
+    totals.mo.toFixed(1),
+    String(totals.best),
+    String(totals.worst),
+    `${totals.best}–${totals.worst} d`,
+  ])
 
   autoTable(doc, {
     startY: 52,
@@ -185,7 +197,7 @@ export async function exportPdf({
   let curY: number = (doc as any).lastAutoTable?.finalY ?? 90
 
   // ── Release timeline ──────────────────────────────────────────────────────
-  const activeReleases = summary.filter(s => s.res)
+  const activeReleases = summary.filter((s) => s.res)
   if (activeReleases.length > 0) {
     const wdm = params.workingDaysMonth || 20
     const ganttPng = renderGanttPng(summary, wdm)
@@ -193,7 +205,7 @@ export async function exportPdf({
       const GANTT_ORIG_W = 668
       const GANTT_ORIG_H = 52 + activeReleases.length * 48 + 28
       const ganttMmW = CW
-      const ganttMmH = ganttMmW * GANTT_ORIG_H / GANTT_ORIG_W
+      const ganttMmH = (ganttMmW * GANTT_ORIG_H) / GANTT_ORIG_W
 
       curY += 8
       secHeading(curY, 'RELEASE TIMELINE')
@@ -205,12 +217,12 @@ export async function exportPdf({
   }
 
   // ── Activity summary ──────────────────────────────────────────────────────
-  const activeActs = acts.filter(a => +a.ml > 0 || +a.o > 0 || +a.p > 0)
+  const activeActs = acts.filter((a) => +a.ml > 0 || +a.o > 0 || +a.p > 0)
   if (activeActs.length > 0) {
     const EST_ROW_H = 5
-    const SECTION_OVERHEAD = 18   // heading + table header
+    const SECTION_OVERHEAD = 18 // heading + table header
     const estimatedH = SECTION_OVERHEAD + activeActs.length * EST_ROW_H
-    const BOTTOM_RESERVE = 44     // params strip + footer
+    const BOTTOM_RESERVE = 44 // params strip + footer
 
     if (curY + estimatedH > PAGE_H - BOTTOM_RESERVE) {
       doc.addPage()
@@ -222,7 +234,7 @@ export async function exportPdf({
     secHeading(curY, 'ACTIVITY SUMMARY')
     curY += 5
 
-    const actRows = activeActs.map(a => {
+    const actRows = activeActs.map((a) => {
       const pert = pertLocal(a.o, a.ml, a.p)
       const exp = +(pert + (Number(a.risk) || 0)).toFixed(1)
       return [a.epic || '—', a.act || '—', a.release || '—', exp]

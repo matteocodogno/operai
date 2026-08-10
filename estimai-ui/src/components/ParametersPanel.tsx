@@ -1,9 +1,9 @@
-import type { ChangeEvent } from "react";
-import type { Parameters } from "../types";
+import type { ChangeEvent } from 'react'
+import type { Parameters } from '../types'
 
 interface ParametersPanelProps {
-  params: Parameters;
-  onUpdate: (key: keyof Parameters, value: string) => void;
+  params: Parameters
+  onUpdate: (key: keyof Parameters, value: string) => void
   /**
    * T17 (specs/013-estimate-sharing/tasks.md; design.md S5): fed from
    * context's single `canEdit` gate (`!canEdit`). Defaults to `false` so
@@ -11,20 +11,62 @@ interface ParametersPanelProps {
    * Every number input becomes `readOnly` (not `disabled`) — stays
    * focusable/AT-readable, browser blocks typing.
    */
-  readOnly?: boolean;
+  readOnly?: boolean
 }
 
 export default function ParametersPanel({ params, onUpdate, readOnly = false }: ParametersPanelProps) {
   const parameterFields = [
-    { k:"parallelism" as const,       label:"Parallelism factor",                  hint:"% of work runnable in parallel with FTE > 1",      step:0.05, max:1 },
-    { k:"sprintDays" as const,        label:"Sprint duration (working days)",       hint:"Drives planning/ceremony overhead calculation",    step:1 },
-    { k:"workingDaysMonth" as const,  label:"Working days per month",              hint:"Converts elapsed days into months",                 step:1 },
-    { k:"qaDeployDays" as const,      label:"QA Deploy per release (days)",        hint:"Fixed deployment cost per release",                 step:0.5 },
-    { k:"qaTestDays" as const,        label:"QA Test per release (days)",          hint:"Fixed QA testing cost per release",                 step:0.5 },
-    { k:"pmDays" as const,            label:"PM / Demand Mgmt per release (days)", hint:"Project management overhead per release",           step:0.5 },
-    { k:"aiCostCoef" as const,        label:"AI cost coefficient",                  hint:"Cost per FTE per elapsed day (licences + infra). Default: 10.", step:1 },
-    { k:"aiGain" as const,            label:"AI productivity gain",                 hint:"Fraction of effort saved using AI tools (0.0–1.0). Default: 0.30 = 30%.", step:0.05, max:1 },
-  ];
+    {
+      k: 'parallelism' as const,
+      label: 'Parallelism factor',
+      hint: '% of work runnable in parallel with FTE > 1',
+      step: 0.05,
+      max: 1,
+    },
+    {
+      k: 'sprintDays' as const,
+      label: 'Sprint duration (working days)',
+      hint: 'Drives planning/ceremony overhead calculation',
+      step: 1,
+    },
+    {
+      k: 'workingDaysMonth' as const,
+      label: 'Working days per month',
+      hint: 'Converts elapsed days into months',
+      step: 1,
+    },
+    {
+      k: 'qaDeployDays' as const,
+      label: 'QA Deploy per release (days)',
+      hint: 'Fixed deployment cost per release',
+      step: 0.5,
+    },
+    {
+      k: 'qaTestDays' as const,
+      label: 'QA Test per release (days)',
+      hint: 'Fixed QA testing cost per release',
+      step: 0.5,
+    },
+    {
+      k: 'pmDays' as const,
+      label: 'PM / Demand Mgmt per release (days)',
+      hint: 'Project management overhead per release',
+      step: 0.5,
+    },
+    {
+      k: 'aiCostCoef' as const,
+      label: 'AI cost coefficient',
+      hint: 'Cost per FTE per elapsed day (licences + infra). Default: 10.',
+      step: 1,
+    },
+    {
+      k: 'aiGain' as const,
+      label: 'AI productivity gain',
+      hint: 'Fraction of effort saved using AI tools (0.0–1.0). Default: 0.30 = 30%.',
+      step: 0.05,
+      max: 1,
+    },
+  ]
 
   return (
     <div className="max-w-2xl">
@@ -50,5 +92,5 @@ export default function ParametersPanel({ params, onUpdate, readOnly = false }: 
         ))}
       </div>
     </div>
-  );
+  )
 }

@@ -22,16 +22,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  ApiError,
-  ConflictError,
-  create,
-  get,
-  importEstimates,
-  list,
-  remove,
-  update,
-} from './estimatesApi'
+import { ApiError, ConflictError, create, get, importEstimates, list, remove, update } from './estimatesApi'
 import type {
   EstimateContent,
   EstimateFull,
@@ -187,7 +178,11 @@ describe('create(body)', () => {
     // undefined → TypeError in catch → err instanceof ApiError was false → inner expects
     // never ran). Corrected to a single call with assertions outside the catch.
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(413, 'Payload Too Large', 'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.'),
+      problemResponse(
+        413,
+        'Payload Too Large',
+        'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.',
+      ),
     )
 
     let thrown: unknown
@@ -203,9 +198,7 @@ describe('create(body)', () => {
   })
 
   it('throws ApiError with status 400 for a validation Problem response', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(400, 'Bad Request', 'name is required'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(400, 'Bad Request', 'name is required'))
 
     let thrown: unknown
     try {
@@ -249,9 +242,7 @@ describe('list()', () => {
   })
 
   it('throws ApiError on 401', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(401, 'Unauthorized'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(401, 'Unauthorized'))
 
     let thrown: unknown
     try {
@@ -277,9 +268,7 @@ describe('get(id)', () => {
   })
 
   it('throws ApiError with status 404 when the estimate is not found or not owned', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(404, 'Not Found', 'Estimate not found'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(404, 'Not Found', 'Estimate not found'))
 
     let thrown: unknown
     try {
@@ -345,7 +334,11 @@ describe('update(id, body, version)', () => {
 
   it('throws ApiError with status 413 when the updated content is too large (AC-1.4)', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(413, 'Payload Too Large', 'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.'),
+      problemResponse(
+        413,
+        'Payload Too Large',
+        'Estimate content is 2.3 MB; the maximum is 1.0 MB. Nothing was saved.',
+      ),
     )
 
     let thrown: unknown
@@ -506,9 +499,7 @@ describe('remove(id)', () => {
   })
 
   it('throws ApiError with status 404 when estimate is not found or not owned', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(404, 'Not Found'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(404, 'Not Found'))
 
     let thrown: unknown
     try {
@@ -588,9 +579,7 @@ describe('importEstimates(estimates)', () => {
   })
 
   it('throws ApiError on a well-formed 401 Problem response', async () => {
-    vi.mocked(apiFetch).mockResolvedValueOnce(
-      problemResponse(401, 'Unauthorized'),
-    )
+    vi.mocked(apiFetch).mockResolvedValueOnce(problemResponse(401, 'Unauthorized'))
 
     let thrown: unknown
     try {

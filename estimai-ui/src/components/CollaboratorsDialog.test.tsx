@@ -258,9 +258,7 @@ describe('CollaboratorsDialog — owner mode (T20, specs/013)', () => {
   describe('429 rate-limited', () => {
     it('shows the rate-limited copy and disables Add for a cooldown', async () => {
       vi.mocked(collaboratorsApi.list).mockResolvedValue([])
-      vi.mocked(collaboratorsApi.add).mockRejectedValue(
-        new RateLimitedError(problem(429, 'rate_limited'), 5),
-      )
+      vi.mocked(collaboratorsApi.add).mockRejectedValue(new RateLimitedError(problem(429, 'rate_limited'), 5))
       renderDialog()
       await screen.findByTestId('collaborators-dialog-empty')
 
@@ -411,9 +409,7 @@ describe('CollaboratorsDialog — owner mode (T20, specs/013)', () => {
 
       fireEvent.keyDown(window, { key: 'Tab' })
 
-      await waitFor(() =>
-        expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' })),
-      )
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' })))
     })
 
     it('Escape closes the dialog when no nested confirm is open', async () => {
@@ -469,7 +465,7 @@ describe('CollaboratorsDialog — member mode (T21, specs/013)', () => {
       expect(screen.queryByRole('list')).toBeNull()
     })
 
-    it('shows who shared it and the caller\'s own access level', () => {
+    it("shows who shared it and the caller's own access level", () => {
       renderMemberDialog('editor', activeOwnerIdentity)
 
       expect(screen.getByTestId('collaborators-dialog-shared-by').textContent).toBe(

@@ -77,9 +77,7 @@ export default function EstimatesPage() {
     try {
       const items = await estimatesApi.list()
       // Sort by updatedAt descending (server may already sort; defensive sort here)
-      const sorted = [...items].sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      )
+      const sorted = [...items].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
       setListState({ status: 'loaded', items: sorted })
     } catch {
       setListState({ status: 'error', message: 'Could not load your estimates.' })
@@ -231,7 +229,9 @@ export default function EstimatesPage() {
     if (listState.status === 'loading') {
       return (
         <div className="max-w-3xl mx-auto w-full px-5.5 py-8">
-          <p className="sr-only" aria-live="polite">Loading your estimates</p>
+          <p className="sr-only" aria-live="polite">
+            Loading your estimates
+          </p>
           <SkeletonListRows />
         </div>
       )
@@ -270,12 +270,10 @@ export default function EstimatesPage() {
             <img src="/estimai.svg" alt="EstimAI" className="w-16 h-16 rounded-2xl" />
 
             <div className="flex flex-col gap-2">
-              <h1 className="font-disp text-xl font-bold text-text">
-                Ready to estimate your first project?
-              </h1>
+              <h1 className="font-disp text-xl font-bold text-text">Ready to estimate your first project?</h1>
               <p className="text-sm text-muted leading-relaxed">
-                EstimAI helps you size software projects using PERT, account for AI productivity gains,
-                and produce a client-ready confidence range — in minutes.
+                EstimAI helps you size software projects using PERT, account for AI productivity gains, and produce a
+                client-ready confidence range — in minutes.
               </p>
             </div>
 
@@ -296,11 +294,13 @@ export default function EstimatesPage() {
           </div>
 
           <div className="flex items-center gap-8 text-center">
-            {([
-              ['📊', 'PERT estimation'],
-              ['🤖', 'AI comparison'],
-              ['📁', 'Excel & PDF export'],
-            ] as const).map(([icon, label]) => (
+            {(
+              [
+                ['📊', 'PERT estimation'],
+                ['🤖', 'AI comparison'],
+                ['📁', 'Excel & PDF export'],
+              ] as const
+            ).map(([icon, label]) => (
               <div key={label} className="flex flex-col items-center gap-1.5">
                 <span className="text-xl leading-none opacity-60">{icon}</span>
                 <span className="text-[11px] text-muted font-mono">{label}</span>
@@ -315,7 +315,9 @@ export default function EstimatesPage() {
     return (
       <>
         <div className="max-w-3xl mx-auto w-full px-5.5 py-8">
-          <p className="sr-only" aria-live="polite">{items.length} estimates loaded</p>
+          <p className="sr-only" aria-live="polite">
+            {items.length} estimates loaded
+          </p>
           <div className="flex flex-col gap-2">
             {items.map((p) => (
               <div
@@ -329,9 +331,18 @@ export default function EstimatesPage() {
                     {p.access !== 'owner' && <AccessLevelBadge level={p.access} />}
                   </div>
                   <div className="text-[11px] text-muted font-mono mt-0.5">
-                    {p.access === 'owner'
-                      ? <>{p.author ? `${p.author} · ` : ''}{formatDate(p.updatedAt)}</>
-                      : <><span>{formatIdentity(ownerIdentityFor(p))}</span>{' · '}{formatDate(p.updatedAt)}</>}
+                    {p.access === 'owner' ? (
+                      <>
+                        {p.author ? `${p.author} · ` : ''}
+                        {formatDate(p.updatedAt)}
+                      </>
+                    ) : (
+                      <>
+                        <span>{formatIdentity(ownerIdentityFor(p))}</span>
+                        {' · '}
+                        {formatDate(p.updatedAt)}
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -364,8 +375,7 @@ export default function EstimatesPage() {
     )
   }
 
-  const isEmptyOrList =
-    listState.status === 'loaded' && listState.items.length === 0
+  const isEmptyOrList = listState.status === 'loaded' && listState.items.length === 0
 
   return (
     <div className="min-h-screen flex flex-col">

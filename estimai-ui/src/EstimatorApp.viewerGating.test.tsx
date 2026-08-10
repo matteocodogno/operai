@@ -172,10 +172,10 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function assertAllTextControlsReadOnly() {
-  const controls = [
-    ...screen.queryAllByRole('textbox'),
-    ...screen.queryAllByRole('spinbutton'),
-  ] as (HTMLInputElement | HTMLTextAreaElement)[]
+  const controls = [...screen.queryAllByRole('textbox'), ...screen.queryAllByRole('spinbutton')] as (
+    | HTMLInputElement
+    | HTMLTextAreaElement
+  )[]
   expect(controls.length).toBeGreaterThan(0)
   for (const el of controls) {
     expect(el.readOnly).toBe(true)
@@ -277,44 +277,41 @@ describe('T17 named early check — viewer mount has zero enabled mutating contr
 // what actually proves AC-3.2, not just AC-3.1's viewer/owner contrast.
 // ---------------------------------------------------------------------------
 
-describe.each(['owner', 'editor'] as const)(
-  'T17/AC-3.2 — %s mount keeps every mutating control enabled',
-  (access) => {
-    it('activities tab: enabled Profile/Release selects, add/delete/drag controls present', () => {
-      renderEditor(access)
+describe.each(['owner', 'editor'] as const)('T17/AC-3.2 — %s mount keeps every mutating control enabled', (access) => {
+  it('activities tab: enabled Profile/Release selects, add/delete/drag controls present', () => {
+    renderEditor(access)
 
-      expect(screen.getAllByRole('combobox').length).toBeGreaterThan(0)
-      expect(screen.getAllByRole('button', { name: /add activity/i }).length).toBe(2)
-      expect(screen.getAllByTitle('Delete activity').length).toBe(fixtureActs.length)
-      expect(screen.getAllByTitle('Drag to reorder').length).toBe(fixtureActs.length)
+    expect(screen.getAllByRole('combobox').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /add activity/i }).length).toBe(2)
+    expect(screen.getAllByTitle('Delete activity').length).toBe(fixtureActs.length)
+    expect(screen.getAllByTitle('Drag to reorder').length).toBe(fixtureActs.length)
 
-      // The Epic/Activity/O/ML/P/Risk cells are editable. (The AI% cell is
-      // deliberately readOnly while unfocused regardless of access — its own
-      // pre-existing "display vs edit" trick, unrelated to T17 — so it is
-      // excluded from this blanket check rather than asserted either way.)
-      for (const cell of ['0-0', '0-1', '0-3', '0-4', '0-5', '0-6']) {
-        const el = document.querySelector(`[data-cell="${cell}"]`) as HTMLInputElement | null
-        expect(el).not.toBeNull()
-        expect(el?.readOnly).toBe(false)
-      }
-    })
+    // The Epic/Activity/O/ML/P/Risk cells are editable. (The AI% cell is
+    // deliberately readOnly while unfocused regardless of access — its own
+    // pre-existing "display vs edit" trick, unrelated to T17 — so it is
+    // excluded from this blanket check rather than asserted either way.)
+    for (const cell of ['0-0', '0-1', '0-3', '0-4', '0-5', '0-6']) {
+      const el = document.querySelector(`[data-cell="${cell}"]`) as HTMLInputElement | null
+      expect(el).not.toBeNull()
+      expect(el?.readOnly).toBe(false)
+    }
+  })
 
-    it('summary tab: "+ Release" present, release delete absent only because there is a single release (unrelated to access)', () => {
-      renderEditor(access)
-      fireEvent.click(screen.getByRole('button', { name: /^summary/i }))
+  it('summary tab: "+ Release" present, release delete absent only because there is a single release (unrelated to access)', () => {
+    renderEditor(access)
+    fireEvent.click(screen.getByRole('button', { name: /^summary/i }))
 
-      expect(screen.getByRole('button', { name: /^\+ release$/i })).toBeDefined()
-    })
+    expect(screen.getByRole('button', { name: /^\+ release$/i })).toBeDefined()
+  })
 
-    it('the Header project-name input is editable and the save-status indicator is present', () => {
-      renderEditor(access)
+  it('the Header project-name input is editable and the save-status indicator is present', () => {
+    renderEditor(access)
 
-      const nameInput = screen.getByPlaceholderText('Project name…') as HTMLInputElement
-      expect(nameInput.readOnly).toBe(false)
-      expect(screen.getByText(/✓ Saved|Saving…/)).toBeDefined()
-    })
-  },
-)
+    const nameInput = screen.getByPlaceholderText('Project name…') as HTMLInputElement
+    expect(nameInput.readOnly).toBe(false)
+    expect(screen.getByText(/✓ Saved|Saving…/)).toBeDefined()
+  })
+})
 
 // ---------------------------------------------------------------------------
 // (C) useEstimator's computed outputs are deep-equal between viewer and

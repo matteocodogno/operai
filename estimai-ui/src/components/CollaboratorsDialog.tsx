@@ -120,10 +120,7 @@ const levelLabel = (level: AccessLevel): string =>
 
 const normalizeEmail = (email: string): string => email.trim().toLowerCase()
 
-const findByEmail = (
-  email: string,
-  collaborators: CollaboratorGrant[],
-): CollaboratorGrant | undefined => {
+const findByEmail = (email: string, collaborators: CollaboratorGrant[]): CollaboratorGrant | undefined => {
   const target = normalizeEmail(email)
   return collaborators.find((c) => normalizeEmail(c.email) === target)
 }
@@ -167,14 +164,7 @@ export default function CollaboratorsDialog({ estimateId, access, owner, onClose
   if (access === 'owner') {
     return <OwnerCollaboratorsDialog estimateId={estimateId} onClose={onClose} />
   }
-  return (
-    <MemberCollaboratorsDialog
-      estimateId={estimateId}
-      access={access}
-      owner={owner ?? null}
-      onClose={onClose}
-    />
-  )
+  return <MemberCollaboratorsDialog estimateId={estimateId} access={access} owner={owner ?? null} onClose={onClose} />
 }
 
 type OwnerCollaboratorsDialogProps = {
@@ -375,9 +365,7 @@ function OwnerCollaboratorsDialog({ estimateId, onClose }: OwnerCollaboratorsDia
         const updated = await collaboratorsApi.updateLevel(estimateId, row.id, { accessLevel: nextLevel })
         if (!isMountedRef.current) return
         setCollaborators((prev) => prev.map((c) => (c.id === row.id ? updated : c)))
-        setAnnouncement(
-          strings.sharing.dialog.levelChangedAnnouncement(updated.email, levelLabel(updated.accessLevel)),
-        )
+        setAnnouncement(strings.sharing.dialog.levelChangedAnnouncement(updated.email, levelLabel(updated.accessLevel)))
       } catch {
         if (!isMountedRef.current) return
         setLevelChangeErrors((prev) => ({ ...prev, [row.id]: strings.sharing.errors.genericLevelChangeFailed }))
@@ -418,9 +406,9 @@ function OwnerCollaboratorsDialog({ estimateId, onClose }: OwnerCollaboratorsDia
 
       // Live-queried (InviteUserModal's technique) — the focusable set
       // changes as rows are added/removed, so a fixed list would go stale.
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>('input, button, select'),
-      ).filter((el) => !(el as HTMLInputElement | HTMLButtonElement | HTMLSelectElement).disabled)
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('input, button, select')).filter(
+        (el) => !(el as HTMLInputElement | HTMLButtonElement | HTMLSelectElement).disabled,
+      )
       if (focusable.length === 0) return
 
       const first = focusable[0]
@@ -744,9 +732,9 @@ function MemberCollaboratorsDialog({ estimateId, access, owner, onClose }: Membe
       // Live-queried, same technique as the owner branch — the set here is
       // static (Close, Leave) but reuses the mechanism for consistency
       // rather than hand-rolling a second, fixed-two-button trap.
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>('input, button, select'),
-      ).filter((el) => !(el as HTMLButtonElement).disabled)
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('input, button, select')).filter(
+        (el) => !(el as HTMLButtonElement).disabled,
+      )
       if (focusable.length === 0) return
 
       const first = focusable[0]
