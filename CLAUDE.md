@@ -1,7 +1,21 @@
-# Operai — EstimAI
+# Operai
 
-Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting workflows.
-EstimAI is the first tool in the suite — a software effort estimator.
+Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
+back-office workflows. Four tools ship today, composed into one suite by a
+Module Federation shell (ADR-0006):
+
+| Tool | Route | What it does |
+|---|---|---|
+| **EstimAI** | `/estimai` | Software effort estimation — PERT + AI productivity modelling (tool #1) |
+| **Refund** (Rimborsi) | `/refund` | Expense reimbursement — requests, review/decision, monthly batch payout |
+| **Admin** | `/admin` | Roles, departments, users, permissions, invitations, mileage rates |
+
+Those three are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+notification center (`notify-ui`) is a fourth remote but **not** a `TOOLS` entry: it mounts at
+the shell-owned `/notify` route, reached from the header bell (ADR-0009).
+
+Backed by four Bun services: `auth` (identity + authorization), `estimai-api`,
+`notify-api`, `refund-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -11,32 +25,42 @@ EstimAI is the first tool in the suite — a software effort estimator.
 
 ```
 operai/
-├── estimai-ui/          # React + Vite frontend
+├── estimai-ui/          # EstimAI tool — federated remote (React + Vite)
 │   ├── src/
-│   │   ├── components/              # ActivityTable, SummaryTable, MetricsBar,
-│   │   │                            # ParametersPanel, Header, UserMenu, HelpDrawer, …
+│   │   ├── components/              # ActivityTable, SummaryTable, MetricsBar, ParametersPanel,
+│   │   │                            # Header, HelpDrawer, CollaboratorsDialog, ConflictBanner,
+│   │   │                            # ImportOfferModal, TemplatePicker, …
 │   │   ├── context/
-│   │   │   └── EstimatorContext.tsx # Global state + localStorage persistence
+│   │   │   └── EstimatorContext.tsx # Global state + persistence
+│   │   ├── federation/              # Remote type declarations + test stubs (the `exposes` map —
+│   │   │                            # App root + `./version`, ADR-0030 — lives in vite.config.ts)
 │   │   ├── hooks/
 │   │   │   ├── useEstimator.ts      # All estimation computation logic
-│   │   │   └── useTheme.ts
-│   │   ├── lib/                     # api (apiFetch interceptor), authClient, pdfExport,
-│   │   │                            # ganttChart, healthWarnings, projects, …
+│   │   │   └── useImportOffer.ts    # One-time localStorage → estimai-api import offer
+│   │   ├── lib/                     # api (apiFetch interceptor), authClient, estimatesApi,
+│   │   │                            # collaboratorsApi, identity, pdfExport, ganttChart,
+│   │   │                            # healthWarnings, pert, projects, templates, …
 │   │   ├── pages/                   # EstimatesPage, EstimatePage
-│   │   ├── router.tsx               # TanStack Router (_authed guard)
+│   │   ├── router.tsx               # TanStack Router
+│   │   ├── strings.ts               # UI copy — no hardcoded strings in components
 │   │   ├── types.ts                 # Shared TypeScript interfaces
 │   │   ├── EstimatorApp.tsx         # Top-level layout + state + XLSX export
-│   │   └── main.tsx
+│   │   └── main.tsx                 # Standalone dev entry only — production mounts via the shell
 │   ├── package.json     # NOTE: no e2e here — every estimai journey lives in shell/e2e/ (see below)
 │   └── vite.config.ts
 │
-├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006)
+├── shell/               # Suite host (Module Federation) — shared chrome + session; mounts remotes (specs/003, ADR-0006).
+│   │                    # Also owns identity-scoped non-tool screens: /account (ADR-0034), /notify (ADR-0009),
+│   │                    # the notification bell + SSE manager + ToastHost, and the About modal (ADR-0030).
 │   └── e2e/             # Playwright e2e for the WHOLE suite — every remote's journeys run through the
 │                        # host, since a remote has no standalone authed bootstrap (specs/003 retired
 │                        # estimai-ui/e2e/ when it became a federated remote). helpers/: adminSession,
 │                        # seedSession, estimaiFixtures, inviteFixtures, refundFixtures
-├── refund-ui/           # Reimbursement tool — federated remote: expense requests + accounting review/decision (specs/007)
-├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions GUI (specs/004, admin-only)
+├── refund-ui/           # Reimbursement tool — federated remote: expense requests, accounting review/decision,
+│                        # monthly batch compile/pay (specs/007, 008)
+├── admin-ui/            # Admin tool — federated remote: roles/departments/users/permissions/invitations GUI
+│                        # (specs/004, 006, admin-only) + audit log, employee address (specs/012, ADR-0031/0032)
+│                        # and the mileage-rate screen, which calls refund-api directly (specs/009, ADR-0023)
 ├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
 │
 ├── auth/                # Bun + Hono authentication service
@@ -55,37 +79,60 @@ operai/
 │   ├── prisma/          # Schema + migrations (PostgreSQL)
 │   └── package.json
 │
-├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (implemented; JWKS-verified, see specs/001, ADR-0005)
+├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (specs/001, ADR-0004/0005);
+│                        # + record-level collaborator ACL, optimistic concurrency, live identity resolution
+│                        # (specs/013, ADR-0036/0037/0038/0039/0040)
 ├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011); + internal /system/notifications for cross-user push (specs/007, ADR-0017)
-├── refund-api/          # Bun + Hono + TypeScript backend — reimbursement persistence; authorization-enforcing resource server + EU object storage for receipt attachments (specs/007, ADR-0014/0015/0016)
+├── refund-api/          # Bun + Hono + TypeScript backend — reimbursement persistence; authorization-enforcing
+│                        # resource server + EU object storage for receipts (specs/007, ADR-0014/0015/0016);
+│                        # + batch compile/PDF/paid lifecycle (specs/008, ADR-0018–0022), mileage rates
+│                        # (specs/009, ADR-0023/0024/0025), settings store (specs/011, ADR-0027/0028/0029)
 │
-├── docs/adr/            # Architecture Decision Records (0001–0022; see ## Architecture decisions)
-├── compose.yaml         # Local PostgreSQL 17 (host port 5435)
-├── mise.toml            # Node 24, corepack-managed pnpm; `mise run changeset` / `release:version` / `release:tag`
-└── specs/               # Spec-driven workflow (see below)
+├── docs/adr/            # Architecture Decision Records (0001–0040; see ## Architecture decisions)
+├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md)
+├── tools/env-doctor/    # Pre-deploy cross-service env-contract checker (`mise run env:doctor`)
+├── scripts/             # Release tooling — version.mjs (umbrella bump), tag.mjs, check-changeset.mjs
+├── .github/workflows/   # changeset-check.yml, env-doctor.yml
+├── compose.yaml         # Local PostgreSQL 17 (host port 5435) + MinIO (S3 :9000, console :9001)
+├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
+├── mise.toml            # Node 24, corepack-managed pnpm; `mise run dev` / `db:migrate` / `changeset` /
+│                        # `release:version` / `release:tag` / `env:doctor`
+└── specs/               # Spec-driven workflow (001–013, all `status: done`; see below)
 ```
 
 ---
 
 ## Tech stack
 
-### Frontend (estimai-ui)
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui)
+All five share one stack. Each is installed and deployed on its own (no npm workspace).
+
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
+- **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
+  other four are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
 - **Routing:** TanStack Router
-- **Tables:** TanStack Table v8
+- **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
+  `shell/session` and reused by every remote (ADR-0001/0002)
+- **Testing:** Vitest (unit/component) per app; e2e for the WHOLE suite lives in `shell/`
+  (`cd shell && pnpm e2e`) — a federated remote has no standalone authed bootstrap, so its
+  journeys run through the host
+- **Fonts:** DM Sans, DM Mono, Syne (Google Fonts)
+- **Styling:** Tailwind CSS 4
+- **Lint/format:** ESLint 9 (flat config) + Prettier
+- **Deploy:** Vercel, one project per frontend (auto-deploy on push to `main`)
+
+estimai-ui additionally uses:
+- **Tables:** TanStack Table v8; **drag & drop:** `@dnd-kit`
 - **Export:** `exceljs` + `xlsx` for XLSX, `jspdf` + `jspdf-autotable` for PDF
 - **Sharing:** account-based collaborators only (specs/013). The anonymous
   link share (`lz-string` payload in a URL fragment + `qrcode`) was removed on
   2026-08-09 — an estimate is never viewable without an Operai account.
-- **Auth:** better-auth client; in-memory JWT + `apiFetch` interceptor (see ADR-0001)
-- **Testing:** Vitest (unit/component) here; e2e lives in `shell/` (`cd shell && pnpm e2e`) — a
-  federated remote has no standalone authed bootstrap, so its journeys run through the host
-- **Fonts:** DM Sans, DM Mono, Syne (Google Fonts)
-- **Styling:** Tailwind CSS 4
-- **Lint/format:** ESLint 9 (flat config) + Prettier
-- **Deploy:** Vercel (auto-deploy on push to `main`)
+
+admin-ui additionally calls the Google Places API (New) browser-direct with a
+referrer-restricted key for address autocomplete — never proxied through `auth`, and it
+degrades silently when the key is absent (ADR-0032).
 
 ### Auth service (auth)
 - **Runtime:** Bun (`bun run --hot` for dev)
@@ -101,13 +148,32 @@ operai/
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Backend (estimai-api) — planned, not yet implemented
-- **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (mirrors the `auth` service; see ADR-0003)
-- **Persistence:** Prisma 7 + PostgreSQL; estimates stored as a JSONB document + listing columns (see ADR-0004)
-- **Auth:** resource server — verifies the `auth` service's RS256 JWT via its JWKS endpoint (see ADR-0005)
+### Resource backends (estimai-api, notify-api, refund-api)
+All three are implemented and share the `auth` service's shape (see ADR-0003 — one backend
+stack across the monorepo; it supersedes the earlier Kotlin/Spring intention).
+
+- **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
+- **Persistence:** Prisma 7 + PostgreSQL, own logical DB per service
+- **Auth:** JWKS resource servers — verify the `auth` service's RS256 JWT via its JWKS
+  endpoint, pinned to RS256 + issuer, and **require `AUTH_AUDIENCE`** to check the `aud`
+  claim or they reject every token with 401 (ADR-0005/0010)
 - **Errors:** Effect TS; RFC 7807 Problem JSON
-- **Deploy:** EU region (Railway EU — data residency requirement)
-- The full design lives in `specs/001-estimate-persistence/plan.md`.
+- **Deploy:** Railway, EU region (data residency requirement)
+
+Per-service specifics:
+- `estimai-api` — estimate persistence as a JSONB document + listing columns (ADR-0004);
+  record-level collaborator ACL owned by the service itself, not `auth`'s catalog (ADR-0036);
+  optimistic concurrency via integer `version` + required `If-Match`/`ETag` (ADR-0038).
+  It deliberately is **not** an authorization-enforcing resource server.
+- `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
+  single production instance (in-process ticket store + fan-out); email channel via Resend;
+  internal `/system/emails` + `/system/notifications` behind `NOTIFY_INTERNAL_TOKEN`
+  (ADR-0011/0017 — `auth`, `refund-api` and `estimai-api` are its three holders, ADR-0040)
+- `refund-api` — the suite's authorization-enforcing resource server: resolves the caller's
+  live permissions from `auth GET /authz/resolve` on every request, fails **closed** on an
+  `auth` outage (ADR-0014); entity-scoped ABAC (ADR-0015); EU-region S3-compatible object
+  storage for receipts, reached only via presigned URLs (ADR-0016); DB-level append-only
+  audit/rate/settings tables (ADR-0018/0024/0027)
 
 ---
 
@@ -165,7 +231,9 @@ PERT directly.
 
 ## Domain language
 
-Use these terms consistently in code, API contracts, and UI copy:
+Use these terms consistently in code, API contracts, and UI copy.
+
+### EstimAI
 
 | Term | Meaning |
 |---|---|
@@ -179,28 +247,66 @@ Use these terms consistently in code, API contracts, and UI copy:
 | `man_days` | Total person-days (elapsed × FTE) |
 | `ai_gain` | Fractional productivity improvement from AI tools (0.0–1.0) |
 | `ai_cost_coef` | Cost per FTE per elapsed day for AI tooling |
+| `collaborator` | A per-record grant on one estimate — `viewer` or `editor`, never `owner` |
+
+### Refund (Rimborsi)
+
+| Term | Meaning |
+|---|---|
+| `request` | One employee's reimbursement claim — the unit of review, decision and audit |
+| `line` | A single expense on a request: `type`, `entity`, `currency`, amount (and `km` iff `travel_km`) |
+| `status` | `draft` → `submitted` → `approved`/`rejected` → `paid` (terminal, ADR-0020) |
+| `entity` | The wellD legal entity a line belongs to — `welld_it` \| `welld_ch`; drives ABAC scope (ADR-0015) |
+| `batch` | A monthly payout compilation of approved requests — `compiled` \| `paid` \| `discarded` |
+| `mileage rate` | Per-entity, effective-dated €/km series; a `travel_km` line snapshots it at submit (ADR-0023) |
+
+Money is always integer minor units (cents); mileage rates are integer micros (ADR-0025).
+
+### Identity & authorization (auth)
+
+| Term | Meaning |
+|---|---|
+| `permission` | A `(resource, action)` pair from the per-app catalog, e.g. `request:approve` |
+| `role` | A named bundle of permissions, optionally attribute-conditioned |
+| `department` | An org grouping used to assign roles in bulk |
+| `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
+| `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
+| `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
 
 ---
 
-## API contract (estimai-api — planned)
+## API contract (estimai-api)
 
-Base URL: `https://api.estimai.operai.io` (production) / `http://localhost:8080` (local).
-The authoritative contract is `specs/001-estimate-persistence/plan.md`. Estimates are
-persisted as **whole documents** (JSONB); granular release/activity sub-resource endpoints
-are an explicit non-goal for the first iteration.
+Local base URL `http://localhost:8080`. The authoritative contracts are
+`specs/001-estimate-persistence/plan.md` and `specs/013-estimate-sharing/plan.md`; each
+service also serves its live OpenAPI document + Scalar reference. Estimates are persisted
+as **whole documents** (JSONB); granular release/activity sub-resource endpoints remain an
+explicit non-goal.
 
 ```
-POST   /estimates            Create a new estimate
-GET    /estimates            List the current user's estimates (id, name, updatedAt)
-GET    /estimates/{id}       Get the full estimate (owned by caller; 404 otherwise)
-PUT    /estimates/{id}       Update in place (last-write-wins, no duplicate)
-DELETE /estimates/{id}       Delete
-POST   /estimates/import     One-time bulk import of legacy localStorage estimates
+POST   /estimates                                  Create a new estimate
+GET    /estimates                                  List estimates the caller owns or collaborates on
+GET    /estimates/{id}                             Get the full estimate (returns an ETag)
+PUT    /estimates/{id}                             Update in place — REQUIRES If-Match (ADR-0038)
+DELETE /estimates/{id}                             Delete (owner only)
+POST   /estimates/import                           One-time bulk import of legacy localStorage estimates
+
+GET    /estimates/{id}/collaborators               List collaborators (+ live display identity)
+POST   /estimates/{id}/collaborators               Grant access by email (owner only)
+PATCH  /estimates/{id}/collaborators/{collabId}    Change access level (owner only)
+DELETE /estimates/{id}/collaborators/{collabId}    Revoke access (owner only)
+DELETE /estimates/{id}/collaborators/me            Leave a shared estimate
 ```
 
-Authentication: RS256 JWT issued by the `auth` service, verified via its JWKS endpoint;
-every query is scoped to the caller's `sub`. A per-estimate size guard rejects over-large
-payloads (413). Errors are RFC 7807 Problem JSON; dates are ISO 8601.
+Authentication: RS256 JWT issued by the `auth` service, verified via its JWKS endpoint with
+the `aud` claim enforced (ADR-0010). Access is the caller's ownership **or** a row in the
+service's own `estimate_collaborator` ACL (ADR-0036). Denials follow ADR-0037: **403** when a
+relationship exists but the level is insufficient (`insufficient_access` / `owner_only`),
+**404** only when no relationship exists at all. Writes without a valid precondition are
+**428**; a stale one is **409** — both map to the same "reload" UX. A per-estimate size guard
+rejects over-large payloads (413). Owner/collaborator display names are resolved live from
+`auth POST /authz/users/identities` and fail **soft** to `status:"unknown"` (ADR-0039).
+Errors are RFC 7807 Problem JSON; dates are ISO 8601.
 
 ---
 
@@ -209,9 +315,12 @@ payloads (413). Errors are RFC 7807 Problem JSON; dates are ISO 8601.
 wellD operates across Italy and Switzerland. Some clients are in regulated sectors
 (energy, finance, healthcare). Apply these rules:
 
-- Backend **must** deploy to an EU region (Railway EU, Fly.io fra, Azure Switzerland North)
-- No estimate data should be logged by the hosting provider beyond standard access logs
-- The frontend is purely client-side — no estimate data is transmitted except to the estimai-api
+- Every backend **must** deploy to an EU region (Railway EU, Fly.io fra, Azure Switzerland North)
+- Object storage is EU too — `REFUND_S3_REGION` is validated against an EU allowlist at
+  startup and the process exits if it fails (ADR-0016)
+- No business data should be logged by the hosting provider beyond standard access logs
+- Frontends are purely client-side — they transmit data only to the suite's own services
+  (and, for admin-ui, address text to Google Places; ADR-0032)
 
 ---
 
@@ -238,40 +347,70 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 
 ### Frontend
 - **All files must be TypeScript** (`.ts` or `.tsx`) — never create `.js` or `.jsx` files
-- Computation logic belongs in `useEstimator.ts` — never in components
+- Computation logic belongs in a hook or `lib/` module — in estimai-ui specifically, in
+  `useEstimator.ts`; never in components
 - Components receive data and callbacks as props; they do not compute
 - CSS variables defined in the root `<style>` block in `EstimatorApp.tsx`; do not add
   external CSS files unless introducing a proper CSS module setup
 - All numbers displayed to the user must be rounded (`.toFixed()` or `Math.round()`)
-- Authenticated backend calls go through `apiFetch` (`src/lib/api.ts`) — it attaches the
-  Bearer JWT to trusted origins only and handles the 401 refresh-retry-redirect (ADR-0001)
+- Authenticated backend calls go through `apiFetch` (`src/lib/api.ts`, or `shell/session`'s
+  for the other remotes) — it attaches the Bearer JWT to trusted origins only and handles the
+  401 refresh-retry-redirect (ADR-0001)
+- A remote owns no auth guard and no chrome — the shell does (ADR-0006). Any screen every
+  signed-in user must reach regardless of app-access grants belongs in the shell (ADR-0034)
+- Every remote exposes `./version` for the shell's About modal; a shell↔remote seam must
+  degrade silently when a remote predates the export, never block or throw (ADR-0030)
 
-### Auth service & estimai-api (Bun + Hono)
+### Backend services (auth, estimai-api, notify-api, refund-api — Bun + Hono)
 - Validate all environment variables at startup (`src/lib/env.ts`); `process.exit(1)` on missing
 - Routes grouped by feature directory, registered in `src/index.ts`; OpenAPI in `src/openapi/`
 - Database access only through the Prisma client in `src/lib/db.ts`
 - Prisma migrations — never modify existing migration files
 - Return RFC 7807 Problem JSON for all error responses (global `app.onError`/`app.notFound`)
+- Money is stored and computed in integer minor units — never `Decimal`, never float; round
+  exactly once, at compute time, with one canonical rule (ADR-0025)
+- Derived lifecycle state (expiry, orphan reconciliation, PDF regeneration) is computed
+  on read, never written by a cron or queue sweep (ADR-0013/0016/0019)
+- When adding a cross-service env var, update `tools/env-doctor`'s manifest — it is the
+  contract, and CI checks it (`.github/workflows/env-doctor.yml`)
 
 ### All services
-- No hardcoded strings that appear in the UI — use constants or i18n from day one
-  (the tool will need Italian and English at minimum)
+- No hardcoded strings that appear in the UI — use constants (e.g. `src/strings.ts`) or i18n
+  from day one; the suite needs Italian and English at minimum. `estimai-ui` enforces this
+  with a `noHardcodedStrings` test.
 - Dates and durations always in ISO 8601 in API contracts; display formatting is a UI concern
 
 ---
 
 ## Running locally
 
-### Database (shared)
+### The whole suite (preferred)
 ```bash
-docker compose up -d   # PostgreSQL 17 on localhost:5435
+mise run db:migrate   # once: Postgres up + Prisma migrations for all four backends
+mise run dev          # everything, with HMR — open http://localhost:5173 (the shell)
+mise run dev:web      # frontends only (backends already running elsewhere)
+mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy shape
 ```
 
-### Frontend
+Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, shell `5173`,
+estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`; MinIO S3 `9000`
+(console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
+
+Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
+`estimai-api`, `notify-api`, `refund-api`, `admin-ui`), 1Password CLI signed in, and
+`ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
+explicitly — direnv's shell hook does not fire for a non-interactive mise task.
+
+### Database + object storage (shared)
 ```bash
-cd estimai-ui
+docker compose up -d postgres minio minio-createbucket   # PostgreSQL 17 :5435, MinIO :9000
+```
+
+### A single frontend
+```bash
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui
 pnpm install
-pnpm dev              # http://localhost:5173
+pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
 pnpm build            # tsc -b + vite build (typecheck happens here)
 pnpm test             # vitest
@@ -299,31 +438,38 @@ bun test
 
 ### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
-`bun install`, `bun run db:migrate`, `bun run dev`. All three are JWKS resource servers and
-**require `AUTH_AUDIENCE`** (the same suite-wide value auth stamps as the `aud` claim, ADR-0010)
-or they reject every token with 401. `notify-api` also serves the ticket-authed SSE stream
-(ADR-0008) and is pinned to a single instance in production (in-process ticket store + fan-out).
-`refund-api` is additionally an **authorization**-enforcing resource server (ADR-0014) — it
-resolves the caller's live permissions from `auth GET /authz/resolve` on every request — and
-uses EU-region S3-compatible object storage for receipt attachments, reached only via
-presigned URLs (ADR-0016; `REFUND_S3_*` env, not yet provisioned in any environment as of
-specs/007's devops task — see `infra/README.md`). The whole suite comes up with one command
-from the repo root: `mise run dev`.
+`bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
+Tech stack for what each one is; `REFUND_S3_*` points at local MinIO in dev — check
+`infra/README.md` for the deployed-environment state.
+
+### Checking the env contract before a deploy
+```bash
+mise run env:doctor -- --env production --dir ./resolved   # one <service>.env per service
+mise run env:doctor                                        # or read each <service>/.env locally
+```
+
+### Before pushing
+```bash
+mise run changeset:check   # local parity with CI — did this branch's app-code change get a changeset?
+```
 
 ---
 
 ## Operai suite — future tools
 
-EstimAI is tool #1. The suite roadmap (not yet built):
+Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify** — see the table at
+the top. Still on the roadmap, not yet built:
 
 | Tool | Purpose |
 |---|---|
-| **EstimAI** | Software effort estimation with PERT + AI productivity modelling |
 | **ReviewAI** | AI-assisted code and architecture review checklists |
 | **RetroAI** | Sprint retrospective facilitation and pattern detection |
 | **ProposAI** | Consulting proposal drafting from project briefs |
 
 All tools share the Operai design system (DM Sans / DM Mono / Syne, dark ink palette, purple AI accent).
+A new tool is a federated remote mounted by the shell (ADR-0006), gated by an `(appId, "access")`
+grant in `auth`'s catalog (ADR-0007), and — if it owns data — a JWKS resource server of its own
+(ADR-0005/0010).
 
 ---
 
