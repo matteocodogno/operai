@@ -127,9 +127,25 @@ const throwFromResponse = async (response: Response): Promise<never> => {
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
-/** GET helper — no body, throws ApiError on non-2xx. `path` is refund-api-root-relative (e.g. `/requests`). */
-export const getJson = async <T>(path: string): Promise<T> => {
-  const response = await apiFetch(`${refundApiBase()}${path}`)
+/**
+ * GET helper — no body, throws ApiError on non-2xx. `path` is
+ * refund-api-root-relative (e.g. `/requests`).
+ *
+ * `init` (T7, specs/014-motivo-autocomplete) is PURELY ADDITIVE and optional:
+ * it is forwarded verbatim to `apiFetch`, which already forwards it to
+ * `fetch`. It exists so a caller can pass an `AbortSignal` (`MotivoSuggestField`
+ * cancels its corpus fetch on unmount / on the 5 s timeout) — every pre-existing
+ * call site keeps calling `getJson(path)` with one argument and behaves
+ * identically.
+ *
+ * It cannot be used to weaken `apiFetch`'s trusted-origin contract (ADR-0001,
+ * plan.md Security §6): `apiFetch` spreads `init` FIRST and then overrides both
+ * `credentials: 'include'` and the `Authorization` header with the JWT it
+ * resolved itself, so an `init.headers.Authorization` or `init.credentials`
+ * supplied here is discarded rather than honoured.
+ */
+export const getJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  const response = await apiFetch(`${refundApiBase()}${path}`, init)
   if (!response.ok) {
     return throwFromResponse(response)
   }

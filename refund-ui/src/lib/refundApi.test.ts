@@ -54,6 +54,26 @@ describe('getJson', () => {
     expect(String(url)).toBe(`${REFUND_API_URL}/requests/r1`)
   })
 
+  it('forwards an optional RequestInit (e.g. an AbortSignal) straight through to apiFetch (T7, specs/014)', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(makeResponse(200, { suggestions: [] }))
+    const controller = new AbortController()
+
+    await getJson('/line-suggestions?type=travel_km', { signal: controller.signal })
+
+    const [url, init] = vi.mocked(apiFetch).mock.calls[0]
+    expect(String(url)).toBe(`${REFUND_API_URL}/line-suggestions?type=travel_km`)
+    expect(init?.signal).toBe(controller.signal)
+  })
+
+  it('passes no init at all when the caller omits it — every pre-T7 call site is unchanged', async () => {
+    vi.mocked(apiFetch).mockResolvedValueOnce(makeResponse(200, { id: 'r1' }))
+
+    await getJson('/requests/r1')
+
+    const [, init] = vi.mocked(apiFetch).mock.calls[0]
+    expect(init).toBeUndefined()
+  })
+
   it('throws ApiError with the RFC 7807 fields on a non-2xx response', async () => {
     vi.mocked(apiFetch).mockResolvedValueOnce(
       makeResponse(404, {
