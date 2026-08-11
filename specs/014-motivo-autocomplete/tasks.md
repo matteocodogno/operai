@@ -95,12 +95,12 @@ model`, D4). A task proposing one is drift — stop and re-plan.
   - Port `estimai-ui`'s equivalent, scoped at minimum to the files this feature adds/changes: every non-technical user-facing literal must come from `strings.ts`.
   - done when: `pnpm test noHardcodedStrings` passes and fails if a literal is reintroduced into `MotivoSuggestField.tsx` (verify by temporarily inlining one).
 
-- [ ] T15: End-to-end journey through the shell — refs: AC-3.7, AC-5.1, AC-5.2, AC-5.6 — deps: T5, T12
+- [x] T15: End-to-end journey through the shell — refs: AC-3.7, AC-5.1, AC-5.2, AC-5.6 — deps: T5, T12
   - touch: `shell/e2e/motivo-autocomplete.spec.ts`
   - **In `shell/e2e/`, never in `refund-ui`** — a federated remote has no standalone authed bootstrap. Seed a refund employee via `helpers/refundFixtures.ts`'s `grantRefundEmployee`, seed ≥3 past mileage lines through the real API, open a new draft, choose Travel by car, type 3 characters, assert the list, navigate and pick **by keyboard only** (AC-5.6), assert the three filled fields and the recomputed amount, add the line (AC-3.7). Then `page.route('**/line-suggestions*').abort()` and assert the composer still works with no error surface (AC-5.2).
   - done when: `cd shell && pnpm e2e motivo-autocomplete.spec.ts` passes with the stack up (`mise run dev`).
 
-- [ ] T16: Record the changeset — refs: none (release hygiene; required by CI) — deps: T6, T13, T14
+- [x] T16: Record the changeset — refs: none (release hygiene; required by CI) — deps: T6, T13, T14
   - touch: `.changeset/*.md`
   - `mise run changeset` selecting **both** `@operai/refund-api` and `@operai/refund-ui` in ONE changeset (they are not npm-linked, so a cross-app change must name both), minor for each — a new user-facing capability plus a new endpoint.
   - done when: `mise run changeset:check` passes against `main`.
