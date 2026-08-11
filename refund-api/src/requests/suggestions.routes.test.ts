@@ -527,20 +527,40 @@ describe("grouping (AC-2.1, AC-2.2, AC-2.5)", () => {
 describe("ranking and displayed facts (AC-2.3, AC-1.7)", () => {
   it("(AC-2.3) orders by count desc, then lastUsedOn desc", async () => {
     const r = await makeRequest(OWNER);
-    // "popular": 3 lines, oldest date. "recent"/"older": 2 lines each,
-    // separated only by date — so both ranking keys are exercised.
-    await seedLine(r, { motivo: "popular", km: 1, date: "2024-09-01" });
-    await seedLine(r, { motivo: "popular", km: 1, date: "2024-09-02" });
-    await seedLine(r, { motivo: "popular", km: 1, date: "2024-09-03" });
-    await seedLine(r, { motivo: "recent", km: 2, date: "2026-06-01" });
-    await seedLine(r, { motivo: "recent", km: 2, date: "2026-06-02" });
-    await seedLine(r, { motivo: "older", km: 3, date: "2026-01-01" });
-    await seedLine(r, { motivo: "older", km: 3, date: "2026-01-02" });
+    // "popular": 3 lines, oldest dates. "recent"/"older": 2 lines each,
+    // separated only by date — so both ranking keys are exercised. `popular`
+    // being the OLDEST group is the whole point: it ranks FIRST only because
+    // `count` outranks `lastUsedOn`, and it would rank LAST under date alone.
+    //
+    // Relative dates (`monthsAgo`), never calendar literals: every one of
+    // these must stay inside the 24-month window on every day this suite is
+    // ever run. Hardcoded 2024-09-xx dates here would have silently fallen out
+    // of the window on 2026-09-02, dropping `popular`'s count from 3 to 2 and
+    // reddening CI with no code change. All offsets sit well inside the
+    // window, and adjacent offsets differ by a whole month, so the ordering
+    // survives `Date.UTC`'s month-overflow normalisation on every calendar day.
+    await seedLine(r, { motivo: "popular", km: 1, date: monthsAgo(14) });
+    await seedLine(r, { motivo: "popular", km: 1, date: monthsAgo(13) });
+    await seedLine(r, { motivo: "popular", km: 1, date: monthsAgo(12) });
+    await seedLine(r, { motivo: "recent", km: 2, date: monthsAgo(2) });
+    await seedLine(r, { motivo: "recent", km: 2, date: monthsAgo(1) });
+    await seedLine(r, { motivo: "older", km: 3, date: monthsAgo(8) });
+    await seedLine(r, { motivo: "older", km: 3, date: monthsAgo(7) });
 
     const suggestions = await suggestionsFor(OWNER);
 
     expect(suggestions.map((s) => s.motivo)).toEqual(["popular", "recent", "older"]);
     expect(suggestions.map((s) => s.count)).toEqual([3, 2, 2]);
+    // Pins the two properties the assertion above depends on for its meaning,
+    // so a future reseeding cannot quietly make it vacuous: the FIRST entry is
+    // the LEAST recent (count beat recency), and the 2nd/3rd — tied on count —
+    // are in strict recency order (recency broke the tie, not the alphabet,
+    // which would have put "older" ahead of "recent").
+    expect(suggestions.map((s) => s.lastUsedOn)).toEqual([
+      monthsAgo(12),
+      monthsAgo(1),
+      monthsAgo(7),
+    ]);
   });
 
   it("(AC-1.7) every suggestion carries all five facts, and counts never increase down the list", async () => {

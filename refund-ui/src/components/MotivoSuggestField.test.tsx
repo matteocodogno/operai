@@ -3,7 +3,9 @@
  *
  * Component tests for MotivoSuggestField (T13, specs/014-motivo-autocomplete/
  * tasks.md; plan.md "## Test strategy", ui-comp rows). Covers AC-1.1, AC-1.2,
- * AC-1.3, AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-5.2, AC-5.3, AC-5.5 and AC-5.6.
+ * AC-1.3, AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-5.2, AC-5.3, AC-5.5 and AC-5.6,
+ * plus design.md's scroll-into-view accessibility requirement, which lives
+ * outside the ACs entirely and is unobservable without stubbing the prototype.
  * AC-3.x and the AC-5.3/AC-5.4 Enter PAIR are exercised against the real form
  * in `ExpenseLineComposer.test.tsx`, where a `<form>` actually exists to be
  * submitted.
@@ -618,6 +620,143 @@ describe('MotivoSuggestField — keyboard navigation (AC-5.3)', () => {
   })
 })
 
+// ── design.md "Focus management": scroll the active option into view ──────
+
+/**
+ * `Element.prototype.scrollIntoView`'s property descriptor as it stands BEFORE
+ * this file stubs anything — captured at module scope, so it is by construction
+ * the pristine one. `undefined` under today's jsdom, which implements no layout
+ * and therefore no `scrollIntoView` at all.
+ *
+ * Restoring to exactly this (rather than to whatever was there at
+ * `beforeEach` time) is what makes the stub un-leakable: a prototype patch that
+ * outlived this file would silently change every suite that ran after it, and
+ * this repo already carries cross-file mock-pollution failures elsewhere.
+ */
+const PRISTINE_SCROLL_INTO_VIEW = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+
+/**
+ * `aria-activedescendant` moves the highlight WITHOUT moving DOM focus — and a
+ * browser does not scroll a popup for it. design.md's Accessibility §
+ * ("Scroll-into-view") therefore requires an explicit
+ * `scrollIntoView({ block: 'nearest' })` on every change of the active option:
+ * the popup is `max-height: min(18rem, 50vh)`, ~5 of its maximum 8 rows, so
+ * without this ArrowDown past the 5th row moves an INVISIBLE highlight — and
+ * Enter then picks a trip the employee never saw, which sets km, and km is
+ * money.
+ *
+ * jsdom no-ops the whole behaviour (the method does not exist), and the e2e
+ * only ever renders 2 options, so the popup never scrolls there either. Stubbing
+ * the prototype is the only level at which this is observable at all.
+ */
+describe('MotivoSuggestField — the active option is scrolled into view (design.md a11y)', () => {
+  /** One entry per call, in order: which element scrolled, and with what. */
+  let scrolls: { id: string; options: unknown }[]
+
+  beforeEach(() => {
+    // Eight matches — AC-1.5's maximum, i.e. exactly the case that overflows
+    // the popup's max-height and so actually needs scrolling.
+    vi.mocked(getTripSuggestions).mockResolvedValue(
+      Array.from({ length: 8 }, (_, i) =>
+        trip({ motivo: `Lugano trip ${i}`, normalisedMotivo: `lugano trip ${i}`, count: 8 - i }),
+      ),
+    )
+
+    scrolls = []
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      // A `function`, not an arrow: `this` is the element the component called
+      // it on, which is the half of the contract that proves the RIGHT row
+      // scrolled rather than merely that some row did.
+      value: vi.fn(function (this: Element, options: unknown) {
+        scrolls.push({ id: this.id, options })
+      }),
+    })
+  })
+
+  afterEach(() => {
+    if (PRISTINE_SCROLL_INTO_VIEW) {
+      Object.defineProperty(Element.prototype, 'scrollIntoView', PRISTINE_SCROLL_INTO_VIEW)
+    } else {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    }
+  })
+
+  it('scrolls each newly highlighted option into view with block: "nearest"', async () => {
+    render(<Harness enabled />)
+    await focusAndType('lugano')
+    expect(options()).toHaveLength(8)
+
+    // Opening highlights nothing (AC-5.4), so it scrolls nothing either.
+    expect(scrolls).toEqual([])
+
+    pressKey('ArrowDown')
+    pressKey('ArrowDown')
+    pressKey('ArrowDown')
+
+    expect(scrolls).toEqual([
+      { id: `${FIELD_ID}-option-0`, options: { block: 'nearest' } },
+      { id: `${FIELD_ID}-option-1`, options: { block: 'nearest' } },
+      { id: `${FIELD_ID}-option-2`, options: { block: 'nearest' } },
+    ])
+    // The scrolled element is the one the input points a11y at — the same
+    // assertion the keyboard tests make, tied here to the scroll target.
+    expect(input().getAttribute('aria-activedescendant')).toBe(`${FIELD_ID}-option-2`)
+  })
+
+  it('scrolls the last option into view on End, and the first on Home', async () => {
+    render(<Harness enabled />)
+    await focusAndType('lugano')
+
+    pressKey('End')
+    pressKey('Home')
+
+    expect(scrolls).toEqual([
+      { id: `${FIELD_ID}-option-7`, options: { block: 'nearest' } },
+      { id: `${FIELD_ID}-option-0`, options: { block: 'nearest' } },
+    ])
+  })
+
+  it('does NOT scroll when the active option does not change (ArrowDown clamped at the end)', async () => {
+    render(<Harness enabled />)
+    await focusAndType('lugano')
+
+    pressKey('End')
+    expect(scrolls).toEqual([{ id: `${FIELD_ID}-option-7`, options: { block: 'nearest' } }])
+
+    // All three are no-ops on the active index: ArrowDown clamps at the last
+    // option (no wrap), End is already there, and hovering deliberately never
+    // sets `active`.
+    pressKey('ArrowDown')
+    pressKey('End')
+    fireEvent.mouseEnter(options()[3])
+
+    expect(scrolls).toHaveLength(1)
+  })
+
+  it('does NOT scroll when the highlight returns to nothing, or when the list is dismissed', async () => {
+    render(<Harness enabled />)
+    await focusAndType('lugano')
+
+    pressKey('ArrowDown')
+    expect(scrolls).toHaveLength(1)
+
+    // Back to "nothing highlighted" — there is no option to scroll to.
+    pressKey('ArrowUp')
+    expect(input().hasAttribute('aria-activedescendant')).toBe(false)
+    expect(scrolls).toHaveLength(1)
+
+    pressKey('ArrowDown')
+    expect(scrolls).toHaveLength(2)
+
+    // Escape closes the list; a closed popup is never scrolled.
+    pressKey('Escape')
+    expect(listbox()).toBeNull()
+    expect(scrolls).toHaveLength(2)
+  })
+})
+
 describe('MotivoSuggestField — the re-open trap after a pick (AC-3.5)', () => {
   beforeEach(() => {
     vi.mocked(getTripSuggestions).mockResolvedValue([LUGANO, LUGANO_LONG])
@@ -827,5 +966,24 @@ describe('AC-1.8 — ExpenseLineRow’s in-place Motivo editor gains nothing', (
     // Queried by ATTRIBUTE, not by role: the row's own `<select>`s contribute
     // native `<option>` elements, which carry the implicit `option` role.
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(0)
+  })
+})
+
+// ── Teardown contract for the one prototype patch this file installs ──────
+
+/**
+ * Declared LAST so it runs after the scroll-into-view suite has torn down (this
+ * project runs a file's tests in declaration order — no `sequence.shuffle`).
+ * It can never false-fail if that order ever changed: run first, it observes the
+ * same pristine descriptor it compares against.
+ *
+ * Worth its own test rather than an `expect` in `afterEach`: `Element.prototype`
+ * is shared by every suite in the run, and a leaked stub is precisely the
+ * cross-file pollution class that already produces failures elsewhere in this
+ * repo.
+ */
+describe('MotivoSuggestField — the scrollIntoView stub does not leak (test hygiene)', () => {
+  it('leaves Element.prototype.scrollIntoView exactly as it found it', () => {
+    expect(Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')).toEqual(PRISTINE_SCROLL_INTO_VIEW)
   })
 })
