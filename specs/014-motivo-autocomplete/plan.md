@@ -86,7 +86,7 @@ token-guarded; a 5 s client timeout is treated as failure.**
 column, no new index, no migration.**
 
 - Grouping (server) and query matching (client) both need the fold, so it is implemented twice:
-  `refund-api/src/suggestions/normaliseMotivo.ts` and `refund-ui/src/lib/tripSuggestions.ts`.
+  `refund-api/src/requests/normaliseMotivo.ts` and `refund-ui/src/lib/tripSuggestions.ts`.
   This mirrors the already-established `computeMileageAmountCents` precedent (ADR-0025), which
   lives in both apps with a *mirrored canonical vector suite* — the monorepo is deliberately
   mixed pnpm/Bun with no shared workspace package, so a shared module is not available.
@@ -94,10 +94,45 @@ column, no new index, no migration.**
   `normalisedMotivo` for each suggestion, so the client folds **only the query**, never the
   candidates; (ii) an identical canonical vector list is asserted in both test suites (see Test
   strategy, R2).
-- The fold is: `trim` → collapse internal whitespace runs to one space →
-  `normalize('NFD')` + strip `\p{Diacritic}` → `toLowerCase()` (locale-independent, never
-  `toLocaleLowerCase`). `"Milano  →  LUGANO "`, `"milano → lugano"` and `"Milano → Lugàno"` all
-  fold to `"milano → lugano"`.
+- **The fold, exactly and in order.** Step order is load-bearing, not stylistic:
+  1. `normalize('NFD')` — decompose precomposed letters into base + combining mark.
+  2. strip `/[\u0300-\u036F]/g` — the **Combining Diacritical Marks block (U+0300–U+036F),
+     and only that block**.
+  3. `toLowerCase()` — locale-**independent**, never `toLocaleLowerCase` (a Turkish locale would
+     fold `I` → `ı`, and the two mirrored implementations would then disagree by device locale).
+  4. collapse `/\s+/g` to one space — **after** the strip, so a removed mark can never leave two
+     spaces adjacent.
+  5. `trim()` — after the collapse, so a stripped edge mark cannot leave an edge space behind.
+  6. `normalize('NFC')` — re-compose, so `normalisedMotivo` is canonical and byte-stable on the
+     wire rather than a decomposed form.
+
+  `"Milano  →  LUGANO "`, `"milano → lugano"` and `"Milano → Lugàno"` all fold to
+  `"milano → lugano"`. The fold is idempotent, and it is never display text (AC-2.5).
+- **Do NOT "simplify" step 2 to `\p{Diacritic}` (or `\p{Mn}`)** — both are wrong, verified
+  empirically at implementation time and pinned as vectors:
+  - `\p{Diacritic}` also matches **spacing** characters that are ordinary text — `^` (U+005E),
+    `` ` `` (U+0060), `´` (U+00B4), `¨` (U+00A8), `·` (U+00B7). `"Koln · Bonn"` would fold to
+    `"koln  bonn"`: a real character deleted and a double space left behind, no longer equal to
+    `"Koln Bonn"`.
+  - `\p{Diacritic}` **and** `\p{Mn}` also match marks that are **semantic** in non-Latin scripts.
+    NFD splits the Japanese dakuten off as U+3099, so stripping it turns `ガ` (ga) into `カ` (ka)
+    — a different word. Hebrew niqqud, Arabic harakat and Indic nukta break the same way.
+
+  U+0300–U+036F strips every accent an Italian or Swiss employee can plausibly type
+  (à è é ì ò ù, ä ö ü, ç, ñ, å, ș ț) while leaving every other script's meaning intact.
+- **Accepted, documented limitations** (each pinned as a vector so it is visible here rather than
+  discovered later): letters with **no canonical decomposition** are not folded to a base — `ß`
+  does not expand to `ss`, so Swiss `"Strasse"` and German `"Straße"` are different trips;
+  Turkish dotless `ı` does not fold to `i`; `ø ł đ` keep their form. All are rare in this corpus,
+  and folding them would require a bespoke transliteration table — one more surface on which the
+  two mirrored implementations could silently drift.
+- **The canonical vector table is a contract artifact, not a test fixture.**
+  `MOTIVO_FOLD_VECTORS` — 28 vectors of type
+  `MotivoFoldVector = { description, input, expected }` — is a **named export of the module
+  itself**, `refund-api/src/requests/normaliseMotivo.ts`, deliberately not a test-only fixture,
+  precisely so the UI side can mirror it. `refund-ui/src/lib/tripSuggestions.ts` must implement
+  the identical fold **and its suite must assert that identical table**; that mirroring IS the
+  mitigation for R2 below, and neither side may be edited alone.
 - **`unaccent` is explicitly NOT required.** Requiring it would mean a `CREATE EXTENSION` in a
   migration (a privileged DDL that must be granted on the managed Railway EU instance and in
   every developer's local compose DB and in CI), plus an expression index to make the folded
@@ -174,14 +209,15 @@ for which `request:read` is the established gate.
 
 ### Components touched / added
 
-**`refund-api` (new module `src/suggestions/`)**
+**`refund-api` (new files in the EXISTING `src/requests/` module — co-located with
+`lines.*`, `requests.*`, `lifecycle.*`; no new directory, matching tasks T1–T5)**
 
 | File | Role |
 |---|---|
 | `suggestions.routes.ts` | New `OpenAPIHono` router, `GET /line-suggestions`. `jwtMiddleware` → `authzMiddleware` → `request:read` capability check. `defaultHook` → **400** (matching `rates/effective.routes.ts`'s query-validation convention, not `linesRouter`'s 422-for-bodies). Sets `Cache-Control: no-store`. |
 | `suggestions.repo.ts` | The Prisma `groupBy` described in D3. Scoped by `ownerUserId` from the verified `sub` — **never** from any input. Effect-wrapped, `DatabaseError`, matching `requests.repo.ts`. |
 | `suggestions.service.ts` | Pure: fold-merge exact triples → trip signatures, rank, cap, map to the wire shape. No DB, no Hono — directly unit-testable. |
-| `normaliseMotivo.ts` | The fold (D3). Pure, ~8 lines. |
+| `normaliseMotivo.ts` | The fold (D3) — pure, DB-free, I/O-free — plus the exported `MOTIVO_FOLD_VECTORS` canonical vector table (`MotivoFoldVector[]`, 28 vectors) that `refund-ui` mirrors. Both are module exports, not test fixtures. |
 | `suggestions.schemas.ts` | zod-openapi query + response schemas. |
 | `src/index.ts` | Register `suggestionsRouter`. **Mounted at top level, NOT under `/requests/…`** — `requestsRouter` is registered first and its `GET /requests/{id}` route would swallow `/requests/line-suggestions` as `id="line-suggestions"` and 404 it. |
 | `src/openapi/registry.ts` | New `Suggestions` tag. |
@@ -192,7 +228,7 @@ for which `request:read` is the established gate.
 |---|---|
 | `src/lib/refundApi.ts` | **Additive** change only: `getJson<T>(path, init?: RequestInit)` forwards `init` to `apiFetch` (which already forwards it to `fetch`, verified in `shell/src/lib/session.ts`), so an `AbortSignal` can be passed. Every existing caller is unaffected. |
 | `src/lib/suggestionsApi.ts` (new) | `getTripSuggestions(signal): Promise<TripSuggestion[]>` + the `TripSuggestion` type. |
-| `src/lib/tripSuggestions.ts` (new) | Pure: `normaliseMotivo`, `queryQualifies` (≥2 non-whitespace chars), `matchTripSuggestions(corpus, query, limit)` (substring filter, order-preserving, `slice(0, 8)`). |
+| `src/lib/tripSuggestions.ts` (new) | Pure: `normaliseMotivo`, `queryQualifies` (≥2 non-whitespace chars), `matchTripSuggestions(corpus, query, limit)` (substring filter, order-preserving, `slice(0, 8)`). `normaliseMotivo` must be the **identical fold** shipped in `refund-api/src/requests/normaliseMotivo.ts`, and this file's suite must assert that module's exported `MOTIVO_FOLD_VECTORS` table verbatim — the R2 mitigation. |
 | `src/components/MotivoSuggestField.tsx` (new) | The combobox: renders the Motivo `<input>` + the suggestion listbox, owns corpus state/fetch/abort/token/debounce, keyboard navigation, a11y wiring. `enabled=false` → renders the identical input with **no** combobox roles and never fetches. |
 | `src/components/ExpenseLineComposer.tsx` | Replaces the raw Motivo `<input>` with `<MotivoSuggestField enabled={showKm} …>`. **Same element id `composer-motivo` and same `data-testid`**, one JSX node in both branches so React preserves the DOM node and focus across type changes. Adds an `onPick` handler setting `{ motivo, km: String(km), entity }` on the draft. |
 | `src/strings.ts` | New `components.motivoSuggest` namespace (see AC-5.7 / the proposed spec amendment). |
@@ -546,7 +582,7 @@ tier is appropriate; no frontier-tier escalation is requested.
 
 **Surfaces to review, named so the pass is not a discovery exercise:**
 
-1. `refund-api/src/suggestions/suggestions.routes.ts` + `suggestions.repo.ts` — that
+1. `refund-api/src/requests/suggestions.routes.ts` + `suggestions.repo.ts` — that
    `ownerUserId` comes **only** from the verified JWT `sub`; that no input can widen scope
    (the route accepts exactly one enum parameter); that the `request:read` check precedes the
    query; that permission *conditions* are ignored so a global/review grant cannot widen the

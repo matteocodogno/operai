@@ -13,7 +13,7 @@ are mirrored across both apps (ADR-0025's precedent), so both tracks consume it.
 **No schema change, no migration, no new index, no `auth`/catalog change** (plan `## Data
 model`, D4). A task proposing one is drift — stop and re-plan.
 
-- [ ] T1: Implement `normaliseMotivo` + its canonical test vectors (shared foundation) — refs: AC-1.4, AC-2.1, AC-2.5 — deps: none
+- [x] T1: Implement `normaliseMotivo` + its canonical test vectors (shared foundation) — refs: AC-1.4, AC-2.1, AC-2.5 — deps: none
   - touch: `refund-api/src/requests/normaliseMotivo.ts`, `refund-api/src/requests/normaliseMotivo.test.ts`
   - The fold from plan D3: trim, collapse internal whitespace runs to one space, lowercase, strip accents (Unicode NFD + combining-mark removal). Pure, no I/O, no Prisma.
   - Export the canonical vector table (input → folded output) as a named export so T8 can assert the **identical** table in `refund-ui` — this is the ADR-0025 mirrored-rule pattern, not a copy-paste.
