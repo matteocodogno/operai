@@ -10,6 +10,7 @@ import { requestsRouter } from "./requests/requests.routes";
 import { linesRouter } from "./requests/lines.routes";
 import { attachmentsRouter } from "./attachments/attachments.routes";
 import { lifecycleRouter } from "./requests/lifecycle.routes";
+import { suggestionsRouter } from "./requests/suggestions.routes";
 import { reviewRouter } from "./review/review.routes";
 import { decideRouter } from "./review/decide.routes";
 import { batchesRouter } from "./batches/batches.routes";
@@ -51,6 +52,17 @@ app.route("/", whoamiRouter);
 app.route("/", requestsRouter);
 // linesRouter: expense-line endpoints (T8, specs/007-refund-service).
 app.route("/", linesRouter);
+// suggestionsRouter: GET /line-suggestions — the caller's own past travel_km
+// trip signatures, for the composer's motivo autocomplete (T5,
+// specs/014-motivo-autocomplete).
+//
+// MOUNTED AT TOP LEVEL, DELIBERATELY NOT UNDER `/requests/…`: requestsRouter
+// above owns `GET /requests/{id}`, and it is registered FIRST, so a path like
+// `/requests/line-suggestions` would be matched by that route with
+// `id = "line-suggestions"` and answered with its ownership 404 — a silent,
+// total feature outage. See suggestions.routes.ts's header and its
+// registration-order regression test.
+app.route("/", suggestionsRouter);
 // attachmentsRouter: receipt attachments + EU object storage (T9, specs/007-refund-service).
 app.route("/", attachmentsRouter);
 // lifecycleRouter: submit/withdraw + audit (T10, specs/007-refund-service).

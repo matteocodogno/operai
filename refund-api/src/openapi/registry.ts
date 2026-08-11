@@ -49,6 +49,16 @@ export function setupOpenAPI(app: OpenAPIHono): void {
           "travel_km amounts (specs/009-mileage-rate).",
       },
       {
+        name: "Suggestions",
+        description:
+          "Derived, self-scoped reads that help an employee compose a line " +
+          "faster — currently the caller's OWN past `travel_km` trip " +
+          "signatures behind the motivo autocomplete (specs/014-motivo-" +
+          "autocomplete). Never another user's data: gated by the existing " +
+          "`request:read` capability, scoped unconditionally to the verified " +
+          "JWT `sub`, and exposing no caller-controlled selector at all.",
+      },
+      {
         name: "Settings",
         description:
           "Admin-managed refund configuration — an append-only key/value " +
