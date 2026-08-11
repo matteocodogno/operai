@@ -133,6 +133,21 @@ const en = {
         addButton: '+ Add expense line',
         addingLabel: 'Adding…',
         genericError: 'Could not add this expense line. Check the fields and try again.',
+        /**
+         * Announced on the composer's EXISTING polite status line
+         * (`composer-km-status`) after a motivo suggestion is picked (T10,
+         * specs/014-motivo-autocomplete; AC-3.1/AC-3.2/AC-5.6; design.md
+         * "## After a pick — making the multi-field change perceivable").
+         *
+         * Three fields change at once and a fourth (the amount) re-derives a
+         * beat later; for a non-visual user every other cue design.md relies on
+         * (the list closing, the atomic commit, the amount breakdown, the
+         * caret) is silent, so this sentence carries the whole change.
+         * Naming the untouched DATE is deliberate — it is the one field a
+         * picker might reasonably assume was filled too (AC-3.2).
+         */
+        suggestionApplied: (motivo: string, km: number, entity: string) =>
+          `Filled from a past trip: ${motivo}, ${km} km, ${entity}. The date is unchanged.`,
       },
       lines: {
         emptyDraft: 'No expense lines yet — add one to get started.',
@@ -520,6 +535,52 @@ const en = {
       breakdown: (km: number, rate: string, amount: string) => `${km} km × ${rate} = ${amount}`,
       blocked: (entityLabel: string) => `No mileage rate configured yet for ${entityLabel}.`,
       fetchError: 'Could not calculate the mileage amount. Try again.',
+    },
+    /**
+     * `MotivoSuggestField` (T10/T11, specs/014-motivo-autocomplete/tasks.md;
+     * design.md "## Copy — every new string, with its key path") — the motivo
+     * autocomplete combobox on a `travel_km` line.
+     *
+     * DELIBERATELY ABSENT, and it must stay that way: there is NO empty-state,
+     * "no results", loading, retry or error string in this namespace. AC-1.6
+     * ("no list and no error/empty-state message appear") and AC-5.2 ("no error
+     * message, banner, or toast is surfaced") forbid those surfaces outright —
+     * design.md's S3/S6/S7 all render identically by construction, so there is
+     * nothing for such a string to be attached to. Adding one is a spec
+     * violation, not a nicety.
+     *
+     * Entity labels are NOT re-spelt here: the caller passes
+     * `strings.badges.entity[…]` into `optionLabel`, the same source
+     * `EntityBadge` renders from. Dates come from `lib/dates.ts`'s `formatDate`.
+     */
+    motivoSuggest: {
+      /** Accessible name of the suggestion popup (AC-5.6). */
+      listboxLabel: 'Past trips matching what you typed',
+      /**
+       * sr-only polite announcement of the available count (AC-5.6). Called
+       * ONLY when count >= 1 — every other state, including no-match and a
+       * failed corpus fetch, announces `''`, because a spoken "no suggestions"
+       * would be exactly the empty state AC-1.6 forbids, in the audio channel.
+       */
+      available: (count: number) => `${count} suggestion${count === 1 ? '' : 's'} available`,
+      /** Visible distance on a suggestion row — one of AC-1.7's five facts. */
+      km: (km: number) => `${km} km`,
+      /**
+       * Visible ranking rationale on a suggestion row: AC-2.3's two signals
+       * (frequency then recency) as one phrase rather than two loose numbers,
+       * so the count ladder down the list reads as the list explaining its own
+       * order (AC-1.7).
+       */
+      usage: (count: number, lastUsed: string) => `Used ${count}× · last ${lastUsed}`,
+      /**
+       * The option's EXPLICIT accessible name — all five AC-1.7 facts in a form
+       * that reads correctly aloud (no `×`/`·`, which screen readers voice
+       * inconsistently), and immune to the CSS truncation on the visible motivo
+       * line. `entity` is the already-localised entity label, passed in by the
+       * caller from `strings.badges.entity`.
+       */
+      optionLabel: (motivo: string, km: number, entity: string, count: number, lastUsed: string) =>
+        `${motivo}, ${km} km, ${entity}, used ${count} ${count === 1 ? 'time' : 'times'}, last used ${lastUsed}`,
     },
     markPaidDialog: {
       title: 'Mark this batch as paid?',
