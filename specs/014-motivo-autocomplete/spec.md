@@ -1,10 +1,11 @@
 ---
 id: 014
 slug: motivo-autocomplete
-status: in-progress
+status: done
 rigor: production
 created: 2026-08-11
 approved: 2026-08-11
+done: 2026-08-11
 ---
 
 # Motivo autocomplete from the employee's own past mileage lines

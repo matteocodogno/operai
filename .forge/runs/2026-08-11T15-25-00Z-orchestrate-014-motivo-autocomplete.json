@@ -1,0 +1,105 @@
+{
+  "schema": "wellforge-run/v1",
+  "run_id": "2026-08-11T15-25-00Z-orchestrate-014-motivo-autocomplete",
+  "command": "orchestrate",
+  "feature": "014-motivo-autocomplete",
+  "rigor": "production",
+  "terse": false,
+  "control_run_id": null,
+  "started": "2026-08-11T13:40:00Z",
+  "finished": "2026-08-11T15:25:00Z",
+  "branch": "feat/014-motivo-autocomplete",
+  "note": "Single end-to-end run: spec (resumed from a draft written earlier in the same session) through gate 1, plan, ADRs, design, tasks, implementation in two parallel worktree tracks, QE + owasp in parallel, two test-quality fixes, changeset, eval, close. Both human gates were presented and approved by the user. T1 was deliberately dispatched SOLO before the parallel batch: the fold's canonical vector table is the cross-track contract, and two agents in isolated worktrees cannot see each other's commits — running it inside either track would have reintroduced the plan's own risk R2.",
+  "agents": [
+    { "agent": "product-owner", "outcome": "completed", "artifact": "spec.md", "note": "Folded two user decisions into the existing draft: composer-only scope (added AC-1.8 + a non-goal) and visible ranking signals (amended AC-1.7). Removed the two resolved open questions; left the three architect-owned ones." },
+    { "agent": "architect", "outcome": "completed", "artifact": "plan.md", "note": "Resolved all three open questions. Chose client-side matching over a server-projected pre-ranked corpus (parameterless GET /line-suggestions), reusing request:read rather than minting a permission. Flagged security YES. Surfaced the AC-5.7 i18n drift at the gate rather than designing around it." },
+    { "agent": "adr-writer", "outcome": "completed", "commits": ["03c4cdf"], "note": "Wrote ADR-0041 and ADR-0042; judged them two decisions, not one, because 0042's reconstructibility test and its ignore-the-grant's-conditions rule apply to every future self-scoped route and would have been unfindable inside a transport-shape ADR. Appended both index lines to CLAUDE.md." },
+    { "agent": "designer", "outcome": "completed", "artifact": "design.md", "note": "12 states; 4 components reused as-is, 2 extended, 1 genuinely NEW (MotivoSuggestField). Characterised the Enter/implicit-submit trap precisely and caught a real plan gap: nothing stopped the list re-opening on the motivo a pick had just written." },
+    { "agent": "product-owner", "outcome": "completed", "commits": ["03c4cdf"], "artifact": "spec.md", "note": "AC-5.7 drift amendment (English-only, i18n-ready). Also corrected a Constraints bullet asserting the same false 'bilingual by project convention' fact — flagged the extra edit rather than making it silently." },
+    { "agent": "architect", "outcome": "completed", "commits": ["89015d2"], "artifact": "plan.md", "note": "Drift correction after T1: 3 stale src/suggestions/ paths, and D3's fold semantics rewritten to match the shipped implementation. Recorded MOTIVO_FOLD_VECTORS + the R2 mirroring requirement in three places." },
+    { "agent": "backend-dev", "tasks": ["T1"], "outcome": "completed", "commits": ["a7c9bb2"], "note": "Mutation-tested its own vectors (7 mutants, all killed) instead of trusting a green suite. Found two errors in plan D3's fold spec: \\p{Diacritic} also matches spacing chars (· ´) and semantic marks in non-Latin scripts (dakuten turns ガ into カ); and whitespace collapse must follow the strip. Reported both as drift rather than silently diverging." },
+    { "agent": "backend-dev", "tasks": ["T2", "T3", "T4", "T5", "T6"], "outcome": "completed", "commits": ["a0cdaba", "c859962", "0f81846", "7a97595", "2eedf07"], "worktree": "worktree-agent-a2c5e3172b7f5b337", "note": "Mutation-verified 4 ways (owner scope, date window, display text, 403->404). Proved the /requests/{id} routing-swallow trap with a registration-order test rather than assuming. Empirically validated the Prisma groupBy against real Postgres before writing the route, retiring plan risk R4." },
+    { "agent": "frontend-dev", "tasks": ["T7", "T8", "T9", "T10", "T11", "T12", "T13", "T14"], "outcome": "completed", "commits": ["f0f8c69", "7e51f98", "1c8a9b5", "d0181cc", "a605835", "5548d82"], "worktree": "worktree-agent-a2ee6b218e3a32a57", "note": "Proved the Enter trap closed by mutation, reproducing the exact financial defect (pre-pick km/entity posted under the new motivo). Built a raw-DOM-event harness because fireEvent's per-call act() would have made the defect look benign." },
+    { "agent": "quality-engineer", "tasks": ["T15"], "outcome": "PASS", "commits": ["eb2c126"], "note": "Brought the full stack up and ran the e2e for real (2 passed, 36s) — contradicting a prior spec's blocked-environment note. Verified both journeys with negative controls. 32/32 ACs. Independently re-verified the Enter trap and ran a 300k-case differential fuzz across both fold implementations (0 mismatches). Raised D1, D2, D3." },
+    { "agent": "owasp-reviewer", "outcome": "PASS", "findings": "0 critical, 0 high, 0 medium, 2 low, 4 info", "note": "Attacked empirically rather than by reading: header-injection probes (X-User-Id, X-Forwarded-User, cookie override), path-normalisation variants, method override. Confirmed apiFetch's merge order cannot be used to replace the JWT or weaken credentials; the only surviving override is method, unreachable from the sole call site." },
+    { "agent": "quality-engineer", "outcome": "completed", "commits": ["73f19d2"], "note": "Fixed D2 (date time bomb) and D1 (scrollIntoView coverage), both proven: D2 via a process-clock-drift preload verified at 5 future dates; D1 by mutation. Discovered 18 FURTHER hardcoded dates in the same file, next detonating 2027-01-02 — disclosed, not fixed." },
+    { "agent": "devops", "tasks": ["T16"], "outcome": "completed", "commits": ["6338f88"], "note": "Wrote the changeset directly (mise run changeset is interactive). Correctly excluded @operai/shell — an e2e spec ships nothing to users — and surfaced that judgement rather than assuming it." },
+    { "agent": "evaluator", "outcome": "PASS", "score": 85.2, "note": "No dimension sub-floor. Verified independently: ran both suites, killed 6 of its own mutations, mechanically compared the two 28-vector tables. Strongest criticism: R2's mitigation is comment-enforced, not machine-enforced." }
+  ],
+  "drift_events": [
+    {
+      "agent": "architect (plan stage)",
+      "artifact": "spec.md",
+      "summary": "AC-5.7 required Italian + English, but refund-ui is English-only by a recorded specs/007 Gate-2 decision, with no locale seam or i18n library anywhere in the suite. The AC was written from CLAUDE.md's 'IT/EN from day one' convention without checking refund-ui's recorded exception. User chose English-only-but-i18n-ready at gate 2; PO amended AC-5.7, a Constraints bullet carrying the same false assertion, and added a non-goal.",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev (T1)",
+      "artifact": "plan.md",
+      "summary": "plan D3 named src/suggestions/ (3 occurrences) while tasks.md T1-T5 used the real src/requests/; and D3's fold spec was wrong twice — \\p{Diacritic} also strips spacing characters and non-Latin semantic marks, and the step order put whitespace collapse before the diacritic strip. Corrected by the architect BEFORE the frontend track was dispatched, specifically so T8 could not mirror the stale wording and reintroduce R2.",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev (T2)",
+      "artifact": "tasks.md",
+      "summary": "T2's touch: list omitted suggestions.schemas.test.ts even though its own done-when requires a schema unit test and plan's AC-4.3 row cites it. File was created; the task's touch list is cosmetically incomplete.",
+      "resolved": false
+    },
+    {
+      "agent": "backend-dev (T4)",
+      "artifact": "plan.md",
+      "summary": "The components-touched table omits suggestions.service.test.ts although T4's touch: includes it. Cosmetic.",
+      "resolved": false
+    },
+    {
+      "agent": "frontend-dev (T11)",
+      "artifact": "design.md",
+      "summary": "design.md S1 says the !enabled input is 'byte-identical to today' while also mandating an always-mounted live region. Resolved in favour of the a11y requirement (a region mounted simultaneously with its content is not reliably announced); documented in the component.",
+      "resolved": true
+    },
+    {
+      "agent": "frontend-dev (T12)",
+      "artifact": "plan.md",
+      "summary": "plan D6's claim that a just-claimed trip is 'immediately reusable' oversells: a successful add resets the whole draft including type, so the employee must re-select Travel by car before the re-armed fetch can fire. Behaviour is correct; the wording is optimistic. Documented in a test.",
+      "resolved": false
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "spec.md",
+      "summary": "The 200-trip-signature cap is a self-declared bounded deviation from AC-1.4's 'any matching trip', disclosed in plan R1, twice in ADR-0041, and in the constant's docblock — but spec.md itself was never amended, inconsistent with the same feature amending spec.md for AC-5.7. Owner: product-owner.",
+      "resolved": false
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "refund-api tests",
+      "summary": "24 hardcoded dates remain in suggestions.routes.test.ts after D2's fix; the earliest (2025-01-01) reddens CI on 2027-01-02 with no code change. Mechanical, disclosed, unfixed.",
+      "resolved": false
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "refund-ui tests",
+      "summary": "R2's mitigation is asserted more strongly than enforced: plan requires the UI suite to assert refund-api's EXPORTED vector table, but what shipped is a hand-copied literal with no mechanical link. A coherent one-sided change (editing refund-api's fold AND its vectors together) leaves both suites green while the folds diverge. Latent today — the tables were verified identical three ways.",
+      "resolved": false
+    }
+  ],
+  "collision_events": [
+    {
+      "tasks": ["T2-T6", "T7-T14"],
+      "files": [],
+      "resolved_by": "No file collision. The two tracks were deliberately file-disjoint (refund-api/ vs refund-ui/), verified by name filter in both agents' reports and by a clean merge."
+    },
+    {
+      "tasks": ["T7-T14"],
+      "files": ["worktree base"],
+      "resolved_by": "INFRASTRUCTURE, not a task-DAG error. Both worktrees were created from 96bda4e, which predates T1 and the spec-artifact commits, so neither started from the feature branch. The backend agent noticed and fast-forwarded onto feat/014 itself; the frontend agent did not, and its branch was not a descendant. Resolved by cherry-picking its 6 commits onto the feature branch (rebase was impossible — the branch was still checked out in its worktree). Both agents independently reported the untracked-spec-dir symptom. Lesson: commit spec artifacts BEFORE dispatching any worktree batch."
+    }
+  ],
+  "gates": {
+    "human_gate_1_spec": "approved by user 2026-08-11",
+    "human_gate_2_plan": "approved by user 2026-08-11, with the AC-5.7 drift decided at the same gate",
+    "qe": "PASS — 32/32 ACs, e2e executed green, 4 named risks mutation-verified",
+    "owasp": "PASS — 0 critical/high/medium",
+    "eval": "PASS — 85.2/100, no dimension sub-floor"
+  },
+  "result": "completed"
+}

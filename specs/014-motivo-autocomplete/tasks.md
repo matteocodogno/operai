@@ -105,7 +105,7 @@ model`, D4). A task proposing one is drift — stop and re-plan.
   - `mise run changeset` selecting **both** `@operai/refund-api` and `@operai/refund-ui` in ONE changeset (they are not npm-linked, so a cross-app change must name both), minor for each — a new user-facing capability plus a new endpoint.
   - done when: `mise run changeset:check` passes against `main`.
 
-- [ ] T17: All gates green, spec → done — refs: all — deps: T6, T13, T14, T15, T16
+- [x] T17: All gates green, spec → done — refs: all — deps: T6, T13, T14, T15, T16
   - touch: `specs/014-motivo-autocomplete/spec.md` (frontmatter only)
   - `cd refund-api && bun run typecheck && bun test`; `cd refund-ui && pnpm lint && pnpm build && pnpm test`; `cd shell && pnpm e2e motivo-autocomplete.spec.ts`. QE verdict PASS, owasp-reviewer findings below medium, and eval PASS (production tier).
   - done when: every task above is checked, the commands above are green, and `spec.md` reads `status: done` + `done: <date>` — set via `/wellforge:done`, never by hand.
