@@ -31,6 +31,29 @@
  *     `aria-live="polite"` status line (mirrors `RoleEditor.tsx`'s
  *     `rule-composer-status` technique) — a sighted user sees the field
  *     appear, a screen-reader user needs the same information stated.
+ *
+ * Motivo autocomplete (T12, specs/014-motivo-autocomplete/tasks.md): the raw
+ * Motivo `<input>` is now rendered by `MotivoSuggestField`, which layers an
+ * ARIA combobox over the SAME element — same `id`/`data-testid`
+ * `composer-motivo`, same `required`/`disabled`, one JSX node across both
+ * expense-type branches so React preserves the DOM node, its focus, its caret
+ * and any IME composition when the type changes. It is active only for
+ * `travel_km` (`enabled={showKm}`, AC-1.1) and owns its corpus entirely —
+ * this component never sees it, and no failure of it can reach the `error`
+ * state below (AC-5.2).
+ *
+ * Picking a suggestion overwrites exactly three draft fields — motivo, km and
+ * entity — in ONE `setDraft` (AC-3.1/3.4: an explicit deliberate act, not a
+ * fill-the-blanks merge whose result depends on typing order). The DATE is
+ * deliberately untouched (AC-3.2 — a new claim is a new date), nothing is
+ * saved (AC-3.7), and no amount/currency control exists for this type to fill
+ * (AC-3.3, specs/009). `MileageAmountField` is already a pure function of
+ * `(entity, date, km)`, so it re-derives the amount on its own with NO new
+ * wiring (AC-3.5). A successful add bumps `corpusEpoch`, so the trip just
+ * claimed becomes suggestible on the next threshold crossing (plan D6).
+ *
+ * `ExpenseLineRow` is deliberately NOT touched: AC-1.8 (no autocomplete on the
+ * in-place line editor) is satisfied structurally, by absence.
  */
 
 import { useState } from 'react'
@@ -45,6 +68,8 @@ import { ApiError } from '../lib/refundApi'
 import type { LineDraftValue } from '../lib/lineDraft'
 import { emptyLineDraft, isLineDraftComplete, lineDraftToPayload } from '../lib/lineDraft'
 import MileageAmountField from './MileageAmountField'
+import MotivoSuggestField from './MotivoSuggestField'
+import type { TripSuggestion } from '../lib/suggestionsApi'
 
 export type ExpenseLineComposerProps = {
   /** Performs `POST /requests/:id/lines`. Rejects (ApiError) on failure — the composer stays open with the entered draft intact. */
@@ -63,6 +88,8 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [kmStatus, setKmStatus] = useState('')
+  /** Bumped after a successful add so `MotivoSuggestField` re-fetches its corpus and the trip just claimed is immediately suggestible (plan D6, AC-2.6). */
+  const [corpusEpoch, setCorpusEpoch] = useState(0)
 
   const handleTypeChange = (value: string) => {
     const nextType = value as ExpenseType | ''
@@ -78,6 +105,30 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
     }
   }
 
+  /**
+   * AC-3.1/AC-3.4: motivo + km + entity are OVERWRITTEN together, in one
+   * `setDraft`, so the three controls change in a single React commit rather
+   * than one at a time. Date, amount and currency are never written (AC-3.2,
+   * AC-3.3), and nothing is saved (AC-3.7) — `onAdd` is not called here and no
+   * request is issued.
+   *
+   * The announcement reuses the EXISTING `composer-km-status` polite region
+   * rather than adding a second live region to the same form: for a non-visual
+   * user, the list closing, the atomic commit and the amount re-deriving are
+   * all silent, so this sentence is the only cue that three fields changed
+   * (AC-5.6). No collision is possible — a pick never changes the expense
+   * type, so it can never race the km-field-added/removed message.
+   */
+  const handlePickSuggestion = (suggestion: TripSuggestion) => {
+    setDraft((prev) => ({
+      ...prev,
+      motivo: suggestion.motivo,
+      km: String(suggestion.km),
+      entity: suggestion.entity,
+    }))
+    setKmStatus(t.suggestionApplied(suggestion.motivo, suggestion.km, badgeStrings[suggestion.entity]))
+  }
+
   const canAdd = isLineDraftComplete(draft) && !submitting
 
   const handleSubmit = async (e: FormEvent) => {
@@ -89,6 +140,7 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
       await onAdd(lineDraftToPayload(draft))
       setDraft(emptyLineDraft())
       setKmStatus('')
+      setCorpusEpoch((epoch) => epoch + 1)
     } catch (err) {
       setError(err instanceof ApiError ? (err.detail ?? err.title) : t.genericError)
     } finally {
@@ -159,16 +211,22 @@ export default function ExpenseLineComposer({ onAdd }: ExpenseLineComposerProps)
           <label htmlFor="composer-motivo" className="text-xs font-medium" style={{ color: 'var(--soft)' }}>
             {t.motivoLabel}
           </label>
-          <input
+          {/*
+            ONE JSX node across both expense-type branches (never a
+            `showKm ? <MotivoSuggestField/> : <input/>` fork), so React
+            reconciles the same DOM element and the employee's focus, caret and
+            IME composition survive an expense-type change. `enabled` alone
+            switches the combobox behaviour on and off (AC-1.1).
+          */}
+          <MotivoSuggestField
             id="composer-motivo"
-            type="text"
-            required
             value={draft.motivo}
+            onChange={(motivo) => setDraft((prev) => ({ ...prev, motivo }))}
+            onPick={handlePickSuggestion}
+            enabled={showKm}
             disabled={submitting}
-            onChange={(e) => setDraft((prev) => ({ ...prev, motivo: e.target.value }))}
-            data-testid="composer-motivo"
-            className="text-sm px-2.5 py-1.5 border rounded"
-            style={{ borderColor: 'var(--rule)', color: 'var(--text)', backgroundColor: 'var(--ink)' }}
+            required
+            corpusEpoch={corpusEpoch}
           />
         </div>
 
