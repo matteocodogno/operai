@@ -22,7 +22,7 @@
  * does not collide with that.
  */
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 
 describe("auth config — structural assertions (no mock)", () => {
   // DEFECT 1 fix verification:
@@ -49,6 +49,30 @@ describe("auth config — structural assertions (no mock)", () => {
     // Length equality confirms we have not added extra trusted origins beyond
     // what ALLOWED_ORIGINS declares.
     expect(trustedOrigins?.length).toBe(env.ALLOWED_ORIGINS.length);
+  });
+
+  // ─── Regression: the "GET / does not exist" 404 login failure ────────────
+  //
+  // better-auth's default OAuth error destination is `${baseURL}/error`, whose
+  // handler 302s to the ORIGIN ROOT. This service registers no `GET /`, so a
+  // refused sign-in ended on `app.notFound`'s RFC 7807 Problem JSON — observed
+  // in production as `{"status":404,"detail":"GET / does not exist"}`.
+  // `onAPIError.errorURL` redirects those failures to the hosted sign-in page,
+  // which already renders `?error=<code>` through its ERROR_MESSAGES allowlist.
+  test("(regression) onAPIError.errorURL points at the hosted sign-in page, not the origin root", async () => {
+    const { auth: realAuth } = await import("./auth.config");
+    const { env } = await import("../lib/env");
+
+    const options = realAuth.options as Record<string, unknown>;
+    const onAPIError = options.onAPIError as { errorURL?: string } | undefined;
+
+    expect(onAPIError?.errorURL).toBe(`${env.BETTER_AUTH_URL}/sign-in`);
+    // better-auth's `redirectOnError` appends `?error=` / `&error=` itself, so
+    // a query string here would produce a malformed destination.
+    expect(onAPIError?.errorURL).not.toContain("?");
+    // It must not be the bare origin — that is the exact 404 this fixes.
+    expect(onAPIError?.errorURL).not.toBe(env.BETTER_AUTH_URL);
+    expect(onAPIError?.errorURL).not.toBe(`${env.BETTER_AUTH_URL}/`);
   });
 
   test("emailAndPassword is not enabled (no password auth path added)", async () => {
@@ -663,5 +687,174 @@ describe("session.create.before — soft-delete gate + re-activation (T8, AC-5.2
     expect(auditRow).not.toBeNull();
     const auditData = auditRow?.data as { skippedRoleIds?: string[] } | null;
     expect(auditData?.skippedRoleIds).toEqual([deletedRoleId]);
+  });
+});
+
+// ─── Regression: a refused sign-in must leave a diagnosable trace ───────────
+//
+// Reported symptom: a colleague's Google sign-in bounced to
+// `?error=unable_to_create_session`. That single opaque code is ALL better-auth
+// emits, for every branch of `gateOrReactivateSoftDeletedSession` alike
+// (`callback.mjs` derives it from `result.error.split(" ").join("_")` when
+// `createSession` resolves to `null`) — and the service logged NOTHING, so a
+// deliberately refused user was indistinguishable from a broken OAuth config.
+// These tests pin the structured `auth.session_denied` event that closes that
+// gap, and the boundary that a first-time user is NOT affected.
+
+describe("session.create.before — denial observability (auth.session_denied)", () => {
+  const createdUserIds: string[] = [];
+
+  afterAll(async () => {
+    const { db } = await import("../lib/db");
+    for (const id of createdUserIds) {
+      await db.userRole.deleteMany({ where: { userId: id } });
+      await db.user.deleteMany({ where: { id } });
+    }
+  });
+
+  /** Runs the REAL registered hook and returns every parsed `auth.session_denied` event it logged. */
+  async function denialEventsFor(userId: string): Promise<Record<string, unknown>[]> {
+    const { auth: realAuth } = await import("./auth.config");
+    const beforeHook = (
+      realAuth.options as unknown as {
+        databaseHooks?: {
+          session?: {
+            create?: { before?: (s: { userId: string }, c: unknown) => Promise<false | void> };
+          };
+        };
+      }
+    ).databaseHooks?.session?.create?.before;
+    expect(beforeHook).toBeDefined();
+
+    const spy = spyOn(console, "log").mockImplementation(() => {});
+    let result: false | void;
+    let calls: unknown[][];
+    try {
+      result = await beforeHook?.({ userId }, null);
+    } finally {
+      // Snapshot BEFORE restoring — `mockRestore()` clears `mock.calls`.
+      calls = spy.mock.calls.slice();
+      spy.mockRestore();
+    }
+
+    const events = calls
+      .map((args) => {
+        try {
+          return JSON.parse(String(args[0])) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is Record<string, unknown> => e?.event === "auth.session_denied");
+
+    // Every denial must be logged, and only a denial may be logged.
+    expect(events.length).toBe(result === false ? 1 : 0);
+    return events;
+  }
+
+  test("a soft-deleted user with no pending invitation logs a specific, actionable reason", async () => {
+    const { db } = await import("../lib/db");
+    const user = await db.user.create({
+      data: {
+        email: `denial-softdel-${crypto.randomUUID()}@operai.test`,
+        name: "Denial fixture",
+        emailVerified: true,
+        deletedAt: new Date(),
+      },
+    });
+    createdUserIds.push(user.id);
+
+    const [event] = await denialEventsFor(user.id);
+    expect(event?.reason).toBe("soft_deleted_no_pending_invitation");
+    expect(event?.userId).toBe(user.id);
+    expect(typeof event?.timestamp).toBe("string");
+    // The id is the join key; the email must NOT reach the hosting provider's
+    // log retention (CLAUDE.md "Data residency").
+    expect(JSON.stringify(event)).not.toContain(user.email);
+  });
+
+  test("a soft-deleted user with an unverified email is a DISTINCT reason, not the same code", async () => {
+    const { db } = await import("../lib/db");
+    const user = await db.user.create({
+      data: {
+        email: `denial-unverified-${crypto.randomUUID()}@operai.test`,
+        name: "Denial fixture",
+        emailVerified: false,
+        deletedAt: new Date(),
+      },
+    });
+    createdUserIds.push(user.id);
+
+    const [event] = await denialEventsFor(user.id);
+    expect(event?.reason).toBe("soft_deleted_email_unverified");
+  });
+
+  test("a user id with no row logs the defensive fail-closed reason", async () => {
+    const [event] = await denialEventsFor(`missing-${crypto.randomUUID()}`);
+    expect(event?.reason).toBe("user_row_missing");
+  });
+
+  test("an ACTIVE user is allowed and logs nothing (no noise on the hot path)", async () => {
+    const { db } = await import("../lib/db");
+    const user = await db.user.create({
+      data: {
+        email: `denial-active-${crypto.randomUUID()}@operai.test`,
+        name: "Denial fixture",
+        emailVerified: true,
+      },
+    });
+    createdUserIds.push(user.id);
+
+    expect(await denialEventsFor(user.id)).toEqual([]);
+  });
+});
+
+describe("first-time OAuth sign-in is NOT gated (boundary of the soft-delete gate)", () => {
+  const createdUserIds: string[] = [];
+
+  afterAll(async () => {
+    const { db } = await import("../lib/db");
+    for (const id of createdUserIds) {
+      await db.userRole.deleteMany({ where: { userId: id } });
+      await db.account.deleteMany({ where: { userId: id } });
+      await db.session.deleteMany({ where: { userId: id } });
+      await db.user.deleteMany({ where: { id } });
+    }
+  });
+
+  // Replays better-auth's own new-user OAuth sequence (`oauth2/link-account.mjs`
+  // `handleOAuthUserInfo`: `createOAuthUser` inside a transaction, THEN
+  // `createSession`) against the real configured instance. This pins the answer
+  // to "does a never-invited colleague get refused?" — no. `createOAuthUser`'s
+  // transaction has committed by the time `session.create.before` reads the row
+  // through this service's own Prisma client, so the defensive
+  // `user_row_missing` branch cannot fire for a brand-new user. If that
+  // ordering ever changes upstream, every first sign-in in the suite breaks and
+  // this test is the tripwire.
+  test("a brand-new, never-invited Google identity gets a session", async () => {
+    const { auth: realAuth } = await import("./auth.config");
+    const ctx = await realAuth.$context;
+
+    const { user } = await ctx.internalAdapter.createOAuthUser(
+      {
+        name: "First-time colleague",
+        email: `first-time-${crypto.randomUUID()}@operai.test`,
+        emailVerified: true,
+        image: null,
+      },
+      {
+        providerId: "google",
+        accountId: `google-${crypto.randomUUID()}`,
+        accessToken: "test-access-token",
+        scope: "openid email profile",
+      } as never,
+    );
+    expect(user).not.toBeNull();
+    createdUserIds.push(user!.id);
+
+    const session = await ctx.internalAdapter.createSession(user!.id);
+    // `null` here is EXACTLY what better-auth turns into the reported
+    // `?error=unable_to_create_session`.
+    expect(session).not.toBeNull();
   });
 });

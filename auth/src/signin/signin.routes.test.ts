@@ -325,6 +325,48 @@ describe("GET /sign-in — OAuth failure banner (T3)", () => {
     expect(body).toContain("temporarily unavailable");
   });
 
+  // ─── Regression: the "GET / does not exist" 404 login failure ────────────
+  //
+  // A colleague signing in with Google got RFC 7807 Problem JSON
+  // (`{"status":404,"detail":"GET / does not exist"}`) instead of any usable
+  // message. `auth.config.ts` now routes better-auth's OAuth failures here via
+  // `onAPIError.errorURL`, so the codes below must resolve to real sentences
+  // rather than falling through to GENERIC_ERROR_MESSAGE.
+  test("?error=unable_to_create_session explains the account is deactivated, and never says 'try again'", async () => {
+    const res = await signinRouter.request(
+      "/sign-in?error=unable_to_create_session",
+    );
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("error-banner");
+    expect(body).toContain("no longer active");
+    expect(body).toContain("contact an administrator");
+    // MUST NOT fall through to the generic "please try again" message:
+    // retrying can never clear a soft-delete gate, and telling the user to
+    // retry is precisely what made this failure unreadable.
+    expect(body).not.toContain("Sign-in could not be completed");
+    // The raw code is never echoed into the DOM (reflected-XSS posture).
+    expect(body).not.toContain("unable_to_create_session");
+  });
+
+  test.each([
+    ["unable_to_create_user", "could not be created"],
+    ["account_not_linked", "different sign-in provider"],
+    ["signup_disabled", "not open for this provider"],
+    ["unable_to_get_user_info", "did not return your profile"],
+    ["email_not_found", "did not return an email address"],
+  ])(
+    "?error=%s renders its own message, not the generic fallback",
+    async (code, expected) => {
+      const res = await signinRouter.request(`/sign-in?error=${code}`);
+      const body = await res.text();
+      expect(body).toContain("error-banner");
+      expect(body).toContain(expected);
+      expect(body).not.toContain("Sign-in could not be completed");
+      expect(body).not.toContain(code);
+    },
+  );
+
   test("falls back to a generic message for an unrecognised error code", async () => {
     const res = await signinRouter.request("/sign-in?error=unknown_code_xyz");
     const body = await res.text();

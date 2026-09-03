@@ -120,8 +120,41 @@ function resolveCallbackURL(redirect: string | undefined): string {
  *   - `callback_failed`   — better-auth could not complete the callback step
  *   - `invalid_request`   — malformed OAuth request parameters
  *   - `temporarily_unavailable` — provider is temporarily down (RFC 6749)
+ *
+ * The codes below come from better-auth's own OAuth callback
+ * (`api/routes/callback.mjs`), which reaches this page because `auth.config.ts`
+ * sets `onAPIError.errorURL` to `/sign-in`. Note that callback.mjs derives a
+ * code from a failure string via `result.error.split(" ").join("_")`, so
+ * "unable to create session" arrives here as `unable_to_create_session`:
+ *   - `unable_to_create_session` — the identity is valid and the provider
+ *     round-trip SUCCEEDED, but `session.create.before` refused the session.
+ *     In this service that hook is `gateOrReactivateSoftDeletedSession`, whose
+ *     only real branch is "this account was deactivated" (ADR-0012 AC-5.2), so
+ *     the message says exactly that instead of "please try again" — retrying
+ *     can never help, and telling the user to retry is what made this failure
+ *     read as a broken login for as long as it did. Not an information leak:
+ *     the person just proved control of that mailbox at the provider.
+ *   - `unable_to_create_user`  — the user row could not be persisted
+ *   - `account_not_linked`     — email already registered via another provider
+ *   - `signup_disabled`        — sign-up is closed for this provider
+ *   - `unable_to_get_user_info`/`email_not_found` — provider returned no usable
+ *     profile (typically a missing `email` scope)
  */
 const ERROR_MESSAGES: Record<string, string> = {
+  unable_to_create_session:
+    "This account is no longer active, so sign-in was refused. " +
+    "Please contact an administrator to have your access restored.",
+  unable_to_create_user:
+    "Your account could not be created. Please contact an administrator.",
+  account_not_linked:
+    "This email address is already registered with a different sign-in provider. " +
+    "Please use the provider you signed up with.",
+  signup_disabled:
+    "Sign-up is not open for this provider. Please contact an administrator.",
+  unable_to_get_user_info:
+    "The identity provider did not return your profile. Please try again.",
+  email_not_found:
+    "The identity provider did not return an email address for your account.",
   access_denied:
     "You declined access. Please try again when you are ready to sign in.",
   oauth_failed:

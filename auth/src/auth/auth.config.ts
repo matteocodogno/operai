@@ -160,6 +160,50 @@ export async function applyLivePendingInvitationOnUserCreate(
 }
 
 /**
+ * Why a session was refused by {@link gateOrReactivateSoftDeletedSession}.
+ * Each value is a distinct, actionable operator diagnosis — never collapsed
+ * into one opaque "denied", because the remediation differs per branch.
+ */
+type SessionDenialReason =
+  /** No `user` row for the id the session would reference (defensive). */
+  | "user_row_missing"
+  /** Soft-deleted (ADR-0012 AC-5.2) with no live pending invitation. */
+  | "soft_deleted_no_pending_invitation"
+  /** Soft-deleted and the OAuth email is unverified — never re-activatable. */
+  | "soft_deleted_email_unverified";
+
+/**
+ * Structured, parseable log event on every refused sign-in — the same posture
+ * (and shape) as refund-api's `refund.self_approval_denied` (ADR-0026 point 5):
+ * a security/operational event, not a state transition, so deliberately NOT an
+ * `AuditLog` row.
+ *
+ * WHY this exists: returning `false` from `session.create.before` makes
+ * better-auth's `createSession` resolve to `null`, which its OAuth callback
+ * turns into the single opaque code `unable_to_create_session` (see the R1
+ * comment at the top of this file). That code is identical for all three
+ * branches below, is the ONLY signal that reaches the browser, and — before
+ * this — left NOTHING at all in the server logs. A refused colleague was
+ * therefore indistinguishable from a broken OAuth config, and the only way to
+ * tell them apart was to read this source file. Never remove this without
+ * replacing it with an equally specific signal.
+ *
+ * Logs the `userId` and NOT the email: the id is enough to identify the row
+ * (`SELECT email FROM "user" WHERE id = ...`) while keeping personal data out
+ * of the hosting provider's log retention (CLAUDE.md "Data residency").
+ */
+function logSessionDenied(userId: string, reason: SessionDenialReason): void {
+  console.log(
+    JSON.stringify({
+      event: "auth.session_denied",
+      userId,
+      reason,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
+
+/**
  * `session.create.before` — soft-delete gate + re-activation (AC-5.2,
  * AC-5.10). Fires on EVERY session creation, including a returning OAuth
  * identity whose `account` row already exists (the seam `user.create.after`
@@ -196,12 +240,22 @@ export async function gateOrReactivateSoftDeletedSession(
   });
 
   // Defensive fail-closed: a session must always reference a real user row.
-  if (!user) return false;
+  if (!user) {
+    logSessionDenied(userId, "user_row_missing");
+    return false;
+  }
   if (user.deletedAt === null) return; // active user — no gate (AC-1.3)
-  if (user.emailVerified !== true) return false;
+  if (user.emailVerified !== true) {
+    logSessionDenied(userId, "soft_deleted_email_unverified");
+    return false;
+  }
 
   const invitation = await findLivePendingInvitationByEmail(db, user.email);
-  if (!invitation) return false; // AC-5.2 — refused; no resurrection, no new user row
+  if (!invitation) {
+    // AC-5.2 — refused; no resurrection, no new user row
+    logSessionDenied(userId, "soft_deleted_no_pending_invitation");
+    return false;
+  }
 
   await withAudit({
     affectedUserIds: [userId],
@@ -290,6 +344,23 @@ export const auth = betterAuth({
   // that originate from the UI (localhost:5173 in dev, Vercel origin in prod)
   // with 403 INVALID_ORIGIN — so sign-out can never terminate the server session.
   trustedOrigins: env.ALLOWED_ORIGINS,
+  // Where better-auth sends a failed OAuth callback.
+  //
+  // Its default is `${baseURL}/error` — i.e. `/auth/error` — whose handler
+  // 302s to the ORIGIN ROOT (`/?error=<code>`). This service registers no
+  // `GET /`, so that landed on the RFC 7807 `app.notFound` handler and a
+  // refused user was shown raw Problem JSON (`"GET / does not exist"`) with
+  // the real reason only in the query string. Pointing this at the hosted
+  // sign-in page (ADR-0002) instead means every OAuth failure lands somewhere
+  // that already renders `?error=<code>` as a human sentence via
+  // `signin.routes.ts`'s `ERROR_MESSAGES` allowlist, with the provider
+  // buttons right there to retry.
+  //
+  // `redirectOnError` (better-auth `oauth2/errors.mjs`) appends `?error=` /
+  // `&error=` itself, so this must stay a bare URL with no query string.
+  onAPIError: {
+    errorURL: `${env.BETTER_AUTH_URL}/sign-in`,
+  },
   database: prismaAdapter(db, {
     provider: "postgresql",
   }),
