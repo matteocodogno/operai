@@ -31,7 +31,9 @@ describe('MileageAmountField — Idle', () => {
 
   it('shows the entity-derived currency badge once an entity is picked, even before km is entered', () => {
     render(<MileageAmountField entity="welld_ch" date="" km="" />)
-    expect(screen.getByTestId('currency-badge').textContent).toBe('CHFCHF')
+    // 'CHF', not 'CHFCHF': the Swiss franc has no glyph distinct from its ISO
+    // code, so the chip prints the code once (see `CurrencyBadge.tsx`'s CONFIG).
+    expect(screen.getByTestId('currency-badge').textContent).toBe('CHF')
   })
 
   it('stays Idle (no fetch) for a non-positive km', () => {
