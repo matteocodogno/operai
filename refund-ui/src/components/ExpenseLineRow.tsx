@@ -93,7 +93,7 @@ import type { ExpenseType } from '../lib/expenseTypes'
 import type { Entity } from './EntityBadge'
 import EntityBadge from './EntityBadge'
 import type { Currency } from '../lib/money'
-import { formatMoney, formatRatePerKm } from '../lib/money'
+import { describeApprovedAmount, formatMoney, formatRatePerKm } from '../lib/money'
 import CurrencyBadge from './CurrencyBadge'
 import type { Attachment, LinePayload, RefundLine } from '../lib/requestsApi'
 import { ApiError } from '../lib/refundApi'
@@ -347,6 +347,16 @@ export default function ExpenseLineRow({
   // true for a still-draft/withdrawn-to-draft line (a submitted+ line always
   // had a rate in effect at submit time, and is then frozen, per Decision 1).
   const mileageBlocked = mileage !== null && !mileage.rateInEffect
+  // Computed unconditionally so the collapsed/expanded branches below cannot
+  // disagree about whether accounting changed this line. Shares its rule with
+  // SubtotalsPanel via lib/money.ts — a per-line row and the totals card
+  // showing different answers for the same request would be worse than either
+  // being wrong alone.
+  const approvedAmount = describeApprovedAmount(
+    line.requestedAmountCents,
+    line.approvedTotalCents,
+    line.currency,
+  )
 
   const summaryCore = (
     <>
@@ -367,17 +377,37 @@ export default function ExpenseLineRow({
         {line.motivo}
       </p>
       <dl className="flex flex-wrap items-center gap-4 text-sm">
-        <div className="flex items-center gap-1.5">
-          <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
-          <dd className="font-mono" style={{ color: 'var(--text)' }}>
-            {mileageBlocked ? t.mileageBlockedAmount : formatMoney(line.requestedAmountCents, line.currency)}
-          </dd>
-        </div>
-        {mode === 'readOnlyApproved' && (
+        {/* Post-decision, ONE figure — plus the requested amount and the
+            delta only where accounting actually changed it. Printing
+            "Requested X / Approved X" unconditionally meant a reviewer read
+            two identical numbers per line and six per request to find the one
+            that differed, which is the only thing this screen is scanned for.
+            Pre-decision the requested amount stands alone, unchanged. */}
+        {mode === 'readOnlyApproved' ? (
           <div className="flex items-center gap-1.5">
             <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
-            <dd className="font-mono" style={{ color: 'var(--grn)' }}>
-              {formatMoney(line.approvedTotalCents ?? line.requestedAmountCents, line.currency)}
+            <dd
+              className="font-mono"
+              style={{ color: 'var(--grn)' }}
+              data-testid={`row-${line.id}-approved-amount`}
+              data-changed={approvedAmount.changed ? 'true' : 'false'}
+            >
+              {mileageBlocked
+                ? t.mileageBlockedAmount
+                : approvedAmount.changed
+                  ? t.approvedWithDelta(
+                      approvedAmount.approved,
+                      approvedAmount.requested,
+                      approvedAmount.delta,
+                    )
+                  : approvedAmount.approved}
+            </dd>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
+            <dd className="font-mono" style={{ color: 'var(--text)' }}>
+              {mileageBlocked ? t.mileageBlockedAmount : formatMoney(line.requestedAmountCents, line.currency)}
             </dd>
           </div>
         )}

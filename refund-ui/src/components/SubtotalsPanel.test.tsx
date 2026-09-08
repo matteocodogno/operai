@@ -53,10 +53,24 @@ describe('SubtotalsPanel', () => {
     expect(card.textContent).not.toContain('8,00 €')
   })
 
-  it('shows both requested and approved figures when showApproved is true', () => {
+  // AC-3.2 (amended 2026-09-08) applies to the totals card as well as the
+  // lines — the two must never disagree about whether an amount changed, which
+  // is why both read the same lib/money.ts helper.
+  it('surfaces the delta on the totals when accounting adjusted the amount', () => {
     render(<SubtotalsPanel subtotals={[eur]} showApproved />)
+    const amount = screen.getByTestId('subtotals-approved-EUR')
+    expect(amount.getAttribute('data-changed')).toBe('true')
+    expect(amount.textContent).toBe('8,00 € (requested 9,10, −1,10)')
+  })
+
+  it('shows a single figure on the totals when nothing was adjusted', () => {
+    render(<SubtotalsPanel subtotals={[{ ...eur, approvedCents: eur.requestedCents }]} showApproved />)
+    const amount = screen.getByTestId('subtotals-approved-EUR')
+    expect(amount.getAttribute('data-changed')).toBe('false')
+    expect(amount.textContent).toBe('9,10 €')
+
     const card = screen.getByTestId('subtotals-panel-card-EUR')
-    expect(card.textContent).toContain('9,10 €')
-    expect(card.textContent).toContain('8,00 €')
+    expect(card.textContent).not.toContain('Requested')
+    expect(card.textContent).not.toContain('requested')
   })
 })

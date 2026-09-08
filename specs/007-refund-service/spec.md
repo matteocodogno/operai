@@ -23,6 +23,14 @@ done: 2026-07-16
   `rejected`, `paid`, and already-batched `approved` remain excluded. Entity scope is
   unchanged; a per-row status badge distinguishes `submitted` from `approved`. The
   decision endpoints stay submitted-only (an approved row is read-only in the queue).
+- **2026-09-08 (post-close):** an unadjusted amount is now shown ONCE, not as a
+  requested/approved pair. AC-3.2's purpose is unchanged and is what motivated this —
+  "so they can see exactly where (if anywhere) an amount was adjusted" — but rendering
+  both figures unconditionally worked against it: on a typical request every line showed
+  two identical numbers, and the reader had to compare each pair to find the one that
+  differed. The approved figure now stands alone where accounting left it untouched, and
+  expands to "154,00 CHF (requested 180,00, −26,00)" only where it did not. Only the
+  presentation changes; both values remain on the wire and in the API contract. See AC-3.2.
 
 ## Problem
 
@@ -207,9 +215,13 @@ rejected, without having to ask accounting.
 - AC-3.1: Given an employee with one or more requests in any status, when they open their
   requests list, then every request they own is listed with, at minimum, its status and
   last-updated date — and no other employee's requests appear.
-- AC-3.2: Given an `approved` request, when the employee opens its detail, then they see
-  each line's requested amount alongside its approved total, so they can see exactly
-  where (if anywhere) an amount was adjusted.
+- AC-3.2 (amended 2026-09-08 — see Amendments): Given an `approved` request, when the
+  employee opens its detail, then they can see exactly where (if anywhere) an amount was
+  adjusted: a line whose approved total equals its requested amount shows that figure
+  ONCE, and a line accounting adjusted shows the approved total together with the
+  original requested amount and the difference. The same rule applies to the per-currency
+  totals. (Originally both figures were shown side by side on every line regardless of
+  whether they differed, which made the adjusted ones harder to find, not easier.)
 - AC-3.3: Given a `rejected` request, when the employee opens its detail, then they see
   the rejection motivation accounting recorded.
 - AC-3.4: Given a `submitted` request awaiting a decision, when the employee opens its

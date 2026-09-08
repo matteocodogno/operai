@@ -29,7 +29,7 @@
  */
 
 import { strings } from '../strings'
-import { formatMoney } from '../lib/money'
+import { describeApprovedAmount, formatMoney } from '../lib/money'
 import type { Subtotal } from '../lib/subtotals'
 import CurrencyBadge from './CurrencyBadge'
 
@@ -37,6 +37,39 @@ export type SubtotalsPanelProps = {
   subtotals: readonly Subtotal[]
   /** Show the approved figure alongside requested (only once a decision exists). */
   showApproved?: boolean
+}
+
+/**
+ * The approved row: ONE figure when accounting left the amount alone, and the
+ * requested/delta breakdown only where it did not.
+ *
+ * Before a decision exists the card still shows a plain "Requested" row
+ * (`showApproved` false) — that is a different question ("what is being asked
+ * for") and is not collapsed.
+ */
+function ApprovedFigure({ subtotal }: { subtotal: Subtotal }) {
+  const t = strings.pages.requestDetail.lines
+  const amount = describeApprovedAmount(
+    subtotal.requestedCents,
+    subtotal.approvedCents,
+    subtotal.currency,
+  )
+
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
+      <dd
+        className="font-mono"
+        style={{ color: 'var(--grn)' }}
+        data-testid={`subtotals-approved-${subtotal.currency}`}
+        data-changed={amount.changed ? 'true' : 'false'}
+      >
+        {amount.changed
+          ? t.approvedWithDelta(amount.approved, amount.requested, amount.delta)
+          : amount.approved}
+      </dd>
+    </div>
+  )
 }
 
 export default function SubtotalsPanel({ subtotals, showApproved = false }: SubtotalsPanelProps) {
@@ -59,20 +92,15 @@ export default function SubtotalsPanel({ subtotals, showApproved = false }: Subt
         >
           <CurrencyBadge currency={s.currency} />
           <dl className="flex flex-col gap-1 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
-              <dd className="font-mono" style={{ color: 'var(--text)' }}>
-                {formatMoney(s.requestedCents, s.currency)}
-              </dd>
-            </div>
-            {showApproved && (
+            {!showApproved && (
               <div className="flex items-center justify-between gap-3">
-                <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
-                <dd className="font-mono" style={{ color: 'var(--grn)' }}>
-                  {formatMoney(s.approvedCents ?? s.requestedCents, s.currency)}
+                <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
+                <dd className="font-mono" style={{ color: 'var(--text)' }}>
+                  {formatMoney(s.requestedCents, s.currency)}
                 </dd>
               </div>
             )}
+            {showApproved && <ApprovedFigure subtotal={s} />}
           </dl>
         </div>
       ))}

@@ -366,12 +366,48 @@ describe('ExpenseLineRow — read-only modes', () => {
     expect(row.textContent).not.toContain('WellD Italia · EUR')
   })
 
-  it('readOnlyApproved shows both requested and approved (AC-3.2)', () => {
+  // AC-3.2 (amended 2026-09-08): an ADJUSTED line shows the approved figure
+  // with the original and the difference — this is the case the screen exists
+  // to surface.
+  it('readOnlyApproved surfaces the delta when accounting adjusted the amount (AC-3.2)', () => {
     const approvedLine: RefundLine = { ...line, approvedTotalCents: 800 }
     render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
+    const amount = screen.getByTestId('row-line-1-approved-amount')
+    expect(amount.getAttribute('data-changed')).toBe('true')
+    expect(amount.textContent).toBe('8,00 € (requested 10,00, −2,00)')
+  })
+
+  // The other half of the amendment, and the common case: an untouched line
+  // shows ONE figure. Printing "Requested 10,00 € / Approved 10,00 €" made the
+  // reader compare two identical numbers per line to find the adjusted one.
+  it('readOnlyApproved shows a single figure when the amount was not adjusted (AC-3.2)', () => {
+    const approvedLine: RefundLine = { ...line, approvedTotalCents: 1000 }
+    render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
+    const amount = screen.getByTestId('row-line-1-approved-amount')
+    expect(amount.getAttribute('data-changed')).toBe('false')
+    expect(amount.textContent).toBe('10,00 €')
+
     const row = screen.getByTestId('expense-line-row-line-1')
+    expect(row.textContent).not.toContain('Requested')
+    expect(row.textContent).not.toContain('requested')
+  })
+
+  // null approvedTotalCents means "no per-line adjustment recorded", which
+  // refund-api treats as approving in full — an unchanged amount, not unknown.
+  it('treats a null approved total as unchanged, not as a missing value', () => {
+    render(<ExpenseLineRow line={{ ...line, approvedTotalCents: null }} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
+    const amount = screen.getByTestId('row-line-1-approved-amount')
+    expect(amount.getAttribute('data-changed')).toBe('false')
+    expect(amount.textContent).toBe('10,00 €')
+  })
+
+  // Pre-decision the question is "what is being asked for", which is a
+  // different one — that row is untouched by the amendment.
+  it('readOnly (pre-decision) still shows the requested amount', () => {
+    render(<ExpenseLineRow line={line} mode="readOnly" onDownloadAttachment={vi.fn()} />)
+    const row = screen.getByTestId('expense-line-row-line-1')
+    expect(row.textContent).toContain('Requested')
     expect(row.textContent).toContain('10,00 €')
-    expect(row.textContent).toContain('8,00 €')
   })
 
   it('readOnly/readOnlyApproved render attachments download-only — no upload trigger, no Remove button', () => {
