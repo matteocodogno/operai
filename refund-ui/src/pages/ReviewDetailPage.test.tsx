@@ -404,6 +404,103 @@ describe('ReviewDetailPage — self-approval control (specs/010)', () => {
   })
 })
 
+// ─── Status visibility ──────────────────────────────────────────────────────
+//
+// The page used to state its status NOWHERE. An approved request was
+// identifiable only by the ABSENCE of the Approve/Reject buttons and the
+// presence of the monthly note — the reader had to notice something that was
+// not there. These pin the two positive signals that replaced that inference,
+// so neither can be removed without a failing test.
+
+describe('ReviewDetailPage — the status is stated, not inferred', () => {
+  const decided = (over: Partial<RefundRequestDetail>): RefundRequestDetail => ({
+    ...baseRequest,
+    decidedAt: '2026-08-22T14:30:00.000Z',
+    decidedBy: { email: 'chiara.rossi@welld.ch' },
+    ...over,
+  })
+
+  it('badges the status beside the heading, agreeing with the queue row', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(decided({ status: 'approved' }))
+    renderReviewDetailPage()
+
+    const badge = await screen.findByTestId('request-status-badge')
+    expect(badge.textContent).toContain('Approved')
+
+    // Beside the heading, not adrift somewhere in the body.
+    const heading = document.getElementById('refund-review-detail-heading')
+    expect(heading).not.toBeNull()
+    expect(badge.parentElement?.contains(heading as Node)).toBe(true)
+  })
+
+  it('badges a submitted request too, so status is never left to inference', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    const badge = await screen.findByTestId('request-status-badge')
+    // "Awaiting decision", not "Submitted" — the queue's own copy, which reads
+    // from the reviewer's point of view rather than the employee's.
+    expect(badge.textContent).toContain('Awaiting decision')
+  })
+
+  it('names who approved the request and when — the counterpart to "Paid on X by Y"', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(decided({ status: 'approved' }))
+    renderReviewDetailPage()
+
+    const line = await screen.findByTestId('review-detail-decision-line')
+    expect(line.textContent).toBe('Approved on 22.08.2026 by chiara.rossi@welld.ch')
+  })
+
+  it('names who rejected the request and when — the motivation says why, not who', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(
+      decided({ status: 'rejected', rejectionMotivation: 'Missing receipt' }),
+    )
+    renderReviewDetailPage()
+
+    const line = await screen.findByTestId('review-detail-decision-line')
+    expect(line.textContent).toBe('Rejected on 22.08.2026 by chiara.rossi@welld.ch')
+  })
+
+  // A paid request carries TWO events by two different people: the decision
+  // and the payout. Neither replaces the other.
+  it('shows both the approval stamp and the payout stamp on a paid request', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(
+      decided({
+        status: 'paid',
+        paidAt: '2026-09-01T09:00:00.000Z',
+        paidBy: 'accounting@welld.ch',
+      }),
+    )
+    renderReviewDetailPage()
+
+    const decision = await screen.findByTestId('review-detail-decision-line')
+    expect(decision.textContent).toContain('Approved on 22.08.2026 by chiara.rossi@welld.ch')
+    expect(screen.getByTestId('review-detail-paid-line').textContent).toContain(
+      'accounting@welld.ch',
+    )
+  })
+
+  it('shows no decision stamp while the request is still awaiting one', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    await waitFor(() => expect(screen.queryByTestId('review-detail-requested-by')).not.toBeNull())
+    expect(screen.queryByTestId('review-detail-decision-line')).toBeNull()
+  })
+
+  // Never render half a stamp: "Approved on 22.08.2026 by undefined" is worse
+  // than saying nothing, because it looks like a record rather than a gap.
+  it('renders no stamp at all when the decider is missing from the record', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(
+      decided({ status: 'approved', decidedBy: null }),
+    )
+    renderReviewDetailPage()
+
+    await waitFor(() => expect(screen.queryByTestId('review-detail-approved')).not.toBeNull())
+    expect(screen.queryByTestId('review-detail-decision-line')).toBeNull()
+  })
+})
+
 describe('ReviewDetailPage — decided (approved/rejected) read-only variant', () => {
   it('approved: shows requested + approved per line, both subtotals, MonthlyProcessingNote, and no decide actions', async () => {
     const approvedRequest: RefundRequestDetail = {

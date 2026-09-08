@@ -8,7 +8,7 @@ import type { RefundRequestDetail } from '../lib/requestsApi'
 import * as reviewApi from '../lib/reviewApi'
 import * as attachmentsApi from '../lib/attachmentsApi'
 import { ApiError } from '../lib/refundApi'
-import { formatDateTime } from '../lib/dates'
+import { formatDate, formatDateTime } from '../lib/dates'
 import SkeletonListRows from '../components/SkeletonListRows'
 import ErrorBanner from '../components/ErrorBanner'
 import GuardrailDialog from '../components/GuardrailDialog'
@@ -16,6 +16,7 @@ import ApproveDialog from '../components/ApproveDialog'
 import RejectDialog from '../components/RejectDialog'
 import ExpenseLineRow from '../components/ExpenseLineRow'
 import SubtotalsPanel from '../components/SubtotalsPanel'
+import RequestStatusBadge from '../components/RequestStatusBadge'
 import RequestExportLink from '../components/RequestExportLink'
 import MonthlyProcessingNote from '../components/MonthlyProcessingNote'
 
@@ -305,21 +306,62 @@ export default function ReviewDetailPage() {
           gate, so the control never appears where it would 409. */}
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h2
-            id="refund-review-detail-heading"
-            ref={pageState.status === 'notFound' ? headingRef : undefined}
-            tabIndex={pageState.status === 'notFound' ? -1 : undefined}
-            className="text-lg font-semibold outline-none"
-            style={{ fontFamily: 'var(--disp)' }}
-          >
-            {pageState.status === 'notFound' ? t.notFound.heading : t.heading}
-          </h2>
+          {/* The status must be STATED, not inferred. This page previously
+              said nothing about where a request stood: an approved one was
+              distinguishable only by the absence of the Approve/Reject
+              buttons and the presence of the monthly note, which asks the
+              reader to notice something that isn't there. The queue already
+              badges every row; the detail now agrees with it. */}
+          <div className="flex items-center gap-3">
+            <h2
+              id="refund-review-detail-heading"
+              ref={pageState.status === 'notFound' ? headingRef : undefined}
+              tabIndex={pageState.status === 'notFound' ? -1 : undefined}
+              className="text-lg font-semibold outline-none"
+              style={{ fontFamily: 'var(--disp)' }}
+            >
+              {pageState.status === 'notFound' ? t.notFound.heading : t.heading}
+            </h2>
+            {pageState.status === 'loaded' && (
+              <RequestStatusBadge status={pageState.request.status} />
+            )}
+          </div>
 
           {pageState.status === 'loaded' && (
             <p className="mt-1 text-sm" style={{ color: 'var(--soft)' }} data-testid="review-detail-requested-by">
               {t.requestedByLabel(pageState.request.owner)}
             </p>
           )}
+
+          {/* Decision stamp — the counterpart to the paid branch's "Paid on X
+              by Y", which approved and rejected were missing. Sits beside the
+              "Requested by" line because it answers the same kind of question
+              about the same record: who, and when. A `paid` request shows this
+              AND its payout line — two different events, by two different
+              people. Rendered only when both halves are present rather than
+              printing "by undefined" over a partial record. */}
+          {pageState.status === 'loaded' &&
+            pageState.request.decidedAt !== null &&
+            pageState.request.decidedBy !== null && (
+              <p
+                className="mt-1 text-sm"
+                style={{
+                  color:
+                    pageState.request.status === 'rejected' ? 'var(--red)' : 'var(--grn)',
+                }}
+                data-testid="review-detail-decision-line"
+              >
+                {pageState.request.status === 'rejected'
+                  ? t.decision.rejectedLine(
+                      formatDate(pageState.request.decidedAt),
+                      pageState.request.decidedBy.email,
+                    )
+                  : t.decision.approvedLine(
+                      formatDate(pageState.request.decidedAt),
+                      pageState.request.decidedBy.email,
+                    )}
+              </p>
+            )}
         </div>
 
         {pageState.status === 'loaded' && pageState.request.status === 'approved' && (

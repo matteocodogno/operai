@@ -310,6 +310,24 @@ const en = {
         confirmLabel: 'Reject',
         confirmingLabel: 'Rejecting…',
       },
+      /**
+       * The decision stamp — who decided this request, and when.
+       *
+       * Every decided request gets one. Before this, the review detail stated
+       * its status NOWHERE: an approved request was identifiable only by the
+       * ABSENCE of the Approve/Reject buttons and the presence of the monthly
+       * note. Absence is not a signal, and a financial decision should name
+       * the person who made it.
+       *
+       * A `paid` request reads "Approved on …" here, because that is the
+       * decision this line records; the separate `paid.paidLine` below then
+       * adds the payout on top of it. The two are different events by
+       * different people and each says so.
+       */
+      decision: {
+        approvedLine: (date: string, email: string) => `Approved on ${date} by ${email}`,
+        rejectedLine: (date: string, email: string) => `Rejected on ${date} by ${email}`,
+      },
       /** `paid` render branch (T13, specs/008-refund-monthly-processing/tasks.md, design.md F4 step 4) — identical to `approved` PLUS this line, MINUS MonthlyProcessingNote. */
       paid: {
         paidLine: (date: string, email: string) => `Paid on ${date} by ${email}`,
