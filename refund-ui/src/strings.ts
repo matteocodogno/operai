@@ -156,17 +156,24 @@ const en = {
         requestedLabel: 'Requested',
         approvedLabel: 'Approved',
         /**
-         * The approved figure when accounting CHANGED it — "154,00 CHF
-         * (requested 180,00, −26,00)". Only the approved amount carries the
-         * currency; repeating it three times in one phrase is noise.
+         * The adjustment note, shown BENEATH the approved figure when
+         * accounting changed it — "requested 180,00 · −26,00".
          *
-         * When the amount was NOT changed, no such phrase is rendered at all:
-         * the approved figure stands alone and the requested line disappears,
-         * because a reviewer scanning for what got cut should see nothing
-         * where nothing was cut.
+         * Deliberately a second line rather than a parenthetical appended to
+         * the figure. Amounts are a right-aligned column an accountant reads
+         * down to check it sums; an inline "(requested …, …)" would push each
+         * approved figure to a different horizontal position and destroy the
+         * one property the column exists for. The figures stay aligned, the
+         * adjustment hangs underneath.
+         *
+         * Only the approved figure carries the currency — repeating it three
+         * times in one phrase is noise.
+         *
+         * When nothing was adjusted, no note is rendered at all: a reviewer
+         * scanning for what got cut should see nothing where nothing was cut.
          */
-        approvedWithDelta: (approved: string, requested: string, delta: string) =>
-          `${approved} (requested ${requested}, ${delta})`,
+        approvedDeltaNote: (requested: string, delta: string) =>
+          `requested ${requested} · ${delta}`,
         /** "N files"/"1 file" — the collapsed summary row's small attachment indicator (post-close amendment, specs/007). */
         attachmentsIndicator: (count: number) => `${count} ${count === 1 ? 'file' : 'files'}`,
         editButton: 'Edit',

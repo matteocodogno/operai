@@ -56,18 +56,30 @@ function ApprovedFigure({ subtotal }: { subtotal: Subtotal }) {
   )
 
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex items-start justify-between gap-3">
       <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
-      <dd
-        className="font-mono"
-        style={{ color: 'var(--grn)' }}
-        data-testid={`subtotals-approved-${subtotal.currency}`}
-        data-changed={amount.changed ? 'true' : 'false'}
-      >
-        {amount.changed
-          ? t.approvedWithDelta(amount.approved, amount.requested, amount.delta)
-          : amount.approved}
-      </dd>
+      <div className="text-right">
+        <dd
+          className="font-mono tabular-nums"
+          style={{ color: 'var(--grn)' }}
+          data-testid={`subtotals-approved-${subtotal.currency}`}
+          data-changed={amount.changed ? 'true' : 'false'}
+        >
+          {amount.approved}
+        </dd>
+        {/* Beneath, never appended: this figure is the one a reader checks the
+            line column sums to, so it must sit at the same right edge as the
+            lines above it. An inline parenthetical would move it. */}
+        {amount.changed && (
+          <dd
+            className="font-mono tabular-nums text-[11px]"
+            style={{ color: 'var(--soft)' }}
+            data-testid={`subtotals-approved-delta-${subtotal.currency}`}
+          >
+            {t.approvedDeltaNote(amount.requested, amount.delta)}
+          </dd>
+        )}
+      </div>
     </div>
   )
 }
@@ -95,7 +107,7 @@ export default function SubtotalsPanel({ subtotals, showApproved = false }: Subt
             {!showApproved && (
               <div className="flex items-center justify-between gap-3">
                 <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
-                <dd className="font-mono" style={{ color: 'var(--text)' }}>
+                <dd className="font-mono tabular-nums" style={{ color: 'var(--text)' }}>
                   {formatMoney(s.requestedCents, s.currency)}
                 </dd>
               </div>

@@ -374,7 +374,42 @@ describe('ExpenseLineRow — read-only modes', () => {
     render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
     const amount = screen.getByTestId('row-line-1-approved-amount')
     expect(amount.getAttribute('data-changed')).toBe('true')
-    expect(amount.textContent).toBe('8,00 € (requested 10,00, −2,00)')
+    // The COLUMN holds the approved figure alone — the adjustment hangs
+    // beneath it, so the figures above and below still line up.
+    expect(amount.textContent).toBe('8,00 €')
+    expect(screen.getByTestId('row-line-1-approved-delta').textContent).toBe(
+      'requested 10,00 · −2,00',
+    )
+  })
+
+  // The point of the column: an accountant reads straight down it and checks
+  // it sums. That only works if every figure sits at the same right edge with
+  // digits of equal advance width — so both properties are pinned, not left to
+  // a stylesheet nobody reads.
+  it('renders amounts as a right-aligned, tabular-numeral column', () => {
+    const approvedLine: RefundLine = { ...line, approvedTotalCents: 800 }
+    render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
+
+    const amount = screen.getByTestId('row-line-1-approved-amount')
+    expect(amount.className).toContain('tabular-nums')
+    expect(amount.className).toContain('font-mono')
+    // The whole column, label and all, is right-aligned as one block.
+    expect(amount.closest('dl')?.className).toContain('text-right')
+    // The adjustment note must share the alignment, or it would drag the eye
+    // off the column.
+    expect(screen.getByTestId('row-line-1-approved-delta').className).toContain('tabular-nums')
+  })
+
+  // An amount embedded in the descriptive text would move with the length of
+  // whatever preceded it — which is exactly what this layout replaced.
+  it('keeps the amount out of the descriptive block, so its position never shifts', () => {
+    const approvedLine: RefundLine = { ...line, approvedTotalCents: 800, motivo: 'A much longer description than usual' }
+    render(<ExpenseLineRow line={approvedLine} mode="readOnlyApproved" onDownloadAttachment={vi.fn()} />)
+
+    const amount = screen.getByTestId('row-line-1-approved-amount')
+    const motivo = screen.getByText('A much longer description than usual')
+    expect(motivo.contains(amount)).toBe(false)
+    expect(motivo.parentElement?.contains(amount)).toBe(false)
   })
 
   // The other half of the amendment, and the common case: an untouched line
@@ -386,9 +421,9 @@ describe('ExpenseLineRow — read-only modes', () => {
     const amount = screen.getByTestId('row-line-1-approved-amount')
     expect(amount.getAttribute('data-changed')).toBe('false')
     expect(amount.textContent).toBe('10,00 €')
+    expect(screen.queryByTestId('row-line-1-approved-delta')).toBeNull()
 
     const row = screen.getByTestId('expense-line-row-line-1')
-    expect(row.textContent).not.toContain('Requested')
     expect(row.textContent).not.toContain('requested')
   })
 

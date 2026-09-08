@@ -358,66 +358,91 @@ export default function ExpenseLineRow({
     line.currency,
   )
 
+  /**
+   * AMOUNTS ARE A COLUMN, not a value embedded in a sentence.
+   *
+   * Everything descriptive stays left and wraps; the money sits in a fixed
+   * right-hand column with `tabular-nums`, so an accountant can run their eye
+   * straight down a request and check it sums to the total. Previously the
+   * figure sat inline after its label, inside a wrapping row shared with the
+   * applied-rate pair — so its horizontal position moved with the length of
+   * whatever preceded it, and no two rows lined up.
+   *
+   * `tabular-nums` alongside `font-mono` is belt-and-braces, and deliberately
+   * so. DM Mono is a true monospace, so equal digit advance is already
+   * guaranteed while it loads and renders — but the stack falls back to
+   * `monospace` and, on a system where that resolves to something
+   * proportional-ish, the column would quietly stop being a column. The
+   * numeric variant makes the alignment a property of the markup rather than
+   * of which font happened to load.
+   *
+   * An adjusted line puts the approved figure in the column and hangs the
+   * "requested … · −…" note beneath it, rather than appending a parenthetical
+   * that would shove every figure to a different x.
+   */
+  const amountColumn = (
+    <dl className="shrink-0 text-right text-sm">
+      <dt className="text-[11px]" style={{ color: 'var(--soft)' }}>
+        {mode === 'readOnlyApproved' ? t.approvedLabel : t.requestedLabel}
+      </dt>
+      <dd
+        className="font-mono tabular-nums"
+        style={{ color: mode === 'readOnlyApproved' ? 'var(--grn)' : 'var(--text)' }}
+        data-testid={
+          mode === 'readOnlyApproved'
+            ? `row-${line.id}-approved-amount`
+            : `row-${line.id}-requested-amount`
+        }
+        data-changed={
+          mode === 'readOnlyApproved' ? (approvedAmount.changed ? 'true' : 'false') : undefined
+        }
+      >
+        {mileageBlocked
+          ? t.mileageBlockedAmount
+          : mode === 'readOnlyApproved'
+            ? approvedAmount.approved
+            : formatMoney(line.requestedAmountCents, line.currency)}
+      </dd>
+      {mode === 'readOnlyApproved' && approvedAmount.changed && !mileageBlocked && (
+        <dd
+          className="font-mono tabular-nums text-[11px]"
+          style={{ color: 'var(--soft)' }}
+          data-testid={`row-${line.id}-approved-delta`}
+        >
+          {t.approvedDeltaNote(approvedAmount.requested, approvedAmount.delta)}
+        </dd>
+      )}
+    </dl>
+  )
+
   const summaryCore = (
-    <>
-      <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span style={{ color: 'var(--soft)' }}>{formatDate(line.date)}</span>
-        <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
-        <EntityBadge entity={line.entity} />
-        <CurrencyBadge currency={line.currency} />
-        {line.km !== null && (
-          <span style={{ color: 'var(--muted)' }}>
-            {line.km} km
-            {mileage?.appliedRate &&
-              ` × ${formatRatePerKm(mileage.appliedRate.ratePerKm, mileage.appliedRate.currency)}`}
-          </span>
-        )}
-      </div>
-      <p className="text-sm" style={{ color: 'var(--text)' }}>
-        {line.motivo}
-      </p>
-      <dl className="flex flex-wrap items-center gap-4 text-sm">
-        {/* Post-decision, ONE figure — plus the requested amount and the
-            delta only where accounting actually changed it. Printing
-            "Requested X / Approved X" unconditionally meant a reviewer read
-            two identical numbers per line and six per request to find the one
-            that differed, which is the only thing this screen is scanned for.
-            Pre-decision the requested amount stands alone, unchanged. */}
-        {mode === 'readOnlyApproved' ? (
-          <div className="flex items-center gap-1.5">
-            <dt style={{ color: 'var(--soft)' }}>{t.approvedLabel}</dt>
-            <dd
-              className="font-mono"
-              style={{ color: 'var(--grn)' }}
-              data-testid={`row-${line.id}-approved-amount`}
-              data-changed={approvedAmount.changed ? 'true' : 'false'}
-            >
-              {mileageBlocked
-                ? t.mileageBlockedAmount
-                : approvedAmount.changed
-                  ? t.approvedWithDelta(
-                      approvedAmount.approved,
-                      approvedAmount.requested,
-                      approvedAmount.delta,
-                    )
-                  : approvedAmount.approved}
-            </dd>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <dt style={{ color: 'var(--soft)' }}>{t.requestedLabel}</dt>
-            <dd className="font-mono" style={{ color: 'var(--text)' }}>
-              {mileageBlocked ? t.mileageBlockedAmount : formatMoney(line.requestedAmountCents, line.currency)}
-            </dd>
-          </div>
-        )}
-        {/* specs/009-mileage-rate AC-6.4 — the applied rate + valid-from, shown
-            alongside the amount in every mode. `appliedRate` is non-null only
-            once a travel_km line has ever been submitted under this feature
-            (Decision 1); a legacy pre-feature submitted line omits this pair
-            entirely (graceful degradation — amount only, no breakdown). */}
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span style={{ color: 'var(--soft)' }}>{formatDate(line.date)}</span>
+          <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
+          <EntityBadge entity={line.entity} />
+          <CurrencyBadge currency={line.currency} />
+          {line.km !== null && (
+            <span style={{ color: 'var(--muted)' }}>
+              {line.km} km
+              {mileage?.appliedRate &&
+                ` × ${formatRatePerKm(mileage.appliedRate.ratePerKm, mileage.appliedRate.currency)}`}
+            </span>
+          )}
+        </div>
+        <p className="text-sm" style={{ color: 'var(--text)' }}>
+          {line.motivo}
+        </p>
+        {/* specs/009-mileage-rate AC-6.4 — the applied rate + valid-from.
+            `appliedRate` is non-null only once a travel_km line has ever been
+            submitted under this feature (Decision 1); a legacy pre-feature
+            submitted line omits this pair entirely (graceful degradation —
+            amount only, no breakdown). Stays on the DESCRIPTIVE side: it is
+            provenance for how the amount was reached, not a figure anyone
+            sums, so it must not sit in the money column. */}
         {mileage?.appliedRate && (
-          <div className="flex items-center gap-1.5">
+          <dl className="flex flex-wrap items-center gap-1.5 text-sm">
             <dt style={{ color: 'var(--soft)' }}>{t.rateAppliedLabel}</dt>
             <dd className="font-mono" style={{ color: 'var(--text)' }}>
               {t.rateAppliedValue(
@@ -425,10 +450,12 @@ export default function ExpenseLineRow({
                 formatDate(mileage.appliedRate.validFrom),
               )}
             </dd>
-          </div>
+          </dl>
         )}
-      </dl>
-    </>
+      </div>
+
+      {amountColumn}
+    </div>
   )
 
   // -------------------------------------------------------------------------

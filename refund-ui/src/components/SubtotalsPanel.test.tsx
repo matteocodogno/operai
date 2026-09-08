@@ -60,7 +60,19 @@ describe('SubtotalsPanel', () => {
     render(<SubtotalsPanel subtotals={[eur]} showApproved />)
     const amount = screen.getByTestId('subtotals-approved-EUR')
     expect(amount.getAttribute('data-changed')).toBe('true')
-    expect(amount.textContent).toBe('8,00 € (requested 9,10, −1,10)')
+    expect(amount.textContent).toBe('8,00 €')
+    expect(screen.getByTestId('subtotals-approved-delta-EUR').textContent).toBe(
+      'requested 9,10 · −1,10',
+    )
+  })
+
+  // The totals figure is the one a reader checks the line column sums to, so
+  // it has to share the lines' numeral alignment.
+  it('renders the total with tabular numerals, matching the line column', () => {
+    render(<SubtotalsPanel subtotals={[eur]} showApproved />)
+    const amount = screen.getByTestId('subtotals-approved-EUR')
+    expect(amount.className).toContain('tabular-nums')
+    expect(amount.className).toContain('font-mono')
   })
 
   it('shows a single figure on the totals when nothing was adjusted', () => {
@@ -68,6 +80,7 @@ describe('SubtotalsPanel', () => {
     const amount = screen.getByTestId('subtotals-approved-EUR')
     expect(amount.getAttribute('data-changed')).toBe('false')
     expect(amount.textContent).toBe('9,10 €')
+    expect(screen.queryByTestId('subtotals-approved-delta-EUR')).toBeNull()
 
     const card = screen.getByTestId('subtotals-panel-card-EUR')
     expect(card.textContent).not.toContain('Requested')
