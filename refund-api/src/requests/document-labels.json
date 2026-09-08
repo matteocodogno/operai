@@ -1,0 +1,28 @@
+{
+  "_comment": "CANONICAL display labels for refund documents, shared by refund-api's PDF renderers and refund-ui's screens. Neither package imports the other (they are not npm-linked — see CLAUDE.md ### Git), so this file is the contract and BOTH sides assert against it: refund-api/src/requests/labels.test.ts and refund-ui/src/lib/documentLabels.parity.test.ts. Change a label here first, then both implementations. Same mechanism as rates/mileage-vectors.json (ADR-0025).",
+  "expenseType": {
+    "travel_highway": "Travel — highway",
+    "travel_km": "Travel — mileage (km)",
+    "travel_parking": "Travel — parking",
+    "travel_train": "Travel — train",
+    "travel_other_public_transport": "Travel — other public transport",
+    "company_manuals": "Company manuals",
+    "stationery": "Stationery",
+    "representation_meals": "Representation — meals",
+    "representation_gifts": "Representation — gifts",
+    "office_material": "Office material",
+    "postal": "Postal",
+    "telephone": "Telephone"
+  },
+  "entity": {
+    "welld_it": "WellD Italia",
+    "welld_ch": "WellD CH"
+  },
+  "requestStatus": {
+    "draft": "Draft",
+    "submitted": "Awaiting decision",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "paid": "Paid"
+  }
+}

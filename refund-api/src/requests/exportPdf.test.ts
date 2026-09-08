@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { PDFDocument } from "pdf-lib";
+import { extractPdfText } from "../test-support/pdfText";
 import {
   renderRequestExportPdf,
   ReceiptEmbedError,
@@ -46,6 +47,7 @@ const baseInput = (overrides: Partial<RequestExportInput> = {}): RequestExportIn
   receipts: [],
   generatedAt: new Date("2026-09-08T12:00:00.000Z"),
   generatedByEmail: "acct@welld.ch",
+  settlement: "Approved — not yet included in a monthly batch",
   ...overrides,
 });
 
@@ -214,5 +216,165 @@ describe("renderRequestExportPdf", () => {
     expect(buffer.byteLength).toBeGreaterThan(0);
     // A no-receipt export must still be exactly one document, not an error.
     expect((await PDFDocument.load(buffer)).getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ─── Document quality (2026-09-08 review) ──────────────────────────────────
+//
+// Each of these pins a defect an actual exported PDF shipped with, found by
+// reading the file rather than the code.
+
+const mileageLine = {
+  id: "l1",
+  date: "2026-08-11",
+  type: "travel_km",
+  motivo: "Mtg CRSS",
+  entity: "welld_ch",
+  currency: "CHF",
+  requestedAmountCents: 1050,
+  km: 15,
+  approvedTotalCents: 1050,
+  attachments: [],
+  mileage: {
+    km: 15,
+    rateInEffect: true,
+    appliedRate: {
+      ratePerKmMicros: 700000,
+      ratePerKm: "0.70",
+      validFrom: "2021-01-31",
+      currency: "CHF",
+    },
+    computedAmountCents: 1050,
+    snapshotted: true,
+  },
+} as unknown as RequestExportInput["lines"][number];
+
+async function textOf(input: RequestExportInput): Promise<string> {
+  return await extractPdfText(await renderRequestExportPdf(input));
+}
+
+describe("renderRequestExportPdf — no raw enum values reach the document", () => {
+  it("renders display labels for the expense type and the entity", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).toContain("Travel — mileage (km)");
+    expect(text).toContain("WellD CH");
+    expect(text).not.toContain("travel_km");
+    expect(text).not.toContain("welld_ch");
+  });
+
+  it("renders the status as a label, not the database value", async () => {
+    const text = await textOf(baseInput({ status: "approved", lines: [mileageLine] }));
+
+    expect(text).toContain("Approved");
+    expect(text).not.toMatch(/Status: approved/);
+  });
+});
+
+describe("renderRequestExportPdf — one number locale", () => {
+  it("renders the mileage rate and its validity in the document's locale, not the wire's", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).toContain("0,70 CHF/km");
+    expect(text).toContain("31.01.2021");
+    // The wire forms must not survive into the page.
+    expect(text).not.toContain("0.70");
+    expect(text).not.toContain("2021-01-31");
+  });
+
+  it("puts the currency after the amount, as the UI does", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).toContain("206,50 CHF");
+    expect(text).not.toContain("CHF 206,50");
+  });
+
+  it("renders line dates like every other date", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).toContain("11.08.2026");
+    expect(text).not.toContain("2026-08-11");
+  });
+
+  it("renders timestamps as civil time with a named zone, never raw ISO", async () => {
+    const text = await textOf(
+      baseInput({
+        submittedAt: "2026-08-22T09:00:00.000Z",
+        decidedAt: "2026-09-01T06:45:20.752Z",
+        lines: [mileageLine],
+      }),
+    );
+
+    expect(text).toContain("01.09.2026 08:45 (CEST)");
+    expect(text).not.toContain(".752");
+    expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+describe("renderRequestExportPdf — self-describing header", () => {
+  it("names the period and the entity up front", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).toContain("Period: August 2026");
+    expect(text).toContain("Entity: WellD CH");
+  });
+
+  // "Is this a liability or is it settled?" is the first question a recipient
+  // asks, and the document used to answer it nowhere.
+  it("states the settlement position", async () => {
+    const text = await textOf(
+      baseInput({
+        lines: [mileageLine],
+        settlement: "Paid on 30.09.2026 08:00 (CEST) — batch 2026-09",
+      }),
+    );
+
+    expect(text).toContain("Settlement:");
+    expect(text).toContain("batch 2026-09");
+  });
+});
+
+describe("renderRequestExportPdf — receipts are stated once", () => {
+  it("states the zero case once globally, with no per-line repetition", async () => {
+    const text = await textOf(
+      baseInput({ lines: [mileageLine, { ...mileageLine, id: "l2" }] }),
+    );
+
+    expect(text).toContain("No receipts were attached");
+    expect(text).not.toContain("Receipts: none");
+  });
+
+  it("states per-line counts when receipts exist, and drops the global claim", async () => {
+    const withReceipt = {
+      ...mileageLine,
+      attachments: [{ id: "a1", fileName: "r.png", contentType: "image/png", sizeBytes: 10 }],
+    } as unknown as RequestExportInput["lines"][number];
+
+    const text = await textOf(
+      baseInput({ lines: [withReceipt, { ...mileageLine, id: "l2" }], receipts: [receipt()] }),
+    );
+
+    expect(text).toContain("Receipts: 1");
+    expect(text).toContain("Receipts: none"); // the other line, which genuinely has none
+    expect(text).not.toContain("No receipts were attached");
+  });
+});
+
+describe("renderRequestExportPdf — footer", () => {
+  it("stamps every page with the reference and its page number", async () => {
+    const buffer = await renderRequestExportPdf(
+      baseInput({
+        lines: [mileageLine],
+        receipts: [receipt({ contentType: "application/pdf", bytes: await makePdfBytes(2) })],
+      }),
+    );
+    const text = await extractPdfText(buffer);
+    const pageCount = (await PDFDocument.load(buffer, { updateMetadata: false })).getPageCount();
+
+    // Including the copied receipt pages — a stapled set where half the pages
+    // carry no number is the set that loses one unnoticed.
+    for (let page = 1; page <= pageCount; page += 1) {
+      expect(text).toContain(`Page ${page} of ${pageCount}`);
+    }
   });
 });

@@ -40,6 +40,7 @@ const { requestExportRouter } = await import("./export.routes");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { MAX_EXPORT_RECEIPT_BYTES } = await import("../lib/storage");
+const { extractPdfText } = await import("../test-support/pdfText");
 
 const authHeaders = (token: string) => ({ Authorization: `Bearer ${token}` });
 
@@ -128,7 +129,9 @@ describe("GET /requests/:id/export", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/pdf");
-    expect(res.headers.get("content-disposition")).toContain(`refund-request-${request.id}.pdf`);
+    // The filename is human-first now (period, surname, amount) with the cuid
+    // kept as a collision guard — see the filename test below.
+    expect(res.headers.get("content-disposition")).toContain(`${request.id}.pdf`);
     // Personal financial data must never sit in an intermediary cache.
     expect(res.headers.get("cache-control")).toBe("no-store");
 
@@ -286,5 +289,71 @@ describe("GET /requests/:id/export", () => {
     });
     // Not 413: the pending row must not count toward the budget.
     expect(res.status).toBe(200);
+  });
+});
+
+// ─── Document quality (2026-09-08 review) ──────────────────────────────────
+
+describe("GET /requests/:id/export — settlement state and filename", () => {
+  const url = (id: string) => `/requests/${id}/export`;
+
+  async function exportAs(requestId: string) {
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+    return await requestExportRouter.request(url(requestId), { headers: authHeaders(token) });
+  }
+
+  // A filename someone can file and sort, replacing refund-request-<cuid>.pdf.
+  it("names the file by period, surname and amount, not by the cuid alone", async () => {
+    const { request } = await createRequest("approved");
+    const res = await exportAs(request.id);
+
+    expect(res.status).toBe(200);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("refund_2026-08_emp1_CHF-206.50");
+    // The cuid still ends it, so two requests by the same person in the same
+    // month for the same total cannot collide in a downloads folder.
+    expect(disposition).toContain(request.id);
+  });
+
+  it("says a request with no batch is not yet included in one", async () => {
+    const { request } = await createRequest("approved");
+    const res = await exportAs(request.id);
+    const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
+
+    expect(text).toContain("not yet included in a monthly batch");
+  });
+
+  // The distinction that matters to a recipient: compiled is still a
+  // liability, paid is settled. Both used to render identically.
+  it("distinguishes a compiled-but-unpaid batch from a paid one", async () => {
+    const { request } = await createRequest("approved");
+    const batch = await db.refundBatch.create({
+      data: {
+        cutoff: new Date("2026-09-30T12:00:00.000Z"),
+        createdByUserId: "acct-1",
+        createdByEmail: "acct1@x.com",
+        pdfObjectKey: `refund/batches/${crypto.randomUUID()}/compiled.pdf`,
+      },
+    });
+    await db.refundRequest.update({ where: { id: request.id }, data: { batchId: batch.id } });
+
+    const compiledText = await extractPdfText(
+      Buffer.from(await (await exportAs(request.id)).arrayBuffer()),
+    );
+    expect(compiledText).toContain("batch 2026-09");
+    expect(compiledText).toContain("not yet paid");
+
+    await db.refundBatch.update({
+      where: { id: batch.id },
+      data: { status: "paid", paidAt: new Date("2026-09-30T06:00:00.000Z") },
+    });
+
+    const paidText = await extractPdfText(
+      Buffer.from(await (await exportAs(request.id)).arrayBuffer()),
+    );
+    expect(paidText).toContain("Paid on 30.09.2026 08:00 (CEST)");
+    expect(paidText).toContain("batch 2026-09");
+    expect(paidText).not.toContain("not yet paid");
   });
 });

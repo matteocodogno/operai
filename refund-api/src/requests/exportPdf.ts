@@ -17,14 +17,23 @@
  * confined to one call site instead of buried inside a renderer, and keeps
  * this module trivially testable with synthetic bytes.
  *
- * Currency amounts render as ISO codes (`CHF 206,50`), matching
- * `batches/pdf.ts` — same reason (ADR-0019 decision 2): the embedded font's
- * glyph coverage for currency symbols is not reliable across providers.
+ * FORMATTING lives entirely in `documentFormat.ts` and LABELS in `labels.ts`
+ * — this module chooses layout, never wording or number shape. That split is
+ * what stopped raw enums (`travel_km`, `welld_ch`, `status: approved`) and
+ * three different number locales reaching an accounting artifact.
  */
 
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { RefundLineResponse, Subtotal } from "./requests.schemas";
+import { entityLabel, entityLabels, expenseTypeLabel, requestStatusLabel } from "./labels";
+import {
+  formatDate,
+  formatMoney,
+  formatPeriod,
+  formatRatePerKm,
+  formatTimestamp,
+} from "./documentFormat";
 
 // ─── Input shape ─────────────────────────────────────────────────────────────
 
@@ -61,6 +70,17 @@ export interface RequestExportInput {
    */
   readonly generatedAt: Date;
   readonly generatedByEmail: string;
+  /**
+   * Where this request stands in the monthly payout cycle, already resolved to
+   * a sentence by the caller (it needs a batch lookup this renderer must not
+   * perform).
+   *
+   * The document previously said nothing about settlement, so an approved
+   * request and a paid one produced the same page — and "is this a liability
+   * or is it settled?" is the first question anyone receiving it asks. An
+   * archive that cannot answer it is not a hand-off document.
+   */
+  readonly settlement: string;
 }
 
 // ─── Embedded Unicode font ───────────────────────────────────────────────────
@@ -103,19 +123,14 @@ const BODY_SIZE = 10;
 const LINE_GAP = 16;
 const SECTION_GAP = 10;
 const INK = rgb(0.09, 0.09, 0.1);
+const FOOTER_SIZE = 7;
+// Deliberately light: a stamp on a copied receipt must be legible without
+// competing with the receipt's own content.
+const FOOTER_INK = rgb(0.45, 0.45, 0.5);
 
 interface Cursor {
   page: PDFPage;
   y: number;
-}
-
-/** Money: ISO code + comma decimal, identical to batches/pdf.ts's formatAmount. */
-function formatAmount(cents: number, currency: string): string {
-  const negative = cents < 0;
-  const absCents = Math.abs(cents);
-  const whole = Math.trunc(absCents / 100);
-  const decimals = (absCents % 100).toString().padStart(2, "0");
-  return `${currency} ${negative ? "-" : ""}${whole},${decimals}`;
 }
 
 function addPage(doc: PDFDocument): PDFPage {
@@ -226,6 +241,46 @@ async function appendReceipt(
   }
 }
 
+/**
+ * Stamps every page with the request reference and "Page N of M".
+ *
+ * Runs as a LAST pass, after every page (including copied receipt pages)
+ * exists — the total is not knowable until then.
+ *
+ * Copied receipt pages are stamped too, deliberately. These documents get
+ * printed and stapled, and a set where half the pages carry no number is
+ * exactly the set that loses a page without anyone noticing; the same
+ * reasoning behind Bates numbering. The stamp sits in the very bottom margin
+ * at 7pt, and uses each page's OWN dimensions rather than A4 — a receipt may
+ * be any size, and positioning it against the wrong height would drop the
+ * footer into the middle of someone's scanned invoice.
+ */
+function drawFooters(doc: PDFDocument, font: PDFFont, reference: string): void {
+  const pages = doc.getPages();
+  const total = pages.length;
+
+  pages.forEach((page, index) => {
+    const { width } = page.getSize();
+    const label = `${reference}`;
+    const pageLabel = `Page ${index + 1} of ${total}`;
+
+    page.drawText(label, {
+      x: MARGIN,
+      y: 22,
+      size: FOOTER_SIZE,
+      font,
+      color: FOOTER_INK,
+    });
+    page.drawText(pageLabel, {
+      x: width - MARGIN - font.widthOfTextAtSize(pageLabel, FOOTER_SIZE),
+      y: 22,
+      size: FOOTER_SIZE,
+      font,
+      color: FOOTER_INK,
+    });
+  });
+}
+
 // ─── Renderer ────────────────────────────────────────────────────────────────
 
 /**
@@ -268,20 +323,36 @@ export async function renderRequestExportPdf(
     ? `${input.owner.name} (${input.owner.email})`
     : input.owner.email;
 
-  drawLine(doc, cursor, `Request reference: ${input.requestId}`, font, HEADER_SIZE);
+  // Self-describing at a glance: WHO, WHEN the expenses fall in, and WHICH
+  // legal entity — the three things someone filing this needs before reading
+  // a single line. Period and entity are derived from the lines, so they are
+  // right even when the request was filed in a later month or straddles both
+  // entities.
+  const period = formatPeriod(input.lines.map((line) => line.date));
+  const entities = entityLabels(input.lines.map((line) => line.entity));
+
   drawLine(doc, cursor, `Employee: ${ownerLabel}`, font, HEADER_SIZE);
-  drawLine(doc, cursor, `Status: ${input.status}`, font, HEADER_SIZE);
+  if (period) drawLine(doc, cursor, `Period: ${period}`, font, HEADER_SIZE);
+  if (entities) drawLine(doc, cursor, `Entity: ${entities}`, font, HEADER_SIZE);
+  drawLine(doc, cursor, `Status: ${requestStatusLabel(input.status)}`, font, HEADER_SIZE);
+  drawLine(doc, cursor, `Settlement: ${input.settlement}`, font, HEADER_SIZE);
+  cursor.y -= 4;
+
   if (input.submittedAt) {
-    drawLine(doc, cursor, `Submitted: ${input.submittedAt}`, font, HEADER_SIZE);
+    drawLine(doc, cursor, `Submitted: ${formatTimestamp(new Date(input.submittedAt))}`, font, HEADER_SIZE);
   }
   if (input.decidedAt) {
-    drawLine(doc, cursor, `Decided: ${input.decidedAt}`, font, HEADER_SIZE);
+    const by = input.decidedByEmail ? ` by ${input.decidedByEmail}` : "";
+    drawLine(doc, cursor, `Decided: ${formatTimestamp(new Date(input.decidedAt))}${by}`, font, HEADER_SIZE);
   }
-  if (input.decidedByEmail) {
-    drawLine(doc, cursor, `Decided by: ${input.decidedByEmail}`, font, HEADER_SIZE);
-  }
-  drawLine(doc, cursor, `Exported: ${input.generatedAt.toISOString()}`, font, HEADER_SIZE);
-  drawLine(doc, cursor, `Exported by: ${input.generatedByEmail}`, font, HEADER_SIZE);
+  drawLine(
+    doc,
+    cursor,
+    `Exported: ${formatTimestamp(input.generatedAt)} by ${input.generatedByEmail}`,
+    font,
+    HEADER_SIZE,
+  );
+  drawLine(doc, cursor, `Internal ID: ${input.requestId}`, font, HEADER_SIZE);
   cursor.y -= SECTION_GAP;
 
   // ── Totals, one figure per currency, never blended (AC-3.5/6.6) ───────────
@@ -290,34 +361,39 @@ export async function renderRequestExportPdf(
     drawLine(doc, cursor, "  (no lines)", font, BODY_SIZE);
   }
   for (const subtotal of input.subtotals) {
-    const requested = formatAmount(subtotal.requestedCents, subtotal.currency);
+    const requested = formatMoney(subtotal.requestedCents, subtotal.currency);
     const approved =
       subtotal.approvedCents === null
         ? "—"
-        : formatAmount(subtotal.approvedCents, subtotal.currency);
-    drawLine(
-      doc,
-      cursor,
-      `  ${subtotal.currency}: requested ${requested} · approved ${approved}`,
-      font,
-      BODY_SIZE,
-    );
+        : formatMoney(subtotal.approvedCents, subtotal.currency);
+    // No `CHF:` group prefix — each amount already carries its currency, and
+    // printing it three times on one line is the same noise the mixed
+    // locales were.
+    drawLine(doc, cursor, `  Requested ${requested} · Approved ${approved}`, font, BODY_SIZE);
   }
   cursor.y -= SECTION_GAP;
 
   // ── Every expense line ───────────────────────────────────────────────────
+  const hasAnyReceipt = input.receipts.length > 0;
+
   drawLine(doc, cursor, `Expense lines (${input.lines.length})`, boldFont, SECTION_TITLE_SIZE);
 
   for (const line of input.lines) {
     ensureSpace(doc, cursor, LINE_GAP * 3);
-    drawLine(doc, cursor, `  ${line.date} — ${line.type} — ${line.entity}`, boldFont, BODY_SIZE);
+    drawLine(
+      doc,
+      cursor,
+      `  ${formatDate(line.date)} — ${expenseTypeLabel(line.type)} — ${entityLabel(line.entity)}`,
+      boldFont,
+      BODY_SIZE,
+    );
     drawLine(doc, cursor, `    ${line.motivo}`, font, BODY_SIZE);
 
-    const requested = formatAmount(line.requestedAmountCents, line.currency);
+    const requested = formatMoney(line.requestedAmountCents, line.currency);
     const approved =
       line.approvedTotalCents === null
         ? "—"
-        : formatAmount(line.approvedTotalCents, line.currency);
+        : formatMoney(line.approvedTotalCents, line.currency);
     drawLine(doc, cursor, `    Requested ${requested} · Approved ${approved}`, font, BODY_SIZE);
 
     // Mileage provenance: the snapshotted rate is part of the audited record
@@ -326,8 +402,8 @@ export async function renderRequestExportPdf(
     if (line.mileage) {
       const km = line.km === null ? "—" : String(line.km);
       const applied = line.mileage.appliedRate;
-      const rate = applied ? `${applied.ratePerKm} ${applied.currency}/km` : "—";
-      const validFrom = applied ? applied.validFrom : "—";
+      const rate = applied ? formatRatePerKm(applied.ratePerKm, applied.currency) : "—";
+      const validFrom = applied ? formatDate(applied.validFrom) : "—";
       drawLine(
         doc,
         cursor,
@@ -337,14 +413,22 @@ export async function renderRequestExportPdf(
       );
     }
 
-    const attachmentCount = line.attachments.length;
-    drawLine(
-      doc,
-      cursor,
-      `    Receipts: ${attachmentCount === 0 ? "none" : String(attachmentCount)}`,
-      font,
-      BODY_SIZE,
-    );
+    // Per-line receipt counts appear ONLY when the request has receipts
+    // somewhere. On a request with none, every line saying "Receipts: none"
+    // plus a closing "No receipts were attached" states the same fact four
+    // times; one statement at the end says it once. When receipts DO exist the
+    // per-line count is load-bearing — it is how a reader tells which expense
+    // a given receipt belongs to — and the closing line is then redundant.
+    if (hasAnyReceipt) {
+      const attachmentCount = line.attachments.length;
+      drawLine(
+        doc,
+        cursor,
+        `    Receipts: ${attachmentCount === 0 ? "none" : String(attachmentCount)}`,
+        font,
+        BODY_SIZE,
+      );
+    }
     cursor.y -= 4;
   }
 
@@ -368,6 +452,8 @@ export async function renderRequestExportPdf(
     cursor.y -= SECTION_GAP;
     drawLine(doc, cursor, "No receipts were attached to this request.", font, BODY_SIZE);
   }
+
+  drawFooters(doc, font, input.requestId);
 
   return Buffer.from(await doc.save());
 }
