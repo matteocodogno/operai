@@ -500,6 +500,25 @@ const en = {
         `Open ${employeeName}’s request, ${status}, ${amount}`,
     },
     /** `BatchPdfLink` (T10, specs/008-refund-monthly-processing/tasks.md) — mirrors `attachmentList`'s download states, scoped to a batch's compiled PDF. */
+    /**
+     * `RequestExportLink` (ADR-0043) — the per-request archive download.
+     * Each failure gets its OWN sentence rather than one generic retry
+     * message: "too large" and "a receipt is unreadable" need different
+     * actions from the person reading them, and a single "try again" would
+     * be wrong advice for both.
+     */
+    requestExportLink: {
+      buttonLabel: 'Export PDF',
+      downloadLabel: (reference: string) =>
+        `Export request ${reference} as an archive PDF, including all receipts`,
+      exporting: 'Preparing…',
+      genericError: 'Could not export this request. Try again.',
+      tooLargeError:
+        'This request’s receipts are too large to export in one PDF. Ask an administrator.',
+      receiptError:
+        'A receipt could not be read, so no archive was produced. Ask an administrator.',
+      notArchivableError: 'Only an approved request can be exported.',
+    },
     batchPdfLink: {
       buttonLabel: 'Download PDF',
       downloadLabel: (reference: string) => `Download compiled PDF for batch ${reference}`,

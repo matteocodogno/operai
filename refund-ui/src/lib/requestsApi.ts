@@ -247,3 +247,44 @@ export const submit = async (id: string): Promise<RefundRequestDetail> => {
 /** `POST /requests/:id/withdraw` — no body. `409` (status≠submitted, AC-2.3) throws the ordinary `ApiError`. */
 export const withdraw = (id: string): Promise<RefundRequestDetail> =>
   sendJson<RefundRequestDetail>(`/requests/${id}/withdraw`, 'POST', undefined)
+
+/**
+ * `GET /requests/:id/export` — the archive PDF (ADR-0043).
+ *
+ * Unlike every other call in this module this one returns BYTES, not JSON, so
+ * it uses `apiFetch` directly rather than `getJson`. It also cannot be a
+ * plain `<a href>` or `window.open`: the endpoint requires the Bearer JWT that
+ * only `apiFetch` attaches (ADR-0001 keeps the token in memory, never in a
+ * cookie the browser would send on a top-level navigation), so the bytes must
+ * be fetched and handed to the user as a Blob.
+ *
+ * Deliberately different from `batchesApi.getPdfUrl`, which mints a
+ * short-lived presigned URL and opens it in a new tab: a batch PDF is an
+ * object already sitting in the bucket, whereas this one is generated per
+ * call and never stored. Returning a URL would mean storing it.
+ *
+ * Throws the ordinary `ApiError` on a non-2xx so callers can distinguish the
+ * archive-specific failures (409 not archivable, 413 over budget, 502 a
+ * receipt could not be embedded) by status.
+ */
+export const exportPdf = async (id: string): Promise<Blob> => {
+  const response = await apiFetch(`${refundApiBase()}/requests/${id}/export`)
+
+  if (!response.ok) {
+    let body: Partial<ApiProblem> = {}
+    try {
+      body = await response.json()
+    } catch {
+      // A non-JSON error body still yields a useful status below.
+    }
+    throw new ApiError({
+      type: body.type ?? `https://httpstatuses.com/${response.status}`,
+      title: body.title ?? 'Export failed',
+      status: response.status,
+      detail: body.detail,
+      instance: body.instance,
+    })
+  }
+
+  return await response.blob()
+}

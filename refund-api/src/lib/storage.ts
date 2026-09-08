@@ -176,6 +176,50 @@ export async function putObject(
   );
 }
 
+// ─── Read (archive export only — see ADR-0043) ───────────────────────────────
+
+/**
+ * Total receipt bytes a single request export may pull into memory.
+ *
+ * This exists because ADR-0016's original posture — refund-api never touches
+ * receipt bytes — was what kept this service from being a memory bottleneck,
+ * and the archive export (ADR-0043) gives that up deliberately. Nothing else
+ * bounds it: `MAX_ATTACHMENT_BYTES` caps ONE attachment at 10 MiB, and there
+ * is no cap at all on attachments per request, so an unbounded export could
+ * pull hundreds of MiB into a small container and take the whole service down
+ * with it.
+ *
+ * 64 MiB is ~6 max-size receipts, far above any real expense request, and low
+ * enough that several concurrent exports still fit. Exceeding it is a 413 with
+ * the actual total named, NOT a silently truncated archive — an archive that
+ * quietly omits receipts is worse than one that refuses to build.
+ */
+export const MAX_EXPORT_RECEIPT_BYTES = 64 * 1024 * 1024; // 64 MiB
+
+/**
+ * Downloads one object's bytes into this process.
+ *
+ * DELIBERATE DEPARTURE from this module's own "refund-api never touches
+ * receipt bytes" rule (ADR-0016, see the module doc above) — the ONE caller
+ * permitted to use it is the per-request archive export (ADR-0043), which
+ * cannot embed a receipt it is not allowed to read. It is NOT a download
+ * proxy: nothing here streams an attachment back to a client, which is what
+ * ADR-0016 actually forbids and which `mintPresignedGet` still exists to do.
+ *
+ * Do not reach for this from a read/list/detail route. If a client needs a
+ * receipt, mint a presigned GET and let the browser fetch it direct from the
+ * bucket, exactly as before.
+ */
+export async function getObject(objectKey: string): Promise<Uint8Array> {
+  const result = await s3.send(
+    new GetObjectCommand({ Bucket: env.REFUND_S3_BUCKET, Key: objectKey }),
+  );
+  if (!result.Body) {
+    throw new Error(`Object ${objectKey} returned no body`);
+  }
+  return await result.Body.transformToByteArray();
+}
+
 // ─── Delete ──────────────────────────────────────────────────────────────────
 
 export async function deleteObject(objectKey: string): Promise<void> {

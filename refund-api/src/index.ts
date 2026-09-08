@@ -8,6 +8,7 @@ import { healthRouter } from "./health/health.routes";
 import { whoamiRouter } from "./auth/whoami.routes";
 import { requestsRouter } from "./requests/requests.routes";
 import { linesRouter } from "./requests/lines.routes";
+import { requestExportRouter } from "./requests/export.routes";
 import { attachmentsRouter } from "./attachments/attachments.routes";
 import { lifecycleRouter } from "./requests/lifecycle.routes";
 import { suggestionsRouter } from "./requests/suggestions.routes";
@@ -50,6 +51,10 @@ app.route("/", healthRouter);
 app.route("/", whoamiRouter);
 // requestsRouter: employee request-level endpoints (T7, specs/007-refund-service).
 app.route("/", requestsRouter);
+// requestExportRouter: the per-request archive PDF (ADR-0043). Registered
+// before linesRouter purely for readability — its path (/requests/:id/export)
+// cannot collide with any line route.
+app.route("/", requestExportRouter);
 // linesRouter: expense-line endpoints (T8, specs/007-refund-service).
 app.route("/", linesRouter);
 // suggestionsRouter: GET /line-suggestions — the caller's own past travel_km

@@ -16,6 +16,7 @@ import ApproveDialog from '../components/ApproveDialog'
 import RejectDialog from '../components/RejectDialog'
 import ExpenseLineRow from '../components/ExpenseLineRow'
 import SubtotalsPanel from '../components/SubtotalsPanel'
+import RequestExportLink from '../components/RequestExportLink'
 import MonthlyProcessingNote from '../components/MonthlyProcessingNote'
 
 const route = getRouteApi('/review/$id')
@@ -386,6 +387,12 @@ export default function ReviewDetailPage() {
         {pageState.status === 'loaded' && pageState.request.status === 'approved' && (
           <div data-testid="review-detail-approved" className="flex flex-col gap-4">
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
+            {/* Archive export (ADR-0043) — rendered only on an approved
+                request, matching the endpoint's own archivable-status gate,
+                so the control never appears where it would 409. */}
+            <div className="flex">
+              <RequestExportLink requestId={pageState.request.id} />
+            </div>
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
