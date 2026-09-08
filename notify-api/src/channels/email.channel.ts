@@ -43,6 +43,16 @@ export const EMAIL_TEMPLATES = [
   // invitation templates above, just a different per-template `data`
   // (emails.schemas.ts).
   "refund_batch_compiled",
+  // specs/007-refund-service AC-3.6 extension — the approve/reject decision
+  // emails. AC-3.6 already required a PUSH the employee cannot miss; the
+  // in-app notification (ADR-0017) satisfied it, and these add email as a
+  // SECOND channel for the same event, exactly as ADR-0011 intended the
+  // channel split. Two templates rather than one with an `outcome` field:
+  // only the approved variant carries money, so a split keeps each `data`
+  // shape closed and fixed (emails.schemas.ts's stated security property)
+  // instead of making the totals conditionally-present.
+  "refund_decision_approved",
+  "refund_decision_rejected",
 ] as const;
 export type EmailTemplate = (typeof EMAIL_TEMPLATES)[number];
 

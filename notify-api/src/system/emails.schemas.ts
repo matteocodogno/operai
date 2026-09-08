@@ -52,6 +52,57 @@ export const RefundBatchCompiledDataSchema = z.object({
     .nonnegative("data.requestCount must be >= 0"),
 });
 
+// specs/007-refund-service AC-3.6 (email channel extension) — the decision
+// emails' `data` shapes. `requestUrl` is an in-app deep link
+// (`<REFUND_APP_BASE_URL>/refund/requests/<id>`), the same posture as
+// `batchUrl` above: the employee signs in and passes the ordinary ownership
+// check before seeing anything, so the mail itself carries no attachment and
+// no standalone access.
+//
+// The two shapes are deliberately NOT unified. `approvedTotals` exists only
+// on the approved variant — a rejected request has nothing approved — so
+// merging them would make the money field optional and let a "rejected"
+// payload carry totals. Splitting keeps each template's field set closed,
+// which is this file's whole point.
+const ApprovedTotalSchema = z.object({
+  currency: z.enum(["EUR", "CHF", "USD", "GBP"]),
+  // Integer minor units, never a formatted string (CLAUDE.md money handling,
+  // ADR-0025) — rendering to "CHF 2156,00" happens at template render time.
+  // Signed: an approved total is never negative today, but bounding it here
+  // rather than assuming is cheaper than a corrupted email.
+  amountCents: z
+    .number()
+    .int("data.approvedTotals[].amountCents must be an integer")
+    .nonnegative("data.approvedTotals[].amountCents must be >= 0"),
+});
+
+const RequestUrlSchema = z
+  .string()
+  .min(1, "data.requestUrl is required")
+  .max(2000)
+  .url("data.requestUrl must be a valid URL");
+
+const DecidedAtSchema = z
+  .string()
+  .datetime({ offset: true, message: "data.decidedAt must be ISO 8601" });
+
+export const RefundDecisionApprovedDataSchema = z.object({
+  requestUrl: RequestUrlSchema,
+  decidedAt: DecidedAtSchema,
+  // One entry per currency on the request (a request's lines may straddle
+  // currencies — specs/007's 2026-07-17 amendment). Capped at the four
+  // supported currencies so a malformed caller cannot inflate the body.
+  approvedTotals: z.array(ApprovedTotalSchema).min(1).max(4),
+});
+
+export const RefundDecisionRejectedDataSchema = z.object({
+  requestUrl: RequestUrlSchema,
+  decidedAt: DecidedAtSchema,
+  // Deliberately NO `rejectionMotivation`: the motivation stays in the app,
+  // behind sign-in, rather than being copied into an inbox. The email's job
+  // is to make the decision impossible to miss and link to the detail.
+});
+
 const ToSchema = z.string().email("to must be a valid email address").max(320);
 
 export const SendEmailRequestSchema = z.discriminatedUnion("template", [
@@ -69,6 +120,16 @@ export const SendEmailRequestSchema = z.discriminatedUnion("template", [
     to: ToSchema,
     template: z.literal("refund_batch_compiled"),
     data: RefundBatchCompiledDataSchema,
+  }),
+  z.object({
+    to: ToSchema,
+    template: z.literal("refund_decision_approved"),
+    data: RefundDecisionApprovedDataSchema,
+  }),
+  z.object({
+    to: ToSchema,
+    template: z.literal("refund_decision_rejected"),
+    data: RefundDecisionRejectedDataSchema,
   }),
 ]);
 

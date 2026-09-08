@@ -33,6 +33,7 @@ import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
 import { jwtMiddleware } from "../auth/jwt.middleware";
 import { ConflictError, NotFoundError, SelfApprovalDeniedError } from "../lib/errors";
 import { notifyDecision } from "../lib/notify";
+import { notifyDecisionEmail } from "../lib/notifyEmail";
 import { findRequestWithLines } from "../requests/requests.repo";
 import { mapLine, mapRequestDetail } from "../requests/requests.service";
 import {
@@ -42,6 +43,7 @@ import {
   RequestDetailSchema,
   RequestIdParamSchema,
 } from "../requests/requests.schemas";
+import type { RequestDetail } from "../requests/requests.schemas";
 import { approveRequest, rejectRequest, setApprovedTotal } from "./decide.repo";
 import { ApprovedTotalBodySchema, RejectBodySchema } from "./decide.schemas";
 import { approveRestrictedForCaller, scopeForReviewAction } from "./review.service";
@@ -62,6 +64,48 @@ async function notifyDecisionBestEffort(
   } catch (error) {
     console.error(
       `[refund-api] notifyDecision threw unexpectedly for request ${requestId} ` +
+        `(${outcome}) — decision NOT rolled back:`,
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+/**
+ * Fires the post-decision EMAIL (specs/007-refund-service AC-3.6, email
+ * channel) — a second, independent channel alongside the in-app push above.
+ *
+ * Independent in both directions, which is why this is its own function and
+ * its own try/catch rather than a branch inside `notifyDecisionBestEffort`:
+ * an email outage must not suppress the in-app notification, and an in-app
+ * failure must not suppress the email. Both are awaited AFTER the decision
+ * has committed and neither can fail the response (ADR-0017 §4).
+ *
+ * `approvedTotals` is derived from the decision's own re-fetched detail, so
+ * the figure in the email is the one the employee sees in-app — never a
+ * separately-recomputed number that could drift from it.
+ */
+async function emailDecisionBestEffort(
+  detail: RequestDetail,
+  outcome: "approved" | "rejected",
+): Promise<void> {
+  try {
+    await notifyDecisionEmail(outcome, {
+      requestId: detail.id,
+      recipientEmail: detail.owner.email,
+      decidedAt: detail.decidedAt ? new Date(detail.decidedAt) : new Date(),
+      // `approvedCents` is null for any currency whose lines were all left
+      // untouched during review; approving defaults those to the requested
+      // amount (requests.service.ts), so falling back to `requestedCents`
+      // here reports what was actually approved rather than dropping the
+      // currency from the mail entirely.
+      approvedTotals: detail.subtotals.map((s) => ({
+        currency: s.currency,
+        amountCents: s.approvedCents ?? s.requestedCents,
+      })),
+    });
+  } catch (error) {
+    console.error(
+      `[refund-api] notifyDecisionEmail threw unexpectedly for request ${detail.id} ` +
         `(${outcome}) — decision NOT rolled back:`,
       error instanceof Error ? error.message : error,
     );
@@ -368,6 +412,7 @@ decideRouter.openapi(approveRoute, async (c) => {
   const detail = await fetchDetailAfterDecision(id);
   // Post-commit, best-effort (AC-3.6/ADR-0017) — never blocks or fails this response.
   await notifyDecisionBestEffort(detail.owner.userId, id, "approved");
+  await emailDecisionBestEffort(detail, "approved");
   return c.json(detail, 200);
 });
 
@@ -449,5 +494,6 @@ decideRouter.openapi(rejectRoute, async (c) => {
   const detail = await fetchDetailAfterDecision(id);
   // Post-commit, best-effort (AC-3.6/ADR-0017) — never blocks or fails this response.
   await notifyDecisionBestEffort(detail.owner.userId, id, "rejected");
+  await emailDecisionBestEffort(detail, "rejected");
   return c.json(detail, 200);
 });

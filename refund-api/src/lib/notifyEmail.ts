@@ -103,3 +103,110 @@ export async function notifyBatchCompiled(
     return { status: "failed", deliveryId: null };
   }
 }
+
+// ─── Decision emails (specs/007-refund-service AC-3.6, email channel) ───────
+
+export interface NotifyDecisionEmailInput {
+  readonly requestId: string;
+  /**
+   * The request owner's address. Taken from the `ownerEmail` SNAPSHOT stored
+   * on the request at creation time, not resolved live from `auth`.
+   *
+   * That is the deliberate choice, and it is the opposite of what estimai-api
+   * does for collaborator display (ADR-0039's live id→identity lookup). The
+   * reasoning differs because the use differs: ADR-0039 resolves live so a
+   * shared estimate never implies an ACTIVE account that no longer exists;
+   * here the address is a delivery target for a financial decision about a
+   * request THIS person filed, and the snapshot is the address they filed it
+   * under. Resolving live would also put `auth` on the decision path, which
+   * ADR-0036's "no hard runtime dependency" posture avoids, and would make a
+   * decision email fail for a soft-deleted employee who still has money owed.
+   */
+  readonly recipientEmail: string;
+  readonly decidedAt: Date;
+  /** Approved total per currency, integer minor units. Approved decisions only. */
+  readonly approvedTotals: readonly { currency: string; amountCents: number }[];
+}
+
+export interface NotifyDecisionEmailOutcome {
+  readonly status: "sent" | "failed";
+  readonly deliveryId: string | null;
+}
+
+/**
+ * The approve/reject decision email — a SECOND channel for the same event
+ * `notify.ts`'s in-app push already covers (AC-3.6). Both are best-effort and
+ * independent: an email failure must not suppress the in-app notification,
+ * and neither may touch the decision, which has already committed by the time
+ * this runs (ADR-0017 §4).
+ *
+ * Never throws — every failure path is caught and mapped to a "failed"
+ * outcome, mirroring `notifyBatchCompiled` above. Unlike a batch's
+ * `emailStatus`, this outcome is NOT persisted: a decision has no per-attempt
+ * delivery-provenance column and no resend surface, so the return value is
+ * for the caller's log line only. Adding a resend later means adding that
+ * column first.
+ *
+ * The rejected variant sends no amount and no motivation (see
+ * notify-api's `emails.schemas.ts`) — `approvedTotals` is ignored for it
+ * rather than being an optional field on a shared shape, so a rejection can
+ * never carry a figure even by mistake.
+ */
+export async function notifyDecisionEmail(
+  outcome: "approved" | "rejected",
+  input: NotifyDecisionEmailInput,
+): Promise<NotifyDecisionEmailOutcome> {
+  const requestUrl = `${env.REFUND_APP_BASE_URL}/refund/requests/${input.requestId}`;
+  const body =
+    outcome === "approved"
+      ? {
+          to: input.recipientEmail,
+          template: "refund_decision_approved",
+          data: {
+            requestUrl,
+            decidedAt: input.decidedAt.toISOString(),
+            approvedTotals: input.approvedTotals,
+          },
+        }
+      : {
+          to: input.recipientEmail,
+          template: "refund_decision_rejected",
+          data: { requestUrl, decidedAt: input.decidedAt.toISOString() },
+        };
+
+  try {
+    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/emails`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      // The request id identifies the row; the recipient address and the
+      // approved figures are deliberately NOT logged (CLAUDE.md "Data
+      // residency" — no business data in the hosting provider's logs).
+      console.error(
+        `[notifyEmail] POST /system/emails responded with HTTP ${response.status} ` +
+          `for refund request ${input.requestId} (${outcome}) — decision NOT rolled back`,
+      );
+      return { status: "failed", deliveryId: null };
+    }
+
+    const parsed = (await response.json()) as {
+      deliveryId: string;
+      status: "sent" | "failed";
+      error?: string;
+    };
+    return { status: parsed.status, deliveryId: parsed.deliveryId };
+  } catch (error) {
+    console.error(
+      `[notifyEmail] failed to reach notify-api for refund request ${input.requestId} ` +
+        `(${outcome}) — decision NOT rolled back:`,
+      error instanceof Error ? error.message : error,
+    );
+    return { status: "failed", deliveryId: null };
+  }
+}

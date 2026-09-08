@@ -127,3 +127,119 @@ describe("renderEmailTemplate — invitation family (regression)", () => {
     expect(subject).toContain("renewed");
   });
 });
+
+// ─── Decision emails (specs/007-refund-service AC-3.6, email channel) ──────
+
+describe("renderEmailTemplate — refund_decision_approved", () => {
+  const baseData = {
+    requestUrl: "https://app.operai.welld.io/refund/requests/req_123",
+    decidedAt: "2026-09-08T10:00:00Z",
+    approvedTotals: [
+      { currency: "CHF", amountCents: 215600 },
+      { currency: "EUR", amountCents: 12624 },
+    ],
+  };
+
+  it("renders the outcome, the deep link and one formatted figure per currency", () => {
+    const { html, subject } = renderEmailTemplate({
+      template: "refund_decision_approved",
+      data: baseData,
+    });
+
+    expect(subject.toLowerCase()).toContain("approved");
+    expect(html).toContain(baseData.requestUrl);
+    expect(html).toContain("approved");
+    // Integer minor units render as ISO code + comma decimal, the SAME shape
+    // batches/pdf.ts uses — an employee comparing mail to PDF sees one format.
+    expect(html).toContain("CHF 2156,00");
+    expect(html).toContain("EUR 126,24");
+  });
+
+  it("renders cents below 10 with a leading zero (2156,05 not 2156,5)", () => {
+    const { html } = renderEmailTemplate({
+      template: "refund_decision_approved",
+      data: { ...baseData, approvedTotals: [{ currency: "CHF", amountCents: 215605 }] },
+    });
+
+    expect(html).toContain("CHF 2156,05");
+  });
+
+  it("renders a whole-franc amount with explicit ,00 rather than bare units", () => {
+    const { html } = renderEmailTemplate({
+      template: "refund_decision_approved",
+      data: { ...baseData, approvedTotals: [{ currency: "CHF", amountCents: 700 }] },
+    });
+
+    expect(html).toContain("CHF 7,00");
+  });
+
+  it("escapes every interpolated field (no injection surface, ADR-0011 posture)", () => {
+    const { html } = renderEmailTemplate({
+      template: "refund_decision_approved",
+      data: {
+        ...baseData,
+        requestUrl: 'https://x.test/"><script>alert(1)</script>',
+        approvedTotals: [{ currency: '<img src=x onerror=1>', amountCents: 100 }],
+      },
+    });
+
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;");
+  });
+
+  it("is English-only, and carries no attachment/presigned-URL concept", () => {
+    const { html } = renderEmailTemplate({
+      template: "refund_decision_approved",
+      data: baseData,
+    });
+
+    expect(html.toLowerCase()).not.toContain("attachment");
+    expect(html.toLowerCase()).not.toContain("presigned");
+    expect(html.toLowerCase()).not.toContain("x-amz");
+    expect(html.toLowerCase()).not.toContain("rimbors");
+  });
+});
+
+describe("renderEmailTemplate — refund_decision_rejected", () => {
+  const baseData = {
+    requestUrl: "https://app.operai.welld.io/refund/requests/req_456",
+    decidedAt: "2026-09-08T10:00:00Z",
+  };
+
+  it("renders the outcome and the deep link", () => {
+    const { html, subject } = renderEmailTemplate({
+      template: "refund_decision_rejected",
+      data: baseData,
+    });
+
+    expect(subject.toLowerCase()).toContain("rejected");
+    expect(html).toContain(baseData.requestUrl);
+    expect(html).toContain("rejected");
+  });
+
+  // The rejected template has no money field at all, by shape (emails.schemas.ts) —
+  // this pins that the RENDERER never invents one either. A rejected request has
+  // nothing approved, so any figure in this mail would be a lie.
+  it("carries no monetary figure whatsoever", () => {
+    const { html } = renderEmailTemplate({
+      template: "refund_decision_rejected",
+      data: baseData,
+    });
+
+    expect(html).not.toMatch(/\b(CHF|EUR|USD|GBP)\b/);
+    expect(html).not.toMatch(/\d+,\d{2}/);
+  });
+
+  // Deliberate product decision: the motivation stays behind sign-in rather
+  // than being copied into an inbox that may outlive the employee's access.
+  it("does not carry the rejection motivation — it points at the app instead", () => {
+    const { html } = renderEmailTemplate({
+      template: "refund_decision_rejected",
+      data: baseData,
+    });
+
+    expect(html.toLowerCase()).not.toContain("motivation");
+    expect(html).toContain(baseData.requestUrl);
+  });
+});

@@ -60,9 +60,37 @@ interface NotifyCall {
 
 let notifyCalls: NotifyCall[] = [];
 let notifyShouldFail = false;
+
+/**
+ * The decision EMAIL channel (specs/007-refund-service AC-3.6, email
+ * extension) — captured the same way as the in-app push above: by
+ * intercepting notify-api's HTTP surface, never by `mock.module`.
+ *
+ * Without this arm the email POST would fall through to the real `fetch` and
+ * attempt a live connection to NOTIFY_INTERNAL_URL on every decision test.
+ */
+interface EmailCall {
+  to: string;
+  template: string;
+  data: Record<string, unknown>;
+}
+
+let emailCalls: EmailCall[] = [];
+let emailShouldFail = false;
 const originalFetch = globalThis.fetch;
 
 globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  if (typeof url === "string" && url.includes("/system/emails")) {
+    const body = JSON.parse((init?.body as string) ?? "{}") as EmailCall;
+    emailCalls.push({ to: body.to, template: body.template, data: body.data });
+    if (emailShouldFail) {
+      return new Response("simulated notify-api email outage", { status: 500 });
+    }
+    return new Response(
+      JSON.stringify({ deliveryId: "d1", status: "sent" }),
+      { status: 200 },
+    );
+  }
   if (typeof url === "string" && url.includes("/system/notifications")) {
     const body = JSON.parse((init?.body as string) ?? "{}") as {
       recipientId: string;
@@ -216,6 +244,8 @@ beforeEach(async () => {
   __resetAuthzCacheForTests();
   notifyCalls = [];
   notifyShouldFail = false;
+  emailCalls = [];
+  emailShouldFail = false;
 });
 
 afterAll(async () => {
@@ -999,5 +1029,115 @@ describe("POST /review/requests/:id/reject", () => {
 
     const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
     expect(row.status).toBe("submitted");
+  });
+});
+
+// ─── Decision emails (specs/007-refund-service AC-3.6, email channel) ──────
+//
+// Email is a SECOND channel for the same event the in-app push already
+// covers. The tests that matter most here are the two independence ones: the
+// whole point of separate best-effort calls is that neither channel's outage
+// can silence the other, and nothing about either can touch the decision.
+
+describe("decision emails", () => {
+  it("approve emails the owner the approved template, with the deep link and the approved total", async () => {
+    const { request } = await createSubmittedRequest([
+      { entity: "welld_it", requestedAmountCents: 1000 },
+    ]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+
+    expect(emailCalls).toHaveLength(1);
+    const call = emailCalls[0]!;
+    expect(call.template).toBe("refund_decision_approved");
+    // The `ownerEmail` snapshot on the request, not a live auth lookup.
+    expect(call.to).toBe("emp1@x.com");
+    expect(call.data["requestUrl"]).toContain(`/refund/requests/${request.id}`);
+    // Untouched lines default to the requested amount on approve, so the
+    // figure in the email is the one the employee sees in-app.
+    expect(call.data["approvedTotals"]).toEqual([
+      { currency: "EUR", amountCents: 1000 },
+    ]);
+  });
+
+  it("reject emails the rejected template, carrying no figure and no motivation", async () => {
+    const { request } = await createSubmittedRequest([
+      { entity: "welld_it", requestedAmountCents: 1000 },
+    ]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/reject`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ motivation: "Missing the receipt" }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(emailCalls).toHaveLength(1);
+    const call = emailCalls[0]!;
+    expect(call.template).toBe("refund_decision_rejected");
+    expect(call.data["approvedTotals"]).toBeUndefined();
+    expect(JSON.stringify(call.data)).not.toContain("Missing the receipt");
+  });
+
+  it("an email outage never fails the decision, and never suppresses the in-app push", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    emailShouldFail = true;
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    expect(res.status).toBe(200);
+    expect(notifyCalls).toHaveLength(1); // in-app unaffected
+    const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+    expect(row.status).toBe("approved"); // decision committed regardless
+  });
+
+  it("an in-app push outage never suppresses the email (independent, not chained)", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    notifyShouldFail = true;
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+
+    expect(res.status).toBe(200);
+    expect(emailCalls).toHaveLength(1);
+    expect(emailCalls[0]!.template).toBe("refund_decision_approved");
+  });
+
+  it("a request whose lines straddle currencies emails one figure per currency", async () => {
+    const { request } = await createSubmittedRequest([
+      // The fixture derives currency from entity (welld_it→EUR, welld_ch→CHF).
+      { entity: "welld_it", requestedAmountCents: 12624 },
+      { entity: "welld_ch", requestedAmountCents: 215600 },
+    ]);
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+
+    expect(emailCalls[0]!.data["approvedTotals"]).toEqual([
+      { currency: "CHF", amountCents: 215600 },
+      { currency: "EUR", amountCents: 12624 },
+    ]);
   });
 });

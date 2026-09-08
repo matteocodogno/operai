@@ -532,3 +532,98 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+// ─── Decision emails (specs/007-refund-service AC-3.6, email channel) ──────
+
+const post = (body: unknown) =>
+  buildApp().request("/system/emails", {
+    method: "POST",
+    headers: {
+      "X-Internal-Token": VALID_INTERNAL_TOKEN,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+const validApprovedBody = () => ({
+  to: `${TEST_ADDRESS_PREFIX}-employee@example.com`,
+  template: "refund_decision_approved",
+  data: {
+    requestUrl: "https://app.operai.welld.io/refund/requests/req_abc123",
+    decidedAt: "2026-09-08T10:00:00Z",
+    approvedTotals: [{ currency: "CHF", amountCents: 215600 }],
+  },
+});
+
+const validRejectedBody = () => ({
+  to: `${TEST_ADDRESS_PREFIX}-employee@example.com`,
+  template: "refund_decision_rejected",
+  data: {
+    requestUrl: "https://app.operai.welld.io/refund/requests/req_abc123",
+    decidedAt: "2026-09-08T10:00:00Z",
+  },
+});
+
+describe("POST /system/emails — refund decision templates", () => {
+  it("200: approved body → sent, recorded under its own template name", async () => {
+    const res = await post(validApprovedBody());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { deliveryId: string; status: string };
+    expect(json.status).toBe("sent");
+
+    const row = await testDb.emailDelivery.findUnique({ where: { id: json.deliveryId } });
+    expect(row?.template).toBe("refund_decision_approved");
+  });
+
+  it("200: rejected body → sent, recorded under its own template name", async () => {
+    const res = await post(validRejectedBody());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { deliveryId: string; status: string };
+
+    const row = await testDb.emailDelivery.findUnique({ where: { id: json.deliveryId } });
+    expect(row?.template).toBe("refund_decision_rejected");
+  });
+
+  it("400: approved with no approvedTotals — an approval email with no figure is meaningless", async () => {
+    const body = validApprovedBody();
+    const res = await post({ ...body, data: { ...body.data, approvedTotals: [] } });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: amountCents is a float, not integer minor units (ADR-0025)", async () => {
+    const body = validApprovedBody();
+    const res = await post({
+      ...body,
+      data: { ...body.data, approvedTotals: [{ currency: "CHF", amountCents: 2156.5 }] },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: an unsupported currency code", async () => {
+    const body = validApprovedBody();
+    const res = await post({
+      ...body,
+      data: { ...body.data, approvedTotals: [{ currency: "XYZ", amountCents: 100 }] },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("400: requestUrl is not a valid absolute URL", async () => {
+    const body = validApprovedBody();
+    const res = await post({ ...body, data: { ...body.data, requestUrl: "/refund/requests/x" } });
+    expect(res.status).toBe(400);
+  });
+
+  // The discriminated union is what keeps each template's field set closed
+  // (emails.schemas.ts's stated security property): an approved payload sent
+  // under the rejected template must not satisfy the rejected shape's
+  // requirements by accident, and vice versa.
+  it("400: the rejected template cannot borrow the approved template's required shape", async () => {
+    const res = await post({
+      to: `${TEST_ADDRESS_PREFIX}-employee@example.com`,
+      template: "refund_decision_approved",
+      data: validRejectedBody().data, // no approvedTotals
+    });
+    expect(res.status).toBe(400);
+  });
+});

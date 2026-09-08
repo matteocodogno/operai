@@ -57,12 +57,34 @@ export type RefundBatchCompiledTemplateData = {
   requestCount: number;
 };
 
+/**
+ * refund-api's `data` shapes for the two decision emails (specs/007-refund-
+ * service AC-3.6, email-channel extension). `requestUrl` is an in-app deep
+ * link (`<REFUND_APP_BASE_URL>/refund/requests/<id>`), same posture as
+ * `batchUrl`. `approvedTotals` arrives as integer minor units and is
+ * formatted here at render time — refund-api owns money COMPUTATION
+ * (ADR-0025's round-exactly-once rule), this owns its presentation, the same
+ * split `refund_batch_compiled` already uses for `cutoff`/`requestCount`.
+ */
+export type RefundDecisionApprovedTemplateData = {
+  requestUrl: string;
+  decidedAt: string; // ISO 8601 — validated at the zod boundary (emails.schemas.ts)
+  approvedTotals: readonly { currency: string; amountCents: number }[];
+};
+
+export type RefundDecisionRejectedTemplateData = {
+  requestUrl: string;
+  decidedAt: string; // ISO 8601 — validated at the zod boundary (emails.schemas.ts)
+};
+
 export type RenderedEmail = { subject: string; html: string };
 
 export type EmailTemplateName =
   | "invitation"
   | "invitation_resend"
-  | "refund_batch_compiled";
+  | "refund_batch_compiled"
+  | "refund_decision_approved"
+  | "refund_decision_rejected";
 
 /**
  * Renders an ISO datetime as an escaped, human-legible ISO string. The input
@@ -165,6 +187,93 @@ const renderRefundBatchCompiled = (
 };
 
 /**
+ * Money presentation for the decision emails: integer minor units in, an
+ * ISO-code + comma-decimal string out ("CHF 2156,00").
+ *
+ * Mirrors refund-api's own PDF renderer (`batches/pdf.ts`'s `formatAmount`)
+ * character-for-character ON PURPOSE, so an employee comparing the email
+ * against the compiled PDF sees the same figure written the same way. This
+ * is presentation only — it never rounds, because it never receives anything
+ * to round: `amountCents` is already the exact integer refund-api computed
+ * under ADR-0025's round-exactly-once rule.
+ *
+ * `currency` is zod-bound to the four supported codes and `amountCents` to an
+ * integer (emails.schemas.ts), so neither can carry markup — but the currency
+ * is escaped anyway rather than trusting a boundary two files away.
+ */
+const formatMinorUnits = (amountCents: number, currency: string): string => {
+  const negative = amountCents < 0;
+  const abs = Math.abs(amountCents);
+  const whole = Math.trunc(abs / 100);
+  const decimals = (abs % 100).toString().padStart(2, "0");
+  return `${escapeHtml(currency)} ${negative ? "-" : ""}${whole},${decimals}`;
+};
+
+/**
+ * `refund_decision_approved` (specs/007-refund-service AC-3.6) — English-only,
+ * matching `refund_batch_compiled` rather than the bilingual invitation
+ * family: an employee HAS a User row and a suite locale, so guessing a
+ * language in the mail body would contradict the app they are about to open.
+ * Both languages in one body is the invitation family's answer to a
+ * recipient with no account; that reasoning does not transfer here.
+ *
+ * Carries the approved figure inline (one line per currency) so the outcome
+ * is legible from the inbox, plus the deep link for everything else.
+ */
+const renderRefundDecisionApproved = (
+  data: RefundDecisionApprovedTemplateData,
+): RenderedEmail => {
+  const requestUrl = escapeHtml(data.requestUrl);
+  const decidedAt = formatIsoDate(data.decidedAt);
+  const totals = data.approvedTotals
+    .map((t) => `<li>${formatMinorUnits(t.amountCents, t.currency)}</li>`)
+    .join("");
+
+  const subject = "Your expense request was approved";
+
+  const html = [
+    '<div style="font-family: sans-serif; line-height: 1.6; color: #1a1a1a;">',
+    `<p>Your expense reimbursement request was <strong>approved</strong> on ${decidedAt}.</p>`,
+    "<p>Approved total:</p>",
+    `<ul>${totals}</ul>`,
+    `<p><a href="${requestUrl}">Open the request in Operai</a></p>`,
+    "<p>Sign-in is required to view the request.</p>",
+    "</div>",
+  ].join("\n");
+
+  return { subject, html };
+};
+
+/**
+ * `refund_decision_rejected` (specs/007-refund-service AC-3.6) — English-only,
+ * same reasoning as the approved variant.
+ *
+ * Deliberately carries NO amount (nothing was approved) and NO rejection
+ * motivation: the motivation stays behind sign-in in the app rather than
+ * being copied into an inbox that may outlive the employee's access. The
+ * mail's job is to make the decision impossible to miss and point at the
+ * detail.
+ */
+const renderRefundDecisionRejected = (
+  data: RefundDecisionRejectedTemplateData,
+): RenderedEmail => {
+  const requestUrl = escapeHtml(data.requestUrl);
+  const decidedAt = formatIsoDate(data.decidedAt);
+
+  const subject = "Your expense request was rejected";
+
+  const html = [
+    '<div style="font-family: sans-serif; line-height: 1.6; color: #1a1a1a;">',
+    `<p>Your expense reimbursement request was <strong>rejected</strong> on ${decidedAt}.</p>`,
+    `<p><a href="${requestUrl}">Open the request in Operai</a> to see the reason and, if appropriate, submit a corrected request.</p>`,
+    "<p>Sign-in is required to view the request.</p>",
+    "</div>",
+  ].join("\n");
+
+  return { subject, html };
+};
+
+/**
  * A single correlated `{template, data}` pair per template — deliberately
  * ONE parameter (not two) so a discriminated-union caller (emails.routes.ts
  * passing `c.req.valid("json")` straight through) keeps the compiler's
@@ -176,12 +285,18 @@ const renderRefundBatchCompiled = (
 export type EmailTemplateRequest =
   | { template: "invitation"; data: InvitationTemplateData }
   | { template: "invitation_resend"; data: InvitationTemplateData }
-  | { template: "refund_batch_compiled"; data: RefundBatchCompiledTemplateData };
+  | { template: "refund_batch_compiled"; data: RefundBatchCompiledTemplateData }
+  | { template: "refund_decision_approved"; data: RefundDecisionApprovedTemplateData }
+  | { template: "refund_decision_rejected"; data: RefundDecisionRejectedTemplateData };
 
 export const renderEmailTemplate = (request: EmailTemplateRequest): RenderedEmail => {
   switch (request.template) {
     case "refund_batch_compiled":
       return renderRefundBatchCompiled(request.data);
+    case "refund_decision_approved":
+      return renderRefundDecisionApproved(request.data);
+    case "refund_decision_rejected":
+      return renderRefundDecisionRejected(request.data);
     case "invitation":
     case "invitation_resend":
       return renderInvitation(request.template, request.data);
