@@ -380,18 +380,29 @@ export default function RequestDetailPage() {
         <GuardrailDialog title={guardrail.title} message={guardrail.message} onAcknowledge={() => setGuardrail(null)} />
       )}
 
+      {/* Title + status and the archive export share one row, the export
+          pushed right as a secondary action (ADR-0043) — it acts on the whole
+          request, so it belongs beside the title rather than inside one of the
+          body sections. Approved-only, matching the endpoint's
+          archivable-status gate. */}
       {pageState.status === 'loaded' ? (
-        <div className="flex items-center gap-3">
-          <h2
-            id="refund-request-detail-heading"
-            ref={headingRef}
-            tabIndex={-1}
-            className="text-lg font-semibold outline-none"
-            style={{ fontFamily: 'var(--disp)' }}
-          >
-            {t.heading}
-          </h2>
-          <RequestStatusBadge status={pageState.request.status} />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <h2
+              id="refund-request-detail-heading"
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-lg font-semibold outline-none"
+              style={{ fontFamily: 'var(--disp)' }}
+            >
+              {t.heading}
+            </h2>
+            <RequestStatusBadge status={pageState.request.status} />
+          </div>
+
+          {pageState.request.status === 'approved' && (
+            <RequestExportLink requestId={pageState.request.id} />
+          )}
         </div>
       ) : (
         <h2
@@ -573,12 +584,6 @@ export default function RequestDetailPage() {
         {pageState.status === 'loaded' && pageState.request.status === 'approved' && (
           <div data-testid="request-detail-approved" className="flex flex-col gap-4">
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
-            {/* Archive export (ADR-0043) — rendered only on an approved
-                request, matching the endpoint's own archivable-status gate,
-                so the control never appears where it would 409. */}
-            <div className="flex">
-              <RequestExportLink requestId={pageState.request.id} />
-            </div>
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow

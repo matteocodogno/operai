@@ -297,21 +297,35 @@ export default function ReviewDetailPage() {
         <GuardrailDialog title={guardrail.title} message={guardrail.message} onAcknowledge={() => setGuardrail(null)} />
       )}
 
-      <h2
-        id="refund-review-detail-heading"
-        ref={pageState.status === 'notFound' ? headingRef : undefined}
-        tabIndex={pageState.status === 'notFound' ? -1 : undefined}
-        className="text-lg font-semibold outline-none"
-        style={{ fontFamily: 'var(--disp)' }}
-      >
-        {pageState.status === 'notFound' ? t.notFound.heading : t.heading}
-      </h2>
+      {/* Title block and the archive export share one row, the export pushed
+          right as a secondary action (ADR-0043). It sits in the header rather
+          than in the body because it acts on the WHOLE request, not on the
+          section it would otherwise have been wedged between. Rendered only
+          for an approved request, matching the endpoint's archivable-status
+          gate, so the control never appears where it would 409. */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2
+            id="refund-review-detail-heading"
+            ref={pageState.status === 'notFound' ? headingRef : undefined}
+            tabIndex={pageState.status === 'notFound' ? -1 : undefined}
+            className="text-lg font-semibold outline-none"
+            style={{ fontFamily: 'var(--disp)' }}
+          >
+            {pageState.status === 'notFound' ? t.notFound.heading : t.heading}
+          </h2>
 
-      {pageState.status === 'loaded' && (
-        <p className="mt-1 text-sm" style={{ color: 'var(--soft)' }} data-testid="review-detail-requested-by">
-          {t.requestedByLabel(pageState.request.owner)}
-        </p>
-      )}
+          {pageState.status === 'loaded' && (
+            <p className="mt-1 text-sm" style={{ color: 'var(--soft)' }} data-testid="review-detail-requested-by">
+              {t.requestedByLabel(pageState.request.owner)}
+            </p>
+          )}
+        </div>
+
+        {pageState.status === 'loaded' && pageState.request.status === 'approved' && (
+          <RequestExportLink requestId={pageState.request.id} />
+        )}
+      </div>
 
       <div className="mt-4 flex flex-col gap-4">
         {pageState.status === 'loading' && (
@@ -387,12 +401,6 @@ export default function ReviewDetailPage() {
         {pageState.status === 'loaded' && pageState.request.status === 'approved' && (
           <div data-testid="review-detail-approved" className="flex flex-col gap-4">
             <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
-            {/* Archive export (ADR-0043) — rendered only on an approved
-                request, matching the endpoint's own archivable-status gate,
-                so the control never appears where it would 409. */}
-            <div className="flex">
-              <RequestExportLink requestId={pageState.request.id} />
-            </div>
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow

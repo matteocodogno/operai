@@ -422,6 +422,43 @@ describe('ReviewDetailPage — decided (approved/rejected) read-only variant', (
     expect(screen.queryByTestId('review-detail-reject')).toBeNull()
   })
 
+
+  // Placement, not just presence. The export first shipped between the totals
+  // card and the line list, where it read as orphaned — it acts on the WHOLE
+  // request, so it belongs in the header row beside the title, not inside one
+  // of the body sections. Asserting only "the button exists" would let it
+  // silently drift back, so these pin the DOM relationship.
+  it('renders the export control in the header row, not inside the approved body section', async () => {
+    const approvedRequest = {
+      ...baseRequest,
+      status: 'approved' as const,
+      lines: [{ ...baseRequest.lines[0], approvedTotalCents: 800 }],
+      subtotals: [{ currency: 'EUR' as const, requestedCents: 1000, approvedCents: 800 }],
+      decidedAt: '2026-07-15T00:00:00.000Z',
+      decidedBy: { email: 'acct@welld.ch' },
+    }
+    vi.mocked(requestsApi.get).mockResolvedValue(approvedRequest)
+    renderReviewDetailPage()
+
+    const exportButton = await screen.findByTestId(`request-export-link-${approvedRequest.id}`)
+
+    // It must NOT live inside the approved body block it used to sit in.
+    expect(screen.getByTestId('review-detail-approved').contains(exportButton)).toBe(false)
+    // It must share a row with the heading — i.e. their nearest common
+    // ancestor is the header row, not the whole page.
+    const heading = document.getElementById('refund-review-detail-heading')
+    expect(heading).not.toBeNull()
+    const row = exportButton.closest('div')?.parentElement
+    expect(row?.contains(heading as Node)).toBe(true)
+  })
+
+  it('shows no export control while the request is not archivable', async () => {
+    vi.mocked(requestsApi.get).mockResolvedValue(baseRequest)
+    renderReviewDetailPage()
+
+    await waitFor(() => expect(screen.queryByTestId('expense-line-row-line-1')).not.toBeNull())
+    expect(screen.queryByTestId(`request-export-link-${baseRequest.id}`)).toBeNull()
+  })
   it('rejected: shows the rejection motivation and no decide actions', async () => {
     const rejectedRequest: RefundRequestDetail = {
       ...baseRequest,

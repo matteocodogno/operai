@@ -393,6 +393,38 @@ describe('RequestDetailPage — submitted variant', () => {
 })
 
 describe('RequestDetailPage — approved variant', () => {
+  // Placement, not just presence — see the twin test in ReviewDetailPage.test.tsx.
+  // The export first shipped between the totals card and the line list, where
+  // it read as orphaned; it acts on the WHOLE request so it belongs beside the
+  // title. Asserting only "it exists" would let it drift back.
+  it('renders the export control in the header row, not inside the approved body section', async () => {
+    const approvedRequest = {
+      ...baseRequest,
+      status: 'approved' as const,
+      lines: [{ ...oneLine, approvedTotalCents: 800 }],
+      subtotals: [{ currency: 'EUR' as const, requestedCents: 1000, approvedCents: 800 }],
+    }
+    vi.mocked(requestsApi.get).mockResolvedValue(approvedRequest)
+    renderRequestDetailPage()
+
+    const exportButton = await screen.findByTestId(`request-export-link-${approvedRequest.id}`)
+
+    expect(screen.getByTestId('request-detail-approved').contains(exportButton)).toBe(false)
+    const heading = document.getElementById('refund-request-detail-heading')
+    expect(heading).not.toBeNull()
+    const row = exportButton.closest('div')?.parentElement
+    expect(row?.contains(heading as Node)).toBe(true)
+  })
+
+  it('shows no export control while the request is not archivable', async () => {
+    const submitted = { ...baseRequest, status: 'submitted' as const, lines: [oneLine] }
+    vi.mocked(requestsApi.get).mockResolvedValue(submitted)
+    renderRequestDetailPage()
+
+    await waitFor(() => expect(screen.queryByTestId('expense-line-row-line-1')).not.toBeNull())
+    expect(screen.queryByTestId(`request-export-link-${submitted.id}`)).toBeNull()
+  })
+
   it('shows requested + approved per line, both subtotals, and MonthlyProcessingNote', async () => {
     const approvedRequest = {
       ...baseRequest,
