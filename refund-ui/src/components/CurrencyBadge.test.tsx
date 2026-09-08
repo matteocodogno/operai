@@ -68,7 +68,11 @@ describe('CurrencyBadge', () => {
     expect(glyphSpan?.textContent).toBe('$')
   })
 
-  it('uses a different color per variant (never color-only, but distinct anyway)', () => {
+  // This used to assert FOUR distinct colours. Currency is neutral metadata —
+  // it is not good, not bad, not actionable — so one shared neutral is the
+  // point now, and the ISO code is what tells the variants apart (pinned by
+  // the "shows its ISO code" test above).
+  it('renders every variant in the same neutral colour', () => {
     const colors = (['EUR', 'CHF', 'USD', 'GBP'] as const).map((currency) => {
       const { container } = render(<CurrencyBadge currency={currency} />)
       const badge = container.querySelector('[data-testid="currency-badge"]') as HTMLElement
@@ -77,6 +81,21 @@ describe('CurrencyBadge', () => {
       return color
     })
 
-    expect(new Set(colors).size).toBe(4)
+    expect(new Set(colors).size).toBe(1)
+  })
+
+  // The reason for the change: green MEANS "approved" on these screens, and a
+  // CHF chip sat immediately beside a green approved figure carrying none of
+  // that meaning. No currency chip may claim a semantic colour.
+  it('never uses the semantic approved/accent colours', () => {
+    for (const currency of ['EUR', 'CHF', 'USD', 'GBP'] as const) {
+      const { container } = render(<CurrencyBadge currency={currency} />)
+      const badge = container.querySelector('[data-testid="currency-badge"]') as HTMLElement
+      expect(badge.style.color).not.toContain('--grn')
+      expect(badge.style.color).not.toContain('--acc')
+      expect(badge.style.color).not.toContain('--red')
+      expect(badge.style.color).not.toContain('--org')
+      cleanup()
+    }
   })
 })

@@ -41,7 +41,11 @@ describe('EntityBadge', () => {
     expect(glyphSpan?.textContent).toBe('🇨🇭')
   })
 
-  it('uses a different color per variant (never color-only, but distinct anyway)', () => {
+  // This used to assert TWO distinct colours. An entity is neutral metadata —
+  // it is not good, not actionable, just true — so one shared neutral is the
+  // point now, and the flag glyph plus entity name tell the variants apart
+  // (ConditionChip's precedent: several kinds, one colour).
+  it('renders both variants in the same neutral colour', () => {
     const colors = (['welld_it', 'welld_ch'] as const).map((entity) => {
       const { container } = render(<EntityBadge entity={entity} />)
       const badge = container.querySelector('[data-testid="entity-badge"]') as HTMLElement
@@ -50,6 +54,19 @@ describe('EntityBadge', () => {
       return color
     })
 
-    expect(new Set(colors).size).toBe(2)
+    expect(new Set(colors).size).toBe(1)
+  })
+
+  // The reason for the change: green MEANS "approved" on these screens, and a
+  // WellD CH chip sat on the same row as a green approved figure carrying
+  // none of that meaning.
+  it('never uses the semantic approved/accent colours', () => {
+    for (const entity of ['welld_it', 'welld_ch'] as const) {
+      const { container } = render(<EntityBadge entity={entity} />)
+      const badge = container.querySelector('[data-testid="entity-badge"]') as HTMLElement
+      expect(badge.style.color).not.toContain('--grn')
+      expect(badge.style.color).not.toContain('--acc')
+      cleanup()
+    }
   })
 })
