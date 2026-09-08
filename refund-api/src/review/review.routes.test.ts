@@ -35,6 +35,8 @@ const harness = setupTestAuth();
 await harness.init();
 
 const { reviewRouter } = await import("./review.routes");
+const { Effect } = await import("effect");
+const { listReviewQueueRequests } = await import("./review.repo");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 
@@ -84,7 +86,14 @@ async function createRequestWithLines(
     currency?: "EUR" | "CHF" | "USD" | "GBP";
     requestedAmountCents?: number;
   }[],
-  overrides: Partial<{ ownerUserId: string; ownerEmail: string; ownerName: string | null; batchId: string }> = {},
+  overrides: Partial<{
+    ownerUserId: string;
+    ownerEmail: string;
+    ownerName: string | null;
+    batchId: string;
+    /** Explicit submission instant — lets an ordering test pin a known sequence. */
+    submittedAt: Date | null;
+  }> = {},
 ) {
   const request = await db.refundRequest.create({
     data: {
@@ -92,7 +101,12 @@ async function createRequestWithLines(
       ownerEmail: overrides.ownerEmail ?? "emp1@x.com",
       ownerName: overrides.ownerName ?? null,
       status,
-      submittedAt: status === "draft" ? null : new Date(),
+      submittedAt:
+        overrides.submittedAt !== undefined
+          ? overrides.submittedAt
+          : status === "draft"
+            ? null
+            : new Date(),
       batchId: overrides.batchId ?? null,
     },
   });
@@ -269,6 +283,72 @@ describe("GET /review/requests", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: string }[];
     expect(body).toHaveLength(2);
+  });
+
+  // ─── Ordering (changed 2026-09-08: was oldest-first/FIFO) ────────────────
+  //
+  // Accounting works this queue newest-first, so the most recent submissions
+  // must sit at the top rather than under months of already-approved rows.
+  // AC-5.1 pins no order ("enough summary to prioritize"), so the queue's
+  // order lives only here — without these tests nothing would catch a silent
+  // flip back.
+  it("lists the queue newest-submitted-first", async () => {
+    const oldest = await createRequestWithLines("submitted", [{ entity: "welld_ch" }], {
+      submittedAt: new Date("2026-08-03T09:00:00.000Z"),
+    });
+    const newest = await createRequestWithLines("submitted", [{ entity: "welld_ch" }], {
+      submittedAt: new Date("2026-09-08T09:00:00.000Z"),
+    });
+    const middle = await createRequestWithLines("submitted", [{ entity: "welld_ch" }], {
+      submittedAt: new Date("2026-09-04T09:00:00.000Z"),
+    });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-global", email: "acctg@x.com" });
+
+    const res = await reviewRouter.request("/review/requests", { headers: authHeaders(token) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string }[];
+    expect(body.map((r) => r.id)).toEqual([newest.id, middle.id, oldest.id]);
+  });
+
+  it("orders approved-not-yet-batched rows into the same newest-first sequence, not a separate block", async () => {
+    const oldSubmitted = await createRequestWithLines("submitted", [{ entity: "welld_ch" }], {
+      submittedAt: new Date("2026-08-01T09:00:00.000Z"),
+    });
+    const newApproved = await createRequestWithLines("approved", [{ entity: "welld_ch" }], {
+      submittedAt: new Date("2026-09-07T09:00:00.000Z"),
+    });
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-global", email: "acctg@x.com" });
+
+    const res = await reviewRouter.request("/review/requests", { headers: authHeaders(token) });
+    const body = (await res.json()) as { id: string }[];
+    expect(body.map((r) => r.id)).toEqual([newApproved.id, oldSubmitted.id]);
+  });
+
+  // Regression guard for the `nulls: "last"` in review.repo.ts's orderBy.
+  //
+  // Postgres sorts a DESC column NULLS FIRST by default, so the asc→desc flip
+  // would otherwise float a timestamp-less row to the TOP of the queue. This
+  // is asserted against the REPO, not the HTTP route, on purpose: a null
+  // `submittedAt` is an invariant violation that `mapQueueItem`
+  // (review.service.ts) deliberately turns into a 500 rather than serializing
+  // a lying timestamp — so the route can never show this ordering, and a
+  // route-level test would be asserting a state the service rejects by design.
+  // The query-layer guarantee is still worth pinning: deleting `nulls: "last"`
+  // must fail here.
+  it("(repo) orders a row with no submittedAt LAST, never first", async () => {
+    const dated = await createRequestWithLines("submitted", [{ entity: "welld_ch" }], {
+      submittedAt: new Date("2026-08-01T09:00:00.000Z"),
+    });
+    const undated = await createRequestWithLines("submitted", [{ entity: "welld_ch" }], {
+      submittedAt: null,
+    });
+
+    const rows = await Effect.runPromise(listReviewQueueRequests());
+    expect(rows.map((r) => r.id)).toEqual([dated.id, undated.id]);
   });
 
   it("a conditioned grant with no resolved caller entity matches nothing (fail-closed) — 200 empty, not 403", async () => {

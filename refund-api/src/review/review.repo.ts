@@ -37,8 +37,24 @@ const toDbErr = (message: string) => (cause: unknown) =>
  * the accounting user asked to keep visible here. An approved request drops
  * off the queue the moment it is compiled into a batch (its `batchId` is set,
  * specs/008/ADR-0020). `draft`/`rejected`/`paid`, and `approved` rows already
- * in a batch, are excluded. Oldest-submitted-first (a simple FIFO ordering),
- * mixed by status — the UI's status badge distinguishes the two.
+ * in a batch, are excluded. NEWEST-submitted-first, mixed by status — the
+ * UI's status badge distinguishes the two.
+ *
+ * Ordering note: this was oldest-first (FIFO) until 2026-09-08. Accounting
+ * works the queue newest-first, so the most recent submissions must be at the
+ * top rather than buried under months of already-approved rows. AC-5.1 asks
+ * only for "enough summary to prioritize" and pins no order, so this is not a
+ * spec deviation.
+ *
+ * `nulls: "last"` is explicit because the asc→desc flip silently reverses the
+ * database default: `submittedAt` is nullable (`schema.prisma`) and Postgres
+ * sorts a DESC column NULLS FIRST, so a row that somehow reached
+ * `submitted`/`approved` without a timestamp would move from the bottom of
+ * the queue to the very top. In practice such a row never reaches a client —
+ * `mapQueueItem` (review.service.ts) throws on it rather than serializing a
+ * lying timestamp, turning the whole request into a 500 — so this is defence
+ * in depth at the query layer, not the thing that keeps the response correct.
+ * It is pinned by a repo-level test, deliberately not a route-level one.
  *
  * NOTE: this widens 007's AC-5.2 ("submitted only"); see the review-queue
  * doc comment / spec 007 amendment. `lines` carries the full `LineRow` field
@@ -59,7 +75,7 @@ export function listReviewQueueRequests(): Effect.Effect<
             { status: "approved", batchId: null },
           ],
         },
-        orderBy: { submittedAt: "asc" },
+        orderBy: { submittedAt: { sort: "desc", nulls: "last" } },
         select: {
           id: true,
           status: true,
