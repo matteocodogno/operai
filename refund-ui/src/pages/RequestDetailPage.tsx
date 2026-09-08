@@ -583,7 +583,15 @@ export default function RequestDetailPage() {
 
         {pageState.status === 'loaded' && pageState.request.status === 'approved' && (
           <div data-testid="request-detail-approved" className="flex flex-col gap-4">
-            <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
+            {/* The monthly-processing note sits directly under the totals, as a
+                footnote to them: it answers "when does this figure get paid".
+                It used to be a bordered accent panel at the very bottom of the
+                page — the loudest thing on screen, saying the same sentence on
+                every approved request forever. */}
+            <div className="flex flex-col gap-1.5">
+              <SubtotalsPanel subtotals={pageState.request.subtotals} showApproved />
+              <MonthlyProcessingNote />
+            </div>
             <div className="flex flex-col gap-2">
               {pageState.request.lines.map((line) => (
                 <ExpenseLineRow
@@ -595,7 +603,6 @@ export default function RequestDetailPage() {
                 />
               ))}
             </div>
-            <MonthlyProcessingNote />
           </div>
         )}
 

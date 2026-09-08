@@ -243,8 +243,13 @@ const en = {
       paid: {
         paidLine: (date: string) => `Paid on ${date}`,
       },
+      /**
+       * A footnote under an approved request's totals, not a banner. The
+       * `heading` this used to carry ("Monthly processing") is gone: at body
+       * weight the sentence introduces itself, and a heading existed only to
+       * anchor the panel that no longer surrounds it.
+       */
       monthlyNote: {
-        heading: 'Monthly processing',
         body: 'Approved reimbursements are processed together on a regular monthly cycle. No specific date or payout amount is promised here — check with accounting for the current schedule.',
       },
     },

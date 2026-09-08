@@ -559,6 +559,33 @@ describe('ReviewDetailPage — decided (approved/rejected) read-only variant', (
     await waitFor(() => expect(screen.queryByTestId('expense-line-row-line-1')).not.toBeNull())
     expect(screen.queryByTestId(`request-export-link-${baseRequest.id}`)).toBeNull()
   })
+  // Placement: a footnote to the totals, not a banner appended after every
+  // expense line. It answers "when does this figure get paid", so it belongs
+  // with the figure.
+  it('renders the monthly-processing note directly under the totals, not after the lines', async () => {
+    const approvedRequest: RefundRequestDetail = {
+      ...baseRequest,
+      status: 'approved',
+      lines: [{ ...baseRequest.lines[0], approvedTotalCents: 800 }],
+      subtotals: [{ currency: 'EUR', requestedCents: 1000, approvedCents: 800 }],
+      decidedAt: '2026-07-15T00:00:00.000Z',
+      decidedBy: { email: 'acct@welld.ch' },
+    }
+    vi.mocked(requestsApi.get).mockResolvedValue(approvedRequest)
+    renderReviewDetailPage()
+
+    const note = await screen.findByTestId('monthly-processing-note')
+    const panel = screen.getByTestId('subtotals-panel')
+
+    // Same wrapper as the totals, so the two read as one block.
+    expect(note.parentElement?.contains(panel)).toBe(true)
+    // And it precedes the expense lines rather than trailing them.
+    expect(
+      note.compareDocumentPosition(screen.getByTestId('expense-line-row-line-1')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
   it('rejected: shows the rejection motivation and no decide actions', async () => {
     const rejectedRequest: RefundRequestDetail = {
       ...baseRequest,
