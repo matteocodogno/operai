@@ -410,7 +410,10 @@ describe('ExpenseLineRow — review mode (T18, accounting)', () => {
     render(<ExpenseLineRow line={line} mode="review" onDownloadAttachment={vi.fn()} onApprovedTotalChange={vi.fn()} />)
 
     const input = screen.getByTestId('row-line-1-approved-total')
-    expect(input.getAttribute('aria-label')).toBe('Approved total for 2026-07-01 · Pens · EUR')
+    // The accessible name carries the SAME date string a sighted reader sees
+    // (DD.MM.YYYY, lib/dates.ts) — a screen-reader user hearing a raw ISO date
+    // while the row shows 01.07.2026 could not match the two.
+    expect(input.getAttribute('aria-label')).toBe('Approved total for 01.07.2026 · Pens · EUR')
   })
 
   it('write-on-change-only: does NOT call onApprovedTotalChange when the field blurs untouched', () => {

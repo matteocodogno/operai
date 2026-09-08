@@ -186,7 +186,10 @@ describe('ReviewDetailPage — submitted (decidable) variant', () => {
     expect(screen.queryByTestId('row-line-1-motivo')).toBeNull() // read-only, no edit inputs
     const input = screen.getByTestId('row-line-1-approved-total') as HTMLInputElement
     expect(input.value).toBe('10.00')
-    expect(input.getAttribute('aria-label')).toBe('Approved total for 2026-07-01 · Pens · EUR')
+    // The accessible name carries the SAME date string a sighted reader sees
+    // (DD.MM.YYYY, lib/dates.ts) — a screen-reader user hearing a raw ISO date
+    // while the row shows 01.07.2026 could not match the two.
+    expect(input.getAttribute('aria-label')).toBe('Approved total for 01.07.2026 · Pens · EUR')
   })
 
   // QE regression (specs/007-refund-service, T21 verification pass) — same

@@ -351,7 +351,7 @@ export default function ExpenseLineRow({
   const summaryCore = (
     <>
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span style={{ color: 'var(--soft)' }}>{line.date}</span>
+        <span style={{ color: 'var(--soft)' }}>{formatDate(line.date)}</span>
         <span style={{ color: 'var(--text)' }}>{typeLabel(line.type)}</span>
         <EntityBadge entity={line.entity} />
         <CurrencyBadge currency={line.currency} />
@@ -496,7 +496,7 @@ export default function ExpenseLineRow({
               type="number"
               step="0.01"
               min="0"
-              aria-label={reviewStrings.ariaLabel(line.date, line.motivo, line.currency)}
+              aria-label={reviewStrings.ariaLabel(formatDate(line.date), line.motivo, line.currency)}
               value={approvedDraft}
               disabled={approvedSaving}
               onChange={(e) => setApprovedDraft(e.target.value)}

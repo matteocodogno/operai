@@ -297,7 +297,7 @@ export default function RequestDetailPage() {
           err.offendingLineIds.map((lineId) => {
             const line = lines.find((l) => l.id === lineId)
             const label = line
-              ? `${line.date} · ${line.motivo || t.validationSummary.noMotivo}`
+              ? `${formatDate(line.date)} · ${line.motivo || t.validationSummary.noMotivo}`
               : t.validationSummary.fallbackLineLabel(lineId)
             return { lineId, label }
           }),
