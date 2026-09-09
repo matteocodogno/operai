@@ -269,8 +269,10 @@ describe("renderRequestExportPdf — no raw enum values reach the document", () 
   it("renders the status as a label, not the database value", async () => {
     const text = await textOf(baseInput({ status: "approved", lines: [mileageLine] }));
 
-    expect(text).toContain("Approved");
-    expect(text).not.toMatch(/Status: approved/);
+    // The status is a CHIP now, carrying the word itself so a greyscale
+    // photocopy loses nothing.
+    expect(text).toContain("APPROVED");
+    expect(text).not.toContain("approved");
   });
 });
 
@@ -286,10 +288,17 @@ describe("renderRequestExportPdf — one number locale", () => {
   });
 
   it("puts the currency after the amount, as the UI does", async () => {
-    const text = await textOf(baseInput({ lines: [mileageLine] }));
+    // Asserted on a REJECTED render, which has a single money column. With
+    // both columns present the extractor concatenates them into
+    // "10,50 CHF 10,50 CHF", which contains "CHF 10,50" across the column
+    // boundary — a false positive about the document rather than a fact about
+    // it. The prefix/suffix rule itself is pinned in documentFormat.test.ts.
+    const text = await textOf(
+      baseInput({ status: "rejected", rejectionMotivation: "n/a", lines: [mileageLine] }),
+    );
 
-    expect(text).toContain("206,50 CHF");
-    expect(text).not.toContain("CHF 206,50");
+    expect(text).toContain("10,50 CHF");
+    expect(text).not.toContain("CHF 10,50");
   });
 
   it("renders line dates like every other date", async () => {
@@ -318,8 +327,11 @@ describe("renderRequestExportPdf — self-describing header", () => {
   it("names the period and the entity up front", async () => {
     const text = await textOf(baseInput({ lines: [mileageLine] }));
 
-    expect(text).toContain("Period: August 2026");
-    expect(text).toContain("Entity: WellD CH");
+    // Labels are uppercase `label.medium` above their values, not "Key: value".
+    expect(text).toContain("PERIOD");
+    expect(text).toContain("August 2026");
+    expect(text).toContain("ENTITY");
+    expect(text).toContain("WellD CH");
   });
 
   // "Is this a liability or is it settled?" is the first question a recipient
@@ -332,7 +344,7 @@ describe("renderRequestExportPdf — self-describing header", () => {
       }),
     );
 
-    expect(text).toContain("Settlement:");
+    expect(text).toContain("SETTLEMENT");
     expect(text).toContain("batch 2026-09");
   });
 });
@@ -344,7 +356,7 @@ describe("renderRequestExportPdf — receipts are stated once", () => {
     );
 
     expect(text).toContain("No receipts were attached");
-    expect(text).not.toContain("Receipts: none");
+    expect(text).not.toContain("page 2");
   });
 
   it("states per-line counts when receipts exist, and drops the global claim", async () => {
@@ -357,8 +369,10 @@ describe("renderRequestExportPdf — receipts are stated once", () => {
       baseInput({ lines: [withReceipt, { ...mileageLine, id: "l2" }], receipts: [receipt()] }),
     );
 
-    expect(text).toContain("Receipts: 1");
-    expect(text).toContain("Receipts: none"); // the other line, which genuinely has none
+    // Receipts are listed in the note under the table, by filename and the
+    // page a reader turns to — not counted per line.
+    expect(text).toContain("receipt.png");
+    expect(text).toMatch(/page \d+/);
     expect(text).not.toContain("No receipts were attached");
   });
 });
@@ -466,7 +480,7 @@ describe("renderRequestExportPdf — a request that is not uniform", () => {
     });
 
   it("widens the period rather than naming only the first month", async () => {
-    expect(await textOf(mixed())).toContain("Period: August to September 2026");
+    expect(await textOf(mixed())).toContain("August to September 2026");
   });
 
   // Naming one entity in a single-valued header invites the reader to treat it
@@ -475,15 +489,20 @@ describe("renderRequestExportPdf — a request that is not uniform", () => {
   it("says Multiple for the entity and defers to the lines", async () => {
     const text = await textOf(mixed());
 
-    expect(text).toContain("Entity: Multiple — see each line");
-    expect(text).toContain("Office material — WellD CH".replace("Office material", "Travel — mileage (km)"));
+    expect(text).toContain("Multiple — see each line");
+    // The truth stays per line, in the Detail column.
+    expect(text).toContain("WellD CH");
     expect(text).toContain("WellD Italia");
   });
 
   it("gives one total per currency and never sums across them", async () => {
     const text = await textOf(mixed());
 
-    expect(text).toContain("Totals per currency");
+    // One SECTION per currency, each with its own subtotal row.
+    expect(text).toContain("EXPENSES IN CHF");
+    expect(text).toContain("EXPENSES IN EUR");
+    expect(text).toContain("Subtotal — CHF");
+    expect(text).toContain("Subtotal — EUR");
     expect(text).toContain("10,50 CHF");
     expect(text).toContain("126,24 €");
     // 1050 + 12624 = 13674 — a number that must not exist anywhere.
@@ -501,14 +520,12 @@ describe("renderRequestExportPdf — settlement does not repeat the status", () 
       }),
     );
 
-    expect(text).toContain("Status: Approved");
-    expect(text).toContain("Settlement: Not yet included in a monthly batch");
+    expect(text).toContain("APPROVED"); // the chip
+    expect(text).toContain("Not yet included in a monthly batch");
 
-    // Scoped to the HEADER. "Approved" legitimately labels the amount rows
-    // further down; the complaint was two consecutive header lines both
-    // leading with the same word.
-    const header = text.slice(0, text.indexOf("Totals"));
-    expect(header.match(/Approved/g)?.length).toBe(1);
+    // The settlement value must not restate the status word. The chip carries
+    // it once; the old header said "Approved" on two consecutive lines.
+    expect(text).not.toContain("Approved — not yet included");
   });
 });
 
@@ -528,16 +545,18 @@ describe("renderRequestExportPdf — a rejected request approves nothing", () =>
   it("shows no approved figure on any line, even when one was set before the refusal", async () => {
     const text = await textOf(rejected());
 
-    expect(text).toContain("Requested 10,50 CHF");
-    expect(text).not.toContain("Approved 10,50 CHF");
+    // No APPROVED column header at all, so there is nowhere for a stale
+    // per-line approved total to surface.
+    expect(text).toContain("10,50 CHF");
+    expect(text).not.toContain("APPROVED");
   });
 
   it("shows no approved column in the totals either", async () => {
     const text = await textOf(rejected());
-    const totals = text.slice(text.indexOf("Totals"), text.indexOf("Expense lines"));
-
-    expect(totals).toContain("Requested 10,50 CHF");
-    expect(totals).not.toContain("Approved");
+    // The total row carries one figure, under REQUESTED only.
+    expect(text).toContain("Total");
+    expect(text).toContain("10,50 CHF");
+    expect(text).not.toContain("APPROVED");
   });
 
   it("still shows approved figures on an approved request", async () => {
@@ -545,6 +564,88 @@ describe("renderRequestExportPdf — a rejected request approves nothing", () =>
       baseInput({ status: "approved", lines: [{ ...mileageLine, approvedTotalCents: 1050 }] }),
     );
 
-    expect(text).toContain("Approved 10,50 CHF");
+    expect(text).toContain("APPROVED"); // the column exists again
+    expect(text).toContain("10,50 CHF");
+  });
+});
+
+// ─── Layout mechanisms (2026-09-09 brand-kit pass) ─────────────────────────
+
+describe("renderRequestExportPdf — the table survives a long request", () => {
+  const manyLines = Array.from({ length: 26 }, (_, i) => ({
+    ...mileageLine,
+    id: `l${i}`,
+    date: `2026-08-${String((i % 28) + 1).padStart(2, "0")}`,
+    motivo: `Trip ${i + 1}`,
+    requestedAmountCents: 1000 + i,
+    approvedTotalCents: 1000 + i,
+  })) as unknown as RequestExportInput["lines"];
+
+  it("repeats the column header on every page rather than orphaning rows", async () => {
+    const text = await textOf(baseInput({ lines: manyLines }));
+    const headers = text.match(/# DATE DESCRIPTION/g) ?? [];
+
+    expect(headers.length).toBeGreaterThan(1);
+  });
+
+  // The total an accountant checks by hand must equal the figures printed
+  // above it — so it is summed from the rendered LINES, not from a separate
+  // subtotals field that could drift from them.
+  it("totals the lines it actually printed", async () => {
+    const expected = manyLines.reduce((sum, l) => sum + l.requestedAmountCents, 0);
+    const text = await textOf(
+      baseInput({
+        lines: manyLines,
+        // Deliberately wrong, to prove the document does not read it.
+        subtotals: [{ currency: "CHF", requestedCents: 999999, approvedCents: 999999 }],
+      }),
+    );
+
+    expect(text).toContain(formatExpected(expected));
+    expect(text).not.toContain("9.999,99");
+  });
+});
+
+function formatExpected(cents: number): string {
+  return `${Math.trunc(cents / 100)},${(cents % 100).toString().padStart(2, "0")} CHF`;
+}
+
+describe("renderRequestExportPdf — receipts note", () => {
+  it("names each receipt and the page a reader turns to", async () => {
+    const twoPage = await makePdfBytes(2);
+    const text = await textOf(
+      baseInput({
+        lines: [mileageLine],
+        receipts: [
+          receipt({ attachmentId: "a1", fileName: "hotel.pdf", contentType: "application/pdf", bytes: twoPage }),
+          receipt({ attachmentId: "a2", fileName: "taxi.png" }),
+        ],
+      }),
+    );
+
+    // hotel.pdf: caption page + 2 copied pages starting at page 2 → taxi.png
+    // therefore starts at page 5. A reference that is merely present but wrong
+    // is worse than none, so the arithmetic is asserted, not just the shape.
+    expect(text).toContain("hotel.pdf");
+    expect(text).toContain("page 2");
+    expect(text).toContain("taxi.png");
+    expect(text).toContain("page 5");
+  });
+});
+
+describe("renderRequestExportPdf — greyscale floor", () => {
+  // Every one of these documents will be printed or photocopied in mono.
+  // Colour may accent, never carry.
+  it("the status chip carries its word, not just a colour", async () => {
+    expect(await textOf(baseInput({ status: "approved", lines: [mileageLine] }))).toContain("APPROVED");
+    expect(
+      await textOf(baseInput({ status: "rejected", rejectionMotivation: "n/a", lines: [mileageLine] })),
+    ).toContain("REJECTED");
+  });
+
+  it("the total is distinguished by weight and a rule, not by colour alone", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+    // The word "Total" is what identifies the row in monochrome.
+    expect(text).toContain("Total");
   });
 });

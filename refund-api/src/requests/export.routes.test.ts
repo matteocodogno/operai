@@ -395,7 +395,7 @@ describe("GET /requests/:id/export — rejected requests", () => {
     const { res } = await exportRejected("Missing the receipt for the hotel");
     const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
 
-    expect(text).toContain("Reason for rejection");
+    expect(text).toContain("REASON FOR REJECTION");
     expect(text).toContain("Missing the receipt for the hotel");
   });
 
