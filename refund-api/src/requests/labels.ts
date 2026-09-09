@@ -42,6 +42,20 @@ export const expenseTypeLabel = (type: string): string => EXPENSE_TYPE[type] ?? 
 export const entityLabel = (entity: string): string => ENTITY[entity] ?? entity;
 export const requestStatusLabel = (status: string): string => REQUEST_STATUS[status] ?? status;
 
-/** Distinct entity labels across a request's lines, in a stable order — a request may straddle both (AC-3.5/6.6). */
-export const entityLabels = (entities: readonly string[]): string =>
-  [...new Set(entities)].sort().map(entityLabel).join(", ");
+/**
+ * The header's single-valued Entity field for a request whose lines may
+ * straddle both establishments (AC-3.5/6.6).
+ *
+ * A mixed request says "Multiple" rather than listing both. The header's job
+ * is a one-glance summary, and a summary that names two entities invites the
+ * reader to treat one of them as THE entity for the whole request — which is
+ * exactly the wrong conclusion when a per-line entity is what drives ABAC
+ * scope (ADR-0015) and, downstream, which establishment books the cost. The
+ * per-line values remain the record; the header must not compete with them.
+ */
+export const entityHeaderLabel = (entities: readonly string[]): string => {
+  const distinct = [...new Set(entities)];
+  if (distinct.length === 0) return "";
+  if (distinct.length === 1) return entityLabel(distinct[0]!);
+  return "Multiple — see each line";
+};

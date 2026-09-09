@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from "bun:test";
 import labels from "./document-labels.json";
-import { entityLabel, entityLabels, expenseTypeLabel, requestStatusLabel } from "./labels";
+import { entityLabel, entityHeaderLabel, expenseTypeLabel, requestStatusLabel } from "./labels";
 
 describe("document labels", () => {
   // The defect this exists to prevent: the exported PDF read
@@ -33,16 +33,20 @@ describe("document labels", () => {
     expect(requestStatusLabel("paid")).toBe("Paid");
   });
 
-  // A request's lines may straddle both entities (AC-3.5/6.6).
-  it("joins a mixed-entity request's entities in a stable order", () => {
-    expect(entityLabels(["welld_ch", "welld_it", "welld_ch"])).toBe("WellD CH, WellD Italia");
-    expect(entityLabels(["welld_it", "welld_ch"])).toBe(
-      entityLabels(["welld_ch", "welld_it"]),
-    );
+  // A request's lines may straddle both entities (AC-3.5/6.6). The header must
+  // not name one of them, which would invite the reader to treat it as THE
+  // entity for the whole request.
+  it("says Multiple for a mixed-entity request, deferring to the lines", () => {
+    expect(entityHeaderLabel(["welld_ch", "welld_it"])).toBe("Multiple — see each line");
   });
 
-  it("renders a single-entity request without a separator", () => {
-    expect(entityLabels(["welld_ch", "welld_ch"])).toBe("WellD CH");
+  it("names the entity outright when every line shares one", () => {
+    expect(entityHeaderLabel(["welld_ch", "welld_ch"])).toBe("WellD CH");
+    expect(entityHeaderLabel(["welld_it"])).toBe("WellD Italia");
+  });
+
+  it("renders nothing for a request with no lines rather than a stray label", () => {
+    expect(entityHeaderLabel([])).toBe("");
   });
 
   // A document that fails to generate is worse than one showing a raw value:

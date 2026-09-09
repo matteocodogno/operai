@@ -66,8 +66,16 @@ const problem = (status: 404 | 409 | 413 | 502, title: string, path: string, det
  */
 function describeSettlement(
   batch: { status: string; cutoff: Date; paidAt: Date | null } | null,
+  status?: string,
 ): string {
-  if (!batch) return "Approved — not yet included in a monthly batch";
+  // A rejected claim is not awaiting payout — saying "not yet included in a
+  // monthly batch" would imply it is queued for one.
+  if (status === "rejected") return "Not payable — the request was rejected";
+
+  // No "Approved — " prefix: the Status line directly above already says it,
+  // and two consecutive lines both leading with the same word read as a
+  // duplication rather than as two different facts.
+  if (!batch) return "Not yet included in a monthly batch";
 
   const period = formatBatchPeriod(batch.cutoff);
   if (batch.status === "paid" && batch.paidAt) {
@@ -125,8 +133,17 @@ export const requestExportRouter = new OpenAPIHono<{ Variables: AuthzVariables }
 requestExportRouter.use("/requests/:id/export", jwtMiddleware);
 requestExportRouter.use("/requests/:id/export", authzMiddleware);
 
-/** Statuses whose figures are final enough to archive. See the module doc. */
-const ARCHIVABLE_STATUSES = new Set(["approved", "paid"]);
+/**
+ * Statuses final enough to archive.
+ *
+ * `rejected` was added on 2026-09-09 (ADR-0043 amendment). Grouping it with
+ * draft/submitted was wrong: those are still moving — a draft's mileage is
+ * recomputed on every read and a submitted request has no decision at all —
+ * whereas a rejected request is TERMINAL. It is also the document an employee
+ * disputing a refusal most needs to keep, and the one they could not obtain.
+ * Its export carries the rejection motivation and no approved figures.
+ */
+const ARCHIVABLE_STATUSES = new Set(["approved", "rejected", "paid"]);
 
 const exportRoute = createRoute({
   method: "get",
@@ -207,9 +224,12 @@ requestExportRouter.openapi(exportRoute, async (c) => {
   // only this document needs the batch's status and cutoff.
   const claimed = await db.refundRequest.findUnique({
     where: { id },
-    select: { batch: { select: { status: true, cutoff: true, paidAt: true } } },
+    select: {
+      decidedByName: true,
+      batch: { select: { status: true, cutoff: true, paidAt: true } },
+    },
   });
-  const settlement = describeSettlement(claimed?.batch ?? null);
+  const settlement = describeSettlement(claimed?.batch ?? null, request.status);
 
   // An archivable request is never a draft, so this is a pass-through — but
   // routing through the same helper as GET /requests/:id keeps the exported
@@ -299,8 +319,11 @@ requestExportRouter.openapi(exportRoute, async (c) => {
       lines: detail.lines,
       subtotals: detail.subtotals,
       receipts,
+      decidedByName: claimed?.decidedByName ?? null,
+      rejectionMotivation: detail.rejectionMotivation,
       generatedAt: new Date(),
       generatedByEmail: email,
+      generatedByName: c.get("userName") ?? null,
       settlement,
     });
   } catch (error) {

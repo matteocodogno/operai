@@ -81,7 +81,21 @@ is looking at and can re-check. This produces an *archive*, which by definition 
 A document that looks complete and silently isn't is worse than a refusal, because the refusal gets
 fixed and the silent gap does not.
 
-**4. Approved and paid requests only (409 otherwise).** A draft's mileage is recomputed against the
+**4. Approved, REJECTED and paid requests only (409 otherwise).**
+
+*Amended 2026-09-09:* `rejected` was originally excluded, grouped with
+`draft`/`submitted`. That was wrong. Those two are excluded because they are
+still MOVING — a draft's mileage is recomputed on every read, a submitted
+request has no decision at all — whereas a rejected request is **terminal**.
+It is also the document an employee disputing a refusal most needs to keep,
+and the one they could not obtain. Its export carries the rejection motivation
+above the figures, and shows **no approved amount anywhere**: a reviewer can
+set per-line approved totals while a request is still `submitted` and then
+reject it, and those leftovers rendered as "Approved 206,50 CHF" on every line
+while the totals said "Approved —". On a refusal that is the most damaging
+claim the page could make.
+
+*Original reasoning, unchanged for draft/submitted:* A draft's mileage is recomputed against the
 currently-effective rate on every read (specs/009 Decision 1, ADR-0013) and a submitted request has
 no approved figures at all, so archiving either would freeze a moving target. `paid` is allowed
 because it is `approved` that has since been paid out — refusing to archive a request *because* it
@@ -99,6 +113,36 @@ a stored, regenerable cache because it is referenced by an emailed deep link ove
 export is a user-initiated download with no second reader. Storing it would add bucket growth,
 staleness, and a lifecycle question for zero benefit. The response carries `Cache-Control:
 no-store` — personal financial data, ADR-0041's posture extended from the JWT to derived documents.
+
+**7. Not PDF/A — deliberately, and with the reason recorded (2026-09-09).**
+
+CH bookkeeping retention is ten years, so PDF/A-2b or -3b is the obvious
+archival target and was considered. It is not adoptable while receipts are
+embedded as COPIED PAGES: a receipt is an arbitrary user-uploaded PDF, those
+routinely lack embedded fonts, and a non-conformant copied page breaks
+conformance for the whole file — unfixable from our side, since we do not have
+the fonts. `pdf-lib` additionally has no XMP or OutputIntent API (it does have
+file attachments), so conformance would be hand-built and would need veraPDF
+validation in CI to be worth asserting at all. A document that CLAIMS PDF/A and
+fails validation is worse than one that claims nothing, because an auditor
+relies on the claim.
+
+The realistic path, if this is taken up: **PDF/A-3b with receipts as embedded
+FILES rather than copied pages** — which is precisely what A-3 exists for. Our
+own pages then conform, and each receipt rides along as an attachment. The cost
+is that receipts stop being visible pages, which is a real loss of readability;
+rasterising them to keep them visible needs a renderer `pdf-lib` does not have
+and destroys the receipt's own text layer.
+
+**Escalation trigger:** adopt A-3b the first time a retention/audit requirement
+is stated as a *requirement* rather than a preference, or the first time a
+receipt is needed as evidence and its provenance is questioned.
+
+**8. The document carries the issuing company's letterhead** — legal name,
+registered seat and tax identifier, selected from the request's own entity
+(`letterhead.ts`). A mixed-entity request takes the Swiss headquarters, since
+the Italian establishment is a branch of it and the header says "Multiple"
+rather than implying one entity owns the whole request.
 
 ## Consequences
 

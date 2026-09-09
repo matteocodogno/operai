@@ -108,7 +108,13 @@ describe("formatPeriod", () => {
   });
 
   it("spans a range when the lines straddle a month boundary", () => {
-    expect(formatPeriod(["2026-08-30", "2026-09-02"])).toBe("August 2026 – September 2026");
+    // "August to September 2026" — a dash between two month-years reads as a
+    // subtraction on a page full of figures, and the year is stated once.
+    expect(formatPeriod(["2026-08-30", "2026-09-02"])).toBe("August to September 2026");
+  });
+
+  it("keeps both years when the range crosses one", () => {
+    expect(formatPeriod(["2026-12-30", "2027-01-04"])).toBe("December 2026 to January 2027");
   });
 
   it("is derived from line dates, so filing month never overrides expense month", () => {

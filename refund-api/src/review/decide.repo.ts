@@ -169,6 +169,7 @@ function approveTransaction(
   requestId: string,
   actorUserId: string,
   actorEmail: string,
+  actorName?: string,
 ): Effect.Effect<void, DatabaseError | ConflictError> {
   return Effect.tryPromise({
     try: () =>
@@ -180,6 +181,7 @@ function approveTransaction(
             decidedAt: new Date(),
             decidedByUserId: actorUserId,
             decidedByEmail: actorEmail,
+            decidedByName: actorName ?? null,
           },
         });
         if (count === 0) return false;
@@ -238,6 +240,7 @@ export function approveRequest(
   actorUserId: string,
   actorEmail: string,
   selfApprovalRestricted: boolean,
+  actorName?: string,
 ): Effect.Effect<
   void,
   DatabaseError | NotFoundError | ConflictError | SelfApprovalDeniedError
@@ -277,7 +280,7 @@ export function approveRequest(
         return Effect.succeed(row);
       },
     ),
-    Effect.flatMap(() => approveTransaction(requestId, actorUserId, actorEmail)),
+    Effect.flatMap(() => approveTransaction(requestId, actorUserId, actorEmail, actorName)),
   );
 }
 
@@ -288,6 +291,7 @@ function rejectTransaction(
   actorUserId: string,
   actorEmail: string,
   motivation: string,
+  actorName?: string,
 ): Effect.Effect<void, DatabaseError | ConflictError> {
   return Effect.tryPromise({
     try: () =>
@@ -300,6 +304,7 @@ function rejectTransaction(
             decidedAt: new Date(),
             decidedByUserId: actorUserId,
             decidedByEmail: actorEmail,
+            decidedByName: actorName ?? null,
           },
         });
         if (count === 0) return false;
@@ -335,10 +340,11 @@ export function rejectRequest(
   actorUserId: string,
   actorEmail: string,
   motivation: string,
+  actorName?: string,
 ): Effect.Effect<void, DatabaseError | NotFoundError | ConflictError> {
   return ensureInScopeSubmittedRequest(requestId, scope).pipe(
     Effect.flatMap(() =>
-      rejectTransaction(requestId, actorUserId, actorEmail, motivation),
+      rejectTransaction(requestId, actorUserId, actorEmail, motivation, actorName),
     ),
   );
 }

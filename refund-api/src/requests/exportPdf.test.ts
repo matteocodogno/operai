@@ -47,7 +47,10 @@ const baseInput = (overrides: Partial<RequestExportInput> = {}): RequestExportIn
   receipts: [],
   generatedAt: new Date("2026-09-08T12:00:00.000Z"),
   generatedByEmail: "acct@welld.ch",
-  settlement: "Approved — not yet included in a monthly batch",
+  decidedByName: null,
+  rejectionMotivation: null,
+  generatedByName: null,
+  settlement: "Not yet included in a monthly batch",
   ...overrides,
 });
 
@@ -376,5 +379,172 @@ describe("renderRequestExportPdf — footer", () => {
     for (let page = 1; page <= pageCount; page += 1) {
       expect(text).toContain(`Page ${page} of ${pageCount}`);
     }
+  });
+});
+
+// ─── 2026-09-09 review: identity, letterhead, mixed requests ───────────────
+
+describe("renderRequestExportPdf — the document identifies its people", () => {
+  it("leads with names, keeping the address as the identifier beside it", async () => {
+    const text = await textOf(
+      baseInput({
+        lines: [mileageLine],
+        owner: { email: "luigi.gambardella@welld.ch", name: "Luigi Gambardella" },
+        decidedAt: "2026-09-01T06:45:00.000Z",
+        decidedByEmail: "chiara.rossi@welld.ch",
+        decidedByName: "Chiara Rossi",
+        generatedByEmail: "matteo.codogno@welld.ch",
+        generatedByName: "Matteo Codogno",
+      }),
+    );
+
+    expect(text).toContain("Luigi Gambardella (luigi.gambardella@welld.ch)");
+    expect(text).toContain("Chiara Rossi (chiara.rossi@welld.ch)");
+    expect(text).toContain("Matteo Codogno (matteo.codogno@welld.ch)");
+  });
+
+  // Rows decided before decidedByName existed have no name to recover.
+  it("falls back to the address alone rather than an empty parenthetical", async () => {
+    const text = await textOf(
+      baseInput({
+        lines: [mileageLine],
+        owner: { email: "someone@welld.ch", name: null },
+        decidedAt: "2026-09-01T06:45:00.000Z",
+        decidedByEmail: "acct@welld.ch",
+        decidedByName: null,
+      }),
+    );
+
+    expect(text).toContain("someone@welld.ch");
+    expect(text).not.toContain("()");
+    expect(text).not.toContain("null");
+  });
+});
+
+describe("renderRequestExportPdf — letterhead", () => {
+  it("names the issuing company, its registered seat and its tax id", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).toContain("wellD — Switzerland (headquarters)");
+    expect(text).toContain("Via Pessina 9, c.p. 1920, CH-6901 Lugano");
+    expect(text).toContain("CHE-114.591.536");
+  });
+
+  it("uses the Italian branch for an Italian request", async () => {
+    const italian = { ...mileageLine, entity: "welld_it" } as typeof mileageLine;
+    const text = await textOf(baseInput({ lines: [italian] }));
+
+    expect(text).toContain("wellD — Italy (branch)");
+    expect(text).toContain("I-16128, Genova".replace(", ", " ").replace("I-16128 Genova", "I-16128 Genova"));
+    expect(text).toContain("CF / P. IVA 01975370998");
+  });
+
+  // Only the REGISTERED seat belongs on a letterhead — listing the operational
+  // offices would turn a header into a directory.
+  it("states one address, not every office", async () => {
+    const text = await textOf(baseInput({ lines: [mileageLine] }));
+
+    expect(text).not.toContain("Via Campagna");
+    expect(text).not.toContain("Piazza Indipendenza");
+  });
+});
+
+describe("renderRequestExportPdf — a request that is not uniform", () => {
+  const chf = { ...mileageLine, id: "a", date: "2026-08-30", entity: "welld_ch", currency: "CHF" } as typeof mileageLine;
+  const eur = {
+    ...mileageLine, id: "b", date: "2026-09-02", entity: "welld_it", currency: "EUR",
+    requestedAmountCents: 12624, approvedTotalCents: 12624, mileage: null,
+  } as unknown as typeof mileageLine;
+
+  const mixed = () =>
+    baseInput({
+      lines: [chf, eur],
+      subtotals: [
+        { currency: "CHF", requestedCents: 1050, approvedCents: 1050 },
+        { currency: "EUR", requestedCents: 12624, approvedCents: 12624 },
+      ],
+    });
+
+  it("widens the period rather than naming only the first month", async () => {
+    expect(await textOf(mixed())).toContain("Period: August to September 2026");
+  });
+
+  // Naming one entity in a single-valued header invites the reader to treat it
+  // as THE entity for the whole request — wrong, since per-line entity is what
+  // drives scope and which establishment books the cost.
+  it("says Multiple for the entity and defers to the lines", async () => {
+    const text = await textOf(mixed());
+
+    expect(text).toContain("Entity: Multiple — see each line");
+    expect(text).toContain("Office material — WellD CH".replace("Office material", "Travel — mileage (km)"));
+    expect(text).toContain("WellD Italia");
+  });
+
+  it("gives one total per currency and never sums across them", async () => {
+    const text = await textOf(mixed());
+
+    expect(text).toContain("Totals per currency");
+    expect(text).toContain("10,50 CHF");
+    expect(text).toContain("126,24 €");
+    // 1050 + 12624 = 13674 — a number that must not exist anywhere.
+    expect(text).not.toContain("136,74");
+  });
+});
+
+describe("renderRequestExportPdf — settlement does not repeat the status", () => {
+  it("does not say Approved twice in consecutive lines", async () => {
+    const text = await textOf(
+      baseInput({
+        status: "approved",
+        lines: [mileageLine],
+        settlement: "Not yet included in a monthly batch",
+      }),
+    );
+
+    expect(text).toContain("Status: Approved");
+    expect(text).toContain("Settlement: Not yet included in a monthly batch");
+
+    // Scoped to the HEADER. "Approved" legitimately labels the amount rows
+    // further down; the complaint was two consecutive header lines both
+    // leading with the same word.
+    const header = text.slice(0, text.indexOf("Totals"));
+    expect(header.match(/Approved/g)?.length).toBe(1);
+  });
+});
+
+describe("renderRequestExportPdf — a rejected request approves nothing", () => {
+  // A reviewer can set per-line approved totals while a request is still
+  // `submitted` and then reject it. Those leftovers used to render as
+  // "Approved 206,50 CHF" on every line while the totals said "Approved —".
+  const rejected = () =>
+    baseInput({
+      status: "rejected",
+      rejectionMotivation: "Receipt does not match the amount claimed",
+      lines: [{ ...mileageLine, approvedTotalCents: 1050 }],
+      subtotals: [{ currency: "CHF", requestedCents: 1050, approvedCents: null }],
+      settlement: "Not payable — the request was rejected",
+    });
+
+  it("shows no approved figure on any line, even when one was set before the refusal", async () => {
+    const text = await textOf(rejected());
+
+    expect(text).toContain("Requested 10,50 CHF");
+    expect(text).not.toContain("Approved 10,50 CHF");
+  });
+
+  it("shows no approved column in the totals either", async () => {
+    const text = await textOf(rejected());
+    const totals = text.slice(text.indexOf("Totals"), text.indexOf("Expense lines"));
+
+    expect(totals).toContain("Requested 10,50 CHF");
+    expect(totals).not.toContain("Approved");
+  });
+
+  it("still shows approved figures on an approved request", async () => {
+    const text = await textOf(
+      baseInput({ status: "approved", lines: [{ ...mileageLine, approvedTotalCents: 1050 }] }),
+    );
+
+    expect(text).toContain("Approved 10,50 CHF");
   });
 });

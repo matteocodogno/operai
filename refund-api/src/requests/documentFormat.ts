@@ -125,7 +125,16 @@ export const formatPeriod = (isoDates: readonly string[]): string | null => {
   };
   const first = label(sorted[0]!);
   const last = label(sorted[sorted.length - 1]!);
-  return first === last ? first : `${first} – ${last}`;
+  if (first === last) return first;
+
+  // "August to September 2026", not "August 2026 – September 2026": a dash
+  // between two full month-years reads as a subtraction on a page otherwise
+  // full of figures, and repeating the year is noise when both fall in it.
+  const [, firstYear] = first.split(" ");
+  const [lastMonth, lastYear] = last.split(" ");
+  return firstYear === lastYear
+    ? `${first.split(" ")[0]} to ${lastMonth} ${lastYear}`
+    : `${first} to ${last}`;
 };
 
 /**

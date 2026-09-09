@@ -26,7 +26,8 @@
 import { PDFDocument, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { RefundLineResponse, Subtotal } from "./requests.schemas";
-import { entityLabel, entityLabels, expenseTypeLabel, requestStatusLabel } from "./labels";
+import { entityLabel, entityHeaderLabel, expenseTypeLabel, requestStatusLabel } from "./labels";
+import { letterheadFor } from "./letterhead";
 import {
   formatDate,
   formatMoney,
@@ -60,6 +61,17 @@ export interface RequestExportInput {
   readonly submittedAt: string | null;
   readonly decidedAt: string | null;
   readonly decidedByEmail: string | null;
+  /** Display-name snapshot of the decider, null for rows decided before it was recorded. */
+  readonly decidedByName: string | null;
+  /**
+   * Why a rejected request was rejected. Null for any other status.
+   *
+   * On a rejected document this is not a detail — it is the entire content,
+   * and the part a disputing employee will hold onto. Rendering the lines
+   * without it would produce a document that says a claim was refused and
+   * never says why.
+   */
+  readonly rejectionMotivation: string | null;
   readonly lines: readonly RefundLineResponse[];
   readonly subtotals: readonly Subtotal[];
   readonly receipts: readonly ExportReceipt[];
@@ -70,6 +82,7 @@ export interface RequestExportInput {
    */
   readonly generatedAt: Date;
   readonly generatedByEmail: string;
+  readonly generatedByName: string | null;
   /**
    * Where this request stands in the monthly payout cycle, already resolved to
    * a sentence by the caller (it needs a batch lookup this renderer must not
@@ -131,6 +144,42 @@ const FOOTER_INK = rgb(0.45, 0.45, 0.5);
 interface Cursor {
   page: PDFPage;
   y: number;
+}
+
+/**
+ * "Luigi Gambardella (luigi.gambardella@welld.ch)" — the name first, the
+ * address as the identifier beside it. Mirrors refund-ui's `ownerDisplay`.
+ *
+ * A document a human reads and files should lead with the human; a bare
+ * address makes the reader do the translation. Falls back to the address
+ * alone when no name was recorded, rather than rendering an empty
+ * parenthetical.
+ */
+/**
+ * Greedy word-wrap to a pixel width, measured in the ACTUAL font rather than
+ * guessed from a character count — a motivation is free text an employee
+ * typed, and a fixed column count overflows the page for wide glyphs and
+ * wastes half of it for narrow ones. A single word longer than the line is
+ * emitted whole and allowed to overhang rather than being cut mid-word.
+ */
+function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let current = "";
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const candidate = current === "" ? word : `${current} ${word}`;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth || current === "") {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current !== "") lines.push(current);
+  return lines;
+}
+
+function personLabel(name: string | null | undefined, email: string): string {
+  return name && name.trim() !== "" ? `${name} (${email})` : email;
 }
 
 function addPage(doc: PDFDocument): PDFPage {
@@ -308,6 +357,28 @@ export async function renderRequestExportPdf(
 
   const cursor: Cursor = { page: addPage(doc), y: PAGE_HEIGHT - MARGIN };
 
+  // ── Letterhead: who issued this document ─────────────────────────────────
+  const letterhead = letterheadFor(input.lines.map((line) => line.entity));
+  cursor.page.drawText(letterhead.name, {
+    x: MARGIN,
+    y: cursor.y,
+    size: HEADER_SIZE,
+    font: boldFont,
+    color: INK,
+  });
+  cursor.y -= LINE_GAP - 3;
+  for (const detail of [letterhead.address, `${letterhead.taxId} · ${letterhead.contact}`]) {
+    cursor.page.drawText(detail, {
+      x: MARGIN,
+      y: cursor.y,
+      size: FOOTER_SIZE + 1,
+      font,
+      color: FOOTER_INK,
+    });
+    cursor.y -= LINE_GAP - 5;
+  }
+  cursor.y -= SECTION_GAP;
+
   // ── Header ────────────────────────────────────────────────────────────────
   ensureSpace(doc, cursor, LINE_GAP + 4);
   cursor.page.drawText("Expense reimbursement request", {
@@ -319,9 +390,7 @@ export async function renderRequestExportPdf(
   });
   cursor.y -= TITLE_SIZE + 6;
 
-  const ownerLabel = input.owner.name
-    ? `${input.owner.name} (${input.owner.email})`
-    : input.owner.email;
+  const ownerLabel = personLabel(input.owner.name, input.owner.email);
 
   // Self-describing at a glance: WHO, WHEN the expenses fall in, and WHICH
   // legal entity — the three things someone filing this needs before reading
@@ -329,7 +398,7 @@ export async function renderRequestExportPdf(
   // right even when the request was filed in a later month or straddles both
   // entities.
   const period = formatPeriod(input.lines.map((line) => line.date));
-  const entities = entityLabels(input.lines.map((line) => line.entity));
+  const entities = entityHeaderLabel(input.lines.map((line) => line.entity));
 
   drawLine(doc, cursor, `Employee: ${ownerLabel}`, font, HEADER_SIZE);
   if (period) drawLine(doc, cursor, `Period: ${period}`, font, HEADER_SIZE);
@@ -342,26 +411,70 @@ export async function renderRequestExportPdf(
     drawLine(doc, cursor, `Submitted: ${formatTimestamp(new Date(input.submittedAt))}`, font, HEADER_SIZE);
   }
   if (input.decidedAt) {
-    const by = input.decidedByEmail ? ` by ${input.decidedByEmail}` : "";
+    const decider = input.decidedByEmail
+      ? personLabel(input.decidedByName, input.decidedByEmail)
+      : "";
+    const by = decider ? ` by ${decider}` : "";
     drawLine(doc, cursor, `Decided: ${formatTimestamp(new Date(input.decidedAt))}${by}`, font, HEADER_SIZE);
   }
   drawLine(
     doc,
     cursor,
-    `Exported: ${formatTimestamp(input.generatedAt)} by ${input.generatedByEmail}`,
+    `Exported: ${formatTimestamp(input.generatedAt)} by ${personLabel(input.generatedByName, input.generatedByEmail)}`,
     font,
     HEADER_SIZE,
   );
   drawLine(doc, cursor, `Internal ID: ${input.requestId}`, font, HEADER_SIZE);
   cursor.y -= SECTION_GAP;
 
+  /**
+   * A REJECTED request approves nothing, so no approved figure may appear on
+   * it — not even a per-line one.
+   *
+   * This is not theoretical: `PUT .../lines/:id/approved-total` works while a
+   * request is still `submitted`, so a reviewer can set line totals and then
+   * reject. Those values survive on the row, and rendering them produced a
+   * document whose totals said "Approved —" while every line underneath said
+   * "Approved 206,50 CHF". On a refusal that is the most damaging thing the
+   * page could claim.
+   */
+  const showsApprovedAmounts = input.status !== "rejected";
+
+  // ── Why a rejected claim was refused ─────────────────────────────────────
+  //
+  // Placed ABOVE the figures, not below them. On a rejected document this is
+  // the content; the lines are supporting detail for a decision the reader
+  // already needs to understand. It is also the passage a disputing employee
+  // will point at, so it must not be something they have to hunt for.
+  if (input.rejectionMotivation && input.rejectionMotivation.trim() !== "") {
+    drawLine(doc, cursor, "Reason for rejection", boldFont, SECTION_TITLE_SIZE);
+    for (const wrapped of wrapText(input.rejectionMotivation, font, BODY_SIZE, PAGE_WIDTH - MARGIN * 2 - 20)) {
+      drawLine(doc, cursor, `  ${wrapped}`, font, BODY_SIZE);
+    }
+    cursor.y -= SECTION_GAP;
+  }
+
   // ── Totals, one figure per currency, never blended (AC-3.5/6.6) ───────────
-  drawLine(doc, cursor, "Totals", boldFont, SECTION_TITLE_SIZE);
+  //
+  // One row per currency and NO grand total: summing CHF and EUR would invent
+  // a number that does not exist. The heading says so when there is more than
+  // one, so a reader never reads two rows as a running total.
+  drawLine(
+    doc,
+    cursor,
+    input.subtotals.length > 1 ? "Totals per currency" : "Totals",
+    boldFont,
+    SECTION_TITLE_SIZE,
+  );
   if (input.subtotals.length === 0) {
     drawLine(doc, cursor, "  (no lines)", font, BODY_SIZE);
   }
   for (const subtotal of input.subtotals) {
     const requested = formatMoney(subtotal.requestedCents, subtotal.currency);
+    if (!showsApprovedAmounts) {
+      drawLine(doc, cursor, `  Requested ${requested}`, font, BODY_SIZE);
+      continue;
+    }
     const approved =
       subtotal.approvedCents === null
         ? "—"
@@ -375,6 +488,7 @@ export async function renderRequestExportPdf(
 
   // ── Every expense line ───────────────────────────────────────────────────
   const hasAnyReceipt = input.receipts.length > 0;
+
 
   drawLine(doc, cursor, `Expense lines (${input.lines.length})`, boldFont, SECTION_TITLE_SIZE);
 
@@ -390,11 +504,15 @@ export async function renderRequestExportPdf(
     drawLine(doc, cursor, `    ${line.motivo}`, font, BODY_SIZE);
 
     const requested = formatMoney(line.requestedAmountCents, line.currency);
-    const approved =
-      line.approvedTotalCents === null
-        ? "—"
-        : formatMoney(line.approvedTotalCents, line.currency);
-    drawLine(doc, cursor, `    Requested ${requested} · Approved ${approved}`, font, BODY_SIZE);
+    if (showsApprovedAmounts) {
+      const approved =
+        line.approvedTotalCents === null
+          ? "—"
+          : formatMoney(line.approvedTotalCents, line.currency);
+      drawLine(doc, cursor, `    Requested ${requested} · Approved ${approved}`, font, BODY_SIZE);
+    } else {
+      drawLine(doc, cursor, `    Requested ${requested}`, font, BODY_SIZE);
+    }
 
     // Mileage provenance: the snapshotted rate is part of the audited record
     // (ADR-0023/0025), so an archive that omitted it would not evidence how

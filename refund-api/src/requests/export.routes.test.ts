@@ -88,7 +88,13 @@ async function createRequest(
       ownerEmail: "emp1@x.com",
       status,
       submittedAt: status === "draft" ? null : new Date(),
-      decidedAt: status === "approved" || status === "paid" ? new Date() : null,
+      // `rejected` is a DECIDED status too — decide.repo's rejectTransaction
+      // stamps decidedAt exactly as approve does. Omitting it here made the
+      // fixture disagree with production.
+      decidedAt:
+        status === "approved" || status === "paid" || status === "rejected"
+          ? new Date()
+          : null,
     },
   });
   const line = await db.refundLine.create({
@@ -218,7 +224,7 @@ describe("GET /requests/:id/export", () => {
   // An archive must record something settled. A draft's mileage is recomputed
   // on every read and a submitted request has no approved figures at all, so
   // exporting either would archive a moving target.
-  it.each(["draft", "submitted", "rejected"] as const)(
+  it.each(["draft", "submitted"] as const)(
     "a %s request is 409, not an archive of a moving target",
     async (status) => {
       const { request } = await createRequest(status);
@@ -321,7 +327,7 @@ describe("GET /requests/:id/export — settlement state and filename", () => {
     const res = await exportAs(request.id);
     const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
 
-    expect(text).toContain("not yet included in a monthly batch");
+    expect(text).toContain("Not yet included in a monthly batch");
   });
 
   // The distinction that matters to a recipient: compiled is still a
@@ -355,5 +361,70 @@ describe("GET /requests/:id/export — settlement state and filename", () => {
     expect(paidText).toContain("Paid on 30.09.2026 08:00 (CEST)");
     expect(paidText).toContain("batch 2026-09");
     expect(paidText).not.toContain("not yet paid");
+  });
+});
+
+// ─── Rejected requests are archivable (ADR-0043 amendment, 2026-09-09) ──────
+//
+// Rejected was grouped with draft/submitted and refused. That was wrong: those
+// are still moving, a rejected request is terminal — and it is the document a
+// disputing employee most needs to keep.
+
+describe("GET /requests/:id/export — rejected requests", () => {
+  const url = (id: string) => `/requests/${id}/export`;
+
+  async function exportRejected(motivation: string) {
+    const { request } = await createRequest("rejected");
+    await db.refundRequest.update({
+      where: { id: request.id },
+      data: { rejectionMotivation: motivation, decidedByName: "Chiara Rossi", decidedByEmail: "chiara.rossi@welld.ch" },
+    });
+    harness.setResolve(async () => EMPLOYEE_PERMS);
+    const token = await harness.signToken({ sub: "emp-1", email: "emp1@x.com" });
+    const res = await requestExportRouter.request(url(request.id), { headers: authHeaders(token) });
+    return { res, request };
+  }
+
+  it("exports a rejected request instead of refusing it", async () => {
+    const { res } = await exportRejected("Missing the receipt for the hotel");
+    expect(res.status).toBe(200);
+  });
+
+  // The whole content of that document.
+  it("carries the rejection motivation", async () => {
+    const { res } = await exportRejected("Missing the receipt for the hotel");
+    const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
+
+    expect(text).toContain("Reason for rejection");
+    expect(text).toContain("Missing the receipt for the hotel");
+  });
+
+  it("does not imply a rejected claim is queued for payout", async () => {
+    const { res } = await exportRejected("Duplicate of an earlier claim");
+    const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
+
+    expect(text).toContain("Not payable");
+    expect(text).not.toContain("not yet included in a monthly batch");
+    expect(text).not.toContain("Not yet included in a monthly batch");
+  });
+
+  it("names the person who rejected it, not just their address", async () => {
+    const { res } = await exportRejected("Out of policy");
+    const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
+
+    expect(text).toContain("Chiara Rossi (chiara.rossi@welld.ch)");
+  });
+
+  // Free text an employee's reviewer typed — it must not run off the page.
+  it("wraps a long motivation instead of overflowing the line", async () => {
+    const long =
+      "The submitted receipt does not match the amount claimed and the date on it " +
+      "falls outside the period of the trip, so this claim cannot be approved as filed; " +
+      "please resubmit with the correct documentation attached to each line.";
+    const { res } = await exportRejected(long);
+    const text = await extractPdfText(Buffer.from(await res.arrayBuffer()));
+
+    expect(text).toContain("The submitted receipt does not match");
+    expect(text).toContain("attached to each line.");
   });
 });

@@ -17,6 +17,15 @@ export type JwtVariables = {
   userId: string;
   email: string;
   /**
+   * The `name` claim, already present on every token auth issues
+   * (auth/src/auth/auth.config.ts `definePayload`) and simply not surfaced
+   * here until now. Optional because it is optional on the user record.
+   *
+   * Read only for DISPLAY on documents a person reads — never for identity or
+   * authorization, which are always `sub`.
+   */
+  userName?: string;
+  /**
    * The `perm_epoch` claim from the verified JWT (auth/src/auth/auth.config.ts
    * `definePayload`) — a monotonically-increasing staleness marker bumped
    * whenever an admin changes this user's roles/permissions/departments.
@@ -137,6 +146,10 @@ export const jwtMiddleware = createMiddleware<{
 
   c.set("userId", userId);
   c.set("email", email);
+  const claimedName = payload["name"];
+  if (typeof claimedName === "string" && claimedName.trim() !== "") {
+    c.set("userName", claimedName);
+  }
   c.set("permEpoch", permEpoch);
 
   return next();

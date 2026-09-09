@@ -139,6 +139,13 @@ model RefundRequest {
   decidedAt           DateTime?
   decidedByUserId     String?
   decidedByEmail      String?
+  // Display-name SNAPSHOT of the deciding accounting user, taken at decision
+  // time — the same posture as `ownerName` above, and for the same reason: a
+  // document a human files should lead with the human, and re-resolving the
+  // name later would make an archived PDF's contents depend on whether that
+  // person still exists. Nullable because rows decided before this column
+  // existed have no name to recover; those fall back to the email.
+  decidedByName       String?
   // Non-null iff status == rejected (AC-7.3); left null/untouched otherwise.
   rejectionMotivation String?
   // LIVE batch claim pointer (specs/008-refund-monthly-processing, ADR-0020).

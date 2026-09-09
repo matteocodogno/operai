@@ -392,7 +392,7 @@ decideRouter.openapi(approveRoute, async (c) => {
   const selfApprovalRestricted = approveRestrictedForCaller(authz);
 
   const exit = await Effect.runPromiseExit(
-    approveRequest(id, scope, sub, email, selfApprovalRestricted),
+    approveRequest(id, scope, sub, email, selfApprovalRestricted, c.get("userName")),
   );
   if (exit._tag === "Failure") {
     const cause = exit.cause;
@@ -478,7 +478,7 @@ decideRouter.openapi(rejectRoute, async (c) => {
   }
 
   const exit = await Effect.runPromiseExit(
-    rejectRequest(id, scope, sub, email, motivation),
+    rejectRequest(id, scope, sub, email, motivation, c.get("userName")),
   );
   if (exit._tag === "Failure") {
     const cause = exit.cause;
