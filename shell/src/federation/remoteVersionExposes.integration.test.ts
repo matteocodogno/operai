@@ -48,7 +48,7 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -56,23 +56,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 interface RemoteFixture {
   /** Matches useRemoteVersions.ts's RemoteVersionSource['id']. */
-  id: 'estimai' | 'refund' | 'admin' | 'notify'
+  id: 'estimai' | 'refund' | 'admin' | 'notify' | 'inventory'
   /** Directory name, sibling to shell/, per CLAUDE.md's monorepo layout. */
   dirName: string
 }
 
 // Mirrors useRemoteVersions.ts's REMOTE_VERSION_SOURCES exactly (also
 // cross-checked statically in remoteVersionSpecifiers.test.ts).
-const REMOTES: readonly RemoteFixture[] = [
+const ALL_REMOTES: readonly RemoteFixture[] = [
   { id: 'estimai', dirName: 'estimai-ui' },
   { id: 'refund', dirName: 'refund-ui' },
   { id: 'admin', dirName: 'admin-ui' },
   { id: 'notify', dirName: 'notify-ui' },
+  { id: 'inventory', dirName: 'inventory-ui' },
 ]
 
 function remoteDir(dirName: string): string {
   return path.resolve(__dirname, '../../../', dirName)
 }
+
+// inventory-ui is built by later tasks of specs/015 (T2+); until its package
+// exists there is no artifact to build and load, so it joins the run only once
+// its directory does (the shell never requires the remote to be present).
+const REMOTES: readonly RemoteFixture[] = ALL_REMOTES.filter((r) =>
+  existsSync(path.join(remoteDir(r.dirName), 'package.json')),
+)
 
 // A real `vite build` per remote (~1-2s each) — the whole point is to run
 // the ACTUAL build, not a stand-in for it. Generous timeout: cold

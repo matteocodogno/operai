@@ -59,6 +59,26 @@ declare module 'notify/App' {
 // missing this export entirely (i.e. one that predates this change) must
 // degrade gracefully rather than being a type error at the call site.
 
+// specs/015-hardware-inventory, T41 (ADR-0045): the `inventory` remote is the
+// first to expose TWO mountable entries — `./App` (the gated tool, mounted at
+// `/inventory/*`) and `./MyDevices` (the identity-scoped devices screen,
+// mounted at the ungated `/devices`). Both are prop-less root components, like
+// the other remotes' `./App`. Hand-written for the same reason as above.
+
+declare module 'inventory/App' {
+  import type { ComponentType } from 'react'
+
+  const App: ComponentType
+  export default App
+}
+
+declare module 'inventory/MyDevices' {
+  import type { ComponentType } from 'react'
+
+  const MyDevices: ComponentType
+  export default MyDevices
+}
+
 declare module 'estimai/version' {
   export const REMOTE_VERSION: string
 }
@@ -72,5 +92,9 @@ declare module 'admin/version' {
 }
 
 declare module 'notify/version' {
+  export const REMOTE_VERSION: string
+}
+
+declare module 'inventory/version' {
   export const REMOTE_VERSION: string
 }

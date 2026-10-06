@@ -237,7 +237,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
 
 ## shell
 
-- [ ] T41: [frontend] Shell: remote wiring, session URL, CSP — refs: AC-9.6 — deps: none
+- [x] T41: [frontend] Shell: remote wiring, session URL, CSP — refs: AC-9.6 — deps: none
   - touch: `shell/vite.config.ts`, `shell/src/lib/runtimeRemotes.ts`, `shell/src/lib/runtimeRemotes.test.ts`, `shell/src/lib/session.ts`, `shell/src/lib/session.test.ts`, `shell/src/federation/*`, `shell/public/runtime-config.example.json`, `shell/vercel.json`, `shell/src/components/AboutModal.tsx`, `shell/src/components/AboutModal.test.tsx`
   - Add the `inventory` remote (dev default `:5178`, runtime-resolved per ADR-0006), `getInventoryApiBaseUrl()` with the trusted-origin guard, ambient declarations for `inventory/App`, `inventory/MyDevices`, `inventory/version`, the About modal's version row (ADR-0030, degrade silently), and `script-src`/`connect-src` for the inventory remote and API origins.
   - done when: `pnpm --dir shell test runtimeRemotes session AboutModal federation` passes: the remote resolves from runtime config and is omitted when absent; `apiFetch` attaches the Bearer to the inventory API origin and not to an untrusted one; the About modal lists Inventory and still renders when `inventory/version` rejects or times out.

@@ -53,6 +53,12 @@
  * concern, orthogonal to this module's job of resolving WHERE the remote's
  * code is served from.
  *
+ * `inventory` (specs/015-hardware-inventory, T41) follows the identical shape —
+ * a fifth optional key. One remote, TWO shell routes (ADR-0045): the gated
+ * `/inventory/$` tool route and the ungated `/devices` route both resolve their
+ * code from this single entry; where it is served from is orthogonal to who may
+ * reach which route.
+ *
  * HONEST SCOPE NOTE (see T17 report): for the common production case — a
  * remote redeployed at its EXISTING, stable custom-domain URL — the shell
  * never needs `runtime-config.json` to change at all, because the URL
@@ -69,6 +75,7 @@ export interface RuntimeRemoteConfig {
   refund?: string
   admin?: string
   notify?: string
+  inventory?: string
 }
 
 declare global {
@@ -85,7 +92,7 @@ declare global {
 
 /** Shape `@module-federation/runtime`'s `registerRemotes` expects (mirrors vite.config.ts's static remote entries). */
 export interface RuntimeRemoteEntry {
-  name: 'estimai' | 'refund' | 'admin' | 'notify'
+  name: 'estimai' | 'refund' | 'admin' | 'notify' | 'inventory'
   entry: string
   type: 'module'
   entryGlobalName: string
@@ -157,6 +164,16 @@ export async function resolveRuntimeRemotes(): Promise<RuntimeRemoteEntry[]> {
       entry: config.notify,
       type: 'module',
       entryGlobalName: 'notify',
+      shareScope: 'default',
+    })
+  }
+
+  if (config.inventory) {
+    remotes.push({
+      name: 'inventory',
+      entry: config.inventory,
+      type: 'module',
+      entryGlobalName: 'inventory',
       shareScope: 'default',
     })
   }

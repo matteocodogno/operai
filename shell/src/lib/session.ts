@@ -40,6 +40,8 @@
  *       shape as the notify-api entry above — refund-api is a sibling
  *       resource server, not the auth service, so it gets its own entry
  *       rather than reusing VITE_API_URL.
+ *     • The inventory-api origin (VITE_INVENTORY_API_URL), if defined (T41,
+ *       specs/015-hardware-inventory) — same shape as refund-api above.
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -105,6 +107,20 @@ const getRefundApiUrl = (): string => import.meta.env.VITE_REFUND_API_URL as str
  * `import.meta.env`. Mirrors `getAuthBaseUrl()` verbatim.
  */
 export const getRefundApiBaseUrl = (): string => getRefundApiUrl()
+
+/**
+ * Returns the inventory-api base URL from the Vite environment (T41,
+ * specs/015-hardware-inventory). Lazily read, mirrors getRefundApiUrl().
+ */
+const getInventoryApiUrl = (): string => import.meta.env.VITE_INVENTORY_API_URL as string
+
+/**
+ * The inventory-api base URL (`VITE_INVENTORY_API_URL`), exposed for the
+ * federated `inventory` remote — which, like every remote, ships no
+ * `VITE_*` env of its own and must source the origin from the shell. Mirrors
+ * `getRefundApiBaseUrl()` verbatim.
+ */
+export const getInventoryApiBaseUrl = (): string => getInventoryApiUrl()
 
 /** Clears the in-memory JWT cache. */
 export const clearJwtCache = (): void => {
@@ -187,6 +203,19 @@ const getTrustedOrigins = (): Set<string> => {
   if (refundUrl) {
     try {
       trusted.add(new URL(refundUrl).origin)
+    } catch {
+      /* ignore invalid env value */
+    }
+  }
+
+  // T41 (specs/015-hardware-inventory, AC-9.6): inventory-api origin — both
+  // inventory-ui's gated calls and the ungated /me/* devices calls go through
+  // apiFetch and need the Bearer JWT. Trusted only when configured; no
+  // default, so an unset env never widens the allowlist.
+  const inventoryUrl = import.meta.env.VITE_INVENTORY_API_URL as string | undefined
+  if (inventoryUrl) {
+    try {
+      trusted.add(new URL(inventoryUrl).origin)
     } catch {
       /* ignore invalid env value */
     }

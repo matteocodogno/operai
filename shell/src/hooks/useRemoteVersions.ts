@@ -32,14 +32,14 @@ export const REMOTE_VERSION_TIMEOUT_MS = 1500
 
 export interface RemoteVersionSource {
   /** Matches runtimeRemotes.ts's remote names — the suite's canonical remote id set. */
-  id: 'estimai' | 'refund' | 'admin' | 'notify'
+  id: 'estimai' | 'refund' | 'admin' | 'notify' | 'inventory'
   /** Human-readable label for the About dialog row. */
   label: string
   /** Loads the remote's exposed `./version` module. Called fresh every resolution — never memoized across calls. */
   loader: () => Promise<{ REMOTE_VERSION?: unknown }>
 }
 
-// One entry per suite remote — mirrors runtimeRemotes.ts's four-remote set.
+// One entry per suite remote — mirrors runtimeRemotes.ts's five-remote set.
 // Deliberately includes `notify`, even though it's absent from
 // lib/tools.ts's TOOLS registry: TOOLS is the permission-gated SIDEBAR
 // (which tools can this signed-in user navigate to), this is "every remote
@@ -50,6 +50,7 @@ export const REMOTE_VERSION_SOURCES: readonly RemoteVersionSource[] = [
   { id: 'refund', label: 'Refund', loader: () => import('refund/version') },
   { id: 'admin', label: 'Admin', loader: () => import('admin/version') },
   { id: 'notify', label: 'Notify', loader: () => import('notify/version') },
+  { id: 'inventory', label: 'Inventory', loader: () => import('inventory/version') },
 ]
 
 function isVersionString(value: unknown): value is string {
