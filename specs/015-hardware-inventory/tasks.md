@@ -157,7 +157,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Depends on T1 only because both edit `mise.toml`, `lerna.json` and the changeset-check lists.
   - done when: `cd inventory-ui && pnpm lint && pnpm build && pnpm test` pass; `pnpm dev` serves `remoteEntry.js` on :5178; the router test resolves all six routes and the not-found route; `noHardcodedStrings` runs over `src/` and passes.
 
-- [ ] T25: [frontend] Port the shared primitives from `refund-ui` and `admin-ui` — refs: AC-4.4, AC-9.7 — deps: T24
+- [x] T25: [frontend] Port the shared primitives from `refund-ui` and `admin-ui` — refs: AC-4.4, AC-9.7 — deps: T24
   - touch: `inventory-ui/src/components/ErrorBanner*`, `inventory-ui/src/components/PermissionDenied*`, `inventory-ui/src/components/SkeletonListRows*`, `inventory-ui/src/components/ConfirmDialog*`, `inventory-ui/src/components/GuardrailDialog*`, `inventory-ui/src/components/EntityBadge*`, `inventory-ui/src/components/CurrencyBadge*`, `inventory-ui/src/components/Combobox*`, `inventory-ui/src/components/FormModal*`, `inventory-ui/src/lib/money*`, `inventory-ui/src/lib/dates*`, `inventory-ui/src/strings/errors.ts`, `inventory-ui/src/strings/common.ts`
   - The reuse table in design § Component inventory, re-authored with the same props. `ErrorBanner` gains the 503 "authorization service unavailable" heading variant; `strings/errors.ts` holds one message per API `code` from design § Error and conflict catalogue.
   - done when: `pnpm test components lib/money lib/dates` passes with each port's tests carried over; every `code` in the plan's API tables has an `errors.<code>` string (asserted by a test that reads the list from a constant).
