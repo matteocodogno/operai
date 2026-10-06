@@ -37,6 +37,7 @@ const APP_DIRS = [
   'shell',
   'estimai-ui',
   'refund-ui',
+  'inventory-ui',
   'notify-ui',
   'admin-ui',
 ]
