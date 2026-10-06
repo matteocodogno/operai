@@ -182,7 +182,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Design T1. Filters and `q` live in URL search params; holder filter only with `asset:manage`; "to verify" and invoice-reference filters; book value column only with `ledger:manage`.
   - done when: `pnpm test pages/AssetsPage components/AssetFilterBar` passes: each control updates the URL and the request; loading, empty, filtered-empty, error and 503 states render; Load more appends and keeps focus; the search input is debounced and precedes the filters in tab order.
 
-- [ ] T30: [frontend] Register asset page — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.7 — deps: T26, T28
+- [x] T30: [frontend] Register asset page — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.7 — deps: T26, T28
   - touch: `inventory-ui/src/pages/RegisterAssetPage*`, `inventory-ui/src/lib/splitPrice*`, `inventory-ui/src/lib/split-vectors.json`, `inventory-ui/src/strings/register.ts`
   - Design T3. Entity select limited to `GET /scope`'s `asset` list; currency shown, not editable; quantity with the live per-unit breakdown from a `splitPrice` mirrored from T8 (copy its vectors; a parity test asserts them).
   - done when: `pnpm test pages/RegisterAssetPage lib/splitPrice` passes: required-field and price validation summary; "not yet received" sends `received:false`; serial inputs are either none or one per unit; `serial_conflict` shows the conflicting asset as a link; `fiscal_year_closed` names the year; a network failure shows the "check the list before retrying" message; success navigates to the new asset (or the list filtered by invoice reference when N > 1).

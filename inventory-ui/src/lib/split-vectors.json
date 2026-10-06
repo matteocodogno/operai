@@ -1,0 +1,15 @@
+{
+  "_comment": "Shared test vectors for splitPrice (specs/015 AC-1.3): each unit = floor(totalCents / quantity), the remaining cents go on the LAST unit. Mirrored by inventory-api task T8, which MUST assert these identical vectors.",
+  "vectors": [
+    { "totalCents": 100, "quantity": 1, "eachCents": 100, "lastCents": 100 },
+    { "totalCents": 100, "quantity": 2, "eachCents": 50, "lastCents": 50 },
+    { "totalCents": 100, "quantity": 3, "eachCents": 33, "lastCents": 34 },
+    { "totalCents": 1000, "quantity": 4, "eachCents": 250, "lastCents": 250 },
+    { "totalCents": 999, "quantity": 2, "eachCents": 499, "lastCents": 500 },
+    { "totalCents": 294635, "quantity": 13, "eachCents": 22664, "lastCents": 22667 },
+    { "totalCents": 200, "quantity": 200, "eachCents": 1, "lastCents": 1 },
+    { "totalCents": 399, "quantity": 200, "eachCents": 1, "lastCents": 200 },
+    { "totalCents": 1, "quantity": 1, "eachCents": 1, "lastCents": 1 },
+    { "totalCents": 99999999, "quantity": 7, "eachCents": 14285714, "lastCents": 14285715 }
+  ]
+}
