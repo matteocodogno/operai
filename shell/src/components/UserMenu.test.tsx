@@ -66,7 +66,12 @@ async function renderUserMenu(props: UserMenuProps) {
     path: '/account',
     component: () => <p data-testid="account-content">account</p>,
   })
-  const routeTree = rootRoute.addChildren([indexRoute, accountRoute])
+  const devicesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/devices',
+    component: () => <p data-testid="devices-content">devices</p>,
+  })
+  const routeTree = rootRoute.addChildren([indexRoute, accountRoute, devicesRoute])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
   const displayName = props.user.name || props.user.email || 'Account'
@@ -170,10 +175,11 @@ describe('UserMenu', () => {
 
       const menu = screen.getByRole('menu')
       const items = menu.querySelectorAll('[role="menuitem"]')
-      expect(items).toHaveLength(2)
+      expect(items).toHaveLength(3)
       expect(items[0].textContent).toBe('My profile')
       expect(items[0].getAttribute('href')).toBe('/account')
-      expect(items[1].textContent).toBe('Sign out')
+      expect(items[1].textContent).toBe('My devices')
+      expect(items[2].textContent).toBe('Sign out')
     })
 
     it('navigates to /account and closes the menu when clicked', async () => {
@@ -188,6 +194,41 @@ describe('UserMenu', () => {
       expect(await screen.findByTestId('account-content')).not.toBeNull()
       expect(router.state.location.pathname).toBe('/account')
       expect(screen.queryByRole('menu')).toBeNull()
+    })
+  })
+
+  describe('(g) "My devices" links to /devices (T42, specs/015-hardware-inventory, AC-4.1, ADR-0045)', () => {
+    it('is a real link directly after "My profile", visible to any signed-in user', async () => {
+      await renderUserMenu({ user: { name: 'Alice Welld', email: null, image: null }, onSignOut: () => {} })
+      openMenu('Alice Welld')
+
+      const item = screen.getByRole('menuitem', { name: 'My devices' })
+      expect(item.tagName).toBe('A')
+      expect(item.getAttribute('href')).toBe('/devices')
+      expect(item.previousElementSibling?.textContent).toBe('My profile')
+    })
+
+    it('navigates to /devices and closes the menu when clicked', async () => {
+      const { router } = await renderUserMenu({
+        user: { name: 'Alice Welld', email: null, image: null },
+        onSignOut: () => {},
+      })
+      openMenu('Alice Welld')
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'My devices' }))
+
+      expect(await screen.findByTestId('devices-content')).not.toBeNull()
+      expect(router.state.location.pathname).toBe('/devices')
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
+
+    it('reads "I miei dispositivi" for an Italian browser locale', async () => {
+      const spy = vi.spyOn(navigator, 'language', 'get').mockReturnValue('it-IT')
+      await renderUserMenu({ user: { name: 'Alice Welld', email: null, image: null }, onSignOut: () => {} })
+      openMenu('Alice Welld')
+
+      expect(screen.getByRole('menuitem', { name: 'I miei dispositivi' }).getAttribute('href')).toBe('/devices')
+      spy.mockRestore()
     })
   })
 })

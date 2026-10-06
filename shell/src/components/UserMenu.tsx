@@ -22,6 +22,11 @@
  * navigation. This is the ONLY existing entry point to that route (design.md
  * F6: "any signed-in user → UserMenu → 'My profile' → /account").
  *
+ * "My devices" (T42, specs/015-hardware-inventory, AC-4.1, ADR-0045): a second
+ * real `<Link role="menuitem">` directly after "My profile", to the ungated
+ * `/devices` route. Shown to every signed-in user — no permission check here,
+ * by design (the route and `/me/*` API are identity-scoped).
+ *
  * i18n (QE fix, specs/012-employee-address): "My profile" is copy this
  * feature ADDS, and design.md's own i18n table names it explicitly
  * (`account.menuLabel` → "My profile" / "Il mio profilo") — unlike "Sign
@@ -38,6 +43,9 @@ import { signOut } from '../lib/session'
 
 const COPY = {
   myProfile: { en: 'My profile', it: 'Il mio profilo' },
+  // specs/015-hardware-inventory, T42 (AC-4.1, ADR-0045): the entry point to the
+  // ungated `/devices` route, visible to every signed-in user.
+  myDevices: { en: 'My devices', it: 'I miei dispositivi' },
 } as const
 
 type CopyKey = keyof typeof COPY
@@ -140,6 +148,14 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
             className="block w-full text-left text-[12px] text-soft hover:text-text hover:bg-ink-mid px-3 py-2 transition-colors font-mono"
           >
             {t('myProfile')}
+          </Link>
+          <Link
+            to="/devices"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block w-full text-left text-[12px] text-soft hover:text-text hover:bg-ink-mid px-3 py-2 transition-colors font-mono"
+          >
+            {t('myDevices')}
           </Link>
           <button
             role="menuitem"

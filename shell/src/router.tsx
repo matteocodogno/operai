@@ -282,6 +282,11 @@ const loadAdminApp = () => import('admin/App')
 // T13 (specs/005-notification-center): notify-ui's exposed root — same
 // loader shape as the three above.
 const loadNotifyApp = () => import('notify/App')
+// specs/015-hardware-inventory, T42 (ADR-0045): inventory-ui exposes TWO
+// mountable entries — `./App` (the gated tool, `/inventory/$`) and
+// `./MyDevices` (the identity-scoped devices screen, ungated `/devices`).
+const loadInventoryApp = () => import('inventory/App')
+const loadMyDevices = () => import('inventory/MyDevices')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -386,6 +391,40 @@ const adminRoute = createRoute({
   component: () => <RemoteMount loader={loadAdminApp} moduleLabel="Admin" />,
 })
 
+const inventoryRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/inventory/$',
+  beforeLoad: createToolAccessBeforeLoad('inventory'),
+  component: () => <RemoteMount loader={loadInventoryApp} moduleLabel="Inventory" />,
+})
+
+// ---------------------------------------------------------------------------
+// `/devices` — "My devices" (specs/015-hardware-inventory, T42, US-4 AC-4.1,
+// ADR-0045). The second, UNGATED federated entry of the inventory remote:
+// every signed-in user must see the devices assigned to them and answer a
+// pending assignment, including one holding NO `inventory:access` grant — yet
+// the tool itself stays absent from such a user's navigation (AC-9.6).
+//
+// Same shape as `/notify/$` above, with the same three deliberate absences:
+//   - NO `beforeLoad` app-access guard (ADR-0034's test: every signed-in user
+//     must reach it). The `_authed` session guard on the parent still applies.
+//   - NO `recordLastTool`: there is no `ToolId` for it and it is absent from
+//     `TOOLS`; writing `operai_last_tool` here would corrupt the same-app/
+//     switch detection the tool routes' guard relies on (see
+//     `createToolAccessBeforeLoad`).
+//   - NOT under the `/inventory` prefix, which would inherit the tool guard.
+// Not a splat route: MyDevices is a single screen with no inner router.
+// Tool BUSINESS LOGIC stays in the remote (ADR-0009); the shell owns only this
+// route and the UserMenu link. A failing remote shows RemoteMount's in-place
+// error with the chrome intact (ADR-0030's degrade-silently rule).
+// ---------------------------------------------------------------------------
+
+const devicesRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/devices',
+  component: () => <RemoteMount loader={loadMyDevices} moduleLabel="My devices" />,
+})
+
 // ---------------------------------------------------------------------------
 // `/notify/$` — mounts notify-ui via RemoteMount (T13, specs/005-notification-
 // center, US-2 AC-2.1). Structurally identical to estimaiRoute/refundRoute/
@@ -448,8 +487,10 @@ export const routeTree = rootRoute.addChildren([
       estimaiRoute,
       refundRoute,
       adminRoute,
+      inventoryRoute,
       notifyRoute,
       accountRoute,
+      devicesRoute,
       noAccessRoute,
     ]),
   ]),
