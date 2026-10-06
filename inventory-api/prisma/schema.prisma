@@ -1,0 +1,12 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Models, enums, indexes and CHECK/trigger migrations land in T2
+// (specs/015-hardware-inventory). T1 ships only the generator + datasource so
+// the Prisma client generates and `src/lib/db.ts` typechecks.
