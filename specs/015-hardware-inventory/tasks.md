@@ -167,7 +167,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Per design § NEW and § Accessibility: badges carry text + glyph, not colour alone; `DataTable` has caption, `scope` headers and right-aligned numeric cells; the dialog traps focus, defaults focus to Cancel, and enables its action only after the acknowledgement checkbox.
   - done when: `pnpm test components/AssetStatusBadge components/DataTable components/LoadMore components/IrreversibleActionDialog` passes, including: six badge variants each with an accessible name; the dialog's confirm button is disabled until acknowledged and Escape closes it returning focus to the trigger.
 
-- [ ] T27: [frontend] API clients and types — refs: AC-9.2, AC-9.4 — deps: T24
+- [x] T27: [frontend] API clients and types — refs: AC-9.2, AC-9.4 — deps: T24
   - touch: `inventory-ui/src/lib/types.ts`, `inventory-ui/src/lib/scopeApi*`, `inventory-ui/src/lib/assetsApi*`, `inventory-ui/src/lib/assignmentsApi*`, `inventory-ui/src/lib/ledgerApi*`, `inventory-ui/src/lib/fiscalYearsApi*`, `inventory-ui/src/lib/rulesApi*`, `inventory-ui/src/lib/invoiceFilesApi*`, `inventory-ui/src/lib/historyApi*`, `inventory-ui/src/lib/meApi*`, `inventory-ui/src/lib/directoryApi*`
   - One client per route group, typed exactly as plan § API contracts (`ledger` optional on `AssetView`). `directoryApi` calls `auth` via `getAuthBaseUrl()`.
   - done when: `pnpm test lib` passes with a test per client asserting method, path, body and the mapping of each documented error `code`.
