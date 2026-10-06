@@ -177,7 +177,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Tabs per design T0: Assets for either capability; Rules and Fiscal years only with `ledger:manage`. A missing capability hides the tab and its route renders `PermissionDenied`. Empty scope with tool access shows the "no entity in your scope" state (design Resolutions G1/G11).
   - done when: `pnpm test components/InventoryShell hooks` passes for manager-only, accountant-only, both, and empty-scope users, asserting which tabs exist in the DOM (absent, not disabled).
 
-- [ ] T29: [frontend] Assets list page with filters and search — refs: AC-3.7, AC-3.8, AC-10.3, AC-12.10 — deps: T26, T28
+- [x] T29: [frontend] Assets list page with filters and search — refs: AC-3.7, AC-3.8, AC-10.3, AC-12.10 — deps: T26, T28
   - touch: `inventory-ui/src/pages/AssetsPage*`, `inventory-ui/src/components/AssetFilterBar*`, `inventory-ui/src/strings/assets.ts`
   - Design T1. Filters and `q` live in URL search params; holder filter only with `asset:manage`; "to verify" and invoice-reference filters; book value column only with `ledger:manage`.
   - done when: `pnpm test pages/AssetsPage components/AssetFilterBar` passes: each control updates the URL and the request; loading, empty, filtered-empty, error and 503 states render; Load more appends and keeps focus; the search input is debounced and precedes the filters in tab order.
