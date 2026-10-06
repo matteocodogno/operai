@@ -172,7 +172,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - One client per route group, typed exactly as plan § API contracts (`ledger` optional on `AssetView`). `directoryApi` calls `auth` via `getAuthBaseUrl()`.
   - done when: `pnpm test lib` passes with a test per client asserting method, path, body and the mapping of each documented error `code`.
 
-- [ ] T28: [frontend] Tool layout, capability hook and scope states — refs: AC-9.1, AC-9.3, AC-9.4, AC-9.6 — deps: T25, T27
+- [x] T28: [frontend] Tool layout, capability hook and scope states — refs: AC-9.1, AC-9.3, AC-9.4, AC-9.6 — deps: T25, T27
   - touch: `inventory-ui/src/components/InventoryShell*`, `inventory-ui/src/hooks/useInventoryCapabilities*`, `inventory-ui/src/hooks/useScope*`, `inventory-ui/src/App.tsx`, `inventory-ui/src/strings/nav.ts`
   - Tabs per design T0: Assets for either capability; Rules and Fiscal years only with `ledger:manage`. A missing capability hides the tab and its route renders `PermissionDenied`. Empty scope with tool access shows the "no entity in your scope" state (design Resolutions G1/G11).
   - done when: `pnpm test components/InventoryShell hooks` passes for manager-only, accountant-only, both, and empty-scope users, asserting which tabs exist in the DOM (absent, not disabled).
