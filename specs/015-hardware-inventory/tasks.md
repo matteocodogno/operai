@@ -187,7 +187,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Design T3. Entity select limited to `GET /scope`'s `asset` list; currency shown, not editable; quantity with the live per-unit breakdown from a `splitPrice` mirrored from T8 (copy its vectors; a parity test asserts them).
   - done when: `pnpm test pages/RegisterAssetPage lib/splitPrice` passes: required-field and price validation summary; "not yet received" sends `received:false`; serial inputs are either none or one per unit; `serial_conflict` shows the conflicting asset as a link; `fiscal_year_closed` names the year; a network failure shows the "check the list before retrying" message; success navigates to the new asset (or the list filtered by invoice reference when N > 1).
 
-- [ ] T31: [frontend] My devices view — refs: AC-2.3, AC-2.4, AC-4.1, AC-4.2, AC-4.4 — deps: T25, T27
+- [x] T31: [frontend] My devices view — refs: AC-2.3, AC-2.4, AC-4.1, AC-4.2, AC-4.4 — deps: T25, T27
   - touch: `inventory-ui/src/MyDevices.tsx`, `inventory-ui/src/pages/MyDevicesPage*`, `inventory-ui/src/components/DeviceCard*`, `inventory-ui/src/strings/myDevices.ts`
   - Design D1 with Q3 as resolved: Confirm is one click, Decline opens a confirm dialog. No money anywhere; no call to `/scope` or any capability hook.
   - done when: `pnpm test pages/MyDevicesPage components/DeviceCard` passes: pending and held sections; empty state; confirm moves the card and announces it; decline removes it after the dialog; 404/409 on a stale card refreshes the list with a message; the rendered DOM contains no currency text; focus lands on the section heading after an action.
