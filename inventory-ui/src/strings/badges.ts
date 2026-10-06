@@ -1,6 +1,16 @@
 /**
- * strings.badges — owned by the later task whose `touch:` list names this file
- * (specs/015-hardware-inventory/tasks.md). Created empty by T24 so that no
- * later task edits `strings.ts`; add keys here, never inline in a component.
+ * strings.badges — the labels of the status chips (T26, specs/015-hardware-
+ * inventory; design.md § NEW components: AssetStatusBadge). The entity and
+ * currency chips' labels live in `strings.common` (T25).
  */
-export const badges = {} as const
+export const badges = {
+  /** `AssetStatusBadge`'s label per `AssetStatus` — verbatim the six wire values. */
+  assetStatus: {
+    ordered: 'Ordered',
+    in_stock: 'In stock',
+    assigned: 'Assigned',
+    in_repair: 'In repair',
+    lost: 'Lost',
+    disposed: 'Disposed',
+  },
+} as const

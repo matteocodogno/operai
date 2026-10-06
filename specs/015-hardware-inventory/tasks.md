@@ -162,7 +162,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - The reuse table in design § Component inventory, re-authored with the same props. `ErrorBanner` gains the 503 "authorization service unavailable" heading variant; `strings/errors.ts` holds one message per API `code` from design § Error and conflict catalogue.
   - done when: `pnpm test components lib/money lib/dates` passes with each port's tests carried over; every `code` in the plan's API tables has an `errors.<code>` string (asserted by a test that reads the list from a constant).
 
-- [ ] T26: [frontend] New shared components: status badge, data table, load-more, irreversible-action dialog — refs: AC-3.7, AC-7.1, AC-8.4 — deps: T24
+- [x] T26: [frontend] New shared components: status badge, data table, load-more, irreversible-action dialog — refs: AC-3.7, AC-7.1, AC-8.4 — deps: T24
   - touch: `inventory-ui/src/components/AssetStatusBadge*`, `inventory-ui/src/components/DataTable*`, `inventory-ui/src/components/LoadMore*`, `inventory-ui/src/components/IrreversibleActionDialog*`, `inventory-ui/src/strings/badges.ts`
   - Per design § NEW and § Accessibility: badges carry text + glyph, not colour alone; `DataTable` has caption, `scope` headers and right-aligned numeric cells; the dialog traps focus, defaults focus to Cancel, and enables its action only after the acknowledgement checkbox.
   - done when: `pnpm test components/AssetStatusBadge components/DataTable components/LoadMore components/IrreversibleActionDialog` passes, including: six badge variants each with an accessible name; the dialog's confirm button is disabled until acknowledged and Escape closes it returning focus to the trigger.
