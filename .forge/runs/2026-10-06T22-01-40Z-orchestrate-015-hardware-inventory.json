@@ -1,0 +1,53 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.55.0",
+  "run_id": "2026-10-06T22-01-40Z-orchestrate-015-hardware-inventory",
+  "command": "orchestrate",
+  "feature": "015-hardware-inventory",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-10-06T22:01:40Z",
+  "finished": "2026-10-07T01:05:00Z",
+  "agents": [
+    { "agent": "frontend-dev", "tasks": ["T41", "T42"], "outcome": "completed", "commits": ["38d7d20", "b2a96e8"] },
+    { "agent": "devops", "tasks": ["T1"], "outcome": "completed", "commits": ["1c77f48"] },
+    { "agent": "frontend-dev", "tasks": ["T24", "T27"], "outcome": "completed", "commits": ["a24eca2", "1b8f778"] },
+    { "agent": "frontend-dev", "tasks": ["T25", "T26", "T28"], "outcome": "completed", "commits": ["1481083", "960b0a0", "f8dda48"] },
+    { "agent": "frontend-dev", "tasks": ["T29", "T30", "T31"], "outcome": "completed", "commits": ["be21448", "b808b94", "862ed26"] },
+    { "agent": "frontend-dev", "tasks": ["T32", "T33", "T34"], "outcome": "completed; T33 and T34 uncommitted", "commits": ["8315fa5"] },
+    { "agent": "frontend-dev", "tasks": ["T35", "T36", "T37"], "outcome": "completed; uncommitted", "commits": [] },
+    { "agent": "frontend-dev", "tasks": ["T38", "T39"], "outcome": "completed; uncommitted", "commits": [] },
+    { "agent": "frontend-dev", "tasks": ["T40"], "outcome": "completed with 5 reported contrast violations; uncommitted", "commits": [] },
+    { "agent": "frontend-dev", "tasks": ["fix: badge contrast (T26/T40)", "fix: shell Tailwind source for inventory-ui (T41)"], "outcome": "completed; uncommitted", "commits": [] },
+    { "agent": "backend-dev", "tasks": ["T8"], "outcome": "completed; uncommitted", "commits": [] }
+  ],
+  "drift_events": [
+    { "agent": "frontend-dev", "artifact": "tasks.md", "summary": "T41/T42 touch lists omitted shell/vitest.config.ts, shell/src/hooks/useRemoteVersions.ts and shell/src/components/Sidebar.tsx", "resolved": true },
+    { "agent": "devops", "artifact": "tasks.md", "summary": "T1 needed inventory-api/.gitignore and a stub prisma/schema.prisma outside its touch list", "resolved": true },
+    { "agent": "frontend-dev", "artifact": "tasks.md", "summary": "strings/categories.ts and strings/disposalReasons.ts were needed by several tasks and listed by none", "resolved": false },
+    { "agent": "frontend-dev", "artifact": "plan.md", "summary": "FiscalYearView lacks closable and closedBy; the detail page makes a second list request and omits the closer's name. Amendment proposed to the user, not applied", "resolved": false },
+    { "agent": "frontend-dev", "artifact": "plan.md", "summary": "shell/src/index.css Tailwind source list was in neither the plan nor T41; inventory-ui would render unstyled inside the shell. Fixed in the working tree", "resolved": true },
+    { "agent": "frontend-dev", "artifact": "design.md", "summary": "AssetStatusBadge label in the status colour failed WCAG 1.4.3 in 5 of 12 variant/theme pairs; the label is now printed in the text colour", "resolved": true },
+    { "agent": "backend-dev", "artifact": "plan.md", "summary": "The anchored schedule needs the same cap-at-what-remains step as the unanchored one for amounts smaller than k cents; the plan text does not say so", "resolved": false }
+  ],
+  "env_faults": [
+    { "agent": "orchestrator", "class": "secret env", "detail": "direnv blocks the env rc files in auth, notify-api, refund-api and estimai-api, and the 1Password CLI is not signed in; without them auth and notify-api abort on env validation and refund-api fails 297 of 600 tests", "resolved_by": "unresolved - needs the user" },
+    { "agent": "orchestrator", "class": "secret env", "detail": "worktree carry-in of gitignored env files is blocked by the plugin's pre-bash guard, and each backend shares one Postgres database", "resolved_by": "sequential" },
+    { "agent": "devops", "class": "secret env", "detail": "the env rc file for inventory-api could not be written (protected-file guard)", "resolved_by": "unresolved - needs the user" },
+    { "agent": "devops", "class": "databases", "detail": "local Postgres on port 5435 rejects the compose default credentials (28P01)", "resolved_by": "throwaway container for the T1 health check; unresolved for integration tests" },
+    { "agent": "orchestrator", "class": "containers", "detail": "the minio/minio and minio/mc images cannot be pulled (pull access denied)", "resolved_by": "unresolved - needs the user" },
+    { "agent": "frontend-dev", "class": "credential stores", "detail": "git commit signing through the 1Password app fails ('failed to fill whole buffer') from T33 onward; signing was not bypassed", "resolved_by": "work left uncommitted in the main tree; unresolved - needs the user" },
+    { "agent": "orchestrator", "class": "caches and tool state", "detail": "the plugin's stop-verify hook runs pnpm inside inventory-api (a Bun service) and leaves pnpm-lock.yaml and pnpm-workspace.yaml there", "resolved_by": "deleted after each agent; never committed" }
+  ],
+  "verdicts": {},
+  "security": {
+    "matched_rules": [],
+    "dispatched": false,
+    "notes": ["security review not reached: the pipeline paused during implementation"]
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
