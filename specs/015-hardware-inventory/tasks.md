@@ -207,7 +207,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Design T2 ledger region: rule in force with its effective date, schedule per year with a closed/open column, book value. Dispose uses `IrreversibleActionDialog`; the sale-price field appears only for `sold` and `ceded_to_employee`.
   - done when: `pnpm test components/LedgerBlock components/ScheduleTable components/DisposeDialog` passes: every schedule year rendered with currency; dispose blocked with a reason while an assignment is pending; `fiscal_year_closed` and date-before-purchase shown on the field; after disposal the block shows the disposal and no Dispose button.
 
-- [ ] T35: [frontend] Invoice file panel — refs: AC-10.4, AC-10.5, AC-10.6 — deps: T32
+- [x] T35: [frontend] Invoice file panel — refs: AC-10.4, AC-10.5, AC-10.6 — deps: T32
   - touch: `inventory-ui/src/components/InvoiceFilePanel*`, `inventory-ui/src/strings/invoice.ts`
   - Design T2 invoice region with Q2 as resolved: after upload, offer the other assets sharing the invoice reference for linking in the same panel. Client-side type and size check before minting.
   - done when: `pnpm test components/InvoiceFilePanel` passes: mint → upload → confirm sequence; wrong type and oversize rejected before any request and again on 415/413; sibling list and link; `invoice_ref_mismatch` names the asset; open requests a fresh URL each time; read-only on a disposed asset; no remove control exists.
