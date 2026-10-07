@@ -202,7 +202,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Design T2 action bar. Only the actions valid for the current status are offered; an action blocked by state (a pending assignment) is `aria-disabled` with a described reason. Assign uses the `Combobox` over the directory; Return and Lost confirm first (Q4).
   - done when: `pnpm test components/AssetActions components/AssignDialog` passes: the action set per status; assign shows the pending banner with Cancel; directory loading, empty and 429 states; `invalid_transition` and `assignment_pending` refresh the asset with a message; after an action whose button disappears, focus moves to the page heading and a status line announces the result.
 
-- [ ] T34: [frontend] Ledger block, schedule table and dispose dialog — refs: AC-5.8, AC-7.1, AC-7.3, AC-7.4, AC-7.5 — deps: T32
+- [x] T34: [frontend] Ledger block, schedule table and dispose dialog — refs: AC-5.8, AC-7.1, AC-7.3, AC-7.4, AC-7.5 — deps: T32
   - touch: `inventory-ui/src/components/LedgerBlock*`, `inventory-ui/src/components/ScheduleTable*`, `inventory-ui/src/components/DisposeDialog*`, `inventory-ui/src/strings/ledger.ts`
   - Design T2 ledger region: rule in force with its effective date, schedule per year with a closed/open column, book value. Dispose uses `IrreversibleActionDialog`; the sale-price field appears only for `sold` and `ceded_to_employee`.
   - done when: `pnpm test components/LedgerBlock components/ScheduleTable components/DisposeDialog` passes: every schedule year rendered with currency; dispose blocked with a reason while an assignment is pending; `fiscal_year_closed` and date-before-purchase shown on the field; after disposal the block shows the disposal and no Dispose button.
