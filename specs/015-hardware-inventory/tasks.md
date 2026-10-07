@@ -221,12 +221,12 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Design T4, modelled on `admin-ui`'s `MileageRatesPage`: per-entity sections from `GET /scope`'s `ledger` list, "in force" badge, added-by and date, no edit or delete control. The dialog states that assets purchased on or after the date are rescheduled.
   - done when: `pnpm test pages/RulesPage components/NewRuleDialog` passes: past, current and future rules listed; field-level 422 messages; `fiscal_year_closed` on the date field; the acknowledgement is required before saving; the DOM has no edit or delete affordance.
 
-- [ ] T38: [frontend] Fiscal years list, year detail and close dialog — refs: AC-8.1, AC-8.4, AC-8.5, AC-8.7 — deps: T26, T28
+- [x] T38: [frontend] Fiscal years list, year detail and close dialog — refs: AC-8.1, AC-8.4, AC-8.5, AC-8.7 — deps: T26, T28
   - touch: `inventory-ui/src/pages/FiscalYearsPage*`, `inventory-ui/src/pages/FiscalYearDetailPage*`, `inventory-ui/src/components/RollForwardStatement*`, `inventory-ui/src/components/CloseYearDialog*`, `inventory-ui/src/components/ExportYearButton.tsx`, `inventory-ui/src/strings/years.ts`
   - Design T5/T6. The statement reads as a labelled table with words and signs; per-asset rows show opening, purchase, depreciation, disposal and closing. Close is offered only when `closable`; `ExportYearButton` is a stub filled by T39.
   - done when: `pnpm test pages/FiscalYears pages/FiscalYearDetail components/RollForwardStatement components/CloseYearDialog` passes: five lines with currency; open vs closed presentation; close requires acknowledgement and handles `previous_year_open`, `already_closed`, `nothing_to_close`; a closed year has no close or reopen control.
 
-- [ ] T39: [frontend] XLSX export of a fiscal year — refs: AC-8.8, AC-8.9 — deps: T38
+- [x] T39: [frontend] XLSX export of a fiscal year — refs: AC-8.8, AC-8.9 — deps: T38
   - touch: `inventory-ui/src/lib/yearWorkbook*`, `inventory-ui/src/components/ExportYearButton*`
   - `buildYearWorkbook(view)` with `exceljs` (as `estimai-ui`): one row per asset with the columns of AC-8.8, then the five roll-forward lines; amounts as numbers in major units with two decimals; an open year carries a "provisional" mark in the sheet and the file name.
   - done when: `pnpm test lib/yearWorkbook components/ExportYearButton` passes: reading the produced workbook back gives the expected header, one row per asset, the five lines, and the provisional mark only for an open year.
