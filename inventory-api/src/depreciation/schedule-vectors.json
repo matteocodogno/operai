@@ -1,0 +1,492 @@
+{
+  "_comment": "Canonical vectors for depreciation/schedule.ts (specs/015, ADR-0046, ADR-0025). Amounts are integer cents. `splitPrice` is a verbatim copy of inventory-ui/src/lib/split-vectors.json (schedule.test.ts asserts parity so the two cannot drift). `schedule` rows: schedule(priceCents, purchaseYear, rule, anchor?) must equal `expected` exactly.",
+  "splitPrice": [
+    {
+      "totalCents": 100,
+      "quantity": 1,
+      "eachCents": 100,
+      "lastCents": 100
+    },
+    {
+      "totalCents": 100,
+      "quantity": 2,
+      "eachCents": 50,
+      "lastCents": 50
+    },
+    {
+      "totalCents": 100,
+      "quantity": 3,
+      "eachCents": 33,
+      "lastCents": 34
+    },
+    {
+      "totalCents": 1000,
+      "quantity": 4,
+      "eachCents": 250,
+      "lastCents": 250
+    },
+    {
+      "totalCents": 999,
+      "quantity": 2,
+      "eachCents": 499,
+      "lastCents": 500
+    },
+    {
+      "totalCents": 294635,
+      "quantity": 13,
+      "eachCents": 22664,
+      "lastCents": 22667
+    },
+    {
+      "totalCents": 200,
+      "quantity": 200,
+      "eachCents": 1,
+      "lastCents": 1
+    },
+    {
+      "totalCents": 399,
+      "quantity": 200,
+      "eachCents": 1,
+      "lastCents": 200
+    },
+    {
+      "totalCents": 1,
+      "quantity": 1,
+      "eachCents": 1,
+      "lastCents": 1
+    },
+    {
+      "totalCents": 99999999,
+      "quantity": 7,
+      "eachCents": 14285714,
+      "lastCents": 14285715
+    }
+  ],
+  "schedule": [
+    {
+      "name": "AC-5.1 CH 99815 life 3 full, residual 100",
+      "priceCents": 99815,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 33238,
+          "closingCents": 66577
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 33238,
+          "closingCents": 33339
+        },
+        {
+          "year": 2028,
+          "depreciationCents": 33239,
+          "closingCents": 100
+        }
+      ]
+    },
+    {
+      "name": "AC-5.4 IT 100000 life 5 half",
+      "priceCents": 100000,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 5,
+        "firstYearShare": "half",
+        "lowValueThresholdCents": 51646,
+        "residualCents": 0
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 10000,
+          "closingCents": 90000
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 20000,
+          "closingCents": 70000
+        },
+        {
+          "year": 2028,
+          "depreciationCents": 20000,
+          "closingCents": 50000
+        },
+        {
+          "year": 2029,
+          "depreciationCents": 20000,
+          "closingCents": 30000
+        },
+        {
+          "year": 2030,
+          "depreciationCents": 20000,
+          "closingCents": 10000
+        },
+        {
+          "year": 2031,
+          "depreciationCents": 10000,
+          "closingCents": 0
+        }
+      ]
+    },
+    {
+      "name": "AC-5.5 IT 51646 at threshold: whole price in purchase year",
+      "priceCents": 51646,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 5,
+        "firstYearShare": "half",
+        "lowValueThresholdCents": 51646,
+        "residualCents": 0
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 51646,
+          "closingCents": 0
+        }
+      ]
+    },
+    {
+      "name": "AC-5.6 IT 51647 just above threshold: multi-year",
+      "priceCents": 51647,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 5,
+        "firstYearShare": "half",
+        "lowValueThresholdCents": 51646,
+        "residualCents": 0
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 5165,
+          "closingCents": 46482
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 10329,
+          "closingCents": 36153
+        },
+        {
+          "year": 2028,
+          "depreciationCents": 10329,
+          "closingCents": 25824
+        },
+        {
+          "year": 2029,
+          "depreciationCents": 10329,
+          "closingCents": 15495
+        },
+        {
+          "year": 2030,
+          "depreciationCents": 10329,
+          "closingCents": 5166
+        },
+        {
+          "year": 2031,
+          "depreciationCents": 5166,
+          "closingCents": 0
+        }
+      ]
+    },
+    {
+      "name": "AC-12.5 anchor V=53255 k=2 CH",
+      "priceCents": 80000,
+      "purchaseYear": 2025,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 53255
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 26578,
+          "closingCents": 26677
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 26577,
+          "closingCents": 100
+        }
+      ]
+    },
+    {
+      "name": "price equal to residual: empty",
+      "priceCents": 100,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "expected": []
+    },
+    {
+      "name": "price below residual: empty",
+      "priceCents": 50,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "expected": []
+    },
+    {
+      "name": "life 1 full",
+      "priceCents": 1000,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 1,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 0
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 1000,
+          "closingCents": 0
+        }
+      ]
+    },
+    {
+      "name": "life 1 half: .5 rounds up in year 1",
+      "priceCents": 1001,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 1,
+        "firstYearShare": "half",
+        "lowValueThresholdCents": null,
+        "residualCents": 0
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 501,
+          "closingCents": 500
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 500,
+          "closingCents": 0
+        }
+      ]
+    },
+    {
+      "name": "2 cents over 3 years",
+      "priceCents": 102,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 1,
+          "closingCents": 101
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 1,
+          "closingCents": 100
+        },
+        {
+          "year": 2028,
+          "depreciationCents": 0,
+          "closingCents": 100
+        }
+      ]
+    },
+    {
+      "name": "1 cent over 3 years: remainder lands in the last year",
+      "priceCents": 101,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 0,
+          "closingCents": 101
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 0,
+          "closingCents": 101
+        },
+        {
+          "year": 2028,
+          "depreciationCents": 1,
+          "closingCents": 100
+        }
+      ]
+    },
+    {
+      "name": "price below residual with a threshold set: empty beats threshold",
+      "priceCents": 0,
+      "purchaseYear": 2026,
+      "rule": {
+        "usefulLifeYears": 5,
+        "firstYearShare": "half",
+        "lowValueThresholdCents": 100,
+        "residualCents": 100
+      },
+      "expected": []
+    },
+    {
+      "name": "anchor k = 0: empty",
+      "priceCents": 80000,
+      "purchaseYear": 2023,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 53255
+      },
+      "expected": []
+    },
+    {
+      "name": "anchor k < 0: empty",
+      "priceCents": 80000,
+      "purchaseYear": 2022,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 53255
+      },
+      "expected": []
+    },
+    {
+      "name": "anchor V equal to residual: empty",
+      "priceCents": 80000,
+      "purchaseYear": 2025,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 100
+      },
+      "expected": []
+    },
+    {
+      "name": "anchor V below residual: empty",
+      "priceCents": 80000,
+      "purchaseYear": 2025,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 40
+      },
+      "expected": []
+    },
+    {
+      "name": "anchor ignores the threshold (V above residual, IT rule, half first year, k=5)",
+      "priceCents": 90000,
+      "purchaseYear": 2025,
+      "rule": {
+        "usefulLifeYears": 5,
+        "firstYearShare": "half",
+        "lowValueThresholdCents": 51646,
+        "residualCents": 0
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 10000
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 2000,
+          "closingCents": 8000
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 2000,
+          "closingCents": 6000
+        },
+        {
+          "year": 2028,
+          "depreciationCents": 2000,
+          "closingCents": 4000
+        },
+        {
+          "year": 2029,
+          "depreciationCents": 2000,
+          "closingCents": 2000
+        },
+        {
+          "year": 2030,
+          "depreciationCents": 2000,
+          "closingCents": 0
+        }
+      ]
+    },
+    {
+      "name": "anchor with D smaller than k: nonnegative, remainder last",
+      "priceCents": 90000,
+      "purchaseYear": 2025,
+      "rule": {
+        "usefulLifeYears": 3,
+        "firstYearShare": "full",
+        "lowValueThresholdCents": null,
+        "residualCents": 100
+      },
+      "anchor": {
+        "year": 2025,
+        "bookValueCents": 102
+      },
+      "expected": [
+        {
+          "year": 2026,
+          "depreciationCents": 1,
+          "closingCents": 101
+        },
+        {
+          "year": 2027,
+          "depreciationCents": 1,
+          "closingCents": 100
+        }
+      ]
+    }
+  ]
+}
