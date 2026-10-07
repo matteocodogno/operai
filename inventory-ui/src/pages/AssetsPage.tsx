@@ -224,8 +224,7 @@ export default function AssetsPage() {
         : [],
     [directoryCurrent],
   )
-  const directoryError =
-    directoryCurrent !== null && !directoryCurrent.ok ? directoryCurrent.error : null
+  const directoryError = directoryCurrent !== null && !directoryCurrent.ok ? directoryCurrent.error : null
 
   // --- filters <-> URL --------------------------------------------------
   const entitiesInScope = useMemo<Entity[]>(
@@ -318,10 +317,17 @@ export default function AssetsPage() {
           </span>
           {asset.toVerify && (
             <span
-              className="w-fit rounded px-1.5 py-0.5 text-[11px] font-medium"
-              style={{ color: 'var(--org)', backgroundColor: 'color-mix(in srgb, var(--org) 10%, transparent)' }}
+              data-testid="to-verify-chip"
+              className="w-fit rounded border px-1.5 py-0.5 text-[11px] font-medium"
+              style={{
+                color: 'var(--text)',
+                borderColor: 'var(--org)',
+                backgroundColor: 'color-mix(in srgb, var(--org) 10%, transparent)',
+              }}
             >
-              <span aria-hidden="true">⚑ </span>
+              <span aria-hidden="true" style={{ color: 'var(--org)' }}>
+                ⚑{' '}
+              </span>
               {strings.assets.toVerifyChip}
             </span>
           )}

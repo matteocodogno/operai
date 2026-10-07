@@ -69,11 +69,25 @@ describe('AssetStatusBadge', () => {
     expect(labels.size).toBe(6)
   })
 
-  it('colours the text and its tint from theme tokens, never a hex literal', () => {
+  it('prints the label in the normal text colour (WCAG 1.4.3), never in the status colour', () => {
     for (const [status] of VARIANTS) {
       const { container } = render(<AssetStatusBadge status={status} />)
       const badge = container.querySelector('[data-testid="asset-status-badge"]') as HTMLElement
-      expect(badge.style.color).toMatch(/^var\(--[a-z]+\)$/)
+      expect(badge.style.color).toBe('var(--text)')
+      cleanup()
+    }
+  })
+
+  it('keeps the status colour for the glyph, the border and the tint, all from theme tokens, never a hex literal', () => {
+    for (const [status] of VARIANTS) {
+      const { container } = render(<AssetStatusBadge status={status} />)
+      const badge = container.querySelector('[data-testid="asset-status-badge"]') as HTMLElement
+      const glyph = badge.querySelector('[aria-hidden="true"]') as HTMLElement
+      const token = glyph.style.color
+      expect(token).toMatch(/^var\(--[a-z]+\)$/)
+      expect(token).not.toBe('var(--text)')
+      expect(badge.style.borderColor).toBe(token)
+      expect(badge.getAttribute('style')).toContain(`color-mix(in srgb, ${token} 10%`)
       expect(badge.getAttribute('style')).not.toMatch(/#[0-9a-f]{3,8}/i)
       cleanup()
     }

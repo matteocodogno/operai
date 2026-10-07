@@ -9,13 +9,16 @@ import type { AssetStatus } from '../lib/types'
  *
  * Status is never carried by colour alone: every variant has its own glyph
  * (aria-hidden) AND its own label, and the label is the accessible name. The
- * colours are theme tokens (`--soft`, `--acc`, `--grn`, `--org`, `--red`) over
- * a 10% tint of themselves, so both themes are served by the tokens. Two states
- * share `--soft` (ordered, disposed) on purpose — they are told apart by glyph
- * and text, and neither is a state that asks for action.
+ * status colour (theme tokens `--soft`, `--acc`, `--grn`, `--org`, `--red`)
+ * paints the glyph, the border and a 10% tint behind the badge; the LABEL is
+ * printed in the normal text colour `--text`. The shell's status tokens do not
+ * reach 4.5:1 as 11px text on a tint of themselves in every theme (a11y.test.tsx
+ * measured it), and the shared tokens are not this app's to change — so the text
+ * never depends on them. Two states share `--soft` (ordered, disposed) on
+ * purpose — they are told apart by glyph and text, and neither asks for action.
  *
- * Contrast to verify in both themes (design.md § Accessibility): the badge text
- * on its 10% tint, notably `--soft` and `--org`, at 4.5:1.
+ * Contrast is asserted in both themes (a11y.test.tsx, WCAG 1.4.3): the label,
+ * `--text` on the tint, at 4.5:1.
  *
  * A status a newer server adds (outside the six) renders as its raw value with
  * no glyph rather than throwing, so a deploy skew never blanks a list.
@@ -43,10 +46,18 @@ export default function AssetStatusBadge({ status }: AssetStatusBadgeProps) {
     <span
       data-testid="asset-status-badge"
       data-status={status}
-      className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded"
-      style={{ color, backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}
+      className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded border"
+      style={{
+        color: 'var(--text)',
+        borderColor: color,
+        backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)`,
+      }}
     >
-      {glyph !== null && <span aria-hidden="true">{glyph}</span>}
+      {glyph !== null && (
+        <span aria-hidden="true" style={{ color }}>
+          {glyph}
+        </span>
+      )}
       <span>{label}</span>
     </span>
   )

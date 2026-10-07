@@ -268,10 +268,16 @@ export default function AssetDetailPage() {
           {asset.toVerify && (
             <span
               data-testid="to-verify-chip"
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium"
-              style={{ color: 'var(--org)', backgroundColor: 'color-mix(in srgb, var(--org) 10%, transparent)' }}
+              className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium"
+              style={{
+                color: 'var(--text)',
+                borderColor: 'var(--org)',
+                backgroundColor: 'color-mix(in srgb, var(--org) 10%, transparent)',
+              }}
             >
-              <span aria-hidden="true">⚑</span>
+              <span aria-hidden="true" style={{ color: 'var(--org)' }}>
+                ⚑
+              </span>
               <span>{t.toVerify.chip}</span>
             </span>
           )}
