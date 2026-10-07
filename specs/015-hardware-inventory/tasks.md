@@ -216,7 +216,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - touch: `inventory-ui/src/components/HistoryTimeline*`, `inventory-ui/src/strings/history.ts`
   - done when: `pnpm test components/HistoryTimeline` passes: events in chronological order as an ordered list; each `changes` entry rendered "field: from → to" with holder identities by name; `deleted` and `unknown` actors labelled; system actors shown as "System"; loading, empty and error states.
 
-- [ ] T37: [frontend] Depreciation rules page and new-rule dialog — refs: AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.5 — deps: T26, T28
+- [x] T37: [frontend] Depreciation rules page and new-rule dialog — refs: AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.5 — deps: T26, T28
   - touch: `inventory-ui/src/pages/RulesPage*`, `inventory-ui/src/components/NewRuleDialog*`, `inventory-ui/src/strings/rules.ts`
   - Design T4, modelled on `admin-ui`'s `MileageRatesPage`: per-entity sections from `GET /scope`'s `ledger` list, "in force" badge, added-by and date, no edit or delete control. The dialog states that assets purchased on or after the date are rescheduled.
   - done when: `pnpm test pages/RulesPage components/NewRuleDialog` passes: past, current and future rules listed; field-level 422 messages; `fiscal_year_closed` on the date field; the acknowledgement is required before saving; the DOM has no edit or delete affordance.
