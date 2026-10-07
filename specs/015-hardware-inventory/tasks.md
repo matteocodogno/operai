@@ -231,7 +231,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - `buildYearWorkbook(view)` with `exceljs` (as `estimai-ui`): one row per asset with the columns of AC-8.8, then the five roll-forward lines; amounts as numbers in major units with two decimals; an open year carries a "provisional" mark in the sheet and the file name.
   - done when: `pnpm test lib/yearWorkbook components/ExportYearButton` passes: reading the produced workbook back gives the expected header, one row per asset, the five lines, and the provisional mark only for an open year.
 
-- [ ] T40: [frontend] Accessibility pass against design § Accessibility — refs: AC-4.1, AC-9.6 — deps: T29, T30, T31, T33, T34, T35, T36, T37, T39
+- [x] T40: [frontend] Accessibility pass against design § Accessibility — refs: AC-4.1, AC-9.6 — deps: T29, T30, T31, T33, T34, T35, T36, T37, T39
   - touch: `inventory-ui/src/a11y.test.tsx`, `inventory-ui/src/index.css`
   - One test file rendering each page and dialog through `axe`, plus a contrast check of the badge tints and focus ring against the Operai tokens in both themes (the design's flagged unknown). Fixes go in `index.css` tokens only; a fix needed inside a component is reported, not made here.
   - done when: `pnpm test a11y` passes with zero violations on every page and dialog; the task report states the measured contrast ratios for the six badges and the focus ring.
