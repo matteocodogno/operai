@@ -212,7 +212,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Design T2 invoice region with Q2 as resolved: after upload, offer the other assets sharing the invoice reference for linking in the same panel. Client-side type and size check before minting.
   - done when: `pnpm test components/InvoiceFilePanel` passes: mint → upload → confirm sequence; wrong type and oversize rejected before any request and again on 415/413; sibling list and link; `invoice_ref_mismatch` names the asset; open requests a fresh URL each time; read-only on a disposed asset; no remove control exists.
 
-- [ ] T36: [frontend] History timeline — refs: AC-11.3, AC-11.4 — deps: T32
+- [x] T36: [frontend] History timeline — refs: AC-11.3, AC-11.4 — deps: T32
   - touch: `inventory-ui/src/components/HistoryTimeline*`, `inventory-ui/src/strings/history.ts`
   - done when: `pnpm test components/HistoryTimeline` passes: events in chronological order as an ordered list; each `changes` entry rendered "field: from → to" with holder identities by name; `deleted` and `unknown` actors labelled; system actors shown as "System"; loading, empty and error states.
 
