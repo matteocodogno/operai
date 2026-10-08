@@ -32,7 +32,7 @@ const route = createRoute({
     201: { description: "The closed year", content: { "application/json": { schema: FiscalYearViewSchema } } },
     403: { description: "ledger:manage required" },
     404: { description: "Entity outside the caller's scope" },
-    409: { description: "previous_year_open | already_closed | nothing_to_close" },
+    409: { description: "previous_year_open | already_closed | nothing_to_close | year_in_future (after the current UTC year; carries `year`)" },
   },
 });
 

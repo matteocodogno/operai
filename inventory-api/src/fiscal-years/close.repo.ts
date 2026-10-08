@@ -8,8 +8,9 @@
  * that gets there second waits, then finds the year closed and is refused.
  * Inside it:
  *
- *   1. verify the sequence - already closed, nothing to close, previous year
- *      still open - against the boundary as it stands UNDER the lock;
+ *   1. verify the sequence - already closed, in the future (after the current
+ *      UTC year), nothing to close, previous year still open - against the
+ *      boundary as it stands UNDER the lock;
  *   2. compute the year with the same builder the open-year view uses, so what
  *      is stored is exactly what the accountant saw before pressing Close;
  *   3. insert one `asset_year_figure` per asset on the books (an asset with
@@ -27,7 +28,7 @@ import type { Entity } from "../authz/conditions";
 import { recordEvent } from "../history/record";
 import { lockEntity, type Tx } from "./guard";
 import { loadEntityContext } from "./read.repo";
-import { statementOf } from "./read.routes";
+import { currentYear, statementOf } from "./read.routes";
 import { firstYearOf, isClosable } from "./rollForward";
 
 export interface CloseInput {
@@ -55,10 +56,13 @@ export async function closeYear({ entity, year, actor }: CloseInput): Promise<vo
           closedYears: ctx.fiscalYears.map((f) => f.year),
           lastClosedYear: ctx.lastClosedYear,
         });
+        if (year > currentYear()) {
+          throw conflict("year_in_future", `Fiscal year ${year} has not begun: it cannot be closed yet`, { year });
+        }
         if (first === null || year < first) {
           throw conflict("nothing_to_close", `There is nothing to close in ${year}: no asset was on the books by then`);
         }
-        if (!isClosable(year, ctx.lastClosedYear, first)) {
+        if (!isClosable(year, ctx.lastClosedYear, first, currentYear())) {
           throw conflict("previous_year_open", `Close fiscal year ${year - 1} first`);
         }
 

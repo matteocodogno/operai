@@ -70,7 +70,7 @@ export const fiscalYearReadRouter = new OpenAPIHono<{ Variables: AuthzVariables 
   defaultHook: validationHook,
 });
 
-const currentYear = (): number => new Date().getUTCFullYear();
+export const currentYear = (): number => new Date().getUTCFullYear();
 
 const yearsContext = (ctx: EntityContext) => ({
   assets: ctx.assets,
@@ -174,7 +174,7 @@ fiscalYearReadRouter.openapi(listRoute, async (c) => {
       year,
       status: closed ? ("closed" as const) : ("open" as const),
       closedAt: closedAt.get(year) ?? null,
-      closable: isClosable(year, ctx.lastClosedYear, first),
+      closable: isClosable(year, ctx.lastClosedYear, first, currentYear()),
     });
   }
   return c.json({ years }, 200);

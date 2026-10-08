@@ -122,6 +122,40 @@ const register = (purchaseDate: string, description = "Raced laptop") =>
     totalPriceCents: 120000,
   });
 
+describe("closing has an upper bound: the current UTC calendar year", () => {
+  const THIS_YEAR = new Date().getUTCFullYear();
+
+  it("the current year is closable; the year after it is refused with year_in_future and nothing is written", async () => {
+    await seed({ purchaseDate: new Date(Date.UTC(THIS_YEAR, 0, 15)) });
+    expect((await close(THIS_YEAR)).status).toBe(201);
+
+    const figuresBefore = await db.assetYearFigure.count();
+    const eventsBefore = await db.assetEvent.count();
+    const res = await close(THIS_YEAR + 1);
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ code: "year_in_future", year: THIS_YEAR + 1 });
+    expect(await db.fiscalYear.count({ where: { year: THIS_YEAR + 1 } })).toBe(0);
+    expect(await db.assetYearFigure.count()).toBe(figuresBefore);
+    expect(await db.assetEvent.count()).toBe(eventsBefore);
+  });
+
+  it("a far-future year is refused the same way, before any sequence check", async () => {
+    await seed({ purchaseDate: new Date(Date.UTC(THIS_YEAR, 0, 15)) });
+    const res = await close(THIS_YEAR + 5);
+    expect(res.status).toBe(409);
+    expect((await json(res))["code"]).toBe("year_in_future");
+  });
+
+  it("the list never marks a future year closable, even right after the current year is closed", async () => {
+    await seed({ purchaseDate: new Date(Date.UTC(THIS_YEAR, 0, 15)) });
+    await close(THIS_YEAR);
+    const years = (await json(await send("GET", "/fiscal-years?entity=welld_ch")))["years"] as Json[];
+    const future = years.filter((y) => y["year"] > THIS_YEAR);
+    expect(future.length).toBeGreaterThan(0);
+    expect(future.every((y) => y["closable"] === false)).toBe(true);
+  });
+});
+
 describe("closing (AC-8.4)", () => {
   it("writes the fiscal_year row, one figure per asset on the books, and the history event; the view then reads them", async () => {
     const kept = await seed({ purchaseDate: new Date("2025-03-01") });

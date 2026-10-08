@@ -276,12 +276,20 @@ export function horizonYear(lastClosedYear: number | null, currentYear: number):
   return Math.max(currentYear, (lastClosedYear ?? Number.NEGATIVE_INFINITY) + 1);
 }
 
-/** AC-8.4/8.5: the previous year is closed, or this is the entity's first year. */
+/**
+ * AC-8.4/8.5: the previous year is closed, or this is the entity's first year -
+ * and the year has begun: a year after the current UTC calendar year is never
+ * closable (closing is irreversible and freezes every dated write). The current
+ * year itself stays closable. ONE function for the list's `closable` and the
+ * close route's check, so the two cannot disagree.
+ */
 export function isClosable(
   year: number,
   lastClosedYear: number | null,
   firstYear: number | null,
+  currentYear: number,
 ): boolean {
+  if (year > currentYear) return false;
   if (lastClosedYear !== null) return year === lastClosedYear + 1;
   return firstYear !== null && year === firstYear;
 }
