@@ -22,7 +22,7 @@ Two helper scripts live beside this doc:
 ## Topology
 
 ```
-Vercel (5 projects, one origin each)          Railway project (europe-west4)
+Vercel (6 projects, one origin each)          Railway project (europe-west4)
 ┌───────────────────────────────┐             ┌───────────────────────────────┐
 │ shell   https://operai.welld.io│──┐ loads    │ auth        (Bun+Hono)        │
 │         (host, entry point)    │  │ remote-  │  https://auth.operai.welld.io │
@@ -181,11 +181,38 @@ Vercel (5 projects, one origin each)          Railway project (europe-west4)
     (specs/006-user-invitations, ADR-0011) AND `refund-api`'s server-side
     `POST /system/notifications` call (specs/007, ADR-0017) both use this;
     never given to a browser, never the public domain — see § Phase 1 step 7.
+  - `<INVENTORY_API_URL>` = the **inventory-api** service's **public** domain
+    (e.g. `https://inventory-api.operai.welld.io`). Only the browser references it,
+    through the shell's `VITE_INVENTORY_API_URL` (inventory-ui has no copy of its
+    own) and the shell CSP's `connect-src`.
   - `<REFUND_API_URL>` = the **refund-api** service's **public** domain (e.g.
     `https://refund-api.operai.welld.io`). Only the browser/UI references it
     (via `VITE_REFUND_API_URL`, both on the `shell` project — trusted-origins
     allowlist — and the `refund-ui` project itself); it is also the origin
     the shell CSP's `connect-src` must allow (see Phase 3).
+
+- **`inventory-api` and `inventory-ui`** (specs/015-hardware-inventory, T43;
+  ADR-0044..0047) are the fifth backend and sixth frontend project. The diagram
+  above predates them; they add a sixth Vercel project (`inventory-ui` →
+  `inventory.operai.welld.io`, a remote exposing `./App`, `./MyDevices` and
+  `./version`), a fifth Railway service (`inventory-api` → `inventory-api.operai.welld.io`,
+  logical DB `inventory`, port `8083`, region `europe-west4`) and a SEPARATE EU
+  invoice bucket. `inventory-api` is an authorization-enforcing resource server
+  (calls `auth GET /authz/resolve` and `POST /authz/users/identities` on the
+  caller's forwarded JWT) and the FOURTH notify caller: it pushes to
+  `notify-api POST /system/notifications` with a 5-minute scoped service JWT
+  minted by `auth POST /system/service-token` — it holds **no**
+  `NOTIFY_INTERNAL_TOKEN` (ADR-0040's hard stop, ADR-0044). Browsers also call
+  `auth GET /authz/users/directory` directly from `inventory-ui` (ADR-0047).
+  Full variable list and the manual rollout steps: § `inventory-api` service.
+- **Service tokens are signed by better-auth's rotating key, NOT by
+  `JWT_PRIVATE_KEY`** (ADR-0044, plan risk R-4, resolved in the T4 contract
+  test): the token carries the same `kid` that `auth` publishes at
+  `/auth/jwks`, and `notify-api` verifies it against its existing `AUTH_JWKS_URL`
+  (`aud = SERVICE_AUDIENCE`, `scope` containing `notifications.push`). The
+  static pair served at `/.well-known/jwks.json` signs nothing here — do not
+  point anything at it for this flow, and do not rotate `JWT_PRIVATE_KEY`
+  expecting it to affect service tokens.
 
 **Hostnames.** The `*.operai.welld.io` scheme is the proposed, welld.io-parented
 layout (shared registrable parent matters for the credentialed `/auth/token`
@@ -442,9 +469,9 @@ creates the system roles + app-access catalog and, on first sign-in of
 **Project + domain creation is manual** (Vercel CLI can't create+assign domains
 here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
 
-1. **Create five projects** (dashboard → New Project → import this repo). For each,
+1. **Create six projects** (dashboard → New Project → import this repo). For each,
    **Root Directory** = the app dir (`shell` / `estimai-ui` / `refund-ui` /
-   `admin-ui` / `notify-ui`), framework **Vite**, default build (`pnpm build` →
+   `admin-ui` / `notify-ui` / `inventory-ui`), framework **Vite**, default build (`pnpm build` →
    `dist`). Each app ships its own `vercel.json` (SPA rewrites + headers) picked
    up automatically.
 2. **Assign domains:**
@@ -456,6 +483,7 @@ here); env-var sync + redeploy is automatable (`./infra/deploy.sh --vercel`).
    | `refund-ui` | `refund.operai.welld.io` | remote-only |
    | `admin-ui` | `admin.operai.welld.io` | remote-only (roles & permissions, specs/004) |
    | `notify-ui` | `notify.operai.welld.io` | remote-only (notification center, specs/005) |
+   | `inventory-ui` | `inventory.operai.welld.io` | remote-only (hardware inventory, specs/015; exposes `./App`, `./MyDevices`, `./version`) |
 
 3. **Env vars** (Settings → Environment Variables, Production **and** Preview;
    all build-time → **redeploy** after changing). See **§ Variable reference**.
@@ -574,8 +602,8 @@ suite, since every tool authenticates through `auth`). This is admin-ui's
 
 ## Phase 3 — Cross-wire origins + OAuth
 
-- **`ALLOWED_ORIGINS`** on all FOUR backends (`auth`, `estimai-api`,
-  `notify-api`, `refund-api`) must be the **shell's** origin
+- **`ALLOWED_ORIGINS`** on all backends (`auth`, `estimai-api`,
+  `notify-api`, `refund-api`, and `inventory-api` as of specs/015) must be the **shell's** origin
   (`https://operai.welld.io`) — that's what CORS + better-auth
   `trustedOrigins` validate. Only the shell's origin is needed: the remotes
   never call the backends directly (they delegate to `shell/session`, which
@@ -643,6 +671,12 @@ suite, since every tool authenticates through `auth`). This is admin-ui's
   *(Known gap: Vercel Preview deploys get `*.vercel.app` URLs the pinned CSP
   won't match — assign preview subdomains or relax CSP via Edge Middleware;
   not implemented.)*
+  **Inventory (specs/015):** `shell/vercel.json` already carries
+  `https://inventory.operai.welld.io` in `script-src` and `connect-src` and
+  `https://inventory-api.operai.welld.io` in `connect-src`. Those hostnames are an
+  assumption until the domains exist: if the real ones differ, edit the file and
+  redeploy the shell. The invoice bucket's origin is a separate pin — see § `inventory-api`
+  service.
 
 > **⚠ A CSP change does not reach a browser that has the document cached.** CSP
 > is a response **header**, and a `304 Not Modified` does not carry it — RFC
@@ -775,9 +809,9 @@ calls silently fail.
 
 | Var | Owner(s) | Value |
 |---|---|---|
-| `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` |
-| `AUTH_BASE_URL` | refund-api (the `GET /authz/resolve` call); estimai-api (the `POST /authz/app-access-check` + `POST /authz/users/identities` calls, specs/013-estimate-sharing, ADR-0035/0039) | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` |
-| `NOTIFY_INTERNAL_URL` | auth, refund-api, estimai-api (specs/013-estimate-sharing, ADR-0040) | `http://operai.railway.internal:8080` |
+| `AUTH_JWKS_URL` | estimai-api, notify-api, refund-api, inventory-api | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` |
+| `AUTH_BASE_URL` | inventory-api (`GET /authz/resolve`, `POST /authz/users/identities`, `POST /system/service-token`, specs/015); refund-api (the `GET /authz/resolve` call); estimai-api (the `POST /authz/app-access-check` + `POST /authz/users/identities` calls, specs/013-estimate-sharing, ADR-0035/0039) | `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` |
+| `NOTIFY_INTERNAL_URL` | auth, refund-api, estimai-api (specs/013-estimate-sharing, ADR-0040), inventory-api (specs/015, ADR-0044) | `http://operai.railway.internal:8080` |
 
 **Use the Railway reference-variable form above (`${{svc.PORT}}`) — do NOT
 hardcode the port.** A service listens on exactly ONE port (its `PORT`), and it
@@ -797,7 +831,7 @@ things break silently:
 
 | Var | Owner(s) | Why it stays public |
 |---|---|---|
-| `AUTH_ISSUER` | estimai-api, notify-api, refund-api | The JWT **`iss` claim**, string-compared at verify time (`jwt.middleware.ts` `issuer: env.AUTH_ISSUER`) — must equal auth's public `BETTER_AUTH_URL`. Internal DNS here → **every token rejected 401**. |
+| `AUTH_ISSUER` | estimai-api, notify-api, refund-api, inventory-api | The JWT **`iss` claim**, string-compared at verify time (`jwt.middleware.ts` `issuer: env.AUTH_ISSUER`) — must equal auth's public `BETTER_AUTH_URL`. Internal DNS here → **every token rejected 401**. |
 | `UI_HOME_URL` | auth | Browser post-login redirect. |
 | `REFUND_APP_BASE_URL` | refund-api | Deep-link base opened in the recipient's browser. |
 | `ALLOWED_ORIGINS` | all | Browser Origins (the frontends' public URLs). |
@@ -809,8 +843,10 @@ suite-wide 401):
 
 | Var | Shared by |
 |---|---|
-| `AUTH_AUDIENCE` | auth + all 3 resource servers (ADR-0010) |
-| `AUTH_ISSUER` | all 3 resource servers (same public value) |
+| `AUTH_AUDIENCE` | auth + all 4 resource servers (ADR-0010; `inventory-api` is the fourth, specs/015) |
+| `SERVICE_AUDIENCE` | auth + notify-api (ADR-0044) — must be byte-identical across the two **and different from `AUTH_AUDIENCE`**; both refuse to start otherwise. `env:doctor` checks both. |
+| `INVENTORY_SERVICE_CLIENT_SECRET` | the `secret` inside `auth`'s `SERVICE_CLIENTS` entry for `inventory-api` AND `inventory-api`'s `SERVICE_CLIENT_SECRET` (secret, 32–256 chars; ADR-0044). Set as a Railway Shared Variable directly on the project — there is no 1Password item yet, so it is never in a template. |
+| `AUTH_ISSUER` | all 4 resource servers (same public value) |
 | `NOTIFY_INTERNAL_TOKEN` | auth + refund-api + notify-api + estimai-api (secret; ADR-0011/0017/0040) |
 | `NOTIFY_INTERNAL_URL` | auth + refund-api + estimai-api — the three services that CALL notify-api |
 
@@ -846,6 +882,10 @@ follows bucket ①).
 | `BOOTSTRAP_ADMIN_EMAIL` | email of the first admin (specs/004 AC-6.1; gets `admin` on first sign-in). Set on Railway, not committed. | no |
 | `APP_ACCESS_CHECK_FLOOR_MS` / `APP_ACCESS_CHECK_RATE_LIMIT` / `APP_ACCESS_CHECK_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T1/T2).** In-process anti-enumeration floor + rate limit for `POST /authz/app-access-check` (ADR-0035). Optional — code defaults `150`/`40`/`600000` apply if unset; set explicitly only to tune per environment. | no |
 | `IDENTITIES_RATE_LIMIT` / `IDENTITIES_RATE_WINDOW_MS` | **NEW (specs/013-estimate-sharing, T27).** In-process rate limit for `POST /authz/users/identities` (reuses the same `rateLimiter.ts` module as the pair above, a second instance keyed separately). Optional — code defaults `120`/`600000` apply if unset. No response-time floor needed (ADR-0039 — this endpoint leaks no existence signal the caller doesn't already hold). | no |
+| `SERVICE_AUDIENCE` | **NEW (specs/015, T4, ADR-0044).** The `aud` stamped on scoped service JWTs: `${{shared.SERVICE_AUDIENCE}}`, byte-identical to `notify-api`'s and **different from `AUTH_AUDIENCE`** (startup exits otherwise). Optional in `env.ts`, but **required by the env-doctor contract**: without it (or without `SERVICE_CLIENTS`) the token endpoint authenticates nobody and inventory's notification push is silently dead. | no |
+| `SERVICE_CLIENTS` | **NEW (specs/015, T4, ADR-0044).** JSON object keyed by client id: `{"inventory-api":{"secret":"${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}","scope":"notifications.push"}}`. Secret 32–256 chars; the only scope allowed today is `notifications.push`; client id is lower-case alphanumerics and single hyphens. Never logged; a parse failure names the rule, never a value. Revoking a client = removing its entry (tokens already minted expire within 5 minutes). Verify the shared reference resolved inside the JSON in the Variables tab. | **yes** |
+| `SERVICE_TOKEN_RATE_LIMIT` / `SERVICE_TOKEN_RATE_WINDOW_MS` | **NEW (T4).** In-process limiter on `POST /system/service-token`, keyed by network address. Optional — defaults `20`/`600000`. | no |
+| `DIRECTORY_RATE_LIMIT` / `DIRECTORY_RATE_WINDOW_MS` | **NEW (T5, ADR-0047).** In-process limiter on `GET /authz/users/directory`, keyed by caller `sub`. Optional — defaults `60`/`600000`. | no |
 | `NODE_ENV` | `production` | no |
 | `PORT` | **set explicitly** (any consistent value, e.g. `8080`) so private-networking callers can reference `${{auth.PORT}}` (see § Private networking) — the service binds `env.PORT`, default 3001 if unset, but leaving it unset makes `${{auth.PORT}}` unresolvable | no |
 | `ENABLE_TEST_AUTH` / `BETTER_AUTH_TRUSTED_ORIGINS` | **leave UNSET** (see Phase 1) | — |
@@ -898,6 +938,7 @@ without first moving both behind a shared store.
 | `EMAIL_ENABLED` | **NEW (specs/006).** `"true"` (exact string, case-insensitive) to make real Resend calls; any other value (including unset) stubs the send and still records an `EmailDelivery` row. Default `false` — safe for first deploys before the Resend domain is verified (see § Resend domain setup). | no |
 | `RESEND_API_KEY` | **NEW (specs/006).** 1Password → `AIScream / OperAI - Resend API Key`. Required only when `EMAIL_ENABLED=true` (service refuses to start otherwise once enabled). | **yes** |
 | `RESEND_FROM` | **NEW (specs/006).** Verified sending address on the SPF/DKIM-configured domain, e.g. `no-reply@operai.welld.io` (Risk R5). Required only when `EMAIL_ENABLED=true`. | no |
+| `SERVICE_AUDIENCE` | **NEW (specs/015, T6, ADR-0044).** `${{shared.SERVICE_AUDIENCE}}` — byte-identical to `auth`'s, **different from `AUTH_AUDIENCE`** (startup exits otherwise). Enables the scoped-service-JWT path on `POST /system/notifications` (`aud = SERVICE_AUDIENCE`, `scope` ∋ `notifications.push`, verified through the existing `AUTH_JWKS_URL`). Optional in `env.ts` — unset or empty disables that path and every Bearer is 401 (fail closed, legacy `X-Internal-Token` still works) — but **required by the env-doctor contract**. `/system/emails` stays token-only either way. | no |
 | `NODE_ENV` | `production` | no |
 
 **`notify-api` deploy constraints (do not relax without reading plan.md Risk
@@ -1058,6 +1099,110 @@ always the shell's — this is deliberately narrower than refund-api's own
 non-production bucket; `refund-api/.env.example` points local dev at the real
 bucket, so uploads will not work locally until you do.
 
+### `inventory-api` service (Railway) — NEW (specs/015-hardware-inventory)
+
+Authoritative list: `inventory-api/src/lib/env.ts` (validated at startup, exits 1 on
+any miss). Committed contract: `tools/env-doctor/templates/production/inventory-api.env`.
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/inventory` — **its own logical DB, `inventory`** (create it before the first deploy; `railway.json`'s `preDeployCommand` runs `bun run db:deploy`) | yes |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell origin only; a `*` fails startup). inventory-ui is a federated remote, so the browser Origin is always the shell's. | no |
+| `AUTH_JWKS_URL` | **internal** (bucket ①): `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` | no |
+| `AUTH_ISSUER` | `<AUTH_URL>` — **public** claim, bucket ② (`${{shared.AUTH_ISSUER}}`) | no |
+| `AUTH_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` — the fourth resource server on this value (ADR-0010) | no |
+| `AUTH_BASE_URL` | **internal** (bucket ①): `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}` — base for `GET /authz/resolve` (ADR-0014; fails **closed**, 503), `POST /authz/users/identities` (ADR-0039; fails soft) and `POST /system/service-token` (ADR-0044) | no |
+| `NOTIFY_INTERNAL_URL` | **internal**: `${{shared.NOTIFY_INTERNAL_URL}}` (literal `http://operai.railway.internal:8080`) — never the public domain, never a hand-typed `notify-api.railway.internal` | no |
+| `SERVICE_CLIENT_ID` | `inventory-api` — must be a key of `auth`'s `SERVICE_CLIENTS` | no |
+| `SERVICE_CLIENT_SECRET` | `${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}` — byte-identical to that entry's `secret`; at least 32 chars | **yes** |
+| `INVENTORY_S3_ENDPOINT` / `_REGION` / `_BUCKET` | the invoice bucket — its **own** bucket and credentials, never refund-api's. The bucket MUST be private (every read is a ~60 s presigned GET minted after the entity-scope check). | no |
+| `INVENTORY_S3_ACCESS_KEY_ID` / `INVENTORY_S3_SECRET_ACCESS_KEY` | credentials of that bucket, set directly on the Railway service (no 1Password item) | **yes** |
+| `INVENTORY_S3_EU_ENDPOINT_HOSTS` | comma-separated EU endpoint host suffixes. Consulted only for a non-AWS endpoint, where the region string is an opaque placeholder; **empty, unset or non-matching on a non-AWS endpoint exits 1**. An AWS endpoint instead requires an EU `INVENTORY_S3_REGION`. | no |
+| `PORT` | `8083` — set explicitly so `${{inventory-api.PORT}}` resolves, and make the public domain target this port | no |
+| `NODE_ENV` | `production` | no |
+| `NOTIFY_INTERNAL_TOKEN` | **must NOT be set** (ADR-0040 hard stop; `env:doctor` errors if present) | — |
+
+**Deploy notes.** No `numReplicas` pin: authorization results are cached per replica
+with a short TTL backstop and the service-token cache is per-process; neither is a
+correctness-dependent shared store. `railway.json` pins region `europe-west4`. The
+service handles financial figures and personal data (who holds which device), so it
+must never log request/response bodies (method + path + status only,
+`inventory-api/src/lib/logger.ts`).
+
+**Invoice bucket CORS and CSP — MANDATORY.** Like receipts (§ `refund-api` above), the
+browser uploads invoices **directly to the bucket** from the shell origin (presigned
+POST; `pdf`/`jpeg`/`png`, size capped by the policy). The bucket needs a CORS rule
+naming `https://operai.welld.io` (`POST`, `GET`; expose `ETag` and `Location`), AND the
+shell CSP `connect-src` must list the bucket's origin. `shell/vercel.json` currently
+lists `https://t3.storageapi.dev` (the refund bucket's host), which covers an inventory
+bucket only if it is served from the same host and addressing style. **If the
+inventory bucket's origin differs (virtual-hosted style, another host, or another
+provider), add it to `connect-src` and redeploy the shell**, or every invoice upload
+fails in the browser with no server-side trace. All three gates (CSP, bucket CORS,
+presigned-POST policy) fail identically as "upload failed".
+
+**Local dev.** `compose.yaml` creates the dev buckets in MinIO (`:9000`);
+`inventory-api/.env.example` documents the local `INVENTORY_S3_*` values.
+
+#### Rollout checklist (manual — `infra/deploy.sh` and `infra/check.sh` do not know about inventory yet)
+
+1. **Order matters: `auth` and `notify-api` first, `inventory-api` last.** Deploying
+   `inventory-api` before `auth` has `SERVICE_CLIENTS` makes every push a silent 401
+   (the push is best-effort and never rolls back a mutation); deploying `auth` with
+   `SERVICE_CLIENTS` but no `SERVICE_AUDIENCE` exits at startup.
+2. Generate the client secret (at least 32 random characters) and add the Railway
+   **Shared Variables** `SERVICE_AUDIENCE` (a value different from `AUTH_AUDIENCE`)
+   and `INVENTORY_SERVICE_CLIENT_SECRET`. Never paste either into the repo or a PR.
+3. Set on **`auth`**: `SERVICE_AUDIENCE`, `SERVICE_CLIENTS` (JSON above). Set on
+   **`notify-api`**: `SERVICE_AUDIENCE`. Redeploy both and confirm they boot.
+   `auth`'s `preDeployCommand` (`db:release`) seeds the `inventory` catalog and the
+   `inventory-manager` / `accounting` / `admin` grants.
+4. Railway: create the `inventory` database, the `inventory-api` service (root
+   `inventory-api`, Dockerfile build, region `europe-west4`), its variables (table
+   above), a **custom domain** `inventory-api.operai.welld.io` targeting port `8083`,
+   and the private invoice bucket with its CORS rule.
+5. Vercel: create the `inventory-ui` project (Root Directory `inventory-ui`, Vite)
+   with domain `inventory.operai.welld.io` and `SHELL_REMOTE_URL=https://operai.welld.io/remoteEntry.js`.
+   On the **`shell`** project add `INVENTORY_REMOTE_URL=https://inventory.operai.welld.io/remoteEntry.js`
+   and `VITE_INVENTORY_API_URL=<INVENTORY_API_URL>` (§ Frontend build-time vars), then
+   **redeploy the shell** (both are build-time).
+6. DNS for the two new hostnames (`inventory` and `inventory-api` under `operai.welld.io`).
+7. Run `mise run env:doctor -- --env production`, and `--live` once the service exists.
+8. Assign people to `inventory-manager` / `accounting` in Admin. The two launch
+   depreciation rules come with the first migration; **confirm the wellD IT rule
+   (spec O1) before the first `welld_it` asset is registered.**
+9. Legacy register import — below.
+
+#### Legacy register import (one-off, specs/015 US-12)
+
+`inventory-api/scripts/import-legacy.ts` imports the legacy Excel register for
+`welld_ch`. It is a script, not a route. **Dry-run is the default and writes nothing.**
+
+```bash
+cd inventory-api
+# 1. Dry run: reads the sheet, plans every row, prints counts and row numbers (no row content).
+bun scripts/import-legacy.ts --file <register.xlsx> --user-map <users.json>
+
+# 2. Apply: ONLY with the opening balance accounting confirmed for 2026, in integer cents.
+#    Refused (nothing written) unless the sum of book values at 31.12.2025 equals it exactly.
+bun scripts/import-legacy.ts --file <register.xlsx> --user-map <users.json> \
+  --expected-opening-cents <cents> --apply
+```
+
+- `--user-map` is a JSON file you build by hand from the user directory:
+  `[{"id":"<auth user id>","name":"<full name>"}, ...]`; an assignee text becomes the
+  holder only if it matches exactly one entry (case, accents and spacing aside).
+- It reads the target database from the environment, as the service does. Run it
+  against production only from a trusted workstation, never committing a connection
+  string. The workbook is company data and untrusted input: keep it out of the repo.
+- The tables it writes (`asset_year_figure`, `fiscal_year`, `asset_event`) are
+  **append-only at the database**, so a wrong apply cannot be corrected later. It is
+  all-or-nothing in one transaction under the entity lock, a second run on an entity
+  that already holds the import writes nothing, and an unreadable row stops the apply.
+  Exit codes: `0` done or clean dry run, `1` refused, `2` bad usage.
+- The opening-balance figure (spec O3) is an accounting decision. Do not invent it, and
+  do not paste it into the repo or a PR.
+
 ### Frontend build-time vars (Vercel) — `VITE_*` are client-side; `*_REMOTE_URL` are Vite-config-side
 
 | Project | Variable | Value |
@@ -1065,11 +1210,13 @@ bucket, so uploads will not work locally until you do.
 | **shell** | `VITE_AUTH_URL` / `VITE_API_URL` | `<AUTH_URL>` / `<API_URL>` |
 | | `VITE_NOTIFY_API_URL` | `<NOTIFY_API_URL>` — feeds `shell/session`'s trusted-origin allowlist and `getNotifyBaseUrl()` (the raise-capability, `useUnreadCount` SSE manager); also the origin `notify-ui` itself calls (mirrors `VITE_API_URL`/`VITE_AUTH_URL`) |
 | | `VITE_REFUND_API_URL` | **NEW (T20, specs/007-refund-service).** `<REFUND_API_URL>` — feeds `shell/session`'s trusted-origin allowlist ONLY (`getTrustedOrigins()`, `shell/src/lib/session.ts`); `refund-ui` calls refund-api using its OWN copy of this same var (own build, see the `refund-ui` row below) — both copies MUST carry the identical `<REFUND_API_URL>` value or `apiFetch` will not recognize refund-ui's request origin as trusted and every call 401s. |
-| | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` | `https://<estimai/refund/admin>.operai.welld.io/remoteEntry.js` |
+| | `VITE_INVENTORY_API_URL` | **NEW (T41/T43, specs/015).** `<INVENTORY_API_URL>` — build-time, feeds `shell/session`'s trusted-origin allowlist AND `getInventoryApiBaseUrl()`, which `inventory-ui` uses for every inventory-api call (**inventory-ui has no `VITE_INVENTORY_API_URL` of its own** — unlike `refund-ui`, it asks the shell). **Optional by design and unset by default: when unset the inventory origin is NOT trusted, `apiFetch` sends no Bearer JWT there, and every inventory call 401s** — a silent failure, so set it on the shell project and redeploy. Typed in `shell/src/vite-env.d.ts`. |
+| | `ESTIMAI_REMOTE_URL` / `REFUND_REMOTE_URL` / `ADMIN_REMOTE_URL` / `NOTIFY_REMOTE_URL` / `INVENTORY_REMOTE_URL` | `https://<estimai/refund/admin/notify/inventory>.operai.welld.io/remoteEntry.js` (the code defaults are the `localhost:517x` dev origins, so an unset value ships a shell pointing at localhost) |
 | **estimai-ui** | `VITE_API_URL` | `<API_URL>` — **required**: estimai-ui builds `${VITE_API_URL}/estimates` from its *own* value (must match the shell's) |
 | | `VITE_AUTH_URL` / `SHELL_REMOTE_URL` | standalone-only / `https://operai.welld.io/remoteEntry.js` |
 | **refund-ui** | `VITE_REFUND_API_URL` | **NEW (T20).** `<REFUND_API_URL>` — **required**: `refund-ui/src/lib/refundApi.ts` builds every refund-api URL from its *own* value (must byte-for-byte match the shell's copy above — see that row's note) |
 | | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` |
+| **inventory-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of its own: inventory-api via `getInventoryApiBaseUrl()`, the user directory via `getAuthBaseUrl()`, both from the shell) |
 | **admin-ui**, **notify-ui** | `SHELL_REMOTE_URL` | `https://operai.welld.io/remoteEntry.js` (no backend vars of their own — `notify-ui`'s calls to `notify-api` go through the shared `shell/session` module's `VITE_NOTIFY_API_URL`, same pattern `admin-ui` uses for the auth service's admin API) |
 | **admin-ui** | `VITE_GOOGLE_MAPS_API_KEY` | **NEW (T16, specs/012-employee-address, ADR-0032).** Google Places API (New) + Maps JavaScript API browser key, referrer-restricted to the **shell's** origins (not admin-ui's own — see § Phase 2's "Google Maps API key — provisioning"). admin-ui's own third-party credential, deliberately **not** a `shell/session` getter. |
 
@@ -1092,6 +1239,16 @@ refund-api.ALLOWED_ORIGINS == <shell origin>`** (T14, specs/008-refund-monthly-p
 ADR-0021 — the compiled-batch email's deep link must resolve inside the same shell origin
 CORS/trustedOrigins already allow; a drift here doesn't break the build, it just mails a
 dead or untrusted link).
+**specs/015 additions:** `auth.AUTH_AUDIENCE == … == inventory-api.AUTH_AUDIENCE`;
+`inventory-api.AUTH_ISSUER == auth.BETTER_AUTH_URL`; **`auth.SERVICE_AUDIENCE ==
+notify-api.SERVICE_AUDIENCE`, and each differs from its own service's
+`AUTH_AUDIENCE`** (ADR-0044); `inventory-api.SERVICE_CLIENT_ID` is a key of
+`auth.SERVICE_CLIENTS` whose `secret` equals `inventory-api.SERVICE_CLIENT_SECRET` and
+whose `scope` contains `notifications.push`; `inventory-api` holds no
+`NOTIFY_INTERNAL_TOKEN`; `inventory-api.INVENTORY_S3_ENDPOINT`'s host is in
+`INVENTORY_S3_EU_ENDPOINT_HOSTS` (or an AWS endpoint in an EU region). All except the
+bucket's own CORS rule are checked by `mise run env:doctor`
+(`tools/env-doctor/README.md`).
 
 ---
 

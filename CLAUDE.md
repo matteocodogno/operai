@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Four tools ship today, composed into one suite by a
+back-office workflows. Five tools ship today, composed into one suite by a
 Module Federation shell (ADR-0006):
 
 | Tool | Route | What it does |
@@ -9,13 +9,16 @@ Module Federation shell (ADR-0006):
 | **EstimAI** | `/estimai` | Software effort estimation — PERT + AI productivity modelling (tool #1) |
 | **Refund** (Rimborsi) | `/refund` | Expense reimbursement — requests, review/decision, monthly batch payout |
 | **Admin** | `/admin` | Roles, departments, users, permissions, invitations, mileage rates |
+| **Inventory** | `/inventory` | Hardware register — assets, assignment to employees (confirmed by the employee), depreciation ledger, fiscal-year close, invoice files (specs/015) |
 
-Those three are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
-notification center (`notify-ui`) is a fourth remote but **not** a `TOOLS` entry: it mounts at
-the shell-owned `/notify` route, reached from the header bell (ADR-0009).
+Those four are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+notification center (`notify-ui`) is a fifth remote but **not** a `TOOLS` entry: it mounts at
+the shell-owned `/notify` route, reached from the header bell (ADR-0009). `inventory-ui` also
+exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
+(any signed-in user sees their own devices; ADR-0045).
 
-Backed by four Bun services: `auth` (identity + authorization), `estimai-api`,
-`notify-api`, `refund-api`.
+Backed by five Bun services: `auth` (identity + authorization), `estimai-api`,
+`notify-api`, `refund-api`, `inventory-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -62,6 +65,9 @@ operai/
 │                        # (specs/004, 006, admin-only) + audit log, employee address (specs/012, ADR-0031/0032)
 │                        # and the mileage-rate screen, which calls refund-api directly (specs/009, ADR-0023)
 ├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
+├── inventory-ui/        # Inventory tool — federated remote (port 5178): exposes ./App (gated, /inventory), ./MyDevices
+│                        # (ungated, /devices; ADR-0045) and ./version; calls inventory-api and auth's user directory
+│                        # through shell/session (no VITE_* of its own) (specs/015)
 │
 ├── auth/                # Bun + Hono authentication service
 │   ├── src/
@@ -87,6 +93,10 @@ operai/
 │                        # resource server + EU object storage for receipts (specs/007, ADR-0014/0015/0016);
 │                        # + batch compile/PDF/paid lifecycle (specs/008, ADR-0018–0022), mileage rates
 │                        # (specs/009, ADR-0023/0024/0025), settings store (specs/011, ADR-0027/0028/0029)
+├── inventory-api/       # Bun + Hono + TypeScript backend (port 8083, DB `inventory`) — hardware register; authorization-enforcing
+│                        # resource server, entity-scoped (ADR-0014/0015 lineage); depreciation derived on read, closed years
+│                        # snapshotted (ADR-0046); invoice files in its own EU bucket; pushes to notify-api with a scoped
+│                        # service JWT (ADR-0044). scripts/import-legacy.ts = one-off register import (specs/015)
 │
 ├── docs/adr/            # Architecture Decision Records (0001–0047; see ## Architecture decisions)
 ├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md)
@@ -97,21 +107,21 @@ operai/
 ├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run dev` / `db:migrate` / `changeset` /
 │                        # `release:version` / `release:tag` / `env:doctor`
-└── specs/               # Spec-driven workflow (001–013, all `status: done`; see below)
+└── specs/               # Spec-driven workflow (001–015; 015 hardware-inventory is in progress; see below)
 ```
 
 ---
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui)
-All five share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui)
+All six share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other four are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
+  other five are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR-0001/0002)
@@ -148,8 +158,8 @@ degrades silently when the key is absent (ADR-0032).
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Resource backends (estimai-api, notify-api, refund-api)
-All three are implemented and share the `auth` service's shape (see ADR-0003 — one backend
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api)
+All four are implemented and share the `auth` service's shape (see ADR-0003 — one backend
 stack across the monorepo; it supersedes the earlier Kotlin/Spring intention).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
@@ -165,6 +175,15 @@ Per-service specifics:
   record-level collaborator ACL owned by the service itself, not `auth`'s catalog (ADR-0036);
   optimistic concurrency via integer `version` + required `If-Match`/`ETag` (ADR-0038).
   It deliberately is **not** an authorization-enforcing resource server.
+- `inventory-api` — hardware register (specs/015): authorization-enforcing like `refund-api`
+  (live `auth GET /authz/resolve`, fails closed, entity-scoped ABAC) with `inventory:access`,
+  `asset:manage`, `ledger:manage`; `/me/*` routes need only a valid JWT and scope to `sub`
+  (ADR-0045); depreciation derived on read, immutable snapshots on fiscal-year close
+  (ADR-0046); invoice files in its OWN EU bucket via presigned URLs (`INVENTORY_S3_*`);
+  the fourth notify caller, authenticating with a 5-minute scoped service JWT from
+  `auth POST /system/service-token` (`SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET`),
+  never `NOTIFY_INTERNAL_TOKEN` (ADR-0044). Service tokens are signed by better-auth's
+  rotating key published at `/auth/jwks`, not by `JWT_PRIVATE_KEY`.
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` + `/system/notifications` behind `NOTIFY_INTERNAL_TOKEN`
@@ -272,6 +291,23 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`); today only `inventory-api` (ADR-0044) |
+
+### Inventory (specs/015)
+
+The authoritative glossary is `specs/015-hardware-inventory/spec.md` § Domain language.
+
+| Term | Meaning |
+|---|---|
+| `asset` | One physical hardware unit owned by one `entity` — never a quantity (13 monitors = 13 assets) |
+| `holder` | The Operai account an asset is assigned to; no holder = company stock |
+| `status` | `ordered` · `in_stock` · `assigned` · `in_repair` · `lost` (still on the books) · `disposed` (off the books) |
+| `assignment` | `pending` until the employee confirms receipt, then `confirmed`/`declined`/`cancelled` |
+| `depreciation rule` | Per-entity, effective-dated parameters (life, first-year share, threshold, residual); resolved on read (ADR-0046) |
+| `fiscal year` | Calendar year per entity, `open` or `closed`; closing is irreversible and snapshots the figures |
+| `roll-forward` | Opening book value − disposals + purchases − depreciation = closing book value |
+
+Capabilities: `inventory manager` = `asset:manage`, `hardware accountant` = `ledger:manage`.
 
 ---
 
@@ -308,6 +344,11 @@ rejects over-large payloads (413). Owner/collaborator display names are resolved
 `auth POST /authz/users/identities` and fail **soft** to `status:"unknown"` (ADR-0039).
 Errors are RFC 7807 Problem JSON; dates are ISO 8601.
 
+Other services' contracts: `inventory-api` — `specs/015-hardware-inventory/plan.md` § API
+contracts (capability × route matrix: 403 capability-absent, 404 out of scope; `/me/*` needs only
+a valid JWT) plus its live OpenAPI/Scalar at `http://localhost:8083`; `auth`'s additions for it
+(`POST /system/service-token`, `GET /authz/users/directory`) are in the same section.
+
 ---
 
 ## Data residency
@@ -316,8 +357,9 @@ wellD operates across Italy and Switzerland. Some clients are in regulated secto
 (energy, finance, healthcare). Apply these rules:
 
 - Every backend **must** deploy to an EU region (Railway EU, Fly.io fra, Azure Switzerland North)
-- Object storage is EU too — `REFUND_S3_REGION` is validated against an EU allowlist at
-  startup and the process exits if it fails (ADR-0016)
+- Object storage is EU too — `REFUND_S3_REGION` / `INVENTORY_S3_REGION` (or, for a non-AWS
+  endpoint, the `*_S3_EU_ENDPOINT_HOSTS` allowlist) are validated at startup and the process
+  exits if it fails (ADR-0016); inventory has its own bucket, never refund's
 - No business data should be logged by the hosting provider beyond standard access logs
 - Frontends are purely client-side — they transmit data only to the suite's own services
   (and, for admin-ui, address text to Google Places; ADR-0032)
@@ -361,7 +403,7 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 - Every remote exposes `./version` for the shell's About modal; a shell↔remote seam must
   degrade silently when a remote predates the export, never block or throw (ADR-0030)
 
-### Backend services (auth, estimai-api, notify-api, refund-api — Bun + Hono)
+### Backend services (auth, estimai-api, notify-api, refund-api, inventory-api — Bun + Hono)
 - Validate all environment variables at startup (`src/lib/env.ts`); `process.exit(1)` on missing
 - Routes grouped by feature directory, registered in `src/index.ts`; OpenAPI in `src/openapi/`
 - Database access only through the Prisma client in `src/lib/db.ts`
@@ -386,18 +428,19 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 
 ### The whole suite (preferred)
 ```bash
-mise run db:migrate   # once: Postgres up + Prisma migrations for all four backends
+mise run db:migrate   # once: Postgres up + Prisma migrations for all five backends
 mise run dev          # everything, with HMR — open http://localhost:5173 (the shell)
 mise run dev:web      # frontends only (backends already running elsewhere)
 mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy shape
 ```
 
-Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, shell `5173`,
-estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`; MinIO S3 `9000`
+Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
+shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`,
+inventory-ui `5178`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task.
 
@@ -408,7 +451,7 @@ docker compose up -d postgres minio minio-createbucket   # PostgreSQL 17 :5435, 
 
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -436,11 +479,21 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
-Tech stack for what each one is; `REFUND_S3_*` points at local MinIO in dev — check
-`infra/README.md` for the deployed-environment state.
+Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` point at local MinIO in dev
+— check `infra/README.md` for the deployed-environment state and the inventory rollout checklist.
+
+The one-off legacy register import is a script, dry-run by default (see `infra/README.md`
+§ Legacy register import — `--apply` additionally needs `--expected-opening-cents`):
+
+```bash
+cd inventory-api
+bun scripts/import-legacy.ts --file <register.xlsx> --user-map <users.json>                 # dry run
+bun scripts/import-legacy.ts --file <register.xlsx> --user-map <users.json> \
+  --expected-opening-cents <cents> --apply                                                    # writes
+```
 
 ### Checking the env contract before a deploy
 ```bash

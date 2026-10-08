@@ -250,7 +250,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
 
 ## Close-out
 
-- [ ] T43: [devops] Env contract, docs and changeset — refs: AC-9.7 — deps: T4, T5, T6, T23, T39, T42
+- [x] T43: [devops] Env contract, docs and changeset — refs: AC-9.7 — deps: T4, T5, T6, T23, T39, T42
   - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/templates/*`, `infra/README.md`, `CLAUDE.md`, `.changeset/*`, `shell/src/vite-env.d.ts`
   - Manifest: `inventory-api` as a service; `SERVICE_AUDIENCE` shared by `auth` + `notify-api`; `AUTH_AUDIENCE` extended to `inventory-api`; `AUTH_JWKS_URL`/`AUTH_BASE_URL`/`NOTIFY_INTERNAL_URL` targets; `SERVICE_CLIENT_SECRET` and `INVENTORY_S3_SECRET_ACCESS_KEY` as secrets; a check that `inventory-api`'s client id/secret match an entry in `auth`'s `SERVICE_CLIENTS`. `CLAUDE.md`: tool table, structure tree, ports, domain language, API contract pointer. Document the shell's `VITE_INVENTORY_API_URL` build variable (T41 reads it; unset means the inventory API origin is not trusted) in `infra/README.md` and type it in `shell/src/vite-env.d.ts`. One changeset selecting `@operai/auth`, `@operai/notify-api`, `@operai/notify-ui`, `@operai/shell`, `@operai/inventory-api`, `@operai/inventory-ui`.
   - done when: `mise run env:doctor` passes locally with the new service and fails when `SERVICE_AUDIENCE` differs between `auth` and `notify-api`; `bun test tools/env-doctor` passes; `mise run changeset:check` passes.
