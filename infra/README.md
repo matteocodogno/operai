@@ -1144,7 +1144,19 @@ presigned-POST policy) fail identically as "upload failed".
 **Local dev.** `compose.yaml` creates the dev buckets in MinIO (`:9000`);
 `inventory-api/.env.example` documents the local `INVENTORY_S3_*` values.
 
-#### Rollout checklist (manual — `infra/deploy.sh` and `infra/check.sh` do not know about inventory yet)
+#### Rollout checklist
+
+`infra/deploy.sh` automates the Railway variables that need no secret and no
+provisioned resource (`inventory-api`: `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_ISSUER`,
+`AUTH_JWKS_URL`, `AUTH_BASE_URL`, `AUTH_AUDIENCE`, `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`,
+`PORT`, `NODE_ENV`; and, when exported, `SERVICE_AUDIENCE` on `auth` + `notify-api`), creates
+the `inventory` logical database, and — with `--vercel` — syncs the shell's
+`INVENTORY_REMOTE_URL` / `VITE_INVENTORY_API_URL` and `inventory-ui`'s `SHELL_REMOTE_URL`.
+It does **not** set `INVENTORY_S3_*`, `SERVICE_CLIENT_SECRET` or `auth`'s `SERVICE_CLIENTS`
+(steps 2-4 below stay manual), never sets `NOTIFY_INTERNAL_TOKEN` on `inventory-api`, and
+skips the `inventory-api` deploy trigger with a warning (names only) until those exist.
+`infra/check.sh` asserts the service, the remote, the shell CSP pins, the service-token
+endpoint and the gated-route 401 once DNS exists (its default hostnames are assumptions).
 
 1. **Order matters: `auth` and `notify-api` first, `inventory-api` last.** Deploying
    `inventory-api` before `auth` has `SERVICE_CLIENTS` makes every push a silent 401
