@@ -96,7 +96,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - `ledgerView.ts` builds `Ledger` from stored `asset_year_figure` rows for closed years and `schedule()` for open ones. List items carry `ledger: { bookValueCents }` only.
   - done when: `bun test assets/read` passes: each filter alone and combined; `q` case-insensitive on description and serial; order purchase date desc then id with a stable cursor; entity scope applied to list and detail (out-of-scope detail → 404); caller with neither capability → 403 on list and 404 on detail; inventory-only response has `purchasePriceCents` and no `ledger` key; accountant detail has every schedule year with `closed` flags and `rule.effectiveFrom`; an `ordered` asset's schedule starts in its purchase year.
 
-- [ ] T13: [backend] Edit assets (`PATCH /assets/{id}`) — refs: AC-1.9, AC-3.6, AC-5.9, AC-10.1 — deps: T12
+- [x] T13: [backend] Edit assets (`PATCH /assets/{id}`) — refs: AC-1.9, AC-3.6, AC-5.9, AC-10.1 — deps: T12
   - touch: `inventory-api/src/assets/edit.routes.ts`, `inventory-api/src/assets/edit.schemas.ts`, `inventory-api/src/assets/edit.repo.ts`, `inventory-api/src/assets/edit.test.ts`
   - done when: `bun test assets/edit` passes: location note leaves status and holder untouched; `entity`/`currency` in the body → 422; price or date edit with all years open changes the schedule returned by T12; the same edit with a closed year at or after the old or the new purchase year → 409; disposed asset → 409 `asset_disposed`; accountant-only caller may patch only `supplier`/`invoiceRef` (any other field → 403); changing `invoiceRef` clears `invoiceFileId`; one `edited` event with typed `changes` per call; serial conflict → 409.
 

@@ -81,7 +81,7 @@ const union = (a: readonly Entity[], b: readonly Entity[]): Entity[] =>
   ENTITIES.filter((e) => a.includes(e) || b.includes(e));
 
 /** Builds the views for `rows` for this caller; `full` = detail (schedule), else list (book value). */
-async function project(
+export async function project(
   rows: readonly AssetRow[],
   authorization: string,
   ledgerScope: readonly Entity[],
