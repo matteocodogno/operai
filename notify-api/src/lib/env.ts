@@ -57,7 +57,27 @@ const envSchema = z.object({
   NOTIFY_INTERNAL_TOKEN: z
     .string()
     .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
+  // ─── Scoped service JWT (specs/015, ADR-0044) ───────────────────────────────
+  // `aud` that `auth` stamps on service tokens (POST /system/service-token).
+  // MUST differ from AUTH_AUDIENCE so a user JWT is never a system credential
+  // and a service token is never a user credential (enforced below; the
+  // process exits otherwise). Optional at the schema level on purpose: unset
+  // (or empty) DISABLES the service-JWT path on /system/notifications — every
+  // Bearer is then 401 and only the legacy X-Internal-Token works — so the
+  // three existing callers and a not-yet-reconfigured deploy are unaffected.
+  // It fails closed, never open.
+  SERVICE_AUDIENCE: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  ),
 }).superRefine((v, ctx) => {
+  if (v.SERVICE_AUDIENCE !== undefined && v.SERVICE_AUDIENCE === v.AUTH_AUDIENCE) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["SERVICE_AUDIENCE"],
+      message: "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR-0044)",
+    });
+  }
   // Cross-field: EMAIL_ENABLED=true means real sends are attempted, so the
   // Resend credentials become mandatory (they stay optional at rest so
   // test/local can run with the channel stubbed, per ADR-0011/T2).

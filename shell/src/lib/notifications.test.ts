@@ -248,6 +248,22 @@ describe('raiseNotification', () => {
     })
   })
 
+  it("round-trips originApp 'inventory' (specs/015 mirror of notify-api's ORIGIN_APPS)", async () => {
+    const result = await raiseNotification({
+      title: 'Device assigned',
+      body: 'A device was assigned to you.',
+      originApp: 'inventory',
+      link: { href: '/devices' },
+    })
+
+    expect(result.originApp).toBe('inventory')
+    const raiseCalls = vi
+      .mocked(fetch)
+      .mock.calls.filter(([url]) => resolveUrl(url) === `${NOTIFY_URL}/notifications`)
+    const sent = JSON.parse(String((raiseCalls[0][1] as RequestInit).body)) as Record<string, unknown>
+    expect(sent['originApp']).toBe('inventory')
+  })
+
   it('rejects when notify-api responds with a non-2xx status', async () => {
     vi.stubGlobal(
       'fetch',

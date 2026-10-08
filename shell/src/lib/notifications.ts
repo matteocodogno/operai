@@ -54,7 +54,7 @@ import { apiFetch, onSignOut } from './session'
 // ---------------------------------------------------------------------------
 
 /** Known Operai suite tool ids that can originate a notification (notify-api's ORIGIN_APPS). */
-export type NotificationOriginApp = 'estimai' | 'refund' | 'admin'
+export type NotificationOriginApp = 'estimai' | 'refund' | 'admin' | 'inventory'
 
 /** notify-api's severity enum. */
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'error'

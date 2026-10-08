@@ -33,10 +33,15 @@
  */
 
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import type { MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { inAppChannel } from "@/channels/inApp.channel";
 import { ProblemSchema, problem } from "@/notifications/notifications.schemas";
-import { internalTokenMiddleware } from "./internalToken.middleware";
+import {
+  notificationsAuthMiddleware,
+  originAllowed,
+  type NotificationsAuthVariables,
+} from "./notificationsAuth.middleware";
 import {
   SystemNotificationRequestSchema,
   SystemNotificationResponseSchema,
@@ -44,87 +49,121 @@ import {
 
 const SYSTEM_NOTIFICATIONS_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB
 
-export const systemNotificationsRouter = new OpenAPIHono();
+/** Factory so tests can inject the auth middleware (in-memory JWKS); production uses the default export. */
+export const createSystemNotificationsRouter = (
+  authMiddleware: MiddlewareHandler<{ Variables: NotificationsAuthVariables }>,
+) => {
+  const router = new OpenAPIHono<{ Variables: NotificationsAuthVariables }>();
 
-// Scoped to this router's ONE exact path only — NEVER `.use("*", …)`. See
-// raise.routes.ts's and emails.routes.ts's file headers for why a "*"
-// middleware on any sub-router mounted in index.ts would leak onto every
-// other route once merged — including GET /notifications/stream (ADR-0008,
-// no-Bearer) and every jwtMiddleware-protected route (which must NEVER
-// accept this internal token — ADR-0011's mutual-exclusion invariant,
-// reused verbatim by ADR-0017 for this second internal caller).
-systemNotificationsRouter.use(
-  "/system/notifications",
-  bodyLimit({
-    maxSize: SYSTEM_NOTIFICATIONS_BODY_SIZE_LIMIT,
-    onError: (c) =>
-      c.json(
-        problem(
+  // Scoped to this router's ONE exact path only — NEVER `.use("*", …)`. See
+  // raise.routes.ts's and emails.routes.ts's file headers for why a "*"
+  // middleware on any sub-router mounted in index.ts would leak onto every
+  // other route once merged — including GET /notifications/stream (ADR-0008,
+  // no-Bearer) and every jwtMiddleware-protected route (which must NEVER
+  // accept this internal token — ADR-0011's mutual-exclusion invariant,
+  // reused verbatim by ADR-0017 for this second internal caller).
+  router.use(
+    "/system/notifications",
+    bodyLimit({
+      maxSize: SYSTEM_NOTIFICATIONS_BODY_SIZE_LIMIT,
+      onError: (c) =>
+        c.json(
+          problem(
+            413,
+            "Payload Too Large",
+            `Request body exceeds the maximum allowed size of ${(SYSTEM_NOTIFICATIONS_BODY_SIZE_LIMIT / 1024).toFixed(0)} KB.`,
+            c.req.path,
+          ),
           413,
-          "Payload Too Large",
-          `Request body exceeds the maximum allowed size of ${(SYSTEM_NOTIFICATIONS_BODY_SIZE_LIMIT / 1024).toFixed(0)} KB.`,
-          c.req.path,
         ),
-        413,
-      ),
-  }),
-);
+    }),
+  );
 
-systemNotificationsRouter.use("/system/notifications", internalTokenMiddleware);
+  router.use("/system/notifications", authMiddleware);
 
-const sendSystemNotificationRoute = createRoute({
-  method: "post",
-  path: "/system/notifications",
-  tags: ["System"],
-  summary: "Push an in-app notification to an arbitrary recipient (cross-user)",
-  description:
-    "Internal-only endpoint authenticated by X-Internal-Token (ADR-0011, " +
-    "reused by ADR-0017) — never a user JWT. Routes through the same inApp " +
-    "channel the user-JWT POST /notifications uses, persisting a " +
-    "Notification row for `recipientId` and pushing it over that " +
-    "recipient's open SSE streams. `recipientId` may be any user, " +
-    "including one other than the caller — the cross-user capability " +
-    "ADR-0009 reserved and this route activates.",
-  request: {
-    body: {
-      required: true,
-      content: { "application/json": { schema: SystemNotificationRequestSchema } },
+  const sendSystemNotificationRoute = createRoute({
+    method: "post",
+    path: "/system/notifications",
+    tags: ["System"],
+    summary: "Push an in-app notification to an arbitrary recipient (cross-user)",
+    description:
+      "Internal-only endpoint authenticated by X-Internal-Token (ADR-0011, " +
+      "reused by ADR-0017) OR by a scoped service JWT (aud=SERVICE_AUDIENCE, " +
+      "scope notifications.push, ADR-0044) — never a user JWT. Routes through the same inApp " +
+      "channel the user-JWT POST /notifications uses, persisting a " +
+      "Notification row for `recipientId` and pushing it over that " +
+      "recipient's open SSE streams. `recipientId` may be any user, " +
+      "including one other than the caller — the cross-user capability " +
+      "ADR-0009 reserved and this route activates.",
+    request: {
+      body: {
+        required: true,
+        content: { "application/json": { schema: SystemNotificationRequestSchema } },
+      },
     },
-  },
-  responses: {
-    201: {
-      content: { "application/json": { schema: SystemNotificationResponseSchema } },
-      description: "Notification created for recipientId and published to its SSE streams",
+    responses: {
+      201: {
+        content: { "application/json": { schema: SystemNotificationResponseSchema } },
+        description: "Notification created for recipientId and published to its SSE streams",
+      },
+      400: {
+        content: { "application/json": { schema: ProblemSchema } },
+        description:
+          "Validation error — missing/empty recipientId, title, or body, bad " +
+          "severity/originApp enum, or a non-relative link.href",
+      },
+      401: {
+        content: { "application/json": { schema: ProblemSchema } },
+        description:
+          "Missing or invalid credential: neither a valid X-Internal-Token nor a " +
+          "valid scoped service JWT (identical body for every cause)",
+      },
+      403: {
+        content: { "application/json": { schema: ProblemSchema } },
+        description:
+          "A service principal tried to raise a notification for an originApp " +
+          "it is not bound to (e.g. system:inventory-api may send only `inventory`)",
+      },
+      413: {
+        content: { "application/json": { schema: ProblemSchema } },
+        description: "Request body exceeds the size cap",
+      },
     },
-    400: {
-      content: { "application/json": { schema: ProblemSchema } },
-      description:
-        "Validation error — missing/empty recipientId, title, or body, bad " +
-        "severity/originApp enum, or a non-relative link.href",
-    },
-    401: {
-      content: { "application/json": { schema: ProblemSchema } },
-      description: "Missing or invalid X-Internal-Token",
-    },
-    413: {
-      content: { "application/json": { schema: ProblemSchema } },
-      description: "Request body exceeds the size cap",
-    },
-  },
-});
-
-systemNotificationsRouter.openapi(sendSystemNotificationRoute, async (c) => {
-  const body = c.req.valid("json");
-
-  const created = await inAppChannel.send({
-    recipientId: body.recipientId,
-    title: body.title,
-    body: body.body,
-    severity: body.severity,
-    originApp: body.originApp,
-    link: body.link,
-    toastWorthy: false,
   });
 
-  return c.json(created, 201);
-});
+  router.openapi(sendSystemNotificationRoute, async (c) => {
+    const body = c.req.valid("json");
+
+    // Service principals may raise only the origin app(s) bound to their `sub`
+    // (ADR-0044). null = legacy internal token, unrestricted (unchanged).
+    if (!originAllowed(c.get("allowedOrigins"), body.originApp)) {
+      return c.json(
+        problem(
+          403,
+          "Forbidden",
+          "This service principal may not raise notifications for that originApp.",
+          c.req.path,
+        ),
+        403,
+      );
+    }
+
+    const created = await inAppChannel.send({
+      recipientId: body.recipientId,
+      title: body.title,
+      body: body.body,
+      severity: body.severity,
+      originApp: body.originApp,
+      link: body.link,
+      toastWorthy: false,
+    });
+
+    return c.json(created, 201);
+  });
+
+  return router;
+};
+
+export const systemNotificationsRouter = createSystemNotificationsRouter(
+  notificationsAuthMiddleware,
+);
