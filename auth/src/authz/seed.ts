@@ -77,7 +77,15 @@
  *      backing on the rate grants. Deliberately does NOT touch `employee` or
  *      `accounting` — refund settings are an admin-only surface.
  *
- * A NINTH, per-user concern — assigning the baseline `employee` role (and
+ *   9. {@link seedInventoryCatalog} + {@link seedInventoryGrants} (T3,
+ *      specs/015-hardware-inventory — AC-9.1, AC-9.3–9.6) — register
+ *      inventory's FULL catalog (`catalogs/inventory.ts`) and attach its role
+ *      grants (`admin` all three unconditioned, `accounting` access +
+ *      entity-scoped `ledger:manage`, the new `inventory-manager` system role
+ *      access + entity-scoped `asset:manage`). `inventory` is registered once,
+ *      here, never through `SUITE_APPS`.
+ *
+ * A TENTH, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
  * `auth.config.ts`'s `databaseHooks.user.create.after` hook, via
@@ -91,11 +99,13 @@ import { env } from "../lib/env";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
+import { INVENTORY_APP_ID, INVENTORY_CATALOG } from "./catalogs/inventory";
 import { REFUND_APP_ID, REFUND_CATALOG } from "./catalogs/refund";
 
 export const EMPLOYEE_ROLE_NAME = "employee";
 export const ACCOUNTING_ROLE_NAME = "accounting";
 export const REFUND_ADMIN_ROLE_NAME = "refund-admin";
+export const INVENTORY_MANAGER_ROLE_NAME = "inventory-manager";
 
 /** The four seed system roles (AC-6.2). Order is insignificant; upserts run sequentially for deterministic logging. */
 export const SYSTEM_ROLE_NAMES = [
@@ -174,10 +184,27 @@ export async function seedRefundCatalog(): Promise<void> {
   await upsertAppCatalog(REFUND_CATALOG);
 }
 
-/** Every suite app id. `estimai`/`refund` declare their own catalogs; the rest come from SUITE_APPS. */
+/**
+ * Registers inventory's full declared catalog (T3, specs/015-hardware-
+ * inventory — AC-9.1) — `catalogs/inventory.ts`'s `INVENTORY_CATALOG` (app
+ * `access` + `asset:manage` + `ledger:manage`, the latter two entity-scoped).
+ * Idempotent: `upsertAppCatalog` is itself a full-replace upsert keyed by
+ * `appId`. `inventory` is registered ONLY here, never via `SUITE_APPS`.
+ */
+export async function seedInventoryCatalog(): Promise<void> {
+  await upsertAppCatalog(INVENTORY_CATALOG);
+}
+
+/**
+ * Every suite app id. `estimai`/`refund`/`inventory` declare their own
+ * catalogs; the rest come from SUITE_APPS. (`inventory` being listed here is
+ * only so `seedAdminRoleGrants` grants `admin` its `access`; it is NOT a
+ * second catalog registration.)
+ */
 export const ALL_APP_IDS: readonly string[] = [
   "estimai",
   REFUND_APP_ID,
+  INVENTORY_APP_ID,
   ...SUITE_APPS.map((a) => a.appId),
 ];
 
@@ -407,6 +434,84 @@ export async function seedSettingsAdminGrants(): Promise<void> {
   }
 }
 
+/** Creates the (role, resource, action) grant only when absent — never overwrites an existing one. */
+async function ensureGrant(
+  roleId: string,
+  resource: string,
+  action: string,
+  conditions?: Prisma.InputJsonValue,
+): Promise<void> {
+  const existing = await db.permissionRule.findFirst({ where: { roleId, resource, action } });
+  if (existing) return;
+  await db.permissionRule.create({
+    data: { roleId, resource, action, ...(conditions !== undefined ? { conditions } : {}) },
+  });
+}
+
+/**
+ * Seeds inventory's role grants (T3, specs/015-hardware-inventory — AC-9.3,
+ * AC-9.4, AC-9.5, AC-9.6; plan.md "Authorization model (`auth`)"; ADR-0015):
+ *
+ *   - `admin` — `asset:manage` + `ledger:manage`, UNCONDITIONED (both
+ *     entities, via the resolver's widest-wins union). Its `inventory:access`
+ *     comes from {@link seedAdminRoleGrants} (`ALL_APP_IDS`), not from here.
+ *   - `accounting` — `inventory:access` + `ledger:manage`, entity-conditioned
+ *     ({@link REFUND_ENTITY_CONDITION}'s `{key:"entity", match:"user"}`): the
+ *     hardware accountant is scoped to their own `user.entity`. NOT
+ *     `asset:manage` — accounting does not manage assets.
+ *   - `inventory-manager` (NEW system role) — `inventory:access` +
+ *     `asset:manage`, entity-conditioned. NOT `ledger:manage`.
+ *   - `employee` — nothing: inventory access is fully admin-assigned (AC-9.6).
+ *     An employee's own devices are reached through the ungated `/me/*`
+ *     routes (ADR-0045), which need no grant.
+ *
+ * Idempotent and non-destructive: each (role, resource, action) grant is
+ * created only when absent ({@link ensureGrant}), so a re-seed at every
+ * deploy never duplicates a row and never resets conditions an admin has
+ * since edited through the specs/004 GUI, and it never touches a grant it
+ * does not own (refund's). The `accounting` role is upserted defensively, as
+ * in {@link seedAccountingRoleGrants}, so the seed is safe in any order.
+ */
+export async function seedInventoryGrants(): Promise<void> {
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(adminRole.id, "asset", "manage");
+  await ensureGrant(adminRole.id, "ledger", "manage");
+
+  const accountingRole = await db.role.upsert({
+    where: { name: ACCOUNTING_ROLE_NAME },
+    update: {},
+    create: { name: ACCOUNTING_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(accountingRole.id, INVENTORY_APP_ID, "access");
+  await ensureGrant(
+    accountingRole.id,
+    "ledger",
+    "manage",
+    REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+  );
+
+  const managerRole = await db.role.upsert({
+    where: { name: INVENTORY_MANAGER_ROLE_NAME },
+    update: {},
+    create: {
+      name: INVENTORY_MANAGER_ROLE_NAME,
+      description: "Inventory Manager — registers and assigns hardware assets, within their own entity",
+      isSystem: true,
+    },
+  });
+  await ensureGrant(managerRole.id, INVENTORY_APP_ID, "access");
+  await ensureGrant(
+    managerRole.id,
+    "asset",
+    "manage",
+    REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+  );
+}
+
 /**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
  * seed leaves `admin` with zero permission rules, so even the bootstrap admin
@@ -476,11 +581,13 @@ export async function seed(): Promise<void> {
   await seedAppAccessCatalog();
   await seedEstimaiCatalog();
   await seedRefundCatalog();
+  await seedInventoryCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
   await seedRateAdminGrants();
   await seedSettingsAdminGrants();
+  await seedInventoryGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -559,7 +666,8 @@ if (import.meta.main) {
       console.log(
         "Seeded system roles + suite app-access catalog + EstimAI catalog + refund catalog " +
           "+ admin app-access grants + accounting refund grants + refund-admin role + " +
-          "rate admin grants + settings admin grants + bootstrap admin",
+          "rate admin grants + settings admin grants + inventory catalog + inventory grants " +
+          "+ bootstrap admin",
       );
       process.exit(0);
     })
