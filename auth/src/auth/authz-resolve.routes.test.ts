@@ -190,6 +190,52 @@ describe("GET /authz/resolve (T1, specs/007-refund-service)", () => {
     expect(body.jobTitle).toBeNull();
   });
 
+  test("a soft-deleted caller's still-valid token resolves to no permissions and no attributes (ADR-0012 escalation path)", async () => {
+    const role = await makeRole("soft-deleted");
+    await db.permissionRule.create({
+      data: { roleId: role.id, resource: "inventory", action: "access" },
+    });
+    const { userId, token } = await mintTokenForNewUser("soft-deleted", {
+      entity: "welld_ch",
+      jobTitle: "Accountant",
+    });
+    await db.userRole.create({ data: { userId, roleId: role.id } });
+
+    const before = await resolveRouter.request("/authz/resolve", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(((await before.json()) as { permissions: unknown[] }).permissions).toContainEqual({
+      resource: "inventory",
+      action: "access",
+      conditions: null,
+    });
+
+    // Soft delete as the admin route does it: the role rows are retained.
+    await db.user.update({
+      where: { id: userId },
+      data: { deletedAt: new Date(), permissionEpoch: { increment: 1 } },
+    });
+
+    const res = await resolveRouter.request("/authz/resolve", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      sub: string;
+      epoch: number;
+      permissions: unknown[];
+      entity: string | null;
+      jobTitle: string | null;
+    };
+    expect(body.sub).toBe(userId);
+    expect(body.epoch).toBe(1);
+    expect(body.permissions).toEqual([]);
+    expect(body.entity).toBeNull();
+    expect(body.jobTitle).toBeNull();
+    expect(await db.userRole.count({ where: { userId, roleId: role.id } })).toBe(1);
+  });
+
   test("a token for user A can NEVER return user B's resolution — sub is always the token's own caller, no id parameter exists", async () => {
     const roleA = await makeRole("caller-a");
     const roleB = await makeRole("caller-b");

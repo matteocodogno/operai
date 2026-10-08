@@ -115,10 +115,25 @@ resolveRouter.openapi(getResolveRoute, async (c) => {
   const [profile, permissions] = await Promise.all([
     db.user.findUniqueOrThrow({
       where: { id: callerId },
-      select: { permissionEpoch: true, entity: true, jobTitle: true },
+      select: { permissionEpoch: true, entity: true, jobTitle: true, deletedAt: true },
     }),
     Effect.runPromise(resolveEffectivePermissions(callerId)),
   ]);
+
+  // A soft-deleted caller resolves to NOTHING. Deletion keeps the user's
+  // `user_role`/`user_department` rows (ADR-0012), so the resolver alone
+  // would still return every grant for as long as an already-issued JWT
+  // lives. This is ADR-0012's named escalation path, applied at the one
+  // place every authorization-enforcing resource server asks. Answered as a
+  // 200 with no grants, never a 401/403: resource servers turn any non-2xx
+  // from this route into their fail-closed 503 (ADR-0014), which would report
+  // a removed user as an `auth` outage instead of denying them.
+  if (profile.deletedAt !== null) {
+    return c.json(
+      { sub: callerId, epoch: profile.permissionEpoch, permissions: [], entity: null, jobTitle: null },
+      200,
+    );
+  }
 
   // Re-shape into plain (non-readonly) objects — see authz.routes.ts's
   // identical comment: the resolver's types are `readonly` by design, but

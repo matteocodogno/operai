@@ -16,3 +16,7 @@ gains the inventory permission catalog, a scoped service-token endpoint and a ca
 user directory. `notify-api` accepts the scoped service JWT on `/system/notifications` and a new
 `inventory` origin app, which `notify-ui` renders. New environment variables must be set before
 deploying: see `infra/README.md` § `inventory-api` service.
+
+`auth GET /authz/resolve` now returns no permissions for a soft-deleted user, so a removed
+user loses access to `refund-api` and `inventory-api` within 30 seconds instead of keeping it
+until their token expires.

@@ -80,6 +80,14 @@ sessions but does not attempt to invalidate already-issued JWTs.
    insider racing their own token's expiry) judged low today. A lightweight `sub`/epoch liveness
    check at resource servers — or shortening JWT TTL — is named as the escalation path, not
    built here, if the regulated-data posture the suite is heading toward ever demands it.
+   **Amended 2026-10-08 (specs/015 security review, finding M2):** the window is now closed for
+   the authorization-enforcing resource servers (`refund-api`, `inventory-api`).
+   `auth GET /authz/resolve` returns no permissions and no attributes for a soft-deleted
+   caller, so every capability-gated route answers 403 as soon as the resource server's
+   resolve cache entry expires (30 s TTL, ADR-0014). It answers 200 with an empty set, not a
+   401, because those servers turn any non-2xx from the route into their fail-closed 503. The
+   window is **unchanged** wherever a valid JWT alone is enough: `estimai-api`, `notify-api`,
+   and `inventory-api`'s `/me/*` routes (ADR-0045).
 
 ## Options considered
 

@@ -39,7 +39,7 @@
     { "agent": "quality-engineer", "class": "ports", "detail": "another local project holds ports 5173, 8080 and 8081", "resolved_by": "alternate ports via E2E_SHELL_PORT; mise run dev not exercised" },
     { "agent": "quality-engineer", "class": "credential stores", "detail": "1Password commit signing failed twice for the T45 commit; signing was not bypassed", "resolved_by": "orchestrator retried with normal signing and it succeeded" },
     { "agent": "orchestrator", "class": "caches and tool state", "detail": "the plugin's stop hook leaves pnpm-lock.yaml and pnpm-workspace.yaml in the Bun services", "resolved_by": "deleted after each agent; never committed" },
-    { "agent": "orchestrator", "class": "pre-existing", "detail": "notify-api full suite fails by test-order pollution of DATABASE_URL; refund-api has 3 order-dependent failures; auth typecheck has one error in test-auth.routes.ts; estimai-ui resolves react 19.2.4; three shell e2e specs use a stale Refund label", "resolved_by": "unresolved - outside this feature" }
+    { "agent": "orchestrator", "class": "pre-existing", "detail": "notify-api full suite fails by test-order pollution of DATABASE_URL; refund-api has 3 order-dependent failures; auth typecheck has one error in test-auth.routes.ts; estimai-ui resolved react 19.2.4 (aligned to 19.2.7 after the run); three shell e2e specs use a stale Refund label", "resolved_by": "unresolved - outside this feature" }
   ],
   "verdicts": {
     "security": "FAIL",
@@ -50,7 +50,7 @@
     "dispatched": true,
     "notes": [
       "M1 (unbounded fiscal-year close) fixed for years after the current one in da898e8; closing the current year is still allowed pending a spec decision",
-      "M2 (a soft-deleted user keeps permissions via /authz/resolve for the 7-day JWT lifetime) is open: pre-existing auth behaviour under ADR-0012, neither fixed nor accepted by the user",
+      "M2 (a soft-deleted user keeps permissions via /authz/resolve for the 7-day JWT lifetime) fixed on the user's instruction after the run: /authz/resolve returns no permissions for a soft-deleted caller; ADR-0012 amended",
       "L1, L2, L3, L7 fixed; L4 (future dates), L5 (self-assignment), L6 (X-Forwarded-For rate-limit key) open"
     ]
   },
