@@ -117,6 +117,28 @@ Cross-service invariants (Layer B) — the ones no single schema can see:
 | Public URLs (`AUTH_ISSUER`, `BETTER_AUTH_URL`, `UI_HOME_URL`, `REFUND_APP_BASE_URL`) are `https://` public — never localhost/`.railway.internal` in prod | the `iss`-internal trap |
 | `ALLOWED_ORIGINS` ⊇ every frontend origin the backend serves (CORS) | admin-ui origin missing on refund-api → CORS |
 
+Added with specs/015-hardware-inventory (service tokens, `inventory-api`):
+
+| Invariant | Bug it catches |
+|---|---|
+| `SERVICE_AUDIENCE` identical across `auth` + `notify-api` | service tokens rejected by notify-api (the push silently 401s) |
+| `SERVICE_AUDIENCE` != `AUTH_AUDIENCE` on the same service (also when both are the same `${{shared.X}}` reference) | a service token valid on user routes / a user JWT valid on `/system/notifications` (both services exit at startup) |
+| `inventory-api` `SERVICE_CLIENT_ID` is a key of `auth`'s `SERVICE_CLIENTS` JSON, the entry's secret equals `SERVICE_CLIENT_SECRET`, the entry carries `notifications.push`, id/secret shapes valid | token endpoint answers 401 to inventory-api |
+| `inventory-api` must not hold `NOTIFY_INTERNAL_TOKEN` | a fourth holder of the shared token (ADR-0040 hard stop) |
+| `*_S3_ENDPOINT` host vs `*_S3_EU_ENDPOINT_HOSTS` (non-AWS) or an EU region (AWS), for `refund-api` and `inventory-api` | service refuses to start (data residency) |
+| `SERVICE_AUDIENCE` (auth, notify-api) and `SERVICE_CLIENTS` (auth) are required keys | optional in `env.ts`, but unset silently disables the push |
+
+What it cannot express: two *different* `${{shared.X}}` references (e.g. `SERVICE_AUDIENCE`
+vs `AUTH_AUDIENCE`) or a reference vs a literal cannot be compared offline — that is a
+warning for the secret match and silent for the distinctness check; use `--dir` with resolved
+files or `--live` to compare real values. `SERVICE_CLIENTS` that is wholly a reference (not
+JSON) is deferred. The inventory bucket name and the S3 credentials are set directly on
+Railway and are not in the template, so their presence is not checked (the service's own
+`env.ts` exits at startup). Bucket CORS and the shell CSP are not env state. Secret values
+are never printed: findings carry names, lengths and yes/no outcomes only, and
+`SERVICE_CLIENTS`, `SERVICE_CLIENT_SECRET` and `INVENTORY_S3_*` credentials are in
+`SECRET_VARS` so `--live` redacts them.
+
 A Railway `${{svc.…}}` reference is accepted as self-consistent (Railway resolves
 it, so it can't drift). A secret reference (`op://…`/`${OP:…}`) that survives a
 run you asked to be **resolved** (`--dir`, or `--resolve`) is a **warning**.

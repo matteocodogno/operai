@@ -28,11 +28,13 @@ export const SERVICES = {
   "estimai-api": { platform: "railway", kind: "backend" },
   "notify-api": { platform: "railway", kind: "backend" },
   "refund-api": { platform: "railway", kind: "backend" },
+  "inventory-api": { platform: "railway", kind: "backend" },
   shell: { platform: "vercel", kind: "frontend" },
   "estimai-ui": { platform: "vercel", kind: "frontend" },
   "refund-ui": { platform: "vercel", kind: "frontend" },
   "notify-ui": { platform: "vercel", kind: "frontend" },
   "admin-ui": { platform: "vercel", kind: "frontend" },
+  "inventory-ui": { platform: "vercel", kind: "frontend" },
 } as const satisfies Record<string, ServiceDef>;
 
 export type ServiceName = keyof typeof SERVICES;
@@ -52,6 +54,8 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "refund-ui": null, // TODO: confirm the real Vercel prod origin
     "notify-ui": null,
     "estimai-ui": null,
+    // ASSUMED (matches the shell CSP in shell/vercel.json) — confirm the real Vercel domain.
+    "inventory-ui": "https://inventory.operai.welld.io",
   },
   preview: {
     // Vercel preview URLs are per-deploy; usually validated via the live-diff
@@ -63,13 +67,82 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "refund-ui": "http://localhost:5175",
     "notify-ui": "http://localhost:5176",
     "admin-ui": "http://localhost:5177",
+    "inventory-ui": "http://localhost:5178",
   },
 };
 
 /** Vars that MUST hold a byte-for-byte identical value across the listed services. */
 export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api"] },
+  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"] },
   { name: "NOTIFY_INTERNAL_TOKEN", services: ["auth", "notify-api", "refund-api"] },
+  // The `aud` auth stamps on scoped service JWTs and notify-api verifies (ADR-0044).
+  { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api"] },
+];
+
+/**
+ * Pairs of vars that must hold DIFFERENT values on the same service. A service
+ * token must be useless on every user route and a user JWT useless on every
+ * system route, which holds only while the two audiences differ (ADR-0044);
+ * `auth` and `notify-api` each refuse to start when they are equal, and this
+ * catches it before the deploy. Compared only where both values are concrete
+ * (a literal, or resolved by --resolve/--dir/--live) — two different
+ * `${{shared.X}}` references cannot be compared offline.
+ */
+export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: ServiceName[]; why: string }> = [
+  {
+    a: "SERVICE_AUDIENCE",
+    b: "AUTH_AUDIENCE",
+    services: ["auth", "notify-api"],
+    why: "a service token would be accepted on user routes and a user JWT on /system/notifications (ADR-0044)",
+  },
+];
+
+/**
+ * Vars a service must NOT hold. `inventory-api` is the fourth notify caller and
+ * authenticates with a scoped service JWT instead of the shared internal token;
+ * ADR-0040's hard stop forbids a fourth holder of NOTIFY_INTERNAL_TOKEN.
+ */
+export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName[]; why: string }> = [
+  {
+    name: "NOTIFY_INTERNAL_TOKEN",
+    services: ["inventory-api"],
+    why: "ADR-0040 hard stop / ADR-0044: the fourth notify caller uses a scoped service JWT, never the shared token",
+  },
+];
+
+/**
+ * Service-token client credentials (ADR-0044). `auth.SERVICE_CLIENTS` is a JSON
+ * object keyed by client id; each caller's own id + secret vars must match its
+ * entry, and the entry must carry the scope the receiving service requires.
+ */
+export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
+  caller: ServiceName;
+  idVar: string;
+  secretVar: string;
+  registry: { service: ServiceName; var: string };
+  requiredScope: string;
+}> = [
+  {
+    caller: "inventory-api",
+    idVar: "SERVICE_CLIENT_ID",
+    secretVar: "SERVICE_CLIENT_SECRET",
+    registry: { service: "auth", var: "SERVICE_CLIENTS" },
+    requiredScope: "notifications.push",
+  },
+];
+
+/**
+ * Object-storage residency, mirrored from each service's `src/lib/s3Residency.ts`
+ * (the authoritative check, run at startup): an AWS endpoint needs an EU region,
+ * any other endpoint needs its host to match the operator-declared EU host list.
+ */
+export const S3_RESIDENCY: ReadonlyArray<{ service: ServiceName; prefix: string }> = [
+  { service: "refund-api", prefix: "REFUND_S3" },
+  { service: "inventory-api", prefix: "INVENTORY_S3" },
+];
+export const EU_AWS_REGIONS: ReadonlyArray<string> = [
+  "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-central-2",
+  "eu-north-1", "eu-south-1", "eu-south-2",
 ];
 
 /**
@@ -80,7 +153,7 @@ export const ISSUER = {
   authService: "auth" as ServiceName,
   authVar: "BETTER_AUTH_URL",
   issuerVar: "AUTH_ISSUER",
-  resourceServers: ["estimai-api", "notify-api", "refund-api"] as ServiceName[],
+  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api"] as ServiceName[],
 };
 
 /**
@@ -94,14 +167,14 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   services: ServiceName[];
   target: ServiceName;
 }> = [
-  { name: "AUTH_JWKS_URL", services: ["estimai-api", "notify-api", "refund-api"], target: "auth" },
-  { name: "AUTH_BASE_URL", services: ["refund-api"], target: "auth" },
-  { name: "NOTIFY_INTERNAL_URL", services: ["auth", "refund-api"], target: "notify-api" },
+  { name: "AUTH_JWKS_URL", services: ["estimai-api", "notify-api", "refund-api", "inventory-api"], target: "auth" },
+  { name: "AUTH_BASE_URL", services: ["refund-api", "inventory-api"], target: "auth" },
+  { name: "NOTIFY_INTERNAL_URL", services: ["auth", "refund-api", "inventory-api"], target: "notify-api" },
 ];
 
 /** Browser-facing / identity-claim URLs — must stay PUBLIC (`https://`, not localhost/internal in prod). */
 export const PUBLIC_URL_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_ISSUER", services: ["estimai-api", "notify-api", "refund-api"] },
+  { name: "AUTH_ISSUER", services: ["estimai-api", "notify-api", "refund-api", "inventory-api"] },
   { name: "BETTER_AUTH_URL", services: ["auth"] },
   { name: "UI_HOME_URL", services: ["auth"] },
   { name: "REFUND_APP_BASE_URL", services: ["refund-api"] },
@@ -114,6 +187,8 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
   { backend: "notify-api", mustAllow: ["shell"] },
   // refund-api additionally serves admin-ui's DIRECT cross-origin /rates + /settings calls (ADR-0023).
   { backend: "refund-api", mustAllow: ["shell", "admin-ui"] },
+  // inventory-ui is a remote reached through the shell, so the browser Origin is the shell's (ADR-0006).
+  { backend: "inventory-api", mustAllow: ["shell"] },
 ];
 
 /**
@@ -126,15 +201,28 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   auth: [
     "DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "AUTH_AUDIENCE",
     "ALLOWED_ORIGINS", "UI_HOME_URL", "NOTIFY_INTERNAL_URL", "NOTIFY_INTERNAL_TOKEN", "PORT",
+    // Optional in auth's env.ts, required by the contract: without them the
+    // service-token endpoint authenticates nobody and inventory's push is silently dead.
+    "SERVICE_AUDIENCE", "SERVICE_CLIENTS",
   ],
   "estimai-api": ["DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE", "PORT"],
   "notify-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE",
     "NOTIFY_INTERNAL_TOKEN", "PORT",
+    // Optional in notify-api's env.ts (unset disables the service-JWT path, fail closed), required by the contract.
+    "SERVICE_AUDIENCE",
   ],
   "refund-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
     "NOTIFY_INTERNAL_URL", "NOTIFY_INTERNAL_TOKEN", "REFUND_APP_BASE_URL", "PORT",
+  ],
+  // The S3 bucket name and both credentials are set directly on the Railway service (no
+  // 1Password item yet), so the committed template omits them and they are not required here;
+  // inventory-api's own src/lib/env.ts is the authority and exits at startup without them.
+  "inventory-api": [
+    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
+    "NOTIFY_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET",
+    "INVENTORY_S3_ENDPOINT", "INVENTORY_S3_REGION", "INVENTORY_S3_EU_ENDPOINT_HOSTS", "PORT",
   ],
 };
 
@@ -155,6 +243,10 @@ export const SECRET_VARS: ReadonlySet<string> = new Set([
   "RESEND_API_KEY",
   "REFUND_S3_ACCESS_KEY_ID",
   "REFUND_S3_SECRET_ACCESS_KEY",
+  "SERVICE_CLIENTS", // JSON carrying every service client's secret (auth)
+  "SERVICE_CLIENT_SECRET", // inventory-api's half of that secret
+  "INVENTORY_S3_ACCESS_KEY_ID",
+  "INVENTORY_S3_SECRET_ACCESS_KEY",
 ]);
 export const isSecretVar = (name: string): boolean => SECRET_VARS.has(name);
 

@@ -10,11 +10,16 @@ import { createHash } from "node:crypto";
 import {
   BACKENDS,
   CORS_REQUIREMENTS,
+  DISTINCT_VARS,
+  EU_AWS_REGIONS,
+  FORBIDDEN_VARS,
   INTERNAL_URL_VARS,
   ISSUER,
   ORIGINS,
   PUBLIC_URL_VARS,
   REQUIRED_KEYS,
+  S3_RESIDENCY,
+  SERVICE_CLIENT_LINKS,
   SHARED_VARS,
   isRailwayRef,
   isSecretRef,
@@ -297,6 +302,191 @@ function checkCors(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   return out;
 }
 
+const isEmpty = (v: string | undefined): v is undefined => v === undefined || v === "";
+/** A concrete value: neither a Railway reference nor a secret-store reference (so it can be compared or measured). */
+const isConcrete = (v: string): boolean => !isRailwayRef(v) && !isSecretRef(v);
+
+// ── Layer B6: pairs that must DIFFER (SERVICE_AUDIENCE vs AUTH_AUDIENCE) ─────
+function checkDistinctVars(suite: SuiteEnv): Finding[] {
+  const out: Finding[] = [];
+  for (const { a, b, services, why } of DISTINCT_VARS) {
+    for (const svc of services) {
+      const va = suite[svc]?.[a];
+      const vb = suite[svc]?.[b];
+      if (isEmpty(va) || isEmpty(vb)) continue; // missing is caught by Layer A
+      // Textually identical covers two equal literals AND the same reference written twice.
+      if (va === vb) {
+        out.push({
+          scope: svc,
+          level: "error",
+          message: `${svc}.${a} must differ from ${svc}.${b} but they are the same (${showValue(a, va)}) — ${why}`,
+          fix: `Give ${a} its own value, distinct from ${b}.`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// ── Layer B7: vars a service must not hold ──────────────────────────────────
+function checkForbiddenVars(suite: SuiteEnv): Finding[] {
+  const out: Finding[] = [];
+  for (const { name, services, why } of FORBIDDEN_VARS) {
+    for (const svc of services) {
+      if (!isEmpty(suite[svc]?.[name])) {
+        out.push({
+          scope: svc,
+          level: "error",
+          message: `${svc} must not hold ${name} — ${why}`,
+          fix: `Remove ${name} from ${svc}.`,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// ── Layer B8: service-token client credentials match auth's registry ─────────
+// Values are NEVER put in a message: only names, lengths and yes/no outcomes.
+const CLIENT_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+function checkServiceClients(suite: SuiteEnv): Finding[] {
+  const out: Finding[] = [];
+  for (const link of SERVICE_CLIENT_LINKS) {
+    const callerEnv = suite[link.caller];
+    const regEnv = suite[link.registry.service];
+    if (!callerEnv || !regEnv) continue; // a side is out of scope for this run
+    const id = callerEnv[link.idVar];
+    const secret = callerEnv[link.secretVar];
+    const raw = regEnv[link.registry.var];
+    const regName = `${link.registry.service}.${link.registry.var}`;
+    if (isEmpty(id) || isEmpty(secret) || isEmpty(raw)) continue; // missing is caught by Layer A
+
+    if (isConcrete(id) && (id.length > 64 || !CLIENT_ID_PATTERN.test(id))) {
+      out.push({
+        scope: link.caller,
+        level: "error",
+        message: `${link.idVar} is not a valid client id (lower-case alphanumerics and single hyphens, at most 64 chars)`,
+      });
+    }
+    if (isConcrete(secret) && secret.length < 32) {
+      out.push({
+        scope: link.caller,
+        level: "error",
+        message: `${link.secretVar} is shorter than 32 characters (length ${secret.length})`,
+        fix: `Generate a random secret of at least 32 characters.`,
+      });
+    }
+
+    let registry: unknown;
+    try {
+      registry = JSON.parse(raw);
+    } catch {
+      // A whole-value reference (${{shared.X}} / ${OP:…}) cannot be read offline; anything else is malformed.
+      if (isRailwayRef(raw) || isSecretRef(raw)) continue;
+      out.push({ scope: link.registry.service, level: "error", message: `${regName} is not valid JSON` });
+      continue;
+    }
+    if (typeof registry !== "object" || registry === null || Array.isArray(registry)) {
+      out.push({ scope: link.registry.service, level: "error", message: `${regName} must be a JSON object keyed by client id` });
+      continue;
+    }
+    const entry = Object.hasOwn(registry, id) ? (registry as Record<string, unknown>)[id] : undefined;
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      out.push({
+        scope: XS,
+        level: "error",
+        message: `${regName} has no entry for client id "${id}" (${link.caller}.${link.idVar}) — the token endpoint would answer 401 to ${link.caller}`,
+        fix: `Add an entry for "${id}" to ${regName}.`,
+      });
+      continue;
+    }
+    const { secret: regSecret, scope } = entry as { secret?: unknown; scope?: unknown };
+    if (typeof regSecret !== "string" || regSecret === "") {
+      out.push({ scope: link.registry.service, level: "error", message: `${regName} entry "${id}" has no secret` });
+    } else if (regSecret === secret) {
+      // identical text: the same literal or the same reference — drift-proof by construction
+    } else if (isConcrete(regSecret) && isConcrete(secret)) {
+      out.push({
+        scope: XS,
+        level: "error",
+        message: `${link.caller}.${link.secretVar} does not match the secret in ${regName} entry "${id}" — the token endpoint would answer 401 to ${link.caller}`,
+        fix: `Make the two byte-for-byte identical (ideally one shared reference used in both).`,
+      });
+    } else {
+      out.push({
+        scope: XS,
+        level: "warn",
+        message: `${link.caller}.${link.secretVar} and the secret in ${regName} entry "${id}" are written differently (reference vs literal, or two references) — can't verify they match offline`,
+        fix: `Use the SAME reference in both, or run --resolve / --live to compare real values.`,
+      });
+    }
+    if (typeof regSecret === "string" && isConcrete(regSecret) && (regSecret.length < 32 || regSecret.length > 256)) {
+      out.push({
+        scope: link.registry.service,
+        level: "error",
+        message: `${regName} entry "${id}" secret must be 32–256 characters (length ${regSecret.length})`,
+      });
+    }
+    const scopes = typeof scope === "string" ? scope.split(/\s+/).filter(Boolean) : [];
+    if (!scopes.includes(link.requiredScope)) {
+      out.push({
+        scope: link.registry.service,
+        level: "error",
+        message: `${regName} entry "${id}" lacks the "${link.requiredScope}" scope`,
+        fix: `Set "scope":"${link.requiredScope}" on that entry.`,
+      });
+    }
+  }
+  return out;
+}
+
+// ── Layer B9: object-storage residency (mirrors each service's s3Residency.ts) ──
+function checkS3Residency(suite: SuiteEnv): Finding[] {
+  const out: Finding[] = [];
+  for (const { service, prefix } of S3_RESIDENCY) {
+    const env = suite[service];
+    if (!env) continue;
+    const endpoint = env[`${prefix}_ENDPOINT`];
+    const region = env[`${prefix}_REGION`];
+    const hostsRaw = env[`${prefix}_EU_ENDPOINT_HOSTS`];
+    if (isEmpty(endpoint) || !isConcrete(endpoint)) continue;
+    const url = parseUrl(endpoint);
+    if (!url) {
+      out.push({ scope: service, level: "error", message: `${prefix}_ENDPOINT is not a valid URL` });
+      continue;
+    }
+    const host = url.hostname.toLowerCase();
+    if (host.endsWith(".amazonaws.com")) {
+      if (!isEmpty(region) && isConcrete(region) && !EU_AWS_REGIONS.includes(region)) {
+        out.push({
+          scope: service,
+          level: "error",
+          message: `${prefix}_REGION "${region}" is not an EU AWS region (data residency)`,
+          fix: `Use one of ${EU_AWS_REGIONS.join(", ")}.`,
+        });
+      }
+      continue;
+    }
+    if (!isEmpty(hostsRaw) && !isConcrete(hostsRaw)) continue;
+    const hosts = (hostsRaw ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+    if (hosts.length === 0) {
+      out.push({
+        scope: service,
+        level: "error",
+        message: `${prefix}_ENDPOINT is a non-AWS host (${host}) but ${prefix}_EU_ENDPOINT_HOSTS is empty — residency cannot be verified, the service refuses to start (data residency)`,
+        fix: `Set ${prefix}_EU_ENDPOINT_HOSTS to the EU endpoint host suffix(es).`,
+      });
+    } else if (!hosts.some((h) => host === h || host.endsWith(`.${h}`))) {
+      out.push({
+        scope: service,
+        level: "error",
+        message: `${prefix}_ENDPOINT host ${host} matches no entry of ${prefix}_EU_ENDPOINT_HOSTS (${hosts.join(", ")}) — the service refuses to start (data residency)`,
+      });
+    }
+  }
+  return out;
+}
+
 export function checkSuite(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   return [
     ...checkRequiredKeys(suite, opts),
@@ -305,6 +495,10 @@ export function checkSuite(suite: SuiteEnv, opts: CheckOptions): Finding[] {
     ...checkInternalUrls(suite, opts),
     ...checkPublicUrls(suite, opts),
     ...checkCors(suite, opts),
+    ...checkDistinctVars(suite),
+    ...checkForbiddenVars(suite),
+    ...checkServiceClients(suite),
+    ...checkS3Residency(suite),
   ];
 }
 
