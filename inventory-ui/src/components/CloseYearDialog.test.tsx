@@ -125,6 +125,27 @@ describe('CloseYearDialog — closing', () => {
     expect(screen.getByRole('alertdialog')).not.toBeNull()
   })
 
+  it('year_in_future: says the year cannot be closed yet, inline, dialog stays open', async () => {
+    closeFiscalYear.mockRejectedValue(
+      new ApiError({ status: 409, title: 'x', code: 'year_in_future', detail: 'year_in_future', extras: { year: 2027 } }),
+    )
+    const { onClosed } = setup()
+    acknowledge()
+    fireEvent.click(confirm())
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('2027 is in the future and cannot be closed yet.')
+    expect(screen.getByRole('alertdialog')).not.toBeNull()
+    expect(onClosed).not.toHaveBeenCalled()
+  })
+
+  it('year_in_future without the year member falls back on the dialog year', async () => {
+    closeFiscalYear.mockRejectedValue(problem(409, 'year_in_future'))
+    setup()
+    acknowledge()
+    fireEvent.click(confirm())
+    expect((await screen.findByRole('alert')).textContent).toBe('2026 is in the future and cannot be closed yet.')
+  })
+
   it('already_closed: shows a conflict acknowledgement, then asks the page to refresh', async () => {
     closeFiscalYear.mockRejectedValue(problem(409, 'already_closed'))
     const { onStale, onClosed } = setup()

@@ -248,6 +248,8 @@ export const INVENTORY_ERROR_CODES = [
   'nothing_to_close',
   'invoice_ref_mismatch',
   'upload_not_found',
+  'year_in_future',
+  'too_many_pending_uploads',
 ] as const
 
 export type InventoryErrorCode = (typeof INVENTORY_ERROR_CODES)[number]
@@ -269,6 +271,8 @@ export type InventoryErrorExtras = {
   nothing_to_close: Record<never, never>
   invoice_ref_mismatch: { assetId?: string }
   upload_not_found: Record<never, never>
+  year_in_future: { year?: number }
+  too_many_pending_uploads: Record<never, never>
 }
 
 export type InventoryError = {
@@ -291,6 +295,8 @@ const EXTRA_TYPES: { [C in InventoryErrorCode]: Partial<Record<string, 'string' 
   nothing_to_close: {},
   invoice_ref_mismatch: { assetId: 'string' },
   upload_not_found: {},
+  year_in_future: { year: 'number' },
+  too_many_pending_uploads: {},
 }
 
 const isKnownCode = (code: string | undefined): code is InventoryErrorCode =>

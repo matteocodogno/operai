@@ -83,6 +83,7 @@ const uploadFailure = (error: unknown): string => {
   }
   const known = toInventoryError(error)
   if (known?.code === 'upload_not_found') return strings.errors.upload_not_found
+  if (known?.code === 'too_many_pending_uploads') return strings.errors.too_many_pending_uploads
   if (error instanceof ApiError) {
     if (error.status === 413) return strings.errors.tooLarge
     if (error.status === 415) return strings.errors.unsupportedType

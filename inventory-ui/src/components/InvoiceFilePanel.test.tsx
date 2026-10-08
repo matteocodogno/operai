@@ -201,6 +201,17 @@ describe('InvoiceFilePanel — upload (AC-10.4)', () => {
     expect(onChanged).not.toHaveBeenCalled()
   })
 
+  it('says too many uploads are pending on a 429 too_many_pending_uploads, with no bucket request', async () => {
+    sendJson.mockRejectedValue(apiError(429, 'too_many_pending_uploads'))
+    renderPanel()
+    choose(fileOf('inv.pdf', 'application/pdf'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Too many uploads are waiting to be completed. Try again in an hour.')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+
   it('shows the authorization-unavailable message on a 503', async () => {
     sendJson.mockRejectedValue(apiError(503))
     renderPanel()

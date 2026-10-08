@@ -21,7 +21,7 @@ import { fillTemplate } from '../strings/errors'
  *
  * Owns the one POST. Outcomes:
  *   - 201 -> `onClosed(view)` (the closed `FiscalYearView`; the page re-renders it);
- *   - `previous_year_open` / `nothing_to_close` -> inline in the dialog, which stays open;
+ *   - `previous_year_open` / `nothing_to_close` / `year_in_future` -> inline in the dialog, which stays open;
  *   - `already_closed` -> a conflict acknowledgement (`GuardrailDialog`) in place of
  *     the form, then `onStale()` so the page refetches;
  *   - 503 / network / anything else -> inline, dialog stays open, retry possible.
@@ -64,6 +64,9 @@ export default function CloseYearDialog({
     }
     if (known?.code === 'nothing_to_close') {
       return setErrorMessage(fillTemplate(strings.errors.nothing_to_close, { year }))
+    }
+    if (known?.code === 'year_in_future') {
+      return setErrorMessage(fillTemplate(strings.errors.year_in_future, { year: known.extras.year ?? year }))
     }
     if (error instanceof ApiError) {
       return setErrorMessage(error.status === 503 ? unavailable : (error.detail ?? strings.errors.unknown))

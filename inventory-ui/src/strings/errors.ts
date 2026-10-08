@@ -34,6 +34,8 @@ export const errors = {
   nothing_to_close: '{year} has no assets to close.',
   invoice_ref_mismatch: '{asset} has a different invoice reference and was not linked.',
   upload_not_found: 'The upload did not complete. Try again.',
+  year_in_future: '{year} is in the future and cannot be closed yet.',
+  too_many_pending_uploads: 'Too many uploads are waiting to be completed. Try again in an hour.',
 
   // --- Variants of a code, by where it is shown -----------------------------
   /** `fiscal_year_closed` on the edit dialog's price / purchase date: a banner, not a field error. */
