@@ -143,7 +143,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - touch: `inventory-api/src/history/history.routes.ts`, `inventory-api/src/history/history.schemas.ts`, `inventory-api/src/history/history.repo.ts`, `inventory-api/src/history/history.test.ts`
   - done when: `bun test history/history` passes: events come back oldest first with actor `Identity` and typed `changes`; for assign → confirm → return → assign → confirm the holder periods with start and end can be derived from the response alone; user ids in `holder` changes are returned as `Identity`; out-of-scope asset → 404; either capability may read.
 
-- [ ] T23: [backend] Legacy import script — refs: AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-12.6, AC-12.7, AC-12.8, AC-12.9 — deps: T8, T9
+- [x] T23: [backend] Legacy import script — refs: AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-12.6, AC-12.7, AC-12.8, AC-12.9 — deps: T8, T9
   - touch: `inventory-api/scripts/*`
   - `scripts/import-legacy.ts --file <xlsx> --user-map <json> --expected-opening-cents <n> [--dry-run]`. Parses text and serial dates; splits multi-unit rows with `splitPrice`; writes `asset_year_figure` rows `source='imported'` for every amount the sheet has (plan R-2) and `fiscal_year` rows for 2024 and 2025; marks assets `legacyImported`; applies the cession rows as 2026 disposals; exits non-zero and writes nothing unless Σ closing(2025) equals the argument. The user map is produced by hand from the directory; an assignee matching exactly one entry is imported `assigned` with a `confirmed` assignment, anything else goes to `locationNote` with `toVerify`. Actor `system:legacy-import`.
   - The fixture is synthetic — never commit the real sheet. Rows spec O5 leaves undecided are reported and skipped, not guessed.
