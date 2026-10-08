@@ -120,7 +120,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - `serviceToken.ts`: fetch from `auth POST /system/service-token`, cache until 60 s before expiry. `notify.ts`: after-commit, never throws, English copy from design § Shell touch points; links `/devices` (assignee) and `/inventory/assets/{id}` (manager).
   - done when: `bun test lib/serviceToken lib/notify assignments me` passes with `auth` and `notify-api` stubbed: create notifies the assignee; confirm and decline notify the creating manager with the outcome; the call happens after the transaction commits; a notify-api 500 or network error leaves the assignment committed and the route 2xx; the token is reused within its lifetime and refetched after expiry; neither token nor secret appears in any log line.
 
-- [ ] T18: [backend] Dispose (`POST /assets/{id}/dispose`) — refs: AC-7.1, AC-7.3, AC-7.4, AC-7.5, AC-7.6 — deps: T13, T14, T15
+- [x] T18: [backend] Dispose (`POST /assets/{id}/dispose`) — refs: AC-7.1, AC-7.3, AC-7.4, AC-7.5, AC-7.6 — deps: T13, T14, T15
   - touch: `inventory-api/src/ledger/dispose.routes.ts`, `inventory-api/src/ledger/dispose.schemas.ts`, `inventory-api/src/ledger/dispose.repo.ts`, `inventory-api/src/ledger/dispose.test.ts`
   - done when: `bun test ledger/dispose` passes: disposal from each non-disposed status sets `disposed` and clears the holder; pending assignment → 409 with `assignmentId`; closed-year date → 409; date before purchase → 422; sale price accepted only for `sold`/`ceded_to_employee`; afterwards every route of T13, T14, T15 on that asset → 409 `asset_disposed` and no route restores a status; `asset:manage`-only caller → 403.
 
