@@ -4,7 +4,7 @@
  * network.
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import {
   ENTITIES,
   assetInScope,
@@ -118,13 +118,73 @@ describe("scopeFor (AC-9.4, AC-9.5)", () => {
     expect(scopeFor(permissions, "ledger", "manage", "welld_ch")).toEqual([...ENTITIES]);
   });
 
-  it("a grant with attributes that are not the entity condition is not an entity restriction", () => {
-    const odd: ResolvedPermission = {
+  describe("an unrecognised condition contributes NOTHING (fails closed, unlike refund-api)", () => {
+    const withConditions = (conditions: ResolvedPermission["conditions"]): ResolvedPermission => ({
       resource: "asset",
       action: "manage",
-      conditions: { attributes: [{ key: "department", match: "user" }] },
-    };
-    expect(scopeFor([odd], "asset", "manage", "welld_ch")).toEqual([...ENTITIES]);
+      conditions,
+    });
+    const warn = spyOn(console, "warn");
+    beforeEach(() => warn.mockImplementation(() => {}));
+    afterEach(() => warn.mockReset());
+
+    it("a different attribute key", () => {
+      const odd = withConditions({ attributes: [{ key: "department", match: "user" }] });
+      expect(scopeFor([odd], "asset", "manage", "welld_ch")).toEqual([]);
+    });
+
+    it("the entity key with a match other than 'user'", () => {
+      const odd = withConditions({ attributes: [{ key: "entity", match: "any" }] });
+      expect(scopeFor([odd], "asset", "manage", "welld_ch")).toEqual([]);
+    });
+
+    it("an ownership condition", () => {
+      for (const ownership of ["own", "any"] as const) {
+        expect(scopeFor([withConditions({ ownership })], "asset", "manage", "welld_ch")).toEqual([]);
+      }
+    });
+
+    it("the entity condition next to an unrecognised one is not trusted either", () => {
+      const mixed = withConditions({
+        attributes: [
+          { key: "entity", match: "user" },
+          { key: "department", match: "user" },
+        ],
+      });
+      expect(scopeFor([mixed], "asset", "manage", "welld_ch")).toEqual([]);
+    });
+
+    it("a conditions object that restricts nothing (no ownership, no attributes) is unrestricted", () => {
+      expect(scopeFor([withConditions({})], "asset", "manage", "welld_ch")).toEqual([...ENTITIES]);
+      expect(scopeFor([withConditions({ attributes: [] })], "asset", "manage", null)).toEqual([...ENTITIES]);
+    });
+
+    it("widest wins still holds: an unconditioned grant alongside an unrecognised one covers both", () => {
+      const odd = withConditions({ attributes: [{ key: "department", match: "user" }] });
+      expect(scopeFor([odd, unconditioned("asset", "manage")], "asset", "manage", "welld_ch")).toEqual([...ENTITIES]);
+      expect(scopeFor([unconditioned("asset", "manage"), odd], "asset", "manage", "welld_ch")).toEqual([...ENTITIES]);
+    });
+
+    it("it adds nothing to a recognised entity grant of the same pair", () => {
+      const odd = withConditions({ attributes: [{ key: "department", match: "user" }] });
+      expect(scopeFor([odd, conditioned("asset", "manage")], "asset", "manage", "welld_it")).toEqual(["welld_it"]);
+    });
+
+    it("logs one warning per dropped grant, naming resource/action/keys and nothing about the caller", () => {
+      const odd = withConditions({ attributes: [{ key: "department", match: "user" }] });
+      scopeFor([odd], "asset", "manage", "welld_ch");
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]![0]);
+      expect(line).toContain("asset:manage");
+      expect(line).toContain("department");
+      expect(line).not.toContain("welld_ch");
+    });
+
+    it("recognised and unconditioned grants log nothing", () => {
+      scopeFor([conditioned("asset", "manage"), unconditioned("ledger", "manage")], "asset", "manage", "welld_ch");
+      scopeFor([unconditioned("ledger", "manage")], "ledger", "manage", "welld_ch");
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 
   it("returns entities in the fixed order whichever way they were reached", () => {

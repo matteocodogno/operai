@@ -42,6 +42,9 @@ const perm = (
 const ASSET = (scoped: boolean) => perm("asset", "manage", scoped);
 const LEDGER = (scoped: boolean) => perm("ledger", "manage", scoped);
 const ACCESS = perm("inventory", "access", false);
+const ODD_COND = { attributes: [{ key: "department", match: "user" }] };
+const ODD_ASSET: ResolvedPermission = { resource: "asset", action: "manage", conditions: ODD_COND };
+const ODD_LEDGER: ResolvedPermission = { resource: "ledger", action: "manage", conditions: ODD_COND };
 
 /** A caller with a valid token and a steerable `/authz/resolve` answer. */
 export interface Persona {
@@ -97,6 +100,10 @@ export const PERSONAS: readonly Persona[] = [
   // capability, covers nothing (R-7: fail closed, never "everything").
   persona("mgr-no-entity", [ACCESS, ASSET(true)], null, [], [], { hasAsset: true }),
   persona("led-no-entity", [ACCESS, LEDGER(true)], null, [], [], { hasLedger: true }),
+  // A grant carrying a condition inventory-api does not understand: holds the
+  // capability, covers nothing (fail closed - never "unrestricted").
+  persona("mgr-odd-condition", [ACCESS, ODD_ASSET], "welld_ch", [], [], { hasAsset: true }),
+  persona("led-odd-condition", [ACCESS, ODD_LEDGER], "welld_ch", [], [], { hasLedger: true }),
 ];
 
 /** A fully privileged caller while `auth /authz/resolve` is down. */
