@@ -170,6 +170,12 @@ Described above.
   different `aud`. Fallback: sign directly with `jose` using `JWT_PRIVATE_KEY`, the same key
   the JWKS publishes. Either way the `kid` and algorithm must match the JWKS so `notify-api`
   verifies without a new trust path.
+  **Resolved 2026-10-08 (T4):** the plugin does sign it, through the server-only
+  `auth.api.signJWT`, with the same rotating key and `kid` it publishes at `/auth/jwks` (the
+  URL every resource server's `AUTH_JWKS_URL` points at). The fallback above is wrong and
+  must not be built: `JWT_PRIVATE_KEY` is a separate static pair served at
+  `/.well-known/jwks.json`, so a token signed with it would not verify at `notify-api`.
+  `auth/src/auth/service-token.contract.test.ts` pins this.
 - **Credential confusion.** The "either credential" check could be copied onto a route that
   should not accept a service token, or the scope check omitted. Mitigation: contract tests
   asserting `/system/emails` rejects a service JWT, `/system/notifications` rejects a user JWT

@@ -43,18 +43,18 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Everything in plan § Data model: the eight models, the two partial unique indexes, the four `CHECK`s, the raising `BEFORE UPDATE/DELETE` triggers on `depreciation_rule`, `fiscal_year`, `asset_year_figure`, `asset_event`, and the two seeded launch rules (actor `system:launch-seed`).
   - done when: `bun run db:migrate` applies on an empty DB; `bun test immutability` proves a raw `UPDATE` and `DELETE` raise on each of the four tables, a `welld_ch`/`EUR` asset insert violates its `CHECK`, a second live asset with the same entity+serial is rejected while one after disposal is accepted, a second `pending` assignment on one asset is rejected, and both launch rules exist with the values of AC-5.1 / AC-5.4.
 
-- [ ] T3: [backend] `auth`: inventory permission catalog and seeded grants — refs: AC-9.1, AC-9.3, AC-9.4, AC-9.5, AC-9.6 — deps: none
+- [x] T3: [backend] `auth`: inventory permission catalog and seeded grants — refs: AC-9.1, AC-9.3, AC-9.4, AC-9.5, AC-9.6 — deps: none
   - touch: `auth/src/authz/catalogs/inventory.ts`, `auth/src/authz/catalogs/inventory.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`
   - Catalog per plan § Authorization model (`inventory:access`, `asset:manage` and `ledger:manage` with `supportedConditions: ["entity"]`). Seed: `admin` all three unconditioned; `accounting` gets `inventory:access` + `ledger:manage` with the entity condition; new system role `inventory-manager` gets `inventory:access` + `asset:manage` with the entity condition. `inventory` must not also be registered through `SUITE_APPS`.
   - done when: `cd auth && bun test catalogs/inventory seed` passes, asserting the catalog shape, each role's grants and conditions, idempotent re-seed, and that `GET /authz/resolve` for an `accounting` user returns `ledger:manage` with the entity attribute.
 
-- [ ] T4: [backend] `auth`: `POST /system/service-token` (scoped service JWT) — refs: AC-2.8, AC-2.9 — deps: none
+- [x] T4: [backend] `auth`: `POST /system/service-token` (scoped service JWT) — refs: AC-2.8, AC-2.9 — deps: none
   - touch: `auth/src/system/*`, `auth/src/lib/env.ts`, `auth/src/index.ts`, `auth/.env.example`
   - **Do the plan's R-4 early check first**: a contract test that a minted token verifies through `jose createRemoteJWKSet` against auth's JWKS with `audience: SERVICE_AUDIENCE`. If better-auth's jwt plugin cannot mint a non-user token with the same `kid`, sign with `jose` using `JWT_PRIVATE_KEY` (the plan's stated fallback) and say so in the task report.
   - Contract in plan § API contracts / `auth` and ADR-0044: client-credentials against `SERVICE_CLIENTS`, constant-time compare, identical 401 for unknown client and wrong secret, 5-minute RS256 token (`sub="system:<clientId>"`, `aud=SERVICE_AUDIENCE`, `scope` from the client entry), own rate-limit env pair.
   - done when: `cd auth && bun test system` passes: claims and expiry correct; unknown client and wrong secret return byte-identical 401 bodies; 429 with `Retry-After` past the limit; the token is rejected when verified with `audience: AUTH_AUDIENCE`; startup exits non-zero when `SERVICE_AUDIENCE` equals `AUTH_AUDIENCE`.
 
-- [ ] T5: [backend] `auth`: `GET /authz/users/directory` — refs: AC-2.1, AC-3.7 — deps: T3, T4
+- [x] T5: [backend] `auth`: `GET /authz/users/directory` — refs: AC-2.1, AC-3.7 — deps: T3, T4
   - touch: `auth/src/authz/directory.routes.ts`, `auth/src/authz/directory.routes.test.ts`, `auth/src/lib/env.ts`, `auth/src/index.ts`, `auth/.env.example`
   - Contract in plan § API contracts / `auth` and ADR-0047. Depends on T4 only because both edit `env.ts` and `index.ts`.
   - done when: `cd auth && bun test directory` passes: a holder of `asset:manage` gets active users of both entities, name-sorted, each with exactly `id`, `name`, `email`, `entity`; a soft-deleted user is absent; a caller without `asset:manage` (including one with only `ledger:manage`) gets 403; 429 past the limit.
