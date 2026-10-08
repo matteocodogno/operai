@@ -110,7 +110,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Assignee must resolve to an `active` identity (T9) or 422 `unknown_user`. Exposes an `afterCommit` hook point that T17 fills; no notification code here.
   - done when: `bun test assignments` passes: assigning an `in_stock` asset creates a `pending` row and leaves status `in_stock`; non-`in_stock` → 409 `invalid_transition`; second assign → 409 `assignment_pending`, including two concurrent requests; cancel → `cancelled` and assignable again; cancel of a non-pending → 409 `assignment_not_pending`; events recorded.
 
-- [ ] T16: [backend] `/me/*`: my devices, confirm, decline — refs: AC-2.3, AC-2.4, AC-2.6, AC-2.7, AC-4.1, AC-4.2, AC-4.4 — deps: T15
+- [x] T16: [backend] `/me/*`: my devices, confirm, decline — refs: AC-2.3, AC-2.4, AC-2.6, AC-2.7, AC-4.1, AC-4.2, AC-4.4 — deps: T15
   - touch: `inventory-api/src/me/me.routes.ts`, `inventory-api/src/me/me.repo.ts`, `inventory-api/src/me/me.schemas.ts`, `inventory-api/src/me/me.test.ts`
   - JWT only — these routes must **not** pass through `authzMiddleware` (ADR-0045). Own serializer; never reuse `AssetView`.
   - done when: `bun test me` passes: a user with zero grants gets their held devices and pending assignments, and `{devices:[],pending:[]}` when none; the response JSON has no key matching `/price|cents|ledger|schedule/i`; confirm → `confirmed`, asset `assigned`, caller is holder; decline → `declined`, asset `in_stock`, reassignable; another `sub` → 404; non-pending → 409; a pending row is unchanged after the clock is advanced 30 days; all of it passes with `auth /authz/resolve` unreachable.
