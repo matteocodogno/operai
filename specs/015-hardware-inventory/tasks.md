@@ -139,7 +139,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Port `refund-api/src/lib/{storage,s3Residency}.ts` (presigned POST capped at 10 MiB, pdf/jpeg/png; ~60 s presigned GET). Link rules per plan § Invoice files.
   - done when: `bun test invoices lib/storage` passes against MinIO: mint → upload → confirm → URL works for either capability in scope; `text/plain` → 415 and 11 MiB → 413 with no row left `stored`; one file linked to three assets is one `invoice_file` row; mismatching `invoiceRef` → 409; disposed asset → 409; re-link replaces the asset's link and keeps the old row; the asset's holder with no capability → 404; other-entity accountant → 404; `invoice_file_linked` events recorded.
 
-- [ ] T22: [backend] History route (`GET /assets/{id}/history`) — refs: AC-11.3, AC-11.4 — deps: T14, T16
+- [x] T22: [backend] History route (`GET /assets/{id}/history`) — refs: AC-11.3, AC-11.4 — deps: T14, T16
   - touch: `inventory-api/src/history/history.routes.ts`, `inventory-api/src/history/history.schemas.ts`, `inventory-api/src/history/history.repo.ts`, `inventory-api/src/history/history.test.ts`
   - done when: `bun test history/history` passes: events come back oldest first with actor `Identity` and typed `changes`; for assign → confirm → return → assign → confirm the holder periods with start and end can be derived from the response alone; user ids in `holder` changes are returned as `Identity`; out-of-scope asset → 404; either capability may read.
 
