@@ -304,6 +304,29 @@ describe("POST /assignments/{id}/cancel (AC-2.5)", () => {
     expect((await eventsOf(a.id)).filter((e) => e.action === "assignment_cancelled")).toHaveLength(1);
   });
 
+  it("cancelling on a disposed asset is 409 asset_disposed, not assignment_not_pending (T18)", async () => {
+    // The realistic case: an offer that was answered long ago, asset since disposed.
+    const a = await seed("disposed", { disposedOn: new Date("2026-06-01"), disposalReason: "scrapped" });
+    const answered = await db.assignment.create({
+      data: { assetId: a.id, assigneeUserId: "emp-1", createdByUserId: "mgr-1", status: "declined" },
+    });
+    // And a stray pending row: the disposed check wins over the CAS, nothing changes.
+    const b = await seed("disposed", { disposedOn: new Date("2026-06-01"), disposalReason: "scrapped" });
+    const stray = await db.assignment.create({
+      data: { assetId: b.id, assigneeUserId: "emp-1", createdByUserId: "mgr-1" },
+    });
+    for (const [asset, row, expected] of [
+      [a, answered, "declined"],
+      [b, stray, "pending"],
+    ] as const) {
+      const res = await cancel(row.id);
+      expect(res.status).toBe(409);
+      expect(await problemOf(res)).toMatchObject({ code: "asset_disposed", assetId: asset.id });
+      expect((await db.assignment.findUniqueOrThrow({ where: { id: row.id } })).status).toBe(expected);
+      expect(await eventsOf(asset.id)).toHaveLength(0);
+    }
+  });
+
   it("unknown id and an assignment on an out-of-scope asset are 404; an accountant is 403", async () => {
     const other = await seed("in_stock", { entity: "welld_it", currency: "EUR" });
     const p = await db.assignment.create({

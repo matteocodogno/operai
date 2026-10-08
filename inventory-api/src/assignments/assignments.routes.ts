@@ -80,7 +80,7 @@ const cancelRouteDef = createRoute({
   responses: {
     200: { description: "The asset, assignable again", content: { "application/json": { schema: AssetViewSchema } } },
     404: { description: "Unknown or out of scope" },
-    409: { description: "assignment_not_pending" },
+    409: { description: "assignment_not_pending | asset_disposed" },
   },
 });
 

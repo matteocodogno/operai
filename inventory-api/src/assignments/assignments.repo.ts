@@ -94,6 +94,13 @@ export async function cancelAssignment(input: { assignmentId: string; actor: Act
     if (!found) throw notFound("Assignment not found");
     await lockAsset(tx, found.assetId);
 
+    // After not-found/scope (the route), before the pending check: every T15
+    // route on a disposed asset answers asset_disposed, whatever the row says.
+    const asset = await tx.asset.findUniqueOrThrow({ where: { id: found.assetId }, select: { entity: true, status: true } });
+    if (asset.status === "disposed") {
+      throw conflict("asset_disposed", "A disposed asset accepts no further changes", { assetId: found.assetId });
+    }
+
     const cas = await tx.assignment.updateMany({
       where: { id: assignmentId, status: "pending" },
       data: { status: "cancelled", resolvedAt: new Date(), resolvedByUserId: actor.userId },
@@ -102,7 +109,6 @@ export async function cancelAssignment(input: { assignmentId: string; actor: Act
       throw conflict("assignment_not_pending", "This assignment is no longer pending");
     }
     const row = await tx.assignment.findUniqueOrThrow({ where: { id: assignmentId } });
-    const asset = await tx.asset.findUniqueOrThrow({ where: { id: row.assetId }, select: { entity: true } });
     await recordEvent(tx, {
       assetId: row.assetId,
       entity: asset.entity,
