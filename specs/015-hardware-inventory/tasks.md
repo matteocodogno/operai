@@ -129,7 +129,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Open year: computed from `yearFigure()` over the entity's assets. Closed year: read only from `fiscal_year` + `asset_year_figure`. `closable` = previous year closed, or the year of the entity's earliest purchase.
   - done when: `bun test fiscal-years/rollForward fiscal-years/read` passes: a property test over generated asset sets holds `closing = opening − disposals + purchases − depreciation`, every line equals the sum of the per-asset rows, and `opening(Y+1) = closing(Y)`; a sale price changes no line (AC-7.3 cross-check); per-asset rows carry `openingCents` and `purchaseCents`; out-of-scope entity → 404; with 2,000 assets the view answers in under 500 ms.
 
-- [ ] T20: [backend] Close a fiscal year — refs: AC-8.4, AC-8.5, AC-8.6, AC-8.7 — deps: T19
+- [x] T20: [backend] Close a fiscal year — refs: AC-8.4, AC-8.5, AC-8.6, AC-8.7 — deps: T19
   - touch: `inventory-api/src/fiscal-years/close.routes.ts`, `inventory-api/src/fiscal-years/close.repo.ts`, `inventory-api/src/fiscal-years/close.test.ts`
   - One transaction under `lockEntity`: verify sequence, write `asset_year_figure` rows and the `fiscal_year` row, record `fiscal_year_closed`.
   - done when: `bun test fiscal-years/close` passes: close writes the rows and the view (T19) now reads them; previous year open → 409 `previous_year_open`; second close → 409 `already_closed`; entity with no assets → 409 `nothing_to_close`; after closing, adding a rule and editing an open-year asset leave the closed year's response byte-identical; no route reopens (404/405); a register dated in that year racing the close ends as either "in the closed figures" or 409, never neither.
