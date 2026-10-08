@@ -19,6 +19,7 @@ import { fiscalYearCloseRouter } from "./fiscal-years/close.routes";
 import { invoicesRouter } from "./invoices/invoices.routes";
 import { historyRouter } from "./history/history.routes";
 import { requestLogger } from "./lib/logger";
+import { handleProblemError } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -66,6 +67,12 @@ setupOpenAPI(app);
 // ─── Global error handler (RFC 7807 Problem JSON) ───────────────────────────
 
 app.onError((err: Error, c: Context) => {
+  // A ProblemError is a deliberate, typed answer (409 fiscal_year_closed, …),
+  // not a fault: render it with its top-level `code`/extension members and do
+  // not log it as uncaught.
+  const problem = handleProblemError(err, c.req.path);
+  if (problem) return problem;
+
   console.error("[uncaught]", err);
 
   const status =

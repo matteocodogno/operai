@@ -66,7 +66,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
 
 ## inventory-api
 
-- [ ] T7: [backend] JWT + authorization middleware, entity scope, `GET /scope` — refs: AC-9.4, AC-9.5, AC-9.7 — deps: T1
+- [x] T7: [backend] JWT + authorization middleware, entity scope, `GET /scope` — refs: AC-9.4, AC-9.5, AC-9.7 — deps: T1
   - touch: `inventory-api/src/auth/*`, `inventory-api/src/authz/*`, `inventory-api/src/scope/*`, `inventory-api/src/test-support/testAuth.ts`
   - Port `refund-api/src/auth/{jwt,authz}.middleware.ts` and `src/authz/{resolveClient,conditions}.ts`. Add `scopeFor(permissions, resource, action, callerEntity) → Entity[]` and `assetInScope(asset, scope)`. `GET /scope` per plan (no capability required, through `authzMiddleware`).
   - done when: `bun test auth authz scope` passes: conditioned grant → `[user.entity]`; unconditioned → both; conditioned with null `user.entity` → `[]`; widest-wins across two grants; `auth` unreachable → 503 Problem JSON; cache keyed by `(sub, perm_epoch)`; `GET /scope` returns both lists for each case.
