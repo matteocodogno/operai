@@ -3,6 +3,7 @@ import { env } from "./lib/env";
 
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 import type { Context } from "hono";
 import { healthRouter } from "./health/health.routes";
 import { scopeRouter } from "./scope/scope.routes";
@@ -19,7 +20,7 @@ import { fiscalYearCloseRouter } from "./fiscal-years/close.routes";
 import { invoicesRouter } from "./invoices/invoices.routes";
 import { historyRouter } from "./history/history.routes";
 import { requestLogger } from "./lib/logger";
-import { handleProblemError } from "./lib/problem";
+import { handleProblemError, problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
 
 // Exported so the capability matrix (src/matrix.test.ts, T44) can read the
@@ -42,6 +43,19 @@ app.use(
 // bodies (data-residency constraint: financial figures and who holds which
 // device — see src/lib/logger.ts).
 app.use("*", requestLogger());
+
+// A global cap on request bodies (security review L7): every legitimate body
+// here is a small JSON document, so 64 KiB is generous. Refused as a 413
+// Problem before anything is parsed. `POST /invoice-files` keeps its own,
+// stricter 8 KiB cap (invoices.routes.ts).
+export const MAX_REQUEST_BODY_BYTES = 64 * 1024;
+app.use(
+  "*",
+  bodyLimit({
+    maxSize: MAX_REQUEST_BODY_BYTES,
+    onError: (c) => problem({ status: 413, detail: "Request body is too large" }, c.req.path),
+  }),
+);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
