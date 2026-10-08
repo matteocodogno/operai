@@ -444,7 +444,7 @@ Allowed transitions: `ordered→in_stock` (receive); `assigned→in_stock` (retu
 | `POST /rules` | `{ entity, effectiveFrom, usefulLifeYears, firstYearShare, lowValueThresholdCents: number \| null, residualCents }` | 201 `Rule` | 422 with `field`; 409 `fiscal_year_closed` |
 | `GET /fiscal-years?entity` | — | 200 `{ years: { year, status: "open" \| "closed", closedAt: string \| null, closable: boolean }[] }` | 403 |
 | `GET /fiscal-years/{entity}/{year}` | — | 200 `FiscalYearView` | 404 out of scope or before the entity's first year |
-| `POST /fiscal-years/{entity}/{year}/close` | — | 201 `FiscalYearView` | 409 `previous_year_open`; 409 `already_closed`; 409 `nothing_to_close` |
+| `POST /fiscal-years/{entity}/{year}/close` | — | 201 `FiscalYearView` | 409 `previous_year_open`; 409 `already_closed`; 409 `nothing_to_close`; 409 `year_in_future` `{year}` (a year after the current UTC year; security review M1) |
 
 ```ts
 type Rule = { id: string; entity: Entity; effectiveFrom: string; usefulLifeYears: number
@@ -469,7 +469,7 @@ There is no reopen route and no update/delete route for rules (AC-6.5, AC-8.7).
 | Route | Body | Success | Errors |
 |---|---|---|---|
 | `POST /invoice-files` | `{ entity, invoiceRef, fileName, contentType, sizeBytes }` | 201 `{ id, upload: { url, fields } }` | 413 over 10 MiB; 415 not pdf/jpeg/png |
-| `POST /invoice-files/{id}/confirm` | — | 200 `{ id, fileName }` | 409 `upload_not_found` (HEAD miss or size mismatch) |
+| `POST /invoice-files/{id}/confirm` | — | 200 `{ id, fileName }` | 409 `upload_not_found` (HEAD miss or size mismatch); 404 for anyone but the uploader (security review L2) |
 | `PUT /invoice-files/{id}/assets` | `{ assetIds: string[] }` | 200 `{ linked: string[] }` | 409 `invoice_ref_mismatch` `{assetId}`; 409 `asset_disposed` `{assetId}`; 404 any asset out of scope |
 | `GET /invoice-files/{id}/url` | — | 200 `{ url, expiresInSeconds: 60 }` | 404 out of scope, not `stored`, or caller has no capability |
 
@@ -632,3 +632,21 @@ Recorded as ADR-0044 to ADR-0047 on 2026-10-06.
   /authz/users/directory` gated on a catalog permission; narrows ADR-0039's "no search"
   for capability holders. Rejected: exact-email decision endpoint; reuse of
   `/admin/users`.
+
+## Amendments after the security review (2026-10-08)
+
+Applied in code by commits `da898e8`, `e422feb`, `0c8156c`, `a5f68af`, `eb0f9a2`; where this
+section disagrees with earlier text, this section wins.
+
+- **Close (M1):** a year after the current UTC calendar year is refused with 409
+  `year_in_future` `{year}`; the list route's `closable` uses the same function. The current
+  year itself stays closable (a stricter "year has ended" rule is an open spec decision).
+- **Invoice files (L1, L2):** the presigned POST lives 60 s; `invoice_file` gains a nullable
+  `etag` recorded at confirm, and the download-URL route re-checks size and ETag (404 on
+  mismatch). Only the uploader may confirm. `POST /invoice-files` answers 429
+  `too_many_pending_uploads` beyond 20 pending files minted by one user in the last hour.
+- **Entity scope (L3):** a grant carrying a condition `inventory-api` does not recognise
+  contributes nothing. This is deliberately stricter than refund-api's ADR-0015 helper, which
+  treats such a grant as unscoped.
+- **Body size (L7):** every request body is capped at 64 KiB (413 Problem); `POST
+  /invoice-files` keeps its 8 KiB cap.
