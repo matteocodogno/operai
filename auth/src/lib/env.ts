@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseServiceClients } from "../system/serviceClients";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -94,6 +95,43 @@ const envSchema = z.object({
   // equalise; a floor here would only slow every list render.
   IDENTITIES_RATE_LIMIT: z.coerce.number().int().positive().default(120),
   IDENTITIES_RATE_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  // ─── Service tokens (specs/015-hardware-inventory, T4; ADR-0044) ────────────
+  // `POST /system/service-token` mints a short-lived RS256 JWT for a SERVICE
+  // principal (today: `inventory-api` -> notify-api's `/system/notifications`).
+  //
+  // SERVICE_AUDIENCE is the `aud` stamped on those tokens. It MUST differ from
+  // AUTH_AUDIENCE (checked below, startup exits otherwise): that distinctness
+  // is what makes a service token useless on every user route and a user JWT
+  // useless on every system route. Whatever is set here must exactly match the
+  // `SERVICE_AUDIENCE` notify-api verifies against.
+  //
+  // SERVICE_CLIENTS is a JSON object keyed by client id (format, limits and the
+  // scope allowlist: src/system/serviceClients.ts). It carries SECRETS — keep it
+  // in 1Password / the deploy environment only; it is never logged, and a parse
+  // failure names the rule that failed, never a value.
+  //
+  // Both are OPTIONAL so a deployment that has no service caller yet keeps
+  // starting: with no clients configured the endpoint authenticates nobody
+  // (every call is the same 401). Configuring clients without an audience is a
+  // startup error, not a silently disabled feature.
+  SERVICE_AUDIENCE: z.string().min(1, "SERVICE_AUDIENCE must not be empty").optional(),
+  SERVICE_CLIENTS: z
+    .string()
+    .optional()
+    .transform((raw, ctx) => {
+      const parsed = parseServiceClients(raw);
+      if (!parsed.ok) {
+        for (const message of parsed.errors) ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+        return z.NEVER;
+      }
+      return parsed.clients;
+    }),
+  // Rate limit for the unauthenticated-by-design token endpoint, keyed by the
+  // caller's network address (see system/serviceToken.routes.ts). A legitimate
+  // client mints about one token per 4 minutes, so the default is generous
+  // enough never to bite a healthy caller across restarts and instances.
+  SERVICE_TOKEN_RATE_LIMIT: z.coerce.number().int().positive().default(20),
+  SERVICE_TOKEN_RATE_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])
@@ -109,6 +147,23 @@ const envSchema = z.object({
     .transform((v) =>
       v !== undefined && /^(true|1|yes)$/i.test(v) ? true : false,
     ),
+}).superRefine((value, ctx) => {
+  // ADR-0044 point 2: a service token must never be accepted on a user route,
+  // so its audience must differ from the user audience. Fail at startup.
+  if (value.SERVICE_AUDIENCE !== undefined && value.SERVICE_AUDIENCE === value.AUTH_AUDIENCE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["SERVICE_AUDIENCE"],
+      message: "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR-0044)",
+    });
+  }
+  if (value.SERVICE_CLIENTS.size > 0 && value.SERVICE_AUDIENCE === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["SERVICE_AUDIENCE"],
+      message: "SERVICE_AUDIENCE is required when SERVICE_CLIENTS is set",
+    });
+  }
 });
 
 const result = envSchema.safeParse(process.env);

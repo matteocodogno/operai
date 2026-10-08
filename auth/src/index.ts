@@ -5,6 +5,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { requestLogger } from "./lib/logger";
+import { auth } from "./auth/auth.config";
 import { authRouter } from "./auth/auth.routes";
 import { auditRouter } from "./authz/audit.routes";
 import { authzRouter } from "./authz/authz.routes";
@@ -22,6 +23,7 @@ import { inviteRouter } from "./invite/invite.routes";
 import { invitationsRouter } from "./invitations/invitations.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
 import { signinRouter } from "./signin/signin.routes";
+import { createServiceTokenRouter, signWithAuth } from "./system/serviceToken.routes";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -63,6 +65,7 @@ app.route("/", userAddressRouter);
 app.route("/", addressRouter);
 app.route("/", invitationsRouter);
 app.route("/", inviteRouter);
+app.route("/", createServiceTokenRouter({ signJwt: signWithAuth(auth) }));
 
 // ── Test-auth router (structural defence-in-depth) ──────────────────────────
 // Only import + register when BOTH conditions are true at startup:
