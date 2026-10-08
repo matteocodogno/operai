@@ -132,6 +132,15 @@ const envSchema = z.object({
   // enough never to bite a healthy caller across restarts and instances.
   SERVICE_TOKEN_RATE_LIMIT: z.coerce.number().int().positive().default(20),
   SERVICE_TOKEN_RATE_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  // ─── User directory (specs/015-hardware-inventory, T5; ADR-0047) ────────────
+  // `GET /authz/users/directory` returns the roster of active users to holders
+  // of the inventory `asset:manage` permission. Unlike app-access-check there
+  // is no negative to equalise, so there is no response-time floor: the controls
+  // are WHO may ask (the capability gate) and HOW OFTEN (this limit, keyed by
+  // caller `sub`, counted on every attempt). The UI fetches the list once per
+  // assign dialog / filter, so 60 per 10 minutes is far above real use.
+  DIRECTORY_RATE_LIMIT: z.coerce.number().int().positive().default(60),
+  DIRECTORY_RATE_WINDOW_MS: z.coerce.number().int().positive().default(600000),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])
