@@ -183,6 +183,31 @@ describe('HistoryTimeline — events (AC-11.3)', () => {
     expect(within(items[2]).getByText('Holder: Gone Person (deleted account) → Unknown')).toBeTruthy()
   })
 
+  it('labels the assignee field and renders its identities like holder values', async () => {
+    getAssetHistory.mockResolvedValue({
+      events: [
+        event('e1', '2026-10-01T09:00:00Z', {
+          action: 'assignment_created',
+          changes: [{ field: 'assignee', from: null, to: MARCO }],
+        }),
+        event('e2', '2026-10-02T09:00:00Z', {
+          action: 'assignment_declined',
+          changes: [{ field: 'assignee', from: person('Gone Person', 'deleted', 'u7'), to: null }],
+        }),
+        event('e3', '2026-10-03T09:00:00Z', {
+          action: 'assignment_cancelled',
+          changes: [{ field: 'assignee', from: person(null, 'unknown', 'u6'), to: person(null, 'system', 'system:x') }],
+        }),
+      ],
+    })
+    renderTimeline()
+
+    const items = await waitFor(() => entries())
+    expect(within(items[0]).getByText('Assignee: none → Marco Bianchi')).toBeTruthy()
+    expect(within(items[1]).getByText('Assignee: Gone Person (deleted account) → none')).toBeTruthy()
+    expect(within(items[2]).getByText('Assignee: Unknown → System')).toBeTruthy()
+  })
+
   it('falls back to the raw action and field names a newer server adds, never throwing', async () => {
     getAssetHistory.mockResolvedValue({
       events: [

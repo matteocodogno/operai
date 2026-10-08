@@ -46,6 +46,7 @@ export const history = {
 
   field: {
     holder: 'Holder',
+    assignee: 'Assignee',
     status: 'Status',
     category: 'Category',
     description: 'Description',
