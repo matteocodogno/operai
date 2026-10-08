@@ -144,7 +144,7 @@ const urlRoute = createRoute({
   request: { params: FileIdParamSchema },
   responses: {
     200: { description: "The URL", content: { "application/json": { schema: UrlResponseSchema } } },
-    404: { description: "Unknown, not stored, out of scope, or no capability" },
+    404: { description: "Unknown, not stored, out of scope, no capability, or the stored object no longer matches what was confirmed (size / ETag)" },
   },
 });
 
@@ -205,7 +205,7 @@ invoicesRouter.openapi(confirmRoute, async (c) => {
     );
   }
 
-  const stored = await markStored(file.id);
+  const stored = await markStored(file.id, head.etag ?? null);
   if (!stored) throw notFound("Invoice file not found");
   return c.json({ id: stored.id, fileName: stored.fileName }, 200);
 });
@@ -231,6 +231,13 @@ invoicesRouter.openapi(urlRoute, async (c) => {
   const { id } = c.req.valid("param");
   const file = await fileInScope(id, c.get("authz"));
   if (file.uploadStatus !== "stored") throw notFound("Invoice file not found");
+
+  // The upload window is short, but the key is fixed: re-check that the object
+  // is still the one confirm verified (size, and ETag where one was recorded).
+  const head = await storage.headObject(file.objectKey);
+  if (!head || head.sizeBytes !== file.sizeBytes || (file.etag !== null && head.etag !== file.etag)) {
+    throw notFound("Invoice file not found");
+  }
 
   const url = await storage.mintPresignedGet(file.objectKey, {
     contentType: file.contentType as "application/pdf" | "image/jpeg" | "image/png",

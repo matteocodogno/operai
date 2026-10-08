@@ -23,6 +23,8 @@ export interface InvoiceFileRow {
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly uploadStatus: "pending" | "stored";
+  /** The object's ETag at confirm; null for a row confirmed before it was recorded. */
+  readonly etag: string | null;
 }
 
 export async function createPendingFile(input: {
@@ -43,8 +45,11 @@ export async function findFile(id: string): Promise<InvoiceFileRow | null> {
 }
 
 /** Flips `pending` -> `stored`. A no-op when it already is; the row's final state is returned. */
-export async function markStored(id: string): Promise<InvoiceFileRow | null> {
-  await db.invoiceFile.updateMany({ where: { id, uploadStatus: "pending" }, data: { uploadStatus: "stored" } });
+export async function markStored(id: string, etag: string | null): Promise<InvoiceFileRow | null> {
+  await db.invoiceFile.updateMany({
+    where: { id, uploadStatus: "pending" },
+    data: { uploadStatus: "stored", etag },
+  });
   return findFile(id);
 }
 

@@ -218,6 +218,9 @@ model InvoiceFile {
   fileName        String
   contentType     String
   sizeBytes       Int
+  // The object's ETag as HEAD reported it at confirm; null on rows confirmed before
+  // it was recorded. Re-checked (with size) when a download URL is minted.
+  etag            String?
   uploadStatus    UploadStatus @default(pending)
   createdByUserId String
   createdAt       DateTime     @default(now())

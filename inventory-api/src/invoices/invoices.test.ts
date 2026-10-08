@@ -46,11 +46,11 @@ function as(permissions: ResolvedPermission[], entity: string | null) {
 
 // ─── An in-memory bucket (HEAD / DELETE only; signing stays real) ────────────
 
-const bucket = new Map<string, { sizeBytes: number; contentType: string | undefined }>();
+const bucket = new Map<string, { sizeBytes: number; contentType: string | undefined; etag?: string }>();
 let headSpy: ReturnType<typeof spyOn<typeof storage, "headObject">>;
 let deleteSpy: ReturnType<typeof spyOn<typeof storage, "deleteObject">>;
-const upload = (key: string, sizeBytes: number, contentType: string | undefined = "application/pdf") =>
-  bucket.set(key, { sizeBytes, contentType });
+const upload = (key: string, sizeBytes: number, contentType: string | undefined = "application/pdf", etag = '"etag-1"') =>
+  bucket.set(key, { sizeBytes, contentType, etag });
 
 beforeAll(async () => {
   token = await harness.signToken({ sub: "u-1", email: "u1@welld.ch", permEpoch: 1 });
@@ -471,6 +471,38 @@ describe("PUT /invoice-files/{id}/assets (AC-10.5)", () => {
 // ─── Download URL ────────────────────────────────────────────────────────────
 
 describe("GET /invoice-files/{id}/url (AC-10.4, AC-10.7)", () => {
+  it("confirm records the object's ETag; a download of the same object is served", async () => {
+    const { id } = await storedFile();
+    expect((await db.invoiceFile.findUniqueOrThrow({ where: { id } })).etag).toBe('"etag-1"');
+    expect((await urlOf(id)).status).toBe(200);
+  });
+
+  it("an object overwritten after confirm (new ETag, same size) is 404, never a URL", async () => {
+    const { id, key } = await storedFile();
+    upload(key, 1000, "application/pdf", '"etag-2"');
+    const res = await urlOf(id);
+    expect(res.status).toBe(404);
+    expect(JSON.stringify(await json(res))).not.toContain(key);
+  });
+
+  it("an object whose size changed after confirm is 404", async () => {
+    const { id, key } = await storedFile();
+    upload(key, 999, "application/pdf", '"etag-1"');
+    expect((await urlOf(id)).status).toBe(404);
+  });
+
+  it("a stored object that has vanished is 404", async () => {
+    const { id, key } = await storedFile();
+    bucket.delete(key);
+    expect((await urlOf(id)).status).toBe(404);
+  });
+
+  it("a file confirmed before ETags were recorded (null) is served on size alone", async () => {
+    const { id } = await storedFile();
+    await db.invoiceFile.update({ where: { id }, data: { etag: null } });
+    expect((await urlOf(id)).status).toBe(200);
+  });
+
   it("answers a 60 s signed URL for either capability, never cacheable, never the object key", async () => {
     const { id, key } = await storedFile();
     for (const [perms, entity] of [

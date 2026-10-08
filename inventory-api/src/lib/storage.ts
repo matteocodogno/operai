@@ -37,8 +37,13 @@ export type AllowedContentType = (typeof ALLOWED_CONTENT_TYPES)[number];
 export const isAllowedContentType = (contentType: string): contentType is AllowedContentType =>
   (ALLOWED_CONTENT_TYPES as readonly string[]).includes(contentType);
 
-/** Seconds the presigned POST policy stays valid. */
-const POST_EXPIRES_SECONDS = 300;
+/**
+ * Seconds the presigned POST policy stays valid. Short on purpose: the key is
+ * fixed at mint, so until the policy expires the uploader can POST again and
+ * overwrite what confirm has already checked (the ETag recorded at confirm
+ * catches that afterwards; this bounds the window).
+ */
+export const POST_EXPIRES_SECONDS = 60;
 /** Seconds a presigned GET stays valid (AC-10.4 "short-lived"). */
 export const DOWNLOAD_URL_SECONDS = 60;
 
@@ -106,6 +111,8 @@ export interface PresignedPostResult {
 export interface HeadResult {
   readonly sizeBytes: number;
   readonly contentType: string | undefined;
+  /** The object's ETag as the store reports it (quoted), when it does. */
+  readonly etag?: string;
 }
 
 export interface Storage {
@@ -149,7 +156,11 @@ export function createStorage(deps: { client: S3Client; bucket: string }): Stora
     async headObject(objectKey) {
       try {
         const result = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
-        return { sizeBytes: result.ContentLength ?? 0, contentType: result.ContentType };
+        return {
+          sizeBytes: result.ContentLength ?? 0,
+          contentType: result.ContentType,
+          ...(result.ETag !== undefined ? { etag: result.ETag } : {}),
+        };
       } catch (err) {
         if (err instanceof NotFound) return null;
         // Some S3-compatible providers answer with a generic error rather than

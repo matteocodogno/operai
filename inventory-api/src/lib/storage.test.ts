@@ -89,6 +89,17 @@ describe("mintPresignedPost", () => {
     expect(flat).toContain(JSON.stringify(["eq", "$Content-Type", "application/pdf"]));
     expect(flat).toContain(JSON.stringify({ key: "inventory/welld_ch/abc/inv.pdf" }));
   });
+
+  it("the policy is valid for 60 seconds, not minutes (a short window to overwrite a confirmed key)", async () => {
+    const s = stubbed(async () => ({}));
+    const { fields } = await s.mintPresignedPost("inventory/welld_ch/abc/inv.pdf", "application/pdf");
+    const { expiration } = JSON.parse(Buffer.from(fields["Policy"]!, "base64").toString("utf8")) as {
+      expiration: string;
+    };
+    const seconds = (Date.parse(expiration) - Date.now()) / 1000;
+    expect(seconds).toBeGreaterThan(50);
+    expect(seconds).toBeLessThanOrEqual(61);
+  });
 });
 
 describe("headObject", () => {
@@ -96,9 +107,9 @@ describe("headObject", () => {
     let seen: unknown;
     const s = stubbed(async (command) => {
       seen = command;
-      return { ContentLength: 1234, ContentType: "application/pdf" };
+      return { ContentLength: 1234, ContentType: "application/pdf", ETag: '"abc"' };
     });
-    expect(await s.headObject("k")).toEqual({ sizeBytes: 1234, contentType: "application/pdf" });
+    expect(await s.headObject("k")).toEqual({ sizeBytes: 1234, contentType: "application/pdf", etag: '"abc"' });
     expect(seen).toBeInstanceOf(HeadObjectCommand);
     expect((seen as HeadObjectCommand).input).toEqual({ Bucket: "inv-test", Key: "k" });
   });
@@ -175,7 +186,11 @@ describe.skipIf(unreachable !== null)("against the configured bucket (MinIO)", (
     const bytes = new TextEncoder().encode("%PDF-1.4 round trip");
     const upload = await storage.mintPresignedPost(key, "application/pdf");
     expect((await postToPresigned(upload, bytes, "application/pdf")).ok).toBe(true);
-    expect(await storage.headObject(key)).toEqual({ sizeBytes: bytes.length, contentType: "application/pdf" });
+    expect(await storage.headObject(key)).toEqual({
+      sizeBytes: bytes.length,
+      contentType: "application/pdf",
+      etag: expect.any(String),
+    });
 
     const res = await fetch(await storage.mintPresignedGet(key, { contentType: "application/pdf", fileName: "Fattura è.pdf" }));
     expect(res.status).toBe(200);
