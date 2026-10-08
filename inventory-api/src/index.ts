@@ -22,7 +22,9 @@ import { requestLogger } from "./lib/logger";
 import { handleProblemError } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
 
-const app = new OpenAPIHono();
+// Exported so the capability matrix (src/matrix.test.ts, T44) can read the
+// ASSEMBLED app's own route table; Bun serves only the default export below.
+export const app = new OpenAPIHono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
