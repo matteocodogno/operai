@@ -105,7 +105,7 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Compare-and-set on `status`; the allowed table is in plan § Assets.
   - done when: `bun test assets/transitions` passes: every allowed transition; one disallowed source status per route → 409 `invalid_transition` with `from`; repair keeps the holder and repair-done lands on `assigned` or `in_stock` by holder presence; lost clears the holder and leaves `ledger` unchanged; `/lost` and `/repair` with a pending assignment → 409 `assignment_pending`; two concurrent calls → exactly one 200; one event each.
 
-- [ ] T15: [backend] Assignments, manager side: create and cancel — refs: AC-2.1, AC-2.2, AC-2.5, AC-2.10 — deps: T12
+- [x] T15: [backend] Assignments, manager side: create and cancel — refs: AC-2.1, AC-2.2, AC-2.5, AC-2.10 — deps: T12
   - touch: `inventory-api/src/assignments/assignments.routes.ts`, `inventory-api/src/assignments/assignments.repo.ts`, `inventory-api/src/assignments/assignments.schemas.ts`, `inventory-api/src/assignments/assignments.test.ts`
   - Assignee must resolve to an `active` identity (T9) or 422 `unknown_user`. Exposes an `afterCommit` hook point that T17 fills; no notification code here.
   - done when: `bun test assignments` passes: assigning an `in_stock` asset creates a `pending` row and leaves status `in_stock`; non-`in_stock` → 409 `invalid_transition`; second assign → 409 `assignment_pending`, including two concurrent requests; cancel → `cancelled` and assignable again; cancel of a non-pending → 409 `assignment_not_pending`; events recorded.
