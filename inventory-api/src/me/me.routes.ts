@@ -63,17 +63,23 @@ export const meRouter = new OpenAPIHono<{ Variables: JwtVariables }>({ defaultHo
 
 meRouter.openapi(devicesRoute, async (c) => c.json(await myDevices(c.get("userId")), 200));
 
+const callerOf = (c: { get(k: "userId" | "email"): string; get(k: "userName"): string | undefined }) => ({
+  userId: c.get("userId"),
+  email: c.get("email"),
+  userName: c.get("userName"),
+});
+
 const answer = async (
-  c: { get: (k: "userId" | "email") => string },
+  caller: { userId: string; email: string; userName: string | undefined },
   assignmentId: string,
   outcome: "confirmed" | "declined",
 ) => {
-  const sub = c.get("userId");
+  const sub = caller.userId;
   const done = await answerAssignment({
     assignmentId,
     sub,
     outcome,
-    actor: { userId: sub, email: c.get("email") },
+    actor: { userId: sub, email: caller.email },
   });
   runAfterCommit({
     kind: outcome === "confirmed" ? "confirmed" : "declined",
@@ -82,18 +88,19 @@ const answer = async (
     assetDescription: done.assetDescription,
     assigneeUserId: sub,
     createdByUserId: done.createdByUserId,
+    ...(caller.userName ? { assigneeName: caller.userName } : {}),
   });
   return done;
 };
 
 meRouter.openapi(answerRoute("confirm"), async (c) => {
   const { id } = c.req.valid("param");
-  const done = await answer(c, id, "confirmed");
+  const done = await answer(callerOf(c), id, "confirmed");
   return c.json({ device: done.device }, 200);
 });
 
 meRouter.openapi(answerRoute("decline"), async (c) => {
   const { id } = c.req.valid("param");
-  await answer(c, id, "declined");
+  await answer(callerOf(c), id, "declined");
   return c.body(null, 204);
 });

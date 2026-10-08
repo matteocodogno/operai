@@ -22,4 +22,10 @@ export interface AssignmentEvent {
   readonly assetDescription: string;
   readonly assigneeUserId: string;
   readonly createdByUserId: string;
+  /**
+   * The assignee's display name when the route has it (`/me` confirm/decline
+   * read it from the caller's own token) — used only to word the manager's
+   * notification (AC-2.9). Never identity; absent on `created`.
+   */
+  readonly assigneeName?: string;
 }

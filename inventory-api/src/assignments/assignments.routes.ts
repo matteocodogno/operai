@@ -8,10 +8,9 @@
  * `active` identity (422 `unknown_user`). Creating an assignment changes
  * nothing on the asset: it stays `in_stock` until the assignee confirms (T16).
  *
- * T17 SEAM: `assignmentHooks.afterCommit` is called once the write has
- * committed and can never fail the request (see `runAfterCommit`). It is a
- * no-op here; T17 fills it with the notification push. `/me` confirm/decline
- * (T16) call the same seam.
+ * `assignmentHooks.afterCommit` is called once the write has committed and can
+ * never fail the request (see `runAfterCommit`). It carries the notification
+ * push (T17, `lib/notify.ts`); `/me` confirm/decline (T16) call the same seam.
  */
 
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
@@ -20,6 +19,7 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { assetInScope, scopeFor } from "../authz/conditions";
 import { notFound, unprocessable, validationHook } from "../lib/problem";
 import { resolveIdentities } from "../lib/identities";
+import { notifier } from "../lib/notify";
 import { findAsset } from "../assets/read.repo";
 import { project } from "../assets/read.routes";
 import { AssetViewSchema } from "../assets/register.schemas";
@@ -31,11 +31,11 @@ import {
 } from "./assignments.schemas";
 import { cancelAssignment, createAssignment, findAssignmentWithAsset } from "./assignments.repo";
 
-/** T17 fills `afterCommit`. Replaceable object property so tests can observe it. */
+/** The notification push (T17). Replaceable object property so tests can observe it. */
 export const assignmentHooks: {
   afterCommit: (event: AssignmentEvent) => void | Promise<void>;
 } = {
-  afterCommit: () => {},
+  afterCommit: (event) => notifier.notifyAssignment(event),
 };
 
 /**
