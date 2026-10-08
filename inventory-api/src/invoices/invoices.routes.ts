@@ -5,6 +5,7 @@
  *
  *   POST /invoice-files              mint a presigned POST (415 / 413 here)
  *   POST /invoice-files/{id}/confirm HEAD the object, then `pending` -> `stored`
+ *                                    (the uploader only: it may discard on a mismatch)
  *   PUT  /invoice-files/{id}/assets  link a stored file to assets (replaces)
  *   GET  /invoice-files/{id}/url     a 60 s presigned GET
  *
@@ -42,7 +43,15 @@ import {
   MintResponseSchema,
   UrlResponseSchema,
 } from "./invoices.schemas";
-import { createPendingFile, deletePendingFile, findFile, linkFile, markStored, type InvoiceFileRow } from "./invoices.repo";
+import {
+  MAX_PENDING_FILES_PER_USER,
+  countRecentPendingFiles,
+  createPendingFile,
+  deletePendingFile, findFile,
+  linkFile,
+  markStored,
+  type InvoiceFileRow,
+} from "./invoices.repo";
 
 const MINT_BODY_LIMIT = 8 * 1024;
 
@@ -61,6 +70,8 @@ async function fileInScope(id: string, authz: AuthzVariables["authz"]): Promise<
 }
 
 const tooLarge = (detail: string) => new ProblemError({ status: 413, detail });
+const tooManyPending = (detail: string) =>
+  new ProblemError({ status: 429, code: "too_many_pending_uploads", detail });
 const unsupportedType = (detail: string) => new ProblemError({ status: 415, detail });
 
 /** Best-effort removal of a rejected upload: the object, then the unconfirmed row. */
@@ -98,6 +109,7 @@ const mintRoute = createRoute({
     413: { description: "More than 10 MiB" },
     415: { description: "Not pdf, jpeg or png" },
     422: { description: "Invalid body" },
+    429: { description: "too_many_pending_uploads: the caller already has the maximum of unconfirmed uploads" },
   },
 });
 
@@ -110,7 +122,7 @@ const confirmRoute = createRoute({
   request: { params: FileIdParamSchema },
   responses: {
     200: { description: "Stored", content: { "application/json": { schema: ConfirmResponseSchema } } },
-    404: { description: "Unknown, out of scope, or no capability" },
+    404: { description: "Unknown, out of scope, no capability, or not the uploader" },
     409: { description: "upload_not_found: no object, or its size or type differs from what was declared" },
     413: { description: "The stored object is over 10 MiB (deleted)" },
     415: { description: "The stored object is not pdf, jpeg or png (deleted)" },
@@ -163,6 +175,12 @@ invoicesRouter.openapi(mintRoute, async (c) => {
     throw tooLarge("An invoice file can be at most 10 MiB");
   }
 
+  if ((await countRecentPendingFiles(c.get("userId"))) >= MAX_PENDING_FILES_PER_USER) {
+    throw tooManyPending(
+      `At most ${MAX_PENDING_FILES_PER_USER} uploads can wait for confirmation: confirm or finish the pending ones first`,
+    );
+  }
+
   const id = crypto.randomUUID();
   const objectKey = `inventory/${body.entity}/${id}/${sanitizeFileName(body.fileName)}`;
   const upload = await storage.mintPresignedPost(objectKey, body.contentType);
@@ -182,6 +200,9 @@ invoicesRouter.openapi(mintRoute, async (c) => {
 invoicesRouter.openapi(confirmRoute, async (c) => {
   const { id } = c.req.valid("param");
   const file = await fileInScope(id, c.get("authz"));
+  // Confirm may discard the object and the row on a mismatch, so it belongs to
+  // the uploader alone; anyone else gets the 404 an unknown file gets.
+  if (file.createdByUserId !== c.get("userId")) throw notFound("Invoice file not found");
   if (file.uploadStatus === "stored") return c.json({ id: file.id, fileName: file.fileName }, 200);
 
   const head = await storage.headObject(file.objectKey);

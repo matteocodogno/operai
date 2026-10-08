@@ -177,7 +177,7 @@ export const mkAsset = (entity: Entity, over: Record<string, unknown> = {}) => {
   });
 };
 
-export const mkFile = (entity: Entity, uploadStatus: "pending" | "stored") => {
+export const mkFile = (entity: Entity, uploadStatus: "pending" | "stored", createdByUserId = "seed") => {
   seq++;
   return db.invoiceFile.create({
     data: {
@@ -188,7 +188,7 @@ export const mkFile = (entity: Entity, uploadStatus: "pending" | "stored") => {
       contentType: "application/pdf",
       sizeBytes: 1000,
       uploadStatus,
-      createdByUserId: "seed",
+      createdByUserId,
     },
   });
 };
@@ -639,8 +639,9 @@ export const CASES: readonly MatrixCase[] = [
   post("POST /invoice-files/{id}/confirm", {
     verdict: gate("either", 200, 404),
     events: [],
-    build: async (e) => {
-      const f = await mkFile(e, "pending");
+    // Confirm is the uploader's alone: the file is the caller's own.
+    build: async (e, p) => {
+      const f = await mkFile(e, "pending", p.sub);
       return { path: `/invoice-files/${f.id}/confirm`, subject: f.id };
     },
   }),

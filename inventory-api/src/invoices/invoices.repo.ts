@@ -23,8 +23,28 @@ export interface InvoiceFileRow {
   readonly contentType: string;
   readonly sizeBytes: number;
   readonly uploadStatus: "pending" | "stored";
+  readonly createdByUserId: string;
   /** The object's ETag at confirm; null for a row confirmed before it was recorded. */
   readonly etag: string | null;
+}
+
+/** How many unconfirmed mints one user may hold at once (bounds presigned-POST minting). */
+export const MAX_PENDING_FILES_PER_USER = 20;
+/**
+ * Only pending rows younger than this count toward the cap: abandoned mints
+ * are never swept (ADR-0013: no cron), so without a window twenty of them would
+ * lock a user out for good. Older than the presigned POST's own validity by far.
+ */
+export const PENDING_WINDOW_MS = 60 * 60 * 1000;
+
+export async function countRecentPendingFiles(userId: string, now: Date = new Date()): Promise<number> {
+  return db.invoiceFile.count({
+    where: {
+      createdByUserId: userId,
+      uploadStatus: "pending",
+      createdAt: { gt: new Date(now.getTime() - PENDING_WINDOW_MS) },
+    },
+  });
 }
 
 export async function createPendingFile(input: {

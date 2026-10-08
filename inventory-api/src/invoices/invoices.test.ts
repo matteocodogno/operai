@@ -20,6 +20,7 @@ const { db } = await import("../lib/db");
 const { handleProblemError } = await import("../lib/problem");
 const { invoicesRouter } = await import("./invoices.routes");
 const { storage, MAX_INVOICE_BYTES } = await import("../lib/storage");
+const { MAX_PENDING_FILES_PER_USER } = await import("./invoices.repo");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { probeBucket, postToPresigned } = await import("./testMinio");
 const { eventChanges } = await import("../history/record");
@@ -331,6 +332,59 @@ describe("POST /invoice-files/{id}/confirm", () => {
     as(MANAGER, "welld_ch");
     expect((await confirm("nope")).status).toBe(404);
     expect((await db.invoiceFile.findUniqueOrThrow({ where: { id } })).uploadStatus).toBe("pending");
+  });
+});
+
+describe("confirm belongs to the uploader; minting is bounded", () => {
+  let other: string;
+  beforeAll(async () => {
+    other = await harness.signToken({ sub: "u-2", email: "u2@welld.ch", permEpoch: 1 });
+  });
+
+  it("another in-scope user cannot confirm (or discard) someone else's upload: 404, object and row untouched", async () => {
+    const { id } = await json(await mint());
+    const row = await db.invoiceFile.findUniqueOrThrow({ where: { id } });
+    upload(row.objectKey, 4242); // a size that would make the uploader's own confirm discard it
+    const res = await call("POST", `/invoice-files/${id}/confirm`, undefined, other);
+    expect(res.status).toBe(404);
+    expect(bucket.has(row.objectKey)).toBe(true);
+    expect((await db.invoiceFile.findUniqueOrThrow({ where: { id } })).uploadStatus).toBe("pending");
+  });
+
+  it("the 404 is the one an unknown file gets, and applies to an already-stored file too", async () => {
+    const { id } = await storedFile();
+    const stranger = await call("POST", `/invoice-files/${id}/confirm`, undefined, other);
+    const unknown = await call("POST", `/invoice-files/nope/confirm`, undefined, other);
+    expect(stranger.status).toBe(404);
+    const a = await json(stranger);
+    const b = await json(unknown);
+    expect({ ...a, instance: undefined }).toEqual({ ...b, instance: undefined });
+  });
+
+  it("the uploader still confirms their own file", async () => {
+    const { id } = await storedFile();
+    expect((await confirm(id)).status).toBe(200);
+  });
+
+  it("a user with MAX_PENDING_FILES_PER_USER pending files is refused with 429 too_many_pending_uploads; others and confirmed files do not count", async () => {
+    for (let i = 0; i < MAX_PENDING_FILES_PER_USER; i++) expect((await mint()).status).toBe(201);
+    const res = await mint();
+    expect(res.status).toBe(429);
+    expect((await json(res))["code"]).toBe("too_many_pending_uploads");
+    expect(await db.invoiceFile.count()).toBe(MAX_PENDING_FILES_PER_USER);
+    // another user is unaffected
+    expect((await call("POST", "/invoice-files", { entity: "welld_ch", invoiceRef: "X", fileName: "a.pdf", contentType: "application/pdf", sizeBytes: 10 }, other)).status).toBe(201);
+    // confirming one frees a slot
+    const first = await db.invoiceFile.findFirstOrThrow({ where: { createdByUserId: "u-1" } });
+    upload(first.objectKey, first.sizeBytes);
+    expect((await confirm(first.id)).status).toBe(200);
+    expect((await mint()).status).toBe(201);
+  });
+
+  it("pending files older than the window (abandoned mints) do not lock the user out", async () => {
+    for (let i = 0; i < MAX_PENDING_FILES_PER_USER; i++) expect((await mint()).status).toBe(201);
+    await db.invoiceFile.updateMany({ data: { createdAt: new Date(Date.now() - 2 * 3600_000) } });
+    expect((await mint()).status).toBe(201);
   });
 });
 
