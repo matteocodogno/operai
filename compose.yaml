@@ -220,8 +220,8 @@ services:
   #
   # Console UI: http://localhost:9001 (login minioadmin / minioadmin).
   minio:
-    image: docker.io/minio/minio:latest
-    command: server /data --console-address ":9001"
+    image: docker.io/bitnamilegacy/minio:latest
+    command: server /bitnami/minio/data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -235,14 +235,14 @@ services:
       retries: 10
       start_period: 5s
     volumes:
-      - operai_minio_data:/data
+      - operai_minio_data:/bitnami/minio/data
 
   # One-shot: waits for MinIO, creates the dev buckets (refund receipts +
   # inventory invoices) if absent, and asserts it
   # stays PRIVATE (no anonymous access), then exits. Re-running compose is
   # idempotent (`mb --ignore-existing`).
   minio-createbucket:
-    image: docker.io/minio/mc:latest
+    image: docker.io/bitnamilegacy/minio-client:latest
     depends_on:
       minio:
         condition: service_started
