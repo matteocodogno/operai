@@ -49,6 +49,13 @@ function pendingReleases() {
   return releases
 }
 
+// Without the CLI every `pnpm exec changeset …` below fails, and the status
+// probe would swallow that and report "no pending changesets" — a wrong answer.
+if (!existsSync('node_modules/.bin/changeset')) {
+  console.error('[operai] @changesets/cli is not installed at the repo root. Run `pnpm install` here once, then retry.')
+  process.exit(1)
+}
+
 const releases = pendingReleases()
 if (releases.length === 0) {
   console.log('[operai] No pending changesets — nothing to version. (Record one with `mise run changeset`.)')
