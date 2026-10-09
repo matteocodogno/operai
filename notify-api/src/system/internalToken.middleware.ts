@@ -12,6 +12,10 @@
  * `refund-api`, and `notify-api` — ADR-0017 knowingly reuses the same secret
  * for both internal callers rather than provisioning a second one).
  *
+ * specs/015 (ADR-0044): this middleware now guards `/system/emails` ONLY.
+ * `/system/notifications` uses notificationsAuth.middleware.ts, which accepts
+ * this same token (via `safeEqual`) OR a scoped service JWT.
+ *
  * CRITICAL invariant (Security R2, ADR-0011; ADR-0017 §3): this is the ONLY
  * middleware `/system/*` routes may use. `jwtMiddleware`-protected routes
  * must never accept this token, and `/system/*` must never accept a user
@@ -44,7 +48,7 @@ const unauthorized = (detail: string, path: string) =>
   );
 
 /** Constant-time string equality — returns false (not a throw) on length mismatch. */
-const safeEqual = (a: string, b: string): boolean => {
+export const safeEqual = (a: string, b: string): boolean => {
   const bufA = Buffer.from(a, "utf8");
   const bufB = Buffer.from(b, "utf8");
   if (bufA.length !== bufB.length) return false;

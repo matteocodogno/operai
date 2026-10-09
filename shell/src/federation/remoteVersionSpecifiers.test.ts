@@ -27,7 +27,7 @@
  * best thing: assert the four sources of truth agree on paper.
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { REMOTE_VERSION_SOURCES } from '../hooks/useRemoteVersions'
@@ -39,6 +39,7 @@ const REMOTE_DIRS: Record<(typeof REMOTE_VERSION_SOURCES)[number]['id'], string>
   refund: 'refund-ui',
   admin: 'admin-ui',
   notify: 'notify-ui',
+  inventory: 'inventory-ui',
 }
 
 const remotesDtsSource = readFileSync(path.join(__dirname, 'remotes.d.ts'), 'utf-8')
@@ -59,8 +60,11 @@ describe.each(REMOTE_VERSION_SOURCES)(
       expect(shellViteConfigSource).toMatch(remoteBlockRe)
     })
 
-    it(`${REMOTE_DIRS[id]}/vite.config.ts's federation() call self-identifies as name: '${id}' and exposes './version'`, () => {
-      const remoteViteConfigPath = path.resolve(__dirname, '../../../', REMOTE_DIRS[id], 'vite.config.ts')
+    // inventory-ui is built by later tasks of specs/015 (T2+); until its
+    // vite.config.ts exists there is nothing on the remote side to compare, so
+    // the shell-side checks above are the only ones that can run.
+    const remoteViteConfigPath = path.resolve(__dirname, '../../../', REMOTE_DIRS[id], 'vite.config.ts')
+    it.skipIf(!existsSync(remoteViteConfigPath))(`${REMOTE_DIRS[id]}/vite.config.ts's federation() call self-identifies as name: '${id}' and exposes './version'`, () => {
       const source = readFileSync(remoteViteConfigPath, 'utf-8')
       expect(source).toMatch(new RegExp(`federation\\(\\{\\s*name:\\s*'${id}'`, 's'))
       expect(source).toMatch(/exposes:\s*\{[^}]*'\.\/version':\s*'\.\/src\/version\.ts'/s)
@@ -68,6 +72,50 @@ describe.each(REMOTE_VERSION_SOURCES)(
   },
 )
 
-it('REMOTE_VERSION_SOURCES covers exactly the four known remote directories, no more, no less', () => {
+it('REMOTE_VERSION_SOURCES covers exactly the five known remote directories, no more, no less', () => {
   expect(new Set(REMOTE_VERSION_SOURCES.map((s) => s.id))).toEqual(new Set(Object.keys(REMOTE_DIRS)))
+})
+
+// specs/015-hardware-inventory, T41 (ADR-0045): inventory-ui exposes TWO
+// entries besides ./version — the gated ./App and the ungated ./MyDevices —
+// so the shell declares both ambient modules.
+describe("'inventory' — the two federated entries are declared for tsc", () => {
+  it.each(['inventory/App', 'inventory/MyDevices'])("remotes.d.ts declares '%s'", (specifier) => {
+    expect(remotesDtsSource).toContain(`declare module '${specifier}'`)
+  })
+})
+
+// The shell's CSP must let the page load the inventory remote's script and
+// reach its API (AC-9.6 wiring). Hosts follow the suite's `<name>[-api].operai.welld.io` scheme.
+describe('vercel.json CSP — inventory origins', () => {
+  const vercel = JSON.parse(readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf-8')) as {
+    headers: { source: string; headers: { key: string; value: string }[] }[]
+  }
+  const csp =
+    vercel.headers
+      .flatMap((h) => h.headers)
+      .find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+  const directive = (name: string): string =>
+    csp
+      .split(';')
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(`${name} `)) ?? ''
+
+  it('script-src allows the inventory remote origin', () => {
+    expect(directive('script-src')).toContain('https://inventory.operai.welld.io')
+  })
+
+  it('connect-src allows the inventory remote and inventory-api origins', () => {
+    expect(directive('connect-src')).toContain('https://inventory.operai.welld.io')
+    expect(directive('connect-src')).toContain('https://inventory-api.operai.welld.io')
+  })
+})
+
+describe('runtime-config.example.json', () => {
+  it('lists the inventory remote entry', () => {
+    const example = JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../public/runtime-config.example.json'), 'utf-8'),
+    ) as Record<string, string>
+    expect(example['inventory']).toBe('https://inventory.operai.welld.io/remoteEntry.js')
+  })
 })

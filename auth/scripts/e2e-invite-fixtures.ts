@@ -33,6 +33,7 @@
  *   bun run scripts/e2e-invite-fixtures.ts grant-refund-employee <email>
  *   bun run scripts/e2e-invite-fixtures.ts grant-refund-accounting <email> <entity|global>
  *   bun run scripts/e2e-invite-fixtures.ts grant-estimai-access <email>
+ *   bun run scripts/e2e-invite-fixtures.ts grant-inventory-role <email> <roleName> <entity|global>
  *
  * The two `grant-refund-*` commands (specs/007-refund-service, T21 QE
  * verification) plug the SAME kind of gap `grant-role` plugs above: refund
@@ -273,6 +274,35 @@ async function grantEstimaiAccess(email: string): Promise<void> {
   console.log(JSON.stringify({ ok: true, userId: user.id, roleId: role.id }));
 }
 
+/**
+ * Assigns the (already test-auth-seeded) user at `email` one of inventory's
+ * REAL seeded roles (`inventory-manager`, `accounting` — auth/src/authz/seed.ts
+ * `seedInventoryGrants`, specs/015) AND sets `user.entity` so the roles'
+ * entity-conditioned grants (`{key:"entity", match:"user"}`) have an attribute
+ * to match (ADR-0015). `global` clears `user.entity`; the role's conditioned
+ * grant then yields no entity at all — inventory has no "global" composition
+ * like refund's e2e-refund-global, so use the `admin` role for both entities.
+ * Plain `grant-role` cannot do this: it leaves `user.entity` untouched.
+ */
+async function grantInventoryRole(email: string, roleName: string, entity: string): Promise<void> {
+  const user = await db.user.findUnique({ where: { email } });
+  if (!user) {
+    throw new Error(
+      `grant-inventory-role: no user row for ${email} — seed a session for this email first (POST /test-auth/session)`,
+    );
+  }
+  const role = await db.role.findFirst({ where: { name: roleName } });
+  if (!role) {
+    throw new Error(
+      `grant-inventory-role: role "${roleName}" does not exist — has the seed run (bun run db:release)?`,
+    );
+  }
+  await assignRole(user.id, role.id);
+  await db.user.update({ where: { id: user.id }, data: { entity: entity === "global" ? null : entity } });
+  await bumpEpoch(user.id);
+  console.log(JSON.stringify({ ok: true, userId: user.id, roleId: role.id, entity }));
+}
+
 async function cleanup(emailOrPrefix: string): Promise<void> {
   const users = await db.user.findMany({
     where: { email: { contains: emailOrPrefix } },
@@ -312,6 +342,8 @@ async function main(): Promise<void> {
       await grantRefundAccounting(args[0]!, args[1]!);
     } else if (cmd === "grant-estimai-access") {
       await grantEstimaiAccess(args[0]!);
+    } else if (cmd === "grant-inventory-role") {
+      await grantInventoryRole(args[0]!, args[1]!, args[2]!);
     } else {
       console.error("unknown command:", cmd);
       process.exit(1);

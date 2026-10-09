@@ -104,9 +104,25 @@ describe("env-doctor resolver", () => {
   test("the committed production templates pass the doctor offline (no errors, no warnings)", () => {
     const r = loadTemplateSuite("production"); // real TEMPLATES_DIR, offline
     expect(r.errors).toEqual([]);
-    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api"]);
+    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"]);
     const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
     const bad = findings.filter((f) => f.level !== "ok");
     expect(bad).toEqual([]);
+  });
+
+  // The done-when of specs/015 T43, against the SHIPPED templates (not a hand-built suite).
+  test("the committed templates fail when SERVICE_AUDIENCE drifts between auth and notify-api", () => {
+    const r = loadTemplateSuite("production");
+    r.suite.auth!.SERVICE_AUDIENCE = "operai-service";
+    r.suite["notify-api"]!.SERVICE_AUDIENCE = "operai-service-2";
+    const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    expect(findings.some((f) => f.level === "error" && f.message.includes("SERVICE_AUDIENCE is not identical"))).toBe(true);
+  });
+
+  test("the committed templates fail when inventory-api's client id is not in auth's SERVICE_CLIENTS", () => {
+    const r = loadTemplateSuite("production");
+    r.suite["inventory-api"]!.SERVICE_CLIENT_ID = "someone-else";
+    const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    expect(findings.some((f) => f.level === "error" && f.message.includes('no entry for client id "someone-else"'))).toBe(true);
   });
 });

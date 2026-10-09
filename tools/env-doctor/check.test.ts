@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { checkSuite, hasErrors, type Finding, type SuiteEnv } from "./check";
+import { checkSuite, hasErrors, showValue, type Finding, type SuiteEnv } from "./check";
 
 const TOKEN = "x".repeat(40);
 const AUD = "operai-suite";
 const AUTH_URL = "https://auth.operai.welld.io";
 const SHELL = "https://operai.welld.io";
 const ADMIN = "https://admin.operai.welld.io";
+const SVC_AUD = "operai-service";
+// Synthetic, never a real credential: 40 chars, only used inside this test file.
+const CLIENT_SECRET = "c".repeat(40);
+const registry = (secret: string, scope = "notifications.push") =>
+  JSON.stringify({ "inventory-api": { secret, scope } });
 
 /** A fully-correct production suite — the baseline every mutation test starts from. */
 function validSuite(): SuiteEnv {
@@ -19,6 +24,8 @@ function validSuite(): SuiteEnv {
       UI_HOME_URL: `${SHELL}/`,
       NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
       NOTIFY_INTERNAL_TOKEN: TOKEN,
+      SERVICE_AUDIENCE: SVC_AUD,
+      SERVICE_CLIENTS: registry(CLIENT_SECRET),
       PORT: "3001",
     },
     "estimai-api": {
@@ -36,6 +43,7 @@ function validSuite(): SuiteEnv {
       AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
       AUTH_AUDIENCE: AUD,
       NOTIFY_INTERNAL_TOKEN: TOKEN,
+      SERVICE_AUDIENCE: SVC_AUD,
       PORT: "8080",
     },
     "refund-api": {
@@ -49,6 +57,21 @@ function validSuite(): SuiteEnv {
       NOTIFY_INTERNAL_TOKEN: TOKEN,
       REFUND_APP_BASE_URL: SHELL,
       PORT: "8082",
+    },
+    "inventory-api": {
+      DATABASE_URL: "postgres://…/inventory",
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
+      SERVICE_CLIENT_ID: "inventory-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET,
+      INVENTORY_S3_ENDPOINT: "https://t3.storageapi.dev",
+      INVENTORY_S3_REGION: "ams",
+      INVENTORY_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
+      PORT: "8083",
     },
   };
 }
@@ -141,6 +164,7 @@ describe("env-doctor checker", () => {
     s["notify-api"]!.RAILWAY_PRIVATE_DOMAIN = "operai.railway.internal";
     s["refund-api"]!.NOTIFY_INTERNAL_URL = "http://operai.railway.internal:8080";
     s.auth!.NOTIFY_INTERNAL_URL = "http://operai.railway.internal:8080";
+    s["inventory-api"]!.NOTIFY_INTERNAL_URL = "http://operai.railway.internal:8080";
     expect(errs(checkSuite(s, PROD))).toEqual([]);
   });
 
@@ -178,7 +202,7 @@ describe("env-doctor checker", () => {
 
   test("shared vars as ${{shared.X}} refs across all services → no drift error (ref form is drift-proof)", () => {
     const s = validSuite();
-    for (const svc of ["auth", "estimai-api", "notify-api", "refund-api"] as const) {
+    for (const svc of ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"] as const) {
       s[svc]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
     }
     for (const svc of ["auth", "notify-api", "refund-api"] as const) {
@@ -218,6 +242,11 @@ describe("env-doctor checker", () => {
       s[svc]!.ALLOWED_ORIGINS = "http://localhost:5173";
     }
     s["refund-api"]!.AUTH_BASE_URL = "http://localhost:3001";
+    s["inventory-api"]!.AUTH_ISSUER = "http://localhost:3001";
+    s["inventory-api"]!.AUTH_JWKS_URL = "http://localhost:3001/auth/jwks";
+    s["inventory-api"]!.AUTH_BASE_URL = "http://localhost:3001";
+    s["inventory-api"]!.ALLOWED_ORIGINS = "http://localhost:5173";
+    s["inventory-api"]!.NOTIFY_INTERNAL_URL = "http://localhost:8080";
     s["refund-api"]!.REFUND_APP_BASE_URL = "http://localhost:5173";
     // refund-api serves admin-ui's direct calls, so it must allow admin-ui's local origin too (5177).
     s["refund-api"]!.ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:5177";
@@ -226,5 +255,174 @@ describe("env-doctor checker", () => {
     s["refund-api"]!.NOTIFY_INTERNAL_URL = "http://localhost:8080";
     const f = checkSuite(s, { env: "local", isProdLike: false });
     expect(errs(f)).toEqual([]);
+  });
+
+  // ── specs/015-hardware-inventory (T43): service tokens, inventory-api ──────
+  test("SERVICE_AUDIENCE differing between auth and notify-api → error", () => {
+    const s = validSuite();
+    s["notify-api"]!.SERVICE_AUDIENCE = "another-audience";
+    expect(errText(checkSuite(s, PROD))).toContain("SERVICE_AUDIENCE is not identical");
+  });
+
+  test("SERVICE_AUDIENCE equal to AUTH_AUDIENCE on the same service → error (auth and notify-api both exit at startup)", () => {
+    for (const svc of ["auth", "notify-api"] as const) {
+      const s = validSuite();
+      s[svc]!.SERVICE_AUDIENCE = AUD;
+      s[svc === "auth" ? "notify-api" : "auth"]!.SERVICE_AUDIENCE = AUD; // keep the shared check quiet
+      expect(errText(checkSuite(s, PROD))).toContain(`${svc}.SERVICE_AUDIENCE must differ from ${svc}.AUTH_AUDIENCE`);
+    }
+  });
+
+  test("SERVICE_AUDIENCE written as the same reference as AUTH_AUDIENCE → error (same shared var = same value)", () => {
+    const s = validSuite();
+    s.auth!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    s.auth!.SERVICE_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    expect(errText(checkSuite(s, PROD))).toContain("auth.SERVICE_AUDIENCE must differ");
+  });
+
+  test("SERVICE_AUDIENCE and AUTH_AUDIENCE as two different shared references → no error (cannot be compared offline)", () => {
+    const s = validSuite();
+    for (const svc of ["auth", "notify-api"] as const) {
+      s[svc]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+      s[svc]!.SERVICE_AUDIENCE = "${{shared.SERVICE_AUDIENCE}}";
+    }
+    s["estimai-api"]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    s["refund-api"]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    s["inventory-api"]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    const f = checkSuite(s, PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("a missing SERVICE_AUDIENCE / SERVICE_CLIENTS is an error (the push would silently 401)", () => {
+    const s = validSuite();
+    delete s["notify-api"]!.SERVICE_AUDIENCE;
+    delete s.auth!.SERVICE_CLIENTS;
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain("SERVICE_AUDIENCE is missing");
+    expect(text).toContain("SERVICE_CLIENTS is missing");
+  });
+
+  test("inventory-api AUTH_AUDIENCE drift → error", () => {
+    const s = validSuite();
+    s["inventory-api"]!.AUTH_AUDIENCE = "different";
+    expect(errText(checkSuite(s, PROD))).toContain("AUTH_AUDIENCE is not identical");
+  });
+
+  test("inventory-api calls auth over a public URL → error; its AUTH_ISSUER must be auth's", () => {
+    const s = validSuite();
+    s["inventory-api"]!.AUTH_BASE_URL = AUTH_URL;
+    s["inventory-api"]!.AUTH_ISSUER = "https://wrong.example.com";
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain("AUTH_BASE_URL");
+    expect(text).toContain("inventory-api.AUTH_ISSUER");
+  });
+
+  test("inventory-api ALLOWED_ORIGINS without the shell origin → error", () => {
+    const s = validSuite();
+    s["inventory-api"]!.ALLOWED_ORIGINS = ADMIN;
+    expect(errText(checkSuite(s, PROD))).toContain("inventory-api.ALLOWED_ORIGINS is missing shell");
+  });
+
+  test("inventory-api NOTIFY_INTERNAL_URL on the wrong port → error", () => {
+    const s = validSuite();
+    s["inventory-api"]!.NOTIFY_INTERNAL_URL = "http://notify-api.railway.internal:8081";
+    expect(errText(checkSuite(s, PROD))).toContain("targets port 8081");
+  });
+
+  test("inventory-api holding NOTIFY_INTERNAL_TOKEN → error (ADR-0040 hard stop)", () => {
+    const s = validSuite();
+    s["inventory-api"]!.NOTIFY_INTERNAL_TOKEN = TOKEN;
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain("inventory-api must not hold NOTIFY_INTERNAL_TOKEN");
+    expect(text).not.toContain(TOKEN);
+  });
+
+  test("service client: id not registered in auth's SERVICE_CLIENTS → error", () => {
+    const s = validSuite();
+    s["inventory-api"]!.SERVICE_CLIENT_ID = "inventory-api-2";
+    expect(errText(checkSuite(s, PROD))).toContain('has no entry for client id "inventory-api-2"');
+  });
+
+  test("service client: secret differs from the registered one → error, and no secret value is printed", () => {
+    const s = validSuite();
+    const other = "d".repeat(40);
+    s["inventory-api"]!.SERVICE_CLIENT_SECRET = other;
+    const f = checkSuite(s, PROD);
+    expect(errText(f)).toContain("does not match the secret");
+    const all = JSON.stringify(f);
+    expect(all).not.toContain(other);
+    expect(all).not.toContain(CLIENT_SECRET);
+  });
+
+  test("service client: secret shorter than 32 chars → error without the value", () => {
+    const s = validSuite();
+    s["inventory-api"]!.SERVICE_CLIENT_SECRET = "short";
+    s.auth!.SERVICE_CLIENTS = registry("short");
+    const f = checkSuite(s, PROD);
+    expect(errText(f)).toContain("shorter than 32 characters (length 5)");
+    expect(JSON.stringify(f)).not.toContain('"short"');
+  });
+
+  test("service client: registry entry without the notifications.push scope → error", () => {
+    const s = validSuite();
+    s.auth!.SERVICE_CLIENTS = registry(CLIENT_SECRET, "something.else");
+    expect(errText(checkSuite(s, PROD))).toContain('lacks the "notifications.push" scope');
+  });
+
+  test("service client: malformed SERVICE_CLIENTS JSON → error", () => {
+    const s = validSuite();
+    s.auth!.SERVICE_CLIENTS = "{not json";
+    expect(errText(checkSuite(s, PROD))).toContain("SERVICE_CLIENTS is not valid JSON");
+  });
+
+  test("service client: the same shared reference inside the JSON and on inventory-api → ok (drift-proof)", () => {
+    const s = validSuite();
+    const ref = "${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}";
+    s.auth!.SERVICE_CLIENTS = registry(ref);
+    s["inventory-api"]!.SERVICE_CLIENT_SECRET = ref;
+    const f = checkSuite(s, PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("service client: a reference on one side and a different value on the other → warning, not error", () => {
+    const s = validSuite();
+    s.auth!.SERVICE_CLIENTS = registry("${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}");
+    const f = checkSuite(s, PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f).some((w) => w.message.includes("can't verify they match offline"))).toBe(true);
+  });
+
+  test("service client: a whole-value reference for SERVICE_CLIENTS defers the match check", () => {
+    const s = validSuite();
+    s.auth!.SERVICE_CLIENTS = "${OP:Vault/Item/field}";
+    expect(errs(checkSuite(s, { ...PROD, resolved: false }))).toEqual([]);
+  });
+
+  test("S3 residency: a non-AWS endpoint outside the EU host list → error; empty list → error", () => {
+    const s = validSuite();
+    s["inventory-api"]!.INVENTORY_S3_ENDPOINT = "https://objects.example.com";
+    expect(errText(checkSuite(s, PROD))).toContain("matches no entry of INVENTORY_S3_EU_ENDPOINT_HOSTS");
+    s["inventory-api"]!.INVENTORY_S3_EU_ENDPOINT_HOSTS = "";
+    expect(errText(checkSuite(s, PROD))).toContain("INVENTORY_S3_EU_ENDPOINT_HOSTS is empty");
+  });
+
+  test("S3 residency: an AWS endpoint in a non-EU region → error; in an EU region → ok", () => {
+    const s = validSuite();
+    s["inventory-api"]!.INVENTORY_S3_ENDPOINT = "https://s3.us-east-1.amazonaws.com";
+    s["inventory-api"]!.INVENTORY_S3_REGION = "us-east-1";
+    expect(errText(checkSuite(s, PROD))).toContain("not an EU AWS region");
+    s["inventory-api"]!.INVENTORY_S3_ENDPOINT = "https://s3.eu-central-1.amazonaws.com";
+    s["inventory-api"]!.INVENTORY_S3_REGION = "eu-central-1";
+    expect(errs(checkSuite(s, PROD))).toEqual([]);
+  });
+
+  test("the SERVICE_CLIENT / S3 credential vars are redacted when surfaced", () => {
+    const f = showValue("SERVICE_CLIENT_SECRET", CLIENT_SECRET);
+    expect(f).toStartWith("<redacted sha256:");
+    expect(showValue("SERVICE_CLIENTS", registry(CLIENT_SECRET))).toStartWith("<redacted");
+    expect(showValue("INVENTORY_S3_SECRET_ACCESS_KEY", "x")).toStartWith("<redacted");
+    expect(showValue("INVENTORY_S3_ACCESS_KEY_ID", "x")).toStartWith("<redacted");
   });
 });

@@ -3,19 +3,35 @@
 #
 # WHAT THIS AUTOMATES
 #   Railway (backends): link the project, ensure the shared Postgres + the
-#   four logical databases (auth, estimai, notify, refund), set every env var
-#   for the `auth`, `estimai-api`, `notify-api`, and `refund-api` services from
-#   your direnv/1Password-exported secrets, and trigger their deploys. This
+#   five logical databases (auth, estimai, notify, refund, inventory), set
+#   every automatable env var for the `auth`, `estimai-api`, `notify-api`,
+#   `refund-api`, and `inventory-api` services from your direnv/1Password-
+#   exported secrets, and trigger their deploys. This
 #   includes AUTH_AUDIENCE (ADR-0010, specs/005-notification-center) — the
-#   SAME value is set on all four services, closing the cross-service JWT
-#   replay gap now that notify-api/refund-api are additional JWKS resource
-#   servers. It also sets NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006-user-
+#   SAME value is set on all five services, closing the cross-service JWT
+#   replay gap now that notify-api/refund-api/inventory-api are additional JWKS
+#   resource servers. It also sets NOTIFY_INTERNAL_TOKEN (ADR-0011, specs/006-user-
 #   invitations; extended to a third caller by ADR-0017, specs/007-refund-
 #   service) — the SAME value on auth + notify-api + refund-api (not
 #   estimai-api) — plus auth's and refund-api's NOTIFY_INTERNAL_URL
 #   (notify-api's Railway PRIVATE-networking address, not its public domain —
 #   plan.md Risk R2) and notify-api's optional
 #   EMAIL_ENABLED/RESEND_API_KEY/RESEND_FROM.
+#
+#   inventory-api (specs/015-hardware-inventory, ADR-0044/0047) is the FOURTH
+#   notify caller and is deliberately NEVER given NOTIFY_INTERNAL_TOKEN
+#   (ADR-0040 hard stop; `mise run env:doctor` errors if it is present). It
+#   authenticates to notify-api with a scoped service JWT minted by auth, so
+#   this script also sets SERVICE_AUDIENCE (ADR-0044) — only when you export
+#   it — byte-identically on auth + notify-api; it must differ from
+#   AUTH_AUDIENCE (both services refuse to start otherwise). For inventory-api
+#   it sets DATABASE_URL, ALLOWED_ORIGINS, AUTH_ISSUER/AUTH_JWKS_URL/
+#   AUTH_BASE_URL/AUTH_AUDIENCE, NOTIFY_INTERNAL_URL, SERVICE_CLIENT_ID, PORT
+#   and NODE_ENV.
+#   ORDER: auth and notify-api come BEFORE inventory-api (their SERVICE_*
+#   vars must exist when inventory-api first asks for a token) — the blocks
+#   below run in that order, and the inventory-api block refuses to trigger
+#   its deploy while the auth/notify-api prerequisites are missing.
 #   Migrations + the authz seed run automatically via each service's
 #   railway.json preDeployCommand (`bun run db:deploy && …`).
 #
@@ -26,16 +42,31 @@
 #   provisioned; this script deliberately does not invent placeholder values
 #   for a service still using its local-dev-only .env.example defaults.
 #
+#   NOT automated (inventory, same precedent): `inventory-api`'s INVENTORY_S3_*
+#   (its OWN private EU invoice bucket and credentials, never refund-api's —
+#   see infra/README.md § `inventory-api` service), its SERVICE_CLIENT_SECRET,
+#   and auth's SERVICE_CLIENTS (JSON carrying that same secret). The secret is
+#   a Railway Shared Variable (INVENTORY_SERVICE_CLIENT_SECRET) with no
+#   1Password item, so it is never passed through this script. Set them with
+#   `railway variables --service <svc> --set ...` (or the dashboard). UNLIKE
+#   refund-api, inventory-api's env.ts exits 1 at startup without the S3 vars
+#   and SERVICE_CLIENT_SECRET, so this script CHECKS that those names exist
+#   (names only — values are never read into the terminal) and skips the
+#   inventory-api deploy trigger, with a warning, until they do.
+#
 #   Vercel (frontends, optional --vercel): push the build-time env vars to the
-#   five existing projects (shell, estimai-ui, refund-ui, admin-ui, notify-ui)
-#   and trigger a redeploy. Project + custom-domain creation is NOT
+#   six existing projects (shell, estimai-ui, refund-ui, admin-ui, notify-ui,
+#   inventory-ui) and trigger a redeploy. Project + custom-domain creation is NOT
 #   automatable via CLI here — do it once in the dashboard (see
 #   infra/README.md § Vercel), then this keeps env vars in sync.
 #
 # WHAT STAYS MANUAL (see infra/README.md): creating the Railway project +
-#   attaching custom domains; creating the 5 Vercel projects + assigning the 5
-#   domains; registering the Google/GitHub OAuth redirect URIs; provisioning
-#   refund-api's EU object-storage bucket + 1Password item.
+#   attaching custom domains (incl. inventory-api's, targeting port 8083);
+#   creating the Railway `inventory-api` service itself; creating the 6 Vercel
+#   projects + assigning the 6 domains; registering the Google/GitHub OAuth
+#   redirect URIs; provisioning refund-api's and inventory-api's EU object-
+#   storage buckets (+ the invoice bucket's CORS rule); DNS for the two
+#   inventory hostnames.
 #
 # USAGE
 #   direnv exec auth ./infra/deploy.sh            # backends only (recommended)
@@ -50,6 +81,8 @@
 #   notify-api additionally never logs request/response bodies (notification
 #   title/body may name clients/estimates) and is pinned to numReplicas: 1 in
 #   notify-api/railway.json — do not scale it without reading plan.md Risk R2.
+#   inventory-api never logs request/response bodies either (financial figures
+#   and who holds which device are personal data); no replica pin.
 #   refund-api never logs request/response bodies either (financial figures +
 #   receipt-attachment metadata may carry PII, ADR-0016) but has no replica
 #   pin — its authz cache is a per-replica perf optimization, not a shared
@@ -68,19 +101,38 @@ AUTH_URL="${AUTH_URL:-https://auth.operai.welld.io}"
 API_URL="${API_URL:-https://estimai-api.operai.welld.io}"
 NOTIFY_API_URL="${NOTIFY_API_URL:-https://notify-api.operai.welld.io}"
 REFUND_API_URL="${REFUND_API_URL:-https://refund-api.operai.welld.io}"
+# ASSUMED hostnames (the ones shell/vercel.json's CSP already names) — they do
+# not resolve until DNS + the custom domains exist (infra/README.md rollout).
+INVENTORY_API_URL="${INVENTORY_API_URL:-https://inventory-api.operai.welld.io}"
 ESTIMAI_REMOTE_URL="${ESTIMAI_REMOTE_URL:-https://estimai.operai.welld.io/remoteEntry.js}"
 REFUND_REMOTE_URL="${REFUND_REMOTE_URL:-https://refund.operai.welld.io/remoteEntry.js}"
 ADMIN_REMOTE_URL="${ADMIN_REMOTE_URL:-https://admin.operai.welld.io/remoteEntry.js}"
+INVENTORY_REMOTE_URL="${INVENTORY_REMOTE_URL:-https://inventory.operai.welld.io/remoteEntry.js}"
 SHELL_REMOTE_URL="${SHELL_REMOTE_URL:-https://operai.welld.io/remoteEntry.js}"
 
 # ADR-0010 (specs/005-notification-center, extended by specs/007-refund-
 # service): ONE audience value, verified by auth (stamps it) and every
-# resource server (estimai-api, notify-api, refund-api). Not a secret, but
-# must be byte-for-byte identical across all four services — a drift fails
+# resource server (estimai-api, notify-api, refund-api, inventory-api). Not a
+# secret, but must be byte-for-byte identical across all five services — a drift fails
 # every request closed (401), not open. Defaults to the same local-dev value
 # baked into each service's .env.example; override for a real deploy if you
 # want a non-default suite-wide audience string.
 AUTH_AUDIENCE="${AUTH_AUDIENCE:-operai-suite}"
+
+# ADR-0044 (specs/015-hardware-inventory): the `aud` auth stamps on scoped
+# service JWTs and notify-api verifies. Byte-identical on auth + notify-api and
+# DIFFERENT from AUTH_AUDIENCE (both refuse to start otherwise). Deliberately
+# NO default: guessing a value could overwrite one already set in production
+# (the manual rollout may have done so); unset = left untouched on both
+# services, and the inventory-api block then requires it to be present already.
+SERVICE_AUDIENCE="${SERVICE_AUDIENCE:-}"
+
+# Names (never values) of the variables currently set on a Railway service.
+# Used for the inventory-api prerequisite checks; the values pass through
+# `cut` and are discarded, so no secret reaches the terminal or a variable.
+railway_var_names() { # railway_var_names <service>
+  railway variables --service "$1" --kv 2>/dev/null | cut -d= -f1 || true
+}
 
 # ADR-0011 (specs/006-user-invitations, extended by ADR-0017/specs/007-refund-
 # service): notify-api's Railway PRIVATE-networking address — auth's
@@ -136,6 +188,12 @@ case "${EMAIL_ENABLED}" in
     warn "EMAIL_ENABLED is not 'true' — invitation emails will be stubbed (recorded, not actually sent via Resend). Fine for a first deploy; see infra/README.md § Resend domain setup before enabling in production."
     ;;
 esac
+# ADR-0044: a service token must be useless on every user route and a user JWT
+# useless on every system route — only true while the two audiences differ.
+if [[ -n "${SERVICE_AUDIENCE}" && "${SERVICE_AUDIENCE}" == "${AUTH_AUDIENCE}" ]]; then
+  die "\$SERVICE_AUDIENCE must differ from \$AUTH_AUDIENCE (ADR-0044) — auth and notify-api exit at startup when they are equal."
+fi
+[[ -n "${SERVICE_AUDIENCE}" ]] || warn "SERVICE_AUDIENCE not exported — auth's and notify-api's value is left untouched; the inventory-api block will require it to be set already (ADR-0044)."
 ok "All required secrets present."
 
 # ─── Link the Railway project ─────────────────────────────────────────────────
@@ -154,8 +212,8 @@ if ! railway service list 2>/dev/null | grep -qi postgres; then
 else
   ok "Postgres already present."
 fi
-info "Ensuring logical databases 'auth', 'estimai', 'notify', and 'refund' exist…"
-for DB in auth estimai notify refund; do
+info "Ensuring logical databases 'auth', 'estimai', 'notify', 'refund', and 'inventory' exist…"
+for DB in auth estimai notify refund inventory; do
   railway run --service Postgres -- psql "\$DATABASE_URL" -v ON_ERROR_STOP=0 -tc \
     "SELECT 'CREATE DATABASE ${DB}' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='${DB}')\gexec" \
     >/dev/null 2>&1 || warn "Could not auto-create '${DB}' — create it manually: railway connect Postgres → CREATE DATABASE ${DB};"
@@ -175,10 +233,14 @@ railway variables --service auth \
   --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
   --set "NOTIFY_INTERNAL_URL=${NOTIFY_INTERNAL_URL}" \
   --set "NOTIFY_INTERNAL_TOKEN=${NOTIFY_INTERNAL_TOKEN}" \
+  ${SERVICE_AUDIENCE:+--set "SERVICE_AUDIENCE=${SERVICE_AUDIENCE}"} \
   ${BOOTSTRAP_ADMIN_EMAIL:+--set "BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL}"} \
   --set "NODE_ENV=production" >/dev/null
 # BETTER_AUTH_URL is set after the domain exists (below). PORT / ENABLE_TEST_AUTH /
 # BETTER_AUTH_TRUSTED_ORIGINS are intentionally NOT set (see infra/README.md).
+# SERVICE_AUDIENCE (ADR-0044) is set only when exported (above). SERVICE_CLIENTS
+# (JSON incl. inventory-api's client secret) is NOT set here — manual, see the
+# header comment; `--set` is additive, so an existing SERVICE_CLIENTS survives.
 railway up --service auth --detach && ok "auth deploy triggered."
 
 # ─── estimai-api service vars + deploy ────────────────────────────────────────
@@ -214,6 +276,7 @@ railway variables --service notify-api \
   --set "EMAIL_ENABLED=${EMAIL_ENABLED}" \
   --set "RESEND_FROM=${RESEND_FROM}" \
   ${RESEND_API_KEY:+--set "RESEND_API_KEY=${RESEND_API_KEY}"} \
+  ${SERVICE_AUDIENCE:+--set "SERVICE_AUDIENCE=${SERVICE_AUDIENCE}"} \
   --set "NODE_ENV=production" >/dev/null
 railway up --service notify-api --detach && ok "notify-api deploy triggered."
 
@@ -245,6 +308,66 @@ railway variables --service refund-api \
 railway up --service refund-api --detach && ok "refund-api deploy triggered."
 warn "refund-api's REFUND_S3_* vars were NOT set (no bucket provisioned yet) — the service will start (env.ts does not enforce them until T9), but attachment upload/download will fail until they're set manually. See infra/README.md."
 
+# ─── inventory-api service vars + deploy (specs/015-hardware-inventory) ───────
+# MUST stay AFTER the auth and notify-api blocks above (ordering constraint:
+# auth needs SERVICE_AUDIENCE + SERVICE_CLIENTS and notify-api needs
+# SERVICE_AUDIENCE before inventory-api first asks for a scoped token; a push
+# attempted earlier is a silent 401 — it is best-effort and never rolls back a
+# mutation). The deploys above are triggered with --detach and NOT awaited:
+# confirm auth and notify-api booted (`railway status`) — auth's
+# preDeployCommand seeds the `inventory` catalog inventory-api authorizes against.
+#
+# Own logical DB ('inventory'); the FOURTH JWKS resource server on the shared
+# AUTH_AUDIENCE (ADR-0010). Per infra/README.md § Private networking, a CALL to
+# another backend (AUTH_JWKS_URL, AUTH_BASE_URL) uses Railway private networking
+# and a CLAIM (AUTH_ISSUER) stays the public URL. NOTIFY_INTERNAL_URL is the
+# project Shared Variable (notify-api's `${{notify-api.…}}` reference does not
+# resolve — never hand-type its private domain). Single-quoted so the shell
+# keeps the `${{…}}` references literal.
+#
+# NEVER SET HERE, by design: NOTIFY_INTERNAL_TOKEN (ADR-0040/0044 — the push
+# uses a scoped service JWT; env:doctor errors if the token is present).
+# MANUAL (see header): INVENTORY_S3_*, SERVICE_CLIENT_SECRET, auth SERVICE_CLIENTS.
+info "Setting inventory-api service variables…"
+railway variables --service inventory-api \
+  --set 'DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.RAILWAY_PRIVATE_DOMAIN}}:5432/inventory' \
+  --set "ALLOWED_ORIGINS=${UI_ORIGIN}" \
+  --set "AUTH_ISSUER=${AUTH_PUBLIC_URL:-$AUTH_URL}" \
+  --set 'AUTH_JWKS_URL=http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks' \
+  --set 'AUTH_BASE_URL=http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}' \
+  --set "AUTH_AUDIENCE=${AUTH_AUDIENCE}" \
+  --set 'NOTIFY_INTERNAL_URL=${{shared.NOTIFY_INTERNAL_URL}}' \
+  --set "SERVICE_CLIENT_ID=inventory-api" \
+  --set "PORT=8083" \
+  --set "NODE_ENV=production" >/dev/null
+
+# Prerequisite check by variable NAME only. A service that cannot start (env.ts
+# exits 1 without the S3 vars / SERVICE_CLIENT_SECRET) or whose pushes would be
+# silently 401 is not worth triggering a deploy for; the variables above are
+# harmless to have set, so only the deploy trigger is skipped.
+INV_BLOCKERS=()
+need() { # need <names-of-service-vars> <label> <VAR>…
+  local names="$1" label="$2"; shift 2
+  local v
+  for v in "$@"; do
+    printf '%s\n' "$names" | grep -qxF "$v" || INV_BLOCKERS+=("${label}: ${v}")
+  done
+}
+INV_NAMES="$(railway_var_names inventory-api)"
+if printf '%s\n' "$INV_NAMES" | grep -qxF NOTIFY_INTERNAL_TOKEN; then
+  die "inventory-api holds NOTIFY_INTERNAL_TOKEN — remove it from that service (Railway dashboard → inventory-api → Variables); ADR-0040 hard stop / ADR-0044."
+fi
+need "$(railway_var_names auth)"       auth       SERVICE_AUDIENCE SERVICE_CLIENTS PORT
+need "$(railway_var_names notify-api)" notify-api SERVICE_AUDIENCE
+need "$INV_NAMES" inventory-api SERVICE_CLIENT_SECRET INVENTORY_S3_ENDPOINT INVENTORY_S3_REGION INVENTORY_S3_BUCKET INVENTORY_S3_ACCESS_KEY_ID INVENTORY_S3_SECRET_ACCESS_KEY
+if [[ ${#INV_BLOCKERS[@]} -eq 0 ]]; then
+  railway up --service inventory-api --detach && ok "inventory-api deploy triggered."
+else
+  warn "inventory-api deploy NOT triggered — these variables are not set yet (names only):"
+  for b in "${INV_BLOCKERS[@]}"; do warn "    $b"; done
+  warn "Set them manually (infra/README.md § inventory-api service → Rollout checklist), then re-run this script or: railway up --service inventory-api --detach"
+fi
+
 # ─── Cross-wire: auth must know its own public URL (JWT issuer) ────────────────
 if [[ -n "${AUTH_PUBLIC_URL:-}" ]]; then
   info "Setting auth BETTER_AUTH_URL=${AUTH_PUBLIC_URL} (JWT issuer)…"
@@ -252,7 +375,7 @@ if [[ -n "${AUTH_PUBLIC_URL:-}" ]]; then
   railway redeploy --service auth --yes >/dev/null 2>&1 || railway up --service auth --detach
   ok "auth redeployed with issuer."
 else
-  warn "AUTH_PUBLIC_URL not set → BETTER_AUTH_URL not applied. Generate the auth domain, then re-run with AUTH_PUBLIC_URL=https://<auth-domain> (must equal estimai-api's, notify-api's, and refund-api's AUTH_ISSUER)."
+  warn "AUTH_PUBLIC_URL not set → BETTER_AUTH_URL not applied. Generate the auth domain, then re-run with AUTH_PUBLIC_URL=https://<auth-domain> (must equal estimai-api's, notify-api's, refund-api's, and inventory-api's AUTH_ISSUER)."
 fi
 
 # ─── Optional: sync Vercel env + redeploy (projects must already exist) ────────
@@ -265,6 +388,10 @@ if $DO_VERCEL; then
   info "Syncing Vercel env vars (production)…"
   vset shell VITE_AUTH_URL "$AUTH_URL"; vset shell VITE_API_URL "$API_URL"; vset shell VITE_NOTIFY_API_URL "$NOTIFY_API_URL"
   vset shell VITE_REFUND_API_URL "$REFUND_API_URL"
+  # specs/015: both are BUILD-time on the shell. VITE_INVENTORY_API_URL is optional by design
+  # and unset = the inventory origin is not trusted, so apiFetch sends no Bearer there and
+  # every inventory call silently 401s (infra/README.md § Frontend build-time vars).
+  vset shell VITE_INVENTORY_API_URL "$INVENTORY_API_URL"; vset shell INVENTORY_REMOTE_URL "$INVENTORY_REMOTE_URL"
   vset shell ESTIMAI_REMOTE_URL "$ESTIMAI_REMOTE_URL"; vset shell REFUND_REMOTE_URL "$REFUND_REMOTE_URL"; vset shell ADMIN_REMOTE_URL "$ADMIN_REMOTE_URL"
   vset estimai-ui VITE_API_URL "$API_URL"; vset estimai-ui VITE_AUTH_URL "$AUTH_URL"; vset estimai-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
   # refund-ui (T20, specs/007-refund-service): VITE_REFUND_API_URL is REQUIRED
@@ -279,11 +406,15 @@ if $DO_VERCEL; then
   # notify-ui (specs/005): no backend var of its own — it goes through shell/session's
   # VITE_NOTIFY_API_URL (set on the shell project above), same pattern as admin-ui.
   vset notify-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
-  for p in shell estimai-ui refund-ui admin-ui notify-ui; do vercel deploy --prod --cwd "$p" >/dev/null 2>&1 && ok "  redeployed $p" || warn "  redeploy $p failed — trigger from dashboard"; done
+  # inventory-ui (specs/015): no backend var of its own — it asks the shell for
+  # getInventoryApiBaseUrl()/getAuthBaseUrl() (set on the shell project above).
+  vset inventory-ui SHELL_REMOTE_URL "$SHELL_REMOTE_URL"
+  for p in shell estimai-ui refund-ui admin-ui notify-ui inventory-ui; do vercel deploy --prod --cwd "$p" >/dev/null 2>&1 && ok "  redeployed $p" || warn "  redeploy $p failed — trigger from dashboard"; done
 fi
 
 echo ""
 ok "Done. Verify with:  ./infra/check.sh"
-echo "   Health:  railway status --service auth ; railway status --service estimai-api ; railway status --service notify-api ; railway status --service refund-api"
+echo "   Health:  railway status --service auth ; railway status --service estimai-api ; railway status --service notify-api ; railway status --service refund-api ; railway status --service inventory-api"
 echo "   Migrations + authz seed run automatically via each railway.json preDeployCommand."
 echo "   Reminder: refund-api's REFUND_S3_* vars still need to be set manually once its EU bucket is provisioned (infra/README.md § Variable reference)."
+echo "   Reminder: inventory-api's INVENTORY_S3_*, SERVICE_CLIENT_SECRET and auth's SERVICE_CLIENTS are manual (infra/README.md § inventory-api service); it must never hold NOTIFY_INTERNAL_TOKEN."

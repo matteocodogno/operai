@@ -1,0 +1,61 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.56.0",
+  "run_id": "2026-10-08T11-40-00Z-orchestrate-015-hardware-inventory",
+  "command": "orchestrate",
+  "feature": "015-hardware-inventory",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-10-08T11:40:00Z",
+  "finished": "2026-10-08T15:24:00Z",
+  "control_run_id": "2026-10-06T22-01-40Z-orchestrate-015-hardware-inventory",
+  "agents": [
+    { "agent": "backend-dev", "tasks": ["T2", "T7", "T9"], "outcome": "completed", "commits": ["21d8ea7", "3571d53", "cd930ee"] },
+    { "agent": "backend-dev", "tasks": ["T10", "T11", "T12"], "outcome": "completed", "commits": ["ebd017c", "ace94fc", "d50f37f"] },
+    { "agent": "backend-dev", "tasks": ["T6"], "outcome": "completed", "commits": ["ec0ae4f"] },
+    { "agent": "backend-dev", "tasks": ["T3", "T4", "T5"], "outcome": "completed", "commits": ["85b5562", "4f609b3", "784512c"] },
+    { "agent": "backend-dev", "tasks": ["T13", "T14", "T15", "T16"], "outcome": "completed", "commits": ["314bf58", "c21bc62", "54b5f5a", "ca899df"] },
+    { "agent": "backend-dev", "tasks": ["T18", "T19", "T20", "T22"], "outcome": "completed", "commits": ["e855524", "e439dc1", "7ae4ba1", "66078ab"] },
+    { "agent": "backend-dev", "tasks": ["T17", "T21", "T23", "fix: cancel on a disposed asset"], "outcome": "completed", "commits": ["658dbbc", "33ced92", "ea2cce1", "8c23f73"] },
+    { "agent": "frontend-dev", "tasks": ["fix: assignee history label (T36)"], "outcome": "completed", "commits": ["90415b6"] },
+    { "agent": "devops", "tasks": ["T43"], "outcome": "completed", "commits": ["73f965c", "30f137e"] },
+    { "agent": "quality-engineer", "tasks": ["T44"], "outcome": "completed; no defect found", "commits": ["ea970d2"] },
+    { "agent": "owasp-reviewer", "tasks": ["security review"], "outcome": "PASS WITH FINDINGS: 0 critical, 0 high, 2 medium, 7 low", "commits": [] },
+    { "agent": "backend-dev", "tasks": ["security fixes M1, L1, L2, L3, L7"], "outcome": "completed", "commits": ["da898e8", "e422feb", "0c8156c", "a5f68af", "eb0f9a2"] },
+    { "agent": "quality-engineer", "tasks": ["fix: UI error codes", "T45"], "outcome": "T45 incomplete: AC-2.8/2.9 blocked on env, one pre-existing spec stale; found and fixed a react version skew that broke every remote", "commits": ["2a0f5ea", "841d22f", "d0607b5"] },
+    { "agent": "devops", "tasks": ["infra/deploy.sh", "infra/check.sh", "root README", "react skew guard"], "outcome": "completed; infra scripts not executed against real infrastructure", "commits": ["f17c7a9", "944eec3", "5368d00", "2858e74"] }
+  ],
+  "drift_events": [
+    { "agent": "backend-dev", "artifact": "tasks.md", "summary": "inventory-api/src/lib/problem.ts and assets/lockAsset.ts were needed by several tasks and listed by none", "resolved": true },
+    { "agent": "backend-dev", "artifact": "docs/adr/0044", "summary": "The R-4 fallback (sign with JWT_PRIVATE_KEY) was wrong: tokens are signed by better-auth's rotating key at /auth/jwks. ADR amended", "resolved": true },
+    { "agent": "backend-dev", "artifact": "plan.md", "summary": "Security fixes added year_in_future, too_many_pending_uploads, uploader-only confirm, invoice_file.etag, fail-closed unrecognised conditions and a 64 KiB body limit. Plan amended", "resolved": true },
+    { "agent": "backend-dev", "artifact": "spec.md", "summary": "The spec does not say whether the current year may be closed, whether disposal dates may be in the future, what 'book value today' means within an open year, or whether self-assignment is allowed. Decisions pending with the user", "resolved": false },
+    { "agent": "frontend-dev", "artifact": "plan.md", "summary": "FiscalYearView lacks closedBy; the design's 'Closed on {date} by {name}' cannot show the name. Amendment proposed, not applied", "resolved": false },
+    { "agent": "backend-dev", "artifact": "spec.md", "summary": "Legacy sheet: per-asset closing at 31.12.2025 sums to 21,688.99 when each cell is rounded, the spec quotes 21,689.00; closed years miss footing by 1 to 4 cents. Needs accounting (O3)", "resolved": false }
+  ],
+  "env_faults": [
+    { "agent": "orchestrator", "class": "secret env", "detail": "auth, notify-api and inventory-api env needed several rounds of fixes by the user (blocked rc files, empty values, wrong database user)", "resolved_by": "user" },
+    { "agent": "quality-engineer", "class": "secret env", "detail": "SERVICE_AUDIENCE and SERVICE_CLIENTS unset in auth, SERVICE_AUDIENCE unset in notify-api: the assignment push returns 401 and AC-2.8/2.9 cannot run end to end", "resolved_by": "unresolved - needs the user" },
+    { "agent": "quality-engineer", "class": "ports", "detail": "another local project holds ports 5173, 8080 and 8081", "resolved_by": "alternate ports via E2E_SHELL_PORT; mise run dev not exercised" },
+    { "agent": "quality-engineer", "class": "credential stores", "detail": "1Password commit signing failed twice for the T45 commit; signing was not bypassed", "resolved_by": "orchestrator retried with normal signing and it succeeded" },
+    { "agent": "orchestrator", "class": "caches and tool state", "detail": "the plugin's stop hook leaves pnpm-lock.yaml and pnpm-workspace.yaml in the Bun services", "resolved_by": "deleted after each agent; never committed" },
+    { "agent": "orchestrator", "class": "pre-existing", "detail": "notify-api full suite fails by test-order pollution of DATABASE_URL; refund-api has 3 order-dependent failures; auth typecheck has one error in test-auth.routes.ts; estimai-ui resolved react 19.2.4 (aligned to 19.2.7 after the run); three shell e2e specs use a stale Refund label", "resolved_by": "unresolved - outside this feature" }
+  ],
+  "verdicts": {
+    "security": "FAIL",
+    "qe": "FAIL"
+  },
+  "security": {
+    "matched_rules": ["auth", "authorization", "file-upload", "financial-data", "service-to-service"],
+    "dispatched": true,
+    "notes": [
+      "M1 (unbounded fiscal-year close) fixed for years after the current one in da898e8; closing the current year is still allowed pending a spec decision",
+      "M2 (a soft-deleted user keeps permissions via /authz/resolve for the 7-day JWT lifetime) fixed on the user's instruction after the run: /authz/resolve returns no permissions for a soft-deleted caller; ADR-0012 amended",
+      "L1, L2, L3, L7 fixed; L4 (future dates), L5 (self-assignment), L6 (X-Forwarded-For rate-limit key) open"
+    ]
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false
+}

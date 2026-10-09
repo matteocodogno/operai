@@ -90,8 +90,7 @@ export default function MyRequestsPage() {
           <Link
             to="/requests/new"
             data-testid="my-requests-new-button"
-            className="text-sm py-1.5 px-3 font-medium transition-opacity hover:opacity-90"
-            style={{ color: 'white', backgroundColor: 'var(--acc)' }}
+            className="btn btn-primary"
           >
             {t.newRequestButton}
           </Link>

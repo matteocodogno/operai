@@ -143,6 +143,55 @@ services:
       retries: 5
       start_period: 15s
 
+  # ─── inventory-api ──────────────────────────────────────────────────────────
+  # Bun + Hono resource server for the hardware inventory and depreciation
+  # register (specs/015-hardware-inventory).
+  #
+  # DATA-RESIDENCY: in production this service is deployed to Railway EU region
+  # (see inventory-api/railway.json). Locally it runs against the shared
+  # Postgres instance above, in its own logical database ('inventory'). Same
+  # pattern as 'estimai'/'notify'/'refund' above — no init script; Prisma
+  # creates the logical database itself the first time migrations run
+  # (`migrate dev` / `migrate deploy`). Request/response bodies are never
+  # written to application logs (method+path+status only, enforced in
+  # src/lib/logger.ts) — this service handles financial figures and personal
+  # data (who holds which device). Invoice files go direct-to-bucket via
+  # presigned URLs (INVENTORY_S3_*, its own EU-region bucket).
+  #
+  # Prerequisites:
+  #   1. Copy inventory-api/.env.example to inventory-api/.env and fill in values.
+  #   2. Run migrations first:
+  #        cd inventory-api && bun run db:migrate
+  #      or `mise run db:migrate` (applies all backends, inventory-api included).
+  #
+  # As with refund-api, run it on the HOST (`mise run dev`) when testing
+  # invoice uploads: presigned URLs are bound to the endpoint host MinIO is
+  # reached at (http://localhost:9000).
+  inventory-api:
+    build:
+      context: ./inventory-api
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "8083:8083"
+    env_file:
+      - ./inventory-api/.env
+    environment:
+      # Override DATABASE_URL so the hostname resolves inside the compose network.
+      # The .env file uses localhost:5435 (host access); inside compose use the
+      # service name 'postgres' on its internal port 5432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/inventory
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   # ─── minio (local S3-compatible object storage) ─────────────────────────────
   # LOCAL-DEV-ONLY stand-in for the production EU-region bucket refund-api uses
   # for receipt attachments (ADR-0016). S3-compatible, path-style addressing
@@ -171,8 +220,8 @@ services:
   #
   # Console UI: http://localhost:9001 (login minioadmin / minioadmin).
   minio:
-    image: docker.io/minio/minio:latest
-    command: server /data --console-address ":9001"
+    image: docker.io/bitnamilegacy/minio:latest
+    command: server /bitnami/minio/data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -186,13 +235,14 @@ services:
       retries: 10
       start_period: 5s
     volumes:
-      - operai_minio_data:/data
+      - operai_minio_data:/bitnami/minio/data
 
-  # One-shot: waits for MinIO, creates the dev bucket if absent, and asserts it
+  # One-shot: waits for MinIO, creates the dev buckets (refund receipts +
+  # inventory invoices) if absent, and asserts it
   # stays PRIVATE (no anonymous access), then exits. Re-running compose is
   # idempotent (`mb --ignore-existing`).
   minio-createbucket:
-    image: docker.io/minio/mc:latest
+    image: docker.io/bitnamilegacy/minio-client:latest
     depends_on:
       minio:
         condition: service_started
@@ -203,7 +253,10 @@ services:
       done &&
       mc mb --ignore-existing local/${REFUND_S3_BUCKET:-operai-refund-attachments-dev} &&
       mc anonymous set none local/${REFUND_S3_BUCKET:-operai-refund-attachments-dev} &&
-      echo 'minio bucket ready (private): ${REFUND_S3_BUCKET:-operai-refund-attachments-dev}'
+      echo 'minio bucket ready (private): ${REFUND_S3_BUCKET:-operai-refund-attachments-dev}' &&
+      mc mb --ignore-existing local/${INVENTORY_S3_BUCKET:-operai-inventory-invoices-dev} &&
+      mc anonymous set none local/${INVENTORY_S3_BUCKET:-operai-inventory-invoices-dev} &&
+      echo 'minio bucket ready (private): ${INVENTORY_S3_BUCKET:-operai-inventory-invoices-dev}'
       "
     restart: "no"
 

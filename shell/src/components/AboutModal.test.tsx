@@ -36,8 +36,8 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/** A four-remote fixture mirroring the real REMOTE_VERSION_SOURCES shape, with all-resolving default loaders. */
-function fourRemoteFixture(
+/** A five-remote fixture mirroring the real REMOTE_VERSION_SOURCES shape, with all-resolving default loaders. */
+function remoteFixture(
   overrides: Partial<Record<RemoteVersionSource['id'], RemoteVersionSource['loader']>> = {},
 ): RemoteVersionSource[] {
   const defaults: Record<RemoteVersionSource['id'], RemoteVersionSource['loader']> = {
@@ -45,12 +45,14 @@ function fourRemoteFixture(
     refund: () => Promise.resolve({ REMOTE_VERSION: '4.5.6' }),
     admin: () => Promise.resolve({ REMOTE_VERSION: '7.8.9' }),
     notify: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
+    inventory: () => Promise.resolve({ REMOTE_VERSION: '2.0.1' }),
   }
   return [
     { id: 'estimai', label: 'EstimAI', loader: overrides.estimai ?? defaults.estimai },
     { id: 'refund', label: 'Refund', loader: overrides.refund ?? defaults.refund },
     { id: 'admin', label: 'Admin', loader: overrides.admin ?? defaults.admin },
     { id: 'notify', label: 'Notify', loader: overrides.notify ?? defaults.notify },
+    { id: 'inventory', label: 'Inventory', loader: overrides.inventory ?? defaults.inventory },
   ]
 }
 
@@ -87,7 +89,7 @@ describe('AboutModal', () => {
 
   describe('Components section — per-remote versions', () => {
     it("shows each mounted remote's own version once its import resolves", async () => {
-      render(<AboutModal onClose={() => {}} remoteVersionSources={fourRemoteFixture()} />)
+      render(<AboutModal onClose={() => {}} remoteVersionSources={remoteFixture()} />)
 
       await waitFor(() => {
         expect(screen.getByTestId('remote-version-estimai').textContent).toBe('1.2.3')
@@ -98,7 +100,7 @@ describe('AboutModal', () => {
     })
 
     it('renders the modal and the other remotes’ real versions when one remote’s import REJECTS', async () => {
-      const sources = fourRemoteFixture({
+      const sources = remoteFixture({
         refund: () => Promise.reject(new Error('network error fetching remoteEntry.js')),
       })
 
@@ -117,7 +119,7 @@ describe('AboutModal', () => {
 
     it('renders the modal and the other remotes’ real versions when one remote’s import TIMES OUT (never settles)', async () => {
       vi.useFakeTimers()
-      const sources = fourRemoteFixture({
+      const sources = remoteFixture({
         // A remote that's unreachable / mid cold-start: the import promise
         // never settles at all — only the timeout race leg can resolve this.
         admin: () => new Promise(() => {}),
@@ -142,7 +144,7 @@ describe('AboutModal', () => {
       // Simulates a remote that predates this feature and exposes SOMETHING
       // at `./version`, but not the expected shape — e.g. an accidental
       // re-export, or a REMOTE_VERSION that isn't a string.
-      const sources = fourRemoteFixture({
+      const sources = remoteFixture({
         notify: () => Promise.resolve({ REMOTE_VERSION: 12345 }),
       })
 
@@ -161,7 +163,7 @@ describe('AboutModal', () => {
       // A remote that predates this feature entirely typically resolves its
       // `./version` specifier to *something* MF-shaped but without the
       // named export at all — modeled here as an explicit undefined.
-      const sources = fourRemoteFixture({
+      const sources = remoteFixture({
         estimai: () => Promise.resolve({ REMOTE_VERSION: undefined }),
       })
 
@@ -173,6 +175,54 @@ describe('AboutModal', () => {
       expect(screen.getByTestId('remote-version-estimai').textContent).toBe('—')
       expect(screen.getByTestId('remote-version-admin').textContent).toBe('7.8.9')
       expect(screen.getByTestId('remote-version-notify').textContent).toBe('0.1.0')
+    })
+
+    // T41 (specs/015-hardware-inventory, ADR-0030): the Inventory row.
+    it('lists Inventory among the real default sources', async () => {
+      render(<AboutModal onClose={() => {}} />)
+
+      expect(screen.getByText('Inventory')).not.toBeNull()
+      // Resolved through the federation resolution stub (0.0.0-stub).
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-inventory').textContent).toBe('0.0.0-stub')
+      })
+    })
+
+    it('shows the Inventory version once its import resolves', async () => {
+      render(<AboutModal onClose={() => {}} remoteVersionSources={remoteFixture()} />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-inventory').textContent).toBe('2.0.1')
+      })
+    })
+
+    it('still renders, with a muted dash for Inventory, when inventory/version REJECTS', async () => {
+      const sources = remoteFixture({
+        inventory: () => Promise.reject(new Error('Module ./version does not exist in container')),
+      })
+
+      render(<AboutModal onClose={() => {}} remoteVersionSources={sources} />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('remote-version-estimai').textContent).toBe('1.2.3')
+      })
+      expect(screen.getByTestId('remote-version-inventory').textContent).toBe('—')
+      expect(screen.getByRole('dialog', { name: `About ${APP_NAME}` })).not.toBeNull()
+    })
+
+    it('still renders, with a muted dash for Inventory, when inventory/version TIMES OUT', async () => {
+      vi.useFakeTimers()
+      const sources = remoteFixture({ inventory: () => new Promise(() => {}) })
+
+      render(<AboutModal onClose={() => {}} remoteVersionSources={sources} />)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(REMOTE_VERSION_TIMEOUT_MS + 50)
+      })
+
+      expect(screen.getByTestId('remote-version-inventory').textContent).toBe('—')
+      expect(screen.getByTestId('remote-version-notify').textContent).toBe('0.1.0')
+      expect(screen.getByRole('dialog', { name: `About ${APP_NAME}` })).not.toBeNull()
     })
   })
 })

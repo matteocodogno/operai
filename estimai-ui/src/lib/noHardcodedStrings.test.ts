@@ -78,7 +78,7 @@ describe('no hardcoded user-facing strings outside strings.ts (T14 new files)', 
         // `data-testid` value — a test hook, not user-facing.
         'access-level-badge',
         // Tailwind utility classes.
-        'inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded',
+        'inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium px-1.5 py-0.5 rounded',
         // `style` template literal — a CSS function, not copy.
         'color-mix(in srgb, ${color} 10%, transparent)',
         // `aria-hidden="true"` attribute value.

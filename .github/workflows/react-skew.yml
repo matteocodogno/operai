@@ -1,0 +1,38 @@
+# react-skew — every frontend's pnpm lockfile must resolve the SAME react and
+# react-dom version. The shell and the remotes share them as Module Federation
+# singletons (ADR-0006); a lockfile that resolves a different version builds and
+# passes its own tests, then breaks the assembled suite (inventory-ui resolved
+# 19.3.0 while the rest resolved 19.2.7 — every remote failed).
+#
+# OFFLINE and secret-free: scripts/check-react-skew.mjs reads lerna.json and the
+# lockfiles as plain text — no install. Same check locally: `mise run react:skew`.
+# As with changeset-check, it only blocks a merge once this job is a REQUIRED
+# status check on `main` (a separate, human branch-protection decision).
+name: react-skew
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "*/pnpm-lock.yaml"
+      - "lerna.json"
+      - "scripts/check-react-skew*.mjs"
+      - ".github/workflows/react-skew.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  react-skew:
+    name: one react version across the frontends
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Self-test the checker
+        run: node --test scripts/check-react-skew.test.mjs
+      - name: Check the frontends' lockfiles
+        run: node scripts/check-react-skew.mjs

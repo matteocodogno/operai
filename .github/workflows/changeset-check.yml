@@ -30,9 +30,11 @@ on:
       - "estimai-api/**"
       - "notify-api/**"
       - "refund-api/**"
+      - "inventory-api/**"
       - "shell/**"
       - "estimai-ui/**"
       - "refund-ui/**"
+      - "inventory-ui/**"
       - "notify-ui/**"
       - "admin-ui/**"
   push:
@@ -42,9 +44,11 @@ on:
       - "estimai-api/**"
       - "notify-api/**"
       - "refund-api/**"
+      - "inventory-api/**"
       - "shell/**"
       - "estimai-ui/**"
       - "refund-ui/**"
+      - "inventory-ui/**"
       - "notify-ui/**"
       - "admin-ui/**"
   workflow_dispatch: {}

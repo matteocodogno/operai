@@ -73,9 +73,16 @@
   --grn: #2ec27e;
   --org: #f5a623;
   --red: #f55a5a;
+  /* Accent as a FILLED background under white text: 5.0:1 (--acc is 4.3:1,
+     below WCAG AA for 13px text). Same value in both themes. */
+  --acc-solid: #4f5ef0;
+  --acc-solid-hi: #4453e0;
   --mono: 'DM Mono', monospace;
   --disp: 'Syne', sans-serif;
   --body: 'DM Sans', sans-serif;
+  /* Chevron drawn on every <select>; a data URI cannot read var(--soft), so
+     the light theme overrides the whole image below. */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238888aa' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
 }
 
 /* ── Light theme variables ─────────────────────────────────────────────────── */
@@ -109,6 +116,7 @@
   --grn:     #1a9e5c;
   --org:     #c47a0e;
   --red:     #d93636;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2360608a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
 }
 
 /* System preference: light (only when not explicitly forced to dark)          */
@@ -142,6 +150,7 @@
     --grn:     #1a9e5c;
     --org:     #c47a0e;
     --red:     #d93636;
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2360608a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
   }
 }
 
@@ -199,6 +208,225 @@ body,
     font-size: 13px;
     transition: all 0.15s;
   }
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────
+ * The suite's ONE button vocabulary — see docs/design-system.md § Buttons for
+ * which variant to use when. Works on <button>, <a> and router <Link> alike
+ * (a link styled as a button gets no help from the `button` base rule above,
+ * which is how square-cornered link-buttons crept in).
+ *
+ *   .btn + exactly one of  .btn-primary | .btn-secondary | .btn-ghost | .btn-danger
+ *   optional size          .btn-sm
+ *   optional shape         .btn-icon   (square, icon-only; needs an aria-label)
+ *
+ * In `@layer components`, so a Tailwind utility on the same element still wins
+ * (margin, width, `self-start`, …). Do not restyle colour, border or radius
+ * with utilities or inline styles — add a variant here instead.
+ */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-family: var(--body), sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s,
+      opacity 0.15s;
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--acc-hi);
+    outline-offset: 2px;
+  }
+
+  /* `aria-disabled` keeps the control focusable so its reason can be read out;
+     both spellings look the same. */
+  .btn:disabled,
+  .btn[aria-disabled='true'] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn[aria-busy='true'] {
+    opacity: 0.7;
+    cursor: progress;
+  }
+
+  .btn-sm {
+    padding: 3px 10px;
+    font-size: 12px;
+  }
+
+  .btn-icon {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+  }
+
+  /* ── Card ──────────────────────────────────────────────────────────────────
+   * A titled group of related content on a page: one section of a detail
+   * screen, a filter bar, a composer. See docs/design-system.md § Cards. */
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 18px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    background: var(--ink-soft);
+  }
+
+  .card-title {
+    font-family: var(--disp), sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  /* The one main action of a screen or dialog. */
+  .btn-primary {
+    background: var(--acc-solid);
+    color: #fff;
+  }
+
+  .btn-primary:hover:not(:disabled):not([aria-disabled='true']) {
+    background: var(--acc-solid-hi);
+  }
+
+  /* Every other action that still needs to read as a button. */
+  .btn-secondary {
+    background: var(--ink-mid);
+    border-color: var(--dim);
+    color: var(--text);
+  }
+
+  .btn-secondary:hover:not(:disabled):not([aria-disabled='true']) {
+    border-color: var(--soft);
+  }
+
+  /* Low-emphasis: cancel, close, toolbar actions. */
+  .btn-ghost {
+    background: transparent;
+    color: var(--soft);
+  }
+
+  .btn-ghost:hover:not(:disabled):not([aria-disabled='true']) {
+    background: var(--ink-mid);
+    color: var(--text);
+  }
+
+  /* Destructive or irreversible. The label stays in the text colour (red text
+     fails contrast in the light theme); the red is in the border and tint. */
+  .btn-danger {
+    background: color-mix(in srgb, var(--red) 14%, transparent);
+    border-color: var(--red);
+    color: var(--text);
+  }
+
+  .btn-danger:hover:not(:disabled):not([aria-disabled='true']) {
+    background: color-mix(in srgb, var(--red) 24%, transparent);
+  }
+}
+
+/* ── Checkbox and radio ──────────────────────────────────────────────────────
+ * The native controls ignore the palette, and the `input` base rule above
+ * gives them text-field padding. Every checkbox and radio is drawn here
+ * instead: a 16px box (or circle) that fills with the solid accent when
+ * checked. Unlayered, like the select chevron, so a padding or border utility
+ * on the element cannot distort it; margin utilities still apply. The white
+ * mark is the same in both themes because the fill under it is. */
+input[type='checkbox'],
+input[type='radio'] {
+  appearance: none;
+  -webkit-appearance: none;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1.5px solid var(--soft);
+  border-radius: 4px;
+  background: var(--ink) center / 16px 16px no-repeat;
+  vertical-align: middle;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+input[type='radio'] {
+  border-radius: 50%;
+}
+
+input[type='checkbox']:hover:not(:disabled),
+input[type='radio']:hover:not(:disabled) {
+  border-color: var(--acc-hi);
+}
+
+input[type='checkbox']:focus,
+input[type='radio']:focus {
+  box-shadow: none;
+}
+
+input[type='checkbox']:focus-visible,
+input[type='radio']:focus-visible {
+  outline: 2px solid var(--acc-hi);
+  outline-offset: 2px;
+}
+
+input[type='checkbox']:checked,
+input[type='checkbox']:indeterminate,
+input[type='radio']:checked {
+  border-color: var(--acc-solid);
+  background-color: var(--acc-solid);
+}
+
+input[type='checkbox']:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.75 8.25 6.75 11.25 12.25 5'/%3E%3C/svg%3E");
+}
+
+input[type='checkbox']:indeterminate {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4.25 8h7.5'/%3E%3C/svg%3E");
+}
+
+input[type='radio']:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='3' fill='%23fff'/%3E%3C/svg%3E");
+}
+
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Select chevron ──────────────────────────────────────────────────────────
+ * The native arrow sits flush against the right border and ignores padding, so
+ * every single-line <select> draws its own, 10px from the edge, with room
+ * reserved for it. Deliberately OUTSIDE any @layer: an unlayered rule beats
+ * Tailwind's utilities, so a `px-3` on the element cannot pull the text back
+ * under the chevron. List boxes (`multiple`, `size`) keep the native control. */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px 12px;
+  padding-right: 30px;
 }
 
 /* Additional utility classes using custom properties */

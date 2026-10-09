@@ -21,6 +21,12 @@ export default defineConfig({
       'refund/App': fileURLToPath(new URL('./src/federation/__stubs__/refundApp.tsx', import.meta.url)),
       'admin/App': fileURLToPath(new URL('./src/federation/__stubs__/adminApp.tsx', import.meta.url)),
       'notify/App': fileURLToPath(new URL('./src/federation/__stubs__/notifyApp.tsx', import.meta.url)),
+      // specs/015-hardware-inventory, T41 (ADR-0045): the inventory remote's
+      // two mountable entries — gated `./App` and ungated `./MyDevices`.
+      'inventory/App': fileURLToPath(new URL('./src/federation/__stubs__/inventoryApp.tsx', import.meta.url)),
+      'inventory/MyDevices': fileURLToPath(
+        new URL('./src/federation/__stubs__/inventoryMyDevices.tsx', import.meta.url),
+      ),
       // AboutModal.tsx dynamically imports each remote's `./version` module
       // (../hooks/useRemoteVersions.ts) — same bare-specifier-only-resolves-
       // at-runtime-via-MF situation as `*/App` above, same fix: alias to a
@@ -37,6 +43,9 @@ export default defineConfig({
       ),
       'notify/version': fileURLToPath(
         new URL('./src/federation/__stubs__/notifyVersion.ts', import.meta.url),
+      ),
+      'inventory/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/inventoryVersion.ts', import.meta.url),
       ),
     },
   },

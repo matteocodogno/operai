@@ -11,19 +11,28 @@
 #   AUTH_URL=https://auth.staging... API_URL=... NOTIFY_API_URL=... ./infra/check.sh
 #   ./infra/check.sh --prereqs           # tooling only (pre-deploy)
 #
-# Covers all FOUR backends (auth, estimai-api, notify-api, refund-api) and all
-# four remotes (estimai-ui, refund-ui, admin-ui, notify-ui), plus the shell
-# CSP — including the notify-api origin in connect-src, the classic
+# Covers all FIVE backends (auth, estimai-api, notify-api, refund-api,
+# inventory-api) and all five remotes (estimai-ui, refund-ui, admin-ui,
+# notify-ui, inventory-ui), plus the shell CSP — including the notify-api origin in connect-src, the classic
 # SSE/EventSource miss (specs/005-notification-center Risk R6), the
 # refund-api origin in connect-src (specs/007-refund-service T20), the
 # receipt-bucket origin in connect-src (ADR-0016's direct-to-bucket upload —
 # override the default with REFUND_BUCKET_ORIGIN), and the Google Maps/Places
 # origins in script-src/connect-src (ADR-0032, specs/012-employee-address —
-# override the defaults with MAPS_ORIGIN/PLACES_ORIGIN). Also probes
+# override the defaults with MAPS_ORIGIN/PLACES_ORIGIN), and (specs/015) the
+# inventory-api origin in connect-src, the inventory-ui origin in script-src +
+# connect-src and the invoice-bucket origin (override INVENTORY_BUCKET_ORIGIN).
+# Also probes
 # notify-api's internal email-send gate (specs/006-user-invitations,
 # ADR-0011) — see § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same
 # value configured on auth, notify-api, AND refund-api as of ADR-0017) to get
-# the strongest form of that check.
+# the strongest form of that check. Two inventory negative controls (no
+# credentials needed): auth's POST /system/service-token must answer 401 to bad
+# client credentials and inventory-api must answer 401 to an anonymous request
+# on a gated route (a 404/500 means the endpoint/gate is not deployed).
+#
+# Read-only: every request here is a GET/HEAD, or a POST carrying bogus
+# credentials that is rejected before any state changes.
 #
 # Exit code: 0 if every executed check passed, 1 otherwise.
 
@@ -34,11 +43,17 @@ AUTH_URL="${AUTH_URL:-https://auth.operai.welld.io}"
 API_URL="${API_URL:-https://estimai-api.operai.welld.io}"
 NOTIFY_API_URL="${NOTIFY_API_URL:-https://notify-api.operai.welld.io}"
 REFUND_API_URL="${REFUND_API_URL:-https://refund-api.operai.welld.io}"
+# ASSUMED hostnames (specs/015): the ones shell/vercel.json's CSP already names.
+# They do NOT resolve until the Vercel project / Railway custom domain + DNS
+# exist (infra/README.md § Rollout checklist) — until then the inventory checks
+# below fail by design. Override both if the real domains differ.
+INVENTORY_API_URL="${INVENTORY_API_URL:-https://inventory-api.operai.welld.io}"
 SHELL_URL="${SHELL_URL:-https://operai.welld.io}"
 ESTIMAI_URL="${ESTIMAI_URL:-https://estimai.operai.welld.io}"
 REFUND_URL="${REFUND_URL:-https://refund.operai.welld.io}"
 ADMIN_URL="${ADMIN_URL:-https://admin.operai.welld.io}"
 NOTIFY_URL="${NOTIFY_URL:-https://notify.operai.welld.io}"
+INVENTORY_URL="${INVENTORY_URL:-https://inventory.operai.welld.io}"   # ASSUMED, see above
 PREREQS_ONLY=false; [[ "${1:-}" == "--prereqs" ]] && PREREQS_ONLY=true
 
 PASS=0; FAIL=0
@@ -61,7 +76,7 @@ have vercel  && pass "vercel CLI"  || warn "vercel CLI missing (needed only to a
 have direnv  && pass "direnv"       || fail "direnv missing (backend secrets load via .envrc)"
 have op      && pass "1Password CLI (op)" || fail "1Password CLI missing (op) — secrets source"
 have node    && pass "node ($(node -v 2>/dev/null))" || fail "node missing"
-have bun     && pass "bun ($(bun -v 2>/dev/null))"   || fail "bun missing (auth/estimai-api/notify-api runtime)"
+have bun     && pass "bun ($(bun -v 2>/dev/null))"   || fail "bun missing (auth/estimai-api/notify-api/refund-api/inventory-api runtime)"
 have pnpm    && pass "pnpm ($(pnpm -v 2>/dev/null))" || fail "pnpm missing (frontends)"
 have docker  && pass "docker (local Postgres)" || warn "docker missing (only needed for local dev)"
 if have op; then op whoami >/dev/null 2>&1 && pass "1Password unlocked (op signed in)" || warn "1Password locked — run: op signin (needed for deploy/commits)"; fi
@@ -98,6 +113,15 @@ fi
 # contract as estimai-api/notify-api above.
 [[ "$(code "$REFUND_API_URL/health")" == 200 ]] && pass "refund-api /health 200 ($REFUND_API_URL)" || fail "refund-api /health not 200 ($REFUND_API_URL)"
 
+# inventory-api (specs/015-hardware-inventory): same DB-connectivity-gates-status
+# contract. ASSUMED hostname until DNS exists — see INVENTORY_API_URL above.
+[[ "$(code "$INVENTORY_API_URL/health")" == 200 ]] && pass "inventory-api /health 200 ($INVENTORY_API_URL)" || fail "inventory-api /health not 200 ($INVENTORY_API_URL)"
+# Authorization is enforced, not just deployed: an anonymous request on a gated
+# route is a 401 (never 200, and never 404/500 which would mean the route or
+# the JWT middleware is not live). GET /assets needs a valid Bearer JWT.
+IAC="$(code "$INVENTORY_API_URL/assets")"
+[[ "$IAC" == 401 ]] && pass "inventory-api rejects an anonymous request on a gated route (401)" || fail "inventory-api GET /assets without a token did not return 401 (got HTTP ${IAC:-?}) — the JWT gate may be missing or the service not deployed"
+
 # JWKS: the resource-server verification key. MUST be /auth/jwks (better-auth's
 # rotating DB keypair), NOT /.well-known/jwks.json (orphaned env key).
 # estimai-api, notify-api, and refund-api all verify against this same endpoint.
@@ -109,6 +133,16 @@ else
 fi
 # Token endpoint should exist and reject anonymous callers (401), not 404.
 tc="$(code "$AUTH_URL/auth/token")"; { [[ "$tc" == 401 || "$tc" == 200 ]] && pass "/auth/token reachable (HTTP $tc)"; } || fail "/auth/token unexpected (HTTP $tc)"
+# Service-token endpoint (specs/015, ADR-0044): bogus client credentials must be
+# the frozen 401 — 404 means the endpoint is not deployed, 500 a broken signer.
+# An unknown client and a wrong secret are the same response by design, so this
+# needs no real credential. The endpoint is rate limited per address (default
+# 20 per 10 min); a single probe per run is far below that, a 429 is a warning.
+STC="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -d '{"clientId":"check-sh-probe","clientSecret":"not-a-real-secret"}' "$AUTH_URL/system/service-token" 2>/dev/null)"
+if [[ "$STC" == 401 ]]; then pass "auth POST /system/service-token rejects bad client credentials (401)"
+elif [[ "$STC" == 429 ]]; then warn "auth POST /system/service-token rate-limited this probe (429) — the endpoint is live; re-run later for the 401 assertion"
+else fail "auth POST /system/service-token did not return 401 for bad credentials (got HTTP ${STC:-?}) — 404 = endpoint not deployed, 500 = signer/config fault (ADR-0044)"; fi
 # Sign-in page (hosted, ADR-0002).
 [[ "$(code "$AUTH_URL/sign-in")" =~ ^(200|302|307)$ ]] && pass "hosted /sign-in reachable" || warn "/sign-in not obviously reachable (HTTP $(code "$AUTH_URL/sign-in"))"
 
@@ -155,7 +189,7 @@ fi
 # ─── 3. Frontends (Vercel) ────────────────────────────────────────────────────
 head "Frontends (Vercel)"
 [[ "$(code "$SHELL_URL/")" == 200 ]] && pass "shell 200 ($SHELL_URL) — the entry point" || fail "shell not 200 ($SHELL_URL)"
-for pair in "estimai-ui:$ESTIMAI_URL" "refund-ui:$REFUND_URL" "admin-ui:$ADMIN_URL" "notify-ui:$NOTIFY_URL"; do
+for pair in "estimai-ui:$ESTIMAI_URL" "refund-ui:$REFUND_URL" "admin-ui:$ADMIN_URL" "notify-ui:$NOTIFY_URL" "inventory-ui:$INVENTORY_URL"; do
   name="${pair%%:*}"; url="${pair#*:}"
   re="$(hdrs "$url/remoteEntry.js")"
   if echo "$re" | grep -qiE '^HTTP.* 200'; then
@@ -168,7 +202,7 @@ head "Shell CSP + wiring"
 CSP="$(hdrs "$SHELL_URL/" | grep -i '^content-security-policy:')"
 if [[ -n "$CSP" ]]; then
   pass "CSP header present"
-  for origin in "$ESTIMAI_URL" "$REFUND_URL" "$ADMIN_URL" "$NOTIFY_URL"; do
+  for origin in "$ESTIMAI_URL" "$REFUND_URL" "$ADMIN_URL" "$NOTIFY_URL" "$INVENTORY_URL"; do
     echo "$CSP" | grep -q "$origin" && pass "  CSP allows $origin" || fail "  CSP is MISSING $origin (remote will be blocked)"
   done
   echo "$CSP" | grep -q "$AUTH_URL" && pass "  CSP connect-src allows auth" || warn "  CSP may not list $AUTH_URL in connect-src"
@@ -198,6 +232,29 @@ if [[ -n "$CSP" ]]; then
     fail "  CSP connect-src is MISSING $REFUND_API_URL — refund-ui's API calls will be blocked by the browser regardless of the Bearer-token trusted-origins fix (specs/007-refund-service T20)"
   fi
 
+  # specs/015-hardware-inventory — mirrors the refund T20 check above. inventory-api
+  # must be in connect-src (apiFetch from inventory-ui runs in the SHELL's document),
+  # and the inventory-ui origin must be in BOTH script-src (the remote's
+  # remoteEntry.js is a <script>-style load) and connect-src (its chunk fetches).
+  # The all-origins loop above only proves the string appears somewhere in the
+  # policy; these pin the directive. Hostnames are ASSUMED until DNS exists.
+  SCRIPT_SRC="$(echo "$CSP" | grep -oiE 'script-src[^;]*')"
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$INVENTORY_API_URL"; then
+    pass "  CSP connect-src includes $INVENTORY_API_URL (inventory-api origin — specs/015)"
+  else
+    fail "  CSP connect-src is MISSING $INVENTORY_API_URL — inventory-ui's API calls will be blocked by the browser regardless of the Bearer-token trusted-origins setup (specs/015)"
+  fi
+  if [[ -n "$SCRIPT_SRC" ]] && echo "$SCRIPT_SRC" | grep -q "$INVENTORY_URL"; then
+    pass "  CSP script-src includes $INVENTORY_URL (inventory-ui remote — specs/015)"
+  else
+    fail "  CSP script-src is MISSING $INVENTORY_URL — the shell cannot load inventory-ui's remoteEntry.js (specs/015)"
+  fi
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$INVENTORY_URL"; then
+    pass "  CSP connect-src includes $INVENTORY_URL (inventory-ui remote chunks — specs/015)"
+  else
+    fail "  CSP connect-src is MISSING $INVENTORY_URL (specs/015)"
+  fi
+
   # ADR-0016 — receipt uploads POST DIRECTLY to the object-storage bucket, not
   # through refund-api, so the bucket's own origin needs its own connect-src
   # pin. This is the THIRD independent gate on that one request: the bucket's
@@ -209,6 +266,22 @@ if [[ -n "$CSP" ]]; then
     pass "  CSP connect-src includes $REFUND_BUCKET_ORIGIN (receipt-bucket upload origin — ADR-0016)"
   else
     fail "  CSP connect-src is MISSING $REFUND_BUCKET_ORIGIN — every receipt upload will be blocked by the browser before it leaves the page, even with the bucket's CORS rule correct (ADR-0016 direct-to-bucket POST)"
+  fi
+
+  # specs/015 — the invoice bucket is its OWN bucket (never refund's) and invoice
+  # uploads POST DIRECTLY to it, so its origin needs its own connect-src pin — the
+  # same three-gate failure mode as the receipt bucket above (CSP, bucket CORS,
+  # presigned-POST policy all fail identically as "upload failed"). ASSUMED to share
+  # the refund bucket's host (see infra/README.md § Invoice bucket CORS and CSP):
+  # override INVENTORY_BUCKET_ORIGIN once the real bucket exists, and add the origin
+  # to shell/vercel.json if it differs. Passing here with the default only proves
+  # the refund host is allowed, which is exactly what an inventory bucket on the
+  # same host needs.
+  INVENTORY_BUCKET_ORIGIN="${INVENTORY_BUCKET_ORIGIN:-$REFUND_BUCKET_ORIGIN}"
+  if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$INVENTORY_BUCKET_ORIGIN"; then
+    pass "  CSP connect-src includes $INVENTORY_BUCKET_ORIGIN (invoice-bucket upload origin — specs/015)"
+  else
+    fail "  CSP connect-src is MISSING $INVENTORY_BUCKET_ORIGIN — every invoice upload will be blocked by the browser before it leaves the page, even with the bucket's CORS rule correct (specs/015; infra/README.md § Invoice bucket CORS and CSP)"
   fi
 
   # specs/012-employee-address (ADR-0032) — admin-ui's Google Places (New)

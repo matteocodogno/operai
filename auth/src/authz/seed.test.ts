@@ -29,12 +29,14 @@
  * to run in any position within a full `bun test`.
  */
 
-import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ADMIN_ROLE_NAME } from "../admin/lastAdminGuard";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
+import { Prisma } from "../lib/generated/prisma/client";
 import { getAppCatalog } from "./catalog";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
+import { INVENTORY_APP_ID } from "./catalogs/inventory";
 import { REFUND_APP_ID } from "./catalogs/refund";
 import {
   ACCOUNTING_ROLE_NAME,
@@ -42,12 +44,15 @@ import {
   assignBaselineRolesToNewUser,
   EMPLOYEE_ROLE_NAME,
   ensureBootstrapAdmin,
+  INVENTORY_MANAGER_ROLE_NAME,
   REFUND_ADMIN_ROLE_NAME,
   seed,
   seedAccountingRoleGrants,
   seedAdminRoleGrants,
   seedAppAccessCatalog,
   seedEstimaiCatalog,
+  seedInventoryCatalog,
+  seedInventoryGrants,
   seedRateAdminGrants,
   seedRefundAdminRole,
   seedRefundCatalog,
@@ -246,8 +251,14 @@ describe("seedAccountingRoleGrants (T2, specs/007-refund-service — AC-5.4, AC-
     const accounting = await db.role.findUnique({ where: { name: ACCOUNTING_ROLE_NAME } });
     expect(accounting).not.toBeNull();
 
+    // Scoped to refund's resources (`refund`, `request`): `seedInventoryGrants`
+    // (T3, specs/015) ALSO grants this same shared `accounting` role
+    // inventory:access + ledger:manage, and role rows persist across this
+    // file/run (shared DB), so an unscoped count would depend on WHEN that
+    // other seed step last ran — the same situation as `refund-admin`'s
+    // rate/settings grants below.
     const accountingRules = await db.permissionRule.findMany({
-      where: { roleId: accounting!.id },
+      where: { roleId: accounting!.id, resource: { in: [REFUND_APP_ID, "request"] } },
     });
 
     // Exactly 5 rules: refund:access (unconditional) + 4 entity-conditioned request actions.
@@ -481,6 +492,175 @@ describe("seedSettingsAdminGrants (T1, specs/011-refund-settings — plan.md Arc
 });
 
 // ─── Baseline role assignment (AC-6.1, AC-6.3) ──────────────────────────────
+
+// ─── T3, specs/015-hardware-inventory ───────────────────────────────────────
+
+describe("seedInventoryCatalog (T3, specs/015 — AC-9.1)", () => {
+  test("registers inventory's full catalog — app access + asset:manage + ledger:manage (entity-scoped), idempotent on re-run", async () => {
+    await seedInventoryCatalog();
+    await seedInventoryCatalog(); // re-run — full-replace upsert, must not duplicate
+
+    const catalog = await getAppCatalog(INVENTORY_APP_ID);
+    expect(catalog.resources.map((r) => r.key).sort()).toEqual(["asset", "inventory", "ledger"]);
+
+    const byResource = new Map(
+      catalog.resources.map((r) => [r.key, r.actions.map((a) => [a.key, a.supportedConditions])]),
+    );
+    expect(byResource.get("inventory")).toEqual([["access", []]]);
+    expect(byResource.get("asset")).toEqual([["manage", ["entity"]]]);
+    expect(byResource.get("ledger")).toEqual([["manage", ["entity"]]]);
+  });
+
+  test("inventory is excluded from SUITE_APPS — it declares/registers its own full catalog, exactly once", () => {
+    expect(SUITE_APPS.some((app) => app.appId === INVENTORY_APP_ID)).toBe(false);
+    // ...but the admin role still reaches it: ALL_APP_IDS feeds seedAdminRoleGrants.
+    expect(ALL_APP_IDS).toContain(INVENTORY_APP_ID);
+  });
+
+  test("seedAppAccessCatalog does not prune or replace inventory's catalog", async () => {
+    await seedInventoryCatalog();
+    await seedAppAccessCatalog();
+    const catalog = await getAppCatalog(INVENTORY_APP_ID);
+    expect(catalog.resources.map((r) => r.key).sort()).toEqual(["asset", "inventory", "ledger"]);
+  });
+});
+
+describe("seedInventoryGrants (T3, specs/015 — AC-9.3/9.4/9.5/9.6; ADR-0015)", () => {
+  const ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
+
+  // Role/rule rows persist in the shared DB across runs, and the seed only ever
+  // creates missing grants, so without a reset every assertion below would pass
+  // on a previously-seeded DB even if `seedInventoryGrants` did nothing. Clear
+  // the inventory grants of the three roles first, so each test proves what
+  // THIS run of the seed writes — and leave the DB seeded afterwards.
+  async function clearInventoryGrants() {
+    const roles = await db.role.findMany({
+      where: { name: { in: [ADMIN_ROLE_NAME, ACCOUNTING_ROLE_NAME, INVENTORY_MANAGER_ROLE_NAME] } },
+      select: { id: true },
+    });
+    await db.permissionRule.deleteMany({
+      where: {
+        roleId: { in: roles.map((r) => r.id) },
+        resource: { in: [INVENTORY_APP_ID, "asset", "ledger"] },
+      },
+    });
+  }
+  beforeEach(clearInventoryGrants);
+  afterAll(async () => {
+    await clearInventoryGrants();
+    await seedInventoryGrants();
+  });
+
+  async function inventoryRules(roleName: string) {
+    const role = await db.role.findUniqueOrThrow({ where: { name: roleName } });
+    return db.permissionRule.findMany({
+      where: { roleId: role.id, resource: { in: [INVENTORY_APP_ID, "asset", "ledger"] } },
+    });
+  }
+
+  test("`inventory-manager` is a system role holding exactly inventory:access + entity-conditioned asset:manage", async () => {
+    await seedInventoryGrants();
+    await seedInventoryGrants(); // re-run must not duplicate
+
+    const role = await db.role.findUniqueOrThrow({ where: { name: INVENTORY_MANAGER_ROLE_NAME } });
+    expect(role.isSystem).toBe(true);
+
+    const rules = await db.permissionRule.findMany({ where: { roleId: role.id } });
+    expect(rules).toHaveLength(2);
+
+    const access = rules.find((r) => r.resource === INVENTORY_APP_ID && r.action === "access");
+    expect(access?.conditions).toBeNull();
+    const manage = rules.find((r) => r.resource === "asset" && r.action === "manage");
+    expect(manage?.conditions).toEqual(ENTITY_CONDITION);
+    // The manager is NOT an accountant (AC-9.4/9.5): no ledger capability.
+    expect(rules.some((r) => r.resource === "ledger")).toBe(false);
+  });
+
+  test("`accounting` gains inventory:access + entity-conditioned ledger:manage, and no asset:manage", async () => {
+    await seedSystemRoles();
+    await seedInventoryGrants();
+    await seedInventoryGrants();
+
+    const rules = await inventoryRules(ACCOUNTING_ROLE_NAME);
+    expect(rules).toHaveLength(2);
+    expect(rules.find((r) => r.resource === INVENTORY_APP_ID && r.action === "access")?.conditions).toBeNull();
+    expect(rules.find((r) => r.resource === "ledger" && r.action === "manage")?.conditions).toEqual(
+      ENTITY_CONDITION,
+    );
+    expect(rules.some((r) => r.resource === "asset")).toBe(false);
+  });
+
+  test("`admin` gets inventory:access, asset:manage and ledger:manage, all UNCONDITIONED (both entities)", async () => {
+    await seedSystemRoles();
+    await seedAdminRoleGrants();
+    await seedInventoryGrants();
+    await seedInventoryGrants();
+
+    const rules = await inventoryRules(ADMIN_ROLE_NAME);
+    expect(rules.map((r) => `${r.resource}:${r.action}`).sort()).toEqual([
+      "asset:manage",
+      "inventory:access",
+      "ledger:manage",
+    ]);
+    for (const rule of rules) expect(rule.conditions).toBeNull();
+  });
+
+  test("`employee` gets nothing — inventory access is fully admin-assigned (AC-9.6)", async () => {
+    await seedSystemRoles();
+    await seedInventoryGrants();
+    const employee = await db.role.findUniqueOrThrow({ where: { name: EMPLOYEE_ROLE_NAME } });
+    const rules = await db.permissionRule.findMany({
+      where: { roleId: employee.id, resource: { in: [INVENTORY_APP_ID, "asset", "ledger"] } },
+    });
+    expect(rules).toHaveLength(0);
+  });
+
+  test("re-seeding never disturbs existing grants: refund grants intact, and an admin's later edit to an inventory rule survives", async () => {
+    await seedSystemRoles();
+    await seedAccountingRoleGrants();
+    await seedInventoryGrants();
+
+    const accounting = await db.role.findUniqueOrThrow({ where: { name: ACCOUNTING_ROLE_NAME } });
+    const refundWhere = { roleId: accounting.id, resource: { in: [REFUND_APP_ID, "request"] } };
+    const refundOrder = [{ resource: "asc" as const }, { action: "asc" as const }];
+    const refundBefore = await db.permissionRule.findMany({ where: refundWhere, orderBy: refundOrder });
+
+    // An admin widens accounting's ledger grant to global via the specs/004 GUI.
+    const ledger = await db.permissionRule.findFirstOrThrow({
+      where: { roleId: accounting.id, resource: "ledger", action: "manage" },
+    });
+    await db.permissionRule.update({ where: { id: ledger.id }, data: { conditions: Prisma.DbNull } });
+
+    try {
+      await seedInventoryGrants();
+
+      const refundAfter = await db.permissionRule.findMany({ where: refundWhere, orderBy: refundOrder });
+      expect(refundAfter).toEqual(refundBefore);
+
+      const ledgerAfter = await db.permissionRule.findMany({
+        where: { roleId: accounting.id, resource: "ledger", action: "manage" },
+      });
+      expect(ledgerAfter).toHaveLength(1);
+      expect(ledgerAfter[0]?.conditions).toBeNull(); // not reset to the entity condition
+    } finally {
+      // Restore the seeded shape: the DB is shared with the rest of the suite.
+      await db.permissionRule.update({
+        where: { id: ledger.id },
+        data: { conditions: ENTITY_CONDITION },
+      });
+    }
+  });
+
+  test("seed() registers the catalog and every inventory grant", async () => {
+    await seed();
+
+    const catalog = await getAppCatalog(INVENTORY_APP_ID);
+    expect(catalog.resources.map((r) => r.key).sort()).toEqual(["asset", "inventory", "ledger"]);
+    expect((await inventoryRules(INVENTORY_MANAGER_ROLE_NAME)).length).toBe(2);
+    expect((await inventoryRules(ACCOUNTING_ROLE_NAME)).length).toBe(2);
+    expect((await inventoryRules(ADMIN_ROLE_NAME)).length).toBe(3);
+  });
+});
 
 describe("assignBaselineRolesToNewUser (T11, AC-6.1/6.3)", () => {
   const createdUserIds: string[] = [];

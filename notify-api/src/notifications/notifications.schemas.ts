@@ -32,7 +32,7 @@ import { z } from "zod";
 // Sourced from shell/src/lib/tools.ts (ToolId union) / auth's authz SUITE_APPS
 // seed. plan.md: "originApp … enum of known app ids". Extend this list (and
 // shell's ToolId union) together when a new tool joins the suite.
-export const ORIGIN_APPS = ["estimai", "refund", "admin"] as const;
+export const ORIGIN_APPS = ["estimai", "refund", "admin", "inventory"] as const;
 export const OriginAppSchema = z.enum(ORIGIN_APPS);
 
 // ─── severity ─────────────────────────────────────────────────────────────────

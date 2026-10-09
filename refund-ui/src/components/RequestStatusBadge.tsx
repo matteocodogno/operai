@@ -55,7 +55,7 @@ export default function RequestStatusBadge({ status }: RequestStatusBadgeProps) 
   return (
     <span
       data-testid="request-status-badge"
-      className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded"
+      className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium px-1.5 py-0.5 rounded"
       style={{ color, backgroundColor: `color-mix(in srgb, ${color} 10%, transparent)` }}
     >
       <span aria-hidden="true">{glyph}</span>

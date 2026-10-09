@@ -7,9 +7,11 @@
     "estimai-api",
     "notify-api",
     "refund-api",
+    "inventory-api",
     "shell",
     "estimai-ui",
     "refund-ui",
+    "inventory-ui",
     "notify-ui",
     "admin-ui"
   ]

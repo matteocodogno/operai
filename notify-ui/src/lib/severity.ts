@@ -41,12 +41,13 @@ export const SEVERITY_META: Record<NotificationSeverity, SeverityMeta> = {
   error: { icon: '✕', label: 'Error', token: 'var(--red)' },
 }
 
-export type NotificationOriginApp = 'estimai' | 'refund' | 'admin'
+export type NotificationOriginApp = 'estimai' | 'refund' | 'admin' | 'inventory'
 
 export const ORIGIN_APP_LABELS: Record<NotificationOriginApp, string> = {
   estimai: 'EstimAI',
   refund: 'Refund',
   admin: 'Admin',
+  inventory: 'Inventory',
 }
 
 /** Falls back to the raw id for a not-yet-known origin app rather than throwing (forward-compat: a new tool id shipped before this lookup is updated should still render, not crash the center). */

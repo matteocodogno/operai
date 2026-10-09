@@ -106,6 +106,13 @@ const TOOL_ICONS: Record<ToolId, ReactNode> = {
       <path d="m9 12 2 2 4-4" />
     </svg>
   ),
+  inventory: (
+    // laptop — hardware inventory (specs/015-hardware-inventory, T42)
+    <svg {...ICON_PROPS}>
+      <rect x="4" y="5" width="16" height="11" rx="1.5" />
+      <path d="M2 19h20" />
+    </svg>
+  ),
 }
 
 // chevrons-left (can collapse) / chevrons-right (can expand) for the toggle.

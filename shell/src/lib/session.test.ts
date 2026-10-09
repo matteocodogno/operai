@@ -59,6 +59,7 @@ const {
   navigateSuite,
   getAuthBaseUrl,
   getRefundApiBaseUrl,
+  getInventoryApiBaseUrl,
 } = await import('./session')
 type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 
@@ -69,6 +70,7 @@ type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 const AUTH_URL = 'http://auth.test'
 const API_URL = 'http://api.test'
 const REFUND_API_URL = 'http://refund-api.test'
+const INVENTORY_API_URL = 'http://inventory-api.test'
 const TARGET_URL = `${API_URL}/estimates`
 const THIRD_PARTY_URL = 'https://evil.example.com/x'
 const SAME_ORIGIN_PATH = '/estimates'
@@ -299,6 +301,46 @@ describe('apiFetch', () => {
       expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
         Authorization: `Bearer ${FAKE_JWT}`,
       })
+    })
+
+    // T41 (specs/015-hardware-inventory, AC-9.6): inventory-api origin, set via
+    // VITE_INVENTORY_API_URL, is trusted so inventory-ui's calls (and the
+    // ungated /me/* devices calls) carry the Bearer JWT.
+    it('sends Authorization header for a request to the inventory-api origin (VITE_INVENTORY_API_URL)', async () => {
+      vi.stubEnv('VITE_INVENTORY_API_URL', INVENTORY_API_URL)
+      const mockFetch = vi.mocked(fetch)
+
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${INVENTORY_API_URL}/assets`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const [, init] = mockFetch.mock.calls[1]
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
+    })
+
+    it('does NOT send Authorization to an inventory-looking origin that is not the configured one', async () => {
+      vi.stubEnv('VITE_INVENTORY_API_URL', INVENTORY_API_URL)
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch('http://inventory-api.evil.test/assets')
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('does NOT trust the inventory origin when VITE_INVENTORY_API_URL is unset', async () => {
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${INVENTORY_API_URL}/assets`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
     })
 
     it('does NOT send Authorization header for a third-party URL', async () => {
@@ -716,5 +758,24 @@ describe('getAuthBaseUrl / getRefundApiBaseUrl', () => {
 
     vi.stubEnv('VITE_REFUND_API_URL', 'http://second.test')
     expect(getRefundApiBaseUrl()).toBe('http://second.test')
+  })
+})
+
+// getInventoryApiBaseUrl (T41, specs/015-hardware-inventory) — mirrors
+// getRefundApiBaseUrl(): lazily read, exposed so inventory-ui (a remote with
+// no VITE_* env of its own) sources the API origin from the shell.
+describe('getInventoryApiBaseUrl', () => {
+  it('returns the VITE_INVENTORY_API_URL configured on the shell', () => {
+    vi.stubEnv('VITE_INVENTORY_API_URL', INVENTORY_API_URL)
+
+    expect(getInventoryApiBaseUrl()).toBe(INVENTORY_API_URL)
+  })
+
+  it('reads the env lazily, not at module-evaluation time', () => {
+    vi.stubEnv('VITE_INVENTORY_API_URL', 'http://first.test')
+    expect(getInventoryApiBaseUrl()).toBe('http://first.test')
+
+    vi.stubEnv('VITE_INVENTORY_API_URL', 'http://second.test')
+    expect(getInventoryApiBaseUrl()).toBe('http://second.test')
   })
 })

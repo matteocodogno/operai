@@ -91,7 +91,7 @@ const suiteVersion = readSuiteVersion()
 // Stable local-dev port scheme (pinned via server/preview below, matched by
 // every remote's own config): shell 5173, estimai-ui 5174, refund-ui 5175,
 // notify-ui 5176 (the slot admin-ui/vite.config.ts deliberately left free —
-// see notify-ui/vite.config.ts, T14), admin-ui 5177. The shell consumes
+// see notify-ui/vite.config.ts, T14), admin-ui 5177, inventory-ui 5178. The shell consumes
 // estimai at :5174, refund at :5175, notify at :5176, and admin at :5177;
 // each remote consumes the shell (shell/session, shell/tokens.css) at :5173.
 // The e2e harness (playwright.config.ts) uses its own explicit ports+env and
@@ -112,6 +112,15 @@ const adminRemoteUrl =
 // notify-ui's own pinned port (5176, see notify-ui/vite.config.ts).
 const notifyRemoteUrl =
   process.env['NOTIFY_REMOTE_URL'] ?? 'http://localhost:5176/remoteEntry.js'
+
+// T41 (specs/015-hardware-inventory/tasks.md): inventory-ui — the hardware
+// inventory tool's federated remote. Same env-override + localhost dev-default
+// pattern as the four above; dev default targets its own pinned port (5178).
+// One remote exposes TWO mountable entries (ADR-0045): ./App (gated tool) and
+// ./MyDevices (ungated, identity-scoped). The shell build never requires this
+// remote to be running — `dts` stays off and the entry is only fetched at runtime.
+const inventoryRemoteUrl =
+  process.env['INVENTORY_REMOTE_URL'] ?? 'http://localhost:5178/remoteEntry.js'
 
 export default defineConfig({
   plugins: [
@@ -199,6 +208,16 @@ export default defineConfig({
           name: 'notify',
           entry: notifyRemoteUrl,
           entryGlobalName: 'notify',
+          shareScope: 'default',
+        },
+        // T41 (specs/015-hardware-inventory): inventory-ui. Its ./App is mounted
+        // at the access-gated `/inventory/$`; its ./MyDevices at the UNGATED
+        // `/devices` (ADR-0045) — see src/router.tsx.
+        inventory: {
+          type: 'module',
+          name: 'inventory',
+          entry: inventoryRemoteUrl,
+          entryGlobalName: 'inventory',
           shareScope: 'default',
         },
       },

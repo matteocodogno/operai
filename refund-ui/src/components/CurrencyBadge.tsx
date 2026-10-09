@@ -74,7 +74,7 @@ export default function CurrencyBadge({ currency }: CurrencyBadgeProps) {
   return (
     <span
       data-testid="currency-badge"
-      className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded"
+      className="inline-flex items-center gap-1 whitespace-nowrap text-[11px] font-medium px-1.5 py-0.5 rounded"
       style={{ color: NEUTRAL, backgroundColor: `color-mix(in srgb, ${NEUTRAL} 10%, transparent)` }}
     >
       {glyph !== null && <span aria-hidden="true">{glyph}</span>}

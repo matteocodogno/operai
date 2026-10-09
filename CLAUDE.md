@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Four tools ship today, composed into one suite by a
+back-office workflows. Five tools ship today, composed into one suite by a
 Module Federation shell (ADR-0006):
 
 | Tool | Route | What it does |
@@ -9,13 +9,16 @@ Module Federation shell (ADR-0006):
 | **EstimAI** | `/estimai` | Software effort estimation — PERT + AI productivity modelling (tool #1) |
 | **Refund** (Rimborsi) | `/refund` | Expense reimbursement — requests, review/decision, monthly batch payout |
 | **Admin** | `/admin` | Roles, departments, users, permissions, invitations, mileage rates |
+| **Inventory** | `/inventory` | Hardware register — assets, assignment to employees (confirmed by the employee), depreciation ledger, fiscal-year close, invoice files (specs/015) |
 
-Those three are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
-notification center (`notify-ui`) is a fourth remote but **not** a `TOOLS` entry: it mounts at
-the shell-owned `/notify` route, reached from the header bell (ADR-0009).
+Those four are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+notification center (`notify-ui`) is a fifth remote but **not** a `TOOLS` entry: it mounts at
+the shell-owned `/notify` route, reached from the header bell (ADR-0009). `inventory-ui` also
+exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
+(any signed-in user sees their own devices; ADR-0045).
 
-Backed by four Bun services: `auth` (identity + authorization), `estimai-api`,
-`notify-api`, `refund-api`.
+Backed by five Bun services: `auth` (identity + authorization), `estimai-api`,
+`notify-api`, `refund-api`, `inventory-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -62,6 +65,9 @@ operai/
 │                        # (specs/004, 006, admin-only) + audit log, employee address (specs/012, ADR-0031/0032)
 │                        # and the mileage-rate screen, which calls refund-api directly (specs/009, ADR-0023)
 ├── notify-ui/           # Notification center — federated remote: the /notify page, reached from the header bell (specs/005, ADR-0009)
+├── inventory-ui/        # Inventory tool — federated remote (port 5178): exposes ./App (gated, /inventory), ./MyDevices
+│                        # (ungated, /devices; ADR-0045) and ./version; calls inventory-api and auth's user directory
+│                        # through shell/session (no VITE_* of its own) (specs/015)
 │
 ├── auth/                # Bun + Hono authentication service
 │   ├── src/
@@ -87,8 +93,12 @@ operai/
 │                        # resource server + EU object storage for receipts (specs/007, ADR-0014/0015/0016);
 │                        # + batch compile/PDF/paid lifecycle (specs/008, ADR-0018–0022), mileage rates
 │                        # (specs/009, ADR-0023/0024/0025), settings store (specs/011, ADR-0027/0028/0029)
+├── inventory-api/       # Bun + Hono + TypeScript backend (port 8083, DB `inventory`) — hardware register; authorization-enforcing
+│                        # resource server, entity-scoped (ADR-0014/0015 lineage); depreciation derived on read, closed years
+│                        # snapshotted (ADR-0046); invoice files in its own EU bucket; pushes to notify-api with a scoped
+│                        # service JWT (ADR-0044). scripts/import-legacy.ts = one-off register import (specs/015)
 │
-├── docs/adr/            # Architecture Decision Records (0001–0043; see ## Architecture decisions)
+├── docs/adr/            # Architecture Decision Records (0001–0047; see ## Architecture decisions)
 ├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md)
 ├── tools/env-doctor/    # Pre-deploy cross-service env-contract checker (`mise run env:doctor`)
 ├── scripts/             # Release tooling — version.mjs (umbrella bump), tag.mjs, check-changeset.mjs
@@ -97,21 +107,21 @@ operai/
 ├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run dev` / `db:migrate` / `changeset` /
 │                        # `release:version` / `release:tag` / `env:doctor`
-└── specs/               # Spec-driven workflow (001–013, all `status: done`; see below)
+└── specs/               # Spec-driven workflow (001–015; 015 hardware-inventory is in progress; see below)
 ```
 
 ---
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui)
-All five share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui)
+All six share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other four are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
+  other five are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR-0001/0002)
@@ -148,8 +158,8 @@ degrades silently when the key is absent (ADR-0032).
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Resource backends (estimai-api, notify-api, refund-api)
-All three are implemented and share the `auth` service's shape (see ADR-0003 — one backend
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api)
+All four are implemented and share the `auth` service's shape (see ADR-0003 — one backend
 stack across the monorepo; it supersedes the earlier Kotlin/Spring intention).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
@@ -165,6 +175,15 @@ Per-service specifics:
   record-level collaborator ACL owned by the service itself, not `auth`'s catalog (ADR-0036);
   optimistic concurrency via integer `version` + required `If-Match`/`ETag` (ADR-0038).
   It deliberately is **not** an authorization-enforcing resource server.
+- `inventory-api` — hardware register (specs/015): authorization-enforcing like `refund-api`
+  (live `auth GET /authz/resolve`, fails closed, entity-scoped ABAC) with `inventory:access`,
+  `asset:manage`, `ledger:manage`; `/me/*` routes need only a valid JWT and scope to `sub`
+  (ADR-0045); depreciation derived on read, immutable snapshots on fiscal-year close
+  (ADR-0046); invoice files in its OWN EU bucket via presigned URLs (`INVENTORY_S3_*`);
+  the fourth notify caller, authenticating with a 5-minute scoped service JWT from
+  `auth POST /system/service-token` (`SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET`),
+  never `NOTIFY_INTERNAL_TOKEN` (ADR-0044). Service tokens are signed by better-auth's
+  rotating key published at `/auth/jwks`, not by `JWT_PRIVATE_KEY`.
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` + `/system/notifications` behind `NOTIFY_INTERNAL_TOKEN`
@@ -272,6 +291,23 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`); today only `inventory-api` (ADR-0044) |
+
+### Inventory (specs/015)
+
+The authoritative glossary is `specs/015-hardware-inventory/spec.md` § Domain language.
+
+| Term | Meaning |
+|---|---|
+| `asset` | One physical hardware unit owned by one `entity` — never a quantity (13 monitors = 13 assets) |
+| `holder` | The Operai account an asset is assigned to; no holder = company stock |
+| `status` | `ordered` · `in_stock` · `assigned` · `in_repair` · `lost` (still on the books) · `disposed` (off the books) |
+| `assignment` | `pending` until the employee confirms receipt, then `confirmed`/`declined`/`cancelled` |
+| `depreciation rule` | Per-entity, effective-dated parameters (life, first-year share, threshold, residual); resolved on read (ADR-0046) |
+| `fiscal year` | Calendar year per entity, `open` or `closed`; closing is irreversible and snapshots the figures |
+| `roll-forward` | Opening book value − disposals + purchases − depreciation = closing book value |
+
+Capabilities: `inventory manager` = `asset:manage`, `hardware accountant` = `ledger:manage`.
 
 ---
 
@@ -308,6 +344,11 @@ rejects over-large payloads (413). Owner/collaborator display names are resolved
 `auth POST /authz/users/identities` and fail **soft** to `status:"unknown"` (ADR-0039).
 Errors are RFC 7807 Problem JSON; dates are ISO 8601.
 
+Other services' contracts: `inventory-api` — `specs/015-hardware-inventory/plan.md` § API
+contracts (capability × route matrix: 403 capability-absent, 404 out of scope; `/me/*` needs only
+a valid JWT) plus its live OpenAPI/Scalar at `http://localhost:8083`; `auth`'s additions for it
+(`POST /system/service-token`, `GET /authz/users/directory`) are in the same section.
+
 ---
 
 ## Data residency
@@ -316,8 +357,9 @@ wellD operates across Italy and Switzerland. Some clients are in regulated secto
 (energy, finance, healthcare). Apply these rules:
 
 - Every backend **must** deploy to an EU region (Railway EU, Fly.io fra, Azure Switzerland North)
-- Object storage is EU too — `REFUND_S3_REGION` is validated against an EU allowlist at
-  startup and the process exits if it fails (ADR-0016)
+- Object storage is EU too — `REFUND_S3_REGION` / `INVENTORY_S3_REGION` (or, for a non-AWS
+  endpoint, the `*_S3_EU_ENDPOINT_HOSTS` allowlist) are validated at startup and the process
+  exits if it fails (ADR-0016); inventory has its own bucket, never refund's
 - No business data should be logged by the hosting provider beyond standard access logs
 - Frontends are purely client-side — they transmit data only to the suite's own services
   (and, for admin-ui, address text to Google Places; ADR-0032)
@@ -353,6 +395,9 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 - CSS variables defined in the root `<style>` block in `EstimatorApp.tsx`; do not add
   external CSS files unless introducing a proper CSS module setup
 - All numbers displayed to the user must be rounded (`.toFixed()` or `Math.round()`)
+- Buttons use the shared classes from `shell/src/styles/tokens.css` (`btn` + `btn-primary` /
+  `btn-secondary` / `btn-ghost` / `btn-danger`) on `<button>` and button-like links alike; never
+  restyle colour, border or radius per button. Rules and migration status: `docs/design-system.md`
 - Authenticated backend calls go through `apiFetch` (`src/lib/api.ts`, or `shell/session`'s
   for the other remotes) — it attaches the Bearer JWT to trusted origins only and handles the
   401 refresh-retry-redirect (ADR-0001)
@@ -361,7 +406,7 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 - Every remote exposes `./version` for the shell's About modal; a shell↔remote seam must
   degrade silently when a remote predates the export, never block or throw (ADR-0030)
 
-### Backend services (auth, estimai-api, notify-api, refund-api — Bun + Hono)
+### Backend services (auth, estimai-api, notify-api, refund-api, inventory-api — Bun + Hono)
 - Validate all environment variables at startup (`src/lib/env.ts`); `process.exit(1)` on missing
 - Routes grouped by feature directory, registered in `src/index.ts`; OpenAPI in `src/openapi/`
 - Database access only through the Prisma client in `src/lib/db.ts`
@@ -386,18 +431,20 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 
 ### The whole suite (preferred)
 ```bash
-mise run db:migrate   # once: Postgres up + Prisma migrations for all four backends
-mise run dev          # everything, with HMR — open http://localhost:5173 (the shell)
+mise run db:migrate   # once: Postgres up + Prisma migrations for all five backends
+mise run dev          # everything, with HMR — opens http://localhost:5173 (the shell) once it answers;
+                      # OPERAI_NO_OPEN=1 skips the browser
 mise run dev:web      # frontends only (backends already running elsewhere)
 mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy shape
 ```
 
-Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, shell `5173`,
-estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`; MinIO S3 `9000`
+Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
+shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`,
+inventory-ui `5178`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task.
 
@@ -408,7 +455,7 @@ docker compose up -d postgres minio minio-createbucket   # PostgreSQL 17 :5435, 
 
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -436,11 +483,21 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
-Tech stack for what each one is; `REFUND_S3_*` points at local MinIO in dev — check
-`infra/README.md` for the deployed-environment state.
+Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` point at local MinIO in dev
+— check `infra/README.md` for the deployed-environment state and the inventory rollout checklist.
+
+The one-off legacy register import is a script, dry-run by default (see `infra/README.md`
+§ Legacy register import — `--apply` additionally needs `--expected-opening-cents`):
+
+```bash
+cd inventory-api
+bun scripts/import-legacy.ts --file <register.xlsx>                                         # dry run
+bun scripts/import-legacy.ts --file <register.xlsx> [--user-map <users.json>] \
+  --expected-opening-cents <cents> --apply                                                    # writes
+```
 
 ### Checking the env contract before a deploy
 ```bash
@@ -518,3 +575,7 @@ grant in `auth`'s catalog (ADR-0007), and — if it owns data — a JWKS resourc
 - [0041] Typed-query autocomplete matches CLIENT-SIDE over a server-projected, pre-ranked personal corpus — `refund-api`'s parameterless `GET /line-suggestions` ships the whole ranked corpus once per composing session and the typed motivo text NEVER leaves the browser, making "no new log/store of motivo text" true by construction and leaving no caller-controlled selector to attack (no IDOR, no injection surface); corpus is memory-only + `Cache-Control: no-store` (ADR-0001 extended from the JWT to personal data) and derived on read with no trip table and no cron (ADR-0013); text folding lives in application code mirrored api/ui with shared canonical vectors (ADR-0025) — never a Postgres `unaccent`/FTS/`pg_trgm` dependency; the server still fails closed (ADR-0014) while only the client degrades silently (ADR-0032); escalate to a per-query endpoint if the 200-signature cap needs raising, the corpus stops being per-user, or ranking becomes query-dependent (see docs/adr/0041-client-side-autocomplete-server-projected-corpus-app-code-folding.md)
 - [0042] A derived projection over data an existing grant ALREADY authorises reuses that gate — the new route is gated on the existing `request:read` with zero `auth`/catalog/seed change, via the **reconstructibility test** ("could a holder of the existing grant rebuild this output by hand? then a new permission withholds nothing and lies about a control that does not exist"), the third branch after ADR-0028 (different subject → mint) and ADR-0031 (same authority + subject → reuse); the handler **ignores the grant's conditions entirely** and scopes unconditionally to the verified JWT `sub`, so ADR-0007's widest-wins union can never widen a self-scoped personal-data read (an unconditioned `request:review` holder still gets only their own lines) and ADR-0015's entity predicate is deliberately not consulted; capability-absent is 403 with no 404 branch at all (no record is addressed, so ADR-0005/0037's taxonomy does not engage); never apply the test to a cross-user aggregate or a shared/team corpus — that fails the premise and needs its own permission (see docs/adr/0042-derived-projection-reuses-existing-gate-reconstructibility-test.md)
 - [0043] The per-request archive export gives `refund-api` permission to READ attachment bytes — a bounded, SINGLE-caller departure from ADR-0016's never-proxy rule (proxying a file a client asked for is still forbidden; reading one to compose a derived document refund-api authors itself is now allowed, the same category ADR-0019's batch PDF already occupied for writes); memory is bounded by a new `MAX_EXPORT_RECEIPT_BYTES` checked from the DB's `sizeBytes` BEFORE any download (nothing else bounds it — attachments-per-request is uncapped); a receipt that cannot be embedded fails the WHOLE export with a 502 and no placeholder page (the inverse of the suite's usual fail-soft posture — an archive is never re-checked, so a silently incomplete one is worse than a refusal); approved/**rejected**/paid only (409 otherwise — draft/submitted are still MOVING, whereas rejected is terminal and is the document a disputing employee most needs; a rejected export shows the motivation and NO approved figure anywhere, since a reviewer can set line totals before rejecting); deliberately NOT PDF/A and the reason is recorded — copied receipt pages from arbitrary user PDFs break conformance unfixably, so PDF/A-3b with receipts as embedded FILES is the named path and its trigger; no new catalog permission via ADR-0042's reconstructibility test, every denial 404; generated per call and never stored, unlike the batch PDF; escalation trigger — a SECOND `getObject` caller revisits this ADR rather than quietly extending it (see docs/adr/0043-request-archive-export-refund-api-reads-attachment-bytes.md)
+- [0044] The fourth notify caller (`inventory-api`) gets a scoped, short-lived service JWT instead of `NOTIFY_INTERNAL_TOKEN`, realising ADR-0040's hard stop — `auth POST /system/service-token` (client-credentials against a per-client `SERVICE_CLIENTS` entry, identical 401, rate-limited) mints a 5-minute RS256 JWT `sub="system:inventory-api"`, `aud=SERVICE_AUDIENCE` (distinct from `AUTH_AUDIENCE`), `scope="notifications.push"`, and `notify-api`'s `/system/notifications` accepts it OR the legacy token via the existing JWKS while `/system/emails` stays legacy-only; `auth`/`refund-api`/`estimai-api` keep the shared token (migration is a named follow-up, forced by any leak); rejected: a fourth shared-token holder, forwarding the acting user's JWT (an employee with no capability triggers the push), a keypair per service with multi-JWKS trust, and a prerequisite spec migrating all four callers first (see docs/adr/0044-scoped-service-jwt-fourth-notify-caller.md)
+- [0045] A gated tool remote may expose a second, UNGATED federated entry mounted at a shell-owned route when the screen is identity-scoped (ADR-0034's test) — `inventory-ui` exposes `./App` (gated), `./MyDevices` (ungated) and `./version`, the shell adds an un-guarded `/devices` child of `shellRoute` absent from `TOOLS` (the `/notify` shape, first applied to a remote that also has a gated entry) plus a "My devices" UserMenu link, and `inventory-api`'s `/me/*` routes need only a valid JWT, skip authz middleware and scope every query to the verified `sub` (ADR-0042 posture, not-yours 404, no price/ledger fields); both halves (ungated route AND self-scoped API) are required; rejected: a shell-native AccountScreen-style screen (tool business logic in the shell, against ADR-0009), granting everyone `inventory:access` (breaks specs/015 AC-9.6), and a fifth remote for one screen (see docs/adr/0045-ungated-second-federated-entry-of-a-gated-remote.md)
+- [0046] Depreciation is derived on read for open years and snapshotted, immutably, only when a fiscal year is closed — an asset stores only entity/purchase date/price in integer cents, its rule is the latest `depreciation_rule` effective at purchase date (resolved on read like mileage rates, no FK), the schedule is a pure `schedule()` with one round-half-up rule and the remainder in the final year, closing writes immutable `fiscal_year` + `asset_year_figure` rows (Tier 1 triggers; row existence IS the closed state, no reopen; imported history uses the same rows as the anchor), and every dated write plus the close takes `pg_advisory_xact_lock` on the entity; rejected: persisting each asset's whole schedule at registration, computing everything live with no snapshot, and a 31-December materialisation cron (see docs/adr/0046-depreciation-derived-on-read-closed-years-snapshotted.md)
+- [0047] A list-of-people read is a fact endpoint, acceptable only behind a named capability whose holders have a business need to pick a person — `auth GET /authz/users/directory` returns active `{id,name,email,entity}` (both entities, name-sorted, no pagination) on the forwarded-caller JWT, gated on the `inventory` catalog's `asset:manage`, rate-limited, called directly by `inventory-ui` with `inventory-api` keeping no copy; it narrows ADR-0039 (which stays in force for `/authz/users/identities`) for that one audience only, and each further consumer is added to the gate deliberately; rejected: an exact-email decision endpoint (ADR-0035 style), reusing `requireAdmin` `GET /admin/users`, proxying/caching the list in `inventory-api`, and adding search/email to `/authz/users/identities`; escalation trigger: a second consuming app or a user count that makes an unpaginated list unreasonable (see docs/adr/0047-user-directory-endpoint-capability-gated.md)

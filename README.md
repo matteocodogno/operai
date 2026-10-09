@@ -10,11 +10,13 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `estimai-ui/` | EstimAI, as a federated remote |
 | `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/007) |
 | `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/004); user invitations, resend/revoke & soft-delete (specs/006, admin-only) |
+| `inventory-ui/` | Hardware inventory (federated remote) — asset register, assignments, depreciation ledger and year close; plus the ungated "My devices" screen at `/devices` (specs/015, ADR-0045) |
 | `notify-ui/` | Notification center (federated remote) — the `/notify` page; reached from the header bell (specs/005) |
 | `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR-0007); user invitations + soft-delete + hosted invite landing (specs/006) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
 | `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery via Resend, internal `/system/emails` (specs/006, ADR-0011); + internal `/system/notifications` for cross-user push (specs/007, ADR-0017) |
 | `refund-api/` | Reimbursement backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for receipt attachments (specs/007, ADR-0014/0015/0016) |
+| `inventory-api/` | Hardware-inventory backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for invoices, depreciation derived on read with immutable year closes; pushes notifications to notify-api with a scoped service JWT (specs/015, ADR-0044/0046/0047) |
 | `specs/`, `docs/adr/` | Spec-driven workflow + Architecture Decision Records |
 | `infra/` | Deploy config + runbooks (Railway, Vercel) |
 
@@ -29,8 +31,8 @@ One-time setup:
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
    `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`, and
-   `direnv allow refund-api`, and be signed in to the **1Password CLI** (`op`). All four
-   backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
+   `direnv allow refund-api`, `direnv allow inventory-api`, and be signed in to the
+   **1Password CLI** (`op`). All five backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
    `aud` claim `auth` stamps and the resource servers verify (ADR-0010); a mismatch rejects
    every token with 401. Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide
    real `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with
@@ -38,7 +40,10 @@ One-time setup:
    Google login locally. `refund-api` additionally needs `NOTIFY_INTERNAL_TOKEN` (shared
    with `auth`/`notify-api`, see `refund-api/.env.example`) — its object-storage vars
    (`REFUND_S3_*`) are documented but not yet enforced (no bucket provisioned yet).
-2. **Apply DB migrations** (brings up Postgres, then migrates all four backends):
+   `inventory-api` needs `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` (its credentials for
+   `auth`'s service-token endpoint) and its own `INVENTORY_S3_*` bucket — see
+   `inventory-api/.env.example`; it must **not** be given `NOTIFY_INTERNAL_TOKEN` (ADR-0040/0044).
+2. **Apply DB migrations** (brings up Postgres, then migrates all five backends):
 
    ```bash
    mise run db:migrate
@@ -47,11 +52,14 @@ One-time setup:
 Then run the whole suite with **one command**:
 
 ```bash
-mise run dev            # HMR — Postgres + auth + estimai-api + notify-api + refund-api + all 4 frontends
+mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + all 5 frontends
 ```
 
+The three `dev*` tasks open the shell (http://localhost:5173) in your browser as soon as it
+answers. Set `OPERAI_NO_OPEN=1` to skip that.
+
 `mise run dev` starts everything and reaps every child on Ctrl-C (Postgres is left
-running — `docker compose down` to stop it). The shell is the entry point —
+running — `docker compose down` to stop them). The shell is the entry point —
 open **http://localhost:5173**.
 
 | Service | Port | |
@@ -61,19 +69,26 @@ open **http://localhost:5173**.
 | refund-ui (remote) | 5175 | |
 | notify-ui (remote) | 5176 | notification center `/notify` (specs/005) |
 | admin-ui (remote) | 5177 | roles & permissions admin (specs/004) |
+| inventory-ui (remote) | 5178 | hardware inventory + `/devices` (specs/015) |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
 | notify-api | 8081 | Bun + Hono — SSE push (specs/005) |
 | refund-api | 8082 | Bun + Hono — authz-enforcing resource server (specs/007) |
-| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`) |
+| inventory-api | 8083 | Bun + Hono — authz-enforcing resource server (specs/015) |
+| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`) |
+| MinIO | 9000 / 9001 | `docker compose` — local S3 + console for receipts and invoices |
 
 Other `mise` tasks:
 
 ```bash
 mise run dev:web        # frontends only (HMR) — when backends run elsewhere
 mise run dev:preview    # full stack, but frontends build+preview (no HMR; mirrors deploy)
-mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api migrations
+mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api migrations
 ```
+
+One-off, production only: the legacy Excel asset register is loaded by
+`inventory-api/scripts/import-legacy.ts` (dry-run by default; see
+`infra/README.md` § Legacy register import before using `--apply`).
 
 Use `mise run dev:preview` to reproduce a production-like run (it's the mode the e2e uses).
 

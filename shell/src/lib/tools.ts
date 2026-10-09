@@ -13,7 +13,7 @@
  */
 
 /** Known suite tool ids. Extend this union (and TOOLS below) to add a tool. */
-export type ToolId = 'estimai' | 'refund' | 'admin'
+export type ToolId = 'estimai' | 'refund' | 'admin' | 'inventory'
 
 export interface SuiteTool {
   id: ToolId
@@ -37,6 +37,12 @@ export const TOOLS: readonly SuiteTool[] = [
   { id: 'estimai', label: 'EstimAI', to: '/estimai' },
   { id: 'refund', label: 'Refund', to: '/refund' },
   { id: 'admin', label: 'Admin', to: '/admin' },
+  // specs/015-hardware-inventory, T42 (AC-9.6): a gated tool like the three
+  // above. Its sibling screen `/devices` ("My devices") is deliberately NOT an
+  // entry here — it is identity-scoped and reachable by every signed-in user
+  // regardless of grants (ADR-0045), so it must never appear in the
+  // permission-filtered sidebar nor be recorded as a last-used tool.
+  { id: 'inventory', label: 'Inventory', to: '/inventory' },
 ]
 
 /** First-visit / invalid-storage fallback tool (AC-3.4). */

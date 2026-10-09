@@ -25,7 +25,7 @@
  */
 import { execFileSync } from 'node:child_process'
 
-// The 9 lerna.json package dirs — the exact, un-driftable set of
+// The lerna.json package dirs — the exact, un-driftable set of
 // Changesets-tracked apps. An allowlist, not a denylist of docs/specs/etc.,
 // so it can never fall out of sync with a new non-code top-level directory.
 const APP_DIRS = [
@@ -33,9 +33,11 @@ const APP_DIRS = [
   'estimai-api',
   'notify-api',
   'refund-api',
+  'inventory-api',
   'shell',
   'estimai-ui',
   'refund-ui',
+  'inventory-ui',
   'notify-ui',
   'admin-ui',
 ]

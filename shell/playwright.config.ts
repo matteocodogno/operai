@@ -27,6 +27,11 @@ import { defineConfig, devices } from '@playwright/test'
  *      required to run these journeys — refund-headline.spec.ts deliberately
  *      never attaches a receipt (AC-1.7: attachments are always optional),
  *      since no EU bucket is provisioned for local/CI e2e.
+ *   6. inventory-api: `bun run dev` in `inventory-api/` (localhost:8083) — required
+ *      for specs/015's journeys (inventory-assignment.spec.ts, inventory-ledger.spec.ts,
+ *      T45). Its assignment/decision notifications (AC-2.8/2.9) also need `auth`'s
+ *      `SERVICE_AUDIENCE` + `SERVICE_CLIENTS` and `notify-api`'s `SERVICE_AUDIENCE`
+ *      (ADR-0044); without them the push fails soft and those two ACs cannot pass.
  *
  * All five frontends (shell, estimai-ui, refund-ui, notify-ui, admin-ui) are
  * started here via `build && preview` (NOT `vite dev`) — dev-mode host + build-mode remote
@@ -81,7 +86,19 @@ const notifyApiUrl =
 const refundApiUrl =
   process.env['E2E_REFUND_API_URL'] ?? process.env['VITE_REFUND_API_URL'] ?? 'http://localhost:8082'
 
-const shellUrl = 'http://localhost:5173'
+// inventory-api base URL (specs/015-hardware-inventory, T45). Needed by the SHELL's
+// own build for the same reason as refundApiUrl above (trusted-origin allowlist).
+const inventoryApiUrl =
+  process.env['E2E_INVENTORY_API_URL'] ??
+  process.env['VITE_INVENTORY_API_URL'] ??
+  'http://localhost:8083'
+
+// The shell's preview port. 5173 by default — the origin in auth's committed
+// ALLOWED_ORIGINS. E2E_SHELL_PORT only exists for a machine where 5173 is
+// already taken by an unrelated dev server (the services under test must then
+// be started with that origin in their own ALLOWED_ORIGINS).
+const shellPort = process.env['E2E_SHELL_PORT'] ?? '5173'
+const shellUrl = `http://localhost:${shellPort}`
 const estimaiRemoteOrigin = 'http://localhost:5175'
 const refundRemoteOrigin = 'http://localhost:5176'
 // notify-ui added for T21 (specs/005-notification-center). This e2e harness
@@ -102,6 +119,9 @@ const notifyRemoteOrigin = 'http://localhost:5178'
 // in specs/004's own test-strategy table was, in practice, only verified at
 // the component (vitest) level. 5179 is the next free e2e-preview slot.
 const adminRemoteOrigin = 'http://localhost:5179'
+// inventory-ui (specs/015-hardware-inventory, T45) — gated `./App` at /inventory,
+// ungated `./MyDevices` at /devices. 5180 is the next free e2e-preview slot.
+const inventoryRemoteOrigin = 'http://localhost:5180'
 
 export default defineConfig({
   testDir: './e2e',
@@ -217,7 +237,21 @@ export default defineConfig({
       },
     },
     {
-      command: 'pnpm build && pnpm preview --port 5173 --strictPort',
+      // inventory-ui (specs/015-hardware-inventory, T45). It reads no VITE_* of its
+      // own: the inventory-api origin comes from the shell (getInventoryApiBaseUrl).
+      command: 'pnpm build && pnpm preview --port 5180 --strictPort',
+      cwd: '../inventory-ui',
+      url: inventoryRemoteOrigin,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+      },
+    },
+    {
+      command: `pnpm build && pnpm preview --port ${shellPort} --strictPort`,
       url: shellUrl,
       reuseExistingServer: !process.env['CI'],
       timeout: 180_000,
@@ -228,10 +262,12 @@ export default defineConfig({
         REFUND_REMOTE_URL: `${refundRemoteOrigin}/remoteEntry.js`,
         NOTIFY_REMOTE_URL: `${notifyRemoteOrigin}/remoteEntry.js`,
         ADMIN_REMOTE_URL: `${adminRemoteOrigin}/remoteEntry.js`,
+        INVENTORY_REMOTE_URL: `${inventoryRemoteOrigin}/remoteEntry.js`,
         VITE_AUTH_URL: authUrl,
         VITE_API_URL: apiUrl,
         VITE_NOTIFY_API_URL: notifyApiUrl,
         VITE_REFUND_API_URL: refundApiUrl,
+        VITE_INVENTORY_API_URL: inventoryApiUrl,
       },
     },
   ],

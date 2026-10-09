@@ -1,0 +1,252 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Data model of specs/015-hardware-inventory (plan.md § Data model, T2). Money
+// is integer cents throughout (ADR-0025 posture), calendar dates are @db.Date.
+//
+// Things Prisma cannot express live as raw SQL in the initial migration and are
+// the ENFORCEMENT, not a duplicate of anything here:
+//   - asset_serial_live      partial unique (entity, serialNumber), live assets only
+//   - assignment_one_pending partial unique (assetId) where status = 'pending'
+//   - four CHECKs            currency follows entity, price > 0, rule bounds
+//   - Tier 1 immutability triggers (ADR-0018/0024/0033/0046) on
+//     depreciation_rule, fiscal_year, asset_year_figure and asset_event
+//   - the two launch depreciation rules (AC-6.6), actor `system:launch-seed`
+
+enum Entity {
+  welld_it
+  welld_ch
+}
+
+enum Currency {
+  EUR
+  CHF
+}
+
+enum AssetCategory {
+  laptop
+  desktop
+  phone
+  tablet
+  monitor
+  peripheral
+  other
+}
+
+enum AssetStatus {
+  ordered
+  in_stock
+  assigned
+  in_repair
+  lost
+  disposed
+}
+
+enum AssignmentStatus {
+  pending
+  confirmed
+  declined
+  cancelled
+}
+
+enum DisposalReason {
+  ceded_to_employee
+  sold
+  scrapped
+  returned_to_vendor
+  lost
+}
+
+enum FirstYearShare {
+  full
+  half
+}
+
+enum FigureSource {
+  closed
+  imported
+}
+
+enum UploadStatus {
+  pending
+  stored
+}
+
+enum AssetEventAction {
+  registered
+  received
+  edited
+  assignment_created
+  assignment_confirmed
+  assignment_declined
+  assignment_cancelled
+  returned
+  repair_started
+  repair_finished
+  marked_lost
+  marked_found
+  disposed
+  invoice_file_linked
+  verified
+  fiscal_year_closed
+  imported
+}
+
+model Asset {
+  id                 String           @id @default(cuid())
+  entity             Entity
+  // CHECK asset_currency_follows_entity: welld_ch -> CHF, welld_it -> EUR (AC-1.2)
+  currency           Currency
+  category           AssetCategory
+  description        String
+  serialNumber       String?
+  purchaseDate       DateTime         @db.Date
+  // CHECK asset_price_positive: > 0
+  purchasePriceCents Int
+  status             AssetStatus
+  // auth user id, deliberately not a FK (auth owns identity, ADR-0039)
+  holderUserId       String?
+  locationNote       String?
+  supplier           String?
+  invoiceRef         String?
+  invoiceFileId      String?
+  invoiceFile        InvoiceFile?     @relation(fields: [invoiceFileId], references: [id])
+  toVerify           Boolean          @default(false)
+  // schedule anchors on the latest imported figure (AC-12.5)
+  legacyImported     Boolean          @default(false)
+  disposedOn         DateTime?        @db.Date
+  disposalReason     DisposalReason?
+  salePriceCents     Int?
+  createdByUserId    String
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@index([entity, status])
+  @@index([holderUserId])
+  @@index([entity, invoiceRef])
+  @@index([entity, purchaseDate])
+  @@map("asset")
+}
+
+model Assignment {
+  id               String           @id @default(cuid())
+  assetId          String
+  assigneeUserId   String
+  status           AssignmentStatus @default(pending)
+  createdByUserId  String
+  createdAt        DateTime         @default(now())
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+
+  @@index([assigneeUserId, status])
+  @@index([assetId, createdAt])
+  @@map("assignment")
+}
+
+/// Append-only (DB trigger, ADR-0024 lineage): a rule is never edited, a
+/// correction is a NEW row. The rule in force for an asset is the latest one
+/// for its entity with effectiveFrom <= purchaseDate, ties broken by createdAt,
+/// resolved on read (ADR-0046) — so there is deliberately no FK from asset.
+model DepreciationRule {
+  id                     String         @id @default(cuid())
+  entity                 Entity
+  effectiveFrom          DateTime       @db.Date
+  // CHECK depreciation_rule_life_min: >= 1
+  usefulLifeYears        Int
+  firstYearShare         FirstYearShare
+  // CHECK depreciation_rule_threshold_min: null or >= 0
+  lowValueThresholdCents Int?
+  // CHECK depreciation_rule_residual_min: >= 0
+  residualCents          Int
+  createdByUserId        String
+  createdByEmail         String
+  createdAt              DateTime       @default(now())
+
+  @@index([entity, effectiveFrom, createdAt])
+  @@map("depreciation_rule")
+}
+
+/// A row exists if and only if the entity's year is closed; append-only
+/// (DB trigger). There is no reopen (AC-8.7).
+model FiscalYear {
+  id                String       @id @default(cuid())
+  entity            Entity
+  year              Int
+  openingCents      Int
+  disposalsCents    Int
+  purchasesCents    Int
+  depreciationCents Int
+  closingCents      Int
+  source            FigureSource
+  closedByUserId    String
+  closedAt          DateTime     @default(now())
+
+  @@unique([entity, year])
+  @@map("fiscal_year")
+}
+
+/// Per-asset closed-year figures (or imported sheet figures); append-only.
+model AssetYearFigure {
+  id                String       @id @default(cuid())
+  assetId           String
+  entity            Entity
+  year              Int
+  openingCents      Int
+  purchaseCents     Int
+  depreciationCents Int
+  disposalCents     Int
+  closingCents      Int
+  source            FigureSource
+
+  @@unique([assetId, year])
+  @@index([entity, year])
+  @@map("asset_year_figure")
+}
+
+model InvoiceFile {
+  id              String       @id @default(cuid())
+  entity          Entity
+  invoiceRef      String
+  // inventory/{entity}/{id}/{safeName}
+  objectKey       String       @unique
+  fileName        String
+  contentType     String
+  sizeBytes       Int
+  // The object's ETag as HEAD reported it at confirm; null on rows confirmed before
+  // it was recorded. Re-checked (with size) when a download URL is minted.
+  etag            String?
+  uploadStatus    UploadStatus @default(pending)
+  createdByUserId String
+  createdAt       DateTime     @default(now())
+  assets          Asset[]
+
+  @@index([entity, invoiceRef])
+  @@map("invoice_file")
+}
+
+/// The asset history (AC-11.1/11.2); append-only (DB trigger). `oldValue` and
+/// `newValue` are objects keyed by field name — `{ field: value }` — and the
+/// typed `changes: {field, from, to}[]` of the API is reassembled from the pair
+/// (src/history/record.ts). assetId is null only for `fiscal_year_closed`.
+model AssetEvent {
+  id          String           @id @default(cuid())
+  assetId     String?
+  entity      Entity
+  action      AssetEventAction
+  // "system:legacy-import" for the import
+  actorUserId String
+  actorEmail  String
+  oldValue    Json?
+  newValue    Json?
+  createdAt   DateTime         @default(now())
+
+  @@index([assetId, createdAt])
+  @@index([entity, createdAt])
+  @@map("asset_event")
+}

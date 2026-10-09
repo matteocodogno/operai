@@ -33,7 +33,7 @@ describe("loadLiveSuite (injectable runner — never hits Railway)", () => {
 
   test("loads every backend from the runner", () => {
     const r = loadLiveSuite("production", { run: good });
-    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api"]);
+    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"]);
     expect(r.errors).toEqual([]);
     expect(r.suite.auth!.SERVICE).toBe("auth");
   });
