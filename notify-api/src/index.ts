@@ -103,5 +103,11 @@ export default {
   // services can reach us over *.railway.internal. Off Railway (local dev),
   // keep Bun's default (IPv4 0.0.0.0) to avoid IPv4-localhost edge cases.
   ...(process.env["RAILWAY_PRIVATE_DOMAIN"] ? { hostname: "::" } : {}),
+  // Bun closes a connection that carries no data for `idleTimeout` seconds,
+  // and its default is 10 — shorter than the SSE stream's 15s heartbeat
+  // (stream.routes.ts), so every /notifications/stream was cut after ~10s and
+  // the browser logged ERR_HTTP2_PROTOCOL_ERROR before reconnecting. Keep this
+  // comfortably above the heartbeat interval.
+  idleTimeout: 60,
   fetch: app.fetch,
 };
