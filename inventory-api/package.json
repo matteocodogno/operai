@@ -20,7 +20,6 @@
     "@prisma/adapter-pg": "7.7.0",
     "@prisma/client": "7",
     "@scalar/hono-api-reference": "^0.5.165",
-    "cf": "1.0.0-beta.14",
     "dotenv": "17.4.2",
     "effect": "^3.12.4",
     "exceljs": "^4.4.0",
