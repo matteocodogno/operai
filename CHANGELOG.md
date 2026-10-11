@@ -1,5 +1,9 @@
 # Operai — suite changelog
 
+## operai 0.2.1 — 2026-10-11
+
+- @operai/notify-api → 0.2.1 (patch)
+
 ## operai 0.2.0 — 2026-10-09
 
 - @operai/admin-ui → 0.1.0 (minor)
