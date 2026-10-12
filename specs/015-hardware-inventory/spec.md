@@ -324,6 +324,10 @@ an invoice to its devices.
   it is rejected and nothing is stored.
 - AC-10.7: Given a user without a capability covering the asset's entity, including the
   asset's own holder, when they request its invoice file, then the server denies it.
+- AC-10.8: Given a manager or accountant typing a supplier, when suppliers already used on
+  assets within their entity scope contain the typed text, then those are offered as
+  suggestions; the field stays free text, so a new supplier can still be entered, and
+  suppliers of an entity outside their scope are never suggested.
 
 ### US-11: History of every device
 

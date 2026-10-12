@@ -372,6 +372,50 @@ describe("GET /assets: scope and capability", () => {
   });
 });
 
+describe("GET /suppliers", () => {
+  const suppliers = async () =>
+    ((await (await get("/suppliers")).json()) as { suppliers: string[] }).suppliers;
+
+  it("lists each supplier once, alphabetically, ignoring assets without one", async () => {
+    await seed({ supplier: "Digitec" });
+    await seed({ supplier: "Acer" });
+    await seed({ supplier: "Digitec" });
+    await seed({ supplier: null });
+    await seed({ supplier: "  " });
+    expect(await suppliers()).toEqual(["Acer", "Digitec"]);
+  });
+
+  it("folds case and spacing variants into the most used spelling", async () => {
+    await seed({ supplier: "DIGITEC" });
+    await seed({ supplier: "Digitec" });
+    await seed({ supplier: "Digitec " });
+    await seed({ supplier: "apple" });
+    await seed({ supplier: "Apple" });
+    // "Digitec" is used twice once the trailing space is trimmed, "DIGITEC"
+    // once. "apple" and "Apple" tie, and the tie goes to the first in
+    // code-point order, so the answer never depends on row order.
+    expect(await suppliers()).toEqual(["Apple", "Digitec"]);
+  });
+
+  it("applies entity scope: suppliers of another entity are not listed", async () => {
+    await seed({ supplier: "Digitec" });
+    await seed({ entity: "welld_it", currency: "EUR", supplier: "Mediaworld" });
+    as([grant("asset", "manage", ENTITY)], "welld_ch");
+    expect(await suppliers()).toEqual(["Digitec"]);
+    as([grant("ledger", "manage", ENTITY)], "welld_it");
+    expect(await suppliers()).toEqual(["Mediaworld"]);
+    as([grant("asset", "manage", ENTITY)], null);
+    expect(await suppliers()).toEqual([]);
+  });
+
+  it("neither capability -> 403; no token -> 401", async () => {
+    await seed({ supplier: "Digitec" });
+    as([grant("inventory", "access")], "welld_ch");
+    expect((await get("/suppliers")).status).toBe(403);
+    expect((await get("/suppliers", null)).status).toBe(401);
+  });
+});
+
 describe("capability projections (AC-9.2)", () => {
   it("inventory-only response has purchasePriceCents and no ledger key, on list and detail", async () => {
     const a = await seed({});

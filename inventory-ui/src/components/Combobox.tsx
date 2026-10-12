@@ -22,7 +22,7 @@
  */
 
 import { useCallback, useId, useRef, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { CSSProperties, KeyboardEvent } from 'react'
 
 export type ComboboxOption = {
   id: string
@@ -54,6 +54,9 @@ export type ComboboxProps = {
   /** Text for the visually-hidden `aria-live="polite"` announcement — '' announces nothing. */
   liveRegionText?: string
   testId?: string
+  /** Replace the input's classes / colours so the field matches the form it sits in (the supplier field). */
+  inputClassName?: string
+  inputStyle?: CSSProperties
 }
 
 export default function Combobox({
@@ -75,6 +78,8 @@ export default function Combobox({
   footer,
   liveRegionText = '',
   testId,
+  inputClassName = 'w-full border rounded-md px-3 py-2 text-sm',
+  inputStyle,
 }: ComboboxProps) {
   const reactId = useId()
   const baseId = id || reactId
@@ -193,11 +198,12 @@ export default function Combobox({
         onFocus={onFocus}
         onBlur={onBlur}
         data-testid={testId}
-        className="w-full border rounded-md px-3 py-2 text-sm"
+        className={inputClassName}
         style={{
           borderColor: ariaInvalid ? 'var(--red)' : 'var(--rule)',
           backgroundColor: 'var(--ink-mid)',
           color: 'var(--text)',
+          ...inputStyle,
           opacity: disabled ? 0.6 : 1,
         }}
       />

@@ -1,5 +1,5 @@
 /**
- * `GET /assets` and `GET /assets/{id}` (T12, specs/015-hardware-inventory;
+ * `GET /assets`, `GET /assets/{id}` and `GET /suppliers` (T12, specs/015-hardware-inventory;
  * AC-3.7, AC-3.8, AC-4.3, AC-5.7, AC-5.8, AC-9.2, AC-10.3, AC-12.10).
  *
  * Either capability reads. What comes back depends on which:
@@ -12,9 +12,14 @@
  * use the capability gate: a caller with neither capability, or an asset
  * outside their scope, or an unknown id, are all the same 404, so a grant-less
  * user learns nothing about someone else's device (AC-4.3).
+ *
+ * `GET /suppliers` lists the supplier names already on assets the caller can
+ * read, for the supplier field's suggestions. It takes no parameter: the
+ * client filters the list itself, so what is being typed never reaches the
+ * server (ADR-0041 posture). Same gate and same entity scope as the list.
  */
 
-import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
+import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { authorized, requireCapability, ASSET_MANAGE, LEDGER_MANAGE } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { ENTITIES, assetInScope, scopeFor, type Entity } from "../authz/conditions";
@@ -29,6 +34,7 @@ import {
   findPendingAssignments,
   findRules,
   findStoredFigures,
+  findSuppliers,
 } from "./read.repo";
 import {
   IdParamSchema,
@@ -70,6 +76,23 @@ const detailRoute = createRoute({
       content: { "application/json": { schema: AssetViewSchema } },
     },
     404: { description: "Unknown, out of scope, or the caller holds no capability" },
+  },
+});
+
+const suppliersRoute = createRoute({
+  method: "get",
+  path: "/suppliers",
+  tags: ["Assets"],
+  summary: "Supplier names already used in the caller's entity scope (either capability)",
+  middleware: [...authorized, requireCapability(ASSET_MANAGE, LEDGER_MANAGE)],
+  responses: {
+    200: {
+      description: "Distinct supplier names, alphabetical",
+      content: {
+        "application/json": { schema: z.object({ suppliers: z.array(z.string()) }) },
+      },
+    },
+    403: { description: "Neither asset:manage nor ledger:manage" },
   },
 });
 
@@ -170,4 +193,13 @@ assetReadRouter.openapi(detailRoute, async (c) => {
 
   const [view] = await project([row], c.req.header("Authorization")!, ledgerScope, true);
   return c.json(view!, 200);
+});
+
+assetReadRouter.openapi(suppliersRoute, async (c) => {
+  const { permissions, entity } = c.get("authz");
+  const readable = union(
+    scopeFor(permissions, "asset", "manage", entity),
+    scopeFor(permissions, "ledger", "manage", entity),
+  );
+  return c.json({ suppliers: await findSuppliers(readable) }, 200);
 });

@@ -4,6 +4,7 @@ import type { FormEvent, ReactNode } from 'react'
 import ErrorBanner from '../components/ErrorBanner'
 import PermissionDenied from '../components/PermissionDenied'
 import SkeletonListRows from '../components/SkeletonListRows'
+import SupplierField from '../components/SupplierField'
 import { useInventoryCapabilities } from '../hooks/useInventoryCapabilities'
 import { useScope } from '../hooks/useScope'
 import { ApiError } from '../lib/api'
@@ -670,13 +671,12 @@ export default function RegisterAssetPage() {
 
           <div className="flex flex-col gap-1">
             <Label htmlFor="register-supplier" text={received.supplier} />
-            <input
+            <SupplierField
               id="register-supplier"
-              type="text"
               value={values.supplier}
-              onChange={(event) => set('supplier', event.target.value)}
-              className={inputClass}
-              style={inputStyle}
+              onChange={(value) => set('supplier', value)}
+              inputClassName={inputClass}
+              inputStyle={inputStyle}
             />
           </div>
 

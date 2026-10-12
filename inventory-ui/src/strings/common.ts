@@ -33,6 +33,10 @@ export const common = {
     /** Default body copy when the caller does not override `body`. */
     defaultBody: (itemName: string) => `‘${itemName}’ will be permanently deleted. This cannot be undone.`,
   },
+  supplierField: {
+    /** Announced when the suggestion list opens or changes. */
+    suggestions: (n: number) => (n === 1 ? '1 supplier suggestion available' : `${n} supplier suggestions available`),
+  },
   guardrailDialog: {
     defaultAcknowledgeLabel: 'OK',
   },

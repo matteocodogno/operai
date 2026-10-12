@@ -71,6 +71,40 @@ export async function findAssetPage(
   return { rows: found.slice(0, query.limit), hasMore: found.length > query.limit };
 }
 
+/**
+ * The supplier names already used on assets in `entities`, for the supplier
+ * field's suggestions. Spellings that differ only by case or surrounding
+ * spaces are one supplier, shown in its most used spelling, so the suggestion
+ * list pulls new entries towards the form the register already prefers.
+ */
+export async function findSuppliers(entities: readonly Entity[]): Promise<string[]> {
+  if (entities.length === 0) return [];
+  const rows = await db.asset.groupBy({
+    by: ["supplier"],
+    where: { entity: { in: [...entities] }, supplier: { not: null } },
+    _count: { _all: true },
+  });
+  // Sum per trimmed spelling first ("Digitec" and "Digitec " are stored apart),
+  // then keep one spelling per case-folded name: the most used, and on a tie
+  // the first in code-point order so the answer never depends on row order.
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const name = row.supplier?.trim() ?? "";
+    if (name !== "") counts.set(name, (counts.get(name) ?? 0) + row._count._all);
+  }
+  const best = new Map<string, { name: string; count: number }>();
+  for (const [name, count] of counts) {
+    const key = name.toLowerCase();
+    const seen = best.get(key);
+    if (!seen || count > seen.count || (count === seen.count && name < seen.name)) {
+      best.set(key, { name, count });
+    }
+  }
+  return [...best.values()]
+    .map((b) => b.name)
+    .sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }) || (a < b ? -1 : 1));
+}
+
 export function findAsset(id: string): Promise<AssetRow | null> {
   return db.asset.findUnique({ where: { id }, include: ASSET_INCLUDE });
 }

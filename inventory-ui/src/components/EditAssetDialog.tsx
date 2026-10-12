@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useId, useState } from 'react'
 import type { ReactNode } from 'react'
 import FormModal from './FormModal'
+import SupplierField from './SupplierField'
 import { ApiError } from '../lib/api'
 import { updateAsset } from '../lib/assetsApi'
 import { amountToCents, formatMoneyAmount } from '../lib/money'
@@ -337,10 +338,19 @@ export default function EditAssetDialog({ asset, capabilities, onSaved, onCancel
         </>
       )}
 
-      <label className={labelClass} style={labelStyle}>
-        {t.fields.supplier}
-        <input {...inputProps('supplier')} value={form.supplier} onChange={(e) => set('supplier', e.target.value)} />
-      </label>
+      {/* Not wrapped in the <label> like its siblings: the suggestion list would become part of the field's name. */}
+      <div className={labelClass} style={labelStyle}>
+        <label htmlFor={fieldId('supplier')}>{t.fields.supplier}</label>
+        <SupplierField
+          id={fieldId('supplier')}
+          value={form.supplier}
+          onChange={(value) => set('supplier', value)}
+          ariaInvalid={errors.supplier !== undefined}
+          ariaDescribedBy={describedBy('supplier', [])}
+          inputClassName={inputProps('supplier').className}
+          inputStyle={inputProps('supplier').style}
+        />
+      </div>
       {renderError('supplier')}
 
       <label className={labelClass} style={labelStyle}>

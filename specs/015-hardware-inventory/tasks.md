@@ -1,7 +1,7 @@
 ---
 spec: 015
 generated: 2026-10-06
-synced: 2026-10-06
+synced: 2026-10-12
 ---
 
 # Tasks: Hardware inventory and depreciation register
@@ -10,8 +10,8 @@ Derived from `plan.md` (approved 2026-10-06, amended the same day) and `design.m
 (including its Resolutions section). Tier: `production`. Five tracks:
 
 - **Platform** — `auth` (T3–T5), `notify-api` + mirrors (T6), run in parallel with everything else.
-- **`inventory-api`** — T1, T2, T7–T23.
-- **`inventory-ui`** — T24–T40.
+- **`inventory-api`** — T1, T2, T7–T23, T47.
+- **`inventory-ui`** — T24–T40, T48.
 - **`shell`** — T41, T42.
 - **Close-out** — T43–T46.
 
@@ -265,6 +265,16 @@ Label in brackets picks the agent: `[backend]`, `[frontend]`, `[devops]`, `[qe]`
   - Assignment journey: a manager registers and assigns; a user with zero grants sees the bell notification, follows it to `/devices`, confirms; the manager is notified; that user has no Inventory sidebar entry and `/inventory` gives `/no-access`. Ledger journey: an accountant sees the schedule, disposes, closes a year and downloads the export. `mf-singleton` extended to `/devices`.
   - done when: with the stack up (`mise run dev`), `cd shell && pnpm e2e inventory-assignment.spec.ts inventory-ledger.spec.ts mf-singleton.spec.ts` passes.
 
-- [ ] T46: [qe] All gates green, feature closed — refs: AC-9.7 — deps: T43, T45
+- [x] T47: [backend] `GET /suppliers`: supplier names in the caller's entity scope — refs: AC-10.8 — deps: T12, T44
+  - touch: `inventory-api/src/assets/read.repo.ts`, `inventory-api/src/assets/read.routes.ts`, `inventory-api/src/assets/read.test.ts`, `inventory-api/src/test-support/routeMatrix.ts`
+  - Added on 2026-10-12, after the first rollout (plan § API contracts gained the route the same day). Either capability, no parameter; distinct names, alphabetical, case and spacing variants folded into the most used spelling. Lives in the existing read router, so `src/index.ts` is untouched; the route needs its row in the matrix (T44) or that test fails.
+  - done when: `bun test src/assets/read.test.ts src/matrix.test.ts` passes: each supplier once and sorted, null and blank ignored; variants folded; a caller scoped to one entity never sees the other's suppliers and a conditioned grant with no entity gets `[]`; neither capability → 403, no token → 401.
+
+- [x] T48: [frontend] Supplier field with suggestions on the register form and the Edit dialog — refs: AC-10.8 — deps: T30, T32, T47
+  - touch: `inventory-ui/src/lib/suppliersApi.ts`, `inventory-ui/src/components/SupplierField.tsx`, `inventory-ui/src/components/SupplierField.test.tsx`, `inventory-ui/src/components/Combobox.tsx`, `inventory-ui/src/components/EditAssetDialog.tsx`, `inventory-ui/src/pages/RegisterAssetPage.tsx`, `inventory-ui/src/strings/common.ts`, `.changeset/*`
+  - Free text stays free text: the list is fetched once per mount and filtered in the browser, a pick fills the input, a failed fetch leaves a plain input with no message. `Combobox` gains `inputClassName` / `inputStyle` so the field looks like its neighbours. One changeset selecting `@operai/inventory-api` and `@operai/inventory-ui`.
+  - done when: `pnpm lint && pnpm build && pnpm test` pass in `inventory-ui`, including `SupplierField.test.tsx`: suggestions by case-insensitive substring with the count announced, mouse and keyboard pick, an unused supplier kept as typed with no list, nothing offered when the only match is what is typed, a rejected or throwing lookup is silent.
+
+- [ ] T46: [qe] All gates green, feature closed — refs: AC-9.7 — deps: T43, T45, T48
   - touch: `specs/015-hardware-inventory/spec.md`
   - done when: `bun run typecheck && bun test` pass in `auth`, `notify-api`, `inventory-api`; `pnpm lint && pnpm build && pnpm test` pass in `shell`, `notify-ui`, `inventory-ui`; `cd shell && pnpm e2e` passes; `mise run env:doctor` and `mise run changeset:check` pass; QE, security review and eval verdicts are PASS; then `/wellforge:done 015-hardware-inventory` sets the status.

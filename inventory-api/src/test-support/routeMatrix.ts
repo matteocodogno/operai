@@ -459,6 +459,15 @@ export const CASES: readonly MatrixCase[] = [
     build: async () => ({ path: "/assets" }),
   },
   {
+    route: "GET /suppliers",
+    method: "GET",
+    perEntity: false,
+    mutating: false,
+    verdict: (p) => (holds(p, "either") ? 200 : 403),
+    events: [],
+    build: async () => ({ path: "/suppliers" }),
+  },
+  {
     route: "GET /assets/{id}",
     method: "GET",
     perEntity: true,
