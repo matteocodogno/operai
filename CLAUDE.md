@@ -99,7 +99,9 @@ operai/
 │                        # service JWT (ADR-0044). scripts/import-legacy.ts = one-off register import (specs/015)
 │
 ├── docs/adr/            # Architecture Decision Records (0001–0047; see ## Architecture decisions)
-├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md)
+├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md);
+│                        # provision-tool.sh creates/audits one tool's Railway service, Vercel project and DNS
+│                        # (runbook: .claude/skills/provision-tool)
 ├── tools/env-doctor/    # Pre-deploy cross-service env-contract checker (`mise run env:doctor`)
 ├── scripts/             # Release tooling — version.mjs (umbrella bump), tag.mjs, check-changeset.mjs
 ├── .github/workflows/   # changeset-check.yml, env-doctor.yml

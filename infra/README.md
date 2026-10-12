@@ -1220,6 +1220,36 @@ bun scripts/import-legacy.ts --file <register.xlsx> [--user-map <users.json>] \
 - The opening-balance figure (spec O3) is an accounting decision. Do not invent it, and
   do not paste it into the repo or a PR.
 
+### Provisioning a new tool
+
+`infra/provision-tool.sh <tool>` creates, or audits, everything a tool needs in
+production that `infra/deploy.sh` leaves manual: the Railway service and its logical
+database on the shared Postgres, an optional EU bucket, both custom domains, their
+Cloudflare DNS records, the Vercel project with its first deployment, and the shell's
+two build-time variables. It sets no secret and reads none.
+
+```bash
+./infra/provision-tool.sh <tool> [--bucket]                  # plan: read-only audit
+./infra/provision-tool.sh <tool> [--bucket] --apply          # create what needs no secret
+# set the remaining secrets on <tool>-api in Railway (the script lists their names)
+./infra/provision-tool.sh <tool> [--bucket] --connect --redeploy-shell --apply
+./infra/check.sh
+```
+
+Without `--apply` nothing is changed. It is safe to re-run: it fills gaps only, never
+overwrites a variable and never deletes. Needs the `railway`, `vercel` and `cf`
+(Cloudflare) CLIs logged in, plus `jq` and `dig`. Two things it cannot do: set the
+bucket's CORS rule, and choose secrets.
+
+Do not open or `curl` a new hostname before the script reports that it resolves: a
+lookup made before the DNS record exists is cached as "no such host" for 30 minutes.
+The order of operations, the human decisions and the reasons behind them are in
+`.claude/skills/provision-tool/SKILL.md`.
+
+Status: the plan mode is verified against `inventory` and `refund` (both report
+nothing missing). The `--apply` path has not yet been run end to end on a new tool;
+treat its first use as a supervised run.
+
 ### Frontend build-time vars (Vercel) — `VITE_*` are client-side; `*_REMOTE_URL` are Vite-config-side
 
 | Project | Variable | Value |
