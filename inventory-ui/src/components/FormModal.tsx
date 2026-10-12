@@ -140,7 +140,12 @@ export default function FormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+      // The BACKDROP scrolls, not the dialog: a dialog with its own `overflow`
+      // clips anything a field pops out of it (the holder picker's listbox was
+      // cut at the dialog's bottom edge). `m-auto` on the dialog centres it and,
+      // unlike `items-center`, keeps its top reachable when it is taller than
+      // the viewport.
+      className="fixed inset-0 z-50 flex overflow-y-auto p-4 backdrop-blur-sm"
       style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)' }}
       onClick={() => {
         if (!submitting) onCancel()
@@ -153,7 +158,7 @@ export default function FormModal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
-        className="border rounded-lg shadow-2xl w-full max-w-md mx-4 p-5 max-h-[90vh] overflow-y-auto"
+        className="border rounded-lg shadow-2xl w-full max-w-md m-auto p-5"
         style={{ backgroundColor: 'var(--ink-soft)', borderColor: 'var(--rule)' }}
         onClick={(e) => e.stopPropagation()}
       >
