@@ -1,7 +1,7 @@
 ---
 id: 016
 slug: notify-service-credentials
-status: approved
+status: in-progress
 rigor: production
 created: 2026-10-13
 approved: 2026-10-13

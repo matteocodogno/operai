@@ -17,6 +17,8 @@
  *   to confuse with a user id.
  * - secret: >= 32 chars (mirrors `inventory-api`'s own `SERVICE_CLIENT_SECRET`
  *   minimum and `NOTIFY_INTERNAL_TOKEN`'s) and <= 256.
+ * - client id `auth` is reserved (specs/016): `auth` mints its own credential
+ *   in process as `system:auth`, so no configured client may claim that `sub`.
  * - scope: space-delimited, each entry from {@link KNOWN_SERVICE_SCOPES}. A
  *   typo or an invented scope refuses to start rather than minting a token
  *   whose scope no resource server understands (or, worse, one it widens).
@@ -28,7 +30,13 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 /** Scopes a service token may carry. Adding one is a deliberate code change, not an env edit. */
-export const KNOWN_SERVICE_SCOPES = ["notifications.push"] as const;
+export const KNOWN_SERVICE_SCOPES = ["notifications.push", "emails.send"] as const;
+
+/**
+ * Client id `auth` itself mints under (`sub="system:auth"`, in process — specs/016).
+ * Reserved so no `SERVICE_CLIENTS` entry can authenticate as the issuer.
+ */
+export const RESERVED_SERVICE_CLIENT_ID = "auth";
 
 /** `sub` prefix of every service principal — what `notify-api` checks for. */
 export const SERVICE_SUB_PREFIX = "system:";
@@ -75,6 +83,10 @@ export function parseServiceClients(raw: string | undefined): ParseServiceClient
       errors.push(
         `SERVICE_CLIENTS: client id "${clientId.slice(0, 40)}" must be lower-case alphanumerics and single hyphens, at most ${MAX_CLIENT_ID_LENGTH} chars`,
       );
+      continue;
+    }
+    if (clientId === RESERVED_SERVICE_CLIENT_ID) {
+      errors.push(`SERVICE_CLIENTS: client id "${clientId}" is reserved for the issuer's own credential`);
       continue;
     }
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {

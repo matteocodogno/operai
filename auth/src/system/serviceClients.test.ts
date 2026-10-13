@@ -68,8 +68,49 @@ describe("parseServiceClients", () => {
     if (!result.ok) expect(result.errors.join("\n")).not.toContain(SECRET_A);
   });
 
-  test("the scope allowlist is exactly notifications.push", () => {
-    expect([...KNOWN_SERVICE_SCOPES]).toEqual(["notifications.push"]);
+  test("the scope allowlist is exactly notifications.push and emails.send", () => {
+    expect([...KNOWN_SERVICE_SCOPES]).toEqual(["notifications.push", "emails.send"]);
+  });
+
+  test("a client holding emails.send parses, alone or beside notifications.push", () => {
+    const result = parseServiceClients(
+      raw({
+        "refund-api": { secret: SECRET_A, scope: "notifications.push emails.send" },
+        "mailer-svc": { secret: SECRET_B, scope: "emails.send" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("refund-api")?.scopes).toEqual(["notifications.push", "emails.send"]);
+    expect(result.clients.get("mailer-svc")?.scopes).toEqual(["emails.send"]);
+  });
+
+  test("an unknown scope fails naming the client", () => {
+    const result = parseServiceClients(
+      raw({ "refund-api": { secret: SECRET_A, scope: "notifications.push emails.sned" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain('"refund-api"');
+      expect(result.errors.join("\n")).not.toContain(SECRET_A);
+    }
+  });
+
+  test("the client id auth is reserved and fails naming it", () => {
+    const result = parseServiceClients(raw({ auth: { secret: SECRET_A, scope: "emails.send" } }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain('"auth"');
+      expect(result.errors.join("\n")).not.toContain(SECRET_A);
+    }
+  });
+
+  test("a reserved id does not hide errors of other entries", () => {
+    const result = parseServiceClients(
+      raw({ auth: { secret: SECRET_A, scope: "emails.send" }, "refund-api": { secret: "short", scope: "emails.send" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.length).toBe(2);
   });
 });
 

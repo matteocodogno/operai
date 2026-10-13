@@ -21,7 +21,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
 
 ## Push 1 — the new mechanism is accepted, nothing uses it yet
 
-- [ ] T1: `auth` knows the email scope and reserves the client id `auth` — refs: AC-2.6, AC-2.1 — deps: none
+- [x] T1: `auth` knows the email scope and reserves the client id `auth` — refs: AC-2.6, AC-2.1 — deps: none
   - touch: `auth/src/system/serviceClients.ts`, `auth/src/system/serviceClients.test.ts`
   - done when: `cd auth && bun test src/system/serviceClients` passes with new cases: a
     client with `emails.send` parses; an unknown scope fails naming the client; a client
