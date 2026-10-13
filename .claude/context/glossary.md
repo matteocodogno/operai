@@ -37,6 +37,19 @@
 - **Hardware accountant**: the capability to see schedules and book values, maintain
   depreciation rules, dispose of assets and close fiscal years.
 
+### Service-to-service credentials (specs/016)
+- **Shared token**: the single static secret `auth`, `refund-api` and `estimai-api`
+  present to the notification service's internal endpoints; being retired. _Avoid:_
+  internal token, system token.
+- **Service credential**: what a service client presents to the notification service:
+  short-lived, issued by `auth` to that one client, carrying its identity and scopes.
+  _Avoid:_ service token where the shared token could be meant.
+- **Scope**: one named permission carried by a service credential: **push** (send an
+  in-app notification) or **email** (send an email).
+- **Caller**: a service that reaches the notification service's internal endpoints.
+- **Transition**: the period in which the notification service accepts both the shared
+  token and service credentials; it ends when the shared token is retired.
+
 ## Relationships
 - An **Asset** belongs to exactly one entity for its whole life and has at most one
   **Holder** and at most one `pending` **Assignment** at a time.
