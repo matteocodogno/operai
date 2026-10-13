@@ -154,6 +154,37 @@ export const signWithAuth =
   (authLike: JwtSigningAuth): SignServiceJwt =>
   async (payload) => (await authLike.api.signJWT({ body: { payload: { ...payload } } })).token;
 
+/**
+ * The one place a service token's claims are built and signed — used by the
+ * endpoint above and by the self-mint provider (`selfServiceToken.ts`,
+ * ADR-0048), so the two cannot drift in audience, lifetime or claim shape.
+ * `exp` (seconds) is returned so a caching caller needs no JWT decode.
+ */
+export async function mintServiceJwt(
+  signJwt: SignServiceJwt,
+  principal: { clientId: string; scopes: readonly string[]; nowMs?: number },
+): Promise<{ token: string; exp: number }> {
+  // Defence in depth behind lib/env.ts's startup check: never mint a token a
+  // user route would accept, and never mint without an audience.
+  const audience = env.SERVICE_AUDIENCE;
+  if (!audience || audience === env.AUTH_AUDIENCE) {
+    throw new Error("SERVICE_AUDIENCE is unset or equals AUTH_AUDIENCE; refusing to mint a service token");
+  }
+
+  const issuedAt = Math.floor((principal.nowMs ?? Date.now()) / 1000);
+  const exp = issuedAt + SERVICE_TOKEN_TTL_SECONDS;
+  const token = await signJwt({
+    iss: env.BETTER_AUTH_URL,
+    sub: `${SERVICE_SUB_PREFIX}${principal.clientId}`,
+    aud: audience,
+    scope: principal.scopes.join(" "),
+    iat: issuedAt,
+    exp,
+    jti: crypto.randomUUID(),
+  });
+  return { token, exp };
+}
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export function createServiceTokenRouter(deps: { signJwt: SignServiceJwt }) {
@@ -228,22 +259,9 @@ export function createServiceTokenRouter(deps: { signJwt: SignServiceJwt }) {
       );
     }
 
-    // Defence in depth behind lib/env.ts's startup check: never mint a token a
-    // user route would accept, and never mint without an audience.
-    const audience = env.SERVICE_AUDIENCE;
-    if (!audience || audience === env.AUTH_AUDIENCE) {
-      throw new Error("SERVICE_AUDIENCE is unset or equals AUTH_AUDIENCE; refusing to mint a service token");
-    }
-
-    const issuedAt = Math.floor(Date.now() / 1000);
-    const token = await deps.signJwt({
-      iss: env.BETTER_AUTH_URL,
-      sub: `${SERVICE_SUB_PREFIX}${clientId}`,
-      aud: audience,
-      scope: client.scopes.join(" "),
-      iat: issuedAt,
-      exp: issuedAt + SERVICE_TOKEN_TTL_SECONDS,
-      jti: crypto.randomUUID(),
+    const { token } = await mintServiceJwt(deps.signJwt, {
+      clientId,
+      scopes: client.scopes,
     });
 
     c.header("Cache-Control", "no-store");

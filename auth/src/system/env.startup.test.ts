@@ -25,7 +25,7 @@ async function importEnv(
   const childEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries({
     ...process.env,
-    SERVICE_AUDIENCE: undefined,
+    SERVICE_AUDIENCE: "operai-service-startup-default",
     SERVICE_CLIENTS: undefined,
     ...overrides,
   })) {
@@ -52,7 +52,7 @@ async function importEnv(
 }
 
 describe("lib/env.ts — service-token startup validation (ADR-0044)", () => {
-  test("starts with neither variable set (no service caller yet)", async () => {
+  test("starts with an audience and no clients (no service caller yet)", async () => {
     const { exitCode, output } = await importEnv({});
     expect(exitCode).toBe(0);
     expect(output).toContain("ENV_OK");
@@ -83,10 +83,17 @@ describe("lib/env.ts — service-token startup validation (ADR-0044)", () => {
     expect(exitCode).not.toBe(0);
   });
 
-  test("exits non-zero when clients are configured without an audience", async () => {
-    const { exitCode, output } = await importEnv({ SERVICE_CLIENTS: CLIENTS });
+  test("exits non-zero naming SERVICE_AUDIENCE when it is missing, even with no clients (specs/016)", async () => {
+    const { exitCode, output } = await importEnv({ SERVICE_AUDIENCE: undefined });
     expect(exitCode).not.toBe(0);
-    expect(output).toContain("SERVICE_AUDIENCE is required");
+    expect(output).toContain("SERVICE_AUDIENCE");
+    expect(output).not.toContain("ENV_OK");
+  });
+
+  test("exits non-zero when clients are configured without an audience", async () => {
+    const { exitCode, output } = await importEnv({ SERVICE_AUDIENCE: undefined, SERVICE_CLIENTS: CLIENTS });
+    expect(exitCode).not.toBe(0);
+    expect(output).toContain("SERVICE_AUDIENCE");
     expect(output).not.toContain(SECRET);
   });
 

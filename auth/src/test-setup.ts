@@ -39,6 +39,9 @@ setIfAbsent("UI_HOME_URL", "http://localhost:5173");
 // actually call notify-api (routes tests mock `../lib/notify` instead).
 setIfAbsent("NOTIFY_INTERNAL_URL", "http://localhost:3099");
 setIfAbsent("NOTIFY_INTERNAL_TOKEN", "test-notify-internal-token");
+// SERVICE_AUDIENCE (specs/016): required; a config identifier, not a secret,
+// and it must differ from AUTH_AUDIENCE.
+setIfAbsent("SERVICE_AUDIENCE", "operai-service-test");
 setIfAbsent("NODE_ENV", "test");
 // ENABLE_TEST_AUTH is intentionally NOT set here (defaults to disabled).
 // Individual test files that need the gate open set it explicitly.

@@ -133,6 +133,33 @@ describe("POST /system/service-token — success (AC-2.8)", () => {
   });
 });
 
+describe("POST /system/service-token — revoking one client (AC-1.6)", () => {
+  test("with two clients configured, removing one gives 401 for it and 200 for the other", async () => {
+    const other = { secret: "dummy-routes-other-0123456789-abcdefgh", scopes: ["emails.send"] };
+    const both = () => new Map([...validClients(), ["refund-api", other]]);
+    const otherCreds = { clientId: "refund-api", clientSecret: other.secret };
+
+    configure(SERVICE_AUDIENCE, both());
+    try {
+      expect((await post(good)).status).toBe(200);
+      expect((await post(otherCreds)).status).toBe(200);
+
+      const remaining = both();
+      remaining.delete("inventory-api");
+      configure(SERVICE_AUDIENCE, remaining);
+
+      expect((await post(good)).status).toBe(401);
+      const stillThere = await post(otherCreds);
+      expect(stillThere.status).toBe(200);
+      const claims = decodeJwt(((await stillThere.json()) as { token: string }).token);
+      expect(claims.sub).toBe("system:refund-api");
+      expect(claims["scope"]).toBe("emails.send");
+    } finally {
+      configure(SERVICE_AUDIENCE, validClients());
+    }
+  });
+});
+
 describe("POST /system/service-token — authentication failures (AC-2.9)", () => {
   test("unknown client and wrong secret return the byte-identical 401 (status, headers that matter, body)", async () => {
     const unknown = await post({ clientId: "nobody", clientSecret: SECRET });

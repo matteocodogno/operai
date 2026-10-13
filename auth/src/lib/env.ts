@@ -110,11 +110,13 @@ const envSchema = z.object({
   // in 1Password / the deploy environment only; it is never logged, and a parse
   // failure names the rule that failed, never a value.
   //
-  // Both are OPTIONAL so a deployment that has no service caller yet keeps
-  // starting: with no clients configured the endpoint authenticates nobody
-  // (every call is the same 401). Configuring clients without an audience is a
-  // startup error, not a silently disabled feature.
-  SERVICE_AUDIENCE: z.string().min(1, "SERVICE_AUDIENCE must not be empty").optional(),
+  // SERVICE_AUDIENCE is REQUIRED (specs/016, ADR-0048): `auth` mints its own
+  // `system:auth` credential with it, regardless of any configured client.
+  // SERVICE_CLIENTS stays OPTIONAL: with no clients configured the endpoint
+  // authenticates nobody (every call is the same 401).
+  SERVICE_AUDIENCE: z
+    .string({ required_error: "SERVICE_AUDIENCE is required" })
+    .min(1, "SERVICE_AUDIENCE must not be empty"),
   SERVICE_CLIENTS: z
     .string()
     .optional()
@@ -159,18 +161,11 @@ const envSchema = z.object({
 }).superRefine((value, ctx) => {
   // ADR-0044 point 2: a service token must never be accepted on a user route,
   // so its audience must differ from the user audience. Fail at startup.
-  if (value.SERVICE_AUDIENCE !== undefined && value.SERVICE_AUDIENCE === value.AUTH_AUDIENCE) {
+  if (value.SERVICE_AUDIENCE === value.AUTH_AUDIENCE) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["SERVICE_AUDIENCE"],
       message: "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR-0044)",
-    });
-  }
-  if (value.SERVICE_CLIENTS.size > 0 && value.SERVICE_AUDIENCE === undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["SERVICE_AUDIENCE"],
-      message: "SERVICE_AUDIENCE is required when SERVICE_CLIENTS is set",
     });
   }
 });

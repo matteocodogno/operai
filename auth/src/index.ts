@@ -25,6 +25,7 @@ import { invitationsRouter } from "./invitations/invitations.routes";
 import { jwksRouter } from "./jwks/jwks.routes";
 import { signinRouter } from "./signin/signin.routes";
 import { createServiceTokenRouter, signWithAuth } from "./system/serviceToken.routes";
+import { createSelfServiceTokenProvider } from "./system/selfServiceToken";
 import { setupOpenAPI } from "./openapi/registry";
 
 const app = new OpenAPIHono();
@@ -67,7 +68,10 @@ app.route("/", userAddressRouter);
 app.route("/", addressRouter);
 app.route("/", invitationsRouter);
 app.route("/", inviteRouter);
-app.route("/", createServiceTokenRouter({ signJwt: signWithAuth(auth) }));
+const signServiceJwt = signWithAuth(auth);
+app.route("/", createServiceTokenRouter({ signJwt: signServiceJwt }));
+// Built and wired, not yet consumed: lib/notify.ts adopts it in specs/016 T7.
+export const selfServiceTokenProvider = createSelfServiceTokenProvider({ signJwt: signServiceJwt });
 
 // ── Test-auth router (structural defence-in-depth) ──────────────────────────
 // Only import + register when BOTH conditions are true at startup:

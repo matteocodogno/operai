@@ -26,7 +26,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
   - done when: `cd auth && bun test src/system/serviceClients` passes with new cases: a
     client with `emails.send` parses; an unknown scope fails naming the client; a client
     id of `auth` fails naming it.
-- [ ] T2: `auth` can mint its own credential in process (not yet used) — refs: AC-1.4, AC-1.6, AC-2.1 — deps: T1
+- [x] T2: `auth` can mint its own credential in process (not yet used) — refs: AC-1.4, AC-1.6, AC-2.1 — deps: T1
   - touch: `auth/src/system/serviceToken.routes.ts`, `auth/src/system/serviceToken.routes.test.ts`,
     `auth/src/system/selfServiceToken*`, `auth/src/system/env.startup.test.ts`,
     `auth/src/lib/env.ts`, `auth/src/index.ts`, `auth/src/test-setup.ts`
