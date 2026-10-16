@@ -39,7 +39,7 @@ const ORIGINAL_EMAIL_ENABLED = env.EMAIL_ENABLED;
 // The real, valid internal token (worktree .env) — used as the "correct"
 // credential throughout; deliberately NOT overridden so this test proves the
 // actual middleware/env wiring, not a mock's approximation of it.
-const VALID_INTERNAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN;
+const VALID_INTERNAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN!;
 
 // ─── @/lib/resend mock — controlled per test via sendEmailImpl ───────────────
 

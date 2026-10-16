@@ -28,7 +28,7 @@ import { env } from "@/lib/env";
 // credential throughout; deliberately NOT overridden so this test proves the
 // actual middleware/env wiring, not a mock's approximation of it (mirrors
 // emails.routes.test.ts).
-const VALID_INTERNAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN;
+const VALID_INTERNAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN!;
 
 // ─── Real DB (compose, database: notify) ──────────────────────────────────────
 

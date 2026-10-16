@@ -39,7 +39,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     test for caching and refresh 60 s before expiry; a route test with two clients where
     removing one gives 401 for it and 200 for the other; an env test that a missing
     `SERVICE_AUDIENCE` exits naming it.
-- [ ] T3: `notify-api` guards both internal routes with one scoped middleware — refs: AC-1.5, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-3.1, AC-3.2, AC-4.1, AC-4.4 — deps: none
+- [x] T3: `notify-api` guards both internal routes with one scoped middleware — refs: AC-1.5, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-3.1, AC-3.2, AC-4.1, AC-4.4 — deps: none
   - touch: `notify-api/src/system/*`, `notify-api/src/lib/env*`, `notify-api/src/index.ts`
   - `createSystemAuthMiddleware({ scope })` on `/system/notifications` and `/system/emails`;
     origin bindings for `system:refund-api` and `system:estimai-api`; the caller log line;

@@ -43,10 +43,10 @@ app.route("/", raiseRouter);
 app.route("/", listRouter);
 app.route("/", markReadRouter);
 app.route("/", streamRouter);
-// System routes — internal-token-authed only (ADR-0011, and ADR-0017 for
-// the second internal caller/route). NEVER register either router with
-// jwtMiddleware applied anywhere above it in the chain; both must stay
-// reachable exclusively via internalTokenMiddleware.
+// System routes — service-authed only (ADR-0049): a scoped service JWT, or
+// the shared token while NOTIFY_INTERNAL_TOKEN is set. NEVER register either
+// router with jwtMiddleware applied anywhere above it in the chain; both must
+// stay reachable exclusively via createSystemAuthMiddleware.
 app.route("/", systemEmailsRouter);
 app.route("/", systemNotificationsRouter);
 

@@ -40,38 +40,28 @@ const envSchema = z.object({
   // optional at the schema level so test/local can leave them unset.
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
-  // ─── System-to-system auth (T3, specs/006-user-invitations, ADR-0011;
-  // reused by T3, specs/007-refund-service, ADR-0017 for a second internal
-  // caller/route) ──────────────────────────────────────────────────────────
-  // Shared secret checked by internalTokenMiddleware against the
-  // `X-Internal-Token` header on POST /system/emails AND POST
-  // /system/notifications ONLY — never accepted on any jwtMiddleware-protected
-  // route, and jwtMiddleware never accepts this value (the two auth
-  // mechanisms are mutually exclusive by route, not layered, per ADR-0011).
-  // Required unconditionally — neither /system/* route has a meaningful
-  // "disabled" mode the way EMAIL_ENABLED does. A short/weak value materially
-  // weakens the entire trust boundary (ADR-0011 Risk, widened by ADR-0017:
-  // "leaked token = arbitrary email AND arbitrary in-app/SSE push"), so a
-  // minimum length is enforced here rather than left to operational
-  // discipline alone.
-  NOTIFY_INTERNAL_TOKEN: z
-    .string()
-    .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
-  // ─── Scoped service JWT (specs/015, ADR-0044) ───────────────────────────────
-  // `aud` that `auth` stamps on service tokens (POST /system/service-token).
-  // MUST differ from AUTH_AUDIENCE so a user JWT is never a system credential
-  // and a service token is never a user credential (enforced below; the
-  // process exits otherwise). Optional at the schema level on purpose: unset
-  // (or empty) DISABLES the service-JWT path on /system/notifications — every
-  // Bearer is then 401 and only the legacy X-Internal-Token works — so the
-  // three existing callers and a not-yet-reconfigured deploy are unaffected.
-  // It fails closed, never open.
-  SERVICE_AUDIENCE: z.preprocess(
+  // ─── System-to-system auth ──────────────────────────────────────────────────
+  // TRANSITION ONLY (specs/016, ADR-0049). The legacy shared secret checked
+  // against `X-Internal-Token` on POST /system/emails AND POST
+  // /system/notifications (ADR-0011/0017/0040). Optional: while set, both
+  // routes still accept it alongside a scoped service JWT; unset (or empty),
+  // the header is never accepted, so retiring the token in production is
+  // deleting this one variable. A short/weak value still materially weakens
+  // the trust boundary, so a minimum length applies whenever it is set. The
+  // variable and its middleware path leave the code in specs/016 T14.
+  NOTIFY_INTERNAL_TOKEN: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
+    z.string().min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters").optional(),
   ),
+  // ─── Scoped service JWT (specs/015, ADR-0044; required since specs/016) ─────
+  // `aud` that `auth` stamps on service tokens (POST /system/service-token and
+  // its in-process self-mint). MUST differ from AUTH_AUDIENCE so a user JWT is
+  // never a system credential and a service token is never a user credential
+  // (enforced below; the process exits otherwise). Required: it is now the
+  // only credential for both internal routes once the shared token is retired.
+  SERVICE_AUDIENCE: z.string().min(1, "SERVICE_AUDIENCE is required"),
 }).superRefine((v, ctx) => {
-  if (v.SERVICE_AUDIENCE !== undefined && v.SERVICE_AUDIENCE === v.AUTH_AUDIENCE) {
+  if (v.SERVICE_AUDIENCE === v.AUTH_AUDIENCE) {
     ctx.addIssue({
       code: "custom",
       path: ["SERVICE_AUDIENCE"],

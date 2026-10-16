@@ -1,5 +1,6 @@
 /**
- * Auth matrix for POST /system/notifications (specs/015 T6, ADR-0044).
+ * Auth matrix for the two internal routes (specs/015 T6, ADR-0044; specs/016
+ * T3, ADR-0049): one scoped middleware, each route requiring its own scope.
  *
  * No DB: a tiny Hono app with the auth middleware + a recording handler
  * proves the guard stops (or lets through) the request. Keys and the JWKS are
@@ -7,7 +8,7 @@
  * here depends on module load order or a live auth service.
  */
 
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, beforeAll, afterEach, spyOn } from "bun:test";
 import { Hono } from "hono";
 import {
   generateKeyPair,
@@ -18,16 +19,21 @@ import {
 } from "jose";
 import { env } from "@/lib/env";
 import {
-  createNotificationsAuthMiddleware,
+  createSystemAuthMiddleware,
   originAllowed,
-  type NotificationsAuthVariables,
-} from "./notificationsAuth.middleware";
+  type SystemAuthVariables,
+} from "./systemAuth.middleware";
 
 const ISSUER = env.AUTH_ISSUER;
 const SERVICE_AUD = "operai-system-test";
 const USER_AUD = "operai-suite-test";
 const KID = "svc-test-kid";
-const LEGACY = env.NOTIFY_INTERNAL_TOKEN;
+const LEGACY = env.NOTIFY_INTERNAL_TOKEN!;
+const ORIGINAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN;
+
+afterEach(() => {
+  env.NOTIFY_INTERNAL_TOKEN = ORIGINAL_TOKEN;
+});
 
 let signingKey: CryptoKey;
 let otherSigningKey: CryptoKey;
@@ -63,13 +69,25 @@ const sign = (
   return jwt.sign(o.signer ?? signingKey);
 };
 
-type App = Hono<{ Variables: NotificationsAuthVariables }>;
+type App = Hono<{ Variables: SystemAuthVariables }>;
 
-const buildApp = (opts: { audience?: string | undefined } = { audience: SERVICE_AUD }) => {
+const buildApp = (
+  opts: { audience?: string | undefined; scope?: "notifications.push" | "emails.send" } = {
+    audience: SERVICE_AUD,
+  },
+) => {
+  const audience = "audience" in opts ? opts.audience : SERVICE_AUD;
   const ran = { value: false };
   const seen: { origins?: readonly string[] | null; sub?: string | null } = {};
   const app: App = new Hono();
-  app.use("/x", createNotificationsAuthMiddleware({ jwks, audience: opts.audience }));
+  app.use(
+    "/x",
+    createSystemAuthMiddleware({
+      scope: opts.scope ?? "notifications.push",
+      jwks,
+      audience,
+    }),
+  );
   app.post("/x", (c) => {
     ran.value = true;
     seen.origins = c.get("allowedOrigins");
@@ -129,6 +147,17 @@ describe("scoped service JWT", () => {
     expect(res.status).toBe(200);
   });
 
+  it("refund-api and estimai-api are bound to their own origin only", async () => {
+    for (const [sub, origin] of [
+      ["system:refund-api", "refund"],
+      ["system:estimai-api", "estimai"],
+    ] as const) {
+      const { app, seen } = buildApp();
+      expect((await post(app, bearer(await sign({ sub })))).status).toBe(200);
+      expect(seen.origins).toEqual([origin]);
+    }
+  });
+
   it("an unknown system:* client authenticates but is bound to NO origin", async () => {
     const { app, seen } = buildApp();
     const res = await post(app, bearer(await sign({ sub: "system:someone-else" })));
@@ -141,7 +170,7 @@ describe("scoped service JWT", () => {
     ["wrong audience", () => sign({ aud: "somewhere-else" })],
     ["missing audience", () => sign({ aud: null })],
     ["missing scope claim", () => sign({ scope: null })],
-    ["wrong scope", () => sign({ scope: "emails.send" })],
+    ["wrong scope (the other route's)", () => sign({ scope: "emails.send" })],
     ["scope that merely contains the string as a prefix", () => sign({ scope: "notifications.push.admin" })],
     ["empty scope", () => sign({ scope: "" })],
     ["wrong issuer", () => sign({ iss: "http://evil.example" })],
@@ -219,6 +248,109 @@ describe("scoped service JWT", () => {
     const { app } = buildApp();
     expect((await post(app, { Authorization: `Basic ${await sign()}` })).status).toBe(401);
     expect((await post(app, { Authorization: "Bearer " })).status).toBe(401);
+  });
+});
+
+describe("each route requires its own scope", () => {
+  it("emails.send: accepted with the email scope, 401 with only the push scope", async () => {
+    const ok = buildApp({ scope: "emails.send" });
+    const res = await post(ok.app, bearer(await sign({ scope: "emails.send", sub: "system:auth" })));
+    expect(res.status).toBe(200);
+    expect(ok.seen.sub).toBe("system:auth");
+
+    const no = buildApp({ scope: "emails.send" });
+    expect((await post(no.app, bearer(await sign({ scope: "notifications.push" })))).status).toBe(401);
+    expect(no.ran.value).toBe(false);
+  });
+
+  it("a credential holding both scopes is accepted on both routes", async () => {
+    const t = await sign({ scope: "notifications.push emails.send", sub: "system:refund-api" });
+    for (const scope of ["notifications.push", "emails.send"] as const) {
+      expect((await post(buildApp({ scope }).app, bearer(t))).status).toBe(200);
+    }
+  });
+
+  it("the 401 body is byte-identical across scopes, causes and routes", async () => {
+    const bodies = new Set<string>();
+    for (const scope of ["notifications.push", "emails.send"] as const) {
+      const { app } = buildApp({ scope });
+      const other = scope === "emails.send" ? "notifications.push" : "emails.send";
+      for (const h of [{}, bearer(await sign({ scope: other })), { "X-Internal-Token": "wrong" }]) {
+        const res = await post(app, h);
+        const j = (await res.json()) as Record<string, unknown>;
+        bodies.add(JSON.stringify({ ...j, instance: undefined }));
+      }
+    }
+    expect(bodies.size).toBe(1);
+  });
+});
+
+describe("transition switch: NOTIFY_INTERNAL_TOKEN set or unset", () => {
+  for (const scope of ["notifications.push", "emails.send"] as const) {
+    describe(scope, () => {
+      const cred = () => sign({ scope });
+      it("token set: shared token accepted AND service credential accepted", async () => {
+        env.NOTIFY_INTERNAL_TOKEN = LEGACY;
+        expect((await post(buildApp({ scope }).app, { "X-Internal-Token": LEGACY })).status).toBe(200);
+        expect((await post(buildApp({ scope }).app, bearer(await cred()))).status).toBe(200);
+      });
+
+      it("token unset: shared token refused (whatever its value), service credential accepted", async () => {
+        env.NOTIFY_INTERNAL_TOKEN = undefined;
+        for (const v of [LEGACY, "undefined", ""]) {
+          const { app, ran } = buildApp({ scope });
+          expect((await post(app, { "X-Internal-Token": v })).status).toBe(401);
+          expect(ran.value).toBe(false);
+        }
+        expect((await post(buildApp({ scope }).app, bearer(await cred()))).status).toBe(200);
+      });
+    });
+  }
+});
+
+describe("caller log line", () => {
+  const capture = () => {
+    const spies = [
+      spyOn(console, "log").mockImplementation(() => {}),
+      spyOn(console, "info").mockImplementation(() => {}),
+      spyOn(console, "warn").mockImplementation(() => {}),
+      spyOn(console, "error").mockImplementation(() => {}),
+    ];
+    const lines = () => spies.flatMap((s) => s.mock.calls.map((a) => a.join(" ")));
+    return { lines, restore: () => spies.forEach((s) => s.mockRestore()) };
+  };
+
+  it("a service credential logs exactly one line naming its sub", async () => {
+    const log = capture();
+    try {
+      const { app } = buildApp();
+      const token = await sign({ sub: "system:refund-api" });
+      await app.request("/x?secret=abc", { method: "POST", headers: bearer(token) });
+      expect(log.lines()).toEqual(["[system-auth] POST /x caller=system:refund-api"]);
+      expect(log.lines().join("\n")).not.toContain(token);
+    } finally {
+      log.restore();
+    }
+  });
+
+  it("the shared token logs caller=shared-token and never the token", async () => {
+    const log = capture();
+    try {
+      await post(buildApp({ scope: "emails.send" }).app, { "X-Internal-Token": LEGACY });
+      expect(log.lines()).toEqual(["[system-auth] POST /x caller=shared-token"]);
+    } finally {
+      log.restore();
+    }
+  });
+
+  it("a refused call logs no caller line", async () => {
+    const log = capture();
+    try {
+      await post(buildApp().app, { "X-Internal-Token": "wrong" });
+      expect(log.lines().filter((l) => l.includes("caller="))).toEqual([]);
+    } finally {
+      log.restore();
+    }
   });
 });
 

@@ -4,9 +4,10 @@
  * employee" (AC-3.6), ADR-0017).
  *
  * Structurally mirrors emails.routes.ts (T3, specs/006-user-invitations,
- * ADR-0011): internalTokenMiddleware (X-Internal-Token, NOT jwtMiddleware —
- * see internalToken.middleware.ts's header for the mutual-exclusion
- * invariant that ALSO applies to this route) → zod-validate body → the
+ * ADR-0011): systemAuthMiddleware scoped to `notifications.push` (a service
+ * JWT, or the transition-only X-Internal-Token — NOT jwtMiddleware; see
+ * systemAuth.middleware.ts's header for the invariant that ALSO applies to
+ * this route) → zod-validate body → the
  * SAME inApp channel the user-JWT POST /notifications already uses
  * (src/channels/inApp.channel.ts) → persist + SSE-push.
  *
@@ -38,10 +39,10 @@ import { bodyLimit } from "hono/body-limit";
 import { inAppChannel } from "@/channels/inApp.channel";
 import { ProblemSchema, problem } from "@/notifications/notifications.schemas";
 import {
-  notificationsAuthMiddleware,
+  createSystemAuthMiddleware,
   originAllowed,
-  type NotificationsAuthVariables,
-} from "./notificationsAuth.middleware";
+  type SystemAuthVariables,
+} from "./systemAuth.middleware";
 import {
   SystemNotificationRequestSchema,
   SystemNotificationResponseSchema,
@@ -51,9 +52,9 @@ const SYSTEM_NOTIFICATIONS_BODY_SIZE_LIMIT = 16 * 1024; // 16 KiB
 
 /** Factory so tests can inject the auth middleware (in-memory JWKS); production uses the default export. */
 export const createSystemNotificationsRouter = (
-  authMiddleware: MiddlewareHandler<{ Variables: NotificationsAuthVariables }>,
+  authMiddleware: MiddlewareHandler<{ Variables: SystemAuthVariables }>,
 ) => {
-  const router = new OpenAPIHono<{ Variables: NotificationsAuthVariables }>();
+  const router = new OpenAPIHono<{ Variables: SystemAuthVariables }>();
 
   // Scoped to this router's ONE exact path only — NEVER `.use("*", …)`. See
   // raise.routes.ts's and emails.routes.ts's file headers for why a "*"
@@ -87,9 +88,9 @@ export const createSystemNotificationsRouter = (
     tags: ["System"],
     summary: "Push an in-app notification to an arbitrary recipient (cross-user)",
     description:
-      "Internal-only endpoint authenticated by X-Internal-Token (ADR-0011, " +
-      "reused by ADR-0017) OR by a scoped service JWT (aud=SERVICE_AUDIENCE, " +
-      "scope notifications.push, ADR-0044) — never a user JWT. Routes through the same inApp " +
+      "Internal-only endpoint authenticated by a scoped service JWT " +
+      "(aud=SERVICE_AUDIENCE, scope notifications.push, ADR-0044/0049) or, " +
+      "during the transition, the shared X-Internal-Token (ADR-0017) — never a user JWT. Routes through the same inApp " +
       "channel the user-JWT POST /notifications uses, persisting a " +
       "Notification row for `recipientId` and pushing it over that " +
       "recipient's open SSE streams. `recipientId` may be any user, " +
@@ -115,8 +116,8 @@ export const createSystemNotificationsRouter = (
       401: {
         content: { "application/json": { schema: ProblemSchema } },
         description:
-          "Missing or invalid credential: neither a valid X-Internal-Token nor a " +
-          "valid scoped service JWT (identical body for every cause)",
+          "Missing or invalid credential, or a service JWT without the " +
+          "notifications.push scope (identical body for every cause)",
       },
       403: {
         content: { "application/json": { schema: ProblemSchema } },
@@ -165,5 +166,5 @@ export const createSystemNotificationsRouter = (
 };
 
 export const systemNotificationsRouter = createSystemNotificationsRouter(
-  notificationsAuthMiddleware,
+  createSystemAuthMiddleware({ scope: "notifications.push" }),
 );
