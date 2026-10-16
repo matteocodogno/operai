@@ -428,13 +428,25 @@ function checkServiceClients(suite: SuiteEnv): Finding[] {
       });
     }
     const scopes = typeof scope === "string" ? scope.split(/\s+/).filter(Boolean) : [];
-    if (!scopes.includes(link.requiredScope)) {
-      out.push({
-        scope: link.registry.service,
-        level: "error",
-        message: `${regName} entry "${id}" lacks the "${link.requiredScope}" scope`,
-        fix: `Set "scope":"${link.requiredScope}" on that entry.`,
-      });
+    for (const required of link.requiredScopes) {
+      if (!scopes.includes(required)) {
+        out.push({
+          scope: link.registry.service,
+          level: "error",
+          message: `${regName} entry "${id}" lacks the "${required}" scope`,
+          fix: `Add "${required}" to the "scope" of that entry.`,
+        });
+      }
+    }
+    for (const held of scopes) {
+      if (!link.requiredScopes.includes(held)) {
+        out.push({
+          scope: link.registry.service,
+          level: "error",
+          message: `${regName} entry "${id}" holds the "${held}" scope, which ${link.caller} does not need`,
+          fix: `Remove "${held}" from the "scope" of that entry (least privilege).`,
+        });
+      }
     }
   }
   return out;

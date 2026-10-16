@@ -9,8 +9,15 @@ const ADMIN = "https://admin.operai.welld.io";
 const SVC_AUD = "operai-service";
 // Synthetic, never a real credential: 40 chars, only used inside this test file.
 const CLIENT_SECRET = "c".repeat(40);
+const CLIENT_SECRET_EST = "e".repeat(40);
+const CLIENT_SECRET_REF = "r".repeat(40);
+/** The three-client registry after Manual A. Scopes of inventory-api are overridable (its tests predate the rest). */
 const registry = (secret: string, scope = "notifications.push") =>
-  JSON.stringify({ "inventory-api": { secret, scope } });
+  JSON.stringify({
+    "inventory-api": { secret, scope },
+    "estimai-api": { secret: CLIENT_SECRET_EST, scope: "notifications.push" },
+    "refund-api": { secret: CLIENT_SECRET_REF, scope: "notifications.push emails.send" },
+  });
 
 /** A fully-correct production suite — the baseline every mutation test starts from. */
 function validSuite(): SuiteEnv {
@@ -34,6 +41,8 @@ function validSuite(): SuiteEnv {
       AUTH_ISSUER: AUTH_URL,
       AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
       AUTH_AUDIENCE: AUD,
+      SERVICE_CLIENT_ID: "estimai-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_EST,
       PORT: "8080",
     },
     "notify-api": {
@@ -56,6 +65,8 @@ function validSuite(): SuiteEnv {
       NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
       NOTIFY_INTERNAL_TOKEN: TOKEN,
       REFUND_APP_BASE_URL: SHELL,
+      SERVICE_CLIENT_ID: "refund-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_REF,
       PORT: "8082",
     },
     "inventory-api": {
@@ -368,6 +379,52 @@ describe("env-doctor checker", () => {
     const s = validSuite();
     s.auth!.SERVICE_CLIENTS = registry(CLIENT_SECRET, "something.else");
     expect(errText(checkSuite(s, PROD))).toContain('lacks the "notifications.push" scope');
+  });
+
+  test("service client: an extra scope on a client → error (estimai-api must not send email)", () => {
+    const s = validSuite();
+    const reg = JSON.parse(s.auth!.SERVICE_CLIENTS!);
+    reg["estimai-api"].scope = "notifications.push emails.send";
+    s.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain('entry "estimai-api" holds the "emails.send" scope, which estimai-api does not need');
+    expect(JSON.stringify(checkSuite(s, PROD))).not.toContain(CLIENT_SECRET_EST);
+  });
+
+  test("service client: refund-api missing emails.send → error naming the scope", () => {
+    const s = validSuite();
+    const reg = JSON.parse(s.auth!.SERVICE_CLIENTS!);
+    reg["refund-api"].scope = "notifications.push";
+    s.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+    expect(errText(checkSuite(s, PROD))).toContain('entry "refund-api" lacks the "emails.send" scope');
+  });
+
+  test("service client: refund-api / estimai-api id or secret mismatch → error", () => {
+    const s = validSuite();
+    s["refund-api"]!.SERVICE_CLIENT_ID = "refund";
+    s["estimai-api"]!.SERVICE_CLIENT_SECRET = "z".repeat(40);
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain('has no entry for client id "refund"');
+    expect(text).toContain("estimai-api.SERVICE_CLIENT_SECRET does not match the secret");
+  });
+
+  test("service client: a scope-less entry is flagged for every required scope", () => {
+    const s = validSuite();
+    const reg = JSON.parse(s.auth!.SERVICE_CLIENTS!);
+    delete reg["refund-api"].scope;
+    s.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain('lacks the "notifications.push" scope');
+    expect(text).toContain('lacks the "emails.send" scope');
+  });
+
+  test("service client: refund-api / estimai-api must set their client id and secret", () => {
+    const s = validSuite();
+    delete s["refund-api"]!.SERVICE_CLIENT_SECRET;
+    delete s["estimai-api"]!.SERVICE_CLIENT_ID;
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain("SERVICE_CLIENT_SECRET is missing");
+    expect(text).toContain("SERVICE_CLIENT_ID is missing");
   });
 
   test("service client: malformed SERVICE_CLIENTS JSON → error", () => {

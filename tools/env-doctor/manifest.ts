@@ -115,20 +115,22 @@ export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName
  * object keyed by client id; each caller's own id + secret vars must match its
  * entry, and the entry must carry the scope the receiving service requires.
  */
+const LINK_BASE = {
+  idVar: "SERVICE_CLIENT_ID",
+  secretVar: "SERVICE_CLIENT_SECRET",
+  registry: { service: "auth", var: "SERVICE_CLIENTS" },
+} as const;
 export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   caller: ServiceName;
   idVar: string;
   secretVar: string;
   registry: { service: ServiceName; var: string };
-  requiredScope: string;
+  /** Exactly the scopes the caller needs: a missing one fails, so does an extra one (least privilege, specs/016 AC-2.1). */
+  requiredScopes: readonly string[];
 }> = [
-  {
-    caller: "inventory-api",
-    idVar: "SERVICE_CLIENT_ID",
-    secretVar: "SERVICE_CLIENT_SECRET",
-    registry: { service: "auth", var: "SERVICE_CLIENTS" },
-    requiredScope: "notifications.push",
-  },
+  { ...LINK_BASE, caller: "inventory-api", requiredScopes: ["notifications.push"] },
+  { ...LINK_BASE, caller: "estimai-api", requiredScopes: ["notifications.push"] },
+  { ...LINK_BASE, caller: "refund-api", requiredScopes: ["notifications.push", "emails.send"] },
 ];
 
 /**
@@ -205,7 +207,10 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
     // service-token endpoint authenticates nobody and inventory's push is silently dead.
     "SERVICE_AUDIENCE", "SERVICE_CLIENTS",
   ],
-  "estimai-api": ["DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE", "PORT"],
+  "estimai-api": [
+    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE", "PORT",
+    "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", // specs/016: estimai-api authenticates to notify-api as itself
+  ],
   "notify-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE",
     "NOTIFY_INTERNAL_TOKEN", "PORT",
@@ -215,6 +220,7 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   "refund-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
     "NOTIFY_INTERNAL_URL", "NOTIFY_INTERNAL_TOKEN", "REFUND_APP_BASE_URL", "PORT",
+    "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", // specs/016
   ],
   // The S3 bucket name and both credentials are set directly on the Railway service (no
   // 1Password item yet), so the committed template omits them and they are not required here;

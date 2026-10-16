@@ -123,7 +123,7 @@ Added with specs/015-hardware-inventory (service tokens, `inventory-api`):
 |---|---|
 | `SERVICE_AUDIENCE` identical across `auth` + `notify-api` | service tokens rejected by notify-api (the push silently 401s) |
 | `SERVICE_AUDIENCE` != `AUTH_AUDIENCE` on the same service (also when both are the same `${{shared.X}}` reference) | a service token valid on user routes / a user JWT valid on `/system/notifications` (both services exit at startup) |
-| `inventory-api` `SERVICE_CLIENT_ID` is a key of `auth`'s `SERVICE_CLIENTS` JSON, the entry's secret equals `SERVICE_CLIENT_SECRET`, the entry carries `notifications.push`, id/secret shapes valid | token endpoint answers 401 to inventory-api |
+| Each caller's (`inventory-api`, `estimai-api`, `refund-api`) `SERVICE_CLIENT_ID` is a key of `auth`'s `SERVICE_CLIENTS` JSON, the entry's secret equals its `SERVICE_CLIENT_SECRET`, the entry's scopes equal exactly the caller's required set (`notifications.push`; plus `emails.send` for `refund-api`) — a missing OR an extra scope fails; id/secret shapes valid | token endpoint answers 401, or a client holds a capability it does not need |
 | `inventory-api` must not hold `NOTIFY_INTERNAL_TOKEN` | a fourth holder of the shared token (ADR-0040 hard stop) |
 | `*_S3_ENDPOINT` host vs `*_S3_EU_ENDPOINT_HOSTS` (non-AWS) or an EU region (AWS), for `refund-api` and `inventory-api` | service refuses to start (data residency) |
 | `SERVICE_AUDIENCE` (auth, notify-api) and `SERVICE_CLIENTS` (auth) are required keys | optional in `env.ts`, but unset silently disables the push |

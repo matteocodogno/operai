@@ -53,7 +53,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     push with an unbound `originApp` → 403; an accepted call logs exactly
     `[system-auth] <METHOD> <path> caller=<sub>` (or `caller=shared-token`) and the log
     spy sees no token, address, title or body.
-- [ ] T4: the env contract check knows the new clients and their scopes — refs: AC-2.1, AC-4.4, AC-5.3 — deps: none
+- [x] T4: the env contract check knows the new clients and their scopes — refs: AC-2.1, AC-4.4, AC-5.3 — deps: none
   - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/check.ts`, `tools/env-doctor/check.test.ts`,
     `tools/env-doctor/live.ts`, `tools/env-doctor/live.test.ts`,
     `tools/env-doctor/templates/production/*`
