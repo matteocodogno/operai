@@ -1299,6 +1299,175 @@ bucket's own CORS rule are checked by `mise run env:doctor`
 
 ---
 
+## Notify credential rollout (specs/016, ADR-0048/0049)
+
+Every caller of `notify-api`'s internal routes moves from the shared
+`NOTIFY_INTERNAL_TOKEN` to its own scoped service credential, and the shared token is
+then deleted. A push to `main` redeploys all five Railway services at once, in no fixed
+order, so the safe order is **three pushes with manual steps between them**. Each step
+starts only when the previous one is confirmed.
+
+Roles: **P1/P2/P3** are pushes (T6, T13 and T18 in `specs/016-notify-service-credentials/tasks.md`
+are done by a person, never by an agent). **Manual A/B** edit Railway variables. No step below
+reads or prints a variable value; where a check lists variables it lists **names only**
+(`| jq -r 'keys[]'` keeps the values off the terminal).
+
+### Variables (names; nothing here is a value)
+
+| Variable | Where | Role |
+|---|---|---|
+| `SERVICE_AUDIENCE` | Shared Variable; referenced by `auth` and `notify-api` | The `aud` on service JWTs. **Required in both from push 1**; must differ from `AUTH_AUDIENCE` and be identical on the two. Already set in production since specs/015. |
+| `INVENTORY_SERVICE_CLIENT_SECRET` | Shared Variable | Exists. `inventory-api` is unchanged. |
+| `ESTIMAI_SERVICE_CLIENT_SECRET` | Shared Variable (**new**, Manual A) | One secret, 32-256 chars. Referenced inside `auth`'s `SERVICE_CLIENTS` and by `estimai-api`'s `SERVICE_CLIENT_SECRET`. |
+| `REFUND_SERVICE_CLIENT_SECRET` | Shared Variable (**new**, Manual A) | Same, for `refund-api`. |
+| `SERVICE_CLIENTS` | `auth` | JSON of all clients, shape below. |
+| `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `refund-api`, `estimai-api` (**new**, Manual A) | Literal client id (`refund-api` / `estimai-api`) and `${{shared.<NAME>_SERVICE_CLIENT_SECRET}}`. |
+| `NOTIFY_INTERNAL_TOKEN` | `notify-api`, `auth`, `refund-api`, `estimai-api` | The shared token. Optional in `notify-api` from push 1; deleted at Manual B; gone from the code at push 3. |
+
+`SERVICE_CLIENTS` on `auth` after Manual A (as in
+`tools/env-doctor/templates/production/auth.env`; the secrets are Railway references, never
+literals). Each client holds exactly the scopes it needs; `estimai-api` and `inventory-api`
+must not hold `emails.send`, and a client id of `auth` is refused at startup (ADR-0048):
+
+```json
+{
+  "inventory-api": { "secret": "${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}", "scope": "notifications.push" },
+  "estimai-api":   { "secret": "${{shared.ESTIMAI_SERVICE_CLIENT_SECRET}}",   "scope": "notifications.push" },
+  "refund-api":    { "secret": "${{shared.REFUND_SERVICE_CLIENT_SECRET}}",    "scope": "notifications.push emails.send" }
+}
+```
+
+(On one line in the Variables tab. After saving, open it and confirm each `${{shared.…}}`
+resolved inside the JSON.)
+
+### Step 0 - before push 1: preconditions (names only)
+
+```bash
+# SERVICE_AUDIENCE must exist on BOTH auth and notify-api before push 1: both now exit at startup without it.
+for s in auth notify-api; do
+  printf '%s: ' "$s"
+  railway variables --service "$s" --json | jq -r 'keys[]' | grep -qx SERVICE_AUDIENCE && echo present || echo MISSING
+done
+# R-1: does production override the token endpoint's rate limit downward? (default 20 per 600000 ms)
+railway variables --service auth --json | jq -r 'keys[]' | grep '^SERVICE_TOKEN_RATE' || echo "no override (defaults apply)"
+```
+
+- Anything `MISSING`: stop. Add the `${{shared.SERVICE_AUDIENCE}}` reference first (its value
+  must differ from `AUTH_AUDIENCE`), otherwise push 1 stops `auth` or `notify-api` from starting.
+- If a `SERVICE_TOKEN_RATE_*` name is listed, open it in the Railway dashboard (not a secret)
+  and confirm the limit is at least 20 per window of at least 600000 ms. Three callers use
+  about 8 of 20 in steady state; a deploy that restarts all three while a 401 retry is in
+  flight eats into it.
+- `mise run env:doctor -- --env production` passes on the committed templates.
+
+### Step 1 - Push 1: the new mechanism is accepted, nothing uses it yet
+
+Contains (T1-T5): `auth` (scope `emails.send`, reserved id `auth`, in-process self-mint, not
+yet used); `notify-api` (both routes accept a service credential, origin bindings
+`system:refund-api -> refund` and `system:estimai-api -> estimai`, the `caller=` log line,
+shared token optional); `env-doctor`; this section. Callers are unchanged.
+
+Result: every caller still sends the shared token and it still works. The `notify-api` log now
+shows `caller=shared-token` for each of those calls.
+
+### Step 2 - Wait for push 1 to be live, then confirm (R-4)
+
+`auth` on the old code refuses to start on a `SERVICE_CLIENTS` value containing `emails.send`,
+so Manual A must not begin until `auth`'s **push-1 deployment is the live one**.
+
+```bash
+railway deployment list --service auth        # newest row: status SUCCESS, commit = push 1
+railway deployment list --service notify-api  # same
+./infra/check.sh                              # all checks pass
+mise run env:doctor -- --env production --live
+```
+
+Continue only when both services show the push-1 commit as the active, successful deployment
+and `env-doctor --live` reports no failure.
+
+### Step 3 - Manual A: create the credentials (a person, in Railway)
+
+1. Create two **Shared Variables** on the project, each at least 32 random characters
+   (e.g. `openssl rand -hex 32 | tr -d '\n' | pbcopy`, so the value goes to the clipboard and
+   is never echoed, then pasted straight into Railway, never into the repo, a PR, a chat or a
+   shell history): `ESTIMAI_SERVICE_CLIENT_SECRET`, `REFUND_SERVICE_CLIENT_SECRET`.
+2. On **`auth`**, set `SERVICE_CLIENTS` to the JSON above.
+3. On **`refund-api`**: `SERVICE_CLIENT_ID=refund-api`,
+   `SERVICE_CLIENT_SECRET=${{shared.REFUND_SERVICE_CLIENT_SECRET}}`.
+   On **`estimai-api`**: `SERVICE_CLIENT_ID=estimai-api`,
+   `SERVICE_CLIENT_SECRET=${{shared.ESTIMAI_SERVICE_CLIENT_SECRET}}`.
+4. Let the redeploys finish. The callers' running code (pre push 2) ignores the new
+   variables; `auth` (already on push 1) accepts the new scope. Do **not** touch
+   `NOTIFY_INTERNAL_TOKEN`.
+5. Verify: `./infra/check.sh` passes; `mise run env:doctor -- --env production --live`
+   reports no failure (it checks that each caller's id and secret match its `SERVICE_CLIENTS`
+   entry, that each entry holds exactly its scopes, and flags a missing variable by name);
+   then trigger one invitation email and one refund decision and confirm both still arrive
+   and the log shows `caller=shared-token` for them (step 5 shows the command).
+
+### Step 4 - Push 2: the callers switch
+
+`auth`, `refund-api` and `estimai-api` send their own credential (T7-T12). Wait until the
+deployments of all three, and of `notify-api`, are the active successful ones.
+
+If a call fails with HTTP 429 from `auth POST /system/service-token` in a caller log during
+this window, raise the default `SERVICE_TOKEN_RATE_LIMIT` to 60 (R-1) rather than retrying
+in a loop.
+
+### Step 5 - Verify with the log line only
+
+Trigger every call site at least once: an invitation email and a resend, a refund approval
+and a rejection, a batch email, a collaborator grant and a removal on an estimate, and an
+inventory assignment. A call site you skip can still be on the shared token without showing
+up here. Then read the caller identity (never a variable):
+
+```bash
+railway logs --service notify-api --since 30m \
+  | grep -o '\[system-auth\] [A-Z]* [^ ]* caller=[^ ]*' | sort | uniq -c
+```
+
+Expect one line per flow, each `caller=system:auth`, `caller=system:refund-api`,
+`caller=system:estimai-api` or `caller=system:inventory-api`, and **no
+`caller=shared-token` line since push 2 finished deploying**. If the CLI has no `--since`,
+use the dashboard log view of `notify-api` filtered by `caller=` and the trigger time.
+Any `caller=shared-token` line means a caller is still on the shared token: find it, fix it,
+and repeat this step. Do not go on.
+
+### Step 6 - Manual B: delete the shared token (point of no return)
+
+**This is the step after which the shared token stops working.** It is undone by putting the
+`NOTIFY_INTERNAL_TOKEN` variable back on `notify-api` and redeploying it (paste the value from
+1Password, item `AIScream / OperAI - NOTIFY_INTERNAL_TOKEN`; never echo it), because
+`notify-api` still contains the legacy path until push 3.
+
+1. Delete `NOTIFY_INTERNAL_TOKEN` from **`notify-api` only**. Redeploy it.
+2. Re-run the step 5 triggers and the same `grep`: every flow still logs `caller=system:*`.
+   A flow that stopped delivering is a caller you missed; restore the variable and go back to step 5.
+3. Run `./infra/check.sh`: the no-credential 401 checks still pass.
+4. Only then delete `NOTIFY_INTERNAL_TOKEN` from `auth`, `refund-api` and `estimai-api`.
+5. Verify, by name: `for s in auth notify-api refund-api estimai-api inventory-api; do railway variables --service "$s" --json | jq -r 'keys[]' | grep -x NOTIFY_INTERNAL_TOKEN && echo "$s still has it"; done`
+   prints nothing.
+
+### Step 7 - Push 3: the legacy code and the variable leave the repository
+
+`notify-api` drops the legacy path and the variable; `env-doctor` moves
+`NOTIFY_INTERNAL_TOKEN` to `FORBIDDEN_VARS` for all five services; `infra/deploy.sh`,
+`infra/check.sh`, `shell/playwright.config.ts` and the docs lose every mention (T14-T17). It
+must not reach `main` before Manual B is done. Afterwards `X-Internal-Token` with any value is
+a 401 on both routes. Retire the 1Password item once nothing reads it.
+
+### Rollback by step
+
+| Failure at | Action |
+|---|---|
+| Step 1 | Redeploy the previous deployment of `auth` and `notify-api`. No variable changed yet. |
+| Step 3 | Remove the new `SERVICE_CLIENT_*` variables and restore the previous `SERVICE_CLIENTS` value (the single `inventory-api` entry). Callers were never using them. |
+| Step 4 | Redeploy the previous deployment of the failing caller; the shared token still works at this point. |
+| Step 6 | Put `NOTIFY_INTERNAL_TOKEN` back on `notify-api` (pasted from 1Password, never echoed) and redeploy it; the legacy path is still in the code. After 6.4, rolling a caller back below push 2 also needs the variable restored on that caller, because those builds still require it at startup. |
+| Step 7 | Revert the push. Push 3 only removes code and docs; if it also has to undo step 6, restore the variable first. |
+
+---
+
 ## Rollback & operations
 
 - **Rollback:** each Railway service and each Vercel project keeps its own

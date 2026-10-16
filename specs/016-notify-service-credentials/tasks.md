@@ -66,7 +66,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     id, mismatched secret, missing required scope and extra scope, and
     `mise run env:doctor -- --env production --dir tools/env-doctor/templates/production`
     reports no failure.
-- [ ] T5: the rollout is written in the infrastructure notes; changeset for push 1 — refs: AC-6.1, AC-6.2 — deps: T2, T3
+- [x] T5: the rollout is written in the infrastructure notes; changeset for push 1 — refs: AC-6.1, AC-6.2 — deps: T2, T3
   - touch: `infra/README.md`, `.changeset/*`
   - The six steps of plan § Architecture 5 with exact variable names, the `SERVICE_CLIENTS`
     shape after Manual A, the check that `auth`'s push-1 deployment is live before Manual A
