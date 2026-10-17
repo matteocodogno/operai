@@ -47,8 +47,9 @@ let localJWKS: (
 ) => Promise<CryptoKey>;
 
 const TEST_KID = "operai-auth-rs256-v1";
-const TEST_ISSUER = "http://localhost:3001";
-const TEST_AUDIENCE = "operai-suite-test";
+// `let`: re-pointed at the cached env below (see the import of ../lib/env).
+let TEST_ISSUER = "http://localhost:3001";
+let TEST_AUDIENCE = "operai-suite-test";
 
 // ─── Module mock: redirect createRemoteJWKSet to our local key set ────────────
 
@@ -94,7 +95,23 @@ afterAll(() => {
   }
 });
 
-const { jwtMiddleware } = await import("./jwt.middleware");
+// Two process-wide hazards when this runs in one `bun test` process with the
+// other files (visible under --randomize / a different file order):
+//  1. the notifications route tests `mock.module("@/auth/jwt.middleware")`; a
+//     plain import here would then hand back THEIR fake middleware, which
+//     verifies with their keypair, so every valid token here gets 401. The
+//     query string gives this file its own, real instance of the module.
+//  2. `../lib/env` (below) is parsed once per process, see there.
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { jwtMiddleware } = (await import("./jwt.middleware?real")) as typeof import("./jwt.middleware");
+
+// `../lib/env` parses the environment ONCE per process. When another file (run
+// earlier in the same `bun test` process, e.g. under --randomize) already loaded
+// it, it holds that run's AUTH_ISSUER/AUTH_AUDIENCE, not the overrides above, so
+// sign with whatever the middleware will actually enforce.
+const { env: enforced } = await import("../lib/env");
+TEST_ISSUER = enforced.AUTH_ISSUER;
+TEST_AUDIENCE = enforced.AUTH_AUDIENCE;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

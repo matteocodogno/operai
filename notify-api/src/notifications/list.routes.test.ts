@@ -15,7 +15,7 @@
  * the literal documented contract for GET /notifications.
  */
 
-import { describe, it, expect, beforeAll, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, afterEach, mock } from "bun:test";
 import { Hono } from "hono";
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from "jose";
 
@@ -92,11 +92,26 @@ mock.module("@/auth/jwt.middleware", () => {
 import { config as dotenvConfig } from "dotenv";
 dotenvConfig({ path: new URL("../../.env", import.meta.url).pathname, override: true });
 
-process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
-process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
-process.env["AUTH_ISSUER"] = TEST_ISSUER;
-process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
-process.env["NODE_ENV"] = "test";
+// Shared process-level env: restore in afterAll so these overrides do not leak
+// into later files of a single-process `bun test` (T20, specs/016).
+const ENV_OVERRIDES: Record<string, string> = {
+  ALLOWED_ORIGINS: "http://localhost:5173",
+  AUTH_JWKS_URL: "http://localhost:3001/auth/jwks",
+  AUTH_ISSUER: TEST_ISSUER,
+  AUTH_AUDIENCE: TEST_AUDIENCE,
+  NODE_ENV: "test",
+};
+const savedEnv: Record<string, string | undefined> = {};
+for (const [key, value] of Object.entries(ENV_OVERRIDES)) {
+  savedEnv[key] = process.env[key];
+  process.env[key] = value;
+}
+afterAll(() => {
+  for (const [key, previous] of Object.entries(savedEnv)) {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
 
 const { PrismaClient } = await import("@/lib/generated/prisma/client");
 const { PrismaPg } = await import("@prisma/adapter-pg");
