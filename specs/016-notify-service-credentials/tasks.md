@@ -75,7 +75,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     `@operai/notify-api`, minor.
   - done when: the README section lists the steps in order and its confirmation step reads
     no variable value; `mise run changeset:check` passes.
-- [ ] T20: a single-process `bun test` in `notify-api` is a reliable gate again — refs: none directly; it makes the `bun test` checks of T3 and T14 meaningful (added on the user's request, 2026-10-17) — deps: T3
+- [x] T20: a single-process `bun test` in `notify-api` is a reliable gate again — refs: none directly; it makes the `bun test` checks of T3 and T14 meaningful (added on the user's request, 2026-10-17) — deps: T3
   - touch: `notify-api/src/auth/jwt.middleware.test.ts`, `notify-api/src/**/*.test.ts`
   - `jwt.middleware.test.ts:64` sets `process.env.DATABASE_URL` (and the other variables
     beside it) at module level and never restores them, so every later DB-backed file in

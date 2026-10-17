@@ -15,7 +15,15 @@
  *       does not accidentally reject legitimate tokens)
  */
 
-import { describe, it, expect, beforeAll, mock, spyOn } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  mock,
+  spyOn,
+} from "bun:test";
 import { Hono } from "hono";
 import {
   generateKeyPair,
@@ -61,12 +69,30 @@ mock.module("jose", () => {
 
 // ─── Set env vars BEFORE importing the middleware ────────────────────────────
 
-process.env["DATABASE_URL"] = "postgresql://test:test@localhost:5435/test";
-process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
-process.env["AUTH_JWKS_URL"] = "http://localhost:3001/auth/jwks";
-process.env["AUTH_ISSUER"] = TEST_ISSUER;
-process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
-process.env["NODE_ENV"] = "test";
+// bun runs every file in ONE process and process-level env is shared, so these
+// overrides must be undone in afterAll. Left in place, the fake DATABASE_URL is
+// what every later DB-backed file captures (and builds its Prisma client with),
+// and they all fail with P1000 (T20, specs/016).
+const ENV_OVERRIDES: Record<string, string> = {
+  DATABASE_URL: "postgresql://test:test@localhost:5435/test",
+  ALLOWED_ORIGINS: "http://localhost:5173",
+  AUTH_JWKS_URL: "http://localhost:3001/auth/jwks",
+  AUTH_ISSUER: TEST_ISSUER,
+  AUTH_AUDIENCE: TEST_AUDIENCE,
+  NODE_ENV: "test",
+};
+const savedEnv: Record<string, string | undefined> = {};
+for (const [key, value] of Object.entries(ENV_OVERRIDES)) {
+  savedEnv[key] = process.env[key];
+  process.env[key] = value;
+}
+
+afterAll(() => {
+  for (const [key, previous] of Object.entries(savedEnv)) {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
 
 const { jwtMiddleware } = await import("./jwt.middleware");
 
