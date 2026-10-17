@@ -1,7 +1,7 @@
 ---
 spec: 016
 generated: 2026-10-13
-synced: 2026-10-13
+synced: 2026-10-17
 ---
 
 # Tasks: Every notify caller authenticates as itself; the shared token is retired
@@ -11,7 +11,7 @@ Derived from `plan.md` (approved 2026-10-13). Tier: `production`. No UI, no migr
 The task order follows the plan's three pushes (plan § Architecture 5). Every push to
 `main` redeploys all services, so **what is on `main` at each push matters**:
 
-- **Push 1** = T1–T5 only. Callers are unchanged.
+- **Push 1** = T1–T5 and T20 (a test-only fix). Callers are unchanged.
 - **Push 2** = T7–T12. Their code may be written earlier on a branch, but must not reach
   `main` before T6 is done.
 - **Push 3** = T14–T17. Must not reach `main` before T13 is done.
@@ -75,7 +75,16 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     `@operai/notify-api`, minor.
   - done when: the README section lists the steps in order and its confirmation step reads
     no variable value; `mise run changeset:check` passes.
-- [ ] T6: **(person)** push 1, then Manual A — refs: AC-4.4 — deps: T1, T2, T3, T4, T5
+- [ ] T20: a single-process `bun test` in `notify-api` is a reliable gate again — refs: none directly; it makes the `bun test` checks of T3 and T14 meaningful (added on the user's request, 2026-10-17) — deps: T3
+  - touch: `notify-api/src/auth/jwt.middleware.test.ts`, `notify-api/src/**/*.test.ts`
+  - `jwt.middleware.test.ts:64` sets `process.env.DATABASE_URL` (and the other variables
+    beside it) at module level and never restores them, so every later DB-backed file in
+    the same process fails with P1000. Restore the previous values in `afterAll`, or stop
+    overriding `DATABASE_URL`; apply the same fix to any other test file found doing it.
+    Test-only change: no `src/` code outside `*.test.ts`, no changeset.
+  - done when: `cd notify-api && direnv exec . bun test` (one process, all files) reports
+    0 fail, and each changed file still passes on its own.
+- [ ] T6: **(person)** push 1, then Manual A — refs: AC-4.4 — deps: T1, T2, T3, T4, T5, T20
   - touch: none (production settings)
   - Push; wait for `auth` and `notify-api` to be live; create one secret per new client;
     add `refund-api` and `estimai-api` to `auth`'s `SERVICE_CLIENTS`; set
