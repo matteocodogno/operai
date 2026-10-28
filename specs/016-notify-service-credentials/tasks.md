@@ -84,7 +84,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     Test-only change: no `src/` code outside `*.test.ts`, no changeset.
   - done when: `cd notify-api && direnv exec . bun test` (one process, all files) reports
     0 fail, and each changed file still passes on its own.
-- [ ] T6: **(person)** push 1, then Manual A — refs: AC-4.4 — deps: T1, T2, T3, T4, T5, T20
+- [x] T6: **(person)** push 1, then Manual A — refs: AC-4.4 — deps: T1, T2, T3, T4, T5, T20
   - touch: none (production settings)
   - Push; wait for `auth` and `notify-api` to be live; create one secret per new client;
     add `refund-api` and `estimai-api` to `auth`'s `SERVICE_CLIENTS`; set
