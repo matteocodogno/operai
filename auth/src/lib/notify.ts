@@ -4,11 +4,18 @@
  * ADR candidate, risk R2/R5).
  *
  * Calls notify-api's internal, NON-user-JWT endpoint `POST /system/emails`,
- * authenticated by a shared service token (`X-Internal-Token`) — deliberately
- * NOT the calling admin's session JWT (plan.md: forwarding the admin's token
- * would conflate the admin's identity with a system send and let any
- * admin-scoped token reach the email surface). `NOTIFY_INTERNAL_URL`/
- * `NOTIFY_INTERNAL_TOKEN` are validated at startup (`lib/env.ts`).
+ * authenticated as `auth` itself: `Authorization: Bearer <service JWT>`,
+ * `sub="system:auth"`, `scope="emails.send"`, minted in process (specs/016 T7,
+ * ADR-0048, ADR-0049). It is deliberately NOT the calling admin's session JWT
+ * (plan.md: forwarding the admin's token would conflate the admin's identity
+ * with a system send and let any admin-scoped token reach the email surface),
+ * and no longer the shared `X-Internal-Token`. `NOTIFY_INTERNAL_URL` is
+ * validated at startup (`lib/env.ts`).
+ *
+ * The token provider is injected by `src/index.ts` (`setNotifyTokenProvider`)
+ * rather than imported: it needs the better-auth signer, and importing
+ * `auth.config` here would make this module behave differently depending on
+ * which test files `mock.module` it (see serviceToken.routes.ts).
  *
  * Failure handling (plan.md "Resend + i18n + failure"): this function NEVER
  * throws for a delivery failure — a non-2xx response, an unexpected body
@@ -22,6 +29,18 @@
  */
 
 import { env } from "./env";
+
+/** The slice of `SelfServiceTokenProvider` this client needs. */
+export interface NotifyTokenProvider {
+  getToken(): Promise<string>;
+}
+
+let tokenProvider: NotifyTokenProvider | undefined;
+
+/** Wired once at startup in `src/index.ts`; tests replace it. */
+export function setNotifyTokenProvider(provider: NotifyTokenProvider | undefined): void {
+  tokenProvider = provider;
+}
 
 export type InvitationEmailTemplate = "invitation" | "invitation_resend";
 
@@ -45,7 +64,7 @@ interface SystemEmailsResponseBody {
 }
 
 /**
- * `POST {NOTIFY_INTERNAL_URL}/system/emails` with `X-Internal-Token`. See
+ * `POST {NOTIFY_INTERNAL_URL}/system/emails` with `Authorization: Bearer`. See
  * plan.md's contract:
  *   request:  { to, template, data: { inviteUrl, inviterName, expiresAt } }
  *   response: { deliveryId, status } | { status: "failed", error }
@@ -54,11 +73,15 @@ export async function sendInvitationEmail(
   input: SendInvitationEmailInput,
 ): Promise<SendInvitationEmailResult> {
   try {
+    if (!tokenProvider) throw new Error("notify token provider is not configured");
+    // A mint failure lands in the catch below: reported as `failed`, never thrown,
+    // so the invitation (already created) is not rolled back (AC-4.3).
+    const token = await tokenProvider.getToken();
     const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/emails`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         to: input.to,

@@ -16,7 +16,7 @@
  *   becomes the token's `sub` as `system:<clientId>`, so it must be impossible
  *   to confuse with a user id.
  * - secret: >= 32 chars (mirrors `inventory-api`'s own `SERVICE_CLIENT_SECRET`
- *   minimum and `NOTIFY_INTERNAL_TOKEN`'s) and <= 256.
+ *   minimum) and <= 256.
  * - client id `auth` is reserved (specs/016): `auth` mints its own credential
  *   in process as `system:auth`, so no configured client may claim that `sub`.
  * - scope: space-delimited, each entry from {@link KNOWN_SERVICE_SCOPES}. A

@@ -45,23 +45,12 @@ const envSchema = z.object({
     .email("BOOTSTRAP_ADMIN_EMAIL must be a valid email address")
     .optional(),
   // ─── notify-api internal email channel (specs/006-user-invitations, T6) ───
-  // The base URL + shared service token used to call notify-api's internal,
-  // NON-user-JWT endpoint `POST /system/emails` (plan.md "auth → notify-api
-  // internal email send"; ADR candidate — service-to-service trust). Header
-  // `X-Internal-Token: <NOTIFY_INTERNAL_TOKEN>`. NOT a per-user JWT/JWKS path
-  // — a leaked token lets an attacker send arbitrary email over wellD's
-  // Resend domain (plan.md risk R2), so this MUST stay internal-network-only
-  // in production (Railway private networking).
+  // The base URL of notify-api's internal, NON-user-JWT endpoint
+  // `POST /system/emails`. Authentication is `auth`'s own service JWT, minted
+  // in process (specs/016, ADR-0048/0049) — there is no shared token any more.
   NOTIFY_INTERNAL_URL: z
     .string()
     .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
-  // Security-review fix #6 (specs/006-user-invitations, A05): mirror
-  // notify-api's own `.min(32)` on this SAME shared secret — a weak/truncated
-  // value must fail closed on either side of the trust boundary, not just
-  // the receiving service's.
-  NOTIFY_INTERNAL_TOKEN: z
-    .string()
-    .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
   // ─── App-access eligibility check (specs/013-estimate-sharing, T1/T2) ───────
   // `POST /authz/app-access-check` is a decision endpoint directly callable by
   // any end user holding their own JWT (plan.md "The catch, and how it is

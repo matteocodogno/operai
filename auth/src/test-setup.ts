@@ -35,10 +35,9 @@ setIfAbsent("ALLOWED_ORIGINS", "http://localhost:5173,https://app.estimai.io");
 // env schema; must be an absolute URL.
 setIfAbsent("UI_HOME_URL", "http://localhost:5173");
 // notify-api internal email channel (specs/006-user-invitations, T6) — a
-// placeholder URL/token so the env schema validates in tests that never
+// placeholder URL so the env schema validates in tests that never
 // actually call notify-api (routes tests mock `../lib/notify` instead).
 setIfAbsent("NOTIFY_INTERNAL_URL", "http://localhost:3099");
-setIfAbsent("NOTIFY_INTERNAL_TOKEN", "test-notify-internal-token");
 // SERVICE_AUDIENCE (specs/016): required; a config identifier, not a secret,
 // and it must differ from AUTH_AUDIENCE.
 setIfAbsent("SERVICE_AUDIENCE", "operai-service-test");

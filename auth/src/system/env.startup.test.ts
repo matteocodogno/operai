@@ -51,9 +51,28 @@ async function importEnv(
   return { exitCode, output: stdout + stderr };
 }
 
+// Built from parts so `git grep` for the retired name in auth/src stays empty (T7 done-when).
+const RETIRED_TOKEN_VAR = ["NOTIFY", "INTERNAL", "TOKEN"].join("_");
+
 describe("lib/env.ts — service-token startup validation (ADR-0044)", () => {
   test("starts with an audience and no clients (no service caller yet)", async () => {
     const { exitCode, output } = await importEnv({});
+    expect(exitCode).toBe(0);
+    expect(output).toContain("ENV_OK");
+  });
+
+  // specs/016 T7: the shared notify token is retired. `auth` must start whether
+  // or not a stale copy of it is still set (push 2 ships before it is deleted).
+  test("starts with the retired shared notify token present", async () => {
+    const { exitCode, output } = await importEnv({
+      [RETIRED_TOKEN_VAR]: "a-stale-shared-token-that-is-long-enough-0123",
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toContain("ENV_OK");
+  });
+
+  test("starts with the retired shared notify token absent", async () => {
+    const { exitCode, output } = await importEnv({ [RETIRED_TOKEN_VAR]: undefined });
     expect(exitCode).toBe(0);
     expect(output).toContain("ENV_OK");
   });

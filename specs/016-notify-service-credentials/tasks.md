@@ -95,7 +95,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
 
 ## Push 2 — the callers switch
 
-- [ ] T7: `auth` sends invitation emails with its own credential — refs: AC-1.4, AC-4.3, AC-5.2 — deps: T2, T6
+- [x] T7: `auth` sends invitation emails with its own credential — refs: AC-1.4, AC-4.3, AC-5.2 — deps: T2, T6
   - touch: `auth/src/lib/notify*`, `auth/src/lib/env.ts`, `auth/src/system/env.startup.test.ts`,
     `auth/src/index.ts`, `auth/src/test-setup.ts`,
     `auth/src/invitations/*`, `auth/src/system/serviceClients.ts` (comment only)
