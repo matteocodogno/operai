@@ -1,12 +1,13 @@
 /**
  * Unit tests for the notify-api client (T5, specs/013-estimate-sharing,
- * ADR-0017/ADR-0040). Mirrors `refund-api/src/lib/notify.test.ts`'s
- * strategy — global `fetch` is mocked directly since this module IS the
- * network boundary under test.
+ * ADR-0017; credential switched to the service JWT by T10, specs/016,
+ * ADR-0044/0049). The network and the token provider are injected stubs —
+ * this module IS the boundary under test.
  *
- * Done-when coverage (tasks.md T5): "notify.ts swallows and logs a
- * rejection" — both a non-2xx response and a network failure must resolve
- * (never reject) for both notification kinds.
+ * Coverage: the push carries `Authorization: Bearer <provider token>` and no
+ * `X-Internal-Token` (AC-1.3); a refused/failed token or push resolves and
+ * never rejects (AC-4.3); one 401 invalidates the cached token and retries
+ * once.
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -18,13 +19,13 @@ process.env["AUTH_ISSUER"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["NODE_ENV"] = "test";
-process.env["NOTIFY_INTERNAL_TOKEN"] =
-  "test-notify-internal-token-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["SERVICE_CLIENT_ID"] = "estimai-api";
+process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
 
-const { notifyCollaboratorGranted, notifyCollaboratorRemoved } = await import(
-  "./notify"
-);
+const { createCollaboratorNotifier, notifyCollaboratorGranted: defaultGranted } = await import("./notify");
+const { ServiceTokenError } = await import("./serviceToken");
+type ServiceTokenProvider = import("./serviceToken").ServiceTokenProvider;
 
 const originalFetch = globalThis.fetch;
 const originalConsoleError = console.error;
@@ -34,32 +35,61 @@ afterEach(() => {
   console.error = originalConsoleError;
 });
 
+const TOKEN = "service-jwt-from-provider";
+
+interface Harness {
+  readonly notifier: ReturnType<typeof createCollaboratorNotifier>;
+  readonly calls: { url: string; init: RequestInit }[];
+  readonly invalidated: string[];
+  respond(fn: (call: number) => Promise<Response> | Response): void;
+}
+
+function harness(tokens?: Partial<ServiceTokenProvider>): Harness {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const invalidated: string[] = [];
+  let impl: (call: number) => Promise<Response> | Response = () =>
+    new Response(JSON.stringify({ id: "n1" }), { status: 201 });
+  const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+    calls.push({ url: String(url), init: init! });
+    return impl(calls.length);
+  }) as unknown as typeof fetch;
+  const provider: ServiceTokenProvider = {
+    getToken: tokens?.getToken ?? (async () => TOKEN),
+    invalidate: tokens?.invalidate ?? ((t) => void invalidated.push(t)),
+  };
+  return {
+    notifier: createCollaboratorNotifier({ baseUrl: "http://localhost:8081", tokens: provider, fetchImpl }),
+    calls,
+    invalidated,
+    respond: (fn) => void (impl = fn),
+  };
+}
+
+const granted = {
+  recipientId: "user-2",
+  estimateId: "est-1",
+  estimateName: "Q3 platform migration",
+  accessLevel: "editor",
+} as const;
+const removed = { recipientId: "user-2", estimateId: "est-1", estimateName: "Q3 platform migration" } as const;
+
 describe("notifyCollaboratorGranted", () => {
-  it("POSTs to /system/notifications with the internal token, originApp:'estimai', and the estimate link", async () => {
-    let capturedUrl: string | undefined;
-    let capturedInit: RequestInit | undefined;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      capturedUrl = url;
-      capturedInit = init;
-      return new Response(JSON.stringify({ id: "n1" }), { status: 201 });
-    }) as unknown as typeof fetch;
+  it("POSTs to /system/notifications with Authorization: Bearer <provider token> and NO X-Internal-Token (AC-1.3), originApp:'estimai', and the estimate link", async () => {
+    const h = harness();
 
-    await notifyCollaboratorGranted({
-      recipientId: "user-2",
-      estimateId: "est-1",
-      estimateName: "Q3 platform migration",
-      accessLevel: "editor",
-    });
+    await h.notifier.notifyCollaboratorGranted(granted);
 
-    expect(capturedUrl).toBe("http://localhost:8081/system/notifications");
-    expect(capturedInit?.method).toBe("POST");
-    const headers = capturedInit?.headers as Record<string, string>;
-    expect(headers["X-Internal-Token"]).toBe(
-      "test-notify-internal-token-at-least-32-characters",
-    );
+    expect(h.calls.length).toBe(1);
+    const { url, init } = h.calls[0]!;
+    expect(url).toBe("http://localhost:8081/system/notifications");
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Bearer ${TOKEN}`);
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain("x-internal-token");
     expect(headers["Content-Type"]).toBe("application/json");
+    expect(init.redirect).toBe("error");
 
-    const body = JSON.parse(capturedInit?.body as string) as {
+    const body = JSON.parse(init.body as string) as {
       recipientId: string;
       originApp: string;
       severity: string;
@@ -76,73 +106,104 @@ describe("notifyCollaboratorGranted", () => {
   });
 
   it("truncates an over-120-char estimate name before it leaves estimai-api", async () => {
-    let capturedBody: string | undefined;
-    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
-      capturedBody = init?.body as string;
-      return new Response(JSON.stringify({ id: "n1" }), { status: 201 });
-    }) as unknown as typeof fetch;
+    const h = harness();
 
-    const longName = "A".repeat(200);
-    await notifyCollaboratorGranted({
-      recipientId: "user-2",
-      estimateId: "est-1",
-      estimateName: longName,
-      accessLevel: "viewer",
-    });
+    await h.notifier.notifyCollaboratorGranted({ ...granted, estimateName: "A".repeat(200), accessLevel: "viewer" });
 
-    const body = JSON.parse(capturedBody!) as { body: string };
+    const body = JSON.parse(h.calls[0]!.init.body as string) as { body: string };
     // 120 chars of the name plus the ellipsis marker, never the full 200.
     expect(body.body).not.toContain("A".repeat(121));
     expect(body.body).toContain("A".repeat(120));
   });
 
-  it("never throws on a non-2xx response", async () => {
-    console.error = () => {};
-    globalThis.fetch = (async () =>
-      new Response("nope", { status: 500 })) as unknown as typeof fetch;
+  it("never throws on a non-2xx response, and logs the status only", async () => {
+    const logged: string[] = [];
+    console.error = (...args: unknown[]) => void logged.push(args.join(" "));
+    const h = harness();
+    h.respond(() => new Response("secret-looking-body", { status: 500 }));
 
-    await expect(
-      notifyCollaboratorGranted({
-        recipientId: "user-2",
-        estimateId: "est-1",
-        estimateName: "Estimate",
-        accessLevel: "viewer",
-      }),
-    ).resolves.toBeUndefined();
+    await expect(h.notifier.notifyCollaboratorGranted(granted)).resolves.toBeUndefined();
+
+    expect(logged.join("\n")).toContain("HTTP 500");
+    expect(logged.join("\n")).not.toContain("secret-looking-body");
+    expect(logged.join("\n")).not.toContain(TOKEN);
   });
 
   it("never throws on a network failure", async () => {
     console.error = () => {};
-    globalThis.fetch = (async () => {
+    const h = harness();
+    h.respond(() => {
       throw new Error("connection refused");
+    });
+
+    await expect(h.notifier.notifyCollaboratorGranted(granted)).resolves.toBeUndefined();
+  });
+
+  // AC-4.3 — auth unreachable / refusing to issue a credential.
+  it("resolves, logs, and sends nothing when the token provider rejects (auth down, 401, 429)", async () => {
+    const logged: string[] = [];
+    console.error = (...args: unknown[]) => void logged.push(args.join(" "));
+    const h = harness({
+      getToken: async () => {
+        throw new ServiceTokenError("auth /system/service-token responded with HTTP 429");
+      },
+    });
+
+    await expect(h.notifier.notifyCollaboratorGranted(granted)).resolves.toBeUndefined();
+
+    expect(h.calls.length).toBe(0);
+    expect(logged.join("\n")).toContain("HTTP 429");
+    expect(logged.join("\n")).toContain("NOT rolled back");
+  });
+
+  it("on one 401 drops the cached token and retries once with a fresh one", async () => {
+    let issued = 0;
+    const h = harness({ getToken: async () => `tok-${++issued}` });
+    h.respond((call) => new Response("", { status: call === 1 ? 401 : 201 }));
+
+    await h.notifier.notifyCollaboratorGranted(granted);
+
+    expect(h.calls.length).toBe(2);
+    expect((h.calls[0]!.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok-1");
+    expect((h.calls[1]!.init.headers as Record<string, string>)["Authorization"]).toBe("Bearer tok-2");
+    expect(h.invalidated).toEqual(["tok-1"]);
+  });
+
+  it("does not loop on a second 401: logs and stops after two requests", async () => {
+    console.error = () => {};
+    const h = harness();
+    h.respond(() => new Response("", { status: 401 }));
+
+    await expect(h.notifier.notifyCollaboratorGranted(granted)).resolves.toBeUndefined();
+
+    expect(h.calls.length).toBe(2);
+  });
+
+  it("the default instance (provider disabled under NODE_ENV=test) resolves without making any request", async () => {
+    console.error = () => {};
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests++;
+      return new Response("", { status: 201 });
     }) as unknown as typeof fetch;
 
-    await expect(
-      notifyCollaboratorGranted({
-        recipientId: "user-2",
-        estimateId: "est-1",
-        estimateName: "Estimate",
-        accessLevel: "editor",
-      }),
-    ).resolves.toBeUndefined();
+    await expect(defaultGranted(granted)).resolves.toBeUndefined();
+
+    expect(requests).toBe(0);
   });
 });
 
 describe("notifyCollaboratorRemoved", () => {
-  it("POSTs with originApp:'estimai' and NO link (the target would 404 on the estimate)", async () => {
-    let capturedBody: string | undefined;
-    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
-      capturedBody = init?.body as string;
-      return new Response(JSON.stringify({ id: "n1" }), { status: 201 });
-    }) as unknown as typeof fetch;
+  it("POSTs with a Bearer credential, originApp:'estimai' and NO link (the target would 404 on the estimate)", async () => {
+    const h = harness();
 
-    await notifyCollaboratorRemoved({
-      recipientId: "user-2",
-      estimateId: "est-1",
-      estimateName: "Q3 platform migration",
-    });
+    await h.notifier.notifyCollaboratorRemoved(removed);
 
-    const body = JSON.parse(capturedBody!) as {
+    const { init } = h.calls[0]!;
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Bearer ${TOKEN}`);
+    expect(Object.keys(headers).map((k) => k.toLowerCase())).not.toContain("x-internal-token");
+    const body = JSON.parse(init.body as string) as {
       recipientId: string;
       originApp: string;
       severity: string;
@@ -158,30 +219,32 @@ describe("notifyCollaboratorRemoved", () => {
 
   it("never throws on a non-2xx response", async () => {
     console.error = () => {};
-    globalThis.fetch = (async () =>
-      new Response("nope", { status: 500 })) as unknown as typeof fetch;
+    const h = harness();
+    h.respond(() => new Response("nope", { status: 500 }));
 
-    await expect(
-      notifyCollaboratorRemoved({
-        recipientId: "user-2",
-        estimateId: "est-1",
-        estimateName: "Estimate",
-      }),
-    ).resolves.toBeUndefined();
+    await expect(h.notifier.notifyCollaboratorRemoved(removed)).resolves.toBeUndefined();
   });
 
   it("never throws on a network failure", async () => {
     console.error = () => {};
-    globalThis.fetch = (async () => {
+    const h = harness();
+    h.respond(() => {
       throw new Error("connection refused");
-    }) as unknown as typeof fetch;
+    });
 
-    await expect(
-      notifyCollaboratorRemoved({
-        recipientId: "user-2",
-        estimateId: "est-1",
-        estimateName: "Estimate",
-      }),
-    ).resolves.toBeUndefined();
+    await expect(h.notifier.notifyCollaboratorRemoved(removed)).resolves.toBeUndefined();
+  });
+
+  it("resolves and sends nothing when the token provider rejects", async () => {
+    console.error = () => {};
+    const h = harness({
+      getToken: async () => {
+        throw new ServiceTokenError("auth /system/service-token responded with HTTP 503");
+      },
+    });
+
+    await expect(h.notifier.notifyCollaboratorRemoved(removed)).resolves.toBeUndefined();
+
+    expect(h.calls.length).toBe(0);
   });
 });

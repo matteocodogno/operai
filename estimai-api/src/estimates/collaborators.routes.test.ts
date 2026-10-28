@@ -69,8 +69,9 @@ process.env["AUTH_ISSUER"] ??= "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] ??= "operai-suite";
 process.env["NODE_ENV"] ??= "test";
 process.env["AUTH_BASE_URL"] ??= "http://localhost:3001";
-process.env["NOTIFY_INTERNAL_TOKEN"] ??=
-  "test-notify-internal-token-at-least-32-characters";
+process.env["SERVICE_CLIENT_ID"] ??= "estimai-api";
+process.env["SERVICE_CLIENT_SECRET"] ??=
+  "test-service-client-secret-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] ??= "http://localhost:8081";
 
 // ─── Restore the REAL DATABASE_URL from .env (jwt.middleware.test.ts may
@@ -1499,6 +1500,35 @@ describe("AC-7.1 — POST grant → notifyCollaboratorGranted called exactly onc
       estimateName: "AC-7.1 fixture estimate",
       accessLevel: "editor",
     });
+  });
+
+  // specs/016 AC-4.3 — the REAL notify client, whose service-credential
+  // provider is disabled under NODE_ENV=test and so rejects (the stand-in for
+  // auth down / refusing to issue a token): the grant is still committed and
+  // the response is still 201.
+  it("with the real notify client and a credential that cannot be obtained, the grant still commits and returns 201 (AC-4.3)", async () => {
+    const owner = freshOwner();
+    ownerIdsToClean.add(owner.id);
+    const estimate = await seedEstimate(owner.id, "AC-4.3 fixture estimate");
+    const targetId = "t10-ac43-target";
+    const targetEmail = "ac43-target@example.com";
+
+    const app = buildApp({
+      checkAppAccess: eligibleFor(targetEmail, targetId),
+      notifyCollaboratorGranted: notifyModule.notifyCollaboratorGranted,
+    });
+
+    const res = await app.request(`/estimates/${estimate.id}/collaborators`, {
+      method: "POST",
+      headers: bearerHeader(owner.id, owner.email),
+      body: JSON.stringify({ email: targetEmail, accessLevel: "viewer" }),
+    });
+
+    expect(res.status).toBe(201);
+    const grant = await testDb.estimateCollaborator.findUnique({
+      where: { estimateId_userId: { estimateId: estimate.id, userId: targetId } },
+    });
+    expect(grant).not.toBeNull();
   });
 
   it("is NOT called on the generic-rejection path (AC-1.2) — notify only ever fires after a successful INSERT", async () => {

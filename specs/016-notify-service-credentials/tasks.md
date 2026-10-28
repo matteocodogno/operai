@@ -124,7 +124,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     `failed`, and the decision / batch route tests show the business action committed;
     the service starts with `NOTIFY_INTERNAL_TOKEN` present and absent; `git grep
     NOTIFY_INTERNAL_TOKEN -- refund-api/src` is empty.
-- [ ] T10: `estimai-api` pushes with its own credential — refs: AC-1.3, AC-4.2, AC-4.3, AC-5.2 — deps: T6
+- [x] T10: `estimai-api` pushes with its own credential — refs: AC-1.3, AC-4.2, AC-4.3, AC-5.2 — deps: T6
   - touch: `estimai-api/src/lib/serviceToken*`, `estimai-api/src/lib/notify.ts`,
     `estimai-api/src/lib/notify.test.ts`, `estimai-api/src/lib/env.ts`,
     `estimai-api/src/lib/env.test.ts`, `estimai-api/src/index.ts`, `estimai-api/src/**/*.test.ts`

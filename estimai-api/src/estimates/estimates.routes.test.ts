@@ -50,7 +50,11 @@ import {
 // both run; only the outbound HTTP transport is faked. `__resetIdentityCacheForTests`
 // clears `resolveIdentities`' in-process 60s identity cache between tests so
 // one test's stubbed identity can never leak into the next via a cache hit.
-import { __resetIdentityCacheForTests } from "@/lib/authClient";
+//
+// Imported DYNAMICALLY, after the environment block below (specs/016 T10):
+// `@/lib/authClient` loads `./env`, which validates at module-eval time, and a
+// static import is hoisted above every `process.env` assignment in this file —
+// so it would validate the developer's shell instead of this file's fixtures.
 
 // ─── Fixture keypair & module mock ───────────────────────────────────────────
 
@@ -165,9 +169,12 @@ process.env["NODE_ENV"] = "test";
 // Required since T5 (specs/013-estimate-sharing) — env.ts now validates these
 // at module-eval time regardless of whether this test file exercises them.
 process.env["AUTH_BASE_URL"] ??= "http://localhost:3001";
-process.env["NOTIFY_INTERNAL_TOKEN"] ??=
-  "test-notify-internal-token-at-least-32-characters";
+process.env["SERVICE_CLIENT_ID"] ??= "estimai-api";
+process.env["SERVICE_CLIENT_SECRET"] ??=
+  "test-service-client-secret-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] ??= "http://localhost:8081";
+
+const { __resetIdentityCacheForTests } = await import("@/lib/authClient");
 
 // Create a dedicated Prisma client with the real DATABASE_URL loaded from .env
 // BEFORE importing anything that touches @/lib/db.

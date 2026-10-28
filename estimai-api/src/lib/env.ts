@@ -38,15 +38,18 @@ const envSchema = z.object({
   // dereferenceable as an HTTP base), mirrors refund-api's AUTH_BASE_URL.
   AUTH_BASE_URL: z.string().url("AUTH_BASE_URL must be a valid URL"),
 
-  // ─── notify-api internal call (T5/T10, ADR-0017, ADR-0040) ────────────────
+  // ─── notify-api internal call (T5, ADR-0017; credential: specs/016, ADR-0049) ──
   //
-  // estimai-api becomes the THIRD holder of this shared secret (plan.md
-  // "Notifications (US-7) — the third internal caller"). MUST be
-  // byte-for-byte identical to auth's / refund-api's / notify-api's own
-  // NOTIFY_INTERNAL_TOKEN. Best-effort — src/lib/notify.ts NEVER throws.
-  NOTIFY_INTERNAL_TOKEN: z
+  // estimai-api authenticates to notify-api's `/system/notifications` as itself:
+  // it exchanges this client-credentials pair at `auth POST /system/service-token`
+  // for a scoped 5-minute service JWT (`notifications.push`). Required, so a
+  // deployment without them exits at startup naming the variable instead of
+  // failing on its first push. `SERVICE_CLIENT_ID` must match an entry of
+  // auth's SERVICE_CLIENTS. Best-effort — src/lib/notify.ts NEVER throws.
+  SERVICE_CLIENT_ID: z.string().min(1, "SERVICE_CLIENT_ID is required"),
+  SERVICE_CLIENT_SECRET: z
     .string()
-    .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
+    .min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters"),
   // notify-api's base URL for this internal call. Production (Railway):
   // notify-api's PRIVATE-networking address, NOT its public domain — this
   // call should never traverse the public internet (mirrors refund-api's
