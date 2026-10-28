@@ -86,6 +86,8 @@ process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
 process.env["NODE_ENV"] = "test";
 process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["SERVICE_CLIENT_ID"] = "refund-api";
+process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
 
 // Dynamic import ensures the mock.module() registration and process.env
 // assignments above are fully in effect before jwt.middleware.ts is evaluated.

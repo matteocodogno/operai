@@ -32,6 +32,8 @@ const REQUIRED_ENV_WITHOUT_ACCOUNTING_DISTRIBUTION_EMAIL: Record<string, string>
   REFUND_S3_SECRET_ACCESS_KEY: "test-secret",
   NOTIFY_INTERNAL_TOKEN: "test-notify-internal-token-at-least-32-characters",
   NOTIFY_INTERNAL_URL: "http://localhost:8081",
+  SERVICE_CLIENT_ID: "refund-api",
+  SERVICE_CLIENT_SECRET: "test-service-client-secret-at-least-32-characters",
   REFUND_APP_BASE_URL: "http://localhost:5173",
   NODE_ENV: "test",
 };
@@ -56,5 +58,50 @@ describe("env.ts (AC-4.1, specs/011-refund-settings)", () => {
     const stderr = await new Response(proc.stderr).text();
     expect(exitCode).toBe(0);
     expect(stderr).not.toContain("REFUND_ACCOUNTING_DISTRIBUTION_EMAIL");
+  });
+
+  // AC-4.2 (specs/016-notify-service-credentials) — each service-credential
+  // setting is required, and a deployment without one exits naming it.
+  async function boot(overrides: Record<string, string | undefined>) {
+    const env: Record<string, string> = {
+      ...REQUIRED_ENV_WITHOUT_ACCOUNTING_DISTRIBUTION_EMAIL,
+      PATH: process.env["PATH"] ?? "",
+    };
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === undefined) delete env[k];
+      else env[k] = v;
+    }
+    const proc = Bun.spawn({
+      cmd: ["bun", "-e", "import('./src/lib/env.ts').then(() => process.exit(0))"],
+      cwd: import.meta.dir + "/../..",
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const exitCode = await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
+    return { exitCode, stderr };
+  }
+
+  for (const name of ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"]) {
+    it(`exits naming ${name} when it is missing`, async () => {
+      const { exitCode, stderr } = await boot({ [name]: undefined });
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain(name);
+    });
+  }
+
+  it("exits naming SERVICE_CLIENT_ID when it is empty", async () => {
+    const { exitCode, stderr } = await boot({ SERVICE_CLIENT_ID: "" });
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("SERVICE_CLIENT_ID");
+  });
+
+  it("exits naming SERVICE_CLIENT_SECRET when it is shorter than 32 characters, without echoing it", async () => {
+    const short = "too-short-secret";
+    const { exitCode, stderr } = await boot({ SERVICE_CLIENT_SECRET: short });
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("SERVICE_CLIENT_SECRET");
+    expect(stderr).not.toContain(short);
   });
 });

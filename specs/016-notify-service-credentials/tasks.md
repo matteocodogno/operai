@@ -104,7 +104,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     provider failure returns `{ status: "failed" }` and the invitation is still created;
     `auth` starts with `NOTIFY_INTERNAL_TOKEN` present and absent; `git grep
     NOTIFY_INTERNAL_TOKEN -- auth/src` is empty.
-- [ ] T8: `refund-api` can obtain a service credential and requires its client settings — refs: AC-4.2 — deps: T6
+- [x] T8: `refund-api` can obtain a service credential and requires its client settings — refs: AC-4.2 — deps: T6
   - touch: `refund-api/src/lib/serviceToken*`, `refund-api/src/lib/env.ts`,
     `refund-api/src/lib/env.test.ts`, `refund-api/src/**/*.test.ts`
   - Copy of `inventory-api/src/lib/serviceToken.ts` and its test; `SERVICE_CLIENT_ID` and

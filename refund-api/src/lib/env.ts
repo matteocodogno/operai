@@ -96,6 +96,15 @@ const envSchema = z
     NOTIFY_INTERNAL_URL: z
       .string()
       .url("NOTIFY_INTERNAL_URL must be a valid absolute URL"),
+    // ─── Service credential (specs/016, AC-4.2, ADR-0044/0049) ───────────────
+    // Client-credentials pair for auth `POST /system/service-token`: the
+    // scoped 5-minute JWT refund-api will present to notify-api. Required, so
+    // a deployment without them exits at startup naming the variable.
+    // `SERVICE_CLIENT_ID` must match an entry of auth's SERVICE_CLIENTS.
+    SERVICE_CLIENT_ID: z.string().min(1, "SERVICE_CLIENT_ID is required"),
+    SERVICE_CLIENT_SECRET: z
+      .string()
+      .min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters"),
     // ─── Monthly batch processing (T14, specs/008-refund-monthly-processing,
     // ADR-0021) ────────────────────────────────────────────────────────────
     // specs/011-refund-settings (AC-4.1, D7, ADR-0029) — the accounting/

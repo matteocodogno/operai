@@ -19,6 +19,8 @@ process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
 process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+process.env["SERVICE_CLIENT_ID"] = "refund-api";
+process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
 process.env["REFUND_S3_ENDPOINT"] =
   "https://test.s3.railway-eu-amsterdam.example.com";
 process.env["REFUND_S3_REGION"] = "auto";
