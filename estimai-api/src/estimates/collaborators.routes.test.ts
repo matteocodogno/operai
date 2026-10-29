@@ -67,27 +67,39 @@ process.env["ALLOWED_ORIGINS"] ??= "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] ??= "http://localhost:3001/auth/jwks";
 process.env["AUTH_ISSUER"] ??= "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] ??= "operai-suite";
-process.env["NODE_ENV"] ??= "test";
+process.env["NODE_ENV"] = "test"; // not ??=: a shell may export NODE_ENV=development and the first file to load @/lib/env freezes it for the process (T22, specs/016)
 process.env["AUTH_BASE_URL"] ??= "http://localhost:3001";
 process.env["SERVICE_CLIENT_ID"] ??= "estimai-api";
 process.env["SERVICE_CLIENT_SECRET"] ??=
   "test-service-client-secret-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] ??= "http://localhost:8081";
 
-// ─── Restore the REAL DATABASE_URL from .env (jwt.middleware.test.ts may
-// have already clobbered it for the rest of the process) and build a fresh
-// Prisma client pointed at it — same technique as estimates.routes.test.ts. ──
+// ─── Resolve the REAL DATABASE_URL from the dotenv file (a file that ran earlier
+// may have clobbered it for the rest of the process) and build a fresh Prisma
+// client pointed at it — same technique as estimates.routes.test.ts. ─────────
+//
+// The file is PARSED, never loaded into process.env: `dotenv.config({override})`
+// rewrote EVERY variable the file defines (NODE_ENV, AUTH_*, …) for the rest of
+// the `bun test` process, which flipped later files' `@/lib/env` and provider
+// behaviour (T22, specs/016). Only DATABASE_URL is taken from it.
 
-import { config as dotenvConfig } from "dotenv";
-dotenvConfig({
-  path: new URL("../../.env", import.meta.url).pathname,
-  override: true,
-});
+import { parse as dotenvParse } from "dotenv";
+import { readFileSync } from "node:fs";
+
+const dotenvDatabaseUrl = (() => {
+  try {
+    return dotenvParse(
+      readFileSync(new URL("../../.env", import.meta.url).pathname),
+    )["DATABASE_URL"];
+  } catch {
+    return undefined; // no dotenv file (CI): fall back to the process env
+  }
+})();
 
 const { PrismaClient } = await import("@/lib/generated/prisma/client");
 const { PrismaPg } = await import("@prisma/adapter-pg");
 
-const realDatabaseUrl = process.env["DATABASE_URL"]!;
+const realDatabaseUrl = dotenvDatabaseUrl ?? process.env["DATABASE_URL"]!;
 const freshAdapter = new PrismaPg({ connectionString: realDatabaseUrl });
 const freshDb = new PrismaClient({ adapter: freshAdapter });
 

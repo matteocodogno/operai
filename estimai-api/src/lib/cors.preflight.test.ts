@@ -35,7 +35,7 @@ process.env["ALLOWED_ORIGINS"] ??= "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] ??= "http://localhost:3001/auth/jwks";
 process.env["AUTH_ISSUER"] ??= "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] ??= "operai-suite";
-process.env["NODE_ENV"] ??= "test";
+process.env["NODE_ENV"] = "test"; // not ??=: a shell may export NODE_ENV=development and the first file to load @/lib/env freezes it for the process (T22, specs/016)
 process.env["AUTH_BASE_URL"] ??= "http://localhost:3001";
 process.env["SERVICE_CLIENT_ID"] ??= "estimai-api";
 process.env["SERVICE_CLIENT_SECRET"] ??=

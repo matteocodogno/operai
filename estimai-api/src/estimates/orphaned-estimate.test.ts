@@ -96,7 +96,8 @@ import { describe, it, expect, beforeAll, afterAll, spyOn, mock } from "bun:test
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { createMiddleware } from "hono/factory";
 import { Effect } from "effect";
-import { config as dotenvConfig } from "dotenv";
+import { parse as dotenvParse } from "dotenv";
+import { readFileSync } from "node:fs";
 import { ForbiddenError } from "@/lib/errors";
 import type { JwtVariables } from "@/auth/jwt.middleware";
 
@@ -109,21 +110,30 @@ process.env["ALLOWED_ORIGINS"] ??= "http://localhost:5173";
 process.env["AUTH_JWKS_URL"] ??= "http://localhost:3001/auth/jwks";
 process.env["AUTH_ISSUER"] ??= "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] ??= "operai-suite";
-process.env["NODE_ENV"] ??= "test";
+process.env["NODE_ENV"] = "test"; // not ??=: a shell may export NODE_ENV=development and the first file to load @/lib/env freezes it for the process (T22, specs/016)
 process.env["AUTH_BASE_URL"] ??= "http://localhost:3001";
 process.env["SERVICE_CLIENT_ID"] ??= "estimai-api";
 process.env["SERVICE_CLIENT_SECRET"] ??=
   "test-service-client-secret-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] ??= "http://localhost:8081";
 
-// Restore the REAL DATABASE_URL from estimai-api/.env (an earlier-run test
-// file may have clobbered it) BEFORE building estimai-api's fresh client.
-dotenvConfig({
-  path: new URL("../../.env", import.meta.url).pathname,
-  override: true,
-});
+// Resolve the REAL DATABASE_URL from the dotenv file (an earlier-run test file
+// may have clobbered it) BEFORE building estimai-api's fresh client. The file
+// is PARSED, never loaded into process.env: `dotenv.config({override})` rewrote
+// every variable it defines (NODE_ENV, AUTH_*, …) for the rest of the
+// `bun test` process (T22, specs/016).
+const dotenvDatabaseUrl = (() => {
+  try {
+    return dotenvParse(
+      readFileSync(new URL("../../.env", import.meta.url).pathname),
+    )["DATABASE_URL"];
+  } catch {
+    return undefined; // no dotenv file (CI): fall back to the process env
+  }
+})();
 
-const ESTIMAI_DATABASE_URL = process.env["DATABASE_URL"]!;
+const ESTIMAI_DATABASE_URL =
+  dotenvDatabaseUrl ?? process.env["DATABASE_URL"]!;
 
 // `auth`'s own DATABASE_URL is a SEPARATE database (operai_auth) on the same
 // Postgres instance — never read from estimai-api's own .env. AUTH_DATABASE_URL
@@ -241,7 +251,14 @@ const { getEstimateById, updateEstimate, deleteEstimate } = await import(
 const { resolveAccess } = await import("./access");
 // `estimatesRouter` — imported ONLY for its STATIC `.routes` table (the
 // route-table assertion). Never dispatched — see file header.
-const { estimatesRouter } = await import("./estimates.routes");
+//
+// `?real` gives this file its OWN instance of the module. The singleton binds
+// `@/auth/jwt.middleware` at first import; sharing the process-wide instance
+// would let this file's load order decide which jwtMiddleware (real, or the fake
+// estimates.routes.test.ts mocks) the other file's requests hit, and with this
+// file first every request there got 401 (T22, specs/016).
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { estimatesRouter } = (await import("./estimates.routes?real")) as typeof import("./estimates.routes");
 
 // ─── estimai-api: isolated collaborator-management router (mirrors
 // collaborators.routes.test.ts's own test-only auth middleware verbatim —

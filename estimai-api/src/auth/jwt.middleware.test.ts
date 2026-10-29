@@ -9,7 +9,15 @@
  * that records whether it ran (to prove the guard stopped the request).
  */
 
-import { describe, it, expect, beforeAll, mock, spyOn } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  mock,
+  spyOn,
+} from "bun:test";
 import { Hono } from "hono";
 import {
   generateKeyPair,
@@ -33,8 +41,9 @@ let localJWKS: (
 ) => Promise<CryptoKey>;
 
 const TEST_KID = "operai-auth-rs256-v1";
-const TEST_ISSUER = "http://localhost:3001";
-const TEST_AUDIENCE = "operai-suite";
+// `let`: re-pointed at the cached env below (see the import of @/lib/env).
+let TEST_ISSUER = "http://localhost:3001";
+let TEST_AUDIENCE = "operai-suite";
 
 // ─── Module mock: redirect createRemoteJWKSet to our local key set ────────────
 //
@@ -65,23 +74,60 @@ mock.module("jose", () => {
 // env.ts runs at module-eval time and calls process.exit(1) on missing vars.
 // These assignments run synchronously before the dynamic import below.
 
-process.env["DATABASE_URL"] = "postgresql://test:test@localhost:5435/test";
-process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
-process.env["AUTH_JWKS_URL"] = "http://localhost:3001/.well-known/jwks.json";
-process.env["AUTH_ISSUER"] = TEST_ISSUER;
-process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
-process.env["NODE_ENV"] = "test";
-// Required since T5 (specs/013-estimate-sharing) — env.ts now validates these
-// at module-eval time regardless of whether this test file exercises them.
-process.env["AUTH_BASE_URL"] = "http://localhost:3001";
-process.env["SERVICE_CLIENT_ID"] = "estimai-api";
-process.env["SERVICE_CLIENT_SECRET"] =
-  "test-service-client-secret-at-least-32-characters";
-process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
+// bun runs every file in ONE process and process-level env is shared, so these
+// overrides are undone in afterAll (T22, specs/016). DATABASE_URL is the
+// exception and is never overridden: this file never connects to a database, so
+// a placeholder is set only when nothing real is present. An afterAll restore is
+// NOT enough for it, because bun already evaluates the next file's static imports
+// (a Prisma client built from DATABASE_URL, e.g. @/lib/db) before this file's
+// afterAll runs; a fake value left in place there fails every DB-backed file with
+// P1000.
+const ENV_OVERRIDES: Record<string, string> = {
+  ALLOWED_ORIGINS: "http://localhost:5173",
+  AUTH_JWKS_URL: "http://localhost:3001/.well-known/jwks.json",
+  AUTH_ISSUER: TEST_ISSUER,
+  AUTH_AUDIENCE: TEST_AUDIENCE,
+  NODE_ENV: "test",
+  // Required since T5 (specs/013-estimate-sharing) — env.ts now validates these
+  // at module-eval time regardless of whether this test file exercises them.
+  AUTH_BASE_URL: "http://localhost:3001",
+  SERVICE_CLIENT_ID: "estimai-api",
+  SERVICE_CLIENT_SECRET: "test-service-client-secret-at-least-32-characters",
+  NOTIFY_INTERNAL_URL: "http://localhost:8081",
+};
+const savedEnv: Record<string, string | undefined> = {};
+for (const key of ["DATABASE_URL", ...Object.keys(ENV_OVERRIDES)]) {
+  savedEnv[key] = process.env[key];
+}
+process.env["DATABASE_URL"] ??= "postgresql://test:test@localhost:5435/test";
+for (const [key, value] of Object.entries(ENV_OVERRIDES)) {
+  process.env[key] = value;
+}
+
+afterAll(() => {
+  for (const [key, previous] of Object.entries(savedEnv)) {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
 
 // Dynamic import ensures the mock.module() registration and process.env
 // assignments above are fully in effect before jwt.middleware.ts is evaluated.
-const { jwtMiddleware } = await import("./jwt.middleware");
+//
+// Two process-wide hazards when this runs in one `bun test` process with the
+// other files (T22, specs/016):
+//  1. other files `mock.module("@/auth/jwt.middleware", …)` with their own fake
+//     middleware; a plain import here would hand back THAT, which verifies with a
+//     different keypair, so every valid token here gets 401. The query string
+//     gives this file its own, real module instance.
+//  2. `@/lib/env` is parsed once per process; if another file loaded it first it
+//     holds that run's AUTH_ISSUER/AUTH_AUDIENCE, not the overrides above.
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { jwtMiddleware } = (await import("./jwt.middleware?real")) as typeof import("./jwt.middleware");
+
+const { env: enforced } = await import("@/lib/env");
+TEST_ISSUER = enforced.AUTH_ISSUER;
+TEST_AUDIENCE = enforced.AUTH_AUDIENCE;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

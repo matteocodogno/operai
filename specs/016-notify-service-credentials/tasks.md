@@ -123,7 +123,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
   - done when: `cd refund-api && direnv exec . bun test` (one process, all files) reports
     0 fail, also with `--randomize` on at least three seeds, and each changed file still
     passes on its own.
-- [ ] T22: a single-process `bun test` in `estimai-api` is a reliable gate again — refs: none directly; it makes T10's `bun test` check meaningful (added on the user's request, 2026-10-29) — deps: T10
+- [x] T22: a single-process `bun test` in `estimai-api` is a reliable gate again — refs: none directly; it makes T10's `bun test` check meaningful (added on the user's request, 2026-10-29) — deps: T10
   - touch: `estimai-api/src/**/*.test.ts`
   - About 132 failures in the full single-process run (on `main` too) come from
     `mock.module("@/lib/db")` and similar process-wide mocks leaking from one file into the

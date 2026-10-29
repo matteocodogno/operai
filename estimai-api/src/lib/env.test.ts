@@ -31,8 +31,12 @@ const BASE_REQUIRED_ENV: Record<string, string> = {
 
 async function spawnEnvImport(env: Record<string, string>) {
   const proc = Bun.spawn({
+    // `--no-env-file`: Bun otherwise auto-loads the dotenv file in the cwd into the
+    // child; on a configured machine it defines SERVICE_CLIENT_* and turns every
+    // "variable is missing" case into a successful boot (T22, specs/016).
     cmd: [
       "bun",
+      "--no-env-file",
       "-e",
       `import(${JSON.stringify(import.meta.dir + "/env.ts")}).then(() => process.exit(0)).catch(() => process.exit(1))`,
     ],
