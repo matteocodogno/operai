@@ -160,18 +160,29 @@ let notifyBatchCompiledOutcome: { status: "sent" | "failed"; deliveryId: string 
 // @ts-expect-error -- the query suffix is a runtime-only cache-buster
 const realNotifyEmail = (await import("../lib/notifyEmail?real")) as typeof import("../lib/notifyEmail");
 
+// When set, the stand-in below hands the call to the REAL client with this
+// transport instead of returning the scripted outcome — so a route test can
+// drive the real credential / provider-rejection path (T9, specs/016, AC-4.3).
+let realClientTransport: import("../lib/notifyPost").NotifyTransport | null = null;
+
 mock.module("../lib/notifyEmail", () => ({
   ...realNotifyEmail,
   notifyBatchCompiled: async (input: {
     batchId: string;
     recipientEmail: string;
     requestCount: number;
+    batchReference: string;
+    cutoff: Date;
+    generatedAt: Date;
   }) => {
     notifyBatchCompiledCalls.push({
       batchId: input.batchId,
       recipientEmail: input.recipientEmail,
       requestCount: input.requestCount,
     });
+    if (realClientTransport) {
+      return realNotifyEmail.notifyBatchCompiled(input, realClientTransport);
+    }
     return notifyBatchCompiledOutcome;
   },
 }));
@@ -290,6 +301,7 @@ beforeEach(async () => {
   mintPresignedGetShouldFail = false;
   notifyBatchCompiledCalls = [];
   notifyBatchCompiledOutcome = { status: "sent", deliveryId: "delivery-1" };
+  realClientTransport = null;
 });
 
 afterAll(async () => {
@@ -1106,6 +1118,79 @@ describe("POST /batches — compilation email auto-send", () => {
     const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
     expect(batchRow.status).toBe("compiled"); // batch itself is unaffected
     expect(batchRow.emailStatus).toBe("failed");
+  });
+
+  for (const [label, message] of [
+    ["auth down", "service-token request failed (TimeoutError)"],
+    ["auth refused (401)", "auth /system/service-token responded with HTTP 401"],
+    ["auth rate-limited (429)", "auth /system/service-token responded with HTTP 429"],
+  ] as const) {
+    it(`(specs/016 AC-4.3) the REAL email client with the credential unobtainable (${label}): compile still 201, batch compiled, emailStatus:failed, nothing sent`, async () => {
+      await seedAccountingDistributionEmail("accounting@welld.ch");
+      await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+      const { ServiceTokenError } = await import("../lib/serviceToken");
+      let fetchCalls = 0;
+      realClientTransport = {
+        tokens: {
+          async getToken() {
+            throw new ServiceTokenError(message);
+          },
+          invalidate() {},
+        },
+        fetchImpl: (async () => {
+          fetchCalls += 1;
+          return new Response("{}", { status: 200 });
+        }) as unknown as typeof fetch,
+      };
+
+      harness.setResolve(async () => accountingPerms(null));
+      const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+      const res = await batchesRouter.request("/batches", {
+        method: "POST",
+        headers: authHeaders(token),
+        body: JSON.stringify({ cutoff: CUTOFF }),
+      });
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { id: string; email: { status: string | null } };
+      expect(body.email.status).toBe("failed");
+      expect(fetchCalls).toBe(0);
+
+      const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
+      expect(batchRow.status).toBe("compiled");
+      expect(batchRow.emailStatus).toBe("failed");
+    });
+  }
+
+  it("(specs/016 AC-1.2) the REAL email client sends the service Bearer and no X-Internal-Token from the compile route", async () => {
+    await seedAccountingDistributionEmail("accounting@welld.ch");
+    await createApprovedRequest([{ entity: "welld_it" }], { ownerUserId: "emp-a" });
+    const seen: Array<{ url: string; authorization: string | null; internalToken: string | null }> = [];
+    realClientTransport = {
+      tokens: { async getToken() { return "stub-service-jwt"; }, invalidate() {} },
+      fetchImpl: (async (url: string, init?: RequestInit) => {
+        const h = new Headers(init?.headers);
+        seen.push({ url, authorization: h.get("authorization"), internalToken: h.get("x-internal-token") });
+        return new Response(JSON.stringify({ deliveryId: "d-real", status: "sent" }), { status: 200 });
+      }) as unknown as typeof fetch,
+    };
+
+    harness.setResolve(async () => accountingPerms(null));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+    const res = await batchesRouter.request("/batches", {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ cutoff: CUTOFF }),
+    });
+    expect(res.status).toBe(201);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.url).toEndWith("/system/emails");
+    expect(seen[0]!.authorization).toBe("Bearer stub-service-jwt");
+    expect(seen[0]!.internalToken).toBeNull();
+    const body = (await res.json()) as { id: string };
+    const batchRow = await db.refundBatch.findUniqueOrThrow({ where: { id: body.id } });
+    expect(batchRow.emailStatus).toBe("sent");
+    expect(batchRow.emailDeliveryId).toBe("d-real");
   });
 
   it("(AC-3.2) the emailStatus is visible on a subsequent GET /batches/:id", async () => {
