@@ -80,9 +80,10 @@ const envSchema = z
     // ─── notify-api internal call (T13, specs/007-refund-service, ADR-0017) ──
     // refund-api → notify-api `POST /system/notifications` and `/system/emails`
     // (best-effort, never rolls back the business action — src/lib/notify.ts,
-    // notifyEmail.ts). Authenticated with refund-api's own service JWT (see
-    // (specs/016, ADR-0049) and is no longer read — a deployment that still
-    // sets it starts normally and the value is ignored.
+    // notifyEmail.ts). Authenticated with refund-api's own service JWT
+    // (SERVICE_CLIENT_* below, specs/016, ADR-0049). The retired shared token
+    // is no longer read — a deployment that still sets it starts normally and
+    // the value is ignored.
     // notify-api's base URL for this internal call. Local: notify-api's own
     // dev port (8081). Production (Railway): notify-api's PRIVATE-networking
     // address, NOT its public domain — this call should never traverse the
