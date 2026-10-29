@@ -78,17 +78,11 @@ const envSchema = z
           .filter((h) => h.length > 0),
       ),
     // ─── notify-api internal call (T13, specs/007-refund-service, ADR-0017) ──
-    // refund-api → notify-api `POST /system/notifications` after an
-    // approve/reject decision commits (best-effort, never rolls back the
-    // decision — src/lib/notify.ts). Same shared-secret pattern as
-    // auth → notify-api's existing `/system/emails` call (ADR-0011);
-    // NOT a user JWT/JWKS path. MUST be byte-for-byte identical to
-    // notify-api's own NOTIFY_INTERNAL_TOKEN (and auth's) — three services
-    // now share this one secret (ADR-0017's "second internal caller" trigger,
-    // knowingly not escalated to a scoped service JWT yet).
-    NOTIFY_INTERNAL_TOKEN: z
-      .string()
-      .min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters"),
+    // refund-api → notify-api `POST /system/notifications` and `/system/emails`
+    // (best-effort, never rolls back the business action — src/lib/notify.ts,
+    // notifyEmail.ts). Authenticated with refund-api's own service JWT (see
+    // (specs/016, ADR-0049) and is no longer read — a deployment that still
+    // sets it starts normally and the value is ignored.
     // notify-api's base URL for this internal call. Local: notify-api's own
     // dev port (8081). Production (Railway): notify-api's PRIVATE-networking
     // address, NOT its public domain — this call should never traverse the

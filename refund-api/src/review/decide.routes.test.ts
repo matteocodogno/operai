@@ -39,7 +39,6 @@ process.env["AUTH_ISSUER"] = "http://localhost:3001";
 process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
-process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
 process.env["SERVICE_CLIENT_ID"] = "refund-api";
 process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
@@ -48,6 +47,8 @@ const harness = setupTestAuth();
 await harness.init();
 
 const { decideRouter } = await import("./decide.routes");
+const { notifyTransport } = await import("../lib/notifyPost");
+const { ServiceTokenError } = await import("../lib/serviceToken");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 
@@ -81,7 +82,29 @@ let emailCalls: EmailCall[] = [];
 let emailShouldFail = false;
 const originalFetch = globalThis.fetch;
 
+// ─── The service credential (specs/016, T9) ─────────────────────────────────
+// The wired provider is disabled under NODE_ENV=test, which would keep every
+// push off the (faked) wire. Swap in a stub for this file and put it back in
+// afterAll; `tokenFailure` makes it reject like auth down / 401 / 429.
+let tokenFailure: Error | null = null;
+const realTokens = notifyTransport.tokens;
+notifyTransport.tokens = {
+  async getToken() {
+    if (tokenFailure) throw tokenFailure;
+    return "stub-service-jwt";
+  },
+  invalidate() {},
+};
+let notifyAuthHeaders: Array<{ authorization: string | null; internalToken: string | null }> = [];
+
 globalThis.fetch = (async (url: string, init?: RequestInit) => {
+  if (typeof url === "string" && url.includes("/system/")) {
+    const h = new Headers(init?.headers);
+    notifyAuthHeaders.push({
+      authorization: h.get("authorization"),
+      internalToken: h.get("x-internal-token"),
+    });
+  }
   if (typeof url === "string" && url.includes("/system/emails")) {
     const body = JSON.parse((init?.body as string) ?? "{}") as EmailCall;
     emailCalls.push({ to: body.to, template: body.template, data: body.data });
@@ -248,10 +271,13 @@ beforeEach(async () => {
   notifyShouldFail = false;
   emailCalls = [];
   emailShouldFail = false;
+  tokenFailure = null;
+  notifyAuthHeaders = [];
 });
 
 afterAll(async () => {
   await truncateRefundTables();
+  notifyTransport.tokens = realTokens;
   globalThis.fetch = originalFetch;
 });
 
@@ -555,6 +581,50 @@ describe("POST /review/requests/:id/approve", () => {
     const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
     expect(row.status).toBe("approved");
   });
+
+  it("(specs/016 AC-1.1/1.2) the push and the email both authenticate with the service Bearer and never send X-Internal-Token", async () => {
+    const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+    harness.setResolve(async () => accountingPerms("welld_it"));
+    const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+    const res = await decideRouter.request(`/review/requests/${request.id}/approve`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+
+    expect(notifyAuthHeaders).toHaveLength(2); // one push, one email
+    for (const h of notifyAuthHeaders) {
+      expect(h.authorization).toBe("Bearer stub-service-jwt");
+      expect(h.internalToken).toBeNull();
+    }
+  });
+
+  for (const [label, message] of [
+    ["auth down", "service-token request failed (TimeoutError)"],
+    ["auth refused (401)", "auth /system/service-token responded with HTTP 401"],
+    ["auth rate-limited (429)", "auth /system/service-token responded with HTTP 429"],
+  ] as const) {
+    for (const outcome of ["approve", "reject"] as const) {
+      it(`(specs/016 AC-4.3) ${outcome} with the credential unobtainable (${label}) commits and returns 200, sending nothing`, async () => {
+        const { request } = await createSubmittedRequest([{ entity: "welld_it" }]);
+        tokenFailure = new ServiceTokenError(message);
+        harness.setResolve(async () => accountingPerms("welld_it"));
+        const token = await harness.signToken({ sub: "acct-1", email: "acct1@x.com" });
+
+        const res = await decideRouter.request(`/review/requests/${request.id}/${outcome}`, {
+          method: "POST",
+          headers: authHeaders(token),
+          body: outcome === "reject" ? JSON.stringify({ motivation: "not eligible" }) : undefined,
+        });
+        expect(res.status).toBe(200);
+
+        const row = await db.refundRequest.findUniqueOrThrow({ where: { id: request.id } });
+        expect(row.status).toBe(outcome === "approve" ? "approved" : "rejected");
+        expect(notifyAuthHeaders).toHaveLength(0);
+      });
+    }
+  }
 
   it("(AC-7.6) approve is whole-request — an out-of-scope line is still finalized", async () => {
     const { request, lines } = await createSubmittedRequest([

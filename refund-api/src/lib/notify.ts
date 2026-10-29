@@ -10,8 +10,10 @@
  * `mock.module()` this single function rather than mocking global `fetch`.
  *
  * Calls the internal, NON-user-JWT `POST /system/notifications` (ADR-0017),
- * authenticated by the shared `NOTIFY_INTERNAL_TOKEN` (`X-Internal-Token`) —
- * deliberately NOT the deciding accounting user's own Bearer JWT, because the
+ * authenticated as refund-api itself with the scoped 5-minute service JWT
+ * from `serviceToken.ts` (`Authorization: Bearer`, scope `notifications.push`;
+ * specs/016, ADR-0044/0049, which retired the shared internal token; notify-api
+ * binds `system:refund-api` to `originApp: "refund"`) — deliberately NOT the deciding accounting user's own Bearer JWT, because the
  * recipient is a DIFFERENT user (the request's owner), not the caller.
  *
  * BEST-EFFORT (ADR-0017 §4): this function NEVER throws. A non-2xx response
@@ -32,7 +34,7 @@
  * employee opens the already access-controlled `GET /requests/:id`.
  */
 
-import { env } from "./env";
+import { postToNotify, type NotifyTransport } from "./notifyPost";
 
 export type DecisionOutcome = "approved" | "rejected";
 
@@ -59,31 +61,32 @@ const COPY: Record<
 };
 
 /**
- * `POST {NOTIFY_INTERNAL_URL}/system/notifications` with `X-Internal-Token`.
+ * `POST {NOTIFY_INTERNAL_URL}/system/notifications` with the service Bearer.
  * See plan.md's contract:
  *   { recipientId, originApp:"refund", severity, title, body, link:{href} }
  *
- * Never throws — every failure path is caught and logged internally.
+ * Never throws — every failure path (token unobtainable, network, non-2xx) is
+ * caught and logged internally. `transport` is for tests.
  */
-export async function notifyDecision(input: NotifyDecisionInput): Promise<void> {
+export async function notifyDecision(
+  input: NotifyDecisionInput,
+  transport?: NotifyTransport,
+): Promise<void> {
   const copy = COPY[input.outcome];
 
   try {
-    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/notifications`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
-      },
-      body: JSON.stringify({
+    const response = await postToNotify(
+      "/system/notifications",
+      {
         recipientId: input.recipientId,
         originApp: "refund",
         severity: copy.severity,
         title: copy.title,
         body: copy.body,
         link: { href: `/refund/requests/${input.requestId}` },
-      }),
-    });
+      },
+      transport,
+    );
 
     if (!response.ok) {
       console.error(
@@ -108,7 +111,7 @@ export interface NotifyPaidInput {
 }
 
 /**
- * `POST {NOTIFY_INTERNAL_URL}/system/notifications` — one call per included
+ * `POST {NOTIFY_INTERNAL_URL}/system/notifications` (service Bearer) — one call per included
  * request's OWNER (`recipientId`), fired after mark-paid's transaction has
  * committed (batches/decide.routes.ts). Copy is deliberately generic — "no
  * amount/other-employee detail in the push" (plan.md § Email, ADR-0017
@@ -118,23 +121,23 @@ export interface NotifyPaidInput {
  * Never throws — every failure path is caught and logged internally (same
  * contract as `notifyDecision` above).
  */
-export async function notifyPaid(input: NotifyPaidInput): Promise<void> {
+export async function notifyPaid(
+  input: NotifyPaidInput,
+  transport?: NotifyTransport,
+): Promise<void> {
   try {
-    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/notifications`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
-      },
-      body: JSON.stringify({
+    const response = await postToNotify(
+      "/system/notifications",
+      {
         recipientId: input.recipientId,
         originApp: "refund",
         severity: "success",
         title: "Refund paid",
         body: "Your refund request has been paid.",
         link: { href: `/refund/requests/${input.requestId}` },
-      }),
-    });
+      },
+      transport,
+    );
 
     if (!response.ok) {
       console.error(

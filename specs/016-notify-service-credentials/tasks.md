@@ -135,7 +135,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
   - done when: `cd estimai-api && direnv exec . bun test` (one process, all files) reports
     0 fail apart from that environment fault, also with `--randomize` on at least three
     seeds, and each changed file still passes on its own.
-- [ ] T9: `refund-api` pushes and emails with its own credential — refs: AC-1.1, AC-1.2, AC-4.3, AC-5.2 — deps: T8, T21
+- [x] T9: `refund-api` pushes and emails with its own credential — refs: AC-1.1, AC-1.2, AC-4.3, AC-5.2 — deps: T8, T21
   - touch: `refund-api/src/lib/notify.ts`, `refund-api/src/lib/notify.test.ts`,
     `refund-api/src/lib/notifyEmail*`, `refund-api/src/lib/env.ts`, `refund-api/src/lib/env.test.ts`,
     `refund-api/src/index.ts`, `refund-api/src/**/*.test.ts`

@@ -89,7 +89,6 @@ const ENV_OVERRIDES: Record<string, string> = {
   AUTH_ISSUER: TEST_ISSUER,
   AUTH_AUDIENCE: TEST_AUDIENCE,
   NODE_ENV: "test",
-  NOTIFY_INTERNAL_TOKEN: "test-notify-internal-token-at-least-32-characters",
   NOTIFY_INTERNAL_URL: "http://localhost:8081",
   SERVICE_CLIENT_ID: "refund-api",
   SERVICE_CLIENT_SECRET: "test-service-client-secret-at-least-32-characters",

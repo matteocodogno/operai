@@ -7,11 +7,10 @@
  * `mock.module()` this one function rather than mocking global `fetch`.
  *
  * Calls the internal, NON-user-JWT `POST /system/emails` (ADR-0011),
- * authenticated by the shared `NOTIFY_INTERNAL_TOKEN` (`X-Internal-Token`) —
- * refund-api becomes a SECOND caller of this endpoint (alongside `auth`'s
- * invitation emails), using the SAME shared secret (ADR-0011's named
- * "second internal caller" escalation trigger, knowingly not acted on yet —
- * see ADR-0017's identical posture for `/system/notifications`).
+ * authenticated as refund-api itself with the scoped 5-minute service JWT from
+ * `serviceToken.ts` (`Authorization: Bearer`, scope `emails.send`; specs/016,
+ * ADR-0049, which retired the shared `X-Internal-Token` this file used to
+ * send). Both call sites here go through `notifyPost.ts`.
  *
  * The email body carries an APP DEEP LINK (`batchUrl`), never a presigned
  * S3 URL and never a PDF attachment (AC-3.5, ADR-0021 — "no standalone,
@@ -31,6 +30,7 @@
  */
 
 import { env } from "./env";
+import { postToNotify, type NotifyTransport } from "./notifyPost";
 
 export interface NotifyBatchCompiledInput {
   readonly batchId: string;
@@ -49,7 +49,7 @@ export interface NotifyBatchCompiledOutcome {
 }
 
 /**
- * `POST {NOTIFY_INTERNAL_URL}/system/emails` with `X-Internal-Token`. See
+ * `POST {NOTIFY_INTERNAL_URL}/system/emails` with the service Bearer. See
  * plan.md's contract:
  *   { to, template:"refund_batch_compiled",
  *     data: { batchUrl, batchReference, cutoff, generatedAt, requestCount } }
@@ -59,15 +59,12 @@ export interface NotifyBatchCompiledOutcome {
  */
 export async function notifyBatchCompiled(
   input: NotifyBatchCompiledInput,
+  transport?: NotifyTransport,
 ): Promise<NotifyBatchCompiledOutcome> {
   try {
-    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/emails`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
-      },
-      body: JSON.stringify({
+    const response = await postToNotify(
+      "/system/emails",
+      {
         to: input.recipientEmail,
         template: "refund_batch_compiled",
         data: {
@@ -77,8 +74,9 @@ export async function notifyBatchCompiled(
           generatedAt: input.generatedAt.toISOString(),
           requestCount: input.requestCount,
         },
-      }),
-    });
+      },
+      transport,
+    );
 
     if (!response.ok) {
       console.error(
@@ -155,6 +153,7 @@ export interface NotifyDecisionEmailOutcome {
 export async function notifyDecisionEmail(
   outcome: "approved" | "rejected",
   input: NotifyDecisionEmailInput,
+  transport?: NotifyTransport,
 ): Promise<NotifyDecisionEmailOutcome> {
   const requestUrl = `${env.REFUND_APP_BASE_URL}/refund/requests/${input.requestId}`;
   const body =
@@ -175,14 +174,7 @@ export async function notifyDecisionEmail(
         };
 
   try {
-    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/emails`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Internal-Token": env.NOTIFY_INTERNAL_TOKEN,
-      },
-      body: JSON.stringify(body),
-    });
+    const response = await postToNotify("/system/emails", body, transport);
 
     if (!response.ok) {
       // The request id identifies the row; the recipient address and the

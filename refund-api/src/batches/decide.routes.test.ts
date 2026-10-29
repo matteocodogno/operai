@@ -57,7 +57,6 @@ process.env["AUTH_ISSUER"] = "http://localhost:3001";
 process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
-process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
 process.env["SERVICE_CLIENT_ID"] = "refund-api";
 process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
@@ -111,6 +110,8 @@ mock.module("../lib/storage", () => ({
 const { batchDecideRouter } = await import("./decide.routes");
 const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+const { notifyTransport } = await import("../lib/notifyPost");
+const { ServiceTokenError } = await import("../lib/serviceToken");
 
 // ─── Fake the notify-api HTTP boundary (global fetch) — no live notify-api
 // required, and no module-cache pollution across test files (mirrors
@@ -125,6 +126,20 @@ let notifyPaidCalls: NotifyPaidCall[] = [];
 let notifyShouldFail = false;
 const originalFetch = globalThis.fetch;
 
+// The service credential (specs/016, T9): the wired provider is disabled under
+// NODE_ENV=test, so swap in a stub for this file (restored in afterAll).
+// `tokenFailure` makes it reject like auth down / 401 / 429.
+let tokenFailure: Error | null = null;
+const realTokens = notifyTransport.tokens;
+notifyTransport.tokens = {
+  async getToken() {
+    if (tokenFailure) throw tokenFailure;
+    return "stub-service-jwt";
+  },
+  invalidate() {},
+};
+let notifyAuthHeaders: Array<{ authorization: string | null; internalToken: string | null }> = [];
+
 globalThis.fetch = (async (url: string, init?: RequestInit) => {
   if (typeof url === "string" && url.includes("/system/notifications")) {
     const body = JSON.parse((init?.body as string) ?? "{}") as {
@@ -132,6 +147,11 @@ globalThis.fetch = (async (url: string, init?: RequestInit) => {
       link?: { href: string };
     };
     const requestId = body.link?.href.split("/").pop() ?? "";
+    const h = new Headers(init?.headers);
+    notifyAuthHeaders.push({
+      authorization: h.get("authorization"),
+      internalToken: h.get("x-internal-token"),
+    });
     notifyPaidCalls.push({ recipientId: body.recipientId, requestId });
     if (notifyShouldFail) {
       return new Response("simulated notify-api outage", { status: 500 });
@@ -249,12 +269,15 @@ beforeEach(async () => {
   __resetAuthzCacheForTests();
   notifyPaidCalls = [];
   notifyShouldFail = false;
+  tokenFailure = null;
+  notifyAuthHeaders = [];
   storedObjectKeys.clear();
   mintPresignedGetShouldFail = false;
 });
 
 afterAll(async () => {
   await truncateRefundTables();
+  notifyTransport.tokens = realTokens;
 });
 
 // ─── POST /batches/:id/mark-paid ────────────────────────────────────────────
@@ -336,6 +359,51 @@ describe("POST /batches/:id/mark-paid", () => {
     expect(auditRows).toHaveLength(2);
     expect(auditRows.every((r) => r.actorUserId === "acct-approver")).toBe(true);
   });
+
+  it("(specs/016 AC-1.1) the per-owner paid push authenticates with the service Bearer and never sends X-Internal-Token", async () => {
+    const { batch } = await createCompiledBatch([
+      { ownerUserId: "emp-a", ownerEmail: "a@x.com", approvedTotalCents: 500 },
+    ]);
+    harness.setResolve(async () => accountingPerms);
+    const token = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+
+    const res = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+    expect(res.status).toBe(200);
+    expect(notifyAuthHeaders).toEqual([
+      { authorization: "Bearer stub-service-jwt", internalToken: null },
+    ]);
+  });
+
+  for (const [label, message] of [
+    ["auth down", "service-token request failed (TimeoutError)"],
+    ["auth refused (401)", "auth /system/service-token responded with HTTP 401"],
+    ["auth rate-limited (429)", "auth /system/service-token responded with HTTP 429"],
+  ] as const) {
+    it(`(specs/016 AC-4.3) mark-paid with the credential unobtainable (${label}) commits and returns 200, sending no push`, async () => {
+      const { batch, requestIds } = await createCompiledBatch([
+        { ownerUserId: "emp-a", ownerEmail: "a@x.com", approvedTotalCents: 500 },
+        { ownerUserId: "emp-b", ownerEmail: "b@x.com", approvedTotalCents: 750 },
+      ]);
+      tokenFailure = new ServiceTokenError(message);
+      harness.setResolve(async () => accountingPerms);
+      const token = await harness.signToken({ sub: "acct-approver", email: "approver@x.com" });
+
+      const res = await batchDecideRouter.request(`/batches/${batch.id}/mark-paid`, {
+        method: "POST",
+        headers: authHeaders(token),
+      });
+      expect(res.status).toBe(200);
+
+      const row = await db.refundBatch.findUniqueOrThrow({ where: { id: batch.id } });
+      expect(row.status).toBe("paid");
+      const dbRequests = await db.refundRequest.findMany({ where: { id: { in: requestIds } } });
+      expect(dbRequests.every((r) => r.status === "paid")).toBe(true);
+      expect(notifyPaidCalls).toHaveLength(0);
+    });
+  }
 
   it("(AC-2.5, specs/011-refund-settings) mark-paid succeeds on a batch whose email was blocked_unconfigured — exactly like any other failed delivery (AC-4.2)", async () => {
     const { batch } = await createCompiledBatch([

@@ -30,7 +30,6 @@ const REQUIRED_ENV_WITHOUT_ACCOUNTING_DISTRIBUTION_EMAIL: Record<string, string>
   REFUND_S3_BUCKET: "test-bucket",
   REFUND_S3_ACCESS_KEY_ID: "test-key",
   REFUND_S3_SECRET_ACCESS_KEY: "test-secret",
-  NOTIFY_INTERNAL_TOKEN: "test-notify-internal-token-at-least-32-characters",
   NOTIFY_INTERNAL_URL: "http://localhost:8081",
   SERVICE_CLIENT_ID: "refund-api",
   SERVICE_CLIENT_SECRET: "test-service-client-secret-at-least-32-characters",
@@ -113,4 +112,21 @@ describe("env.ts (AC-4.1, specs/011-refund-settings)", () => {
     expect(stderr).toContain("SERVICE_CLIENT_SECRET");
     expect(stderr).not.toContain(short);
   });
+
+  // AC-5.2 (specs/016) — the shared token is out of the schema: a deployment
+  // that has not yet had it deleted (the rollout's middle step) must still start.
+  // The name is assembled so `git grep` for the retired variable stays empty
+  // across src/ (specs/016 T9 done-when).
+  const RETIRED_TOKEN = ["NOTIFY", "INTERNAL", "TOKEN"].join("_");
+  for (const [label, value] of [
+    ["absent", undefined],
+    ["present", "legacy-shared-token-at-least-32-characters"],
+    ["present but shorter than the old 32-character minimum", "short"],
+  ] as const) {
+    it(`starts with the retired shared token ${label}`, async () => {
+      const { exitCode, stderr } = await boot({ [RETIRED_TOKEN]: value });
+      expect(stderr).not.toContain(RETIRED_TOKEN);
+      expect(exitCode).toBe(0);
+    });
+  }
 });

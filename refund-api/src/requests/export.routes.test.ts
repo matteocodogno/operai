@@ -30,7 +30,6 @@ process.env["AUTH_ISSUER"] = "http://localhost:3001";
 process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["NODE_ENV"] = "test";
-process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
 process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
 process.env["SERVICE_CLIENT_ID"] = "refund-api";
 process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
