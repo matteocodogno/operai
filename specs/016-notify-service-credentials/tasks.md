@@ -1,7 +1,7 @@
 ---
 spec: 016
 generated: 2026-10-13
-synced: 2026-10-17
+synced: 2026-10-29
 ---
 
 # Tasks: Every notify caller authenticates as itself; the shared token is retired
@@ -12,8 +12,8 @@ The task order follows the plan's three pushes (plan § Architecture 5). Every p
 `main` redeploys all services, so **what is on `main` at each push matters**:
 
 - **Push 1** = T1–T5 and T20 (a test-only fix). Callers are unchanged.
-- **Push 2** = T7–T12. Their code may be written earlier on a branch, but must not reach
-  `main` before T6 is done.
+- **Push 2** = T7–T12, T21 and T22 (test-only fixes). Their code may be written earlier on
+  a branch, but must not reach `main` before T6 is done.
 - **Push 3** = T14–T17. Must not reach `main` before T13 is done.
 
 T6, T11, T13 and T18 are done **by a person**: they set or delete secrets, edit env files
@@ -112,7 +112,30 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     ~18 test files that build a process env gain the two variables (R-5).
   - done when: `cd refund-api && bun run typecheck && bun test` passes, including an env
     test where each missing variable exits naming it.
-- [ ] T9: `refund-api` pushes and emails with its own credential — refs: AC-1.1, AC-1.2, AC-4.3, AC-5.2 — deps: T8
+- [ ] T21: a single-process `bun test` in `refund-api` is a reliable gate again — refs: none directly; it makes T9's `bun test` check meaningful (added on the user's request, 2026-10-29) — deps: T8
+  - touch: `refund-api/src/auth/jwt.middleware.test.ts`, `refund-api/src/**/*.test.ts`
+  - Cases (a), (h) and (h2) of `jwt.middleware.test.ts` fail in the full single-process run
+    (on `main` too) and pass on their own. Find the cross-file coupling (likely the same
+    shape T20 fixed in `notify-api`: a process-wide `mock.module` of the middleware or of
+    `jose`, or env written at module level and never restored) and remove it without
+    loosening any assertion. Test-only change: no `src/` code outside `*.test.ts`, no
+    changeset.
+  - done when: `cd refund-api && direnv exec . bun test` (one process, all files) reports
+    0 fail, also with `--randomize` on at least three seeds, and each changed file still
+    passes on its own.
+- [ ] T22: a single-process `bun test` in `estimai-api` is a reliable gate again — refs: none directly; it makes T10's `bun test` check meaningful (added on the user's request, 2026-10-29) — deps: T10
+  - touch: `estimai-api/src/**/*.test.ts`
+  - About 132 failures in the full single-process run (on `main` too) come from
+    `mock.module("@/lib/db")` and similar process-wide mocks leaking from one file into the
+    next; every file passes on its own. Remove the leak (scope or undo the mocks, or import
+    the real module where a file needs it, as T20 did) without loosening any assertion.
+    Test-only change: no `src/` code outside `*.test.ts`, no changeset.
+    `orphaned-estimate.test.ts` needs valid local `auth` database credentials: if they are
+    missing that is an environment fault to report, not a defect to fix here.
+  - done when: `cd estimai-api && direnv exec . bun test` (one process, all files) reports
+    0 fail apart from that environment fault, also with `--randomize` on at least three
+    seeds, and each changed file still passes on its own.
+- [ ] T9: `refund-api` pushes and emails with its own credential — refs: AC-1.1, AC-1.2, AC-4.3, AC-5.2 — deps: T8, T21
   - touch: `refund-api/src/lib/notify.ts`, `refund-api/src/lib/notify.test.ts`,
     `refund-api/src/lib/notifyEmail*`, `refund-api/src/lib/env.ts`, `refund-api/src/lib/env.test.ts`,
     `refund-api/src/index.ts`, `refund-api/src/**/*.test.ts`
