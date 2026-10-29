@@ -113,7 +113,16 @@ const storedObjectKeys = new Set<string>();
 // `pdf: null`, never let it surface as an uncaught rejection / 500.
 let mintPresignedGetShouldFail = false;
 
+// `bun test` runs every file in ONE process and `mock.module` is process-wide: a
+// factory that returns only the exports THIS file needs leaves every other
+// importer of ../lib/storage (export.routes.ts needs getObject, storage.test.ts
+// the real functions) with a module missing its exports when this file happens
+// to run first (--randomize). Spread the real module underneath (T21, specs/016).
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const realStorage = (await import("../lib/storage?real")) as typeof import("../lib/storage");
+
 mock.module("../lib/storage", () => ({
+  ...realStorage,
   putObject: async (objectKey: string, body: Uint8Array, contentType: string) => {
     putObjectCalls.push({ objectKey, contentType, byteLength: body.byteLength });
     storedObjectKeys.add(objectKey);
@@ -146,7 +155,14 @@ let notifyBatchCompiledOutcome: { status: "sent" | "failed"; deliveryId: string 
   deliveryId: "delivery-1",
 };
 
+// Spread the real module underneath: this mock is process-wide and decide.routes
+// (notifyDecisionEmail) imports the same specifier; a partial factory breaks that
+// file's import when this one runs first under --randomize (T21, specs/016).
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const realNotifyEmail = (await import("../lib/notifyEmail?real")) as typeof import("../lib/notifyEmail");
+
 mock.module("../lib/notifyEmail", () => ({
+  ...realNotifyEmail,
   notifyBatchCompiled: async (input: {
     batchId: string;
     recipientEmail: string;

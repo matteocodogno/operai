@@ -112,7 +112,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     ~18 test files that build a process env gain the two variables (R-5).
   - done when: `cd refund-api && bun run typecheck && bun test` passes, including an env
     test where each missing variable exits naming it.
-- [ ] T21: a single-process `bun test` in `refund-api` is a reliable gate again — refs: none directly; it makes T9's `bun test` check meaningful (added on the user's request, 2026-10-29) — deps: T8
+- [x] T21: a single-process `bun test` in `refund-api` is a reliable gate again — refs: none directly; it makes T9's `bun test` check meaningful (added on the user's request, 2026-10-29) — deps: T8
   - touch: `refund-api/src/auth/jwt.middleware.test.ts`, `refund-api/src/**/*.test.ts`
   - Cases (a), (h) and (h2) of `jwt.middleware.test.ts` fail in the full single-process run
     (on `main` too) and pass on their own. Find the cross-file coupling (likely the same

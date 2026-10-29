@@ -75,7 +75,14 @@ mock.module("@aws-sdk/s3-request-presigner", () => ({
   },
 }));
 
-const storage = await import("./storage");
+// `?real`: route test files `mock.module("../lib/storage")` process-wide; a plain
+// import here would get their fake under --randomize (T21, specs/016).
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const storage = (await import("./storage?real")) as typeof import("./storage");
+// `../lib/env` parses process.env ONCE per process; when another file loaded it
+// first (--randomize) the bucket is that run's, not the override above. Assert
+// against the bucket the module is actually configured with (T21, specs/016).
+const { env: enforced } = await import("./env");
 const { S3Client, DeleteObjectCommand, PutObjectCommand, NotFound } = await import(
   "@aws-sdk/client-s3"
 );
@@ -92,7 +99,7 @@ describe("mintPresignedPost", () => {
       "application/pdf",
     );
 
-    expect(presignedPostCall?.Bucket).toBe("test-bucket");
+    expect(presignedPostCall?.Bucket).toBe(enforced.REFUND_S3_BUCKET);
     expect(presignedPostCall?.Key).toBe("refund/req1/line1/att1/file.pdf");
     expect(presignedPostCall?.Conditions).toEqual([
       ["content-length-range", 0, storage.MAX_ATTACHMENT_BYTES],
@@ -165,7 +172,7 @@ describe("deleteObject", () => {
     );
     expect(
       (captured as unknown as { input: { Key: string; Bucket: string } }).input.Bucket,
-    ).toBe("test-bucket");
+    ).toBe(enforced.REFUND_S3_BUCKET);
     sendSpy.mockRestore();
   });
 });
@@ -190,7 +197,7 @@ describe("putObject", () => {
       }
     ).input;
     expect(input.Key).toBe("refund/batches/b1/compiled.pdf");
-    expect(input.Bucket).toBe("test-bucket");
+    expect(input.Bucket).toBe(enforced.REFUND_S3_BUCKET);
     expect(input.Body).toBe(body);
     expect(input.ContentType).toBe("application/pdf");
     sendSpy.mockRestore();

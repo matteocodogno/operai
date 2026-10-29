@@ -85,7 +85,16 @@ const storedObjectKeys = new Set<string>();
 // failure here must never look like the terminal transition itself failed).
 let mintPresignedGetShouldFail = false;
 
+// `bun test` runs every file in ONE process and `mock.module` is process-wide: a
+// factory that returns only the exports THIS file needs leaves every other
+// importer of ../lib/storage (export.routes.ts needs getObject, storage.test.ts
+// the real functions) with a module missing its exports when this file happens
+// to run first (--randomize). Spread the real module underneath (T21, specs/016).
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const realStorage = (await import("../lib/storage?real")) as typeof import("../lib/storage");
+
 mock.module("../lib/storage", () => ({
+  ...realStorage,
   putObject: async (objectKey: string) => {
     storedObjectKeys.add(objectKey);
   },

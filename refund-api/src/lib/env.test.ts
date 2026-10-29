@@ -43,6 +43,7 @@ describe("env.ts (AC-4.1, specs/011-refund-settings)", () => {
     const proc = Bun.spawn({
       cmd: [
         "bun",
+        "--no-env-file",
         "-e",
         "import('./src/lib/env.ts').then(() => process.exit(0)).catch(() => process.exit(1))",
       ],
@@ -72,7 +73,15 @@ describe("env.ts (AC-4.1, specs/011-refund-settings)", () => {
       else env[k] = v;
     }
     const proc = Bun.spawn({
-      cmd: ["bun", "-e", "import('./src/lib/env.ts').then(() => process.exit(0))"],
+      // `--no-env-file`: Bun otherwise auto-loads the dotenv file in the cwd into
+      // the child; on a configured machine it defines SERVICE_CLIENT_* and turns
+      // every "variable is missing" case into a successful boot (T21, specs/016).
+      cmd: [
+        "bun",
+        "--no-env-file",
+        "-e",
+        "import('./src/lib/env.ts').then(() => process.exit(0))",
+      ],
       cwd: import.meta.dir + "/../..",
       env,
       stdout: "pipe",

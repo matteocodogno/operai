@@ -13,7 +13,7 @@
  * scope here.
  */
 
-import { describe, it, expect, beforeAll, mock, spyOn } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, mock, spyOn } from "bun:test";
 import { Hono } from "hono";
 import {
   generateKeyPair,
@@ -37,8 +37,9 @@ let localJWKS: (
 ) => Promise<CryptoKey>;
 
 const TEST_KID = "operai-auth-rs256-v1";
-const TEST_ISSUER = "http://localhost:3001";
-const TEST_AUDIENCE = "operai-suite";
+// `let`: re-pointed at the cached env below (see the import of ../lib/env).
+let TEST_ISSUER = "http://localhost:3001";
+let TEST_AUDIENCE = "operai-suite";
 
 // ─── Module mock: redirect createRemoteJWKSet to our local key set ────────────
 //
@@ -78,20 +79,54 @@ mock.module("jose", () => {
 // connects to a database, so any placeholder value is fine when nothing else
 // has already set a real one; a real value already present must never be
 // touched.
+// `bun test` shares process-level env across every file, so each override is
+// saved and undone in afterAll; left in place they leak into later files (T21,
+// specs/016). DATABASE_URL keeps its `??=` semantics (see above): a real value
+// already present is never touched.
+const ENV_OVERRIDES: Record<string, string> = {
+  ALLOWED_ORIGINS: "http://localhost:5173",
+  AUTH_JWKS_URL: "http://localhost:3001/.well-known/jwks.json",
+  AUTH_ISSUER: TEST_ISSUER,
+  AUTH_AUDIENCE: TEST_AUDIENCE,
+  NODE_ENV: "test",
+  NOTIFY_INTERNAL_TOKEN: "test-notify-internal-token-at-least-32-characters",
+  NOTIFY_INTERNAL_URL: "http://localhost:8081",
+  SERVICE_CLIENT_ID: "refund-api",
+  SERVICE_CLIENT_SECRET: "test-service-client-secret-at-least-32-characters",
+};
+const savedEnv: Record<string, string | undefined> = {};
+for (const key of ["DATABASE_URL", ...Object.keys(ENV_OVERRIDES)]) {
+  savedEnv[key] = process.env[key];
+}
 process.env["DATABASE_URL"] ??= "postgresql://test:test@localhost:5435/test";
-process.env["ALLOWED_ORIGINS"] = "http://localhost:5173";
-process.env["AUTH_JWKS_URL"] = "http://localhost:3001/.well-known/jwks.json";
-process.env["AUTH_ISSUER"] = TEST_ISSUER;
-process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
-process.env["NODE_ENV"] = "test";
-process.env["NOTIFY_INTERNAL_TOKEN"] = "test-notify-internal-token-at-least-32-characters";
-process.env["NOTIFY_INTERNAL_URL"] = "http://localhost:8081";
-process.env["SERVICE_CLIENT_ID"] = "refund-api";
-process.env["SERVICE_CLIENT_SECRET"] = "test-service-client-secret-at-least-32-characters";
+for (const [key, value] of Object.entries(ENV_OVERRIDES)) {
+  process.env[key] = value;
+}
+
+afterAll(() => {
+  for (const [key, previous] of Object.entries(savedEnv)) {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
 
 // Dynamic import ensures the mock.module() registration and process.env
 // assignments above are fully in effect before jwt.middleware.ts is evaluated.
-const { jwtMiddleware } = await import("./jwt.middleware");
+//
+// Two process-wide hazards when this runs in one `bun test` process with the
+// other files (T21, specs/016):
+//  1. the route tests `mock.module("../auth/jwt.middleware")` via
+//     test-support/testAuth.ts; a plain import here would hand back THEIR fake
+//     middleware, which verifies with their keypair, so every valid token here
+//     gets 401. The query string gives this file its own, real module instance.
+//  2. `../lib/env` is parsed once per process; if another file loaded it first it
+//     holds that run's AUTH_ISSUER/AUTH_AUDIENCE, not the overrides above.
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const { jwtMiddleware } = (await import("./jwt.middleware?real")) as typeof import("./jwt.middleware");
+
+const { env: enforced } = await import("../lib/env");
+TEST_ISSUER = enforced.AUTH_ISSUER;
+TEST_AUDIENCE = enforced.AUTH_AUDIENCE;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
