@@ -6,14 +6,14 @@
  * host:5435, database: notify) — no DB mocking. Imports the REAL `env` (see
  * emails.routes.test.ts's file header for why `env` is never mock.module()'d
  * — it's a process-wide singleton and other files in this same bun test run
- * depend on its real fields), reading the real NOTIFY_INTERNAL_TOKEN as the
- * "valid token" for tests.
+ * depend on its real fields), authenticating with an in-memory scoped service
+ * JWT (specs/016 T14: the only credential).
  *
- * done when (tasks.md T3): a valid token pushes a notification to an
+ * done when (tasks.md T3): a valid service credential pushes a notification to an
  * arbitrary recipientId, persisted (Notification row, recipientId ==
  * body.recipientId, NOT tied to any caller identity) AND fanned out via the
- * existing inApp channel/EventBus SSE seam; missing/wrong token → 401; the
- * user-JWT POST /notifications route still rejects the internal token
+ * existing inApp channel/EventBus SSE seam; missing credential or X-Internal-Token → 401; the
+ * user-JWT POST /notifications route still rejects X-Internal-Token
  * (already covered generically by raise.routes.test.ts — jwtMiddleware never
  * reads X-Internal-Token at all, so that invariant holds for ANY /system/*
  * route without route-specific test duplication; re-asserted here too for
@@ -24,11 +24,30 @@ import { describe, it, expect, afterEach, mock } from "bun:test";
 import { Hono } from "hono";
 import { env } from "@/lib/env";
 
-// The real, valid internal token (worktree .env) — used as the "correct"
-// credential throughout; deliberately NOT overridden so this test proves the
-// actual middleware/env wiring, not a mock's approximation of it (mirrors
-// emails.routes.test.ts).
-const VALID_INTERNAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN!;
+
+// ─── Service credential (specs/016 T14: the only credential) ──────────────────
+// Keys and JWKS are generated in memory and injected into the auth middleware,
+// so the test exercises the real middleware without a live auth service.
+
+import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from "jose";
+import { createSystemAuthMiddleware } from "./systemAuth.middleware";
+
+const SERVICE_AUD = "operai-system-notifications-test";
+const KID = "notifications-kid";
+const keyPair = await generateKeyPair("RS256");
+const localJwks = createLocalJWKSet({
+  keys: [{ ...(await exportJWK(keyPair.publicKey)), kid: KID, alg: "RS256", use: "sig" }],
+});
+const serviceToken = (scope: string = "notifications.push") =>
+  new SignJWT({ scope })
+    .setProtectedHeader({ alg: "RS256", kid: KID })
+    .setIssuedAt()
+    .setIssuer(env.AUTH_ISSUER)
+    .setAudience(SERVICE_AUD)
+    .setSubject("system:refund-api")
+    .setExpirationTime("5m")
+    .sign(keyPair.privateKey);
+const authHeader = async () => ({ Authorization: `Bearer ${await serviceToken()}` });
 
 // ─── Real DB (compose, database: notify) ──────────────────────────────────────
 
@@ -47,7 +66,7 @@ const freshDb = new PrismaClient({ adapter: freshAdapter });
 
 mock.module("@/lib/db", () => ({ db: freshDb }));
 
-const { systemNotificationsRouter } = await import("./notifications.routes");
+const { createSystemNotificationsRouter } = await import("./notifications.routes");
 const { eventBus } = await import("@/notifications/eventBus");
 
 const testDb = freshDb;
@@ -63,7 +82,12 @@ const OTHER_RECIPIENT_ID = "system-notifications-test-other-recipient";
 
 const buildApp = () => {
   const app = new Hono();
-  app.route("/", systemNotificationsRouter);
+  app.route(
+    "/",
+    createSystemNotificationsRouter(
+      createSystemAuthMiddleware({ scope: "notifications.push", jwks: localJwks, audience: SERVICE_AUD }),
+    ),
+  );
   return app;
 };
 
@@ -85,7 +109,7 @@ afterEach(async () => {
 
 // ─── Happy path (T3 done-when) ─────────────────────────────────────────────────
 
-describe("POST /system/notifications — valid internal token", () => {
+describe("POST /system/notifications — valid service credential", () => {
   it("201: persists a Notification for recipientId AND publishes it on recipientId's SSE stream (cross-user, not the caller)", async () => {
     const app = buildApp();
 
@@ -99,7 +123,7 @@ describe("POST /system/notifications — valid internal token", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -152,7 +176,7 @@ describe("POST /system/notifications — valid internal token", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ recipientId: OTHER_RECIPIENT_ID, severity: "warning" })),
@@ -174,7 +198,7 @@ describe("POST /system/notifications — valid internal token", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -194,8 +218,8 @@ describe("POST /system/notifications — valid internal token", () => {
 
 // ─── Auth (ADR-0011 §Security R2, ADR-0017 §3) ─────────────────────────────────
 
-describe("POST /system/notifications — internal-token auth (ADR-0011, ADR-0017)", () => {
-  it("401: missing X-Internal-Token header, nothing persisted", async () => {
+describe("POST /system/notifications — service-credential auth (ADR-0011, ADR-0017, ADR-0049)", () => {
+  it("401: no credential, nothing persisted", async () => {
     const app = buildApp();
     const before = await testDb.notification.count({ where: { recipientId: RECIPIENT_ID } });
 
@@ -210,12 +234,12 @@ describe("POST /system/notifications — internal-token auth (ADR-0011, ADR-0017
     expect(after).toBe(before);
   });
 
-  it("401: wrong X-Internal-Token value, nothing persisted", async () => {
+  it("401: X-Internal-Token (the retired shared header), any value, nothing persisted (AC-5.1)", async () => {
     const app = buildApp();
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": "definitely-not-the-right-token-but-long-enough",
+        "X-Internal-Token": "x".repeat(48),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -226,7 +250,7 @@ describe("POST /system/notifications — internal-token auth (ADR-0011, ADR-0017
     expect(after).toBe(0);
   });
 
-  it("401: a user JWT (Authorization: Bearer …) is rejected — /system/notifications never accepts a user JWT in place of the internal token", async () => {
+  it("401: a user JWT (Authorization: Bearer …) is rejected — /system/notifications never accepts a user JWT as a service credential", async () => {
     const app = buildApp();
     const res = await app.request("/system/notifications", {
       method: "POST",
@@ -239,13 +263,13 @@ describe("POST /system/notifications — internal-token auth (ADR-0011, ADR-0017
     expect(res.status).toBe(401);
   });
 
-  it("401: a user JWT presented ALONGSIDE a wrong X-Internal-Token is still rejected (the JWT does not substitute for it)", async () => {
+  it("401: a user JWT presented ALONGSIDE an X-Internal-Token is still rejected (neither is a credential)", async () => {
     const app = buildApp();
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
         Authorization: "Bearer some.made.up.jwt.value",
-        "X-Internal-Token": "still-the-wrong-token-value-but-long-enough",
+        "X-Internal-Token": "x".repeat(48),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -264,7 +288,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(rest),
@@ -277,7 +301,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ recipientId: "" })),
@@ -290,7 +314,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ title: "" })),
@@ -303,7 +327,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ body: "" })),
@@ -316,7 +340,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ originApp: "not-a-real-app" })),
@@ -329,7 +353,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ severity: "critical" })),
@@ -342,7 +366,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(
@@ -359,7 +383,7 @@ describe("POST /system/notifications — validation failures → 400", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ title: "" })),
@@ -381,7 +405,7 @@ describe("POST /system/notifications — body-size cap → 413", () => {
     const res = await app.request("/system/notifications", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: rawBody,

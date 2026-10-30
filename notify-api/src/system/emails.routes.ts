@@ -4,9 +4,8 @@
  * T7, specs/008-refund-monthly-processing, ADR-0021 for
  * `refund_batch_compiled`).
  *
- * Flow: systemAuthMiddleware scoped to `emails.send` (a service JWT, or the
- * transition-only X-Internal-Token — NOT jwtMiddleware; see
- * systemAuth.middleware.ts's header) → zod-validate body
+ * Flow: systemAuthMiddleware scoped to `emails.send` (a service JWT — NOT
+ * jwtMiddleware; see systemAuth.middleware.ts's header) → zod-validate body
  * against the per-template discriminated union (system/emails.schemas.ts) →
  * render the fixed template (system/emailTemplates.ts) → the email channel
  * (src/channels/email.channel.ts) sends via Resend (or stubs, per

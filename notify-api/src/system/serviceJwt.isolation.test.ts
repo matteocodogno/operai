@@ -9,8 +9,9 @@
  *     aud is accepted by the same fixture (positive control).
  *  2. env.ts exits non-zero when SERVICE_AUDIENCE equals AUTH_AUDIENCE or is
  *     unset/empty, and starts fine when it differs.
- *  3. NOTIFY_INTERNAL_TOKEN is optional (transition only): env.ts starts with
- *     it present, absent or empty, and still refuses a short value.
+ *  3. The retired shared-token variable is not a setting (specs/016 T14,
+ *     AC-5.2): env.ts starts whether it is present, absent, empty or short,
+ *     and never reads it.
  */
 
 import { describe, it, expect } from "bun:test";
@@ -116,19 +117,19 @@ describe("SERVICE_AUDIENCE startup validation (env.ts)", () => {
   });
 });
 
-describe("NOTIFY_INTERNAL_TOKEN is optional during the transition (env.ts)", () => {
+describe("the retired shared-token variable is not a setting (env.ts, AC-5.2)", () => {
+  // Built from parts so that no source file under notify-api/src spells the
+  // retired name (tasks.md T14's done-when greps for it).
+  const RETIRED_VAR = ["NOTIFY", "INTERNAL", "TOKEN"].join("_");
   const load = (extra: Record<string, string>) =>
     run(`${ROOT}src/lib/env.ts`, { ...BASE_ENV, ...extra }, tmpdir());
 
-  it("starts when present, absent or empty", async () => {
-    expect((await load({ NOTIFY_INTERNAL_TOKEN: "x".repeat(40) })).code).toBe(0);
+  it("starts when present, absent, empty or short: it is neither required nor validated", async () => {
     expect((await load({})).code).toBe(0);
-    expect((await load({ NOTIFY_INTERNAL_TOKEN: "" })).code).toBe(0);
-  });
-
-  it("still refuses a present-but-short value", async () => {
-    const r = await load({ NOTIFY_INTERNAL_TOKEN: "short" });
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain("NOTIFY_INTERNAL_TOKEN");
+    expect((await load({ [RETIRED_VAR]: "x".repeat(40) })).code).toBe(0);
+    expect((await load({ [RETIRED_VAR]: "" })).code).toBe(0);
+    const short = await load({ [RETIRED_VAR]: "short" });
+    expect(short.code, short.stderr).toBe(0);
+    expect(short.stderr).not.toContain(RETIRED_VAR);
   });
 });

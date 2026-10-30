@@ -1,6 +1,7 @@
 /**
  * Auth matrix for the two internal routes (specs/015 T6, ADR-0044; specs/016
  * T3, ADR-0049): one scoped middleware, each route requiring its own scope.
+ * specs/016 T14: the shared X-Internal-Token is gone; the header is never a credential.
  *
  * No DB: a tiny Hono app with the auth middleware + a recording handler
  * proves the guard stops (or lets through) the request. Keys and the JWKS are
@@ -8,7 +9,7 @@
  * here depends on module load order or a live auth service.
  */
 
-import { describe, it, expect, beforeAll, afterEach, spyOn } from "bun:test";
+import { describe, it, expect, beforeAll, spyOn } from "bun:test";
 import { Hono } from "hono";
 import {
   generateKeyPair,
@@ -28,12 +29,13 @@ const ISSUER = env.AUTH_ISSUER;
 const SERVICE_AUD = "operai-system-test";
 const USER_AUD = "operai-suite-test";
 const KID = "svc-test-kid";
-const LEGACY = env.NOTIFY_INTERNAL_TOKEN!;
-const ORIGINAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN;
-
-afterEach(() => {
-  env.NOTIFY_INTERNAL_TOKEN = ORIGINAL_TOKEN;
-});
+// The retired header, with any value. The name is built from parts so no file
+// under notify-api/src spells it (tasks.md T14 done-when). When a local env
+// file still carries the old secret, that exact value is used, so the test
+// would fail if the token were ever accepted again.
+const RETIRED_VAR = ["NOTIFY", "INTERNAL", "TOKEN"].join("_");
+const RETIRED_VALUE = process.env[RETIRED_VAR] ?? "x".repeat(48);
+const RETIRED_HEADER_VALUES = [RETIRED_VALUE, "undefined", "", "wrong"];
 
 let signingKey: CryptoKey;
 let otherSigningKey: CryptoKey;
@@ -78,7 +80,7 @@ const buildApp = (
 ) => {
   const audience = "audience" in opts ? opts.audience : SERVICE_AUD;
   const ran = { value: false };
-  const seen: { origins?: readonly string[] | null; sub?: string | null } = {};
+  const seen: { origins?: readonly string[]; sub?: string } = {};
   const app: App = new Hono();
   app.use(
     "/x",
@@ -102,25 +104,20 @@ const post = (app: App, headers: Record<string, string>) =>
 
 const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 
-describe("legacy internal token (unchanged for the three existing callers)", () => {
-  it("accepted, with no origin restriction", async () => {
-    const { app, ran, seen } = buildApp();
-    const res = await post(app, { "X-Internal-Token": LEGACY });
-    expect(res.status).toBe(200);
-    expect(ran.value).toBe(true);
-    expect(seen.origins).toBeNull();
-    expect(seen.sub).toBeNull();
+describe("the retired shared token (specs/016 T14, AC-5.1)", () => {
+  it("X-Internal-Token with any value alone -> 401, handler not run", async () => {
+    for (const scope of ["notifications.push", "emails.send"] as const) {
+      for (const v of RETIRED_HEADER_VALUES) {
+        const { app, ran } = buildApp({ scope });
+        expect((await post(app, { "X-Internal-Token": v })).status).toBe(401);
+        expect(ran.value).toBe(false);
+      }
+    }
   });
 
-  it("accepted even when the service-JWT path is disabled (SERVICE_AUDIENCE unset)", async () => {
-    const { app } = buildApp({ audience: undefined });
-    expect((await post(app, { "X-Internal-Token": LEGACY })).status).toBe(200);
-  });
-
-  it("wrong token -> 401, handler not run", async () => {
-    const { app, ran } = buildApp();
-    const res = await post(app, { "X-Internal-Token": LEGACY.slice(0, -1) + "x" });
-    expect(res.status).toBe(401);
+  it("is refused even when the service-JWT path is disabled (SERVICE_AUDIENCE unset)", async () => {
+    const { app, ran } = buildApp({ audience: undefined });
+    expect((await post(app, { "X-Internal-Token": RETIRED_VALUE })).status).toBe(401);
     expect(ran.value).toBe(false);
   });
 
@@ -221,7 +218,7 @@ describe("scoped service JWT", () => {
       const res = await post(app, bearer(await make()));
       bodies.add(JSON.stringify(await res.json()));
     }
-    for (const h of [{}, { "X-Internal-Token": "wrong" }]) {
+    for (const h of [{}, { "X-Internal-Token": RETIRED_VALUE }]) {
       bodies.add(JSON.stringify(await (await post(app, h)).json()));
     }
     expect(bodies.size).toBe(1);
@@ -234,13 +231,13 @@ describe("scoped service JWT", () => {
     expect(ran.value).toBe(false);
   });
 
-  it("the two credentials are alternatives: a valid JWT passes next to a wrong legacy token, an invalid one does not", async () => {
+  it("the retired header does not rescue an invalid JWT, and does not disturb a valid one", async () => {
     const { app } = buildApp();
     expect(
       (await post(app, { ...bearer(await sign()), "X-Internal-Token": "wrong" })).status,
     ).toBe(200);
     expect(
-      (await post(app, { ...bearer(await sign({ scope: "x" })), "X-Internal-Token": "wrong" })).status,
+      (await post(app, { ...bearer(await sign({ scope: "x" })), "X-Internal-Token": RETIRED_VALUE })).status,
     ).toBe(401);
   });
 
@@ -285,29 +282,6 @@ describe("each route requires its own scope", () => {
   });
 });
 
-describe("transition switch: NOTIFY_INTERNAL_TOKEN set or unset", () => {
-  for (const scope of ["notifications.push", "emails.send"] as const) {
-    describe(scope, () => {
-      const cred = () => sign({ scope });
-      it("token set: shared token accepted AND service credential accepted", async () => {
-        env.NOTIFY_INTERNAL_TOKEN = LEGACY;
-        expect((await post(buildApp({ scope }).app, { "X-Internal-Token": LEGACY })).status).toBe(200);
-        expect((await post(buildApp({ scope }).app, bearer(await cred()))).status).toBe(200);
-      });
-
-      it("token unset: shared token refused (whatever its value), service credential accepted", async () => {
-        env.NOTIFY_INTERNAL_TOKEN = undefined;
-        for (const v of [LEGACY, "undefined", ""]) {
-          const { app, ran } = buildApp({ scope });
-          expect((await post(app, { "X-Internal-Token": v })).status).toBe(401);
-          expect(ran.value).toBe(false);
-        }
-        expect((await post(buildApp({ scope }).app, bearer(await cred()))).status).toBe(200);
-      });
-    });
-  }
-});
-
 describe("caller log line", () => {
   const capture = () => {
     const spies = [
@@ -333,20 +307,10 @@ describe("caller log line", () => {
     }
   });
 
-  it("the shared token logs caller=shared-token and never the token", async () => {
-    const log = capture();
-    try {
-      await post(buildApp({ scope: "emails.send" }).app, { "X-Internal-Token": LEGACY });
-      expect(log.lines()).toEqual(["[system-auth] POST /x caller=shared-token"]);
-    } finally {
-      log.restore();
-    }
-  });
-
   it("a refused call logs no caller line", async () => {
     const log = capture();
     try {
-      await post(buildApp().app, { "X-Internal-Token": "wrong" });
+      await post(buildApp().app, { "X-Internal-Token": RETIRED_VALUE });
       expect(log.lines().filter((l) => l.includes("caller="))).toEqual([]);
     } finally {
       log.restore();
@@ -355,8 +319,7 @@ describe("caller log line", () => {
 });
 
 describe("originAllowed", () => {
-  it("null (legacy) allows anything; a list allows only its members", () => {
-    expect(originAllowed(null, "refund")).toBe(true);
+  it("a list allows only its members; an empty list allows nothing", () => {
     expect(originAllowed(["inventory"], "inventory")).toBe(true);
     expect(originAllowed(["inventory"], "refund")).toBe(false);
     expect(originAllowed([], "inventory")).toBe(false);

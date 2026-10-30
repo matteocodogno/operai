@@ -206,7 +206,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
 
 ## Push 3 — the old mechanism leaves the code
 
-- [ ] T14: `notify-api` no longer understands the shared token — refs: AC-5.1, AC-5.2 — deps: T3, T13
+- [x] T14: `notify-api` no longer understands the shared token — refs: AC-5.1, AC-5.2 — deps: T3, T13
   - touch: `notify-api/src/system/*`, `notify-api/src/lib/env*`, `notify-api/src/index.ts`
   - Legacy path, `internalToken.middleware.ts` and the variable removed; the transition
     tests from T3 (AC-3.2, AC-4.1) are replaced by the refusal tests.

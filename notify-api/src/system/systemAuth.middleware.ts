@@ -1,36 +1,35 @@
 /**
  * systemAuthMiddleware (specs/015 T6, ADR-0044; generalised by specs/016 T3,
- * ADR-0049) — the ONLY auth for `POST /system/notifications` and
- * `POST /system/emails`. Each route builds it with the ONE scope it requires
- * (`notifications.push` / `emails.send`) and it accepts EITHER:
+ * ADR-0049; shared token removed by specs/016 T14) — the ONLY auth for
+ * `POST /system/notifications` and `POST /system/emails`. Each route builds it
+ * with the ONE scope it requires (`notifications.push` / `emails.send`) and it
+ * accepts exactly one credential:
  *
- *  1. `Authorization: Bearer <service JWT>` minted by `auth`'s
- *     `POST /system/service-token`: RS256 via the suite JWKS, issuer pinned,
- *     `aud` = SERVICE_AUDIENCE (never AUTH_AUDIENCE, so a user JWT is not a
- *     system credential), the route's scope in the space-delimited `scope`
- *     claim, and `sub` of the form `system:<client>`; OR
- *  2. TRANSITION ONLY — while NOTIFY_INTERNAL_TOKEN is set, the legacy shared
- *     `X-Internal-Token`, compared constant-time, no origin restriction.
- *     Unset, the header is never accepted (ADR-0049: retiring the token in
- *     production is deleting one variable, before any code is removed).
+ *  `Authorization: Bearer <service JWT>` minted by `auth`'s
+ *  `POST /system/service-token` (or `auth`'s in-process self-mint): RS256 via
+ *  the suite JWKS, issuer pinned, `aud` = SERVICE_AUDIENCE (never
+ *  AUTH_AUDIENCE, so a user JWT is not a system credential), the route's scope
+ *  in the space-delimited `scope` claim, and `sub` of the form
+ *  `system:<client>`.
+ *
+ * No other header is a credential: `X-Internal-Token` is never read, so any
+ * value of it is simply an absent credential (401, AC-5.1).
  *
  * jwtMiddleware (user routes) keeps verifying `aud = AUTH_AUDIENCE`, so a
  * service token is rejected there.
  *
- * Every failure — no credential, wrong legacy token, any JWT defect, the
- * other route's scope — returns the SAME 401 body, so a caller learns
- * nothing about which check failed. Nothing about the presented credential
- * is ever logged except the jose error code.
+ * Every failure — no credential, any JWT defect, the other route's scope —
+ * returns the SAME 401 body, so a caller learns nothing about which check
+ * failed. Nothing about the presented credential is ever logged except the
+ * jose error code.
  *
- * An accepted call logs `[system-auth] <METHOD> <path> caller=<sub>` (or
- * `caller=shared-token`) and nothing else: the rollout's confirmation step
- * reads this line (AC-6.2).
+ * An accepted call logs `[system-auth] <METHOD> <path> caller=<sub>` and
+ * nothing else: the rollout's confirmation step reads this line (AC-6.2).
  *
  * Origin binding (push only): a service principal may only raise
  * notifications for the origin app(s) bound to its `sub` below. The
  * middleware exposes the allowed list on the context; the route enforces it
- * after body validation (403). Legacy-token callers carry `null` =
- * unrestricted, unchanged.
+ * after body validation (403). A `system:*` sub with no binding gets none.
  */
 
 import { createMiddleware } from "hono/factory";
@@ -41,7 +40,6 @@ import {
   type JWTVerifyGetKey,
 } from "jose";
 import { env } from "@/lib/env";
-import { safeEqual } from "./internalToken.middleware";
 
 export type SystemScope = "notifications.push" | "emails.send";
 const SERVICE_SUB_PREFIX = "system:";
@@ -54,16 +52,16 @@ const SERVICE_ORIGIN_BINDINGS: Readonly<Record<string, readonly string[]>> = {
 };
 
 export type SystemAuthVariables = {
-  /** null = legacy internal token (unrestricted); array = service principal's permitted origins. */
-  allowedOrigins: readonly string[] | null;
-  /** The service JWT `sub`, or null for the legacy token. */
-  serviceSub: string | null;
+  /** The service principal's permitted origin apps. */
+  allowedOrigins: readonly string[];
+  /** The service JWT `sub`. */
+  serviceSub: string;
 };
 
 export const originAllowed = (
-  allowed: readonly string[] | null,
+  allowed: readonly string[],
   originApp: string,
-): boolean => allowed === null || allowed.includes(originApp);
+): boolean => allowed.includes(originApp);
 
 // One body for every failure: byte-identical, no hint of which check failed.
 const unauthorized = (path: string) =>
@@ -78,8 +76,8 @@ const unauthorized = (path: string) =>
     { status: 401 },
   );
 
-// Built lazily, once: no JWKS object (and no fetch) unless the service-JWT
-// path is enabled AND a Bearer is actually presented.
+// Built lazily, once: no JWKS object (and no fetch) unless a Bearer is
+// actually presented.
 let defaultJwks: JWTVerifyGetKey | undefined;
 const getDefaultJwks = (): JWTVerifyGetKey =>
   (defaultJwks ??= createRemoteJWKSet(new URL(env.AUTH_JWKS_URL)));
@@ -103,17 +101,7 @@ export const createSystemAuthMiddleware = (opts: SystemAuthOptions) => {
 
   return createMiddleware<{ Variables: SystemAuthVariables }>(
     async (c, next) => {
-      // 1. Legacy shared token (constant-time), only while it is configured.
-      const internal = c.req.header("X-Internal-Token");
-      const legacy = env.NOTIFY_INTERNAL_TOKEN;
-      if (legacy && internal && safeEqual(internal, legacy)) {
-        c.set("allowedOrigins", null);
-        c.set("serviceSub", null);
-        accept(c.req.method, c.req.path, "shared-token");
-        return next();
-      }
-
-      // 2. Scoped service JWT.
+      // Scoped service JWT — the only credential.
       const audience = resolveAudience();
       const authHeader = c.req.header("Authorization");
       if (!audience || !authHeader || !authHeader.startsWith("Bearer ")) {

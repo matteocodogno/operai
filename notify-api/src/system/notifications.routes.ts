@@ -5,7 +5,7 @@
  *
  * Structurally mirrors emails.routes.ts (T3, specs/006-user-invitations,
  * ADR-0011): systemAuthMiddleware scoped to `notifications.push` (a service
- * JWT, or the transition-only X-Internal-Token — NOT jwtMiddleware; see
+ * JWT — NOT jwtMiddleware; see
  * systemAuth.middleware.ts's header for the invariant that ALSO applies to
  * this route) → zod-validate body → the
  * SAME inApp channel the user-JWT POST /notifications already uses
@@ -89,8 +89,7 @@ export const createSystemNotificationsRouter = (
     summary: "Push an in-app notification to an arbitrary recipient (cross-user)",
     description:
       "Internal-only endpoint authenticated by a scoped service JWT " +
-      "(aud=SERVICE_AUDIENCE, scope notifications.push, ADR-0044/0049) or, " +
-      "during the transition, the shared X-Internal-Token (ADR-0017) — never a user JWT. Routes through the same inApp " +
+      "(aud=SERVICE_AUDIENCE, scope notifications.push, ADR-0044/0049) — never a user JWT. Routes through the same inApp " +
       "channel the user-JWT POST /notifications uses, persisting a " +
       "Notification row for `recipientId` and pushing it over that " +
       "recipient's open SSE streams. `recipientId` may be any user, " +
@@ -136,7 +135,7 @@ export const createSystemNotificationsRouter = (
     const body = c.req.valid("json");
 
     // Service principals may raise only the origin app(s) bound to their `sub`
-    // (ADR-0044). null = legacy internal token, unrestricted (unchanged).
+    // (ADR-0044).
     if (!originAllowed(c.get("allowedOrigins"), body.originApp)) {
       return c.json(
         problem(

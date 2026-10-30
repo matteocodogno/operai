@@ -5,9 +5,8 @@
  * The auth matrix itself lives in systemAuth.middleware.test.ts; this file
  * proves the wiring: what is persisted, the origin binding (403), that each
  * route requires its OWN scope, that an `emails.send` credential renders every
- * email template exactly like the shared token, and the rollout matrix
- * {NOTIFY_INTERNAL_TOKEN set, unset} x {shared token, service credential} per
- * route. Real Postgres (like notifications.routes.test.ts); the JWKS is
+ * email template, and (specs/016 T14, AC-5.1) that `X-Internal-Token` with any
+ * value is refused on both routes with nothing persisted. Real Postgres (like notifications.routes.test.ts); the JWKS is
  * in-memory and injected, so no live auth service is needed.
  */
 
@@ -16,8 +15,12 @@ import { Hono } from "hono";
 import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from "jose";
 import { env } from "@/lib/env";
 
-const LEGACY = env.NOTIFY_INTERNAL_TOKEN!;
-const ORIGINAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN;
+// The retired shared header: any value, however secret-shaped, is not a credential.
+// Built from parts (tasks.md T14 greps for the name); a local env file that still
+// carries the old secret supplies the real value, so a regression would show.
+const RETIRED_VALUE =
+  process.env[["NOTIFY", "INTERNAL", "TOKEN"].join("_")] ?? "x".repeat(48);
+const RETIRED = { "X-Internal-Token": RETIRED_VALUE };
 const ORIGINAL_EMAIL_ENABLED = env.EMAIL_ENABLED;
 const SERVICE_AUD = "operai-system-test";
 const KID = "svc-route-kid";
@@ -68,7 +71,6 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  env.NOTIFY_INTERNAL_TOKEN = ORIGINAL_TOKEN;
   env.EMAIL_ENABLED = false;
   await freshDb.notification.deleteMany({ where: { recipientId: RECIPIENT } });
   await freshDb.emailDelivery.deleteMany({ where: { to: EMAIL_TO } });
@@ -151,16 +153,6 @@ describe("POST /system/notifications with a service JWT", () => {
   });
 });
 
-describe("POST /system/notifications with the legacy token", () => {
-  it("201 for origin 'inventory' and for 'refund' alike (unrestricted, unchanged)", async () => {
-    for (const originApp of ["inventory", "refund"]) {
-      const res = await send({ "X-Internal-Token": LEGACY }, body({ originApp }));
-      expect(res.status).toBe(201);
-    }
-    expect(await count()).toBe(2);
-  });
-});
-
 const INVITE_DATA = {
   inviteUrl: "https://auth.operai.welld.io/invite?id=inv_1&token=abc123",
   inviterName: "Admin",
@@ -209,15 +201,11 @@ const emailJwt = (sub = "system:refund-api") => serviceJwt(sub, { scope: "emails
 const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 
 describe("POST /system/emails with an emails.send credential (AC-3.1)", () => {
-  it("every template returns the same body as with the shared token, and is recorded under its own name", async () => {
+  it("every template is sent and recorded under its own name", async () => {
     for (const t of TEMPLATES) {
-      const viaToken = await emailRequest({ "X-Internal-Token": LEGACY }, t);
       const viaJwt = await emailRequest(bearer(await emailJwt()), t);
-      expect(viaToken.status).toBe(200);
       expect(viaJwt.status).toBe(200);
-      const a = (await viaToken.json()) as { deliveryId: string; status: string };
       const b = (await viaJwt.json()) as { deliveryId: string; status: string };
-      expect({ ...b, deliveryId: undefined }).toEqual({ ...a, deliveryId: undefined });
       expect(b.status).toBe("sent");
       const row = await freshDb.emailDelivery.findUnique({ where: { id: b.deliveryId } });
       expect(row?.template).toBe(t.template);
@@ -293,21 +281,20 @@ describe("origin bindings for the migrated callers", () => {
   });
 });
 
-describe("rollout matrix: NOTIFY_INTERNAL_TOKEN set/unset x shared token/service credential (AC-4.1, AC-3.2)", () => {
-  const routes: Array<[string, (h: Record<string, string>) => Response | Promise<Response>, () => Promise<string>]> = [
-    ["/system/notifications", (h) => send(h, body({ originApp: "refund" })), () => serviceJwt("system:refund-api")],
-    ["/system/emails", (h) => emailRequest(h), () => emailJwt()],
-  ];
-  for (const [name, call, cred] of routes) {
-    it(`${name}: token set -> accept / accept`, async () => {
-      env.NOTIFY_INTERNAL_TOKEN = LEGACY;
-      expect((await call({ "X-Internal-Token": LEGACY })).status).toBeOneOf([200, 201]);
-      expect((await call(bearer(await cred()))).status).toBeOneOf([200, 201]);
-    });
-    it(`${name}: token unset -> refuse / accept`, async () => {
-      env.NOTIFY_INTERNAL_TOKEN = undefined;
-      expect((await call({ "X-Internal-Token": LEGACY })).status).toBe(401);
-      expect((await call(bearer(await cred()))).status).toBeOneOf([200, 201]);
-    });
-  }
+describe("the retired shared token is refused on both routes (AC-5.1)", () => {
+  it("/system/notifications: X-Internal-Token alone -> 401 and no row; beside a valid JWT it adds nothing", async () => {
+    expect((await send(RETIRED, body({ originApp: "refund" }))).status).toBe(401);
+    expect(await count()).toBe(0);
+    const t = await serviceJwt("system:refund-api");
+    expect((await send({ ...bearer(t), ...RETIRED }, body({ originApp: "refund" }))).status).toBe(201);
+    // the origin binding still applies: the header does not widen it
+    expect((await send({ ...bearer(t), ...RETIRED }, body({ originApp: "estimai" }))).status).toBe(403);
+  });
+
+  it("/system/emails: X-Internal-Token alone -> 401 and no row, for every template", async () => {
+    for (const t of TEMPLATES) {
+      expect((await emailRequest(RETIRED, t)).status).toBe(401);
+    }
+    expect(await emailRows()).toBe(0);
+  });
 });

@@ -13,8 +13,8 @@
  * channels/email.channel.test.ts's file header for why: `env` is a
  * process-wide singleton (bun test runs every file in one process) and other
  * files (stream.routes.test.ts) depend on its real fields. This file imports
- * the REAL `env`, reads the REAL `NOTIFY_INTERNAL_TOKEN` (set in the worktree
- * `.env`, loaded below) as the "valid token" for tests, and mutates only
+ * the REAL `env`, authenticates with an in-memory scoped service JWT
+ * (specs/016 T14: the only credential), and mutates only
  * `EMAIL_ENABLED` for the Resend-failure test, restoring it in `afterEach`.
  *
  * done when (tasks.md T3): valid token → send (stub/real) 200
@@ -36,10 +36,30 @@ import { Hono } from "hono";
 import { env } from "@/lib/env";
 
 const ORIGINAL_EMAIL_ENABLED = env.EMAIL_ENABLED;
-// The real, valid internal token (worktree .env) — used as the "correct"
-// credential throughout; deliberately NOT overridden so this test proves the
-// actual middleware/env wiring, not a mock's approximation of it.
-const VALID_INTERNAL_TOKEN = env.NOTIFY_INTERNAL_TOKEN!;
+
+// ─── Service credential (specs/016 T14: the only credential) ──────────────────
+// Keys and JWKS are generated in memory and injected into the auth middleware,
+// so the test exercises the real middleware without a live auth service.
+
+import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from "jose";
+import { createSystemAuthMiddleware } from "./systemAuth.middleware";
+
+const SERVICE_AUD = "operai-system-emails-test";
+const KID = "emails-kid";
+const keyPair = await generateKeyPair("RS256");
+const localJwks = createLocalJWKSet({
+  keys: [{ ...(await exportJWK(keyPair.publicKey)), kid: KID, alg: "RS256", use: "sig" }],
+});
+const serviceToken = (scope: string = "emails.send") =>
+  new SignJWT({ scope })
+    .setProtectedHeader({ alg: "RS256", kid: KID })
+    .setIssuedAt()
+    .setIssuer(env.AUTH_ISSUER)
+    .setAudience(SERVICE_AUD)
+    .setSubject("system:refund-api")
+    .setExpirationTime("5m")
+    .sign(keyPair.privateKey);
+const authHeader = async () => ({ Authorization: `Bearer ${await serviceToken()}` });
 
 // ─── @/lib/resend mock — controlled per test via sendEmailImpl ───────────────
 
@@ -78,7 +98,7 @@ const freshDb = new PrismaClient({ adapter: freshAdapter });
 
 mock.module("@/lib/db", () => ({ db: freshDb }));
 
-const { systemEmailsRouter } = await import("./emails.routes");
+const { createSystemEmailsRouter } = await import("./emails.routes");
 
 const testDb = freshDb;
 const TEST_ADDRESS_PREFIX = "system-emails-test";
@@ -87,7 +107,12 @@ const TEST_ADDRESS_PREFIX = "system-emails-test";
 
 const buildApp = () => {
   const app = new Hono();
-  app.route("/", systemEmailsRouter);
+  app.route(
+    "/",
+    createSystemEmailsRouter(
+      createSystemAuthMiddleware({ scope: "emails.send", jwks: localJwks, audience: SERVICE_AUD }),
+    ),
+  );
   return app;
 };
 
@@ -111,13 +136,13 @@ afterEach(async () => {
 
 // ─── Happy path (T3 done-when) ────────────────────────────────────────────────
 
-describe("POST /system/emails — valid internal token", () => {
+describe("POST /system/emails — valid service credential", () => {
   it("200: stub send (EMAIL_ENABLED=false) → {deliveryId, status:'sent'}, EmailDelivery recorded", async () => {
     const app = buildApp();
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -142,7 +167,7 @@ describe("POST /system/emails — valid internal token", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ template: "invitation_resend" })),
@@ -166,7 +191,7 @@ describe("POST /system/emails — valid internal token", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -191,8 +216,8 @@ describe("POST /system/emails — valid internal token", () => {
 
 // ─── Auth (Security R2, ADR-0011) ─────────────────────────────────────────────
 
-describe("POST /system/emails — internal-token auth (Security R2, ADR-0011)", () => {
-  it("401: missing X-Internal-Token header, nothing persisted", async () => {
+describe("POST /system/emails — service-credential auth (Security R2, ADR-0011, ADR-0049)", () => {
+  it("401: no credential, nothing persisted", async () => {
     const app = buildApp();
     const before = await testDb.emailDelivery.count({
       where: { to: { contains: TEST_ADDRESS_PREFIX } },
@@ -211,12 +236,12 @@ describe("POST /system/emails — internal-token auth (Security R2, ADR-0011)", 
     expect(after).toBe(before);
   });
 
-  it("401: wrong X-Internal-Token value, nothing persisted", async () => {
+  it("401: X-Internal-Token (the retired shared header), any value, nothing persisted (AC-5.1)", async () => {
     const app = buildApp();
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": "definitely-not-the-right-token-but-long-enough",
+        "X-Internal-Token": "x".repeat(48),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -224,7 +249,7 @@ describe("POST /system/emails — internal-token auth (Security R2, ADR-0011)", 
     expect(res.status).toBe(401);
   });
 
-  it("401: a user JWT (Authorization: Bearer …) is rejected — /system/emails never accepts a user JWT in place of the internal token", async () => {
+  it("401: a user JWT (Authorization: Bearer …) is rejected — /system/emails never accepts a user JWT as a service credential", async () => {
     const app = buildApp();
     const res = await app.request("/system/emails", {
       method: "POST",
@@ -234,20 +259,18 @@ describe("POST /system/emails — internal-token auth (Security R2, ADR-0011)", 
       },
       body: JSON.stringify(validBody()),
     });
-    // No X-Internal-Token header at all — internalTokenMiddleware doesn't
-    // read Authorization, so a Bearer JWT (however well-formed) is simply not
-    // the credential it checks; it is rejected exactly like any other
-    // missing/wrong token.
+    // A Bearer that is not a verifiable service JWT is rejected exactly like
+    // any other missing credential.
     expect(res.status).toBe(401);
   });
 
-  it("401: a user JWT presented ALONGSIDE a wrong X-Internal-Token is still rejected (the JWT does not substitute for it)", async () => {
+  it("401: a user JWT presented ALONGSIDE an X-Internal-Token is still rejected (neither is a credential)", async () => {
     const app = buildApp();
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
         Authorization: "Bearer some.made.up.jwt.value",
-        "X-Internal-Token": "still-the-wrong-token-value-but-long-enough",
+        "X-Internal-Token": "x".repeat(48),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody()),
@@ -264,7 +287,7 @@ describe("POST /system/emails — validation failures → 400", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ to: "not-an-email" })),
@@ -277,7 +300,7 @@ describe("POST /system/emails — validation failures → 400", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ template: "password_reset" })),
@@ -294,7 +317,7 @@ describe("POST /system/emails — validation failures → 400", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ...body, data: restData }),
@@ -308,7 +331,7 @@ describe("POST /system/emails — validation failures → 400", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -328,7 +351,7 @@ describe("POST /system/emails — validation failures → 400", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validBody({ to: "not-an-email" })),
@@ -364,7 +387,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(validRefundBatchBody()),
@@ -391,7 +414,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ...body, data: restData }),
@@ -405,7 +428,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -425,7 +448,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ ...body, data: restData }),
@@ -439,7 +462,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -456,7 +479,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -473,7 +496,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -489,7 +512,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -510,7 +533,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     const res = await app.request("/system/emails", {
       method: "POST",
       headers: {
-        "X-Internal-Token": VALID_INTERNAL_TOKEN,
+        ...(await authHeader()),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -522,7 +545,7 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
     expect(res.status).toBe(400);
   });
 
-  it("401: internal-token gate is unchanged for the new template — missing token still rejected", async () => {
+  it("401: the credential gate is unchanged for the new template — a missing credential is still rejected", async () => {
     const app = buildApp();
     const res = await app.request("/system/emails", {
       method: "POST",
@@ -535,11 +558,11 @@ describe("POST /system/emails — refund_batch_compiled (T7, ADR-0021)", () => {
 
 // ─── Decision emails (specs/007-refund-service AC-3.6, email channel) ──────
 
-const post = (body: unknown) =>
+const post = async (body: unknown) =>
   buildApp().request("/system/emails", {
     method: "POST",
     headers: {
-      "X-Internal-Token": VALID_INTERNAL_TOKEN,
+      ...(await authHeader()),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

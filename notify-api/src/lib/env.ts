@@ -40,20 +40,7 @@ const envSchema = z.object({
   // optional at the schema level so test/local can leave them unset.
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM: z.string().optional(),
-  // ─── System-to-system auth ──────────────────────────────────────────────────
-  // TRANSITION ONLY (specs/016, ADR-0049). The legacy shared secret checked
-  // against `X-Internal-Token` on POST /system/emails AND POST
-  // /system/notifications (ADR-0011/0017/0040). Optional: while set, both
-  // routes still accept it alongside a scoped service JWT; unset (or empty),
-  // the header is never accepted, so retiring the token in production is
-  // deleting this one variable. A short/weak value still materially weakens
-  // the trust boundary, so a minimum length applies whenever it is set. The
-  // variable and its middleware path leave the code in specs/016 T14.
-  NOTIFY_INTERNAL_TOKEN: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(32, "NOTIFY_INTERNAL_TOKEN must be at least 32 characters").optional(),
-  ),
-  // ─── Scoped service JWT (specs/015, ADR-0044; required since specs/016) ─────
+  // ─── System-to-system auth: scoped service JWT (specs/015, ADR-0044; the only credential since specs/016) ─
   // `aud` that `auth` stamps on service tokens (POST /system/service-token and
   // its in-process self-mint). MUST differ from AUTH_AUDIENCE so a user JWT is
   // never a system credential and a service token is never a user credential
