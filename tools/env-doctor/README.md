@@ -110,7 +110,11 @@ them only in memory, never writes them to disk, and never echoes the raw output.
 Any value that reaches a finding is run through `showValue()` — secret-typed vars
 (`manifest.ts` `SECRET_VARS`: tokens, `DATABASE_URL`, OAuth/JWT/Resend/S3 creds)
 become a `sha256:xxxx` fingerprint, so a drift is still visible (two different
-fingerprints) without exposing the secret.
+fingerprints) without exposing the secret. Any other URL is shown without its
+userinfo (`user:pass@`), query string and fragment, with a fingerprint of the
+original appended so a change in the stripped part stays visible; a value that
+fails URL parsing is shown as a fingerprint only, since it may still hold a
+credential.
 
 ## CI gate
 

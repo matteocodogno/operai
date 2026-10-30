@@ -58,12 +58,34 @@ export interface CheckOptions {
 
 const XS = "cross-service";
 
-/** Render a value for a finding message — secrets become a non-reversible fingerprint. */
+const fingerprint = (v: string): string => `sha256:${createHash("sha256").update(v).digest("hex").slice(0, 8)}`;
+
+/** `scheme://user:pass@` inside any text (a URL list, JSON, an unparseable value) → `scheme://***@`. */
+const USERINFO = /([a-z][a-z0-9+.-]*:\/\/)[^/\s@,'"]*@/gi;
+
+/**
+ * Render a value for a finding message. Secret vars become a non-reversible fingerprint; a URL loses its
+ * userinfo, query string and fragment (all three are credential carriers) and, when something was dropped,
+ * gains a fingerprint of the original so two URLs that differ only there stay distinguishable.
+ */
 export function showValue(name: string, v: string): string {
-  if (!isSecretVar(name)) return v;
-  const fp = createHash("sha256").update(v).digest("hex").slice(0, 8);
-  return `<redacted sha256:${fp}>`;
+  if (isSecretVar(name)) return `<redacted ${fingerprint(v)}>`;
+  let u: URL;
+  try {
+    u = new URL(v);
+  } catch {
+    return v.replace(USERINFO, "$1***@");
+  }
+  if (!u.username && !u.password && !u.search && !u.hash) return v.replace(USERINFO, "$1***@");
+  u.username = "";
+  u.password = "";
+  u.search = "";
+  u.hash = "";
+  return `${u.toString().replace(USERINFO, "$1***@")} <userinfo/query redacted ${fingerprint(v)}>`;
 }
+
+/** For a value that failed URL parsing: it may still carry a credential, so print only a fingerprint. */
+const showInvalid = (v: string): string => `<unparseable, ${fingerprint(v)}>`;
 
 function parseUrl(v: string): URL | null {
   try {
@@ -161,7 +183,7 @@ function checkIssuerConsistency(suite: SuiteEnv): Finding[] {
       out.push({
         scope: XS,
         level: "error",
-        message: `${svc}.${ISSUER.issuerVar} (${iss}) != ${ISSUER.authService}.${ISSUER.authVar} (${authIssuer}) — the JWT \`iss\` claim won't match`,
+        message: `${svc}.${ISSUER.issuerVar} (${showValue(ISSUER.issuerVar, iss)}) != ${ISSUER.authService}.${ISSUER.authVar} (${showValue(ISSUER.authVar, authIssuer)}) — the JWT \`iss\` claim won't match`,
         fix: `Set ${svc}.${ISSUER.issuerVar} to auth's public URL (\${{shared.AUTH_ISSUER}}).`,
       });
     }
@@ -179,14 +201,14 @@ function checkInternalUrls(suite: SuiteEnv, opts: CheckOptions): Finding[] {
       if (isRailwayRef(v)) continue; // ${{svc.PORT}} form — self-consistent, the recommended shape
       const url = parseUrl(v);
       if (!url) {
-        out.push({ scope: svc, level: "error", message: `${name} is not a valid URL (${v})` });
+        out.push({ scope: svc, level: "error", message: `${name} is not a valid URL (${showInvalid(v)})` });
         continue;
       }
       if (url.protocol !== "http:") {
         out.push({
           scope: svc,
           level: "error",
-          message: `${name} must be http:// on the private network, got ${url.protocol}// (${v})`,
+          message: `${name} must be http:// on the private network, got ${url.protocol}// (${showValue(name, v)})`,
           fix: `Private networking carries no TLS — use http://${target}.railway.internal:<PORT>.`,
         });
       }
@@ -194,7 +216,7 @@ function checkInternalUrls(suite: SuiteEnv, opts: CheckOptions): Finding[] {
         out.push({
           scope: svc,
           level: "error",
-          message: `${name} should call ${target} over private networking but points at ${url.hostname} (${v})`,
+          message: `${name} should call ${target} over private networking but points at ${url.hostname} (${showValue(name, v)})`,
           fix: `Use http://\${{${target}.RAILWAY_PRIVATE_DOMAIN}}:\${{${target}.PORT}} (a CALL, not a public URL).`,
         });
       }
@@ -253,14 +275,14 @@ function checkPublicUrls(suite: SuiteEnv, opts: CheckOptions): Finding[] {
       if (v === undefined || v === "" || isSecretRef(v) || isRailwayRef(v)) continue;
       const url = parseUrl(v);
       if (!url) {
-        out.push({ scope: svc, level: "error", message: `${name} is not a valid URL (${v})` });
+        out.push({ scope: svc, level: "error", message: `${name} is not a valid URL (${showInvalid(v)})` });
         continue;
       }
       if (url.hostname === "localhost" || url.hostname.endsWith(".railway.internal") || url.protocol !== "https:") {
         out.push({
           scope: svc,
           level: "error",
-          message: `${name} must be a public https:// URL in ${opts.env}, got ${v}`,
+          message: `${name} must be a public https:// URL in ${opts.env}, got ${showValue(name, v)}`,
           fix: `${name} is browser-facing / a JWT claim — never localhost or *.railway.internal in prod.`,
         });
       }
