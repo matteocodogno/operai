@@ -172,6 +172,47 @@ of item from the desktop app instead (⋯ → Duplicate, then move the copy to `
 | Postgres or Railway values are empty or stale at the root | the root `.envrc` caches them in `.env.cached` for a day: `rm -f .env.cached && direnv reload` |
 | Works in the terminal, prompts after the Mac slept | the login Keychain is set to lock on sleep (Keychain Access → Settings) |
 
+### Git signing and GitHub access without 1Password prompts
+
+If your global git config signs commits through 1Password (`gpg.ssh.program` pointing at
+`op-ssh-sign`) and reaches GitHub through the 1Password SSH agent, every commit and every fetch
+or push asks for Touch ID. A coding agent stops at the first commit. The settings below apply
+**to this repository only** (`--local`), so your other repositories keep signing through
+1Password. `gh` is not affected: it keeps its token in the macOS Keychain and never prompts.
+
+1. **A signing-only key.** Register it on GitHub as a *Signing key*, so it cannot authenticate.
+   It has no passphrase because a passphrase would be asked on every signature. Anyone who can
+   read `~/.ssh` as you can therefore sign commits as you, but cannot push or reach GitHub with
+   it. Revoke it under GitHub → Settings → SSH and GPG keys.
+
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C "operai local commit signing" -f ~/.ssh/operai_signing
+   gh auth refresh -h github.com -s admin:ssh_signing_key
+   gh ssh-key add ~/.ssh/operai_signing.pub --type signing --title "operai local signing"
+
+   git config --local gpg.ssh.program ssh-keygen
+   git config --local user.signingkey "$HOME/.ssh/operai_signing"
+   echo test | ssh-keygen -Y sign -f ~/.ssh/operai_signing -n git >/dev/null && echo "signing ok"
+   ```
+
+   Commits stay *Verified* on GitHub. After the next commit, `git log --show-signature -1`
+   shows the signature.
+
+2. **Fetch and push over HTTPS with `gh`'s token** (optional). It adds no new credential.
+   Today Touch ID is a physical confirmation on every push; with this change an agent can push
+   without it, and the only thing left stopping it is the rule that nobody pushes without being
+   asked. Skip this step to keep that confirmation; then fetch and push still prompt.
+
+   ```bash
+   gh auth setup-git
+   git remote set-url origin https://github.com/<owner>/operai.git
+   git fetch && echo "fetch ok"
+   ```
+
+Before either step, `git config --local --list | grep -E 'gpg|signingkey|remote.origin.url'`
+shows what this repository overrides. To go back to 1Password:
+`git config --local --unset gpg.ssh.program && git config --local --unset user.signingkey`.
+
 ### HMR notes (Module Federation)
 
 All-dev Module Federation works: the shell mounts the remotes, the shared React
