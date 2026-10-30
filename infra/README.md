@@ -1526,7 +1526,7 @@ failure (it flags the retired variable by name on any service).
   a real bucket) — `bun test` itself does not require one (storage is mocked).
 - **Secrets** are only ever referenced from the direnv/1Password shell, never
   pasted literally or committed; `.pem` files are gitignored; the pre-commit
-  gitleaks hook guards commits.
+  betterleaks hook guards commits.
 
 ---
 

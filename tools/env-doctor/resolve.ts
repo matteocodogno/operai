@@ -10,7 +10,7 @@
  *   - `${OP:vault/item/field}` sentinels for real 1Password secrets        → resolved by --resolve
  *
  * The `${OP:…}` spelling is deliberately NOT a literal 1Password URI so committed
- * template files don't trip gitleaks' 1password-reference rule. With `--resolve`,
+ * template files don't trip the secret scanner's 1password-reference rule. With `--resolve`,
  * each `${OP:path}` value is resolved one reference at a time via `op read` (the
  * op-scheme reference assembled at runtime) — the same call `.envrc` uses. We
  * deliberately do NOT pipe the whole template through `op inject`: op inject has
@@ -33,7 +33,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const TEMPLATES_DIR = join(HERE, "templates");
 
 const OP_SENTINEL = /\$\{OP:([^}]+)\}/g;
-// Assembled, not a literal, so this source file doesn't itself trip gitleaks'
+// Assembled, not a literal, so this source file doesn't itself trip the secret scanner's
 // 1password-reference rule (the whole point of the `${OP:…}` sentinel spelling).
 const OP_SCHEME = "op:" + "//";
 

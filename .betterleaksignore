@@ -1,0 +1,101 @@
+.envrc:1password-reference:6
+.envrc:1password-reference:8
+.envrc:1password-reference:9
+.envrc:1password-reference:10
+
+# auth/src/test-setup.ts uses a placeholder BETTER_AUTH_SECRET for unit tests — not a real secret
+auth/src/test-setup.ts:generic-api-key:20
+
+# auth/src/auth/auth.config.test.ts (T8, specs/006-user-invitations) — same placeholder
+# secret string, reused to construct scratch betterAuth() instances for the R1 spike
+# (session.create.before abort-contract check) — not a real secret
+auth/src/auth/auth.config.test.ts:generic-api-key:173
+auth/src/auth/auth.config.test.ts:generic-api-key:197
+auth/.envrc:1password-reference:6
+auth/.envrc:1password-reference:8
+auth/.envrc:1password-reference:9
+auth/.envrc:1password-reference:11
+auth/.envrc:1password-reference:12
+auth/.envrc:1password-reference:14
+auth/.envrc:1password-reference:15
+auth/.envrc:1password-reference:17
+auth/.envrc:1password-reference:18
+
+# estimai-api/src/auth/jwt.middleware.test.ts uses in-test generated CryptoKey objects
+# (kp2.privateKey) — these are WebCrypto key handles in memory, not real secrets
+estimai-api/src/auth/jwt.middleware.test.ts:generic-api-key:146
+
+# notify-api/src/auth/jwt.middleware.test.ts — same in-test generated CryptoKey pattern
+notify-api/src/auth/jwt.middleware.test.ts:generic-api-key:138
+
+# refund-api/src/auth/jwt.middleware.test.ts (T4, specs/007-refund-service) — same
+# in-test generated CryptoKey pattern as estimai-api/notify-api above
+refund-api/src/auth/jwt.middleware.test.ts:generic-api-key:162
+
+# infra/check.sh (specs/006, reworked by specs/016) — deliberately BOGUS literal string
+# ("not-a-credential") sent as the retired X-Internal-Token header to assert both
+# notify-api /system routes reject it with 401. Not a real secret.
+infra/check.sh:curl-auth-header:166
+b79a25b0c5d650afe81bce038cc875ca5b4704b0:infra/check.sh:curl-auth-header:166
+2afd07b8c10a012b927526a1fe0e35d5dfb3be54:infra/check.sh:curl-auth-header:114
+
+admin-ui/.envrc:1password-reference:19
+notify-api/.envrc:1password-reference:19
+auth/.envrc:1password-reference:19
+auth/.envrc:1password-reference:20
+auth/.envrc:1password-reference:21
+auth/.envrc:1password-reference:22
+auth/.envrc:1password-reference:23
+auth/.envrc:1password-reference:24
+auth/.envrc:1password-reference:25
+auth/.envrc:1password-reference:26
+auth/.envrc:1password-reference:27
+
+# History findings of betterleaks' extra rules (generic-credential-uri, generic-password,
+# private-key), reviewed 2026-10-30 when the repo moved from gitleaks to betterleaks.
+# Every one is a local/test placeholder, never a real secret: test:test / user:pass /
+# postgres:postgres DATABASE_URLs on localhost in tests and .env.example files, the
+# ${POSTGRES_PASSWORD:-postgres} / ${MINIO_ROOT_PASSWORD:-minioadmin} compose defaults,
+# infra/variables.md's `user:pass@postgres.railway.internal` placeholders, the
+# body-less JWT_PRIVATE_KEY example in auth/.env.example, and the seeded e2e user's
+# password in estimai-ui/e2e/helpers/seedSession.ts. Format: commit:file:rule:line.
+0cdc4dbe33c0d75a9e08e02b48a7e15f58ddd337:estimai-api/src/lib/cors.preflight.test.ts:generic-credential-uri:33
+167f15dc4360919337caed405bc44a2c1b9a2fc6:estimai-api/src/lib/authClient.test.ts:generic-credential-uri:22
+167f15dc4360919337caed405bc44a2c1b9a2fc6:estimai-api/src/lib/env.test.ts:generic-credential-uri:17
+167f15dc4360919337caed405bc44a2c1b9a2fc6:estimai-api/src/lib/notify.test.ts:generic-credential-uri:14
+1c77f48bd4abb8e70aab45db3505ac26781f209b:compose.yaml:generic-password:183
+1c77f48bd4abb8e70aab45db3505ac26781f209b:inventory-api/.env.example:generic-credential-uri:24
+214e7f8084d01297b04a23dc654db1149aa00b3f:refund-api/src/auth/authz.middleware.test.ts:generic-credential-uri:51
+214e7f8084d01297b04a23dc654db1149aa00b3f:refund-api/src/auth/jwt.middleware.test.ts:generic-credential-uri:81
+2735bf96601e2cee4d6bf5d851df22c36728041e:compose.yaml:generic-password:88
+2b11a534ff162424e30e3d1db9a9ca295e073e3b:compose.yaml:generic-password:183
+2b11a534ff162424e30e3d1db9a9ca295e073e3b:inventory-api/scripts/import-legacy.test.ts:generic-credential-uri:12
+2b11a534ff162424e30e3d1db9a9ca295e073e3b:inventory-api/src/test-support/testAuth.ts:generic-credential-uri:65
+2b11a534ff162424e30e3d1db9a9ca295e073e3b:notify-api/src/system/serviceJwt.isolation.test.ts:generic-credential-uri:20
+2d25c5e239cf858b12d0ae55cbdcb9e2cc7fe3c1:estimai-api/src/auth/jwt.middleware.test.ts:generic-credential-uri:67
+322dac3d3d6f99cb2b32c9cb160614d350ba6f1e:estimai-api/src/estimates/orphaned-estimate.test.ts:generic-credential-uri:107
+322dac3d3d6f99cb2b32c9cb160614d350ba6f1e:estimai-api/src/estimates/orphaned-estimate.test.ts:generic-credential-uri:134
+3571d53c3b7d1eb1cd73d38dacd6fb6bc7b07bde:inventory-api/src/test-support/testAuth.ts:generic-credential-uri:65
+38e6759ea2df61f208be12ef8c6bbdccb6b6c330:refund-api/.env.example:generic-credential-uri:24
+38e6759ea2df61f208be12ef8c6bbdccb6b6c330:refund-api/src/auth/jwt.middleware.test.ts:generic-credential-uri:72
+46afbb42e41ef62e333c599132979391869b1c4e:compose.yaml:generic-password:201
+6862c40d3c4fe9b88e38f9e664b9554a31daac3d:auth/src/test-setup.ts:generic-credential-uri:18
+6c3dde4667cc3ac1dcd63288f16c6525697163ae:compose.yaml:generic-password:134
+748579c47c767a9d4c0b77f482089e921f6d7897:refund-api/src/lib/env.test.ts:generic-credential-uri:21
+8c23f732be6cb9eb2c0c1382ae79631996bbd2c9:inventory-api/scripts/import-legacy.test.ts:generic-credential-uri:12
+90f7d7083540b4ba6b1f82ea846fb9ae52072499:estimai-ui/e2e/helpers/seedSession.ts:generic-password:31
+9198ef496963c5012fa66b5e2bd1cd0b55e5255e:estimai-api/src/lib/serviceToken.test.ts:generic-credential-uri:10
+9aa4c5332ac1bbab936e658dd0265b0dbcfb7d43:notify-api/src/auth/jwt.middleware.test.ts:generic-credential-uri:64
+9f2b905f355642bb0fdd8b60a995fe14ccf90bb3:estimai-api/src/estimates/collaborators.routes.test.ts:generic-credential-uri:63
+a44f699bd732c1a431a17234bfa41b66eed51f17:auth/.env.example:generic-credential-uri:2
+a44f699bd732c1a431a17234bfa41b66eed51f17:auth/.env.example:private-key:24
+a810b7630ba8ab7ab1e612b2d1f1a90f4d9a1cac:compose.yaml:generic-password:45
+af14f34c31139a1f4775c6496b0ef94636bf08eb:infra/variables.md:generic-credential-uri:12
+af14f34c31139a1f4775c6496b0ef94636bf08eb:infra/variables.md:generic-credential-uri:33
+b6bbb5dfd1cfd2a47e63d9446871291f69f79355:estimai-api/src/auth/jwt.middleware.test.ts:generic-credential-uri:102
+d1e0acfcdb47bc951d6e98831ece7e041a2c78f2:notify-api/src/auth/jwt.middleware.test.ts:generic-credential-uri:77
+d6f6a36a35eda5a392e191841fe80c48f43b5f79:estimai-api/.env.example:generic-credential-uri:2
+e38feb311b3eddde7fed2bcbc5aba9c7003a4c4a:notify-api/.env.example:generic-credential-uri:18
+e724be957fe5197f3976cdf77d5409ac8979e55a:refund-api/src/lib/storage.test.ts:generic-credential-uri:23
+ec0ae4f9397edcc772125d21e8b580d36c58b07e:notify-api/src/system/serviceJwt.isolation.test.ts:generic-credential-uri:20
+f3d016d93a7c609dbc4b7193e8b472afea76da11:refund-api/src/lib/serviceToken.test.ts:generic-credential-uri:10

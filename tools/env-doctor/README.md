@@ -45,7 +45,7 @@ checked differently:
 | **`${{shared.X}}`** (suite-wide constant/secret) | `AUTH_AUDIENCE=${{shared.AUTH_AUDIENCE}}` | identity is drift-proof by construction; a stray literal alongside it WARNs |
 
 The `${OP:…}` spelling is deliberately **not** a literal `op://…`, so committed
-template files never trip gitleaks' 1password-reference rule. `--resolve` resolves
+template files never trip the secret scanner's 1password-reference rule. `--resolve` resolves
 each `${OP:path}` one reference at a time via `op read` (the assembled op-scheme
 reference — the same call `.envrc` uses) — **not** `op inject`, whose own
 `{{ }}` template language collides

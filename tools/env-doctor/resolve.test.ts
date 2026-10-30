@@ -15,7 +15,7 @@ function fixture(env: string, files: Record<string, string>): string {
 }
 
 // Assembled so a literal 1Password reference never appears in this source file
-// (gitleaks' 1password-reference rule) — the resolver's whole job is to PRODUCE these.
+// (the secret scanner's 1password-reference rule) — the resolver's whole job is to PRODUCE these.
 const OP = "op:" + "//";
 
 const AUTH_TPL = [

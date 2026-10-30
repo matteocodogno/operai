@@ -191,7 +191,7 @@ describe("env-doctor checker", () => {
 
   test("a lingering secret reference in a supposedly-resolved suite → warning (not error)", () => {
     const s = validSuite();
-    // Assembled so the literal `op://…` doesn't appear in source (gitleaks' 1password-reference rule).
+    // Assembled so the literal `op://…` doesn't appear in source (the secret scanner's 1password-reference rule).
     s.auth!.BETTER_AUTH_SECRET = "op:" + "//Operai-Prod/auth-secret/password";
     const f = checkSuite(s, PROD); // PROD ⇒ resolved defaults true
     expect(warns(f).some((w) => w.message.includes("unresolved secret reference"))).toBe(true);

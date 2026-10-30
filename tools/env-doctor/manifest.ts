@@ -261,7 +261,7 @@ export const isRailwayRef = (v: string): boolean => v.includes("${{");
 /**
  * A value that stands in for a secret resolved out-of-band from 1Password:
  * either an already-`op://` reference, or the committed-template `${OP:vault/item/field}`
- * sentinel (a deliberately non-`op://` spelling so gitleaks' 1password-reference
+ * sentinel (a deliberately non-`op://` spelling so the secret scanner's 1password-reference
  * rule doesn't flag committed template files — see resolve.ts). Its concrete
  * value is unknowable offline, so value-shape checks skip it; `--resolve` turns
  * `${OP:…}` into a real `op read` and proves it exists.
