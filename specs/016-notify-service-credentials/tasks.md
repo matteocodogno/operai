@@ -156,7 +156,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     `SERVICE_CLIENT_*` exits naming it; provider rejection → the collaborator change is
     still committed; starts with the shared token present and absent; `git grep
     NOTIFY_INTERNAL_TOKEN -- estimai-api/src` is empty.
-- [ ] T11: **(person)** local env files match the new settings — refs: AC-5.4 — deps: T7, T9, T10
+- [x] T11: **(person)** local env files match the new settings — refs: AC-5.4 — deps: T7, T9, T10
   - touch: `auth/.env.example`, `refund-api/.env.example`, `estimai-api/.env.example`,
     `notify-api/.env.example`, `inventory-api/.env.example`, each service's local env
   - Agents cannot edit these (R-6). The implementing agent of T7/T9/T10 reports the exact
