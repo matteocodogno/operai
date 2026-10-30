@@ -195,7 +195,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     estimate-sharing and inventory-assignment specs with the local stack from T11, and
     the local `notify-api` log shows only `caller=system:*` lines for the run;
     `mise run changeset:check` passes.
-- [ ] T13: **(person)** push 2, verify, then Manual B — refs: AC-4.4, AC-5.5 — deps: T12
+- [x] T13: **(person)** push 2, verify, then Manual B — refs: AC-4.4, AC-5.5 — deps: T12
   - touch: none (production settings)
   - Push; trigger one invitation, one refund decision, one batch email, one collaborator
     change; confirm no `caller=shared-token` line since the push and no 429 from the token
