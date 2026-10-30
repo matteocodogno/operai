@@ -20,6 +20,9 @@
  * from the environment.
  */
 
+// shared-copy:begin serviceToken
+// Byte-identical in inventory-api, refund-api and estimai-api; checked by
+// scripts/check-shared-copies.ts (mise run shared:check). Edit all three together.
 import { env } from "./env";
 
 /** Refetch this long before the token's own expiry. */
@@ -107,6 +110,7 @@ export function createServiceTokenProvider(options: ServiceTokenProviderOptions)
     },
   };
 }
+// shared-copy:end serviceToken
 
 export const serviceTokens: ServiceTokenProvider = createServiceTokenProvider({
   baseUrl: env.AUTH_BASE_URL,

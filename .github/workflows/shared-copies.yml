@@ -1,0 +1,33 @@
+# shared-copies — the backends deliberately duplicate a few modules (no shared
+# package: a workspace would break the per-app installs and Railway builds). Each
+# copy marks its shared region with `// shared-copy:begin|end <name>`; this job
+# fails, naming the files, when the regions are not byte-identical.
+#
+# OFFLINE and needs NO secrets: it only reads source files. Like env-doctor, it is a
+# real pre-merge gate only once a required-status-check rule for it exists on `main`.
+# Registry and logic: scripts/check-shared-copies.ts (self-test next to it).
+name: shared-copies
+
+on:
+  pull_request:
+    paths:
+      - "scripts/check-shared-copies*.ts"
+      - "inventory-api/src/lib/serviceToken.ts"
+      - "refund-api/src/lib/serviceToken.ts"
+      - "estimai-api/src/lib/serviceToken.ts"
+      - ".github/workflows/shared-copies.yml"
+  workflow_dispatch: {}
+
+jobs:
+  in-sync:
+    name: copies in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Test the checker
+        run: bun test scripts/check-shared-copies.test.ts
+      - name: Check the shared regions are identical
+        run: bun scripts/check-shared-copies.ts
