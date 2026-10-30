@@ -242,7 +242,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
   - done when: `cd tools/env-doctor && bun test` passes, including: the variable present
     on any service → flagged; the `src/` test green; `mise run env:doctor -- --env
     production --dir tools/env-doctor/templates/production` reports no failure.
-- [ ] T18: **(person)** push 3 and the production check — refs: AC-5.5 — deps: T14, T15, T16, T17
+- [x] T18: **(person)** push 3 and the production check — refs: AC-5.5 — deps: T14, T15, T16, T17
   - touch: none
   - done when: `./infra/check.sh` passes against production and
     `mise run env:doctor -- --env production --live` reports no failure.
