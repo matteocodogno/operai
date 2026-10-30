@@ -19,6 +19,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, cleanup, fireEvent, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import CollaboratorsDialog from './CollaboratorsDialog'
 import type { CollaboratorGrant } from '../lib/collaboratorsApi'
 import type { ApiProblem, EstimateIdentity } from '../lib/estimatesApi'
@@ -565,5 +566,48 @@ describe('CollaboratorsDialog — member mode (T21, specs/013)', () => {
 
       expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
     })
+  })
+})
+
+// React StrictMode mounts, unmounts and remounts every component in dev. The
+// unmount cleanup flips `isMountedRef` to false; if the remount does not set it
+// back, every async result is dropped and the dialog sticks on "Adding…".
+describe('CollaboratorsDialog — under StrictMode', () => {
+  it('owner mode: an add completes and the dialog leaves the submitting state', async () => {
+    vi.mocked(collaboratorsApi.list).mockResolvedValue([])
+    vi.mocked(collaboratorsApi.add).mockResolvedValue({
+      id: 'grant-new',
+      email: 'new@welld.ch',
+      accessLevel: 'viewer',
+      createdAt: '2026-08-07T10:00:00.000Z',
+      identity: { status: 'active', name: null },
+    })
+    render(
+      <StrictMode>
+        <CollaboratorsDialog estimateId="est-1" access="owner" onClose={vi.fn()} />
+      </StrictMode>,
+    )
+    await screen.findByTestId('collaborators-dialog-empty')
+
+    await fillAndSubmitAdd('new@welld.ch')
+
+    await screen.findByText('new@welld.ch')
+    const input = screen.getByTestId('collaborators-dialog-email-input') as HTMLInputElement
+    expect(input.value).toBe('')
+  })
+
+  it('member mode: a failed Leave shows its inline error', async () => {
+    vi.mocked(collaboratorsApi.leave).mockRejectedValue(new Error('network'))
+    render(
+      <StrictMode>
+        <CollaboratorsDialog estimateId="est-1" access="viewer" owner={activeOwnerIdentity} onClose={vi.fn()} />
+      </StrictMode>,
+    )
+
+    fireEvent.click(screen.getByTestId('collaborators-dialog-leave-button'))
+    fireEvent.click(screen.getByTestId('confirm-delete-confirm'))
+
+    const errorEl = await screen.findByTestId('confirm-delete-error')
+    expect(errorEl.textContent).toBe(strings.sharing.errors.genericLeaveFailed)
   })
 })

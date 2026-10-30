@@ -177,12 +177,14 @@ function OwnerCollaboratorsDialog({ estimateId, onClose }: OwnerCollaboratorsDia
   const emailInputRef = useRef<HTMLInputElement>(null)
   const rowSelectRefs = useRef(new Map<string, HTMLSelectElement>())
   const isMountedRef = useRef(true)
-  useEffect(
-    () => () => {
+  // Set on every mount, not only at first render: StrictMode's dev remount
+  // runs the cleanup below and would otherwise leave the flag false.
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
       isMountedRef.current = false
-    },
-    [],
-  )
+    }
+  }, [])
 
   const { data: session } = authClient.useSession()
   const sessionEmail = session?.user?.email ?? null
@@ -670,12 +672,14 @@ function MemberCollaboratorsDialog({ estimateId, access, owner, onClose }: Membe
   const dialogRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const isMountedRef = useRef(true)
-  useEffect(
-    () => () => {
+  // Set on every mount, not only at first render: StrictMode's dev remount
+  // runs the cleanup below and would otherwise leave the flag false.
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
       isMountedRef.current = false
-    },
-    [],
-  )
+    }
+  }, [])
 
   // Defensive fallback: `owner` should always be non-null when access !==
   // 'owner' (estimatesApi.ts: "null when access === 'owner'" — the inverse
