@@ -52,3 +52,34 @@ export function grantRefundEmployee(email: string): void {
 export function grantRefundAccounting(email: string, entity: 'welld_it' | 'welld_ch' | 'global'): void {
   runFixtureScript(['grant-refund-accounting', email.toLowerCase(), entity])
 }
+
+const REFUND_API_URL =
+  process.env['E2E_REFUND_API_URL'] ?? process.env['VITE_REFUND_API_URL'] ?? 'http://localhost:8082'
+
+/**
+ * Pays out every approved-but-unbatched request already in the database, so a
+ * journey that asserts the exact contents of a compile preview starts from an
+ * empty candidate set.
+ *
+ * Why this exists: a compile claims EVERY eligible request, not just the ones a
+ * test created, and other journeys (refund-headline approves a request and
+ * leaves it unbatched by design, 007 AC-5.2) leave candidates behind on the
+ * shared local database. Without the drain the batch journeys only pass on a
+ * fresh database and fail on any re-run.
+ *
+ * `token` must belong to a global accounting user (review + approve).
+ */
+export async function drainApprovedBacklog(token: string): Promise<number> {
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const candidates = await fetch(`${REFUND_API_URL}/batches/candidates`, { headers })
+  if (!candidates.ok) throw new Error(`[refundFixtures] GET /batches/candidates -> ${candidates.status}`)
+  const { requestCount } = (await candidates.json()) as { requestCount: number }
+  if (requestCount === 0) return 0
+
+  const compiled = await fetch(`${REFUND_API_URL}/batches`, { method: 'POST', headers, body: '{}' })
+  if (compiled.status !== 201) throw new Error(`[refundFixtures] POST /batches -> ${compiled.status}`)
+  const { id } = (await compiled.json()) as { id: string }
+  const paid = await fetch(`${REFUND_API_URL}/batches/${id}/mark-paid`, { method: 'POST', headers })
+  if (!paid.ok) throw new Error(`[refundFixtures] POST /batches/${id}/mark-paid -> ${paid.status}`)
+  return requestCount
+}

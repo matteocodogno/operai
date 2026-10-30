@@ -45,7 +45,7 @@
  */
 import { test, expect, type Page } from '@playwright/test'
 import { seedUserSession, applySessionCookie } from './helpers/adminSession'
-import { grantRefundEmployee, grantRefundAccounting } from './helpers/refundFixtures'
+import { grantRefundEmployee, grantRefundAccounting, drainApprovedBacklog } from './helpers/refundFixtures'
 
 const NOTIFY_API_URL =
   process.env['E2E_NOTIFY_API_URL'] ?? process.env['VITE_NOTIFY_API_URL'] ?? 'http://localhost:8081'
@@ -137,6 +137,16 @@ const EMPLOYEE_GROUP = /^batch-employee-group-(?!list$)[A-Za-z0-9]+$/
 test.describe.configure({ mode: 'serial' })
 
 test.describe('specs/008-refund-monthly-processing T15: headline journeys', () => {
+  // A compile claims every eligible request in the database, and other journeys
+  // leave approved-but-unbatched ones behind; start from an empty candidate set
+  // so the preview/detail assertions below are exact on a re-run too.
+  test.beforeAll(async () => {
+    const email = `e2e-batch-drain-${uniqueSuffix()}@operai.test`
+    const session = await seedUserSession(email, 'E2E Batch Drain')
+    grantRefundAccounting(email, 'global')
+    await drainApprovedBacklog(session.token)
+  })
+
   test('Journey 1 — cutoff defaults to now → preview → compile a mixed-employee/mixed-currency batch → PDF + email status → mark paid → both employees see paid (AC-1.1/1.2/1.6/2.1/3.1/3.2/4.1/5.1/5.2/5.3)', async ({
     browser,
   }) => {
