@@ -7,8 +7,9 @@
  * (an internal service, not an end user), so — unlike RaiseNotificationSchema
  * (notifications.schemas.ts), which deliberately has NO recipient field
  * (OWASP A01, ADR-0009) — this schema REQUIRES `recipientId` and trusts it,
- * because the caller is authenticated by the internal token, not a user JWT
- * whose `sub` would otherwise be spoofable identity. ADR-0009's reserved
+ * because the caller is authenticated by its own scoped service credential
+ * (ADR-0044/0049), not a user JWT whose `sub` would otherwise be spoofable
+ * identity. ADR-0009's reserved
  * `recipient` seam is realized here, not on the user-facing route.
  *
  * Reuses SeveritySchema / OriginAppSchema / LinkSchema / NotificationSchema

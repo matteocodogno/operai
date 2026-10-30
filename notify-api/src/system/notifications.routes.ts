@@ -61,8 +61,8 @@ export const createSystemNotificationsRouter = (
   // middleware on any sub-router mounted in index.ts would leak onto every
   // other route once merged — including GET /notifications/stream (ADR-0008,
   // no-Bearer) and every jwtMiddleware-protected route (which must NEVER
-  // accept this internal token — ADR-0011's mutual-exclusion invariant,
-  // reused verbatim by ADR-0017 for this second internal caller).
+  // accept a service credential, and vice versa — the user and service
+  // audiences are kept apart, ADR-0044/0049).
   router.use(
     "/system/notifications",
     bodyLimit({
