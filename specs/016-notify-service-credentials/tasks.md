@@ -186,7 +186,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     failure falls back to the file with the warning; no value appears in the output (log
     spy); and `mise run env:doctor -- --env local`, run by the user on a correctly
     configured machine, reports no `DATABASE_URL is missing`.
-- [ ] T12: the whole suite works end to end with no shared token; changeset for push 2 — refs: AC-5.4 — deps: T3, T7, T9, T10, T11
+- [x] T12: the whole suite works end to end with no shared token; changeset for push 2 — refs: AC-5.4 — deps: T3, T7, T9, T10, T11
   - touch: `shell/playwright.config.ts`, `shell/e2e/*`, `.changeset/*`
   - Baseline first: the inventory-assignment spec (R-7). The config stops naming the
     shared token as a prerequisite. One changeset: `@operai/auth`, `@operai/refund-api`,
