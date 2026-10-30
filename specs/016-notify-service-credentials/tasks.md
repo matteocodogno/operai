@@ -246,7 +246,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
   - touch: none
   - done when: `./infra/check.sh` passes against production and
     `mise run env:doctor -- --env production --live` reports no failure.
-- [ ] T19: all gates green, spec status → done — refs: AC-1.1–AC-6.2 — deps: T18
+- [x] T19: all gates green, spec status → done — refs: AC-1.1–AC-6.2 — deps: T18
   - touch: `specs/016-notify-service-credentials/*`
   - done when: QE verdict PASS, the security review (plan § Security) PASS, a fresh passing
     `eval-report.md`, no drift, and `/wellforge:done 016-notify-service-credentials` closes
