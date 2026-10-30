@@ -1301,6 +1301,12 @@ bucket's own CORS rule are checked by `mise run env:doctor`
 
 ## Notify credential rollout (specs/016, ADR-0048/0049)
 
+> **Rollout completed on 2026-10-30.** All three pushes and Manual A/B are done:
+> every caller uses its own service credential, `NOTIFY_INTERNAL_TOKEN` is deleted from
+> every Railway service and refused by `notify-api`, and env-doctor forbids it. This
+> section is kept as the record of how it was done; for the current setup see the
+> **Service clients** paragraph above (§ Phase 1 — Railway backends).
+
 Every caller of `notify-api`'s internal routes moves from the shared
 `NOTIFY_INTERNAL_TOKEN` to its own scoped service credential, and the shared token is
 then deleted. A push to `main` redeploys all five Railway services at once, in no fixed
