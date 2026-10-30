@@ -1,10 +1,11 @@
 ---
 id: 016
 slug: notify-service-credentials
-status: in-progress
+status: done
 rigor: production
 created: 2026-10-13
 approved: 2026-10-13
+done: 2026-10-30
 ---
 
 # Every notify caller authenticates as itself; the shared token is retired
