@@ -30,9 +30,10 @@ One-time setup:
 1. **Backend secrets (direnv + 1Password)** — the backends load their secrets from their
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
-   `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`, and
-   `direnv allow refund-api`, `direnv allow inventory-api`, and be signed in to the
-   **1Password CLI** (`op`). All five backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
+   `direnv allow .`, `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`,
+   `direnv allow refund-api`, `direnv allow inventory-api` and `direnv allow admin-ui`, and set up
+   the 1Password service account described in
+   [1Password for local development](#1password-for-local-development). All five backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
    `aud` claim `auth` stamps and the resource servers verify (ADR-0010); a mismatch rejects
    every token with 401. Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide
    real `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with
@@ -91,6 +92,85 @@ One-off, production only: the legacy Excel asset register is loaded by
 `infra/README.md` § Legacy register import before using `--apply`).
 
 Use `mise run dev:preview` to reproduce a production-like run (it's the mode the e2e uses).
+
+### 1Password for local development
+
+Every `.envrc` (the root one and each app's) reads its secrets with `op read
+"op://OperAILocal/<item>/<field>"`. They do not go through the 1Password desktop app: they use a
+**service account** whose token sits in the macOS Keychain. The desktop app asks for Touch ID
+on every new process. A service account never asks, so `mise run dev`, `direnv exec` and a
+coding agent can run while you are away from the Mac.
+
+| What | Value |
+|---|---|
+| 1Password account | `welldsagl.1password.com` |
+| Vault | `OperAILocal`: local-development secrets only, **never** production ones |
+| Service account | one per developer, `read_items` on `OperAILocal` only, expires in under 90 days (1Password's maximum) |
+| Keychain entry | service `op-sa-operai-local`, account `$USER` |
+
+Anyone who can read the Keychain as you (any process running as your user, a coding agent
+included) can read that token. It only reaches local secrets, and you can revoke it with one
+click. That is why the vault holds nothing from production.
+
+**One-time setup.** You need `op` (signed in to the wellD account), `direnv` and `jq`, and access
+to the `OperAILocal` vault.
+
+1. Create your service account and store its token. If you cannot create service accounts,
+   ask a 1Password admin to create it and to send you the token through 1Password, never in
+   chat or email. The snippet writes to the Keychain only if a token actually came back, and the
+   token never reaches the screen or the shell history:
+
+   ```bash
+   ACC=welldsagl.1password.com
+   TOKEN="$(op service-account create "operai-local-$USER" --account "$ACC" \
+              --vault OperAILocal:read_items --expires-in 89d --raw)" \
+     && [ -n "$TOKEN" ] \
+     && security add-generic-password -U -a "$USER" -s op-sa-operai-local -T /usr/bin/security -w "$TOKEN" \
+     && echo "token stored"
+   unset TOKEN
+   ```
+
+2. Make sure the first line of every `.envrc` loads the token. It is already there; check it:
+
+   ```bash
+   export OP_SERVICE_ACCOUNT_TOKEN="$(security find-generic-password -a "$USER" -s op-sa-operai-local -w)"
+   ```
+
+3. Allow the files and check that none is missing a variable. Nothing should ask for Touch ID:
+
+   ```bash
+   for d in . auth estimai-api notify-api refund-api inventory-api admin-ui; do direnv allow "$d"; done
+   OP_SERVICE_ACCOUNT_TOKEN="$(security find-generic-password -a "$USER" -s op-sa-operai-local -w)" \
+     op item list --vault OperAILocal --format json | jq length   # the items the service account can see
+   mise run env:doctor -- --env local
+   ```
+
+**Rotating the token.** Run step 1 again before the expiry date. `-U` overwrites the Keychain
+entry. Then revoke the old service account in 1Password.com → Developer → Service Accounts.
+
+**Adding a secret.** Create the item in `OperAILocal` and reference it as
+`op://OperAILocal/<item>/<field>`. Item names may contain spaces; the reference just has to stay
+inside double quotes. Never reference another vault (`AIScream`, `Employee`, a personal one):
+the service account cannot read it, so `op read` fails and the `.envrc` leaves the variable
+empty. To copy an existing item without printing its values:
+
+```bash
+op item get "<item>" --vault <source-vault> --account "$ACC" --format json \
+  | op item create --vault OperAILocal --account "$ACC" >/dev/null
+```
+
+The CLI refuses to create a *Password* item whose password field is empty. Duplicate that kind
+of item from the desktop app instead (⋯ → Duplicate, then move the copy to `OperAILocal`).
+
+**Troubleshooting.**
+
+| Symptom | Cause |
+|---|---|
+| Touch ID / password prompt | the token line is missing or below the first `op read` in that `.envrc`, or the Keychain entry is missing (`security find-generic-password -a "$USER" -s op-sa-operai-local -w \| wc -c` must print more than 1) |
+| `"<x>" isn't an item in the "<vault>" vault` | the reference points outside `OperAILocal`, or the item name in the reference does not match the one in the vault |
+| `(401) Unauthorized` / `invalid token` | the service account expired or was revoked; rotate it |
+| Postgres or Railway values are empty or stale at the root | the root `.envrc` caches them in `.env.cached` for a day: `rm -f .env.cached && direnv reload` |
+| Works in the terminal, prompts after the Mac slept | the login Keychain is set to lock on sleep (Keychain Access → Settings) |
 
 ### HMR notes (Module Federation)
 
