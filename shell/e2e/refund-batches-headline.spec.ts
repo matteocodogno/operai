@@ -86,6 +86,9 @@ async function composeAndSubmit(
   if (!isMileage) await page.getByTestId('composer-amount').fill(line.amount)
   await page.getByTestId('composer-entity').selectOption(line.entity)
   if (line.km) await page.getByTestId('composer-km').fill(line.km)
+  // `composer-currency` has no default, so `composer-add-button` stays disabled until it is
+  // chosen (lineDraft.ts); hidden for travel_km, whose amount is computed.
+  if (!isMileage) await page.getByTestId('composer-currency').selectOption(line.entity === 'welld_ch' ? 'CHF' : 'EUR')
   await page.getByTestId('composer-add-button').click()
   await expect(page.locator('[data-testid^="expense-line-row-"]')).toHaveCount(1, { timeout: 10_000 })
 
@@ -112,7 +115,9 @@ async function approveFromQueue(page: Page, requestId: string): Promise<void> {
   await page.getByTestId('approve-dialog-confirm').click()
 
   await expect(page.getByTestId('refund-review-queue-page')).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId(`review-queue-row-${requestId}`)).toHaveCount(0)
+  // 007 AC-5.2 amendment (2026-07-21): an approved-but-not-yet-batched request STAYS in the
+    // queue, marked approved, until a batch compiles it.
+    await expect(page.getByTestId(`review-queue-row-${requestId}`)).toContainText(/approved/i, { timeout: 10_000 })
 }
 
 /** Polls notify-api's REST notification list directly (no UI dependency) — proves a push landed. */
@@ -121,6 +126,13 @@ async function fetchNotifications(token: string): Promise<{ items: { title: stri
   if (!res.ok) throw new Error(`GET /notifications failed (${res.status})`)
   return res.json()
 }
+
+/**
+ * One element per employee group. The bare `^=` prefix also matches the list container and every
+ * group's `-count` / `-requests` / `-request-<id>` children (BatchEmployeeGroupList.tsx), so it
+ * over-counts; user ids are alphanumeric, which keeps this to the group root only.
+ */
+const EMPLOYEE_GROUP = /^batch-employee-group-(?!list$)[A-Za-z0-9]+$/
 
 test.describe.configure({ mode: 'serial' })
 
@@ -189,10 +201,12 @@ test.describe('specs/008-refund-monthly-processing T15: headline journeys', () =
 
     // AC-1.2/1.6: the candidate preview groups BOTH employees, per-currency.
     await expect(acctPage.getByTestId('compile-batch-preview')).toBeVisible({ timeout: 20_000 })
-    const previewGroups = acctPage.locator('[data-testid^="batch-employee-group-"]')
+    const previewGroups = acctPage.getByTestId(EMPLOYEE_GROUP)
     await expect(previewGroups).toHaveCount(2)
-    await expect(acctPage.getByText('75,00 €')).toBeVisible()
-    await expect(acctPage.getByText('45,00 CHF')).toBeVisible()
+    // shown twice by design: the batch grand subtotal and the employee's own group
+    await expect(acctPage.getByText('75,00 €').first()).toBeVisible()
+    // shown twice by design: the batch grand subtotal and the employee's own group
+    await expect(acctPage.getByText('45,00 CHF').first()).toBeVisible()
 
     await acctPage.getByTestId('compile-batch-compile-button').click()
     await expect(acctPage.getByTestId('compile-batch-confirm-modal')).toBeVisible({ timeout: 10_000 })
@@ -205,9 +219,11 @@ test.describe('specs/008-refund-monthly-processing T15: headline journeys', () =
     expect(batchId).toBeTruthy()
 
     // AC-1.6/2.1: per-employee, per-currency subtotals never blended, on the REAL persisted batch.
-    await expect(acctPage.getByText('75,00 €')).toBeVisible()
-    await expect(acctPage.getByText('45,00 CHF')).toBeVisible()
-    const detailGroups = acctPage.locator('[data-testid^="batch-employee-group-"]')
+    // shown twice by design: the batch grand subtotal and the employee's own group
+    await expect(acctPage.getByText('75,00 €').first()).toBeVisible()
+    // shown twice by design: the batch grand subtotal and the employee's own group
+    await expect(acctPage.getByText('45,00 CHF').first()).toBeVisible()
+    const detailGroups = acctPage.getByTestId(EMPLOYEE_GROUP)
     await expect(detailGroups).toHaveCount(2)
 
     // AC-3.1/3.2: the compilation email was auto-attempted on compile, and
@@ -222,8 +238,15 @@ test.describe('specs/008-refund-monthly-processing T15: headline journeys', () =
     // bucket guaranteed in this env — see file header).
     const pdfLinkButton = acctPage.getByTestId(`batch-pdf-link-${batchId}`)
     await expect(pdfLinkButton).toBeVisible()
-    const [pdfPopup] = await Promise.all([acctPage.waitForEvent('popup', { timeout: 15_000 }), pdfLinkButton.click()])
-    expect(pdfPopup.url()).toMatch(/^https?:\/\//)
+    // The link opens `window.open(url, '_blank', 'noopener')`. A noopener popup's own `url()` stays
+    // blank and a PDF navigation is a download in headless Chromium, so assert on the request the
+    // popup makes instead: it must be the minted http(s) presigned URL.
+    const [pdfPopup, pdfRequest] = await Promise.all([
+      acctPage.waitForEvent('popup', { timeout: 15_000 }),
+      acctPage.context().waitForEvent('request', { predicate: (r) => /\.pdf\?/.test(r.url()), timeout: 15_000 }),
+      pdfLinkButton.click(),
+    ])
+    expect(pdfRequest.url()).toMatch(/^https?:\/\//)
     await pdfPopup.close()
     await expect(acctPage.getByTestId(`batch-pdf-link-${batchId}-error`)).toHaveCount(0)
 
@@ -330,7 +353,7 @@ test.describe('specs/008-refund-monthly-processing T15: headline journeys', () =
     // AC-6.3: the discarded batch remains inspectable — status/stamp visible,
     // and its (now-released) member request row still shows.
     await expect(acctPage.getByTestId('batch-detail-discarded-line')).toBeVisible({ timeout: 20_000 })
-    await expect(acctPage.locator('[data-testid^="batch-employee-group-"]')).toHaveCount(1)
+    await expect(acctPage.getByTestId(EMPLOYEE_GROUP)).toHaveCount(1)
     // Mark-as-paid/Discard controls are structurally gone now (terminal, AC-6.2).
     await expect(acctPage.getByTestId('batch-detail-mark-paid')).toHaveCount(0)
     await expect(acctPage.getByTestId('batch-detail-discard')).toHaveCount(0)
@@ -341,7 +364,7 @@ test.describe('specs/008-refund-monthly-processing T15: headline journeys', () =
     await expect(acctPage.getByTestId('refund-compile-batch-page')).toBeVisible({ timeout: 20_000 })
     await acctPage.getByTestId('compile-batch-preview-button').click()
     await expect(acctPage.getByTestId('compile-batch-preview')).toBeVisible({ timeout: 20_000 })
-    await expect(acctPage.locator('[data-testid^="batch-employee-group-"]')).toHaveCount(1)
+    await expect(acctPage.getByTestId(EMPLOYEE_GROUP)).toHaveCount(1)
     await acctPage.getByTestId('compile-batch-compile-button').click()
     await expect(acctPage.getByTestId('compile-batch-confirm-modal')).toBeVisible({ timeout: 10_000 })
     await acctPage.getByTestId('compile-batch-confirm-confirm').click()

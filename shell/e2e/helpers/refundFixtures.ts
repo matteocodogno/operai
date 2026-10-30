@@ -36,9 +36,13 @@ function runFixtureScript(args: string[]): string {
   throw new Error(`[refundFixtures] no JSON output from fixture script (args: ${args.join(' ')})\n${output}`)
 }
 
-/** Grants the (already test-auth-seeded) user at `email` the refund employee permission set. */
+/**
+ * Grants the (already test-auth-seeded) user at `email` the refund employee permission set.
+ * better-auth stores emails lower-cased and the fixture script looks the row up verbatim,
+ * so a mixed-case address (e.g. `...-empA-...`) must be lower-cased here or it is "not found".
+ */
 export function grantRefundEmployee(email: string): void {
-  runFixtureScript(['grant-refund-employee', email])
+  runFixtureScript(['grant-refund-employee', email.toLowerCase()])
 }
 
 /**
@@ -46,5 +50,5 @@ export function grantRefundEmployee(email: string): void {
  * role, entity-scoped to `entity` (`welld_it` | `welld_ch` | `global`).
  */
 export function grantRefundAccounting(email: string, entity: 'welld_it' | 'welld_ch' | 'global'): void {
-  runFixtureScript(['grant-refund-accounting', email, entity])
+  runFixtureScript(['grant-refund-accounting', email.toLowerCase(), entity])
 }

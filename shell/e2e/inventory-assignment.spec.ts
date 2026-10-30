@@ -257,7 +257,11 @@ test.describe('specs/015 T45: assignment journeys', () => {
       .poll(
         async () =>
           (await fetchNotifications(employee.token)).filter(
-            (n) => n.title === 'A device is waiting for your confirmation',
+            (n) =>
+              n.title === 'A device is waiting for your confirmation' &&
+              // Scoped to THIS journey's two assets: the same employee is also offered
+              // devices by Journey 1 and Journey 3, which run first.
+              [confirmedAsset.description, declinedAsset.description].some((d) => n.body.includes(d)),
           ).length,
         {
           timeout: 20_000,
@@ -293,17 +297,36 @@ test.describe('specs/015 T45: assignment journeys', () => {
     await expect(emp.getByText(`Declined: ${declinedAsset.description}`)).toBeVisible({ timeout: 20_000 })
 
     // ── AC-2.9: the manager who created the assignments is told which ───────
+    // Scoped to THIS journey's two assets: the manager is also told about Journey 1's
+    // confirmation and Journey 3's decline.
+    const thisJourneyLinks = new Set([
+      `/inventory/assets/${confirmedAsset.id}`,
+      `/inventory/assets/${declinedAsset.id}`,
+    ])
     await expect
-      .poll(async () => (await fetchNotifications(manager.token)).map((n) => n.title).sort(), {
-        timeout: 20_000,
-        message: 'AC-2.9: the manager must be notified of both the confirmation and the decline',
-      })
+      .poll(
+        async () =>
+          (await fetchNotifications(manager.token))
+            .filter((n) => n.link && thisJourneyLinks.has(n.link.href))
+            .map((n) => n.title)
+            .sort(),
+        {
+          timeout: 20_000,
+          message: 'AC-2.9: the manager must be notified of both the confirmation and the decline',
+        },
+      )
       .toEqual(['Assignment confirmed', 'Assignment declined'])
 
     await mgr.getByRole('link', { name: 'Notifications' }).click()
     await expect(mgr).toHaveURL(/\/notify$/)
-    const confirmedNote = mgr.getByRole('link', { name: /Assignment confirmed/ }).filter({ hasText: EMPLOYEE_NAME })
-    const declinedNote = mgr.getByRole('link', { name: /Assignment declined/ }).filter({ hasText: EMPLOYEE_NAME })
+    const confirmedNote = mgr
+      .getByRole('link', { name: /Assignment confirmed/ })
+      .filter({ hasText: EMPLOYEE_NAME })
+      .filter({ hasText: confirmedAsset.description })
+    const declinedNote = mgr
+      .getByRole('link', { name: /Assignment declined/ })
+      .filter({ hasText: EMPLOYEE_NAME })
+      .filter({ hasText: declinedAsset.description })
     await expect(confirmedNote).toBeVisible({ timeout: 20_000 })
     await expect(declinedNote).toBeVisible()
     // each links to the asset it concerns

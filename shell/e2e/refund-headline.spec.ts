@@ -71,6 +71,12 @@ async function addExpenseLine(
   if (line.km) {
     await page.getByTestId('composer-km').fill(line.km)
   }
+  // `composer-currency` has no default (an entity/currency pair is never cross-validated,
+  // lineDraft.ts), so `composer-add-button` stays disabled until it is chosen. Not rendered
+  // for travel_km, whose amount is computed.
+  if (line.type !== 'travel_km') {
+    await page.getByTestId('composer-currency').selectOption(line.entity === 'welld_ch' ? 'CHF' : 'EUR')
+  }
   const rowsBefore = await page.locator('[data-testid^="expense-line-row-"]').count()
   await page.getByTestId('composer-add-button').click()
   await expect(page.locator('[data-testid^="expense-line-row-"]')).toHaveCount(rowsBefore + 1, { timeout: 10_000 })
@@ -138,8 +144,8 @@ test.describe('specs/007-refund-service T21: headline journeys', () => {
     })
 
     // Per-currency subtotals — never blended (AC-3.5).
-    await expect(empPage.getByTestId('subtotals-panel-card-welld_it')).toContainText('50,00 €')
-    await expect(empPage.getByTestId('subtotals-panel-card-welld_ch')).toContainText('30,00 CHF')
+    await expect(empPage.getByTestId('subtotals-panel-card-EUR')).toContainText('50,00 €')
+    await expect(empPage.getByTestId('subtotals-panel-card-CHF')).toContainText('30,00 CHF')
 
     await empPage.getByTestId('request-detail-submit').click()
     await expect(empPage.getByTestId('request-detail-submitted')).toBeVisible({ timeout: 20_000 })
@@ -181,9 +187,11 @@ test.describe('specs/007-refund-service T21: headline journeys', () => {
     await acctPage.getByTestId('approve-dialog-confirm').click()
 
     // AC-7.6: approving a mixed-entity request from a single-entity-scoped
-    // user decides the WHOLE request — returns to the queue, row is gone.
+    // user decides the WHOLE request — returns to the queue, row marked approved.
     await expect(acctPage.getByTestId('refund-review-queue-page')).toBeVisible({ timeout: 20_000 })
-    await expect(acctPage.getByTestId(`review-queue-row-${requestId}`)).toHaveCount(0)
+    // 007 AC-5.2 amendment (2026-07-21): an approved-but-not-yet-batched request STAYS in the
+    // queue, marked approved, until a batch compiles it.
+    await expect(acctPage.getByTestId(`review-queue-row-${requestId}`)).toContainText(/approved/i, { timeout: 10_000 })
 
     // ─── Employee: sees requested-vs-approved, the monthly note ────────────
     await empPage.goto(`/refund/requests/${requestId}`)
@@ -192,7 +200,7 @@ test.describe('specs/007-refund-service T21: headline journeys', () => {
     // AC-3.2: requested vs approved per line — the adjusted EUR line and the
     // untouched CHF line (AC-7.2's server-side default to requested amount).
     const approvedNotebookRow = empPage.locator('[data-testid^="expense-line-row-"]').filter({ hasText: `Notebook ${tag}` })
-    await expect(approvedNotebookRow).toContainText('50,00 €') // requested
+    await expect(approvedNotebookRow).toContainText('requested 50,00') // requested (the row now renders the unit-less "requested 50,00 · −10,00" delta)
     await expect(approvedNotebookRow).toContainText('40,00 €') // approved (adjusted)
     const approvedTravelRow = empPage.locator('[data-testid^="expense-line-row-"]').filter({ hasText: `Client visit ${tag}` })
     await expect(approvedTravelRow).toContainText('30,00 CHF') // requested == approved (defaulted, untouched)

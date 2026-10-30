@@ -20,10 +20,13 @@ import { defineConfig, devices } from '@playwright/test'
  *      required for specs/005's US-1..US-6 (bell/badge, center, SSE, toasts).
  *   5. refund-api: `bun run dev` in `refund-api/` (localhost:8082) — required
  *      for specs/007's headline journeys (refund-headline.spec.ts, T21):
- *      compose/submit/review/decide/notify. NOTIFY_INTERNAL_TOKEN must be
- *      byte-for-byte identical across auth/notify-api/refund-api's own
- *      `.env` files (ADR-0017) or the post-decision notification silently
- *      no-ops. Real object-storage credentials (`REFUND_S3_*`) are NOT
+ *      compose/submit/review/decide/notify. refund-api's post-decision
+ *      notification is authenticated with its own scoped service credential
+ *      (ADR-0049): `auth` needs a `SERVICE_CLIENTS` entry for it plus
+ *      `SERVICE_AUDIENCE`, `refund-api` needs `SERVICE_CLIENT_ID` and
+ *      `SERVICE_CLIENT_SECRET`, and `notify-api` needs `SERVICE_AUDIENCE`;
+ *      without them the notification silently no-ops. Real object-storage
+ *      credentials (`REFUND_S3_*`) are NOT
  *      required to run these journeys — refund-headline.spec.ts deliberately
  *      never attaches a receipt (AC-1.7: attachments are always optional),
  *      since no EU bucket is provisioned for local/CI e2e.
@@ -32,6 +35,12 @@ import { defineConfig, devices } from '@playwright/test'
  *      T45). Its assignment/decision notifications (AC-2.8/2.9) also need `auth`'s
  *      `SERVICE_AUDIENCE` + `SERVICE_CLIENTS` and `notify-api`'s `SERVICE_AUDIENCE`
  *      (ADR-0044); without them the push fails soft and those two ACs cannot pass.
+ *
+ * Every notification the suite raises (invitation email from `auth`, refund
+ * decisions and batch emails from `refund-api`, collaborator changes from
+ * `estimai-api`, assignments from `inventory-api`) is sent under that caller's
+ * own scoped service credential (ADR-0049). There is no shared token to keep
+ * identical across services, and none is a prerequisite here.
  *
  * All five frontends (shell, estimai-ui, refund-ui, notify-ui, admin-ui) are
  * started here via `build && preview` (NOT `vite dev`) — dev-mode host + build-mode remote
