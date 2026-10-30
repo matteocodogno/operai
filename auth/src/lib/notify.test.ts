@@ -32,7 +32,7 @@ function stubFetch(respond: () => Response | Promise<Response>) {
 const sentResponse = () => Response.json({ deliveryId: "del_1", status: "sent" });
 
 beforeEach(() => {
-  setNotifyTokenProvider({ getToken: async () => "provider-token" });
+  setNotifyTokenProvider({ getToken: async () => "provider-token", invalidate: () => {} });
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
@@ -61,6 +61,7 @@ describe("sendInvitationEmail", () => {
       getToken: async () => {
         throw new Error("signer unavailable");
       },
+      invalidate: () => {},
     });
     stubFetch(sentResponse);
 
@@ -99,5 +100,77 @@ describe("sendInvitationEmail", () => {
     stubFetch(() => Response.json({ status: "queued" }));
     const result = await sendInvitationEmail(INPUT);
     expect(result.status).toBe("failed");
+  });
+});
+
+describe("sendInvitationEmail — one retry on 401 (AC-4.3, ADR-0049)", () => {
+  function sequencedProvider() {
+    const issued: string[] = [];
+    const invalidated: string[] = [];
+    let n = 0;
+    setNotifyTokenProvider({
+      getToken: async () => {
+        const token = `token-${++n}`;
+        issued.push(token);
+        return token;
+      },
+      invalidate: (token) => void invalidated.push(token),
+    });
+    return { issued, invalidated };
+  }
+
+  test("a 401 drops the cached token and retries once with a fresh one", async () => {
+    const { issued, invalidated } = sequencedProvider();
+    let attempt = 0;
+    stubFetch(() => (++attempt === 1 ? new Response("expired", { status: 401 }) : sentResponse()));
+
+    const result = await sendInvitationEmail(INPUT);
+
+    expect(result).toEqual({ status: "sent", deliveryId: "del_1" });
+    expect(calls).toHaveLength(2);
+    expect(invalidated).toEqual(["token-1"]);
+    expect(issued).toEqual(["token-1", "token-2"]);
+    expect(new Headers(calls[0]?.init.headers).get("authorization")).toBe("Bearer token-1");
+    expect(new Headers(calls[1]?.init.headers).get("authorization")).toBe("Bearer token-2");
+  });
+
+  test("two 401s stay failed after exactly two requests, and the token is never in the error", async () => {
+    const { invalidated } = sequencedProvider();
+    stubFetch(() => new Response("nope", { status: 401 }));
+
+    const result = await sendInvitationEmail(INPUT);
+
+    expect(result).toEqual({ status: "failed", error: "notify-api responded with HTTP 401" });
+    expect(calls).toHaveLength(2);
+    expect(invalidated).toEqual(["token-1"]);
+    expect(JSON.stringify(result)).not.toContain("token-");
+  });
+
+  test("a non-401 failure is never retried", async () => {
+    const { invalidated } = sequencedProvider();
+    stubFetch(() => new Response("boom", { status: 503 }));
+
+    const result = await sendInvitationEmail(INPUT);
+
+    expect(result).toEqual({ status: "failed", error: "notify-api responded with HTTP 503" });
+    expect(calls).toHaveLength(1);
+    expect(invalidated).toEqual([]);
+  });
+
+  test("a provider failure on the retry mint is a failed result, not a throw", async () => {
+    let n = 0;
+    setNotifyTokenProvider({
+      getToken: async () => {
+        if (++n === 2) throw new Error("signer unavailable");
+        return "token-1";
+      },
+      invalidate: () => {},
+    });
+    stubFetch(() => new Response("expired", { status: 401 }));
+
+    const result = await sendInvitationEmail(INPUT);
+
+    expect(result).toEqual({ status: "failed", error: "signer unavailable" });
+    expect(calls).toHaveLength(1);
   });
 });

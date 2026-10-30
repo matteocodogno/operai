@@ -26,6 +26,11 @@
  * block the invitation (that would make an outbound-email outage block the
  * entire invite feature, which the spec's "no background retry" model
  * explicitly avoids by making resend the retry path instead).
+ *
+ * The one exception to "no retry": a 401 drops the cached credential and the
+ * request is repeated once with a fresh one (as refund-api's `postToNotify`
+ * does). A second 401, or any other status, is the ordinary failed result.
+ * The token itself is never logged or placed in an error message.
  */
 
 import { env } from "./env";
@@ -33,6 +38,8 @@ import { env } from "./env";
 /** The slice of `SelfServiceTokenProvider` this client needs. */
 export interface NotifyTokenProvider {
   getToken(): Promise<string>;
+  /** Drop a cached token notify-api rejected, so the next `getToken` mints anew. */
+  invalidate(token: string): void;
 }
 
 let tokenProvider: NotifyTokenProvider | undefined;
@@ -76,23 +83,35 @@ export async function sendInvitationEmail(
     if (!tokenProvider) throw new Error("notify token provider is not configured");
     // A mint failure lands in the catch below: reported as `failed`, never thrown,
     // so the invitation (already created) is not rolled back (AC-4.3).
-    const token = await tokenProvider.getToken();
-    const response = await fetch(`${env.NOTIFY_INTERNAL_URL}/system/emails`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+    const requestBody = JSON.stringify({
+      to: input.to,
+      template: input.template,
+      data: {
+        inviteUrl: input.inviteUrl,
+        inviterName: input.inviterName,
+        expiresAt: input.expiresAt,
       },
-      body: JSON.stringify({
-        to: input.to,
-        template: input.template,
-        data: {
-          inviteUrl: input.inviteUrl,
-          inviterName: input.inviterName,
-          expiresAt: input.expiresAt,
-        },
-      }),
     });
+    const post = async (token: string) =>
+      fetch(`${env.NOTIFY_INTERNAL_URL}/system/emails`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: requestBody,
+      });
+
+    const token = await tokenProvider.getToken();
+    let response = await post(token);
+    if (response.status === 401) {
+      // The token may have been rotated or revoked under us: drop it and retry
+      // ONCE with a fresh one. A second 401 is a configuration fault and takes
+      // the ordinary failed path below; nothing else is ever retried.
+      await response.body?.cancel().catch(() => {});
+      tokenProvider.invalidate(token);
+      response = await post(await tokenProvider.getToken());
+    }
 
     if (!response.ok) {
       return {

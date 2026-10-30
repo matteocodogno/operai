@@ -31,6 +31,12 @@ export const REFRESH_BEFORE_EXPIRY_SECONDS = 60;
 export interface SelfServiceTokenProvider {
   /** A valid `system:auth` service JWT; rejects if minting fails. */
   getToken(): Promise<string>;
+  /**
+   * Drop the cached token if it is `token` (notify-api answered it 401). A late
+   * call for a token that was already replaced is a no-op, so it can never
+   * evict the fresh one.
+   */
+  invalidate(token: string): void;
 }
 
 export function createSelfServiceTokenProvider(deps: {
@@ -59,6 +65,9 @@ export function createSelfServiceTokenProvider(deps: {
         inFlight = undefined;
       });
       return inFlight;
+    },
+    invalidate(token) {
+      if (cached?.token === token) cached = undefined;
     },
   };
 }

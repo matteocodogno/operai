@@ -23,7 +23,7 @@
  * deleted (same convention as every other admin-router test file).
  */
 
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 import { db } from "../lib/db";
 
 const RUN_ID = crypto.randomUUID().slice(0, 8);
@@ -54,9 +54,23 @@ type NotifyResult =
   | { status: "failed"; error: string };
 
 let nextNotifyResult: NotifyResult = { status: "sent", deliveryId: "del_test" };
-const sendInvitationEmailMock = mock(async () => nextNotifyResult);
+
+// The REAL client, loaded under a cache-busting query so it stays a separate
+// instance from whatever `mock.module` installs process-wide below. Its own
+// `setNotifyTokenProvider` therefore never touches another file's provider.
+// @ts-expect-error -- the query suffix is a runtime-only cache-buster
+const realNotify = (await import("../lib/notify?real")) as typeof import("../lib/notify");
+
+// When true the stand-in hands the call to the real client (whose token
+// provider and fetch the test controls) instead of returning the scripted
+// outcome — so the route is driven through the real credential path (AC-4.3).
+let useRealClient = false;
+const sendInvitationEmailMock = mock(async (input: import("../lib/notify").SendInvitationEmailInput) =>
+  useRealClient ? realNotify.sendInvitationEmail(input) : nextNotifyResult,
+);
 
 mock.module("../lib/notify", () => ({
+  ...realNotify,
   sendInvitationEmail: sendInvitationEmailMock,
 }));
 
@@ -662,5 +676,165 @@ describe("Invitation admin API (T6)", () => {
       method: "POST",
     });
     expect(revokeRes.status).toBe(404);
+  });
+});
+
+// ─── AC-4.3: the REAL email client behind the routes (specs/016) ──────────────
+//
+// The tests above script the client's outcome. These drive create and resend
+// through the real `sendInvitationEmail` with a controllable token provider and
+// a stubbed `fetch`, proving a credential failure or a notify-api rejection
+// never rolls back the invitation and surfaces as the existing best-effort
+// outcome (`emailDelivery: "failed"` + `lastEmailStatus`/`lastEmailError`).
+
+describe("Invitation routes with the real email client (specs/016 AC-4.3, ADR-0049)", () => {
+  const realFetch = globalThis.fetch;
+  let fetchCalls: { authorization: string | null }[] = [];
+  let invalidated: string[] = [];
+
+  /** Wire the real client: `statuses` are the notify-api answers, in order (last repeats). */
+  function useRealClientWith(opts: { getToken: () => Promise<string>; statuses?: number[] }) {
+    useRealClient = true;
+    fetchCalls = [];
+    invalidated = [];
+    const statuses = opts.statuses ?? [200];
+    realNotify.setNotifyTokenProvider({
+      getToken: opts.getToken,
+      invalidate: (token) => void invalidated.push(token),
+    });
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push({ authorization: new Headers(init?.headers).get("authorization") });
+      const status = statuses[Math.min(fetchCalls.length - 1, statuses.length - 1)]!;
+      return status === 200
+        ? Response.json({ deliveryId: "del_real", status: "sent" })
+        : new Response("rejected", { status });
+    }) as typeof fetch;
+  }
+
+  const tokenSequence = () => {
+    let n = 0;
+    return async () => `tok-${++n}`;
+  };
+
+  afterEach(() => {
+    useRealClient = false;
+    globalThis.fetch = realFetch;
+    realNotify.setNotifyTokenProvider(undefined);
+  });
+
+  async function post(email: string) {
+    const { invitationsRouter } = await import("./invitations.routes");
+    return invitationsRouter.request("/admin/invitations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async function resend(id: string) {
+    const { invitationsRouter } = await import("./invitations.routes");
+    return invitationsRouter.request(`/admin/invitations/${id}/resend`, { method: "POST" });
+  }
+
+  const credentialFailure = async (): Promise<string> => {
+    throw new Error("service-token mint failed (signer unavailable)");
+  };
+
+  test("create: credential unobtainable -> still 201, invitation pending, emailDelivery failed, notify never called", async () => {
+    asAdmin();
+    useRealClientWith({ getToken: credentialFailure });
+    const email = `t16-create-nocred-${RUN_ID}@operai.test`;
+
+    const res = await post(email);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; status: string; emailDelivery: string };
+    trackInvitation(body.id);
+    expect(body.status).toBe("pending");
+    expect(body.emailDelivery).toBe("failed");
+    expect(fetchCalls).toHaveLength(0);
+    const row = await db.invitation.findUniqueOrThrow({ where: { id: body.id } });
+    expect(row.status).toBe("pending");
+    expect(row.lastEmailStatus).toBe("failed");
+    expect(row.lastEmailError).toBe("service-token mint failed (signer unavailable)");
+  });
+
+  test("resend: credential unobtainable -> still 200, invitation re-armed, emailDelivery failed, notify never called", async () => {
+    asAdmin();
+    const original = await makeInvitationRow(`t16-resend-nocred-${RUN_ID}@operai.test`, {
+      tokenHash: "t16-original-hash",
+    });
+    useRealClientWith({ getToken: credentialFailure });
+
+    const res = await resend(original.id);
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; status: string; emailDelivery: string };
+    expect(body.status).toBe("pending");
+    expect(body.emailDelivery).toBe("failed");
+    expect(fetchCalls).toHaveLength(0);
+    const row = await db.invitation.findUniqueOrThrow({ where: { id: original.id } });
+    expect(row.tokenHash).not.toBe("t16-original-hash");
+    expect(row.lastEmailStatus).toBe("failed");
+    expect(row.lastEmailError).toBe("service-token mint failed (signer unavailable)");
+  });
+
+  test("create: 401 then success -> credential invalidated, retried once, emailDelivery sent", async () => {
+    asAdmin();
+    useRealClientWith({ getToken: tokenSequence(), statuses: [401, 200] });
+
+    const res = await post(`t16-create-retry-${RUN_ID}@operai.test`);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; emailDelivery: string };
+    trackInvitation(body.id);
+    expect(body.emailDelivery).toBe("sent");
+    expect(fetchCalls.map((c) => c.authorization)).toEqual(["Bearer tok-1", "Bearer tok-2"]);
+    expect(invalidated).toEqual(["tok-1"]);
+  });
+
+  test("create: two 401s -> exactly two requests, invitation kept, emailDelivery failed with the HTTP 401 reason", async () => {
+    asAdmin();
+    useRealClientWith({ getToken: tokenSequence(), statuses: [401] });
+
+    const res = await post(`t16-create-401x2-${RUN_ID}@operai.test`);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; emailDelivery: string };
+    trackInvitation(body.id);
+    expect(body.emailDelivery).toBe("failed");
+    expect(fetchCalls).toHaveLength(2);
+    expect(invalidated).toEqual(["tok-1"]);
+    const row = await db.invitation.findUniqueOrThrow({ where: { id: body.id } });
+    expect(row.status).toBe("pending");
+    expect(row.lastEmailError).toBe("notify-api responded with HTTP 401");
+    expect(row.lastEmailError).not.toContain("tok-");
+  });
+
+  test("resend: 401 then success -> retried once, emailDelivery sent", async () => {
+    asAdmin();
+    const original = await makeInvitationRow(`t16-resend-retry-${RUN_ID}@operai.test`);
+    useRealClientWith({ getToken: tokenSequence(), statuses: [401, 200] });
+
+    const res = await resend(original.id);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { emailDelivery: string }).emailDelivery).toBe("sent");
+    expect(fetchCalls).toHaveLength(2);
+    expect(invalidated).toEqual(["tok-1"]);
+  });
+
+  test("resend: two 401s -> exactly two requests, still 200, emailDelivery failed", async () => {
+    asAdmin();
+    const original = await makeInvitationRow(`t16-resend-401x2-${RUN_ID}@operai.test`);
+    useRealClientWith({ getToken: tokenSequence(), statuses: [401] });
+
+    const res = await resend(original.id);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { emailDelivery: string }).emailDelivery).toBe("failed");
+    expect(fetchCalls).toHaveLength(2);
+    const row = await db.invitation.findUniqueOrThrow({ where: { id: original.id } });
+    expect(row.lastEmailError).toBe("notify-api responded with HTTP 401");
   });
 });

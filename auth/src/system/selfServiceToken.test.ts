@@ -126,3 +126,31 @@ describe("self-mint provider — caching and refresh", () => {
     }
   });
 });
+
+describe("self-mint provider — invalidate (notify answered 401)", () => {
+  test("invalidating the cached token makes the next getToken mint a fresh one", async () => {
+    const { calls, signJwt } = countingSigner();
+    const provider = createSelfServiceTokenProvider({ signJwt, now: fakeClock().now });
+
+    const first = await provider.getToken();
+    provider.invalidate(first);
+    const second = await provider.getToken();
+
+    expect(second).not.toBe(first);
+    expect(calls).toHaveLength(2);
+  });
+
+  test("invalidating a token that is no longer the cached one keeps the current token", async () => {
+    const { calls, signJwt } = countingSigner();
+    const clock = fakeClock();
+    const provider = createSelfServiceTokenProvider({ signJwt, now: clock.now });
+
+    const stale = await provider.getToken();
+    clock.advanceSeconds(240);
+    const current = await provider.getToken(); // refreshed
+    provider.invalidate(stale); // a late 401 for the old token must not evict the new one
+
+    expect(await provider.getToken()).toBe(current);
+    expect(calls).toHaveLength(2);
+  });
+});
