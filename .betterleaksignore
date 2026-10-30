@@ -55,7 +55,7 @@ auth/.envrc:1password-reference:27
 # private-key), reviewed 2026-10-30 when the repo moved from gitleaks to betterleaks.
 # Every one is a local/test placeholder, never a real secret: test:test / user:pass /
 # postgres:postgres DATABASE_URLs on localhost in tests and .env.example files, the
-# ${POSTGRES_PASSWORD:-postgres} / ${MINIO_ROOT_PASSWORD:-minioadmin} compose defaults,
+# local Postgres and MinIO password defaults in compose.yaml,
 # infra/variables.md's `user:pass@postgres.railway.internal` placeholders, the
 # body-less JWT_PRIVATE_KEY example in auth/.env.example, and the seeded e2e user's
 # password in estimai-ui/e2e/helpers/seedSession.ts. Format: commit:file:rule:line.
@@ -99,3 +99,5 @@ e38feb311b3eddde7fed2bcbc5aba9c7003a4c4a:notify-api/.env.example:generic-credent
 e724be957fe5197f3976cdf77d5409ac8979e55a:refund-api/src/lib/storage.test.ts:generic-credential-uri:23
 ec0ae4f9397edcc772125d21e8b580d36c58b07e:notify-api/src/system/serviceJwt.isolation.test.ts:generic-credential-uri:20
 f3d016d93a7c609dbc4b7193e8b472afea76da11:refund-api/src/lib/serviceToken.test.ts:generic-credential-uri:10
+# This file's own earlier comment quoted those compose defaults (fixed since):
+798af6a98795b78d84aa4ef41857a80f33be734a:.betterleaksignore:generic-password:58
