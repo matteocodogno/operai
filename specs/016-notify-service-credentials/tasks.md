@@ -213,7 +213,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
   - done when: `cd notify-api && bun run typecheck && bun test` passes, including:
     `X-Internal-Token` with any value → 401 on both routes; the service starts with the
     variable present and absent; `git grep NOTIFY_INTERNAL_TOKEN -- notify-api/src` is empty.
-- [ ] T15: deploy and check scripts stop using the shared token — refs: AC-5.1, AC-5.5 — deps: T13
+- [x] T15: deploy and check scripts stop using the shared token — refs: AC-5.1, AC-5.5 — deps: T13
   - touch: `infra/deploy.sh`, `infra/check.sh`
   - `deploy.sh` checks by name that each caller has `SERVICE_CLIENT_SECRET` and `auth` has
     `SERVICE_CLIENTS`; `check.sh` drops the shared-token positive control and adds

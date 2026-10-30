@@ -23,13 +23,13 @@
 # inventory-api origin in connect-src, the inventory-ui origin in script-src +
 # connect-src and the invoice-bucket origin (override INVENTORY_BUCKET_ORIGIN).
 # Also probes
-# notify-api's internal email-send gate (specs/006-user-invitations,
-# ADR-0011) — see § 2b below; export NOTIFY_INTERNAL_TOKEN locally (same
-# value configured on auth, notify-api, AND refund-api as of ADR-0017) to get
-# the strongest form of that check. Two inventory negative controls (no
-# credentials needed): auth's POST /system/service-token must answer 401 to bad
-# client credentials and inventory-api must answer 401 to an anonymous request
-# on a gated route (a 404/500 means the endpoint/gate is not deployed).
+# notify-api's two internal endpoints (specs/006, specs/016) — see § 2b below:
+# neither accepts the retired X-Internal-Token header and neither answers an
+# anonymous call. No credential is needed or read for these checks. Two inventory
+# negative controls (no credentials needed): auth's POST /system/service-token
+# must answer 401 to bad client credentials and inventory-api must answer 401 to
+# an anonymous request on a gated route (a 404/500 means the endpoint/gate is not
+# deployed).
 #
 # Read-only: every request here is a GET/HEAD, or a POST carrying bogus
 # credentials that is rejected before any state changes.
@@ -146,45 +146,30 @@ else fail "auth POST /system/service-token did not return 401 for bad credential
 # Sign-in page (hosted, ADR-0002).
 [[ "$(code "$AUTH_URL/sign-in")" =~ ^(200|302|307)$ ]] && pass "hosted /sign-in reachable" || warn "/sign-in not obviously reachable (HTTP $(code "$AUTH_URL/sign-in"))"
 
-# ─── 2b. Invitation email internal endpoint (specs/006, ADR-0011) ────────────
-# POST /system/emails is notify-api's service-to-service endpoint (auth calls
-# it to send invite/resend emails) — authenticated by a shared secret
-# (NOTIFY_INTERNAL_TOKEN), NOT a user JWT. Never print the token value.
-head "Invitation email channel — /system/emails gate"
-SYSTEM_EMAILS_URL="$NOTIFY_API_URL/system/emails"
-
-# Negative control (always runs): a garbage token must be rejected with 401 —
-# proves the internal-token middleware is deployed and live without needing
-# to know the real secret.
-BOGUS_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
-  -H 'Content-Type: application/json' -H 'X-Internal-Token: not-the-real-token' \
-  -d '{}' "$SYSTEM_EMAILS_URL" 2>/dev/null)"
-[[ "$BOGUS_CODE" == 401 ]] \
-  && pass "/system/emails rejects a bad X-Internal-Token (401)" \
-  || fail "/system/emails did not return 401 for a bad token (got HTTP ${BOGUS_CODE:-?}) — the internal-token gate may be missing or misconfigured"
-
-# Positive control (opt-in): only runs if NOTIFY_INTERNAL_TOKEN is exported
-# locally (same value configured on both auth and notify-api — never printed
-# here). Sends a deliberately INVALID body (bad `to`/`template`); the real
-# token should get the request PAST the auth gate to schema validation, i.e.
-# 400, not 401. A 400 proves your local value matches what's deployed on
-# notify-api — the "matching NOTIFY_INTERNAL_TOKEN posture" check — without
-# ever risking a real Resend send (an invalid payload never reaches the email
-# channel).
-if [[ -n "${NOTIFY_INTERNAL_TOKEN:-}" ]]; then
-  REAL_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
-    -H 'Content-Type: application/json' -H "X-Internal-Token: ${NOTIFY_INTERNAL_TOKEN}" \
-    -d '{"to":"not-an-email","template":"bogus-template"}' "$SYSTEM_EMAILS_URL" 2>/dev/null)"
-  if [[ "$REAL_CODE" == 400 ]]; then
-    pass "/system/emails accepts your NOTIFY_INTERNAL_TOKEN (matches the deployed value — got the expected 400 for a deliberately invalid payload)"
-  elif [[ "$REAL_CODE" == 401 ]]; then
-    fail "/system/emails rejected your NOTIFY_INTERNAL_TOKEN (401) — your local value does NOT match what notify-api has deployed (check the shared 1Password item / redeploy both services)"
-  else
-    warn "/system/emails returned HTTP ${REAL_CODE:-?} for the positive-control probe (expected 400) — inspect manually"
-  fi
-else
-  warn "NOTIFY_INTERNAL_TOKEN not set locally — skipping the positive-auth check (the negative 401 check above still confirms the gate is live). Export it (same value as both services' 1Password item) to also confirm the deployed value matches."
-fi
+# ─── 2b. notify-api internal endpoints (specs/006, specs/016, ADR-0049) ───────
+# POST /system/emails and POST /system/notifications are notify-api's
+# service-to-service endpoints. Each caller authenticates with its own scoped
+# service JWT (Authorization: Bearer); the old shared X-Internal-Token header is
+# retired and must authenticate nothing. A 401 here is the frozen answer for "no
+# valid service credential": 404/500 would mean the route or its middleware is not
+# live. No real credential is used, read or printed. (A bogus header value cannot
+# prove that the retired SECRET is refused — that is proven by the variable being
+# absent from every service, infra/README.md § Notify credential rollout, step 6.)
+head "notify-api internal endpoints — service-credential gate"
+for route in /system/emails /system/notifications; do
+  url="$NOTIFY_API_URL$route"
+  ANON_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -d '{}' "$url" 2>/dev/null)"
+  [[ "$ANON_CODE" == 401 ]] \
+    && pass "$route rejects a call with no credential (401)" \
+    || fail "$route did not return 401 for a call with no credential (got HTTP ${ANON_CODE:-?}) — the service-credential gate may be missing or the service not deployed"
+  LEGACY_CODE="$(curl -s -o /dev/null -m 8 -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -H 'X-Internal-Token: not-a-credential' \
+    -d '{}' "$url" 2>/dev/null)"
+  [[ "$LEGACY_CODE" == 401 ]] \
+    && pass "$route rejects an X-Internal-Token header (401) — the shared-token mechanism is retired" \
+    || fail "$route did not return 401 for an X-Internal-Token header (got HTTP ${LEGACY_CODE:-?}) — the retired shared-token path may still be live (specs/016 AC-5.1)"
+done
 
 # ─── 3. Frontends (Vercel) ────────────────────────────────────────────────────
 head "Frontends (Vercel)"
