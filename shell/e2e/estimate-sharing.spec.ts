@@ -76,10 +76,30 @@ const estimateIdFromUrl = (url: string): string => {
   return match[1]!
 }
 
+/**
+ * Runs `action` (a navigation or a click that lands on the estimates list) and
+ * resolves once the list's own GET /estimates has answered. Replaces
+ * `waitForLoadState('networkidle')`, which can never settle here: the shell
+ * holds the notification SSE stream (EventSource) open for the whole session,
+ * so the network is never idle. Waiting for the list response also keeps the
+ * negative assertions below honest (a count of 0 is only meaningful once the
+ * list has actually loaded).
+ */
+async function whenListLoaded(page: Page, action: () => Promise<unknown>): Promise<void> {
+  const listLoaded = page.waitForResponse(
+    (resp) =>
+      resp.request().method() === 'GET' &&
+      new URL(resp.url()).pathname === '/estimates' &&
+      resp.status() === 200,
+    { timeout: 15_000 },
+  )
+  await action()
+  await listLoaded
+}
+
 /** Creates a brand-new estimate via the "+ New estimate" → blank-template path, names it, adds one activity, and waits for the first autosave to land. Returns the estimate id. */
 async function createNamedEstimate(page: Page, name: string, activityName: string): Promise<string> {
-  await page.goto('/estimai/estimates')
-  await page.waitForLoadState('networkidle')
+  await whenListLoaded(page, () => page.goto('/estimai/estimates'))
 
   const newBtn = page.getByRole('button', { name: '+ New estimate' })
   await expect(newBtn, 'New estimate button must be visible').toBeVisible({ timeout: 15_000 })
@@ -175,8 +195,7 @@ test.describe('specs/013-estimate-sharing T25: headline journeys', () => {
     await applySessionCookie(collabContext, collabSession)
     const collabPage = await collabContext.newPage()
 
-    await collabPage.goto('/estimai/estimates')
-    await collabPage.waitForLoadState('networkidle')
+    await whenListLoaded(collabPage, () => collabPage.goto('/estimai/estimates'))
 
     const sharedRow = collabPage.getByTestId('estimate-row-shared').filter({ hasText: estimateName })
     await expect(sharedRow, 'Shared estimate must appear, badged, in the collaborator\'s own list (AC-2.1/2.2)').toBeVisible({
@@ -262,9 +281,8 @@ test.describe('specs/013-estimate-sharing T25: headline journeys', () => {
     await ownerPage.getByLabel('Close').click()
 
     // ─── Collaborator (now editor, next request per AC-5.1): saves successfully ──
-    await collabPage.getByRole('button', { name: 'My Estimates' }).first().click()
+    await whenListLoaded(collabPage, () => collabPage.getByRole('button', { name: 'My Estimates' }).first().click())
     await expect(collabPage).toHaveURL(/\/estimai\/estimates$/, { timeout: 10_000 })
-    await collabPage.waitForLoadState('networkidle')
 
     const sharedRowAsEditor = collabPage.getByTestId('estimate-row-shared').filter({ hasText: estimateName })
     await expect(sharedRowAsEditor).toContainText('Editor')
@@ -305,9 +323,8 @@ test.describe('specs/013-estimate-sharing T25: headline journeys', () => {
     await ownerPage.getByLabel('Close').click()
 
     // ─── Collaborator: the estimate disappears from their list (AC-5.2) ─────
-    await collabPage.getByRole('button', { name: 'My Estimates' }).first().click()
+    await whenListLoaded(collabPage, () => collabPage.getByRole('button', { name: 'My Estimates' }).first().click())
     await expect(collabPage).toHaveURL(/\/estimai\/estimates$/, { timeout: 10_000 })
-    await collabPage.waitForLoadState('networkidle')
     await expect(
       collabPage.getByTestId('estimate-row-shared').filter({ hasText: estimateName }),
       'Revoked estimate must be gone from the former collaborator\'s list (AC-5.2)',
@@ -320,9 +337,8 @@ test.describe('specs/013-estimate-sharing T25: headline journeys', () => {
     expect(directGetAfterRevoke.status, 'Revoked collaborator\'s GET must 404 (AC-1.6 denial taxonomy)').toBe(404)
 
     // ─── Cleanup: owner deletes the estimate ─────────────────────────────────
-    await ownerPage.getByRole('button', { name: 'My Estimates' }).first().click()
+    await whenListLoaded(ownerPage, () => ownerPage.getByRole('button', { name: 'My Estimates' }).first().click())
     await expect(ownerPage).toHaveURL(/\/estimai\/estimates$/, { timeout: 10_000 })
-    await ownerPage.waitForLoadState('networkidle')
     // The editor's save step above renamed the estimate, so match on the
     // Delete button's fixed prefix rather than the original `estimateName`.
     const deleteBtn = ownerPage.getByRole('button', { name: /^Delete "/ })
@@ -436,9 +452,8 @@ test.describe('specs/013-estimate-sharing T25: headline journeys', () => {
 
     // ─── Cleanup ──────────────────────────────────────────────────────────────
     await tab1.bringToFront()
-    await tab1.getByRole('button', { name: 'My Estimates' }).first().click()
+    await whenListLoaded(tab1, () => tab1.getByRole('button', { name: 'My Estimates' }).first().click())
     await expect(tab1).toHaveURL(/\/estimai\/estimates$/, { timeout: 10_000 })
-    await tab1.waitForLoadState('networkidle')
     const deleteBtn = tab1.getByRole('button', { name: /^Delete "/ })
     if (await deleteBtn.count()) {
       await deleteBtn.first().click()
