@@ -117,18 +117,27 @@ describe("diffLiteral (deployed value vs committed template)", () => {
 });
 
 describe("secret redaction (Phase 3 holds real deployed secrets in memory)", () => {
-  test("a NOTIFY_INTERNAL_TOKEN drift is reported by fingerprint, never the value", () => {
+  test("a leftover retired token found live is flagged by name, never by value", () => {
     const suite: SuiteEnv = {
       auth: { NOTIFY_INTERNAL_TOKEN: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
       "notify-api": { NOTIFY_INTERNAL_TOKEN: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
-      "refund-api": { NOTIFY_INTERNAL_TOKEN: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
     };
     const f = checkSuite(suite, { env: "production", isProdLike: true, resolved: true });
-    const drift = f.find((x) => x.message.includes("NOTIFY_INTERNAL_TOKEN is not identical"));
-    expect(drift).toBeDefined();
-    expect(drift!.message).toContain("sha256:");
-    expect(drift!.message).not.toContain("aaaaaaaa");
-    expect(drift!.message).not.toContain("bbbbbbbb");
+    const hits = f.filter((x) => x.message.includes("must not hold NOTIFY_INTERNAL_TOKEN"));
+    expect(hits.map((x) => x.scope).sort()).toEqual(["auth", "notify-api"]);
+    expect(JSON.stringify(f)).not.toContain("aaaaaaaa");
+    expect(JSON.stringify(f)).not.toContain("bbbbbbbb");
+  });
+
+  test("a mismatched service client secret is reported without its value", () => {
+    const suite: SuiteEnv = {
+      auth: { SERVICE_CLIENTS: JSON.stringify({ "refund-api": { secret: "s".repeat(40), scope: "notifications.push emails.send" } }) },
+      "refund-api": { SERVICE_CLIENT_ID: "refund-api", SERVICE_CLIENT_SECRET: "t".repeat(40) },
+    };
+    const f = checkSuite(suite, { env: "production", isProdLike: true, resolved: true });
+    expect(f.some((x) => x.level === "error" && x.message.includes("refund-api"))).toBe(true);
+    expect(JSON.stringify(f)).not.toContain("s".repeat(40));
+    expect(JSON.stringify(f)).not.toContain("t".repeat(40));
   });
 });
 

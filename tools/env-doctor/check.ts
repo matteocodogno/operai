@@ -329,11 +329,15 @@ function checkDistinctVars(suite: SuiteEnv): Finding[] {
 }
 
 // ── Layer B7: vars a service must not hold ──────────────────────────────────
+// Presence of the NAME is the finding, whatever the value (even empty): the
+// retirement is "deleted from the service's settings", and the message carries
+// the name only — the value of a forbidden variable is never shown.
 function checkForbiddenVars(suite: SuiteEnv): Finding[] {
   const out: Finding[] = [];
   for (const { name, services, why } of FORBIDDEN_VARS) {
     for (const svc of services) {
-      if (!isEmpty(suite[svc]?.[name])) {
+      const env = suite[svc];
+      if (env !== undefined && Object.prototype.hasOwnProperty.call(env, name)) {
         out.push({
           scope: svc,
           level: "error",

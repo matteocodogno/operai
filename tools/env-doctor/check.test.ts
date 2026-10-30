@@ -30,7 +30,6 @@ function validSuite(): SuiteEnv {
       ALLOWED_ORIGINS: SHELL,
       UI_HOME_URL: `${SHELL}/`,
       NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
-      NOTIFY_INTERNAL_TOKEN: TOKEN,
       SERVICE_AUDIENCE: SVC_AUD,
       SERVICE_CLIENTS: registry(CLIENT_SECRET),
       PORT: "3001",
@@ -51,7 +50,6 @@ function validSuite(): SuiteEnv {
       AUTH_ISSUER: AUTH_URL,
       AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
       AUTH_AUDIENCE: AUD,
-      NOTIFY_INTERNAL_TOKEN: TOKEN,
       SERVICE_AUDIENCE: SVC_AUD,
       PORT: "8080",
     },
@@ -63,7 +61,6 @@ function validSuite(): SuiteEnv {
       AUTH_BASE_URL: "http://auth.railway.internal:3001",
       AUTH_AUDIENCE: AUD,
       NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
-      NOTIFY_INTERNAL_TOKEN: TOKEN,
       REFUND_APP_BASE_URL: SHELL,
       SERVICE_CLIENT_ID: "refund-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_REF,
@@ -107,10 +104,10 @@ describe("env-doctor checker", () => {
     expect(errText(f)).toContain("AUTH_AUDIENCE is not identical");
   });
 
-  test("NOTIFY_INTERNAL_TOKEN drift → error", () => {
+  test("SERVICE_AUDIENCE drift between auth and notify-api → error", () => {
     const s = validSuite();
-    s["notify-api"]!.NOTIFY_INTERNAL_TOKEN = "y".repeat(40);
-    expect(errText(checkSuite(s, PROD))).toContain("NOTIFY_INTERNAL_TOKEN is not identical");
+    s["notify-api"]!.SERVICE_AUDIENCE = "a-different-service-audience";
+    expect(errText(checkSuite(s, PROD))).toContain("SERVICE_AUDIENCE is not identical");
   });
 
   test("AUTH_ISSUER not equal to auth's BETTER_AUTH_URL → error", () => {
@@ -195,7 +192,7 @@ describe("env-doctor checker", () => {
   test("a lingering secret reference in a supposedly-resolved suite → warning (not error)", () => {
     const s = validSuite();
     // Assembled so the literal `op://…` doesn't appear in source (gitleaks' 1password-reference rule).
-    s.auth!.NOTIFY_INTERNAL_TOKEN = "op:" + "//Operai-Prod/notify-token/password";
+    s.auth!.BETTER_AUTH_SECRET = "op:" + "//Operai-Prod/auth-secret/password";
     const f = checkSuite(s, PROD); // PROD ⇒ resolved defaults true
     expect(warns(f).some((w) => w.message.includes("unresolved secret reference"))).toBe(true);
     expect(errs(f)).toEqual([]);
@@ -203,9 +200,7 @@ describe("env-doctor checker", () => {
 
   test("offline template mode (resolved:false): a ${OP:…} secret is accepted, no warning", () => {
     const s = validSuite();
-    s.auth!.NOTIFY_INTERNAL_TOKEN = "${OP:AIScream/OperAI - NOTIFY_INTERNAL_TOKEN/password}";
-    s["notify-api"]!.NOTIFY_INTERNAL_TOKEN = "${OP:AIScream/OperAI - NOTIFY_INTERNAL_TOKEN/password}";
-    s["refund-api"]!.NOTIFY_INTERNAL_TOKEN = "${OP:AIScream/OperAI - NOTIFY_INTERNAL_TOKEN/password}";
+    s.auth!.BETTER_AUTH_SECRET = "${OP:Employee/Paperclip - BETTER_AUTH_SECRET/password}";
     const f = checkSuite(s, { env: "production", isProdLike: true, resolved: false });
     expect(errs(f)).toEqual([]);
     expect(warns(f)).toEqual([]);
@@ -216,8 +211,8 @@ describe("env-doctor checker", () => {
     for (const svc of ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"] as const) {
       s[svc]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
     }
-    for (const svc of ["auth", "notify-api", "refund-api"] as const) {
-      s[svc]!.NOTIFY_INTERNAL_TOKEN = "${{shared.NOTIFY_INTERNAL_TOKEN}}";
+    for (const svc of ["auth", "notify-api"] as const) {
+      s[svc]!.SERVICE_AUDIENCE = "${{shared.SERVICE_AUDIENCE}}";
     }
     const f = checkSuite(s, PROD);
     expect(errs(f)).toEqual([]);
@@ -341,12 +336,29 @@ describe("env-doctor checker", () => {
     expect(errText(checkSuite(s, PROD))).toContain("targets port 8081");
   });
 
-  test("inventory-api holding NOTIFY_INTERNAL_TOKEN → error (ADR-0040 hard stop)", () => {
-    const s = validSuite();
-    s["inventory-api"]!.NOTIFY_INTERNAL_TOKEN = TOKEN;
-    const text = errText(checkSuite(s, PROD));
-    expect(text).toContain("inventory-api must not hold NOTIFY_INTERNAL_TOKEN");
-    expect(text).not.toContain(TOKEN);
+  // specs/016 AC-5.3: the retired shared token is forbidden on every service, flagged by name only.
+  for (const svc of ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"] as const) {
+    test(`${svc} holding the retired shared token → error, value never printed`, () => {
+      const s = validSuite();
+      s[svc]!.NOTIFY_INTERNAL_TOKEN = TOKEN;
+      const f = checkSuite(s, PROD);
+      expect(errText(f)).toContain(`${svc} must not hold NOTIFY_INTERNAL_TOKEN`);
+      expect(JSON.stringify(f)).not.toContain(TOKEN);
+      expect(errs(f).filter((x) => x.message.includes("NOTIFY_INTERNAL_TOKEN")).map((x) => x.scope)).toEqual([svc]);
+    });
+  }
+
+  test("the retired shared token is flagged even when its value is empty or a reference", () => {
+    for (const value of ["", "${{shared.NOTIFY_INTERNAL_TOKEN}}", "${OP:AIScream/anything/password}"]) {
+      const s = validSuite();
+      s.auth!.NOTIFY_INTERNAL_TOKEN = value;
+      expect(errText(checkSuite(s, PROD))).toContain("auth must not hold NOTIFY_INTERNAL_TOKEN");
+    }
+  });
+
+  test("a suite without the retired shared token has no finding about it, and does not require it", () => {
+    const f = checkSuite(validSuite(), PROD);
+    expect(f.some((x) => x.message.includes("NOTIFY_INTERNAL_TOKEN"))).toBe(false);
   });
 
   test("service client: id not registered in auth's SERVICE_CLIENTS → error", () => {

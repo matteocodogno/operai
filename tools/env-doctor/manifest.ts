@@ -74,7 +74,6 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
 /** Vars that MUST hold a byte-for-byte identical value across the listed services. */
 export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
   { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"] },
-  { name: "NOTIFY_INTERNAL_TOKEN", services: ["auth", "notify-api", "refund-api"] },
   // The `aud` auth stamps on scoped service JWTs and notify-api verifies (ADR-0044).
   { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api"] },
 ];
@@ -98,15 +97,17 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
 ];
 
 /**
- * Vars a service must NOT hold. `inventory-api` is the fourth notify caller and
- * authenticates with a scoped service JWT instead of the shared internal token;
- * ADR-0040's hard stop forbids a fourth holder of NOTIFY_INTERNAL_TOKEN.
+ * Vars a service must NOT hold. The shared internal notify token was retired by
+ * specs/016 (ADR-0049): every notify-api caller authenticates with its own scoped
+ * service JWT, and notify-api no longer reads the variable. A leftover is harmless
+ * to a running service (none of them reads it) but means the retirement is not
+ * finished — and it is a live secret nobody uses. Flagged by NAME, on all five.
  */
 export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName[]; why: string }> = [
   {
     name: "NOTIFY_INTERNAL_TOKEN",
-    services: ["inventory-api"],
-    why: "ADR-0040 hard stop / ADR-0044: the fourth notify caller uses a scoped service JWT, never the shared token",
+    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api"],
+    why: "the shared notify token was retired (specs/016, ADR-0049): every caller uses its own scoped service credential",
   },
 ];
 
@@ -202,9 +203,10 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
 export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   auth: [
     "DATABASE_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "AUTH_AUDIENCE",
-    "ALLOWED_ORIGINS", "UI_HOME_URL", "NOTIFY_INTERNAL_URL", "NOTIFY_INTERNAL_TOKEN", "PORT",
-    // Optional in auth's env.ts, required by the contract: without them the
-    // service-token endpoint authenticates nobody and inventory's push is silently dead.
+    "ALLOWED_ORIGINS", "UI_HOME_URL", "NOTIFY_INTERNAL_URL", "PORT",
+    // SERVICE_AUDIENCE is required by auth's env.ts (specs/016, ADR-0048); SERVICE_CLIENTS is
+    // optional there but required by the contract: without it the service-token endpoint
+    // authenticates nobody and the callers' pushes are silently dead.
     "SERVICE_AUDIENCE", "SERVICE_CLIENTS",
   ],
   "estimai-api": [
@@ -212,14 +214,13 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
     "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", // specs/016: estimai-api authenticates to notify-api as itself
   ],
   "notify-api": [
-    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE",
-    "NOTIFY_INTERNAL_TOKEN", "PORT",
-    // Optional in notify-api's env.ts (unset disables the service-JWT path, fail closed), required by the contract.
+    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_AUDIENCE", "PORT",
+    // Required by notify-api's env.ts since specs/016: the only credential its /system routes accept.
     "SERVICE_AUDIENCE",
   ],
   "refund-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
-    "NOTIFY_INTERNAL_URL", "NOTIFY_INTERNAL_TOKEN", "REFUND_APP_BASE_URL", "PORT",
+    "NOTIFY_INTERNAL_URL", "REFUND_APP_BASE_URL", "PORT",
     "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", // specs/016
   ],
   // The S3 bucket name and both credentials are set directly on the Railway service (no
@@ -240,7 +241,6 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
  */
 export const SECRET_VARS: ReadonlySet<string> = new Set([
   "BETTER_AUTH_SECRET",
-  "NOTIFY_INTERNAL_TOKEN",
   "DATABASE_URL", // carries the Postgres password
   "GOOGLE_CLIENT_SECRET",
   "GITHUB_CLIENT_SECRET",
@@ -250,7 +250,7 @@ export const SECRET_VARS: ReadonlySet<string> = new Set([
   "REFUND_S3_ACCESS_KEY_ID",
   "REFUND_S3_SECRET_ACCESS_KEY",
   "SERVICE_CLIENTS", // JSON carrying every service client's secret (auth)
-  "SERVICE_CLIENT_SECRET", // inventory-api's half of that secret
+  "SERVICE_CLIENT_SECRET", // each caller's half of that secret (refund-api, estimai-api, inventory-api)
   "INVENTORY_S3_ACCESS_KEY_ID",
   "INVENTORY_S3_SECRET_ACCESS_KEY",
 ]);

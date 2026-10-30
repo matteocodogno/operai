@@ -232,7 +232,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     ':!*CHANGELOG.md' ':!.changeset' ':!tools/env-doctor' ':!*.env.example'` is empty
     apart from `infra/README.md`'s rollout history; `cd inventory-api && bun run typecheck`
     passes; `mise run changeset:check` passes.
-- [ ] T17: the env contract check forbids the shared token — refs: AC-5.2, AC-5.3 — deps: T4, T14, T16
+- [x] T17: the env contract check forbids the shared token — refs: AC-5.2, AC-5.3 — deps: T4, T14, T16
   - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/check.ts`, `tools/env-doctor/check.test.ts`,
     `tools/env-doctor/live.test.ts`, `tools/env-doctor/templates/production/*`,
     `tools/env-doctor/*.test.ts`
