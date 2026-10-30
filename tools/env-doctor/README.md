@@ -8,7 +8,10 @@ bisect" loop with a red ✗ and a one-line fix.
 mise run env:doctor -- --env production            # check the committed templates (offline, CI-safe)
 mise run env:doctor -- --env production --resolve  # also resolve ${OP:…} secrets via `op read`
 mise run env:doctor -- --env production --live      # check the ACTUAL deployed values on Railway
+mise run env:doctor -- --env local                 # check this machine's services (dotenv file + direnv)
 ```
+
+A bare `mise run env:doctor` checks the **production templates**, not your machine.
 
 ## Where values come from (source precedence)
 
@@ -16,8 +19,17 @@ mise run env:doctor -- --env production --live      # check the ACTUAL deployed 
    service. You produce them however you like; the doctor just checks them.
 2. **`templates/<env>/`** — committed per-environment templates (**the default**,
    no flag needed). This is Phase 2: one command, nothing to hand-assemble.
-3. **`<service>/.env`** — each service's own local file, when neither of the
-   above is present (a quick local sanity check).
+3. **local** (`--env local`, no templates for that name) — each service as it
+   starts on this machine: its dotenv file, overlaid with the environment
+   **direnv** resolves for it. A service's `.envrc` exports variables its
+   dotenv file does not hold (e.g. `DATABASE_URL`, built from `POSTGRES_*`), so
+   reading the file alone would report them missing. When `direnv` is installed
+   and the service has an `.envrc`, the doctor runs `direnv exec <service> env -0`
+   (20 s timeout), parses stdout in memory and never prints it. If that fails
+   (direnv not allowed, 1Password locked, timeout) it falls back to the file and
+   emits one warning naming the service and the reason (classified from the exit
+   status; raw direnv output is never echoed). With no direnv, or no `.envrc`,
+   it falls back to the file silently. CI never runs direnv: it checks templates.
 
 ## The templates (`templates/production/*.env`)
 
@@ -160,6 +172,7 @@ WARN, not ERROR).
 | `check.ts` | pure checker over a resolved suite → findings (+ secret redaction) |
 | `resolve.ts` | Phase 2 — load `templates/<env>/`, optional in-memory `op read` |
 | `live.ts` | Phase 3 — pull deployed vars from Railway + literal-drift diff |
+| `local.ts` | local check — the dotenv file overlaid with the `direnv exec` environment (in memory) |
 | `parse.ts` | shared `KEY=VALUE` parser |
 | `index.ts` | CLI (source selection, `--resolve`, `--live`, colored output) |
 | `templates/<env>/*.env` | the committed per-env contract |

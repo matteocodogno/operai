@@ -504,7 +504,8 @@ bun scripts/import-legacy.ts --file <register.xlsx> [--user-map <users.json>] \
 ### Checking the env contract before a deploy
 ```bash
 mise run env:doctor -- --env production --dir ./resolved   # one <service>.env per service
-mise run env:doctor                                        # or read each <service>/.env locally
+mise run env:doctor                                        # the production templates (what CI runs)
+mise run env:doctor -- --env local                         # this machine: each <service> dotenv file + what direnv resolves
 ```
 
 ### Before pushing

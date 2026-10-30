@@ -6,6 +6,7 @@
  *   mise run env:doctor -- --env production --resolve  # + resolve ${OP:…} via `op read`
  *   mise run env:doctor -- --env production --live      # Phase 3: check the DEPLOYED values (Railway)
  *   mise run env:doctor -- --env production --dir ./x  # Phase 1: pre-resolved <service>.env files
+ *   mise run env:doctor -- --env local                 # this machine: <service>/.env + direnv
  *
  * Source precedence:
  *   0. `--live`        — pull the ACTUAL deployed variables from Railway (Phase 3),
@@ -13,7 +14,8 @@
  *   1. `--dir <path>`  — one pre-resolved `<service>.env` per service (Phase 1).
  *   2. `templates/<env>/` — committed per-env templates (Phase 2, the default);
  *      `--resolve` expands `${OP:…}` secrets through `op read` in memory.
- *   3. `<service>/.env` — each service's own local file (quick local sanity check).
+ *   3. local (`--env local`, no templates) — each service's `<service>/.env` overlaid with the
+ *                        environment direnv resolves for it (`direnv exec`), in memory only.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -23,6 +25,7 @@ import { checkSuite, hasErrors, type Finding, type SuiteEnv } from "./check";
 import { parseEnvFile } from "./parse";
 import { hasTemplates, loadTemplateSuite } from "./resolve";
 import { diffLiteral, loadLiveSuite } from "./live";
+import { loadLocalSuite } from "./local";
 
 const C = {
   red: (s: string) => `\x1b[31m${s}\x1b[0m`,
@@ -46,13 +49,13 @@ function parseArgs(argv: string[]): { env: string; dir: string | null; resolve: 
   return { env, dir, resolve, live };
 }
 
-/** Load pre-resolved `<service>.env` files from `dir` (or each service's own `<svc>/.env` when dir is null). */
-function loadFromFiles(dir: string | null): { suite: SuiteEnv; loaded: ServiceName[]; skipped: ServiceName[] } {
+/** Load pre-resolved `<service>.env` files from `dir`. */
+function loadFromFiles(dir: string): { suite: SuiteEnv; loaded: ServiceName[]; skipped: ServiceName[] } {
   const suite: SuiteEnv = {};
   const loaded: ServiceName[] = [];
   const skipped: ServiceName[] = [];
   for (const svc of Object.keys(SERVICES) as ServiceName[]) {
-    const path = dir ? join(dir, `${svc}.env`) : join(svc, ".env");
+    const path = join(dir, `${svc}.env`);
     if (existsSync(path)) {
       suite[svc] = parseEnvFile(readFileSync(path, "utf8"));
       loaded.push(svc);
@@ -135,9 +138,14 @@ function main(): void {
     source = resolve ? `templates/${env} (op-resolved)` : `templates/${env}`;
     for (const e of r.errors) extra.push({ scope: e.scope, level: "error", message: e.message });
   } else {
-    // Fallback: each service's own local .env (quick local sanity check).
-    ({ suite, loaded, skipped } = loadFromFiles(null));
-    source = "<service>/.env";
+    // Local check (`--env local`): what each service sees — its dotenv file overlaid with
+    // the environment direnv resolves for it. Values stay in memory, never printed.
+    const r = loadLocalSuite();
+    suite = r.suite;
+    loaded = r.loaded;
+    skipped = r.skipped;
+    extra.push(...r.warnings);
+    source = "<service>/.env + direnv";
   }
 
   if (loaded.length === 0 && !live) {

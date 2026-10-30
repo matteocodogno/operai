@@ -167,7 +167,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     (expected until later tasks: `DATABASE_URL is missing` until T23, and
     `NOTIFY_INTERNAL_TOKEN is missing` until T17 moves it to the forbidden list) and
     `mise run dev` starts all five backends with no shared token set anywhere.
-- [ ] T23: the local env contract check reads what the services actually see — refs: AC-5.4 (makes T11's local check trustworthy; added on the user's request, 2026-10-30) — deps: T4
+- [x] T23: the local env contract check reads what the services actually see — refs: AC-5.4 (makes T11's local check trustworthy; added on the user's request, 2026-10-30) — deps: T4
   - touch: `tools/env-doctor/index.ts`, `tools/env-doctor/*.test.ts`, `tools/env-doctor/README.md`,
     `AGENTS.md` (the `### Checking the env contract` lines only)
   - Local mode (no templates for the env, e.g. `--env local`) reads only `<service>/.env`,
