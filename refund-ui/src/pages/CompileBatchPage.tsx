@@ -86,8 +86,13 @@ export default function CompileBatchPage() {
   const navigate = useNavigate()
   const t = strings.pages.compileBatch
 
+  // The pre-filled cutoff means "now" (AC-1.1). `datetime-local` only holds
+  // minutes, so while the user has not edited it the preview uses the exact
+  // instant instead of the parsed field: otherwise a request approved earlier
+  // in the current minute would be left out.
   const [cutoffInput, setCutoffInput] = useState(() => toDatetimeLocalValue(new Date()))
-  const [activeCutoffIso, setActiveCutoffIso] = useState(() => datetimeLocalToIso(cutoffInput) as string)
+  const [cutoffEdited, setCutoffEdited] = useState(false)
+  const [activeCutoffIso, setActiveCutoffIso] = useState(() => new Date().toISOString())
   const [previewState, setPreviewState] = useState<PreviewState>({ status: 'loading' })
   const [reloadToken, setReloadToken] = useState(0)
   const [compileDialog, setCompileDialog] = useState<CompileDialogState>({ open: false })
@@ -134,14 +139,21 @@ export default function CompileBatchPage() {
   }, [])
 
   const handlePreviewClick = useCallback(() => {
-    const iso = datetimeLocalToIso(cutoffInput)
+    let iso: string | null
+    if (cutoffEdited) {
+      iso = datetimeLocalToIso(cutoffInput)
+    } else {
+      const now = new Date()
+      setCutoffInput(toDatetimeLocalValue(now))
+      iso = now.toISOString()
+    }
     if (iso === null) return
     // Mark this load as user-initiated so the effect surfaces the empty-set
     // warning modal if it comes back with no candidates.
     previewInitiatedRef.current = true
     setActiveCutoffIso(iso)
     setReloadToken((n) => n + 1)
-  }, [cutoffInput])
+  }, [cutoffInput, cutoffEdited])
 
   const handleCompileOpen = useCallback(() => {
     setCompileDialog({ open: true, compiling: false, error: null })
@@ -216,7 +228,10 @@ export default function CompileBatchPage() {
                 id="compile-batch-cutoff"
                 type="datetime-local"
                 value={cutoffInput}
-                onChange={(e) => setCutoffInput(e.target.value)}
+                onChange={(e) => {
+                  setCutoffInput(e.target.value)
+                  setCutoffEdited(true)
+                }}
                 aria-describedby="compile-batch-cutoff-help"
                 data-testid="compile-batch-cutoff-input"
                 className="text-sm px-2.5 py-1.5 rounded-md border"

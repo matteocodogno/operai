@@ -168,6 +168,37 @@ describe('CompileBatchPage — populated preview', () => {
     expect(screen.getByTestId('compile-batch-compile-button')).toHaveProperty('disabled', false)
   })
 
+  it('previews up to the exact instant the page opened, not the start of that minute (AC-1.1)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-19T10:15:42.123Z'))
+    try {
+      vi.mocked(batchesApi.listCandidates).mockResolvedValue(populatedPreview)
+      renderCompileBatchPage()
+      await waitFor(() => expect(batchesApi.listCandidates).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(batchesApi.listCandidates).mock.calls[0]?.[0]).toBe('2026-07-19T10:15:42.123Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('previews up to the click instant when Preview is clicked with the default cutoff untouched', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-19T10:15:42.123Z'))
+    try {
+      vi.mocked(batchesApi.listCandidates).mockResolvedValue(populatedPreview)
+      renderCompileBatchPage()
+      await waitFor(() => expect(screen.getByTestId('compile-batch-preview')).not.toBeNull())
+
+      vi.setSystemTime(new Date('2026-07-19T10:17:05.456Z'))
+      fireEvent.click(screen.getByTestId('compile-batch-preview-button'))
+
+      await waitFor(() => expect(batchesApi.listCandidates).toHaveBeenCalledTimes(2))
+      expect(vi.mocked(batchesApi.listCandidates).mock.calls[1]?.[0]).toBe('2026-07-19T10:17:05.456Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('re-fetches with a new cutoff when Preview is clicked', async () => {
     vi.mocked(batchesApi.listCandidates).mockResolvedValue(populatedPreview)
     renderCompileBatchPage()
