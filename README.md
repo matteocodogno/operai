@@ -195,8 +195,15 @@ or push asks for Touch ID. A coding agent stops at the first commit. The setting
    echo test | ssh-keygen -Y sign -f ~/.ssh/operai_signing -n git >/dev/null && echo "signing ok"
    ```
 
-   Commits stay *Verified* on GitHub. After the next commit, `git log --show-signature -1`
-   shows the signature.
+   Commits stay *Verified* on GitHub. To verify signatures locally as well, git needs an
+   allowed-signers file. Without it, `git log --show-signature` reports "No signature" even on a
+   signed commit:
+
+   ```bash
+   echo "$(git config user.email) namespaces=\"git\" $(cat ~/.ssh/operai_signing.pub)" >> ~/.ssh/allowed_signers
+   git config --local gpg.ssh.allowedSignersFile "$HOME/.ssh/allowed_signers"
+   git log --show-signature -1   # after the next commit: Good "git" signature for <your email>
+   ```
 
 2. **Fetch and push over HTTPS with `gh`'s token** (optional). It adds no new credential.
    Today Touch ID is a physical confirmation on every push; with this change an agent can push
