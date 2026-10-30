@@ -123,7 +123,7 @@ Cross-service invariants (Layer B) — the ones no single schema can see:
 
 | Invariant | Bug it catches |
 |---|---|
-| `AUTH_AUDIENCE` / `NOTIFY_INTERNAL_TOKEN` identical across their services | suite-wide 401 on drift |
+| `AUTH_AUDIENCE` identical across all five backends | suite-wide 401 on drift |
 | `AUTH_ISSUER` == auth's `BETTER_AUTH_URL` (all resource servers) | token `iss` mismatch |
 | Internal URLs (`AUTH_JWKS_URL`, `AUTH_BASE_URL`, `NOTIFY_INTERNAL_URL`) are `http://` + `*.railway.internal` (prod) + port == the **target's** `PORT` | `AUTH_BASE_URL=localhost` → 503; notify `:8081` vs `:8080` |
 | Public URLs (`AUTH_ISSUER`, `BETTER_AUTH_URL`, `UI_HOME_URL`, `REFUND_APP_BASE_URL`) are `https://` public — never localhost/`.railway.internal` in prod | the `iss`-internal trap |
@@ -136,9 +136,9 @@ Added with specs/015-hardware-inventory (service tokens, `inventory-api`):
 | `SERVICE_AUDIENCE` identical across `auth` + `notify-api` | service tokens rejected by notify-api (the push silently 401s) |
 | `SERVICE_AUDIENCE` != `AUTH_AUDIENCE` on the same service (also when both are the same `${{shared.X}}` reference) | a service token valid on user routes / a user JWT valid on `/system/notifications` (both services exit at startup) |
 | Each caller's (`inventory-api`, `estimai-api`, `refund-api`) `SERVICE_CLIENT_ID` is a key of `auth`'s `SERVICE_CLIENTS` JSON, the entry's secret equals its `SERVICE_CLIENT_SECRET`, the entry's scopes equal exactly the caller's required set (`notifications.push`; plus `emails.send` for `refund-api`) — a missing OR an extra scope fails; id/secret shapes valid | token endpoint answers 401, or a client holds a capability it does not need |
-| `inventory-api` must not hold `NOTIFY_INTERNAL_TOKEN` | a fourth holder of the shared token (ADR-0040 hard stop) |
+| No backend may hold `NOTIFY_INTERNAL_TOKEN` (flagged by NAME on all five, even with an empty value; the value is never shown) — specs/016 / ADR-0049 | the retired shared notify token left on a service; pinned in code by `retiredToken.test.ts`, which also asserts the name appears in no service's `src/` |
 | `*_S3_ENDPOINT` host vs `*_S3_EU_ENDPOINT_HOSTS` (non-AWS) or an EU region (AWS), for `refund-api` and `inventory-api` | service refuses to start (data residency) |
-| `SERVICE_AUDIENCE` (auth, notify-api) and `SERVICE_CLIENTS` (auth) are required keys | optional in `env.ts`, but unset silently disables the push |
+| `SERVICE_AUDIENCE` (auth, notify-api) and `SERVICE_CLIENTS` (auth) are required keys | `SERVICE_CLIENTS` is optional in `env.ts`, but unset silently leaves every caller without a credential |
 
 What it cannot express: two *different* `${{shared.X}}` references (e.g. `SERVICE_AUDIENCE`
 vs `AUTH_AUDIENCE`) or a reference vs a literal cannot be compared offline — that is a
