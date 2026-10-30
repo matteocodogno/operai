@@ -1,7 +1,7 @@
 ---
 spec: 016
 generated: 2026-10-13
-synced: 2026-10-29
+synced: 2026-10-30
 ---
 
 # Tasks: Every notify caller authenticates as itself; the shared token is retired
@@ -12,7 +12,7 @@ The task order follows the plan's three pushes (plan § Architecture 5). Every p
 `main` redeploys all services, so **what is on `main` at each push matters**:
 
 - **Push 1** = T1–T5 and T20 (a test-only fix). Callers are unchanged.
-- **Push 2** = T7–T12, T21 and T22 (test-only fixes). Their code may be written earlier on
+- **Push 2** = T7–T12, T21 and T22 (test-only fixes) and T23 (local env check). Their code may be written earlier on
   a branch, but must not reach `main` before T6 is done.
 - **Push 3** = T14–T17. Must not reach `main` before T13 is done.
 
@@ -163,8 +163,29 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     lines: remove the shared token everywhere; add `SERVICE_CLIENT_ID` /
     `SERVICE_CLIENT_SECRET` to `refund-api` and `estimai-api`; add both clients to `auth`'s
     local `SERVICE_CLIENTS`; `SERVICE_AUDIENCE` on `auth` and `notify-api`.
-  - done when: `mise run env:doctor` (local) reports no failure and `mise run dev` starts
-    all five backends with no shared token set anywhere.
+  - done when: `mise run env:doctor -- --env local` reports no cross-service failure
+    (expected until later tasks: `DATABASE_URL is missing` until T23, and
+    `NOTIFY_INTERNAL_TOKEN is missing` until T17 moves it to the forbidden list) and
+    `mise run dev` starts all five backends with no shared token set anywhere.
+- [ ] T23: the local env contract check reads what the services actually see — refs: AC-5.4 (makes T11's local check trustworthy; added on the user's request, 2026-10-30) — deps: T4
+  - touch: `tools/env-doctor/index.ts`, `tools/env-doctor/*.test.ts`, `tools/env-doctor/README.md`,
+    `AGENTS.md` (the `### Checking the env contract` lines only)
+  - Local mode (no templates for the env, e.g. `--env local`) reads only `<service>/.env`,
+    so variables exported by a service's `.envrc` (for example `DATABASE_URL`, built
+    from `POSTGRES_*`) are reported missing although every service starts. When `direnv`
+    is installed and the service has an `.envrc`, load the service's environment as
+    direnv resolves it (`direnv exec <service> env`, parsed in process, never printed);
+    otherwise, or if that fails (direnv not allowed, 1Password locked), fall back to
+    `<service>/.env` with one warning naming the service and the reason. Values stay in
+    memory and every finding keeps the existing redaction. CI keeps using templates and
+    never runs direnv. Docs: `AGENTS.md` and the README say the local check is
+    `mise run env:doctor -- --env local` (a bare `mise run env:doctor` checks the
+    production templates).
+  - done when: `cd tools/env-doctor && bun test` passes, including: a service whose
+    variable comes only from the direnv-resolved env is not reported missing; a direnv
+    failure falls back to the file with the warning; no value appears in the output (log
+    spy); and `mise run env:doctor -- --env local`, run by the user on a correctly
+    configured machine, reports no `DATABASE_URL is missing`.
 - [ ] T12: the whole suite works end to end with no shared token; changeset for push 2 — refs: AC-5.4 — deps: T3, T7, T9, T10, T11
   - touch: `shell/playwright.config.ts`, `shell/e2e/*`, `.changeset/*`
   - Baseline first: the inventory-assignment spec (R-7). The config stops naming the
