@@ -63,8 +63,7 @@ const envSchema = z
       ),
     // ─── notify-api internal call (plan § Service authentication) ───────────
     // Push goes to POST /system/notifications authenticated with a scoped
-    // service JWT minted by auth — NOT NOTIFY_INTERNAL_TOKEN (ADR-0040's hard
-    // stop: no fourth holder of the shared token). Production: notify-api's
+    // service JWT minted by auth (ADR-0044/0049). Production: notify-api's
     // PRIVATE-networking address, never its public domain.
     NOTIFY_INTERNAL_URL: z
       .string()

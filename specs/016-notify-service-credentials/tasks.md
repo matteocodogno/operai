@@ -220,7 +220,7 @@ the repository guard keeps agents out of, or push and deploy. No agent runs them
     "an `X-Internal-Token` header → 401" on both routes.
   - done when: `bash -n` passes on both; `./infra/check.sh` passes against production
     (run by the user) and prints no variable value.
-- [ ] T16: no document or comment still describes the shared token as current; changeset for push 3 — refs: AC-5.2, AC-6.1 — deps: T5, T13
+- [x] T16: no document or comment still describes the shared token as current; changeset for push 3 — refs: AC-5.2, AC-6.1 — deps: T5, T13
   - touch: `AGENTS.md`, `README.md`, `infra/README.md`, `tools/env-doctor/README.md`,
     `inventory-api/src/lib/env.ts`, `inventory-api/src/lib/notify.ts`, `.gitleaksignore`,
     `.changeset/*`

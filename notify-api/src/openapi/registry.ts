@@ -33,9 +33,11 @@ export function setupOpenAPI(app: OpenAPIHono): void {
         description:
           "Health checks and service metadata, plus the internal-only " +
           "POST /system/emails and POST /system/notifications endpoints " +
-          "(X-Internal-Token, NOT a user JWT — ADR-0011, ADR-0017). " +
-          "/system/* never accepts a Bearer JWT and the Notifications " +
-          "routes never accept the internal token.",
+          "(a scoped service JWT in Authorization: Bearer, scope " +
+          "emails.send / notifications.push, aud=SERVICE_AUDIENCE — " +
+          "NOT a user JWT; ADR-0044, ADR-0049). The retired X-Internal-Token " +
+          "header is refused. A user JWT is refused here and the " +
+          "Notifications routes never accept a service JWT.",
       },
     ],
   });

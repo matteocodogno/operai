@@ -9,9 +9,9 @@
  *                 both linking to `/inventory/assets/{id}`.
  *
  * Calls notify-api's `POST /system/notifications` authenticated with the scoped
- * service JWT from `serviceToken.ts` (`Authorization: Bearer`) — NOT the shared
- * `NOTIFY_INTERNAL_TOKEN`, which ADR-0040's hard stop keeps this service from
- * holding. notify-api binds `system:inventory-api` to `originApp: "inventory"`.
+ * service JWT from `serviceToken.ts` (`Authorization: Bearer`, scope
+ * `notifications.push`; ADR-0044/0049). notify-api binds `system:inventory-api` to
+ * `originApp: "inventory"`.
  *
  * STRICTLY BEST-EFFORT (same posture as refund-api's `notifyDecision`, ADR-0017
  * §4): `notifyAssignment` never throws. Whatever goes wrong — no token, a

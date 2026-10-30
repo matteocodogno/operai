@@ -37,12 +37,12 @@ One-time setup:
    every token with 401. Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide
    real `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with
    `http://localhost:3001/auth/callback/google` as an authorized redirect URI) if you want
-   Google login locally. `refund-api` additionally needs `NOTIFY_INTERNAL_TOKEN` (shared
-   with `auth`/`notify-api`, see `refund-api/.env.example`) — its object-storage vars
-   (`REFUND_S3_*`) are documented but not yet enforced (no bucket provisioned yet).
-   `inventory-api` needs `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` (its credentials for
-   `auth`'s service-token endpoint) and its own `INVENTORY_S3_*` bucket — see
-   `inventory-api/.env.example`; it must **not** be given `NOTIFY_INTERNAL_TOKEN` (ADR-0040/0044).
+   Google login locally. `refund-api`, `estimai-api` and `inventory-api` each need
+   `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` (their own credentials for `auth`'s
+   service-token endpoint, matching an entry of `auth`'s `SERVICE_CLIENTS`; ADR-0049) — see
+   each `.env.example`. `refund-api`'s object-storage vars (`REFUND_S3_*`) are documented
+   but not yet enforced (no bucket provisioned yet); `inventory-api` also needs its own
+   `INVENTORY_S3_*` bucket.
 2. **Apply DB migrations** (brings up Postgres, then migrates all five backends):
 
    ```bash
