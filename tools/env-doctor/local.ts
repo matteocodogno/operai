@@ -14,6 +14,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { SERVICES, type ServiceName } from "./manifest";
 import type { Finding, SuiteEnv } from "./check";
@@ -61,8 +62,30 @@ export function parseEnvNul(out: string): ServiceEnv {
 
 type DirenvOutcome = { env: ServiceEnv } | { skip: true } | { reason: string };
 
-function direnvEnv(svcDir: string, run: CommandRunner, timeoutMs: number): DirenvOutcome {
+/**
+ * What the caller's own shell exports, taken with plain `env -0` (no direnv). `direnv exec` hands its
+ * child the caller's WHOLE environment plus what the `.envrc` adds, so without this a variable exported
+ * in the developer's shell would look provided by every service and could hide one that is really
+ * missing. `null` = could not be established.
+ */
+function ambientEnv(run: CommandRunner, timeoutMs: number): ServiceEnv | null {
+  const r = run(["env", "-0"], { cwd: tmpdir(), timeoutMs });
+  if (r.failure || r.code !== 0) return null;
+  return parseEnvNul(r.stdout); // an empty shell environment is legitimate: nothing to subtract
+}
+
+/** Only what the `.envrc` contributes: new keys, and keys whose value differs from the shell's. */
+export function withoutAmbient(resolved: ServiceEnv, ambient: ServiceEnv): ServiceEnv {
+  const out: ServiceEnv = {};
+  for (const [k, v] of Object.entries(resolved)) if (ambient[k] !== v) out[k] = v;
+  return out;
+}
+
+function direnvEnv(svcDir: string, run: CommandRunner, timeoutMs: number, ambient: () => ServiceEnv | null): DirenvOutcome {
   if (!existsSync(join(svcDir, ".envrc"))) return { skip: true };
+  const base = ambient();
+  // Without a baseline nothing separates the .envrc's variables from the shell's: do not guess.
+  if (!base) return { reason: "could not read the shell's own environment to tell it apart from the .envrc's" };
   // Absolute dir: a relative one would be resolved against `cwd` a second time.
   const abs = resolve(svcDir);
   const r = run(["direnv", "exec", abs, "env", "-0"], { cwd: abs, timeoutMs });
@@ -77,7 +100,7 @@ function direnvEnv(svcDir: string, run: CommandRunner, timeoutMs: number): Diren
       : { reason: `direnv exited with code ${r.code ?? "?"} (1Password locked?)` };
   }
   const env = parseEnvNul(r.stdout);
-  return Object.keys(env).length ? { env } : { reason: "direnv returned an empty environment" };
+  return Object.keys(env).length ? { env: withoutAmbient(env, base) } : { reason: "direnv returned an empty environment" };
 }
 
 export interface LocalLoad {
@@ -94,11 +117,13 @@ export function loadLocalSuite(opts: { root?: string; run?: CommandRunner; timeo
   const loaded: ServiceName[] = [];
   const skipped: ServiceName[] = [];
   const warnings: Finding[] = [];
+  let baseline: ServiceEnv | null | undefined; // lazy: only worth a process when some service has an .envrc
+  const ambient = () => (baseline === undefined ? (baseline = ambientEnv(run, timeoutMs)) : baseline);
   for (const svc of Object.keys(SERVICES) as ServiceName[]) {
     const svcDir = join(root, svc);
     const file = join(svcDir, ".env");
     const fromFile = existsSync(file) ? parseEnvFile(readFileSync(file, "utf8")) : null;
-    const d = direnvEnv(svcDir, run, timeoutMs);
+    const d = direnvEnv(svcDir, run, timeoutMs, ambient);
     if ("env" in d) {
       suite[svc] = { ...fromFile, ...d.env };
       loaded.push(svc);

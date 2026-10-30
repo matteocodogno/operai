@@ -25,7 +25,18 @@ A bare `mise run env:doctor` checks the **production templates**, not your machi
    dotenv file does not hold (e.g. `DATABASE_URL`, built from `POSTGRES_*`), so
    reading the file alone would report them missing. When `direnv` is installed
    and the service has an `.envrc`, the doctor runs `direnv exec <service> env -0`
-   (20 s timeout), parses stdout in memory and never prints it. If that fails
+   (20 s timeout), parses stdout in memory and never prints it. `direnv exec`
+   hands its child the caller's *whole* environment, so the doctor first takes
+   the shell's own baseline (`env -0`, once per run) and keeps only what the
+   `.envrc` contributes: keys the shell does not hold, or holds with a different
+   value. A variable exported in your shell therefore cannot make a service look
+   configured; it is reported missing unless the file or the `.envrc` provides
+   it (1Password references in the `.envrc` resolve exactly as before, since
+   direnv still runs with your untouched environment). Known limit: an `.envrc`
+   value byte-identical to the same variable in your shell is not told apart
+   and is dropped, which can only produce a false "missing", never hide one.
+   If the baseline cannot be read the service falls back to its file with a
+   warning rather than trusting the unfiltered environment. If the direnv run fails
    (direnv not allowed, 1Password locked, timeout) it falls back to the file and
    emits one warning naming the service and the reason (classified from the exit
    status; raw direnv output is never echoed). With no direnv, or no `.envrc`,
