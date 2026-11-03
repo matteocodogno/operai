@@ -161,7 +161,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T6: projects-api states and type change — refs: AC-1.2, AC-1.3 — deps: T5
   - touch: `projects-api/src/projects/transitions.ts`, `projects-api/src/projects/transitions.routes.ts`, `projects-api/src/projects/transitions.test.ts`
   - done when: `bun test src/projects/transitions.test.ts` is green: every allowed move of AC-1.3 succeeds, every other pair is 409 `invalid_transition`, `on_hold` returns to the state it left, `cancelled` accepts nothing; `internal → saas` succeeds and every other type change is 409 `type_change_refused`.
-- [ ] T7: projects-api team — refs: AC-1.5, AC-1.6 — deps: T5
+- [x] T7: projects-api team — refs: AC-1.5, AC-1.6 — deps: T5
   - touch: `projects-api/src/projects/team.routes.ts`, `projects-api/src/projects/team.test.ts`
   - done when: `bun test src/projects/team.test.ts` is green: `PUT` replaces the team; a member without `projects:access` → 422 `not_project_user` naming the ids; auth down → 503; names are live (a renamed user shows the new name).
 - [ ] T8: projects-api contracts — create by hand, read, edit terms and dates, end; never delete — refs: AC-1.7, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10 — deps: T5
