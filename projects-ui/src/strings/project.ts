@@ -1,6 +1,208 @@
-/** Placeholder: filled by the task that builds this area (see strings.ts). */
-const en = {}
+/** The project page: details, state actions, type change, project manager, team, contracts list (T13). */
+import type { ContractOrigin } from '../lib/types'
 
-const it: typeof en = {}
+const en = {
+  back: 'Back to projects',
+  loading: 'Loading project…',
+  notFoundTitle: 'Project not found',
+  notFoundBody: 'It may have been removed, or the link is wrong.',
+  readOnly: 'You can read this project but not change it.',
+  details: {
+    title: 'Details',
+    edit: 'Edit details',
+    type: 'Type',
+    entity: 'wellD entity',
+    company: 'Company',
+    clients: 'Clients',
+    clientCount: (count: number) => (count === 0 ? 'No clients yet' : count === 1 ? '1 client' : `${count} clients`),
+    internal: 'Internal',
+    companyUnavailable: 'Company unavailable',
+    projectManager: 'Project manager',
+    startDate: 'Starts',
+    endDate: 'Ends',
+    openEnded: 'Open-ended',
+  },
+  actions: {
+    label: 'Project actions',
+    start: 'Start project',
+    hold: 'Put on hold',
+    resume: 'Resume',
+    close: 'Close project',
+    reopen: 'Reopen',
+    cancel: 'Cancel project',
+    makeSaas: 'Make SaaS',
+    working: 'Working…',
+  },
+  cancelDialog: {
+    title: 'Cancel this project?',
+    body: 'A cancelled project is final: it cannot be reopened or changed afterwards.',
+    confirm: 'Cancel project',
+    busy: 'Cancelling…',
+    keep: 'Keep project',
+  },
+  saasDialog: {
+    title: 'Make this project SaaS?',
+    body: 'The project becomes a product sold by licence, with the companies of its contracts as clients. This cannot be undone.',
+    confirm: 'Make SaaS',
+    busy: 'Saving…',
+    keep: 'Keep internal',
+  },
+  saved: {
+    state: (label: string) => `The project is now ${label}.`,
+    type: 'The project is now a SaaS product.',
+    details: 'Project saved.',
+    team: 'Team saved.',
+  },
+  errors: {
+    title: 'The change was not made',
+    invalid_transition: 'The project cannot move to that state from where it is now. Reload to see its current state.',
+    type_change_refused: 'Only an internal project can become SaaS.',
+    out_of_scope: 'You may not change projects of this entity.',
+  },
+  editDialog: {
+    title: 'Edit project',
+    name: 'Name',
+    projectManager: 'Project manager',
+    projectManagerHint: 'Only people with access to Projects can be chosen.',
+    submit: 'Save',
+    busy: 'Saving…',
+  },
+  team: {
+    title: 'Team',
+    edit: 'Edit team',
+    empty: 'No team members yet.',
+    dialog: {
+      title: 'Edit team',
+      add: 'Add a team member',
+      addHint: 'Only people with access to Projects can be added.',
+      members: 'Team members',
+      none: 'Nobody yet.',
+      removeButton: 'Remove',
+      remove: (name: string) => `Remove ${name}`,
+      submit: 'Save team',
+      busy: 'Saving…',
+      tooMany: 'A team has at most 100 members.',
+    },
+    errors: {
+      not_project_user: (names: string) =>
+        `These people have no access to Projects: ${names}. Remove them, or ask an administrator for access.`,
+      identity_unavailable:
+        'The user directory cannot be reached right now. Nothing was changed. Try again in a moment.',
+    },
+  },
+  contracts: {
+    title: 'Contracts',
+    caption: 'Contracts of this project',
+    empty: 'No contracts yet.',
+    internal: 'Internal projects have no contracts.',
+    columns: { company: 'Client', origin: 'Origin', bexio: 'Bexio order', start: 'Start', end: 'End' },
+    origin: { manual: 'Entered by hand', deal: 'From a deal' } as Record<ContractOrigin, string>,
+    companyUnavailable: 'Company unavailable',
+    ongoing: 'Open-ended',
+  },
+}
+
+const it: typeof en = {
+  back: 'Torna ai progetti',
+  loading: 'Caricamento del progetto…',
+  notFoundTitle: 'Progetto non trovato',
+  notFoundBody: 'Potrebbe essere stato rimosso, oppure il link non è corretto.',
+  readOnly: 'Puoi leggere questo progetto ma non modificarlo.',
+  details: {
+    title: 'Dettagli',
+    edit: 'Modifica dettagli',
+    type: 'Tipo',
+    entity: 'Entità wellD',
+    company: 'Azienda',
+    clients: 'Clienti',
+    clientCount: (count: number) =>
+      count === 0 ? 'Ancora nessun cliente' : count === 1 ? '1 cliente' : `${count} clienti`,
+    internal: 'Interno',
+    companyUnavailable: 'Azienda non disponibile',
+    projectManager: 'Project manager',
+    startDate: 'Inizio',
+    endDate: 'Fine',
+    openEnded: 'Senza scadenza',
+  },
+  actions: {
+    label: 'Azioni sul progetto',
+    start: 'Avvia progetto',
+    hold: 'Metti in pausa',
+    resume: 'Riprendi',
+    close: 'Chiudi progetto',
+    reopen: 'Riapri',
+    cancel: 'Annulla progetto',
+    makeSaas: 'Rendi SaaS',
+    working: 'Operazione in corso…',
+  },
+  cancelDialog: {
+    title: 'Annullare questo progetto?',
+    body: 'Un progetto annullato è definitivo: non si può più riaprire né modificare.',
+    confirm: 'Annulla progetto',
+    busy: 'Annullamento…',
+    keep: 'Mantieni progetto',
+  },
+  saasDialog: {
+    title: 'Rendere SaaS questo progetto?',
+    body: 'Il progetto diventa un prodotto venduto in licenza, con le aziende dei suoi contratti come clienti. Non si può annullare.',
+    confirm: 'Rendi SaaS',
+    busy: 'Salvataggio…',
+    keep: 'Resta interno',
+  },
+  saved: {
+    state: (label: string) => `Il progetto è ora: ${label}.`,
+    type: 'Il progetto è ora un prodotto SaaS.',
+    details: 'Progetto salvato.',
+    team: 'Team salvato.',
+  },
+  errors: {
+    title: 'La modifica non è stata applicata',
+    invalid_transition:
+      'Dallo stato attuale il progetto non può passare a quello richiesto. Ricarica per vedere lo stato corrente.',
+    type_change_refused: 'Solo un progetto interno può diventare SaaS.',
+    out_of_scope: 'Non puoi modificare i progetti di questa entità.',
+  },
+  editDialog: {
+    title: 'Modifica progetto',
+    name: 'Nome',
+    projectManager: 'Project manager',
+    projectManagerHint: 'Si possono scegliere solo persone con accesso a Progetti.',
+    submit: 'Salva',
+    busy: 'Salvataggio…',
+  },
+  team: {
+    title: 'Team',
+    edit: 'Modifica team',
+    empty: 'Ancora nessun membro nel team.',
+    dialog: {
+      title: 'Modifica team',
+      add: 'Aggiungi un membro',
+      addHint: 'Si possono aggiungere solo persone con accesso a Progetti.',
+      members: 'Membri del team',
+      none: 'Nessuno per ora.',
+      removeButton: 'Rimuovi',
+      remove: (name: string) => `Rimuovi ${name}`,
+      submit: 'Salva team',
+      busy: 'Salvataggio…',
+      tooMany: 'Un team ha al massimo 100 membri.',
+    },
+    errors: {
+      not_project_user: (names: string) =>
+        `Queste persone non hanno accesso a Progetti: ${names}. Rimuovile, oppure chiedi l’accesso a un amministratore.`,
+      identity_unavailable:
+        'L’elenco degli utenti al momento non è raggiungibile. Non è stato modificato nulla. Riprova tra poco.',
+    },
+  },
+  contracts: {
+    title: 'Contratti',
+    caption: 'Contratti di questo progetto',
+    empty: 'Ancora nessun contratto.',
+    internal: 'I progetti interni non hanno contratti.',
+    columns: { company: 'Cliente', origin: 'Origine', bexio: 'Ordine Bexio', start: 'Inizio', end: 'Fine' },
+    origin: { manual: 'Inserito a mano', deal: 'Da una trattativa' },
+    companyUnavailable: 'Azienda non disponibile',
+    ongoing: 'Senza scadenza',
+  },
+}
 
 export const project = { en, it }

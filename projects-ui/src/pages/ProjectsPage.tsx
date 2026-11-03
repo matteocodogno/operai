@@ -4,15 +4,13 @@ import { Button, Card, DataTable, Field, PageHeader, Pagination, StatePanel } fr
 import type { DataTableColumn } from '@operai/ui'
 import { EntityBadge, ProjectStateBadge, ProjectTypeBadge } from '../components/Badges'
 import { LoadFailure, Loading } from '../components/LoadState'
-import PersonPicker from '../components/PersonPicker'
-import type { PersonChoice } from '../components/PersonPicker'
 import ProjectFormDialog from '../components/ProjectFormDialog'
 import { useCurrentUserId } from '../hooks/useCurrentUserId'
 import { useResource } from '../hooks/useResource'
 import { useScope } from '../hooks/useScope'
 import { PROJECT_STATES, PROJECT_TYPES } from '../lib/domain'
 import { personName } from '../lib/people'
-import { listProjects } from '../lib/projectsApi'
+import { getProjectManagers, listProjects } from '../lib/projectsApi'
 import type { ProjectState, ProjectSummary, ProjectType } from '../lib/types'
 import { strings } from '../strings'
 
@@ -32,9 +30,10 @@ function companyText(project: ProjectSummary): string {
  * by name, 25 to a page. "New project" opens ProjectFormDialog for a holder of
  * manage projects only (AC-4.4); a created project opens on its own page.
  *
- * The project-manager filter picks from the people with module access; a
- * reader the directory refuses (it is open to `project:manage` holders) gets
- * "Only my projects" instead.
+ * The project-manager filter lists the people who manage a project today
+ * (`GET /project-managers`, open to every reader). It is not the user
+ * directory, which only `project:manage` holders may read, so every reader gets
+ * the same filter (AC-1.4).
  */
 export default function ProjectsPage() {
   const t = strings.projects.list
@@ -45,18 +44,18 @@ export default function ProjectsPage() {
   const [q, setQ] = useState('')
   const [type, setType] = useState<ProjectType | ''>('')
   const [state, setState] = useState<ProjectState | ''>('')
-  const [manager, setManager] = useState<PersonChoice | null>(null)
-  const [onlyMine, setOnlyMine] = useState(false)
+  const [projectManagerId, setProjectManagerId] = useState('')
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
 
-  const projectManagerId = manager?.id ?? (onlyMine ? (currentUserId ?? undefined) : undefined)
-  const filtered = q.trim() !== '' || type !== '' || state !== '' || projectManagerId !== undefined
+  const filtered = q.trim() !== '' || type !== '' || state !== '' || projectManagerId !== ''
   const load = useCallback(
     (signal: AbortSignal) => listProjects({ page, q: q.trim(), type, state, projectManagerId }, { signal }),
     [page, q, type, state, projectManagerId],
   )
   const projects = useResource(load)
+  const loadManagers = useCallback((signal: AbortSignal) => getProjectManagers({ signal }), [])
+  const managers = useResource(loadManagers)
 
   const columns: DataTableColumn<ProjectSummary>[] = [
     {
@@ -191,29 +190,29 @@ export default function ProjectsPage() {
                 </select>
               )}
             </Field>
-            <PersonPicker
+            <Field
               label={t.projectManager}
-              value={manager}
-              onChange={(next) => {
-                setManager(next)
-                setPage(1)
-              }}
+              hint={managers.status === 'error' ? t.managersFailed : undefined}
               testId="projects-manager"
-              whenForbidden={
-                <label className="flex items-center gap-2 text-sm text-text sm:pt-8">
-                  <input
-                    type="checkbox"
-                    checked={onlyMine}
-                    onChange={(event) => {
-                      setOnlyMine(event.target.checked)
-                      setPage(1)
-                    }}
-                    data-testid="projects-only-mine"
-                  />
-                  {t.onlyMine}
-                </label>
-              }
-            />
+            >
+              {(control) => (
+                <select
+                  {...control}
+                  value={projectManagerId}
+                  onChange={(event) => {
+                    setProjectManagerId(event.target.value)
+                    setPage(1)
+                  }}
+                >
+                  <option value="">{strings.common.any}</option>
+                  {(managers.data?.items ?? []).map((manager) => (
+                    <option key={manager.id} value={manager.id}>
+                      {personName(manager, currentUserId)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
           </div>
         </Card>
         {content}

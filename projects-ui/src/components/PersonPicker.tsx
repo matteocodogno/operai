@@ -1,5 +1,4 @@
 import { useEffect, useId, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 import { Combobox, Field } from '@operai/ui'
 import type { ComboboxOption } from '@operai/ui'
 import { ApiError } from '../lib/api'
@@ -25,13 +24,16 @@ const failureText = (error: unknown): string =>
 /**
  * PersonPicker — choose an Operai user who holds access to the Projects module
  * (`auth`'s directory filtered by `appId=projects`, ADR-0053, ADR-0055): a
- * project manager (AC-1.6) or a filter on one. The list is fetched once and
+ * project manager or a team member (AC-1.6). The list is fetched once and
  * filtered client-side by name or email.
  *
  * The directory is open to `project:manage` holders only. A caller it refuses
- * (403) cannot pick someone else: `whenForbidden` renders in place of the picker
- * (the list filter offers "Only my projects"); without it the field shows the
- * current choice read-only, with `forbiddenHint`.
+ * (403) cannot pick someone else: the field shows the current choice read-only,
+ * with `forbiddenHint`.
+ *
+ * `excludeIds` leaves people out of the list (members already on the team);
+ * `clearOnSelect` turns the picker into an "add" field: a choice is handed to
+ * `onChange` and the text is cleared, ready for the next one.
  */
 export default function PersonPicker({
   label,
@@ -42,7 +44,8 @@ export default function PersonPicker({
   required = false,
   testId,
   forbiddenHint,
-  whenForbidden,
+  excludeIds,
+  clearOnSelect = false,
 }: {
   label: string
   hint?: string
@@ -52,7 +55,8 @@ export default function PersonPicker({
   required?: boolean
   testId: string
   forbiddenHint?: string
-  whenForbidden?: ReactNode
+  excludeIds?: readonly string[]
+  clearOnSelect?: boolean
 }) {
   const id = useId()
   const [outcome, setOutcome] = useState<Outcome | null>(null)
@@ -77,14 +81,14 @@ export default function PersonPicker({
     // The chosen person's own name is not a search: focusing a filled field lists everyone again.
     const needle = value !== null && text === value.label ? '' : text.trim().toLowerCase()
     return outcome.users
+      .filter((user) => !excludeIds?.includes(user.id))
       .filter((user) => !needle || `${user.name ?? ''} ${user.email}`.toLowerCase().includes(needle))
       .slice(0, 20)
       .map(toOption)
-  }, [outcome, text, value])
+  }, [outcome, text, value, excludeIds])
 
   const forbidden = outcome !== null && !outcome.ok && outcome.error instanceof ApiError && outcome.error.status === 403
 
-  if (forbidden && whenForbidden !== undefined) return <>{whenForbidden}</>
   if (forbidden) {
     return (
       <Field label={label} hint={forbiddenHint} testId={testId}>
@@ -116,7 +120,7 @@ export default function PersonPicker({
           }}
           options={options}
           onSelect={(option) => {
-            setText(option.label)
+            setText(clearOnSelect ? '' : option.label)
             setOpen(false)
             onChange({ id: option.id, label: option.label })
           }}

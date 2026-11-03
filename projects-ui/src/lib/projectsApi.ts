@@ -16,6 +16,7 @@ import type {
   DirectoryUser,
   Entity,
   Page,
+  Person,
   Project,
   ProjectState,
   ProjectSummary,
@@ -62,6 +63,8 @@ export type UpdateProjectInput = { name?: string; projectManagerId?: string }
 
 export const listProjects = (params: ProjectListQuery, init?: Init) =>
   getJson<Page<ProjectSummary>>(`/projects${query(params)}`, init)
+/** The distinct project managers of all projects, by name: feeds the list's filter for every reader (AC-1.4). */
+export const getProjectManagers = (init?: Init) => getJson<{ items: Person[] }>('/project-managers', init)
 export const getProject = (id: string, init?: Init) => getJson<Project>(projectPath(id), init)
 export const createProject = (input: CreateProjectInput) => sendJson<Project>('/projects', 'POST', input)
 export const updateProject = (id: string, version: number, input: UpdateProjectInput) =>

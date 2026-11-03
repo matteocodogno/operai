@@ -6,7 +6,7 @@
  * fixes. Modelled on crm-ui/src/test-support/fakeApi.ts.
  */
 import { vi } from 'vitest'
-import type { Person, ProjectSummary, Scope } from '../lib/types'
+import type { Person, Project, ProjectSummary, Scope } from '../lib/types'
 
 export type FakeAnswer = { status: number; body?: unknown }
 export type FakeHandler = (url: URL, init: RequestInit | undefined) => FakeAnswer | Promise<FakeAnswer>
@@ -56,5 +56,25 @@ export const projectSummary = (overrides: Partial<ProjectSummary> = {}): Project
   company: { id: 'c1', name: 'Acme SA' },
   clientCount: 1,
   projectManager: ADA,
+  ...overrides,
+})
+
+/** A full `Project` (`GET /projects/:id`): active, no team, no contracts. */
+export const projectDetail = (overrides: Partial<Project> = {}): Project => ({
+  id: 'p1',
+  name: 'Intranet',
+  type: 't_and_m',
+  state: 'active',
+  stateBeforeHold: null,
+  entity: 'welld_ch',
+  company: { id: 'c1', name: 'Acme SA' },
+  projectManager: ADA,
+  team: [],
+  contracts: [],
+  startDate: null,
+  endDate: null,
+  version: 3,
+  createdAt: '2026-10-01T10:00:00.000Z',
+  updatedAt: '2026-10-30T10:00:00.000Z',
   ...overrides,
 })

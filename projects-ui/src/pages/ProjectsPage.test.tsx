@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { RouterProvider } from '@tanstack/react-router'
 import { createAppRouter } from '../router'
-import { ADA, fakeApi, page, problem, projectSummary, scope } from '../test-support/fakeApi'
+import { ADA, fakeApi, page, problem, projectDetail, projectSummary, scope } from '../test-support/fakeApi'
 import type { FakeHandler } from '../test-support/fakeApi'
 import { scopeRoot } from '../test-support/scopeRoot'
 import type { Scope } from '../lib/types'
@@ -24,12 +24,19 @@ vi.mock('shell/session', () => ({
 }))
 
 const BOB = { id: 'u-bob', name: 'Bob Builder', email: 'bob@welld.ch', entity: 'welld_ch' }
+const BOB_PM = { id: 'u-bob', name: 'Bob Builder', deleted: false }
 const directory =
   (users = [BOB]): FakeHandler =>
   () => ({ status: 200, body: { users } })
 
 const renderPage = async (routes: Record<string, FakeHandler>, callerScope: Scope = scope()) => {
-  apiFetch.mockImplementation(fakeApi({ 'GET /authz/users/directory': directory(), ...routes }))
+  apiFetch.mockImplementation(
+    fakeApi({
+      'GET /authz/users/directory': directory(),
+      'GET /project-managers': () => ({ status: 200, body: { items: [] } }),
+      ...routes,
+    }),
+  )
   window.history.pushState(null, '', '/')
   render(<RouterProvider router={createAppRouter(undefined, scopeRoot(callerScope))} />)
   await screen.findByTestId('projects-page')
@@ -127,30 +134,48 @@ describe('ProjectsPage list (AC-1.4)', () => {
     await waitFor(() => expect(lastQuery()).toEqual({ page: '1', q: 'koo', type: 'saas', state: 'on_hold' }))
   })
 
-  it('filters by project manager, picked from the people who hold access to the module (ADR-0055)', async () => {
-    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }) })
-    await screen.findByTestId('projects-table')
-    fireEvent.focus(screen.getByRole('combobox', { name: /Project manager/ }))
-    fireEvent.click(await screen.findByRole('option', { name: /Bob Builder/ }))
-    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', projectManagerId: 'u-bob' }))
-    const directoryCall = apiFetch.mock.calls
-      .map(([input]) => new URL(String(input)))
-      .find((url) => url.pathname === '/authz/users/directory')!
-    expect(directoryCall.searchParams.get('appId')).toBe('projects')
-
-    fireEvent.change(screen.getByRole('combobox', { name: /Project manager/ }), { target: { value: '' } })
-    await waitFor(() => expect(lastQuery()).toEqual({ page: '1' }))
-  })
-
-  it('a reader who may not read the directory filters on "Only my projects" instead', async () => {
+  it('filters by project manager, picked from GET /project-managers, and never reads the user directory', async () => {
     await renderPage({
-      'GET /authz/users/directory': () => problem(403, 'forbidden'),
+      'GET /project-managers': () => ({ status: 200, body: { items: [ADA, BOB_PM] } }),
       'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
     })
-    fireEvent.click(await screen.findByLabelText('Only my projects'))
-    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', projectManagerId: ADA.id }))
-    fireEvent.click(screen.getByLabelText('Only my projects'))
+    await screen.findByTestId('projects-table')
+    const select = await screen.findByLabelText('Project manager')
+    await waitFor(() => expect(within(select).getAllByRole('option').length).toBe(3))
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Any', 'Ada Lovelace (You)', 'Bob Builder'])
+    fireEvent.change(select, { target: { value: 'u-bob' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', projectManagerId: 'u-bob' }))
+    fireEvent.change(select, { target: { value: '' } })
     await waitFor(() => expect(lastQuery()).toEqual({ page: '1' }))
+    // A reader without `project:manage` cannot read the directory; this filter must not need it (AC-1.4).
+    expect(apiFetch.mock.calls.some(([input]) => new URL(String(input)).pathname === '/authz/users/directory')).toBe(
+      false,
+    )
+  })
+
+  it('has no "Only my projects" fallback: every reader gets the same project-manager filter', async () => {
+    await renderPage({
+      'GET /authz/users/directory': () => problem(403, 'forbidden'),
+      'GET /project-managers': () => ({ status: 200, body: { items: [ADA] } }),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    const select = await screen.findByLabelText('Project manager')
+    await waitFor(() => expect(within(select).getAllByRole('option').length).toBe(2))
+    expect(screen.queryByLabelText('Only my projects')).toBeNull()
+  })
+
+  it('still lists, and says the filter is empty, when the project managers cannot be loaded', async () => {
+    await renderPage({
+      'GET /project-managers': () => problem(500, undefined, {}, 'boom'),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    expect(await screen.findByTestId('projects-table')).not.toBeNull()
+    expect(await screen.findByText('The project managers could not be loaded.')).not.toBeNull()
+    expect(within(screen.getByLabelText('Project manager')).getAllByRole('option').length).toBe(1)
   })
 })
 
@@ -209,6 +234,7 @@ describe('New project (AC-4.4)', () => {
       {
         'GET /projects': () => ({ status: 200, body: page([]) }),
         'POST /projects': () => ({ status: 201, body: { ...projectSummary({ id: 'pNew' }), team: [], contracts: [] } }),
+        'GET /projects/pNew': () => ({ status: 200, body: projectDetail({ id: 'pNew', name: 'Ops tooling' }) }),
       },
       scope({ manage: ['welld_ch'] }),
     )

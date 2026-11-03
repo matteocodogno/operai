@@ -51,6 +51,8 @@ export type Project = {
   name: string
   type: ProjectType
   state: ProjectState
+  /** The state an `on_hold` project left (and may return to); `null` in every other state. */
+  stateBeforeHold: ProjectState | null
   entity: Entity
   company: CompanyRef | null
   projectManager: Person

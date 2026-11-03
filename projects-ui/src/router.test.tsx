@@ -1,23 +1,28 @@
 /**
  * @vitest-environment jsdom
  *
- * The inner router (T11): every page route exists with a placeholder that T12
- * and T13 fill, resolved under the shell's `/projects` basepath, plus the
- * not-found fallback. A bare root stands in for ProjectsShell.
+ * The inner router (T11): every page route exists, resolved under the shell's
+ * `/projects` basepath, plus the not-found fallback. A bare root stands in for
+ * ProjectsShell.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { RouterProvider } from '@tanstack/react-router'
 import { createAppRouter } from './router'
+import { fakeApi, projectDetail } from './test-support/fakeApi'
 
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('shell/session', () => ({
-  apiFetch: vi.fn(),
+  apiFetch,
   getProjectsApiBaseUrl: () => 'http://projects-api.test',
   getAuthBaseUrl: () => 'http://auth.test',
   useSession: () => ({ data: { user: { id: 'u-ada' } } }),
 }))
 
 const renderAt = async (path: string, basepath = '/projects') => {
+  apiFetch.mockImplementation(
+    fakeApi({ 'GET /projects/ck9x2': () => ({ status: 200, body: projectDetail({ id: 'ck9x2' }) }) }),
+  )
   window.history.pushState(null, '', path)
   render(<RouterProvider router={createAppRouter(basepath)} />)
 }
