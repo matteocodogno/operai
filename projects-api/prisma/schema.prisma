@@ -1,0 +1,153 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Data model of specs/021-projects (tasks.md § Data model). Every id is TEXT (a cuid):
+// CRM and auth ids are cuids, never uuids. People are opaque `auth` user ids and the
+// company is an opaque CRM company id (no foreign key across services); their names are
+// resolved live. There is NO money anywhere in this schema (D14). Calendar dates are
+// @db.Date; man-days are numeric(6,1).
+//
+// Raw SQL in the initial migration, the ENFORCEMENT and not a duplicate (Prisma cannot
+// express CHECKs):
+//   project   companyId set iff the type is a client type; stateBeforeHold set iff on_hold
+//             (and only to a state a project can be put on hold from); name not blank
+//   contract  fixed price needs deadline and max effort > 0; maintenance needs an SLA or an
+//             hour package; the SLA pair is both-or-neither, each 0-60; the hour package is
+//             a both-or-neither group, hours > 0, expiry only for `capacity`;
+//             endDate >= startDate; estimated man-days >= 0
+//   position  planned man-days > 0; profile not blank
+
+enum Entity {
+  welld_ch
+  welld_it
+}
+
+enum ProjectType {
+  t_and_m
+  fixed_price
+  maintenance
+  saas
+  internal
+}
+
+enum ProjectState {
+  planned
+  active
+  on_hold
+  closed
+  cancelled
+}
+
+/// Where a contract came from: typed in by hand, or created from a won deal (specs/022).
+enum ContractOrigin {
+  manual
+  deal
+}
+
+enum HourPackageKind {
+  capacity
+  yearly
+}
+
+model Project {
+  id               String       @id @default(cuid())
+  name             String       @db.VarChar(200)
+  type             ProjectType
+  state            ProjectState @default(planned)
+  /// The state an `on_hold` project returns to; set iff `state = on_hold`.
+  stateBeforeHold  ProjectState?
+  /// Fixed at creation (a wrong one is a new project).
+  entity           Entity
+  /// CRM company id; set iff `type` is a client type (t_and_m, fixed_price, maintenance).
+  companyId        String?
+  /// `auth` user id; must hold projects:access (checked live at write time).
+  projectManagerId String
+  /// Optimistic-concurrency counter (ADR-0038, AC-1.7).
+  version          Int          @default(1)
+  createdById      String
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  members   ProjectMember[]
+  contracts Contract[]
+
+  @@index([projectManagerId])
+  @@index([state])
+  @@index([type])
+  @@index([companyId])
+  @@map("project")
+}
+
+model ProjectMember {
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// `auth` user id.
+  userId    String
+  addedAt   DateTime @default(now())
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_member")
+}
+
+/// What one client bought on a project, as delivery terms. Never deleted (AC-2.10): the
+/// project relation is RESTRICT and the API has no DELETE.
+model Contract {
+  id                String         @id @default(cuid())
+  projectId         String
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  /// Always the project's type (D25); kept equal by the API.
+  type              ProjectType
+  /// CRM company id.
+  companyId         String
+  origin            ContractOrigin @default(manual)
+  /// The won deal this contract came from; filled by specs/022. Unique: a deal yields one contract.
+  dealId            String?        @unique
+  /// Typed in by accounting (contract:bexio); unchecked free text (A24).
+  bexioOrderId      String?        @db.VarChar(64)
+  startDate         DateTime       @db.Date
+  endDate           DateTime?      @db.Date
+  version           Int            @default(1)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  // fixed_price
+  deadline          DateTime?      @db.Date
+  estimatedManDays  Decimal?       @db.Decimal(6, 1)
+  maxEffortManDays  Decimal?       @db.Decimal(6, 1)
+
+  // maintenance and saas: an SLA (both priorities or neither) ...
+  slaHighDays       Int?
+  slaNormalDays     Int?
+  // ... and/or an hour package (hours, kind and start, or none of them; expiry only for capacity)
+  hourPackageHours  Int?
+  hourPackageKind   HourPackageKind?
+  hourPackageStart  DateTime?      @db.Date
+  hourPackageExpiry DateTime?      @db.Date
+
+  /// t_and_m
+  positions ContractPosition[]
+
+  @@index([projectId])
+  @@index([companyId])
+  @@map("contract")
+}
+
+/// A profile in a T&M contract ("Senior developer") with its planned man-days; not a person (A8).
+model ContractPosition {
+  id             String   @id @default(cuid())
+  contractId     String
+  contract       Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  profile        String   @db.VarChar(120)
+  plannedManDays Decimal  @db.Decimal(6, 1)
+  position       Int
+
+  @@index([contractId])
+  @@map("contract_position")
+}

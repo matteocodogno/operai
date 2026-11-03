@@ -17,10 +17,11 @@ const harness = setupTestAuth();
 await harness.init();
 
 const { app } = await import("../index");
+const { db } = await import("../lib/db");
 const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { __resetIdentityCacheForTests } = await import("../lib/identities");
 
-export { app };
+export { app, db };
 
 /** Forgets cached display names (60 s cache), so the next read asks `auth` again. */
 export const forgetIdentities = () => __resetIdentityCacheForTests();
@@ -194,8 +195,12 @@ export async function call(method: string, path: string, options: CallOptions = 
   return { status: res.status, json, headers: res.headers };
 }
 
-/** Puts the world back to its start: caches, switches and fakes. The data model arrives with T4. */
+/** Puts the world back to its start: the tables (children first), caches, switches and fakes. */
 export async function resetWorld(): Promise<void> {
+  await db.contractPosition.deleteMany();
+  await db.contract.deleteMany();
+  await db.projectMember.deleteMany();
+  await db.project.deleteMany();
   __resetAuthzCacheForTests();
   __resetIdentityCacheForTests();
   identities.down = false;
