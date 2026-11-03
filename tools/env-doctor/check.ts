@@ -16,6 +16,7 @@ import {
   INTERNAL_URL_VARS,
   ISSUER,
   ORIGINS,
+  PRODUCTION_REQUIRED_KEYS,
   PUBLIC_URL_VARS,
   REQUIRED_KEYS,
   S3_RESIDENCY,
@@ -112,7 +113,9 @@ function checkRequiredKeys(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   for (const svc of BACKENDS) {
     const env = suite[svc];
     if (!env) continue; // service not in scope for this run
-    for (const key of REQUIRED_KEYS[svc] ?? []) {
+    // Keys a service treats as optional locally but production must hold (specs/021) join the list only for a prod-like env.
+    const keys = [...(REQUIRED_KEYS[svc] ?? []), ...(opts.isProdLike ? (PRODUCTION_REQUIRED_KEYS[svc] ?? []) : [])];
+    for (const key of keys) {
       const v = env[key];
       if (v === undefined || v === "") {
         out.push({ scope: svc, level: "error", message: `${key} is missing`, fix: `Set ${key} on ${svc}.` });

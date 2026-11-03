@@ -806,3 +806,132 @@ describe("env-doctor checker — meetings (specs/021)", () => {
     expect(BACKENDS).not.toContain("meetings-ui");
   });
 });
+
+// specs/021-projects: projects-api (a new resource server) reads CRM companies from crm-api with a scoped
+// service credential; crm-api gains SERVICE_AUDIENCE. The baseline is the suite above plus the two services.
+describe("env-doctor checker — projects-api and the crm-api service audience (specs/021)", () => {
+  const CLIENT_SECRET_PROJECTS = "p".repeat(40);
+  const projectsRegistry = (scope = "crm.companies.read") =>
+    JSON.stringify({
+      ...JSON.parse(registry(CLIENT_SECRET)),
+      "projects-api": { secret: CLIENT_SECRET_PROJECTS, scope },
+    });
+
+  function projectsSuite(): SuiteEnv {
+    const s = validSuite();
+    s.auth!.SERVICE_CLIENTS = projectsRegistry();
+    s["crm-api"] = {
+      DATABASE_URL: "postgres://…/crm",
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      SERVICE_AUDIENCE: SVC_AUD,
+      PORT: "8084",
+    };
+    s["projects-api"] = {
+      DATABASE_URL: "postgres://…/projects",
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      CRM_INTERNAL_URL: "http://crm-api.railway.internal:8084",
+      SERVICE_CLIENT_ID: "projects-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_PROJECTS,
+      PORT: "8085",
+    };
+    return s;
+  }
+  const LOCAL = { env: "local", isProdLike: false };
+
+  test("a fully-correct suite with projects-api and crm-api passes with no errors or warnings", () => {
+    const f = checkSuite(projectsSuite(), PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("the CRM service-credential group is required in production, not locally", () => {
+    for (const key of ["CRM_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"]) {
+      const s = projectsSuite();
+      delete s["projects-api"]![key];
+      expect(errText(checkSuite(s, PROD))).toContain(`${key} is missing`);
+      // local: the same setup is not flagged for the missing optional group
+      expect(errText(checkSuite(s, LOCAL))).not.toContain(`${key} is missing`);
+    }
+  });
+
+  test("crm-api SERVICE_AUDIENCE is required in production, not locally", () => {
+    const s = projectsSuite();
+    delete s["crm-api"]!.SERVICE_AUDIENCE;
+    expect(errText(checkSuite(s, PROD))).toContain("SERVICE_AUDIENCE is missing");
+    expect(errText(checkSuite(s, LOCAL))).not.toContain("SERVICE_AUDIENCE is missing");
+  });
+
+  test("crm-api SERVICE_AUDIENCE equal to its AUTH_AUDIENCE → error", () => {
+    const s = projectsSuite();
+    s["crm-api"]!.SERVICE_AUDIENCE = AUD;
+    expect(errText(checkSuite(s, PROD))).toContain("crm-api.SERVICE_AUDIENCE must differ from crm-api.AUTH_AUDIENCE");
+  });
+
+  test("SERVICE_AUDIENCE drift between auth and crm-api → error", () => {
+    const s = projectsSuite();
+    s["crm-api"]!.SERVICE_AUDIENCE = "a-different-service-audience";
+    expect(errText(checkSuite(s, PROD))).toContain("SERVICE_AUDIENCE is not identical");
+  });
+
+  test("projects-api AUTH_AUDIENCE drift → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]!.AUTH_AUDIENCE = "different";
+    expect(errText(checkSuite(s, PROD))).toContain("AUTH_AUDIENCE is not identical");
+  });
+
+  test("projects-api AUTH_ISSUER not equal to auth's BETTER_AUTH_URL → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]!.AUTH_ISSUER = "https://wrong.example.com";
+    expect(errText(checkSuite(s, PROD))).toContain("projects-api.AUTH_ISSUER");
+  });
+
+  test("projects-api ALLOWED_ORIGINS without the shell origin → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]!.ALLOWED_ORIGINS = "https://projects.operai.welld.io";
+    expect(errText(checkSuite(s, PROD))).toContain("projects-api.ALLOWED_ORIGINS is missing shell's origin");
+  });
+
+  test("CRM_INTERNAL_URL: a public https URL, or the wrong port → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]!.CRM_INTERNAL_URL = "https://crm-api.operai.welld.io";
+    expect(errText(checkSuite(s, PROD))).toContain("CRM_INTERNAL_URL");
+    s["projects-api"]!.CRM_INTERNAL_URL = "http://crm-api.railway.internal:9999";
+    expect(errText(checkSuite(s, PROD))).toContain("CRM_INTERNAL_URL targets port 9999 but crm-api.PORT is 8084");
+  });
+
+  test("service client: projects-api's id missing from auth's registry → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]!.SERVICE_CLIENT_ID = "someone-else";
+    expect(errText(checkSuite(s, PROD))).toContain('no entry for client id "someone-else"');
+  });
+
+  test("service client: projects-api holds exactly crm.companies.read — a missing or an extra scope → error", () => {
+    const s = projectsSuite();
+    s.auth!.SERVICE_CLIENTS = projectsRegistry("notifications.push");
+    const missing = errText(checkSuite(s, PROD));
+    expect(missing).toContain('lacks the "crm.companies.read" scope');
+    expect(missing).toContain('holds the "notifications.push" scope, which projects-api does not need');
+    s.auth!.SERVICE_CLIENTS = projectsRegistry("crm.companies.read notifications.push");
+    expect(errText(checkSuite(s, PROD))).toContain('holds the "notifications.push" scope, which projects-api does not need');
+  });
+
+  test("service client: projects-api's secret differing from the registry entry → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]!.SERVICE_CLIENT_SECRET = "q".repeat(40);
+    expect(errText(checkSuite(s, PROD))).toContain("projects-api.SERVICE_CLIENT_SECRET does not match");
+  });
+
+  test("the retired notify token on projects-api → error", () => {
+    const s = projectsSuite();
+    s["projects-api"]![["NOTIFY", "INTERNAL", "TOKEN"].join("_")] = "x";
+    expect(errText(checkSuite(s, PROD))).toContain("projects-api must not hold");
+  });
+});

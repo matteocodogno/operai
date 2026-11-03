@@ -192,6 +192,58 @@ services:
       retries: 5
       start_period: 15s
 
+  # ─── projects-api ───────────────────────────────────────────────────────────
+  # Bun + Hono resource server for the projects module: projects, their contracts
+  # and the project team (specs/021-projects).
+  #
+  # DATA-RESIDENCY: in production this service is deployed to Railway EU region
+  # (see projects-api/railway.json). Locally it runs against the shared Postgres
+  # instance above, in its own logical database ('projects'). Same pattern as
+  # 'estimai'/'notify'/'refund'/'inventory' above — no init script; Prisma
+  # creates the logical database itself the first time migrations run
+  # (`migrate dev` / `migrate deploy`). Request/response bodies are never
+  # written to application logs (method+path+status only, enforced in
+  # src/lib/logger.ts) — this service holds contract terms and the ids of the
+  # people on each project.
+  #
+  # Prerequisites:
+  #   1. Fill in projects-api/.env (template: projects-api/.env.example).
+  #   2. Run migrations first:
+  #        cd projects-api && bun run db:deploy
+  #      or `mise run db:migrate` (applies all backends, projects-api included).
+  #   3. The test suite uses a SEPARATE database, `projects_test` (it truncates
+  #      tables): create it once, then migrate it —
+  #        docker compose exec postgres createdb -U postgres projects_test
+  #        cd projects-api && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/projects_test bun run db:deploy
+  #
+  # As with refund-api, prefer running it on the HOST (`mise run dev`): its
+  # AUTH_JWKS_URL / AUTH_BASE_URL / CRM_INTERNAL_URL point at the other
+  # services on localhost, which a container cannot reach by that name.
+  projects-api:
+    build:
+      context: ./projects-api
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "8085:8085"
+    env_file:
+      - ./projects-api/.env
+    environment:
+      # Override DATABASE_URL so the hostname resolves inside the compose network.
+      # The .env file uses localhost:5435 (host access); inside compose use the
+      # service name 'postgres' on its internal port 5432.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/projects
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
   # ─── minio (local S3-compatible object storage) ─────────────────────────────
   # LOCAL-DEV-ONLY stand-in for the production EU-region bucket refund-api uses
   # for receipt attachments (ADR-0016). S3-compatible, path-style addressing

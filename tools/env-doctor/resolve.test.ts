@@ -104,7 +104,7 @@ describe("env-doctor resolver", () => {
   test("the committed production templates pass the doctor offline (no errors, no warnings)", () => {
     const r = loadTemplateSuite("production"); // real TEMPLATES_DIR, offline
     expect(r.errors).toEqual([]);
-    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"]);
+    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api", "projects-api"]);
     const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
     const bad = findings.filter((f) => f.level !== "ok");
     expect(bad).toEqual([]);
