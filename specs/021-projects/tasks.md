@@ -164,7 +164,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T7: projects-api team — refs: AC-1.5, AC-1.6 — deps: T5
   - touch: `projects-api/src/projects/team.routes.ts`, `projects-api/src/projects/team.test.ts`
   - done when: `bun test src/projects/team.test.ts` is green: `PUT` replaces the team; a member without `projects:access` → 422 `not_project_user` naming the ids; auth down → 503; names are live (a renamed user shows the new name).
-- [ ] T8: projects-api contracts — create by hand, read, edit terms and dates, end; never delete — refs: AC-1.7, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10 — deps: T5
+- [x] T8: projects-api contracts — create by hand, read, edit terms and dates, end; never delete — refs: AC-1.7, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10 — deps: T5
   - touch: `projects-api/src/contracts/contracts.routes.ts`, `projects-api/src/contracts/contracts.schemas.ts`, `projects-api/src/contracts/terms.ts`, `projects-api/src/contracts/contracts.test.ts`
   - done when: `bun test src/contracts/contracts.test.ts` is green: per-type term validation (fixed price required fields, maintenance one-of, SLA bounds, hour package shapes, T&M ≥ 1 position, SaaS both optional); `contracts_not_allowed` for `internal`; `project_not_open` for `closed` / `cancelled`; `company_mismatch` on a client project; any CRM company on `saas`; `DELETE` → 405; no response field carries an amount; 428 / 409 on `PATCH`.
 - [ ] T9: projects-api Bexio order id — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T8
