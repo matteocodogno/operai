@@ -1,7 +1,7 @@
 ---
 id: 021
 slug: projects
-status: approved
+status: in-progress
 rigor: mvp
 created: 2026-11-03
 approved: 2026-11-03
