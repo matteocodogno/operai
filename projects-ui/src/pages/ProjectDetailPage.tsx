@@ -1,8 +1,9 @@
 import { useCallback, useId, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
-import { Banner, Button, Card, DataTable, FactList, Icon, PageHeader, StatePanel, formatDate } from '@operai/ui'
-import type { DataTableColumn } from '@operai/ui'
+import { Banner, Button, Card, FactList, Icon, PageHeader, StatePanel, formatDate } from '@operai/ui'
 import { EntityBadge, ProjectStateBadge, ProjectTypeBadge } from '../components/Badges'
+import ContractCard from '../components/ContractCard'
+import ContractFormDialog from '../components/ContractFormDialog'
 import ProjectEditDialog from '../components/ProjectEditDialog'
 import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/LoadState'
 import StateActions from '../components/StateActions'
@@ -13,7 +14,7 @@ import { useScope } from '../hooks/useScope'
 import { statusOf } from '../lib/errors'
 import { personName } from '../lib/people'
 import { getProject } from '../lib/projectsApi'
-import type { ContractSummary, Project } from '../lib/types'
+import type { Project } from '../lib/types'
 import { strings } from '../strings'
 
 const BackLink = () => (
@@ -33,29 +34,62 @@ function companyFact(project: Project): { term: string; value: string } {
   return { term: t.company, value: project.company?.name ?? t.companyUnavailable }
 }
 
-/** The contracts of a project, as a table of their headline facts (T14 adds each contract's terms). */
-function ContractsList({ project }: { project: Project }) {
-  const t = strings.project.contracts
-  const columns: DataTableColumn<ContractSummary>[] = [
-    {
-      id: 'company',
-      header: t.columns.company,
-      rowHeader: true,
-      render: (c) => c.company.name ?? t.companyUnavailable,
-    },
-    { id: 'origin', header: t.columns.origin, render: (c) => t.origin[c.origin] },
-    { id: 'bexio', header: t.columns.bexio, render: (c) => c.bexioOrderId ?? strings.common.none },
-    { id: 'start', header: t.columns.start, render: (c) => formatDate(c.startDate) },
-    { id: 'end', header: t.columns.end, render: (c) => (c.endDate ? formatDate(c.endDate) : t.ongoing) },
-  ]
+/**
+ * The contracts of a project (AC-1.5, AC-2.2): one card each, and "Add contract"
+ * for a holder of manage projects. An internal project has none; a closed or
+ * cancelled one takes no new contract (its existing ones stay editable, so the
+ * cards keep their controls).
+ */
+function ContractsCard({
+  project,
+  canManage,
+  onAdd,
+  onChanged,
+  onStale,
+}: {
+  project: Project
+  canManage: boolean
+  onAdd: () => void
+  onChanged: (message: string) => void
+  onStale: () => void
+}) {
+  const t = strings.contracts
+  const open = project.state !== 'closed' && project.state !== 'cancelled'
+  const canAdd = canManage && project.type !== 'internal' && open
   return (
-    <Card title={t.title} data-testid="project-contracts">
+    <Card
+      title={t.title}
+      data-testid="project-contracts"
+      action={
+        canAdd && (
+          <Button size="sm" aria-haspopup="dialog" onClick={onAdd} data-testid="project-contract-add">
+            {t.add}
+          </Button>
+        )
+      }
+    >
       {project.type === 'internal' ? (
         <p className="text-sm text-soft">{t.internal}</p>
-      ) : project.contracts.length === 0 ? (
-        <p className="text-sm text-soft">{t.empty}</p>
       ) : (
-        <DataTable caption={t.caption} columns={columns} rows={project.contracts} getRowKey={(c) => c.id} />
+        <>
+          {canManage && !open && <p className="text-sm text-soft">{t.notOpen}</p>}
+          {project.contracts.length === 0 ? (
+            <p className="text-sm text-soft">{t.empty}</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-rule">
+              {project.contracts.map((summary) => (
+                <ContractCard
+                  key={summary.id}
+                  project={project}
+                  summary={summary}
+                  canManage={canManage}
+                  onChanged={onChanged}
+                  onStale={onStale}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </Card>
   )
@@ -79,6 +113,7 @@ export default function ProjectDetailPage() {
   const [stale, setStale] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [addingContract, setAddingContract] = useState(false)
 
   if (resource.status === 'loading') return <Loading label={t.loading} />
   if (resource.status === 'error') {
@@ -101,6 +136,13 @@ export default function ProjectDetailPage() {
     setSaved(message)
     setStale(false)
     setActionError(null)
+  }
+  // A contract write changes what the project derives from its contracts (dates, the list): read it again.
+  const contractChanged = (message: string) => {
+    setSaved(message)
+    setStale(false)
+    setActionError(null)
+    getProject(id).then(resource.replace, () => resource.retry())
   }
   const company = companyFact(project)
   const dateFacts = [
@@ -188,8 +230,28 @@ export default function ProjectDetailPage() {
           onSaved={(next) => changed(next, t.saved.team)}
           onStale={() => setStale(true)}
         />
-        <ContractsList project={project} />
+        <ContractsCard
+          project={project}
+          canManage={canManage}
+          onAdd={() => setAddingContract(true)}
+          onChanged={contractChanged}
+          onStale={() => setStale(true)}
+        />
       </div>
+      {addingContract && (
+        <ContractFormDialog
+          project={project}
+          onCancel={() => setAddingContract(false)}
+          onSaved={() => {
+            setAddingContract(false)
+            contractChanged(strings.contracts.saved.created)
+          }}
+          onStale={() => {
+            setAddingContract(false)
+            setStale(true)
+          }}
+        />
+      )}
       {editing && (
         <ProjectEditDialog
           project={project}

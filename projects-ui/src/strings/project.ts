@@ -1,6 +1,4 @@
-/** The project page: details, state actions, type change, project manager, team, contracts list (T13). */
-import type { ContractOrigin } from '../lib/types'
-
+/** The project page: details, state actions, type change, project manager and team (T13). */
 const en = {
   back: 'Back to projects',
   loading: 'Loading project…',
@@ -89,16 +87,6 @@ const en = {
       identity_unavailable:
         'The user directory cannot be reached right now. Nothing was changed. Try again in a moment.',
     },
-  },
-  contracts: {
-    title: 'Contracts',
-    caption: 'Contracts of this project',
-    empty: 'No contracts yet.',
-    internal: 'Internal projects have no contracts.',
-    columns: { company: 'Client', origin: 'Origin', bexio: 'Bexio order', start: 'Start', end: 'End' },
-    origin: { manual: 'Entered by hand', deal: 'From a deal' } as Record<ContractOrigin, string>,
-    companyUnavailable: 'Company unavailable',
-    ongoing: 'Open-ended',
   },
 }
 
@@ -192,16 +180,6 @@ const it: typeof en = {
       identity_unavailable:
         'L’elenco degli utenti al momento non è raggiungibile. Non è stato modificato nulla. Riprova tra poco.',
     },
-  },
-  contracts: {
-    title: 'Contratti',
-    caption: 'Contratti di questo progetto',
-    empty: 'Ancora nessun contratto.',
-    internal: 'I progetti interni non hanno contratti.',
-    columns: { company: 'Cliente', origin: 'Origine', bexio: 'Ordine Bexio', start: 'Inizio', end: 'Fine' },
-    origin: { manual: 'Inserito a mano', deal: 'Da una trattativa' },
-    companyUnavailable: 'Azienda non disponibile',
-    ongoing: 'Senza scadenza',
   },
 }
 

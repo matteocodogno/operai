@@ -15,7 +15,7 @@ import { createAppRouter } from '../router'
 import { fakeApi, problem, projectDetail, scope } from '../test-support/fakeApi'
 import type { FakeHandler } from '../test-support/fakeApi'
 import { scopeRoot } from '../test-support/scopeRoot'
-import type { Project, ProjectState, Scope } from '../lib/types'
+import type { Contract, Project, ProjectState, Scope } from '../lib/types'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('shell/session', () => ({
@@ -39,6 +39,8 @@ const renderProject = async (
     fakeApi({
       [`GET /projects/${project.id}`]: () => ({ status: 200, body: project }),
       'GET /authz/users/directory': () => ({ status: 200, body: { users: [BOB, CARA] } }),
+      'GET /projects/p1/contracts/k1': () => ({ status: 200, body: fullContract('k1') }),
+      'GET /projects/p1/contracts/k2': () => ({ status: 200, body: fullContract('k2', { id: 'c2', name: 'Beta AG' }) }),
       ...routes,
     }),
   )
@@ -114,8 +116,8 @@ describe('the project page (AC-1.4, AC-1.5)', () => {
     expect(team.textContent).toContain('Bob Builder')
     expect(team.textContent).toContain('Deleted user')
     const contracts = screen.getByTestId('project-contracts')
-    expect(contracts.textContent).toContain('Acme SA')
-    expect(contracts.textContent).toContain('AB-100')
+    expect(within(contracts).getByRole('heading', { level: 4, name: 'Acme SA' })).not.toBeNull()
+    await waitFor(() => expect(contracts.textContent).toContain('AB-100'))
     expect(screen.getByTestId('project-detail-back').getAttribute('href')).toBe('/')
   })
 
@@ -529,3 +531,169 @@ const CONTRACT = {
   startDate: '2026-02-01',
   endDate: null,
 }
+
+const fullContract = (id: string, company = { id: 'c1', name: 'Acme SA' }): Contract => ({
+  ...CONTRACT,
+  id,
+  company,
+  bexioOrderId: id === 'k1' ? 'AB-100' : null,
+  projectId: 'p1',
+  dealId: null,
+  terms: { positions: [{ profile: 'Senior developer', plannedManDays: 20 }] },
+  version: 4,
+})
+
+describe('contracts (AC-2.2, AC-2.10)', () => {
+  const withContract = (over: Partial<Project> = {}) =>
+    projectDetail({
+      contracts: [CONTRACT],
+      startDate: '2026-02-01',
+      endDate: null,
+      ...over,
+    })
+  const addButton = () => screen.queryByRole('button', { name: 'Add contract' })
+
+  it('shows one card per contract, with its terms', async () => {
+    await renderProject(
+      withContract({
+        type: 'saas',
+        company: null,
+        contracts: [CONTRACT, { ...CONTRACT, id: 'k2', company: { id: 'c2', name: 'Beta AG' } }],
+      }),
+    )
+    const contracts = screen.getByTestId('project-contracts')
+    expect(
+      within(contracts)
+        .getAllByRole('heading', { level: 4 })
+        .map((heading) => heading.textContent),
+    ).toEqual(['Acme SA', 'Beta AG'])
+    expect(await within(contracts).findAllByText('Senior developer')).toHaveLength(2)
+  })
+
+  it.each<ProjectState>(['planned', 'active', 'on_hold'])(
+    '"Add contract" is offered on a %s client project',
+    async (state) => {
+      await renderProject(projectDetail({ state }))
+      expect(addButton()).not.toBeNull()
+    },
+  )
+
+  it('"Add contract" is offered on a SaaS project', async () => {
+    await renderProject(projectDetail({ type: 'saas', company: null }))
+    expect(addButton()).not.toBeNull()
+  })
+
+  it.each<ProjectState>(['closed', 'cancelled'])(
+    'a %s project takes no new contract: no button, and a note says why; its contracts can still be edited',
+    async (state) => {
+      await renderProject(withContract({ state }))
+      expect(addButton()).toBeNull()
+      expect(screen.getByTestId('project-contracts').textContent).toContain('takes no new contract')
+      expect(await screen.findByRole('button', { name: 'Edit' })).not.toBeNull()
+    },
+  )
+
+  it('an internal project has no contracts and no button', async () => {
+    await renderProject(projectDetail({ type: 'internal', company: null }))
+    expect(addButton()).toBeNull()
+  })
+
+  it('a reader gets no button, no Edit and no End contract', async () => {
+    await renderProject(withContract(), {}, scope())
+    expect(addButton()).toBeNull()
+    await screen.findByTestId('contract-terms')
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'End contract' })).toBeNull()
+  })
+
+  it('nothing on the page deletes a contract', async () => {
+    await renderProject(withContract())
+    await screen.findByTestId('contract-terms')
+    const labels = screen.getAllByRole('button').map((button) => button.textContent)
+    expect(labels.join(' | ')).not.toMatch(/delet|elimin|remove contract/i)
+  })
+
+  it('adds a contract by hand, then reads the project again so its cards and dates are current', async () => {
+    let reads = 0
+    await renderProject(projectDetail({ type: 'fixed_price' }), {
+      'GET /projects/p1': () => {
+        reads += 1
+        return {
+          status: 200,
+          body:
+            reads === 1
+              ? projectDetail({ type: 'fixed_price' })
+              : projectDetail({ type: 'fixed_price', contracts: [CONTRACT], startDate: '2026-02-01' }),
+        }
+      },
+      'POST /projects/p1/contracts': () => ({
+        status: 201,
+        body: {
+          ...fullContract('k1'),
+          type: 'fixed_price',
+          terms: { deadline: '2026-12-01', estimatedManDays: null, maxEffortManDays: 40 },
+        },
+      }),
+    })
+    fireEvent.click(addButton()!)
+    const dialog = await screen.findByRole('dialog', { name: 'Add contract' })
+    fireEvent.change(within(dialog).getByLabelText(/^Start date/), { target: { value: '2026-02-01' } })
+    fireEvent.change(within(dialog).getByLabelText(/^Deadline/), { target: { value: '2026-12-01' } })
+    fireEvent.change(within(dialog).getByLabelText(/^Max effort/), { target: { value: '40' } })
+    fireEvent.click(within(dialog).getByTestId('contract-form-submit'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(writes()).toEqual([
+      {
+        method: 'POST',
+        path: '/projects/p1/contracts',
+        ifMatch: undefined,
+        body: {
+          startDate: '2026-02-01',
+          terms: { deadline: '2026-12-01', estimatedManDays: null, maxEffortManDays: 40 },
+        },
+      },
+    ])
+    expect(await screen.findByTestId('contract-k1')).not.toBeNull()
+    expect(screen.getByTestId('project-facts').textContent).toContain('01.02.2026')
+    expect((await screen.findByTestId('projects-saved')).textContent).toContain('Contract added.')
+    expect(reads).toBe(2)
+  })
+
+  it('ending a contract reads the project again, so the derived end date follows', async () => {
+    let reads = 0
+    await renderProject(withContract(), {
+      'GET /projects/p1': () => {
+        reads += 1
+        return { status: 200, body: withContract(reads === 1 ? {} : { endDate: '2026-06-30' }) }
+      },
+      'PATCH /projects/p1/contracts/k1': () => ({
+        status: 200,
+        body: { ...fullContract('k1'), endDate: '2026-06-30', version: 5 },
+      }),
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'End contract' }))
+    const dialog = await screen.findByRole('dialog', { name: 'End this contract' })
+    fireEvent.change(within(dialog).getByLabelText(/End date/), { target: { value: '2026-06-30' } })
+    fireEvent.click(within(dialog).getByTestId('contract-end-submit'))
+    await waitFor(() => expect(screen.getByTestId('project-facts').textContent).toContain('30.06.2026'))
+    expect(reads).toBe(2)
+  })
+
+  it('a stale contract write shows the page’s reload banner, and Reload reads the contract again', async () => {
+    let contractReads = 0
+    await renderProject(withContract(), {
+      'GET /projects/p1/contracts/k1': () => {
+        contractReads += 1
+        return { status: 200, body: fullContract('k1') }
+      },
+      'PATCH /projects/p1/contracts/k1': () => problem(409, 'version_conflict', { currentVersion: 9 }),
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'End contract' }))
+    const dialog = await screen.findByRole('dialog', { name: 'End this contract' })
+    fireEvent.change(within(dialog).getByLabelText(/End date/), { target: { value: '2026-06-30' } })
+    fireEvent.click(within(dialog).getByTestId('contract-end-submit'))
+    fireEvent.click(await screen.findByTestId('projects-stale-write-reload'))
+    await waitFor(() => expect(contractReads).toBe(2))
+    expect(await screen.findByTestId('contract-terms')).not.toBeNull()
+  })
+})
