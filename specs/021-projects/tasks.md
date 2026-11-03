@@ -167,7 +167,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T8: projects-api contracts — create by hand, read, edit terms and dates, end; never delete — refs: AC-1.7, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10 — deps: T5
   - touch: `projects-api/src/contracts/contracts.routes.ts`, `projects-api/src/contracts/contracts.schemas.ts`, `projects-api/src/contracts/terms.ts`, `projects-api/src/contracts/contracts.test.ts`
   - done when: `bun test src/contracts/contracts.test.ts` is green: per-type term validation (fixed price required fields, maintenance one-of, SLA bounds, hour package shapes, T&M ≥ 1 position, SaaS both optional); `contracts_not_allowed` for `internal`; `project_not_open` for `closed` / `cancelled`; `company_mismatch` on a client project; any CRM company on `saas`; `DELETE` → 405; no response field carries an amount; 428 / 409 on `PATCH`.
-- [ ] T9: projects-api Bexio order id — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T8
+- [x] T9: projects-api Bexio order id — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T8
   - touch: `projects-api/src/contracts/bexio.routes.ts`, `projects-api/src/contracts/bexio.test.ts`
   - done when: `bun test src/contracts/bexio.test.ts` is green: `accounting` sets, changes and clears it; a `project-manager` gets 403; value trimmed, empty → `null`, 65 characters → 400; a project whose contracts have no id still moves `planned → active → closed`.
 - [ ] T10: projects-api authorization matrix over the assembled app — refs: AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6 — deps: T6, T7, T9
