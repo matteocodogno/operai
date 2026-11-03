@@ -143,7 +143,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 ### Deferred (knowingly not done at this tier)
 - Production provisioning (Railway `projects-api`, Vercel `projects-ui`, DNS, shell
   runtime-config, `SERVICE_CLIENTS` secret) — outward-facing, the owner runs it with the
-  `provision-tool` skill after merge.
+  `provision-tool` skill after merge; `bash infra/check.sh` goes green only after it (QE D1).
 - A shell e2e journey for `/projects` (CRM precedent: specs/017 T15) — next step towards
   `production`.
 - Hand-off from the CRM (specs/022), tasks and threads (specs/023), glossary entries.
@@ -209,7 +209,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
   - done when: both ADRs exist with Context / Decision / Alternatives / Consequences, AGENTS.md's ADR index lists them, and `pnpm changeset status` shows bumps for auth, crm-api, projects-api, projects-ui and shell.
 - [ ] T19: QE-light verification; all gates green; spec status → done — refs: every AC — deps: T1, T2, T10, T14, T15, T16, T17, T18
   - touch: `specs/021-projects/qe-report.md`, `specs/021-projects/spec.md`
-  - done when: the quality-engineer's QE-light verdict is PASS in `qe-report.md`, `bash infra/check.sh` is green, and `/wellforge:done 021-projects` accepts the feature.
+  - done when: the quality-engineer's QE-light verdict is PASS in `qe-report.md`, every local gate it lists is green (auth, crm-api, projects-api, projects-ui, shell, env-doctor, shared copies, changeset, secret scan), and `/wellforge:done 021-projects` accepts the feature. (Amended 2026-11-03, QE D1: `bash infra/check.sh` probes production hosts and belongs to the deferred provisioning step, not to this gate.)
 
 ## Coverage
 
