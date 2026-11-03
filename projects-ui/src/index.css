@@ -1,0 +1,14 @@
+/*
+ * projects-ui's STANDALONE stylesheet, imported only by src/main.tsx (dev/test
+ * outside the shell). In the shell, the shell's single Tailwind sheet styles
+ * this remote (ADR-0006 addendum) and this file is not loaded.
+ *
+ * It is the same stylesheet the shell builds: Tailwind, then the suite's
+ * tokens from @operai/ui, so every token utility (`text-soft`, `bg-ink-mid`,
+ * …) and component class exists here too. No copy of the tokens: the shell
+ * and every remote import the one file (ADR-0050, ADR-0051).
+ */
+@import 'tailwindcss';
+@import '../../operai-ui/src/styles/tokens.css';
+
+@source '../../operai-ui/src';
