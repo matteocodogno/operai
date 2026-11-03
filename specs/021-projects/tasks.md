@@ -204,7 +204,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [ ] T17: local env — `projects-api/.env.example` and `.envrc`, auth `SERVICE_CLIENTS` entry for `projects-api` (`crm.companies.read`), crm-api `SERVICE_AUDIENCE`, shell `VITE_PROJECTS_API_URL` / remote URL — drafted by the agent, applied by the developer (the guard stops agents writing env files) — refs: AC-4.1 — deps: T16
   - touch: `projects-api/.env.example`, `projects-api/.envrc`, `auth/.env.example`, `crm-api/.env.example`, `shell/.env.example`
   - done when: `mise run dev` serves `/projects` in the shell for a signed-in admin and the company picker returns CRM companies.
-- [ ] T18: docs — ADR-0058 (projects tool shape and authorization), ADR-0059 (projects-api reads CRM companies with a scoped service credential), AGENTS.md (tools table, layout, ADR index), README, changesets — refs: AC-4.1, AC-4.4, AC-4.5 — deps: T10, T15
+- [x] T18: docs — ADR-0058 (projects tool shape and authorization), ADR-0059 (projects-api reads CRM companies with a scoped service credential), AGENTS.md (tools table, layout, ADR index), README, changesets — refs: AC-4.1, AC-4.4, AC-4.5 — deps: T10, T15
   - touch: `docs/adr/0058-*.md`, `docs/adr/0059-*.md`, `docs/adr/README.md`, `AGENTS.md`, `README.md`, `.changeset/*.md`
   - done when: both ADRs exist with Context / Decision / Alternatives / Consequences, AGENTS.md's ADR index lists them, and `pnpm changeset status` shows bumps for auth, crm-api, projects-api, projects-ui and shell.
 - [ ] T19: QE-light verification; all gates green; spec status → done — refs: every AC — deps: T1, T2, T10, T14, T15, T16, T17, T18

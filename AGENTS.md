@@ -12,6 +12,7 @@ Module Federation shell (ADR-0006):
 | **Inventory** | `/inventory` | Hardware register — assets, assignment to employees (confirmed by the employee), depreciation ledger, fiscal-year close, invoice files (specs/015) |
 | **CRM** | `/crm` | Companies, contacts, deals through a stage pipeline, activities and follow-up tasks (specs/017, ADR-0052) |
 | **Meetings** | `/meetings` | Record (browser), upload or paste a meeting; EU transcription, summaries from editable templates and cited Q&A; linkable to a host record such as a CRM deal; audio kept 29 days (specs/021, ADR-0058–0068) |
+| **Projects** | `/projects` | The delivery work wellD runs — projects (type, state, project manager, team) and their contracts (per-type delivery terms, Bexio order id); no money (specs/021, ADR-0058/0059) |
 
 Those six are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
 notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
@@ -25,7 +26,7 @@ embeds through the shell's `HostExtension` seam with a timeout and an error boun
 is elsewhere in Operai (ADR-0078).
 
 Backed by seven Bun services: `auth` (identity + authorization), `estimai-api`,
-`notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`.
+`notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -84,6 +85,8 @@ operai/
 │                        # ADR-0060), ./RecorderDock (the shell's floating recorder widget, ADR-0078) and ./version;
 │                        # calls meetings-api and auth's user directory through shell/session
 │                        # (specs/021)
+├── projects-ui/         # Projects tool — federated remote (port 5180): exposes ./App (gated, /projects) and ./version; calls
+│                        # projects-api and auth's user directory through shell/session (specs/021, ADR-0058)
 ├── operai-ui/           # @operai/ui — the DESIGN SYSTEM (ADR-0050): tokens/themes/fonts + component classes
 │                        # (src/styles/tokens.css, re-exported by shell/tokens.css), React components (src/components),
 │                        # Storybook (`mise run ui:storybook`), rules in docs/. NOT an app: never built or deployed;
@@ -128,6 +131,10 @@ operai/
 │                        # bucket (`MEETINGS_S3_*`, 29-day lifecycle verified at startup, ADR-0063); in-process durable job
 │                        # runner (ADR-0062); Gemini (transcription) + Claude on Vertex AI, EU (ADR-0077/0069/0061); host contract
 │                        # with crm-api (ADR-0059); pushes to notify-api as `system:meetings-api` (specs/021)
+├── projects-api/        # Bun + Hono + TypeScript backend (port 8085, DB `projects`) — projects, their team and contracts, the Bexio
+│                        # order id; authorization-enforcing (projects:access, entity-scoped project:manage, contract:bexio),
+│                        # If-Match on every write, no money; reads CRM company names from crm-api with a scoped service
+│                        # credential (specs/021, ADR-0058/0059)
 ├── docs/adr/            # Architecture Decision Records (0001–0078; see ## Architecture decisions)
 ├── docs/ui-inconsistencies.md  # UI/UX audit across the six frontends, with what each migration fixed
 ├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md);
@@ -148,7 +155,7 @@ operai/
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui)
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui, projects-ui)
 All eight share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
@@ -195,9 +202,9 @@ degrades silently when the key is absent (ADR-0032).
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api)
-All six share the `auth` service's shape (see ADR-0003 — one backend stack across the monorepo;
-it supersedes the earlier Kotlin/Spring intention). Five are implemented; `meetings-api` is in
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api, projects-api)
+All seven share the `auth` service's shape (see ADR-0003 — one backend stack across the monorepo;
+it supersedes the earlier Kotlin/Spring intention). Six are implemented; `meetings-api` is in
 progress (specs/021).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
@@ -236,7 +243,8 @@ Per-service specifics:
   with deal PDFs appendable as annexes (specs/020, ADR-0057);
   pushes CRM notifications to notify-api as `system:crm-api`, with email notices for handovers
   (specs/019, ADR-0056); verifies meetings-api's host notices (scope `host-notices.send`,
-  `aud=SERVICE_AUDIENCE`) and answers its `resolve` calls as the caller (specs/021, ADR-0059)
+  `aud=SERVICE_AUDIENCE`) and answers its `resolve` calls as the caller (specs/021, ADR-0059); its
+  `GET /system/companies` is read by projects-api behind the scope `crm.companies.read` (specs/021, ADR-0059)
 - `meetings-api` — Meetings (specs/021): authorization-enforcing, but content is visible by
   relationship to the record, never by role (creator / Operai participant / opted-in host reader;
   anything else 404, ADR-0058) — `selfScoped` reads need only a valid JWT and survive an `auth`
@@ -253,6 +261,14 @@ Per-service specifics:
   the THIRD reader of bucket bytes, bounded (ADR-0064); model output is validated structure and
   plain text only (ADR-0067); pushes to notify-api as `system:meetings-api` (`notifications.push`)
   and notices to the host as the same principal (`host-notices.send`), ADR-0059/0065
+- `projects-api` — Projects (specs/021): authorization-enforcing (live `/authz/resolve`, fails closed) with
+  `projects:access` (read every project and contract), entity-scoped `project:manage` (403 `out_of_scope`,
+  not 404 — records are readable, ADR-0052 posture) and `contract:bexio` (the Bexio order id, its own route,
+  held by `accounting`); If-Match/ETag on every write on a project or contract, creates excepted
+  (ADR-0038); contracts are never deleted (405, they end by an end date); no money anywhere; PM and team
+  ids checked as module users against `auth` (fail closed); CRM company names via crm-api with its own
+  service credential, `name: null` when the CRM cannot answer and 503 `crm_unavailable` on a write that
+  must confirm a company (ADR-0059); ids are text cuids (ADR-0058)
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` (scope `emails.send`) + `/system/notifications` (scope
@@ -368,7 +384,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send` and/or `deal-link-notices.send`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `meetings-api` and `notify-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact`, `host-notices.send`, `estimate-notices.send`, `deal-link-notices.send` and/or `crm.companies.read`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `meetings-api`, `notify-api` and `projects-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
 
 ### Inventory (specs/015)
 
@@ -579,12 +595,12 @@ mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy s
 ```
 
 Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
-crm-api `8084`, meetings-api `8085`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
-admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`; MinIO S3 `9000`
+crm-api `8084`, meetings-api `8085`, projects-api `8085`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
+admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, projects-ui `5180`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
 fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
@@ -606,7 +622,7 @@ MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
 
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui / projects-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -641,7 +657,7 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085, projects-api :8085)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
 Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` / `MEETINGS_S3_*` point at local MinIO in dev
@@ -786,6 +802,8 @@ These defaults are optimized for AI coding agents (and humans) working on apps t
 - [0068] A default grant silently widens every gate that lists its permission — `employee` gets `meetings:access` (the suite's FIRST default grant, explicit departure from specs/004, accepted by the user at the plan gate); `template:manage`/`meeting:erase` stay `admin`-only and pinned by a seed contract test; not a template for tools reading shared business data; the auth re-seed deploys first (see docs/adr/0068-default-employee-grant-meetings-access.md)
 - [0069] Meetings AI on Google Cloud, with every retention setting either read at startup or signed off — a processor's intermediate storage (staging bucket, soft-delete window, operation store, logging toggle) is a retention decision of its own and its default is often long; whatever the vendor exposes is verified (exit 1 when wrong or unreadable), whatever it does not is a named sign-off with an owner, never implicit: Chirp 3 BatchRecognize (`eu`) through a transient EU GCS bucket (1-day lifecycle, soft delete 0, deleted at attempt start/in `finally`/before any DB change on user deletion) + Claude on Vertex `eu` multi-region (never `global`, no Fable/Mythos, no caching); user-accepted exception 2026-11-05: Google may keep the async transcript ~5 days; supersedes 0061's provider choice (see docs/adr/0069-meetings-ai-providers-google-cloud-eu.md)
 - [0070] Never assert that two independently labelled things are the same — long recordings are transcribed in parts and parts overlap and a label joins the previous part's only on text evidence (≥ 20 matched words with mutual ≥ 80 % agreement, never by position, number, voice matching or the audio; a silence in the overlap no longer refuses), otherwise it stays separate and the creator can separate a joined one (a false merge reaches every summary invisibly, a false split costs one rename; amended 2026-11-05 and 2026-11-09 after a production recording joined 0 of 9 labels; 2026-11-10: the overlap is aligned word by word, so the same audio heard differently counts once); the same shape applies to any labels, ids or clusters joined by position across files, batches or meetings (see docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md)
+- [0058] The project module is a seventh tool (`projects-api` :8085, DB `projects` + `projects-ui` :5180, shell route `/projects/$`) — a capability must be checked at the grain of what it protects (this record's entity, this field's owner), never just at the route, and a shared record must never be written from a stale picture; gating reads like writes is the same mistake as gating writes like reads: reads are open to every `projects:access` holder (both entities, ADR-0052 posture); every write on a project or contract is entity-scoped `project:manage` (403 `out_of_scope`, NOT 404 — the caller can read the record; a refused write changes nothing) AND takes `If-Match` (ADR-0038; creates do not), including derived writes (transition, type change, team replacement, end date) and whatever principal runs them (specs/022 hand-off); the Bexio order id is a field owned by another role, so it has its own route and capability `contract:bexio` (`accounting`, unconditioned), accepted by no other route, and no other route reads it to decide anything; contracts are never deleted (DELETE 405 `not_deletable`, they end by an end date); no money anywhere in the module (D14); ids are text cuids; the seed adds the system role `project-manager`, gives `sales` access + entity-scoped manage and `accounting` access + bexio (no new administration role), `employee` nothing; `project:manage` joins `DIRECTORY_GATE_PERMISSIONS` (ADR-0053/0055, no other catalog may declare a `project:manage`) for the PM/team pickers while the list's PM filter reads `GET /project-managers` (access only); rejected: project tables inside crm-api, per-project visibility, a dedicated administration role, deleting a contract, a create-only capability for `sales` (see docs/adr/0058-projects-tool-shape-and-authorization.md)
+- [0059] A service that needs a narrow fact owned by another permission domain gets it over a narrow, purpose-scoped channel — never by forwarding the user's token (it fails for the users the feature is for), by widening the other domain's access, or by copying the data — and an unanswered question is handled per path, not once (a read degrades, a write that must confirm refuses), in either direction between two tools: projects-api reads CRM companies as `system:projects-api` with the scope `crm.companies.read` (`KNOWN_SERVICE_SCOPES`, ADR-0044/0049 pattern) on crm-api `GET /system/companies` — its first `/system/*` route; `SERVICE_AUDIENCE` JWT only, a user JWT is never accepted, every credential failure is the same 401; returns `{id,name,entity,archived}` and nothing else (`q` non-archived, `ids` ≤ 100 archived included, `limit` default `ids.length` with ids); reads fail soft (`name: null`), a write that must confirm a company is 503 `crm_unavailable`, an unknown or archived company is 422 `company_not_found`; crm-api reading projects would need its own scope and its own route, and specs/022's deals scope is a new scope, never a wider `crm.companies.read`; rejected: forwarding the user JWT, snapshotting company names, granting OPS `crm:access` (see docs/adr/0059-projects-api-reads-crm-companies-with-scoped-service-credential.md)
 - [0071] Access is decided where a principal comes into being, never after — only a live pending invitation (verified email) or the bootstrap admin creates a user, and both only for an allowed-domain email, in better-auth `user.create.before`; an outside-`ALLOWED_SIGNUP_DOMAINS` email (welld.ch, welld.it) is refused even with an invitation; everyone else is recorded in a separate `access_request` waiting list that grants nothing, and approving it creates an invitation via specs/006 (never a user, no second activation path); a new user-creating path (import, SSO, test endpoint) must be deliberate and listed, and no test exemption goes inside the gate; amends specs/004 AC-6.3 and specs/006 Non-goals (see docs/adr/0071-access-only-by-invitation-waiting-list.md)
 - [0072] A best-effort notice must not block, undo or leak through the action it announces — `system:auth` gains `notifications.push` bound to origin `admin` (amends ADR-0048/0049 "auth: email only") to notify every effective admin of a new access request, in-app plus `email: true` (notify-api resolves addresses, ADR-0056; auth sends none), not awaited by the sign-in, failures logged; a new scope ships with its origin binding, and any other origin revisits the ADR (see docs/adr/0072-auth-pushes-admin-notifications.md)
 - [0073] A state written in two places drifts, and a state replicated by messages must survive loss, repetition and reordering — an estimate is finished only when closed in EstimAI (owner/editor, If-Match, read-only until reopened); estimai-api pushes a content-free notice `{estimateId, event, version, at, byUserId}` to crm-api `POST /system/estimate-notices` with its service JWT (new scope `estimate-notices.send`, ADR-0044/0049), best effort; crm-api accepts only `system:estimai-api`, applies under a row lock only a newer version (`estimaiVersion`, reset on relink), completes or reopens the task and notifies; the CRM's own Mark ready/Reopen are removed, the admin override stays; a second follower, content in the notice or guaranteed delivery revisits it (see docs/adr/0073-estimai-closes-the-estimate-crm-follows.md)
