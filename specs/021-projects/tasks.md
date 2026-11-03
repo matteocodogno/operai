@@ -140,7 +140,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 
 ## Tasks
 
-- [ ] T1: auth — `projects` catalog, `project-manager` role, grants to `sales` / `accounting`, directory gate, `crm.companies.read` scope — refs: AC-4.1, AC-4.3, AC-4.4, AC-4.5, AC-4.6, AC-1.6 — deps: none
+- [x] T1: auth — `projects` catalog, `project-manager` role, grants to `sales` / `accounting`, directory gate, `crm.companies.read` scope — refs: AC-4.1, AC-4.3, AC-4.4, AC-4.5, AC-4.6, AC-1.6 — deps: none
   - touch: `auth/src/authz/catalogs/projects.ts`, `auth/src/authz/catalogs/projects.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`, `auth/src/authz/directory.routes.ts`, `auth/src/auth/directory.routes.test.ts`, `auth/src/system/serviceClients*.ts`
   - done when: `cd auth && bun test src/authz src/system src/auth/directory.routes.test.ts` is green, including new tests that the seed grants `project-manager` (access + entity-scoped manage), `sales` (+ access + entity-scoped manage), `accounting` (+ access + bexio), admin all, employee nothing; that the directory admits a `project:manage` holder; and that `crm.companies.read` is an accepted scope.
 - [ ] T2: crm-api — `GET /system/companies` behind a `crm.companies.read` service credential — refs: AC-1.1, AC-1.4, AC-2.2 — deps: none

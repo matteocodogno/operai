@@ -43,6 +43,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
  * - `deal-link-notices.send`: post a deal-link notice (linked/unlinked) to
  *   estimai-api's `/system/deal-link-notices` (specs/024, ADR-0076).
  *   estimai-api verifies it; its sub allowlist names `system:crm-api`.
+ * - `crm.companies.read`: read CRM companies through crm-api's
+ *   `GET /system/companies` (specs/021, ADR-0059). Only projects-api holds it.
  */
 export const KNOWN_SERVICE_SCOPES = [
   "notifications.push",
@@ -51,6 +53,7 @@ export const KNOWN_SERVICE_SCOPES = [
   "estimate-notices.send",
   "host-notices.send",
   "deal-link-notices.send",
+  "crm.companies.read",
 ] as const;
 
 /**
