@@ -170,7 +170,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T9: projects-api Bexio order id — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T8
   - touch: `projects-api/src/contracts/bexio.routes.ts`, `projects-api/src/contracts/bexio.test.ts`
   - done when: `bun test src/contracts/bexio.test.ts` is green: `accounting` sets, changes and clears it; a `project-manager` gets 403; value trimmed, empty → `null`, 65 characters → 400; a project whose contracts have no id still moves `planned → active → closed`.
-- [ ] T10: projects-api authorization matrix over the assembled app — refs: AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6 — deps: T6, T7, T9
+- [x] T10: projects-api authorization matrix over the assembled app — refs: AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6 — deps: T6, T7, T9
   - touch: `projects-api/src/matrix.test.ts`
   - done when: `bun test src/matrix.test.ts` is green for every route × {no access, access only, `project-manager` (welld_ch), `sales` (welld_it), `accounting`, admin}, and the full `bun test` and `bun run typecheck` are green.
 - [ ] T11: projects-ui scaffold — federated remote `projects` (`./App`, `./version`), router with every page route, API client, `useScope`, strings aggregator (en + it) — refs: AC-4.1, AC-4.7 — deps: none
