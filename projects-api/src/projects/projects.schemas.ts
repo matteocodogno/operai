@@ -48,6 +48,8 @@ export const ProjectSchema = z.object({
   name: z.string(),
   type: ProjectTypeSchema,
   state: ProjectStateSchema,
+  /** The state an `on_hold` project left, the one it can return to; `null` in every other state. */
+  stateBeforeHold: ProjectStateSchema.nullable(),
   entity: EntitySchema,
   company: CompanyRefSchema.nullable(),
   projectManager: PersonSchema,
@@ -84,6 +86,9 @@ export const ListProjectsQuery = z.object({
 });
 
 export const ProjectPageSchema = pageOf(ProjectSummarySchema);
+
+/** The distinct project managers of all projects: what feeds the list's project-manager filter. */
+export const ProjectManagersSchema = z.object({ items: z.array(PersonSchema) });
 
 export const CreateProjectSchema = z
   .object({

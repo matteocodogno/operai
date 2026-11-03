@@ -40,6 +40,7 @@ import { deriveDates } from "./dates";
 import {
   CreateProjectSchema,
   ListProjectsQuery,
+  ProjectManagersSchema,
   ProjectPageSchema,
   ProjectSchema,
   UpdateProjectSchema,
@@ -70,6 +71,7 @@ export async function toProjectView(c: HeaderSource, row: ProjectRow) {
     name: row.name,
     type: row.type,
     state: row.state,
+    stateBeforeHold: row.stateBeforeHold,
     entity: row.entity,
     company: row.companyId === null ? null : company(row.companyId),
     projectManager: people.person(row.projectManagerId),
@@ -148,6 +150,15 @@ const getProjectRoute = createRoute({
   middleware: authorized,
   request: { params: IdParams },
   responses: { 200: { description: "The project", ...json(ProjectSchema) }, 404: { description: "Not found" }, ...commonErrors },
+});
+
+const listProjectManagersRoute = createRoute({
+  method: "get",
+  path: "/project-managers",
+  tags: ["Projects"],
+  summary: "The distinct project managers of all projects, by name (projects:access only)",
+  middleware: authorized,
+  responses: { 200: { description: "The project managers", ...json(ProjectManagersSchema) }, ...commonErrors },
 });
 
 const updateProjectRoute = createRoute({
@@ -235,6 +246,25 @@ projectsRouter.openapi(listProjectsRoute, async (c) => {
     projectManager: people.person(row.projectManagerId),
   }));
   return c.json({ items, page, pageSize: DEFAULT_PAGE_SIZE, total }, 200);
+});
+
+/**
+ * Feeds the list's project-manager filter for every reader (AC-1.4): the user directory is open
+ * to managers only, so a reader could not otherwise name the people to filter by. Names are live
+ * and fail soft; they are sorted after resolving, a person without a name last, ties by id.
+ */
+projectsRouter.openapi(listProjectManagersRoute, async (c) => {
+  const rows = await db.project.findMany({ distinct: ["projectManagerId"], select: { projectManagerId: true } });
+  const people = await loadPeople(c, rows.map((row) => row.projectManagerId));
+  const items = rows
+    .map((row) => people.person(row.projectManagerId))
+    .sort(
+      (a, b) =>
+        Number(a.name === null) - Number(b.name === null) ||
+        (a.name ?? "").localeCompare(b.name ?? "") ||
+        a.id.localeCompare(b.id),
+    );
+  return c.json({ items }, 200);
 });
 
 projectsRouter.openapi(updateProjectRoute, async (c) => {

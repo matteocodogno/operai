@@ -89,6 +89,11 @@ const withContract = async (entity: Entity) => {
 const SPECS: Record<string, RouteSpec> = {
   "GET /scope": { need: "access", ok: 200, prepare: async () => ({ method: "GET", path: "/scope" }) },
   "GET /companies": { need: "manage-any", ok: 200, prepare: async () => ({ method: "GET", path: "/companies?q=acme" }) },
+  "GET /project-managers": {
+    need: "access",
+    ok: 200,
+    prepare: async (entity) => (await seedProject(entity), { method: "GET", path: "/project-managers" }),
+  },
   "GET /projects": { need: "access", ok: 200, prepare: async (entity) => (await seedProject(entity), { method: "GET", path: "/projects" }) },
   "POST /projects": {
     need: "manage",

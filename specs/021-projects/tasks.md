@@ -180,7 +180,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T10: projects-api authorization matrix over the assembled app — refs: AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6 — deps: T6, T7, T9
   - touch: `projects-api/src/matrix.test.ts`
   - done when: `bun test src/matrix.test.ts` is green for every route × {no access, access only, `project-manager` (welld_ch), `sales` (welld_it), `accounting`, admin}, and the full `bun test` and `bun run typecheck` are green.
-- [ ] T20: projects-api — `stateBeforeHold` on `Project`, `GET /project-managers` (added by re-sync 2026-11-03 after T12's drift report) — refs: AC-1.3, AC-1.4 — deps: T10
+- [x] T20: projects-api — `stateBeforeHold` on `Project`, `GET /project-managers` (added by re-sync 2026-11-03 after T12's drift report) — refs: AC-1.3, AC-1.4 — deps: T10
   - touch: `projects-api/src/projects/projects.routes.ts`, `projects-api/src/projects/projects.schemas.ts`, `projects-api/src/projects/projects.test.ts`, `projects-api/src/matrix.test.ts`
   - done when: `cd projects-api && bun test` is green with tests that `GET /projects/:id` returns `stateBeforeHold` (`null` unless `on_hold`, else the state it left), that `GET /project-managers` lists each distinct project manager once with live names and needs only `projects:access`, and that the matrix covers the new route.
 - [x] T11: projects-ui scaffold — federated remote `projects` (`./App`, `./version`), router with every page route, API client, `useScope`, strings aggregator (en + it) — refs: AC-4.1, AC-4.7 — deps: none

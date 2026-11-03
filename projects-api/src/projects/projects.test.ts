@@ -57,6 +57,7 @@ describe("POST /projects", () => {
       name: "Koordy",
       type: "t_and_m",
       state: "planned",
+      stateBeforeHold: null,
       entity: "welld_ch",
       company: { id: "co-acme", name: "Acme SA" },
       projectManager: { id: "user-pm-ch", name: "Name of user-pm-ch", deleted: false },
@@ -211,6 +212,7 @@ describe("GET /projects/:id", () => {
       name: "Koordy",
       type: "saas",
       state: "planned",
+      stateBeforeHold: null,
       entity: "welld_ch",
       company: null,
       projectManager: { id: "user-gone", name: null, deleted: true },
@@ -235,6 +237,19 @@ describe("GET /projects/:id", () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     });
+  });
+
+  it.each([
+    ["planned", { state: "planned" as const }, null],
+    ["active", { state: "active" as const }, null],
+    ["closed", { state: "closed" as const }, null],
+    ["on_hold, left planned", { state: "on_hold" as const, stateBeforeHold: "planned" as const }, "planned"],
+    ["on_hold, left active", { state: "on_hold" as const, stateBeforeHold: "active" as const }, "active"],
+  ])("shows `stateBeforeHold` as null unless on hold, else the state it left: %s (AC-1.3)", async (_label, over, expected) => {
+    const project = await seed(over);
+    const res = await call("GET", `/projects/${project.id}`, { as: "viewer" });
+    expect(res.status).toBe(200);
+    expect(res.json.stateBeforeHold).toBe(expected);
   });
 
   it("is 404 for an unknown id, 403 without module access and 401 without a token", async () => {
@@ -298,6 +313,53 @@ describe("GET /projects/:id", () => {
         endDate: "2026-09-30",
       });
     });
+  });
+});
+
+describe("GET /project-managers", () => {
+  it("lists each distinct project manager once, sorted by live name, to a reader who manages nothing (AC-1.4)", async () => {
+    await seed({ name: "A", projectManagerId: "user-pm-ch" });
+    await seed({ name: "B", projectManagerId: "user-pm-ch" });
+    await seed({ name: "C", projectManagerId: "user-colleague" });
+    await seed({ name: "D", projectManagerId: "user-accounting", entity: "welld_it" });
+    const res = await call("GET", "/project-managers", { as: "viewer" });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({
+      items: [
+        { id: "user-accounting", name: "Name of user-accounting", deleted: false },
+        { id: "user-colleague", name: "Name of user-colleague", deleted: false },
+        { id: "user-pm-ch", name: "Name of user-pm-ch", deleted: false },
+      ],
+    });
+  });
+
+  it("is empty with no project", async () => {
+    const res = await call("GET", "/project-managers", { as: "viewer" });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ items: [] });
+  });
+
+  it("names people live, shows a deleted one as deleted, and sorts an unnamed one after the named (ADR-0039)", async () => {
+    await seed({ name: "A", projectManagerId: "user-gone" });
+    await seed({ name: "B", projectManagerId: "user-colleague" });
+    const res = await call("GET", "/project-managers", { as: "viewer" });
+    expect(res.json.items).toEqual([
+      { id: "user-colleague", name: "Name of user-colleague", deleted: false },
+      { id: "user-gone", name: null, deleted: true },
+    ]);
+  });
+
+  it("fails soft when auth cannot name them: ids with a null name, still 200", async () => {
+    await seed({ name: "A", projectManagerId: "user-pm-ch" });
+    identities.down = true;
+    const res = await call("GET", "/project-managers", { as: "viewer" });
+    expect(res.status).toBe(200);
+    expect(res.json.items).toEqual([{ id: "user-pm-ch", name: null, deleted: false }]);
+  });
+
+  it("is 403 without module access and 401 without a token (AC-4.2)", async () => {
+    expect((await call("GET", "/project-managers", { as: "outsider" })).status).toBe(403);
+    expect((await call("GET", "/project-managers", { as: null })).status).toBe(401);
   });
 });
 
