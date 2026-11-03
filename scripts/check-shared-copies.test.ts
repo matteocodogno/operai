@@ -93,7 +93,7 @@ describe("checkGroups", () => {
 describe("the committed registry", () => {
   const repoRoot = join(import.meta.dir, "..");
 
-  test("lists every serviceToken copy, meetings-api included, and the registry is in sync right now", () => {
+  test("lists every serviceToken copy, meetings-api and projects-api included, and the registry is in sync right now", () => {
     const g = SHARED_COPIES.find((x) => x.name === "serviceToken");
     expect(g?.files.sort()).toEqual([
       "crm-api/src/lib/serviceToken.ts",
@@ -101,6 +101,7 @@ describe("the committed registry", () => {
       "inventory-api/src/lib/serviceToken.ts",
       "meetings-api/src/lib/serviceToken.ts",
       "notify-api/src/lib/serviceToken.ts",
+      "projects-api/src/lib/serviceToken.ts",
       "refund-api/src/lib/serviceToken.ts",
     ]);
     expect(checkGroups(SHARED_COPIES, repoRoot)).toEqual([]);

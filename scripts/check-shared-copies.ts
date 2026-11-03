@@ -39,6 +39,7 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
       "crm-api/src/lib/serviceToken.ts",
       "notify-api/src/lib/serviceToken.ts",
       "meetings-api/src/lib/serviceToken.ts",
+      "projects-api/src/lib/serviceToken.ts",
     ],
     why: "the auth service-token client (ADR-0044/0049/0056); a fix to one copy must reach every copy",
   },
