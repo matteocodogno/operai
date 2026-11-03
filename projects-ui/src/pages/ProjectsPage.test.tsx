@@ -1,0 +1,223 @@
+/**
+ * @vitest-environment jsdom
+ *
+ * ProjectsPage (AC-1.1, AC-1.4, AC-4.4): the AC-1.4 columns, the filters reaching
+ * the query string, pagination, the states, and "New project" only for a holder
+ * of manage projects. Rendered through the app's real router against a fake
+ * projects-api; the create form itself is covered by ProjectFormDialog.test.tsx.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { RouterProvider } from '@tanstack/react-router'
+import { createAppRouter } from '../router'
+import { ADA, fakeApi, page, problem, projectSummary, scope } from '../test-support/fakeApi'
+import type { FakeHandler } from '../test-support/fakeApi'
+import { scopeRoot } from '../test-support/scopeRoot'
+import type { Scope } from '../lib/types'
+
+const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
+vi.mock('shell/session', () => ({
+  apiFetch,
+  getProjectsApiBaseUrl: () => 'http://projects-api.test',
+  getAuthBaseUrl: () => 'http://auth.test',
+  useSession: () => ({ data: { user: { id: 'u-ada', name: 'Ada Lovelace' } } }),
+}))
+
+const BOB = { id: 'u-bob', name: 'Bob Builder', email: 'bob@welld.ch', entity: 'welld_ch' }
+const directory =
+  (users = [BOB]): FakeHandler =>
+  () => ({ status: 200, body: { users } })
+
+const renderPage = async (routes: Record<string, FakeHandler>, callerScope: Scope = scope()) => {
+  apiFetch.mockImplementation(fakeApi({ 'GET /authz/users/directory': directory(), ...routes }))
+  window.history.pushState(null, '', '/')
+  render(<RouterProvider router={createAppRouter(undefined, scopeRoot(callerScope))} />)
+  await screen.findByTestId('projects-page')
+}
+
+beforeEach(() => {
+  window.scrollTo = () => undefined
+  window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(0)
+    return 0
+  }
+})
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+const projectsUrls = () =>
+  apiFetch.mock.calls.map(([input]) => new URL(String(input))).filter((url) => url.pathname === '/projects')
+const lastQuery = () => Object.fromEntries(projectsUrls().at(-1)!.searchParams)
+
+describe('ProjectsPage list (AC-1.4)', () => {
+  it('shows name, type, state, company, project manager and entity of each project', async () => {
+    await renderPage({
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    const table = await screen.findByTestId('projects-table')
+    const row = within(table)
+      .getByRole('rowheader', { name: /Intranet/ })
+      .closest('tr')!
+    expect(within(row).getByRole('link', { name: 'Intranet' }).getAttribute('href')).toBe('/p1')
+    expect(row.textContent).toContain('Time & material')
+    expect(row.textContent).toContain('Active')
+    expect(row.textContent).toContain('Acme SA')
+    expect(row.textContent).toContain('Ada Lovelace (You)')
+    expect(row.textContent).toContain('wellD CH')
+    expect(screen.getByTestId('projects-pagination-status').textContent).toBe('Page 1 of 1 — showing 1–1 of 1')
+  })
+
+  it('shows the number of clients for a SaaS project, "Internal" for an internal one', async () => {
+    await renderPage({
+      'GET /projects': () => ({
+        status: 200,
+        body: page([
+          projectSummary({ id: 's3', name: 'Koordy', type: 'saas', company: null, clientCount: 3 }),
+          projectSummary({ id: 's1', name: 'Sentinel', type: 'saas', company: null, clientCount: 1 }),
+          projectSummary({ id: 's0', name: 'Newcomer', type: 'saas', company: null, clientCount: 0 }),
+          projectSummary({ id: 'i1', name: 'Ops tooling', type: 'internal', company: null, clientCount: 0 }),
+        ]),
+      }),
+    })
+    const table = await screen.findByTestId('projects-table')
+    const companyCell = (name: string) =>
+      within(within(table).getByRole('rowheader', { name }).closest('tr')!).getByTestId('projects-company')
+    expect(companyCell('Koordy').textContent).toBe('3 clients')
+    expect(companyCell('Sentinel').textContent).toBe('1 client')
+    expect(companyCell('Newcomer').textContent).toBe('No clients yet')
+    expect(companyCell('Ops tooling').textContent).toBe('Internal')
+  })
+
+  it('says so when the CRM could not name a client project’s company', async () => {
+    await renderPage({
+      'GET /projects': () => ({
+        status: 200,
+        body: page([projectSummary({ company: { id: 'c1', name: null } })]),
+      }),
+    })
+    const table = await screen.findByTestId('projects-table')
+    expect(within(table).getByTestId('projects-company').textContent).toBe('Company unavailable')
+  })
+
+  it('asks for the first page and nothing else, the server sorting by name', async () => {
+    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([]) }) })
+    await screen.findByText('No projects yet')
+    expect(lastQuery()).toEqual({ page: '1' })
+  })
+
+  it('search, type and state reach the query, and a new filter goes back to page 1', async () => {
+    await renderPage({
+      'GET /projects': (url) => ({
+        status: 200,
+        body: page([projectSummary()], 60, Number(url.searchParams.get('page') ?? 1)),
+      }),
+    })
+    await screen.findByTestId('projects-table')
+    fireEvent.click(screen.getByTestId('projects-pagination-next'))
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '2' }))
+
+    fireEvent.change(screen.getByLabelText(/Search/), { target: { value: 'koo' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', q: 'koo' }))
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'saas' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', q: 'koo', type: 'saas' }))
+    fireEvent.change(screen.getByLabelText('State'), { target: { value: 'on_hold' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', q: 'koo', type: 'saas', state: 'on_hold' }))
+  })
+
+  it('filters by project manager, picked from the people who hold access to the module (ADR-0055)', async () => {
+    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }) })
+    await screen.findByTestId('projects-table')
+    fireEvent.focus(screen.getByRole('combobox', { name: /Project manager/ }))
+    fireEvent.click(await screen.findByRole('option', { name: /Bob Builder/ }))
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', projectManagerId: 'u-bob' }))
+    const directoryCall = apiFetch.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .find((url) => url.pathname === '/authz/users/directory')!
+    expect(directoryCall.searchParams.get('appId')).toBe('projects')
+
+    fireEvent.change(screen.getByRole('combobox', { name: /Project manager/ }), { target: { value: '' } })
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1' }))
+  })
+
+  it('a reader who may not read the directory filters on "Only my projects" instead', async () => {
+    await renderPage({
+      'GET /authz/users/directory': () => problem(403, 'forbidden'),
+      'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }),
+    })
+    fireEvent.click(await screen.findByLabelText('Only my projects'))
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1', projectManagerId: ADA.id }))
+    fireEvent.click(screen.getByLabelText('Only my projects'))
+    await waitFor(() => expect(lastQuery()).toEqual({ page: '1' }))
+  })
+})
+
+describe('ProjectsPage states', () => {
+  it('an empty module invites a manager to create the first project, and a reader to wait', async () => {
+    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([]) }) }, scope({ manage: ['welld_ch'] }))
+    expect(await screen.findByText('No projects yet')).not.toBeNull()
+    expect(screen.getByText(/Create the first project/)).not.toBeNull()
+    cleanup()
+    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([]) }) })
+    expect(await screen.findByText('No projects yet')).not.toBeNull()
+    expect(screen.queryByText(/Create the first project/)).toBeNull()
+  })
+
+  it('a search with no match shows the filtered empty state', async () => {
+    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([]) }) })
+    await screen.findByText('No projects yet')
+    fireEvent.change(screen.getByLabelText(/Search/), { target: { value: 'zzz' } })
+    expect(await screen.findByText('No projects match these filters')).not.toBeNull()
+  })
+
+  it('a failed load shows the retry banner, and Retry loads again', async () => {
+    let calls = 0
+    await renderPage({
+      'GET /projects': () => {
+        calls += 1
+        return calls === 1 ? problem(500, undefined, {}, 'boom') : { status: 200, body: page([projectSummary()]) }
+      },
+    })
+    expect((await screen.findByTestId('projects-load-error')).textContent).toContain('boom')
+    fireEvent.click(screen.getByTestId('projects-load-error-retry'))
+    expect(await screen.findByTestId('projects-table')).not.toBeNull()
+  })
+
+  it('pages through the API, 25 to a page', async () => {
+    await renderPage({
+      'GET /projects': (url) => ({
+        status: 200,
+        body: page([projectSummary()], 30, Number(url.searchParams.get('page') ?? 1)),
+      }),
+    })
+    await screen.findByTestId('projects-table')
+    expect(screen.getByTestId('projects-pagination-status').textContent).toBe('Page 1 of 2 — showing 1–25 of 30')
+  })
+})
+
+describe('New project (AC-4.4)', () => {
+  it('is hidden from a caller who manages no entity', async () => {
+    await renderPage({ 'GET /projects': () => ({ status: 200, body: page([projectSummary()]) }) })
+    await screen.findByTestId('projects-table')
+    expect(screen.queryByTestId('projects-new')).toBeNull()
+  })
+
+  it('opens the create dialog for a manager, and opens the new project once it is created', async () => {
+    await renderPage(
+      {
+        'GET /projects': () => ({ status: 200, body: page([]) }),
+        'POST /projects': () => ({ status: 201, body: { ...projectSummary({ id: 'pNew' }), team: [], contracts: [] } }),
+      },
+      scope({ manage: ['welld_ch'] }),
+    )
+    await screen.findByText('No projects yet')
+    fireEvent.click(screen.getByTestId('projects-new'))
+    const dialog = await screen.findByRole('dialog', { name: 'New project' })
+    fireEvent.change(within(dialog).getByLabelText(/^Name/), { target: { value: 'Ops tooling' } })
+    fireEvent.change(within(dialog).getByLabelText(/^Type/), { target: { value: 'internal' } })
+    fireEvent.click(within(dialog).getByTestId('projects-form-submit'))
+    expect((await screen.findByTestId('project-detail-page')).getAttribute('data-project-id')).toBe('pNew')
+  })
+})
