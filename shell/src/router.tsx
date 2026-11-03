@@ -294,6 +294,8 @@ const loadCrmApp = () => import('crm/App')
 // `/meetings/$`) and `./MyMeetings` (the identity-scoped entry, ungated `/my-meetings/$`).
 const loadMeetingsApp = () => import('meetings/App')
 const loadMyMeetings = () => import('meetings/MyMeetings')
+// specs/021-projects: projects-ui's gated tool entry (`/projects/$`).
+const loadProjectsApp = () => import('projects/App')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -421,6 +423,14 @@ const meetingsRoute = createRoute({
   component: () => <RemoteMount loader={loadMeetingsApp} moduleLabel={strings.tools.meetings} />,
 })
 
+// specs/021-projects (AC-4.1): the Projects module, gated by `projects:access`.
+const projectsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/projects/$',
+  beforeLoad: createToolAccessBeforeLoad('projects'),
+  component: () => <RemoteMount loader={loadProjectsApp} moduleLabel={strings.tools.projects} />,
+})
+
 // ---------------------------------------------------------------------------
 // `/devices` — "My devices" (specs/015-hardware-inventory, T42, US-4 AC-4.1,
 // ADR-0045). The second, UNGATED federated entry of the inventory remote:
@@ -533,6 +543,7 @@ export const routeTree = rootRoute.addChildren([
       inventoryRoute,
       crmRoute,
       meetingsRoute,
+      projectsRoute,
       notifyRoute,
       accountRoute,
       devicesRoute,

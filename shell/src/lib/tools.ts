@@ -15,7 +15,7 @@
 import { strings } from '../strings'
 
 /** Known suite tool ids. Extend this union (and TOOLS below) to add a tool. */
-export type ToolId = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm' | 'meetings'
+export type ToolId = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm' | 'meetings' | 'projects'
 
 export interface SuiteTool {
   id: ToolId
@@ -53,6 +53,9 @@ export const TOOLS: readonly SuiteTool[] = [
   // signed-in user (ADR-0045 shape), so it never appears in the filtered sidebar
   // nor is recorded as a last-used tool.
   { id: 'meetings', label: strings.tools.meetings, to: '/meetings' },
+  // specs/021-projects: a gated tool, shown to holders of `projects:access`. The id
+  // is the auth catalog resource, which is what `/authz/me`'s `apps` carries.
+  { id: 'projects', label: strings.tools.projects, to: '/projects' },
 ]
 
 /** First-visit / invalid-storage fallback tool (AC-3.4). */

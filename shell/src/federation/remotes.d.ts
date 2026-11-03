@@ -146,3 +146,15 @@ declare module 'meetings/RecorderDock' {
 declare module 'meetings/version' {
   export const REMOTE_VERSION: string
 }
+
+// specs/021-projects: the `projects` remote — `./App` (the gated tool, `/projects/*`) and `./version`.
+declare module 'projects/App' {
+  import type { ComponentType } from 'react'
+
+  const App: ComponentType
+  export default App
+}
+
+declare module 'projects/version' {
+  export const REMOTE_VERSION: string
+}

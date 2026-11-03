@@ -42,6 +42,7 @@ const REMOTE_DIRS: Record<(typeof REMOTE_VERSION_SOURCES)[number]['id'], string>
   inventory: 'inventory-ui',
   crm: 'crm-ui',
   meetings: 'meetings-ui',
+  projects: 'projects-ui',
 }
 
 const remotesDtsSource = readFileSync(path.join(__dirname, 'remotes.d.ts'), 'utf-8')
@@ -155,5 +156,36 @@ describe('vercel.json CSP — crm origins', () => {
 
   it("remotes.d.ts declares 'crm/App'", () => {
     expect(remotesDtsSource).toContain("declare module 'crm/App'")
+  })
+})
+
+// specs/021-projects: the shell's CSP lets the page load the Projects remote and reach projects-api.
+describe('vercel.json CSP — projects origins', () => {
+  const vercel = JSON.parse(readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf-8')) as {
+    headers: { source: string; headers: { key: string; value: string }[] }[]
+  }
+  const csp =
+    vercel.headers.flatMap((h) => h.headers).find((header) => header['key'] === 'Content-Security-Policy')?.value ?? ''
+  const directive = (name: string): string =>
+    csp
+      .split(';')
+      .map((d) => d.trim())
+      .find((d) => d.startsWith(`${name} `)) ?? ''
+
+  it('script-src allows the projects remote; connect-src the remote and projects-api', () => {
+    expect(directive('script-src')).toContain('https://projects.operai.welld.io')
+    expect(directive('connect-src')).toContain('https://projects.operai.welld.io')
+    expect(directive('connect-src')).toContain('https://projects-api.operai.welld.io')
+  })
+
+  it("remotes.d.ts declares 'projects/App'", () => {
+    expect(remotesDtsSource).toContain("declare module 'projects/App'")
+  })
+
+  it('runtime-config.example.json lists the projects remote entry', () => {
+    const example = JSON.parse(
+      readFileSync(path.resolve(__dirname, '../../public/runtime-config.example.json'), 'utf-8'),
+    ) as Record<string, string>
+    expect(example['projects']).toBe('https://projects.operai.welld.io/remoteEntry.js')
   })
 })

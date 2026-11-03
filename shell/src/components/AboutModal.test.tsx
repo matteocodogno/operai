@@ -36,7 +36,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-/** A five-remote fixture mirroring the real REMOTE_VERSION_SOURCES shape, with all-resolving default loaders. */
+/** A seven-remote fixture mirroring the real REMOTE_VERSION_SOURCES shape, with all-resolving default loaders. */
 function remoteFixture(
   overrides: Partial<Record<RemoteVersionSource['id'], RemoteVersionSource['loader']>> = {},
 ): RemoteVersionSource[] {
@@ -48,6 +48,7 @@ function remoteFixture(
     inventory: () => Promise.resolve({ REMOTE_VERSION: '2.0.1' }),
     crm: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
     meetings: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
+    projects: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
   }
   return [
     { id: 'estimai', label: 'EstimAI', loader: overrides.estimai ?? defaults.estimai },
@@ -57,6 +58,7 @@ function remoteFixture(
     { id: 'inventory', label: 'Inventory', loader: overrides.inventory ?? defaults.inventory },
     { id: 'crm', label: 'CRM', loader: overrides.crm ?? defaults.crm },
     { id: 'meetings', label: 'Meetings', loader: overrides.meetings ?? defaults.meetings },
+    { id: 'projects', label: 'Projects', loader: overrides.projects ?? defaults.projects },
   ]
 }
 

@@ -68,6 +68,7 @@ describe('shell chrome in Italian', () => {
       'Inventario',
       'CRM',
       'Riunioni',
+      'Progetti',
     ])
   })
 })

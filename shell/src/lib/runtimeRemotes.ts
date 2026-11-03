@@ -80,6 +80,8 @@ export interface RuntimeRemoteConfig {
   crm?: string
   /** specs/021-meetings: the Meetings remote's remoteEntry.js (three mountable entries + ./version). */
   meetings?: string
+  /** specs/021-projects: the Projects remote's remoteEntry.js. */
+  projects?: string
 }
 
 declare global {
@@ -96,7 +98,7 @@ declare global {
 
 /** Shape `@module-federation/runtime`'s `registerRemotes` expects (mirrors vite.config.ts's static remote entries). */
 export interface RuntimeRemoteEntry {
-  name: 'estimai' | 'refund' | 'admin' | 'notify' | 'inventory' | 'crm' | 'meetings'
+  name: 'estimai' | 'refund' | 'admin' | 'notify' | 'inventory' | 'crm' | 'meetings' | 'projects'
   entry: string
   type: 'module'
   entryGlobalName: string
@@ -198,6 +200,16 @@ export async function resolveRuntimeRemotes(): Promise<RuntimeRemoteEntry[]> {
       entry: config.meetings,
       type: 'module',
       entryGlobalName: 'meetings',
+      shareScope: 'default',
+    })
+  }
+
+  if (config.projects) {
+    remotes.push({
+      name: 'projects',
+      entry: config.projects,
+      type: 'module',
+      entryGlobalName: 'projects',
       shareScope: 'default',
     })
   }
