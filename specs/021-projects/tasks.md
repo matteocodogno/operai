@@ -158,7 +158,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T5: projects-api projects — list, create, read, rename / change PM, company lookup — refs: AC-1.1, AC-1.4, AC-1.5, AC-1.6, AC-1.7, AC-4.3, AC-4.4 — deps: T2, T4
   - touch: `projects-api/src/projects/projects.routes.ts`, `projects-api/src/projects/projects.schemas.ts`, `projects-api/src/projects/projects.test.ts`, `projects-api/src/projects/dates.ts`, `projects-api/src/companies/**`, `projects-api/src/lib/crm.ts`
   - done when: `bun test src/projects/projects.test.ts src/companies` is green covering: `company_required` / `company_not_allowed` / `company_not_found`; `out_of_scope` 403 for the other entity; `not_project_user` 422 and 503 when auth cannot answer; PM defaults to the caller; pagination (25), name search, type / state / PM filters, sort by name; `clientCount`; derived dates per the notes; company name `null` when crm-api is down; 428 / 409 on `PATCH`.
-- [ ] T6: projects-api states and type change — refs: AC-1.2, AC-1.3 — deps: T5
+- [x] T6: projects-api states and type change — refs: AC-1.2, AC-1.3 — deps: T5
   - touch: `projects-api/src/projects/transitions.ts`, `projects-api/src/projects/transitions.routes.ts`, `projects-api/src/projects/transitions.test.ts`
   - done when: `bun test src/projects/transitions.test.ts` is green: every allowed move of AC-1.3 succeeds, every other pair is 409 `invalid_transition`, `on_hold` returns to the state it left, `cancelled` accepts nothing; `internal → saas` succeeds and every other type change is 409 `type_change_refused`.
 - [ ] T7: projects-api team — refs: AC-1.5, AC-1.6 — deps: T5
