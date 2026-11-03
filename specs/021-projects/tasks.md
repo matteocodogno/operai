@@ -46,15 +46,15 @@ against it is routed to the product owner.
 ADR-0053/0055). `crm.companies.read` joins `KNOWN_SERVICE_SCOPES`.
 
 ### Data model (projects-api, migration `prisma/migrations/*_init`)
-- `Project` — `id uuid`, `name varchar(200)`, `type ProjectType`, `state ProjectState`
-  default `planned`, `stateBeforeHold ProjectState?`, `entity Entity`, `companyId uuid?`
-  (CRM company id), `projectManagerId uuid` (auth user id), `version int` default 1,
-  `createdById uuid`, `createdAt`, `updatedAt`.
+- `Project` — `id text` (cuid), `name varchar(200)`, `type ProjectType`, `state ProjectState`
+  default `planned`, `stateBeforeHold ProjectState?`, `entity Entity`, `companyId text?`
+  (CRM company id), `projectManagerId text` (auth user id), `version int` default 1,
+  `createdById text`, `createdAt`, `updatedAt`.
   CHECKs: `companyId` NOT NULL iff `type IN (t_and_m, fixed_price, maintenance)`;
   `stateBeforeHold` NOT NULL iff `state = on_hold`.
 - `ProjectMember` — `(projectId, userId)` PK, `addedAt`.
-- `Contract` — `id`, `projectId` FK, `type ProjectType`, `companyId uuid`, `origin`
-  (`manual` | `deal`) default `manual`, `dealId uuid?` (unique, filled by specs/022),
+- `Contract` — `id`, `projectId` FK, `type ProjectType`, `companyId text`, `origin`
+  (`manual` | `deal`) default `manual`, `dealId text?` (unique, filled by specs/022),
   `bexioOrderId varchar(64)?`, `startDate date`, `endDate date?`, `version`, timestamps;
   fixed price: `deadline date?`, `estimatedManDays numeric(6,1)?`, `maxEffortManDays
   numeric(6,1)?`; SLA: `slaHighDays int?`, `slaNormalDays int?`; hour package:
@@ -66,6 +66,9 @@ ADR-0053/0055). `crm.companies.read` joins `KNOWN_SERVICE_SCOPES`.
   `capacity`; `endDate >= startDate`.
 - `ContractPosition` — `id`, `contractId` FK cascade, `profile varchar(120)`,
   `plannedManDays numeric(6,1) > 0`, `position int`.
+- **Ids are text, never uuid** (amended 2026-11-03, drift raised by T2): CRM and auth ids
+  are cuids (`TEXT`), so every id column is `text` and every id input is validated as a
+  1–64 character string; projects-api's own ids are cuids too (`@default(cuid())`).
 - `ProjectType = t_and_m | fixed_price | maintenance | saas | internal`;
   `ProjectState = planned | active | on_hold | closed | cancelled`;
   `Entity = welld_ch | welld_it`.
@@ -82,8 +85,8 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 **crm-api (T2)**
 - `GET /system/companies?q=&ids=&limit=` — `Authorization: Bearer <service JWT>`, `aud =
   SERVICE_AUDIENCE`, scope `crm.companies.read`. `q`: case-insensitive substring of name,
-  non-archived only; `ids`: comma-separated uuids (≤ 100), archived included; `limit`
-  1–50, default 20. → `200 { items: [{ id, name, entity, archived }] }`. Every credential
+  non-archived only; `ids`: comma-separated ids (1–64 characters each, ≤ 100), archived included,
+  ANDed with `q`; `limit` 1–50, default 20 — or `ids.length` when `ids` is given without one. → `200 { items: [{ id, name, entity, archived }] }`. Every credential
   failure → the same `401` body. A user JWT is never accepted here.
 
 **projects-api**
@@ -109,7 +112,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
   `invalid_transition` outside the AC-1.3 matrix (T6).
 - `PUT /projects/:id/type` `{ type: "saas" }` → `200 Project`; 409 `type_change_refused`
   unless `internal → saas` (T6).
-- `PUT /projects/:id/team` `{ memberIds: uuid[] }` → `200 Project`; 422 `not_project_user`
+- `PUT /projects/:id/team` `{ memberIds: string[] }` → `200 Project`; 422 `not_project_user`
   with `{ userIds }` (T7).
 - `POST /projects/:id/contracts` `{ companyId?, startDate, endDate?, terms }` → `201
   Contract`. Type = the project's. 409 `contracts_not_allowed` (`internal`), 409
