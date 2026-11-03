@@ -93,6 +93,9 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - `GET /scope` → `{ manage: Entity[], managesAll: boolean, bexio: boolean }` (T3).
 - `GET /companies?q=` → `{ items: [{ id, name, entity }] }` — needs `project:manage` (any
   entity); proxies crm-api; crm-api down → 503 `crm_unavailable` (T5).
+- **projects-ui routes** (T11): the shell mounts the remote at `/projects/$` and the inner
+  router has basepath `/projects`, so inner routes are `/` and `/$id` (URLs `/projects`,
+  `/projects/<id>`).
 - `GET /projects?page=&q=&type=&state=&projectManagerId=` → `{ items: ProjectSummary[],
   page, pageSize: 25, total }`, sorted by name; `q` case-insensitive substring of name.
   `ProjectSummary = { id, name, type, state, entity, company: CompanyRef | null,
@@ -103,9 +106,13 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
   `internal` with one), `company_not_found`, `not_project_user` (PM without
   `projects:access`, checked live via auth `app-access-check` by user id, ADR-0055); 403
   `out_of_scope`. PM defaults to the caller (T5).
-- `GET /projects/:id` → `Project = { id, name, type, state, entity, company, projectManager,
-  team: Person[], contracts: ContractSummary[], startDate, endDate, version, createdAt,
-  updatedAt }` (T5). `ContractSummary = { id, type, company: CompanyRef, origin,
+- `GET /projects/:id` → `Project = { id, name, type, state, stateBeforeHold: ProjectState |
+  null, entity, company, projectManager, team: Person[], contracts: ContractSummary[],
+  startDate, endDate, version, createdAt, updatedAt }` (T5; `stateBeforeHold` added by T20 —
+  the UI needs it to offer the one state an `on_hold` project can return to).
+- `GET /project-managers` → `{ items: Person[] }` — the distinct project managers of all
+  projects, sorted by name; access only (the user directory is open to managers only, so
+  this is what feeds the list's project-manager filter for every reader, AC-1.4) (T20). `ContractSummary = { id, type, company: CompanyRef, origin,
   bexioOrderId, startDate, endDate }`.
 - `PATCH /projects/:id` `{ name?, projectManagerId? }` → `200 Project` (T5).
 - `POST /projects/:id/transitions` `{ to: ProjectState }` → `200 Project`; 409
@@ -173,15 +180,18 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T10: projects-api authorization matrix over the assembled app — refs: AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6 — deps: T6, T7, T9
   - touch: `projects-api/src/matrix.test.ts`
   - done when: `bun test src/matrix.test.ts` is green for every route × {no access, access only, `project-manager` (welld_ch), `sales` (welld_it), `accounting`, admin}, and the full `bun test` and `bun run typecheck` are green.
+- [ ] T20: projects-api — `stateBeforeHold` on `Project`, `GET /project-managers` (added by re-sync 2026-11-03 after T12's drift report) — refs: AC-1.3, AC-1.4 — deps: T10
+  - touch: `projects-api/src/projects/projects.routes.ts`, `projects-api/src/projects/projects.schemas.ts`, `projects-api/src/projects/projects.test.ts`, `projects-api/src/matrix.test.ts`
+  - done when: `cd projects-api && bun test` is green with tests that `GET /projects/:id` returns `stateBeforeHold` (`null` unless `on_hold`, else the state it left), that `GET /project-managers` lists each distinct project manager once with live names and needs only `projects:access`, and that the matrix covers the new route.
 - [x] T11: projects-ui scaffold — federated remote `projects` (`./App`, `./version`), router with every page route, API client, `useScope`, strings aggregator (en + it) — refs: AC-4.1, AC-4.7 — deps: none
   - touch: `projects-ui/package.json`, `projects-ui/pnpm-lock.yaml`, `projects-ui/index.html`, `projects-ui/vite.config.ts`, `projects-ui/vitest.config.ts`, `projects-ui/tsconfig*.json`, `projects-ui/eslint.config.js`, `projects-ui/postcss.config.js`, `projects-ui/vercel.json`, `projects-ui/src/main.tsx`, `projects-ui/src/App.tsx`, `projects-ui/src/router.tsx`, `projects-ui/src/version.ts`, `projects-ui/src/index.css`, `projects-ui/src/vite-env.d.ts`, `projects-ui/src/federation/**`, `projects-ui/src/lib/**`, `projects-ui/src/hooks/**`, `projects-ui/src/test-support/**`, `projects-ui/src/strings.ts`, `projects-ui/src/strings.test.ts`, `projects-ui/src/strings/**`
   - done when: `cd projects-ui && pnpm lint && pnpm build && pnpm test` is green; `strings.test.ts` fails if any key lacks `en` or `it`; the router declares `/`, `/projects/$id` with placeholder pages, and `strings/projects.ts`, `strings/project.ts`, `strings/contracts.ts` exist (empty) behind the aggregator, so later tasks only fill pages, components and their own strings file.
 - [x] T12: projects-ui projects list and create dialog — refs: AC-1.1, AC-1.4, AC-4.4 — deps: T11
   - touch: `projects-ui/src/pages/ProjectsPage.tsx`, `projects-ui/src/pages/ProjectsPage.test.tsx`, `projects-ui/src/components/ProjectFormDialog.tsx`, `projects-ui/src/components/CompanyPicker.tsx`, `projects-ui/src/components/PersonPicker.tsx`, `projects-ui/src/components/ProjectFormDialog.test.tsx`, `projects-ui/src/strings/projects.ts`
   - done when: `pnpm test` is green with tests that the list shows the AC-1.4 columns (company / "N clients" / "Internal"), search and filters reach the query, "New project" is hidden without manage scope, and the company field appears only for client types.
-- [ ] T13: projects-ui project page — details, state actions, type change, PM and team, derived dates, contracts list, reload on conflict — refs: AC-1.2, AC-1.3, AC-1.5, AC-1.6, AC-1.7, AC-4.4 — deps: T12
-  - touch: `projects-ui/src/pages/ProjectDetailPage.tsx`, `projects-ui/src/pages/ProjectDetailPage.test.tsx`, `projects-ui/src/components/StateActions.tsx`, `projects-ui/src/components/TeamCard.tsx`, `projects-ui/src/components/PersonPicker.tsx`, `projects-ui/src/strings/project.ts`
-  - done when: `pnpm test` is green with tests that only allowed transitions are offered, "Make SaaS" shows only on `internal`, team and PM pickers list only module users, a 409 `version_conflict` asks to reload, and controls are hidden without manage scope.
+- [ ] T13: projects-ui project page — details, state actions, type change, PM and team, derived dates, contracts list, reload on conflict — refs: AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.7, AC-4.4 — deps: T12, T20
+  - touch: `projects-ui/src/pages/ProjectDetailPage.tsx`, `projects-ui/src/pages/ProjectDetailPage.test.tsx`, `projects-ui/src/components/StateActions.tsx`, `projects-ui/src/components/TeamCard.tsx`, `projects-ui/src/components/PersonPicker.tsx`, `projects-ui/src/strings/project.ts`, `projects-ui/src/pages/ProjectsPage.tsx`, `projects-ui/src/pages/ProjectsPage.test.tsx`, `projects-ui/src/components/Badges.tsx`
+  - done when: `pnpm test` is green with tests that only allowed transitions are offered, "Make SaaS" shows only on `internal`, team and PM pickers list only module users, a 409 `version_conflict` asks to reload, controls are hidden without manage scope, "Resume" targets `stateBeforeHold`, and the list's project-manager filter is fed by `GET /project-managers` for every reader (no "only my projects" fallback).
 - [ ] T14: projects-ui contracts — per-type form, contract card, end contract, Bexio field for accounting — refs: AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10, AC-3.1, AC-3.2, AC-3.3 — deps: T13
   - touch: `projects-ui/src/components/ContractFormDialog.tsx`, `projects-ui/src/components/ContractFormDialog.test.tsx`, `projects-ui/src/components/ContractCard.tsx`, `projects-ui/src/components/BexioOrderField.tsx`, `projects-ui/src/components/BexioOrderField.test.tsx`, `projects-ui/src/pages/ProjectDetailPage.tsx`, `projects-ui/src/strings/contracts.ts`
   - done when: `pnpm lint && pnpm build && pnpm test` is green with tests that each type shows only its fields (SLA prefilled 1 / 3), maintenance without SLA and hours cannot be saved, no delete control exists, no amount is rendered, and the Bexio field is editable only with the `bexio` scope.
@@ -207,8 +217,8 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 |---|---|
 | AC-1.1 | T2, T4, T5, T12 |
 | AC-1.2 | T6, T13 |
-| AC-1.3 | T4, T6, T13 |
-| AC-1.4 | T2, T5, T12 |
+| AC-1.3 | T4, T6, T13, T20 |
+| AC-1.4 | T2, T5, T12, T13, T20 |
 | AC-1.5 | T5, T7, T13 |
 | AC-1.6 | T1, T5, T7, T13 |
 | AC-1.7 | T5, T8, T13 |
