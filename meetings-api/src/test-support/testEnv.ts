@@ -15,3 +15,11 @@ process.env["AUTH_ISSUER"] = "http://localhost:3001";
 process.env["AUTH_AUDIENCE"] = "operai-suite";
 process.env["AUTH_BASE_URL"] = "http://localhost:3001";
 process.env["NODE_ENV"] = "test";
+// Bucket (never reached in unit tests: storage is faked) and providers.
+process.env["MEETINGS_S3_ENDPOINT"] ??= "http://localhost:9000";
+process.env["MEETINGS_S3_REGION"] ??= "us-east-1";
+process.env["MEETINGS_S3_BUCKET"] ??= "operai-meetings-test";
+process.env["MEETINGS_S3_ACCESS_KEY_ID"] ??= "test-access-key";
+process.env["MEETINGS_S3_SECRET_ACCESS_KEY"] ??= "test-secret-key";
+process.env["MEETINGS_S3_EU_ENDPOINT_HOSTS"] ??= "localhost";
+process.env["MEETINGS_AI_PROVIDER"] = "fake";
