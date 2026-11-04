@@ -145,3 +145,9 @@ export async function mkMeeting(over: Partial<Prisma.MeetingUncheckedCreateInput
     },
   });
 }
+
+/** `auth` stops answering from now on (the 30 s resolve cache is dropped so the next request feels it). */
+export function authDown(): void {
+  kit.authOutage = true;
+  __resetAuthzCacheForTests();
+}
