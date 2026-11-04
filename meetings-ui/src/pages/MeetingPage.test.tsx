@@ -219,6 +219,33 @@ describe('MeetingPage: header and states (S3, building-pages § 2)', () => {
   })
 })
 
+describe('MeetingPage: arrival and refusals', () => {
+  it('confirms "Meeting created" when the new-meeting page sent the person here', async () => {
+    serve(readyMeeting())
+    const history = createMemoryHistory({ initialEntries: ['/meetings/m/m1'] })
+    history.replace('/meetings/m/m1', { meetingCreated: true })
+    const router = createAppRouter('/meetings', undefined, history)
+    render(<RouterProvider router={router} />)
+    await router.load()
+    expect(await screen.findByText(en.meeting.saved.created)).not.toBeNull()
+  })
+
+  it('shows no confirmation on an ordinary visit', async () => {
+    serve(readyMeeting())
+    await loaded()
+    expect(screen.queryByText(en.meeting.saved.created)).toBeNull()
+  })
+
+  it('a 403 that carries a refusal code is still the permission-denied panel, with no futile Retry', async () => {
+    serve(readyMeeting(), {
+      'GET /meetings/:id': () => ({ status: 403, body: problem(403, 'meetings_access_required') }),
+    })
+    await renderPage()
+    expect(await screen.findByRole('heading', { name: en.common.permissionDenied.heading })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: en.common.retry })).toBeNull()
+  })
+})
+
 describe('MeetingPage: what each role sees (AC-10.4, AC-5.11)', () => {
   it('a read-only participant sees no create, summarise, ask or edit control', async () => {
     serve(participantMeeting())
@@ -610,28 +637,32 @@ describe('MeetingPage: tabs (S3b)', () => {
     expect(screen.getByRole('tab', { name: en.meeting.tabs.summaries }).getAttribute('aria-selected')).toBe('true')
   })
 
-  it('panels keep their state when you switch away and back (the transcript is fetched once)', async () => {
-    serve(readyMeeting({ summaryCount: 1 }))
+  it('only the active panel is mounted, and switching tabs reads the meeting again (summaryCount, stale flags)', async () => {
+    const api = serve(readyMeeting({ summaryCount: 1 }))
     await loaded()
-    const summaries = screen.getByTestId('stub-summaries')
+    const reads = () => api.mock.calls.filter(([url]) => new URL(String(url)).pathname === '/meetings/m1').length
+    expect(screen.getByTestId('stub-summaries')).not.toBeNull()
+    expect(screen.queryByTestId('stub-transcript')).toBeNull()
+    const before = reads()
+
     await userEvent.click(screen.getByRole('tab', { name: en.meeting.tabs.transcript }))
     expect(screen.getByTestId('stub-transcript')).not.toBeNull()
-    await userEvent.click(screen.getByRole('tab', { name: en.meeting.tabs.summaries }))
-    expect(screen.getByTestId('stub-summaries')).toBe(summaries)
+    expect(screen.queryByTestId('stub-summaries')).toBeNull()
+    await vi.waitFor(() => expect(reads()).toBe(before + 1))
   })
 
-  it('a source in the Ask tab opens the Transcript tab on that passage; Back to the answer returns focus to the source (F12)', async () => {
+  it('a source in the Ask tab opens the Transcript tab on that passage; Back to the answer returns to the Ask tab (focus is left to the Ask panel, F12)', async () => {
     serve(readyMeeting({ summaryCount: 1 }))
     await loaded('/meetings/m/m1?tab=ask')
 
-    const source = screen.getByRole('button', { name: 'stub-source' })
-    await userEvent.click(source)
+    await userEvent.click(screen.getByRole('button', { name: 'stub-source' }))
+    expect(screen.queryByTestId('stub-ask')).toBeNull()
     expect(screen.getByRole('tab', { name: en.meeting.tabs.transcript }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('stub-transcript').getAttribute('data-focus')).toBe('seg2')
 
     await userEvent.click(screen.getByRole('button', { name: 'stub-back-to-answer' }))
     expect(screen.getByRole('tab', { name: en.meeting.tabs.ask }).getAttribute('aria-selected')).toBe('true')
-    expect(document.activeElement).toBe(source)
+    expect(screen.getByTestId('stub-ask')).not.toBeNull()
   })
 
   it('without a jump, the transcript gets no focus target and no back link', async () => {

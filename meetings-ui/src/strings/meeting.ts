@@ -41,6 +41,7 @@ const en = {
   },
   saved: {
     details: 'Details saved',
+    created: 'Meeting created',
   },
   details: {
     title: 'Details',
@@ -161,6 +162,7 @@ const it: typeof en = {
   },
   saved: {
     details: 'Dettagli salvati',
+    created: 'Riunione creata',
   },
   details: {
     title: 'Dettagli',

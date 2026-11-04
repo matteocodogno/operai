@@ -10,7 +10,7 @@ import {
   tabPanelProps,
   useFocusOnMount,
 } from '@operai/ui'
-import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useRouterState, useSearch } from '@tanstack/react-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import AskPanel from '../components/ask/AskPanel'
@@ -26,6 +26,8 @@ import SummariesPanel from '../components/summaries/SummariesPanel'
 import TranscriptView from '../components/transcript/TranscriptView'
 import { usePolling } from '../hooks/usePolling'
 import { useResource } from '../hooks/useResource'
+import PermissionDenied from '../components/PermissionDenied'
+import { statusOf } from '../lib/errors'
 import { getConversation, getMeeting, listHosts } from '../lib/meetingsApi'
 import type { HostInfo, Meeting } from '../lib/types'
 import { MEETING_STATUS_MEANING } from '../lib/statusMeanings'
@@ -93,15 +95,16 @@ type ContentTabsProps = {
   meeting: Meeting
   hostInfo: HostInfo | null
   onChanged: (meeting: Meeting) => void
+  /** Reads the meeting again, quietly. */
+  onRefresh: () => void
 }
 
 /**
  * ContentTabs — Summaries · Transcript · Ask the meeting (S3b), one page, the tab in `?tab=` so
- * back, forward and shared links work. A panel mounts the first time its tab opens and then
- * stays (hidden), so the transcript is fetched once and the Ask tab keeps its state and its
- * citation buttons while the reader looks at the cited passage (F12).
+ * back, forward and shared links work. Only the active panel is mounted: the Ask panel unmounts
+ * while the cited passage is shown and focus returns to its source on the way back (F12).
  */
-function ContentTabs({ meeting, hostInfo, onChanged }: ContentTabsProps) {
+function ContentTabs({ meeting, hostInfo, onChanged, onRefresh }: ContentTabsProps) {
   const t = strings.meeting.tabs
   const hasTurns = useHasTurns(meeting)
   const navigate = useNavigate()
@@ -113,33 +116,26 @@ function ContentTabs({ meeting, hostInfo, onChanged }: ContentTabsProps) {
   const requested = available.find((id) => id === search.tab)
   const active: TabId = requested ?? fallback
 
-  const [mounted, setMounted] = useState<ReadonlySet<TabId>>(() => new Set([active]))
-  if (!mounted.has(active)) setMounted(new Set([...mounted, active]))
-
   const [cited, setCited] = useState<string | null>(null)
-  const sourceButton = useRef<HTMLElement | null>(null)
-  const returning = useRef(false)
 
+  /**
+   * Moves to a tab and reads the meeting again: the summaries and the transcript panels do not
+   * push their writes up, and `summaryCount` and the stale flags live on the meeting.
+   */
   const select = useCallback(
-    (tab: TabId) => void navigate({ to: '.', search: (previous: Record<string, unknown>) => ({ ...previous, tab }) }),
-    [navigate],
+    (tab: TabId) => {
+      void navigate({ to: '.', search: (previous: Record<string, unknown>) => ({ ...previous, tab }) })
+      onRefresh()
+    },
+    [navigate, onRefresh],
   )
 
-  // Back to the answer: once the Ask tab is showing again, focus goes to the source that was pressed.
-  useEffect(() => {
-    if (active === 'ask' && returning.current) {
-      returning.current = false
-      sourceButton.current?.focus()
-    }
-  }, [active])
-
+  // The Ask panel remembers which source was pressed (ask/returnFocus) and takes focus back when it mounts again.
   const openSource = (segmentId: string) => {
-    sourceButton.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setCited(segmentId)
     select('transcript')
   }
   const backToAnswer = () => {
-    returning.current = true
     setCited(null)
     select('ask')
   }
@@ -158,14 +154,15 @@ function ContentTabs({ meeting, hostInfo, onChanged }: ContentTabsProps) {
         idPrefix="meetings-tab"
         onChange={(id) => {
           setCited(null)
-          select(id)
+          if (id !== active) select(id)
         }}
       />
+      {/* Every tab keeps its panel element (so `aria-controls` resolves); only the active one holds content. */}
       <div {...tabPanelProps('meetings-tab', 'summaries')} hidden={active !== 'summaries'}>
-        {mounted.has('summaries') && <SummariesPanel meeting={meeting} hostInfo={hostInfo} onChanged={onChanged} />}
+        {active === 'summaries' && <SummariesPanel meeting={meeting} hostInfo={hostInfo} onChanged={onChanged} />}
       </div>
       <div {...tabPanelProps('meetings-tab', 'transcript')} hidden={active !== 'transcript'}>
-        {mounted.has('transcript') && (
+        {active === 'transcript' && (
           <TranscriptView
             meeting={meeting}
             focusSegmentId={cited}
@@ -175,7 +172,7 @@ function ContentTabs({ meeting, hostInfo, onChanged }: ContentTabsProps) {
       </div>
       {available.includes('ask') && (
         <div {...tabPanelProps('meetings-tab', 'ask')} hidden={active !== 'ask'}>
-          {mounted.has('ask') && <AskPanel meeting={meeting} onOpenSource={openSource} />}
+          {active === 'ask' && <AskPanel meeting={meeting} onOpenSource={openSource} />}
         </div>
       )}
     </div>
@@ -187,18 +184,20 @@ type MeetingViewProps = {
   replace: (meeting: Meeting) => void
   listPath: MeetingPageProps['listPath']
   back: ReactNode
+  /** The page was reached by creating the meeting: confirm it where the person landed (F1). */
+  created: boolean
 }
 
 type Dialog = 'edit' | 'delete' | 'deleteRecording' | null
 
 /** The loaded page (S3): header, banners, the status panel, the cards and the tabs. */
-function MeetingView({ meeting, replace, listPath, back }: MeetingViewProps) {
+function MeetingView({ meeting, replace, listPath, back, created }: MeetingViewProps) {
   const t = strings.meeting
   const navigate = useNavigate()
   const hostInfo = useHostInfo(meeting)
   const headingRef = useFocusOnMount<HTMLHeadingElement>()
   const [dialog, setDialog] = useState<Dialog>(null)
-  const [saved, setSaved] = useState<string | null>(null)
+  const [saved, setSaved] = useState<string | null>(created ? t.saved.created : null)
   const [refreshFailed, setRefreshFailed] = useState(false)
 
   const replaceRef = useRef(replace)
@@ -216,14 +215,17 @@ function MeetingView({ meeting, replace, listPath, back }: MeetingViewProps) {
 
   /** Reads the meeting again without leaving the page (Retry on a banner, a refusal that says the state moved on). */
   const { id } = meeting
-  const refresh = useCallback(async () => {
-    try {
-      replace(await getMeeting(id))
-      setRefreshFailed(false)
-    } catch {
-      setRefreshFailed(true)
-    }
-  }, [id, replace])
+  const refresh = useCallback(
+    async (quiet = false) => {
+      try {
+        replace(await getMeeting(id))
+        setRefreshFailed(false)
+      } catch {
+        if (!quiet) setRefreshFailed(true)
+      }
+    },
+    [id, replace],
+  )
 
   const watch = useCallback(
     async (signal: AbortSignal) => {
@@ -325,7 +327,9 @@ function MeetingView({ meeting, replace, listPath, back }: MeetingViewProps) {
         <DetailsCard meeting={meeting} hostInfo={hostInfo} />
         <ParticipantsCard meeting={meeting} hostInfo={hostInfo} onChanged={changed} />
 
-        {meeting.status === 'ready' && <ContentTabs meeting={meeting} hostInfo={hostInfo} onChanged={changed} />}
+        {meeting.status === 'ready' && (
+          <ContentTabs meeting={meeting} hostInfo={hostInfo} onChanged={changed} onRefresh={() => void refresh(true)} />
+        )}
 
         {can.deleteAudio && meeting.audio.state === 'kept' && (
           <Card title={t.recordingCard.title} data-testid="meetings-recording-card">
@@ -379,6 +383,10 @@ export default function MeetingPage({ listPath }: MeetingPageProps) {
   const { id = '' } = useParams({ strict: false })
   const fetcher = useCallback((signal: AbortSignal) => getMeeting(id, { signal }), [id])
   const resource = useResource(fetcher)
+  // NewMeetingPage navigates here with `meetingCreated` in the history state.
+  const created = useRouterState({
+    select: (state) => (state.location.state as { meetingCreated?: boolean } | undefined)?.meetingCreated === true,
+  })
 
   const back = (
     <Link to="/" className="link" data-testid="meetings-meeting-back">
@@ -387,14 +395,27 @@ export default function MeetingPage({ listPath }: MeetingPageProps) {
   )
 
   if (resource.status === 'ready' && resource.data !== null) {
-    return <MeetingView meeting={resource.data} replace={resource.replace} listPath={listPath} back={back} />
+    return (
+      <MeetingView
+        meeting={resource.data}
+        replace={resource.replace}
+        listPath={listPath}
+        back={back}
+        created={created}
+      />
+    )
   }
 
   return (
     <section aria-labelledby={HEADING_ID} data-testid="meetings-meeting-page" data-list-path={listPath}>
       <PageHeader title={strings.meeting.fallbackTitle} titleId={HEADING_ID} back={back} />
       {resource.status === 'error' ? (
-        <LoadFailure error={resource.error} onRetry={resource.retry} notFound={strings.meeting.notFound} />
+        // Any 403 on the load replaces the page: a refusal code (frozen, meetings_access_required) is not a retryable warning here.
+        statusOf(resource.error) === 403 ? (
+          <PermissionDenied />
+        ) : (
+          <LoadFailure error={resource.error} onRetry={resource.retry} notFound={strings.meeting.notFound} />
+        )
       ) : (
         <Loading label={strings.meeting.loading} />
       )}

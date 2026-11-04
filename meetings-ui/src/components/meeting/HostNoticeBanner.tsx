@@ -1,5 +1,6 @@
-import { Banner, Button, resolveLocale } from '@operai/ui'
+import { Banner, Button } from '@operai/ui'
 import { useState } from 'react'
+import { hostNoticeFailed } from '../../lib/hostLinks'
 import { errorMessage } from '../../lib/errors'
 import { retryHostNotice } from '../../lib/meetingsApi'
 import type { HostInfo, Meeting } from '../../lib/types'
@@ -30,9 +31,9 @@ export default function HostNoticeBanner({ meeting, hostInfo, onChanged }: HostN
   if (notice === null) return null
 
   const sentence =
-    notice.event === 'linked' && hostInfo !== null
-      ? hostInfo.labels[resolveLocale()].noticeFailed
-      : strings.meeting.hostNotice.changedFailed
+    (notice.event === 'linked' && hostInfo !== null
+      ? hostNoticeFailed([hostInfo], hostInfo.app, hostInfo.entityType)
+      : null) ?? strings.meeting.hostNotice.changedFailed
 
   const retry = async () => {
     setBusy(true)

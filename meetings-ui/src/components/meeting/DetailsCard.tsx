@@ -1,6 +1,6 @@
-import { Card, FactList, formatDate, formatDateTime, formatDuration, resolveLocale } from '@operai/ui'
+import { Card, FactList, formatDate, formatDateTime, formatDuration } from '@operai/ui'
 import type { Fact } from '@operai/ui'
-import { navigateSuite } from 'shell/session'
+import { describeHost, suiteLinkProps } from '../../lib/hostLinks'
 import type { HostInfo, Meeting, PersonRef } from '../../lib/types'
 import { strings } from '../../strings'
 
@@ -22,44 +22,20 @@ type HostDescription = { text: string; href: string | null }
  * did not answer). The words come from the host's registration, in the UI language (plan G6/G7);
  * without it the registry ids stand in, so nothing is hidden.
  */
-function describeHost(meeting: Meeting, hostInfo: HostInfo | null): HostDescription | null {
-  const host = meeting.host
-  if (host === null) return null
-  const labels = hostInfo?.labels[resolveLocale()]
-  const entity = labels?.entity ?? host.entityType
-  const app = labels?.app ?? host.app
-  if (host.state === 'open' && host.title !== null) {
-    return { text: strings.meeting.details.host.open(entity, host.title), href: host.href }
-  }
-  if (host.state === 'missing') return { text: strings.meeting.details.host.noLongerAvailable, href: null }
-  return { text: strings.meeting.details.host.plain(app, entity), href: null }
+function hostDescription(meeting: Meeting, hostInfo: HostInfo | null): HostDescription | null {
+  if (meeting.host === null) return null
+  const described = describeHost(meeting.host, hostInfo === null ? null : [hostInfo])
+  if (described.kind === 'missing') return { text: strings.meeting.details.host.noLongerAvailable, href: null }
+  return { text: described.text, href: described.kind === 'open' ? described.href : null }
 }
 
 /** The linked entity as text, or as a link opened through the suite while it is open. Renders nothing when standalone. */
 export function HostText({ meeting, hostInfo }: DetailsCardProps) {
-  const host = describeHost(meeting, hostInfo)
+  const host = hostDescription(meeting, hostInfo)
   if (host === null) return null
   if (host.href === null) return <>{host.text}</>
-  const href = host.href
   return (
-    <a
-      className="link"
-      href={href}
-      onClick={(event) => {
-        // A plain click goes through the suite's router; modified clicks keep the browser's behaviour.
-        if (
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        )
-          return
-        event.preventDefault()
-        navigateSuite(href)
-      }}
-    >
+    <a className="link" {...suiteLinkProps(host.href)}>
       {host.text}
     </a>
   )
@@ -73,7 +49,7 @@ export function HostText({ meeting, hostInfo }: DetailsCardProps) {
  */
 export default function DetailsCard({ meeting, hostInfo }: DetailsCardProps) {
   const t = strings.meeting.details
-  const host = describeHost(meeting, hostInfo)
+  const host = hostDescription(meeting, hostInfo)
   const facts: Fact[] = [
     { id: 'date', term: t.facts.date, value: formatDateTime(meeting.startsAt) },
     { id: 'format', term: t.facts.format, value: strings.meeting.format[meeting.format] },
