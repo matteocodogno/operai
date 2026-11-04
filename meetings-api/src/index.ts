@@ -19,6 +19,8 @@ import { eraseRouter } from "./erase/erase.routes";
 import { requestLogger } from "./lib/logger";
 import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
+import { createS3Client } from "./lib/storage";
+import { runStartupChecks } from "./lib/startupChecks";
 
 // Exported so the assembled-app tests (specs/021 T42) can read the real route
 // table; Bun serves only the default export below.
@@ -107,6 +109,11 @@ app.notFound((c) =>
 );
 
 // ─── Start ───────────────────────────────────────────────────────────────────
+
+// The 30-day audio deletion is the bucket's own lifecycle rule (AC-4.4, ADR-0063):
+// refuse to start (exit 1) unless it is there and versioning is not enabled.
+// Skipped under test, where storage is faked.
+if (env.NODE_ENV !== "test") await runStartupChecks(createS3Client(), env.MEETINGS_S3_BUCKET);
 
 console.log(`Meetings API → http://localhost:${env.PORT}`);
 console.log(`API docs     → http://localhost:${env.PORT}/docs`);
