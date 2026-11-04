@@ -201,13 +201,13 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T16: repo wiring — lerna, mise tasks, compose service and DB, env-doctor manifest, check script — refs: AC-4.1 — deps: T3, T11
   - touch: `lerna.json`, `mise.toml`, `compose.yaml`, `tools/env-doctor/manifest.ts`, `tools/env-doctor/*.test.ts`, `infra/check.sh`
   - done when: `bun test tools/env-doctor` is green with projects-api and projects-ui in the manifest; `bash infra/check.sh` runs projects-api and projects-ui gates; `mise tasks` lists the projects dev tasks.
-- [ ] T17: local env — `projects-api/.env.example` and `.envrc`, auth `SERVICE_CLIENTS` entry for `projects-api` (`crm.companies.read`), crm-api `SERVICE_AUDIENCE`, shell `VITE_PROJECTS_API_URL` / remote URL — drafted by the agent, applied by the developer (the guard stops agents writing env files) — refs: AC-4.1 — deps: T16
+- [x] T17: local env — `projects-api/.env.example` and `.envrc`, auth `SERVICE_CLIENTS` entry for `projects-api` (`crm.companies.read`), crm-api `SERVICE_AUDIENCE`, shell `VITE_PROJECTS_API_URL` / remote URL — drafted by the agent, applied by the developer (the guard stops agents writing env files) — refs: AC-4.1 — deps: T16
   - touch: `projects-api/.env.example`, `projects-api/.envrc`, `auth/.env.example`, `crm-api/.env.example`, `shell/.env.example`
   - done when: `mise run dev` serves `/projects` in the shell for a signed-in admin and the company picker returns CRM companies.
 - [x] T18: docs — ADR-0058 (projects tool shape and authorization), ADR-0059 (projects-api reads CRM companies with a scoped service credential), AGENTS.md (tools table, layout, ADR index), README, changesets — refs: AC-4.1, AC-4.4, AC-4.5 — deps: T10, T15
   - touch: `docs/adr/0058-*.md`, `docs/adr/0059-*.md`, `docs/adr/README.md`, `AGENTS.md`, `README.md`, `.changeset/*.md`
   - done when: both ADRs exist with Context / Decision / Alternatives / Consequences, AGENTS.md's ADR index lists them, and `pnpm changeset status` shows bumps for auth, crm-api, projects-api, projects-ui and shell.
-- [ ] T19: QE-light verification; all gates green; spec status → done — refs: every AC — deps: T1, T2, T10, T14, T15, T16, T17, T18
+- [x] T19: QE-light verification; all gates green; spec status → done — refs: every AC — deps: T1, T2, T10, T14, T15, T16, T17, T18
   - touch: `specs/021-projects/qe-report.md`, `specs/021-projects/spec.md`
   - done when: the quality-engineer's QE-light verdict is PASS in `qe-report.md`, every local gate it lists is green (auth, crm-api, projects-api, projects-ui, shell, env-doctor, shared copies, changeset, secret scan), and `/wellforge:done 021-projects` accepts the feature. (Amended 2026-11-03, QE D1: `bash infra/check.sh` probes production hosts and belongs to the deferred provisioning step, not to this gate.)
 
