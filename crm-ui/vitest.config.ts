@@ -16,6 +16,8 @@ export default defineConfig({
       // The shared component library, compiled from source (ADR-0050).
       '@operai/ui': fileURLToPath(new URL('../operai-ui/src/index.ts', import.meta.url)),
       'shell/session': fileURLToPath(new URL('./src/federation/__stubs__/shellSession.ts', import.meta.url)),
+      // The host-extension seam (specs/021-meetings, ADR-0060), same reason.
+      'shell/extensions': fileURLToPath(new URL('./src/federation/__stubs__/shellExtensions.ts', import.meta.url)),
       'shell/tokens.css': fileURLToPath(new URL('./src/federation/__stubs__/shellTokens.css', import.meta.url)),
     },
   },

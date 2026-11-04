@@ -23,6 +23,15 @@ vi.mock('shell/session', () => ({
   useSession: () => ({ data: { user: { id: 'u-ada' } } }),
 }))
 
+// The Meetings panel is Meetings' own, loaded through `shell/extensions` (ADR-0060).
+const { hostExtensionProps } = vi.hoisted(() => ({ hostExtensionProps: [] as unknown[] }))
+vi.mock('shell/extensions', () => ({
+  HostExtension: ({ props }: { props: unknown }) => {
+    hostExtensionProps.push(props)
+    return <section data-testid="host-meetings-panel" />
+  },
+}))
+
 const DEAL = {
   id: 'd1',
   title: 'Platform rebuild',
@@ -57,7 +66,10 @@ const renderDeal = async (scope: string[], extra: Record<string, FakeHandler> = 
   dealGets = 0
   apiFetch.mockImplementation(
     fakeApi({
-      'GET /scope': () => ({ status: 200, body: { deal: scope, canErase: false, financials: true, managesAll: false } }),
+      'GET /scope': () => ({
+        status: 200,
+        body: { deal: scope, canErase: false, financials: true, managesAll: false },
+      }),
       'GET /deals/d1': () => {
         dealGets += 1
         return { status: 200, body: DEAL }
@@ -96,9 +108,29 @@ describe('DealDetailPage', () => {
     await renderDeal(['welld_ch'])
     fireEvent.click(screen.getByTestId('crm-deal-move'))
     const dialog = await screen.findByRole('dialog', { name: 'Move to stage' })
-    expect(dialog.textContent).toContain('The estimate is ready; the offer is being written or revised. Win probability 50%.')
+    expect(dialog.textContent).toContain(
+      'The estimate is ready; the offer is being written or revised. Win probability 50%.',
+    )
     fireEvent.change(within(dialog).getByLabelText('Stage'), { target: { value: 'negotiation' } })
-    expect(dialog.textContent).toContain('The client has the offer: waiting for an answer or agreeing changes. Win probability 75%.')
+    expect(dialog.textContent).toContain(
+      'The client has the offer: waiting for an answer or agreeing changes. Win probability 75%.',
+    )
+  })
+
+  it('the Meetings section sits between Attachments and Activity and is given this deal (AC-11.2)', async () => {
+    hostExtensionProps.length = 0
+    await renderDeal(['welld_ch'])
+    const panel = await screen.findByTestId('host-meetings-panel')
+    expect(hostExtensionProps).toContainEqual({ hostApp: 'crm', entityType: 'deal', entityId: 'd1' })
+    const attachments = screen.getByTestId('crm-attachments-card')
+    const activity = screen.getByRole('heading', { level: 3, name: 'Activity' })
+    expect(attachments.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(panel.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows the Meetings section to a read-only caller too: the panel decides what it offers', async () => {
+    await renderDeal(['welld_it'])
+    expect(await screen.findByTestId('host-meetings-panel')).not.toBeNull()
   })
 
   it('outside the entity scope the deal is read-only (AC-3.5)', async () => {

@@ -18,6 +18,7 @@ import { DealStageBadge, EntityBadge } from '../components/Badges'
 import DealFormDialog from '../components/DealFormDialog'
 import EstimateCard from '../components/EstimateCard'
 import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/LoadState'
+import MeetingsSection from '../components/MeetingsSection'
 import MoveStageDialog from '../components/MoveStageDialog'
 import OffersCard from '../components/OffersCard'
 import { getDeal, getPipeline } from '../lib/crmApi'
@@ -216,6 +217,7 @@ export default function DealDetailPage() {
           />
         )}
         <AttachmentsCard dealId={current.id} />
+        <MeetingsSection dealId={current.id} />
         <ActivityTimeline
           key={timelineRevision}
           target={{ dealId: current.id }}
