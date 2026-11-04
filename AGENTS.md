@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Six tools ship today, composed into one suite by a
+back-office workflows. Seven tools ship today, composed into one suite by a
 Module Federation shell (ADR-0006):
 
 | Tool | Route | What it does |
@@ -11,15 +11,19 @@ Module Federation shell (ADR-0006):
 | **Admin** | `/admin` | Roles, departments, users, permissions, invitations, mileage rates |
 | **Inventory** | `/inventory` | Hardware register — assets, assignment to employees (confirmed by the employee), depreciation ledger, fiscal-year close, invoice files (specs/015) |
 | **CRM** | `/crm` | Companies, contacts, deals through a stage pipeline, activities and follow-up tasks (specs/017, ADR-0052) |
+| **Meetings** | `/meetings` | Record (browser), upload or paste a meeting; EU transcription, summaries from editable templates and cited Q&A; linkable to a host record such as a CRM deal; audio kept 29 days (specs/021, ADR-0058–0068) |
 
-Those five are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
-notification center (`notify-ui`) is a fifth remote but **not** a `TOOLS` entry: it mounts at
+Those six are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
 the shell-owned `/notify` route, reached from the header bell (ADR-0009). `inventory-ui` also
 exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
-(any signed-in user sees their own devices; ADR-0045).
+(any signed-in user sees their own devices; ADR-0045). `meetings-ui` does the same with
+`./MyMeetings` at `/my-meetings` (a participant can always read what was captured about them;
+ADR-0058) and exposes a coarse `./HostMeetings` panel that a host app (today the CRM deal page)
+embeds through the shell's `HostExtension` seam with a timeout and an error boundary (ADR-0060).
 
-Backed by six Bun services: `auth` (identity + authorization), `estimai-api`,
-`notify-api`, `refund-api`, `inventory-api`, `crm-api`.
+Backed by seven Bun services: `auth` (identity + authorization), `estimai-api`,
+`notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -72,6 +76,10 @@ operai/
 │                        # through shell/session (no VITE_* of its own) (specs/015)
 ├── crm-ui/              # CRM tool — federated remote (port 5179): exposes ./App (gated, /crm) and ./version; calls
 │                        # crm-api and auth's user directory through shell/session (specs/017, ADR-0052/0053)
+├── meetings-ui/         # Meetings tool — federated remote (port 5180): exposes ./App (gated, /meetings), ./MyMeetings
+│                        # (ungated, /my-meetings; ADR-0058), ./HostMeetings (panel embedded by hosts via shell/extensions,
+│                        # ADR-0060) and ./version; calls meetings-api and auth's user directory through shell/session
+│                        # (specs/021)
 ├── operai-ui/           # @operai/ui — the DESIGN SYSTEM (ADR-0050): tokens/themes/fonts + component classes
 │                        # (src/styles/tokens.css, re-exported by shell/tokens.css), React components (src/components),
 │                        # Storybook (`mise run ui:storybook`), rules in docs/. NOT an app: never built or deployed;
@@ -110,11 +118,18 @@ operai/
 ├── crm-api/             # Bun + Hono + TypeScript backend (port 8084, DB `crm`) — companies, contacts, deals + pipeline,
 │                        # activities/tasks; authorization-enforcing (crm:access, entity-scoped deal:manage, contact:erase),
 │                        # optimistic concurrency via If-Match (specs/017, ADR-0052)
-├── docs/adr/            # Architecture Decision Records (0001–0057, 0071–0073; see ## Architecture decisions)
+├── meetings-api/        # Bun + Hono + TypeScript backend (port 8085, DB `meetings`, single replica) — meetings, transcripts,
+│                        # summaries, templates, cited Q&A; authorization-enforcing (`meetings:access`, `template:manage`,
+│                        # `meeting:erase`) but creator/participant reads need only a JWT (ADR-0058); audio ONLY in its own EU
+│                        # bucket (`MEETINGS_S3_*`, 29-day lifecycle verified at startup, ADR-0063); in-process durable job
+│                        # runner (ADR-0062); Azure Speech + Claude on Bedrock, EU, zero retention (ADR-0061); host contract
+│                        # with crm-api (ADR-0059); pushes to notify-api as `system:meetings-api` (specs/021)
+├── docs/adr/            # Architecture Decision Records (0001–0073; see ## Architecture decisions)
 ├── docs/ui-inconsistencies.md  # UI/UX audit across the six frontends, with what each migration fixed
 ├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md);
 │                        # provision-tool.sh creates/audits one tool's Railway service, Vercel project and DNS
-│                        # (runbook: .claude/skills/provision-tool)
+│                        # (runbook: .claude/skills/provision-tool); meetings-bucket-policy.sh applies/verifies the audio
+│                        # bucket's 29-day lifecycle rule, versioning off and CORS (specs/021)
 ├── tools/env-doctor/    # Pre-deploy cross-service env-contract checker (`mise run env:doctor`)
 ├── scripts/             # Release tooling — version.mjs (umbrella bump), tag.mjs, check-changeset.mjs
 ├── .github/workflows/   # changeset-check.yml, env-doctor.yml
@@ -122,21 +137,21 @@ operai/
 ├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run dev` / `db:migrate` / `changeset` /
 │                        # `release:version` / `release:tag` / `env:doctor`
-└── specs/               # Spec-driven workflow (001–017; 015 hardware-inventory and 017 crm are in progress; see below)
+└── specs/               # Spec-driven workflow (001–021; 015 hardware-inventory, 017 crm and 021 meetings are in progress; see below)
 ```
 
 ---
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui)
-All seven share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui)
+All eight share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other six are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
+  other seven are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR-0001/0002)
@@ -176,9 +191,10 @@ degrades silently when the key is absent (ADR-0032).
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api)
-All five are implemented and share the `auth` service's shape (see ADR-0003 — one backend
-stack across the monorepo; it supersedes the earlier Kotlin/Spring intention).
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api)
+All six share the `auth` service's shape (see ADR-0003 — one backend stack across the monorepo;
+it supersedes the earlier Kotlin/Spring intention). Five are implemented; `meetings-api` is in
+progress (specs/021).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
 - **Persistence:** Prisma 7 + PostgreSQL, own logical DB per service
@@ -211,14 +227,28 @@ Per-service specifics:
   rendered from per-entity, editable templates on the entity's letterhead, numbered `NNNN/YYYY[rN]`,
   with deal PDFs appendable as annexes (specs/020, ADR-0057);
   pushes CRM notifications to notify-api as `system:crm-api`, with email notices for handovers
-  (specs/019, ADR-0056)
+  (specs/019, ADR-0056); verifies meetings-api's host notices (scope `host-notices.send`,
+  `aud=SERVICE_AUDIENCE`) and answers its `resolve` calls as the caller (specs/021, ADR-0059)
+- `meetings-api` — Meetings (specs/021): authorization-enforcing, but content is visible by
+  relationship to the record, never by role (creator / Operai participant / opted-in host reader;
+  anything else 404, ADR-0058) — `selfScoped` reads need only a valid JWT and survive an `auth`
+  outage, every create/generate/ask/edit is `capability(...)` live and fails closed, with
+  `meetings:access` (granted to every `employee` by default, ADR-0068), `template:manage` and
+  `meeting:erase` (admin only, erase never reads content); audio ONLY in its own EU bucket
+  (`MEETINGS_S3_*`) behind a bucket-wide 29-day lifecycle rule that is verified at startup
+  (ADR-0063); transcription by Azure AI Speech (`westeurope`) and summaries/Q&A by Claude on
+  Amazon Bedrock EU with data retention `none`, every hop checked at startup (ADR-0061); an
+  in-process Postgres job runner for asked-for work, so it runs as a single replica (ADR-0062);
+  the THIRD reader of bucket bytes, bounded (ADR-0064); model output is validated structure and
+  plain text only (ADR-0067); pushes to notify-api as `system:meetings-api` (`notifications.push`)
+  and notices to the host as the same principal (`host-notices.send`), ADR-0059/0065
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` (scope `emails.send`) + `/system/notifications` (scope
   `notifications.push`), each behind a scoped service JWT verified via `auth`'s JWKS with
   `aud=SERVICE_AUDIENCE`; every caller authenticates as itself (`auth` mints its own in
-  process, ADR-0048; `refund-api`, `estimai-api`, `inventory-api` and `crm-api` via the
-  service-token endpoint) and the shared `X-Internal-Token` is refused (ADR-0049); for an
+  process, ADR-0048; `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `meetings-api`
+  via the service-token endpoint) and the shared `X-Internal-Token` is refused (ADR-0049); for an
   `email: true` notification it looks the recipient's address up in `auth`
   (`POST /system/users/contact`, as `system:notify-api`, ADR-0056)
 - `refund-api` — the suite's authorization-enforcing resource server: resolves the caller's
@@ -324,7 +354,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send` and/or `users.contact`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `notify-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact` and/or `host-notices.send`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `meetings-api` and `notify-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
 
 ### Inventory (specs/015)
 
@@ -341,6 +371,20 @@ The authoritative glossary is `specs/015-hardware-inventory/spec.md` § Domain l
 | `roll-forward` | Opening book value − disposals + purchases − depreciation = closing book value |
 
 Capabilities: `inventory manager` = `asset:manage`, `hardware accountant` = `ledger:manage`.
+
+### Meetings (specs/021)
+
+The authoritative glossary is `specs/021-meetings/spec.md` § Domain language.
+
+| Term | Meaning |
+|---|---|
+| `meeting` | One conversation captured in Operai: metadata, one source, a transcript, any number of summaries, and each participant's private Q&A history |
+| `creator` | The one Operai user who created the meeting; a meeting whose creator is deactivated is frozen, not orphaned |
+| `participant` | An Operai participant (an active account) or an external participant (a name, never an account) |
+| `host` | An Operai app that lists and starts meetings about its own records (today CRM, entity type `deal`); a host reference is `{app, entityType, entityId}`, at most one per meeting |
+| `host notice` | The content-free message (id, event, creator, per-meeting `seq`) a host that opted in receives when a linked meeting is linked, changed, relinked, unlinked or deleted (ADR-0059) |
+| `source` | `recorded` (browser), `uploaded` (a file) or `text` (typed/pasted) — exactly one per meeting |
+| `audio` | The only thing in the bucket; kept until 29 days after creation, then deleted by the bucket's lifecycle rule (ADR-0063) |
 
 ---
 
@@ -393,9 +437,22 @@ wellD operates across Italy and Switzerland. Some clients are in regulated secto
 - Object storage is EU too — `REFUND_S3_REGION` / `INVENTORY_S3_REGION` (or, for a non-AWS
   endpoint, the `*_S3_EU_ENDPOINT_HOSTS` allowlist) are validated at startup and the process
   exits if it fails (ADR-0016); inventory has its own bucket, never refund's
+- Meetings handles the most sensitive content in the suite (recorded conversations), so EVERY hop
+  is EU/CH and checked at startup, the process exiting if one fails (ADR-0061, AC-4.9): its own
+  audio bucket (`MEETINGS_S3_*`, never another tool's), transcription by Azure AI Speech in
+  `westeurope` (the region must match the endpoint host), summaries and Q&A by Claude on Amazon
+  Bedrock in an EU region (`eu-west-2`/London is not accepted) with an EU-only inference profile and
+  data retention `none` — a retention mode that cannot be read is a refusal, and `MEETINGS_AI_PROVIDER=fake`
+  is refused in production. Audio is deleted by a bucket-wide 29-day lifecycle rule with versioning
+  off (a missing or prefix-filtered rule, `Days > 29` or versioning Enabled stops the start,
+  ADR-0063); set and prove it with `infra/meetings-bucket-policy.sh`. Transcripts and summaries live
+  in Postgres until the meeting is deleted; database backups keep deleted content for the backup
+  retention period (open item R7 in specs/021). Provider DPAs are a go-live sign-off (plan O3)
 - No business data should be logged by the hosting provider beyond standard access logs
 - Frontends are purely client-side — they transmit data only to the suite's own services
-  (and, for admin-ui, address text to Google Places; ADR-0032)
+  (and, for admin-ui, address text to Google Places; ADR-0032). meetings-ui sends microphone audio
+  only to the meetings bucket by presigned POST and never to a third party; the browser never
+  holds a provider key
 
 ---
 
@@ -487,7 +544,7 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 
 ### The whole suite (preferred)
 ```bash
-mise run db:migrate   # once: Postgres up + Prisma migrations for all five backends
+mise run db:migrate   # once: Postgres up + Prisma migrations for every backend (meetings included)
 mise run dev          # everything, with HMR — opens http://localhost:5173 (the shell) once it answers;
                       # OPERAI_NO_OPEN=1 skips the browser
 mise run dev:web      # frontends only (backends already running elsewhere)
@@ -495,23 +552,34 @@ mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy s
 ```
 
 Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
-crm-api `8084`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`,
-inventory-ui `5178`, crm-ui `5179`; MinIO S3 `9000`
+crm-api `8084`, meetings-api `8085`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
+admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
-explicitly — direnv's shell hook does not fire for a non-interactive mise task.
+explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
+fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
+real keys exist.
 
 ### Database + object storage (shared)
 ```bash
 docker compose up -d postgres minio minio-createbucket   # PostgreSQL 17 :5435, MinIO :9000
 ```
 
+`minio-createbucket` also creates the private `meetings` bucket with the 29-day expiration rule and
+versioning off, which meetings-api checks at startup (ADR-0063). Verify it (needs the AWS CLI and `jq`;
+the default MinIO dev credentials):
+
+```bash
+MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
+  infra/meetings-bucket-policy.sh --check --endpoint http://localhost:9000 --bucket meetings --path-style
+```
+
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -546,10 +614,10 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
-Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` point at local MinIO in dev
+Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` / `MEETINGS_S3_*` point at local MinIO in dev
 — check `infra/README.md` for the deployed-environment state and the inventory rollout checklist.
 
 The one-off legacy register import is a script, dry-run by default (see `infra/README.md`
@@ -578,7 +646,7 @@ mise run changeset:check   # local parity with CI — did this branch's app-code
 
 ## Operai suite — future tools
 
-Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify**, **Inventory**, **CRM** — see the table at
+Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify**, **Inventory**, **CRM**, **Meetings** — see the table at
 the top. Still on the roadmap, not yet built:
 
 | Tool | Purpose |
