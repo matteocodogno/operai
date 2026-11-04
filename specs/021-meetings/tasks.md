@@ -374,14 +374,14 @@ database after `bun run db:deploy`.
     - every problem code of the plan has a strings key (exhaustiveness test);
     - capability hints read `apps` / `{resource, action}`
 
-- [ ] T55: [FE] meetings-ui meetings list (both entries): DataTable, filters (q, role, status, host app), pagination, host column states, empty states with/without "New meeting"; Templates link for holders — refs: AC-10.1, AC-10.2, AC-10.3, AC-10.5, AC-10.7, AC-11.5 — deps: T54
+- [x] T55: [FE] meetings-ui meetings list (both entries): DataTable, filters (q, role, status, host app), pagination, host column states, empty states with/without "New meeting"; Templates link for holders — refs: AC-10.1, AC-10.2, AC-10.3, AC-10.5, AC-10.7, AC-11.5 — deps: T54
   - touch: `meetings-ui/src/pages/MeetingsListPage.tsx`, `meetings-ui/src/pages/MeetingsListPage.test.tsx`, `meetings-ui/src/strings/list.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/MeetingsListPage.test.tsx` passes, rendering:
     - the four host states ("Deal · title" link, "CRM · deal", "No longer available");
     - both empty states;
     - filters producing the expected query
 
-- [ ] T56: [FE] meetings-ui new meeting page: form (title, format, date-time default now, language, source), host prefill from `GET /hosts/:app/:type/:id` shown as "<Entity> · <title>", host errors (not found, not registered, unavailable with retry and the standalone option) — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.5, AC-1.6, AC-11.6 — deps: T54
+- [x] T56: [FE] meetings-ui new meeting page: form (title, format, date-time default now, language, source), host prefill from `GET /hosts/:app/:type/:id` shown as "<Entity> · <title>", host errors (not found, not registered, unavailable with retry and the standalone option) — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.5, AC-1.6, AC-11.6 — deps: T54
   - touch: `meetings-ui/src/pages/NewMeetingPage.tsx`, `meetings-ui/src/pages/NewMeetingPage.test.tsx`, `meetings-ui/src/strings/newMeeting.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/NewMeetingPage.test.tsx` passes: invalid fields named and focused; prefilled title and host label; each host error state; standalone submit without a host
 
@@ -502,7 +502,7 @@ database after `bun run db:deploy`.
     - clear asks to confirm;
     - the composer refuses 0 and 1001 characters
 
-- [ ] T74: [FE] meetings-ui templates pages: list (personal / shared / built-in marked), view, editor on the library `SectionsEditor`, duplicate, shared scope only with the `template:manage` hint, If-Match conflict banner — refs: AC-8.1, AC-8.2, AC-8.3, AC-8.4 — deps: T48, T54
+- [x] T74: [FE] meetings-ui templates pages: list (personal / shared / built-in marked), view, editor on the library `SectionsEditor`, duplicate, shared scope only with the `template:manage` hint, If-Match conflict banner — refs: AC-8.1, AC-8.2, AC-8.3, AC-8.4 — deps: T48, T54
   - touch: `meetings-ui/src/pages/TemplatesPage.tsx`, `meetings-ui/src/pages/TemplateViewPage.tsx`, `meetings-ui/src/pages/TemplateEditorPage.tsx`, `meetings-ui/src/pages/Templates.test.tsx`, `meetings-ui/src/strings/templates.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/Templates.test.tsx` passes:
     - built-ins have no edit or delete;
@@ -515,7 +515,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-ui/src/pages/ErasePage.tsx`, `meetings-ui/src/pages/ErasePage.test.tsx`, `meetings-ui/src/components/meeting/DeleteMeetingDialog.tsx`, `meetings-ui/src/components/meeting/DeleteMeetingDialog.test.tsx`, `meetings-ui/src/strings/erase.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/ErasePage.test.tsx src/components/meeting/DeleteMeetingDialog.test.tsx` passes: no link from erase rows to content; the dialog needs the acknowledgement; the Erase tab is hidden without the `meeting:erase` hint
 
-- [ ] T76: [FE] meetings-ui `HostMeetings` panel: list for the entity (title, date, status, summaries, creator; links to `/my-meetings/m/<id>`), empty state with Start meeting for holders, unavailable state, "Link an existing meeting" dialog over the linkable list (G2) → `PATCH host` — refs: AC-1.4, AC-1.7, AC-11.2, AC-11.3, AC-11.6, AC-14.1 — deps: T54
+- [x] T76: [FE] meetings-ui `HostMeetings` panel: list for the entity (title, date, status, summaries, creator; links to `/my-meetings/m/<id>`), empty state with Start meeting for holders, unavailable state, "Link an existing meeting" dialog over the linkable list (G2) → `PATCH host` — refs: AC-1.4, AC-1.7, AC-11.2, AC-11.3, AC-11.6, AC-14.1 — deps: T54
   - touch: `meetings-ui/src/host/HostMeetings.tsx`, `meetings-ui/src/host/LinkMeetingDialog.tsx`, `meetings-ui/src/host/HostMeetings.test.tsx`, `meetings-ui/src/strings/host.ts`
   - done when: `cd meetings-ui && pnpm test src/host` passes:
     - holder vs non-holder controls;
