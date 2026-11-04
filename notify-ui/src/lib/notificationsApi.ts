@@ -30,11 +30,22 @@ export interface NotificationLink {
   label?: string
 }
 
+/**
+ * The optional Italian variant a system caller may attach (ADR-0065). The sender does not know the
+ * reader's language, so the reader picks: see `localizedText` (./severity).
+ */
+export interface NotificationItalianVariant {
+  title: string
+  body: string
+}
+
 /** The shape notify-api returns for a single notification (list items / 201 / SSE payload). */
 export interface Notification {
   id: string
   title: string
   body: string
+  /** Italian variant, `null`/absent for a notification that carries none (ADR-0065). */
+  it?: NotificationItalianVariant | null
   severity: NotificationSeverity
   originApp: NotificationOriginApp
   link?: NotificationLink

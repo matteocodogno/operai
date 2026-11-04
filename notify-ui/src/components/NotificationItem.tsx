@@ -1,7 +1,7 @@
 import type { MouseEvent } from 'react'
 import { Badge, Icon, cx, formatDateTime, formatRelative, listRowClassName } from '@operai/ui'
 import { navigateSuite } from 'shell/session'
-import { SEVERITY_META, originAppLabel } from '../lib/severity'
+import { SEVERITY_META, localizedText, originAppLabel } from '../lib/severity'
 import { strings } from '../strings'
 import type { Notification } from '../lib/notificationsApi'
 
@@ -76,6 +76,8 @@ export interface NotificationItemProps {
 
 export default function NotificationItem({ notification, wasUnread }: NotificationItemProps) {
   const meta = SEVERITY_META[notification.severity]
+  // The reader's language picks the variant, not the sender (ADR-0065).
+  const { title, body: bodyText } = localizedText(notification)
 
   // The library list row (INC-33): border, padding, surface and — for a row
   // that is a link — the hover border. An unread row gets a 2px accent left
@@ -105,11 +107,11 @@ export default function NotificationItem({ notification, wasUnread }: Notificati
             className={`${wasUnread ? 'font-semibold' : 'font-normal'} text-text`}
             data-testid={`notification-title-${notification.id}`}
           >
-            {notification.title}
+            {title}
           </span>
         </span>
 
-        <span className="text-sm text-soft">{notification.body}</span>
+        <span className="text-sm text-soft">{bodyText}</span>
 
         <span className="flex items-center gap-2 text-xs text-soft">
           <span className="font-mono uppercase tracking-wider" data-testid={`notification-origin-${notification.id}`}>
