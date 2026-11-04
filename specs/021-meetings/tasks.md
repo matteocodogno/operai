@@ -466,19 +466,19 @@ database after `bun run db:deploy`.
   - touch: `meetings-ui/src/components/meeting/TextCard.tsx`, `meetings-ui/src/components/meeting/TextCard.test.tsx`, `meetings-ui/src/strings/text.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/TextCard.test.tsx` passes: the counter, refusal at 200,001, and no consent step shown
 
-- [ ] T68: [FE] meetings-ui transcript view: segments with time + speaker (none for text), search with case- and accent-folding, highlights and live count, copy and plain-text download with names, citation target highlight prop — refs: AC-6.1, AC-6.4, AC-6.6, AC-6.7 — deps: T45, T54
+- [x] T68: [FE] meetings-ui transcript view: segments with time + speaker (none for text), search with case- and accent-folding, highlights and live count, copy and plain-text download with names, citation target highlight prop — refs: AC-6.1, AC-6.4, AC-6.6, AC-6.7 — deps: T45, T54
   - touch: `meetings-ui/src/components/transcript/TranscriptView.tsx`, `meetings-ui/src/components/transcript/SegmentRow.tsx`, `meetings-ui/src/components/transcript/Highlight.tsx`, `meetings-ui/src/components/transcript/fold.ts`, `meetings-ui/src/components/transcript/exportText.ts`, `meetings-ui/src/components/transcript/TranscriptView.test.tsx`, `meetings-ui/src/components/transcript/fold.test.ts`, `meetings-ui/src/strings/transcript.ts`
   - done when: `cd meetings-ui && pnpm test src/components/transcript` passes: `fold` vectors ("perché" ~ "PERCHE"); match count; export lines `[hh:mm:ss] Name: text`; text meeting without times; no-speech message
 
-- [ ] T69: [FE] meetings-ui transcript corrections: inline segment edit with If-Match (stale → reload banner), "edited" mark, speaker rename dialog (participant or free text) — refs: AC-6.2, AC-6.3 — deps: T68
+- [x] T69: [FE] meetings-ui transcript corrections: inline segment edit with If-Match (stale → reload banner), "edited" mark, speaker rename dialog (participant or free text) — refs: AC-6.2, AC-6.3 — deps: T68
   - touch: `meetings-ui/src/components/transcript/SegmentEditor.tsx`, `meetings-ui/src/components/transcript/SpeakerRenameDialog.tsx`, `meetings-ui/src/components/transcript/Corrections.test.tsx`, `meetings-ui/src/strings/transcript.ts`
   - done when: `cd meetings-ui && pnpm test src/components/transcript/Corrections.test.tsx` passes: 409 shows the reload banner; the rename updates every segment of that speaker; the controls are absent without `can.editTranscript`
 
-- [ ] T70: [FE] meetings-ui audio: play-from-segment control while audio is kept (re-mint on media error), "Audio kept until <date>" / "Audio deleted", Delete recording dialog — refs: AC-4.4, AC-4.5, AC-6.5 — deps: T45, T54
+- [x] T70: [FE] meetings-ui audio: play-from-segment control while audio is kept (re-mint on media error), "Audio kept until <date>" / "Audio deleted", Delete recording dialog — refs: AC-4.4, AC-4.5, AC-6.5 — deps: T45, T54
   - touch: `meetings-ui/src/components/transcript/AudioControl.tsx`, `meetings-ui/src/components/transcript/AudioControl.test.tsx`, `meetings-ui/src/components/meeting/DeleteRecordingDialog.tsx`, `meetings-ui/src/strings/audio.ts`
   - done when: `cd meetings-ui && pnpm test src/components/transcript/AudioControl.test.tsx` passes: the control is absent for `deleted`; the date is formatted; a media `error` re-mints once; the delete dialog calls the route
 
-- [ ] T71: [FE] meetings-ui summaries panel: list, Generate dialog (template picker order + recommended marker, output language default = UI language), card (sections in order, "Not discussed", "AI-generated" + template/language/author/time, stale label), Regenerate, Retry, copy, 20-limit and rate-limit messages, per-item `can` — refs: AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6, AC-7.9, AC-7.11, AC-6.8, AC-8.5, AC-13.4 — deps: T54
+- [x] T71: [FE] meetings-ui summaries panel: list, Generate dialog (template picker order + recommended marker, output language default = UI language), card (sections in order, "Not discussed", "AI-generated" + template/language/author/time, stale label), Regenerate, Retry, copy, 20-limit and rate-limit messages, per-item `can` — refs: AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.6, AC-7.9, AC-7.11, AC-6.8, AC-8.5, AC-13.4 — deps: T54
   - touch: `meetings-ui/src/components/summaries/SummariesPanel.tsx`, `meetings-ui/src/components/summaries/SummaryCard.tsx`, `meetings-ui/src/components/summaries/GenerateSummaryDialog.tsx`, `meetings-ui/src/components/summaries/Summaries.test.tsx`, `meetings-ui/src/strings/summaries.ts`
   - done when: `cd meetings-ui && pnpm test src/components/summaries/Summaries.test.tsx` passes, covering:
     - picker order;
@@ -489,11 +489,11 @@ database after `bun run db:deploy`.
     - the 429 message names the retry time;
     - text rendered as plain text (an injected `<img>` / Markdown link appears literally)
 
-- [ ] T72: [FE] meetings-ui summary edit (If-Match, "edited") and delete (confirm), driven by per-item `can` — refs: AC-7.7, AC-7.8 — deps: T71
+- [x] T72: [FE] meetings-ui summary edit (If-Match, "edited") and delete (confirm), driven by per-item `can` — refs: AC-7.7, AC-7.8 — deps: T71
   - touch: `meetings-ui/src/components/summaries/SummaryEditor.tsx`, `meetings-ui/src/components/summaries/DeleteSummaryDialog.tsx`, `meetings-ui/src/components/summaries/SummaryEdit.test.tsx`, `meetings-ui/src/strings/summaries.ts`
   - done when: `cd meetings-ui && pnpm test src/components/summaries/SummaryEdit.test.tsx` passes: menu items follow `can.edit` / `can.delete`; 409 shows the reload banner; delete asks to confirm
 
-- [ ] T73: [FE] meetings-ui Ask panel: conversation (own), composer 1..1000, answer with "AI-generated" and sources (time + speaker), source → transcript tab + segment focus, "not in the meeting" answer, failed turn + Retry, clear conversation, rate-limit message — refs: AC-9.1, AC-9.3, AC-9.5, AC-9.6, AC-9.8 — deps: T54
+- [x] T73: [FE] meetings-ui Ask panel: conversation (own), composer 1..1000, answer with "AI-generated" and sources (time + speaker), source → transcript tab + segment focus, "not in the meeting" answer, failed turn + Retry, clear conversation, rate-limit message — refs: AC-9.1, AC-9.3, AC-9.5, AC-9.6, AC-9.8 — deps: T54
   - touch: `meetings-ui/src/components/ask/AskPanel.tsx`, `meetings-ui/src/components/ask/Turn.tsx`, `meetings-ui/src/components/ask/Composer.tsx`, `meetings-ui/src/components/ask/Sources.tsx`, `meetings-ui/src/components/ask/Ask.test.tsx`, `meetings-ui/src/strings/ask.ts`
   - done when: `cd meetings-ui && pnpm test src/components/ask/Ask.test.tsx` passes:
     - selecting a source calls `onCite(segmentId)`;
