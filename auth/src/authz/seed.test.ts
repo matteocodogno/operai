@@ -38,6 +38,7 @@ import { getAppCatalog } from "./catalog";
 import { CRM_APP_ID } from "./catalogs/crm";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
 import { INVENTORY_APP_ID } from "./catalogs/inventory";
+import { MEETINGS_APP_ID } from "./catalogs/meetings";
 import { REFUND_APP_ID } from "./catalogs/refund";
 import {
   ACCOUNTING_ROLE_NAME,
@@ -58,6 +59,8 @@ import {
   seedEstimaiCatalog,
   seedInventoryCatalog,
   seedInventoryGrants,
+  seedMeetingsCatalog,
+  seedMeetingsGrants,
   seedRateAdminGrants,
   seedRefundAdminRole,
   seedRefundCatalog,
@@ -860,9 +863,12 @@ describe("seedAdminRoleGrants — admin can reach the whole suite (bootstrap usa
     expect(adminAccess.map((r) => r.resource).sort()).toEqual([...ALL_APP_IDS].sort());
     expect(adminAccess.length).toBe(ALL_APP_IDS.length); // idempotent — no dups
 
-    // Employees deliberately get nothing (fully admin-assigned, specs/004).
+    // Employees get no app access from here (fully admin-assigned, specs/004);
+    // the one default grant, `meetings:access` (specs/021), is seedMeetingsGrants'.
     const employee = await db.role.findUnique({ where: { name: EMPLOYEE_ROLE_NAME } });
-    const employeeRules = await db.permissionRule.findMany({ where: { roleId: employee!.id } });
+    const employeeRules = await db.permissionRule.findMany({
+      where: { roleId: employee!.id, NOT: { resource: MEETINGS_APP_ID, action: "access" } },
+    });
     expect(employeeRules).toHaveLength(0);
   });
 });
@@ -987,5 +993,88 @@ describe("seedCrmGrants (specs/017 — AC-5.2, D-4)", () => {
     await seedSystemRoles();
     await seedCrmGrants();
     expect(await rulesOf(EMPLOYEE_ROLE_NAME)).toHaveLength(0);
+  });
+});
+
+// ─── specs/021-meetings ─────────────────────────────────────────────────────
+
+describe("seedMeetingsCatalog (specs/021 — AC-10.8)", () => {
+  test("registers the Meetings catalog — meetings:access, template:manage, meeting:erase, all unconditioned, idempotent", async () => {
+    await seedMeetingsCatalog();
+    await seedMeetingsCatalog();
+    const catalog = await getAppCatalog(MEETINGS_APP_ID);
+    const byResource = new Map(
+      catalog.resources.map((r) => [r.key, r.actions.map((a) => [a.key, a.supportedConditions])]),
+    );
+    expect([...byResource.keys()].sort()).toEqual(["meeting", "meetings", "template"]);
+    expect(byResource.get("meetings")).toEqual([["access", []]]);
+    expect(byResource.get("template")).toEqual([["manage", []]]);
+    expect(byResource.get("meeting")).toEqual([["erase", []]]);
+  });
+
+  test("meetings is excluded from SUITE_APPS but reached by admin through ALL_APP_IDS", () => {
+    expect(SUITE_APPS.some((app) => app.appId === MEETINGS_APP_ID)).toBe(false);
+    expect(ALL_APP_IDS).toContain(MEETINGS_APP_ID);
+  });
+});
+
+describe("seedMeetingsGrants (specs/021 — AC-10.8, AC-1.4, AC-10.5)", () => {
+  const MEETINGS_RESOURCES = [MEETINGS_APP_ID, "template", "meeting"];
+
+  async function clearMeetingsGrants() {
+    await db.permissionRule.deleteMany({ where: { resource: { in: MEETINGS_RESOURCES } } });
+  }
+  beforeEach(clearMeetingsGrants);
+  afterAll(async () => {
+    await clearMeetingsGrants();
+    await seedAdminRoleGrants();
+    await seedMeetingsGrants();
+  });
+
+  /** Every meetings rule, with the name of the role that holds it. */
+  const meetingsRules = async () => {
+    const rules = await db.permissionRule.findMany({
+      where: { resource: { in: MEETINGS_RESOURCES } },
+      include: { role: { select: { name: true } } },
+    });
+    return rules.map((r) => ({ role: r.role.name, grant: `${r.resource}:${r.action}`, conditions: r.conditions }));
+  };
+
+  test("employee holds meetings:access, unconditioned, and nothing else of the catalog — idempotently", async () => {
+    await seedSystemRoles();
+    await seedMeetingsGrants();
+    await seedMeetingsGrants();
+    const employee = (await meetingsRules()).filter((r) => r.role === EMPLOYEE_ROLE_NAME);
+    expect(employee).toEqual([{ role: EMPLOYEE_ROLE_NAME, grant: "meetings:access", conditions: null }]);
+  });
+
+  test("template:manage / meeting:erase are held only by admin, unconditioned", async () => {
+    await seedSystemRoles();
+    await seedMeetingsGrants();
+    await seedMeetingsGrants();
+    const rules = await meetingsRules();
+    for (const grant of ["template:manage", "meeting:erase"]) {
+      expect(rules.filter((r) => r.grant === grant)).toEqual([{ role: ADMIN_ROLE_NAME, grant, conditions: null }]);
+    }
+  });
+
+  test("no other rule mentions the meetings catalog: no other role, and admin's meetings:access comes from ALL_APP_IDS", async () => {
+    await seedSystemRoles();
+    await seedAdminRoleGrants();
+    await seedMeetingsGrants();
+    const rules = await meetingsRules();
+    expect(rules.map((r) => `${r.role} ${r.grant}`).sort()).toEqual([
+      `${ADMIN_ROLE_NAME} meeting:erase`,
+      `${ADMIN_ROLE_NAME} meetings:access`,
+      `${ADMIN_ROLE_NAME} template:manage`,
+      `${EMPLOYEE_ROLE_NAME} meetings:access`,
+    ]);
+    for (const rule of rules) expect(rule.conditions).toBeNull();
+  });
+
+  test("seed() runs the Meetings grants too", async () => {
+    await seed();
+    const rules = await meetingsRules();
+    expect(rules.map((r) => `${r.role} ${r.grant}`)).toContain(`${EMPLOYEE_ROLE_NAME} meetings:access`);
   });
 });
