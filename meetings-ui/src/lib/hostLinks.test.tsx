@@ -8,7 +8,7 @@ vi.mock('shell/session', () => ({ navigateSuite: vi.fn(), apiFetch: vi.fn(), get
 
 import { navigateSuite } from 'shell/session'
 import { crmDealHost, hostView } from '../test-support/fakeApi'
-import { describeHost, hostNames, suiteLinkProps } from './hostLinks'
+import { describeHost, hostNames, hostNoticeFailed, suiteLinkProps } from './hostLinks'
 
 afterEach(() => {
   cleanup()
@@ -62,5 +62,13 @@ describe('describeHost (AC-10.3)', () => {
       kind: 'plain',
       text: 'crm · deal',
     })
+  })
+})
+
+describe('hostNoticeFailed (AC-14.8)', () => {
+  it("is the host's own sentence, and null when the registry is not known", () => {
+    expect(hostNoticeFailed([crmDealHost], 'crm', 'deal')).toBe("The deal's activity could not be added")
+    expect(hostNoticeFailed([crmDealHost], 'crm', 'company')).toBeNull()
+    expect(hostNoticeFailed(null, 'crm', 'deal')).toBeNull()
   })
 })

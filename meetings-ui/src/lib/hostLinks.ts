@@ -51,6 +51,12 @@ export function hostNames(hosts: HostInfo[] | null, app: string, entityType: str
   return { app: labels?.app ?? app, entity: labels?.entity ?? entityType }
 }
 
+/** The host's own sentence for "its activity could not be added" (AC-14.8, plan G7), or null when the registry is not known. */
+export function hostNoticeFailed(hosts: HostInfo[] | null, app: string, entityType: string): string | null {
+  const labels = hosts?.find((host) => host.app === app && host.entityType === entityType)?.labels[resolveLocale()]
+  return labels?.noticeFailed ?? null
+}
+
 export type HostText =
   /** The caller can open the record: "Deal · Acme renewal" and where it lives. */
   | { kind: 'open'; text: string; href: string }
