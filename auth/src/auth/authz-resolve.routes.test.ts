@@ -185,7 +185,12 @@ describe("GET /authz/resolve (T1, specs/007-refund-service)", () => {
       jobTitle: string | null;
     };
     expect(body.sub).toBe(userId);
-    expect(body.permissions).toEqual([]);
+    // The baseline `employee` role carries meetings:access once seeded (specs/021, AC-10.8); nothing else.
+    expect(
+      (body.permissions as { resource: string; action: string }[]).filter(
+        (p) => !(p.resource === "meetings" && p.action === "access"),
+      ),
+    ).toEqual([]);
     expect(body.entity).toBeNull();
     expect(body.jobTitle).toBeNull();
   });

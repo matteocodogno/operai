@@ -46,7 +46,13 @@ type Fixture = { userId: string; email: string; name: string; token: string };
 
 async function mintUser(
   label: string,
-  opts: { name?: string; entity?: string; grants?: { resource: string; action: string; conditions?: object }[] } = {},
+  opts: {
+    name?: string;
+    entity?: string;
+    grants?: { resource: string; action: string; conditions?: object }[];
+    /** Keep the baseline `employee` role. Off by default: once seeded it carries meetings:access (specs/021), which opens the directory on its own. */
+    keepBaselineRole?: boolean;
+  } = {},
 ): Promise<Fixture> {
   const email = `t5-${label}-${RUN_ID}-${crypto.randomUUID()}@operai.test`;
   const name = opts.name ?? `T5 ${label} ${RUN_ID}`;
@@ -59,6 +65,11 @@ async function mintUser(
   expect(sessionRes.status).toBe(200);
   const { userId } = (await sessionRes.json()) as { userId: string };
   createdUserIds.add(userId);
+
+  if (!opts.keepBaselineRole) {
+    // The create hook gave the user `employee`; strip it so each case tests the named grant alone.
+    await db.userRole.deleteMany({ where: { userId, role: { name: "employee" } } });
+  }
 
   if (opts.entity !== undefined) {
     await db.user.update({ where: { id: userId }, data: { entity: opts.entity } });
@@ -207,6 +218,47 @@ describe("GET /authz/users/directory (T5, specs/015-hardware-inventory; ADR-0047
     });
     expect((await callDirectory(reader.token)).status).toBe(403);
     expect((await callDirectory(eraser.token)).status).toBe(403);
+  });
+
+  // specs/021-meetings, ADR-0066: the third consumer is the meeting participant picker.
+  test("a caller holding only meetings:access gets 200 and the unfiltered list (ADR-0066)", async () => {
+    const attendee = await mintUser("mtg-only", { entity: "welld_ch", grants: [{ resource: "meetings", action: "access" }] });
+    // Neither of these holds any tool grant: a participant needs none (AC-10.4), so all must be pickable.
+    const itUser = await mintUser("mtg-it", { entity: "welld_it" });
+    const noEntity = await mintUser("mtg-noent");
+
+    const res = await callDirectory(attendee.token);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as DirectoryBody;
+    const byId = new Map(body.users.map((u) => [u.id, u]));
+    expect(byId.has(attendee.userId)).toBe(true);
+    expect(byId.get(itUser.userId)?.entity).toBe("welld_it");
+    expect(byId.has(noEntity.userId)).toBe(true);
+    for (const user of body.users) expect(Object.keys(user).sort()).toEqual(["email", "entity", "id", "name"]);
+  });
+
+  test("template:manage, meeting:erase or a meetings lookalike alone do NOT open the directory (ADR-0066)", async () => {
+    const admin = await mintUser("mtg-admin-caps", {
+      grants: [
+        { resource: "template", action: "manage" },
+        { resource: "meeting", action: "erase" },
+      ],
+    });
+    const lookalike = await mintUser("mtg-lookalike", {
+      grants: [
+        { resource: "meetings", action: "view" },
+        { resource: "meeting", action: "access" },
+      ],
+    });
+    expect((await callDirectory(admin.token)).status).toBe(403);
+    expect((await callDirectory(lookalike.token)).status).toBe(403);
+  });
+
+  test("revoking meetings:access closes the directory immediately", async () => {
+    const attendee = await mintUser("mtg-revoked", { grants: [{ resource: "meetings", action: "access" }] });
+    expect((await callDirectory(attendee.token)).status).toBe(200);
+    await db.userRole.deleteMany({ where: { userId: attendee.userId, role: { name: { startsWith: "t5-role-mtg-revoked" } } } });
+    expect((await callDirectory(attendee.token)).status).toBe(403);
   });
 
   test("the grant is matched on resource AND action: asset:other / ledger:manage do not open it", async () => {
