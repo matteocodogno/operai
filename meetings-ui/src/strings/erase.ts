@@ -1,10 +1,132 @@
-/** The erase page (S9). T75 fills this in place. */
+/** The erase page (S9) and the Delete meeting dialog (S3c, F14). */
 const en = {
   heading: 'Erase meetings',
+  notice: "You can find and delete meetings here. You can't read their content.",
+  filters: {
+    title: 'Filters',
+    search: 'Title',
+    creator: 'Creator',
+    from: 'From',
+    to: 'To',
+    toBeforeFrom: 'Choose a date on or after the start date',
+    submit: 'Search',
+    clear: 'Clear filters',
+  },
+  table: {
+    caption: 'Meetings that can be erased',
+    title: 'Title',
+    date: 'Date',
+    creator: 'Creator',
+    actions: 'Actions',
+    delete: 'Delete',
+    deleteAria: (title: string) => `Delete meeting ${title}`,
+  },
+  empty: {
+    title: 'No meetings match',
+    body: 'Change the filters to find the meeting you are looking for.',
+  },
+  loading: 'Loading meetings…',
+  deleted: 'Meeting deleted',
+  deletedUser: 'Deleted user',
+  unknownUser: 'Unknown user',
+  pagination: {
+    label: 'Meetings pages',
+    previous: 'Previous',
+    next: 'Next',
+    status: (page: number, totalPages: number, start: number, end: number, total: number) =>
+      `Page ${page} of ${totalPages}, showing ${start}–${end} of ${total}`,
+  },
+  picker: {
+    loading: 'Loading people…',
+    noMatch: 'No people match.',
+    failed: "People can't be loaded right now.",
+    noName: 'Unnamed person',
+    results: (count: number) => (count === 1 ? '1 person found' : `${count} people found`),
+    rateLimited: (seconds: number) => `Too many requests. Try again in ${seconds} seconds.`,
+    unavailableHint: "You can't pick people",
+  },
+  delete: {
+    title: 'Delete this meeting?',
+    facts: (title: string, date: string, creator: string) => `${title} · ${date} · created by ${creator}`,
+    willDelete: 'This deletes, for everyone:',
+    items: [
+      'the audio',
+      'the transcript',
+      'every summary',
+      "every person's questions and answers",
+      'the list of participants',
+      'the entry on the linked record',
+    ],
+    cannotUndo: "This can't be undone.",
+    acknowledge: "I understand that this deletes the meeting for everyone and can't be undone",
+    confirm: 'Delete meeting',
+    busy: 'Deleting…',
+  },
 }
 
 const it: typeof en = {
   heading: 'Elimina riunioni',
+  notice: 'Qui puoi trovare ed eliminare le riunioni. Non puoi leggerne il contenuto.',
+  filters: {
+    title: 'Filtri',
+    search: 'Titolo',
+    creator: 'Creata da',
+    from: 'Dal',
+    to: 'Al',
+    toBeforeFrom: 'Scegli una data uguale o successiva a quella iniziale',
+    submit: 'Cerca',
+    clear: 'Azzera i filtri',
+  },
+  table: {
+    caption: 'Riunioni che si possono eliminare',
+    title: 'Titolo',
+    date: 'Data',
+    creator: 'Creata da',
+    actions: 'Azioni',
+    delete: 'Elimina',
+    deleteAria: (title: string) => `Elimina la riunione ${title}`,
+  },
+  empty: {
+    title: 'Nessuna riunione corrisponde',
+    body: 'Cambia i filtri per trovare la riunione che cerchi.',
+  },
+  loading: 'Caricamento delle riunioni…',
+  deleted: 'Riunione eliminata',
+  deletedUser: 'Utente eliminato',
+  unknownUser: 'Utente sconosciuto',
+  pagination: {
+    label: 'Pagine delle riunioni',
+    previous: 'Precedente',
+    next: 'Successiva',
+    status: (page: number, totalPages: number, start: number, end: number, total: number) =>
+      `Pagina ${page} di ${totalPages}, da ${start} a ${end} di ${total}`,
+  },
+  picker: {
+    loading: 'Caricamento delle persone…',
+    noMatch: 'Nessuna persona corrisponde.',
+    failed: 'Al momento non è possibile caricare le persone.',
+    noName: 'Persona senza nome',
+    results: (count: number) => (count === 1 ? '1 persona trovata' : `${count} persone trovate`),
+    rateLimited: (seconds: number) => `Troppe richieste. Riprova tra ${seconds} secondi.`,
+    unavailableHint: 'Non puoi scegliere le persone',
+  },
+  delete: {
+    title: 'Eliminare questa riunione?',
+    facts: (title: string, date: string, creator: string) => `${title} · ${date} · creata da ${creator}`,
+    willDelete: 'Questo elimina, per tutti:',
+    items: [
+      "l'audio",
+      'la trascrizione',
+      'tutti i riassunti',
+      'le domande e le risposte di ogni persona',
+      "l'elenco dei partecipanti",
+      'la voce sul record collegato',
+    ],
+    cannotUndo: 'Non si può annullare.',
+    acknowledge: 'Capisco che la riunione viene eliminata per tutti e che non si può annullare',
+    confirm: 'Elimina riunione',
+    busy: 'Eliminazione…',
+  },
 }
 
 export const erase = { en, it }
