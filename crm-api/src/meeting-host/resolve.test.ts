@@ -108,6 +108,10 @@ describe("failure modes", () => {
 
   it("503 when `auth` cannot resolve the caller: fail closed, never an `open` (AC-11.5)", async () => {
     const deal = await makeDeal((await makeCompany()).id);
+    // Seeding as admin cached admin's grants for 30 s (keyed by sub + perm_epoch); forget them, or the
+    // outage below is never reached and the cached grants are served instead.
+    const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
+    __resetAuthzCacheForTests();
     const harness = setupTestAuth();
     try {
       harness.setResolve(async () => {

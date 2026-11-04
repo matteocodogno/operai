@@ -4,25 +4,34 @@
  * Needs Postgres (migration `20261105090000_meeting_host` applied).
  *
  * The service JWT is verified for real (RS256, issuer, audience, scope, sub
- * allowlist); only the JWKS fetch is answered locally.
+ * allowlist); only the key set is local.
  */
 import { TEST_ISSUER } from "../test-support/testAuth"; // sets the environment before ../lib/env is read
-import { beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from "jose";
+import { __setDefaultJwksForTests } from "../auth/systemAuth.middleware";
+import { env } from "../lib/env";
 import { PERSONAS, app, call, db, makeCompany, makeDeal, resetWorld } from "../test-support/world";
 
 const PATH = "/system/meeting-host/v1/notices";
-const SERVICE_AUDIENCE = process.env["SERVICE_AUDIENCE"]!;
+// `bun test` shares one process, so `../lib/env` may have been evaluated by an earlier file before
+// testAuth set SERVICE_AUDIENCE; the route reads the audience from that same object, so use it.
+env.SERVICE_AUDIENCE ??= "operai-system";
+const SERVICE_AUDIENCE = env.SERVICE_AUDIENCE;
 const KID = "svc-notices-test";
 
 let key: CryptoKey;
+let previousJwks: ReturnType<typeof __setDefaultJwksForTests>;
 beforeAll(async () => {
   const pair = await generateKeyPair("RS256");
   key = pair.privateKey;
   const jwk = { ...(await exportJWK(pair.publicKey)), kid: KID, alg: "RS256", use: "sig" };
-  const previous = globalThis.fetch;
-  globalThis.fetch = (async (url: unknown, init?: RequestInit) =>
-    String(url) === `${TEST_ISSUER}/auth/jwks` ? Response.json({ keys: [jwk] }) : previous(url as string, init)) as typeof fetch;
+  // The route verifies against a process-wide key set that an earlier file may already have filled from
+  // the network (the matrix posts user tokens here), so swap it for ours instead of stubbing fetch.
+  previousJwks = __setDefaultJwksForTests(createLocalJWKSet({ keys: [jwk] }));
+});
+afterAll(() => {
+  __setDefaultJwksForTests(previousJwks);
 });
 beforeEach(resetWorld);
 

@@ -52,6 +52,17 @@ const unauthorized = (path: string) =>
 let defaultJwks: JWTVerifyGetKey | undefined;
 const getDefaultJwks = (): JWTVerifyGetKey => (defaultJwks ??= createRemoteJWKSet(new URL(env.AUTH_JWKS_URL)));
 
+/**
+ * Test-only: replaces the process-wide default key set and returns the previous one so a test can
+ * restore it. `bun test` runs every file in ONE process, and the memoised remote set caches whatever
+ * the first request to `AUTH_JWKS_URL` answered, so a test cannot rely on stubbing `fetch`.
+ */
+export const __setDefaultJwksForTests = (jwks: JWTVerifyGetKey | undefined): JWTVerifyGetKey | undefined => {
+  const previous = defaultJwks;
+  defaultJwks = jwks;
+  return previous;
+};
+
 export type SystemAuthOptions = {
   /** The one scope this route requires. */
   scope: string;
