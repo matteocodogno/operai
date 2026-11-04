@@ -61,15 +61,15 @@ database after `bun run db:deploy`.
   - touch: `crm-api/src/activities/activities.routes.ts`, `crm-api/src/activities/activities.test.ts`
   - done when: `cd crm-api && bun test src/activities` passes with a case asserting the view of a notice-created activity (subject, occurredAt, `body: null`, `meeting.href`) on both the deal and the company timeline
 
-- [ ] T10: [BE] meetings-api scaffold: Bun + Hono + zod-openapi, Prisma config, Dockerfile with pinned ffmpeg/ffprobe and a non-root user, `railway.json` (`numReplicas: 1`), health, Problem JSON, path-only request logger, minimal `env.ts`, and stub routers registered in `src/index.ts` for every route group of the plan — refs: AC-4.10 — deps: none
+- [x] T10: [BE] meetings-api scaffold: Bun + Hono + zod-openapi, Prisma config, Dockerfile with pinned ffmpeg/ffprobe and a non-root user, `railway.json` (`numReplicas: 1`), health, Problem JSON, path-only request logger, minimal `env.ts`, and stub routers registered in `src/index.ts` for every route group of the plan — refs: AC-4.10 — deps: none
   - touch: `meetings-api/package.json`, `meetings-api/bun.lock`, `meetings-api/bunfig.toml`, `meetings-api/tsconfig.json`, `meetings-api/prisma.config.ts`, `meetings-api/Dockerfile`, `meetings-api/railway.json`, `meetings-api/README.md`, `meetings-api/src/index.ts`, `meetings-api/src/health/*`, `meetings-api/src/openapi/*`, `meetings-api/src/lib/problem.ts`, `meetings-api/src/lib/logger.ts`, `meetings-api/src/lib/logger.test.ts`, `meetings-api/src/lib/db.ts`, `meetings-api/src/lib/http.ts`, `meetings-api/src/lib/env.ts`, `meetings-api/src/{meetings,hosts,capture,processing,transcript,audio,summaries,templates,conversation,erase}/*.routes.ts`
   - done when: `cd meetings-api && bun install && bun run typecheck && bun test src/lib/logger.test.ts src/health` passes; the logger test asserts query strings and bodies are absent from the log line; `docker build meetings-api` succeeds and `ffmpeg -version` runs as the non-root user in the image
 
-- [ ] T11: [BE] meetings-api env + synchronous residency checks: full env schema of the plan; S3 EU residency (copied `s3Residency`); Azure region allowlist + endpoint match; Bedrock region allowlist; `MEETINGS_TEST_HOSTS` and `MEETINGS_AI_PROVIDER=fake` refused in production — refs: AC-4.9, AC-11.1 — deps: T10
+- [x] T11: [BE] meetings-api env + synchronous residency checks: full env schema of the plan; S3 EU residency (copied `s3Residency`); Azure region allowlist + endpoint match; Bedrock region allowlist; `MEETINGS_TEST_HOSTS` and `MEETINGS_AI_PROVIDER=fake` refused in production — refs: AC-4.9, AC-11.1 — deps: T10
   - touch: `meetings-api/src/lib/env.ts`, `meetings-api/src/lib/env*.test.ts`, `meetings-api/src/lib/s3Residency.ts`, `meetings-api/src/lib/residency.ts`, `meetings-api/src/lib/residency.test.ts`
   - done when: `cd meetings-api && bun test src/lib/env src/lib/residency.test.ts` passes. Each misconfiguration (non-EU S3, Azure region outside EU/CH, endpoint/region mismatch, `eu-west-2`/`us-east-1` Bedrock, test hosts or fake provider with `NODE_ENV=production`) makes a spawned `bun src/lib/env.ts` exit 1 without echoing values
 
-- [ ] T12: [BE] meetings-api Prisma schema and initial migration: every model of plan § Data model, all-or-none CHECKs, partial unique indexes (live session, template names), Tier-1 append-only trigger on `meeting_deletion` — refs: AC-4.6, AC-5.1, AC-3.5, AC-7.3 — deps: T10
+- [x] T12: [BE] meetings-api Prisma schema and initial migration: every model of plan § Data model, all-or-none CHECKs, partial unique indexes (live session, template names), Tier-1 append-only trigger on `meeting_deletion` — refs: AC-4.6, AC-5.1, AC-3.5, AC-7.3 — deps: T10
   - touch: `meetings-api/prisma/schema.prisma`, `meetings-api/prisma/migrations/*`, `meetings-api/src/lib/generated/**`, `meetings-api/src/schema.test.ts`
   - done when: `cd meetings-api && bun run db:deploy && bun test src/schema.test.ts` passes on `meetings_test`, proving:
     - each CHECK rejects its invalid row (host all-or-none, hostVisible without host, consent all-or-none, consent on a `text` meeting, participant kind xor);
@@ -77,22 +77,22 @@ database after `bun run db:deploy`.
     - UPDATE/DELETE on `meeting_deletion` raise;
     - `meeting_deletion` has no title column
 
-- [ ] T13: [BE] meetings-api guard stacks (`selfScoped` with optional resolve, `capability(…)`, `eraser`), JWT + authz middleware (copied from crm-api), identities client (names fail soft, gates fail closed), `test-support/testAuth.ts` — refs: AC-10.6, AC-1.4, AC-5.10 — deps: T11
+- [x] T13: [BE] meetings-api guard stacks (`selfScoped` with optional resolve, `capability(…)`, `eraser`), JWT + authz middleware (copied from crm-api), identities client (names fail soft, gates fail closed), `test-support/testAuth.ts` — refs: AC-10.6, AC-1.4, AC-5.10 — deps: T11
   - touch: `meetings-api/src/auth/*`, `meetings-api/src/authz/*`, `meetings-api/src/lib/identities.ts`, `meetings-api/src/lib/identities.test.ts`, `meetings-api/src/test-support/testAuth.ts`
   - done when: `cd meetings-api && bun test src/auth src/authz src/lib/identities.test.ts` passes:
     - with `/authz/resolve` stubbed to 503, `selfScoped` lets the request through with `capabilities: "unavailable"` and `capability` answers 503;
     - an identities outage gives `PersonRef.status "unknown"` for display and 503 for a gate;
     - `deleted` maps to name null
 
-- [ ] T14: [BE] meetings-api storage: presigned POST (chunk ≤ 8 MiB, upload ≤ 500 MiB + type allowlist, fixed keys), presigned GET (60 s probe, 15 min playback), HEAD, delete-prefix, fake storage; startup bucket check (lifecycle ≤ 29 days with no prefix filter, versioning not enabled) — refs: AC-4.4, AC-4.9, AC-3.2, AC-4.5 — deps: T11
+- [x] T14: [BE] meetings-api storage: presigned POST (chunk ≤ 8 MiB, upload ≤ 500 MiB + type allowlist, fixed keys), presigned GET (60 s probe, 15 min playback), HEAD, delete-prefix, fake storage; startup bucket check (lifecycle ≤ 29 days with no prefix filter, versioning not enabled) — refs: AC-4.4, AC-4.9, AC-3.2, AC-4.5 — deps: T11
   - touch: `meetings-api/src/lib/storage.ts`, `meetings-api/src/lib/storage.test.ts`, `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`, `meetings-api/src/test-support/fakeStorage.ts`
   - done when: `cd meetings-api && bun test src/lib/storage.test.ts src/lib/startupChecks.test.ts` passes. Policy conditions are asserted on the minted POST. Against local MinIO (T1 bucket) the startup check passes, and it fails for a bucket with no rule, with `Days: 30`, with a prefix-filtered rule, and with versioning enabled
 
-- [ ] T15: [BE] meetings-api host registry (production = exactly `crm/deal` with labels incl. `visibilityHint`/`noticeFailed`; `MEETINGS_TEST_HOSTS`), the single HTTP host client (`resolve` batch ≤ 25, 2 s timeout, unavailable on any defect; `notices`), and `test-support/fakeHost.ts` (Bun.serve; `testhost/widget` notices on, `quiethost/gadget` notices off) — refs: AC-11.1, AC-11.4, AC-11.10 — deps: T11
+- [x] T15: [BE] meetings-api host registry (production = exactly `crm/deal` with labels incl. `visibilityHint`/`noticeFailed`; `MEETINGS_TEST_HOSTS`), the single HTTP host client (`resolve` batch ≤ 25, 2 s timeout, unavailable on any defect; `notices`), and `test-support/fakeHost.ts` (Bun.serve; `testhost/widget` notices on, `quiethost/gadget` notices off) — refs: AC-11.1, AC-11.4, AC-11.10 — deps: T11
   - touch: `meetings-api/src/hosts/registry.ts`, `meetings-api/src/hosts/registry.test.ts`, `meetings-api/src/hosts/client.ts`, `meetings-api/src/hosts/client.test.ts`, `meetings-api/src/test-support/fakeHost.ts`
   - done when: `cd meetings-api && bun test src/hosts/registry.test.ts src/hosts/client.test.ts` passes: registry contents asserted; the client maps 5xx / timeout / malformed body to `unavailable`; the client module exports only `resolve` and `sendNotice` (static assertion)
 
-- [ ] T16: [BE] meetings-api service-token client (copy) and notifier: in-app only, never `email: true`, bilingual `title/body` + `it` from a copy catalog (en/it parity), best effort after commit — refs: AC-12.3, AC-12.4, AC-12.5 — deps: T11
+- [x] T16: [BE] meetings-api service-token client (copy) and notifier: in-app only, never `email: true`, bilingual `title/body` + `it` from a copy catalog (en/it parity), best effort after commit — refs: AC-12.3, AC-12.4, AC-12.5 — deps: T11
   - touch: `meetings-api/src/lib/serviceToken.ts`, `meetings-api/src/lib/notify.ts`, `meetings-api/src/lib/notify.test.ts`, `meetings-api/src/lib/notificationCopy.ts`, `meetings-api/src/lib/notificationCopy.test.ts`
   - done when: `cd meetings-api && bun test src/lib/notify.test.ts src/lib/notificationCopy.test.ts` passes:
     - catalog parity;
@@ -100,7 +100,7 @@ database after `bun run db:deploy`.
     - a throwing or 500 notify-api never rejects;
     - one 401 retries once with a fresh token
 
-- [ ] T17: [BE] meetings-api durable job runner: `LISTEN/NOTIFY` wake + 30 s idle poll of its own queue, `FOR UPDATE SKIP LOCKED` claim incl. expired leases, 2 min lease heartbeated, ≤ 2 concurrent (one ffmpeg), 3 attempts with backoff, `attemptId` guard, SIGTERM drain; stub handler files per job kind (ADR-0062) — refs: AC-6.9, AC-7.9 — deps: T12
+- [x] T17: [BE] meetings-api durable job runner: `LISTEN/NOTIFY` wake + 30 s idle poll of its own queue, `FOR UPDATE SKIP LOCKED` claim incl. expired leases, 2 min lease heartbeated, ≤ 2 concurrent (one ffmpeg), 3 attempts with backoff, `attemptId` guard, SIGTERM drain; stub handler files per job kind (ADR-0062) — refs: AC-6.9, AC-7.9 — deps: T12
   - touch: `meetings-api/src/jobs/runner.ts`, `meetings-api/src/jobs/runner.test.ts`, `meetings-api/src/jobs/handlers/*.ts`
   - done when: `cd meetings-api && bun test src/jobs/runner.test.ts` passes on `meetings_test`, covering:
     - a crashed lease is re-claimed;
