@@ -34,8 +34,24 @@ Validated at startup by `src/lib/env.ts`; the process exits 1 without echoing va
 | `AUTH_BASE_URL` | `http://localhost:3001` |
 | `PORT` | `8085` (default) |
 
-The storage, notify, host and AI-provider groups are documented in plan.md § Environment and
-land with their tasks.
+More groups (plan.md § Environment). A misconfiguration exits 1 naming the variable, never its value.
+
+| Variable | Notes |
+|---|---|
+| `MEETINGS_S3_ENDPOINT` / `_REGION` / `_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | required; own EU bucket (MinIO locally). A non-AWS endpoint also needs `MEETINGS_S3_EU_ENDPOINT_HOSTS`. At start the bucket must carry one unfiltered lifecycle rule of at most 29 days and versioning must not be enabled (AC-4.4) |
+| `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | all or none; required in production. Client `meetings-api` needs scopes `notifications.push host-notices.send` |
+| `CRM_API_URL` | the CRM host; required in production (defaults to `http://localhost:8084` otherwise) |
+| `MEETINGS_AI_PROVIDER` | `real` (default, required in production) or `fake` (development and test only) |
+| `AZURE_SPEECH_REGION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_ENDPOINT` | transcription; region must be EU or Swiss; the optional endpoint must be a Microsoft regional host for that same region |
+| `BEDROCK_REGION`, `BEDROCK_MODEL_ID`, `MEETINGS_AWS_ACCESS_KEY_ID`, `MEETINGS_AWS_SECRET_ACCESS_KEY` | language model; region must be an EU one |
+| `MEETINGS_WORKER` | `on` (default), `off` or `only`: the job runner runs in this process |
+| `MEETINGS_TEST_HOSTS` | JSON array of test hosts; refused in production |
+
+Tests: `src/test-support/testEnv.ts` (the `bunfig.toml` preload) sets placeholders for all of the
+above with `??=`. `DATABASE_URL` defaults to `postgresql://postgres:postgres@localhost:5435/meetings_test`;
+where the compose Postgres has other credentials, export `DATABASE_URL` for a migrated `meetings_test`
+database first (`bun run db:deploy`). DB-backed tests: `src/schema.test.ts`, `src/jobs/runner.test.ts`,
+`src/health/health.test.ts`.
 
 ## Logging (AC-4.10)
 
