@@ -51,6 +51,16 @@ const isWatched = (meeting: Meeting): boolean => {
   return !controls && (meeting.status === 'recording' || meeting.status === 'interrupted')
 }
 
+/** Whether a fresh view differs in what Edit details edits, so a save is confirmed and a plain reload is not. */
+const detailsChanged = (before: Meeting, after: Meeting): boolean =>
+  before.title !== after.title ||
+  before.startsAt !== after.startsAt ||
+  before.format !== after.format ||
+  before.language !== after.language ||
+  before.source !== after.source ||
+  before.hostVisible !== after.hostVisible ||
+  before.host?.entityId !== after.host?.entityId
+
 type TabId = 'summaries' | 'transcript' | 'ask'
 
 /** Reads the host's registration for the visibility hint and the labels; any failure is "unknown host", never an error (plan G6). */
@@ -334,10 +344,8 @@ function MeetingView({ meeting, replace, listPath, back }: MeetingViewProps) {
           meeting={meeting}
           hostInfo={hostInfo}
           onClose={() => setDialog(null)}
-          onChanged={(next) => {
-            changed(next, t.saved.details)
-            setDialog(null)
-          }}
+          // The dialog closes itself after a save; a reload it asks for (a lock that moved on) keeps it open.
+          onChanged={(next) => changed(next, detailsChanged(meeting, next) ? t.saved.details : undefined)}
         />
       )}
       {dialog === 'delete' && (

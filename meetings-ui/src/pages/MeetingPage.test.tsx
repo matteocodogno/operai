@@ -68,8 +68,17 @@ vi.mock('../components/summaries/SummariesPanel', () => ({ default: () => <div d
 vi.mock('../components/meeting/EditDetailsDialog', () => ({
   default: (props: { onClose: () => void; onChanged: (meeting: Meeting) => void; meeting: Meeting }) => (
     <div role="dialog" aria-label="stub-edit-details">
-      <button type="button" onClick={() => props.onChanged({ ...props.meeting, title: 'Renamed in dialog' })}>
+      <button
+        type="button"
+        onClick={() => {
+          props.onChanged({ ...props.meeting, title: 'Renamed in dialog' })
+          props.onClose()
+        }}
+      >
         stub-save
+      </button>
+      <button type="button" onClick={() => props.onChanged({ ...props.meeting, can: CAN_NONE })}>
+        stub-reload
       </button>
       <button type="button" onClick={props.onClose}>
         stub-close
@@ -648,6 +657,16 @@ describe('MeetingPage: dialogs and cards', () => {
     await userEvent.click(screen.getByRole('button', { name: en.meeting.actions.editDetails }))
     await userEvent.click(screen.getByRole('button', { name: 'stub-close' }))
     expect(screen.queryByRole('dialog', { name: 'stub-edit-details' })).toBeNull()
+  })
+
+  it('a reload the dialog asks for (a lock that moved on) updates the page, keeps the dialog open and confirms nothing', async () => {
+    serve(readyMeeting())
+    await loaded()
+    await userEvent.click(screen.getByRole('button', { name: en.meeting.actions.editDetails }))
+    await userEvent.click(screen.getByRole('button', { name: 'stub-reload' }))
+    expect(screen.getByRole('dialog', { name: 'stub-edit-details' })).not.toBeNull()
+    expect(screen.queryByText(en.meeting.saved.details)).toBeNull()
+    expect(screen.queryByRole('button', { name: en.meeting.actions.deleteMeeting })).toBeNull()
   })
 
   it('Delete meeting opens the dialog; once deleted the page leaves for the list', async () => {
