@@ -356,7 +356,7 @@ database after `bun run db:deploy`.
   - touch: `shell/vercel.json`, `shell/src/vercelHeaders.test.ts`
   - done when: `cd shell && pnpm test src/vercelHeaders.test.ts` passes, parsing `vercel.json` and asserting each directive and the `Permissions-Policy` value
 
-- [ ] T53: [FE] meetings-ui scaffold:
+- [x] T53: [FE] meetings-ui scaffold:
   - package, vite config exposing `./App`, `./MyMeetings`, `./HostMeetings`, `./version` (port 5180, singletons, `@operai/ui` alias + dedupe);
   - vitest config with `shell/session` stub (incl. `registerNavigationBlocker`);
   - both routers with placeholder pages;
@@ -367,7 +367,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-ui/package.json`, `meetings-ui/pnpm-lock.yaml`, `meetings-ui/vite.config.ts`, `meetings-ui/vitest.config.ts`, `meetings-ui/tsconfig*.json`, `meetings-ui/eslint.config.js`, `meetings-ui/postcss.config.js`, `meetings-ui/index.html`, `meetings-ui/vercel.json`, `meetings-ui/src/*.ts`, `meetings-ui/src/*.tsx`, `meetings-ui/src/index.css`, `meetings-ui/src/federation/**`, `meetings-ui/src/strings/*.ts`, `meetings-ui/src/pages/*.tsx`, `meetings-ui/src/components/**/*.tsx`, `meetings-ui/src/host/HostMeetings.tsx`
   - done when: `cd meetings-ui && pnpm install && pnpm lint && pnpm build && pnpm test` passes, including `strings.test.ts` (`catalogGaps` empty) and the no-hard-coded-copy scan; `dist/remoteEntry.js` exposes the four entries
 
-- [ ] T54: [FE] meetings-ui data layer: typed API client for every plan route, types, problem `code` → strings key map, status meanings map, `LoadState`/`PermissionDenied` adapters, hooks (resource, polling with backoff, capability hints from `usePermissions` per G5), `test-support/fakeApi.ts` fixtures — refs: AC-5.3, AC-10.4, AC-10.6 — deps: T53
+- [x] T54: [FE] meetings-ui data layer: typed API client for every plan route, types, problem `code` → strings key map, status meanings map, `LoadState`/`PermissionDenied` adapters, hooks (resource, polling with backoff, capability hints from `usePermissions` per G5), `test-support/fakeApi.ts` fixtures — refs: AC-5.3, AC-10.4, AC-10.6 — deps: T53
   - touch: `meetings-ui/src/lib/*.ts`, `meetings-ui/src/lib/*.test.ts`, `meetings-ui/src/hooks/*`, `meetings-ui/src/test-support/*`, `meetings-ui/src/components/LoadState.tsx`, `meetings-ui/src/components/PermissionDenied.tsx`, `meetings-ui/src/strings/common.ts`
   - done when: `cd meetings-ui && pnpm test src/lib src/hooks` passes:
     - 404 → not-found state, 503 → authorization-unavailable banner key;
@@ -421,7 +421,7 @@ database after `bun run db:deploy`.
     - the clipboard gets the localised announcement;
     - a string test checks each required statement in both languages
 
-- [ ] T62: [FE] meetings-ui capture capabilities matrix and Web Audio mixer (mic + optional tab audio; tab track end / no audio track → event; mic keeps feeding) — refs: AC-2.4, AC-2.5 — deps: T53
+- [x] T62: [FE] meetings-ui capture capabilities matrix and Web Audio mixer (mic + optional tab audio; tab track end / no audio track → event; mic keeps feeding) — refs: AC-2.4, AC-2.5 — deps: T53
   - touch: `meetings-ui/src/capture/capabilities.ts`, `meetings-ui/src/capture/capabilities.test.ts`, `meetings-ui/src/capture/mixer.ts`, `meetings-ui/src/capture/mixer.test.ts`
   - done when: `cd meetings-ui && pnpm test src/capture/capabilities.test.ts src/capture/mixer.test.ts` passes: stubbed navigators for Chrome, Edge, Firefox and Safari give the expected options; the mixer emits `tabAudioLost` and still routes the mic node
 
