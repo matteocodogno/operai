@@ -21,8 +21,9 @@
 #   --bucket <name>     the audio bucket (env: MEETINGS_S3_BUCKET).
 #   --region <r>        signing region (env: MEETINGS_S3_REGION, default us-east-1; MinIO ignores it).
 #   --shell-origin <o>  the origin allowed by CORS (default https://operai.welld.io).
-#   --require-cors      an endpoint that cannot do bucket CORS (MinIO answers NotImplemented) is a
-#                       FAILURE instead of a skipped step. Use it for every production bucket.
+#   --require-cors      CORS is required on every endpoint except loopback (localhost, 127.0.0.1): a
+#                       missing rule, or an endpoint that cannot do bucket CORS, FAILS. MinIO has no
+#                       per-bucket CORS, so on loopback that step is SKIPped; this flag requires it there too.
 #   --no-noncurrent     do not add a noncurrent-version expiration to the rule (for a provider that
 #                       rejects it). The bucket is unversioned, so it is only a safety net.
 #   --path-style        force path-style addressing (MinIO and most self-hosted endpoints).
@@ -51,7 +52,7 @@ KEY_PREFIX="meetings"   # every object meetings-api writes lives under meetings/
 
 MODE=""; ENDPOINT="${MEETINGS_S3_ENDPOINT:-}"; BUCKET="${MEETINGS_S3_BUCKET:-}"
 REGION="${MEETINGS_S3_REGION:-us-east-1}"; SHELL_ORIGIN="https://operai.welld.io"
-REQUIRE_CORS=false; NONCURRENT=true; PATH_STYLE=false; FORCE=false
+REQUIRE_CORS=false; LOOPBACK=false; NONCURRENT=true; PATH_STYLE=false; FORCE=false
 
 usage() { sed -n '2,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 die() { echo "error: $1" >&2; exit "${2:-2}"; }
@@ -82,7 +83,7 @@ done
 [[ "$SHELL_ORIGIN" =~ ^https?://[^/[:space:]]+$ ]] || die "--shell-origin must be an origin: scheme://host[:port], no path or trailing slash"
 case "$ENDPOINT" in
   https://*) ;;
-  http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*|http://\[::1\]|http://\[::1\]:*) ;;
+  http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*|http://\[::1\]|http://\[::1\]:*) LOOPBACK=true ;;
   http://*) die "refusing a plain-http endpoint that is not localhost: credentials would cross the network in clear" ;;
   *) die "--endpoint must be an http(s) URL" ;;
 esac
@@ -107,6 +108,9 @@ export AWS_PAGER="" AWS_EC2_METADATA_DISABLED=true AWS_RETRY_MODE=standard AWS_M
 # S3-compatible stores reject the extra CRC32 checksums newer CLIs add by default.
 export AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
 if $PATH_STYLE; then printf '[default]\ns3 =\n    addressing_style = path\n' > "$AWS_CONFIG_FILE"; fi
+
+# Bucket CORS is mandatory except against a loopback dev store (MinIO), unless --require-cors says otherwise.
+cors_required() { $REQUIRE_CORS || ! $LOOPBACK; }
 
 FAILS=0
 pass() { echo "  PASS  $*"; }
@@ -194,14 +198,20 @@ check_lifecycle() {
 check_cors() {
   if ! s3api get-bucket-cors --bucket "$BUCKET"; then
     if err_has 'NoSuchCORSConfiguration'; then
-      fail "no CORS configuration: the browser cannot upload to or play from the bucket (add a rule for $SHELL_ORIGIN)"
+      if cors_required; then fail "no CORS configuration: the browser cannot upload to or play from the bucket (add a rule for $SHELL_ORIGIN)"
+      else skip "CORS: none configured on a loopback dev store (MinIO has no per-bucket CORS; pass --require-cors to demand it)"; fi
       return
     fi
     if err_has 'NotImplemented|not implemented|MethodNotAllowed'; then
-      if $REQUIRE_CORS; then fail "this endpoint does not support bucket CORS and --require-cors was given"; else skip "CORS: this endpoint does not support bucket CORS (normal for MinIO; its CORS is a server setting). Pass --require-cors for production buckets"; fi
+      if cors_required; then fail "this endpoint does not support bucket CORS, which the browser upload needs"
+      else skip "CORS: this loopback dev store does not support bucket CORS (normal for MinIO; pass --require-cors to demand it)"; fi
       return
     fi
     cannot_tell "GetBucketCors"
+  fi
+  if [[ "$(jq '[.CORSRules[]?] | length' "$OUT")" -eq 0 ]] && ! cors_required; then
+    skip "CORS: none configured on a loopback dev store (pass --require-cors to demand it)"
+    return
   fi
   if [[ "$(jq '[.CORSRules[]? | select(.AllowedOrigins | index("*"))] | length' "$OUT")" -gt 0 ]]; then
     fail "CORS: a rule allows origin '*'; the audio bucket may only allow $SHELL_ORIGIN"
@@ -278,8 +288,8 @@ apply_policy() {
   if s3api put-bucket-cors --bucket "$BUCKET" --cors-configuration "$cors"; then
     echo "  DONE  CORS: $SHELL_ORIGIN may POST and GET"
   elif err_has 'NotImplemented|not implemented|MethodNotAllowed'; then
-    if $REQUIRE_CORS; then echo "error: this endpoint does not support bucket CORS and --require-cors was given" >&2; exit 1; fi
-    echo "  SKIP  CORS: this endpoint does not support bucket CORS"
+    if cors_required; then echo "error: this endpoint does not support bucket CORS, which the browser upload needs" >&2; exit 1; fi
+    echo "  SKIP  CORS: this loopback dev store does not support bucket CORS"
   else
     echo "error: PutBucketCors failed: $(err_line)" >&2; exit 3
   fi
