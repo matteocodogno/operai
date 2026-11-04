@@ -7,4 +7,383 @@ datasource db {
   provider = "postgresql"
 }
 
-// Data model of specs/021-meetings (plan.md § Data model) arrives with T12.
+// Data model of specs/021-meetings (plan.md § Data model). People are opaque
+// `auth` user ids, their names resolved live (ADR-0039). Time-based states
+// (interrupted, audio expired, frozen, stale summary, stuck answer) are DERIVED
+// on read and never stored (ADR-0013/0062).
+//
+// Raw SQL in the initial migration, the ENFORCEMENT and not a duplicate:
+//   - CHECK meeting_host_all_or_none        hostApp/hostEntityType/hostEntityId all or none
+//   - CHECK meeting_host_visible_needs_host hostVisible implies a host
+//   - CHECK meeting_consent_all_or_none     consent* all or none
+//   - CHECK meeting_no_consent_on_text      a `text` meeting carries no consent (G1)
+//   - CHECK meeting_participant_kind_xor    exactly one of userId / externalName
+//   - CHECK meeting_participant_external_org  an organisation only on an external
+//   - CHECK summary_template_owner_scope    ownerUserId iff scope = personal
+//   - CHECKs on text lengths (title, names, question)
+//   - UNIQUE recording_session_live_key     one live session per meeting (partial)
+//   - UNIQUE summary_template_personal_name_key / _shared_name_key (partial, lower(name))
+//   - Tier-1 append-only trigger on meeting_deletion (ADR-0018 mechanism)
+
+enum MeetingFormat {
+  in_person
+  online
+}
+
+enum MeetingLanguage {
+  en
+  it
+}
+
+enum MeetingSource {
+  recorded
+  uploaded
+  text
+}
+
+// `interrupted` is DERIVED, never stored.
+enum MeetingStatus {
+  draft
+  recording
+  processing
+  ready
+  failed
+}
+
+enum ProcessingStage {
+  preparing
+  transcribing
+}
+
+enum SummaryStatus {
+  generating
+  ready
+  failed
+}
+
+enum TurnStatus {
+  pending
+  answered
+  failed
+}
+
+enum TemplateScope {
+  personal
+  shared
+}
+
+enum JobKind {
+  prepare_audio
+  transcribe
+  summarize
+  deliver_host_notice
+}
+
+enum JobState {
+  queued
+  running
+  done
+  failed
+}
+
+enum NoticeEvent {
+  linked
+  changed
+  unlinked
+  deleted
+}
+
+enum NoticePolicy {
+  manual
+  until_delivered
+}
+
+enum NoticeState {
+  pending
+  delivered
+  failed
+}
+
+model Meeting {
+  id            String          @id @default(cuid())
+  title         String
+  format        MeetingFormat
+  startsAt      DateTime
+  language      MeetingLanguage
+  source        MeetingSource
+  status        MeetingStatus   @default(draft)
+  stage         ProcessingStage?
+  // closed set in code: audio_unreadable | provider_unavailable | provider_rejected | too_long
+  failureCode   String?
+  noSpeech      Boolean         @default(false)
+  creatorUserId String
+
+  // all or none (CHECK)
+  hostApp        String?
+  hostEntityType String?
+  hostEntityId   String?
+  hostVisible    Boolean @default(false)
+  hostNoticeSeq  Int     @default(0)
+
+  // all or none (CHECK); none on a `text` meeting
+  consentUserId        String?
+  consentAt            DateTime?
+  consentNoticeVersion String?
+
+  durationMs     Int?
+  audioKey       String?
+  audioBytes     Int?
+  // drives "kept until" = audioCreatedAt + 29 d (D-9)
+  audioCreatedAt DateTime?
+  audioDeletedAt DateTime?
+
+  // AC-12.2 recipient
+  processingRequestedBy String?
+  // non-null => language locked (AC-1.8)
+  processingStartedAt   DateTime?
+  // left `processing`
+  processedAt           DateTime?
+  transcriptVersion     Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions          RecordingSession[]
+  chunks            RecordingChunk[]
+  upload            MeetingUpload?
+  participants      MeetingParticipant[]
+  segments          TranscriptSegment[]
+  speakerLabels     SpeakerLabel[]
+  summaries         Summary[]
+  turns             ConversationTurn[]
+  jobs              MeetingJob[]
+
+  @@index([creatorUserId, startsAt(sort: Desc)])
+  @@index([hostApp, hostEntityType, hostEntityId])
+  @@map("meeting")
+}
+
+// One live (endedAt IS NULL) session per meeting: partial UNIQUE in raw SQL.
+model RecordingSession {
+  id          String    @id @default(cuid())
+  meetingId   String
+  meeting     Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  startedAt   DateTime  @default(now())
+  lastChunkAt DateTime?
+  lastBeatAt  DateTime  @default(now())
+  paused      Boolean   @default(false)
+  // G3: the max reported by heartbeat / chunk confirm
+  capturedMs  Int?
+  endedAt     DateTime?
+  endReason   String?
+
+  chunks RecordingChunk[]
+
+  @@index([meetingId])
+  @@map("recording_session")
+}
+
+model RecordingChunk {
+  meetingId  String
+  meeting    Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  seq        Int
+  sessionId  String
+  session    RecordingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  objectKey  String
+  sizeBytes  Int
+  durationMs Int
+  storedAt   DateTime?
+
+  @@id([meetingId, seq])
+  @@index([sessionId])
+  @@map("recording_chunk")
+}
+
+model MeetingUpload {
+  meetingId   String   @id
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  objectKey   String
+  contentType String
+  // <= 500 MiB fits Int
+  sizeBytes   Int
+  mintedAt    DateTime @default(now())
+
+  @@map("meeting_upload")
+}
+
+model MeetingParticipant {
+  id                  String   @id @default(cuid())
+  meetingId           String
+  meeting             Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId              String?
+  externalName        String?
+  externalOrganisation String?
+  addedBy             String
+  createdAt           DateTime @default(now())
+
+  speakerLabels SpeakerLabel[]
+
+  @@unique([meetingId, userId])
+  @@index([userId])
+  @@map("meeting_participant")
+}
+
+// Text meetings: startMs / endMs / speakerKey are NULL (passages).
+model TranscriptSegment {
+  id         String  @id @default(cuid())
+  meetingId  String
+  meeting    Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  ordinal    Int
+  startMs    Int?
+  endMs      Int?
+  speakerKey String?
+  text       String
+  edited     Boolean @default(false)
+  version    Int     @default(1)
+
+  @@unique([meetingId, ordinal])
+  @@map("transcript_segment")
+}
+
+model SpeakerLabel {
+  meetingId     String
+  meeting       Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  speakerKey    String
+  participantId String?
+  participant   MeetingParticipant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+  customLabel   String?
+
+  @@id([meetingId, speakerKey])
+  @@map("speaker_label")
+}
+
+model Summary {
+  id            String          @id @default(cuid())
+  meetingId     String
+  meeting       Meeting         @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  authorUserId  String
+  // snapshot: { source, templateId, name, sections[{heading, instruction}], generalInstructions }
+  template      Json
+  language      MeetingLanguage
+  status        SummaryStatus
+  attemptId     String
+  failureCode   String?
+  // [{ heading, body, notDiscussed }]
+  sections      Json?
+  transcriptVersion Int
+  edited        Boolean         @default(false)
+  version       Int             @default(1)
+  createdAt     DateTime        @default(now())
+  readyAt       DateTime?
+
+  @@index([meetingId, createdAt])
+  @@map("summary")
+}
+
+// Built-in templates live in code (src/templates/builtin.ts), never here.
+model SummaryTemplate {
+  id                  String        @id @default(cuid())
+  scope               TemplateScope
+  // personal only (CHECK)
+  ownerUserId         String?
+  name                String
+  // 1..15 x { heading 1..80, instruction <= 500 }
+  sections            Json
+  generalInstructions String?
+  createdBy           String
+  updatedBy           String
+  // If-Match on PATCH (G8)
+  version             Int           @default(1)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  @@map("summary_template")
+}
+
+model ConversationTurn {
+  id                String     @id @default(cuid())
+  meetingId         String
+  meeting           Meeting    @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId            String
+  question          String
+  status            TurnStatus
+  // { text, citations: segmentId[], notInMeeting }
+  answer            Json?
+  failureCode       String?
+  transcriptVersion Int
+  createdAt         DateTime   @default(now())
+  answeredAt        DateTime?
+
+  @@index([meetingId, userId, createdAt])
+  @@map("conversation_turn")
+}
+
+// Content-free, append-only rate-limit ledger (AC-13.4); pruned per user on insert.
+model AiRequest {
+  id     String   @id @default(cuid())
+  userId String
+  kind   String
+  at     DateTime @default(now())
+
+  @@index([userId, at])
+  @@map("ai_request")
+}
+
+model MeetingJob {
+  id            String    @id @default(cuid())
+  kind          JobKind
+  meetingId     String?
+  meeting       Meeting?  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  summaryId     String?
+  noticeId      String?
+  attemptId     String?
+  state         JobState  @default(queued)
+  attempts      Int       @default(0)
+  maxAttempts   Int
+  runAfter      DateTime  @default(now())
+  leaseUntil    DateTime?
+  lastErrorCode String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([state, runAfter])
+  @@map("meeting_job")
+}
+
+// The host-notice outbox. meetingId has NO foreign key: the row outlives the
+// meeting's deletion (AC-14.6), and carries no title for `unlinked` / `deleted`.
+model HostNotice {
+  id            String       @id @default(uuid())
+  hostApp       String
+  entityType    String
+  entityId      String
+  meetingId     String
+  seq           Int
+  event         NoticeEvent
+  title         String?
+  startsAt      DateTime?
+  creatorUserId String
+  policy        NoticePolicy
+  state         NoticeState  @default(pending)
+  attempts      Int          @default(0)
+  lastErrorCode String?
+  createdAt     DateTime     @default(now())
+  deliveredAt   DateTime?
+
+  @@index([meetingId])
+  @@map("host_notice")
+}
+
+// Content-free (no title column, AC-4.6). Tier-1 append-only: a BEFORE
+// UPDATE/DELETE trigger (ADR-0018 mechanism); tests reset it with TRUNCATE,
+// which a row trigger does not block (cf. ADR-0033).
+model MeetingDeletion {
+  id              String   @id @default(cuid())
+  meetingId       String
+  deletedByUserId String
+  // creator | erase
+  via             String
+  deletedAt       DateTime @default(now())
+
+  @@map("meeting_deletion")
+}
