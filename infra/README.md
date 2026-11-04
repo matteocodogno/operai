@@ -1219,6 +1219,113 @@ bun scripts/import-legacy.ts --file <register.xlsx> [--user-map <users.json>] \
 - The opening-balance figure (spec O3) is an accounting decision. Do not invent it, and
   do not paste it into the repo or a PR.
 
+### `meetings-api` service (Railway) — NEW (specs/021-meetings)
+
+Authoritative list: `meetings-api/src/lib/env.ts` (validated at startup, exits 1 on any miss).
+Committed contract: `tools/env-doctor/templates/production/meetings-api.env`. Port **8085**, DB
+`meetings`, domain `meetings-api.operai.welld.io`; the remote is `meetings-ui`
+(`meetings.operai.welld.io`, local port 5180). **Pin `numReplicas: 1`** — the job runner
+(`MEETINGS_WORKER=on`) runs inside the process (ADR-0062).
+
+Everything below is a **checklist for a person**: nothing in this section has been provisioned yet.
+
+| Variable | Value | Secret |
+|---|---|---|
+| `DATABASE_URL` | `…/meetings` — **its own logical DB** | yes |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` (shell only; meetings-ui is a federated remote) | no |
+| `AUTH_JWKS_URL` / `AUTH_BASE_URL` | internal, `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}…` | no |
+| `AUTH_ISSUER` / `AUTH_AUDIENCE` | public claim `${{shared.AUTH_ISSUER}}` / `${{shared.AUTH_AUDIENCE}}` (the sixth resource server on this value) | no |
+| `NOTIFY_INTERNAL_URL` | `${{shared.NOTIFY_INTERNAL_URL}}` | no |
+| `CRM_API_URL` | internal, `http://${{crm-api.RAILWAY_PRIVATE_DOMAIN}}:${{crm-api.PORT}}` — the host contract (ADR-0059) | no |
+| `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `meetings-api` / `${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}` (≥ 32 chars, byte-identical to its `SERVICE_CLIENTS` entry) | secret: yes |
+| `MEETINGS_S3_ENDPOINT` / `_REGION` / `_EU_ENDPOINT_HOSTS` | the audio bucket; a non-AWS endpoint needs its host in the EU list or the service exits 1 (ADR-0016 lineage) | no |
+| `MEETINGS_S3_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | set by reference to the Railway bucket by `provision-tool.sh --bucket`; **its own bucket and credentials**, never crm's or refund's | secrets: yes |
+| `AZURE_SPEECH_REGION` / `AZURE_SPEECH_KEY` | `westeurope` / the key (1Password) | key: yes |
+| `BEDROCK_REGION` / `BEDROCK_MODEL_ID` | an EU region (preferably `eu-central-2`) / the pinned model or EU inference profile | no |
+| `MEETINGS_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | least-privilege IAM user (1Password) | yes |
+| `MEETINGS_AI_PROVIDER` | `real` — `fake` is refused when `NODE_ENV=production` | no |
+| `MEETINGS_TEST_HOSTS` | **must not be set** in production (the service exits 1) | — |
+| `PORT` / `NODE_ENV` | `8085` / `production` | no |
+
+**The audio bucket (ADR-0063, AC-4.4) — the service refuses to start without this.** A private
+EU bucket, holding audio only (`meetings/<id>/…`), with one bucket-wide lifecycle rule that
+expires every object after **29 days**, no prefix filter, versioning **off**, and a CORS rule for
+the shell origin (`POST` for the presigned upload, `GET` for playback). `provision-tool.sh`
+cannot set the rule, so a person runs `infra/meetings-bucket-policy.sh` once the bucket exists
+and **before** the first deploy (needs the AWS CLI and `jq`; credentials come from the
+environment only):
+
+```bash
+# credentials of THE MEETINGS BUCKET, in the environment of this one command (never on a command line)
+export MEETINGS_S3_ACCESS_KEY_ID=… MEETINGS_S3_SECRET_ACCESS_KEY=…   # from the Railway bucket's variables
+infra/meetings-bucket-policy.sh --apply --require-cors --endpoint <MEETINGS_S3_ENDPOINT> --bucket <name> --region <MEETINGS_S3_REGION>
+infra/meetings-bucket-policy.sh --check --require-cors --endpoint <MEETINGS_S3_ENDPOINT> --bucket <name> --region <MEETINGS_S3_REGION>
+```
+
+`--apply` replaces the bucket's lifecycle configuration, so it refuses a bucket that holds
+anything outside `meetings/` (a mistyped name would otherwise put a 29-day expiry on offers or
+receipts) and a bucket with versioning Enabled (that cannot be switched off). Exit codes: `0` the
+policy holds, `1` it does not, `2` usage, `3` could not tell (access denied, unreachable) — **a
+check that cannot reach the bucket is never a pass.** Re-run `--check` after any provider change.
+Risk R10 is open until this has succeeded on the chosen provider: if it rejects a lifecycle rule
+or CORS, stop and pick another EU provider rather than deploying. A `--require-cors` pass only
+proves the rule exists; the shell CSP must also list the bucket in `connect-src` (upload) and
+`media-src` (playback) — see the note under `inventory-api` above; all three gates fail alike as
+"upload failed".
+
+**Processors (ADR-0061) — verified at startup, so they must exist before the first deploy.**
+- *Azure AI Speech*, fast transcription, resource in **`westeurope`** (not Switzerland North, which
+  lacks fast transcription). The region must match the endpoint host.
+- *Claude on Amazon Bedrock*, EU region, **data-retention mode `none`** — the service reads the
+  region's retention configuration and refuses to start unless it says `none` or if it cannot be
+  read. Enable model access for the pinned model in that region; if `BEDROCK_MODEL_ID` is an
+  inference profile, every destination Region must be EU (checked via `GetInferenceProfile`).
+  IAM: `bedrock:InvokeModel` on that model or profile, `bedrock:GetInferenceProfile`, and read of
+  the retention configuration — nothing else. **Pin the model id only after the prompt-injection
+  eval (T83) is green on it**; a model change is a deploy that needs a green eval.
+- The Microsoft and AWS DPAs and the transfer-impact note (plan O3) are a go-live decision for the
+  data-protection lead, not something this checklist closes.
+
+**Wiring in `auth` (do this first).** `SERVICE_CLIENTS` gains exactly:
+`"meetings-api":{"secret":"${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}","scope":"notifications.push host-notices.send"}`
+(no `emails.send`). Generate the secret (≥ 32 random chars) as the Railway Shared Variable
+`MEETINGS_SERVICE_CLIENT_SECRET`. `crm-api` needs `SERVICE_AUDIENCE=${{shared.SERVICE_AUDIENCE}}`
+to verify the notices; `env:doctor` fails a template without it.
+
+**Provisioning and order.** From the repo root (plan first, `--apply` only after reading it):
+
+```bash
+./infra/provision-tool.sh meetings --port 8085 --bucket           # read-only audit
+./infra/provision-tool.sh meetings --port 8085 --bucket --apply   # service, DB, bucket, domains, DNS, Vercel project
+# apply the bucket policy (above), set the secrets the script lists, then:
+./infra/provision-tool.sh meetings --port 8085 --bucket --connect --redeploy-shell --apply
+```
+
+Order: `auth` (scope, client, catalog, default `employee` grant) → `notify-api` → `crm-api` → `meetings-api`
+→ `meetings-ui` → shell. A step deployed before the one it depends on degrades silently (a push
+that 401s), so check the previous one first. The auth re-seed must be live before anyone opens the tool.
+
+**Shell wiring.** On the `shell` Vercel project set `VITE_MEETINGS_API_URL=<meetings-api public URL>`
+(build-time; feeds the trusted-origin allowlist, unset means no Bearer JWT is attached and every
+call 401s) and `MEETINGS_REMOTE_URL=https://meetings.operai.welld.io/remoteEntry.js`, then **redeploy
+the shell**. `meetings-ui` has `SHELL_REMOTE_URL=https://operai.welld.io/remoteEntry.js` and no
+backend variable of its own. To repoint the remote without a rebuild add `"meetings": "…/remoteEntry.js"`
+to `shell/public/runtime-config.json`. The shell CSP (`shell/vercel.json`) needs `meetings-api` and
+the bucket in `connect-src`, the bucket in `media-src`, and `Permissions-Policy: microphone=(self),
+display-capture=(self), camera=()`.
+
+**Local dev.** `docker compose up -d minio minio-createbucket` creates the private `meetings` bucket with
+the 29-day rule and no versioning (re-runs replace the rule, never duplicate it). Verify it with the
+default MinIO dev credentials:
+
+```bash
+MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
+  infra/meetings-bucket-policy.sh --check --endpoint http://localhost:9000 --bucket meetings --path-style
+```
+
+MinIO has no bucket-level CORS (that step prints `SKIP`; only `--require-cors` makes it fail), and dev
+runs `MEETINGS_AI_PROVIDER=fake` until the real keys exist.
+
 ### Provisioning a new tool
 
 `infra/provision-tool.sh <tool>` creates, or audits, everything a tool needs in
