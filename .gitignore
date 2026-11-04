@@ -11,3 +11,4 @@
 # Changesets tooling at the repo root (root pnpm-lock.yaml IS committed)
 /node_modules/
 .changeset/.status.json
+/.playwright-mcp/
