@@ -1,10 +1,11 @@
 ---
 id: 021
 slug: projects
-status: in-progress
+status: done
 rigor: mvp
 created: 2026-11-03
 approved: 2026-11-03
+done: 2026-11-04
 depends-on: 017
 ---
 
