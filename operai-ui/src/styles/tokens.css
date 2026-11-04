@@ -1071,6 +1071,44 @@ select:not([multiple]):not([size]) {
     min-width: 0;
   }
 
+  /* ── Sections editor — <SectionsEditor> (a fieldset of headed text rows) ── */
+  .sections-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+
+  .sections-editor-hint,
+  .sections-editor-row-label {
+    font-size: 12px;
+    color: var(--soft);
+  }
+
+  .sections-editor-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+  }
+
+  .sections-editor-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .sections-editor-row-actions {
+    display: flex;
+    gap: 4px;
+  }
+
   /* ── File picker — <FilePicker> (the input itself is .visually-hidden) ── */
   .file-picker-row {
     display: flex;
