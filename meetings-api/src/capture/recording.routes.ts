@@ -22,7 +22,9 @@ import { IdParams, commonErrors } from "../lib/http";
 import { ProblemError, conflict, validationHook } from "../lib/problem";
 import { MAX_CHUNK_BYTES, objectKeys, requireStorage } from "../lib/storage";
 import type { AuthzVariables } from "../auth/authz.middleware";
-import { derivedStatus } from "../meetings/derived";
+import { AUDIO_RETENTION_DAYS, derivedStatus } from "../meetings/derived";
+import { loadMeetingView } from "../meetings/view";
+import { enqueueJob } from "../jobs/runner";
 import { callerOf, creatorControl, openForCapture, openForControl, storageCall } from "./caller";
 
 /** AC-2.11: a recording stops itself at 3 h; the server tolerates 60 s more. */
@@ -313,4 +315,153 @@ recordingRouter.openapi(heartbeatRoute, async (c) => {
     });
   });
   return c.body(null, 204);
+});
+
+// ─── stop / process / discard ────────────────────────────────────────────────
+
+const MeetingBody = z.object({}).passthrough();
+const notRecording = (): ProblemError => conflict("not_recording", "This meeting is not being recorded");
+
+const stopRoute = createRoute({
+  method: "post",
+  path: "/meetings/{id}/recording/stop",
+  tags: ["Capture"],
+  summary: "Stop: processing starts once chunks 0..lastSeq are all saved",
+  middleware: creatorControl,
+  request: {
+    params: IdParams,
+    body: { content: { "application/json": { schema: z.object({ sessionId: SessionId, lastSeq: z.number().int().min(0).max(MAX_CHUNK_SEQ) }) } } },
+  },
+  responses: {
+    202: { description: "The meeting, processing", content: { "application/json": { schema: MeetingBody } } },
+    409: { description: "chunks_missing { missing: number[] } or session_inactive" },
+    ...commonErrors,
+  },
+});
+
+const processRoute = createRoute({
+  method: "post",
+  path: "/meetings/{id}/recording/process",
+  tags: ["Capture"],
+  summary: "Process what was captured of an interrupted recording",
+  middleware: creatorControl,
+  request: { params: IdParams },
+  responses: {
+    202: { description: "The meeting, processing", content: { "application/json": { schema: MeetingBody } } },
+    409: { description: "not_interrupted, no_audio or audio_deleted" },
+    ...commonErrors,
+  },
+});
+
+const discardRoute = createRoute({
+  method: "post",
+  path: "/meetings/{id}/recording/discard",
+  tags: ["Capture"],
+  summary: "Discard the recording: chunks deleted, the meeting is a draft again",
+  middleware: creatorControl,
+  request: { params: IdParams },
+  responses: {
+    200: { description: "The draft meeting", content: { "application/json": { schema: MeetingBody } } },
+    409: { description: "not_recording" },
+    ...commonErrors, // 503 storage_unavailable: nothing was changed
+  },
+});
+
+/**
+ * The shared tail of stop and process: the meeting leaves `recording` for
+ * `processing` (a compare-and-set, so it happens exactly once), the session ends,
+ * and `prepare_audio` is queued, in the caller's transaction (the job exists iff the
+ * state change committed). `durationMs` is the sum of the STORED chunks, which
+ * excludes paused time by construction: nothing is captured while paused.
+ */
+async function beginProcessing(tx: Prisma.TransactionClient, meetingId: string, sessionId: string | null, userId: string, reason: string): Promise<void> {
+  const now = new Date();
+  const stored = await tx.recordingChunk.aggregate({ where: { meetingId, storedAt: { not: null } }, _sum: { durationMs: true } });
+  const flipped = await tx.meeting.updateMany({
+    where: { id: meetingId, status: "recording" },
+    data: {
+      status: "processing",
+      stage: "preparing",
+      durationMs: stored._sum.durationMs ?? 0,
+      processingStartedAt: now,
+      processingRequestedBy: userId,
+      failureCode: null,
+    },
+  });
+  if (flipped.count === 0) throw notRecording();
+  if (sessionId) await tx.recordingSession.update({ where: { id: sessionId }, data: { endedAt: now, endReason: reason } });
+  await enqueueJob(tx, { kind: "prepare_audio", meetingId });
+}
+
+recordingRouter.openapi(stopRoute, async (c) => {
+  const { id } = c.req.valid("param");
+  const { sessionId, lastSeq } = c.req.valid("json");
+  const caller = callerOf(c);
+  await openForControl(id, caller);
+
+  await db.$transaction(async (tx) => {
+    const session = await lockLiveSession(tx, id, sessionId);
+    if (!session) {
+      // A stop that already went through (the answer was lost): the same answer, no second job.
+      const done = await tx.recordingSession.findFirst({ where: { id: sessionId, meetingId: id, endReason: "stopped" }, select: { id: true } });
+      if (done) return;
+      throw sessionInactive();
+    }
+    const stored = await tx.recordingChunk.findMany({ where: { meetingId: id, storedAt: { not: null } }, select: { seq: true } });
+    const have = new Set(stored.map((chunk) => chunk.seq));
+    const missing: number[] = [];
+    for (let seq = 0; seq <= lastSeq; seq++) if (!have.has(seq)) missing.push(seq);
+    if (missing.length > 0) throw conflict("chunks_missing", "Some chunks are not saved yet", { missing });
+    await beginProcessing(tx, id, sessionId, caller.userId, "stopped");
+  });
+
+  return c.json(await loadMeetingView(id, caller, new Date()), 202);
+});
+
+recordingRouter.openapi(processRoute, async (c) => {
+  const { id } = c.req.valid("param");
+  const caller = callerOf(c);
+  await openForControl(id, caller);
+
+  await db.$transaction(async (tx) => {
+    const now = new Date();
+    const meeting = await tx.meeting.findUniqueOrThrow({ where: { id }, select: { status: true } });
+    const latest = await tx.recordingSession.findFirst({ where: { meetingId: id }, orderBy: [{ startedAt: "desc" }, { id: "desc" }], select: { id: true } });
+    // Lock the session (if it is still open) so a late chunk or beat cannot slip past the decision.
+    const open = latest ? await lockLiveSession(tx, id, latest.id) : null;
+    const session = latest ? await tx.recordingSession.findUnique({ where: { id: latest.id } }) : null;
+    if (derivedStatus(meeting.status, session, now) !== "interrupted") throw conflict("not_interrupted", "Only an interrupted recording can be processed");
+
+    const stored = await tx.recordingChunk.aggregate({ where: { meetingId: id, storedAt: { not: null } }, _min: { storedAt: true }, _count: { _all: true } });
+    if (stored._count._all === 0) throw conflict("no_audio", "Nothing was saved from this recording: discard it");
+    const oldest = stored._min.storedAt;
+    if (oldest && now.getTime() >= oldest.getTime() + AUDIO_RETENTION_DAYS * 86_400_000) {
+      throw conflict("audio_deleted", "The saved audio has been deleted");
+    }
+    await beginProcessing(tx, id, open ? open.id : null, caller.userId, "processed");
+  });
+
+  return c.json(await loadMeetingView(id, caller, new Date()), 202);
+});
+
+recordingRouter.openapi(discardRoute, async (c) => {
+  const { id } = c.req.valid("param");
+  const caller = callerOf(c);
+  await openForControl(id, caller);
+
+  const meeting = await db.meeting.findUniqueOrThrow({ where: { id }, select: { status: true } });
+  if (meeting.status !== "recording") throw notRecording();
+
+  // Objects first: if the store fails, the database still says what is true (AC-4.5 posture).
+  await storageCall(() => requireStorage().deletePrefix(objectKeys.prefix(id)));
+
+  await db.$transaction(async (tx) => {
+    const flipped = await tx.meeting.updateMany({ where: { id, status: "recording" }, data: { status: "draft", durationMs: null } });
+    if (flipped.count === 0) throw notRecording();
+    // Sessions go with their chunks (cascade): a fresh recording starts from nothing, and the
+    // discarded session's `capturedMs` no longer shows up as lost audio.
+    await tx.recordingSession.deleteMany({ where: { meetingId: id } });
+  });
+
+  return c.json(await loadMeetingView(id, caller, new Date()), 200);
 });
