@@ -154,7 +154,7 @@ export type FakeBrowser = {
  * `getUserMedia` can be made to refuse with `mic: new DOMException('…', 'NotAllowedError')`.
  */
 export function installFakeBrowserCapture(
-  options: { mic?: 'ok' | DOMException; tab?: 'ok' | DOMException | 'no-audio' } = {},
+  options: { mic?: 'ok' | DOMException; tab?: 'ok' | DOMException | 'no-audio'; chromium?: boolean } = {},
 ): FakeBrowser {
   FakeMediaRecorder.reset()
   const microphones: MediaStream[] = []
@@ -187,7 +187,10 @@ export function installFakeBrowserCapture(
   vi.stubGlobal('isSecureContext', true)
   const mediaDevices = { getUserMedia, getDisplayMedia }
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: mediaDevices })
-  Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: { brands: [{ brand: 'Chromium' }] } })
+  // Chromium names itself in `userAgentData`; Firefox and Safari do not, so they get microphone only.
+  if (options.chromium !== false) {
+    Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: { brands: [{ brand: 'Chromium' }] } })
+  }
 
   return {
     getUserMedia,
