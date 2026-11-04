@@ -18,7 +18,7 @@ T31/T35. FE tasks test against `src/test-support/fakeApi.ts` (crm-ui style) and 
 contracts, not a running API. "On `meetings_test`" means `DATABASE_URL` points at the test
 database after `bun run db:deploy`.
 
-- [ ] T1: [OPS] Local MinIO bucket `meetings` with a 29-day expiration rule and versioning off — refs: AC-4.4 — deps: none
+- [x] T1: [OPS] Local MinIO bucket `meetings` with a 29-day expiration rule and versioning off — refs: AC-4.4 — deps: none
   - touch: `compose.yaml`
   - done when: `docker compose up -d minio minio-createbucket` exits 0, and `mc ilm rule ls <alias>/meetings` (run in the createbucket image) lists exactly one rule, Expiration 29 days, no prefix filter; `mc version info <alias>/meetings` reports versioning not enabled
 
@@ -543,7 +543,7 @@ database after `bun run db:deploy`.
   - touch: `lerna.json`, `mise.toml`
   - done when: `mise tasks ls` lists the updated tasks; `mise run db:migrate` migrates `meetings`; `mise run ui:check` builds and tests meetings-ui; `pnpm changeset status` enumerates both new packages
 
-- [ ] T81: [OPS] env-doctor manifest + production template for meetings-api / meetings-ui. Covers:
+- [x] T81: [OPS] env-doctor manifest + production template for meetings-api / meetings-ui. Covers:
   - origins;
   - the auth, notify and CRM link variables;
   - the service-client link `notifications.push host-notices.send`;
@@ -556,7 +556,7 @@ database after `bun run db:deploy`.
   - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/*`, `tools/env-doctor/*.test.ts`
   - done when: `mise run env:doctor` passes on the production templates and the env-doctor test suite passes with new cases (missing `MEETINGS_S3_REGION`, missing `host-notices.send` scope, crm-api without `SERVICE_AUDIENCE` → reported)
 
-- [ ] T82: [OPS] `infra/meetings-bucket-policy.sh` (apply/check the 29-day lifecycle, versioning off, CORS for the shell origin on an S3-compatible endpoint) and the infra README section for meetings. The README covers:
+- [x] T82: [OPS] `infra/meetings-bucket-policy.sh` (apply/check the 29-day lifecycle, versioning off, CORS for the shell origin on an S3-compatible endpoint) and the infra README section for meetings. The README covers:
   - the bucket;
   - Azure Speech in `westeurope`;
   - Bedrock retention `none` and model access;
@@ -576,7 +576,7 @@ database after `bun run db:deploy`.
   - touch: `.github/workflows/meetings-eval.yml`
   - done when: `actionlint .github/workflows/meetings-eval.yml` passes, and the PR job runs green on the branch
 
-- [ ] T85: [OPS] Docs: `AGENTS.md` (project structure, ports 8085/5180, tool table, services, data residency for meetings, ADR list 0058–0068) — refs: AC-11.1, AC-4.9 — deps: none
+- [x] T85: [OPS] Docs: `AGENTS.md` (project structure, ports 8085/5180, tool table, services, data residency for meetings, ADR list 0058–0068) — refs: AC-11.1, AC-4.9 — deps: none
   - touch: `AGENTS.md`
   - done when: `grep -Ec 'docs/adr/00(5[89]|6[0-8])-' AGENTS.md` prints 11 and `mise run env:doctor` still passes (no contract drift introduced by the docs)
 
