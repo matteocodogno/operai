@@ -104,7 +104,7 @@ describe("env-doctor resolver", () => {
   test("the committed production templates pass the doctor offline (no errors, no warnings)", () => {
     const r = loadTemplateSuite("production"); // real TEMPLATES_DIR, offline
     expect(r.errors).toEqual([]);
-    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api"]);
+    expect(r.loaded).toEqual(["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"]);
     const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
     const bad = findings.filter((f) => f.level !== "ok");
     expect(bad).toEqual([]);
@@ -117,6 +117,32 @@ describe("env-doctor resolver", () => {
     r.suite["notify-api"]!.SERVICE_AUDIENCE = "operai-service-2";
     const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
     expect(findings.some((f) => f.level === "error" && f.message.includes("SERVICE_AUDIENCE is not identical"))).toBe(true);
+  });
+
+  // specs/021 T81 done-when, against the SHIPPED templates.
+  test("the committed templates fail when meetings-api's registry entry loses host-notices.send", () => {
+    const r = loadTemplateSuite("production");
+    r.suite.auth!.SERVICE_CLIENTS = r.suite.auth!.SERVICE_CLIENTS!.replace("notifications.push host-notices.send", "notifications.push");
+    const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    expect(findings.some((f) => f.level === "error" && f.message.includes('lacks the "host-notices.send" scope'))).toBe(true);
+  });
+
+  test("the committed templates fail when crm-api has no SERVICE_AUDIENCE, or meetings-api no MEETINGS_S3_REGION", () => {
+    const r = loadTemplateSuite("production");
+    delete r.suite["crm-api"]!.SERVICE_AUDIENCE;
+    delete r.suite["meetings-api"]!.MEETINGS_S3_REGION;
+    const findings = checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    const errors = findings.filter((f) => f.level === "error").map((f) => `${f.scope}: ${f.message}`);
+    expect(errors).toContain("crm-api: SERVICE_AUDIENCE is missing");
+    expect(errors).toContain("meetings-api: MEETINGS_S3_REGION is missing");
+  });
+
+  test("the committed meetings-api template carries the port, client id and provider mode the contract expects", () => {
+    const r = loadTemplateSuite("production");
+    expect(r.suite["meetings-api"]!.PORT).toBe("8085");
+    expect(r.suite["meetings-api"]!.SERVICE_CLIENT_ID).toBe("meetings-api");
+    expect(r.suite["meetings-api"]!.MEETINGS_AI_PROVIDER).toBe("real");
+    expect(r.suite["meetings-api"]!.MEETINGS_TEST_HOSTS).toBeUndefined();
   });
 
   test("the committed templates fail when inventory-api's client id is not in auth's SERVICE_CLIENTS", () => {
