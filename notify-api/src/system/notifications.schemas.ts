@@ -20,6 +20,7 @@
 
 import { z } from "zod";
 import {
+  ItVariantSchema,
   LinkSchema,
   NotificationSchema,
   OriginAppSchema,
@@ -36,6 +37,10 @@ export const SystemNotificationRequestSchema = z.object({
   title: z.string().min(1, "title is required").max(200, "title must be at most 200 characters"),
   body: z.string().min(1, "body is required").max(2000, "body must be at most 2000 characters"),
   link: LinkSchema.optional(),
+  // specs/021-meetings (ADR-0065): optional Italian rendering of title/body.
+  // The reader picks it from <html lang>; omit it and the notification renders
+  // exactly as before. Never combined with the email path (English template).
+  it: ItVariantSchema.optional(),
   // specs/019-crm-notifications (ADR-0056): also send the notification as an
   // email to the recipient, whose address notify-api resolves from `auth`.
   // The caller never supplies an address. Needs the `emails.send` scope too.

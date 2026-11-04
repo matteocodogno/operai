@@ -32,7 +32,7 @@ import { z } from "zod";
 // Sourced from shell/src/lib/tools.ts (ToolId union) / auth's authz SUITE_APPS
 // seed. plan.md: "originApp … enum of known app ids". Extend this list (and
 // shell's ToolId union) together when a new tool joins the suite.
-export const ORIGIN_APPS = ["estimai", "refund", "admin", "inventory", "crm"] as const;
+export const ORIGIN_APPS = ["estimai", "refund", "admin", "inventory", "crm", "meetings"] as const;
 export const OriginAppSchema = z.enum(ORIGIN_APPS);
 
 // ─── severity ─────────────────────────────────────────────────────────────────
@@ -71,6 +71,19 @@ export const LinkSchema = z.object({
 
 export type Link = z.infer<typeof LinkSchema>;
 
+// ─── Italian variant (specs/021-meetings, ADR-0065) ──────────────────────────
+//
+// Optional second rendering of title/body for system callers that know both
+// languages. Same limits as the English fields; all-or-nothing (a half-filled
+// or blank variant would render empty for a reader on `<html lang="it">`).
+// The reader chooses between `title`/`body` and `it`; the sender never does.
+export const ItVariantSchema = z.object({
+  title: z.string().min(1, "it.title is required").max(200, "it.title must be at most 200 characters"),
+  body: z.string().min(1, "it.body is required").max(2000, "it.body must be at most 2000 characters"),
+});
+
+export type ItVariant = z.infer<typeof ItVariantSchema>;
+
 // ─── POST /notifications — raise (T4, AC-4.1..4.5) ───────────────────────────
 //
 // NOTE: no `recipient`/`recipientId` field is declared — see file header SECURITY note.
@@ -94,6 +107,9 @@ export const NotificationSchema = z.object({
   severity: SeveritySchema,
   originApp: OriginAppSchema,
   link: LinkSchema.optional(),
+  // Italian variant or null — present on every surface that renders a
+  // notification (list item, SSE payload), so a reader never loses it (ADR-0065).
+  it: ItVariantSchema.nullable(),
   toastWorthy: z.boolean(),
   readAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),

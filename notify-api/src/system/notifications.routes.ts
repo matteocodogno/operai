@@ -156,7 +156,9 @@ export const createSystemNotificationsRouter = (
       "Notification row for `recipientId` and pushing it over that " +
       "recipient's open SSE streams. `recipientId` may be any user, " +
       "including one other than the caller — the cross-user capability " +
-      "ADR-0009 reserved and this route activates.",
+      "ADR-0009 reserved and this route activates. An optional `it: {title, body}` " +
+      "carries an Italian rendering (ADR-0065): stored, returned by the list and " +
+      "the SSE payload, and chosen by the reader from its interface language.",
     request: {
       body: {
         required: true,
@@ -235,6 +237,7 @@ export const createSystemNotificationsRouter = (
       severity: body.severity,
       originApp: body.originApp,
       link: body.link,
+      it: body.it,
       toastWorthy: false,
     });
 

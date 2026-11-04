@@ -395,6 +395,67 @@ describe("POST /system/notifications — validation failures → 400", () => {
   });
 });
 
+// ─── Italian variant (T5, specs/021-meetings, ADR-0065) ───────────────────────
+
+describe("POST /system/notifications — optional Italian variant `it`", () => {
+  const IT = { title: "Trascrizione pronta", body: "La riunione e stata registrata e trascritta con l'IA." };
+
+  const post = async (payload: unknown) =>
+    buildApp().request("/system/notifications", {
+      method: "POST",
+      headers: { ...(await authHeader()), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+  it("201: `it` is stored as titleIt/bodyIt, echoed, and carried by the SSE event (write -> store -> live push)", async () => {
+    const events: Array<{ type: string; data: unknown }> = [];
+    const unsubscribe = eventBus.subscribe(RECIPIENT_ID, (event) => events.push(event as never));
+
+    const res = await post(validBody({ it: IT }));
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; title: string; it: { title: string; body: string } | null };
+    expect(created.it).toEqual(IT);
+    expect(created.title).toBe("Rimborso approvato"); // the English fallback is untouched
+
+    const row = await testDb.notification.findUnique({ where: { id: created.id } });
+    expect(row?.titleIt).toBe(IT.title);
+    expect(row?.bodyIt).toBe(IT.body);
+
+    expect(events).toHaveLength(1);
+    expect((events[0]?.data as { it: unknown }).it).toEqual(IT);
+    unsubscribe();
+  });
+
+  it("201: without `it` the response carries it: null and the columns stay null (existing callers unchanged)", async () => {
+    const res = await post(validBody());
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; it: unknown };
+    expect(created.it).toBeNull();
+
+    const row = await testDb.notification.findUnique({ where: { id: created.id } });
+    expect(row?.titleIt).toBeNull();
+    expect(row?.bodyIt).toBeNull();
+  });
+
+  it("201 at the limits: it.title 200 and it.body 2000 characters", async () => {
+    const res = await post(validBody({ it: { title: "t".repeat(200), body: "b".repeat(2000) } }));
+    expect(res.status).toBe(201);
+  });
+
+  it("400 over the limits, blank, or half-filled; nothing is persisted", async () => {
+    const before = await testDb.notification.count({ where: { recipientId: RECIPIENT_ID } });
+    for (const bad of [
+      { title: "t".repeat(201), body: "b" },
+      { title: "t", body: "b".repeat(2001) },
+      { title: "", body: "b" },
+      { title: "t" },
+    ]) {
+      expect((await post(validBody({ it: bad }))).status).toBe(400);
+    }
+    expect(await testDb.notification.count({ where: { recipientId: RECIPIENT_ID } })).toBe(before);
+  });
+});
+
 // ─── 413: body-size cap ─────────────────────────────────────────────────────────
 
 describe("POST /system/notifications — body-size cap → 413", () => {

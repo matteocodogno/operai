@@ -345,6 +345,31 @@ describe("GET /notifications/stream — valid ticket", () => {
     expect(JSON.parse(events[0]?.data ?? "{}")).toEqual(payload);
   });
 
+  it("a notification's Italian variant `it` reaches the live stream intact (ADR-0065)", async () => {
+    const app = buildApp();
+    const ticket = ticketStore.mint(USER_A_ID);
+
+    const res = await app.request(`/notifications/stream?ticket=${ticket}`);
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const payload = {
+      id: "notif-stream-it",
+      title: "Transcript ready",
+      body: "Your meeting was transcribed with AI.",
+      severity: "success",
+      originApp: "meetings",
+      it: { title: "Trascrizione pronta", body: "La riunione e stata trascritta con l'IA." },
+      toastWorthy: false,
+      readAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    eventBus.publish(USER_A_ID, { type: "notification", data: payload });
+
+    const events = await collectSSE(res, 1);
+    expect(JSON.parse(events[0]?.data ?? "{}").it).toEqual(payload.it);
+  });
+
   it("streams an `unread-reset` event on mark-all-read (AC-3.1 across tabs)", async () => {
     const app = buildApp();
     const ticket = ticketStore.mint(USER_A_ID);

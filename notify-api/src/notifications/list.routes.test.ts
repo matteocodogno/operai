@@ -256,6 +256,44 @@ describe("GET /notifications — ordering (AC-2.3)", () => {
   });
 });
 
+// ─── Italian variant (T5, specs/021-meetings, ADR-0065) ───────────────────────
+
+describe("GET /notifications — Italian variant `it`", () => {
+  it("returns it: { title, body } for a row with a variant and it: null for one without", async () => {
+    const app = buildApp();
+    const jwt = await tokenA();
+
+    const withIt = await testDb.notification.create({
+      data: {
+        recipientId: USER_A_ID,
+        title: "Transcript ready",
+        body: "Your meeting was transcribed with AI.",
+        titleIt: "Trascrizione pronta",
+        bodyIt: "La riunione e stata trascritta con l'IA.",
+        severity: "success",
+        originApp: "meetings",
+        toastWorthy: false,
+      },
+    });
+    await Bun.sleep(5);
+    const [plainId] = await seed(USER_A_ID, 1);
+
+    const res = await app.request("/notifications", { headers: authHeader(jwt) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ id: string; title: string; it: { title: string; body: string } | null }>;
+    };
+
+    const italian = body.items.find((i) => i.id === withIt.id);
+    expect(italian?.it).toEqual({
+      title: "Trascrizione pronta",
+      body: "La riunione e stata trascritta con l'IA.",
+    });
+    expect(italian?.title).toBe("Transcript ready");
+    expect(body.items.find((i) => i.id === plainId)?.it).toBeNull();
+  });
+});
+
 // ─── AC-2.4: empty list ───────────────────────────────────────────────────────
 
 describe("GET /notifications — empty list (AC-2.4)", () => {
