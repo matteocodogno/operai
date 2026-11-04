@@ -1440,6 +1440,44 @@ select:not([multiple]):not([size]) {
     border-width: 3px;
   }
 
+  /* ── Progress — <ProgressBar> ──────────────────────────────────────── */
+  .progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .progress-track {
+    position: relative;
+    flex: 1;
+    height: 8px;
+    overflow: hidden;
+    border: 1px solid var(--dim);
+    border-radius: 999px;
+    background: var(--ink-mid);
+  }
+
+  .progress-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--acc-solid);
+    transition: width 0.2s ease;
+  }
+
+  .progress-indeterminate .progress-fill {
+    position: absolute;
+    width: 40%;
+    animation: op-progress 1.4s ease-in-out infinite;
+  }
+
+  .progress-text {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--soft);
+  }
+
   .page-title:focus {
     outline: none;
   }
@@ -1527,6 +1565,15 @@ select:not([multiple]):not([size]) {
   }
 }
 
+@keyframes op-progress {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
 @keyframes op-spin {
   to {
     transform: rotate(360deg);
@@ -1538,5 +1585,15 @@ select:not([multiple]):not([size]) {
   .spinner,
   .drawer {
     animation: none;
+  }
+
+  .progress-fill {
+    transition: none;
+  }
+
+  /* No sweep: a still segment says "working" without motion. */
+  .progress-indeterminate .progress-fill {
+    animation: none;
+    left: 0;
   }
 }
