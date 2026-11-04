@@ -87,6 +87,7 @@ const TECHNICAL = new Set([
   // ARIA role / live values chosen in a lookup table.
   'status',
   'alert',
+  'blocked',
   'polite',
   'assertive',
   // Severity and theme enum values, tool ids, icon names.

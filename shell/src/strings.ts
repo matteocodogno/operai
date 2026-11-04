@@ -40,6 +40,16 @@ const en = {
     sidebarPlaceholder: 'Sidebar placeholder — tool switcher (EstimAI, Refund) lands in T7.',
     footerPlaceholder: 'Footer placeholder — legal link, version, company info land in T8.',
   },
+  /** The confirmation shown when a remote has registered a navigation blocker (specs/021-meetings, AC-2.10). */
+  leavePage: {
+    title: 'Leave this page?',
+    // Shown only if the remote unregistered between the click and the render.
+    fallbackBody: 'You have work on this page that has not been saved.',
+    leave: 'Leave',
+    leaving: 'Leaving…',
+    stay: 'Stay',
+    close: 'Close',
+  },
   logoMenu: {
     trigger: (app: string) => `${app} menu`,
     about: (app: string) => `About ${app}`,
@@ -135,6 +145,14 @@ const it: typeof en = {
       'Segnaposto intestazione — gli elementi della suite (logo, Informazioni, menu utente, tema) arrivano con T6.',
     sidebarPlaceholder: 'Segnaposto barra laterale — il selettore degli strumenti (EstimAI, Rimborsi) arriva con T7.',
     footerPlaceholder: 'Segnaposto piè di pagina — note legali, versione e dati aziendali arrivano con T8.',
+  },
+  leavePage: {
+    title: 'Uscire da questa pagina?',
+    fallbackBody: 'In questa pagina ci sono dati non ancora salvati.',
+    leave: 'Esci',
+    leaving: 'Uscita…',
+    stay: 'Resta',
+    close: 'Chiudi',
   },
   logoMenu: {
     trigger: (app: string) => `Menu ${app}`,

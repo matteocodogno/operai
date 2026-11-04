@@ -20,4 +20,10 @@ interface ImportMetaEnv {
    * Optional, like VITE_INVENTORY_API_URL: unset → not trusted, no Bearer JWT sent.
    */
   readonly VITE_CRM_API_URL?: string
+  /**
+   * Public origin of meetings-api (specs/021-meetings, T50), e.g.
+   * `https://meetings-api.operai.welld.io`. Optional, like VITE_CRM_API_URL: unset → not
+   * trusted, no Bearer JWT sent; meetings-ui has no copy of its own (it asks the shell).
+   */
+  readonly VITE_MEETINGS_API_URL?: string
 }

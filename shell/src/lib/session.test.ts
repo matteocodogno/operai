@@ -60,7 +60,10 @@ const {
   getAuthBaseUrl,
   getRefundApiBaseUrl,
   getInventoryApiBaseUrl,
+  getMeetingsApiBaseUrl,
+  registerNavigationBlocker,
 } = await import('./session')
+const { getNavigationBlocker, isNavigationBlocked, resetNavigationBlocker } = await import('./navigationBlocker')
 type PermissionsResult = Awaited<ReturnType<typeof ensurePermissions>>
 
 // ---------------------------------------------------------------------------
@@ -71,6 +74,7 @@ const AUTH_URL = 'http://auth.test'
 const API_URL = 'http://api.test'
 const REFUND_API_URL = 'http://refund-api.test'
 const INVENTORY_API_URL = 'http://inventory-api.test'
+const MEETINGS_API_URL = 'http://meetings-api.test'
 const TARGET_URL = `${API_URL}/estimates`
 const THIRD_PARTY_URL = 'https://evil.example.com/x'
 const SAME_ORIGIN_PATH = '/estimates'
@@ -341,6 +345,49 @@ describe('apiFetch', () => {
       await apiFetch(`${INVENTORY_API_URL}/assets`)
 
       expect(mockFetch).toHaveBeenCalledTimes(1)
+    })
+
+    // specs/021-meetings, T50 (AC-2.10 wiring): meetings-api origin, set via
+    // VITE_MEETINGS_API_URL, is trusted so meetings-ui's calls carry the Bearer
+    // JWT — and ONLY that origin does.
+    it('sends Authorization header for a request to the meetings-api origin (VITE_MEETINGS_API_URL)', async () => {
+      vi.stubEnv('VITE_MEETINGS_API_URL', MEETINGS_API_URL)
+      const mockFetch = vi.mocked(fetch)
+
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${MEETINGS_API_URL}/meetings`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const [, init] = mockFetch.mock.calls[1]
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
+    })
+
+    it('does NOT send Authorization to a meetings-looking origin that is not the configured one', async () => {
+      vi.stubEnv('VITE_MEETINGS_API_URL', MEETINGS_API_URL)
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch('http://meetings-api.evil.test/meetings')
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('does NOT trust the meetings origin when VITE_MEETINGS_API_URL is unset', async () => {
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${MEETINGS_API_URL}/meetings`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
     })
 
     it('does NOT send Authorization header for a third-party URL', async () => {
@@ -777,5 +824,83 @@ describe('getInventoryApiBaseUrl', () => {
 
     vi.stubEnv('VITE_INVENTORY_API_URL', 'http://second.test')
     expect(getInventoryApiBaseUrl()).toBe('http://second.test')
+  })
+})
+
+// getMeetingsApiBaseUrl (specs/021-meetings, T50) — mirrors getCrmApiBaseUrl():
+// lazily read, exposed so meetings-ui (no VITE_* env of its own) asks the shell.
+describe('getMeetingsApiBaseUrl', () => {
+  it('returns the VITE_MEETINGS_API_URL configured on the shell', () => {
+    vi.stubEnv('VITE_MEETINGS_API_URL', MEETINGS_API_URL)
+
+    expect(getMeetingsApiBaseUrl()).toBe(MEETINGS_API_URL)
+  })
+
+  it('reads the env lazily, not at module-evaluation time', () => {
+    vi.stubEnv('VITE_MEETINGS_API_URL', 'http://first.test')
+    expect(getMeetingsApiBaseUrl()).toBe('http://first.test')
+
+    vi.stubEnv('VITE_MEETINGS_API_URL', 'http://second.test')
+    expect(getMeetingsApiBaseUrl()).toBe('http://second.test')
+  })
+})
+
+// registerNavigationBlocker (specs/021-meetings, T50, AC-2.10, ADR-0060 seam
+// family): the remote declares "do not let the user navigate away right now";
+// the shell's ShellLayout honours it with useBlocker. One blocker at a time.
+describe('registerNavigationBlocker', () => {
+  afterEach(() => {
+    // Leave the module-scope registry empty for the next test.
+    resetNavigationBlocker()
+  })
+
+  it('registers a blocker, returns an unregister function, and unregistering clears it', () => {
+    const unregister = registerNavigationBlocker(() => true, 'Recording in progress.')
+
+    expect(getNavigationBlocker()?.message).toBe('Recording in progress.')
+    expect(isNavigationBlocked()).toBe(true)
+
+    unregister()
+
+    expect(getNavigationBlocker()).toBeNull()
+    expect(isNavigationBlocked()).toBe(false)
+  })
+
+  it('asks shouldBlock afresh on every check (the remote answers for the moment of navigation)', () => {
+    let recording = false
+    const unregister = registerNavigationBlocker(() => recording, 'msg')
+
+    expect(isNavigationBlocked()).toBe(false)
+    recording = true
+    expect(isNavigationBlocked()).toBe(true)
+    unregister()
+  })
+
+  it('treats a throwing shouldBlock as "do not block" — a broken remote never traps the user', () => {
+    const unregister = registerNavigationBlocker(() => {
+      throw new Error('boom')
+    }, 'msg')
+
+    expect(isNavigationBlocked()).toBe(false)
+    unregister()
+  })
+
+  it('the newest registration wins, and a stale unregister does not remove a newer blocker', () => {
+    const first = registerNavigationBlocker(() => true, 'first')
+    const second = registerNavigationBlocker(() => true, 'second')
+    expect(getNavigationBlocker()?.message).toBe('second')
+
+    first()
+    expect(getNavigationBlocker()?.message).toBe('second')
+
+    second()
+    expect(getNavigationBlocker()).toBeNull()
+  })
+
+  it('unregister is idempotent', () => {
+    const unregister = registerNavigationBlocker(() => true, 'msg')
+    unregister()
+    unregister()
+    expect(getNavigationBlocker()).toBeNull()
   })
 })

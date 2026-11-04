@@ -43,6 +43,8 @@
  *     • The inventory-api origin (VITE_INVENTORY_API_URL), if defined (T41,
  *       specs/015-hardware-inventory) — same shape as refund-api above.
  *     • The crm-api origin (VITE_CRM_API_URL), if defined (specs/017-crm).
+ *     • The meetings-api origin (VITE_MEETINGS_API_URL), if defined
+ *       (specs/021-meetings, T50) — and only that origin.
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -129,6 +131,24 @@ export const getInventoryApiBaseUrl = (): string => getInventoryApiUrl()
  * mirrors `getInventoryApiBaseUrl()`.
  */
 export const getCrmApiBaseUrl = (): string => import.meta.env.VITE_CRM_API_URL as string
+
+/**
+ * The meetings-api base URL (`VITE_MEETINGS_API_URL`, specs/021-meetings, T50),
+ * exposed for the federated `meetings` remote, which ships no `VITE_*` env of its
+ * own. Lazily read, mirrors `getCrmApiBaseUrl()`.
+ */
+export const getMeetingsApiBaseUrl = (): string => import.meta.env.VITE_MEETINGS_API_URL as string
+
+/**
+ * The navigation-blocker seam for remotes (specs/021-meetings, T50, AC-2.10):
+ * `registerNavigationBlocker(shouldBlock, message)` returns an unregister
+ * function; while `shouldBlock()` is true the shell asks the person to confirm
+ * before any in-app navigation (ShellLayout's `useBlocker`). Implemented in
+ * ./navigationBlocker (see why there); re-exported here because `shell/session`
+ * is the one module every remote already imports. A remote feature-detects it so
+ * it still works against a shell that predates the seam (beforeunload only).
+ */
+export { registerNavigationBlocker } from './navigationBlocker'
 
 /** Clears the in-memory JWT cache. */
 export const clearJwtCache = (): void => {
@@ -234,6 +254,17 @@ const getTrustedOrigins = (): Set<string> => {
   if (crmUrl) {
     try {
       trusted.add(new URL(crmUrl).origin)
+    } catch {
+      /* ignore invalid env value */
+    }
+  }
+
+  // specs/021-meetings, T50: meetings-api origin, trusted only when configured
+  // (same shape; an unset env never widens the allowlist).
+  const meetingsUrl = import.meta.env.VITE_MEETINGS_API_URL as string | undefined
+  if (meetingsUrl) {
+    try {
+      trusted.add(new URL(meetingsUrl).origin)
     } catch {
       /* ignore invalid env value */
     }
