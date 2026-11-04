@@ -1,13 +1,15 @@
 import { Button, Field, Icon, StatePanel, VisuallyHidden } from '@operai/ui'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { LoadFailure, Loading } from '../LoadState'
+import { LoadFailure, Loading, StaleWriteBanner } from '../LoadState'
 import { useResource } from '../../hooks/useResource'
 import { getTranscript } from '../../lib/meetingsApi'
 import type { Meeting, Transcript } from '../../lib/types'
 import { strings } from '../../strings'
-import { exportText, inOrder, speakerNameOf, textFileName } from './exportText'
+import { clockOf, exportText, inOrder, speakerNameOf, textFileName } from './exportText'
 import { findMatches } from './fold'
+import { SegmentEditor } from './SegmentEditor'
 import { SegmentRow } from './SegmentRow'
+import { SpeakerRenameDialog } from './SpeakerRenameDialog'
 
 export type TranscriptViewProps = {
   meeting: Meeting
@@ -46,6 +48,8 @@ function LoadedTranscript({ meeting, focusSegmentId, onBackToAnswer }: Transcrip
     <TranscriptBody
       meeting={meeting}
       transcript={resource.data}
+      onTranscript={resource.replace}
+      onReload={resource.retry}
       focusSegmentId={focusSegmentId}
       onBackToAnswer={onBackToAnswer}
     />
@@ -55,14 +59,33 @@ function LoadedTranscript({ meeting, focusSegmentId, onBackToAnswer }: Transcrip
 type BodyProps = {
   meeting: Meeting
   transcript: Transcript
+  /** A correction changed the transcript: show this one. */
+  onTranscript: (transcript: Transcript) => void
+  onReload: () => void
   focusSegmentId: string | null
   onBackToAnswer: (() => void) | null
 }
 
-function TranscriptBody({ meeting, transcript, focusSegmentId, onBackToAnswer }: BodyProps) {
+function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegmentId, onBackToAnswer }: BodyProps) {
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState<'copied' | 'copyFailed' | null>(null)
   const rows = useRef(new Map<string, HTMLLIElement>())
+  const [editing, setEditing] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [stale, setStale] = useState(false)
+  const canEdit = meeting.can.editTranscript
+  // After an editor closes, focus goes back to that segment's Edit button (or its row).
+  const lastEdited = useRef<string | null>(null)
+  useEffect(() => {
+    if (editing !== null) {
+      lastEdited.current = editing
+      return
+    }
+    const id = lastEdited.current
+    lastEdited.current = null
+    const row = id === null ? undefined : rows.current.get(id)
+    if (row !== undefined) (row.querySelector<HTMLElement>('[data-edit]') ?? row).focus()
+  }, [editing])
 
   const segments = useMemo(() => inOrder(transcript.segments), [transcript.segments])
   // Counts and highlights come from the data, never from the DOM.
@@ -135,6 +158,28 @@ function TranscriptBody({ meeting, transcript, focusSegmentId, onBackToAnswer }:
         {notice === 'copied' ? strings.transcript.copied : notice === 'copyFailed' ? strings.transcript.copyFailed : ''}
       </VisuallyHidden>
       {notice === 'copyFailed' && <p className="text-xs text-red-text">{strings.transcript.copyFailed}</p>}
+      {stale && <StaleWriteBanner onReload={onReload} />}
+      {canEdit && transcript.speakers.length > 0 && (
+        <ul aria-label={strings.transcript.speakersHeading} className="flex flex-wrap gap-2">
+          {transcript.speakers.map((speaker) => {
+            const name = speakerNameOf(speaker.key, transcript.speakers, meeting.participants) ?? ''
+            return (
+              <li key={speaker.key} className="flex items-center gap-1 text-sm">
+                <span>{name}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-haspopup="dialog"
+                  aria-label={strings.transcript.rename(name)}
+                  onClick={() => setRenaming(speaker.key)}
+                >
+                  <Icon name="pencil" />
+                </Button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
       {focusSegmentId !== null && onBackToAnswer !== null && (
         <div>
           <Button variant="ghost" size="sm" onClick={onBackToAnswer}>
@@ -153,6 +198,32 @@ function TranscriptBody({ meeting, transcript, focusSegmentId, onBackToAnswer }:
             speaker={speakerNameOf(segment.speakerKey, transcript.speakers, meeting.participants)}
             ranges={hits[index]!}
             onPlay={null}
+            onEdit={canEdit ? () => setEditing(segment.id) : null}
+            editLabel={
+              segment.startMs === null
+                ? strings.transcript.editPassage(segment.ordinal)
+                : strings.transcript.editSegment(clockOf(segment.startMs))
+            }
+            editor={
+              editing === segment.id ? (
+                <SegmentEditor
+                  meetingId={meeting.id}
+                  segment={segment}
+                  onCancel={() => setEditing(null)}
+                  onStale={() => {
+                    setEditing(null)
+                    setStale(true)
+                  }}
+                  onSaved={(saved) => {
+                    onTranscript({
+                      ...transcript,
+                      segments: transcript.segments.map((s) => (s.id === saved.id ? saved : s)),
+                    })
+                    setEditing(null)
+                  }}
+                />
+              ) : null
+            }
             cited={segment.id === focusSegmentId}
             rowRef={(element) => {
               if (element === null) rows.current.delete(segment.id)
@@ -161,6 +232,22 @@ function TranscriptBody({ meeting, transcript, focusSegmentId, onBackToAnswer }:
           />
         ))}
       </ol>
+      {renaming !== null && (
+        <SpeakerRenameDialog
+          meetingId={meeting.id}
+          speaker={transcript.speakers.find((speaker) => speaker.key === renaming)!}
+          currentName={speakerNameOf(renaming, transcript.speakers, meeting.participants) ?? ''}
+          participants={meeting.participants}
+          onClose={() => setRenaming(null)}
+          onSaved={(saved) => {
+            onTranscript({
+              ...transcript,
+              speakers: transcript.speakers.map((speaker) => (speaker.key === saved.key ? saved : speaker)),
+            })
+            setRenaming(null)
+          }}
+        />
+      )}
     </div>
   )
 }

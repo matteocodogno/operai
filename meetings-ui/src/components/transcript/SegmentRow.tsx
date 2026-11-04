@@ -1,5 +1,5 @@
-import { Badge, Button, VisuallyHidden, cx, formatDuration } from '@operai/ui'
-import type { Ref } from 'react'
+import { Badge, Button, Icon, VisuallyHidden, cx, formatDuration } from '@operai/ui'
+import type { ReactNode, Ref } from 'react'
 import type { TranscriptSegment } from '../../lib/types'
 import { strings } from '../../strings'
 import { clockOf } from './exportText'
@@ -17,10 +17,15 @@ export type SegmentRowProps = {
   /** The segment an answer cited (F12). */
   cited: boolean
   rowRef: Ref<HTMLLIElement>
+  /** Set for the creator (`can.editTranscript`): opens the inline editor. */
+  onEdit: (() => void) | null
+  editLabel: string
+  /** The inline editor, while this segment is being edited: it takes the place of the text. */
+  editor: ReactNode
 }
 
 /** One transcript line: time, speaker, text, the "Edited" mark. Text is rendered as plain text only. */
-export function SegmentRow({ segment, speaker, ranges, onPlay, cited, rowRef }: SegmentRowProps) {
+export function SegmentRow({ segment, speaker, ranges, onPlay, cited, rowRef, onEdit, editLabel, editor }: SegmentRowProps) {
   const timed = segment.startMs !== null
   return (
     <li
@@ -52,11 +57,18 @@ export function SegmentRow({ segment, speaker, ranges, onPlay, cited, rowRef }: 
           {speaker !== null && <span className="font-medium text-text">{speaker}</span>}
           {segment.edited && <Badge>{strings.transcript.edited}</Badge>}
         </p>
-        <p className="whitespace-pre-line break-words text-sm text-text">
-          {cited && <VisuallyHidden>{strings.transcript.citedPassage} </VisuallyHidden>}
-          <Highlight text={segment.text} ranges={ranges} />
-        </p>
+        {editor ?? (
+          <p className="whitespace-pre-line break-words text-sm text-text">
+            {cited && <VisuallyHidden>{strings.transcript.citedPassage} </VisuallyHidden>}
+            <Highlight text={segment.text} ranges={ranges} />
+          </p>
+        )}
       </div>
+      {onEdit !== null && editor === null && (
+        <Button variant="ghost" size="sm" iconOnly aria-label={editLabel} data-edit onClick={onEdit}>
+          <Icon name="edit" />
+        </Button>
+      )}
     </li>
   )
 }
