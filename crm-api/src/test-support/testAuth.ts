@@ -63,6 +63,8 @@ process.env["AUTH_ISSUER"] = TEST_ISSUER;
 process.env["AUTH_AUDIENCE"] = TEST_AUDIENCE;
 process.env["AUTH_BASE_URL"] = TEST_ISSUER;
 process.env["NODE_ENV"] = "test";
+// specs/021: the `aud` of scoped service JWTs (must differ from AUTH_AUDIENCE).
+process.env["SERVICE_AUDIENCE"] = "operai-system";
 // specs/018: estimai-api is faked by test-support/world.ts's fetch stub; the
 // bucket by an in-memory Storage (`setStorageForTests`), so no CRM_S3_* here.
 process.env["ESTIMAI_API_URL"] = "http://estimai.test";

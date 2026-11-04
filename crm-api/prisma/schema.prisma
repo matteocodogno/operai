@@ -335,6 +335,9 @@ model Activity {
   assigneeUserId    String?
   completedAt       DateTime?
   completedByUserId String?
+  /// The Meetings meeting this activity mirrors (specs/021 US-14, ADR-0059): at most one activity
+  /// per meeting (UNIQUE), and only a `meeting` activity can carry it (CHECK, raw SQL).
+  meetingId         String?      @unique
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
@@ -378,4 +381,16 @@ model TaskBlocker {
   @@id([blockedId, blockerId])
   @@index([blockerId])
   @@map("task_blocker")
+}
+
+/// Content-free ordering guard per meeting (specs/021 US-14, ADR-0059): the highest notice `seq`
+/// applied. A notice with `seq <= lastSeq` is a no-op, so duplicates, retries and reordering are
+/// harmless; the row outlives the activity (a `deleted` notice sets it too), so a late `changed`
+/// can never resurrect anything. Holds no title, no date and no person.
+model MeetingHostState {
+  meetingId String   @id
+  lastSeq   Int
+  updatedAt DateTime @updatedAt
+
+  @@map("meeting_host_state")
 }
