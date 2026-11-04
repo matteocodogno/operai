@@ -88,8 +88,10 @@ export {
   formatDate,
   formatDateLong,
   formatDateTime,
+  formatDuration,
   formatMoney,
   formatNumber,
   formatRelative,
 } from './lib/format'
+export type { DurationStyle } from './lib/format'
 export { useFocusOnMount } from './lib/useFocusOnMount'
