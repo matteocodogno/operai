@@ -1,6 +1,121 @@
-/** Copy for the participants card and dialog (S4), T60 fills this in place. */
-const en = {}
+/** Copy for the participants card and the Edit participants dialog (S3 › People and access, S4, F13). */
+const en = {
+  card: {
+    title: 'People and access',
+    creatorBadge: 'Creator',
+    externalBadge: 'External',
+    deletedUser: 'Deleted user',
+    unknownUser: 'Unknown user',
+    listLabel: 'Participants',
+    empty: 'No other participants yet.',
+    count: (n: number, max: number) => `${n} of ${max} participants`,
+    edit: 'Edit participants',
+    saved: 'Participants saved',
+  },
+  visibility: {
+    label: (host: string) => `Also visible to people who can open ${host}`,
+    /** The label with the host's own continuation phrase ("… and can see deal financials"). */
+    labelWithHint: (host: string, hint: string) => `Also visible to people who can open ${host} ${hint}`,
+    confirmTitle: 'Make this meeting visible to more people?',
+    confirmBody: (host: string) =>
+      `Everyone who can open ${host} and sees its sensitive details will be able to read this meeting, including the transcript.`,
+    confirm: 'Make visible',
+    busy: 'Saving…',
+    hostGone: 'Host-granted visibility ended because it is no longer available',
+    updated: 'Visibility updated',
+  },
+  dialog: {
+    title: 'Edit participants',
+    description:
+      'People you add can read everything in this meeting, including what is already there. Operai people are notified.',
+    save: 'Save',
+    saving: 'Saving…',
+    addOperai: 'Add an Operai person',
+    addExternal: 'Add an external person',
+    name: 'Name',
+    organisation: 'Organisation',
+    add: 'Add',
+    remove: (name: string) => `Remove ${name}`,
+    count: (n: number, max: number) => `${n} of ${max}`,
+    limit: 'A meeting can have at most 30 participants.',
+    listLabel: 'Current participants',
+    empty: 'Nobody added yet.',
+    external: 'External',
+    notActive: 'This person has no active account. Remove them to continue.',
+    errors: {
+      nameRequired: 'Enter a name',
+      nameTooLong: 'Use at most 100 characters',
+      organisationTooLong: 'Use at most 100 characters',
+    },
+    picker: {
+      loading: 'Loading people…',
+      noMatch: 'No people match.',
+      failed: "People can't be loaded right now.",
+      noName: 'Unnamed person',
+      results: (count: number) => (count === 1 ? '1 person found' : `${count} people found`),
+      rateLimited: (seconds: number) => `Too many requests. Try again in ${seconds} seconds.`,
+      unavailableHint: "You can't pick people",
+    },
+  },
+}
 
-const it: typeof en = {}
+const it: typeof en = {
+  card: {
+    title: 'Persone e accesso',
+    creatorBadge: 'Creatore',
+    externalBadge: 'Esterno',
+    deletedUser: 'Utente eliminato',
+    unknownUser: 'Utente sconosciuto',
+    listLabel: 'Partecipanti',
+    empty: 'Nessun altro partecipante.',
+    count: (n: number, max: number) => `${n} di ${max} partecipanti`,
+    edit: 'Modifica partecipanti',
+    saved: 'Partecipanti salvati',
+  },
+  visibility: {
+    label: (host: string) => `Visibile anche a chi può aprire ${host}`,
+    labelWithHint: (host: string, hint: string) => `Visibile anche a chi può aprire ${host} ${hint}`,
+    confirmTitle: 'Rendere questa riunione visibile a più persone?',
+    confirmBody: (host: string) =>
+      `Tutte le persone che possono aprire ${host} e ne vedono i dettagli riservati potranno leggere questa riunione, trascrizione compresa.`,
+    confirm: 'Rendi visibile',
+    busy: 'Salvataggio…',
+    hostGone: 'La visibilità concessa dal record collegato è terminata perché non è più disponibile',
+    updated: 'Visibilità aggiornata',
+  },
+  dialog: {
+    title: 'Modifica partecipanti',
+    description:
+      'Le persone che aggiungi possono leggere tutto ciò che c’è in questa riunione, anche ciò che è già presente. Le persone di Operai vengono avvisate.',
+    save: 'Salva',
+    saving: 'Salvataggio…',
+    addOperai: 'Aggiungi una persona di Operai',
+    addExternal: 'Aggiungi una persona esterna',
+    name: 'Nome',
+    organisation: 'Organizzazione',
+    add: 'Aggiungi',
+    remove: (name: string) => `Rimuovi ${name}`,
+    count: (n: number, max: number) => `${n} di ${max}`,
+    limit: 'Una riunione può avere al massimo 30 partecipanti.',
+    listLabel: 'Partecipanti attuali',
+    empty: 'Nessuno aggiunto.',
+    external: 'Esterno',
+    notActive: 'Questa persona non ha un account attivo. Rimuovila per continuare.',
+    errors: {
+      nameRequired: 'Inserisci un nome',
+      nameTooLong: 'Usa al massimo 100 caratteri',
+      organisationTooLong: 'Usa al massimo 100 caratteri',
+    },
+    picker: {
+      loading: 'Caricamento delle persone…',
+      noMatch: 'Nessuna persona corrisponde.',
+      failed: 'Al momento non è possibile caricare le persone.',
+      noName: 'Persona senza nome',
+      results: (count: number) => (count === 1 ? '1 persona trovata' : `${count} persone trovate`),
+      rateLimited: (seconds: number) => `Troppe richieste. Riprova tra ${seconds} secondi.`,
+      unavailableHint: 'Non puoi scegliere le persone',
+    },
+  },
+}
 
 export const participants = { en, it }
