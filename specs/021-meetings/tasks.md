@@ -109,14 +109,14 @@ database after `bun run db:deploy`.
     - a stale `attemptId` result is discarded;
     - no code path in the runner reads a lifecycle timestamp to change a meeting's status (static check)
 
-- [ ] T18: [BE] meetings-api visibility and frozen derivation: creator / Operai participant / host reader (live `meetings:access` + host resolve, no cache), identical 404 for not-visible, frozen from the creator's live identity (soft for display, closed for gates) — refs: AC-5.2, AC-5.3, AC-5.7, AC-5.11, AC-5.13, AC-4.8 — deps: T12, T13, T15
+- [x] T18: [BE] meetings-api visibility and frozen derivation: creator / Operai participant / host reader (live `meetings:access` + host resolve, no cache), identical 404 for not-visible, frozen from the creator's live identity (soft for display, closed for gates) — refs: AC-5.2, AC-5.3, AC-5.7, AC-5.11, AC-5.13, AC-4.8 — deps: T12, T13, T15
   - touch: `meetings-api/src/meetings/visibility.ts`, `meetings-api/src/meetings/visibility.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/visibility.test.ts` passes:
     - matrix of creator, participant, host reader (with/without `meetings:access` / host `hostVisible` / `closed`), admin outsider and erase holder;
     - frozen on identities `deleted` and back on `active`;
     - identities outage → `frozen: null` for display and a 503 from the gate helper
 
-- [ ] T93: [BE] meetings-api `Meeting` view builder and derived state: status incl. `interrupted` (no audio or beat for 2 min), audio state (`until` = `audioCreatedAt` + 29 d), `recording.lostMs`, every `can` flag incl. `changeSource` / `changeLanguage`, `capabilities` — refs: AC-2.8, AC-2.9, AC-4.4, AC-5.8, AC-5.11, AC-10.6 — deps: T18
+- [x] T93: [BE] meetings-api `Meeting` view builder and derived state: status incl. `interrupted` (no audio or beat for 2 min), audio state (`until` = `audioCreatedAt` + 29 d), `recording.lostMs`, every `can` flag incl. `changeSource` / `changeLanguage`, `capabilities` — refs: AC-2.8, AC-2.9, AC-4.4, AC-5.8, AC-5.11, AC-10.6 — deps: T18
   - touch: `meetings-api/src/meetings/view.ts`, `meetings-api/src/meetings/view.test.ts`, `meetings-api/src/meetings/derived.ts`, `meetings-api/src/meetings/derived.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/view.test.ts src/meetings/derived.test.ts` passes:
     - with an injected clock: 2 min with no chunk or beat → `interrupted`, and a paused session with beats stays `recording`;
