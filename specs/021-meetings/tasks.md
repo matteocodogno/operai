@@ -313,7 +313,7 @@ database after `bun run db:deploy`.
     - canary strings planted in title, transcript, summary, question and answer never appear in captured console output;
     - with resolve at 503, creator and participant reads give 200 and capability routes 503
 
-- [ ] T43: [OPS] Register meetings-api's copied modules (`serviceToken`, `s3Residency`, JWT/authz middleware) in the shared-copies check — refs: AC-4.9 — deps: T13, T14, T16
+- [x] T43: [OPS] Register meetings-api's copied modules (`serviceToken`, `s3Residency`, JWT/authz middleware) in the shared-copies check — refs: AC-4.9 — deps: T13, T14, T16
   - touch: `scripts/check-shared-copies.ts`
   - done when: `mise run shared:check` passes, and fails if one meetings-api copy is edited alone
 
