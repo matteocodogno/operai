@@ -24,6 +24,17 @@ const en = {
   copied: 'Summary copied to the clipboard.',
   copyFailed: 'Could not copy. Select the text and copy it yourself.',
   regenerate: 'Regenerate',
+  moreActions: 'More actions',
+  saving: 'Saving…',
+  bodyTooLong: 'A section can be at most 8,000 characters.',
+  editHint: 'Your changes replace the generated text. Regenerating never alters an edited summary.',
+  deleteDialog: {
+    title: 'Delete this summary?',
+    body: (name: string) =>
+      `The summary “${name}” is deleted for everyone who can open this meeting. The transcript and the other summaries stay. This cannot be undone.`,
+    confirm: 'Delete summary',
+    busy: 'Deleting…',
+  },
   rateLimited: (when: string) => `You have reached the limit of AI requests. Try again after ${when}.`,
   dialog: {
     title: 'Generate summary',
@@ -67,6 +78,17 @@ const it: typeof en = {
   copied: 'Riassunto copiato negli appunti.',
   copyFailed: 'Impossibile copiare. Seleziona il testo e copialo tu.',
   regenerate: 'Rigenera',
+  moreActions: 'Altre azioni',
+  saving: 'Salvataggio…',
+  bodyTooLong: 'Una sezione può avere al massimo 8.000 caratteri.',
+  editHint: 'Le tue modifiche sostituiscono il testo generato. Rigenerare non modifica mai un riassunto modificato.',
+  deleteDialog: {
+    title: 'Eliminare questo riassunto?',
+    body: (name: string) =>
+      `Il riassunto “${name}” viene eliminato per tutti quelli che possono aprire questa riunione. La trascrizione e gli altri riassunti restano. L’operazione non si può annullare.`,
+    confirm: 'Elimina il riassunto',
+    busy: 'Eliminazione…',
+  },
   rateLimited: (when: string) => `Hai raggiunto il limite di richieste all’IA. Riprova dopo ${when}.`,
   dialog: {
     title: 'Genera riassunto',

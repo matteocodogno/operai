@@ -132,6 +132,11 @@ export default function SummariesPanel({ meeting, hostInfo }: SummariesPanelProp
               focus={focusId === summary.id}
               onResult={onResult}
               onError={setActionError}
+              onDeleted={(id) => put(null, id)}
+              onReload={() => {
+                setOverrides({ against: null, entries: [] })
+                polling.retry()
+              }}
             />
           ))}
         </div>

@@ -1,10 +1,12 @@
-import { Badge, Banner, Button, Card, Icon, Spinner, StatusBadge, VisuallyHidden, formatDateTime } from '@operai/ui'
+import { Badge, Banner, Button, Card, Icon, Menu, MenuItem, Spinner, StatusBadge, VisuallyHidden, formatDateTime } from '@operai/ui'
 import { useEffect, useRef, useState } from 'react'
 import { SUMMARY_STATUS_MEANING } from '../../lib/statusMeanings'
 import { regenerateSummary, retrySummary } from '../../lib/meetingsApi'
 import type { Meeting, Summary } from '../../lib/types'
 import { strings } from '../../strings'
 import { aiErrorMessage } from '../aiError'
+import { DeleteSummaryDialog } from './DeleteSummaryDialog'
+import { SummaryEditor } from './SummaryEditor'
 
 export type SummaryCardProps = {
   meeting: Meeting
@@ -17,9 +19,10 @@ export type SummaryCardProps = {
   onResult: (summary: Summary) => void
   /** An action failed: the panel shows the message. */
   onError: (message: string) => void
-  /** Slot for the card's "More actions" menu and the editor (T72). */
-  menu?: React.ReactNode
-  editor?: React.ReactNode
+  /** The summary was deleted. */
+  onDeleted: (id: string) => void
+  /** The list should load again (after a stale write). */
+  onReload: () => void
 }
 
 /** The summary as plain text: the template name, then each section's heading and body (AC-7.11). */
@@ -32,11 +35,22 @@ const summaryText = (summary: Summary): string =>
  * One summary. Everything the AI wrote is rendered as plain text — React text nodes in a
  * `whitespace-pre-line` paragraph, never HTML or Markdown (ADR-0067).
  */
-export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onError, menu, editor }: SummaryCardProps) {
+export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onError, onDeleted, onReload }: SummaryCardProps) {
   const t = strings.summaries
   const [busy, setBusy] = useState<'regenerate' | 'retry' | null>(null)
   const [copied, setCopied] = useState<'copied' | 'copyFailed' | null>(null)
   const root = useRef<HTMLDivElement>(null)
+  const [editing, setEditing] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  // When the editor closes, focus returns to the card.
+  const wasEditing = useRef(false)
+  useEffect(() => {
+    if (editing) wasEditing.current = true
+    else if (wasEditing.current) {
+      wasEditing.current = false
+      root.current?.focus()
+    }
+  }, [editing])
   // Politely announce a summary that was generating when it becomes ready (F10).
   const [wasGenerating, setWasGenerating] = useState(summary.status === 'generating')
   if (summary.status === 'generating' && !wasGenerating) setWasGenerating(true)
@@ -102,7 +116,21 @@ export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onErro
           </Banner>
         )}
         {summary.status === 'ready' &&
-          (editor ?? (
+          (editing ? (
+            <SummaryEditor
+              meetingId={meeting.id}
+              summary={summary}
+              onCancel={() => setEditing(false)}
+              onReload={() => {
+                setEditing(false)
+                onReload()
+              }}
+              onSaved={(saved) => {
+                setEditing(false)
+                onResult(saved)
+              }}
+            />
+          ) : (
             <div className="flex flex-col gap-3">
               {(summary.sections ?? []).map((section, index) => (
                 <section key={index}>
@@ -138,7 +166,17 @@ export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onErro
               <Icon name="refresh" /> {t.regenerate}
             </Button>
           )}
-          {menu}
+          {(summary.can.edit || summary.can.delete) && (
+            <Menu
+              trigger={<Icon name="more" />}
+              triggerLabel={t.moreActions}
+              align="end"
+              testIdPrefix={`meetings-summary-menu-${summary.id}`}
+            >
+              {summary.can.edit && <MenuItem onClick={() => setEditing(true)}>{strings.common.edit}</MenuItem>}
+              {summary.can.delete && <MenuItem onClick={() => setDeleting(true)}>{strings.common.delete}</MenuItem>}
+            </Menu>
+          )}
         </div>
         <VisuallyHidden live>
           {copied === 'copied'
@@ -152,6 +190,17 @@ export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onErro
                   : ''}
         </VisuallyHidden>
       </Card>
+      {deleting && (
+        <DeleteSummaryDialog
+          meetingId={meeting.id}
+          summary={summary}
+          onCancel={() => setDeleting(false)}
+          onDeleted={() => {
+            setDeleting(false)
+            onDeleted(summary.id)
+          }}
+        />
+      )}
     </div>
   )
 }
