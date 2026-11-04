@@ -337,18 +337,18 @@ database after `bun run db:deploy`.
   - touch: `operai-ui/src/components/SectionsEditor*.tsx`, `operai-ui/src/index.ts`, `crm-ui/src/components/SectionsEditor.tsx`, `crm-ui/src/pages/TemplateEditorPage.tsx`
   - done when: `mise run ui:check` passes, and `cd crm-ui && pnpm test src/pages/OfferTemplates.test.tsx` passes
 
-- [ ] T49: [FE] shell: `meetings` remote (vite config, runtime remotes, ambient types, stubs, About version source), routes `/meetings/$` (gated) and `/my-meetings/$` (ungated), `TOOLS` entry + sidebar icon `mic`, UserMenu "My meetings", `@source meetings-ui/src`, strings en/it — refs: AC-10.1, AC-10.4, AC-10.5, AC-1.4 — deps: T45
+- [x] T49: [FE] shell: `meetings` remote (vite config, runtime remotes, ambient types, stubs, About version source), routes `/meetings/$` (gated) and `/my-meetings/$` (ungated), `TOOLS` entry + sidebar icon `mic`, UserMenu "My meetings", `@source meetings-ui/src`, strings en/it — refs: AC-10.1, AC-10.4, AC-10.5, AC-1.4 — deps: T45
   - touch: `shell/vite.config.ts`, `shell/src/lib/runtimeRemotes.ts`, `shell/src/lib/runtimeRemotes.test.ts`, `shell/src/federation/*`, `shell/src/router.tsx`, `shell/src/router.meetings.test.tsx`, `shell/src/lib/tools.ts`, `shell/src/lib/tools.test.ts`, `shell/src/components/UserMenu.tsx`, `shell/src/components/UserMenu.test.tsx`, `shell/src/components/Sidebar.tsx`, `shell/src/components/AboutModal.tsx`, `shell/src/strings.ts`, `shell/src/index.css`
   - done when: `cd shell && pnpm lint && pnpm build && pnpm test` passes; `router.meetings.test.tsx` shows `/my-meetings/*` mounting `meetings/MyMeetings` for a zero-grant user and `/meetings/*` going to no-access without `meetings`
 
-- [ ] T50: [FE] shell: `getMeetingsApiBaseUrl()` + trusted origin (`VITE_MEETINGS_API_URL`), `registerNavigationBlocker(shouldBlock, message)` in `session.ts`, and the shell's `useBlocker` + `ConfirmDialog` ("Leave this page?", focus on Stay) — refs: AC-2.10 — deps: T49
+- [x] T50: [FE] shell: `getMeetingsApiBaseUrl()` + trusted origin (`VITE_MEETINGS_API_URL`), `registerNavigationBlocker(shouldBlock, message)` in `session.ts`, and the shell's `useBlocker` + `ConfirmDialog` ("Leave this page?", focus on Stay) — refs: AC-2.10 — deps: T49
   - touch: `shell/src/lib/session.ts`, `shell/src/lib/session.test.ts`, `shell/src/components/ShellLayout.tsx`, `shell/src/components/ShellLayout.test.tsx`, `shell/src/strings.ts`, `shell/src/vite-env.d.ts`
   - done when: `cd shell && pnpm test src/lib/session.test.ts src/components/ShellLayout.test.tsx` passes:
     - Bearer attached only to the meetings-api origin;
     - a registered blocker shows the dialog and Stay cancels the navigation;
     - unregistering lets navigation through
 
-- [ ] T51: [FE] shell: `./extensions` expose with `HostExtension` (loads `meetings/HostMeetings`, 5 s race, error boundary, missing export → fallback) — refs: AC-11.6 — deps: T49
+- [x] T51: [FE] shell: `./extensions` expose with `HostExtension` (loads `meetings/HostMeetings`, 5 s race, error boundary, missing export → fallback) — refs: AC-11.6 — deps: T49
   - touch: `shell/src/lib/extensions.tsx`, `shell/src/lib/extensions.test.tsx`, `shell/vite.config.ts`, `shell/src/federation/*`
   - done when: `cd shell && pnpm test src/lib/extensions.test.tsx && pnpm build` passes; the test renders the fallback for a rejected import, for a 5 s timeout (fake timers), for a module without the export and for a component that throws on render, and never rethrows
 
