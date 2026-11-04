@@ -385,7 +385,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-ui/src/pages/NewMeetingPage.tsx`, `meetings-ui/src/pages/NewMeetingPage.test.tsx`, `meetings-ui/src/strings/newMeeting.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/NewMeetingPage.test.tsx` passes: invalid fields named and focused; prefilled title and host label; each host error state; standalone submit without a host
 
-- [ ] T57: [FE] meetings-ui meeting page frame: header, details card (incl. consent facts), one-at-a-time status panels (processing stages, failed with reason and Retry, no speech, frozen banner), tabs and card slots — refs: AC-4.3, AC-5.11, AC-6.7, AC-6.9, AC-6.10, AC-10.4 — deps: T54
+- [x] T57: [FE] meetings-ui meeting page frame: header, details card (incl. consent facts), one-at-a-time status panels (processing stages, failed with reason and Retry, no speech, frozen banner), tabs and card slots — refs: AC-4.3, AC-5.11, AC-6.7, AC-6.9, AC-6.10, AC-10.4 — deps: T54
   - touch: `meetings-ui/src/pages/MeetingPage.tsx`, `meetings-ui/src/pages/MeetingPage.test.tsx`, `meetings-ui/src/components/meeting/StatusPanels.tsx`, `meetings-ui/src/components/meeting/DetailsCard.tsx`, `meetings-ui/src/strings/meeting.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/MeetingPage.test.tsx` passes, rendering each status panel from fixtures:
     - a read-only participant (`can.*` false) sees no create/summarise/ask/edit control;
@@ -393,7 +393,7 @@ database after `bun run db:deploy`.
     - attestation facts;
     - Retry only when `can.retryProcessing`
 
-- [ ] T58: [FE] meetings-ui Edit details dialog: title, date-time, format, language (`can.changeLanguage`), source switch (`can.changeSource`, G1), host-visible checkbox with the host's `visibilityHint` (G6), Remove link — refs: AC-1.7, AC-1.8, AC-2.3, AC-3.5, AC-5.5 — deps: T54
+- [x] T58: [FE] meetings-ui Edit details dialog: title, date-time, format, language (`can.changeLanguage`), source switch (`can.changeSource`, G1), host-visible checkbox with the host's `visibilityHint` (G6), Remove link — refs: AC-1.7, AC-1.8, AC-2.3, AC-3.5, AC-5.5 — deps: T54
   - touch: `meetings-ui/src/components/meeting/EditDetailsDialog.tsx`, `meetings-ui/src/components/meeting/EditDetailsDialog.test.tsx`, `meetings-ui/src/strings/editDetails.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/EditDetailsDialog.test.tsx` passes:
     - locked fields come from `can` flags;
@@ -401,11 +401,11 @@ database after `bun run db:deploy`.
     - the checkbox is absent for a standalone meeting;
     - Remove link sends `host: null`
 
-- [ ] T59: [FE] meetings-ui host-notice failure banner: non-blocking, the host's `noticeFailed` sentence, Try again (absent when frozen) — refs: AC-11.9, AC-14.8, AC-14.10 — deps: T57
+- [x] T59: [FE] meetings-ui host-notice failure banner: non-blocking, the host's `noticeFailed` sentence, Try again (absent when frozen) — refs: AC-11.9, AC-14.8, AC-14.10 — deps: T57
   - touch: `meetings-ui/src/components/meeting/HostNoticeBanner.tsx`, `meetings-ui/src/components/meeting/HostNoticeBanner.test.tsx`, `meetings-ui/src/strings/meeting.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/HostNoticeBanner.test.tsx` passes: en/it sentence from the registry, retry calls the route and hides on success, no Try again when frozen
 
-- [ ] T60: [FE] meetings-ui participants card + Edit participants dialog (library `PersonPicker` over the directory with NO `appId`, G9; external name/organisation; ≤ 30; deleted users shown as deleted) — refs: AC-5.1, AC-5.4, AC-5.10 — deps: T47, T54
+- [x] T60: [FE] meetings-ui participants card + Edit participants dialog (library `PersonPicker` over the directory with NO `appId`, G9; external name/organisation; ≤ 30; deleted users shown as deleted) — refs: AC-5.1, AC-5.4, AC-5.10 — deps: T47, T54
   - touch: `meetings-ui/src/components/meeting/ParticipantsCard.tsx`, `meetings-ui/src/components/meeting/EditParticipantsDialog.tsx`, `meetings-ui/src/components/meeting/Participants.test.tsx`, `meetings-ui/src/strings/participants.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/Participants.test.tsx` passes:
     - the directory request URL has no `appId`;
@@ -414,7 +414,7 @@ database after `bun run db:deploy`.
     - "Deleted user" rendering;
     - focus moves after removal
 
-- [ ] T61: [FE] meetings-ui consent card: versioned notice (en/it, the five required statements), explicit tick, copyable announcement; capture controls hidden until attested — refs: AC-4.1, AC-4.2, AC-2.1 — deps: T54
+- [x] T61: [FE] meetings-ui consent card: versioned notice (en/it, the five required statements), explicit tick, copyable announcement; capture controls hidden until attested — refs: AC-4.1, AC-4.2, AC-2.1 — deps: T54
   - touch: `meetings-ui/src/components/meeting/ConsentCard.tsx`, `meetings-ui/src/components/meeting/ConsentCard.test.tsx`, `meetings-ui/src/strings/consent.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/ConsentCard.test.tsx` passes:
     - Proceed disabled until ticked, and posts the notice version;
@@ -511,7 +511,7 @@ database after `bun run db:deploy`.
     - 409 shows the reload banner;
     - duplicate opens the editor on the copy
 
-- [ ] T75: [FE] meetings-ui Erase page (search by title / creator / date, title + date + creator only, delete) and the Delete meeting dialog (cannot be undone, `acknowledgeLabel`) — refs: AC-4.6, AC-4.7, AC-5.12 — deps: T47, T54
+- [x] T75: [FE] meetings-ui Erase page (search by title / creator / date, title + date + creator only, delete) and the Delete meeting dialog (cannot be undone, `acknowledgeLabel`) — refs: AC-4.6, AC-4.7, AC-5.12 — deps: T47, T54
   - touch: `meetings-ui/src/pages/ErasePage.tsx`, `meetings-ui/src/pages/ErasePage.test.tsx`, `meetings-ui/src/components/meeting/DeleteMeetingDialog.tsx`, `meetings-ui/src/components/meeting/DeleteMeetingDialog.test.tsx`, `meetings-ui/src/strings/erase.ts`
   - done when: `cd meetings-ui && pnpm test src/pages/ErasePage.test.tsx src/components/meeting/DeleteMeetingDialog.test.tsx` passes: no link from erase rows to content; the dialog needs the acknowledgement; the Erase tab is hidden without the `meeting:erase` hint
 
