@@ -74,7 +74,7 @@ describe.each(REMOTE_VERSION_SOURCES)(
   },
 )
 
-it('REMOTE_VERSION_SOURCES covers exactly the five known remote directories, no more, no less', () => {
+it('REMOTE_VERSION_SOURCES covers exactly the known remote directories, no more, no less', () => {
   expect(new Set(REMOTE_VERSION_SOURCES.map((s) => s.id))).toEqual(new Set(Object.keys(REMOTE_DIRS)))
 })
 
@@ -84,6 +84,18 @@ it('REMOTE_VERSION_SOURCES covers exactly the five known remote directories, no 
 describe("'inventory' — the two federated entries are declared for tsc", () => {
   it.each(['inventory/App', 'inventory/MyDevices'])("remotes.d.ts declares '%s'", (specifier) => {
     expect(remotesDtsSource).toContain(`declare module '${specifier}'`)
+  })
+})
+
+// specs/021-meetings (ADR-0045 shape, ADR-0060): the meetings remote exposes three
+// mountable entries besides ./version, and the shell exposes the host-extension seam.
+describe("'meetings' — the federated entries are declared for tsc, and the seam is exposed", () => {
+  it.each(['meetings/App', 'meetings/MyMeetings', 'meetings/HostMeetings'])("remotes.d.ts declares '%s'", (specifier) => {
+    expect(remotesDtsSource).toContain(`declare module '${specifier}'`)
+  })
+
+  it("shell/vite.config.ts exposes './extensions' next to './session'", () => {
+    expect(shellViteConfigSource).toMatch(/exposes:\s*\{[^}]*'\.\/extensions':\s*'\.\/src\/lib\/extensions\.tsx'/s)
   })
 })
 

@@ -134,6 +134,8 @@ const TECHNICAL = new Set([
   '/inventory/$',
   '/crm',
   '/crm/$',
+  // A host-extension name (lib/extensions.tsx): a dotted id, not copy.
+  'meetings.hostMeetings',
   '/meetings',
   '/meetings/$',
   '/my-meetings',

@@ -55,10 +55,9 @@ function readSuiteVersion(): string {
   try {
     parsed = JSON.parse(raw)
   } catch (cause) {
-    throw new Error(
-      'shell/src/lib/suiteVersion.generated.json is not valid JSON. Expected {"version": "x.y.z"}.',
-      { cause },
-    )
+    throw new Error('shell/src/lib/suiteVersion.generated.json is not valid JSON. Expected {"version": "x.y.z"}.', {
+      cause,
+    })
   }
 
   const version = (parsed as { version?: unknown } | null)?.version
@@ -97,22 +96,18 @@ const suiteVersion = readSuiteVersion()
 // each remote consumes the shell (shell/session, shell/tokens.css) at :5173.
 // The e2e harness (playwright.config.ts) uses its own explicit ports+env and
 // is unaffected by these dev defaults.
-const estimaiRemoteUrl =
-  process.env['ESTIMAI_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
-const refundRemoteUrl =
-  process.env['REFUND_REMOTE_URL'] ?? 'http://localhost:5175/remoteEntry.js'
+const estimaiRemoteUrl = process.env['ESTIMAI_REMOTE_URL'] ?? 'http://localhost:5174/remoteEntry.js'
+const refundRemoteUrl = process.env['REFUND_REMOTE_URL'] ?? 'http://localhost:5175/remoteEntry.js'
 // T25 (specs/004-auth-roles-permissions/tasks.md): admin-ui (T13) as a third
 // suite remote — same env-override + localhost dev-default pattern as
 // estimai/refund above. Dev default targets admin-ui's own pinned port
 // (5177, see admin-ui/vite.config.ts).
-const adminRemoteUrl =
-  process.env['ADMIN_REMOTE_URL'] ?? 'http://localhost:5177/remoteEntry.js'
+const adminRemoteUrl = process.env['ADMIN_REMOTE_URL'] ?? 'http://localhost:5177/remoteEntry.js'
 // T13 (specs/005-notification-center/tasks.md): notify-ui (T14) — the
 // notification center's federated remote. Same env-override + localhost
 // dev-default pattern as estimai/refund/admin above. Dev default targets
 // notify-ui's own pinned port (5176, see notify-ui/vite.config.ts).
-const notifyRemoteUrl =
-  process.env['NOTIFY_REMOTE_URL'] ?? 'http://localhost:5176/remoteEntry.js'
+const notifyRemoteUrl = process.env['NOTIFY_REMOTE_URL'] ?? 'http://localhost:5176/remoteEntry.js'
 
 // T41 (specs/015-hardware-inventory/tasks.md): inventory-ui — the hardware
 // inventory tool's federated remote. Same env-override + localhost dev-default
@@ -120,8 +115,7 @@ const notifyRemoteUrl =
 // One remote exposes TWO mountable entries (ADR-0045): ./App (gated tool) and
 // ./MyDevices (ungated, identity-scoped). The shell build never requires this
 // remote to be running — `dts` stays off and the entry is only fetched at runtime.
-const inventoryRemoteUrl =
-  process.env['INVENTORY_REMOTE_URL'] ?? 'http://localhost:5178/remoteEntry.js'
+const inventoryRemoteUrl = process.env['INVENTORY_REMOTE_URL'] ?? 'http://localhost:5178/remoteEntry.js'
 
 // specs/017-crm: crm-ui, the CRM's federated remote. Same pattern; dev default
 // targets its own pinned port (5179).
@@ -190,6 +184,11 @@ export default defineConfig({
       exposes: {
         './tokens.css': './src/styles/tokens.css',
         './session': './src/lib/session.ts',
+        // specs/021-meetings, T51 (ADR-0060): the host-extension seam. A host
+        // (crm-ui's deal page) embeds another remote's panel through
+        // `shell/extensions` → HostExtension, which owns the timeout, the error
+        // boundary and the host's fallback.
+        './extensions': './src/lib/extensions.tsx',
       },
       remotes: {
         // T9 (specs/003-suite-shell/tasks.md): the two real suite tools.
