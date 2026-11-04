@@ -5,6 +5,8 @@ import { useResource } from '../../hooks/useResource'
 import { getTranscript } from '../../lib/meetingsApi'
 import type { Meeting, Transcript } from '../../lib/types'
 import { strings } from '../../strings'
+import { AudioControl } from './AudioControl'
+import type { AudioHandle } from './AudioControl'
 import { clockOf, exportText, inOrder, speakerNameOf, textFileName } from './exportText'
 import { findMatches } from './fold'
 import { SegmentEditor } from './SegmentEditor'
@@ -70,6 +72,8 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
   const [query, setQuery] = useState('')
   const [notice, setNotice] = useState<'copied' | 'copyFailed' | null>(null)
   const rows = useRef(new Map<string, HTMLLIElement>())
+  const audio = useRef<AudioHandle>(null)
+  const audioKept = meeting.audio.state === 'kept'
   const [editing, setEditing] = useState<string | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
@@ -130,6 +134,7 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
   const isText = meeting.source === 'text'
   return (
     <div className="flex flex-col gap-4" data-testid="meetings-transcript">
+      <AudioControl meeting={meeting} ref={audio} />
       <div className="flex flex-wrap items-end gap-3">
         <Field label={strings.transcript.searchLabel} className="min-w-48 flex-1">
           {(control) => (
@@ -197,7 +202,7 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
             segment={segment}
             speaker={speakerNameOf(segment.speakerKey, transcript.speakers, meeting.participants)}
             ranges={hits[index]!}
-            onPlay={null}
+            onPlay={audioKept && segment.startMs !== null ? () => audio.current?.playFrom(segment.startMs!) : null}
             onEdit={canEdit ? () => setEditing(segment.id) : null}
             editLabel={
               segment.startMs === null

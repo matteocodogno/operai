@@ -33,11 +33,12 @@ const serve = (routes: Record<string, FakeHandler>) => {
 
 const bodyOf = (init: RequestInit | undefined) => JSON.parse(String(init?.body))
 
-const view = (meeting: Meeting = readyMeeting()) =>
+const view = (meeting: Meeting = readyMeeting({ audio: { state: 'none' } })) =>
   render(<TranscriptView meeting={meeting} focusSegmentId={null} onBackToAnswer={null} />)
 
 const meetingWithPeople = () =>
   readyMeeting({
+    audio: { state: 'none' },
     participants: [
       { id: 'p1', kind: 'external', name: 'Barbara Liskov', organisation: null },
       { id: 'p2', kind: 'operai', person: { id: 'u-grace', name: 'Grace Hopper', status: 'active' } },
@@ -240,7 +241,7 @@ describe('speaker rename (AC-6.2)', () => {
 describe('without can.editTranscript (AC-6.2, AC-6.3)', () => {
   it('shows neither the edit buttons nor the rename controls', async () => {
     serve({ 'GET /meetings/:id/transcript': () => ({ status: 200, body: sameSpeaker() }) })
-    view(readyMeeting({ role: 'participant', can: CAN_NONE }))
+    view(readyMeeting({ role: 'participant', can: CAN_NONE, audio: { state: 'none' } }))
     await screen.findAllByRole('listitem')
     expect(screen.queryByRole('button', { name: /^Edit segment/ })).toBeNull()
     expect(screen.queryByRole('button', { name: /^Rename/ })).toBeNull()
