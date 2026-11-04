@@ -1,5 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { recordingRouter } from "./recording.routes";
 
-// Stub: the routes of this group arrive with their own tasks (specs/021-meetings
-// tasks.md). Registered in src/index.ts now so the route table is complete.
+// The capture group: browser recording (T26/T27), upload (T28), text (T29).
+// Each sub-router carries its own guard stack per route (never `use("*")`).
 export const captureRouter = new OpenAPIHono();
+captureRouter.route("/", recordingRouter);
