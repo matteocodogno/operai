@@ -38,6 +38,8 @@ export type {
   FieldProps,
   RadioGroupFieldProps,
 } from './components/Field'
+export { FilePicker } from './components/FilePicker'
+export type { FilePickerProps } from './components/FilePicker'
 export { FormDialog } from './components/FormDialog'
 export type { FormDialogProps } from './components/FormDialog'
 export { LoadMore } from './components/LoadMore'
