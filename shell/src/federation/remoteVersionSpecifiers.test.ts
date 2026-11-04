@@ -41,6 +41,7 @@ const REMOTE_DIRS: Record<(typeof REMOTE_VERSION_SOURCES)[number]['id'], string>
   notify: 'notify-ui',
   inventory: 'inventory-ui',
   crm: 'crm-ui',
+  meetings: 'meetings-ui',
 }
 
 const remotesDtsSource = readFileSync(path.join(__dirname, 'remotes.d.ts'), 'utf-8')

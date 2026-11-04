@@ -22,9 +22,11 @@ const en = {
     admin: 'Admin',
     inventory: 'Inventory',
     crm: 'CRM',
+    meetings: 'Meetings',
     notify: 'Notify',
     notifications: 'Notifications',
     myDevices: 'My devices',
+    myMeetings: 'My meetings',
   },
   app: {
     description:
@@ -60,6 +62,7 @@ const en = {
     accountFallback: 'Account',
     myProfile: 'My profile',
     myDevices: 'My devices',
+    myMeetings: 'My meetings',
     signOut: 'Sign out',
   },
   about: {
@@ -114,9 +117,11 @@ const it: typeof en = {
     admin: 'Amministrazione',
     inventory: 'Inventario',
     crm: 'CRM',
+    meetings: 'Riunioni',
     notify: 'Notifiche',
     notifications: 'Notifiche',
     myDevices: 'I miei dispositivi',
+    myMeetings: 'Le mie riunioni',
   },
   app: {
     description:
@@ -153,6 +158,7 @@ const it: typeof en = {
     accountFallback: 'Account',
     myProfile: 'Il mio profilo',
     myDevices: 'I miei dispositivi',
+    myMeetings: 'Le mie riunioni',
     signOut: 'Esci',
   },
   about: {

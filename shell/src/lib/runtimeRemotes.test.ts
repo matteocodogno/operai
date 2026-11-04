@@ -47,6 +47,20 @@ describe('resolveRuntimeRemotes', () => {
     expect(remotes.map((r) => r.name)).toEqual(['inventory'])
   })
 
+  it('resolves the meetings remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/021-meetings)', async () => {
+    window.__OPERAI_RUNTIME_CONFIG__ = { meetings: 'https://meetings.example.test/remoteEntry.js' }
+
+    await expect(resolveRuntimeRemotes()).resolves.toEqual([
+      {
+        name: 'meetings',
+        entry: 'https://meetings.example.test/remoteEntry.js',
+        type: 'module',
+        entryGlobalName: 'meetings',
+        shareScope: 'default',
+      },
+    ])
+  })
+
   it('omits the inventory remote when the config does not name it, keeping the others', async () => {
     window.__OPERAI_RUNTIME_CONFIG__ = { estimai: 'https://estimai.example.test/remoteEntry.js' }
 

@@ -102,6 +102,7 @@ const TECHNICAL = new Set([
   'admin',
   'inventory',
   'crm',
+  'meetings',
   'notify',
   'settings',
   'sun',
@@ -112,6 +113,7 @@ const TECHNICAL = new Set([
   'chevron-right',
   'banknote',
   'box',
+  'mic',
   // Route paths and route ids.
   '/',
   '_shell',
@@ -131,6 +133,10 @@ const TECHNICAL = new Set([
   '/inventory/$',
   '/crm',
   '/crm/$',
+  '/meetings',
+  '/meetings/$',
+  '/my-meetings',
+  '/my-meetings/$',
   '/operai.svg',
   // The product name, the same in every language.
   'Operai',

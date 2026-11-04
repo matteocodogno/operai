@@ -290,6 +290,10 @@ const loadInventoryApp = () => import('inventory/App')
 const loadMyDevices = () => import('inventory/MyDevices')
 // specs/017-crm: crm-ui's gated tool entry (`/crm/$`).
 const loadCrmApp = () => import('crm/App')
+// specs/021-meetings (ADR-0045 shape): meetings-ui exposes `./App` (the gated tool,
+// `/meetings/$`) and `./MyMeetings` (the identity-scoped entry, ungated `/my-meetings/$`).
+const loadMeetingsApp = () => import('meetings/App')
+const loadMyMeetings = () => import('meetings/MyMeetings')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -409,6 +413,14 @@ const crmRoute = createRoute({
   component: () => <RemoteMount loader={loadCrmApp} moduleLabel={strings.tools.crm} />,
 })
 
+// specs/021-meetings (ADR-0058): Meetings, a gated tool like the five above.
+const meetingsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/meetings/$',
+  beforeLoad: createToolAccessBeforeLoad('meetings'),
+  component: () => <RemoteMount loader={loadMeetingsApp} moduleLabel={strings.tools.meetings} />,
+})
+
 // ---------------------------------------------------------------------------
 // `/devices` — "My devices" (specs/015-hardware-inventory, T42, US-4 AC-4.1,
 // ADR-0045). The second, UNGATED federated entry of the inventory remote:
@@ -434,6 +446,26 @@ const devicesRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/devices',
   component: () => <RemoteMount loader={loadMyDevices} moduleLabel={strings.tools.myDevices} />,
+})
+
+// ---------------------------------------------------------------------------
+// `/my-meetings/$` — "My meetings" (specs/021-meetings, AC-10.1, AC-10.4,
+// ADR-0045 shape, ADR-0034's test). The second, UNGATED federated entry of the
+// meetings remote: a participant without `meetings:access` must still read the
+// meetings they were added to, while the tool itself stays absent from their
+// navigation. Every deep link (notifications, the CRM activity, host panel rows)
+// points at `/my-meetings/m/<id>`, so this is a SPLAT route (the remote has an
+// inner router, unlike `/devices`). Same three deliberate absences as `/devices`:
+//   - NO `beforeLoad` app-access guard (the `_authed` session guard still applies);
+//   - NO `recordLastTool` (no ToolId, absent from `TOOLS`);
+//   - NOT under the `/meetings` prefix, which would inherit the tool guard.
+// Both halves are required: this ungated route AND meetings-api's self-scoped reads.
+// ---------------------------------------------------------------------------
+
+const myMeetingsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/my-meetings/$',
+  component: () => <RemoteMount loader={loadMyMeetings} moduleLabel={strings.tools.myMeetings} />,
 })
 
 // ---------------------------------------------------------------------------
@@ -500,9 +532,11 @@ export const routeTree = rootRoute.addChildren([
       adminRoute,
       inventoryRoute,
       crmRoute,
+      meetingsRoute,
       notifyRoute,
       accountRoute,
       devicesRoute,
+      myMeetingsRoute,
       noAccessRoute,
     ]),
   ]),

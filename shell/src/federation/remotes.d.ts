@@ -110,3 +110,32 @@ declare module 'crm/App' {
 declare module 'crm/version' {
   export const REMOTE_VERSION: string
 }
+
+// specs/021-meetings (ADR-0058/0060): the `meetings` remote — `./App` (the gated
+// tool, `/meetings/*`), `./MyMeetings` (the ungated identity-scoped entry,
+// `/my-meetings/*`; ADR-0045 shape), `./HostMeetings` (the panel a host embeds
+// through the shell's `./extensions` expose, props are three strings) and `./version`.
+declare module 'meetings/App' {
+  import type { ComponentType } from 'react'
+
+  const App: ComponentType
+  export default App
+}
+
+declare module 'meetings/MyMeetings' {
+  import type { ComponentType } from 'react'
+
+  const MyMeetings: ComponentType
+  export default MyMeetings
+}
+
+declare module 'meetings/HostMeetings' {
+  import type { ComponentType } from 'react'
+
+  const HostMeetings: ComponentType<{ hostApp: string; entityType: string; entityId: string }>
+  export default HostMeetings
+}
+
+declare module 'meetings/version' {
+  export const REMOTE_VERSION: string
+}

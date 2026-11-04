@@ -127,6 +127,12 @@ const inventoryRemoteUrl =
 // targets its own pinned port (5179).
 const crmRemoteUrl = process.env['CRM_REMOTE_URL'] ?? 'http://localhost:5179/remoteEntry.js'
 
+// specs/021-meetings: meetings-ui, the Meetings tool's federated remote (port 5180).
+// One remote, THREE mountable entries (ADR-0045 shape): ./App (gated `/meetings/$`),
+// ./MyMeetings (ungated `/my-meetings/$`) and ./HostMeetings (the host panel loaded
+// through this shell's own `./extensions` expose, ADR-0060).
+const meetingsRemoteUrl = process.env['MEETINGS_REMOTE_URL'] ?? 'http://localhost:5180/remoteEntry.js'
+
 // @operai/ui (operai-ui/, ADR-0050) is compiled from SOURCE by this build; `dedupe`
 // keeps the library's own `react` imports on this project's copy (Module Federation
 // singleton), since operai-ui/node_modules does not exist on Vercel.
@@ -240,6 +246,16 @@ export default defineConfig({
           name: 'crm',
           entry: crmRemoteUrl,
           entryGlobalName: 'crm',
+          shareScope: 'default',
+        },
+        // specs/021-meetings: meetings-ui. ./App is mounted at the access-gated
+        // `/meetings/$`; ./MyMeetings at the UNGATED `/my-meetings/$`; ./HostMeetings
+        // is loaded by HostExtension (src/lib/extensions.tsx).
+        meetings: {
+          type: 'module',
+          name: 'meetings',
+          entry: meetingsRemoteUrl,
+          entryGlobalName: 'meetings',
           shareScope: 'default',
         },
       },
