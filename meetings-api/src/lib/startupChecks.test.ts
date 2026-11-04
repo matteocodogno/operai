@@ -9,7 +9,7 @@ import {
   S3Client,
   type LifecycleRule,
 } from "@aws-sdk/client-s3";
-import { MAX_RETENTION_DAYS, checkBucket } from "./startupChecks";
+import { MAX_RETENTION_DAYS, checkBedrock, checkBucket, isInferenceProfileId, type BedrockControl } from "./startupChecks";
 
 // AC-4.4 / ADR-0063: the 30-day deletion is the bucket's own lifecycle rule, so
 // the service refuses to start unless that rule is verifiably there.
@@ -125,6 +125,132 @@ describe("what a refusal says", () => {
     const problems = (await checkBucket(scripted(leaky, { Status: "Enabled" }), "bucket-xyz-secret")).join("\n");
     expect(problems).not.toContain("bucket-xyz-secret");
     expect(problems).not.toContain("secret-error-text");
+  });
+});
+
+// ─── Bedrock: where the model routes, and that nothing is retained (AC-4.9, ADR-0061) ──────
+
+type Reply = Record<string, unknown> | Error;
+
+/** A control-plane client per region, answering from a script; records who was asked what. */
+function bedrockWorld(script: { profile?: Reply; retention?: Record<string, Reply> }) {
+  const asked: { region: string; command: string }[] = [];
+  const controlFor = (region: string): BedrockControl => ({
+    send: async (command: { constructor: { name: string } }) => {
+      asked.push({ region, command: command.constructor.name });
+      const reply =
+        command.constructor.name === "GetInferenceProfileCommand"
+          ? script.profile
+          : (script.retention ?? {})[region] ?? new Error("no script for this region");
+      if (reply instanceof Error) throw reply;
+      return reply ?? {};
+    },
+  });
+  return { asked, controlFor };
+}
+
+const arnIn = (region: string) => ({ modelArn: `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-test-v1:0` });
+const none = { mode: "none" };
+
+describe("which model ids are inference profiles", () => {
+  it("recognises geographic and global profile ids and profile ARNs, not plain model ids", () => {
+    for (const id of ["eu.anthropic.claude-x-v1:0", "us.anthropic.claude-x", "global.anthropic.claude-x", "apac.anthropic.claude-x"]) {
+      expect(isInferenceProfileId(id), id).toBe(true);
+    }
+    expect(isInferenceProfileId("arn:aws:bedrock:eu-central-1:123456789012:inference-profile/eu.anthropic.claude-x")).toBe(true);
+    expect(isInferenceProfileId("arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/abc123")).toBe(true);
+    expect(isInferenceProfileId("anthropic.claude-x-v1:0")).toBe(false);
+    expect(isInferenceProfileId("arn:aws:bedrock:eu-central-2::foundation-model/anthropic.claude-x")).toBe(false);
+  });
+});
+
+describe("bedrock: inference-profile destinations (AC-4.9)", () => {
+  const modelId = "eu.anthropic.claude-test-v1:0";
+
+  it("passes when every destination is in the EU/CH allowlist and retention is none in each", async () => {
+    const world = bedrockWorld({
+      profile: { models: [arnIn("eu-central-1"), arnIn("eu-west-3"), arnIn("eu-north-1")] },
+      retention: { "eu-central-2": none, "eu-central-1": none, "eu-west-3": none, "eu-north-1": none },
+    });
+    expect(await checkBedrock({ region: "eu-central-2", modelId, controlFor: world.controlFor })).toEqual([]);
+    // the home region and EVERY destination region were asked, each once
+    expect(world.asked.filter((a) => a.command === "GetAccountDataRetentionCommand").map((a) => a.region).sort()).toEqual([
+      "eu-central-1",
+      "eu-central-2",
+      "eu-north-1",
+      "eu-west-3",
+    ]);
+  });
+
+  it("refuses a profile with a destination in eu-west-2 (London is not EU)", async () => {
+    const world = bedrockWorld({
+      profile: { models: [arnIn("eu-central-1"), arnIn("eu-west-2")] },
+      retention: { "eu-central-2": none, "eu-central-1": none, "eu-west-2": none },
+    });
+    const problems = await checkBedrock({ region: "eu-central-2", modelId, controlFor: world.controlFor });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/destination/i);
+    expect(problems[0]).not.toContain("eu-west-2");
+  });
+
+  it("refuses a profile that routes to the US, however it is named", async () => {
+    const world = bedrockWorld({ profile: { models: [arnIn("us-east-1")] }, retention: { "eu-central-2": none, "us-east-1": none } });
+    expect(await checkBedrock({ region: "eu-central-2", modelId: "eu.anthropic.fake", controlFor: world.controlFor })).toHaveLength(1);
+  });
+
+  it("refuses a profile with no destinations, an unparseable ARN or a profile it cannot read (fail closed)", async () => {
+    for (const profile of [{ models: [] }, {}, { models: [{ modelArn: "not-an-arn" }] }, { models: [{}] }, new Error("denied")]) {
+      const world = bedrockWorld({ profile, retention: { "eu-central-2": none } });
+      expect((await checkBedrock({ region: "eu-central-2", modelId, controlFor: world.controlFor })).length, JSON.stringify(profile)).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not look up a profile for a plain model id", async () => {
+    const world = bedrockWorld({ retention: { "eu-central-2": none } });
+    expect(await checkBedrock({ region: "eu-central-2", modelId: "anthropic.claude-test-v1:0", controlFor: world.controlFor })).toEqual([]);
+    expect(world.asked.map((a) => a.command)).toEqual(["GetAccountDataRetentionCommand"]);
+  });
+});
+
+describe("bedrock: retention mode (AC-4.9)", () => {
+  const plain = "anthropic.claude-test-v1:0";
+  const check = (retention: Reply) => checkBedrock({ region: "eu-central-2", modelId: plain, controlFor: bedrockWorld({ retention: { "eu-central-2": retention } }).controlFor });
+
+  it("passes only for none", async () => {
+    expect(await check(none)).toEqual([]);
+  });
+
+  it("refuses default, inherit, aws_review, provider_data_share and anything unexpected", async () => {
+    for (const mode of ["default", "inherit", "aws_review", "provider_data_share", "NONE", "", "no", 0, null]) {
+      const problems = await check({ mode });
+      expect(problems, String(mode)).toHaveLength(1);
+      expect(problems[0]).toMatch(/retention/i);
+    }
+    expect(await check({})).toHaveLength(1); // no mode in the answer
+  });
+
+  it("refuses when the mode cannot be read - an AccessDenied is a refusal, not a pass", async () => {
+    const denied = Object.assign(new Error("not authorized to perform bedrock:GetAccountDataRetention"), { name: "AccessDeniedException" });
+    const problems = await check(denied);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatch(/cannot be read/i);
+  });
+
+  it("refuses when a destination region's retention is not none even if the home region's is", async () => {
+    const world = bedrockWorld({
+      profile: { models: [arnIn("eu-central-1")] },
+      retention: { "eu-central-2": none, "eu-central-1": { mode: "default" } },
+    });
+    const problems = await checkBedrock({ region: "eu-central-2", modelId: "eu.anthropic.x", controlFor: world.controlFor });
+    expect(problems).toHaveLength(1);
+  });
+
+  it("names the check and never the provider's error text or the model id", async () => {
+    const leaky = Object.assign(new Error("secret-bedrock-text arn:aws:iam::123456789012:user/x"), { name: "AccessDeniedException" });
+    const problems = (await check(leaky)).join("\n");
+    expect(problems).not.toContain("secret-bedrock-text");
+    expect(problems).not.toContain("123456789012");
+    expect(problems).not.toContain(plain);
   });
 });
 
