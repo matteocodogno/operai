@@ -37,8 +37,29 @@ import { createHash, timingSafeEqual } from "node:crypto";
  * - `estimate-notices.send`: tell crm-api an EstimAI estimate was closed or
  *   reopened (`POST /system/estimate-notices`, specs/018 AC-3.3, ADR-0073).
  *   Only estimai-api holds it.
+ * - `host-notices.send`: post a meeting's link/change/delete notice to a host
+ *   app's `/system/meeting-host/v1/notices` (specs/021, AC-11.8). crm-api
+ *   verifies it; the sub allowlist there names `system:meetings-api`.
  */
-export const KNOWN_SERVICE_SCOPES = ["notifications.push", "emails.send", "users.contact", "estimate-notices.send"] as const;
+export const KNOWN_SERVICE_SCOPES = [
+  "notifications.push",
+  "emails.send",
+  "users.contact",
+  "estimate-notices.send",
+  "host-notices.send",
+] as const;
+
+/**
+ * The scope sets prescribed for clients added after the original four (the
+ * deploy contract in `tools/env-doctor`'s manifest repeats them). Documentation
+ * pinned by a test, never read at runtime: the live set is the `SERVICE_CLIENTS`
+ * env value, validated by {@link parseServiceClients}.
+ * - `meetings-api` (specs/021): pushes in-app notifications and relays host
+ *   notices to crm-api; it never sends email (AC-12.4), so no `emails.send`.
+ */
+export const DOCUMENTED_CLIENT_SCOPES = {
+  "meetings-api": "notifications.push host-notices.send",
+} as const;
 
 /**
  * Client id `auth` itself mints under (`sub="system:auth"`, in process — specs/016).

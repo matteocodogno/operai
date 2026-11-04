@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   authenticateServiceClient,
+  DOCUMENTED_CLIENT_SCOPES,
   KNOWN_SERVICE_SCOPES,
   parseServiceClients,
 } from "./serviceClients";
@@ -68,8 +69,44 @@ describe("parseServiceClients", () => {
     if (!result.ok) expect(result.errors.join("\n")).not.toContain(SECRET_A);
   });
 
-  test("the scope allowlist is exactly notifications.push, emails.send and users.contact", () => {
-    expect([...KNOWN_SERVICE_SCOPES]).toEqual(["notifications.push", "emails.send", "users.contact", "estimate-notices.send"]);
+  test("the scope allowlist is exactly notifications.push, emails.send, users.contact, estimate-notices.send and host-notices.send", () => {
+    expect([...KNOWN_SERVICE_SCOPES]).toEqual([
+      "notifications.push",
+      "emails.send",
+      "users.contact",
+      "estimate-notices.send",
+      "host-notices.send",
+    ]);
+  });
+
+  test("a client holding host-notices.send parses, alone or beside notifications.push (specs/021)", () => {
+    const result = parseServiceClients(
+      raw({
+        "meetings-api": { secret: SECRET_A, scope: "notifications.push host-notices.send" },
+        "relay-svc": { secret: SECRET_B, scope: "host-notices.send" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("meetings-api")?.scopes).toEqual(["notifications.push", "host-notices.send"]);
+    expect(result.clients.get("relay-svc")?.scopes).toEqual(["host-notices.send"]);
+  });
+
+  test("a misspelt host-notices scope is refused, not minted", () => {
+    for (const scope of ["host-notice.send", "host-notices", "host-notices.send,notifications.push", "HOST-NOTICES.SEND"]) {
+      const result = parseServiceClients(raw({ "meetings-api": { secret: SECRET_A, scope } }));
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  test("the documented meetings-api entry is notifications.push + host-notices.send and has no emails.send (AC-12.4)", () => {
+    const documented = DOCUMENTED_CLIENT_SCOPES["meetings-api"];
+    const result = parseServiceClients(raw({ "meetings-api": { secret: SECRET_A, scope: documented } }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const scopes = result.clients.get("meetings-api")?.scopes ?? [];
+    expect([...scopes].sort()).toEqual(["host-notices.send", "notifications.push"]);
+    expect(scopes).not.toContain("emails.send");
   });
 
   test("a client holding emails.send parses, alone or beside notifications.push", () => {
