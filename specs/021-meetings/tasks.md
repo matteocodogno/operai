@@ -22,31 +22,31 @@ database after `bun run db:deploy`.
   - touch: `compose.yaml`
   - done when: `docker compose up -d minio minio-createbucket` exits 0, and `mc ilm rule ls <alias>/meetings` (run in the createbucket image) lists exactly one rule, Expiration 29 days, no prefix filter; `mc version info <alias>/meetings` reports versioning not enabled
 
-- [ ] T2: [BE] auth: `meetings` catalog, seed grants (`employee` → `meetings:access`; `admin` → `template:manage`, `meeting:erase`), `meetings` in `ALL_APP_IDS`, and a test that no two catalogs declare the same resource key — refs: AC-10.8, AC-1.4, AC-10.5 — deps: none
+- [x] T2: [BE] auth: `meetings` catalog, seed grants (`employee` → `meetings:access`; `admin` → `template:manage`, `meeting:erase`), `meetings` in `ALL_APP_IDS`, and a test that no two catalogs declare the same resource key — refs: AC-10.8, AC-1.4, AC-10.5 — deps: none
   - touch: `auth/src/authz/catalogs/meetings.ts`, `auth/src/authz/catalogs/meetings.test.ts`, `auth/src/authz/catalogs/uniqueResourceKeys.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`
   - done when: `cd auth && bun test src/authz/catalogs src/authz/seed.test.ts` passes, including "employee holds meetings:access", "template:manage / meeting:erase only on admin", "no other rule mentions them" and "duplicate resource key fails"
 
-- [ ] T3: [BE] auth: service scope `host-notices.send` accepted in `SERVICE_CLIENTS`; documented client `meetings-api` = `notifications.push host-notices.send` — refs: AC-11.8, AC-12.4 — deps: none
+- [x] T3: [BE] auth: service scope `host-notices.send` accepted in `SERVICE_CLIENTS`; documented client `meetings-api` = `notifications.push host-notices.send` — refs: AC-11.8, AC-12.4 — deps: none
   - touch: `auth/src/system/serviceClients.ts`, `auth/src/system/serviceClients*.test.ts`
   - done when: `cd auth && bun test src/system` passes; a new test mints a token for a client with `host-notices.send` and rejects an unknown scope; a test asserts the documented `meetings-api` entry has no `emails.send`
 
-- [ ] T4: [BE] auth: add `meetings:access` to `DIRECTORY_GATE_PERMISSIONS` (ADR-0066) — refs: AC-5.1 — deps: none
+- [x] T4: [BE] auth: add `meetings:access` to `DIRECTORY_GATE_PERMISSIONS` (ADR-0066) — refs: AC-5.1 — deps: none
   - touch: `auth/src/authz/directory.routes.ts`, `auth/src/authz/directory.routes.test.ts`
   - done when: `cd auth && bun test src/authz/directory.routes.test.ts` passes with a new case: a caller holding only `meetings:access` gets 200 and the unfiltered list
 
-- [ ] T5: [BE] notify-api: origin `meetings` + binding `system:meetings-api → ["meetings"]`; optional `it: {title, body}` on `/system/notifications`, stored as `titleIt`/`bodyIt` and returned by the list and SSE payloads (ADR-0065) — refs: AC-12.5, AC-12.1 — deps: none
+- [x] T5: [BE] notify-api: origin `meetings` + binding `system:meetings-api → ["meetings"]`; optional `it: {title, body}` on `/system/notifications`, stored as `titleIt`/`bodyIt` and returned by the list and SSE payloads (ADR-0065) — refs: AC-12.5, AC-12.1 — deps: none
   - touch: `notify-api/prisma/schema.prisma`, `notify-api/prisma/migrations/*`, `notify-api/src/notifications/notifications.schemas.ts`, `notify-api/src/notifications/notifications.repo.ts`, `notify-api/src/notifications/list.routes.ts`, `notify-api/src/notifications/*.test.ts`, `notify-api/src/system/notifications.schemas.ts`, `notify-api/src/system/notifications.routes.ts`, `notify-api/src/system/systemAuth.middleware.ts`, `notify-api/src/system/*.test.ts`
   - done when: `cd notify-api && bun run db:deploy && bun test` passes; new cases cover the `it` variant round-trip (`POST` → list → SSE), the length limits, and `system:meetings-api` refused for `originApp: "crm"`
 
-- [ ] T6: [BE] crm-api: `systemAuth` middleware for service JWTs (aud `SERVICE_AUDIENCE`, scope, sub allowlist) and `SERVICE_AUDIENCE` env (copied from notify-api) — refs: AC-11.8 — deps: none
+- [x] T6: [BE] crm-api: `systemAuth` middleware for service JWTs (aud `SERVICE_AUDIENCE`, scope, sub allowlist) and `SERVICE_AUDIENCE` env (copied from notify-api) — refs: AC-11.8 — deps: none
   - touch: `crm-api/src/auth/systemAuth.middleware.ts`, `crm-api/src/auth/systemAuth.middleware.test.ts`, `crm-api/src/lib/env.ts`
   - done when: `cd crm-api && bun test src/auth/systemAuth.middleware.test.ts` passes: identical 401 for user JWT / wrong aud / missing scope / unlisted sub; accepted call logs `caller=<sub>` only
 
-- [ ] T7: [BE] crm-api: `POST /meeting-host/v1/resolve` (caller's JWT, live resolve fail closed, `open|closed|missing`, `hostVisible` = `deal:financials`, ≤ 25 ids) — refs: AC-1.5, AC-5.6, AC-5.7, AC-11.5 — deps: none
+- [x] T7: [BE] crm-api: `POST /meeting-host/v1/resolve` (caller's JWT, live resolve fail closed, `open|closed|missing`, `hostVisible` = `deal:financials`, ≤ 25 ids) — refs: AC-1.5, AC-5.6, AC-5.7, AC-11.5 — deps: none
   - touch: `crm-api/src/meeting-host/resolve.routes.ts`, `crm-api/src/meeting-host/resolve.test.ts`, `crm-api/src/index.ts`, `crm-api/src/matrix.test.ts`
   - done when: `cd crm-api && bun test src/meeting-host/resolve.test.ts src/matrix.test.ts` passes on `crm_test`: no `crm:access` → `closed`/`missing`; holder → `open` + title + href; financials on/off → `hostVisible`; auth outage → 503; 26 ids → 422
 
-- [ ] T8: [BE] crm-api: migration (`activity.meetingId` unique + CHECK type=meeting, `meeting_host_state`) and `POST /system/meeting-host/v1/notices` reconciler (linked upsert/move, changed, unlinked, deleted, seq guard, strict body) — refs: AC-14.1, AC-14.2, AC-14.3, AC-14.5, AC-14.6, AC-14.7, AC-14.9 — deps: T6, T7
+- [x] T8: [BE] crm-api: migration (`activity.meetingId` unique + CHECK type=meeting, `meeting_host_state`) and `POST /system/meeting-host/v1/notices` reconciler (linked upsert/move, changed, unlinked, deleted, seq guard, strict body) — refs: AC-14.1, AC-14.2, AC-14.3, AC-14.5, AC-14.6, AC-14.7, AC-14.9 — deps: T6, T7
   - touch: `crm-api/prisma/schema.prisma`, `crm-api/prisma/migrations/*`, `crm-api/src/meeting-host/notices.routes.ts`, `crm-api/src/meeting-host/notices.test.ts`, `crm-api/src/index.ts`, `crm-api/src/matrix.test.ts`
   - done when: `cd crm-api && bun run db:deploy && bun test src/meeting-host src/matrix.test.ts` passes on `crm_test`, covering:
     - one activity per meeting across duplicates and retries;
@@ -57,7 +57,7 @@ database after `bun run db:deploy`.
     - missing deal → 422 `entity_not_found`;
     - author = `creatorId` and the author-only edit rule still applies
 
-- [ ] T9: [BE] crm-api: activity view field `meeting: { id, href: "/my-meetings/m/<id>" } | null`, body null for meeting activities — refs: AC-14.2, AC-14.4 — deps: T8
+- [x] T9: [BE] crm-api: activity view field `meeting: { id, href: "/my-meetings/m/<id>" } | null`, body null for meeting activities — refs: AC-14.2, AC-14.4 — deps: T8
   - touch: `crm-api/src/activities/activities.routes.ts`, `crm-api/src/activities/activities.test.ts`
   - done when: `cd crm-api && bun test src/activities` passes with a case asserting the view of a notice-created activity (subject, occurredAt, `body: null`, `meeting.href`) on both the deal and the company timeline
 
@@ -317,23 +317,23 @@ database after `bun run db:deploy`.
   - touch: `scripts/check-shared-copies.ts`
   - done when: `mise run shared:check` passes, and fails if one meetings-api copy is edited alone
 
-- [ ] T44: [FE] operai-ui `ProgressBar` (determinate + indeterminate, `role="progressbar"`, text alternative prop, reduced motion) with story and test — refs: AC-2.7, AC-3.1 — deps: none
+- [x] T44: [FE] operai-ui `ProgressBar` (determinate + indeterminate, `role="progressbar"`, text alternative prop, reduced motion) with story and test — refs: AC-2.7, AC-3.1 — deps: none
   - touch: `operai-ui/src/components/ProgressBar*.tsx`, `operai-ui/src/index.ts`
   - done when: `mise run ui:check` passes, including the new `ProgressBar.test.tsx` (aria values, indeterminate has no `aria-valuenow`)
 
-- [ ] T45: [FE] operai-ui `formatDuration(ms, {style: 'clock' | 'spoken'})` and `Icon` additions `mic`, `pause`, `play`, `stop` — refs: AC-2.2, AC-6.1, AC-13.3 — deps: T44
+- [x] T45: [FE] operai-ui `formatDuration(ms, {style: 'clock' | 'spoken'})` and `Icon` additions `mic`, `pause`, `play`, `stop` — refs: AC-2.2, AC-6.1, AC-13.3 — deps: T44
   - touch: `operai-ui/src/lib/format.ts`, `operai-ui/src/lib/i18n-format.test.tsx`, `operai-ui/src/components/Icon.tsx`, `operai-ui/src/components/Icon.stories.tsx`, `operai-ui/src/index.ts`
   - done when: `mise run ui:check` passes with new vectors (`0` → `00:00:00`, `3_723_000` → `01:02:03`, spoken en/it incl. the `Intl.DurationFormat` fallback) and the four icons rendered in the story test
 
-- [ ] T46: [FE] operai-ui `FilePicker` (hidden input + Button + selected-file line, `accept`, clear, `Field` wiring) with story and test — refs: AC-3.1, AC-3.2 — deps: T45
+- [x] T46: [FE] operai-ui `FilePicker` (hidden input + Button + selected-file line, `accept`, clear, `Field` wiring) with story and test — refs: AC-3.1, AC-3.2 — deps: T45
   - touch: `operai-ui/src/components/FilePicker*.tsx`, `operai-ui/src/index.ts`
   - done when: `mise run ui:check` passes, including keyboard activation, the name and size line, clear, and the error wired through `aria-describedby`
 
-- [ ] T47: [FE] operai-ui `PersonPicker` extracted from crm-ui (injected `load`, filter by name/email, `exclude`, `clearOnSelect`, rate-limit message; copy as props); crm-ui migrated to it — refs: AC-5.1 — deps: T46
+- [x] T47: [FE] operai-ui `PersonPicker` extracted from crm-ui (injected `load`, filter by name/email, `exclude`, `clearOnSelect`, rate-limit message; copy as props); crm-ui migrated to it — refs: AC-5.1 — deps: T46
   - touch: `operai-ui/src/components/PersonPicker*.tsx`, `operai-ui/src/index.ts`, `crm-ui/src/components/PersonPicker.tsx`, `crm-ui/src/components/ParticipantsField.tsx`
   - done when: `mise run ui:check` passes, and `cd crm-ui && pnpm lint && pnpm build && pnpm test` passes unchanged in behaviour (existing picker tests green)
 
-- [ ] T48: [FE] operai-ui `SectionsEditor` extracted (rows, reorder, min/max, per-row errors, `renderRowExtra`); crm-ui's offer-template editor migrated through the slot — refs: AC-8.2 — deps: T47
+- [x] T48: [FE] operai-ui `SectionsEditor` extracted (rows, reorder, min/max, per-row errors, `renderRowExtra`); crm-ui's offer-template editor migrated through the slot — refs: AC-8.2 — deps: T47
   - touch: `operai-ui/src/components/SectionsEditor*.tsx`, `operai-ui/src/index.ts`, `crm-ui/src/components/SectionsEditor.tsx`, `crm-ui/src/pages/TemplateEditorPage.tsx`
   - done when: `mise run ui:check` passes, and `cd crm-ui && pnpm test src/pages/OfferTemplates.test.tsx` passes
 
@@ -352,7 +352,7 @@ database after `bun run db:deploy`.
   - touch: `shell/src/lib/extensions.tsx`, `shell/src/lib/extensions.test.tsx`, `shell/vite.config.ts`, `shell/src/federation/*`
   - done when: `cd shell && pnpm test src/lib/extensions.test.tsx && pnpm build` passes; the test renders the fallback for a rejected import, for a 5 s timeout (fake timers), for a module without the export and for a component that throws on render, and never rethrows
 
-- [ ] T52: [FE] shell `vercel.json`: CSP `connect-src` + meetings-api + meetings bucket, `media-src` bucket, `script-src` meetings remote; `Permissions-Policy: microphone=(self), display-capture=(self), camera=()` — refs: AC-2.2, AC-6.5, AC-2.4 — deps: none
+- [x] T52: [FE] shell `vercel.json`: CSP `connect-src` + meetings-api + meetings bucket, `media-src` bucket, `script-src` meetings remote; `Permissions-Policy: microphone=(self), display-capture=(self), camera=()` — refs: AC-2.2, AC-6.5, AC-2.4 — deps: none
   - touch: `shell/vercel.json`, `shell/src/vercelHeaders.test.ts`
   - done when: `cd shell && pnpm test src/vercelHeaders.test.ts` passes, parsing `vercel.json` and asserting each directive and the `Permissions-Policy` value
 
@@ -524,18 +524,18 @@ database after `bun run db:deploy`.
     - a 503 gives the unavailable state;
     - no count of hidden meetings is rendered
 
-- [ ] T77: [FE] crm-ui: Meetings section on the deal page through `shell/extensions` (dynamic import, fallback banner with the same heading when absent or failing), ambient type + stub; the company page has no meetings section — refs: AC-11.2, AC-11.6, AC-11.7 — deps: none
+- [x] T77: [FE] crm-ui: Meetings section on the deal page through `shell/extensions` (dynamic import, fallback banner with the same heading when absent or failing), ambient type + stub; the company page has no meetings section — refs: AC-11.2, AC-11.6, AC-11.7 — deps: none
   - touch: `crm-ui/src/pages/DealDetailPage.tsx`, `crm-ui/src/pages/DealDetailPage.test.tsx`, `crm-ui/src/components/MeetingsSection.tsx`, `crm-ui/src/components/MeetingsSection.test.tsx`, `crm-ui/src/pages/CompanyDetailPage.meetings.test.tsx`, `crm-ui/src/federation/remotes.d.ts`, `crm-ui/src/federation/__stubs__/shellExtensions.ts`, `crm-ui/vitest.config.ts`, `crm-ui/src/strings/deals.ts`
   - done when: `cd crm-ui && pnpm lint && pnpm build && pnpm test` passes:
     - the section passes `{hostApp:"crm", entityType:"deal", entityId}`;
     - a rejected `import('shell/extensions')` shows the fallback;
     - the company page renders no extension
 
-- [ ] T78: [FE] crm-ui: an activity with `meeting` renders "Open meeting" linking to `/my-meetings/m/<id>` (no body) — refs: AC-14.2, AC-14.4 — deps: none
+- [x] T78: [FE] crm-ui: an activity with `meeting` renders "Open meeting" linking to `/my-meetings/m/<id>` (no body) — refs: AC-14.2, AC-14.4 — deps: none
   - touch: `crm-ui/src/components/ActivityItem.tsx`, `crm-ui/src/components/ActivityItem.test.tsx`, `crm-ui/src/lib/types.ts`, `crm-ui/src/strings/activities.ts`
   - done when: `cd crm-ui && pnpm test src/components/ActivityItem.test.tsx` passes with a meeting-activity fixture (link href, no body, author by live name)
 
-- [ ] T79: [FE] notify-ui list item and shell `ToastHost` pick the `it` variant under `<html lang="it">`; origin label `meetings` — refs: AC-12.5 — deps: none
+- [x] T79: [FE] notify-ui list item and shell `ToastHost` pick the `it` variant under `<html lang="it">`; origin label `meetings` — refs: AC-12.5 — deps: none
   - touch: `notify-ui/src/components/NotificationItem.tsx`, `notify-ui/src/components/NotificationItem.test.tsx`, `notify-ui/src/lib/notificationsApi.ts`, `notify-ui/src/lib/severity.ts`, `notify-ui/src/strings.ts`, `shell/src/components/ToastHost.tsx`, `shell/src/components/ToastHost.test.tsx`, `shell/src/lib/notifications.ts`
   - done when: `cd notify-ui && pnpm test && cd ../shell && pnpm test src/components/ToastHost.test.tsx` passes: Italian variant under `lang="it"`, English otherwise, fallback when `it` is null
 
