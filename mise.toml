@@ -64,7 +64,7 @@ set -e
 # differ. Registry + self-test: scripts/check-shared-copies.{ts,test.ts}. Also run by
 # .github/workflows/shared-copies.yml. ---
 [tasks."shared:check"]
-description = "Fail if the deliberately duplicated backend modules (serviceToken.ts x3) drifted apart"
+description = "Fail if the deliberately duplicated backend modules (serviceToken, s3Residency, problem, logger copies) drifted apart"
 run = "bun scripts/check-shared-copies.ts"
 
 # --- env-doctor: validate the suite's cross-service env contract BEFORE deploy

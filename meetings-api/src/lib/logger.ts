@@ -1,3 +1,4 @@
+// shared-copy:begin logger
 import type { MiddlewareHandler } from "hono";
 
 /**
@@ -29,3 +30,4 @@ export const requestLogger = (): MiddlewareHandler => {
     console.log(`${method} ${path} ${c.res.status} ${elapsedMs}ms`);
   };
 };
+// shared-copy:end logger

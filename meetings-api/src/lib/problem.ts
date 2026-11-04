@@ -1,3 +1,4 @@
+// shared-copy:begin problem
 /**
  * RFC 7807 Problem JSON for crm-api (specs/017-crm, plan.md § API contract).
  * Copied from inventory-api/src/lib/problem.ts.
@@ -179,3 +180,4 @@ export const validationHook = (
     c.req.path,
   );
 };
+// shared-copy:end problem
