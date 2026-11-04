@@ -1,7 +1,7 @@
 ---
 id: 021
 slug: meetings
-status: approved
+status: in-progress
 rigor: production
 created: 2026-11-04
 approved: 2026-11-04
