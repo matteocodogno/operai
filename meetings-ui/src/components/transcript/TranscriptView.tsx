@@ -1,4 +1,13 @@
-import type { Meeting } from '../../lib/types'
+import { Button, Field, Icon, StatePanel, VisuallyHidden } from '@operai/ui'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LoadFailure, Loading } from '../LoadState'
+import { useResource } from '../../hooks/useResource'
+import { getTranscript } from '../../lib/meetingsApi'
+import type { Meeting, Transcript } from '../../lib/types'
+import { strings } from '../../strings'
+import { exportText, inOrder, speakerNameOf, textFileName } from './exportText'
+import { findMatches } from './fold'
+import { SegmentRow } from './SegmentRow'
 
 export type TranscriptViewProps = {
   meeting: Meeting
@@ -8,8 +17,150 @@ export type TranscriptViewProps = {
   onBackToAnswer: (() => void) | null
 }
 
-/** Placeholder (specs/021-meetings T53): T68 builds the transcript tab (S3b). */
+/** The Transcript tab (S3b): segments with time and speaker, search, copy and download as text. */
 export default function TranscriptView(props: TranscriptViewProps) {
-  void props
-  return null
+  if (props.meeting.noSpeech) {
+    return (
+      <StatePanel title={strings.transcript.noSpeech.heading} testId="meetings-transcript-no-speech">
+        {strings.transcript.noSpeech.body}
+      </StatePanel>
+    )
+  }
+  return <LoadedTranscript {...props} />
+}
+
+function LoadedTranscript({ meeting, focusSegmentId, onBackToAnswer }: TranscriptViewProps) {
+  const fetcher = useCallback(
+    (signal: AbortSignal) => getTranscript(meeting.id, { signal }),
+    // A new transcript version (an edit seen by the page) is a new load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [meeting.id, meeting.transcriptVersion],
+  )
+  const resource = useResource<Transcript>(fetcher)
+
+  if (resource.status === 'loading') return <Loading label={strings.transcript.loading} />
+  if (resource.status === 'error' || resource.data === null) {
+    return <LoadFailure error={resource.error} onRetry={resource.retry} />
+  }
+  return (
+    <TranscriptBody
+      meeting={meeting}
+      transcript={resource.data}
+      focusSegmentId={focusSegmentId}
+      onBackToAnswer={onBackToAnswer}
+    />
+  )
+}
+
+type BodyProps = {
+  meeting: Meeting
+  transcript: Transcript
+  focusSegmentId: string | null
+  onBackToAnswer: (() => void) | null
+}
+
+function TranscriptBody({ meeting, transcript, focusSegmentId, onBackToAnswer }: BodyProps) {
+  const [query, setQuery] = useState('')
+  const [notice, setNotice] = useState<'copied' | 'copyFailed' | null>(null)
+  const rows = useRef(new Map<string, HTMLLIElement>())
+
+  const segments = useMemo(() => inOrder(transcript.segments), [transcript.segments])
+  // Counts and highlights come from the data, never from the DOM.
+  const hits = useMemo(() => segments.map((segment) => findMatches(segment.text, query)), [segments, query])
+  const total = hits.reduce((sum, ranges) => sum + ranges.length, 0)
+  const searching = query.trim() !== ''
+
+  useEffect(() => {
+    if (focusSegmentId === null) return
+    const row = rows.current.get(focusSegmentId)
+    if (row === undefined) return
+    row.scrollIntoView?.({ block: 'center' })
+    row.focus({ preventScroll: true })
+  }, [focusSegmentId, segments])
+
+  const text = () => exportText(segments, transcript.speakers, meeting.participants)
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text())
+      setNotice('copied')
+    } catch {
+      setNotice('copyFailed')
+    }
+  }
+
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([text()], { type: 'text/plain;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = textFileName(meeting.title, strings.transcript.downloadFileName)
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  if (segments.length === 0) {
+    return <StatePanel title={strings.transcript.empty.heading}>{strings.transcript.empty.body}</StatePanel>
+  }
+
+  const isText = meeting.source === 'text'
+  return (
+    <div className="flex flex-col gap-4" data-testid="meetings-transcript">
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label={strings.transcript.searchLabel} className="min-w-48 flex-1">
+          {(control) => (
+            <input
+              {...control}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              autoComplete="off"
+            />
+          )}
+        </Field>
+        <Button variant="secondary" size="sm" onClick={() => void copy()}>
+          <Icon name="copy" /> {strings.transcript.copy}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={download}>
+          <Icon name="download" /> {strings.transcript.download}
+        </Button>
+      </div>
+      {searching && (
+        <p role="status" className="text-xs text-soft">
+          {strings.transcript.matches(total)}
+        </p>
+      )}
+      <VisuallyHidden live>
+        {notice === 'copied' ? strings.transcript.copied : notice === 'copyFailed' ? strings.transcript.copyFailed : ''}
+      </VisuallyHidden>
+      {notice === 'copyFailed' && <p className="text-xs text-red-text">{strings.transcript.copyFailed}</p>}
+      {focusSegmentId !== null && onBackToAnswer !== null && (
+        <div>
+          <Button variant="ghost" size="sm" onClick={onBackToAnswer}>
+            <Icon name="arrow-left" /> {strings.transcript.backToAnswer}
+          </Button>
+        </div>
+      )}
+      <ol
+        aria-label={isText ? strings.transcript.passagesHeading : strings.transcript.heading}
+        className="flex flex-col"
+      >
+        {segments.map((segment, index) => (
+          <SegmentRow
+            key={segment.id}
+            segment={segment}
+            speaker={speakerNameOf(segment.speakerKey, transcript.speakers, meeting.participants)}
+            ranges={hits[index]!}
+            onPlay={null}
+            cited={segment.id === focusSegmentId}
+            rowRef={(element) => {
+              if (element === null) rows.current.delete(segment.id)
+              else rows.current.set(segment.id, element)
+            }}
+          />
+        ))}
+      </ol>
+    </div>
+  )
 }
