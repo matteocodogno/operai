@@ -1,7 +1,7 @@
 /**
  * The language-model seam (specs/021-meetings plan.md § AI providers and § Summaries
  * and ask-the-meeting; ADR-0061, ADR-0067; AC-7.10). One real implementation
- * (`bedrock.ts`, Claude on Amazon Bedrock in the EU) and a fake
+ * (`vertexClaude.ts`, Claude on Vertex AI in the EU, ADR-0069) and a fake
  * (`fakeLanguageModel.ts`); a fallback provider would sit behind the same interface.
  *
  * STRUCTURED OUTPUT ONLY. `complete` forces the model to call ONE "tool", and that
@@ -63,8 +63,8 @@ let current: LanguageModel | null = null;
 
 /**
  * The model for this process: the fake under `MEETINGS_AI_PROVIDER=fake` (env.ts refuses
- * that in production), otherwise Bedrock. Imported lazily so a fake run never loads the
- * AWS SDK and this file has no import cycle with its implementations.
+ * that in production), otherwise Vertex. Imported lazily so a fake run never loads the
+ * Vertex SDK and this file has no import cycle with its implementations.
  */
 export async function languageModel(): Promise<LanguageModel> {
   if (current) return current;
@@ -73,15 +73,8 @@ export async function languageModel(): Promise<LanguageModel> {
     const { FakeLanguageModel } = await import("./fakeLanguageModel");
     current = new FakeLanguageModel();
   } else {
-    const { createBedrockLanguageModel, createBedrockRuntimeClient } = await import("./bedrock");
-    current = createBedrockLanguageModel({
-      client: createBedrockRuntimeClient({
-        region: env.BEDROCK_REGION!,
-        accessKeyId: env.MEETINGS_AWS_ACCESS_KEY_ID!,
-        secretAccessKey: env.MEETINGS_AWS_SECRET_ACCESS_KEY!,
-      }),
-      modelId: env.BEDROCK_MODEL_ID!,
-    });
+    const { createVertexLanguageModelFromEnv } = await import("./vertexClaude");
+    current = await createVertexLanguageModelFromEnv();
   }
   return current;
 }
