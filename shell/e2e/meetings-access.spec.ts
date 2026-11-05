@@ -39,8 +39,6 @@ import {
 
 const runId = newRunId()
 
-test.describe.configure({ mode: 'serial' })
-
 test.describe('specs/021 T87: access journeys', () => {
   let creator: Person // holder who creates meetings A and B
   let reader: Person // loses meetings:access after creating their own meeting; participant on A only
