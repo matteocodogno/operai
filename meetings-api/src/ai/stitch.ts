@@ -8,9 +8,12 @@
  *   D1  inside a part, speech returned twice is kept once (`findRepetitions`);
  *   D2  inside the overlap of parts k and k+1, speech returned by both is kept once (part k's version), by an
  *       order-preserving alignment of runs of at least `REPEAT_WORDS` equal words; everything found in only one of
- *       the two versions is KEPT, so no speech present in either version is dropped. Aligned words count as the same
- *       speech only when the overlap JOINED their labels (J, below) or one of them has no label (A8): J is decided
- *       first, from the alignment alone, and the removal then asks it;
+ *       the two versions is KEPT, so no speech present in either version is dropped. Aligned passages are the same
+ *       speech (AC-6.13, A8) unless the later label is JOINED (J, below) to a different earlier label: an unjoined
+ *       or missing label is no evidence of a different speaker. Under AC-6.14(b) a joined label's aligned words all
+ *       share one root, so that "different earlier label" branch is a defensive safeguard that no current input
+ *       reaches. Within a part (D1) and the untimed tail the stricter rule applies: same speaker or unlabelled. J is
+ *       decided first, from the alignment alone, and the removal then asks it;
  *   J   a label of part k+1 is JOINED to a label of part k only on the evidence of the aligned words: at least
  *       `MATCH_WORDS` of them, all to the same earlier label, with no rival either way. Anything else stays
  *       separate. Nothing else - position, number, order, a default - ever joins.
@@ -25,7 +28,7 @@
 
 import { REPEAT_GAP_MS, REPEAT_WORDS, findRepetitions, longHoles } from "./completeness";
 import type { Phrase } from "./segments";
-import { effectiveSpans, sameSpeaker, tokensOf, type Interval, type PartWords, type Token } from "./words";
+import { effectiveSpans, tokensOf, type Interval, type PartWords, type Token } from "./words";
 
 /** Match bound (AC-6.14): matched words a later label needs to be joined. */
 export const MATCH_WORDS = 20;
