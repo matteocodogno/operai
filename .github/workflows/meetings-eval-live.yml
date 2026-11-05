@@ -8,8 +8,13 @@
 #   created here, and no value is ever printed:
 #     secrets: MEETINGS_EVAL_AWS_ACCESS_KEY_ID, MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY
 #     vars:    MEETINGS_EVAL_BEDROCK_REGION (an EU region), MEETINGS_EVAL_BEDROCK_MODEL_ID
-# - If any of the four is absent (a fork, an unconfigured repo) the job SKIPS cleanly: it reports
-#   the missing NAMES in the run summary and exits 0 without installing or running anything.
+# - If any of the four is absent, the outcome depends on the trigger. A `schedule` run (the nightly)
+#   SKIPS cleanly: it reports the missing NAMES as a notice and exits 0 without installing or
+#   running anything, so an unconfigured repo or fork does not go red every night. A
+#   `workflow_dispatch` run (the human release step, meetings-api/README.md) FAILS: it prints an
+#   `::error::` naming the missing NAMES and exits 1, so the release gate cannot pass by being
+#   unconfigured. Any trigger other than `schedule` is treated like a dispatch (fail closed).
+#   Names only, never values.
 # - A live failure (exit 1, an assertion failed) or bad live configuration (exit 2) fails the job.
 name: meetings-eval-live
 
@@ -42,6 +47,7 @@ jobs:
           KEY_SECRET: ${{ secrets.MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY }}
           REGION: ${{ vars.MEETINGS_EVAL_BEDROCK_REGION }}
           MODEL: ${{ vars.MEETINGS_EVAL_BEDROCK_MODEL_ID }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -eu
           missing=""
@@ -50,9 +56,13 @@ jobs:
           [ -n "${REGION}" ] || missing="${missing} MEETINGS_EVAL_BEDROCK_REGION"
           [ -n "${MODEL}" ] || missing="${missing} MEETINGS_EVAL_BEDROCK_MODEL_ID"
           if [ -n "${missing}" ]; then
-            echo "configured=false" >> "${GITHUB_OUTPUT:-/dev/stdout}"
-            echo "::notice::live eval skipped, not configured (names only):${missing}"
-            exit 0
+            if [ "${EVENT}" = "schedule" ]; then
+              echo "configured=false" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+              echo "::notice::live eval skipped, not configured (names only):${missing}"
+              exit 0
+            fi
+            echo "::error::live eval not configured, so the release gate cannot pass (names only):${missing}"
+            exit 1
           fi
           echo "configured=true" >> "${GITHUB_OUTPUT:-/dev/stdout}"
       - uses: actions/checkout@v4

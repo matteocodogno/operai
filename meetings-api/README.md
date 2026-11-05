@@ -108,6 +108,14 @@ model resisting them.
    is not merged without a green live run recorded in the PR.
 3. Paste the block the live run prints (model id, date, fixture count, PASS) into the PR.
 
+The same gate runs in CI as the `meetings-eval-live` workflow: trigger it with **Run workflow**
+(`workflow_dispatch`) before a release or a model change, and the dispatched run must be **green**.
+A dispatched run with any of the four settings missing (`MEETINGS_EVAL_AWS_ACCESS_KEY_ID`,
+`MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY`, `MEETINGS_EVAL_BEDROCK_REGION`,
+`MEETINGS_EVAL_BEDROCK_MODEL_ID`) **fails** naming the missing names, so an unconfigured gate is
+never a pass. Only the nightly `schedule` run skips quietly when unconfigured (exit 0 with a
+notice); a skipped nightly is not release evidence.
+
 ```bash
 cd meetings-api
 export BEDROCK_REGION=eu-central-1                  # an EU region (checked; a refusal never prints the value)
