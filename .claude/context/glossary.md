@@ -96,6 +96,17 @@
   processor may keep, for about 5 days (specs/021 A6).
 - **Transient copy**: audio held in wellD-controlled EU/CH storage only for one
   transcription attempt (specs/021 AC-4.12). _Avoid:_ staging file, temp upload.
+- **Live mode** (specs/022): a per-recording-session switch on a `recorded` meeting that makes
+  provisional text and live questions available to the creator.
+- **Provisional transcript** (live text): unlabelled, creator-only text produced during
+  recording and replaced by the final transcript. _Avoid:_ transcript (that is the final one).
+- **Settled text**: the part of the provisional transcript that will no longer change; only it
+  is shown and used to answer.
+- **Coverage point**: the recording time (mm:ss) up to which settled text exists; stated in
+  every live answer.
+- **Live gap**: a stretch of recording time captured but with no live text.
+- **Live turn**: a question asked and answered during recording, from provisional text only.
+- **Superseded**: the state of a live turn once the final transcript exists.
 - **Passage**: the citation unit of a `text`-source meeting (the counterpart of a segment).
 - **Processing stage**: one step of turning a source into a transcript (upload check,
   audio extraction, transcription).
