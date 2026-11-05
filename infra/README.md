@@ -1240,9 +1240,12 @@ Everything below is a **checklist for a person**: nothing in this section has be
 | `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `meetings-api` / `${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}` (≥ 32 chars, byte-identical to its `SERVICE_CLIENTS` entry) | secret: yes |
 | `MEETINGS_S3_ENDPOINT` / `_REGION` / `_EU_ENDPOINT_HOSTS` | the audio bucket; a non-AWS endpoint needs its host in the EU list or the service exits 1 (ADR-0016 lineage) | no |
 | `MEETINGS_S3_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | set by reference to the Railway bucket by `provision-tool.sh --bucket`; **its own bucket and credentials**, never crm's or refund's | secrets: yes |
-| `AZURE_SPEECH_REGION` / `AZURE_SPEECH_KEY` | `westeurope` / the key (1Password) | key: yes |
-| `BEDROCK_REGION` / `BEDROCK_MODEL_ID` | an EU region (preferably `eu-central-2`) / the pinned model or EU inference profile | no |
-| `MEETINGS_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | least-privilege IAM user (1Password) | yes |
+| `MEETINGS_SPEECH_LOCATION` | `eu` — the only value accepted (Chirp 3 is GA in `eu` and `us` only); the Speech endpoint is derived, never configured | no |
+| `MEETINGS_VERTEX_LOCATION` | `eu` recommended; `europe-west1` and `europe-west4` are also accepted. `global`, `us` and anything else are refused; the base URL is derived | no |
+| `MEETINGS_VERTEX_MODEL_ID` | the pinned Claude model id (`claude-…`); never a Fable or Mythos model. A placeholder until the live eval is green on it | no |
+| `MEETINGS_GCP_PROJECT_ID` | the dedicated Google Cloud project (holds Speech, the Vertex enablement and the transient bucket, nothing else) | no |
+| `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` | the runtime service account's JSON key, **base64-encoded** (1Password `AIScream/OperAI - Meetings GCP SA/key-base64`); its `project_id` must equal `MEETINGS_GCP_PROJECT_ID` | key: yes |
+| `MEETINGS_GCS_TRANSIENT_BUCKET` | the transient bucket's name; its location is read at startup | no |
 | `MEETINGS_AI_PROVIDER` | `real` — `fake` is refused when `NODE_ENV=production` | no |
 | `MEETINGS_TEST_HOSTS` | **must not be set** in production (the service exits 1) | — |
 | `PORT` / `NODE_ENV` | `8085` / `production` | no |
@@ -1273,18 +1276,123 @@ proves the rule exists; the shell CSP must also list the bucket in `connect-src`
 `media-src` (playback) — see the note under `inventory-api` above; all three gates fail alike as
 "upload failed".
 
-**Processors (ADR-0061) — verified at startup, so they must exist before the first deploy.**
-- *Azure AI Speech*, fast transcription, resource in **`westeurope`** (not Switzerland North, which
-  lacks fast transcription). The region must match the endpoint host.
-- *Claude on Amazon Bedrock*, EU region, **data-retention mode `none`** — the service reads the
-  region's retention configuration and refuses to start unless it says `none` or if it cannot be
-  read. Enable model access for the pinned model in that region; if `BEDROCK_MODEL_ID` is an
-  inference profile, every destination Region must be EU (checked via `GetInferenceProfile`).
-  IAM: `bedrock:InvokeModel` on that model or profile, `bedrock:GetInferenceProfile`, and read of
-  the retention configuration — nothing else. **Pin the model id only after the prompt-injection
-  eval (T83) is green on it**; a model change is a deploy that needs a green eval.
-- The Microsoft and AWS DPAs and the transfer-impact note (plan O3) are a go-live decision for the
-  data-protection lead, not something this checklist closes.
+**Google Cloud (ADR-0061 principle, ADR-0069; plan "Amendment 2026-11-05" G-2, G-5, G-6) — verified at
+startup, so it must exist before the first deploy.** Transcription is Cloud Speech-to-Text v2 (Chirp 3,
+`BatchRecognize`) through a **transient EU bucket**; summaries and Q&A are Claude on Vertex AI in the
+`eu` multi-region. Everything the Google APIs let the service read is checked at startup (exit 1,
+value-free message); what they do not expose is a **recorded sign-off** (H1-H6 below). Nothing in this
+subsection has been provisioned: it is the checklist a person follows, in this order, and the commands
+are templates to read first, not a script to paste.
+
+*1. Project and APIs.* One **dedicated** project (nothing else in it: it is the unit of the sign-offs),
+in an organization where the policies of step 6 can be set. Enable `speech.googleapis.com`,
+`aiplatform.googleapis.com`, `storage.googleapis.com`, `iam.googleapis.com` and, for the eval
+identity, `iamcredentials.googleapis.com` and `sts.googleapis.com`. Billing is linked by the
+project owner.
+
+*2. Claude in Model Garden.* In the console (Vertex AI → Model Garden) enable the pinned Claude model in
+the project. **This accepts Anthropic's Commercial Terms (sign-off H5).** Never enable a Fable or Mythos
+model, and never accept the "Advanced AI Safety Addendum" (H3): those models log prompts and responses
+for up to 30 days. The model id goes into `MEETINGS_VERTEX_MODEL_ID` **only after the live
+prompt-injection eval is green on it** (T103/T104); a model change is a deploy that needs a green eval.
+
+*3. Disable Vertex data caching for the project (check N3).* The setting is project-wide; the service
+refuses to start unless it reads `disableCache: true`. Template (confirm the host and shape in Google's
+current docs; the T107 spike records which host serves it for `eu`):
+
+```bash
+# a person with the permission to update cacheConfig, once. The runtime service account must NOT hold it.
+curl -sS -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" \
+  "https://aiplatform.googleapis.com/v1/projects/<MEETINGS_GCP_PROJECT_ID>/cacheConfig" \
+  -d '{"name":"projects/<MEETINGS_GCP_PROJECT_ID>/cacheConfig","disableCache":true}'
+# verify: a GET on the same URL must answer {"disableCache": true}
+```
+
+*4. The transient bucket (check N2).* Create it **in the project, in an EU or CH location**
+(`EUROPE-WEST4`, Netherlands, next to Railway Amsterdam, is the recommendation; London is refused), then
+apply and prove the rules with the script. It never creates the bucket and never changes IAM; it runs as
+a person (the runtime account cannot update bucket settings). Needs the `gcloud` CLI and `jq`:
+
+```bash
+gcloud storage buckets create gs://<name> --project <MEETINGS_GCP_PROJECT_ID> --location=EUROPE-WEST4 \
+  --uniform-bucket-level-access --public-access-prevention --soft-delete-duration=0
+infra/meetings-gcs-transient-policy.sh --apply --bucket <name> --project <MEETINGS_GCP_PROJECT_ID>
+infra/meetings-gcs-transient-policy.sh --check --bucket <name> --project <MEETINGS_GCP_PROJECT_ID>
+bash infra/meetings-gcs-transient-policy.test.sh     # the script's own harness, a fake gcloud: no cloud call
+```
+
+The rules (all must hold; exit `0` they do, `1` they do not, `2` usage, `3` could not tell; **a check
+that cannot read the bucket is never a pass**): location in the EU multi-region or one EU/CH region;
+an enabled `Delete` lifecycle rule on `age <= 1` day as its **only** condition (no prefix or suffix
+filter); **soft delete off** (Cloud Storage turns on 7 days for every new bucket, which would leave a
+deleted object recoverable for a week); versioning off; no retention policy; no default event-based
+hold; uniform bucket-level access on; public access prevention `enforced`. Lifecycle is only a backstop
+(it runs late): the service deletes `transcribe/<meetingId>/` itself, at the start and end of every
+attempt and before any deletion route changes the database. Re-run `--check` after any change to the
+project, and keep the script's location list equal to the service's.
+
+*5. Service accounts, roles and bindings (least privilege; confirm exact permission names with Policy
+Troubleshooter, the names below are the intent).*
+
+| Identity | Holds | Never holds |
+|---|---|---|
+| Runtime `meetings-api@<project>.iam.gserviceaccount.com` (a JSON key, since Railway has no workload OIDC) | a **custom role** on the project: Speech `recognizers.recognize` on `recognizers/_`, `operations.get`, `operations.delete`; Vertex `aiplatform.endpoints.predict` on publisher models, read of `cacheConfig` and of `publisherModelConfig`. **On the bucket only**: `storage.objects.create/get/list/delete` and `storage.buckets.get` | any project-level storage role; `setPublisherModelConfig`; `cacheConfig` update; `aiplatform.consents.update`; `serviceusage`; any IAM permission |
+| Speech service agent `service-<project number>@gcp-sa-speech.iam.gserviceaccount.com` (exists once the Speech API is enabled; confirm in the console) | **on the bucket only**: `storage.objects.get` (reads the audio parts) and `storage.objects.create` (writes the result) | everything else |
+| Eval `meetings-eval@<project>.iam.gserviceaccount.com` (no key: Workload Identity Federation, step 7) | Vertex predict on the publisher models only | Speech, any bucket, any key |
+
+*6. Key, rotation, expiry and organization policies.*
+- **Key (runtime only).** Create it once, straight into 1Password, never into the repo, a terminal log
+  or a chat. The base64 text is the variable's value:
+  ```bash
+  umask 077; f="$(mktemp)"
+  gcloud iam service-accounts keys create "$f" --iam-account meetings-api@<project>.iam.gserviceaccount.com
+  base64 < "$f" | tr -d '\n'   # -> 1Password "AIScream/OperAI - Meetings GCP SA", field key-base64
+  rm -P "$f" 2>/dev/null || shred -u "$f"
+  ```
+- **Rotation: every 90 days** (a calendar entry owned by the sign-off owner): create a second key, update
+  1Password and Railway `MEETINGS_GCP_SERVICE_ACCOUNT_KEY`, redeploy, check the service starts (it exits 1
+  on a bad key) and answers its health check, then **delete the old key**
+  (`gcloud iam service-accounts keys delete`) and confirm with `keys list` that exactly one user-managed
+  key remains. `mise run env:doctor` treats the variable as a secret and never prints it.
+- **Escalation trigger:** when Railway ships workload OIDC, move the runtime to Workload Identity
+  Federation and delete the key.
+- **Organization policies on the project** (defence in depth, the code does not rely on them; set by an
+  organization administrator):
+  - `constraints/iam.serviceAccountKeyExpiryHours` set to about 2400 h (100 days), so a forgotten key dies;
+  - `constraints/iam.disableServiceAccountKeyCreation` **not enforced for this project** (an explicit,
+    reviewed exception: the runtime key needs it), enforced everywhere else;
+  - `constraints/gcp.resourceLocations` allowing `in:eu-locations` only;
+  - `constraints/storage.publicAccessPrevention` and `constraints/storage.uniformBucketLevelAccess` enforced;
+  - Google's Vertex AI organization policy that blocks **global-endpoint** usage (confirm the current
+    constraint name in Google's docs; the code already refuses `global`).
+
+*7. Live eval identity (GitHub Actions, no key).* A Workload Identity Pool and an OIDC provider for
+`https://token.actions.githubusercontent.com`, with an **attribute condition** restricting it to this
+repository and the `meetings-eval` environment, bound to the eval service account with
+`roles/iam.workloadIdentityUser` on that principal set only. Set the **variables** of the `meetings-eval`
+GitHub environment (none is secret): `MEETINGS_EVAL_GCP_WIF_PROVIDER`
+(`projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>`),
+`MEETINGS_EVAL_GCP_SERVICE_ACCOUNT`, `MEETINGS_EVAL_GCP_PROJECT_ID`, `MEETINGS_EVAL_VERTEX_LOCATION`
+(`eu`) and `MEETINGS_EVAL_VERTEX_MODEL_ID`. They replace the previous provider's `MEETINGS_EVAL_*`
+secrets and variables: delete those from the repository and from the environment. The workflow is
+`.github/workflows/meetings-eval-live.yml` (nightly: skips when unconfigured; on dispatch: fails naming the
+missing variables). The evals' content is synthetic.
+
+*8. Sign-off checklist (H1-H6): a person records an owner and a date; re-attest quarterly and on any
+change to the project. The service cannot read these, so they are not checked at startup.* H4 **blocks
+go-live.**
+
+| # | Sign-off | Owner | Date |
+|---|---|---|---|
+| H1 | **Speech-to-Text data logging is not enrolled** for the project (an opt-in console toggle; the v2 API cannot read it) | ____ | ____ |
+| H2 | **Contract:** wellD's use is under the Google Cloud **Master Agreement + CDPA**, not the online Terms of Service (only then is abuse-monitoring prompt logging, up to 90 days for flagged prompts, and human review exempt by default); and written confirmation that it does not apply to Claude on Vertex | ____ | ____ |
+| H3 | **No consent to the Advanced AI Safety Addendum** in the project and no Advanced AI model (Fable, Mythos) enabled | ____ | ____ |
+| H4 | **Written confirmation from Google on Q1:** with `gcsOutputConfig`, the Speech service keeps no copy of the transcript after the operation, or keeps it for how long (its FAQ says about 5 days for async results). The consent notice discloses the retention (T112). **Blocks go-live** | ____ | ____ |
+| H5 | **Anthropic's terms:** enabling Claude in Model Garden accepts Anthropic's Commercial Terms; the data-protection lead confirms this does not make Anthropic a processor of meeting content (Google states prompts and responses are not shared with third parties, partner models included) | ____ | ____ |
+| H6 | **Cloud Audit Logs Data Access** for `speech`, `aiplatform` and `storage` do not record request payloads (checked at provisioning) | ____ | ____ |
+
+- The Google DPA and the transfer-impact note (plan O3) are a go-live decision for the data-protection
+  lead, not something this checklist closes.
 
 **Wiring in `auth` (do this first).** `SERVICE_CLIENTS` gains exactly:
 `"meetings-api":{"secret":"${{shared.MEETINGS_SERVICE_CLIENT_SECRET}}","scope":"notifications.push host-notices.send"}`
@@ -1324,7 +1432,7 @@ MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
 ```
 
 MinIO has no bucket-level CORS (that step prints `SKIP`; only `--require-cors` makes it fail), and dev
-runs `MEETINGS_AI_PROVIDER=fake` until the real keys exist.
+runs `MEETINGS_AI_PROVIDER=fake` until the real Google configuration exists (the fake never touches the transient bucket).
 
 ### Provisioning a new tool
 
