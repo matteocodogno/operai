@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LoadFailure, Loading, StaleWriteBanner } from '../LoadState'
 import { useResource } from '../../hooks/useResource'
 import { getTranscript } from '../../lib/meetingsApi'
+import { passageNumber } from '../../lib/passageNumber'
 import type { Meeting, Transcript } from '../../lib/types'
 import { strings } from '../../strings'
 import { AudioControl } from './AudioControl'
@@ -206,7 +207,7 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
             onEdit={canEdit ? () => setEditing(segment.id) : null}
             editLabel={
               segment.startMs === null
-                ? strings.transcript.editPassage(segment.ordinal)
+                ? strings.transcript.editPassage(passageNumber(segment.ordinal))
                 : strings.transcript.editSegment(clockOf(segment.startMs))
             }
             editor={

@@ -93,6 +93,18 @@ describe('TranscriptView: reading (AC-6.1)', () => {
     expect(within(row).queryByRole('button')).toBeNull()
   })
 
+  it('the edit control of the first passage is named "Edit passage 1", never 0 (ordinal is 0-based)', async () => {
+    serveTranscript(
+      transcript({
+        segments: [segment({ ordinal: 0, startMs: null, endMs: null, speakerKey: null, text: 'First passage.' })],
+        speakers: [],
+      }),
+    )
+    view(readyMeeting({ source: 'text' }))
+    expect(await screen.findByRole('button', { name: 'Edit passage 1' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /passage 0/i })).toBeNull()
+  })
+
   it('renders AI-free text as plain text: markup and Markdown appear literally (ADR-0067)', async () => {
     serveTranscript(
       transcript({

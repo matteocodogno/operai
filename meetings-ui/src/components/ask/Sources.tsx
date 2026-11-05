@@ -1,4 +1,5 @@
 import { Button } from '@operai/ui'
+import { passageNumber } from '../../lib/passageNumber'
 import type { Citation } from '../../lib/types'
 import { strings } from '../../strings'
 import { clockOf } from '../transcript/exportText'
@@ -31,7 +32,7 @@ export function Sources({ meetingId, turnId, citations, onOpen }: SourcesProps) 
               }}
             >
               {citation.startMs === null
-                ? strings.ask.sourcePassage(citation.ordinal)
+                ? strings.ask.sourcePassage(passageNumber(citation.ordinal))
                 : strings.ask.source(clockOf(citation.startMs), citation.speaker)}
             </Button>
           </li>

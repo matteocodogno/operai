@@ -79,13 +79,19 @@ describe('the conversation (AC-9.1, AC-9.3, AC-9.5)', () => {
           answer: {
             text: 'Yes.',
             notInMeeting: false,
-            citations: [{ segmentId: 'seg3', ordinal: 3, startMs: null, speaker: null }],
+            citations: [
+              { segmentId: 'seg0', ordinal: 0, startMs: null, speaker: null },
+              { segmentId: 'seg3', ordinal: 3, startMs: null, speaker: null },
+            ],
           },
         }),
       ]),
     )
     const { onOpenSource } = view(readyMeeting({ source: 'text' }))
-    await userEvent.click(await screen.findByRole('button', { name: en.ask.sourcePassage(3) }))
+    // The API ordinal is 0-based; the first passage is "Passage 1", never "Passage 0".
+    expect(await screen.findByRole('button', { name: 'Passage 1' })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Passage 0' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Passage 4' }))
     expect(onOpenSource).toHaveBeenCalledWith('seg3')
   })
 
