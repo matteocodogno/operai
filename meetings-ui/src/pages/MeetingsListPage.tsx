@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import {
@@ -78,6 +78,7 @@ export default function MeetingsListPage({ mine }: MeetingsListPageProps) {
   const { canUseMeetings } = useCapabilityHints()
   const hosts = useHosts()
   const searchId = useId()
+  const searchRef = useRef<HTMLInputElement>(null)
   const roleId = useId()
   const statusId = useId()
   const hostAppId = useId()
@@ -129,6 +130,9 @@ export default function MeetingsListPage({ mine }: MeetingsListPageProps) {
   const clear = () => {
     setSearchText('')
     setFilters(NO_FILTERS)
+    // The button that was pressed (in the filter card or in the empty state) is about to unmount;
+    // the search field is the first filter and always there, so focus goes there, not to <body>.
+    searchRef.current?.focus()
   }
   const filtered = q !== '' || role !== '' || status !== '' || hostApp !== ''
 
@@ -181,7 +185,15 @@ export default function MeetingsListPage({ mine }: MeetingsListPageProps) {
     const items = resource.data?.items ?? []
     if (items.length === 0) {
       return filtered ? (
-        <StatePanel title={t.empty.filtered.title} testId="meetings-list-empty-filtered">
+        <StatePanel
+          title={t.empty.filtered.title}
+          testId="meetings-list-empty-filtered"
+          action={
+            <Button variant="secondary" onClick={clear} data-testid="meetings-list-empty-clear">
+              {t.filters.clear}
+            </Button>
+          }
+        >
           {t.empty.filtered.body}
         </StatePanel>
       ) : (
@@ -216,6 +228,7 @@ export default function MeetingsListPage({ mine }: MeetingsListPageProps) {
               </label>
               <input
                 id={searchId}
+                ref={searchRef}
                 type="search"
                 value={searchText}
                 placeholder={t.filters.searchPlaceholder}

@@ -263,10 +263,68 @@ describe('states', () => {
     expect(await screen.findByRole('heading', { name: en.list.empty.filtered.title })).not.toBeNull()
     expect(screen.queryByRole('heading', { name: en.list.empty.none.title })).toBeNull()
 
-    await userEvent.click(screen.getByRole('button', { name: en.list.filters.clear }))
+    await userEvent.click(screen.getByTestId('meetings-list-clear'))
     expect(await screen.findByRole('link', { name: 'Everything' })).not.toBeNull()
     expect((screen.getByLabelText(en.list.filters.role) as HTMLSelectElement).value).toBe('')
     expect(screen.queryByRole('button', { name: en.list.filters.clear })).toBeNull()
+  })
+
+  it('no match for the filters: the empty state itself offers Clear filters (design S1 E-filtered)', async () => {
+    serve({
+      'GET /meetings': (url) =>
+        url.searchParams.get('role') === 'participant'
+          ? { status: 200, body: page([]) }
+          : { status: 200, body: page([meetingRow({ title: 'Everything' })]) },
+    })
+    await renderList()
+    await screen.findByRole('link', { name: 'Everything' })
+    await userEvent.selectOptions(screen.getByLabelText(en.list.filters.role), 'participant')
+
+    const panel = await screen.findByTestId('meetings-list-empty-filtered')
+    await userEvent.click(within(panel).getByRole('button', { name: en.list.filters.clear }))
+
+    // the filters reset, the unfiltered list is fetched and shown, and focus does not fall to <body>
+    expect(await screen.findByRole('link', { name: 'Everything' })).not.toBeNull()
+    expect(lastQuery()).toEqual({ page: '1' })
+    expect((screen.getByLabelText(en.list.filters.role) as HTMLSelectElement).value).toBe('')
+    expect(screen.queryByTestId('meetings-list-empty-filtered')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('searchbox', { name: en.list.filters.search }))
+  })
+
+  it('no match for a typed search: the panel action clears the search text too', async () => {
+    serve({
+      'GET /meetings': (url) =>
+        url.searchParams.get('q') === 'zzz'
+          ? { status: 200, body: page([]) }
+          : { status: 200, body: page([meetingRow({ title: 'Everything' })]) },
+    })
+    await renderList()
+    await screen.findByRole('link', { name: 'Everything' })
+    await userEvent.type(screen.getByRole('searchbox', { name: en.list.filters.search }), 'zzz{Enter}')
+
+    const panel = await screen.findByTestId('meetings-list-empty-filtered')
+    await userEvent.click(within(panel).getByRole('button', { name: en.list.filters.clear }))
+
+    expect(await screen.findByRole('link', { name: 'Everything' })).not.toBeNull()
+    expect((screen.getByRole('searchbox', { name: en.list.filters.search }) as HTMLInputElement).value).toBe('')
+  })
+
+  it('no meetings at all: the empty state has no action, with or without New meeting', async () => {
+    serve({ 'GET /meetings': () => ({ status: 200, body: page([]) }) })
+    await renderList()
+    const panel = await screen.findByTestId('meetings-list-empty')
+    expect(within(panel).queryByRole('button')).toBeNull()
+    expect(within(panel).queryByRole('link')).toBeNull()
+    expect(screen.queryByRole('button', { name: en.list.filters.clear })).toBeNull()
+  })
+
+  it('no meetings at all for someone without meetings access: still no action, no New meeting', async () => {
+    session.apps = []
+    serve({ 'GET /meetings': () => ({ status: 200, body: page([]) }) })
+    await renderList()
+    const panel = await screen.findByTestId('meetings-list-empty')
+    expect(within(panel).queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('link', { name: en.list.newMeeting })).toBeNull()
   })
 })
 
