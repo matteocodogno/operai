@@ -602,7 +602,7 @@ database after `bun run db:deploy`.
   - touch: `shell/e2e/meetings-failure.spec.ts`
   - done when: `cd shell && pnpm e2e meetings-failure.spec.ts` passes against the stack
 
-- [ ] T91: [OPS] Changesets for every touched app (meetings-api, meetings-ui minor/new; shell, crm-ui, crm-api, auth, notify-api, notify-ui, operai-ui minor) — refs: AC-10.5 — deps: T2, T3, T4, T5, T9, T42, T48, T51, T52, T58, T59, T60, T65, T66, T67, T69, T70, T72, T73, T74, T76, T77, T78, T79, T80
+- [x] T91: [OPS] Changesets for every touched app (meetings-api, meetings-ui minor/new; shell, crm-ui, crm-api, auth, notify-api, notify-ui, operai-ui minor) — refs: AC-10.5 — deps: T2, T3, T4, T5, T9, T42, T48, T51, T52, T58, T59, T60, T65, T66, T67, T69, T70, T72, T73, T74, T76, T77, T78, T79, T80
   - touch: `.changeset/*.md`
   - done when: `mise run changeset:check` passes on the branch
 
