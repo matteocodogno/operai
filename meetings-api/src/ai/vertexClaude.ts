@@ -22,7 +22,7 @@
  */
 
 import { AnthropicVertex } from "@anthropic-ai/vertex-sdk";
-import type { JWT } from "google-auth-library";
+import type { AuthClient } from "google-auth-library";
 import { checkVertexLocation, vertexHost } from "../lib/residency";
 import { LanguageModelError, type LanguageModel, type LlmRequest, type OutputSchema } from "./languageModel";
 
@@ -59,8 +59,8 @@ export interface VertexClientConfig {
   /** `MEETINGS_VERTEX_LOCATION`, already checked (S2); checked again here. */
   readonly location: string;
   readonly projectId: string;
-  /** The service account's credentials (explicit; never ADC). */
-  readonly authClient: JWT;
+  /** Explicit credentials: the service account's JWT client, or (the live eval only) a Workload Identity Federation client. Never ADC. */
+  readonly authClient: AuthClient;
   readonly timeoutMs?: number;
   /** Tests stub the wire; production uses the platform's `fetch`. */
   readonly fetchImpl?: typeof fetch;

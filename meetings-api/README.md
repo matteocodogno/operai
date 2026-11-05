@@ -43,8 +43,21 @@ More groups (plan.md § Environment). A misconfiguration exits 1 naming the vari
 | `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | all or none; required in production. Client `meetings-api` needs scopes `notifications.push host-notices.send` |
 | `CRM_API_URL` | the CRM host; required in production (defaults to `http://localhost:8084` otherwise) |
 | `MEETINGS_AI_PROVIDER` | `real` (default, required in production) or `fake` (development and test only) |
-| `AZURE_SPEECH_REGION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_ENDPOINT` | transcription; region must be EU or Swiss; the optional endpoint must be a Microsoft regional host for that same region |
-| `BEDROCK_REGION`, `BEDROCK_MODEL_ID`, `MEETINGS_AWS_ACCESS_KEY_ID`, `MEETINGS_AWS_SECRET_ACCESS_KEY` | language model; region must be an EU one |
+| `MEETINGS_SPEECH_LOCATION` | Cloud Speech-to-Text v2 location (Chirp 3); only `eu` is accepted (S1). The endpoint `https://eu-speech.googleapis.com` is derived, never configured |
+| `MEETINGS_VERTEX_LOCATION` | Claude on Vertex AI: `eu` (recommended), `europe-west1` or `europe-west4` (S2). `global`, `us` and anything else is refused. The base URL is derived (`aiplatform.eu.rep.googleapis.com` for `eu`) |
+| `MEETINGS_VERTEX_MODEL_ID` | the pinned Claude model (`claude-...`; a Fable or Mythos id is refused, S3). Changing it needs a green live eval (below) |
+| `MEETINGS_GCP_PROJECT_ID` | the dedicated Google Cloud project that holds Speech, the Vertex enablement and the transient bucket |
+| `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` | **secret.** Base64 of the runtime service account's JSON key; its `project_id` must equal `MEETINGS_GCP_PROJECT_ID` (S4). Never Application Default Credentials. Never logged |
+| `MEETINGS_GCS_TRANSIENT_BUCKET` | the transient transcription bucket (EU/CH single region or the EU multi-region). At start it must carry a one-day unfiltered `Delete` rule, soft delete off, no versioning, no retention policy, uniform access and public access prevention enforced (N2). Its location is read from the bucket and the regional endpoint `storage.<location>.rep.googleapis.com` is derived from it |
+| `ANTHROPIC_VERTEX_BASE_URL` | must NOT be set: an ambient base-URL override is refused (S5) |
+
+All six `MEETINGS_*` Google settings are required with `MEETINGS_AI_PROVIDER=real`. With `fake` they are optional
+and validated when set, so `mise run dev` needs no Google project. At start, with `real`, the service also reads
+Google's control plane and exits 1 unless the transient bucket is fit (N2), Vertex data caching is disabled for the
+project (N3, `GET .../cacheConfig` answers `disableCache: true`) and request-response logging is not enabled for the
+model (N4). The settings Google exposes through no API (Speech data logging, the contract, Advanced AI consent) are
+go-live sign-offs in `infra/README.md`, not code (ADR-0069).
+
 | `MEETINGS_WORKER` | `on` (default), `off` or `only`: the job runner runs in this process |
 | `MEETINGS_TEST_HOSTS` | JSON array of test hosts; refused in production |
 
@@ -75,7 +88,7 @@ citation filter, with persistence left out, so it needs no database and no netwo
 bun run eval                          # CI mode: the fake model, no network, no database (exit 0 = pass)
 bun run eval --obey <fixture-id>      # negative control: that fixture's obedient replies judged by every tier (exit 1)
 bun run eval --list                   # the fixtures; --filter <text> narrows any run
-bun run eval --live                   # RELEASE STEP: the real EU model on Bedrock (see below)
+bun run eval --live                   # RELEASE STEP: the real EU model, Claude on Vertex AI (see below)
 ```
 
 Exit codes: `0` pass, `1` an assertion failed (or a stale known-gap marker), `2` bad usage or missing
@@ -103,33 +116,38 @@ model resisting them.
 ### Release: required steps before deploying meetings-api
 
 1. `bun run typecheck && bun test` and `bun run eval` (fake) green.
-2. **`bun run eval --live` with `BEDROCK_MODEL_ID` set to the model id that will be deployed. Required**
-   for every release and for every `BEDROCK_MODEL_ID` change (ADR-0061, ADR-0067). A change of model id
+2. **`bun run eval --live` with `MEETINGS_VERTEX_MODEL_ID` set to the model id that will be deployed. Required**
+   for every release and for every `MEETINGS_VERTEX_MODEL_ID` change (ADR-0069, ADR-0067). A change of model id
    is not merged without a green live run recorded in the PR.
 3. Paste the block the live run prints (model id, date, fixture count, PASS) into the PR.
 
 The same gate runs in CI as the `meetings-eval-live` workflow: trigger it with **Run workflow**
-(`workflow_dispatch`) before a release or a model change, and the dispatched run must be **green**.
-A dispatched run with any of the four settings missing (`MEETINGS_EVAL_AWS_ACCESS_KEY_ID`,
-`MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY`, `MEETINGS_EVAL_BEDROCK_REGION`,
-`MEETINGS_EVAL_BEDROCK_MODEL_ID`) **fails** naming the missing names, so an unconfigured gate is
-never a pass. Only the nightly `schedule` run skips quietly when unconfigured (exit 0 with a
-notice); a skipped nightly is not release evidence.
+(`workflow_dispatch`) before a release or a model change, and the dispatched run must be **green**. It
+authenticates to Google by Workload Identity Federation (GitHub OIDC) as a separate, Vertex-only service account,
+so no key is stored in CI. A dispatched run with any of the settings missing (`MEETINGS_EVAL_GCP_WIF_PROVIDER`,
+`MEETINGS_EVAL_GCP_SERVICE_ACCOUNT`, `MEETINGS_EVAL_GCP_PROJECT_ID`, `MEETINGS_EVAL_VERTEX_LOCATION`,
+`MEETINGS_EVAL_VERTEX_MODEL_ID`) **fails** naming the missing names, so an unconfigured gate is never a pass. Only
+the nightly `schedule` run skips quietly when unconfigured (exit 0 with a notice); a skipped nightly is not release
+evidence.
 
 ```bash
 cd meetings-api
-export BEDROCK_REGION=eu-central-1                  # an EU region (checked; a refusal never prints the value)
-export BEDROCK_MODEL_ID=<the id that will be deployed>
-export MEETINGS_AWS_ACCESS_KEY_ID=...               # the dedicated eval key (1Password), not the production key
-export MEETINGS_AWS_SECRET_ACCESS_KEY=...
+export MEETINGS_GCP_PROJECT_ID=<the eval project>
+export MEETINGS_VERTEX_LOCATION=eu                  # eu, europe-west1 or europe-west4 (checked; a refusal never prints the value)
+export MEETINGS_VERTEX_MODEL_ID=<the id that will be deployed>
+# Credentials, one of:
+export MEETINGS_GCP_SERVICE_ACCOUNT_KEY=...         # base64 JSON key of the dedicated EVAL service account (1Password), not the production one
+export GOOGLE_APPLICATION_CREDENTIALS=...           # or the Workload Identity Federation credential file (what CI uses)
 bun run eval --live --repeat 3                      # every fixture must pass all 3 samples
 ```
 
 `--live` makes one real provider call per fixture per sample (53 x `--repeat`; no obedient channels are
-sent). It sends synthetic content only, to the EU region, with the same forced-tool request the
-service sends. A real model is not deterministic: a fixture that fails one sample of three is a
+sent). It sends synthetic content only, to the EU endpoint, with the same forced-tool request the
+service sends (one tool, no prompt caching, no server tools, no beta). The same refusals as at service start apply
+before anything is sent: `global` or a non-EU location, a Fable or Mythos model, a key of another project and an
+ambient `ANTHROPIC_VERTEX_BASE_URL`. A real model is not deterministic: a fixture that fails one sample of three is a
 failure to investigate, not to retry until green. Do **not** run it from a developer shell with a
-production key, and do not wire the production key into CI: the nightly job uses the dedicated key
+production key, and do not wire the production key into CI: the nightly job uses the dedicated identity
 (T84).
 
 ### Known gaps

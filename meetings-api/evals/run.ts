@@ -4,16 +4,26 @@
  *   bun run eval                      fake model, no network, no database: the CI gate
  *   bun run eval --obey <fixture-id>  negative control: that fixture's obedient replies judged
  *                                     by every tier; exits 1 (the assertions bite)
- *   bun run eval --live               the REAL EU model (Bedrock): the release and model-change
- *                                     gate. Needs BEDROCK_* and MEETINGS_AWS_*; costs real calls.
+ *   bun run eval --live               the REAL EU model (Claude on Vertex AI): the release and
+ *                                     model-change gate. Needs MEETINGS_GCP_PROJECT_ID,
+ *                                     MEETINGS_VERTEX_LOCATION, MEETINGS_VERTEX_MODEL_ID and credentials
+ *                                     (MEETINGS_GCP_SERVICE_ACCOUNT_KEY, or the credential file in
+ *                                     GOOGLE_APPLICATION_CREDENTIALS that Workload Identity Federation
+ *                                     writes in CI); costs real calls.
  *   bun run eval --list               the fixtures
  *   options: --filter <text> (id contains)  --repeat <n> (live: samples per fixture)  --json
  *
  * Exit codes: 0 all pass, 1 an assertion failed, 2 bad usage or missing live configuration.
- * The fake path never imports the Bedrock module, so it cannot reach a cloud provider.
+ * The fake path never imports the Vertex module or the Google auth library, so it cannot reach a cloud provider.
  */
 
-import { checkBedrockRegion } from "../src/lib/residency";
+import {
+  GCP_PROJECT_ID_PATTERN,
+  checkNoVertexBaseUrlOverride,
+  checkVertexLocation,
+  checkVertexModelId,
+  parseServiceAccountKey,
+} from "../src/lib/residency";
 import { control, evaluate, type FixtureResult } from "./engine";
 import { FIXTURES } from "./fixtures";
 import type { Fixture } from "./types";
@@ -77,28 +87,58 @@ function summarise(results: readonly FixtureResult[], live: boolean): number {
   return failed.length === 0 && stale.length === 0 ? 0 : 1;
 }
 
+/**
+ * The settings the live run needs, checked BEFORE anything is imported or sent. The S2/S3/S5 checks the service
+ * applies at startup apply here too (a `global` location, a Fable or Mythos model and an ambient base-URL override
+ * are refused); a refusal names the variable and never a value. Credentials: the explicit service-account key as
+ * the service uses it, or, in CI, the credential file Workload Identity Federation writes (a separate Vertex-only
+ * service account). Never Application Default Credentials from the machine.
+ */
+function liveConfigProblems(env: NodeJS.ProcessEnv): { missing: string[]; refusals: string[] } {
+  const missing = ["MEETINGS_GCP_PROJECT_ID", "MEETINGS_VERTEX_LOCATION", "MEETINGS_VERTEX_MODEL_ID"].filter((name) => !env[name]);
+  if (!env["MEETINGS_GCP_SERVICE_ACCOUNT_KEY"] && !env["GOOGLE_APPLICATION_CREDENTIALS"]) {
+    missing.push("MEETINGS_GCP_SERVICE_ACCOUNT_KEY (or GOOGLE_APPLICATION_CREDENTIALS)");
+  }
+  const refusals: string[] = [];
+  const push = (message: string | null) => message && refusals.push(message);
+  if (env["MEETINGS_VERTEX_LOCATION"]) push(checkVertexLocation(env["MEETINGS_VERTEX_LOCATION"]));
+  if (env["MEETINGS_VERTEX_MODEL_ID"]) push(checkVertexModelId(env["MEETINGS_VERTEX_MODEL_ID"]));
+  push(checkNoVertexBaseUrlOverride(env["ANTHROPIC_VERTEX_BASE_URL"]));
+  if (env["MEETINGS_GCP_PROJECT_ID"] && !GCP_PROJECT_ID_PATTERN.test(env["MEETINGS_GCP_PROJECT_ID"])) {
+    refusals.push("MEETINGS_GCP_PROJECT_ID is not a valid Google Cloud project id");
+  }
+  if (env["MEETINGS_GCP_SERVICE_ACCOUNT_KEY"]) push(parseServiceAccountKey(env["MEETINGS_GCP_SERVICE_ACCOUNT_KEY"], env["MEETINGS_GCP_PROJECT_ID"]).error ?? null);
+  return { missing, refusals };
+}
+
 async function liveModel() {
-  const need = ["BEDROCK_REGION", "BEDROCK_MODEL_ID", "MEETINGS_AWS_ACCESS_KEY_ID", "MEETINGS_AWS_SECRET_ACCESS_KEY"] as const;
-  const missing = need.filter((name) => !process.env[name]);
+  const { missing, refusals } = liveConfigProblems(process.env);
   if (missing.length > 0) {
     console.error(`--live needs ${missing.join(", ")} (names only; values are never printed). See README.md § Release: prompt-injection evals.`);
     process.exit(2);
   }
-  const refusal = checkBedrockRegion(process.env["BEDROCK_REGION"]!);
-  if (refusal) {
-    console.error(refusal);
+  if (refusals.length > 0) {
+    for (const refusal of refusals) console.error(refusal);
     process.exit(2);
   }
-  // Imported only here: a fake run never loads the AWS SDK.
-  const { createBedrockLanguageModel, createBedrockRuntimeClient } = await import("../src/ai/bedrock");
-  return createBedrockLanguageModel({
-    client: createBedrockRuntimeClient({
-      region: process.env["BEDROCK_REGION"]!,
-      accessKeyId: process.env["MEETINGS_AWS_ACCESS_KEY_ID"]!,
-      secretAccessKey: process.env["MEETINGS_AWS_SECRET_ACCESS_KEY"]!,
-    }),
-    modelId: process.env["BEDROCK_MODEL_ID"]!,
-  });
+  const location = process.env["MEETINGS_VERTEX_LOCATION"]!;
+  const projectId = process.env["MEETINGS_GCP_PROJECT_ID"]!;
+
+  // Imported only here: a fake run never loads the Vertex SDK or the Google auth library.
+  const { createVertexClient, createVertexLanguageModel } = await import("../src/ai/vertexClaude");
+  const authClient = await liveAuthClient(projectId);
+  return createVertexLanguageModel({ client: createVertexClient({ location, projectId, authClient }), modelId: process.env["MEETINGS_VERTEX_MODEL_ID"]! });
+}
+
+async function liveAuthClient(projectId: string) {
+  const key = process.env["MEETINGS_GCP_SERVICE_ACCOUNT_KEY"];
+  if (key) {
+    const { createGoogleAuth } = await import("../src/lib/google/auth");
+    return createGoogleAuth({ key: parseServiceAccountKey(key, projectId).key! }).client;
+  }
+  // The WIF credential file google-github-actions/auth exports: named explicitly, not found by the ambient chain.
+  const { GoogleAuth } = await import("google-auth-library");
+  return new GoogleAuth({ keyFilename: process.env["GOOGLE_APPLICATION_CREDENTIALS"]!, scopes: ["https://www.googleapis.com/auth/cloud-platform"], projectId }).getClient();
 }
 
 async function main(): Promise<number> {
@@ -140,7 +180,7 @@ async function main(): Promise<number> {
   let model;
   if (live) {
     model = await liveModel();
-    console.log(`LIVE run against ${process.env["BEDROCK_MODEL_ID"]} in ${process.env["BEDROCK_REGION"]}: ${fixtures.length} fixtures x ${repeat} (real provider calls)`);
+    console.log(`LIVE run against ${process.env["MEETINGS_VERTEX_MODEL_ID"]} in ${process.env["MEETINGS_VERTEX_LOCATION"]}: ${fixtures.length} fixtures x ${repeat} (real provider calls)`);
   } else {
     console.log("fake model, no network, no database (CI mode)");
   }
@@ -155,7 +195,7 @@ async function main(): Promise<number> {
   }
   const code = summarise(results, live);
   if (live) {
-    console.log(code === 0 ? `LIVE PASS: ${process.env["BEDROCK_MODEL_ID"]}, ${new Date().toISOString().slice(0, 10)}. Record this block in the PR.` : "LIVE FAIL: do not release or switch the model.");
+    console.log(code === 0 ? `LIVE PASS: ${process.env["MEETINGS_VERTEX_MODEL_ID"]}, ${new Date().toISOString().slice(0, 10)}. Record this block in the PR.` : "LIVE FAIL: do not release or switch the model.");
   } else {
     console.log(code === 0 ? "PASS (fake model: server-side defences held against an obedient model)" : "FAIL");
   }

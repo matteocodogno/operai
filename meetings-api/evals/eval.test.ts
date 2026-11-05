@@ -122,26 +122,72 @@ describe("the negative control: a model that obeys fails the run", () => {
 });
 
 describe("--live is a release step that cannot start by accident", () => {
-  it("refuses without the Bedrock configuration, naming the variables and no values", async () => {
-    const env = { PATH: process.env["PATH"] ?? "" };
-    const live = Bun.spawn(["bun", "evals/run.ts", "--live"], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
-    expect(await live.exited).toBe(2);
-    const err = await new Response(live.stderr).text();
-    for (const name of ["BEDROCK_REGION", "BEDROCK_MODEL_ID", "MEETINGS_AWS_ACCESS_KEY_ID", "MEETINGS_AWS_SECRET_ACCESS_KEY"]) expect(err).toContain(name);
+  const PROJECT = "operai-meetings-test";
+  const SECRET = "key-material-xyz";
+  const keyOf = (over: Record<string, unknown> = {}) =>
+    Buffer.from(JSON.stringify({ type: "service_account", project_id: PROJECT, client_email: "eval@x.iam.gserviceaccount.com", private_key: SECRET, ...over })).toString("base64");
+  const good = (): Record<string, string> => ({
+    PATH: process.env["PATH"] ?? "",
+    MEETINGS_GCP_PROJECT_ID: PROJECT,
+    MEETINGS_VERTEX_LOCATION: "eu",
+    MEETINGS_VERTEX_MODEL_ID: "claude-sonnet-5-0",
+    MEETINGS_GCP_SERVICE_ACCOUNT_KEY: keyOf(),
+  });
+  const live = async (env: Record<string, string>) => {
+    const proc = Bun.spawn(["bun", "evals/run.ts", "--live"], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
+    const code = await proc.exited;
+    return { code, err: await new Response(proc.stderr).text() };
+  };
+
+  it("refuses without the Vertex configuration, naming the variables and no values", async () => {
+    const { code, err } = await live({ PATH: process.env["PATH"] ?? "" });
+    expect(code).toBe(2);
+    for (const name of ["MEETINGS_GCP_PROJECT_ID", "MEETINGS_VERTEX_LOCATION", "MEETINGS_VERTEX_MODEL_ID", "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", "GOOGLE_APPLICATION_CREDENTIALS"]) {
+      expect(err).toContain(name);
+    }
   });
 
-  it("refuses a non-EU region before anything is sent", async () => {
-    const env = { PATH: process.env["PATH"] ?? "", BEDROCK_REGION: "us-east-1", BEDROCK_MODEL_ID: "m", MEETINGS_AWS_ACCESS_KEY_ID: "a", MEETINGS_AWS_SECRET_ACCESS_KEY: "s" };
-    const live = Bun.spawn(["bun", "evals/run.ts", "--live"], { cwd: ROOT, env, stdout: "pipe", stderr: "pipe" });
-    expect(await live.exited).toBe(2);
-    expect(await new Response(live.stderr).text()).not.toContain("us-east-1");
+  it("names only what is missing, and accepts a credential file in place of the key", async () => {
+    const { MEETINGS_GCP_SERVICE_ACCOUNT_KEY: _dropped, ...withoutKey } = good();
+    const none = await live(withoutKey);
+    expect(none.code).toBe(2);
+    expect(none.err).toContain("MEETINGS_GCP_SERVICE_ACCOUNT_KEY");
+    expect(none.err).not.toContain("MEETINGS_VERTEX_LOCATION");
+    // With the WIF credential file named it gets past configuration (and then fails on the unreadable file).
+    const withFile = await live({ ...withoutKey, GOOGLE_APPLICATION_CREDENTIALS: "/nonexistent/wif.json" });
+    expect(withFile.err).not.toContain("--live needs");
   });
 
-  it("loads the Bedrock module only inside the live branch", () => {
+  it("refuses location global, the US and London before anything is sent, without echoing the value", async () => {
+    for (const location of ["global", "us", "europe-west2"]) {
+      const { code, err } = await live({ ...good(), MEETINGS_VERTEX_LOCATION: location });
+      expect(code).toBe(2);
+      expect(err).toContain("MEETINGS_VERTEX_LOCATION");
+      expect(err).not.toMatch(new RegExp(`\\b${location}\\b`));
+    }
+  });
+
+  it("refuses a Fable or Mythos model, a key of another project and an ambient base URL, naming the variable and no value", async () => {
+    const fable = await live({ ...good(), MEETINGS_VERTEX_MODEL_ID: "claude-fable-9" });
+    expect([fable.code, fable.err.includes("MEETINGS_VERTEX_MODEL_ID"), fable.err.includes("fable")]).toEqual([2, true, false]);
+    const other = await live({ ...good(), MEETINGS_GCP_SERVICE_ACCOUNT_KEY: keyOf({ project_id: "another-project-id" }) });
+    expect([other.code, other.err.includes("MEETINGS_GCP_SERVICE_ACCOUNT_KEY"), other.err.includes("another-project-id")]).toEqual([2, true, false]);
+    const base = await live({ ...good(), ANTHROPIC_VERTEX_BASE_URL: "https://evil.example" });
+    expect([base.code, base.err.includes("ANTHROPIC_VERTEX_BASE_URL"), base.err.includes("evil.example")]).toEqual([2, true, false]);
+  });
+
+  it("never prints the key", async () => {
+    const { err } = await live({ ...good(), MEETINGS_VERTEX_LOCATION: "global" });
+    expect(err).not.toContain(SECRET);
+    expect(err).not.toContain(good()["MEETINGS_GCP_SERVICE_ACCOUNT_KEY"]!);
+  });
+
+  it("loads the Vertex module and the Google auth library only inside the live branch", () => {
     const source = readFileSync(resolve(ROOT, "evals/run.ts"), "utf8");
-    expect(source).not.toMatch(/^import .*src\/ai\/bedrock/m);
-    expect(source).toMatch(/await import\("\.\.\/src\/ai\/bedrock"\)/);
-    for (const file of ["engine.ts", "pipeline.ts", "assertions.ts", "kit.ts"]) expect(readFileSync(resolve(ROOT, "evals", file), "utf8")).not.toMatch(/bedrock|languageModel\(\)/i);
+    expect(source).not.toMatch(/^import .*src\/ai\/vertexClaude/m);
+    expect(source).not.toMatch(/^import .*(google-auth-library|src\/lib\/google)/m);
+    expect(source).toMatch(/await import\("\.\.\/src\/ai\/vertexClaude"\)/);
+    for (const file of ["engine.ts", "pipeline.ts", "assertions.ts", "kit.ts"]) expect(readFileSync(resolve(ROOT, "evals", file), "utf8")).not.toMatch(/vertex|languageModel\(\)/i);
   });
 });
 
