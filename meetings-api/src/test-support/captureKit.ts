@@ -151,3 +151,8 @@ export function authDown(): void {
   kit.authOutage = true;
   __resetAuthzCacheForTests();
 }
+
+/** Drops the 30 s resolve cache: call after changing `kit.grants` mid-test. */
+export function forgetAuth(): void {
+  __resetAuthzCacheForTests();
+}
