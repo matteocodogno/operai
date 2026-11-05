@@ -224,7 +224,7 @@ database after `bun run db:deploy`.
     - zero phrases → `noSpeech`;
     - label vectors, and one voice → one label
 
-- [ ] T32: [BE] meetings-api `transcribe` job (segments in one transaction, `ready` / `noSpeech` / `failed` + code), `POST /meetings/:id/retry` (only while audio kept), requester notifications done/failed — refs: AC-6.7, AC-6.9, AC-6.10, AC-12.2, AC-13.2 — deps: T16, T30, T31
+- [x] T32: [BE] meetings-api `transcribe` job (segments in one transaction, `ready` / `noSpeech` / `failed` + code), `POST /meetings/:id/retry` (only while audio kept), requester notifications done/failed — refs: AC-6.7, AC-6.9, AC-6.10, AC-12.2, AC-13.2 — deps: T16, T30, T31
   - touch: `meetings-api/src/jobs/handlers/transcribe.ts`, `meetings-api/src/jobs/handlers/transcribe.test.ts`, `meetings-api/src/processing/retry.routes.ts`, `meetings-api/src/processing/retry.test.ts`
   - done when: `cd meetings-api && bun test src/jobs/handlers/transcribe.test.ts src/processing/retry.test.ts` passes with the fake transcriber:
     - `stage` goes preparing → transcribing;
