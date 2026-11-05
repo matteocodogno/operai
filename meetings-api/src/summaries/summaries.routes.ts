@@ -66,6 +66,12 @@ const SummaryItemSchema = z.object({
   sections: z.array(z.object({ heading: z.string(), body: z.string(), notDiscussed: z.boolean() })).optional(),
   edited: z.boolean(),
   stale: z.boolean(),
+  /**
+   * AC-7.13: the stretches the transcript was missing when this summary was made (meeting time, ascending), written by
+   * the service, never the model; `null` for a transcript with no gap and for a summary not ready yet. The summary's
+   * label ("Based on a transcript that may be incomplete") and its ranges are this.
+   */
+  possiblyIncomplete: z.object({ gaps: z.array(z.object({ startMs: z.number().int(), endMs: z.number().int() })) }).nullable(),
   /** Additive to the plan's shape: why a failed summary failed (a closed code), for the plain-language reason (AC-7.9). */
   failure: z.object({ code: z.string() }).nullable(),
   createdAt: z.string(),
@@ -113,6 +119,18 @@ interface ItemContext {
 
 const snapshotOf = (row: Row): Partial<TemplateSnapshot> => (typeof row.template === "object" && row.template !== null ? (row.template as Partial<TemplateSnapshot>) : {});
 
+/** The snapshot of gaps as the item shows it: `null` when there were none (an older row reads `[]`). */
+function incompleteOf(row: Row): SummaryItem["possiblyIncomplete"] {
+  const raw = row.transcriptGaps;
+  if (!Array.isArray(raw)) return null;
+  const gaps = raw.flatMap((g) => {
+    if (typeof g !== "object" || g === null) return [];
+    const { startMs, endMs } = g as { startMs?: unknown; endMs?: unknown };
+    return typeof startMs === "number" && typeof endMs === "number" ? [{ startMs, endMs }] : [];
+  });
+  return gaps.length > 0 ? { gaps } : null;
+}
+
 function itemOf(row: Row, ctx: ItemContext): SummaryItem {
   const start = ctx.attemptStart.get(row.id) ?? row.createdAt;
   const timedOut = row.status === "generating" && ctx.now.getTime() - start.getTime() >= GENERATING_TIMEOUT_MS;
@@ -129,6 +147,7 @@ function itemOf(row: Row, ctx: ItemContext): SummaryItem {
     ...(status === "ready" && Array.isArray(row.sections) ? { sections: row.sections as unknown as NonNullable<SummaryItem["sections"]> } : {}),
     edited: row.edited,
     stale: status === "ready" && row.transcriptVersion < ctx.meetingVersion,
+    possiblyIncomplete: status === "ready" ? incompleteOf(row) : null,
     failure: status !== "failed" ? null : { code: timedOut ? "timed_out" : (row.failureCode ?? "internal_error") },
     createdAt: row.createdAt.toISOString(),
     version: row.version,

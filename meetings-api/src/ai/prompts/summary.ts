@@ -40,6 +40,16 @@ const MAX_GENERAL = 2_000;
 /** AC-7.2: written by the server, in the summary's language. */
 export const NOT_DISCUSSED: Readonly<Record<SummaryLanguage, string>> = { en: "Not discussed", it: "Non trattato" };
 
+/**
+ * AC-7.13: written by the service, in place of "Not discussed", when the transcript is marked possibly incomplete:
+ * an empty section is then "not found", never "not discussed", because the speech may be one of the gaps. The model is
+ * NOT told where the gaps are (H-6): the request is the same, and the guarantee is this service-written text.
+ */
+export const NOT_FOUND_INCOMPLETE: Readonly<Record<SummaryLanguage, string>> = {
+  en: "Not found in the transcript, which may be incomplete",
+  it: "Non trovato nella trascrizione, che potrebbe essere incompleta",
+};
+
 const LANGUAGE_NAME: Readonly<Record<SummaryLanguage, string>> = { en: "English", it: "Italian" };
 
 export const SUMMARY_SYSTEM_PROMPT = [
@@ -61,6 +71,8 @@ export interface SummaryInput {
   readonly template: TemplateSnapshot;
   readonly language: SummaryLanguage;
   readonly segments: readonly PromptSegment[];
+  /** The transcript has gaps (AC-6.12): an empty section reads `NOT_FOUND_INCOMPLETE`. It never reaches the model. */
+  readonly possiblyIncomplete?: boolean;
 }
 
 const clip = (text: string, max: number): string => (text.length > max ? text.slice(0, max) : text);
@@ -154,7 +166,7 @@ export function validateSummaryOutput(raw: unknown, input: SummaryInput): Valida
     const { body, notDiscussed } = byIndex.get(index)!;
     const text = notDiscussed ? "" : sanitizeProse(body, allowedUrls);
     return text === ""
-      ? { heading: section.heading, body: NOT_DISCUSSED[input.language], notDiscussed: true }
+      ? { heading: section.heading, body: (input.possiblyIncomplete ? NOT_FOUND_INCOMPLETE : NOT_DISCUSSED)[input.language], notDiscussed: true }
       : { heading: section.heading, body: text, notDiscussed: false };
   });
   return valid(rendered);

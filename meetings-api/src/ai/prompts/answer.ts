@@ -38,6 +38,15 @@ export const NOT_IN_MEETING: Readonly<Record<AnswerLanguage, string>> = {
   it: "La riunione non contiene una risposta a questa domanda.",
 };
 
+/**
+ * AC-9.9: the same fixed answer when the transcript is marked possibly incomplete, so "not in the meeting" is never
+ * presented as certain. Server-written, in the question's language.
+ */
+export const NOT_IN_MEETING_INCOMPLETE: Readonly<Record<AnswerLanguage, string>> = {
+  en: "The transcript does not contain an answer to this question. It may be incomplete, so the meeting itself may.",
+  it: "La trascrizione non contiene una risposta a questa domanda. Potrebbe essere incompleta, quindi la riunione potrebbe contenerla.",
+};
+
 export const ANSWER_SYSTEM_PROMPT = [
   "You answer questions about one business meeting for a company's internal tool.",
   "",
@@ -114,6 +123,8 @@ export interface AnswerContext {
   readonly segments: readonly PromptSegment[];
   /** The language of the question: the fixed "not in the meeting" sentence is written in it. */
   readonly language: AnswerLanguage;
+  /** The transcript has gaps (AC-9.9): the fixed sentence is `NOT_IN_MEETING_INCOMPLETE`. It never reaches the model. */
+  readonly possiblyIncomplete?: boolean;
 }
 
 const CITATION = /^\[?S(\d{1,9})\]?$/;
@@ -125,7 +136,7 @@ export function validateAnswerOutput(raw: unknown, context: AnswerContext): Vali
   if (answer.length > MAX_ANSWER) return invalid("answer_too_long");
   if (!(citations as unknown[]).every((c) => typeof c === "string")) return invalid("bad_citation");
 
-  const none: ValidAnswer = { text: NOT_IN_MEETING[context.language], citations: [], notInMeeting: true };
+  const none: ValidAnswer = { text: (context.possiblyIncomplete ? NOT_IN_MEETING_INCOMPLETE : NOT_IN_MEETING)[context.language], citations: [], notInMeeting: true };
   if (notInMeeting) return valid(none);
 
   const idByOrdinal = new Map(context.segments.map((s) => [s.ordinal, s.id]));

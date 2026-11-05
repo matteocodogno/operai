@@ -136,6 +136,15 @@ describe("a successful run", () => {
     ]);
   });
 
+  it("a meeting without gaps: an empty snapshot and the old fixed text (AC-7.13)", async () => {
+    const { summary } = await setup();
+    model.respondWith({ sections: [{ index: 0, body: "", notDiscussed: true }, { index: 1, body: "Risk.", notDiscussed: false }] });
+    await run(summary.id);
+    const after = await reread(summary.id);
+    expect(after.transcriptGaps).toEqual([]);
+    expect((after.sections as { body: string }[])[0]!.body).toBe("Not discussed");
+  });
+
   it("asks the model with the snapshot and the CURRENT transcript, and nothing else (AC-7.10)", async () => {
     const { meeting, summary } = await setup({
       summary: { template: { ...SNAPSHOT, speakerNames: { s1: "Alice", s2: "Bruno (Acme)" } } },
@@ -441,5 +450,72 @@ describe("through the real runner", () => {
     expect((await db.meetingJob.findUniqueOrThrow({ where: { id: jobId } })).attempts).toBe(2);
     expect((await reread(summary.id)).status).toBe("failed");
     expect(pushed.map((e) => e.kind)).toEqual(["summary_failed"]);
+  });
+});
+
+describe("a transcript that may be incomplete (AC-7.13)", () => {
+  const GAPS = [{ startMs: 60_000, endMs: 95_000 }, { startMs: 700_000, endMs: 740_000 }];
+  const withGaps = async (over: Parameters<typeof setup>[0] = {}) => {
+    const made = await setup(over);
+    await db.transcriptGap.createMany({ data: [...GAPS].reverse().map((g) => ({ meetingId: made.meeting.id, ...g })) });
+    return made;
+  };
+
+  it("snapshots the gaps in meeting time, ascending, with the sections", async () => {
+    const { summary } = await withGaps();
+    model.respondWith(valid(["Ship on Friday.", "Vendor late."]));
+    await run(summary.id);
+    const after = await reread(summary.id);
+    expect(after.status).toBe("ready");
+    expect(after.transcriptGaps).toEqual(GAPS);
+  });
+
+  it("writes 'Not found in the transcript, which may be incomplete' in place of 'Not discussed', in the summary's language", async () => {
+    const { summary } = await withGaps({ summary: { language: "it" } });
+    model.respondWith({ sections: [{ index: 0, body: "", notDiscussed: true }, { index: 1, body: "Rischio: ritardo.", notDiscussed: false }] });
+    await run(summary.id);
+    expect((await reread(summary.id)).sections).toEqual([
+      { heading: "Decisions", body: "Non trovato nella trascrizione, che potrebbe essere incompleta", notDiscussed: true },
+      { heading: "Risks", body: "Rischio: ritardo.", notDiscussed: false },
+    ]);
+  });
+
+  it("does not tell the model where the gaps are: the request is the one a meeting without gaps gets", async () => {
+    const { summary } = await withGaps();
+    const plain = await setup();
+    model.respondWith(valid(["a", "b"]), valid(["a", "b"]));
+    await run(summary.id);
+    await run(plain.summary.id);
+    expect(model.requests[0]!.request.messages[0]!.text).toBe(model.requests[1]!.request.messages[0]!.text);
+    expect(JSON.stringify(model.requests[0]!.request)).not.toMatch(/gap|incomplete|60000|95000/i);
+  });
+
+  it("a regenerated summary snapshots again, so it carries the gaps too (the new row starts empty)", async () => {
+    const { meeting, summary } = await withGaps();
+    model.respondWith(valid(["a", "b"]), valid(["c", "d"]));
+    await run(summary.id);
+    const again = await db.summary.create({ data: { meetingId: meeting.id, authorUserId: "author", template: SNAPSHOT, language: "en", status: "generating", attemptId: "attempt-2", transcriptVersion: 0 } });
+    expect(again.transcriptGaps).toEqual([]);
+    await run(again.id, {}, "attempt-2");
+    expect((await reread(again.id)).transcriptGaps).toEqual(GAPS);
+  });
+
+  it("a failed summary snapshots nothing, a stale claim writes nothing", async () => {
+    const failing = await withGaps();
+    model.failWith(new LanguageModelError("provider_rejected", false));
+    await run(failing.summary.id);
+    expect((await reread(failing.summary.id)).transcriptGaps).toEqual([]);
+
+    const stale = await withGaps();
+    model.respondWith(valid(["a", "b"]));
+    await run(stale.summary.id, { stale: true });
+    expect((await reread(stale.summary.id)).transcriptGaps).toEqual([]);
+  });
+
+  it("a text meeting has none", async () => {
+    const { summary } = await setup({ source: "text", segments: [{ text: "A passage." }] });
+    model.respondWith(valid(["a", "b"]));
+    await run(summary.id);
+    expect((await reread(summary.id)).transcriptGaps).toEqual([]);
   });
 });

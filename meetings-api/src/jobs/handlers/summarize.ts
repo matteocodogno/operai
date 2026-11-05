@@ -22,6 +22,12 @@
  * (`provider_unavailable`). A refusal (`provider_rejected`) can never succeed and fails at once. No
  * path stores partial text: a summary is `ready` with all its sections, or `failed` with none.
  *
+ * POSSIBLY INCOMPLETE (AC-7.13). The job reads the transcript's gaps (AC-6.12) together with its segments, under the
+ * same version-stable read, and writes them on the summary with its sections (`transcriptGaps`, a snapshot): the
+ * service, never the model, adds the label, and an empty section reads "Not found in the transcript, which may be
+ * incomplete" in place of "Not discussed". The model is not told where the gaps are. A regeneration is a new row
+ * that goes through this job again, so it carries them too.
+ *
  * ONE PUSH. Exactly one notification, to the author, after the terminal write: the meeting title and
  * the outcome, never the summary (AC-7.6, ADR-0065). It is best-effort and sent AFTER the commit.
  *
@@ -80,17 +86,18 @@ async function loadTranscript(
   meetingId: string,
   isText: boolean,
   names: Readonly<SpeakerNames>,
-): Promise<{ segments: PromptSegment[]; transcriptVersion: number }> {
+): Promise<{ segments: PromptSegment[]; transcriptVersion: number; gaps: { startMs: number; endMs: number }[] }> {
   // Segment edits and the version bump are separate writes: read until the version holds still.
   for (let attempt = 0; ; attempt++) {
     const before = await db.meeting.findUnique({ where: { id: meetingId }, select: { transcriptVersion: true } });
     const rows = await db.transcriptSegment.findMany({ where: { meetingId }, orderBy: { ordinal: "asc" } });
+    const gaps = await db.transcriptGap.findMany({ where: { meetingId }, orderBy: { startMs: "asc" }, select: { startMs: true, endMs: true } });
     const after = await db.meeting.findUnique({ where: { id: meetingId }, select: { transcriptVersion: true } });
-    if (!before || !after) return { segments: [], transcriptVersion: 0 };
+    if (!before || !after) return { segments: [], transcriptVersion: 0, gaps: [] };
     if (before.transcriptVersion !== after.transcriptVersion && attempt < 2) continue;
 
     const segments = promptSegmentsOf(rows, isText, names);
-    return { segments, transcriptVersion: after.transcriptVersion };
+    return { segments, transcriptVersion: after.transcriptVersion, gaps };
   }
 }
 
@@ -113,7 +120,9 @@ export function createSummarizeHandler(overrides: Partial<SummarizeDeps> = {}): 
 
     /** The terminal write under both guards, then the one push. A stale write is dropped silently. */
     async function finish(
-      outcome: { status: "ready"; sections: RenderedSection[]; transcriptVersion: number } | { status: "failed"; code: SummaryFailureCode },
+      outcome:
+        | { status: "ready"; sections: RenderedSection[]; transcriptVersion: number; gaps: { startMs: number; endMs: number }[] }
+        | { status: "failed"; code: SummaryFailureCode },
     ): Promise<void> {
       const result = await ctx.commit(async (tx) => {
         const written = await tx.summary.updateMany({
@@ -125,6 +134,8 @@ export function createSummarizeHandler(overrides: Partial<SummarizeDeps> = {}): 
                   sections: outcome.sections as unknown as Prisma.InputJsonValue,
                   failureCode: null,
                   transcriptVersion: outcome.transcriptVersion,
+                  // What the transcript was missing when this was written (AC-7.13); [] for a transcript with no gap.
+                  transcriptGaps: outcome.gaps as unknown as Prisma.InputJsonValue,
                   readyAt: deps.now(),
                 }
               : // A generating summary never holds sections, so there is nothing partial to clear.
@@ -145,10 +156,10 @@ export function createSummarizeHandler(overrides: Partial<SummarizeDeps> = {}): 
     const template = SnapshotSchema.safeParse(summary.template);
     if (!template.success) return finish({ status: "failed", code: "template_invalid" });
 
-    const { segments, transcriptVersion } = await loadTranscript(deps.db, summary.meetingId, summary.meeting.source === "text", template.data.speakerNames);
+    const { segments, transcriptVersion, gaps } = await loadTranscript(deps.db, summary.meetingId, summary.meeting.source === "text", template.data.speakerNames);
     if (segments.length === 0) return finish({ status: "failed", code: "no_transcript" });
 
-    const input: SummaryInput = { template: template.data, language: summary.language, segments };
+    const input: SummaryInput = { template: template.data, language: summary.language, segments, possiblyIncomplete: gaps.length > 0 };
     const { request, schema } = buildSummaryRequest(input);
     const model = await deps.model();
     const lastAttempt = ctx.attempt >= ctx.job.maxAttempts;
@@ -157,7 +168,7 @@ export function createSummarizeHandler(overrides: Partial<SummarizeDeps> = {}): 
       try {
         const reply = await model.complete(request, schema, ctx.signal);
         const checked = validateSummaryOutput(reply, input);
-        if (checked.ok) return finish({ status: "ready", sections: checked.value, transcriptVersion });
+        if (checked.ok) return finish({ status: "ready", sections: checked.value, transcriptVersion, gaps });
         // A rejected reply is sampled again, once; its reason is not kept (it is never the model's words, but nor is it needed).
       } catch (error) {
         if (error instanceof LanguageModelError) {

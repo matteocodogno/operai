@@ -508,7 +508,7 @@ describe("reading (AC-7.11)", () => {
     const second = await generate(m.id, "carol");
     const { json } = await list(m.id);
     expect(json.items.map((i: { id: string }) => i.id)).toEqual([second.json.id, first.json.id]);
-    expect(Object.keys(json.items[0]).sort()).toEqual(["author", "can", "createdAt", "edited", "failure", "id", "language", "stale", "status", "template", "version"]);
+    expect(Object.keys(json.items[0]).sort()).toEqual(["author", "can", "createdAt", "edited", "failure", "id", "language", "possiblyIncomplete", "stale", "status", "template", "version"]);
     expect(json.items[0].author).toEqual({ id: "carol", name: "Name of carol", status: "active" });
     expect(new Date(json.items[0].createdAt).toISOString()).toBe(json.items[0].createdAt);
   });
@@ -650,5 +650,75 @@ describe("delete (AC-7.8)", () => {
       throw new Error("auth is down");
     });
     expect((await call("DELETE", `/meetings/${m.id}/summaries/${res.json.id}`, "alice")).status).toBe(204);
+  });
+});
+
+describe("a transcript that may be incomplete (AC-7.13)", () => {
+  const GAPS = [{ startMs: 60_000, endMs: 95_000 }, { startMs: 700_000, endMs: 740_000 }];
+  const withGaps = async () => {
+    const m = await readyMeeting();
+    await db.transcriptGap.createMany({ data: GAPS.map((g) => ({ meetingId: m.id, ...g })) });
+    return m;
+  };
+  const itemOf = async (meetingId: string, id: string) => (await list(meetingId)).json.items.find((i: { id: string }) => i.id === id);
+
+  it("a meeting without gaps answers possiblyIncomplete: null and keeps the old fixed text, whatever the status", async () => {
+    const m = await readyMeeting();
+    const res = await generate(m.id);
+    expect(res.json.possiblyIncomplete).toBeNull(); // generating
+    model.respondWith({ sections: [0, 1, 2, 3, 4].map((index) => ({ index, body: "", notDiscussed: true })) });
+    await runJob(res.json.id);
+    const item = await itemOf(m.id, res.json.id);
+    expect(item.possiblyIncomplete).toBeNull();
+    expect(item.sections.every((s: { body: string }) => s.body === "Not discussed")).toBe(true);
+  });
+
+  it("carries the gaps the summary was made under, written by the service, and 'Not found ... may be incomplete' for an empty section", async () => {
+    const m = await withGaps();
+    const res = await generate(m.id);
+    model.respondWith({ sections: [0, 1, 2, 3, 4].map((index) => ({ index, body: index === 0 ? "Ship on Friday." : "", notDiscussed: index !== 0 })) });
+    await runJob(res.json.id);
+    const item = await itemOf(m.id, res.json.id);
+    expect(item.possiblyIncomplete).toEqual({ gaps: GAPS });
+    expect(item.sections.map((s: { body: string }) => s.body)).toEqual([
+      "Ship on Friday.",
+      ...Array(4).fill("Not found in the transcript, which may be incomplete"),
+    ]);
+  });
+
+  it("a generating or failed summary carries none (it was not made under any transcript yet)", async () => {
+    const m = await withGaps();
+    const res = await generate(m.id);
+    expect((await itemOf(m.id, res.json.id)).possiblyIncomplete).toBeNull();
+    await db.summary.update({ where: { id: res.json.id }, data: { status: "failed", failureCode: "provider_unavailable" } });
+    expect((await itemOf(m.id, res.json.id)).possiblyIncomplete).toBeNull();
+  });
+
+  it("regenerate carries the snapshot too (a new row, made by the job under the same transcript), and the old row is unchanged", async () => {
+    const m = await withGaps();
+    const first = await generate(m.id);
+    await runJob(first.json.id);
+    const again = await call("POST", `/meetings/${m.id}/summaries/${first.json.id}/regenerate`, "alice");
+    expect(again.status).toBe(202);
+    await runJob(again.json.id);
+    expect((await itemOf(m.id, again.json.id)).possiblyIncomplete).toEqual({ gaps: GAPS });
+    expect((await itemOf(m.id, first.json.id)).possiblyIncomplete).toEqual({ gaps: GAPS });
+  });
+
+  it("an edit of the text keeps the label and the ranges (AC-7.7)", async () => {
+    const m = await withGaps();
+    const res = await generate(m.id);
+    await runJob(res.json.id);
+    const ready = await itemOf(m.id, res.json.id);
+    const body = { sections: ready.sections.map((s: { heading: string }) => ({ heading: s.heading, body: `edited ${s.heading}` })) };
+    expect((await call("PATCH", `/meetings/${m.id}/summaries/${res.json.id}`, "alice", body, { "If-Match": `"${ready.version}"` })).status).toBe(200);
+    expect((await itemOf(m.id, res.json.id)).possiblyIncomplete).toEqual({ gaps: GAPS });
+  });
+
+  it("is shown to every reader of the meeting (a stored fact)", async () => {
+    const m = await withGaps();
+    const res = await generate(m.id);
+    await runJob(res.json.id);
+    expect((await call("GET", `/meetings/${m.id}/summaries`, "carol")).json.items[0].possiblyIncomplete).toEqual({ gaps: GAPS });
   });
 });

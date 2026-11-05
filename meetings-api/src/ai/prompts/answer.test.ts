@@ -7,6 +7,7 @@ import {
   MAX_CITATIONS,
   MAX_HISTORY_TURNS,
   NOT_IN_MEETING,
+  NOT_IN_MEETING_INCOMPLETE,
   buildAnswerRequest,
   questionLanguage,
   validateAnswerOutput,
@@ -180,6 +181,25 @@ describe("no answer goes uncited (AC-9.3, ADR-0067)", () => {
     expect(validateAnswerOutput(out({ citations: [] }), { ...ctx, language: "it" })).toEqual(notIn("it"));
     expect(NOT_IN_MEETING.it).toBe("La riunione non contiene una risposta a questa domanda.");
     expect(NOT_IN_MEETING.en).toBe("The meeting does not contain an answer to this question.");
+  });
+
+  it("on a transcript that may be incomplete the fixed text says so, in the question's language (AC-9.9)", () => {
+    const incomplete = (language: "en" | "it") => ({ ok: true as const, value: { text: NOT_IN_MEETING_INCOMPLETE[language], citations: [], notInMeeting: true } });
+    for (const language of ["en", "it"] as const) {
+      const context = { ...ctx, language, possiblyIncomplete: true };
+      expect(validateAnswerOutput(out({ citations: [] }), context)).toEqual(incomplete(language));
+      expect(validateAnswerOutput(out({ notInMeeting: true }), context)).toEqual(incomplete(language));
+      expect(validateAnswerOutput(out({ citations: ["S99"] }), context)).toEqual(incomplete(language));
+      expect(validateAnswerOutput(out({ answer: "   " }), context)).toEqual(incomplete(language));
+    }
+    expect(NOT_IN_MEETING_INCOMPLETE.en).toBe("The transcript does not contain an answer to this question. It may be incomplete, so the meeting itself may.");
+    expect(NOT_IN_MEETING_INCOMPLETE.it).toBe("La trascrizione non contiene una risposta a questa domanda. Potrebbe essere incompleta, quindi la riunione potrebbe contenerla.");
+  });
+
+  it("a real, cited answer is untouched by the flag; without a gap the old fixed text stays", () => {
+    const answered = validateAnswerOutput(out(), { ...ctx, possiblyIncomplete: true });
+    expect(answered.ok && answered.value).toEqual({ text: "Friday.", citations: ["seg-a"], notInMeeting: false });
+    expect(validateAnswerOutput(out({ citations: [] }), { ...ctx, possiblyIncomplete: false })).toEqual(notIn("en"));
   });
 
   it("keeps at most ten citations", () => {

@@ -22,6 +22,11 @@
  * exist are dropped and an answer with no valid citation becomes the fixed "not in the meeting"
  * answer. An invalid reply is sampled once more, then the turn is `failed` with no answer text.
  *
+ * POSSIBLY INCOMPLETE (AC-9.9). When the meeting's transcript has gaps (AC-6.12) at the moment of the ask, the answer is
+ * stored with `possiblyIncomplete: true`, written by the service, and "not in the meeting" reads
+ * `NOT_IN_MEETING_INCOMPLETE` in the question's language. The model is not told where the gaps are. A turn stored before
+ * the field existed reads false.
+ *
  * RETRY keeps the turn's place in the conversation: it does not become `pending` again (the call is
  * synchronous, so a crash simply leaves it `failed`), and its history is the turns BEFORE it.
  */
@@ -60,6 +65,8 @@ const TurnSchema = z.object({
     .object({
       text: z.string(),
       notInMeeting: z.boolean(),
+      /** AC-9.9: the transcript had gaps when this was answered: the label "Based on a transcript that may be incomplete", linked to the notice. */
+      possiblyIncomplete: z.boolean(),
       citations: z.array(z.object({ segmentId: z.string(), ordinal: z.number().int(), startMs: z.number().int().nullable(), speaker: z.string().nullable() })),
     })
     .nullable(),
@@ -83,14 +90,15 @@ interface StoredAnswer {
   text: string;
   citations: string[];
   notInMeeting: boolean;
+  possiblyIncomplete: boolean;
 }
 
 const storedAnswerOf = (row: Row): StoredAnswer | null => {
   const raw = row.answer;
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-  const { text, citations, notInMeeting } = raw as Record<string, unknown>;
+  const { text, citations, notInMeeting, possiblyIncomplete } = raw as Record<string, unknown>;
   if (typeof text !== "string" || typeof notInMeeting !== "boolean" || !Array.isArray(citations)) return null;
-  return { text, citations: citations.filter((c): c is string => typeof c === "string"), notInMeeting };
+  return { text, citations: citations.filter((c): c is string => typeof c === "string"), notInMeeting, possiblyIncomplete: possiblyIncomplete === true };
 };
 
 /** The turns as a reader sees them: derived `failed`, citations resolved against the CURRENT transcript. */
@@ -115,6 +123,7 @@ async function viewTurns(rows: readonly Row[], meetingId: string, isText: boolea
         ? {
             text: stored.text,
             notInMeeting: stored.notInMeeting,
+            possiblyIncomplete: stored.possiblyIncomplete,
             citations: stored.citations.flatMap((segmentId) => {
               const segment = segments.get(segmentId);
               if (!segment) return []; // the passage is gone: nothing to point at
@@ -130,7 +139,7 @@ async function viewTurns(rows: readonly Row[], meetingId: string, isText: boolea
 
 // ─── Asking the model ────────────────────────────────────────────────────────
 
-type Outcome = { readonly ok: true; readonly answer: ValidAnswer } | { readonly ok: false; readonly code: string };
+type Outcome = { readonly ok: true; readonly answer: ValidAnswer; readonly possiblyIncomplete: boolean } | { readonly ok: false; readonly code: string };
 
 class AskTimeout extends Error {}
 
@@ -157,7 +166,7 @@ interface AskInput {
 
 async function askModel(input: AskInput): Promise<Outcome> {
   const isText = input.meeting.source === "text";
-  const [rows, names, turns] = await Promise.all([
+  const [rows, names, turns, gapCount] = await Promise.all([
     db.transcriptSegment.findMany({ where: { meetingId: input.meeting.id }, orderBy: { ordinal: "asc" } }),
     isText ? Promise.resolve({}) : speakerNamesFor(db, input.meeting.id, input.authorization),
     db.conversationTurn.findMany({
@@ -165,8 +174,10 @@ async function askModel(input: AskInput): Promise<Outcome> {
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: 10,
     }),
+    db.transcriptGap.count({ where: { meetingId: input.meeting.id } }),
   ]);
   if (rows.length === 0) return { ok: false, code: "no_transcript" };
+  const possiblyIncomplete = gapCount > 0;
 
   const segments = promptSegmentsOf(rows, isText, names);
   const history: HistoryTurn[] = turns
@@ -185,8 +196,8 @@ async function askModel(input: AskInput): Promise<Outcome> {
         const model = await languageModel();
         for (let sample = 1; sample <= OUTPUT_TRIES; sample++) {
           try {
-            const checked = validateAnswerOutput(await model.complete(request, schema, controller.signal), { segments, language });
-            if (checked.ok) return { ok: true, answer: checked.value };
+            const checked = validateAnswerOutput(await model.complete(request, schema, controller.signal), { segments, language, possiblyIncomplete });
+            if (checked.ok) return { ok: true, answer: checked.value, possiblyIncomplete };
           } catch (error) {
             if (error instanceof LanguageModelError && error.code === "invalid_output") continue;
             throw error;
@@ -213,7 +224,12 @@ async function settle(turnId: string, from: Row["status"], transcriptVersion: nu
     data: outcome.ok
       ? {
           status: "answered",
-          answer: { text: outcome.answer.text, citations: [...outcome.answer.citations], notInMeeting: outcome.answer.notInMeeting } satisfies StoredAnswer as unknown as Prisma.InputJsonValue,
+          answer: {
+            text: outcome.answer.text,
+            citations: [...outcome.answer.citations],
+            notInMeeting: outcome.answer.notInMeeting,
+            possiblyIncomplete: outcome.possiblyIncomplete,
+          } satisfies StoredAnswer as unknown as Prisma.InputJsonValue,
           failureCode: null,
           transcriptVersion,
           answeredAt: new Date(),

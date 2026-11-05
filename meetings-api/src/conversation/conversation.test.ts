@@ -13,7 +13,7 @@ const { __resetIdentityCacheForTests } = await import("../lib/identities");
 const { FakeLanguageModel } = await import("../ai/fakeLanguageModel");
 const { LanguageModelError, setLanguageModelForTests } = await import("../ai/languageModel");
 const { AI_REQUESTS_PER_HOUR } = await import("../ai/rateLimit");
-const { NOT_IN_MEETING, ANSWER_SYSTEM_PROMPT } = await import("../ai/prompts/answer");
+const { NOT_IN_MEETING, NOT_IN_MEETING_INCOMPLETE, ANSWER_SYSTEM_PROMPT } = await import("../ai/prompts/answer");
 const { askConfig } = await import("./conversation.routes");
 
 const grants = (...pairs: [string, string][]): ResolveResponse => ({
@@ -263,7 +263,7 @@ describe("citations are validated (AC-9.3, AC-9.7)", () => {
       const res = await ask(m.id, "Anything else?");
       expect(res.status).toBe(201);
       expect(res.json.status).toBe("answered");
-      expect(res.json.answer).toEqual({ text: NOT_IN_MEETING.en, notInMeeting: true, citations: [] });
+      expect(res.json.answer).toEqual({ text: NOT_IN_MEETING.en, notInMeeting: true, citations: [], possiblyIncomplete: false });
     }
     // the model's own words are not kept anywhere
     expect(JSON.stringify(await db.conversationTurn.findMany())).not.toContain("CEO");
@@ -487,5 +487,78 @@ describe("the AI rate limit (AC-9.8, AC-13.4)", () => {
     for (let i = 0; i < AI_REQUESTS_PER_HOUR - 1; i++) await db.aiRequest.create({ data: { userId: "alice", kind: "summary" } });
     expect((await ask(m.id, "last one")).status).toBe(201);
     expect((await ask(m.id, "over")).status).toBe(429);
+  });
+});
+
+describe("a transcript that may be incomplete (AC-9.9)", () => {
+  const withGaps = async () => {
+    const m = await readyMeeting();
+    await db.transcriptGap.create({ data: { meetingId: m.id, startMs: 60_000, endMs: 95_000 } });
+    return m;
+  };
+
+  it("every answer carries possiblyIncomplete: true, and a cited answer's own text is untouched", async () => {
+    const m = await withGaps();
+    model.respondWith({ answer: "They decided to ship on Friday.", citations: ["S0"], notInMeeting: false });
+    const res = await ask(m.id, "What did we decide?");
+    expect(res.json.answer).toMatchObject({ text: "They decided to ship on Friday.", notInMeeting: false, possiblyIncomplete: true });
+    // what is stored, and what the list shows later
+    expect((await db.conversationTurn.findUniqueOrThrow({ where: { id: res.json.id } })).answer).toMatchObject({ possiblyIncomplete: true });
+    expect((await turns(m.id)).json.turns[0].answer.possiblyIncomplete).toBe(true);
+  });
+
+  it("'not in the meeting' says the transcript may be incomplete, in the question's language, written by the service", async () => {
+    const m = await withGaps();
+    model.respondWith({ answer: "", citations: [], notInMeeting: true }, { answer: "", citations: [], notInMeeting: true }, { answer: "The CEO resigned.", citations: ["S99"], notInMeeting: false });
+    const en = await ask(m.id, "What was said about the budget?");
+    expect(en.json.answer).toEqual({ text: NOT_IN_MEETING_INCOMPLETE.en, notInMeeting: true, citations: [], possiblyIncomplete: true });
+    const it = await ask(m.id, "Che cosa è stato detto sul cliente?");
+    expect(it.json.answer.text).toBe(NOT_IN_MEETING_INCOMPLETE.it);
+    // a forged citation falls back to the same fixed text, and the model's words are kept nowhere
+    const forged = await ask(m.id, "Anything else?");
+    expect(forged.json.answer.text).toBe(NOT_IN_MEETING_INCOMPLETE.en);
+    expect(JSON.stringify(await db.conversationTurn.findMany())).not.toContain("CEO");
+  });
+
+  it("the model is not told where the gaps are: the request is the same as for a meeting without gaps", async () => {
+    const withGap = await withGaps();
+    const plain = await readyMeeting();
+    await ask(withGap.id, "What did we decide?");
+    await ask(plain.id, "What did we decide?");
+    expect(model.requests[0]!.request.messages.map((x) => x.text)).toEqual(model.requests[1]!.request.messages.map((x) => x.text));
+    expect(JSON.stringify(model.requests[0]!.request)).not.toMatch(/gap|incomplete|60000|95000/i);
+  });
+
+  it("a meeting without gaps answers possiblyIncomplete: false and the old fixed text", async () => {
+    const m = await readyMeeting();
+    model.respondWith({ answer: "Ship on Friday.", citations: ["S0"], notInMeeting: false }, { answer: "", citations: [], notInMeeting: true });
+    expect((await ask(m.id, "What did we decide?")).json.answer.possiblyIncomplete).toBe(false);
+    const none = await ask(m.id, "What else?");
+    expect(none.json.answer).toEqual({ text: NOT_IN_MEETING.en, notInMeeting: true, citations: [], possiblyIncomplete: false });
+  });
+
+  it("a turn stored before the field existed reads false", async () => {
+    const m = await readyMeeting();
+    const ids = await segmentIds(m.id);
+    await db.conversationTurn.create({
+      data: { meetingId: m.id, userId: "alice", question: "Old", status: "answered", transcriptVersion: 3, answer: { text: "Old answer.", citations: [ids[0]!], notInMeeting: false } },
+    });
+    expect((await turns(m.id)).json.turns[0].answer).toMatchObject({ text: "Old answer.", possiblyIncomplete: false });
+  });
+
+  it("a retried turn is answered under the transcript as it is now, with the label", async () => {
+    const m = await withGaps();
+    model.failWith(new LanguageModelError("provider_unavailable", true, 503));
+    const failed = await ask(m.id, "What did we decide?");
+    expect(failed.json.status).toBe("failed");
+    model.respondWith({ answer: "", citations: [], notInMeeting: true });
+    const res = await call("POST", `/meetings/${m.id}/conversation/questions/${failed.json.id}/retry`, "alice");
+    expect(res.json.answer).toEqual({ text: NOT_IN_MEETING_INCOMPLETE.en, notInMeeting: true, citations: [], possiblyIncomplete: true });
+  });
+
+  it("a failed turn has no answer, so no label", async () => {
+    const m = await withGaps();
+    model.failWith(new LanguageModelError("provider_unavailable", true, 503));
+    expect((await ask(m.id, "What did we decide?")).json.answer).toBeNull();
   });
 });

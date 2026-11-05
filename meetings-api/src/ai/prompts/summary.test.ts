@@ -4,6 +4,7 @@ import { ANSWER_TOOL, SUMMARY_TOOL } from "../languageModel";
 import {
   MAX_SECTION_BODY,
   NOT_DISCUSSED,
+  NOT_FOUND_INCOMPLETE,
   SUMMARY_MAX_TOKENS,
   SUMMARY_SYSTEM_PROMPT,
   buildSummaryRequest,
@@ -32,7 +33,7 @@ const SEGMENTS: PromptSegment[] = [
   { id: "seg-b", ordinal: 1, startMs: 5_000, speakerLabel: "Speaker 2", text: "Risk: the vendor is late. See https://vendor.example/status." },
 ];
 
-const input: { template: TemplateSnapshot; language: "en" | "it"; segments: PromptSegment[] } = { template: TEMPLATE, language: "en", segments: SEGMENTS };
+const input: { template: TemplateSnapshot; language: "en" | "it"; segments: PromptSegment[]; possiblyIncomplete?: boolean } = { template: TEMPLATE, language: "en", segments: SEGMENTS };
 const section = (index: number, body = `body ${index}`, notDiscussed = false) => ({ index, body, notDiscussed });
 const valid = (n = 3) => ({ sections: Array.from({ length: n }, (_, i) => section(i)) });
 const run = (raw: unknown, over: Partial<typeof input> = {}) => validateSummaryOutput(raw, { ...input, ...over });
@@ -164,6 +165,41 @@ describe("a valid output (AC-7.2)", () => {
   it("accepts a body of exactly the maximum length", () => {
     const result = run({ sections: [section(0, "x".repeat(MAX_SECTION_BODY)), section(1), section(2)] });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("a transcript that may be incomplete (AC-7.13)", () => {
+  const raw = { sections: [section(0, "", true), section(1), section(2, "   ")] };
+
+  it("renders an empty section as 'Not found in the transcript, which may be incomplete', in place of 'Not discussed'", () => {
+    const en = run(raw, { possiblyIncomplete: true });
+    expect(en.ok && en.value.map((s) => [s.body, s.notDiscussed])).toEqual([
+      [NOT_FOUND_INCOMPLETE.en, true],
+      ["body 1", false],
+      [NOT_FOUND_INCOMPLETE.en, true],
+    ]);
+    const it = run(raw, { possiblyIncomplete: true, language: "it" });
+    expect(it.ok && it.value[0]!.body).toBe(NOT_FOUND_INCOMPLETE.it);
+    expect(NOT_FOUND_INCOMPLETE.en).toBe("Not found in the transcript, which may be incomplete");
+    expect(NOT_FOUND_INCOMPLETE.it).toBe("Non trovato nella trascrizione, che potrebbe essere incompleta");
+  });
+
+  it("is written by the service: whatever the model puts in a section it called notDiscussed is still ignored", () => {
+    const result = run({ sections: [section(0, "Probably never discussed", true), section(1), section(2)] }, { possiblyIncomplete: true });
+    expect(result.ok && result.value[0]).toEqual({ heading: "Decisions", body: NOT_FOUND_INCOMPLETE.en, notDiscussed: true });
+  });
+
+  it("a transcript with no gap keeps the old fixed text, flag absent or false", () => {
+    for (const input of [{}, { possiblyIncomplete: false }]) {
+      const result = run(raw, input);
+      expect(result.ok && result.value[0]!.body).toBe(NOT_DISCUSSED.en);
+    }
+  });
+
+  it("does not change the request: the model is not told where the gaps are (H-6)", () => {
+    const base = buildSummaryRequest({ template: TEMPLATE, language: "en", segments: SEGMENTS });
+    const marked = buildSummaryRequest({ template: TEMPLATE, language: "en", segments: SEGMENTS, possiblyIncomplete: true });
+    expect(marked.request).toEqual(base.request);
   });
 });
 
