@@ -93,6 +93,25 @@ structured reply. The spec stays vendor-neutral; the body below is already updat
   service requires is a failure, never partial text. No AC named a mechanism (forced or not),
   so only AC-7.9 and AC-9.6 gain one clause that states this outcome.
 
+2026-11-05 (latest), source: user decision on the outcome of the T124 real-provider spike
+(plan.md § H-3, T124 note). The spike found that the transcription provider is deterministic
+(re-sending the same part returned a byte-identical result, 8 of 8 retries), so a retry costs
+money for no gain; that repetition-only parts were retried although duplicate removal already
+handles them; that AC-6.13 twice removed real speech when two different speakers said the same
+8 words about 2 seconds apart; and that a repeated tail of a part whose words carry no times
+was not removed. The spec stays vendor-neutral; the body below is already updated.
+
+- **A8 — decided by the user 2026-11-05 (AC-6.7, AC-6.9, AC-6.10, AC-6.11, AC-6.12, AC-6.13,
+  Domain language, Constraints, O13, O14, new O15).** (a) **Per-part retries are disabled for
+  now (retry bound 0):** a part with a gap is not transcribed again; the gap is marked exactly
+  as before (AC-6.12 notice, AC-7.13 and AC-9.9 caveats unchanged). A repetition never counts
+  as "detectably incomplete". This supersedes the retry behaviour of A7(a); the user wants to
+  move on and refine with production data (O15). (b) **Duplicate removal is same-speaker
+  only:** two passages are the same speech only if they also carry the same speaker label, or
+  one or both carry none (AC-6.13). (c) **A repeated tail of a part whose words have no times**
+  is removed when its text matches the preceding text of the part by at least the repeat bound
+  in consecutive words, still keeping any speech found in only one version (AC-6.13).
+
 ## Problem
 
 wellD's consultants and salespeople hold many conversations that matter: discovery calls
@@ -135,8 +154,8 @@ New terms; see the glossary candidates returned with this spec.
 - **gap** — a stretch of the recording in which there is speech but the transcript has none
   (speech the transcription silently omitted), at least the gap bound long. (A7)
 - **possibly incomplete transcript** — a `ready` transcript that still has at least one gap
-  after the automatic retries (AC-6.11, AC-6.12). Never a claim that the other parts are
-  complete. (A7)
+  after transcription (AC-6.11, AC-6.12; no automatic retry since A8). Never a claim that the
+  other parts are complete. (A7, A8)
 - **joined label** — a speaker label of a later transcript part that the overlap gave clear
   evidence for treating as the same speaker as a label of the earlier part, and so carries
   that label (AC-6.14). A label that is not joined is **separate**. (A7)
@@ -181,8 +200,9 @@ this spec does not choose vendors or mechanisms.
   spec; the numbers below are bounds that the architect confirms or changes in plan.md, and
   the ACs hold with whatever values are confirmed. **Overlap bound:** consecutive transcript
   parts overlap by at least 30 seconds and at most 2 minutes. **Gap bound:** 20 seconds of
-  speech in the audio with no transcript text. **Retry bound:** a part is transcribed again
-  at most 2 times (3 attempts in all). **Repeat bound:** 8 consecutive words, and a time
+  speech in the audio with no transcript text. **Retry bound: 0 (A8)** - a part is
+  transcribed once and never again automatically, because the provider returns the identical
+  result for identical audio; raising the bound again is O15. **Repeat bound:** 8 consecutive words, and a time
   distance of 2 seconds. **Match bound:** 20 matched words. A stretch of non-speech sound
   (music, noise) is not speech for the gap bound.
 - **Continuity evidence is text only (A7).** Whether two speaker labels of different parts are
@@ -352,8 +372,9 @@ our clients' trust.
   `meeting:erase` deletes the recording (AC-4.5) or the meeting (AC-4.6), that copy is deleted
   first; if it cannot be deleted, the action is refused and nothing is deleted. A transcription
   result written into that storage by an attempt still running at that moment is covered by
-  the same 1-day bound. An automatic retry of a part (AC-6.11) is a transcription attempt like
-  any other for this criterion. (A6, A7)
+  the same 1-day bound. Any further transcription attempt of a part (the creator's retry,
+  AC-6.9, or an automatic retry should the retry bound ever be raised, AC-6.11) is a
+  transcription attempt like any other for this criterion. (A6, A7, A8)
 
 ### US-5: Participants, who can see what, and a frozen meeting
 As a meeting creator, I want to say who took part and to control who can read the meeting,
@@ -443,9 +464,10 @@ check what was actually said.
   audio that contains speech for at least the gap bound), then the status is `ready`, a "No
   speech detected" message is shown, and generating summaries and asking questions are
   disabled. Given a recording whose transcript is empty although its audio does contain such
-  a stretch, after the retries of AC-6.11, then the status is `failed` with the plain-language
-  reason that speech was detected but could not be transcribed, and AC-6.9 applies: the
-  message "No speech detected" is never shown for it. (A7)
+  a stretch, then (the part having been transcribed once, retry bound 0, AC-6.11) the status
+  is `failed` with the plain-language reason that speech was detected but could not be
+  transcribed, and AC-6.9 applies: the message "No speech detected" is never shown for it.
+  (A7, A8)
 - AC-6.8: Given a transcript edited after a summary was made, then that summary is labelled
   "Based on an earlier version of the transcript"; nothing is regenerated automatically.
 - AC-6.9: Given transcription fails, then the status is `failed` with a plain-language reason,
@@ -454,17 +476,14 @@ check what was actually said.
   that cannot be transcribed at all (the request itself fails) is, as before, a failure of the
   whole transcription. (A7)
 - AC-6.10: Given a `processing` meeting, then the screen shows the stage (uploading,
-  transcribing) and never blocks other pages. The automatic retries of AC-6.11 stay within the
-  transcribing stage. (A7)
+  transcribing) and never blocks other pages. (A7, A8)
 - AC-6.11: Given a recording transcribed in parts, when the transcription of a part comes back
-  **detectably incomplete** (it has a gap, or it repeats speech as defined in AC-6.13), then
-  that part, and only that part, is transcribed again automatically, at most the retry bound
-  times. Of the attempts made, the most complete is kept: the fewest gaps, then the least
-  total gap time, then no repetition over repetition. A part that came back complete is never
-  transcribed again, the meeting stays `processing` (stage transcribing) until every part is
-  settled, and these retries are not AI requests under AC-13.4. (A7)
-- AC-6.12: Given a part that still has a gap after the retry bound is used up, then the meeting
-  becomes `ready` and its transcript is **marked possibly incomplete**: (a) a notice above the
+  **detectably incomplete** (it has a gap; a repetition, AC-6.13, never counts as incomplete),
+  then, the retry bound being 0 (Constraints), that part is **not** transcribed again: the
+  result of the first attempt is kept as returned, the gap is handled under AC-6.12, and no
+  automatic transcription request beyond one per part is made. The meeting stays `processing`
+  (stage transcribing) until every part is settled. (A7, A8)
+- AC-6.12: Given a part that has a gap, then the meeting becomes `ready` and its transcript is **marked possibly incomplete**: (a) a notice above the
   transcript reads "This transcript may be incomplete. Speech may be missing between
   hh:mm:ss and hh:mm:ss" for every affected range of the meeting's time, and says that the
   missing speech is not in the transcript and cannot be recovered from it; (b) a marker
@@ -481,13 +500,20 @@ check what was actually said.
   overlap between two consecutive parts, then it appears once in the transcript. Two passages
   are the same speech only when one has at least the repeat bound of consecutive words that
   match the other's (ignoring case, accents and punctuation) and their times overlap, or the
-  later starts no more than the repeat bound's time distance after the earlier ends; the first
-  is kept. A phrase that a speaker really says twice, with more than that distance between the
+  later starts no more than the repeat bound's time distance after the earlier ends, **and**
+  they carry the same speaker label, or one or both carry no label (passages with two
+  different labels are never the same speech, however identical their words and close their
+  times; in the overlap of two parts a joined label, AC-6.14, counts as the same label); the
+  first is kept. Where the words of a part carry no times, a **repeated tail** of that part is
+  removed when its text matches the part's preceding text by at least the repeat bound in
+  consecutive words (ignoring case, accents and punctuation) and the passages satisfy the
+  speaker condition above; any speech found in only one of the two versions is kept. A phrase that a speaker really says twice, with more than that distance between the
   two, is never removed, and a repetition that does not meet this evidence is left as
   returned (the creator can still edit it, AC-6.3). In the overlap of two parts, every passage
   found in only one of the two versions is kept, so that no speech present in either version
-  is dropped. A repetition that remains in a part after the retries is removed under this rule
-  and does not by itself mark the transcript possibly incomplete. (A7)
+  is dropped. A repetition in a part is removed under this rule, is never a reason to
+  transcribe the part again, and does not by itself mark the transcript possibly incomplete.
+  (A7, A8)
 - AC-6.14: Given two consecutive parts and a label L2 of the later part, then L2 is joined to a
   label L1 of the earlier part when all of the following hold, over the passages of the
   overlap that are found in both parts' transcripts (matched as in AC-6.13): (a) the passages
@@ -810,7 +836,7 @@ history of the relationship in the CRM is complete without logging the meeting t
 
 O2 and O3 are accepted as tracked risks by the owner (2026-11-04): the work proceeds on the
 working assumptions below, which the plan may rely on. O13 was added on 2026-11-05 (A6), O14
-on 2026-11-05 (A7).
+on 2026-11-05 (A7), O15 on 2026-11-05 (A8).
 
 - [ ] O2 (accepted-as-risk) Retention beyond audio: working assumption is that transcripts and
   summaries are kept until their meeting is deleted, with no maximum life; how long the
@@ -827,7 +853,8 @@ on 2026-11-05 (A7).
   with data-processing terms, not its online terms of service, so that no content is held for
   abuse monitoring or human review; (b) the provider confirms in writing that the
   transcription result is kept no longer than about 5 days and is not used for training; since
-  A7 this holds for every automatic retry of a part too, each of which yields a further
+  A7 this holds for every further transcription of a part too (none is automatic while the
+  retry bound is 0, A8; the creator's retry, AC-6.9, yields a further result), each yielding a
   transcription result under the same bound; (c) the language-model vendor's commercial terms,
   accepted by enabling its models through the cloud provider, do not make that vendor a
   processor of meeting content or let it retain it. The owner's acceptance of the 5-day
@@ -841,6 +868,13 @@ on 2026-11-05 (A7).
   real gap is missed, and how often a join is wrong, and confirms or changes the bounds of
   Constraints. A false join found at that point is a defect, not a tuning matter; a join rate
   that is low only costs renames. — owner: architect
+- [ ] O15 (A8) Per-part automatic retry is disabled (retry bound 0) because the provider
+  returns the identical result for identical audio. Once production data exists, revisit a
+  retry that sends **different** audio (for example the part re-cut around the gap), and
+  decide whether it earns its cost; until then a gap is marked, not retried. The same review
+  checks the same-speaker rule of AC-6.13 (real speech wrongly kept as a duplicate when
+  speaker labels differ for one person) and the repeated-tail rule for parts without word
+  times. — owner: user and architect
 
 Closed by the owner on 2026-11-04 (recorded in the body): O1 languages (US-13, non-goals);
 O4 default grants (AC-10.8); O5 read-only participants (AC-5.8, AC-10.4); O6 limits accepted;
