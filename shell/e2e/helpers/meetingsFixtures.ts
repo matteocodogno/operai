@@ -332,26 +332,6 @@ export async function axeViolations(page: Page, include?: string): Promise<AxeRe
   return (results as AxeResults).violations
 }
 
-// ─── Shell origin proxy ─────────────────────────────────────────────────────
-
-/**
- * When `E2E_SHELL_SERVE_PORT` differs from the shell port, the built shell is served on another
- * port while the page must keep the shell's TRUSTED origin (every backend's CORS allow-list names
- * it). Fulfil each request to that origin from the served build. A no-op in the standard
- * topology (Playwright serves the build on the shell port itself).
- */
-export async function installShellOriginProxy(context: BrowserContext): Promise<void> {
-  const servePort = process.env['E2E_SHELL_SERVE_PORT']
-  const shellPort = process.env['E2E_SHELL_PORT'] ?? '5173'
-  if (!servePort || servePort === shellPort) return
-  await context.route(new RegExp(`^http://localhost:${shellPort}/`), async (route) => {
-    const url = new URL(route.request().url())
-    url.port = servePort
-    const response = await route.fetch({ url: url.toString() })
-    await route.fulfill({ response })
-  })
-}
-
 /**
  * A microphone that cannot hang: `getUserMedia({ audio })` answers with a real MediaStream (a 440 Hz
  * tone from a WebAudio destination), which the page's MediaRecorder encodes to Opus exactly as it
@@ -386,42 +366,11 @@ export async function installFakeMicrophone(context: BrowserContext): Promise<vo
   })
 }
 
-/**
- * VERIFICATION AID ONLY, OFF BY DEFAULT (set E2E_COMPENSATE_CHUNK_CONTENT_TYPE=1).
- *
- * DEFECT D2: meetings-api's chunk POST policy demands a form field `Content-Type` starting with
- * `audio/` (storage.ts mintChunkPost), the policy it returns has no such field, and
- * meetings-ui/src/capture/uploader.ts postToBucket appends none, so the bucket answers 403
- * "Policy Condition failed" to every chunk and no browser recording can ever be saved. The
- * journeys must FAIL on that until it is fixed; this switch only lets the rest of a journey's
- * logic be exercised meanwhile, by adding the missing form field in flight. Delete it with D2.
- */
-export async function compensateChunkContentType(context: BrowserContext): Promise<void> {
-  if (process.env['E2E_COMPENSATE_CHUNK_CONTENT_TYPE'] !== '1') return
-  await context.route(/^http:\/\/localhost:9000\/meetings$/, async (route) => {
-    const request = route.request()
-    const boundary = /boundary=(.+)$/.exec(request.headers()['content-type'] ?? '')?.[1]
-    const body = request.postDataBuffer()
-    if (request.method() !== 'POST' || !boundary || !body) return route.continue()
-    const marker = Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"`)
-    const at = body.indexOf(marker)
-    if (at < 0) return route.continue()
-    const field = Buffer.from(
-      `--${boundary}\r\nContent-Disposition: form-data; name="Content-Type"\r\n\r\naudio/webm\r\n`,
-    )
-    const headers = { ...request.headers() }
-    delete headers['content-length']
-    return route.continue({ headers, postData: Buffer.concat([body.subarray(0, at), field, body.subarray(at)]) })
-  })
-}
-
 async function prepareContext(context: BrowserContext): Promise<void> {
-  await installShellOriginProxy(context)
   await installFakeMicrophone(context)
-  await compensateChunkContentType(context)
 }
 
-/** `test` whose default context already proxies the shell origin and has a working microphone. */
+/** `test` whose default context has a working microphone. */
 export const test = base.extend({
   context: async ({ context }, use) => {
     await prepareContext(context)

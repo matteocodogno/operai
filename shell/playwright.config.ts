@@ -117,13 +117,6 @@ const meetingsApiUrl =
 // be started with that origin in their own ALLOWED_ORIGINS).
 const shellPort = process.env['E2E_SHELL_PORT'] ?? '5173'
 const shellUrl = `http://localhost:${shellPort}`
-// Where the BUILT shell is actually served. Normally the shell port itself. When 5173 is taken by a
-// `mise run dev` HMR shell (whose dev-mode federation cannot mount remotes in a browser: the shared
-// React singleton is not negotiated and Vite answers 504 "Outdated Optimize Dep"), serve the build
-// elsewhere (E2E_SHELL_SERVE_PORT=4173) and let the `meetings` project's fixtures fulfil every
-// request to the shell ORIGIN from it (see `installShellOriginProxy` in helpers/meetingsFixtures.ts).
-// The page keeps the trusted origin (CORS of every backend), the bytes come from the build.
-const shellServePort = process.env['E2E_SHELL_SERVE_PORT'] ?? shellPort
 const estimaiRemoteOrigin = 'http://localhost:5175'
 const refundRemoteOrigin = 'http://localhost:5176'
 // notify-ui added for T21 (specs/005-notification-center). This e2e harness
@@ -198,10 +191,6 @@ export default defineConfig({
             '--use-fake-ui-for-media-stream',
             '--use-fake-device-for-media-stream',
             '--autoplay-policy=no-user-gesture-required',
-            // Only matters with E2E_SHELL_SERVE_PORT (see shellServePort): a document fulfilled by
-            // page.route() is not treated as coming from the loopback address space, so Chromium's
-            // Private Network Access check would block its calls to the local services.
-            '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessSendPreflights,PrivateNetworkAccessRespectPreflightResults,BlockInsecurePrivateNetworkRequests',
           ],
         },
       },
@@ -340,8 +329,8 @@ export default defineConfig({
       },
     },
     {
-      command: `pnpm build && pnpm preview --port ${shellServePort} --strictPort`,
-      url: `http://localhost:${shellServePort}`,
+      command: `pnpm build && pnpm preview --port ${shellPort} --strictPort`,
+      url: shellUrl,
       reuseExistingServer: !process.env['CI'],
       timeout: 180_000,
       stdout: 'pipe',

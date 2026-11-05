@@ -83,6 +83,8 @@ test.describe('specs/021 T88: deal journey', () => {
 
     // Record with the (fake) microphone, then stop.
     await expect(page.getByTestId('meetings-recording-options')).toBeVisible({ timeout: 20_000 })
+    // An online meeting defaults to mic + shared tab; a browser tab picker cannot be driven headless.
+    await page.getByRole('radio', { name: 'Microphone only' }).check()
     await page.getByTestId('meetings-recording-start').click()
     await expect(page.getByTestId('meetings-recording-indicator')).toContainText('Recording', { timeout: 20_000 })
     await page.waitForTimeout(14_000)
@@ -102,6 +104,7 @@ test.describe('specs/021 T88: deal journey', () => {
     await expect(page.getByRole('link', { name: `${dealTitle} kickoff` }).first()).toBeVisible({ timeout: 30_000 })
     // ...in the deal's timeline, as an activity that is a link and nothing else (AC-14.1/14.2)...
     await expect(page.getByRole('link', { name: 'Open meeting' }).first()).toBeVisible()
+    await expect(page.locator(`a[href="/my-meetings/m/${meetingId}"]`).first()).toBeVisible()
     // ...and in My meetings.
     await page.goto('/my-meetings')
     await expect(page.getByRole('row').filter({ hasText: `${dealTitle} kickoff` })).toBeVisible({ timeout: 30_000 })
