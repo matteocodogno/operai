@@ -66,6 +66,7 @@ database after `bun run db:deploy`.
   - done when: `cd meetings-api && bun install && bun run typecheck && bun test src/lib/logger.test.ts src/health` passes; the logger test asserts query strings and bodies are absent from the log line; `docker build meetings-api` succeeds and `ffmpeg -version` runs as the non-root user in the image
 
 - [x] T11: [BE] meetings-api env + synchronous residency checks: full env schema of the plan; S3 EU residency (copied `s3Residency`); Azure region allowlist + endpoint match; Bedrock region allowlist; `MEETINGS_TEST_HOSTS` and `MEETINGS_AI_PROVIDER=fake` refused in production — refs: AC-4.9, AC-11.1 — deps: T10
+  - superseded 2026-11-05 (provider change), by T95 (Azure/Bedrock parts)
   - touch: `meetings-api/src/lib/env.ts`, `meetings-api/src/lib/env*.test.ts`, `meetings-api/src/lib/s3Residency.ts`, `meetings-api/src/lib/residency.ts`, `meetings-api/src/lib/residency.test.ts`
   - done when: `cd meetings-api && bun test src/lib/env src/lib/residency.test.ts` passes. Each misconfiguration (non-EU S3, Azure region outside EU/CH, endpoint/region mismatch, `eu-west-2`/`us-east-1` Bedrock, test hosts or fake provider with `NODE_ENV=production`) makes a spawned `bun src/lib/env.ts` exit 1 without echoing values
 
@@ -217,6 +218,7 @@ database after `bun run db:deploy`.
     - output is mono Opus with no video stream, the originals are deleted, the temp dir is empty after success and after a forced failure
 
 - [x] T31: [BE] meetings-api `Transcriber` interface, Azure fast transcription implementation (one locale, diarization `maxSpeakers` clamp), fake transcriber, phrase → segment mapping with speaker labels by first appearance — refs: AC-6.2, AC-6.7, AC-13.2 — deps: T11
+  - superseded 2026-11-05 (provider change), by T97
   - touch: `meetings-api/src/ai/transcriber.ts`, `meetings-api/src/ai/azureSpeech.ts`, `meetings-api/src/ai/azureSpeech.test.ts`, `meetings-api/src/ai/fakeTranscriber.ts`, `meetings-api/src/ai/segments.ts`, `meetings-api/src/ai/segments.test.ts`
   - done when: `cd meetings-api && bun test src/ai/azureSpeech.test.ts src/ai/segments.test.ts` passes with a stubbed `fetch`:
     - request locale is `it-IT` / `en-US` only, diarization on;
@@ -250,6 +252,7 @@ database after `bun run db:deploy`.
     - a storage failure → 503 with nothing changed
 
 - [x] T35: [BE] meetings-api `LanguageModel` interface, Bedrock Converse implementation (forced tool-use schema, 60 s timeout), fake LLM (scriptable hostile outputs), and Bedrock startup checks (inference-profile destinations ⊂ EU/CH allowlist; retention mode `none`, unreadable = refuse) — refs: AC-4.9, AC-7.10 — deps: T14
+  - superseded 2026-11-05 (provider change), by T100 and T101
   - touch: `meetings-api/src/ai/languageModel.ts`, `meetings-api/src/ai/bedrock.ts`, `meetings-api/src/ai/bedrock.test.ts`, `meetings-api/src/ai/fakeLanguageModel.ts`, `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`
   - done when: `cd meetings-api && bun test src/ai/bedrock.test.ts src/lib/startupChecks.test.ts` passes with a stubbed AWS SDK:
     - the only tool sent is the output schema;
@@ -606,6 +609,102 @@ database after `bun run db:deploy`.
   - touch: `.changeset/*.md`
   - done when: `mise run changeset:check` passes on the branch
 
+## Amendment 2026-11-05 — provider change to Google Cloud (plan § G-17) and spec A5/A6
+
+> Re-synced 2026-11-05 from plan § G-17 (approved by the user 2026-11-05) and spec amendments A5/A6.
+> T31, T35 and the Azure/Bedrock parts of T11 are superseded (kept `[x]` as history). T81–T85 are
+> reopened through T105, T106, T103, T104 and T109. T109 was done by the ADR-0069/0070 commit (f75209d).
+> Added beyond G-17: T111/T112 (AC-4.1 consent disclosure, spec A6) and AC-4.12 on T96, T97, T102.
+
+- [ ] T95: [BE] meetings-api env + sync residency for Google. Removes `AZURE_*`, `BEDROCK_*` and `MEETINGS_AWS_*`. Adds `MEETINGS_SPEECH_LOCATION` {eu}, `MEETINGS_VERTEX_LOCATION` {eu, europe-west1, europe-west4}, `MEETINGS_VERTEX_MODEL_ID` (claude-, no fable/mythos), `MEETINGS_GCP_PROJECT_ID`, `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` (base64 JSON, type/project/email/key checks) and `MEETINGS_GCS_TRANSIENT_BUCKET`. Refuses `ANTHROPIC_VERTEX_BASE_URL`; messages stay value-free — refs: AC-4.9 — deps: none
+  - touch: `meetings-api/src/lib/env.ts`, `meetings-api/src/lib/env.test.ts`, `meetings-api/src/lib/residency.ts`, `meetings-api/src/lib/residency.test.ts`
+  - done when: `cd meetings-api && bun test src/lib/env.test.ts src/lib/residency.test.ts` passes, with a case per S1–S6, including `global`, `us`, `europe-west2`, a `claude-fable-…` id, a key whose `project_id` differs, and a non-base64 key. No test output contains a configured value
+- [ ] T96: [BE] Google auth + transient storage + bucket startup check. Covers:
+  - a google-auth-library JWT client from the explicit key (never ADC), token cached;
+  - the GCS JSON API on the regional endpoint derived from the bucket location: upload with `ifGenerationMatch=0`, bounded read, list and delete of `transcribe/<meetingId>/` only (any other prefix refused), plus a fake;
+  - `checkTransientBucket` (N2), wired into `runStartupChecks`.
+
+  refs: AC-4.9, AC-4.5, AC-4.6, AC-4.12 — deps: T95
+  - touch: `meetings-api/src/lib/google/auth.ts`, `meetings-api/src/lib/google/auth.test.ts`, `meetings-api/src/lib/google/transientStorage.ts`, `meetings-api/src/lib/google/transientStorage.test.ts`, `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`, `meetings-api/package.json`, `meetings-api/bun.lock`
+  - done when: `bun test src/lib/google src/lib/startupChecks.test.ts` passes. It includes a refusal per N2 property (soft delete 7 d, versioning on, a `matchesPrefix` rule, age 2, `EUROPE-WEST2`, PAP not enforced, unreadable metadata), a test that `deletePrefix("transcribe/")` and other meetings' prefixes are refused, and a test that object URLs use `storage.<location>.rep.googleapis.com`
+- [ ] T98: [BE] Process-level ffmpeg slot. `withFfmpegSlot()` replaces the runner's `FFMPEG_KIND` exclusion; `prepare_audio` uses it; the minimal-child-env test lists `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` — refs: AC-3.1, AC-6.10 — deps: none
+  - touch: `meetings-api/src/media/ffmpegSlot.ts`, `meetings-api/src/media/ffmpegSlot.test.ts`, `meetings-api/src/jobs/runner.ts`, `meetings-api/src/jobs/runner.test.ts`, `meetings-api/src/jobs/handlers/prepareAudio.ts`, `meetings-api/src/media/probe.test.ts`
+  - done when: `bun test src/media src/jobs` passes; a test shows two `prepare_audio` jobs never run ffmpeg concurrently, while a `transcribe` job waiting outside the slot does not block a `prepare_audio` claim
+- [ ] T97: [BE] Chirp 3 transcriber. Covers:
+  - the splitter: silencedetect + segment copy under the slot, with `PIECE_MAX_MS` and word offsets as code constants;
+  - per-part upload, `batchRecognize` (chirp_3, one locale, diarization, `gcsOutputConfig`), polling with backoff and deadline, bounded output read, `operations.delete`, and prefix cleanup at start and in `finally`;
+  - result → `Phrase` with part offsets, `p<n>:<label>` speakers and word-run splitting, plus `partStartsMs`;
+  - the § G-8 mapping, and hand-built REST fixtures;
+  - deletion of `azureSpeech.ts` and its test.
+
+  refs: AC-6.1, AC-6.2, AC-6.5, AC-6.7, AC-6.9, AC-13.2, AC-4.10, AC-4.12 — deps: T96, T98
+  - touch: `meetings-api/src/ai/googleSpeech.ts`, `meetings-api/src/ai/googleSpeech.test.ts`, `meetings-api/src/media/split.ts`, `meetings-api/src/media/split.test.ts`, `meetings-api/src/media/split.real.test.ts`, `meetings-api/src/ai/transcriber.ts`, `meetings-api/src/ai/fakeTranscriber.ts`, `meetings-api/src/ai/segments.ts`, `meetings-api/src/ai/azureSpeech.ts`, `meetings-api/src/ai/azureSpeech.test.ts`, `meetings-api/test-fixtures/google-speech/*`
+  - done when: `bun test src/ai src/media/split` passes with the § G-12 Speech cases, including "prefix deleted in finally on success and on each failure row". `split.real.test.ts` passes in the ffmpeg image (skips without ffmpeg). `git grep -i azure meetings-api/src` is empty
+- [ ] T99: [BE] Transcribe job + migration + transcript `parts`. Covers:
+  - `transcriptPartStartsMs` (new migration), written in the existing commit and reset on retry;
+  - `GET /meetings/:id/transcript` returns `parts`;
+  - OpenAPI updated.
+
+  refs: AC-6.1, AC-6.2, AC-6.7, AC-6.9 — deps: T97
+  - touch: `meetings-api/prisma/schema.prisma`, `meetings-api/prisma/migrations/*_transcript_parts/*`, `meetings-api/src/jobs/handlers/transcribe.ts`, `meetings-api/src/jobs/handlers/transcribe.test.ts`, `meetings-api/src/transcript/transcript.routes.ts`, `meetings-api/src/transcript/transcript.test.ts`
+  - done when: on `meetings_test`, `bun run db:deploy && bun test src/jobs/handlers/transcribe.test.ts src/transcript` passes. Cases: three parts → `parts` with three entries and labels s1..s5 across parts; a retry replaces parts; a text meeting gives `parts: []`; `noSpeech` gives `parts: []`
+- [ ] T100: [BE] Vertex Claude language model. Covers:
+  - `@anthropic-ai/vertex-sdk` with a derived `baseURL`, explicit `authClient`, `maxRetries: 0` and a 60 s timeout;
+  - forced `tool_choice`, with no `cache_control`, server tools, `advanced_ai_enabled` or betas;
+  - the § G-8 mapping, and `languageModel.ts` wiring;
+  - deletion of `bedrock.ts` and its test, and removal of `@aws-sdk/client-bedrock-runtime`.
+
+  refs: AC-7.9, AC-7.10, AC-9.6, AC-4.10 — deps: T96
+  - touch: `meetings-api/src/ai/vertexClaude.ts`, `meetings-api/src/ai/vertexClaude.test.ts`, `meetings-api/src/ai/languageModel.ts`, `meetings-api/src/ai/bedrock.ts`, `meetings-api/src/ai/bedrock.test.ts`, `meetings-api/package.json`, `meetings-api/bun.lock`
+  - done when: `bun test src/ai/vertexClaude.test.ts src/ai/prompts` passes with the § G-12 Vertex cases, including the host assertion while `ANTHROPIC_VERTEX_BASE_URL` and `CLOUD_ML_REGION` are set in the test env
+- [ ] T101: [BE] Vertex startup checks N3 (`cacheConfig.disableCache`) and N4 (`fetchPublisherModelConfig`: 404 passes, `enabled`/`enableOtelLogging` true refuse, other errors refuse). Removes `checkBedrock` and `@aws-sdk/client-bedrock` — refs: AC-4.9 — deps: T96, T100
+  - touch: `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`, `meetings-api/package.json`, `meetings-api/bun.lock`
+  - done when: `bun test src/lib/startupChecks.test.ts` passes with each N3/N4 case. `bun run typecheck` passes. `git grep -i bedrock meetings-api/src meetings-api/package.json` is empty
+- [ ] T102: [BE] The deletion paths clear the transient prefix. `DELETE /meetings/:id` and `DELETE /meetings/:id/audio` delete `transcribe/<id>/` with the Railway prefix, before the DB change, and answer 503 with nothing changed on failure — refs: AC-4.5, AC-4.6, AC-4.12 — deps: T96
+  - touch: `meetings-api/src/meetings/delete.routes.ts`, `meetings-api/src/meetings/delete.test.ts`, `meetings-api/src/audio/audio.routes.ts`, `meetings-api/src/audio/audio.test.ts`
+  - done when: on `meetings_test`, `bun test src/meetings/delete.test.ts src/audio/audio.test.ts` passes. The fake transient storage records the delete before the cascade, and a failing fake gives 503 with the meeting and its audio intact
+- [ ] T103: [QE] Live eval on Vertex. `evals/run.ts --live` builds the Vertex model (explicit key or a WIF credential file; S2/S3 applied). The tests check the Vertex module is loaded only in the live branch. The meetings-api README covers env (§ G-7) and release (`MEETINGS_VERTEX_MODEL_ID`) — refs: AC-7.12, AC-9.7 — deps: T100
+  - touch: `meetings-api/evals/run.ts`, `meetings-api/evals/eval.test.ts`, `meetings-api/README.md`
+  - done when: `bun run eval` (fake) exits 0; `bun test evals/eval.test.ts` passes, including "refuses without the Vertex configuration, naming the variables and no values" and "location `global` refused"; `git grep -i bedrock meetings-api/evals meetings-api/README.md` is empty
+- [ ] T104: [OPS] CI. `meetings-eval-live.yml` authenticates by GitHub OIDC WIF (`permissions: id-token: write`, `google-github-actions/auth` pinned by SHA) with the `MEETINGS_EVAL_*` vars of § G-7, keeping the skip-on-schedule / fail-on-dispatch behaviour. The `meetings-eval.yml` guard regex is updated — refs: AC-7.12, AC-9.7 — deps: T103
+  - touch: `.github/workflows/meetings-eval-live.yml`, `.github/workflows/meetings-eval.yml`
+  - done when: `actionlint` passes on both files; the PR job is green on the branch; a dispatched run without the vars fails naming them
+- [ ] T105: [OPS] env-doctor. `meetings-api` required keys and `SECRET_VARS` per § G-7; the seven removed names flagged as retired; the production template updated — refs: AC-4.9 — deps: T95
+  - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/meetings-api.env`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/retiredToken.test.ts`
+  - done when: `mise run env:doctor` passes on the production templates. The env-doctor tests pass with new cases: missing `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` reported; `AZURE_SPEECH_KEY` present → retired; the key's value never printed
+- [ ] T106: [OPS] `infra/meetings-gcs-transient-policy.sh` (apply/check the N2 rules on a GCS bucket via `gcloud storage`) and the infra README meetings section. The README covers:
+  - the Google project and APIs;
+  - Claude enablement in Model Garden;
+  - `cacheConfig` disable;
+  - the bucket;
+  - the runtime and eval service accounts with custom roles and Speech-agent bucket bindings;
+  - key creation, rotation and expiry;
+  - the organization policies (§ G-5);
+  - the **H1–H6 sign-off checklist** with owner and date fields;
+  - the removal of every Azure/Bedrock step.
+
+  refs: AC-4.4, AC-4.9 — deps: T96
+  - touch: `infra/meetings-gcs-transient-policy.sh`, `infra/README.md`
+  - done when: `bash -n infra/meetings-gcs-transient-policy.sh` passes; `--check` exits non-zero on a stubbed `gcloud` returning soft delete 7 d (a test harness with a fake `gcloud` on `PATH`); `git grep -i -E 'azure|bedrock' infra/README.md` is empty
+- [ ] T107: [QE] Google spike (release gate; replaces R2's Azure spike), in a sandbox project with synthetic it/en audio of 1 h and 3 h. It records the R2 measurements, sets `PIECE_MAX_MS` and word offsets in `googleSpeech.ts`/`split.ts`, and replaces the hand-built fixtures with scrubbed recorded ones. Outcome in a dated note under § G-3 of plan.md (via the orchestrator) — refs: AC-6.1, AC-6.2, AC-6.5 — deps: T97, T101, T106
+  - touch: `meetings-api/scripts/spike-google-speech.ts`, `meetings-api/test-fixtures/google-speech/*`, `meetings-api/src/ai/googleSpeech.ts`, `meetings-api/src/media/split.ts`
+  - done when: `bun test src/ai/googleSpeech.test.ts src/media/split.test.ts` passes on the recorded fixtures; the measured p95 latency and the chosen constants are recorded; a startup against the sandbox project passes N2–N4
+- [ ] T108: [FE] meetings-ui transcript parts. The info `Banner` and per-part dividers when `parts.length > 1`, en/it copy, types, and fakeApi fixtures with a three-part transcript — refs: AC-6.1, AC-6.2, AC-13.1 — deps: none (contract § G-11)
+  - touch: `meetings-ui/src/components/transcript/TranscriptView.tsx`, `meetings-ui/src/components/transcript/TranscriptView.test.tsx`, `meetings-ui/src/strings/transcript.ts`, `meetings-ui/src/lib/types.ts`, `meetings-ui/src/test-support/fakeApi.ts`
+  - done when: `cd meetings-ui && pnpm lint && pnpm build && pnpm test` passes. New component cases: one part → no banner, no divider; three parts → banner + two dividers with formatted times; `catalogGaps` parity holds
+- [x] T109: [OPS] AGENTS.md: the meetings rows (structure, meetings-api bullet, data-residency section, `MEETINGS_AI_PROVIDER` note) name Google Cloud (Speech `eu`, Vertex `eu`, transient bucket); the 0061 line is marked superseded in part; 0069 and 0070 are added — refs: AC-4.9 — deps: none (after the ADRs exist)
+  - touch: `AGENTS.md`
+  - done when: `git grep -n -i -E 'bedrock|azure ai speech|westeurope' AGENTS.md` matches only the 0061 line's history note; `mise run env:doctor` still passes
+- [ ] T110: [OPS] Changesets for meetings-api and meetings-ui (the provider change and transcript parts) — refs: AC-10.5 — deps: T95–T108, T111, T112
+  - touch: `.changeset/*.md`
+  - done when: `mise run changeset:check` passes
+- [ ] T111: [BE] meetings-api consent notice version bump for the A6 disclosure: `CONSENT_NOTICE_VERSION` → `2026-11-05`; attestations already recorded keep their version (no re-consent) — refs: AC-4.1 — deps: none
+  - touch: `meetings-api/src/meetings/consent.routes.ts`, `meetings-api/src/meetings/consent*.test.ts`
+  - done when: on `meetings_test`, `bun test src/meetings` passes, asserting the new version on a fresh attestation and that a pre-existing attestation still reads its old version
+- [ ] T112: [FE] meetings-ui consent notice copy (en + it) discloses that the transcription provider may keep the transcription result for about 5 days (EU/CH, no training), version `2026-11-05` matching T111 — refs: AC-4.1 — deps: none
+  - touch: `meetings-ui/src/strings/consent.ts`, `meetings-ui/src/components/**/Consent*.test.tsx`
+  - done when: `cd meetings-ui && pnpm lint && pnpm build && pnpm test` passes; a test asserts the provider-retention statement in en and it and the version string; `catalogGaps` parity holds
+
 - [ ] T92: [QE] All gates green, spec status → done:
   - `bun test` in meetings-api, auth, crm-api and notify-api;
   - `pnpm lint && pnpm build && pnpm test` in meetings-ui, shell, crm-ui and notify-ui;
@@ -613,7 +712,7 @@ database after `bun run db:deploy`.
   - the full `pnpm e2e meetings-*`, and `bun run eval`;
   - the OWASP review (frontier tier) and the QE verdict recorded.
 
-  Then `/wellforge:done` sets `spec.md` `status: done` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10, AC-2.11, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-3.5, AC-4.1, AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6, AC-4.7, AC-4.8, AC-4.9, AC-4.10, AC-4.11, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-5.6, AC-5.7, AC-5.8, AC-5.9, AC-5.10, AC-5.11, AC-5.12, AC-5.13, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.5, AC-6.6, AC-6.7, AC-6.8, AC-6.9, AC-6.10, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-7.6, AC-7.7, AC-7.8, AC-7.9, AC-7.10, AC-7.11, AC-7.12, AC-8.1, AC-8.2, AC-8.3, AC-8.4, AC-8.5, AC-8.6, AC-8.7, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-10.1, AC-10.2, AC-10.3, AC-10.4, AC-10.5, AC-10.6, AC-10.7, AC-10.8, AC-11.1, AC-11.2, AC-11.3, AC-11.4, AC-11.5, AC-11.6, AC-11.7, AC-11.8, AC-11.9, AC-11.10, AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-12.5, AC-13.1, AC-13.2, AC-13.3, AC-13.4, AC-14.1, AC-14.2, AC-14.3, AC-14.4, AC-14.5, AC-14.6, AC-14.7, AC-14.8, AC-14.9, AC-14.10, AC-14.11 — deps: T43, T81, T82, T84, T85, T87, T88, T89, T90, T91
+  Then `/wellforge:done` sets `spec.md` `status: done` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.7, AC-1.8, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-2.8, AC-2.9, AC-2.10, AC-2.11, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-3.5, AC-4.1, AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.6, AC-4.7, AC-4.8, AC-4.9, AC-4.10, AC-4.11, AC-4.12, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-5.6, AC-5.7, AC-5.8, AC-5.9, AC-5.10, AC-5.11, AC-5.12, AC-5.13, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-6.5, AC-6.6, AC-6.7, AC-6.8, AC-6.9, AC-6.10, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-7.6, AC-7.7, AC-7.8, AC-7.9, AC-7.10, AC-7.11, AC-7.12, AC-8.1, AC-8.2, AC-8.3, AC-8.4, AC-8.5, AC-8.6, AC-8.7, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-10.1, AC-10.2, AC-10.3, AC-10.4, AC-10.5, AC-10.6, AC-10.7, AC-10.8, AC-11.1, AC-11.2, AC-11.3, AC-11.4, AC-11.5, AC-11.6, AC-11.7, AC-11.8, AC-11.9, AC-11.10, AC-12.1, AC-12.2, AC-12.3, AC-12.4, AC-12.5, AC-13.1, AC-13.2, AC-13.3, AC-13.4, AC-14.1, AC-14.2, AC-14.3, AC-14.4, AC-14.5, AC-14.6, AC-14.7, AC-14.8, AC-14.9, AC-14.10, AC-14.11 — deps: T43, T81, T82, T84, T85, T87, T88, T89, T90, T91, T95, T96, T97, T98, T99, T100, T101, T102, T103, T104, T105, T106, T107, T108, T109, T110, T111, T112
   - touch: `specs/021-meetings/spec.md`, `specs/021-meetings/tasks.md`
   - done when: every listed command exits 0, the review verdicts are recorded, and `/wellforge:done 021` accepts the transition
 
@@ -801,3 +900,19 @@ every filler depends on it.
 
 The FE track (T44–T79) needs no BE task: it tests against `fakeApi.ts` and the plan's
 contracts. Only the e2e tasks (T86–T90) join the two tracks.
+
+### Coverage additions (2026-11-05)
+
+| AC | Added tasks |
+|---|---|
+| AC-4.1 | T111, T112 |
+| AC-4.5 / AC-4.6 | T96, T102 |
+| AC-4.9 | T95, T96, T101, T105, T106, T109 |
+| AC-4.10 | T97, T100 |
+| AC-4.12 | T96, T97, T102 |
+| AC-6.1 / AC-6.2 | T97, T99, T107, T108 |
+| AC-6.5 | T97, T107 |
+| AC-6.7 / AC-6.9 | T97, T99 |
+| AC-7.9 / AC-7.10 / AC-9.6 | T100 |
+| AC-7.12 / AC-9.7 | T103, T104 |
+| AC-13.2 | T97 |

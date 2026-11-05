@@ -47,6 +47,25 @@ owner.
 - **A4 (AC-5.8, AC-10.4).** A creator who no longer holds `meetings:access` can read the
   meeting and delete it or its recording, and nothing else.
 
+2026-11-05, source: user decision on the provider change (plan.md § Amendment 2026-11-05
+(provider change: Google Cloud), G-0 to G-17, Q1, Q2 and A5). The spec stays vendor-neutral; the
+provider change itself needs no AC edit. Two amendments follow; the body below is already
+updated.
+
+- **A5 (AC-6.2, Domain language, Non-goals).** A long recording may be transcribed in parts,
+  with speakers numbered separately in each part; speaker labels from different parts are
+  merged by renaming. New term **transcript part**.
+- **A6 (Constraints, AC-4.1, AC-4.6, AC-4.9, new AC-4.12, O2, O3, new O13).** The owner
+  **accepts** that the transcription processor may keep the transcription result of a
+  recording for up to about 5 days (the documented retention of an asynchronous transcription
+  result). The earlier hard constraint "the processor must not retain submitted content beyond
+  the request" is narrowed to one bounded exception: the transcription result, within the EU
+  or Switzerland, with no training use, and nothing else. Audio handed to the processor,
+  summarising and answering keep the no-retention rule. What wellD's own side still guarantees
+  is now AC-4.12. The consent notice must disclose the exception (AC-4.1), so its version
+  bumps; attestations already recorded keep the version they were given under (AC-4.3). The
+  contract confirmation is the tracked item O13.
+
 ## Problem
 
 wellD's consultants and salespeople hold many conversations that matter: discovery calls
@@ -81,6 +100,9 @@ New terms; see the glossary candidates returned with this spec.
 - **recording** — the audio of a `recorded` or `uploaded` meeting; **retained audio** is the
   copy still kept. Video images are never kept.
 - **transcript** — the meeting as text, in **segments** (start time, **speaker label**, text).
+- **transcript part** — a span of one recording that is transcribed as one unit and has its
+  own speaker numbering. A short recording is one part; a long one may be several. Not a part
+  of a meeting: a meeting has exactly one source (AC-3.5). (A5)
 - **summary** — an AI-generated text produced from the transcript through a **template**.
 - **template** — an ordered list of sections (heading + instruction) used to shape a
   summary: **built-in**, **shared** (company-wide) or **personal** (private to one user).
@@ -102,8 +124,15 @@ this spec does not choose vendors or mechanisms.
 - Data residency (`AGENTS.md`): audio, transcripts, summaries and conversations are stored in
   the EU. Every processing step on them (transcription, summarising, answering) happens in
   the EU or Switzerland (working assumption, see O3). Any third-party processor must
-  contractually not retain submitted content beyond the request and not use it to train
-  models: a hard constraint. Provider choice is the architect's, bounded by this.
+  contractually not use submitted content to train models, and must not retain it beyond the
+  request: a hard constraint, with **one bounded exception accepted by the owner on 2026-11-05
+  (A6)**: the transcription step may keep the **transcription result** of a recording (the
+  text, not the audio) for up to about 5 days, still in the EU or Switzerland and still with
+  no training use. Nothing else is excepted: the processor keeps no copy of the audio, and
+  summarising and answering keep no prompt or answer. Audio handed to the transcription
+  processor is held only in storage wellD controls (AC-4.12). A retention longer than about
+  5 days, or any other retention, is not covered by the exception and returns to the owner
+  (O13). Provider choice is the architect's, bounded by this.
 - Copy exists in English and Italian (`it: typeof en` parity); dates and durations use the
   library formatters; ids and dates in API contracts are ISO 8601.
 - Sign-in, tool access and live permission resolution follow ADR-0007 / ADR-0014; a failure of
@@ -219,7 +248,9 @@ our clients' trust.
 - AC-4.1: Given a `recorded` or `uploaded` meeting, when the creator reaches the consent step,
   then a notice (English or Italian per the UI language) states that everyone present must
   have been told and agreed, that the audio is transcribed and summarised by AI processed in
-  the EU or Switzerland, who will be able to read the result, how long audio is kept, and that
+  the EU or Switzerland, who will be able to read the result, how long audio is kept, that the
+  transcription provider may keep the transcription result for up to about 5 days after
+  processing (in the EU or Switzerland, with no training use; A6), and that
   a platform's own recording banner does not cover capture done by this tool. Proceeding
   requires an explicit tick. The attestation is the only consent control: no other check
   (such as a per-company "do not record" flag) blocks recording.
@@ -237,6 +268,9 @@ our clients' trust.
   confirms in a dialog stating it cannot be undone, then audio, transcript, summaries, every
   conversation and the participant list are deleted, and the host is told (AC-11.8).
   Afterwards the meeting is absent from every list and a link to it answers as not found.
+  "Deleted" covers everything Operai and wellD's own storage hold (AC-4.12 included); the
+  transcription provider's own bounded copy of a transcription result (Constraints, A6)
+  expires on its own within the period accepted there and cannot be deleted on request.
   Only an entry saying who deleted which meeting id and when remains, with no content and no
   title.
 - AC-4.7: Given a holder of `meeting:erase`, then they can find a meeting by title, creator
@@ -245,14 +279,26 @@ our clients' trust.
 - AC-4.8: Given any role, administrator included, then holding it never grants reading
   another person's meeting content; only participation, creator status and the opt-in of
   AC-5.5 do.
-- AC-4.9: Given the service is configured with a storage location outside the EU, or a
-  transcription or language-processing location outside the EU and Switzerland, then it
-  refuses to start.
+- AC-4.9: Given the service is configured with a storage location outside the EU (including
+  the transient storage of AC-4.12), or a transcription or language-processing location
+  outside the EU and Switzerland, then it refuses to start. It also refuses to start when a
+  processor setting it can read shows retention or training use that the Constraints do not
+  allow, or when such a setting cannot be read. Settings a processor does not expose are
+  covered by the contract confirmation O13, not by this criterion.
 - AC-4.10: Given any request, then logs and error reports hold identifiers and sizes only,
   never audio, transcript, summary, question or answer text.
 - AC-4.11: Given a recording saved or abandoned, then nothing of the audio remains in the
   browser's storage on that device afterwards, and audio not yet saved is never written to
   that storage while the recording is going on either (AC-2.9).
+- AC-4.12: Given audio handed to the transcription processor, then the only copy outside the
+  retained audio of AC-4.4 is in storage that wellD controls, in the EU or Switzerland. It
+  exists only while one transcription attempt runs and is deleted when that attempt ends,
+  whether it succeeded or not; a copy left by a crashed attempt is deleted by the next attempt
+  or at the latest within 1 day (plus at most 24 hours). When the creator or a holder of
+  `meeting:erase` deletes the recording (AC-4.5) or the meeting (AC-4.6), that copy is deleted
+  first; if it cannot be deleted, the action is refused and nothing is deleted. A transcription
+  result written into that storage by an attempt still running at that moment is covered by
+  the same 1-day bound. (A6)
 
 ### US-5: Participants, who can see what, and a frozen meeting
 As a meeting creator, I want to say who took part and to control who can read the meeting,
@@ -317,7 +363,12 @@ check what was actually said.
   times.
 - AC-6.2: Given distinct voices, then segments carry distinct labels ("Speaker 1", "Speaker
   2", …), best effort; where voices cannot be told apart, one label. The creator can rename a
-  label to a participant's name or free text, applied to all its segments.
+  label to a participant's name or free text, applied to all its segments. A long recording
+  may be transcribed in parts (**transcript parts**): speakers are numbered separately in each
+  part, so one person can carry different labels in different parts (a later part's labels
+  never reuse an earlier part's), and the transcript screen says when this applies. Labels
+  from different parts are merged by renaming them to the same name, after which they read as
+  one speaker everywhere the transcript is shown, copied or downloaded. (A5)
 - AC-6.3: Given the creator editing a segment's text, then the text is saved, the segment is
   marked "edited", and a concurrent edit by someone else is refused with a prompt to reload
   (ADR-0038 posture).
@@ -586,7 +637,10 @@ history of the relationship in the CRM is complete without logging the meeting t
   2026-11-04).
 - **Linking external participants to CRM contacts.** Contact erasure (specs/017 AC-2.4) would
   have to reach meetings; plain names keep the two erasure paths separate.
-- **Multi-part meetings and recordings over 3 hours.**
+- **Multi-part meetings (one meeting made of several recordings) and recordings over 3
+  hours.** Not to be confused with the transcript parts of AC-6.2, which split one recording.
+- **Automatic matching of the same speaker across transcript parts.** Merging is by renaming
+  (AC-6.2); matching voices would be new processing of voice characteristics (A5).
 - **Recovering audio captured offline after the tab is gone.** It would require keeping audio
   on the device, which AC-4.11 forbids (A2).
 - **Transcript version history, a read-access log, AI cost reporting.**
@@ -598,16 +652,29 @@ history of the relationship in the CRM is complete without logging the meeting t
 
 ## Open questions
 
-Both are accepted as tracked risks by the owner (2026-11-04): the work proceeds on the working
-assumptions below, which the plan may rely on.
+O2 and O3 are accepted as tracked risks by the owner (2026-11-04): the work proceeds on the
+working assumptions below, which the plan may rely on. O13 was added on 2026-11-05 (A6).
 
 - [ ] O2 (accepted-as-risk) Retention beyond audio: working assumption is that transcripts and
   summaries are kept until their meeting is deleted, with no maximum life; how long the
-  content-free deletion entry (AC-4.6) is kept is not decided. — owner: data-protection lead
+  content-free deletion entry (AC-4.6) is kept is not decided. Since A6, the transcription
+  provider's bounded copy of a transcription result (up to about 5 days) is outside "until
+  the meeting is deleted": a deletion cannot reach it. — owner: data-protection lead
 - [ ] O3 (accepted-as-risk) Which wellD entity is controller of the data, and which provider
   contracts qualify. Working assumptions: transcription and AI providers must process in the
-  EU or Switzerland, with contractual no-retention and no-training (a hard constraint, see
-  Constraints); storage is in the EU. — owner: data-protection lead
+  EU or Switzerland, with contractual no-training and no-retention except the bounded
+  transcription-result exception (a hard constraint, see Constraints, A6); storage is in the
+  EU. — owner: data-protection lead
+- [ ] O13 (accepted-as-risk, go-live sign-off, A6) Contract confirmation for the providers
+  chosen on 2026-11-05. (a) wellD's use of the cloud provider is under its Master Agreement
+  with data-processing terms, not its online terms of service, so that no content is held for
+  abuse monitoring or human review; (b) the provider confirms in writing that the
+  transcription result is kept no longer than about 5 days and is not used for training;
+  (c) the language-model vendor's commercial terms, accepted by enabling its models through
+  the cloud provider, do not make that vendor a processor of meeting content or let it retain
+  it. The owner's acceptance of the 5-day exception is conditional on (b): a longer or wider
+  retention returns to the owner. The consent notice bump of AC-4.1 ships with the release
+  that makes this change. — owner: user (owner) and data-protection lead
 
 Closed by the owner on 2026-11-04 (recorded in the body): O1 languages (US-13, non-goals);
 O4 default grants (AC-10.8); O5 read-only participants (AC-5.8, AC-10.4); O6 limits accepted;
@@ -615,3 +682,6 @@ O7 frozen meeting (AC-5.11 to AC-5.13); O8 CRM meeting activity (US-14); O9 atte
 enough (AC-4.1); O10 uploaded video reduced to audio (AC-3.1); O11 host-visible ships
 (AC-5.5, AC-5.6); O12 processing-time target is set by the architect in plan.md
 (Constraints).
+
+Closed by the owner on 2026-11-05: plan Q1, the 5-day transcription-result retention is
+accepted (Constraints, A6); plan A5, the transcript-parts clarification (AC-6.2).

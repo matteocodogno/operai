@@ -89,6 +89,13 @@
 - **Recording session**: one continuous browser capture of a recorded meeting, uploaded as
   a sequence of chunks.
 - **Chunk**: one ~10 s slice of a recording session's audio, uploaded on its own.
+- **Transcript part**: a span of one recording transcribed as one unit, with its own speaker
+  numbering; labels from different parts are merged only by renaming. _Avoid:_ chunk (that is
+  the ~10 s upload slice).
+- **Transcription result**: the text output of transcribing a recording; the one item a
+  processor may keep, for about 5 days (specs/021 A6).
+- **Transient copy**: audio held in wellD-controlled EU/CH storage only for one
+  transcription attempt (specs/021 AC-4.12). _Avoid:_ staging file, temp upload.
 - **Passage**: the citation unit of a `text`-source meeting (the counterpart of a segment).
 - **Processing stage**: one step of turning a source into a transcript (upload check,
   audio extraction, transcription).

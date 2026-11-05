@@ -387,6 +387,11 @@ no CRM-specific code path in meetings-api.
 
 ### AI providers and residency (answers question 4) — D-5
 
+> **Superseded in part (2026-11-05).** The provider choice below (Azure AI Speech, Amazon Bedrock) and
+> its startup checks are replaced by § Amendment 2026-11-05 (provider change: Google Cloud) at the end of
+> this plan. The hard constraint, the "verify at startup, unreadable = refuse" posture and the two
+> interfaces stay. The table is kept as the record of what was compared on 2026-11-04.
+
 Hard constraint: processing in the EU or Switzerland, contractual no-retention, no training,
 diarization, Italian and English.
 
@@ -1052,6 +1057,9 @@ PersonRef }>`, nothing else (AC-4.7). Deletion uses `DELETE /meetings/:id`.
 
 ### Environment (meetings-api)
 
+> **Changed 2026-11-05.** The `AZURE_*`, `BEDROCK_*` and `MEETINGS_AWS_*` rows are replaced by the Google
+> rows in § Amendment 2026-11-05 (provider change: Google Cloud) § G-7.
+
 | Variable | Notes |
 |---|---|
 | `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PORT` (8085), `NODE_ENV` | resource-server set |
@@ -1448,3 +1456,748 @@ Affected ADRs (not edited here):
 Not recorded: the 48 kHz decode rate of Ogg Opus seen by `ffprobe`. The plan only states the
 encode arguments (`-ar 16000`), not a probed rate, so nothing in it is wrong.
 
+## Amendment 2026-11-05 (provider change: Google Cloud; source: user decision)
+
+> **Approved by the user 2026-11-05.** Q1 decided: BatchRecognize with diarization, accepting that
+> Google may keep the async transcript result for ~5 days (spec Constraint amended accordingly).
+
+> **Scope.** The user decided on 2026-11-05 to run both AI steps on Google Cloud under one contract:
+> transcription by **Cloud Speech-to-Text v2, model Chirp 3**, and summaries and Q&A by **Claude on
+> Vertex AI** (Anthropic models served by Google), EU. Azure AI Speech and Amazon Bedrock are
+> dropped: no contract will be signed and nothing was provisioned. This amendment replaces D-5's
+> provider choice, its startup checks, the provider env rows and the Bedrock-specific risks. It
+> keeps everything else: the spec's guarantees (EU/CH processing, no retention, no training,
+> AC-4.9 startup refusal, fake refused in production), the two interfaces, ADR-0061's principle and
+> failure shape, ADR-0067's structured output and eval gate, and ADR-0062's runner. Plan
+> `status:` is untouched; the orchestrator handles approval. Vendor facts were read from Google's
+> documentation on 2026-11-05 (sources at the end of this section). Google now publishes the
+> Vertex AI generative docs as "Gemini Enterprise Agent Platform"; the API hosts are unchanged.
+
+### G-0 Spec check
+
+- **No AC, constraint or open item names Azure, Bedrock, Microsoft or AWS.** The spec is
+  provider-neutral: Constraints say "provider choice is the architect's", and AC-4.1, AC-4.9 and O3
+  say "EU or Switzerland". The consent notice (`CONSENT_NOTICE_VERSION = "2026-11-01"`) names no
+  processor, so the notice version needs no bump. No spec edit is required.
+- **Two items need the PO and the data-protection lead.** They are not edits; see § G-16.
+  - Q1: a documented ~5-day storage of async transcripts by Google, against the Constraint
+    "must contractually not retain submitted content beyond the request".
+  - A5: an optional AC-6.2 clarification for long recordings transcribed in parts.
+
+### G-1 Architecture delta
+
+```
+ meetings-api (Railway EU) ── prepare_audio (unchanged) ──► Railway EU bucket  MEETINGS_S3_*  (audio.ogg, 29-day rule)
+      │
+      │ transcribe job: audio.ogg ─ffmpeg split (≤ PIECE_MAX_MS)─► parts p1..pN (local temp dir)
+      ├─► GCS transient bucket (EU, regional endpoint storage.<loc>.rep.googleapis.com)  gs://<bucket>/transcribe/<meetingId>/<attempt>/
+      ├─► Speech-to-Text v2  https://eu-speech.googleapis.com/v2/projects/<p>/locations/eu/recognizers/_:batchRecognize
+      │       chirp_3 · one locale · diarization · output to the same GCS prefix (not inline) · poll operation
+      │       → read the output JSON → operations.delete → delete the GCS prefix
+      ├─► Vertex AI  https://aiplatform.eu.rep.googleapis.com/v1/projects/<p>/locations/eu/publishers/anthropic/models/<m>:rawPredict
+      │       Claude, forced tool use (ADR-0067), no cache_control, no server tools
+      └─► oauth2.googleapis.com (service-account token exchange; carries no content)
+```
+
+- One dedicated Google Cloud project, `MEETINGS_GCP_PROJECT_ID`, holds the Speech API, the Vertex
+  model enablement and the transient bucket. Every runtime call uses one service account. The
+  project is the unit of the sign-offs in § G-5, so it holds nothing else.
+- The Railway bucket stays the only place audio is *kept* (ADR-0063). The GCS bucket is a
+  **transient processing hop**: bytes live there only while one transcription attempt runs.
+- Rejected:
+  - `@google-cloud/speech`: a gRPC client, unproven on Bun, and it hides the request URL that
+    the residency check pins. REST through `fetch` is used instead.
+  - `@google-cloud/storage`: a large dependency for four JSON-API calls, again REST.
+  - Vertex through raw REST: the Anthropic Vertex SDK
+    (`@anthropic-ai/vertex-sdk` 1.1.2) gives typed Messages requests. The adapter pins its
+    `baseURL`, `authClient` and `maxRetries` explicitly, so none of its environment defaults
+    apply.
+
+### G-2 Transcription: Chirp 3 through a transient EU bucket (the key design point)
+
+**Why a bucket at all (verified, not assumed).** Chirp 3 does diarization only in `Recognize` and
+`BatchRecognize`; the feature table says only `BatchRecognize`. `Recognize` takes at most
+1 minute or 10 MB per request. `BatchRecognize` accepts audio **only as a Cloud Storage URI**: its
+`BatchRecognizeFileMetadata.audio_source` is a `gs://` `uri` and nothing else. A 3 h meeting
+therefore needs its audio in a GCS bucket for the length of the transcription. That bucket is a new
+storage hop, covered by AC-4.9 ("a storage location outside the EU … refuses to start") and by
+ADR-0061's "every hop". Alternatives considered:
+
+| Option | Residency / retention | Diarization | Verdict |
+|---|---|---|---|
+| **BatchRecognize, audio in a transient EU GCS bucket, output written to that bucket** | Bucket in an EU location, reached only through its regional endpoint, rules verified at startup (below). Google documents that the async endpoint does not store input audio. It does store "the resulting transcript … for approximately 5 days to give you time to retrieve the transcript" [G4]; whether that applies with Cloud Storage output is not documented (Q1) | Yes, per file; labels are consistent within one file | **Chosen**, go-live gated on Q1 |
+| BatchRecognize with inline output | Same bucket for the input; the transcript is held in the operation, which is exactly the ~5-day storage the FAQ describes | Same | Rejected: it moves the transcript copy from a bucket we control and empty into Google's operation store |
+| `Recognize` (sync), inline audio in ≤ 60 s pieces, no bucket | "processes it in memory and does not store any customer data" [G4]: the cleanest retention story | Per minute only, with no label continuity across about 180 pieces, which in practice means no diarization | **Named fallback** if Google cannot confirm Q1. It would give one label per meeting, a visible AC-6.2 regression (see § G-16) |
+| `StreamingRecognize` | In memory | Not supported for Chirp 3 | Rejected: no diarization, and the audio must be sent at about real time (3 h takes 3 h) |
+| Leave the audio in the Railway bucket and give Google a presigned URL | — | — | Impossible: BatchRecognize accepts only `gs://` |
+| Dynamic batching (`processingStrategy: DYNAMIC_BATCHING`) | Same as chosen | Same | Rejected: up to 24 h latency, which breaks the processing target |
+
+**Transient bucket rules.** All of these are verified at startup, and unreadable means refuse (§ G-5 N2):
+- **Location** in an EU or CH location: `EU` multi-region or one EU/CH single region; London
+  (`EUROPE-WEST2`) is excluded. The allowlist is fixed in code at implementation from Google's
+  locations list. `EUROPE-WEST4` (Netherlands, next to Railway Amsterdam) is recommended.
+- **Lifecycle:** an enabled `Delete` rule whose only condition is `age ≤ 1` (day), with no
+  `matchesPrefix`/`matchesSuffix`/storage-class or other narrowing condition. Lifecycle runs
+  asynchronously, so this is a backstop, not the deletion path.
+- **Soft delete off:** `softDeletePolicy.retentionDurationSeconds == 0`. GCS enables soft delete
+  **by default with 7 days** on every new bucket [G8], so a deleted object would otherwise stay
+  recoverable for a week. This is the GCS analogue of ADR-0063's "versioning off".
+- **Versioning** not enabled; **no** `retentionPolicy`; `defaultEventBasedHold` false (a hold or
+  a retention lock would block deletion).
+- **Access:** uniform bucket-level access on, public access prevention `enforced`.
+- **Endpoint:** every object call goes to the **regional endpoint**
+  `https://storage.<location>.rep.googleapis.com`, derived from the location read at startup,
+  never configured. Regional endpoints keep object data at rest *and in transit* in that location
+  and refuse the request if the bucket is elsewhere [G7]. The one startup metadata read (bucket
+  config) uses the global JSON endpoint; it carries no content. Google's guarantee excludes resource
+  metadata, so object names hold identifiers only.
+- **Object names:** `transcribe/<meetingId>/<attempt>/in/<n>.ogg` and
+  `transcribe/<meetingId>/<attempt>/out/…` (written by Speech). They carry no title and no content
+  (AC-4.10).
+- **IAM on the bucket only:**
+  - the runtime service account: `storage.objects.create/get/list/delete` and
+    `storage.buckets.get` (the startup check);
+  - the Speech service agent `service-<projectNumber>@gcp-sa-speech.iam.gserviceaccount.com`:
+    `storage.objects.get` (reads the parts) and `storage.objects.create` (writes the output);
+  - no project-level storage role.
+
+**Flow of one `transcribe` attempt.** It replaces the Azure call in
+`meetings-api/src/jobs/handlers/transcribe.ts`; guards, commit and notification are unchanged.
+1. Download `audio.ogg` to the per-job temp dir, as today.
+2. **Delete** `transcribe/<meetingId>/`. This removes leftovers of any earlier attempt, including
+   output written late by an operation whose process died.
+3. **Split** (§ G-3) into parts p1..pN with their start offsets.
+4. **Upload** each part to `…/<attempt>/in/<n>.ogg` with `ifGenerationMatch=0`.
+5. One `batchRecognize` **per part** (Google's best practice is one file per request), all submitted
+   together. The body:
+
+   ```json
+   { "config": { "model": "chirp_3", "languageCodes": ["<it-IT|en-US>"], "autoDecodingConfig": {},
+                  "features": { "diarizationConfig": {} } },
+     "files": [{ "uri": "gs://<bucket>/transcribe/<id>/<attempt>/in/<n>.ogg" }],
+     "recognitionOutputConfig": { "gcsOutputConfig": { "uri": "gs://<bucket>/transcribe/<id>/<attempt>/out/" } } }
+   ```
+
+   - Exactly one language code, never `"auto"` (AC-13.2).
+   - `minSpeakerCount`/`maxSpeakerCount` are not sent: Google documents them as "not currently
+     used". `maxSpeakersFor` stays in the interface and is ignored by this adapter.
+   - No word time offsets, unless the spike (T107) shows speaker labels need them (§ G-3).
+   - No denoiser, unless the spike shows it helps mixed mic and tab audio (R3).
+6. **Poll** each operation (`GET https://eu-speech.googleapis.com/v2/<operation name>`):
+   - every 10 s, backing off to 30 s;
+   - a deadline of 45 min per part;
+   - the job's lease is heartbeated meanwhile, and a lost lease (`ctx.signal`) aborts.
+7. For each finished operation:
+   - read `results[uri].cloudStorageResult.uri`, which must start with this attempt's `out/`
+     prefix (anything else is refused);
+   - read the JSON, **≤ 8 MiB**, else `provider_rejected`;
+   - then `operations.delete`, best effort (Google: "the client is no longer interested in the
+     operation result").
+8. **Map** to `Phrase[]` (§ G-3), then the existing `mapPhrases`. Any part failing fails the whole
+   attempt: no partial transcript, AC-6.9.
+9. `finally`: **delete** `transcribe/<meetingId>/` (inputs and outputs), whether the attempt
+   succeeded or not, and remove the temp dir.
+
+**Explicit deletions extend to the transient prefix.** "Delete recording" (AC-4.5) and "Delete
+meeting" (AC-4.6) delete `transcribe/<meetingId>/` in the GCS bucket **together with** the Railway
+prefix, **before** any database change. As in ADR-0063, a failure answers 503 and nothing changes.
+- **Accepted residual, stated:** a Speech operation still running at deletion time can write its
+  output file *after* the delete. That file is a transcript, not audio. It is removed by the
+  attempt's own `finally` if the process is alive, otherwise by the next attempt's step 2 or by the
+  1-day lifecycle rule (plus Google's lifecycle lag).
+- Bound: at most the running part's remaining time plus one day plus lag, with identifiers-only
+  names. This is the same family as the residuals accepted for ADR-0012 and in the T19–T34
+  amendment.
+
+### G-3 Splitting and stitching
+
+- **Why split.** Google's Chirp 3 page says BatchRecognize is "good for long audio 1 minute to
+  1 hour in general, but up to 20 minutes with word-level timestamp enabled". The generic batch
+  limit is 8 h per file. Our meetings run to 3 h + 60 s.
+  - Default `PIECE_MAX_MS = 60 min`, without word timestamps: a 3 h meeting is 3 or 4 parts.
+  - The constant lives in code, not env.
+  - The spike (T107) may raise it to the whole meeting, if a 3 h file transcribes and diarizes
+    acceptably as one file. Then there is one part and nothing to stitch.
+  - It may lower it to 20 min with word offsets, if speaker labels are only returned with them.
+  - The code handles N ≥ 1 parts identically.
+- **Where to cut.** Inside the transcribe job, under the process ffmpeg slot (§ G-11, T98):
+  - `ffmpeg -protocol_whitelist file -f ogg -i audio.ogg -af silencedetect=noise=-35dB:d=0.5
+    -f null -` finds silences; this is a decode pass, about 10–30 s for 3 h of 16 kHz mono Opus;
+  - each cut is the longest silence ≥ 0.5 s within the 90 s before each `PIECE_MAX_MS` mark, else a
+    hard cut at the mark;
+  - `ffmpeg … -c copy -f segment -segment_times <cuts> -segment_list parts.csv` writes the parts.
+    This is a stream copy, no re-encode, cut at Opus packet boundaries (20 ms);
+  - `parts.csv` gives the authoritative start offset of each part.
+  - The same hardening as ADR-0064 applies: `-protocol_whitelist file`, pinned `-f ogg`, a minimal
+    child env, a timeout, and the temp dir. The input is our own derived `audio.ogg`, never a
+    user-chosen file. ADR-0064's bounded-read rule is not widened; this is a note for it (§ G-15).
+- **Times.** Chirp 3 documents utterance-level timestamps only for streaming. A batch result
+  carries `resultEndOffset`, and word offsets only when enabled. So a segment's times are:
+  - `startMs` = part offset + the previous result's `resultEndOffset` within the part (0 for the
+    first);
+  - `endMs` = part offset + its own `resultEndOffset`.
+  - Times are therefore at result granularity and never *later* than the speech, so AC-6.5's
+    "play from that point" starts at or slightly before the words. With word offsets on (spike
+    outcome), the times are exact.
+- **Speakers within a part.** Diarization labels are per *word* (`words[].speakerLabel`). A result
+  whose words change speaker is split into consecutive runs, one segment per run. Every run takes
+  the result's start, the same never-late rule.
+- **Speakers across parts: labelled per part, never claimed to be the same person.** The adapter
+  emits `speaker = "p<n>:<label>"`. The existing `mapPhrases` then numbers keys by first
+  appearance across the whole meeting, so part 2's voices become "Speaker 4", "Speaker 5" and so on.
+  `segments.ts` is unchanged.
+  - Rejected: carrying labels over by ordinal (part 2's "1" ≠ part 1's "1"). That would put one
+    person's words in another's mouth, in the transcript **and in every summary** built from it,
+    which is worse than one person under two labels.
+  - Rejected: voice-embedding matching across parts. That is new processing of voice
+    characteristics (biometric-adjacent personal data), which the spec never asked for.
+  - Named follow-up, not this release: overlapping parts by about 2 min and mapping labels by
+    aligning the overlap's words. Trigger: users routinely merging labels on long meetings.
+- **Merging is renaming, which already works.** `speaker_label` has no unique constraint on
+  `participantId`, so the creator can map "Speaker 1" and "Speaker 4" to the same participant (or
+  the same text). Both then read as that name in the transcript, in the download and in summaries'
+  `speakerNames` (AC-6.2, T94 amendment). No new endpoint is needed.
+- **What the UI shows** (T108). For a transcript with more than one part:
+  - a non-blocking `Banner` (info) above the transcript: "This recording was transcribed in
+    {n} parts. Speakers are numbered separately in each part, so one person can appear under two
+    labels. Rename a label to merge them." The Italian is in the strings module;
+  - a divider before the first segment of each part after the first: "Part {n} · {hh:mm:ss}".
+  - A single-part transcript shows neither.
+
+### G-4 Language model: Claude on Vertex AI, EU
+
+- **Endpoint.** The `eu` multi-region,
+  `https://aiplatform.eu.rep.googleapis.com/v1/projects/<p>/locations/eu/publishers/anthropic/models/<model>:rawPredict`.
+  - Google: the `eu` endpoint "strictly covers data residency within EU member states"; Switzerland
+    and the UK are excluded, which is within the spec.
+  - Google's residency table [G2] lists every current Claude model for the EU multi-region.
+    Belgium (`europe-west1`) is listed only for older models (Opus 4.5/4.6, Sonnet 4.6, Haiku 4.5),
+    and Netherlands (`europe-west4`) for none.
+  - Multi-region endpoints serve "all Claude models with versions 4.7 and later".
+  - **The global endpoint is refused**: it "don't provide any data residency guarantees".
+- **Model.** Pinned in `MEETINGS_VERTEX_MODEL_ID`, chosen by the live eval (ADR-0067 gate), as
+  today.
+  - **Excluded: Claude Fable and Claude Mythos (all versions).** Vertex designates them "Advanced
+    AI", with prompt **and response** logging "for up to 30 days", which "may not be possible" to
+    opt out of [G5]. This is the same exclusion ADR-0061 made for Bedrock's `aws_review`.
+  - Opus ≥ 4.7 and Sonnet ≥ 5 are in Advanced AI scope only with `advanced_ai_enabled: true`
+    (Anthropic's Cyber Verification Program), which this service never sends.
+  - Recommendation: evaluate a Sonnet 5.x first (cost, latency), and Opus only if the evals fail.
+- **Request.** The Messages API through `@anthropic-ai/vertex-sdk`:
+  - `new AnthropicVertex({ region, projectId, baseURL: <derived>, authClient: <JWT from the
+    explicit key>, maxRetries: 0, timeout: 60_000 })`;
+  - `messages.create({ model, system, messages, max_tokens, tools: [<the one output schema>],
+    tool_choice: { type: "tool", name } })`.
+  - **Never** `cache_control`: Claude prompt caching on Vertex is explicit per request and is
+    stored 5 min to 1 h. **Never** server tools (web search, code execution), `advanced_ai_enabled`
+    or any `betas`.
+  - An explicit `baseURL` matters: the SDK otherwise reads `ANTHROPIC_VERTEX_BASE_URL` and
+    `CLOUD_ML_REGION` from the environment. An explicit `authClient` stops google-auth-library
+    falling back to Application Default Credentials.
+  - The reply must have `stop_reason: "tool_use"` and a `tool_use` block with the forced name,
+    else `invalid_output`, as today. `prompts/*`, the validators and `fakeLanguageModel.ts` are
+    unchanged.
+- Rejected:
+  - the global endpoint (no residency);
+  - `europe-west1` as the default (current 4.7+ models are not served there);
+  - Gemini on Vertex for summaries (not the user's decision; a different model family would need
+    its own eval baseline, and Gemini's implicit caching is on by default);
+  - Vertex prompt caching (stored data, and nothing at this size needs it).
+
+### G-5 Residency and retention: what is verified at startup, what is signed off
+
+The ADR-0061 posture carries over: everything Google exposes through an API is **read at startup**,
+and unreadable, absent or wrong means **exit 1**. What Google does not expose becomes a **recorded
+go-live sign-off** with an owner and a date, re-attested quarterly and on any change to the project.
+Startup refusals name the check, never a value (as today).
+
+| # | Check | How | Where |
+|---|---|---|---|
+| S1 | Speech location is `eu` (allowlist: `eu` only; Chirp 3 is GA in `eu` and `us` only) | sync, env | `env.ts` / `residency.ts` |
+| S2 | Vertex location in `{eu, europe-west1, europe-west4}`; `global`, `us` and anything else refused | sync, env | same |
+| S3 | `MEETINGS_VERTEX_MODEL_ID` matches `^claude-[a-z0-9.@-]+$` and contains neither `fable` nor `mythos` | sync, env | same |
+| S4 | The service-account key decodes (base64 → JSON), `type == "service_account"`, `project_id == MEETINGS_GCP_PROJECT_ID`, `client_email` and `private_key` present | sync, env | same |
+| S5 | `ANTHROPIC_VERTEX_BASE_URL` is not set (an ambient base-URL override is refused even though the adapter passes its own) | sync, env | same |
+| S6 | `MEETINGS_AI_PROVIDER=fake` refused in production (unchanged) | sync, env | same |
+| N1 | Railway audio bucket: 29-day rule, versioning (unchanged, ADR-0063) | network | `startupChecks.ts` |
+| N2 | GCS transient bucket: location allowlist, lifecycle `Delete` `age ≤ 1` unfiltered, versioning off, soft delete `0`, no retention policy, no default event hold, uniform access, public access prevention enforced (§ G-2) | network: `GET storage/v1/b/<bucket>?fields=location,lifecycle,versioning,softDeletePolicy,retentionPolicy,defaultEventBasedHold,iamConfiguration` | same |
+| N3 | Vertex data caching **disabled for the project**: `GET …/v1/projects/<p>/cacheConfig` must answer `disableCache: true`. `DURABLE` or `EPHEMERAL` refuses. Google documents implicit caching for its own Gemini models; the check is required regardless, because the setting is project-wide and costs one read. Google's sample serves this read from a `us-central1` host; the spike confirms whether the `eu` host serves it. Either way it is a control-plane read that carries the project id and no content, the same class as the token exchange | network | same |
+| N4 | Vertex request-response logging **not enabled** for the exact location and model: `GET …/v1beta1/projects/<p>/locations/<loc>/publishers/anthropic/models/<model>:fetchPublisherModelConfig`. A 404 means "no config, default disabled" per Google [G6] and passes; `loggingConfig.enabled == true` or `enableOtelLogging == true` refuses; any other error refuses | network | same |
+| H1 | **Speech-to-Text data logging not enrolled** for the project. It is opt-in, a console toggle; the v2 `Config` resource exposes only `kmsKeyName`, so it **cannot be read by API** | sign-off | infra README checklist |
+| H2 | **Contract:** wellD's use is under the Google Cloud **Master Agreement** + CDPA, not the online Terms of Service. Only then is the abuse-monitoring prompt logging (up to 90 days for flagged prompts) and human review exempt "by default" [G5]. Also written confirmation that it does not apply to Claude on Vertex | sign-off (O3) | same |
+| H3 | **No consent to the Advanced AI Safety Addendum** in the project, and no Advanced AI model enabled. Consent is per project, in the console, and needs `aiplatform.consents.update`, which the runtime SA does not hold | sign-off | same |
+| H4 | **Written confirmation from Google on Q1:** with `gcsOutputConfig`, the Speech service keeps no copy of the transcript after the operation, or keeps it for how long. The FAQ says ~5 days for async results | sign-off, **blocks go-live** (§ G-16) | same |
+| H5 | **Anthropic's terms:** enabling Claude in Model Garden accepts Anthropic's Commercial Terms of Service, which govern use of Anthropic models on Vertex [G5]. The DPL confirms this does not make Anthropic a processor of meeting content. Google states prompts and responses "are not shared with third-parties … including partner models" [G9] | sign-off (O3) | same |
+| H6 | Cloud Audit Logs **Data Access** for `speech`, `aiplatform` and `storage` do not record request payloads (checked at provisioning) | sign-off | same |
+
+- **Grounding is not used.** It is enforced in code, not signed off: the request carries exactly
+  one tool, the output schema, and a unit test asserts it (T100).
+- **Defence in depth**, recommended at provisioning and not relied on by the code:
+  - an organization policy restricting resource locations to EU;
+  - Google's organization policy blocking global-endpoint usage;
+  - a key-expiry policy on service-account keys;
+  - a dedicated project;
+  - a runtime SA with no `setPublisherModelConfig`, no `cacheConfig` update, no consents, no
+    `serviceusage` and no IAM permissions.
+
+### G-6 Credentials — recommendation: a service-account key for the runtime, Workload Identity Federation for CI
+
+- **Runtime (Railway): one service account, `meetings-api@<project>.iam.gserviceaccount.com`, JSON
+  key in `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` (base64), from 1Password.**
+  - Workload Identity Federation needs an identity token from the workload's platform. Railway
+    publishes none: its OIDC is "Login with Railway" for *users* and dashboard SSO, read in
+    docs.railway.com on 2026-11-05. A token minted by our own `auth` service would make `auth`'s
+    key the Google credential, which is no better.
+  - Least privilege, as a custom role on the project unless noted:
+    - Speech: recognize on `recognizers/_`, `operations.get`, `operations.delete`;
+    - Vertex: `aiplatform.endpoints.predict` on publisher models, read of `cacheConfig`, read of
+      `publisherModelConfig`;
+    - the bucket-level storage bindings of § G-2.
+    - Exact permission names are confirmed at provisioning with Policy Troubleshooter (T106).
+  - Rotate every 90 days under a key-expiry policy. The key is never logged; env-doctor treats it
+    as secret.
+  - **Escalation trigger:** Railway ships workload OIDC, then move the runtime to WIF and delete the
+    key.
+- **Live eval (GitHub Actions): Workload Identity Federation** with GitHub's OIDC token
+  (`id-token: write`, `google-github-actions/auth` pinned by SHA). It uses a **separate eval
+  service account** with Vertex predict only (no Speech, no bucket), so the CI secret is not a key.
+  The evals' content is synthetic.
+- Rejected:
+  - Application Default Credentials (ambient, ADR-0061 failure shape);
+  - one key for runtime and CI;
+  - a Google API key (Vertex partner models and Speech batch need OAuth).
+
+### G-7 Environment contract delta (meetings-api)
+
+| Removed | Added | Notes |
+|---|---|---|
+| `AZURE_SPEECH_REGION`, `AZURE_SPEECH_KEY`, `AZURE_SPEECH_ENDPOINT` | `MEETINGS_SPEECH_LOCATION` | `eu` (S1); the endpoint `https://<loc>-speech.googleapis.com` is derived, never configured |
+| `BEDROCK_REGION` | `MEETINGS_VERTEX_LOCATION` | `eu` recommended (S2); the base URL is derived (`aiplatform.eu.rep.googleapis.com` for `eu`, `<region>-aiplatform.googleapis.com` otherwise) |
+| `BEDROCK_MODEL_ID` | `MEETINGS_VERTEX_MODEL_ID` | pinned; changing it needs a green live eval (ADR-0067); S3 |
+| `MEETINGS_AWS_ACCESS_KEY_ID`, `MEETINGS_AWS_SECRET_ACCESS_KEY` | `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` (secret), `MEETINGS_GCP_PROJECT_ID` | S4 |
+| — | `MEETINGS_GCS_TRANSIENT_BUCKET` | the transient bucket's name; its location is read at startup (N2) |
+
+- All six are required with `MEETINGS_AI_PROVIDER=real`. With `fake` they are optional and, when
+  set, validated (today's posture). The fake transcriber never touches the bucket.
+- Env-doctor:
+  - `meetings-api` required keys swap as above;
+  - `SECRET_VARS` loses `AZURE_SPEECH_KEY` and `MEETINGS_AWS_*` and gains
+    `MEETINGS_GCP_SERVICE_ACCOUNT_KEY`;
+  - the seven removed names are flagged as **retired** if present, the `retiredToken` pattern, so a
+    stray Azure or AWS key in a deployed service is visible.
+- The production template gets
+  `MEETINGS_GCP_SERVICE_ACCOUNT_KEY=${OP:AIScream/OperAI - Meetings GCP SA/key-base64}` and
+  `MEETINGS_VERTEX_MODEL_ID=SET-ME-pinned-model-id` (placeholder until the live eval is green).
+- Eval workflow variables:
+  - `MEETINGS_EVAL_GCP_WIF_PROVIDER`, `MEETINGS_EVAL_GCP_SERVICE_ACCOUNT`,
+    `MEETINGS_EVAL_GCP_PROJECT_ID`, `MEETINGS_EVAL_VERTEX_LOCATION`,
+    `MEETINGS_EVAL_VERTEX_MODEL_ID` (vars, none secret);
+  - they replace `MEETINGS_EVAL_AWS_*` and `MEETINGS_EVAL_BEDROCK_*`;
+  - `meetings-eval.yml`'s credential guard regex becomes
+    `^(MEETINGS_GCP_|MEETINGS_VERTEX_|MEETINGS_SPEECH_|GOOGLE_|CLOUDSDK_|ANTHROPIC_|AWS_|AZURE_)`.
+
+### G-8 Error mapping into the existing failure codes
+
+The closed sets stay: `TranscriptionFailureCode` = `audio_unreadable | provider_unavailable |
+provider_rejected | too_long` and `LanguageModelFailureCode` = `provider_unavailable |
+provider_rejected | invalid_output`. UI copy, `failureCode` values and AC-6.9/7.9/9.6 behaviour do
+not change. Provider `message` text is never parsed, logged or stored; only HTTP status, gRPC
+`code` (numeric `google.rpc.Status.code`) and our own outcomes are used.
+
+| Source | Condition | Code | Transient |
+|---|---|---|---|
+| Token exchange (`oauth2.googleapis.com`) | network, timeout, 5xx | `provider_unavailable` | yes |
+| | 400/401 (`invalid_grant`: revoked or expired key) | `provider_rejected` | no |
+| GCS (upload, read, list, delete) | network, timeout, 408, 429, 5xx | `provider_unavailable` | yes |
+| | 401/403/404 (permission, bucket gone) | `provider_rejected` | no |
+| | output object > 8 MiB, or `cloudStorageResult.uri` outside the attempt's prefix | `provider_rejected` | no |
+| `batchRecognize` / operation GET (HTTP) | network, timeout, 408, 429, 5xx | `provider_unavailable` | yes |
+| | 400/403/404 | `provider_rejected` | no |
+| Finished operation or per-file `error.code` | 4 DEADLINE_EXCEEDED, 8 RESOURCE_EXHAUSTED, 10 ABORTED, 13 INTERNAL, 14 UNAVAILABLE | `provider_unavailable` | yes |
+| | 3 INVALID_ARGUMENT on a **file** (cannot decode) | `audio_unreadable` | no |
+| | any other code (5, 7, 9, 16, …) | `provider_rejected` | no |
+| Our poll deadline (45 min per part) | | `provider_unavailable` | yes |
+| Output JSON not the expected shape | | `provider_unavailable` | yes (today's "200 that is not the expected JSON") |
+| ffmpeg split of our own `audio.ogg` | non-zero exit or timeout | `audio_unreadable` | no |
+| Every part returns no results | | outcome `noSpeech` (AC-6.7) | — |
+| Vertex `rawPredict` | network, timeout, 408, 429, 500, 502, 503, 504, 529 (overloaded) | `provider_unavailable` | yes |
+| | 400, 401, 403, 404 (model not served at that location), 413, 422 | `provider_rejected` | no |
+| | 200 without `stop_reason: "tool_use"` and the forced tool block | `invalid_output` | yes (unchanged) |
+
+`too_long` is still decided upstream by `prepare_audio` (ADR-0064 round 3); Google is never sent
+more than 3 h + 60 s. A retry re-runs **all** parts: no per-part result is stored between attempts,
+because that would be a partial transcript at rest.
+
+### G-9 Rate limits, quotas and timeouts
+
+- **Speech v2, per region, per project (Google, 2026-10-26):**
+  - batch recognition 150 requests per 60 s;
+  - operation requests 150 per 60 s;
+  - at most 5 files per batch request (moving to 1), each ≤ 8 h.
+  - Our worst case is 2 concurrent jobs per process × 4 parts, polled at most every 10 s, which is
+    48 operation GETs a minute and 8 batch requests. It is below quota with no increase.
+- **Vertex, Claude, EU multi-region (Google's quota table, 2026-11-05; confirm in the project
+  console at provisioning):** per base model, QPM 1,000–1,500 and input TPM 10–15 M. The 30-per-hour
+  per-user AI limit (AC-13.4) and the runner's concurrency keep usage orders of magnitude below. A
+  429 is transient, so the runner backs off and an ask turn shows Retry.
+- **Timeouts:**
+  - Vertex 60 s per call (unchanged; the ask route's 90 s wraps it);
+  - GCS 2 min per part upload;
+  - Speech poll deadline 45 min per part;
+  - no SDK retries (the runner owns retry, ADR-0062).
+- **Processing-time target unchanged** (≤ 3 min + 0.2 × audio duration p95); parts run in
+  parallel. The spike (T107) measures it from Railway Amsterdam and replaces R2's Azure spike.
+
+### G-10 Cost note (ops estimate; confirm prices at provisioning)
+
+- **Speech-to-Text v2 standard recognition:** USD 0.016 per minute for the first 500,000
+  minutes/month, about **USD 0.96 per audio hour** and ≤ USD 2.88 per 3 h meeting. Billed per second
+  of audio successfully processed; server errors are not billed.
+  - A retry re-runs all parts, so the worst case is × 3 attempts.
+  - Dynamic batching is cheaper but rejected (24 h latency).
+- **Claude on Vertex:** the pinned model's per-token price. Google notes "a price difference
+  depending on the endpoint type", so multi-region may cost more than global; global is not an
+  option. Volumes as before (≤ ~50 k input tokens per summary for 3 h).
+- **GCS transient:** negligible (≤ ~45 MB per meeting for minutes).
+- Control-plane reads at startup: free.
+
+### G-11 Data model, API contract and code delta
+
+- **Migration** (new, meetings-api; the existing `20261104232300_init` is never modified): `meeting`
+  gains `transcriptPartStartsMs Int[] NOT NULL DEFAULT '{}'`.
+  - It is written in the transcribe commit, together with the segments: `[0]` for one part,
+    `[0, t2, …]` for several.
+  - It is reset by the same replace-never-append rule on a retry, and stays `{}` for `text`
+    meetings and `noSpeech`.
+- **Contract:** `GET /meetings/:id/transcript` gains `parts: { index: number /* 1-based */, startMs:
+  number }[]`. It is `[]` for text meetings and `noSpeech`, and ≥ 1 entry otherwise. Additive;
+  `speakers[].label` is unchanged.
+- **Interfaces:**
+  - the `TranscriptionOutcome` `segments` variant gains `partStartsMs: readonly number[]`
+    (non-empty, first element 0), and `FakeTranscriber` returns `[0]` unless scripted;
+  - `Transcriber.transcribe(...)` keeps its signature;
+  - `LanguageModel` is unchanged.
+- **Files:**
+  - deleted: `src/ai/azureSpeech.ts`, `src/ai/bedrock.ts` and their tests;
+  - new: `src/ai/googleSpeech.ts`, `src/ai/vertexClaude.ts`, `src/lib/google/auth.ts`,
+    `src/lib/google/transientStorage.ts`, `src/media/split.ts`, `src/media/ffmpegSlot.ts`;
+  - changed: `src/lib/env.ts`, `src/lib/residency.ts`, `src/lib/startupChecks.ts`,
+    `src/ai/transcriber.ts`, `src/ai/languageModel.ts`, `src/jobs/handlers/transcribe.ts`,
+    `src/jobs/runner.ts`, `src/meetings/delete.routes.ts`, `src/audio/audio.routes.ts`,
+    `src/transcript/transcript.routes.ts`, `evals/run.ts`, `package.json`.
+- **Dependencies:** `@aws-sdk/client-bedrock` and `@aws-sdk/client-bedrock-runtime` are removed.
+  `@anthropic-ai/vertex-sdk` (with `@anthropic-ai/sdk`) and `google-auth-library` are added, all
+  pinned. `@aws-sdk/client-s3` stays for the Railway bucket.
+- **ffmpeg exclusivity moves from job kind to a process slot.** Today the runner refuses to run two
+  `prepare_audio` jobs at once (`FFMPEG_KIND`). The transcribe job now also runs ffmpeg, but only
+  for seconds before it waits up to 45 min on Google, and a kind-level exclusion would block every
+  `prepare_audio` for that whole wait.
+  - So `withFfmpegSlot()` (one per process) wraps each ffmpeg invocation in `prepare_audio` and in
+    the splitter. ADR-0064's "one ffmpeg at a time per process" holds exactly; ADR-0062's
+    concurrency of 2 is unchanged.
+
+### G-12 Test strategy delta
+
+- **Fakes stay.**
+  - `FakeTranscriber` and `FakeLanguageModel` drive every integration and e2e test
+    (`MEETINGS_AI_PROVIDER=fake`); no test calls Google.
+  - The fake transcriber gains a scriptable multi-part outcome, so the transcribe job, the
+    transcript route and the UI (fakeApi) can exercise `parts`.
+- **Adapter unit tests on recorded fixtures.**
+  - `test-fixtures/google-speech/*.json`: operation, batch result and error bodies. They are first
+    hand-built from Google's REST reference (T97). The spike (T107) replaces them with responses
+    recorded from **synthetic** Italian and English audio, scrubbed of project numbers.
+  - `fetch` is stubbed; nothing reaches Google.
+  - Speech cases:
+    - one part;
+    - three parts (offsets, per-part speaker namespacing, a result whose words change speaker);
+    - no results;
+    - each row of § G-8;
+    - poll deadline;
+    - a lost lease aborting the poll;
+    - the output URI outside the prefix;
+    - an output over 8 MiB;
+    - the request body (one language code, never `auto`, `chirp_3`, `gcsOutputConfig`, no speaker
+      counts);
+    - `operations.delete` called;
+    - **the prefix deleted in `finally` on success and on every failure**.
+  - Vertex cases:
+    - the host is `aiplatform.eu.rep.googleapis.com` and the path names `locations/eu`, even with
+      `ANTHROPIC_VERTEX_BASE_URL`/`CLOUD_ML_REGION` set in the process env;
+    - `maxRetries: 0`;
+    - exactly one tool, `tool_choice` forced;
+    - no `cache_control`, `advanced_ai_enabled`, `betas` or server tools anywhere in the body;
+    - each row of § G-8.
+- **Splitter:**
+  - unit tests on cut selection, from synthetic silence lists;
+  - a real-ffmpeg test (the `normalize.real.test.ts` pattern, skipped without ffmpeg) splits a 75 s
+    fixture with `PIECE_MAX_MS` overridden to 30 s, and checks offsets from `parts.csv` and the
+    whitelist flags.
+- **Startup checks** (the AC-4.9 row):
+  - stubbed bucket metadata, failing each N2 property in turn, including soft delete 7 d, a
+    `matchesPrefix` rule, age 2, `EUROPE-WEST2` and unreadable;
+  - `cacheConfig` `DURABLE`, `EPHEMERAL`, `disableCache: true` and 403/500;
+  - `fetchPublisherModelConfig` 404 (passes), `enabled: false` (passes), `enabled: true`,
+    `enableOtelLogging: true` and 500/403 (all refuse);
+  - env cases S1–S6.
+- **Deletion:** `DELETE /meetings/:id` and `DELETE /meetings/:id/audio` delete the transient prefix
+  first; a transient-storage failure gives 503 with nothing changed (the AC-4.5 and AC-4.6 rows).
+- **Live eval:** `bun run eval --live` builds the Vertex model (the location and model checks
+  S2/S3 apply) and runs the same fixtures. `meetings-eval-live.yml` authenticates by WIF. It stays
+  the release and model-change gate (ADR-0067).
+
+Changed AC rows (replacing the text of the table above for these ACs):
+
+| AC | Level | What proves it |
+|---|---|---|
+| AC-4.9 | unit | env S1–S6 and startup N2–N4 refusals listed above, each exit 1 with a value-free message; the Railway bucket checks (N1) unchanged |
+| AC-4.5 | integration | delete recording → Railway prefix **and** GCS `transcribe/<id>/` deleted before the DB change; transient-storage failure → 503, audio still listed |
+| AC-4.6 | integration | delete meeting → both prefixes first; failure → 503, nothing deleted |
+| AC-4.10 | unit + integration | the log-privacy canary passes through both Google adapters (stubbed) and the splitter; object names carry ids only |
+| AC-6.1 | unit + integration + component | multi-part outcome → segments in time order with part offsets added; `parts` in the transcript response; divider per part |
+| AC-6.2 | unit + integration + component | words with changing `speakerLabel` split into runs; part 2's labels never reuse part 1's keys; mapping two keys to one participant shows one name; banner shown only for > 1 part |
+| AC-6.5 | unit | segment `startMs` never later than the result it came from (never-late rule) |
+| AC-6.7 | unit + integration | every part empty → `noSpeech`, `parts = []` |
+| AC-6.9 | unit + integration | any one part failing → whole attempt `failed` with the § G-8 code, no segments, prefix deleted |
+| AC-7.9, AC-9.6 | unit + integration | Vertex 429/529/5xx/timeout → transient; 4xx → `provider_rejected`; no partial `ready` |
+| AC-7.10 | unit | the Vertex request carries exactly the one forced tool and no server tool, cache or beta |
+| AC-7.12, AC-9.7 | unit + eval | unchanged fixtures; live eval on Vertex |
+| AC-13.2 | unit | the batch body has exactly one language code equal to the meeting's locale, never `auto` |
+
+The spike (T107) joins the eval suite as a release gate outside the AC mapping.
+
+### G-13 Risks delta
+
+R2 and R13 are replaced and R1 is restated; R3–R12 and R14–R16 are unchanged.
+
+| # | Risk | Mitigation / early check |
+|---|---|---|
+| R1 | Google changes residency or retention terms, a pinned model is redesignated "Advanced AI", or a non-readable setting (H1–H6) changes | Startup checks N2–N4 refuse on what is readable. Advanced AI needs a per-project consent the runtime SA cannot give (H3). The model id is pinned and denylisted. Sign-offs are re-attested quarterly and on every project change. A model change needs a green eval |
+| R2 | Chirp 3 batch is slower than the target, mis-diarizes long or mixed audio, or behaves differently from the docs: the page contradicts itself on diarization in `Recognize` and on word timestamps | **Spike T107 before go-live.** It covers 1 h and 3 h synthetic it/en, whole file vs 60-min parts, `speakerLabel` without word offsets, result granularity, latency from Railway Amsterdam, `gcsOutputConfig` on `eu`, which hosts serve `cacheConfig`/`fetchPublisherModelConfig` for `eu`, and IAM permission names. Its outcome fixes `PIECE_MAX_MS` and word offsets and records the fixtures |
+| R13 | Traffic reaches a non-EU endpoint: the SDK's environment defaults, a code regression to `global`, or ADC picking up other credentials | The base URL is derived and asserted by test; explicit `authClient`; `ANTHROPIC_VERTEX_BASE_URL` refused (S5); location allowlist without `global`; the global-endpoint organization policy (defence in depth) |
+| R17 | Google keeps async transcripts ~5 days (FAQ), against the no-retention Constraint | Cloud Storage output instead of inline; `operations.delete` after reading; **go-live gated on H4/Q1**; the named fallback is sync `Recognize` without diarization (AC-6.2 regression, PO decision) |
+| R18 | A transient copy outlives a deletion (a crashed attempt, a late output write) | Per-attempt prefix, deleted at attempt start and in `finally`; deletion routes delete it first (503 on failure); a 1-day lifecycle rule; soft delete 0 verified; bound stated in § G-2 |
+| R19 | A long-lived service-account key leaks from Railway | Least-privilege custom role; 90-day expiry policy; separate eval SA via WIF; never logged; env-doctor secret; Cloud Audit Logs on the SA's use; WIF as soon as Railway offers workload OIDC |
+| R20 | Speaker labels split across parts confuse readers and summaries | Never-merge rule (no false attribution); banner and part dividers; merge by rename; the spike may remove splitting; overlap-alignment is the named follow-up |
+| R21 | A Google control-plane outage blocks a deploy or restart (startup reads) | Accepted, as with AWS before; `maxAttempts` 2 on each startup read; it fails closed by design |
+| R22 | Anthropic's Commercial Terms (H5) add a second contract relationship despite the "one contract" goal | DPL review before production data (O3); Google's statement that partner models do not receive prompts or responses |
+
+### G-14 Security delta
+
+Still **YES**, and the owasp review of this delta runs at the **frontier tier** (voice recordings,
+regulated clients). New or changed surfaces:
+- `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` handling: parse once, never logged, kept out of the ffmpeg
+  child env (the probe/normalize env test gains it), env-doctor secret.
+- The transient bucket: policy checks (N2), IAM scope (runtime SA vs Speech agent), object names
+  (identifiers only), prefix-scoped delete that refuses any other prefix (as `deletePrefix` does
+  for Railway).
+- Reading Google's output JSON: size cap, prefix check, shape validation before use, no provider
+  text in errors or logs.
+- The Vertex request: forced single tool, no cache, no server tools, explicit base URL and
+  credentials.
+- Startup checks N2–N4 and env S1–S6, so neither can become fail-open.
+- The eval workflow's WIF trust condition: the repository and the `meetings-eval` environment
+  only.
+
+Processors: Google Cloud Speech-to-Text v2 (`eu`), Vertex AI Claude (`eu`) and Cloud Storage
+(EU/CH location), under one Google contract (H2), plus Anthropic's terms for model use (H5).
+DPA/O3 sign-off before production data.
+
+### G-15 ADR candidates and affected ADRs
+
+12. **0069 — Meetings AI processing on Google Cloud: Chirp 3 batch through a transient EU bucket and
+    Claude on Vertex AI (EU); verify at startup what Google exposes, sign off what it does not;
+    supersedes ADR-0061's provider choice**
+    (`docs/adr/0069-meetings-ai-providers-google-cloud-eu.md`).
+    - It supersedes ADR-0061 decision points 1, 2, 4 and 5, and the provider-specific parts of 3
+      and 6. ADR-0061's principle (every hop verified at startup, unreadable = refuse, no fake in
+      production) and its failure shape stay; 0061's status becomes "superseded in part by 0069".
+    - *Rejected:*
+      - keeping Azure Speech + Bedrock (two vendors and two DPAs; no contract will be signed);
+      - sync `Recognize` without a bucket (no usable diarization; kept as the fallback for Q1);
+      - `StreamingRecognize` (no diarization for Chirp 3, real-time pacing);
+      - inline batch output (Google stores it ~5 days);
+      - the Vertex global endpoint (no residency);
+      - Claude Fable/Mythos (Advanced AI logging);
+      - Workload Identity Federation for the runtime (Railway has no workload OIDC; used for CI);
+      - Application Default Credentials;
+      - gRPC client libraries on Bun.
+13. **0070 — A long recording is transcribed in parts, and speaker labels are numbered per part,
+    never carried over** (`docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md`).
+    - The rule: a system that cannot tell whether two voices are the same person must not say they
+      are. A false attribution reaches every summary; a duplicate label costs one rename.
+    - *Rejected:*
+      - carrying labels across parts by ordinal;
+      - voice-embedding matching (new biometric-adjacent processing);
+      - overlap-alignment now (named follow-up with a trigger);
+      - one whole-meeting request regardless of Google's guidance (the spike decides; the code
+        allows it).
+
+Affected ADRs (not edited here; the adr-writer or a follow-up amends them):
+- **ADR-0062:**
+  - ffmpeg exclusivity is a process slot, not a job kind;
+  - `transcribe` is now a long-running poll, still lease-heartbeated;
+  - R6's re-run cost now includes re-uploading the parts.
+- **ADR-0063:** a second bucket exists, transient, with its own startup-verified rules (1-day
+  lifecycle, soft delete 0, versioning off); explicit deletes clear both prefixes first.
+- **ADR-0064:**
+  - the transcribe job splits our own derived `audio.ogg` with ffmpeg under the same flags, and
+    reads Google's output JSON with an 8 MiB cap;
+  - neither is a new reader of user-chosen bytes, so the escalation trigger is not tripped. A note
+    says so.
+- **ADR-0067:**
+  - the model-change gate's variable is `MEETINGS_VERTEX_MODEL_ID`;
+  - the live eval runs on Vertex through WIF.
+- **AGENTS.md:** the 0061 line, the meetings-api bullet, the data-residency section and the ADR
+  list (0069, 0070) need updating (T109).
+
+### G-16 Open questions for the user
+
+- **Q1 (blocks go-live; user + data-protection lead).** Google's Speech data-usage FAQ says the
+  async endpoint stores "the resulting transcript … for approximately 5 days". It is not documented
+  whether this applies when the output goes to our own bucket (`gcsOutputConfig`, chosen here).
+  - Proposal: ask Google, through the account team or as part of the contract, for a written
+    statement (H4).
+  - If Google confirms no storage with Cloud Storage output, nothing changes.
+  - If it does not, the choice is the user's and the DPL's:
+    - (a) accept a ≤ 5-day Google-side transcript copy as within the contract's terms. This
+      touches the spec Constraint "must contractually not retain submitted content beyond the
+      request", so it would be a PO amendment, not a plan detail;
+    - (b) switch to the sync `Recognize` fallback: no storage at Google and no bucket, but one
+      speaker label per meeting, a visible AC-6.2 regression the PO must accept.
+- **Q2 (before production data; DPL).** Is "one contract" the Google Cloud **Master Agreement**?
+  Under the online Terms of Service, flagged prompts can be logged for up to 90 days and reviewed
+  by humans (H2). Enabling Claude also accepts Anthropic's Commercial Terms (H5).
+- **A5 (optional spec clarification; PO).** AC-6.2 could add: "A recording longer than about an
+  hour may be transcribed in parts; labels are numbered separately in each part, and renaming two
+  labels to the same name merges them." The plan works without it, because AC-6.2 is best effort,
+  but the spec would then describe what the UI shows. The PO decides; spec.md is not edited here.
+
+### G-17 Proposed tasks.md delta (for the re-sync; tasks.md is not edited here)
+
+**Superseded tasks.** Keep them `[x]` as history with the note "superseded 2026-11-05 (provider
+change), see T95+":
+- T31 (Azure transcriber), by T97;
+- T35 (Bedrock model and checks), by T100 and T101;
+- the Azure/Bedrock parts of T11, by T95.
+
+**Reopened by a delta task.** T81 (T105), T82 (T106), T83 (T103), T84 (T104), T85 (T109). T92 gains
+deps T95–T110.
+
+- [ ] T95: [BE] meetings-api env + sync residency for Google. Removes `AZURE_*`, `BEDROCK_*` and `MEETINGS_AWS_*`. Adds `MEETINGS_SPEECH_LOCATION` {eu}, `MEETINGS_VERTEX_LOCATION` {eu, europe-west1, europe-west4}, `MEETINGS_VERTEX_MODEL_ID` (claude-, no fable/mythos), `MEETINGS_GCP_PROJECT_ID`, `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` (base64 JSON, type/project/email/key checks) and `MEETINGS_GCS_TRANSIENT_BUCKET`. Refuses `ANTHROPIC_VERTEX_BASE_URL`; messages stay value-free — refs: AC-4.9 — deps: none
+  - touch: `meetings-api/src/lib/env.ts`, `meetings-api/src/lib/env.test.ts`, `meetings-api/src/lib/residency.ts`, `meetings-api/src/lib/residency.test.ts`
+  - done when: `cd meetings-api && bun test src/lib/env.test.ts src/lib/residency.test.ts` passes, with a case per S1–S6, including `global`, `us`, `europe-west2`, a `claude-fable-…` id, a key whose `project_id` differs, and a non-base64 key. No test output contains a configured value
+- [ ] T96: [BE] Google auth + transient storage + bucket startup check. Covers:
+  - a google-auth-library JWT client from the explicit key (never ADC), token cached;
+  - the GCS JSON API on the regional endpoint derived from the bucket location: upload with `ifGenerationMatch=0`, bounded read, list and delete of `transcribe/<meetingId>/` only (any other prefix refused), plus a fake;
+  - `checkTransientBucket` (N2), wired into `runStartupChecks`.
+
+  refs: AC-4.9, AC-4.5, AC-4.6 — deps: T95
+  - touch: `meetings-api/src/lib/google/auth.ts`, `meetings-api/src/lib/google/auth.test.ts`, `meetings-api/src/lib/google/transientStorage.ts`, `meetings-api/src/lib/google/transientStorage.test.ts`, `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`, `meetings-api/package.json`, `meetings-api/bun.lock`
+  - done when: `bun test src/lib/google src/lib/startupChecks.test.ts` passes. It includes a refusal per N2 property (soft delete 7 d, versioning on, a `matchesPrefix` rule, age 2, `EUROPE-WEST2`, PAP not enforced, unreadable metadata), a test that `deletePrefix("transcribe/")` and other meetings' prefixes are refused, and a test that object URLs use `storage.<location>.rep.googleapis.com`
+- [ ] T98: [BE] Process-level ffmpeg slot. `withFfmpegSlot()` replaces the runner's `FFMPEG_KIND` exclusion; `prepare_audio` uses it; the minimal-child-env test lists `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` — refs: AC-3.1, AC-6.10 — deps: none
+  - touch: `meetings-api/src/media/ffmpegSlot.ts`, `meetings-api/src/media/ffmpegSlot.test.ts`, `meetings-api/src/jobs/runner.ts`, `meetings-api/src/jobs/runner.test.ts`, `meetings-api/src/jobs/handlers/prepareAudio.ts`, `meetings-api/src/media/probe.test.ts`
+  - done when: `bun test src/media src/jobs` passes; a test shows two `prepare_audio` jobs never run ffmpeg concurrently, while a `transcribe` job waiting outside the slot does not block a `prepare_audio` claim
+- [ ] T97: [BE] Chirp 3 transcriber. Covers:
+  - the splitter: silencedetect + segment copy under the slot, with `PIECE_MAX_MS` and word offsets as code constants;
+  - per-part upload, `batchRecognize` (chirp_3, one locale, diarization, `gcsOutputConfig`), polling with backoff and deadline, bounded output read, `operations.delete`, and prefix cleanup at start and in `finally`;
+  - result → `Phrase` with part offsets, `p<n>:<label>` speakers and word-run splitting, plus `partStartsMs`;
+  - the § G-8 mapping, and hand-built REST fixtures;
+  - deletion of `azureSpeech.ts` and its test.
+
+  refs: AC-6.1, AC-6.2, AC-6.5, AC-6.7, AC-6.9, AC-13.2, AC-4.10 — deps: T96, T98
+  - touch: `meetings-api/src/ai/googleSpeech.ts`, `meetings-api/src/ai/googleSpeech.test.ts`, `meetings-api/src/media/split.ts`, `meetings-api/src/media/split.test.ts`, `meetings-api/src/media/split.real.test.ts`, `meetings-api/src/ai/transcriber.ts`, `meetings-api/src/ai/fakeTranscriber.ts`, `meetings-api/src/ai/segments.ts`, `meetings-api/src/ai/azureSpeech.ts`, `meetings-api/src/ai/azureSpeech.test.ts`, `meetings-api/test-fixtures/google-speech/*`
+  - done when: `bun test src/ai src/media/split` passes with the § G-12 Speech cases, including "prefix deleted in finally on success and on each failure row". `split.real.test.ts` passes in the ffmpeg image (skips without ffmpeg). `git grep -i azure meetings-api/src` is empty
+- [ ] T99: [BE] Transcribe job + migration + transcript `parts`. Covers:
+  - `transcriptPartStartsMs` (new migration), written in the existing commit and reset on retry;
+  - `GET /meetings/:id/transcript` returns `parts`;
+  - OpenAPI updated.
+
+  refs: AC-6.1, AC-6.2, AC-6.7, AC-6.9 — deps: T97
+  - touch: `meetings-api/prisma/schema.prisma`, `meetings-api/prisma/migrations/*_transcript_parts/*`, `meetings-api/src/jobs/handlers/transcribe.ts`, `meetings-api/src/jobs/handlers/transcribe.test.ts`, `meetings-api/src/transcript/transcript.routes.ts`, `meetings-api/src/transcript/transcript.test.ts`
+  - done when: on `meetings_test`, `bun run db:deploy && bun test src/jobs/handlers/transcribe.test.ts src/transcript` passes. Cases: three parts → `parts` with three entries and labels s1..s5 across parts; a retry replaces parts; a text meeting gives `parts: []`; `noSpeech` gives `parts: []`
+- [ ] T100: [BE] Vertex Claude language model. Covers:
+  - `@anthropic-ai/vertex-sdk` with a derived `baseURL`, explicit `authClient`, `maxRetries: 0` and a 60 s timeout;
+  - forced `tool_choice`, with no `cache_control`, server tools, `advanced_ai_enabled` or betas;
+  - the § G-8 mapping, and `languageModel.ts` wiring;
+  - deletion of `bedrock.ts` and its test, and removal of `@aws-sdk/client-bedrock-runtime`.
+
+  refs: AC-7.9, AC-7.10, AC-9.6, AC-4.10 — deps: T96
+  - touch: `meetings-api/src/ai/vertexClaude.ts`, `meetings-api/src/ai/vertexClaude.test.ts`, `meetings-api/src/ai/languageModel.ts`, `meetings-api/src/ai/bedrock.ts`, `meetings-api/src/ai/bedrock.test.ts`, `meetings-api/package.json`, `meetings-api/bun.lock`
+  - done when: `bun test src/ai/vertexClaude.test.ts src/ai/prompts` passes with the § G-12 Vertex cases, including the host assertion while `ANTHROPIC_VERTEX_BASE_URL` and `CLOUD_ML_REGION` are set in the test env
+- [ ] T101: [BE] Vertex startup checks N3 (`cacheConfig.disableCache`) and N4 (`fetchPublisherModelConfig`: 404 passes, `enabled`/`enableOtelLogging` true refuse, other errors refuse). Removes `checkBedrock` and `@aws-sdk/client-bedrock` — refs: AC-4.9 — deps: T96, T100
+  - touch: `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`, `meetings-api/package.json`, `meetings-api/bun.lock`
+  - done when: `bun test src/lib/startupChecks.test.ts` passes with each N3/N4 case. `bun run typecheck` passes. `git grep -i bedrock meetings-api/src meetings-api/package.json` is empty
+- [ ] T102: [BE] The deletion paths clear the transient prefix. `DELETE /meetings/:id` and `DELETE /meetings/:id/audio` delete `transcribe/<id>/` with the Railway prefix, before the DB change, and answer 503 with nothing changed on failure — refs: AC-4.5, AC-4.6 — deps: T96
+  - touch: `meetings-api/src/meetings/delete.routes.ts`, `meetings-api/src/meetings/delete.test.ts`, `meetings-api/src/audio/audio.routes.ts`, `meetings-api/src/audio/audio.test.ts`
+  - done when: on `meetings_test`, `bun test src/meetings/delete.test.ts src/audio/audio.test.ts` passes. The fake transient storage records the delete before the cascade, and a failing fake gives 503 with the meeting and its audio intact
+- [ ] T103: [QE] Live eval on Vertex. `evals/run.ts --live` builds the Vertex model (explicit key or a WIF credential file; S2/S3 applied). The tests check the Vertex module is loaded only in the live branch. The meetings-api README covers env (§ G-7) and release (`MEETINGS_VERTEX_MODEL_ID`) — refs: AC-7.12, AC-9.7 — deps: T100
+  - touch: `meetings-api/evals/run.ts`, `meetings-api/evals/eval.test.ts`, `meetings-api/README.md`
+  - done when: `bun run eval` (fake) exits 0; `bun test evals/eval.test.ts` passes, including "refuses without the Vertex configuration, naming the variables and no values" and "location `global` refused"; `git grep -i bedrock meetings-api/evals meetings-api/README.md` is empty
+- [ ] T104: [OPS] CI. `meetings-eval-live.yml` authenticates by GitHub OIDC WIF (`permissions: id-token: write`, `google-github-actions/auth` pinned by SHA) with the `MEETINGS_EVAL_*` vars of § G-7, keeping the skip-on-schedule / fail-on-dispatch behaviour. The `meetings-eval.yml` guard regex is updated — refs: AC-7.12, AC-9.7 — deps: T103
+  - touch: `.github/workflows/meetings-eval-live.yml`, `.github/workflows/meetings-eval.yml`
+  - done when: `actionlint` passes on both files; the PR job is green on the branch; a dispatched run without the vars fails naming them
+- [ ] T105: [OPS] env-doctor. `meetings-api` required keys and `SECRET_VARS` per § G-7; the seven removed names flagged as retired; the production template updated — refs: AC-4.9 — deps: T95
+  - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/meetings-api.env`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/retiredToken.test.ts`
+  - done when: `mise run env:doctor` passes on the production templates. The env-doctor tests pass with new cases: missing `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` reported; `AZURE_SPEECH_KEY` present → retired; the key's value never printed
+- [ ] T106: [OPS] `infra/meetings-gcs-transient-policy.sh` (apply/check the N2 rules on a GCS bucket via `gcloud storage`) and the infra README meetings section. The README covers:
+  - the Google project and APIs;
+  - Claude enablement in Model Garden;
+  - `cacheConfig` disable;
+  - the bucket;
+  - the runtime and eval service accounts with custom roles and Speech-agent bucket bindings;
+  - key creation, rotation and expiry;
+  - the organization policies (§ G-5);
+  - the **H1–H6 sign-off checklist** with owner and date fields;
+  - the removal of every Azure/Bedrock step.
+
+  refs: AC-4.4, AC-4.9 — deps: T96
+  - touch: `infra/meetings-gcs-transient-policy.sh`, `infra/README.md`
+  - done when: `bash -n infra/meetings-gcs-transient-policy.sh` passes; `--check` exits non-zero on a stubbed `gcloud` returning soft delete 7 d (a test harness with a fake `gcloud` on `PATH`); `git grep -i -E 'azure|bedrock' infra/README.md` is empty
+- [ ] T107: [QE] Google spike (release gate; replaces R2's Azure spike), in a sandbox project with synthetic it/en audio of 1 h and 3 h. It records the R2 measurements, sets `PIECE_MAX_MS` and word offsets in `googleSpeech.ts`/`split.ts`, and replaces the hand-built fixtures with scrubbed recorded ones. Outcome in a dated note under § G-3 of plan.md (via the orchestrator) — refs: AC-6.1, AC-6.2, AC-6.5 — deps: T97, T101, T106
+  - touch: `meetings-api/scripts/spike-google-speech.ts`, `meetings-api/test-fixtures/google-speech/*`, `meetings-api/src/ai/googleSpeech.ts`, `meetings-api/src/media/split.ts`
+  - done when: `bun test src/ai/googleSpeech.test.ts src/media/split.test.ts` passes on the recorded fixtures; the measured p95 latency and the chosen constants are recorded; a startup against the sandbox project passes N2–N4
+- [ ] T108: [FE] meetings-ui transcript parts. The info `Banner` and per-part dividers when `parts.length > 1`, en/it copy, types, and fakeApi fixtures with a three-part transcript — refs: AC-6.1, AC-6.2, AC-13.1 — deps: none (contract § G-11)
+  - touch: `meetings-ui/src/components/transcript/TranscriptView.tsx`, `meetings-ui/src/components/transcript/TranscriptView.test.tsx`, `meetings-ui/src/strings/transcript.ts`, `meetings-ui/src/lib/types.ts`, `meetings-ui/src/test-support/fakeApi.ts`
+  - done when: `cd meetings-ui && pnpm lint && pnpm build && pnpm test` passes. New component cases: one part → no banner, no divider; three parts → banner + two dividers with formatted times; `catalogGaps` parity holds
+- [ ] T109: [OPS] AGENTS.md: the meetings rows (structure, meetings-api bullet, data-residency section, `MEETINGS_AI_PROVIDER` note) name Google Cloud (Speech `eu`, Vertex `eu`, transient bucket); the 0061 line is marked superseded in part; 0069 and 0070 are added — refs: AC-4.9 — deps: none (after the ADRs exist)
+  - touch: `AGENTS.md`
+  - done when: `git grep -n -i -E 'bedrock|azure ai speech|westeurope' AGENTS.md` matches only the 0061 line's history note; `mise run env:doctor` still passes
+- [ ] T110: [OPS] Changesets for meetings-api and meetings-ui (the provider change and transcript parts) — refs: AC-10.5 — deps: T95–T108
+  - touch: `.changeset/*.md`
+  - done when: `mise run changeset:check` passes
+
+**Overlaps** (all ordered by deps):
+
+| Shared file | Order |
+|---|---|
+| `meetings-api/package.json` + `bun.lock` | T96 → T100 → T101 |
+| `src/lib/startupChecks.ts` | T96 → T101 |
+| `src/ai/googleSpeech.ts`, `src/media/split.ts`, `test-fixtures/google-speech/*` | T97 → T107 |
+
+`src/ai/transcriber.ts` and `src/ai/fakeTranscriber.ts` (T97), `transcribe.ts` (T99), `runner.ts`
+(T98), `meetings-api/README.md` (T103), `infra/README.md` (T106), env-doctor (T105) and
+`AGENTS.md` (T109) each have one owner.
+
+**Coverage additions:**
+- AC-4.9 → T95, T96, T101, T105, T106;
+- AC-4.5/4.6 → T96, T102;
+- AC-6.1/6.2 → T97, T99, T108;
+- AC-6.5 → T97;
+- AC-6.7/6.9 → T97, T99;
+- AC-13.2 → T97;
+- AC-7.9/7.10/9.6 → T100;
+- AC-7.12/9.7 → T103, T104;
+- AC-4.10 → T97, T100.
+
+Sources (read 2026-11-05):
+- [G1] https://cloud.google.com/speech-to-text/v2/docs/chirp_3-model (regions `eu`/`us` GA; diarization languages incl. it-IT, en-US; BatchRecognize "1 minute to 1 hour … up to 20 minutes with word-level timestamp"; utterance timestamps streaming-only; updated 2026-10-26)
+- [G2] https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/data-residency (Claude EU multi-region / europe-west1 table; `eu` excludes UK and CH; global gives no residency; updated 2026-11-04)
+- [G3] https://cloud.google.com/speech-to-text/v2/docs/reference/rest/v2/projects.locations.recognizers/batchRecognize, …/v2/docs/batch-recognize, …/v2/docs/quotas (GCS-URI-only audio source; inline vs GCS output; 8 h per file; quotas)
+- [G4] https://cloud.google.com/speech-to-text/docs/data-usage-faq and …/docs/v1/data-logging, …/enable-data-logging (sync/stream in memory; async transcript ~5 days; data logging opt-in, console toggle; v2 `Config` exposes only `kmsKeyName`)
+- [G5] https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/abuse-monitoring and …/resources/zero-data-retention (abuse-monitoring scope and CMA exemption; Advanced AI = Claude Mythos, Fable; Anthropic terms; cacheConfig GET/disable; request-response logging)
+- [G6] https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/request-response-logging (`fetchPublisherModelConfig`; 404 = default disabled)
+- [G7] https://cloud.google.com/storage/docs/regional-endpoints (data at rest and in transit stay in location; EU multi-region supported)
+- [G8] https://cloud.google.com/storage/docs/soft-delete (on by default, 7 days; 0 disables)
+- [G9] https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/use-partner-models (EU multi-region endpoint `aiplatform.eu.rep.googleapis.com`; Claude ≥ 4.7; EU quotas; prompts and responses not shared with third parties)
+- `@anthropic-ai/vertex-sdk` 1.1.2 `client.js` (region `eu` → `aiplatform.eu.rep.googleapis.com`; reads `ANTHROPIC_VERTEX_BASE_URL`/`CLOUD_ML_REGION` by default; `maxRetries` default 2)
