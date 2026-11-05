@@ -498,6 +498,15 @@ describe('a recording on another tab or device', () => {
   })
 })
 
+describe('a recording this tab does not hold (AC-2.11)', () => {
+  it('shows the elsewhere notice to anyone the page mounts the panel for (can.edit without can.capture)', () => {
+    setup()
+    renderPanel(draft({ status: 'recording', can: { ...meeting().can, capture: false, edit: true } }))
+    expect(screen.getByText(t.elsewhere.body)).not.toBeNull()
+    expect(screen.queryByRole('button', { name: t.start })).toBeNull()
+  })
+})
+
 describe('accessibility (AC-13.3)', () => {
   const AXE = { rules: { 'color-contrast': { enabled: false } } }
   const violations = async (root: Element) =>

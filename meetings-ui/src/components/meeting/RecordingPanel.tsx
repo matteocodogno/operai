@@ -161,7 +161,7 @@ export default function RecordingPanel({ meeting, onChanged }: RecordingPanelPro
       if (phase === 'failed' && snapshot.started) return <FailedCard failure={snapshot.failure} onRefresh={refresh} />
     }
     // Recorded by another tab or device: this one only watches (S3a).
-    if (meeting.status === 'recording' && meeting.role === 'creator') {
+    if (meeting.status === 'recording') {
       return (
         <Banner
           tone="info"
