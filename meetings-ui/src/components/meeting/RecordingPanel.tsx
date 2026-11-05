@@ -17,7 +17,7 @@ import * as shellSession from 'shell/session'
 import { captureOptions, detectCapabilities, readEnvironment } from '../../capture/capabilities'
 import type { CaptureSource } from '../../capture/capabilities'
 import { beginRecording, getRecordingSession } from '../../capture/session'
-import type { RecordingSession, SessionFailure, SessionSnapshot } from '../../capture/session'
+import type { RecordingSession, SessionAnnouncement, SessionFailure, SessionSnapshot } from '../../capture/session'
 import { errorMessage, statusOf } from '../../lib/errors'
 import { getMeeting, updateMeeting } from '../../lib/meetingsApi'
 import type { Meeting, MeetingSource } from '../../lib/types'
@@ -55,26 +55,27 @@ function registerBlocker(shouldBlock: () => boolean, message: string): () => voi
   }
 }
 
-/** What the live region says about the step from `previous` to `next`, or null (design.md § Accessibility › Recording). */
-function announce(previous: SessionSnapshot | null, next: SessionSnapshot | null): string | null {
-  if (!previous || !next) return null
-  if (next.phase === 'done' && previous.phase !== 'done' && !next.empty) return t.announcements.saved
-  if (next.reconnects > previous.reconnects) return t.restored
-  if (previous.phase === 'requesting' && next.phase === 'recording') return t.announcements.started
-  if (previous.phase === 'recording' && next.phase === 'paused') return t.announcements.paused
-  if (previous.phase === 'paused' && next.phase === 'recording') return t.announcements.resumed
-  if (next.phase === 'saving' && previous.phase !== 'saving') {
-    return next.autoStopped ? t.autoStopped : t.announcements.stopped
+/** The words for an announcement the session decided on. */
+function announcementText(announcement: SessionAnnouncement | null): string {
+  if (!announcement) return ''
+  switch (announcement.kind) {
+    case 'saved':
+      return t.announcements.saved
+    case 'restored':
+      return t.restored
+    case 'started':
+      return t.announcements.started
+    case 'paused':
+      return t.announcements.paused
+    case 'resumed':
+      return t.announcements.resumed
+    case 'stopped':
+      return t.announcements.stopped
+    case 'autoStopped':
+      return t.autoStopped
+    case 'progress':
+      return t.save.progress(formatNumber(announcement.saved), formatNumber(announcement.total))
   }
-  if (next.phase === 'saving' && next.producedChunks > 0) {
-    // "Saving audio: 3 of 5" at each 25 percent, not at every chunk.
-    const quarter = (snapshot: SessionSnapshot) =>
-      Math.floor((snapshot.savedChunks / Math.max(1, snapshot.producedChunks)) * 4)
-    if (quarter(next) > quarter(previous) && next.savedChunks < next.producedChunks) {
-      return t.save.progress(formatNumber(next.savedChunks), formatNumber(next.producedChunks))
-    }
-  }
-  return null
 }
 
 export default function RecordingPanel({ meeting, onChanged }: RecordingPanelProps) {
@@ -92,14 +93,8 @@ export default function RecordingPanel({ meeting, onChanged }: RecordingPanelPro
     onChangedRef.current = onChanged
   })
 
-  // What the live region says: derived while rendering from the step between two snapshots.
-  const [announcement, setAnnouncement] = useState('')
-  const [previous, setPrevious] = useState(snapshot)
-  if (snapshot !== previous) {
-    setPrevious(snapshot)
-    const message = announce(previous, snapshot)
-    if (message) setAnnouncement(message)
-  }
+  // What the live region says: the session's latest announcement (decided per step, see SessionAnnouncement).
+  const announcement = announcementText(snapshot?.announcement ?? null)
 
   // A panel that goes away while recording (a confirmed leave) stops and saves; a re-mount in the same tick keeps going.
   useEffect(() => {

@@ -102,9 +102,17 @@ export default function StatusPanels({ meeting, onChanged, onRefresh }: StatusPa
 
   // While THIS tab captures or is still saving the meeting, the recording panel stays up whatever the
   // server derives: after a long offline spell it says `interrupted`, and swapping the panel out would
-  // unmount it and cut a recording that is still running.
+  // unmount it and cut a recording that is still running. The panel sits in the SAME place of the tree
+  // as in the `draft` branch below (a fragment, second child), so the moment Start registers the session
+  // React keeps the mounted panel instead of replacing it: a remount empties its live region and drops
+  // the announcement of the very change that caused it (AC-13.3).
   if (hasActiveRecordingSession(meeting.id)) {
-    return <RecordingPanel meeting={meeting} onChanged={onChanged} />
+    return (
+      <>
+        {null}
+        <RecordingPanel meeting={meeting} onChanged={onChanged} />
+      </>
+    )
   }
 
   switch (meeting.status) {

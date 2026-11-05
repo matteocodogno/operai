@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
 import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,6 +28,7 @@ import type { FakeHandler } from '../../test-support/fakeApi'
 import { installFakeBrowserCapture } from '../../test-support/fakeCapture'
 import type { FakeBrowser } from '../../test-support/fakeCapture'
 import RecordingPanel from './RecordingPanel'
+import StatusPanels from './StatusPanels'
 
 const t = en.capture
 const CONSENT: Meeting['consent'] = { by: ADA, at: '2026-11-03T09:29:00.000Z', noticeVersion: '2026-11-01' }
@@ -285,6 +287,62 @@ describe('recording by keyboard (AC-2.2, AC-2.6, AC-2.7, AC-13.3)', () => {
     bucket.mockResolvedValue(new Response(null, { status: 204 }))
     window.dispatchEvent(new Event('online'))
     await settle(10_000)
+  })
+})
+
+describe('every state change is announced, however the page re-renders (AC-13.3)', () => {
+  const region = () => screen.getByTestId('meetings-recording-announcements')
+
+  it('announces each transition of a longer sequence, one after the other', async () => {
+    setup()
+    renderPanel()
+    await startRecording()
+    const session = getRecordingSession('m1')!
+    expect(region().textContent).toBe(t.announcements.started)
+    for (let round = 0; round < 3; round += 1) {
+      await act(async () => session.pause())
+      expect(region().textContent).toBe(t.announcements.paused)
+      await act(async () => {
+        await session.resume()
+      })
+      expect(region().textContent).toBe(t.announcements.resumed)
+    }
+  })
+
+  it('announces the LAST transition when several land before React renders (pause then resume in one tick)', async () => {
+    setup()
+    renderPanel()
+    await startRecording()
+    const session = getRecordingSession('m1')!
+    expect(region().textContent).toBe(t.announcements.started)
+    await act(async () => {
+      session.pause()
+      await session.resume()
+    })
+    // The snapshot went recording -> paused -> recording: a before/after comparison of what React
+    // rendered sees no change and leaves the stale "started" in the region.
+    expect(region().textContent).toBe(t.announcements.resumed)
+  })
+
+  it("keeps the announcement when the page swaps the meeting for the server's fresh copy right after Start", async () => {
+    setup()
+    // The page: the status panels fed by a meeting that Start's refetch replaces (draft -> recording).
+    function Page() {
+      const [current, setCurrent] = useState<Meeting>(draft())
+      return <StatusPanels meeting={current} onChanged={setCurrent} onRefresh={() => undefined} />
+    }
+    render(<Page />)
+    const before = region()
+    await startRecording()
+    // The refetch ran (`GET /meetings/m1`), so the page re-rendered the panels with status `recording`.
+    expect(requests).toContain('GET /meetings/m1')
+    expect(region().textContent).toBe(t.announcements.started)
+    // And it is the same live region that was there before Start (a remounted region is inserted
+    // already filled, which a screen reader does not read).
+    expect(region()).toBe(before)
+    await act(async () => getRecordingSession('m1')!.pause())
+    expect(region()).toBe(before)
+    expect(region().textContent).toBe(t.announcements.paused)
   })
 })
 

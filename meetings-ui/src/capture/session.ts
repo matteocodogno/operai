@@ -125,6 +125,41 @@ export type SessionFailure = {
   error?: unknown
 }
 
+/** What the live region says about a step of the session (design.md § Accessibility › Recording). */
+export type AnnouncementKind =
+  | 'started'
+  | 'paused'
+  | 'resumed'
+  | 'stopped'
+  | 'autoStopped'
+  | 'saved'
+  | 'restored'
+  | 'progress'
+
+/**
+ * The latest announcement-worthy step. It is decided HERE, at each `patch`, not by comparing two
+ * snapshots a component happened to render: React may render only the last of several steps (pause then
+ * resume in one tick) and a remounted panel starts with no memory. `id` changes with every announcement.
+ */
+export type SessionAnnouncement = { id: number; kind: AnnouncementKind; saved: number; total: number }
+
+/** The step from `previous` to `next` as an announcement kind, or null when it is not one. */
+export function announcementKind(previous: SessionSnapshot, next: SessionSnapshot): AnnouncementKind | null {
+  if (next.phase === 'done' && previous.phase !== 'done' && !next.empty) return 'saved'
+  if (next.reconnects > previous.reconnects) return 'restored'
+  if (previous.phase === 'requesting' && next.phase === 'recording') return 'started'
+  if (previous.phase === 'recording' && next.phase === 'paused') return 'paused'
+  if (previous.phase === 'paused' && next.phase === 'recording') return 'resumed'
+  if (next.phase === 'saving' && previous.phase !== 'saving') return next.autoStopped ? 'autoStopped' : 'stopped'
+  if (next.phase === 'saving' && next.producedChunks > 0) {
+    // "Saving audio: 3 of 5" at each 25 percent, not at every chunk.
+    const quarter = (snapshot: SessionSnapshot) =>
+      Math.floor((snapshot.savedChunks / Math.max(1, snapshot.producedChunks)) * 4)
+    if (quarter(next) > quarter(previous) && next.savedChunks < next.producedChunks) return 'progress'
+  }
+  return null
+}
+
 export type SessionSnapshot = {
   phase: SessionPhase
   failure: SessionFailure | null
@@ -153,6 +188,8 @@ export type SessionSnapshot = {
   empty: boolean
   /** The meeting as the server answered Stop (`processing`), or Discard when `empty`. */
   result: Meeting | null
+  /** The latest step worth announcing, or null before the first. */
+  announcement: SessionAnnouncement | null
 }
 
 const INITIAL: SessionSnapshot = {
@@ -173,6 +210,7 @@ const INITIAL: SessionSnapshot = {
   stalled: false,
   empty: false,
   result: null,
+  announcement: null,
 }
 
 export type RecordingSession = {
@@ -239,7 +277,13 @@ export function createRecordingSession(
   const listeners = new Set<() => void>()
 
   const patch = (change: Partial<SessionSnapshot>) => {
+    const previous = snap
     snap = { ...snap, ...change }
+    const kind = announcementKind(previous, snap)
+    if (kind) {
+      const id = (previous.announcement?.id ?? 0) + 1
+      snap = { ...snap, announcement: { id, kind, saved: snap.savedChunks, total: snap.producedChunks } }
+    }
     for (const listener of [...listeners]) listener()
   }
 
