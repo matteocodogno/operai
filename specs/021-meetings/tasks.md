@@ -695,7 +695,7 @@ database after `bun run db:deploy`.
 - [x] T109: [OPS] AGENTS.md: the meetings rows (structure, meetings-api bullet, data-residency section, `MEETINGS_AI_PROVIDER` note) name Google Cloud (Speech `eu`, Vertex `eu`, transient bucket); the 0061 line is marked superseded in part; 0069 and 0070 are added — refs: AC-4.9 — deps: none (after the ADRs exist)
   - touch: `AGENTS.md`
   - done when: `git grep -n -i -E 'bedrock|azure ai speech|westeurope' AGENTS.md` matches only the 0061 line's history note; `mise run env:doctor` still passes
-- [ ] T110: [OPS] Changesets for meetings-api and meetings-ui (the provider change and transcript parts) — refs: AC-10.5 — deps: T95–T108, T111, T112
+- [x] T110: [OPS] Changesets for meetings-api and meetings-ui (the provider change and transcript parts) — refs: AC-10.5 — deps: T95–T108, T111, T112
   - touch: `.changeset/*.md`
   - done when: `mise run changeset:check` passes
 - [x] T111: [BE] meetings-api consent notice version bump for the A6 disclosure: `CONSENT_NOTICE_VERSION` → `2026-11-05`; attestations already recorded keep their version (no re-consent) — refs: AC-4.1 — deps: none
