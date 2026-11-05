@@ -96,6 +96,7 @@ No capture control, no `getUserMedia`, no file picker is rendered until `consent
 Consent card collapses to a one-line fact ("Confirmed by <name> on <date>, notice <version>") and the capture card
 appears. `409 notice_outdated` → `Banner tone="warning"` "The consent notice has changed. Reload the page to read it
 again." + Reload. `text` meetings never show this card (AC-3.4).
+The notice lists **six statements** in this order (AC-4.1; notice version `2026-11-05`, the same string in en and it): (1) everyone present has been told and agreed; (2) AI transcription and summary, processed in the EU or Switzerland; (3) who can read the result; (4) audio kept 30 days, transcript and summaries stay until the meeting is deleted; (5) the transcription provider may keep the written transcription for about 5 days after processing, in the EU or Switzerland, never for training, and deleting the meeting does not remove that copy (A6, AC-4.1, AC-4.12); (6) a Zoom, Teams or Meet recording banner does not cover this tool. Statements render as a list, not prose. Any change to a statement or to the announcement bumps the version, so an attestation given on the previous notice is answered `409 notice_outdated`.
 
 ### F4. Record in the browser (US-2, AC-2.2 to AC-2.11, AC-13.3)
 1. Capture card (after F3): for `online` meetings a "What to record" radio group built from `capabilities.ts`
@@ -145,6 +146,8 @@ than 500 MiB", "The recording is longer than 3 hours", "The file has no audio tr
 (primary) → `ProgressBar` with percentage text and **Cancel upload** (ghost) → `upload/confirm` → `processing`.
 Failure part-way (XHR error) → `Banner tone="danger"` "The upload failed. Nothing was processed." + **Try again**; the
 meeting stays `draft` (AC-3.3). `422 upload_rejected {reason}` → the reason names itself on the field and the file is cleared.
+**Cancel upload** → `Banner tone="info"` "cancelled" + **Try again**.
+**Upload refused after the file was decoded (AC-3.2, A5/A6 era):** the server can refuse a file only once it has decoded it (today `too_long`, a duration over 3 hours the browser could not read). The meeting stays `draft` with `failure.code` set and the Upload card opens with a `Banner tone="warning"` titled "The last file you uploaded was removed" and a body naming the reason ("It was longer than 3 hours. Choose a shorter recording to try again."); an unknown code reads "It could not be accepted. Choose another file to try again.". There is **no Retry action**: the same file would be refused again, so the next step is simply to choose another file in the picker below. The banner disappears as soon as a new upload is minted (the page's copy of the meeting is only refreshed at confirm, so the card drops it locally), and it is not shown to anyone without `can.capture` or before consent.
 A page reload loses the selected `File` (browsers cannot keep it); the card is simply empty again.
 
 ### F7. Paste text (US-3, AC-3.4)
@@ -252,8 +255,8 @@ AC-5.3; nothing hints at which).
 - `Pagination` (25 per page, offset with total; status line "Page 2 of 5 — showing 26-50 of 112" is the polite live region).
 - States: **L** `Loading` ("Loading meetings…"). **F** warning `Banner` + Retry. **503** n/a for the list (self-scoped reads
   survive an auth outage); host-label failure degrades silently to "CRM · deal". **E-none**: `StatePanel` "No meetings yet" /
-  "Meetings you create or take part in appear here." (the header already carries New meeting; no duplicate action). **E-filtered**:
-  `StatePanel` "No meetings match" + body naming the filters + **Clear filters** action. **403** n/a. **404** n/a.
+  "Meetings you create or take part in appear here." (the header already carries New meeting; no duplicate action). **E-filtered** (any of search, Role, Status, Host app set and the result empty):
+  `StatePanel` "No meetings match" / "No meeting matches the filters you set. Change or clear them to see more." + **Clear filters** (secondary `Button`) in its action slot. **Clear filters** resets every filter and the search text, returns to page 1 and moves focus to the search field (the first filter, always present), never to `<body>` (the button that held focus is unmounted). The same action is also the ghost button in the filters card. **403** n/a. **404** n/a.
 
 ### S2. New meeting (`/meetings/new`) — AC-1.1, 1.2, 1.3, 1.5, 1.6, 11.6
 - `PageHeader` "New meeting", back link "Back to meetings". One `Card` "Details" with `Field`s: Title (required, max 200),
@@ -323,6 +326,7 @@ cost is that citations cross tabs, which is solved by the focus/return pattern i
   **Download text** (secondary `sm`, `copy`/`download` icons) → `[hh:mm:ss] Name: text` lines (AC-6.6).
 - Audio control (only `audio.state = 'kept'`): native `<audio controls>` with an `aria-label`, URL minted on first use and
   re-minted on a media `error`; a line "Audio kept until <date>". Absent once deleted (AC-6.5).
+- **Multi-part transcript (AC-6.2, A5; plan G-3):** when `transcript.parts.length > 1` (a long recording transcribed in parts; `parts` absent or one entry reads as a single part and shows neither of the following): an info `Banner` above the list "This recording was transcribed in {n} parts. Speakers are numbered separately in each part, so one person can appear under two labels. Rename a label to merge them." (not dismissible, not blocking); and a divider "Part {n} · hh:mm:ss" before the first segment of every part after the first (no divider before part 1). The segments are rendered as **one `<ol>` per part** with the divider between the lists, not inside one: a divider is not a list item (WCAG 1.3.1). The divider is `role="separator"` with the same text as its `aria-label`, in `font-mono text-xs text-soft` over a `border-rule` top border; each later part's `<ol>` takes that text as its `aria-label` (the first list keeps "Transcript", or "Passages" for text meetings). Merging labels is the existing Rename (no new control).
 - Speakers strip (creator): each distinct label with **Rename** → `FormDialog` (choose a participant or enter free text; "Back to
   Speaker n" option) applied to all segments (AC-6.2).
 - Segment list `<ol>`: per row a time `Button` (ghost `sm`, `font-mono`, `aria-label` "Play from {spoken duration}"; text meeting: no
@@ -539,6 +543,10 @@ library's. Dialogs use the library's focus trap and return focus to the opener; 
   the source button that was activated.
 - Processing and generation: polite live region on state change ("Transcript ready", "Summary ready", "Summary failed"); never a focus steal.
 - `aria-disabled` (not `disabled`) for Generate/Ask when no speech or at the limit, with the reason in `aria-describedby`; hidden entirely for controls the caller may never use.
+- Transcript parts: the info banner is plain text inside the tab (no live region, it is static content); the part divider is `role="separator"` with an accessible name, and each part's list carries the same name, so a screen-reader user can jump list by list. Colour is not the only cue (text "Part 2 · 01:00:12").
+- Consent: the six statements are a list; the tick box keeps its visible label; the saving state and copy confirmation are polite `role="status"`; a failed save is `role="alert"`.
+- Refused upload banner: `Banner tone="warning"` (not an alert, nothing is lost by reading it late); it sits above the file picker so keyboard order is notice → picker → Upload.
+- Filtered-empty list: **Clear filters** moves focus to the search field (see S1).
 - Search: label "Search the transcript"; the match count is a polite live region; highlights are `<mark>` with a token tint plus the count (not colour alone).
 - Segment time buttons: `aria-label` "Play from 12 minutes 34 seconds" (spoken duration), visible text `00:12:34` in mono; the audio element has an `aria-label`.
 - Edit inline: focus to the textarea on open; on Save, to the row's edit button; on Cancel, to the same; a stale-write banner takes focus.
@@ -581,12 +589,12 @@ no-hard-coded-copy scan over every `.tsx`. Sentence case. Sentences with values 
 | `status` | meeting {draft, recording, interrupted, processing, ready, failed}, summary {generating, ready, failed}, roles {creator, participant, hostReader} |
 | `form` | heading, fields {title, format, startsAt, language, source}, format {in_person, online}, language {en, it}, source {recorded, uploaded, text} + hints, submit, hostLine(label), hostNotFound {title, body, standalone}, hostUnavailable {…}, errors |
 | `detail` | facts {date, format, language, source, creator, host, duration, audio, consent, access}, audio {keptUntil(date), deleted}, consentLine(name,date,version), access {creator, participant, viaHost(label)}, frozen, creatorUnknown, notFound {title, body}, recordingElsewhere, recordingInProgress |
-| `consent` | version (constant, bumped on any text change), title, intro, statements[5] (told and agreed; AI transcription and summary in the EU or Switzerland; who can read; audio kept 30 days; platform banner does not cover this tool), announcementTitle, announcementText, copyAnnouncement, confirmLabel, continue, outdated |
+| `consent` | version (constant `2026-11-05`, bumped on any text change), title, intro, statements[6] (told and agreed; AI transcription and summary in the EU or Switzerland; who can read; audio kept 30 days; the provider's bounded copy of the transcription, about 5 days; platform banner does not cover this tool), announcementTitle, announcementHint, announcementText, copyAnnouncement, copied, copyFailed, confirmLabel, continue, busy, outdated {message, reload} |
 | `capture` | options {title, micOnly, micAndTab, tabHint, unsupportedTab, micOnlyWarning, uploadRecommended}, start, pause, resume, stop, indicator {recording, paused}, elapsed, save {allSaved, saving, notSaved(seconds), progress(n,m)}, denied {title, body}, noDevice, tabEnded, offline, restored, limitWarning, autoStopped, elsewhere, micLost, unsupportedBrowser, leaveMessage, announcements {started, paused, resumed, stopped, saved} |
-| `upload` | title, hint(limits), choose, problems {unsupported_type, too_large, too_long, no_audio}, submit, cancel, failed, rejected(reason) |
+| `upload` | title, hint(limits), choose, problems {unsupported_type, too_large, too_long, no_audio, empty}, rejectedUnknown, refused {title, reasons {too_long}, unknownReason}, submit, cancel, cancelled, failed, retry, finishing, size, announcements |
 | `text` | title, label, count(n,max), errors {empty, tooLong}, save |
 | `processing` | stages {uploading, saving, preparing, transcribing}, leaveNote, failure {audio_unreadable, provider_unavailable, provider_rejected, too_long, audioDeleted}, retry, interrupted {title, body(duration), lostOffline(duration), lostOfflineUnknown, process, discard, discardConfirm, expired, observer} |
-| `transcript` | tab, passages, search, matches(n), copy, download, noSpeech, speaker(n), rename, renameForm, playFrom(spoken), edit, editedBadge, editHint, citedPassage, filename |
+| `transcript` | tab, parts {banner(n), divider(n, start)}, passages, search, matches(n), copy, download, noSpeech, speaker(n), rename, renameForm, playFrom(spoken), edit, editedBadge, editHint, citedPassage, filename |
 | `summaries` | tab, count(n,max), generate, empty, limit, generating, failedRetry, staleBadge, editedBadge, byline(author,when), notDiscussedFallback, regenerate, more, editAction, deleteAction, deleteConfirm, dialog {title, template, language, groups {recommended(entity), personal, shared, builtin}, preview, submit}, copySummary |
 | `ask` | tab, privacy, empty, composer {label, hint, send, count}, thinking, answerLabel, sources, passage(n), notInMeeting, failed, clear, clearConfirm, rateLimited(retryAt) |
 | `people` | title, edit, dialog {title, description, addOperai, addExternal, name, organisation, add, remove(name), count(n,max), limit, errors}, external, creatorBadge, visibility {label(hostLabel), hint, confirmTitle, confirmBody, ended} |
@@ -623,7 +631,10 @@ Consent notice and announcement drafts (legal wording belongs to the data-protec
   If anyone objects, please say so now and I will stop the recording."
 - it announcement: "Questa riunione viene registrata. L'audio sarà trascritto e riassunto da un'IA, elaborata nell'UE o in Svizzera, e il risultato sarà disponibile a me e ai partecipanti.
   Se qualcuno non è d'accordo, lo dica ora e interromperò la registrazione."
-- Statement 5 (platform banner): "A recording banner shown by Zoom, Teams or Meet does not cover recording made with this tool."
+- Statement 5 (provider copy, A6): "The transcription provider may keep the written transcription for about 5 days after processing, in the EU or Switzerland and never for training. Deleting the meeting does not remove that copy: it expires on its own."
+- Statement 6 (platform banner): "A recording banner shown by Zoom, Teams or Meet does not cover recording made with this tool."
+- Parts copy (en / it): "Part {n} · {start}" / "Parte {n} · {start}"; the banner text is quoted in S3b.
+- Refused upload (en / it): title "The last file you uploaded was removed" / "L'ultimo file caricato è stato rimosso"; reason `too_long` "It was longer than 3 hours. Choose a shorter recording to try again." / "Durava più di 3 ore. Scegli una registrazione più breve per riprovare."
 Notification texts (AC-12.5) are owned by meetings-api's catalog (en + it with the notify `it` variant), not by meetings-ui.
 
 ---
@@ -641,6 +652,11 @@ decisions); (2) the "Your access" fact (explains why a host reader can see the m
 upload, an unsaved-changes guard on the template editor, extra disclaimer lines beside "AI-generated".
 
 ---
+
+## Sync 2026-11-05 (eval round 3)
+
+design.md was brought in line with spec amendments A5/A6, plan § Amendment 2026-11-05 (G-3, G-11) and the built meetings-ui. Changed: F3 and the `consent` copy keys (six statements, notice `2026-11-05`), F6 (refused-upload warning, cancel), F8/S3b (multi-part transcript), S1 (filtered-empty focus), a11y notes, copy plan. No new NEW component: the banner, divider and refused notice are `Banner`, a `role="separator"` element and `StatePanel`/`Button` from the library and existing meetings-ui files (`ConsentCard`, `TranscriptView`, `UploadCard`).
+Divergences found, reported rather than designed around: (a) plan G-11 specifies the `parts` contract but no field carrying a refused upload on a draft meeting; the code reads `meeting.failure.code` on a `draft` for it (`too_long` only), which the spec's AC-3.2 allows but no plan section states; (b) the Upload card's client problem `empty` ("The file is empty") has no AC; (c) plan G-3 asks for a divider only; the code also names each later part's `<ol>` and exposes the divider as `role="separator"` (an accessibility addition, consistent with AC-13.1).
 
 ## Gaps found in the spec or plan — resolved
 
