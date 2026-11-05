@@ -20,6 +20,7 @@ import {
   openMyMeetingsFromMenu,
   seedPerson,
   seedReadyMeeting,
+  sharedSeedUserRoles,
   signInContext,
   test,
   type Person,
@@ -30,9 +31,11 @@ const runId = newRunId()
 test.describe('specs/021 T86: meetings harness smoke', () => {
   let holder: Person
   let noGrant: Person
+  let sharedRolesBefore: string[] = []
   const meetingIds: string[] = []
 
   test.beforeAll(async () => {
+    sharedRolesBefore = await sharedSeedUserRoles()
     holder = await seedPerson('smoke-holder', 'holder', runId)
     noGrant = await seedPerson('smoke-nogrant', 'no-grant', runId)
   })
@@ -40,6 +43,8 @@ test.describe('specs/021 T86: meetings harness smoke', () => {
   test.afterAll(async () => {
     for (const id of meetingIds) await deleteMeetingQuietly(holder, id)
     await cleanupPeople(runId)
+    // Isolation: the suite's shared seed user is exactly as this spec found it.
+    expect(await sharedSeedUserRoles()).toEqual(sharedRolesBefore)
   })
 
   test('a seeded meeting is found in My meetings and opens', async ({ context, page }) => {

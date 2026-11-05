@@ -91,8 +91,29 @@ async function authAdminCall<T = Json>(
   return (text ? JSON.parse(text) : {}) as T
 }
 
-/** Replaces a user's direct roles by role NAME, through the real admin API. */
-export async function setRoles(userId: string, roleNames: string[]): Promise<void> {
+/** The suite's shared seed user (helpers/seedSession.ts): other specs depend on its grants, so it is never touched here. */
+export const SHARED_SEED_EMAIL = 'e2e@operai.test'
+
+/** The shared seed user's role names, read through the admin API (for the isolation check). */
+export async function sharedSeedUserRoles(): Promise<string[]> {
+  const admin = await meetingsAdmin()
+  const page = await authAdminCall<{ items: { email: string; roles: string[] }[] }>(
+    admin,
+    'GET',
+    `/admin/users?q=${encodeURIComponent(SHARED_SEED_EMAIL)}`,
+  )
+  return (page.items.find((u) => u.email === SHARED_SEED_EMAIL)?.roles ?? []).slice().sort()
+}
+
+/**
+ * Replaces a user's direct roles by role NAME, through the real admin API. Only ever called for the
+ * dedicated `mtg-*` personas this harness creates itself: anything else is refused, so a mistake can
+ * never rewrite the shared seed user's (or any real person's) grants.
+ */
+export async function setRoles(userId: string, roleNames: string[], email: string): Promise<void> {
+  if (!/^mtg-[a-z-]+-[0-9-]+@operai\.test$/.test(email) || email === SHARED_SEED_EMAIL) {
+    throw new Error(`[meetingsFixtures] refusing to change roles of ${email}: not a dedicated meetings persona`)
+  }
   const admin = await meetingsAdmin()
   const roles = await authAdminCall<{ items?: { id: string; name: string }[] } | { id: string; name: string }[]>(
     admin,
@@ -126,7 +147,7 @@ export async function seedPerson(label: string, persona: MeetingsPersona, runId:
     return { ...admin, name, persona }
   }
   const first = await seedUserSession(email, name)
-  await setRoles(first.userId, PERSONA_ROLES[persona])
+  await setRoles(first.userId, PERSONA_ROLES[persona], email)
   const session = await seedUserSession(email, name)
   return { ...session, name, persona }
 }
@@ -372,9 +393,10 @@ async function prepareContext(context: BrowserContext): Promise<void> {
 
 /** `test` whose default context has a working microphone. */
 export const test = base.extend({
-  context: async ({ context }, use) => {
+  // `provide`, not Playwright's usual `use`: react-hooks/rules-of-hooks reads `use(...)` as React's hook.
+  context: async ({ context }, provide) => {
     await prepareContext(context)
-    await use(context)
+    await provide(context)
   },
 })
 

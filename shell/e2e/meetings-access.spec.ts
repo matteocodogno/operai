@@ -61,7 +61,7 @@ test.describe('specs/021 T87: access journeys', () => {
     const own = await seedReadyMeeting(reader, `Access own ${runId}`)
     ownByReader = { id: own.id, title: own.title }
     created.push({ owner: reader, id: own.id })
-    await setRoles(reader.userId, [])
+    await setRoles(reader.userId, [], reader.email)
 
     const a = await seedReadyMeeting(
       creator,
