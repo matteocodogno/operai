@@ -52,10 +52,13 @@ const serve = (routes: Parameters<typeof fakeApi>[0]) => {
   return api
 }
 
-const renderList = async (mine = false) => {
+const renderList = async (mine = false, state?: { meetingDeleted?: boolean }) => {
+  const base = mine ? '/my-meetings' : '/meetings'
+  const history = createMemoryHistory({ initialEntries: [base] })
+  if (state) history.replace(base, state)
   const router = mine
-    ? createMyMeetingsRouter('/my-meetings', undefined, createMemoryHistory({ initialEntries: ['/my-meetings'] }))
-    : createAppRouter('/meetings', undefined, createMemoryHistory({ initialEntries: ['/meetings'] }))
+    ? createMyMeetingsRouter(base, undefined, history)
+    : createAppRouter(base, undefined, history)
   render(<RouterProvider router={router} />)
   await screen.findByTestId('meetings-list-page')
 }
@@ -188,6 +191,27 @@ describe('the table (AC-10.2)', () => {
     const row = await screen.findByRole('row', { name: /Closed one/ })
     expect(within(row).getByText('crm · deal')).not.toBeNull()
     expect(screen.queryByTestId('meetings-load-error')).toBeNull()
+  })
+})
+
+describe('the confirmation after a meeting is deleted (design.md F14)', () => {
+  it.each([false, true])('shows "Meeting deleted" when the meeting page sent the person here (mine: %s)', async (mine) => {
+    serve({ 'GET /meetings': () => ({ status: 200, body: page([meetingRow()]) }) })
+    await renderList(mine, { meetingDeleted: true })
+    expect(await screen.findByText(en.list.deleted)).not.toBeNull()
+  })
+
+  it('shows nothing on an ordinary visit', async () => {
+    serve({ 'GET /meetings': () => ({ status: 200, body: page([meetingRow()]) }) })
+    await renderList()
+    expect(screen.queryByText(en.list.deleted)).toBeNull()
+  })
+
+  it('the confirmation can be dismissed', async () => {
+    serve({ 'GET /meetings': () => ({ status: 200, body: page([meetingRow()]) }) })
+    await renderList(false, { meetingDeleted: true })
+    await userEvent.click(await screen.findByRole('button', { name: en.common.dismiss }))
+    expect(screen.queryByText(en.list.deleted)).toBeNull()
   })
 })
 

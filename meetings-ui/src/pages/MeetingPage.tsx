@@ -355,7 +355,8 @@ function MeetingView({ meeting, replace, listPath, back, created }: MeetingViewP
         <DeleteMeetingDialog
           meeting={meeting}
           onClose={() => setDialog(null)}
-          onDeleted={() => void navigate({ to: '/' })}
+          // `meetingDeleted` lets the list confirm "Meeting deleted" where the person lands (design.md F14).
+          onDeleted={() => void navigate({ to: '/', state: { meetingDeleted: true } })}
         />
       )}
       {dialog === 'deleteRecording' && (

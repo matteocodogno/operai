@@ -739,6 +739,8 @@ describe('MeetingPage: dialogs and cards', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'stub-deleted' }))
     expect(await screen.findByTestId('meetings-list-page')).not.toBeNull()
+    // design.md F14: the list confirms the deletion.
+    expect(await screen.findByText(en.list.deleted)).not.toBeNull()
   })
 
   it('shows the participants card slot, and fetches the host registration only for a linked meeting', async () => {

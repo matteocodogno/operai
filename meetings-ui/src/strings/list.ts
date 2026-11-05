@@ -4,6 +4,8 @@ const en = {
   myHeading: 'My meetings',
   newMeeting: 'New meeting',
   loading: 'Loading meetings…',
+  /** The confirmation after the creator deletes a meeting (design.md F14). */
+  deleted: 'Meeting deleted',
   filters: {
     title: 'Filter meetings',
     search: 'Search by title',
@@ -59,6 +61,7 @@ const it: typeof en = {
   myHeading: 'Le mie riunioni',
   newMeeting: 'Nuova riunione',
   loading: 'Caricamento delle riunioni…',
+  deleted: 'Riunione eliminata',
   filters: {
     title: 'Filtra le riunioni',
     search: 'Cerca per titolo',

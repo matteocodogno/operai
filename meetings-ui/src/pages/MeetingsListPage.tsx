@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
 import {
   Badge,
   Button,
@@ -14,7 +14,7 @@ import {
   formatDateTime,
 } from '@operai/ui'
 import type { DataTableColumn } from '@operai/ui'
-import { LoadFailure, Loading } from '../components/LoadState'
+import { LoadFailure, Loading, Saved } from '../components/LoadState'
 import { useCapabilityHints } from '../hooks/useCapabilityHints'
 import { useResource } from '../hooks/useResource'
 import { describeHost, hostNames, suiteLinkProps, useHosts } from '../lib/hostLinks'
@@ -85,6 +85,11 @@ export default function MeetingsListPage({ mine }: MeetingsListPageProps) {
   const [filters, setFilters] = useState<Filters>(NO_FILTERS)
   const [searchText, setSearchText] = useState('')
   const [knownTotal, setKnownTotal] = useState(0)
+  // The meeting page navigates here with `meetingDeleted` in the history state after a delete.
+  const deleted = useRouterState({
+    select: (state) => (state.location.state as { meetingDeleted?: boolean } | undefined)?.meetingDeleted === true,
+  })
+  const [notice, setNotice] = useState<string | null>(deleted ? t.deleted : null)
 
   // Typing searches after a pause; the applied value is what the request carries.
   const typed = searchText.trim()
@@ -202,6 +207,7 @@ export default function MeetingsListPage({ mine }: MeetingsListPageProps) {
     <section aria-labelledby="meetings-list-page-heading" data-testid="meetings-list-page">
       <PageHeader title={mine ? t.myHeading : t.heading} titleId="meetings-list-page-heading" actions={actions} />
       <div className="flex flex-col gap-4">
+        {notice !== null && <Saved message={notice} onDismiss={() => setNotice(null)} />}
         <Card>
           <form role="search" aria-label={t.filters.title} onSubmit={search} className="flex flex-wrap items-end gap-3">
             <div className="flex min-w-48 flex-1 flex-col gap-1">

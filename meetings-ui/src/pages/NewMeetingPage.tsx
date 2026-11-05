@@ -33,6 +33,8 @@ const TITLE_MAX = 200
 declare module '@tanstack/react-router' {
   interface HistoryState {
     meetingCreated?: boolean
+    /** Set by the meeting page after its creator deletes the meeting: the list confirms it. */
+    meetingDeleted?: boolean
   }
 }
 
