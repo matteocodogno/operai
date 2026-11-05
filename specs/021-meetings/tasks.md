@@ -751,7 +751,7 @@ database after `bun run db:deploy`.
 - [ ] T125: [QE] O14 measurement on consented recordings (QH-1): false-gap, missed-gap and false-join rates; bounds confirmed or changed; outcome in a dated note under H-3 (via the orchestrator). **Go-live gate.** — refs: AC-6.11, AC-6.13, AC-6.14, O14 — deps: T124
   - touch: `meetings-api/scripts/measure-transcript-quality.ts`
   - done when: the note records the three rates on ≥ 8 h, and zero false joins (any false join found is filed as a defect and fixed before go-live); any changed bound is a code constant with its test updated
-- [ ] T126: [OPS] ADRs via adr-writer: amend 0067 and 0070, new 0071, follow-up notes on 0062/0064/0069; AGENTS.md ADR lines — refs: AC-6.14, AC-6.11, AC-7.9 — deps: none (after plan approval)
+- [x] T126: [OPS] ADRs via adr-writer: amend 0067 and 0070, new 0071, follow-up notes on 0062/0064/0069; AGENTS.md ADR lines — refs: AC-6.14, AC-6.11, AC-7.9 — deps: none (after plan approval)
   - touch: `docs/adr/0067-ai-output-structured-validated-plain-text.md`, `docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md`, `docs/adr/0071-meetings-transcript-completeness-detect-retry-mark.md`, `docs/adr/0062-durable-job-runner-work-queued-state-derived.md`, `docs/adr/0064-meetings-api-reads-audio-bytes-third-reader.md`, `docs/adr/0069-meetings-ai-providers-google-cloud-eu.md`, `AGENTS.md`
   - done when: each file carries its amendment or note with the rejected alternatives of H-12; `git grep -n "0071" AGENTS.md` matches the ADR list
 - [ ] T127: [OPS] Changesets for meetings-api and meetings-ui (A7, D4) — refs: AC-10.5 — deps: T113–T123
