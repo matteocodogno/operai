@@ -143,7 +143,7 @@ describe("DELETE /meetings/:id/audio", () => {
     transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
     transient.seed(`transcribe/${m.id}/1/out/1_transcript_ab.json`, "{}");
     transient.seed(`transcribe/${other.id}/1/in/1.ogg`, "audio");
-    let rowAtCall: { audioDeletedAt: Date | null } | null = null;
+    let rowAtCall = null as { audioDeletedAt: Date | null } | null;
     const original = transient.deletePrefix.bind(transient);
     transient.deletePrefix = async (prefix) => {
       rowAtCall = await db.meeting.findUniqueOrThrow({ where: { id: m.id }, select: { audioDeletedAt: true } });

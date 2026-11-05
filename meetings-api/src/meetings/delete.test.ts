@@ -107,7 +107,7 @@ describe("the creator deletes (AC-4.6)", () => {
     transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
     transient.seed(`transcribe/${m.id}/1/out/1_transcript_ab.json`, "{}");
     transient.seed(`transcribe/${other.id}/1/in/1.ogg`, "audio");
-    let rowsAtFirstCall: number | null = null;
+    let rowsAtFirstCall = null as number | null;
     const original = transient.deletePrefix.bind(transient);
     transient.deletePrefix = async (prefix) => {
       rowsAtFirstCall ??= (await rowsFor(m.id))["meeting"] ?? 0;
