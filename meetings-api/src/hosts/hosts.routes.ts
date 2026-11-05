@@ -17,7 +17,7 @@ import { MEETINGS_ACCESS, capability, selfScoped } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
-import { PAGE_SIZE, commonErrors, pageOf, pageQuery, skipTake } from "../lib/http";
+import { PAGE_SIZE, commonErrors, likeLiteral, pageOf, pageQuery, skipTake } from "../lib/http";
 import { validationHook } from "../lib/problem";
 import { callerOf } from "../meetings/caller";
 import { ROW_SELECT, buildMeetingRows, hostKey, type MeetingRow } from "../meetings/rows";
@@ -175,7 +175,7 @@ hostsRouter.openapi(linkable, async (c) => {
     creatorUserId: caller.userId,
     // NOT (on this entity), spelt out: a standalone meeting has NULL host columns and `NOT (NULL = …)` is NULL, not true.
     OR: [{ hostApp: null }, { hostApp: { not: app } }, { hostEntityType: { not: type } }, { hostEntityId: { not: id } }],
-    ...(q ? { title: { contains: q, mode: "insensitive" as const } } : {}),
+    ...(q ? { title: { contains: likeLiteral(q), mode: "insensitive" as const } } : {}),
   };
   const [total, found] = await Promise.all([
     db.meeting.count({ where }),

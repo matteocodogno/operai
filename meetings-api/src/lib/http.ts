@@ -75,6 +75,15 @@ export function assertVersion(current: number, expected: number): void {
 export const isRecordNotFound = (error: unknown): boolean =>
   typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2025";
 
+// ─── Search ──────────────────────────────────────────────────────────────────
+
+/**
+ * A user's search text as a LITERAL for Prisma's `contains`: Prisma hands `%` and `_` to
+ * `ILIKE` as wildcards, so "100%" would match everything and "_" every one-letter title.
+ * Escapes them (and the escape character) with Postgres's default backslash.
+ */
+export const likeLiteral = (text: string): string => text.replace(/[\\%_]/g, "\\$&");
+
 // ─── Shared shapes ───────────────────────────────────────────────────────────
 
 /** `{ id, name, status }`; `name` is null unless the person is active (AC-5.12 lineage). */
