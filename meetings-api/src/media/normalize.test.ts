@@ -391,10 +391,21 @@ describe.skipIf(!hasFfmpeg)("prepare_audio with the real ffmpeg on generated fix
     const step = Math.ceil(all.length / parts);
     return Array.from({ length: parts }, (_, i) => new Uint8Array(all.subarray(i * step, (i + 1) * step)));
   };
+  /** The encoder's input sample rate: OpusHead is magic(8) version(1) channels(1) pre-skip(2) then a little-endian u32. */
+  const opusInputRate = (file: string): number => {
+    const bytes = readFileSync(file);
+    const at = bytes.indexOf("OpusHead");
+    expect(at).toBeGreaterThanOrEqual(0);
+    return bytes.readUInt32LE(at + 12);
+  };
   const assertOpusMono = async (file: string, seconds: number) => {
     const probe = await streams(file);
     expect(probe.streams).toHaveLength(1);
-    expect(probe.streams[0]).toMatchObject({ codec_type: "audio", codec_name: "opus", channels: 1, sample_rate: "16000" });
+    // Ogg Opus always DECODES at 48 kHz (RFC 7845 section 5.1), so ffprobe reports 48000 whatever
+    // the encoder was fed. The 16 kHz the pipeline asks for (`-ar 16000`) is recorded in the
+    // OpusHead "input sample rate" field, which is what is pinned below.
+    expect(probe.streams[0]).toMatchObject({ codec_type: "audio", codec_name: "opus", channels: 1, sample_rate: "48000" });
+    expect(opusInputRate(file)).toBe(16_000);
     expect(Math.abs(Number(probe.format.duration) - seconds)).toBeLessThan(0.6);
   };
   const run = async (inputs: Uint8Array[]) => {
