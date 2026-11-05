@@ -170,7 +170,17 @@ list. Selecting a segment's time button plays the audio from there. The creator 
 (Edit icon button → textarea → Save/Cancel, `If-Match`); `409/428` → `StaleWriteBanner` and Reload. After an edit the
 segment shows an "Edited" badge and summaries made earlier show "Based on an earlier version of the transcript" (F10).
 No speech: the tab shows `StatePanel` "No speech detected"; Summaries and Ask show their controls `aria-disabled` with the
-same reason (AC-6.7).
+same reason (AC-6.7). Speech that was detected but could not be transcribed is NOT this state: it is a `failed` meeting (F9), and
+"No speech detected" is never shown for it.
+
+**Transcript completeness, joins and caveats (A7, A8; spec AC-6.2, 6.6, 6.12, 6.15, 6.16, 7.13, 9.9; plan H-7).** A `ready`
+transcript can carry three extra things, all on the Transcript tab: (1) a **possibly-incomplete notice** above the list with the
+affected time ranges, plus a **gap marker** between the segments each range falls between, each with a Play control while audio is
+kept; (2) a **parts notice** only when some later-part label stayed separate; (3) a **joined** note on each speaker label matched
+automatically across parts, with **Separate by part** for the creator. The notice and markers are also the first lines and the
+inline lines of Copy and Download text. Summaries and answers built from such a transcript carry a service-written label (see the
+Summaries and Ask tabs); an answer's label leads back to the notice: **answer label -> Transcript tab -> notice focused**. No
+automatic retry exists (A8), so the user is never shown "retrying"; the gap is simply marked.
 
 ### F9. Processing, failure, retry (US-6, AC-6.9, AC-6.10, AC-12.2)
 `processing` shows the **Processing** panel: stage "Uploading" / "Saving audio" (client-side, while this tab is doing it),
@@ -179,6 +189,10 @@ ready." No ETA is shown (targets are budgets, not ACs). Polling is `GET /meeting
 paused while the tab is hidden; sidebar navigation is never blocked. `failed` shows `Banner tone="danger"` with the
 plain-language reason from `failure.code` and, while `can.retryProcessing`, **Try again** (primary). After audio deletion no
 retry exists and the banner says why ("The audio was deleted, so this can't be processed again"); Delete meeting remains.
+Failure reasons include `speech_not_transcribed` (AC-6.7, A7/A8): "Speech was detected in the recording but could not be
+transcribed." (it: "Nella registrazione è stato rilevato del parlato, ma non è stato possibile trascriverlo."), with the same
+**Try again** rule as every other reason (AC-6.9). A transcript with gaps is not a failure (it is `ready` with the notice), and
+while any part is unsettled the meeting stays `processing` at stage "Transcribing" (AC-6.10/6.11).
 
 ### F10. Summaries (US-7, US-8, AC-7.1 to AC-7.12)
 Summaries tab → **Generate summary** (primary) → `FormDialog`: template (grouped select), output language (radio, default
@@ -200,7 +214,9 @@ Creator only, never blocking: `Banner tone="warning"` (not dismissible) at the t
 Ask tab: heading, a privacy line ("Only you can see your questions and the answers"), the conversation (oldest first), the
 composer. Send → in-flight `Spinner` turn "Thinking…" (≤ 60 s) → answer card labelled "AI-generated" with **Sources**. Selecting a
 source switches to the Transcript tab, scrolls to, highlights and focuses the segment, and shows a **Back to the answer** link
-that returns focus to the source button. "The meeting doesn't contain this" answers show no sources. Failure → the turn stays,
+that returns focus to the source button. "The meeting doesn't contain this" answers show no sources. When the transcript is marked
+possibly incomplete, each answer also carries the label "Based on a transcript that may be incomplete" as a link: it switches to the
+Transcript tab and focuses the notice (AC-9.9; keyboard path in the Accessibility section). Failure → the turn stays,
 marked failed, with **Try again**; `429` → composer error with the time to retry. **Clear conversation** (ghost) → confirm.
 
 ### F13. Participants and who can read (US-5, AC-5.1 to AC-5.10)
@@ -323,12 +339,50 @@ cost is that citations cross tabs, which is solved by the focus/return pattern i
 
 **Transcript tab**
 - Toolbar: search `Field` (`type="search"`, label "Search the transcript"), live count "{n} matches" (polite), **Copy** and
-  **Download text** (secondary `sm`, `copy`/`download` icons) → `[hh:mm:ss] Name: text` lines (AC-6.6).
+  **Download text** (secondary `sm`, `copy`/`download` icons) → `[hh:mm:ss] Name: text` lines (AC-6.6). For a possibly-incomplete transcript the
+  text begins with the notice sentence, a blank line, then the lines, with `[Possible gap hh:mm:ss–hh:mm:ss]` on its own line at the same place
+  as the marker on screen. Joined labels are already one name, so nothing else changes. Copy/Download report through the polite status line.
 - Audio control (only `audio.state = 'kept'`): native `<audio controls>` with an `aria-label`, URL minted on first use and
   re-minted on a media `error`; a line "Audio kept until <date>". Absent once deleted (AC-6.5).
-- **Multi-part transcript (AC-6.2, A5; plan G-3):** when `transcript.parts.length > 1` (a long recording transcribed in parts; `parts` absent or one entry reads as a single part and shows neither of the following): an info `Banner` above the list "This recording was transcribed in {n} parts. Speakers are numbered separately in each part, so one person can appear under two labels. Rename a label to merge them." (not dismissible, not blocking); and a divider "Part {n} · hh:mm:ss" before the first segment of every part after the first (no divider before part 1). The segments are rendered as **one `<ol>` per part** with the divider between the lists, not inside one: a divider is not a list item (WCAG 1.3.1). The divider is `role="separator"` with the same text as its `aria-label`, in `font-mono text-xs text-soft` over a `border-rule` top border; each later part's `<ol>` takes that text as its `aria-label` (the first list keeps "Transcript", or "Passages" for text meetings). Merging labels is the existing Rename (no new control).
-- Speakers strip (creator): each distinct label with **Rename** → `FormDialog` (choose a participant or enter free text; "Back to
-  Speaker n" option) applied to all segments (AC-6.2).
+- **Possibly-incomplete notice (AC-6.12 a, c; plan H-7):** when the transcript has one or more gap ranges (`gaps.length > 0`, derived from the
+  service's list, merged across part boundaries by the service), a `Banner tone="warning"` sits above the list, below the toolbar, before
+  the parts notice. Text: "This transcript may be incomplete. Speech may be missing between hh:mm:ss and hh:mm:ss[, and between …]. The
+  missing speech is not in the transcript and cannot be recovered from it." Under it, while audio is kept, a list ("Ranges where speech may
+  be missing") with one item per range: the range in `font-mono text-xs` and a ghost `sm` **Play** button (`play` icon) that plays from the
+  range start (same audio handle as a segment time button; absent once the audio is deleted, AC-6.5). It has no dismiss control, shows for
+  everyone who can open the meeting, and is not removed by editing a segment. It is an anchor (`id`, `tabIndex={-1}`) for the answer label.
+  **Decision (accessibility): the notice is a persistent condition of the page, not an event. It is NOT an assertive live region** — it must
+  not interrupt a screen-reader user on arrival, and it must not be re-announced when the tab is re-opened; it is plain, reachable content
+  read in document order, and the only time it takes focus is when a user asks
+  for it (the answer label, below). The same applies to the parts notice.
+- **Gap markers (AC-6.12 b):** between the segments a range falls between (before the first segment starting at or after the range start; after the
+  last when none does) a non-list row: dashed `border-rule` top border, `alert` icon, text "Possible gap hh:mm:ss–hh:mm:ss" in
+  `font-mono text-xs text-soft` (the icon is decoration, the words carry the meaning), and the same ghost **Play** button as the notice
+  while audio is kept. A marker is not a list item: like a part divider it sits BETWEEN `<ol>`s, so the list is split there and the next list
+  keeps the preceding label (WCAG 1.3.1). Markers are not editable and not searchable.
+- **Multi-part transcript (AC-6.2, AC-6.15; plan G-3, H-7):** a transcript with `parts.length > 1` shows a divider "Part {n} · hh:mm:ss" before the
+  first segment of every part after the first, chosen by the segment's own `part` (with overlapping parts, time cannot say which part a segment
+  belongs to). Segments are one `<ol>` per run between dividers and markers; the divider is `role="separator"` with the same text as its
+  `aria-label`, in `font-mono text-xs text-soft` over a `border-rule` top border, and the list after it takes that text as its `aria-label` (the
+  first list keeps "Transcript", or "Passages" for text meetings). The **parts notice** is an info `Banner` above the list and is shown ONLY when
+  `parts.length > 1` AND at least one later-part label stayed separate (`separateLabels`): "This recording was transcribed in {n} parts. Speakers
+  could not always be matched between parts, so one person can appear under two labels. Rename them to the same name to merge them." It never
+  says the labels are different people and never says speakers are "numbered separately"; when every later label is joined, or there is one
+  part, it is absent (dividers stay). Not dismissible, not blocking, no live region. Merging separate labels is the existing Rename (no new control).
+- **Joined labels (AC-6.2, AC-6.16):** in the speakers strip (see below) a label that covers several parts shows a `users` icon and the note
+  "Matched automatically across parts 1–3" (`soft` text, parts collapsed to runs: "1–3", "1, 3"), so the join is never silent. A label that is
+  separate and belongs to one part of a multi-part transcript shows a muted "(Part n)" suffix. A joined label reads as the earlier label everywhere
+  (list, copy, download); Rename still applies to all its segments.
+- Speakers strip: a labelled `<ul>` ("Speakers", `tabIndex={-1}` so it can take focus), shown to the creator (any label) and to other viewers only
+  when at least one label is joined (so they can read the join note). Per label: name, the join note or "(Part n)" suffix, for the creator (not
+  frozen) **Rename** (ghost icon button, `pencil`, `aria-label` "Rename {name}") → `FormDialog` (choose a participant or enter free text; "Back to
+  Speaker n" option) applied to all segments (AC-6.2), and, for a joined label only, **Separate by part** (secondary `sm`,
+  `aria-haspopup="dialog"`, `aria-label` "Separate by part: {name}") → `ConfirmDialog tone="primary"` (not danger: nothing is lost) titled
+  "Separate by part?", body "Each part’s speech gets its own label. They keep the name “{name}” until you rename them. This cannot be undone.",
+  **Separate** / Cancel, busy "Separating…". After success the transcript is read again (segments of later parts now carry other keys) and focus
+  moves to the speakers strip, because the opener no longer exists. Failure keeps the dialog open with the mapped message; `409 not_joined` /
+  `not_ready` means the page is out of date: the dialog closes and the stale-write banner offers Reload. Non-creators and frozen meetings never see
+  either button (the API answers 403 / 409 regardless, AC-6.16).
 - Segment list `<ol>`: per row a time `Button` (ghost `sm`, `font-mono`, `aria-label` "Play from {spoken duration}"; text meeting: no
   time), the speaker label, the text (search hits wrapped in `Highlight`), an "Edited" `Badge`, and for the creator an Edit icon
   button (`aria-label` "Edit segment at {time}"). Inline edit: `textarea` + **Save** / **Cancel**, hint "Summaries made earlier will
@@ -343,9 +397,12 @@ cost is that citations cross tabs, which is solved by the focus/return pattern i
 - Toolbar: "n of 20 summaries" and **Generate summary** (primary) when `can.summarise`; `aria-disabled` with the reason when the
   meeting has no speech or has 20 summaries (the user must reach it to learn why). Absent for read-only participants.
 - Newest first, one `Card` per summary (title = template name; h3): badges row — "AI-generated" (`sparkle`), language, "Edited"
-  if edited, "Based on an earlier version of the transcript" if `stale`; meta line "by <author> · <formatDateTime>"; body = sections
+  if edited, "Based on an earlier version of the transcript" if `stale`, and, when the transcript was possibly incomplete (AC-7.13), a warning `Badge`
+  with the `alert` icon "Based on a transcript that may be incomplete" (service-written, ready summaries only) followed by a `text-xs text-soft` line
+  "Speech may be missing between: hh:mm:ss–hh:mm:ss, …"; both are part of Copy as text (AC-7.11); a regenerated summary carries them too; meta line "by <author> · <formatDateTime>"; body = sections
   in order, each an h4 heading + plain text (`whitespace-pre-line`, never Markdown); a `notDiscussed` section renders its server text
-  in `text-soft`. Actions row: **Copy as text** (secondary `sm`), **Regenerate** (secondary `sm`, when `can.summarise`), `Menu`
+  in `text-soft` (for an incomplete transcript the service writes "Not found in the transcript, which may be incomplete" there; the UI shows the
+  text as given and never composes it). Actions row: **Copy as text** (secondary `sm`), **Regenerate** (secondary `sm`, when `can.summarise`), `Menu`
   "More actions" with **Edit** and **Delete**. Each control's visibility comes from the summary's own `can: { edit, delete, retry }` (plan G4) and is never re-derived in the UI: Edit if `can.edit`, Delete if `can.delete`, **Try again** on a failed summary if
   `can.retry`; Copy always; Regenerate follows the meeting's `can.summarise`. An empty "More actions" menu is not rendered.
 - `generating`: `StatusBadge` + `Spinner`, "Generating…", no text. `failed`: compact danger `Banner` + **Try again**, **Delete** stays.
@@ -361,7 +418,9 @@ cost is that citations cross tabs, which is solved by the focus/return pattern i
 **Ask tab**
 - Conversation `<ol>` oldest first, in a scrollable region labelled "Your conversation with this meeting". Each turn: the question
   (`text-text`, labelled "You"), then the answer: "AI-generated" badge, plain text, **Sources** list of buttons "00:12:34 · Speaker 2" (text
-  meeting: "Passage 3"). `notInMeeting` → the sentence, no sources. `failed` → compact danger `Banner` + **Try again**. `pending`
+  meeting: "Passage 3"). When the answer's `possiblyIncomplete` is set, a `link` with the `alert` icon "Based on a transcript that may be incomplete" sits beside the
+  "AI-generated" badge (AC-9.9; it activates the Transcript tab and focuses the notice, F12); a `notInMeeting` answer shows the service's sentence
+  (which already says the transcript may be incomplete) with that label, and no sources. `failed` → compact danger `Banner` + **Try again**. `pending`
   older than 2 minutes reads failed (server).
 - Composer (only `can.ask`): `Field` + `textarea` "Your question" (1-1,000, live count), **Ask** (primary); Ctrl/Cmd+Enter sends, Enter inserts
   a newline (stated in the hint, so no keyboard trap or accidental send). While in flight the composer is busy, the question text stays.
@@ -377,6 +436,7 @@ cost is that citations cross tabs, which is solved by the focus/return pattern i
 | Edit details | `FormDialog` | title, date and time, format; language only while `can.changeLanguage` (else read-only text with the reason, AC-1.8); source only while `can.changeSource` (F7b, with the clears-consent note when choosing text); **Remove link** checkbox when a host is set (linking and relinking happen from the host panel, F1b). `409 language_locked`/`source_locked` inline. |
 | Edit participants | `FormDialog` size lg | see S4 |
 | Rename speaker | `FormDialog` | participant select or free text, 1-100 |
+| Separate by part | `ConfirmDialog tone="primary"` | creator only, joined labels only, irreversible; see the speakers strip (AC-6.16) |
 | Generate summary | `FormDialog` | see Summaries tab |
 | Confirm host-visible on | `ConfirmDialog tone="primary"` | "Everyone who can open Deal · <title> and sees its sensitive details will be able to read this meeting, including the transcript." |
 | Delete summary / Clear conversation / Delete recording / Discard captured audio | `ConfirmDialog tone="danger"` | each states what stays ("The transcript and summaries stay") |
@@ -507,7 +567,7 @@ mirror crm-ui's `LoadState` as thin app adapters (copy bound to strings), not a 
 | `ConsentCard` | Versioned consent notice and announcement; meeting-specific legal copy |
 | `RecordingPanel` + `capture/*` | MediaRecorder controller, mixing, chunk uploader; no other tool records audio |
 | `UploadCard`, `TextCard`, `ProcessingPanel`, `InterruptedPanel` | Capture and processing states of one domain object |
-| `TranscriptView`, `SegmentRow`, `Highlight`, `AudioControl`, `SpeakerRenameDialog` | Transcript rendering; `Highlight` is a `<mark className="bg-acc/20 text-text">` wrapper (the browser's default yellow `mark` is not a token) |
+| `TranscriptView`, `SegmentRow`, `Highlight`, `AudioControl`, `SpeakerRenameDialog`, `SeparateSpeakerDialog` (a `ConfirmDialog` wrapper that calls the API and maps its errors), `exportText` (pure text/marker/range helpers, not a component) | Transcript rendering; `Highlight` is a `<mark className="bg-acc/20 text-text">` wrapper (the browser's default yellow `mark` is not a token) |
 | `SummariesPanel`, `SummaryCard`, `SummaryEditor`, `GenerateSummaryDialog` | Domain content; plain-text rendering rule (ADR-0067) |
 | `AskPanel`, `Turn`, `Composer`, `Sources` | Domain content |
 | `ParticipantsCard`, `EditParticipantsDialog`, `ExternalParticipantForm` | Domain model |
@@ -543,7 +603,21 @@ library's. Dialogs use the library's focus trap and return focus to the opener; 
   the source button that was activated.
 - Processing and generation: polite live region on state change ("Transcript ready", "Summary ready", "Summary failed"); never a focus steal.
 - `aria-disabled` (not `disabled`) for Generate/Ask when no speech or at the limit, with the reason in `aria-describedby`; hidden entirely for controls the caller may never use.
-- Transcript parts: the info banner is plain text inside the tab (no live region, it is static content); the part divider is `role="separator"` with an accessible name, and each part's list carries the same name, so a screen-reader user can jump list by list. Colour is not the only cue (text "Part 2 · 01:00:12").
+- Transcript completeness and parts (A7/A8): **the possibly-incomplete notice is a persistent condition, not an alert.** It is not an assertive live region and not a
+  `status` that announces itself: a screen-reader user meets it in document order when they reach the Transcript tab, and it is never re-announced on re-open or on
+  polling. It is `tabIndex={-1}` so it can be focused programmatically, and it does so only when the user asked for it (the answer label). It is not dismissible, so there is
+  no close control and no state to lose. The parts notice is plain static text with the same rules. Colour is never the only cue: the notice says "may be incomplete", each marker
+  says "Possible gap" with the `alert` icon as decoration only, and each part divider says "Part 2 · 01:00:12".
+- Gap markers and dividers are not list items: the list is split into one `<ol>` per run, a divider is `role="separator"` with an accessible name, and each list after it carries the same
+  name, so a screen-reader user can jump list by list. A marker is a plain row whose text is its name; its Play button is a native `<button>` in DOM order after the text, with `aria-label` "Play from {spoken
+  duration}" (the range start, same label pattern as a segment time) and the visible word "Play". The notice's range list uses the same buttons, in a labelled `<ul>` ("Ranges where speech may be missing"). Both are absent
+  when the audio is deleted (no disabled placeholders).
+- Answer label to notice: the label on an answer is an `<a>` (reads as a link, "Based on a transcript that may be incomplete"). Activating it switches to the Transcript tab (tab change by keyboard or pointer) and moves focus to the notice
+  (`tabIndex={-1}`), scrolled to its start; one focus move, no live announcement. Focus lands on content the user chose to go to, so it reads the notice text; there is no "back to the answer" link for this path (the citation path keeps its own).
+- Joined note and Separate by part: the join note is text next to the label (not a tooltip). The **Separate by part** button names the label ("Separate by part: {name}") because several can be on screen; the dialog uses the library focus trap with
+  Cancel as the first focusable control and returns focus to the opener on cancel; on success the opener is gone, so focus goes to the speakers list (`tabIndex={-1}`, labelled "Speakers") and the changed labels are read from it. A failure message
+  is `.form-error role="alert"` inside the dialog, which stays open.
+- Speech detected but not transcribed: the `failed` banner is the existing danger `Banner` (alert is right: it is an outcome the user must act on), with **Try again** while `can.retryProcessing`.
 - Consent: the six statements are a list; the tick box keeps its visible label; the saving state and copy confirmation are polite `role="status"`; a failed save is `role="alert"`.
 - Refused upload banner: `Banner tone="warning"` (not an alert, nothing is lost by reading it late); it sits above the file picker so keyboard order is notice → picker → Upload.
 - Filtered-empty list: **Clear filters** moves focus to the search field (see S1).
@@ -594,9 +668,9 @@ no-hard-coded-copy scan over every `.tsx`. Sentence case. Sentences with values 
 | `upload` | title, hint(limits), choose, problems {unsupported_type, too_large, too_long, no_audio, empty}, rejectedUnknown, refused {title, reasons {too_long}, unknownReason}, submit, cancel, cancelled, failed, retry, finishing, size, announcements |
 | `text` | title, label, count(n,max), errors {empty, tooLong}, save |
 | `processing` | stages {uploading, saving, preparing, transcribing}, leaveNote, failure {audio_unreadable, provider_unavailable, provider_rejected, too_long, audioDeleted}, retry, interrupted {title, body(duration), lostOffline(duration), lostOfflineUnknown, process, discard, discardConfirm, expired, observer} |
-| `transcript` | tab, parts {banner(n), divider(n, start)}, passages, search, matches(n), copy, download, noSpeech, speaker(n), rename, renameForm, playFrom(spoken), edit, editedBadge, editHint, citedPassage, filename |
-| `summaries` | tab, count(n,max), generate, empty, limit, generating, failedRetry, staleBadge, editedBadge, byline(author,when), notDiscussedFallback, regenerate, more, editAction, deleteAction, deleteConfirm, dialog {title, template, language, groups {recommended(entity), personal, shared, builtin}, preview, submit}, copySummary |
-| `ask` | tab, privacy, empty, composer {label, hint, send, count}, thinking, answerLabel, sources, passage(n), notInMeeting, failed, clear, clearConfirm, rateLimited(retryAt) |
+| `transcript` | tab, parts {banner(n), divider(n, start)}, incomplete {notice(ranges), rangesLabel, marker(from,to), play}, joined {note(parts), part(n), separate, separateLabel(name)}, separate {title, body(name), confirm, busy, notJoined},  passages, search, matches(n), copy, download, noSpeech, speaker(n), rename, renameForm, playFrom(spoken), edit, editedBadge, editHint, citedPassage, filename |
+| `summaries` | tab, incomplete {label, ranges(ranges)}, count(n,max), generate, empty, limit, generating, failedRetry, staleBadge, editedBadge, byline(author,when), notDiscussedFallback, regenerate, more, editAction, deleteAction, deleteConfirm, dialog {title, template, language, groups {recommended(entity), personal, shared, builtin}, preview, submit}, copySummary |
+| `ask` | tab, incompleteLabel, privacy, empty, composer {label, hint, send, count}, thinking, answerLabel, sources, passage(n), notInMeeting, failed, clear, clearConfirm, rateLimited(retryAt) |
 | `people` | title, edit, dialog {title, description, addOperai, addExternal, name, organisation, add, remove(name), count(n,max), limit, errors}, external, creatorBadge, visibility {label(hostLabel), hint, confirmTitle, confirmBody, ended} |
 | `delete` | recording {title, body, confirm}, meeting {title, body(list), acknowledge, confirm}, saved, storageFailed |
 | `templates` | heading, new, groups {personal, shared, builtin}, columns, types, empty, view {…, builtinReadOnly, sharedReadOnly}, duplicate {…}, editor {fields, sections {…limits}, errors}, deleteConfirm, saved |
@@ -646,9 +720,12 @@ AC-4.9, AC-4.10 (startup refusal, logging), AC-11.1, AC-11.4 (registry; the scre
 (no email), AC-13.2 (language choice is the form field; no translation step), AC-5.12/5.13 (behaviour of S9 and the banner), AC-14.2 to AC-14.6, AC-14.9, AC-14.11 (CRM reconciliation; AC-1.7, AC-14.1 and AC-14.7 "later link / relink" have the F1b surface; UI otherwise only renders
 the "Open meeting" link and the creator-facing failure banner). AC-4.8 (no role reads content) is shown only as the erase screen's notice.
 
+A7/A8 surfaces: AC-6.2/6.15 (parts notice rule, joined and "(Part n)" labels), AC-6.6 (copy/download with notice and markers), AC-6.7 (`speech_not_transcribed` failure reason, never "No speech detected"), AC-6.12 (notice, ranges, markers, Play),
+AC-6.16 (joined note, Separate by part), AC-7.13 (summary badge + ranges), AC-9.9 (answer label + link to the notice). AC-6.11/6.13/6.14/6.17 and the text of "Not found in the transcript, which may be incomplete" are service behaviour, shown as given.
+
 UI added that no AC asks for (small, droppable, flagged; the host-panel link dialog is not in this list, it is the surface AC-1.7, AC-11.8 "later" and AC-14.1 "or later linked" require): (1) a confirmation before turning host-visible ON (consequential widening of readership, design-system rule for consequential
 decisions); (2) the "Your access" fact (explains why a host reader can see the meeting); (3) the "Back to the answer" link after a citation jump (focus return); (4) the "recording elsewhere" and
-"microphone lost" states (necessary failure paths); (5) "Clear filters". Not designed because no AC asks (report only): a microphone level meter, previous/next match buttons in search, drag-and-drop
+"microphone lost" states (necessary failure paths); (5) "Clear filters"; (6) the confirmation before Separate by part (AC-6.16 does not ask for one; it is irreversible); (7) the muted "(Part n)" suffix on a separate label (helps tell two labels of one person apart). Not designed because no AC asks (report only): a microphone level meter, previous/next match buttons in search, drag-and-drop
 upload, an unsaved-changes guard on the template editor, extra disclaimer lines beside "AI-generated".
 
 ---
@@ -657,6 +734,11 @@ upload, an unsaved-changes guard on the template editor, extra disclaimer lines 
 
 design.md was brought in line with spec amendments A5/A6, plan § Amendment 2026-11-05 (G-3, G-11) and the built meetings-ui. Changed: F3 and the `consent` copy keys (six statements, notice `2026-11-05`), F6 (refused-upload warning, cancel), F8/S3b (multi-part transcript), S1 (filtered-empty focus), a11y notes, copy plan. No new NEW component: the banner, divider and refused notice are `Banner`, a `role="separator"` element and `StatePanel`/`Button` from the library and existing meetings-ui files (`ConsentCard`, `TranscriptView`, `UploadCard`).
 Divergences found, reported rather than designed around: (a) plan G-11 specifies the `parts` contract but no field carrying a refused upload on a draft meeting; the code reads `meeting.failure.code` on a `draft` for it (`too_long` only), which the spec's AC-3.2 allows but no plan section states; (b) the Upload card's client problem `empty` ("The file is empty") has no AC; (c) plan G-3 asks for a divider only; the code also names each later part's `<ol>` and exposes the divider as `role="separator"` (an accessibility addition, consistent with AC-13.1).
+
+## Sync 2026-11-05 (A7/A8, T122/T123, QE defect D2)
+
+design.md was brought in line with spec A7/A8 (AC-6.2, 6.6, 6.7, 6.12, 6.15, 6.16, 7.13, 9.9), plan § Amendment #2 H-6/H-7 and the built meetings-ui (`TranscriptView`, `SeparateSpeakerDialog`, `exportText`, `SummaryCard`, `Turn`, strings). Changed: F8/F9/F12, S3b Transcript, Summaries and Ask tabs, S3c dialogs, the accessibility section (the A5 "transcript parts" line is replaced), component inventory (two meetings-ui files), copy plan, AC coverage. No new library component: `Banner`, `ConfirmDialog`, `Button`, `Badge`, `Icon` (`alert`, `play`, `users`).
+Divergences found, reported rather than designed around: (a) the possibly-incomplete notice is built on `Banner tone="warning"`, whose library behaviour is an assertive alert; the design decision is a persistent, non-announcing condition (a change is in progress, not described here); (b) `strings.transcript.separate.notJoined` ("These labels are already separate.") is defined and tested for parity but not used: a `409 not_joined` closes the dialog and shows the stale-write banner instead; (c) AC-6.16 asks for no confirmation, the build adds one (kept, flagged above); (d) the answer label is an `<a href="#meetings-transcript-incomplete">` that also switches tabs, so the hash is only a fallback; (e) the summary label is a static badge, no link to the notice, as AC-7.13 asks for the label and ranges only.
 
 ## Gaps found in the spec or plan — resolved
 
