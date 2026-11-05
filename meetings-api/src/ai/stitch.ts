@@ -8,7 +8,9 @@
  *   D1  inside a part, speech returned twice is kept once (`findRepetitions`);
  *   D2  inside the overlap of parts k and k+1, speech returned by both is kept once (part k's version), by an
  *       order-preserving alignment of runs of at least `REPEAT_WORDS` equal words; everything found in only one of
- *       the two versions is KEPT, so no speech present in either version is dropped;
+ *       the two versions is KEPT, so no speech present in either version is dropped. Aligned words count as the same
+ *       speech only when the overlap JOINED their labels (J, below) or one of them has no label (A8): J is decided
+ *       first, from the alignment alone, and the removal then asks it;
  *   J   a label of part k+1 is JOINED to a label of part k only on the evidence of the aligned words: at least
  *       `MATCH_WORDS` of them, all to the same earlier label, with no rival either way. Anything else stays
  *       separate. Nothing else - position, number, order, a default - ever joins.
@@ -23,7 +25,7 @@
 
 import { REPEAT_GAP_MS, REPEAT_WORDS, findRepetitions, longHoles } from "./completeness";
 import type { Phrase } from "./segments";
-import { effectiveSpans, tokensOf, type Interval, type PartWords, type Token } from "./words";
+import { effectiveSpans, sameSpeaker, tokensOf, type Interval, type PartWords, type Token } from "./words";
 
 /** Match bound (AC-6.14): matched words a later label needs to be joined. */
 export const MATCH_WORDS = 20;
@@ -54,6 +56,7 @@ interface Item {
   readonly part: number;
   readonly text: string;
   readonly label: string;
+  readonly unlabelled: boolean;
   readonly norm: string;
   readonly span: Interval | null;
   readonly eff: Interval;
@@ -73,7 +76,7 @@ const itemsOf = (part: PartWords): Item[] => {
   const out: Item[] = [];
   tokens.forEach((token: Token, i) => {
     if (removed.has(i)) return;
-    out.push({ part: part.part, text: part.words[token.wordIndex]!.text, label: token.label, norm: token.norm, span: token.span, eff: eff[i]! });
+    out.push({ part: part.part, text: part.words[token.wordIndex]!.text, label: token.label, unlabelled: token.unlabelled, norm: token.norm, span: token.span, eff: eff[i]! });
   });
   return out;
 };
@@ -184,19 +187,9 @@ export function stitch(input: StitchInput): StitchResult {
     const q = items[k + 1]!.slice(0, prefixEnd[k + 1]!);
     const anchors = align(p, q);
 
-    // The merged overlap: anchored words once (part k's version), the rest of both versions in time order.
-    let pi = 0;
-    let qi = 0;
-    for (const anchor of anchors) {
-      sequence.push(...mergeByStart(p.slice(pi, anchor.p), q.slice(qi, anchor.q)));
-      sequence.push(...p.slice(anchor.p, anchor.p + anchor.length));
-      removedInOverlap += anchor.length;
-      pi = anchor.p + anchor.length;
-      qi = anchor.q + anchor.length;
-    }
-    sequence.push(...mergeByStart(p.slice(pi), q.slice(qi)));
-
-    // J: who is who, from the aligned words only.
+    // J: who is who, from the aligned words only. Decided BEFORE the duplicates are removed, because the removal
+    // asks it (AC-6.13 with AC-6.14): the labels of two parts are different numberings, so aligned words are the
+    // same speech only where the overlap joined their labels (or a word has no label at all).
     const window = { startMs: nextPart.startMs, endMs: parts[k]!.endMs };
     const blocked = [longHoles(parts[k]!), longHoles(nextPart)].some((holes) => holes.some((h) => intersects(h, window)));
     const matched = new Map<string, Map<string, number>>(); // L2 -> L1 -> words
@@ -226,6 +219,24 @@ export function stitch(input: StitchInput): StitchResult {
         joined += 1;
       }
     }
+
+    // The merged overlap: aligned words once (part k's version) where they are the same speaker's, the rest of both
+    // versions in time order. An aligned word of part k+1 under a label the overlap did not join stays.
+    const same = (a: Item, b: Item): boolean => (a.unlabelled || b.unlabelled ? sameSpeaker(a, b) : rootOf(a.label) === rootOf(b.label));
+    let pi = 0;
+    let qi = 0;
+    for (const anchor of anchors) {
+      sequence.push(...mergeByStart(p.slice(pi, anchor.p), q.slice(qi, anchor.q)));
+      const kept: Item[] = [];
+      for (let t = 0; t < anchor.length; t += 1) {
+        if (same(p[anchor.p + t]!, q[anchor.q + t]!)) removedInOverlap += 1;
+        else kept.push(q[anchor.q + t]!);
+      }
+      sequence.push(...(kept.length === 0 ? p.slice(anchor.p, anchor.p + anchor.length) : mergeByStart(p.slice(anchor.p, anchor.p + anchor.length), kept)));
+      pi = anchor.p + anchor.length;
+      qi = anchor.q + anchor.length;
+    }
+    sequence.push(...mergeByStart(p.slice(pi), q.slice(qi)));
   }
 
   // Segments: consecutive words of one root in one part, never across a gap.

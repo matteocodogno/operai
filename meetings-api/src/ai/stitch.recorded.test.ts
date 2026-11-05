@@ -81,8 +81,12 @@ describe("what the real service did at the seam (AC-6.13, AC-6.14, AC-6.15)", ()
   });
 
   it("overlap-en-jitter: 274 aligned words and still no join, because the provider itself mislabelled words of part 1 (R25)", () => {
-    const out = pipeline(partsOf("overlap-en-jitter"), META["overlap-en-jitter"]!.silences);
-    expect(out.stats).toEqual({ removedWithinPart: 0, removedInOverlap: 274, joined: 0, separate: 2 });
+    const parts = partsOf("overlap-en-jitter");
+    const out = pipeline(parts, META["overlap-en-jitter"]!.silences);
+    // A8 (changed expectation, was removedInOverlap: 274): aligned words are the same speech only where the overlap joined
+    // their labels (or one has none). Nothing is joined here, so NONE of the 274 aligned words is removed: both versions stay.
+    expect(out.stats).toEqual({ removedWithinPart: 0, removedInOverlap: 0, joined: 0, separate: 2 });
+    expect(out.phrases.flatMap((p) => p.text.split(" "))).toHaveLength(parts[0]!.words.length + parts[1]!.words.length);
     // nobody is joined, so every label of part 2 is a speaker of its own: the safe direction (a rename repairs it)
     expect(new Set(out.phrases.map((p) => p.speaker)).size).toBe(4);
   });
@@ -99,6 +103,11 @@ describe("what the real service did at the seam (AC-6.13, AC-6.14, AC-6.15)", ()
     expect(out.gaps[0]!.endMs).toBeLessThanOrEqual(META["overlap-it-hole"]!.parts[1]!.startMs);
     expect(out.stats.joined).toBe(0);
     expect(out.stats.separate).toBe(2);
+    // A8 (changed): J0 refused the joins, so the aligned words of the overlap are kept from both parts (was 206 removed in
+    // the overlap); the untimed tail of part 5 is now cut by content (157 words that repeat its own earlier text; 17 of its recorded
+    // words carry no label at all and so match any speaker).
+    expect(out.stats.removedInOverlap).toBe(0);
+    expect(out.stats.removedWithinPart).toBe(157);
     // a segment never spans the gap
     for (const phrase of out.phrases) expect(phrase.startMs < out.gaps[0]!.startMs && phrase.startMs + phrase.durationMs > out.gaps[0]!.endMs).toBe(false);
   });
@@ -109,6 +118,10 @@ describe("what the real service did at the seam (AC-6.13, AC-6.14, AC-6.15)", ()
     const out = pipeline(parts, META["overlap-en3"]!.silences);
     expect(out.stats.joined).toBe(0);
     expect(out.stats.separate).toBe(3);
+    // A8 (changed, was removedInOverlap 233): nothing joined, so the overlap's aligned words stay; 60 untimed-tail words
+    // of part 1 repeat its own earlier text and go.
+    expect(out.stats.removedInOverlap).toBe(0);
+    expect(out.stats.removedWithinPart).toBe(60);
     // KNOWN LIMIT, recorded by T124 and reported as drift on plan H-3 (R24): the 19-minute part has a 20 s hole, 1046 of
     // its 3019 words came back with no trusted time, and the credit for them (600 ms each) hides the hole, so it is not a gap.
     expect(out.assessed[0]!.gaps).toEqual([]);
@@ -128,5 +141,21 @@ describe("what the real service returns inside one part (D1)", () => {
     expect(a.repetitions).toHaveLength(1);
     const out = stitch({ parts: [part], gaps: [] });
     expect(out.stats.removedWithinPart).toBe(reps[0]!.toToken - reps[0]!.fromToken);
+  });
+
+  it("an untimed tail is cut by content, only where it repeats this part's own earlier text (overlap-it-hole, part 5)", () => {
+    const part = partsOf("overlap-it-hole")[0]!;
+    const tokens = tokensOf(part.words);
+    let tail = tokens.length;
+    while (tail > 0 && tokens[tail - 1]!.span === null) tail -= 1;
+    const untimed = tokens.length - tail;
+    expect(untimed).toBeGreaterThan(300);
+    const reps = findRepetitions(tokens);
+    const removed = reps.reduce((n, r) => n + (r.toToken - r.fromToken), 0);
+    expect(removed).toBe(157);
+    for (const r of reps) expect(r.fromToken).toBeGreaterThanOrEqual(tail); // nothing with a trusted time
+    expect(untimed - removed).toBeGreaterThan(0); // the rest of the tail (speech of one version only) stays
+    // a repetition is reported, never a reason to retry
+    expect(assess(part, META["overlap-it-hole"]!.silences).repetitions).toHaveLength(reps.length);
   });
 });

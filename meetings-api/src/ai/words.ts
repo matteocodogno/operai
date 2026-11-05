@@ -22,6 +22,11 @@ export interface SpeechWord {
   readonly text: string;
   /** The provider's label, namespaced by its part: `p2:1`. */
   readonly label: string;
+  /**
+   * True when the provider gave this word no speaker label at all (`label` is then a placeholder, never a voice): the
+   * repetition rules treat such a word as compatible with any speaker (AC-6.13, A8).
+   */
+  readonly unlabelled?: boolean;
   /** The provider's "no speech here" marker (a lone `[`, `[BACKGROUND]`): never a token. */
   readonly noise: boolean;
   readonly span: Interval | null;
@@ -54,8 +59,13 @@ export interface Token {
   readonly wordIndex: number;
   readonly norm: string;
   readonly label: string;
+  readonly unlabelled: boolean;
   readonly span: Interval | null;
 }
+
+/** AC-6.13: two words may be the same speech only under the same label, or when at least one has no label. */
+export const sameSpeaker = (a: { label: string; unlabelled?: boolean }, b: { label: string; unlabelled?: boolean }): boolean =>
+  a.label === b.label || a.unlabelled === true || b.unlabelled === true;
 
 export function tokensOf(words: readonly SpeechWord[]): Token[] {
   const tokens: Token[] = [];
@@ -63,7 +73,7 @@ export function tokensOf(words: readonly SpeechWord[]): Token[] {
     if (word.noise) return;
     const norm = normalizeToken(word.text);
     if (norm === "") return;
-    tokens.push({ wordIndex, norm, label: word.label, span: word.span });
+    tokens.push({ wordIndex, norm, label: word.label, unlabelled: word.unlabelled === true, span: word.span });
   });
   return tokens;
 }

@@ -14,13 +14,12 @@
  *      one staged;
  *   2. split the recording (src/media/split.ts) into OVERLAPPING parts of at most `PIECE_MAX_MS`, with the silences
  *      of the whole recording;
- *   3. every part runs on its own (all together): upload `in/<k>.ogg` once, then up to `MAX_TRIES` TRIES (H-4). A try
+ *   3. every part runs on its own (all together): upload `in/<k>.ogg` once, then up to `MAX_TRIES` TRIES (H-4; 1 since A8, the provider being deterministic). A try
  *      submits ONE `batchRecognize` (chirp_3, exactly one locale, never "auto", diarization, output to a prefix of
  *      its own `out/<k>-<t>/`), polls it, reads its output (<= 8 MiB, which must lie under THAT try's prefix),
  *      deletes that prefix at once and the operation, turns the words into the provider-neutral model and asks the
- *      detector (`completeness.ts`) whether the part is detectably incomplete: a gap or a repetition. A complete part
- *      is never submitted again; otherwise the best try is kept (fewest gaps, least gap time, no repetition, the
- *      earlier). The part's input is deleted the moment the part has settled;
+ *      detector (`completeness.ts`) whether the part is detectably incomplete: a gap (never a repetition, A8). A complete
+ *      part is never submitted again; otherwise the best try is kept (fewest gaps, least gap time, the earlier). The part's input is deleted the moment the part has settled;
  *   4. the chosen words of every part go through `stitch.ts` (duplicates once, joins from text only) and the final
  *      gaps through `finalGaps`; an empty transcript is `noSpeech` only if no gap is left, else the permanent
  *      `speech_not_transcribed` (AC-6.7);
@@ -99,8 +98,13 @@ export const POLL_DEADLINE_MS = 45 * 60_000;
 /** The first poll comes this long after the submit (Google-side median 72 s, p95 85 s), then every `POLL_EVERY_MS`. */
 export const POLL_FIRST_MS = 30_000;
 export const POLL_EVERY_MS = 15_000;
-/** Tries per part: 1 + the retry bound of 2 (AC-6.11). */
-export const MAX_TRIES = 3;
+/**
+ * Tries per part. 1 since amendment A8 (2026-11-05): the T124 spike showed the provider is deterministic (a retry returned
+ * byte-identical output), so a part is transcribed once and a detected gap is marked. The retry machinery below (the
+ * ranking, the best-of selection, the per-try prefixes) is kept behind this bound: re-enabling is a change of this
+ * constant (originally 3 = 1 + the retry bound of 2, AC-6.11); tests exercise it through the `maxTries` option.
+ */
+export const MAX_TRIES = 1;
 /** Operations in flight at once, process-wide (H-4): 24 submits a minute and at most 96 polls a minute stay under quota. */
 export const SPEECH_MAX_INFLIGHT = 24;
 /** A single failed poll is a blip; this many in a row is an outage. */
@@ -129,6 +133,8 @@ export interface GoogleTranscriberOptions {
   readonly now?: () => number;
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   readonly split?: typeof splitAudio;
+  /** Tries per part; default `MAX_TRIES`. Tests raise it to exercise the retry machinery. */
+  readonly maxTries?: number;
 }
 
 // ─── Pieces ──────────────────────────────────────────────────────────────────
@@ -165,6 +171,12 @@ interface RawWord {
 const labelOf = (value: unknown): string => {
   const text = typeof value === "number" ? String(value) : typeof value === "string" ? value : "";
   return /^[A-Za-z0-9_-]{1,16}$/.test(text) ? text : "0";
+};
+
+/** Did the provider give a usable speaker label at all? A missing or unsafe one is no label (AC-6.13); `"0"` is a label. */
+const hasLabel = (value: unknown): boolean => {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value : "";
+  return /^[A-Za-z0-9_-]{1,16}$/.test(text);
 };
 
 /** The words the model uses for "no speech" (its prompt says `[BACKGROUND]`; the recording showed a lone `[`). */
@@ -234,7 +246,7 @@ export function wordsOfPart(doc: unknown, part: number, partStartMs: number, par
       // No word list: the transcript's own words, one voice, untimed (or sharing the result's span).
       for (const text of (transcript ?? "").split(/\s+/).filter((t) => t !== "")) {
         if (out.length >= MAX_WORDS_PER_PART) throw new TranscriptionError("provider_rejected", false);
-        out.push({ text, label: label("0"), noise: NOISE_WORD.test(text), span: NOISE_WORD.test(text) ? null : resultSpan });
+        out.push({ text, label: label("0"), unlabelled: true, noise: NOISE_WORD.test(text), span: NOISE_WORD.test(text) ? null : resultSpan });
       }
       continue;
     }
@@ -250,7 +262,7 @@ export function wordsOfPart(doc: unknown, part: number, partStartMs: number, par
           span = { startMs: partStartMs + own.startMs, endMs: partStartMs + own.endMs };
         } else span = resultSpan;
       }
-      out.push({ text, label: label(labelOf(raw.speakerLabel)), noise, span });
+      out.push({ text, label: label(labelOf(raw.speakerLabel)), ...(hasLabel(raw.speakerLabel) ? {} : { unlabelled: true }), noise, span });
     }
   }
   return done();
@@ -473,6 +485,7 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
       if (!LOCALES.includes(locale)) throw new TranscriptionError("provider_rejected", false);
       if (!context) throw new TranscriptionError("provider_rejected", false);
       const { meetingId, attempt } = context;
+      const maxTries = Math.max(1, Math.trunc(options.maxTries ?? MAX_TRIES));
       const ownPrefix = transientKeys.attemptPrefix(meetingId, attempt);
 
       const storage = await options.storage();
@@ -521,7 +534,7 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
               }
               let best: { words: PartWords; assessment: Assessment } | null = null;
               let tries = 0;
-              for (let tryNo = 1; tryNo <= MAX_TRIES; tryNo += 1) {
+              for (let tryNo = 1; tryNo <= maxTries; tryNo += 1) {
                 tries = tryNo;
                 let words: PartWords;
                 try {

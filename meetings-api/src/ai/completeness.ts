@@ -19,7 +19,7 @@
  * Nothing here is logged with content: callers log counts and durations only.
  */
 
-import { normalizeToken, tokensOf, type Interval, type PartWords, type Token } from "./words";
+import { normalizeToken, sameSpeaker, tokensOf, type Interval, type PartWords, type Token } from "./words";
 
 /** A gap is a stretch with at least this much credited sound and no timed word (spec: the gap bound). */
 export const GAP_BOUND_MS = 20_000;
@@ -157,19 +157,19 @@ export function assess(part: PartWords, silences: readonly Interval[]): Assessme
   return { gaps, gapMs: gaps.reduce((sum, g) => sum + (g.endMs - g.startMs), 0), excused, repetitions: findRepetitions(tokensOf(part.words)) };
 }
 
-/** Detectably incomplete (AC-6.11): at least one gap, or at least one repetition. */
-export const isIncomplete = (a: Assessment): boolean => a.gaps.length > 0 || a.repetitions.length > 0;
+/**
+ * Detectably incomplete (AC-6.11, amendment A8): at least one gap. A repetition is NOT incompleteness: the provider is
+ * deterministic, so a second try returns the same repetition, and the stitcher removes it anyway.
+ */
+export const isIncomplete = (a: Assessment): boolean => a.gaps.length > 0;
 
 /**
- * Does `candidate` beat `incumbent` (AC-6.11)? Fewest gaps, then least total gap time, then no repetition over
- * repetition; on a complete tie the earlier try stays (the incumbent is always the earlier one).
+ * Does `candidate` beat `incumbent` (AC-6.11, A8)? Fewest gaps, then least total gap time; a repetition never ranks.
+ * On a complete tie the earlier try stays (the incumbent is always the earlier one).
  */
 export function isBetter(candidate: Assessment, incumbent: Assessment): boolean {
   if (candidate.gaps.length !== incumbent.gaps.length) return candidate.gaps.length < incumbent.gaps.length;
-  if (candidate.gapMs !== incumbent.gapMs) return candidate.gapMs < incumbent.gapMs;
-  const a = candidate.repetitions.length > 0;
-  const b = incumbent.repetitions.length > 0;
-  return a !== b ? !a : false;
+  return candidate.gapMs < incumbent.gapMs;
 }
 
 // ─── Repetitions (D1) ────────────────────────────────────────────────────────
@@ -179,8 +179,16 @@ export function isBetter(candidate: Assessment, incumbent: Assessment): boolean 
  * equal tokens that repeats an earlier, non-overlapping run A, where A's last token and B's first token both have a
  * trusted time and B starts no later than `REPEAT_GAP_MS` after A ended (a B that starts before A ended overlaps it).
  * An untimed boundary is no evidence: the passage stays as returned, which is also what keeps a phrase really said
- * twice, more than 2 s apart, intact. Deterministic: positions in order, an 8-gram index, for each B the earliest
- * matching A, the match extended to its maximal length. The first copy is kept, B's tokens are the removal.
+ * twice, more than 2 s apart, intact. Two passages are the same speech only under the same speaker label, or when at
+ * least one word has no label at all (A8; `sameSpeaker`): the match ends where the labels differ.
+ *
+ * A second rule (A8) handles the shape the provider was recorded to produce: a run of UNTIMED words at the very END
+ * of the part (no trusted time at all, so the timed rule has nothing to measure) that repeats earlier text of the same
+ * part. It is judged by content alone: at least `REPEAT_WORDS` consecutive equal words, the same-or-no-speaker
+ * condition, any distance. Only the matching stretches go; a word of the tail that is in no earlier text stays.
+ *
+ * Deterministic: positions in order, an 8-gram index, for each B the earliest matching A, the match extended to its
+ * maximal length. The first copy is kept, B's tokens are the removal.
  */
 export function findRepetitions(tokens: readonly Token[]): Removal[] {
   const n = tokens.length;
@@ -190,27 +198,35 @@ export function findRepetitions(tokens: readonly Token[]): Removal[] {
     for (let k = 1; k < REPEAT_WORDS; k += 1) key += `\u0000${tokens[at + k]!.norm}`;
     return key;
   };
+  /** The maximal run of equal words (same-or-no speaker) of A at `i` and B at `j`, A's run not reaching B. */
+  const runLength = (i: number, j: number): number => {
+    let length = 0;
+    const cap = j - i; // the two runs must not overlap
+    while (length < cap && j + length < n && tokens[i + length]!.norm === tokens[j + length]!.norm && sameSpeaker(tokens[i + length]!, tokens[j + length]!)) length += 1;
+    return length;
+  };
   const index = new Map<string, number[]>();
   const removals: Removal[] = [];
   let j = 0;
   let indexed = 0; // positions below this are in the index
-  while (j + REPEAT_WORDS <= n) {
-    // Only earlier positions whose whole gram precedes j can be an A for this B.
-    while (indexed + REPEAT_WORDS <= j) {
+  const indexUpTo = (position: number) => {
+    // Only earlier positions whose whole gram precedes `position` can be an A for a B starting there.
+    while (indexed + REPEAT_WORDS <= position) {
       const key = gram(indexed);
       const list = index.get(key);
       if (list) list.push(indexed);
       else index.set(key, [indexed]);
       indexed += 1;
     }
+  };
+  while (j + REPEAT_WORDS <= n) {
+    indexUpTo(j);
     const first = tokens[j]!.span;
     let advanced = false;
     const candidates = first ? index.get(gram(j)) : undefined;
     if (first && candidates) {
       for (const i of candidates.slice(0, MAX_CANDIDATES)) {
-        let length = 0;
-        const cap = j - i; // the two runs must not overlap
-        while (length < cap && j + length < n && tokens[i + length]!.norm === tokens[j + length]!.norm) length += 1;
+        const length = runLength(i, j);
         if (length < REPEAT_WORDS) continue;
         const last = tokens[i + length - 1]!.span;
         if (!last || first.startMs - last.endMs > REPEAT_GAP_MS) continue;
@@ -221,6 +237,37 @@ export function findRepetitions(tokens: readonly Token[]): Removal[] {
       }
     }
     if (!advanced) j += 1;
+  }
+
+  // The untimed tail: tokens from `tail` to the end have no trusted time.
+  let tail = n;
+  while (tail > 0 && tokens[tail - 1]!.span === null) tail -= 1;
+  if (n - tail >= REPEAT_WORDS) {
+    const removed = removals.slice();
+    const extra: Removal[] = [];
+    const taken = (at: number): boolean => removed.some((r) => at >= r.fromToken && at < r.toToken);
+    let at = tail;
+    while (at + REPEAT_WORDS <= n) {
+      if (taken(at)) {
+        at += 1;
+        continue;
+      }
+      indexUpTo(at);
+      let advanced = false;
+      for (const i of (index.get(gram(at)) ?? []).slice(0, MAX_CANDIDATES)) {
+        let length = runLength(i, at);
+        // A match never runs into tokens the timed rule already took.
+        for (let k = 0; k < length; k += 1) if (taken(at + k)) length = k;
+        if (length < REPEAT_WORDS) continue;
+        extra.push({ fromToken: at, toToken: at + length });
+        at += length;
+        advanced = true;
+        break;
+      }
+      if (!advanced) at += 1;
+    }
+    removals.push(...extra);
+    removals.sort((a, b) => a.fromToken - b.fromToken);
   }
   return removals;
 }

@@ -29,6 +29,18 @@ const run = (parts: PartWords[], gaps: { startMs: number; endMs: number }[] = []
 };
 const textOf = (segments: { text: string }[]) => segments.map((s) => s.text).join(" ");
 
+/** Filler words every 5 s over `[from, to]` (unique text per part) so that no stretch of the part is a 20 s hole. */
+const pad = (number: number, from: number, to: number, label: string, words: SpeechWord[], except: [number, number] | null = null): SpeechWord[] => {
+  const filler: SpeechWord[] = [];
+  for (let t = from + 2.5, i = 0; t < to; t += 5, i += 1) {
+    if (except && t > except[0] && t < except[1]) continue;
+    // never inside a stretch of real speech: filler must not break the runs the test is about
+    if (words.some((w) => w.span && t >= w.span.startMs / 1000 - 0.5 && t <= w.span.endMs / 1000 + 0.5)) continue;
+    filler.push(word(`fill${number}_${i}`, label, [t, t + 0.2]));
+  }
+  return [...words, ...filler].sort((x, y) => (x.span?.startMs ?? 0) - (y.span?.startMs ?? 0));
+};
+
 describe("D1: speech returned twice inside one part (AC-6.13)", () => {
   const phrase = (from: number) => "il budget del prossimo trimestre va rivisto subito".split(" ").map((t, i) => word(t, "p1:1", [from + i * 0.3, from + i * 0.3 + 0.25]));
 
@@ -49,8 +61,8 @@ describe("D2: the overlap of two parts (AC-6.13)", () => {
 
   it("speech returned by both parts appears once, part 1's version", () => {
     const { segments, stats } = run([
-      part(1, 0, 600, [...say("p1:1", "pre", 0, 5, 10), ...aP1]),
-      part(2, 510, 1110, [...aP2, ...say("p2:2", "post", 0, 5, 700)]),
+      part(1, 0, 600, pad(1, 0, 600, "p1:1", [...say("p1:1", "pre", 0, 5, 10), ...aP1])),
+      part(2, 510, 1110, pad(2, 510, 1110, "p2:2", [...aP2, ...say("p2:2", "post", 0, 5, 700)])),
     ]);
     const text = textOf(segments);
     for (let i = 0; i < 30; i += 1) expect(text.split(" ").filter((w) => w === `w${i}`)).toHaveLength(1);
@@ -63,7 +75,7 @@ describe("D2: the overlap of two parts (AC-6.13)", () => {
     // part 2 heard 10 more words at the end of the overlap that part 1 did not return, part 1 heard 5 that part 2 lacks
     const onlyOne = say("p2:2", "extra", 0, 10, 560);
     const onlyTwo = say("p1:1", "lost", 0, 5, 535);
-    const { segments } = run([part(1, 0, 600, [...aP1, ...onlyTwo]), part(2, 510, 1110, [...aP2, ...onlyOne])]);
+    const { segments } = run([part(1, 0, 600, pad(1, 0, 600, "p1:1", [...aP1, ...onlyTwo])), part(2, 510, 1110, pad(2, 510, 1110, "p2:2", [...aP2, ...onlyOne]))]);
     const words = textOf(segments).split(" ");
     for (let i = 0; i < 10; i += 1) expect(words).toContain(`extra${i}`);
     for (let i = 0; i < 5; i += 1) expect(words).toContain(`lost${i}`);
@@ -73,9 +85,10 @@ describe("D2: the overlap of two parts (AC-6.13)", () => {
   it("a phrase said twice inside the overlap keeps both copies (an alignment cannot collapse two copies in one version)", () => {
     const phrase = (label: string, from: number) => "il budget del prossimo trimestre va rivisto subito".split(" ").map((t, i) => word(t, label, [from + i * 0.3, from + i * 0.3 + 0.25]));
     // said at 520 s and again at 540 s (more than 2 s apart: D1 keeps both); both versions return both copies
-    const one = [...phrase("p1:1", 520), ...phrase("p1:1", 540)];
-    const two = [...phrase("p2:2", 520), ...phrase("p2:2", 540)];
-    const { segments } = run([part(1, 0, 600, one), part(2, 510, 1110, two)]);
+    // (and 25 more words in both, so that the overlap joins the two labels, AC-6.14)
+    const one = [...phrase("p1:1", 520), ...phrase("p1:1", 540), ...say("p1:1", "j", 0, 25, 560)];
+    const two = [...phrase("p2:2", 520), ...phrase("p2:2", 540), ...say("p2:2", "j", 0, 25, 560)];
+    const { segments } = run([part(1, 0, 600, pad(1, 0, 600, "p1:1", one)), part(2, 510, 1110, pad(2, 510, 1110, "p2:2", two))]);
     expect(textOf(segments).split(" ").filter((w) => w === "budget")).toHaveLength(2);
   });
 
@@ -88,17 +101,50 @@ describe("D2: the overlap of two parts (AC-6.13)", () => {
   });
 });
 
-/** Filler words every 5 s over `[from, to]` (unique text per part) so that no stretch of the part is a 20 s hole. */
-const pad = (number: number, from: number, to: number, label: string, words: SpeechWord[], except: [number, number] | null = null): SpeechWord[] => {
-  const filler: SpeechWord[] = [];
-  for (let t = from + 2.5, i = 0; t < to; t += 5, i += 1) {
-    if (except && t > except[0] && t < except[1]) continue;
-    // never inside a stretch of real speech: filler must not break the runs the test is about
-    if (words.some((w) => w.span && t >= w.span.startMs / 1000 - 0.5 && t <= w.span.endMs / 1000 + 0.5)) continue;
-    filler.push(word(`fill${number}_${i}`, label, [t, t + 0.2]));
-  }
-  return [...words, ...filler].sort((x, y) => (x.span?.startMs ?? 0) - (y.span?.startMs ?? 0));
-};
+describe("D2 and the speaker condition (AC-6.13 with AC-6.14, amendment A8)", () => {
+  const seam = (n: number, labelA: string, labelB: string, unlabelled: "none" | "first" | "second" = "none") => {
+    const [a, b] = overlapSpeech(n, labelA, labelB);
+    const mark = (words: SpeechWord[]) => words.map((w) => ({ ...w, unlabelled: true }));
+    return [
+      part(1, 0, 600, pad(1, 0, 600, labelA, [...(unlabelled === "first" ? mark(a) : a)])),
+      part(2, 510, 1110, pad(2, 510, 1110, labelB, [...(unlabelled === "second" ? mark(b) : b), ...say(labelB, "post", 0, 5, 700)])),
+    ];
+  };
+  const count = (segments: { text: string }[], w: string) => textOf(segments).split(" ").filter((x) => x === w).length;
+
+  it("a label JOINED by the overlap counts as the same label: the duplicates are removed", () => {
+    const { segments, stats } = run(seam(30, "p1:1", "p2:2"));
+    expect(stats.joined).toBe(1);
+    expect(stats.removedInOverlap).toBe(30);
+    expect(count(segments, "w3")).toBe(1);
+  });
+
+  it("aligned words whose labels the overlap did NOT join are two speakers saying the same thing: both stay", () => {
+    // 19 aligned words are below the match bound (AC-6.14): no join, so the labels are different
+    const { segments, stats } = run(seam(19, "p1:1", "p2:2"));
+    expect(stats.joined).toBe(0);
+    expect(stats.removedInOverlap).toBe(0);
+    expect(count(segments, "w3")).toBe(2);
+  });
+
+  it("a word without a label on either side is compatible with any: removed even with no join", () => {
+    for (const side of ["first", "second"] as const) {
+      const { segments, stats } = run(seam(19, "p1:1", "p2:2", side));
+      expect(stats.removedInOverlap).toBe(19);
+      expect(count(segments, "w3")).toBe(1);
+    }
+  });
+
+  it("a hole at the seam (J0) refuses the join, so its aligned words are kept from both parts", () => {
+    const [a, b] = overlapSpeech(30, "p1:1", "p2:2");
+    // part 1 has nothing between 530 s and 590 s except its aligned words ending at 532; a 20 s untimed-free hole follows
+    const p1 = part(1, 0, 600, [...a, word("tailword", "p1:1", [599, 599.5])]);
+    const p2 = part(2, 510, 1110, [...b, word("after", "p2:2", [700, 701])]);
+    const { stats } = run([p1, p2]);
+    expect(stats.joined).toBe(0);
+    expect(stats.removedInOverlap).toBe(0);
+  });
+});
 
 describe("joins (AC-6.14, AC-6.15, AC-6.2)", () => {
   const keyOfWord = (segments: ReturnType<typeof run>["segments"], w: string) => segments.find((s) => s.text.split(" ").includes(w))!.speakerKey;
@@ -203,12 +249,15 @@ describe("joins (AC-6.14, AC-6.15, AC-6.2)", () => {
 
 describe("segments across the seam (AC-6.1, AC-6.5)", () => {
   const [one, two] = overlapSpeech(30, "p1:1", "p2:2");
-  const parts = () => [part(1, 0, 600, [...say("p1:1", "pre", 0, 5, 10), ...one]), part(2, 510, 1110, [...two, ...say("p2:2", "post", 0, 5, 700)])];
+  const parts = () => [
+    part(1, 0, 600, pad(1, 0, 600, "p1:1", [...say("p1:1", "pre", 0, 5, 10), ...one])),
+    part(2, 510, 1110, pad(2, 510, 1110, "p2:2", [...two, ...say("p2:2", "post", 0, 5, 700)])),
+  ];
 
   it("starts are non-decreasing across the seam and never later than the first trusted word", () => {
     const { segments } = run(parts());
     for (let i = 1; i < segments.length; i += 1) expect(segments[i]!.startMs).toBeGreaterThanOrEqual(segments[i - 1]!.startMs);
-    expect(segments.find((s) => s.text.startsWith("post0"))!.startMs).toBeLessThanOrEqual(S(700));
+    expect(segments.find((s) => s.text.split(" ").includes("post0"))!.startMs).toBeLessThanOrEqual(S(700));
   });
 
   it("a segment never spans a gap, and a segment carries one part", () => {

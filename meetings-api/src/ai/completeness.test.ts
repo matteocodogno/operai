@@ -111,7 +111,7 @@ describe("gaps (AC-6.11, AC-6.12, H-3)", () => {
     expect(assess(part(words, 0, 60), NO_SILENCE).gaps).toHaveLength(0);
   });
 
-  it("detectably incomplete means a gap or a repetition", () => {
+  it("detectably incomplete means a gap, and only a gap (A8: a repetition is removed by the stitcher, never a reason to retry)", () => {
     const clean = assess(part([word("a", [0, 1])], 0, 5), NO_SILENCE);
     expect(isIncomplete(clean)).toBe(false);
     expect(isIncomplete(assess(part([word("a", [0, 1])], 0, 60), NO_SILENCE))).toBe(true);
@@ -184,11 +184,84 @@ describe("repetitions (AC-6.13, D1)", () => {
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
-  it("a repetition makes the try detectably incomplete and ranks below a clean one", () => {
+  it("a repetition is reported but does NOT make the try detectably incomplete (A8)", () => {
     const repeated = assess(part([...say(phrase, 0), ...say(phrase, 3.9)], 0, 10), NO_SILENCE);
     expect(repeated.repetitions).toHaveLength(1);
     expect(repeated.gaps).toHaveLength(0);
-    expect(isIncomplete(repeated)).toBe(true);
+    expect(isIncomplete(repeated)).toBe(false);
+  });
+
+  // A8 rule 2: the same speaker label, or at least one passage without a label.
+  const said = (text: string, from: number, label: string, unlabelled = false) =>
+    say(text, from).map((w) => ({ ...w, label, ...(unlabelled ? { unlabelled: true } : {}) }));
+
+  it("equal words in time but under two different speaker labels are two speakers saying the same thing: kept", () => {
+    expect(found([...said(phrase, 0, "p1:1"), ...said(phrase, 3.9, "p1:2")])).toEqual([]);
+    expect(found([...said(phrase, 0, "p1:1"), ...said(phrase, 1, "p1:2")])).toEqual([]);
+  });
+
+  it("the same label, or no label on either side, is the same speaker's repetition: removed", () => {
+    expect(found([...said(phrase, 0, "p1:1"), ...said(phrase, 3.9, "p1:1")])).toHaveLength(1);
+    expect(found([...said(phrase, 0, "p1:1"), ...said(phrase, 3.9, "p1:0", true)])).toHaveLength(1);
+    expect(found([...said(phrase, 0, "p1:0", true), ...said(phrase, 3.9, "p1:2")])).toHaveLength(1);
+  });
+
+  it("a label that changes in the middle of the second copy ends the match there: under 8 words stay", () => {
+    const second = said(phrase, 3.9, "p1:1").map((w, i) => (i >= 6 ? { ...w, label: "p1:2" } : w));
+    expect(found([...said(phrase, 0, "p1:1"), ...second])).toEqual([]);
+  });
+});
+
+describe("a repeated tail of untimed words (A8 rule 2)", () => {
+  const sentence = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`);
+  /** `texts` timed one per second from `from`. */
+  const timed = (texts: string[], from: number, label = "p1:1") => texts.map((t, i) => word(t, [from + i, from + i + 0.5], { label }));
+  const untimed = (texts: string[], label = "p1:1", extra: Partial<SpeechWord> = {}) => texts.map((t) => word(t, null, { label, ...extra }));
+  const found = (words: SpeechWord[]) => findRepetitions(tokensOf(words));
+
+  it("an untimed run at the end that repeats earlier text is dropped by content, however far apart", () => {
+    const earlier = sentence(20);
+    const words = [...timed(earlier, 0), ...timed(["zz1", "zz2"], 500), ...untimed(earlier.slice(4, 16))];
+    expect(found(words)).toEqual([{ fromToken: 22, toToken: 34 }]);
+  });
+
+  it("speech present in only one version is kept: new words around the match stay", () => {
+    const earlier = sentence(20);
+    const words = [...timed(earlier, 0), ...untimed(["novel1", "novel2", ...earlier.slice(4, 14), "novel3"])];
+    // tokens: 20 timed, then novel1 novel2 [10 matched] novel3
+    expect(found(words)).toEqual([{ fromToken: 22, toToken: 32 }]);
+  });
+
+  it("fewer than 8 consecutive equal words stay", () => {
+    const earlier = sentence(20);
+    expect(found([...timed(earlier, 0), ...untimed(earlier.slice(4, 11))])).toEqual([]);
+  });
+
+  it("only a run at the very END of the part: untimed words followed by a timed word are not a tail", () => {
+    const earlier = sentence(20);
+    expect(found([...timed(earlier, 0), ...untimed(earlier.slice(4, 16)), ...timed(["last"], 600)])).toEqual([]);
+  });
+
+  it("the same speaker label, or no label on either side; a different label keeps the words", () => {
+    const earlier = sentence(20);
+    const copy = earlier.slice(4, 16);
+    expect(found([...timed(earlier, 0), ...untimed(copy, "p1:2")])).toEqual([]);
+    expect(found([...timed(earlier, 0), ...untimed(copy, "p1:0", { unlabelled: true })])).toHaveLength(1);
+    expect(found([...timed(earlier, 0).map((w) => ({ ...w, label: "p1:0", unlabelled: true })), ...untimed(copy, "p1:2")])).toHaveLength(1);
+  });
+
+  it("a tail that repeats nothing is kept", () => {
+    const earlier = sentence(20);
+    expect(found([...timed(earlier, 0), ...untimed(sentence(12).map((t) => `x${t}`))])).toEqual([]);
+  });
+
+  it("does not remove the same tokens twice when the timed rule already took them", () => {
+    const earlier = sentence(20);
+    const words = [...timed(earlier, 0), ...timed(earlier.slice(0, 10), 20.5), ...untimed(earlier.slice(10, 20))];
+    const removed = found(words).reduce((n, r) => n + (r.toToken - r.fromToken), 0);
+    expect(removed).toBeLessThanOrEqual(20);
+    const covered = new Set<number>();
+    for (const r of found(words)) for (let i = r.fromToken; i < r.toToken; i += 1) expect(covered.has(i)).toBe(false), covered.add(i);
   });
 });
 
@@ -209,8 +282,8 @@ describe("ranking tries (AC-6.11)", () => {
     expect(isBetter(attempt([gap(0, 30)]), attempt([gap(0, 40)]))).toBe(true);
     expect(isBetter(attempt([gap(0, 40)]), attempt([gap(0, 30)]))).toBe(false);
   });
-  it("then no repetition over repetition", () => {
-    expect(isBetter(attempt([gap(0, 30)]), attempt([gap(0, 30)], true))).toBe(true);
+  it("a repetition never ranks a try (A8): the same gaps are a tie, whichever has it", () => {
+    expect(isBetter(attempt([gap(0, 30)]), attempt([gap(0, 30)], true))).toBe(false);
     expect(isBetter(attempt([gap(0, 30)], true), attempt([gap(0, 30)]))).toBe(false);
   });
   it("a complete tie keeps the earlier try (the candidate is never better)", () => {

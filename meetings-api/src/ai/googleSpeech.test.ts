@@ -68,6 +68,8 @@ interface Scenario {
   realDelayMs?: number;
   /** Shared by several worlds: counts operations submitted and not yet done. */
   inflight?: { now: number; peak: number };
+  /** Tries per part; default the shipped bound (`MAX_TRIES`, 1 since A8). The retry tests raise it to exercise the machinery. */
+  maxTries?: number;
 }
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
@@ -156,6 +158,7 @@ function world(scenario: Scenario = {}) {
     },
     split: scenario.split ?? (async () => ({ parts, silences: scenario.silences ?? ALL_SILENT, durationMs: parts[parts.length - 1]!.endMs })),
     ...(scenario.wordOffsets !== undefined ? { wordOffsets: scenario.wordOffsets } : {}),
+    ...(scenario.maxTries !== undefined ? { maxTries: scenario.maxTries } : {}),
   });
   const run = (locale: "it-IT" | "en-US" = "en-US", signal?: AbortSignal, context = { meetingId: MEETING, attempt: ATTEMPT }) =>
     transcriber.transcribe(new Blob(["audio"]), locale, 3, signal, context);
@@ -683,6 +686,14 @@ describe("pure helpers", () => {
     const part = wordsOfPart({ results: [{ alternatives: [{ transcript: "x", words: [{ word: "x", speakerLabel: "../evil label" }] }], resultEndOffset: "1s" }] }, 3, 0, 600_000, false)!;
     expect(part.words[0]!.label).toBe("p3:0");
   });
+
+  it("marks a word with no usable speaker label as unlabelled (AC-6.13), and a real label `0` as a label", () => {
+    const words = [{ word: "a", speakerLabel: "0" }, { word: "b" }, { word: "c", speakerLabel: "../evil" }, { word: "d", speakerLabel: "2" }];
+    const part = wordsOfPart({ results: [{ alternatives: [{ transcript: "a b c d", words }] }] }, 1, 0, 600_000, false)!;
+    expect(part.words.map((w) => w.unlabelled === true)).toEqual([false, true, true, false]);
+    const bare = wordsOfPart({ results: [{ alternatives: [{ transcript: "uno due" }] }] }, 1, 0, 600_000, false)!;
+    expect(bare.words.every((w) => w.unlabelled === true)).toBe(true);
+  });
 });
 
 // ─── Per-part tries, the detector and the stitcher through the adapter (H-4, AC-6.7, AC-6.11, AC-6.12, AC-4.12) ───
@@ -706,7 +717,7 @@ const completeDoc = (tag: string) => docOf(speech(tag, 0, 100));
 const holedDoc = (tag: string, resume = 70) => docOf(speech(tag, 0, 10), speech(`${tag}b`, resume, 100));
 const textOfOutcome = (outcome: TranscriptionOutcome) => segmentsOf(outcome).segments.map((s) => s.text).join(" ");
 
-describe("tries of a part (AC-6.11, H-4)", () => {
+describe("tries of a part (AC-6.11, H-4; the bound is 1 since A8, the retry tests raise it with `maxTries`)", () => {
   it("a complete part is submitted once, its input put once and every copy deleted as soon as it has been used (AC-4.12)", async () => {
     const w = world({ spans: A_PART, silences: [], output: () => completeDoc("a") });
     const outcome = await w.run();
@@ -723,7 +734,7 @@ describe("tries of a part (AC-6.11, H-4)", () => {
   });
 
   it("a part with a gap is transcribed again, in a prefix of its own, and the complete try is kept", async () => {
-    const w = world({ spans: A_PART, silences: [], output: (_part, tryNo) => (tryNo === 1 ? holedDoc("a") : completeDoc("b")) });
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: (_part, tryNo) => (tryNo === 1 ? holedDoc("a") : completeDoc("b")) });
     const outcome = await w.run();
     expect(w.submits).toEqual([
       { part: 1, tryNo: 1 },
@@ -739,17 +750,31 @@ describe("tries of a part (AC-6.11, H-4)", () => {
     cleaned(w.storage);
   });
 
+  it("by default a part is transcribed ONCE (A8): a gap is marked, nothing is uploaded or polled a second time", async () => {
+    expect(MAX_TRIES).toBe(1);
+    const w = world({ spans: A_PART, silences: [], output: (_part, tryNo) => (tryNo === 1 ? holedDoc("a") : completeDoc("b")) });
+    const outcome = segmentsOf(await w.run());
+    expect(w.submits).toEqual([{ part: 1, tryNo: 1 }]);
+    expect(w.seen.filter((r) => r.method === "POST")).toHaveLength(1);
+    expect(w.storage.events.filter((e) => e.op === "put")).toHaveLength(1);
+    expect([...w.polls.keys()]).toEqual(["1-1"]);
+    expect(textOfOutcome(outcome).split(" ")).toContain("a0");
+    expect(textOfOutcome(outcome).split(" ")).not.toContain("b0");
+    expect(outcome.gaps).toEqual([{ startMs: 9_500, endMs: 70_000 }]); // final gap and caveats unchanged
+    cleaned(w.storage);
+    expect(logged.find((l) => l.startsWith("[transcribe] parts="))).toContain("tries=1");
+  });
+
   it("a part still incomplete after three tries keeps the best: fewest gaps, then least gap time (the gap is reported, in meeting time)", async () => {
     const tries: Record<number, string> = {
       1: docOf(speech("a", 0, 10), speech("ab", 40, 50), speech("ac", 80, 100)), // two gaps
       2: holedDoc("mid", 70), // one gap of 60.5 s
       3: holedDoc("best", 50), // one gap of 40.5 s: the best
     };
-    const w = world({ spans: A_PART, silences: [], output: (_part, tryNo) => tries[tryNo]! });
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: (_part, tryNo) => tries[tryNo]! });
     const outcome = segmentsOf(await w.run());
     expect(w.submits.map((s) => s.tryNo)).toEqual([1, 2, 3]);
-    expect(MAX_TRIES).toBe(3);
-    expect(textOfOutcome(outcome)).toContain("best0");
+        expect(textOfOutcome(outcome)).toContain("best0");
     expect(textOfOutcome(outcome)).not.toContain("mid0");
     expect(textOfOutcome(outcome)).not.toContain("a0");
     expect(outcome.gaps).toEqual([{ startMs: 9_500, endMs: 50_000 }]);
@@ -757,7 +782,7 @@ describe("tries of a part (AC-6.11, H-4)", () => {
   });
 
   it("on a complete tie the earlier try stays", async () => {
-    const w = world({ spans: A_PART, silences: [], output: (_part, tryNo) => holedDoc(`t${tryNo}`) });
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: (_part, tryNo) => holedDoc(`t${tryNo}`) });
     const outcome = await w.run();
     expect(w.submits).toHaveLength(3);
     expect(textOfOutcome(outcome)).toContain("t10");
@@ -768,6 +793,7 @@ describe("tries of a part (AC-6.11, H-4)", () => {
     const w = world({
       spans: [{ startMs: 0, endMs: 100_000 }, { startMs: 3_600_000, endMs: 3_700_000 }],
       silences: [],
+      maxTries: 3,
       output: (part, tryNo) => (part === 1 ? completeDoc("a") : holedDoc(`p${tryNo}`)),
     });
     const outcome = segmentsOf(await w.run());
@@ -787,6 +813,7 @@ describe("tries of a part (AC-6.11, H-4)", () => {
     const w = world({
       spans: A_PART,
       silences: [],
+      maxTries: 3,
       output: () => holedDoc("a"),
       submit: (_part, tryNo) => (tryNo === 2 ? json({}, 503) : undefined) as Response,
     });
@@ -807,7 +834,7 @@ describe("tries of a part (AC-6.11, H-4)", () => {
 
   it("a lost lease during a retry aborts with the lease's own reason, not a settled part", async () => {
     const controller = new AbortController();
-    const w = world({ spans: A_PART, silences: [], output: () => holedDoc("a"), poll: (_p, n, tryNo) => {
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: () => holedDoc("a"), poll: (_p, n, tryNo) => {
       if (tryNo === 2 && n === 1) controller.abort(new Error("lease lost"));
       return n === 1 ? "running" : "done";
     } });
@@ -816,14 +843,17 @@ describe("tries of a part (AC-6.11, H-4)", () => {
     cleaned(w.storage);
   });
 
-  it("a repetition makes a part detectably incomplete as well: it is transcribed again, and the clean try wins", async () => {
+  it("a repetition is NOT detectable incompleteness (A8): one try, the stitcher removes the repeat, even with retries enabled", async () => {
     const phrase = (tag: string, from: number) => "il budget del prossimo trimestre va rivisto subito".split(" ").map((t, i) => W(`${tag}${t}`, from + i * 0.3, from + i * 0.3 + 0.25));
     const repeated = docOf(speech("pad", 0, 20), phrase("x", 20), phrase("x", 23.9), speech("tail", 30, 60));
     const clean = docOf(speech("pad", 0, 20), phrase("x", 20), speech("tail", 30, 60));
-    const w = world({ spans: [{ startMs: 0, endMs: 60_000 }], silences: [], output: (_p, tryNo) => (tryNo === 1 ? repeated : clean) });
-    const outcome = await w.run();
-    expect(w.submits.map((s) => s.tryNo)).toEqual([1, 2]);
-    expect(segmentsOf(outcome).gaps).toEqual([]);
+    for (const maxTries of [undefined, 3]) {
+      const w = world({ spans: [{ startMs: 0, endMs: 60_000 }], silences: [], ...(maxTries ? { maxTries } : {}), output: (_p, tryNo) => (tryNo === 1 ? repeated : clean) });
+      const outcome = await w.run();
+      expect(w.submits.map((s) => s.tryNo)).toEqual([1]);
+      expect(segmentsOf(outcome).gaps).toEqual([]);
+      expect(textOfOutcome(outcome).split(" ").filter((t) => t === "xbudget")).toHaveLength(1); // the repeat is gone
+    }
   });
 
   it("writes no ai_request row: transcription retries are not AI requests (AC-13.4)", () => {
@@ -845,18 +875,24 @@ describe("an empty transcript (AC-6.7)", () => {
     expect(w.submits).toHaveLength(1);
   });
 
-  it("empty although the recording has sound and no marker, after three tries: speech_not_transcribed, permanent, never 'no speech'", async () => {
+  it("empty although the recording has sound and no marker: speech_not_transcribed, permanent, never 'no speech', after ONE try (A8)", async () => {
     const w = world({ spans: A_PART, silences: [], output: () => "{}" });
     const error = (await rejection(w.run())) as TranscriptionError;
     expect(error).toBeInstanceOf(TranscriptionError);
     expect(error.code).toBe("speech_not_transcribed");
     expect(error.transient).toBe(false);
-    expect(w.submits.map((s) => s.tryNo)).toEqual([1, 2, 3]);
+    expect(w.submits.map((s) => s.tryNo)).toEqual([1]);
     cleaned(w.storage);
   });
 
-  it("a second try that finds the speech turns the same part into a transcript", async () => {
-    const w = world({ spans: A_PART, silences: [], output: (_p, tryNo) => (tryNo === 1 ? "{}" : completeDoc("b")) });
+  it("with retries enabled the same empty part is tried three times first (the machinery is kept, behind the bound)", async () => {
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: () => "{}" });
+    expect(((await rejection(w.run())) as TranscriptionError).code).toBe("speech_not_transcribed");
+    expect(w.submits.map((s) => s.tryNo)).toEqual([1, 2, 3]);
+  });
+
+  it("a second try that finds the speech turns the same part into a transcript (retries enabled)", async () => {
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: (_p, tryNo) => (tryNo === 1 ? "{}" : completeDoc("b")) });
     const outcome = segmentsOf(await w.run());
     expect(outcome.gaps).toEqual([]);
     expect(textOfOutcome(outcome)).toContain("b0");
@@ -926,6 +962,7 @@ describe("overlapping parts through the adapter (AC-6.12, AC-6.13, AC-6.14)", ()
     const w = world({
       spans: OVERLAP,
       silences: [],
+      maxTries: 3,
       output: (part) => (part === 1 ? version(0, 600, () => "1", (t) => t >= 520 && t < 590) : version(510, 1110, () => "1")),
     });
     const outcome = segmentsOf(await w.run());
@@ -949,7 +986,7 @@ describe("overlapping parts through the adapter (AC-6.12, AC-6.13, AC-6.14)", ()
 
 describe("what the adapter logs (AC-4.10)", () => {
   it("one line of counts per attempt, no range, no text, no id", async () => {
-    const w = world({ spans: A_PART, silences: [], output: (_p, tryNo) => (tryNo === 1 ? holedDoc("a") : completeDoc("b")) });
+    const w = world({ spans: A_PART, silences: [], maxTries: 3, output: (_p, tryNo) => (tryNo === 1 ? holedDoc("a") : completeDoc("b")) });
     await w.run();
     const line = logged.find((l) => l.startsWith("[transcribe] parts="))!;
     expect(line).toBe("[transcribe] parts=1 tries=2 gaps=0 excused=0 removed=0 joined=0 separate=0");
