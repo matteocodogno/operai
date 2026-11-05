@@ -101,3 +101,21 @@ ec0ae4f9397edcc772125d21e8b580d36c58b07e:notify-api/src/system/serviceJwt.isolat
 f3d016d93a7c609dbc4b7193e8b472afea76da11:refund-api/src/lib/serviceToken.test.ts:generic-credential-uri:10
 # This file's own earlier comment quoted those compose defaults (fixed since):
 798af6a98795b78d84aa4ef41857a80f33be734a:.betterleaksignore:generic-password:58
+
+# specs/021-meetings (T92) — reviewed placeholders, none is a real secret.
+# meetings-api test preload + README: the local compose Postgres default credentials for a
+# throwaway meetings_test DB (same pattern as crm-api/src/test-support/testAuth.ts and the
+# inventory-api entries above). The README line and the commit-less forms are for the working tree.
+6d9c6bd2f3d0f0c7a9ac7f055d8fb9577a2c3cf9:meetings-api/src/test-support/testEnv.ts:generic-credential-uri:11
+meetings-api/src/test-support/testEnv.ts:generic-credential-uri:11
+f493a15f22a6c54d93843933888f1bba3b00791a:meetings-api/README.md:generic-credential-uri:51
+meetings-api/README.md:generic-credential-uri:52
+# notify-api repo test: an inert URL (host port 1, user and db both "unused") so the Prisma import
+# does not throw; the suite never connects.
+d8a81bcc7dc506fccf75d59e16db6c98aa337486:notify-api/src/notifications/notifications.repo.test.ts:generic-credential-uri:11
+notify-api/src/notifications/notifications.repo.test.ts:generic-credential-uri:11
+# meetings-api prompt-injection eval fixture: the English summary fixture embeds a fake
+# credential-exfiltration payload (a JSON "admin_password" dump) that the summariser must NOT
+# reproduce. The value is a canonical fake; keeping it credential-shaped is the point of the test.
+f82991fc3f8edfa44109deea4deb8a99887795d5:meetings-api/evals/fixtures/summary.en.ts:generic-password:58
+meetings-api/evals/fixtures/summary.en.ts:generic-password:57
