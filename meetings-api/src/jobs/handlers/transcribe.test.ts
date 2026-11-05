@@ -120,6 +120,58 @@ describe("a transcript comes back", () => {
   });
 });
 
+describe("transcript parts (ADR-0070, AC-6.1, AC-6.2)", () => {
+  const seg = (ordinal: number, speakerKey: string, startMs: number) => ({ ordinal, startMs, endMs: startMs + 1000, speakerKey, text: `line ${ordinal}` });
+
+  it("hands the transcriber the meeting and the attempt (the transient prefix is per attempt)", async () => {
+    const m = await setup();
+    await run(m.id, { attempt: 2 });
+    expect(fake.calls[0]!.context).toEqual({ meetingId: m.id, attempt: 2 });
+  });
+
+  it("one part is stored as [0]", async () => {
+    const m = await setup();
+    await run(m.id);
+    expect((await reread(m.id)).transcriptPartStartsMs).toEqual([0]);
+  });
+
+  it("three parts store their starts in the same commit as the segments, with speakers s1..s5 across parts", async () => {
+    const m = await setup();
+    fake.respondWith({
+      kind: "segments",
+      partStartsMs: [0, 3_600_000, 7_200_000],
+      segments: [seg(0, "s1", 0), seg(1, "s2", 2000), seg(2, "s3", 3_600_000), seg(3, "s4", 3_602_000), seg(4, "s5", 7_200_000)],
+    });
+    await run(m.id);
+    const after = await reread(m.id);
+    expect(after.transcriptPartStartsMs).toEqual([0, 3_600_000, 7_200_000]);
+    expect(after.status).toBe("ready");
+    expect([...new Set((await segmentsOf(m.id)).map((s) => s.speakerKey))]).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+  });
+
+  it("a retry replaces the parts, never merges them", async () => {
+    const m = await setup();
+    await db.meeting.update({ where: { id: m.id }, data: { transcriptPartStartsMs: [0, 111, 222] } });
+    fake.respondWith({ kind: "segments", segments: [seg(0, "s1", 0)], partStartsMs: [0, 500] });
+    await run(m.id);
+    expect((await reread(m.id)).transcriptPartStartsMs).toEqual([0, 500]);
+  });
+
+  it("a stale claim writes no parts", async () => {
+    const m = await setup();
+    await run(m.id, { stale: true });
+    expect((await reread(m.id)).transcriptPartStartsMs).toEqual([]);
+  });
+
+  it("a failed attempt leaves the parts as they were (empty), with no segments", async () => {
+    const m = await setup();
+    fake.failWith(new TranscriptionError("provider_rejected", false, 403));
+    await run(m.id).catch(() => {});
+    expect((await reread(m.id)).transcriptPartStartsMs).toEqual([]);
+    expect(await segmentsOf(m.id)).toHaveLength(0);
+  });
+});
+
 describe("no speech (AC-6.7)", () => {
   it("is a ready meeting with noSpeech and no segments", async () => {
     const m = await setup();
@@ -127,14 +179,15 @@ describe("no speech (AC-6.7)", () => {
     await run(m.id);
     expect(await reread(m.id)).toMatchObject({ status: "ready", stage: null, noSpeech: true });
     expect(await segmentsOf(m.id)).toHaveLength(0);
+    expect((await reread(m.id)).transcriptPartStartsMs).toEqual([]);
     expect(pushed.map((e) => e.kind)).toEqual(["transcription_done"]);
   });
 
   it("segments that are all empty text count as no speech", async () => {
     const m = await setup();
-    fake.respondWith({ kind: "segments", segments: [] });
+    fake.respondWith({ kind: "segments", segments: [], partStartsMs: [0, 100] });
     await run(m.id);
-    expect(await reread(m.id)).toMatchObject({ status: "ready", noSpeech: true });
+    expect(await reread(m.id)).toMatchObject({ status: "ready", noSpeech: true, transcriptPartStartsMs: [] });
   });
 });
 

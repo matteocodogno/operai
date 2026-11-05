@@ -5,7 +5,7 @@
  * Takes `audio.ogg` (put there by `prepare_audio`), sends it to the transcriber with the
  * meeting's OWN locale (chosen by its creator, never detected) and writes the outcome:
  *
- *   segments  -> `ready`, the segments stored in ONE transaction with the status change
+ *   segments  -> `ready`, the segments and the parts' start offsets stored in ONE transaction with the status change
  *   noSpeech  -> `ready` + `noSpeech`, no segments (AC-6.7)
  *   an error  -> `failed` + a closed code, no segments ever (AC-6.9)
  *
@@ -83,8 +83,12 @@ export function createTranscribeHandler(overrides: Partial<TranscribeDeps> = {})
       const audio = new Blob([await Bun.file(file).arrayBuffer()], { type: "audio/ogg" });
       const participants = await deps.db.meetingParticipant.count({ where: { meetingId } });
 
-      const outcome = await (await deps.transcriber()).transcribe(audio, LOCALE_OF[meeting.language], maxSpeakersFor(participants), ctx.signal);
+      const outcome = await (
+        await deps.transcriber()
+      ).transcribe(audio, LOCALE_OF[meeting.language], maxSpeakersFor(participants), ctx.signal, { meetingId, attempt: ctx.attempt });
       const segments = outcome.kind === "segments" ? outcome.segments : [];
+      // Where each part starts (ADR-0070): [0] for one part, none for a meeting that heard nothing.
+      const partStartsMs = outcome.kind === "segments" && segments.length > 0 ? [...outcome.partStartsMs] : [];
 
       const result = await ctx.commit(async (tx) => {
         const written = await tx.meeting.updateMany({
@@ -96,6 +100,8 @@ export function createTranscribeHandler(overrides: Partial<TranscribeDeps> = {})
             failureCode: null,
             processedAt: deps.now(),
             transcriptVersion: { increment: 1 },
+            // Replaced with the segments, never merged: a retry's parts are the parts.
+            transcriptPartStartsMs: partStartsMs,
           },
         });
         if (written.count === 0) return false;

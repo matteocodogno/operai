@@ -7,7 +7,7 @@ import { authDown, forgetAuth, CREATOR, OTHER, call, db, json, kit, mkMeeting, u
 useKit();
 
 interface Seg { id: string; ordinal: number; startMs: number | null; endMs: number | null; speakerKey: string | null; text: string; edited: boolean; version: number }
-interface Transcript { version: number; segments: Seg[]; speakers: { key: string; label: { kind: string; index?: number; participantId?: string; text?: string } }[] }
+interface Transcript { version: number; parts: { index: number; startMs: number }[]; segments: Seg[]; speakers: { key: string; label: { kind: string; index?: number; participantId?: string; text?: string } }[] }
 
 const get = (id: string, user = CREATOR) => call("GET", `/meetings/${id}/transcript`, { user });
 const patch = (id: string, segmentId: string, text: unknown, ifMatch: string | null, user = CREATOR) =>
@@ -42,6 +42,24 @@ describe("GET /meetings/:id/transcript", () => {
       { key: "A", label: { kind: "default", index: 2 } },
       { key: "C", label: { kind: "default", index: 3 } },
     ]);
+  });
+
+  it("lists the parts: one entry per part, 1-based, with where each starts (ADR-0070)", async () => {
+    const m = await ready({ transcriptPartStartsMs: [0, 3_600_000, 7_200_000] });
+    const body = await json<Transcript>(await get(m.id));
+    expect(body.parts).toEqual([{ index: 1, startMs: 0 }, { index: 2, startMs: 3_600_000 }, { index: 3, startMs: 7_200_000 }]);
+  });
+
+  it("a single part reads as one entry at 0", async () => {
+    const m = await ready({ transcriptPartStartsMs: [0] });
+    expect((await json<Transcript>(await get(m.id))).parts).toEqual([{ index: 1, startMs: 0 }]);
+  });
+
+  it("a meeting that heard nothing, a text meeting and one without a transcript yet have no parts", async () => {
+    const quiet = await mkMeeting({ status: "ready", noSpeech: true, processingStartedAt: new Date() });
+    const text = await mkMeeting({ source: "text", status: "ready", consentUserId: null, consentAt: null, consentNoticeVersion: null });
+    const draft = await mkMeeting({});
+    for (const m of [quiet, text, draft]) expect((await json<Transcript>(await get(m.id))).parts).toEqual([]);
   });
 
   it("shows participant and free-text labels where the creator set them", async () => {

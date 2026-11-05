@@ -47,6 +47,12 @@ type Label = z.infer<typeof LabelSchema>;
 
 const TranscriptSchema = z.object({
   version: z.number().int(),
+  /**
+   * Where each transcript part starts (ADR-0070): `[]` for a text meeting and for one that heard nothing, else one
+   * entry per part (1-based `index`). More than one means the recording was transcribed in parts and speakers
+   * are numbered separately in each.
+   */
+  parts: z.array(z.object({ index: z.number().int().min(1), startMs: z.number().int().min(0) })),
   segments: z.array(SegmentSchema),
   speakers: z.array(z.object({ key: z.string(), label: LabelSchema })),
 });
@@ -161,7 +167,7 @@ transcriptRouter.openapi(getRoute, async (c) => {
   await openMeeting(id, callerOf(c));
 
   const [meeting, segments, labels] = await Promise.all([
-    db.meeting.findUniqueOrThrow({ where: { id }, select: { transcriptVersion: true } }),
+    db.meeting.findUniqueOrThrow({ where: { id }, select: { transcriptVersion: true, transcriptPartStartsMs: true } }),
     db.transcriptSegment.findMany({ where: { meetingId: id }, orderBy: { ordinal: "asc" } }),
     db.speakerLabel.findMany({ where: { meetingId: id } }),
   ]);
@@ -170,6 +176,7 @@ transcriptRouter.openapi(getRoute, async (c) => {
   return c.json(
     {
       version: meeting.transcriptVersion,
+      parts: meeting.transcriptPartStartsMs.map((startMs, i) => ({ index: i + 1, startMs })),
       segments: segments.map(toSegment),
       speakers: order.map((key) => ({ key, label: labelOf(key, order, storedByKey.get(key)) })),
     },

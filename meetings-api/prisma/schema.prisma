@@ -105,17 +105,17 @@ enum NoticeState {
 }
 
 model Meeting {
-  id            String          @id @default(cuid())
+  id            String           @id @default(cuid())
   title         String
   format        MeetingFormat
   startsAt      DateTime
   language      MeetingLanguage
   source        MeetingSource
-  status        MeetingStatus   @default(draft)
+  status        MeetingStatus    @default(draft)
   stage         ProcessingStage?
   // closed set in code: audio_unreadable | provider_unavailable | provider_rejected | too_long
   failureCode   String?
-  noSpeech      Boolean         @default(false)
+  noSpeech      Boolean          @default(false)
   creatorUserId String
 
   // all or none (CHECK)
@@ -138,25 +138,28 @@ model Meeting {
   audioDeletedAt DateTime?
 
   // AC-12.2 recipient
-  processingRequestedBy String?
+  processingRequestedBy  String?
   // non-null => language locked (AC-1.8)
-  processingStartedAt   DateTime?
+  processingStartedAt    DateTime?
   // left `processing`
-  processedAt           DateTime?
-  transcriptVersion     Int       @default(0)
+  processedAt            DateTime?
+  transcriptVersion      Int       @default(0)
+  // where each transcript PART starts (ADR-0070): [0] for one part, [0, t2, ...] for a long recording;
+  // empty for a `text` meeting and for `noSpeech`. Written with the segments, replaced on a retry.
+  transcriptPartStartsMs Int[]     @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions          RecordingSession[]
-  chunks            RecordingChunk[]
-  upload            MeetingUpload?
-  participants      MeetingParticipant[]
-  segments          TranscriptSegment[]
-  speakerLabels     SpeakerLabel[]
-  summaries         Summary[]
-  turns             ConversationTurn[]
-  jobs              MeetingJob[]
+  sessions      RecordingSession[]
+  chunks        RecordingChunk[]
+  upload        MeetingUpload?
+  participants  MeetingParticipant[]
+  segments      TranscriptSegment[]
+  speakerLabels SpeakerLabel[]
+  summaries     Summary[]
+  turns         ConversationTurn[]
+  jobs          MeetingJob[]
 
   @@index([creatorUserId, startsAt(sort: Desc)])
   @@index([hostApp, hostEntityType, hostEntityId])
@@ -212,14 +215,14 @@ model MeetingUpload {
 }
 
 model MeetingParticipant {
-  id                  String   @id @default(cuid())
-  meetingId           String
-  meeting             Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  userId              String?
-  externalName        String?
+  id                   String   @id @default(cuid())
+  meetingId            String
+  meeting              Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId               String?
+  externalName         String?
   externalOrganisation String?
-  addedBy             String
-  createdAt           DateTime @default(now())
+  addedBy              String
+  createdAt            DateTime @default(now())
 
   speakerLabels SpeakerLabel[]
 
@@ -258,23 +261,23 @@ model SpeakerLabel {
 }
 
 model Summary {
-  id            String          @id @default(cuid())
-  meetingId     String
-  meeting       Meeting         @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  authorUserId  String
+  id                String          @id @default(cuid())
+  meetingId         String
+  meeting           Meeting         @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  authorUserId      String
   // snapshot: { source, templateId, name, sections[{heading, instruction}], generalInstructions }
-  template      Json
-  language      MeetingLanguage
-  status        SummaryStatus
-  attemptId     String
-  failureCode   String?
+  template          Json
+  language          MeetingLanguage
+  status            SummaryStatus
+  attemptId         String
+  failureCode       String?
   // [{ heading, body, notDiscussed }]
-  sections      Json?
+  sections          Json?
   transcriptVersion Int
-  edited        Boolean         @default(false)
-  version       Int             @default(1)
-  createdAt     DateTime        @default(now())
-  readyAt       DateTime?
+  edited            Boolean         @default(false)
+  version           Int             @default(1)
+  createdAt         DateTime        @default(now())
+  readyAt           DateTime?
 
   @@index([meetingId, createdAt])
   @@map("summary")
