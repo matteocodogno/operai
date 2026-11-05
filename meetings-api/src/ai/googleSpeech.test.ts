@@ -451,8 +451,9 @@ describe("three parts (ADR-0070)", () => {
     const error = (await rejection(w.run())) as TranscriptionError;
     expect(error).toBeInstanceOf(TranscriptionError);
     expect(error.code).toBe("provider_rejected");
-    // part 1 was told to stop, not left polling for 45 minutes (180 polls at 15 s); how many it got in before part 2's 403 depends on scheduling
-    expect(w.polls.get("1-1")!).toBeLessThan(30);
+    // part 1 was told to stop, not left polling for 45 minutes (180 polls at 15 s); how many it got in before part 2's 403 depends on
+    // scheduling, and under load part 2 can reject before part 1 has polled at all, when the map has no entry (zero polls)
+    expect(w.polls.get("1-1") ?? 0).toBeLessThan(30);
     cleaned(w.storage);
   });
 });
