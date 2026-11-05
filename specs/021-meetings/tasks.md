@@ -124,7 +124,7 @@ database after `bun run db:deploy`.
     - audio `kept` / `deleted` at the boundary;
     - `can` truth table per role, frozen state and `capabilities` value
 
-- [ ] T19: [BE] meetings-api `POST /meetings`, `GET /meetings/:id`, `PATCH /meetings/:id` for metadata/language/source (lock only on audio/chunk/text; switching to `text` clears consent, G1). A host reference on create is resolved as the caller and emits a `linked` notice through T20 — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.8, AC-2.3, AC-3.5, AC-11.6 — deps: T93, T20
+- [x] T19: [BE] meetings-api `POST /meetings`, `GET /meetings/:id`, `PATCH /meetings/:id` for metadata/language/source (lock only on audio/chunk/text; switching to `text` clears consent, G1). A host reference on create is resolved as the caller and emits a `linked` notice through T20 — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-1.6, AC-1.8, AC-2.3, AC-3.5, AC-11.6 — deps: T93, T20
   - touch: `meetings-api/src/meetings/core.routes.ts`, `meetings-api/src/meetings/core.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/core.test.ts` passes on `meetings_test` with the fake host, covering:
     - each invalid field → 422 naming it, no row; default `startsAt`;
@@ -133,7 +133,7 @@ database after `bun run db:deploy`.
     - `language_locked` after processing starts;
     - `source_locked` only once audio, a chunk or text exists; switching to `uploaded` keeps consent and to `text` clears it
 
-- [ ] T20: [BE] meetings-api host-notice outbox: written in the change's transaction with per-meeting `seq`, one awaited attempt after commit (5 s), manual policy for linked/changed (failure surfaced on the view), until-delivered handler for unlinked/deleted (backoff schedule), `POST /meetings/:id/host-notice/retry`, delivered rows removed, null title on unlinked/deleted, no notice for frozen meetings or non-opted-in hosts — refs: AC-11.8, AC-11.9, AC-14.6, AC-14.8, AC-14.10, AC-14.11 — deps: T15, T17, T18
+- [x] T20: [BE] meetings-api host-notice outbox: written in the change's transaction with per-meeting `seq`, one awaited attempt after commit (5 s), manual policy for linked/changed (failure surfaced on the view), until-delivered handler for unlinked/deleted (backoff schedule), `POST /meetings/:id/host-notice/retry`, delivered rows removed, null title on unlinked/deleted, no notice for frozen meetings or non-opted-in hosts — refs: AC-11.8, AC-11.9, AC-14.6, AC-14.8, AC-14.10, AC-14.11 — deps: T15, T17, T18
   - touch: `meetings-api/src/hosts/notices.ts`, `meetings-api/src/hosts/notices.test.ts`, `meetings-api/src/hosts/noticeRetry.routes.ts`, `meetings-api/src/jobs/handlers/deliverHostNotice.ts`
   - done when: `cd meetings-api && bun test src/hosts/notices.test.ts` passes with the fake host, covering:
     - a 500 on `linked` leaves the action 2xx with `hostNotice.state=failed`, no retry job, and the retry route delivering it;
@@ -142,7 +142,7 @@ database after `bun run db:deploy`.
     - frozen → retry route 403 `frozen`;
     - payload keys equal the allowlist
 
-- [ ] T21: [BE] meetings-api host routes: `GET /hosts` (public registry part incl. `visibilityHint`, `noticeFailed`), `GET /hosts/:app/:type/:id`, `GET /hosts/:app/:type/:id/meetings` (only what the viewer may open, no hidden counts, `hostReadersUnavailable`), `GET /hosts/:app/:type/:id/linkable-meetings` (own creator meetings, not frozen, not on this entity; G2) — refs: AC-1.1, AC-1.7, AC-5.5, AC-5.6, AC-11.2, AC-11.3, AC-11.4 — deps: T93
+- [x] T21: [BE] meetings-api host routes: `GET /hosts` (public registry part incl. `visibilityHint`, `noticeFailed`), `GET /hosts/:app/:type/:id`, `GET /hosts/:app/:type/:id/meetings` (only what the viewer may open, no hidden counts, `hostReadersUnavailable`), `GET /hosts/:app/:type/:id/linkable-meetings` (own creator meetings, not frozen, not on this entity; G2) — refs: AC-1.1, AC-1.7, AC-5.5, AC-5.6, AC-11.2, AC-11.3, AC-11.4 — deps: T93
   - touch: `meetings-api/src/hosts/hosts.routes.ts`, `meetings-api/src/hosts/hosts.routes.test.ts`
   - done when: `cd meetings-api && bun test src/hosts/hosts.routes.test.ts` passes with `testhost` and `crm`-shaped fake hosts, covering:
     - list contents per viewer class, with `hostVisible:false` excluded;
@@ -150,11 +150,11 @@ database after `bun run db:deploy`.
     - the linkable list excludes participant-only, frozen and already-linked meetings;
     - the entity GET returns the host title
 
-- [ ] T22: [BE] meetings-api `PATCH /meetings/:id` host link / relink / unlink and `hostVisible` (re-resolve as creator, 422 `host_visible_unavailable`), plus `changed` notices on title/date-time change — refs: AC-1.7, AC-5.5, AC-5.6, AC-5.7, AC-11.8, AC-14.5, AC-14.7 — deps: T19, T21
+- [x] T22: [BE] meetings-api `PATCH /meetings/:id` host link / relink / unlink and `hostVisible` (re-resolve as creator, 422 `host_visible_unavailable`), plus `changed` notices on title/date-time change — refs: AC-1.7, AC-5.5, AC-5.6, AC-5.7, AC-11.8, AC-14.5, AC-14.7 — deps: T19, T21
   - touch: `meetings-api/src/meetings/core.routes.ts`, `meetings-api/src/meetings/hostLink.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/hostLink.test.ts` passes. The fake host records exactly linked / changed (title) / changed (date) / unlinked(old) + linked(new) / unlinked for the matching PATCHes, and nothing for a format-only change. A closed target is refused. Host readers of the old entity get 404 and of the new one 200 on the next request. Standalone or non-offering host → 422
 
-- [ ] T23: [BE] meetings-api `GET /meetings` (My meetings): creator or Operai participant only, filters (q, role, status incl. derived `interrupted`, hostApp), 25 per page, newest first, batched host labels (fail soft) — refs: AC-10.1, AC-10.2, AC-10.3, AC-11.5 — deps: T93
+- [x] T23: [BE] meetings-api `GET /meetings` (My meetings): creator or Operai participant only, filters (q, role, status incl. derived `interrupted`, hostApp), 25 per page, newest first, batched host labels (fail soft) — refs: AC-10.1, AC-10.2, AC-10.3, AC-11.5 — deps: T93
   - touch: `meetings-api/src/meetings/list.routes.ts`, `meetings-api/src/meetings/list.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/list.test.ts` passes:
     - an admin sees only their own meetings;
@@ -162,7 +162,7 @@ database after `bun run db:deploy`.
     - with a clock, `status=interrupted` matches the derived rows;
     - host label states `open` / `closed` / `missing` / `unavailable` come out right, with one resolve call per host per page
 
-- [ ] T24: [BE] meetings-api participants (`PUT`, ≤ 30, active-user check fail closed, externals) and consent (`POST`, notice version) routes, plus participant-added notifications — refs: AC-5.1, AC-5.4, AC-5.9, AC-5.10, AC-4.1, AC-4.3, AC-12.1 — deps: T16, T93
+- [x] T24: [BE] meetings-api participants (`PUT`, ≤ 30, active-user check fail closed, externals) and consent (`POST`, notice version) routes, plus participant-added notifications — refs: AC-5.1, AC-5.4, AC-5.9, AC-5.10, AC-4.1, AC-4.3, AC-12.1 — deps: T16, T93
   - touch: `meetings-api/src/meetings/participants.routes.ts`, `meetings-api/src/meetings/participants.test.ts`, `meetings-api/src/meetings/consent.routes.ts`, `meetings-api/src/meetings/consent.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/participants.test.ts src/meetings/consent.test.ts` passes, covering:
     - 31 participants → 422;
@@ -171,7 +171,7 @@ database after `bun run db:deploy`.
     - exactly one push per newly added Operai user (not the actor, not externals), with link and en/it copy;
     - consent stores user, time and version, `notice_outdated` → 409, `text` → 422
 
-- [ ] T25: [BE] meetings-api `DELETE /meetings/:id` (creator path without capability, `meeting:erase` path), storage prefix first, cascade + `MeetingDeletion` + `deleted` notice; `GET /erase/meetings` returning `{id, title, startsAt, creator}` only — refs: AC-4.6, AC-4.7, AC-4.8, AC-5.12, AC-14.6 — deps: T14, T93, T20
+- [x] T25: [BE] meetings-api `DELETE /meetings/:id` (creator path without capability, `meeting:erase` path), storage prefix first, cascade + `MeetingDeletion` + `deleted` notice; `GET /erase/meetings` returning `{id, title, startsAt, creator}` only — refs: AC-4.6, AC-4.7, AC-4.8, AC-5.12, AC-14.6 — deps: T14, T93, T20
   - touch: `meetings-api/src/meetings/delete.routes.ts`, `meetings-api/src/meetings/delete.test.ts`, `meetings-api/src/erase/erase.routes.ts`, `meetings-api/src/erase/erase.test.ts`
   - done when: `cd meetings-api && bun test src/meetings/delete.test.ts src/erase/erase.test.ts` passes, covering:
     - zero rows for the id in every table afterwards, and the prefix deleted;
@@ -181,7 +181,7 @@ database after `bun run db:deploy`.
     - an erase holder deletes a frozen meeting but gets 404 on every content route;
     - erase list keys asserted exactly
 
-- [ ] T26: [BE] meetings-api recording start / chunk confirm / upload-url re-mint / heartbeat (`capturedMs`, `paused`), single live session, 3 h + 60 s limit — refs: AC-2.1, AC-2.9, AC-2.11 — deps: T14, T93
+- [x] T26: [BE] meetings-api recording start / chunk confirm / upload-url re-mint / heartbeat (`capturedMs`, `paused`), single live session, 3 h + 60 s limit — refs: AC-2.1, AC-2.9, AC-2.11 — deps: T14, T93
   - touch: `meetings-api/src/capture/recording.routes.ts`, `meetings-api/src/capture/recording.start.test.ts`
   - done when: `cd meetings-api && bun test src/capture/recording.start.test.ts` passes, covering:
     - no consent → 409 `consent_required`;
@@ -190,14 +190,14 @@ database after `bun run db:deploy`.
     - a chunk past 3 h + 60 s → 409 `duration_limit`;
     - heartbeat updates `lastBeatAt` and `capturedMs` (max)
 
-- [ ] T27: [BE] meetings-api recording stop (`chunks_missing`), process-what-was-captured, discard (chunks deleted, back to `draft`), enqueue of `prepare_audio` — refs: AC-2.6, AC-2.7, AC-2.8 — deps: T17, T26
+- [x] T27: [BE] meetings-api recording stop (`chunks_missing`), process-what-was-captured, discard (chunks deleted, back to `draft`), enqueue of `prepare_audio` — refs: AC-2.6, AC-2.7, AC-2.8 — deps: T17, T26
   - touch: `meetings-api/src/capture/recording.routes.ts`, `meetings-api/src/capture/recording.stop.test.ts`
   - done when: `cd meetings-api && bun test src/capture/recording.stop.test.ts` passes:
     - a gap → 409 with the missing seqs; complete → `processing` + one job;
     - from derived `interrupted`, process keeps `durationMs` = Σ stored chunk durations (paused time excluded);
     - discard deletes the objects and rows
 
-- [ ] T28: [BE] meetings-api upload mint + confirm with synchronous `ffprobe` (demuxer allowlist, protocol whitelist, audio stream, ≤ 3 h, 30 s timeout) and media fixtures — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T14, T93
+- [x] T28: [BE] meetings-api upload mint + confirm with synchronous `ffprobe` (demuxer allowlist, protocol whitelist, audio stream, ≤ 3 h, 30 s timeout) and media fixtures — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T14, T93
   - touch: `meetings-api/src/capture/upload.routes.ts`, `meetings-api/src/capture/upload.test.ts`, `meetings-api/src/media/probe.ts`, `meetings-api/src/media/probe.test.ts`, `meetings-api/test-fixtures/media/*`
   - done when: `cd meetings-api && bun test src/media/probe.test.ts src/capture/upload.test.ts` passes:
     - an unsupported type or > 500 MiB → 422 at mint;
@@ -205,7 +205,7 @@ database after `bun run db:deploy`.
     - a missing object → 409 `upload_incomplete`;
     - a valid mp4 → 202 `processing`
 
-- [ ] T29: [BE] meetings-api `PUT /meetings/:id/text` (≤ 200,000 chars) → passages (paragraph split ~1,000 chars, no times or speaker) → `ready` — refs: AC-3.4, AC-6.1 — deps: T93
+- [x] T29: [BE] meetings-api `PUT /meetings/:id/text` (≤ 200,000 chars) → passages (paragraph split ~1,000 chars, no times or speaker) → `ready` — refs: AC-3.4, AC-6.1 — deps: T93
   - touch: `meetings-api/src/capture/text.routes.ts`, `meetings-api/src/capture/text.test.ts`, `meetings-api/src/transcript/passages.ts`, `meetings-api/src/transcript/passages.test.ts`
   - done when: `cd meetings-api && bun test src/capture/text.test.ts src/transcript/passages.test.ts` passes: 200,000 chars → `ready`; 200,001 → 422; no consent required; passage vectors
 
@@ -232,7 +232,7 @@ database after `bun run db:deploy`.
     - retry works while audio is kept and gives 409 `audio_deleted` after expiry;
     - push to the requester carries title and outcome only
 
-- [ ] T33: [BE] meetings-api transcript routes: `GET` (segments + speakers), segment `PATCH` with If-Match (`edited`, version, `transcriptVersion` bump), speaker label `PUT` (participant / text / reset) — refs: AC-6.1, AC-6.2, AC-6.3, AC-6.8 — deps: T93
+- [x] T33: [BE] meetings-api transcript routes: `GET` (segments + speakers), segment `PATCH` with If-Match (`edited`, version, `transcriptVersion` bump), speaker label `PUT` (participant / text / reset) — refs: AC-6.1, AC-6.2, AC-6.3, AC-6.8 — deps: T93
   - touch: `meetings-api/src/transcript/transcript.routes.ts`, `meetings-api/src/transcript/transcript.test.ts`
   - done when: `cd meetings-api && bun test src/transcript/transcript.test.ts` passes:
     - segments come in time order;
@@ -241,7 +241,7 @@ database after `bun run db:deploy`.
     - a non-creator → 403, frozen → 403;
     - no job is enqueued by an edit
 
-- [ ] T34: [BE] meetings-api audio routes: `GET /meetings/:id/audio` (15 min GET while kept, lazy idempotent delete on observed expiry) and `DELETE /meetings/:id/audio` — refs: AC-4.4, AC-4.5, AC-6.5 — deps: T14, T93
+- [x] T34: [BE] meetings-api audio routes: `GET /meetings/:id/audio` (15 min GET while kept, lazy idempotent delete on observed expiry) and `DELETE /meetings/:id/audio` — refs: AC-4.4, AC-4.5, AC-6.5 — deps: T14, T93
   - touch: `meetings-api/src/audio/audio.routes.ts`, `meetings-api/src/audio/audio.test.ts`
   - done when: `cd meetings-api && bun test src/audio/audio.test.ts` passes:
     - with a clock at `until` − 1 s → URL; at `until` → 409 `audio_unavailable` and exactly one `DeleteObject`;

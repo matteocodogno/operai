@@ -424,8 +424,9 @@ of these fails:
 - `BEDROCK_REGION` must be in `{eu-central-1, eu-central-2, eu-west-1, eu-west-3, eu-north-1, eu-south-1, eu-south-2}` (London, eu-west-2, is not EU);
 - when `BEDROCK_MODEL_ID` is an inference profile, `GetInferenceProfile` is called and every
   destination Region must be in that allowlist;
-- the region's Bedrock data-retention configuration must read `none`; if it cannot be read,
-  start is refused;
+- the Bedrock data-retention configuration must read `none` in the home Region **and in
+  every destination Region of the inference profile** (`bedrock:GetAccountDataRetention` in
+  each); if any of them cannot be read, start is refused (amendment 2026-11-05);
 - a fake provider is accepted only when `NODE_ENV !== "production"`.
 
 Interfaces `Transcriber.transcribe(audio, locale, maxSpeakers)` and
@@ -778,7 +779,8 @@ model SpeakerLabel { meetingId → Meeting (Cascade), speakerKey, participantId?
   customLabel? (1..100)  @@id([meetingId, speakerKey]) }
 
 model Summary { id, meetingId → Meeting (Cascade), authorUserId, template Json /* snapshot: {source,
-  templateId, name, sections[{heading,instruction}], generalInstructions} */, language MeetingLanguage,
+  templateId, name, sections[{heading,instruction}], generalInstructions,
+  speakerNames: { [speakerKey]: string } } — speakerNames resolved at enqueue, see amendment 2026-11-05 */, language MeetingLanguage,
   status SummaryStatus, attemptId String, failureCode?, sections Json? /* [{heading, body, notDiscussed}] */,
   transcriptVersion Int, edited Boolean @default(false), version Int @default(1), createdAt, readyAt?
   @@index([meetingId, createdAt]) }
@@ -996,9 +998,9 @@ type Meeting = Omit<MeetingRow, 'role'> & {
 | Route | Stack | Answer |
 |---|---|---|
 | `GET /meetings/:id/summaries` | selfScoped + visibility | `{ items: [{ id, template: { name, source }, language, author: PersonRef, status, sections?, edited, stale, createdAt, version, can: { edit, delete, retry } }] }`. `can` is per item (G4): edit = (author ∨ creator) ∧ `meetings:access` ∧ `ready`; delete = author ∨ creator; retry = `failed` ∧ `meetings:access` (regenerate follows the meeting's `can.summarise`). `stale` = `transcriptVersion` behind the meeting's (AC-6.8). A `generating` older than 10 min reads `failed` |
-| `POST /meetings/:id/summaries` | capability + visibility | `{ templateId, language }` → 202 summary; 409 `not_ready` · `no_speech` · `summary_limit`; 429 `ai_rate_limited` |
-| `POST /meetings/:id/summaries/:sid/regenerate` | same | 202 new summary (same snapshot and language) |
-| `POST /meetings/:id/summaries/:sid/retry` | same | 202 same row, new `attemptId` |
+| `POST /meetings/:id/summaries` | capability + visibility | `{ templateId, language }` → 202 summary; 409 `not_ready` · `no_speech` · `summary_limit`; 429 `ai_rate_limited`. At enqueue, with the caller's JWT, every speaker label mapped to an Operai participant is resolved through `/authz/users/identities` (fail **soft**: unknown, deleted or outage → "Speaker n") and stored as `template.speakerNames`; custom-text labels and external participants' names are copied as they are. The `summarize` job uses only that map and never calls `auth` |
+| `POST /meetings/:id/summaries/:sid/regenerate` | same | 202 new summary: same template sections and language as the original (AC-7.4/7.5), **fresh** `speakerNames` resolved now |
+| `POST /meetings/:id/summaries/:sid/retry` | same | 202 same row, new `attemptId`, same snapshot (`speakerNames` unchanged) |
 | `PATCH /meetings/:id/summaries/:sid` | capability + visibility + (author ∨ creator), If-Match | `{ sections: [{ heading, body }] }` → summary, `edited: true` |
 | `DELETE /meetings/:id/summaries/:sid` | selfScoped + visibility + (author ∨ creator) | 204 |
 
@@ -1047,7 +1049,7 @@ PersonRef }>`, nothing else (AC-4.7). Deletion uses `DELETE /meetings/:id`.
 | `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | all or none; required in production |
 | `CRM_API_URL` | internal; the CRM host's base URL |
 | `AZURE_SPEECH_REGION`, `AZURE_SPEECH_KEY` | transcription |
-| `BEDROCK_REGION`, `BEDROCK_MODEL_ID`, `MEETINGS_AWS_ACCESS_KEY_ID`, `MEETINGS_AWS_SECRET_ACCESS_KEY` | LLM. Least-privilege IAM: `bedrock:InvokeModel` on the pinned model/profile, `bedrock:GetInferenceProfile`, read of the retention config |
+| `BEDROCK_REGION`, `BEDROCK_MODEL_ID`, `MEETINGS_AWS_ACCESS_KEY_ID`, `MEETINGS_AWS_SECRET_ACCESS_KEY` | LLM. Least-privilege IAM: `bedrock:InvokeModel` on the pinned model/profile, `bedrock:GetInferenceProfile`, `bedrock:GetAccountDataRetention` in the home Region and in every destination Region of the profile |
 | `MEETINGS_AI_PROVIDER` | `real` (default, required in production) \| `fake` (dev/test/e2e only) |
 | `MEETINGS_WORKER` | `on` (default) \| `off` \| `only` |
 | `MEETINGS_TEST_HOSTS` | test only; refused in production |
@@ -1110,7 +1112,7 @@ Levels:
 | AC-4.6 | integration + e2e | delete by creator and by erase holder → zero rows for the id in every table, prefix deleted, one `MeetingDeletion` whose columns hold no title, `deleted` notice with null title, then `GET` 404 and absent from every list; e2e dialog states it cannot be undone |
 | AC-4.7 | integration + component | Erase tab shown only with the `meeting:erase` hint (G5); erase list keys are exactly `{id, title, startsAt, creator}`; the erase holder gets 404 on `GET /meetings/:id`, transcript, summaries, conversation |
 | AC-4.8 | integration | admin holding every permission, not a participant → 404 on every content route |
-| AC-4.9 | unit | env tests: non-EU S3, non-EU/CH Azure region, endpoint/region mismatch, Bedrock region `eu-west-2`/`us-east-1`, profile with a non-allowlisted destination (stubbed `GetInferenceProfile`), retention ≠ `none` or unreadable, `fake` provider in production → exit 1 |
+| AC-4.9 | unit | env tests: non-EU S3, non-EU/CH Azure region, endpoint/region mismatch, Bedrock region `eu-west-2`/`us-east-1`, profile with a non-allowlisted destination (stubbed `GetInferenceProfile`), retention ≠ `none` or unreadable in the home Region **or in any one destination Region**, `fake` provider in production → exit 1 |
 | AC-4.10 | integration | log-privacy test: canary strings in title, transcript, summary, question and answer, run through every route and job, captured console contains none |
 | AC-4.11 | unit + e2e | static scan: capture/upload modules reference no `indexedDB`/`caches`/`localStorage`/`sessionStorage`; e2e after Stop and after Discard: `indexedDB.databases()` empty, no storage keys, CacheStorage empty |
 | AC-5.1 | integration + component | 30 ok, 31 → 422; inactive id → 422 `participant_not_active`; external name 1..100, organisation ≤ 100; externals never notified; picker calls the directory with no `appId` parameter (G9, asserted on the request) |
@@ -1136,10 +1138,10 @@ Levels:
 | AC-6.8 | integration | edit after a summary → `stale:true`; no job enqueued by the edit |
 | AC-6.9 | integration + component | provider permanent error → `failed` + code, no segments; retry while kept → `processing`; after expiry → 409 `audio_deleted`, `can.retryProcessing=false` |
 | AC-6.10 | component | stage labels (Saving, Uploading, Preparing, Transcribing) from state; polling with backoff, sidebar navigation stays live |
-| AC-7.1 | integration + unit | `POST summaries` → 202 `generating` → job → `ready` (fake LLM); default output language = UI language (unit) |
+| AC-7.1 | integration + unit | `POST summaries` → 202 `generating` → job → `ready` (fake LLM); default output language = UI language (unit); the snapshot carries `speakerNames` for participant-mapped labels, an identities outage at enqueue still gives 202 with "Speaker n", and the job's prompt uses the stored names with no call to `auth` (stub asserts zero calls) |
 | AC-7.2 | unit + component | renderer: template order, server headings, `notDiscussed` → localised "Not discussed"; "AI-generated" label with template, language, author, time |
 | AC-7.3 | integration | 20 created (several from one template), the 21st → 409 `summary_limit`, concurrent pair under the lock |
-| AC-7.4 | integration | regenerate → new row, same snapshot and language, old row unchanged |
+| AC-7.4 | integration | regenerate → new row, same template sections and language, `speakerNames` re-resolved (a participant renamed in between shows the new name in the new row only), old row unchanged; retry keeps the row's `speakerNames` |
 | AC-7.5 | integration | edit and delete the template after generating → summary snapshot byte-identical |
 | AC-7.6 | integration + component | job done/failed → notifier to the author with title and outcome only; page shows the current state on return |
 | AC-7.7 | integration | per-item `can.edit` matches the route outcome for author/creator/other/no-access (G4); author and creator edit with If-Match (428/409), others 403 `author_only`; `edited:true`; regenerate leaves it untouched |
@@ -1380,4 +1382,25 @@ Affected ADRs (not edited here):
   two host endpoints (contract v1) are unchanged.
 - **ADR-0066:** it should state that Meetings calls the directory *without* ADR-0055's
   `appId` filter. Its current text only says the filter "can" narrow.
+
+## Amendment 2026-11-05 (implementation, source: T94)
+
+- **Speaker names in summaries.** The `summarize` job runs without a caller JWT, so it cannot
+  call `auth POST /authz/users/identities` (ADR-0039 forwards the caller's token). Without a
+  fix, speakers mapped to Operai participants would read "Speaker n" in summaries.
+  - The fix: `POST /meetings/:id/summaries` (T40) resolves the names while it still has the
+    caller's token. Every Operai-mapped speaker label is looked up, fail soft (unknown,
+    deleted or outage → "Speaker n"). The names are stored as `Summary.template.speakerNames`
+    (`{ [speakerKey]: string }`), next to the template sections inside the existing snapshot
+    JSON, so no migration is needed. The job uses only that map.
+  - Regenerate re-resolves the names; retry keeps the stored ones. Names in a stored summary
+    are therefore as of generation, the same rule as the template snapshot (AC-7.5).
+  - AC-7.10 is unaffected: the names come from the meeting's own participants, not from host
+    data.
+  - Changed: § API contracts (Summaries), § Data model (`Summary`), tests AC-7.1 and AC-7.4.
+- **Bedrock startup check.** Retention `none` is verified in the home Region **and every
+  destination Region** of the inference profile, which needs
+  `bedrock:GetAccountDataRetention` in each. This is stricter than ADR-0061's wording ("the
+  region's"); not edited here.
+  - Changed: § AI providers (startup checks), § Environment (IAM), test AC-4.9.
 
