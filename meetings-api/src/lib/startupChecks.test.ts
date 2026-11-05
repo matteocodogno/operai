@@ -224,9 +224,49 @@ describe("vertex N4: request-response logging is not enabled for the model", () 
   });
 
   it("a configuration with logging disabled passes", async () => {
-    for (const body of [{ loggingConfig: { enabled: false } }, { loggingConfig: {} }, {}, { name: "x" }]) {
+    for (const body of [
+      { loggingConfig: { enabled: false } },
+      { loggingConfig: {} },
+      { loggingConfig: { enabled: false, samplingRate: 1, enableOtelLogging: false }, dataSharingEnabledProvider: "MODEL_PROVIDER_UNSPECIFIED" },
+    ]) {
       expect(await vertexWorld({ cache: cacheOff(), logging: okJson(body) }).run(), JSON.stringify(body)).toEqual([]);
     }
+  });
+
+  it("refuses a 200 it does not understand: no loggingConfig, an unknown top-level or loggingConfig key, a wrong type (ADR-0061)", async () => {
+    for (const body of [
+      {},
+      { name: "x" },
+      { loggingConfig: { enabled: false }, somethingNew: true },
+      { loggingConfig: { enabled: false, somethingNew: true } },
+      { loggingConfig: { logAllTheThings: true } },
+      { loggingConfig: "off" },
+      { loggingConfig: [] },
+      { loggingConfig: null },
+      { loggingConfig: { enabled: "false" } },
+      { loggingConfig: { enableOtelLogging: 0 } },
+      [],
+      "ok",
+      null,
+    ]) {
+      const problems = await vertexWorld({ cache: cacheOff(), logging: okJson(body) }).run();
+      expect(problems, JSON.stringify(body)).toHaveLength(1);
+      expect(problems[0]).toMatch(/logging/i);
+    }
+  });
+
+  it("refuses data sharing with the model provider, and a provider value it does not know", async () => {
+    for (const dataSharingEnabledProvider of ["ANTHROPIC", "SOMEONE_ELSE", true, 1]) {
+      const problems = await vertexWorld({ cache: cacheOff(), logging: okJson({ loggingConfig: {}, dataSharingEnabledProvider }) }).run();
+      expect(problems, String(dataSharingEnabledProvider)).toHaveLength(1);
+      expect(problems[0]).toMatch(/logging/i);
+    }
+  });
+
+  it("an unknown key is refused value-free: the message carries neither the key nor its value", async () => {
+    const problems = (await vertexWorld({ cache: cacheOff(), logging: okJson({ loggingConfig: { secretNewKey: "secret-value" } }) }).run()).join("\n");
+    expect(problems).not.toContain("secretNewKey");
+    expect(problems).not.toContain("secret-value");
   });
 
   it("refuses enabled: true and enableOtelLogging: true, wherever the field sits", async () => {

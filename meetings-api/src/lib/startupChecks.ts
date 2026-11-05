@@ -194,6 +194,26 @@ const jsonObject = async (response: Response): Promise<Record<string, unknown> |
   return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
 };
 
+const KNOWN_CONFIG_KEYS = new Set(["loggingConfig", "dataSharingEnabledProvider"]);
+const KNOWN_LOGGING_KEYS = new Set(["enabled", "samplingRate", "bigqueryDestination", "enableOtelLogging"]);
+
+/** The one `fetchPublisherModelConfig` 200 body we understand: `off`, or why it refuses. */
+function loggingVerdict(body: Record<string, unknown> | null): "off" | "unreadable" | "logging" | "sharing" {
+  if (body === null) return "unreadable";
+  if (Object.keys(body).some((key) => !KNOWN_CONFIG_KEYS.has(key))) return "unreadable";
+  const logging = body["loggingConfig"];
+  if (typeof logging !== "object" || logging === null || Array.isArray(logging)) return "unreadable";
+  const config = logging as Record<string, unknown>;
+  if (Object.keys(config).some((key) => !KNOWN_LOGGING_KEYS.has(key))) return "unreadable";
+  for (const flag of ["enabled", "enableOtelLogging"]) {
+    if (config[flag] !== undefined && typeof config[flag] !== "boolean") return "unreadable";
+  }
+  if (config["enabled"] === true || config["enableOtelLogging"] === true) return "logging";
+  const sharing = body["dataSharingEnabledProvider"];
+  if (sharing !== undefined && sharing !== "MODEL_PROVIDER_UNSPECIFIED") return typeof sharing === "string" ? "sharing" : "unreadable";
+  return "off";
+}
+
 /**
  * The problems with the Vertex project and model (empty when fit). Never throws. A problem names the check,
  * never a project, a location, a model id or the provider's error text.
@@ -211,24 +231,25 @@ export async function checkVertex(input: VertexCheckInput): Promise<string[]> {
     problems.push("Vertex's cache configuration cannot be read");
   }
 
-  // N4: request-response logging not enabled for this exact location and model. A 404 is Google's "no
-  // configuration", i.e. the default, disabled state; `enabled` or `enableOtelLogging` true refuses; every other
-  // answer or error refuses.
+  // N4: request-response logging not enabled for this exact location and model, and no data sharing with the
+  // model provider. Passes ONLY on positive, understood evidence (ADR-0061: not understood = refuse):
+  //  - a 404, Google's documented "no PublisherModelConfig exists, the default disabled state" [G6]. T107 must
+  //    confirm that against the sandbox project; if a real project answers differently, this is where to look;
+  //  - a 200 whose body is exactly the documented shape - top-level keys within `loggingConfig` and
+  //    `dataSharingEnabledProvider`, a `loggingConfig` object whose keys are within `enabled`, `samplingRate`,
+  //    `bigqueryDestination` and `enableOtelLogging`, both flags false or absent. A body without `loggingConfig`,
+  //    a key or a type we do not know, an enabled flag or a sharing provider all refuse. Messages never carry
+  //    a key or a value from the body.
   try {
     const url =
       `${base}/v1beta1/projects/${project}/locations/${encodeURIComponent(input.location)}` +
       `/publishers/anthropic/models/${encodeURIComponent(input.modelId)}:fetchPublisherModelConfig`;
     const response = await readControlPlane(input, url, [404]);
     if (response.status !== 404) {
-      const body = await jsonObject(response);
-      if (body === null) {
-        problems.push("Vertex's request-response logging configuration cannot be read");
-      } else {
-        const logging = (typeof body["loggingConfig"] === "object" && body["loggingConfig"] !== null ? body["loggingConfig"] : {}) as Record<string, unknown>;
-        if (logging["enabled"] === true || logging["enableOtelLogging"] === true || body["enableOtelLogging"] === true) {
-          problems.push("Vertex request-response logging is enabled for the model");
-        }
-      }
+      const verdict = loggingVerdict(await jsonObject(response));
+      if (verdict === "unreadable") problems.push("Vertex's request-response logging configuration cannot be read");
+      else if (verdict === "logging") problems.push("Vertex request-response logging is enabled for the model");
+      else if (verdict === "sharing") problems.push("Vertex shares the model's request-response logging with the model provider");
     } else {
       await response.body?.cancel().catch(() => {});
     }
