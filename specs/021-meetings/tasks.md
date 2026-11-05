@@ -570,7 +570,7 @@ database after `bun run db:deploy`.
   - touch: `infra/meetings-bucket-policy.sh`, `infra/README.md`
   - done when: `bash -n infra/meetings-bucket-policy.sh` passes; `infra/meetings-bucket-policy.sh --check --endpoint http://localhost:9000 --bucket meetings` exits 0 against local MinIO, and exits non-zero after `mc ilm rule rm` on a scratch bucket
 
-- [ ] T83: [QE] Prompt-injection eval fixtures and runner. Synthetic it/en transcripts with planted instructions (ignore instructions, fake `</transcript><system>`, off-scope question, language switch, canary, URL). Deterministic assertions; `bun run eval` uses the fake LLM by default and `--live` uses the configured EU provider. The live run is documented as a release and model-change step — refs: AC-7.12, AC-9.7 — deps: T36, T40, T41
+- [x] T83: [QE] Prompt-injection eval fixtures and runner. Synthetic it/en transcripts with planted instructions (ignore instructions, fake `</transcript><system>`, off-scope question, language switch, canary, URL). Deterministic assertions; `bun run eval` uses the fake LLM by default and `--live` uses the configured EU provider. The live run is documented as a release and model-change step — refs: AC-7.12, AC-9.7 — deps: T36, T40, T41
   - touch: `meetings-api/evals/**`, `meetings-api/package.json`, `meetings-api/README.md`
   - done when: `cd meetings-api && bun run eval` exits 0 against the fake LLM in CI mode, and exits non-zero when the fake is scripted to obey one planted instruction; `README.md` § Release lists `bun run eval --live` with `BEDROCK_MODEL_ID` as a required step
 
