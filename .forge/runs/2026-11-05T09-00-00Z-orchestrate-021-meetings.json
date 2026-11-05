@@ -165,6 +165,159 @@
       "agent": "quality-engineer",
       "outcome": "PASS",
       "scope": "Google switch round 2"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T107"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6a989ee",
+        "6329e3f"
+      ],
+      "scope": "real Google spike: drifts D1-D5"
+    },
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "artifact": "spec.md A7 (approved)"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "artifact": "plan.md amendment #2 H-0..H-14 (approved)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T113",
+        "T114",
+        "T115",
+        "T116",
+        "T117",
+        "T118",
+        "T119"
+      ],
+      "outcome": "completed"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T120"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "fd38038"
+      ],
+      "worktree": "worktree-agent-a7b9908af2f6cb909"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T122",
+        "T123"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "2ec454e",
+        "8c405d9"
+      ],
+      "worktree": "worktree-agent-ab839cd4735524c3f"
+    },
+    {
+      "agent": "adr-writer",
+      "tasks": [
+        "T126"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "1e131d3",
+        "e8ac68a"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T121"
+      ],
+      "outcome": "PASS",
+      "commits": [
+        "ac3b3b5"
+      ],
+      "scope": "live eval x2 on claude-sonnet-5-5"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T124"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "74752bf"
+      ],
+      "scope": "spike regression; drifts 1-5 -> spec A8"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T127"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "941d398"
+      ]
+    },
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "artifact": "spec.md A8 + clarification (applied by orchestrator from PO's exact text)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T115",
+        "T116"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6d87fa7",
+        "8b97512"
+      ]
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS WITH NOTES",
+      "scope": "A7/A8 implementation"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "scope": "A7/A8 round 1: D1 notice role=alert, D2 design.md"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T122"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "575e5bd",
+        "a2a3656"
+      ]
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "commits": [
+        "faccb5b",
+        "0971b13"
+      ]
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "scope": "A7/A8 round 2 (D3 doc fix confirmed by reading, per QE)"
     }
   ],
   "drift_events": [
@@ -191,6 +344,30 @@
       "artifact": "plan.md",
       "summary": "G-11 Transcriber signature gained optional context {meetingId, attempt}",
       "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "plan.md",
+      "summary": "T107: BatchRecognize max 20 min, no resultEndOffset, Chirp 3 omits speech, Sonnet 5.5 rejects forced tool_choice -> spec A7 + plan amendment #2",
+      "resolved": true
+    },
+    {
+      "agent": "quality-engineer",
+      "artifact": "spec.md",
+      "summary": "T124: provider deterministic (retries useless), dedup removed different speakers' speech -> spec A8",
+      "resolved": true
+    },
+    {
+      "agent": "orchestrator",
+      "artifact": "spec.md",
+      "summary": "A8 literal overlap rule kept overlap duplicates when labels unjoined -> AC-6.13 clarified (overlap removed unless joined to different speakers)",
+      "resolved": true
+    },
+    {
+      "agent": "adr-writer",
+      "artifact": "docs/adr",
+      "summary": "ADR number 0071 collided with main's 0071 (spec 023) -> meetings ADR renumbered 0073 (user decision)",
+      "resolved": true
     }
   ],
   "collision_events": [],
@@ -206,6 +383,18 @@
       "class": "machine-global files",
       "detail": "docker ffmpeg wrapper mounted a mistyped path and needed TMPDIR mounted; docker latency timeouts",
       "resolved_by": "corrected wrappers in scratchpad/qe/bin"
+    },
+    {
+      "agent": "adr-writer",
+      "class": "repository outside checkout",
+      "detail": "worktrees branch from main, which another workstream (spec 023) advanced by 41 commits; ff to feat/021 impossible",
+      "resolved_by": "ran in the main tree / new branch from feat tip"
+    },
+    {
+      "agent": "backend-dev",
+      "class": "secret env",
+      "detail": "env.test children auto-loaded a developer dotenv file",
+      "resolved_by": "bun --no-env-file + empty cwd (784a909)"
     }
   ],
   "verdicts": {
@@ -222,7 +411,10 @@
       "L2 N4 refuses 200 {} \u2014 T107 must confirm Google's real shape (and 404=disabled)",
       "L3 WIF CEL and meetings-eval environment reviewers/branch policy are manual settings",
       "L4 cross-job attempt-number leftovers bounded by 1-day lifecycle; S3 model denylist name-based by design",
-      "Speech data logging (H1) and ~5-day async result (H4) are sign-offs, not startup-checkable"
+      "Speech data logging (H1) and ~5-day async result (H4) are sign-offs, not startup-checkable",
+      "A7/A8: quadratic worst case in completeness/stitch on adversarial provider output (1-2 s per part), bounded by caps",
+      "separate route: 500 instead of 404 if the meeting is hard-deleted between visibility check and transaction (same as rename)",
+      "fixtures carry placeholder project id/bucket names (not the real ones, verified)"
     ]
   },
   "result": "partial",
