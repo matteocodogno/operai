@@ -13,6 +13,11 @@ const en = {
   languages: { en: 'English', it: 'Italian' },
   edited: 'Edited',
   stale: 'Based on an earlier version of the transcript',
+  /** Service-written (AC-7.13); `ranges` reads "00:10:00–00:12:00, 00:40:00–00:41:00". */
+  incomplete: {
+    label: 'Based on a transcript that may be incomplete',
+    ranges: (ranges: string) => `Speech may be missing between: ${ranges}`,
+  },
   byline: (author: string, when: string) => `by ${author} · ${when}`,
   formerAuthor: 'a former colleague',
   generating: 'Generating…',
@@ -66,6 +71,10 @@ const it: typeof en = {
   aiGenerated: 'Generato dall’IA',
   languages: { en: 'Inglese', it: 'Italiano' },
   edited: 'Modificato',
+  incomplete: {
+    label: 'Basato su una trascrizione che potrebbe essere incompleta',
+    ranges: (ranges: string) => `Potrebbe mancare del parlato tra: ${ranges}`,
+  },
   stale: 'Basato su una versione precedente della trascrizione',
   byline: (author: string, when: string) => `di ${author} · ${when}`,
   formerAuthor: 'un ex collega',

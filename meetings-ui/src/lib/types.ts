@@ -119,6 +119,8 @@ export type TranscriptSegment = {
   startMs: number | null
   endMs: number | null
   speakerKey: string | null
+  /** 1-based transcript part (AC-6.2); null for a text meeting and for rows older than the parts. */
+  part: number | null
   text: string
   edited: boolean
   version: number
@@ -129,16 +131,30 @@ export type SpeakerLabel =
   | { kind: 'participant'; participantId: string }
   | { kind: 'text'; text: string }
 
-export type Speaker = { key: string; label: SpeakerLabel }
+/**
+ * `parts` = the transcript parts the key's segments come from, ascending (`[]` for a text meeting);
+ * `joined` = it covers more than one part, matched automatically (AC-6.14, AC-6.16).
+ */
+export type Speaker = { key: string; label: SpeakerLabel; parts: number[]; joined: boolean }
 
-/** A transcript part (AC-6.2): `index` is 1-based, `startMs` the offset of its first moment. `[]` for a text meeting or no speech. */
-export type TranscriptPart = { index: number; startMs: number }
+/**
+ * A transcript part (AC-6.2): `index` is 1-based; `startMs`/`endMs` are the audio it covers, in meeting
+ * time. Consecutive parts overlap (plan H-1). `[]` for a text meeting or no speech.
+ */
+export type TranscriptPart = { index: number; startMs: number; endMs: number }
+
+/** A stretch of meeting time where speech may be missing (AC-6.12); ascending, merged, never edited. */
+export type TimeRange = { startMs: number; endMs: number }
 
 export type Transcript = {
   version: number
   segments: TranscriptSegment[]
   speakers: Speaker[]
   parts: TranscriptPart[]
+  /** `[]` = no notice (AC-6.12). */
+  gaps: TimeRange[]
+  /** More than one part and at least one label of a later part is separate: the AC-6.15 notice. */
+  separateLabels: boolean
 }
 
 // ─── Templates ──────────────────────────────────────────────────────────────
@@ -183,6 +199,8 @@ export type Summary = {
   edited: boolean
   /** The transcript changed after this summary was made (AC-6.8). */
   stale: boolean
+  /** Written by the service from the gaps the summary was made under (AC-7.13); null/absent = none. */
+  possiblyIncomplete?: { gaps: TimeRange[] } | null
   createdAt: string
   version: number
   can: { edit: boolean; delete: boolean; retry: boolean }
@@ -198,7 +216,13 @@ export type ConversationTurn = {
   id: string
   question: string
   status: TurnStatus
-  answer: { text: string; notInMeeting: boolean; citations: Citation[] } | null
+  answer: {
+    text: string
+    notInMeeting: boolean
+    citations: Citation[]
+    /** The transcript was marked possibly incomplete when this was asked (AC-9.9); absent on older rows. */
+    possiblyIncomplete?: boolean
+  } | null
   createdAt: string
 }
 

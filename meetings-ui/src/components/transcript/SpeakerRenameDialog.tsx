@@ -4,7 +4,7 @@ import { errorMessage } from '../../lib/errors'
 import { setSpeaker } from '../../lib/meetingsApi'
 import type { Participant, Speaker } from '../../lib/types'
 import { strings } from '../../strings'
-import { speakerLabelText } from './exportText'
+import { partsText, speakerLabelText } from './exportText'
 
 export const SPEAKER_NAME_MAX = 100
 
@@ -62,7 +62,13 @@ export function SpeakerRenameDialog({
   return (
     <FormDialog
       title={strings.transcript.renameTitle}
-      description={`${currentName}. ${strings.transcript.renameDescription}`}
+      description={[
+        `${currentName}.`,
+        strings.transcript.renameDescription,
+        speaker.joined ? `${strings.transcript.joined.note(partsText(speaker.parts))}.` : null,
+      ]
+        .filter((part): part is string => part !== null)
+        .join(' ')}
       submitLabel={strings.transcript.renameSubmit}
       busyLabel={strings.transcript.saving}
       cancelLabel={strings.common.cancel}

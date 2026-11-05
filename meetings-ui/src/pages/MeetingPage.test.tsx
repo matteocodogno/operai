@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event'
 import { formatDate } from '@operai/ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAppRouter, createMyMeetingsRouter } from '../router'
-import { en } from '../strings'
+import { en, it as italian } from '../strings'
 import {
   ADA,
   CAN_CREATOR_DRAFT,
@@ -440,6 +440,27 @@ describe('MeetingPage: one status panel at a time (S3a)', () => {
     await loaded()
     expect(screen.getByText(en.meeting.panels.failed.reasons.provider_unavailable)).not.toBeNull()
     expect(screen.queryByRole('button', { name: en.meeting.panels.failed.retry })).toBeNull()
+  })
+
+  it('speech_not_transcribed says speech was detected but not transcribed, never "No speech detected" (AC-6.7)', async () => {
+    serve(
+      meeting({
+        status: 'failed',
+        failure: { code: 'speech_not_transcribed' },
+        audio: { state: 'kept', until: '2026-12-03T09:30:00.000Z' },
+        can: { ...CAN_NONE, retryProcessing: true },
+      }),
+    )
+    await loaded()
+    expect(en.meeting.panels.failed.reasons.speech_not_transcribed).toBe(
+      'Speech was detected in the recording but could not be transcribed.',
+    )
+    expect(screen.getByText(en.meeting.panels.failed.reasons.speech_not_transcribed)).not.toBeNull()
+    expect(screen.queryByText(en.meeting.panels.failed.unknownReason)).toBeNull()
+    expect(screen.queryByText(en.transcript.noSpeech.heading)).toBeNull()
+    expect(italian.meeting.panels.failed.reasons.speech_not_transcribed).not.toBe(
+      en.meeting.panels.failed.reasons.speech_not_transcribed,
+    )
   })
 
   it('failed with an unknown code falls back to a generic reason, and with the audio deleted says why there is no retry', async () => {

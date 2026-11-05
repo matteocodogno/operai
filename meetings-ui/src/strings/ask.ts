@@ -10,6 +10,8 @@ const en = {
   you: 'You',
   aiGenerated: 'AI-generated',
   thinking: 'Thinking…',
+  /** Service-written (AC-9.9); links to the transcript's notice. */
+  incompleteLabel: 'Based on a transcript that may be incomplete',
   failed: 'This question could not be answered.',
   tryAgain: 'Try again',
   sources: 'Sources',
@@ -46,6 +48,7 @@ const it: typeof en = {
   you: 'Tu',
   aiGenerated: 'Generato dall’IA',
   thinking: 'Sto pensando…',
+  incompleteLabel: 'Basato su una trascrizione che potrebbe essere incompleta',
   failed: 'Non è stato possibile rispondere a questa domanda.',
   tryAgain: 'Riprova',
   sources: 'Fonti',

@@ -239,6 +239,7 @@ export const segment = (overrides: Partial<TranscriptSegment> = {}): TranscriptS
   startMs: 12_000,
   endMs: 18_000,
   speakerKey: 'spk1',
+  part: 1,
   text: 'We agreed to ship on Friday.',
   edited: false,
   version: 1,
@@ -259,31 +260,37 @@ export const transcript = (overrides: Partial<Transcript> = {}): Transcript => (
     }),
   ],
   speakers: [
-    { key: 'spk1', label: { kind: 'default', index: 1 } },
-    { key: 'spk2', label: { kind: 'default', index: 2 } },
+    { key: 'spk1', label: { kind: 'default', index: 1 }, parts: [1], joined: false },
+    { key: 'spk2', label: { kind: 'default', index: 2 }, parts: [1], joined: false },
   ],
-  parts: [{ index: 1, startMs: 0 }],
+  parts: [{ index: 1, startMs: 0, endMs: 600_000 }],
+  gaps: [],
+  separateLabels: false,
   ...overrides,
 })
 
-/** A three-part transcript (G-11): part 2 starts at 1 h, part 3 at 2 h; speakers are numbered per part. */
+/**
+ * A three-part transcript (G-11, H-1): consecutive parts overlap by 60 s. Part 2 starts at 1 h, part 3
+ * at 2 h. Each part's labels are separate (`separateLabels`), the AC-6.15 case.
+ */
 export const threePartTranscript = (): Transcript =>
   transcript({
     segments: [
-      segment({ id: 'a1', ordinal: 1, startMs: 0, endMs: 5_000, speakerKey: 'p1:1', text: 'Opening of part one.' }),
-      segment({ id: 'b1', ordinal: 2, startMs: 3_600_000, endMs: 3_620_000, speakerKey: 'p2:1', text: 'Start of part two.' }),
-      segment({ id: 'c1', ordinal: 3, startMs: 7_200_000, endMs: 7_230_000, speakerKey: 'p3:1', text: 'Start of part three.' }),
+      segment({ id: 'a1', ordinal: 1, startMs: 0, endMs: 5_000, speakerKey: 'p1:1', part: 1, text: 'Opening of part one.' }),
+      segment({ id: 'b1', ordinal: 2, startMs: 3_600_000, endMs: 3_620_000, speakerKey: 'p2:1', part: 2, text: 'Start of part two.' }),
+      segment({ id: 'c1', ordinal: 3, startMs: 7_200_000, endMs: 7_230_000, speakerKey: 'p3:1', part: 3, text: 'Start of part three.' }),
     ],
     speakers: [
-      { key: 'p1:1', label: { kind: 'default', index: 1 } },
-      { key: 'p2:1', label: { kind: 'default', index: 2 } },
-      { key: 'p3:1', label: { kind: 'default', index: 3 } },
+      { key: 'p1:1', label: { kind: 'default', index: 1 }, parts: [1], joined: false },
+      { key: 'p2:1', label: { kind: 'default', index: 2 }, parts: [2], joined: false },
+      { key: 'p3:1', label: { kind: 'default', index: 3 }, parts: [3], joined: false },
     ],
     parts: [
-      { index: 1, startMs: 0 },
-      { index: 2, startMs: 3_600_000 },
-      { index: 3, startMs: 7_200_000 },
+      { index: 1, startMs: 0, endMs: 3_660_000 },
+      { index: 2, startMs: 3_600_000, endMs: 7_260_000 },
+      { index: 3, startMs: 7_200_000, endMs: 10_800_000 },
     ],
+    separateLabels: true,
   })
 
 export const summary = (overrides: Partial<Summary> = {}): Summary => ({

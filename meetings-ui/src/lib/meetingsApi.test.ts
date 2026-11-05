@@ -22,6 +22,8 @@ type Row = {
   url: string
   body?: unknown
   ifMatch?: string
+  /** What the server answers, when the client reads the body (the default is `{}`). */
+  reply?: unknown
 }
 
 const POST = 'POST'
@@ -151,7 +153,13 @@ const ROWS: Row[] = [
   { name: 'getAudioUrl', call: () => api.getAudioUrl('m1'), method: GET, url: '/meetings/m1/audio' },
   { name: 'deleteAudio', call: () => api.deleteAudio('m1'), method: DELETE, url: '/meetings/m1/audio' },
   // Transcript
-  { name: 'getTranscript', call: () => api.getTranscript('m1'), method: GET, url: '/meetings/m1/transcript' },
+  {
+    name: 'getTranscript',
+    call: () => api.getTranscript('m1'),
+    method: GET,
+    url: '/meetings/m1/transcript',
+    reply: { version: 1, segments: [], speakers: [], parts: [], gaps: [], separateLabels: false },
+  },
   {
     name: 'editSegment',
     call: () => api.editSegment('m1', 'seg1', 3, 'fixed'),
@@ -166,6 +174,13 @@ const ROWS: Row[] = [
     method: PUT,
     url: '/meetings/m1/transcript/speakers/spk1',
     body: { text: 'Ada' },
+  },
+  {
+    name: 'separateSpeaker',
+    call: () => api.separateSpeaker('m1', 'k1'),
+    method: POST,
+    url: '/meetings/m1/transcript/speakers/k1/separate',
+    reply: { speakers: [] },
   },
   // Summaries
   { name: 'listSummaries', call: () => api.listSummaries('m1'), method: GET, url: '/meetings/m1/summaries' },
@@ -276,7 +291,10 @@ describe('every exported function is covered by this table', () => {
 })
 
 describe('the plan route table', () => {
-  it.each(ROWS)('$name sends $method $url', async ({ call, method, url, body, ifMatch }) => {
+  it.each(ROWS)('$name sends $method $url', async ({ call, method, url, body, ifMatch, reply }) => {
+    if (reply !== undefined) {
+      vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify(reply), { status: 200 }))
+    }
     await call()
     const [target, init] = vi.mocked(apiFetch).mock.calls[0]! as [string, RequestInit | undefined]
     expect(target).toBe(`http://meetings-api.test${url}`)
@@ -290,6 +308,25 @@ describe('the plan route table', () => {
   it('answers with the parsed JSON body', async () => {
     vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({ id: 'm1' }), { status: 200 }))
     await expect(api.getMeeting('m1')).resolves.toEqual({ id: 'm1' })
+  })
+
+  it('a transcript from a backend that predates plan H-6 reads as no gaps, no separate labels, no parts', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          version: 2,
+          segments: [{ id: 's1', ordinal: 1, startMs: 0, endMs: 1, speakerKey: 'a', text: 'Hi', edited: false, version: 1 }],
+          speakers: [{ key: 'a', label: { kind: 'default', index: 1 } }],
+        }),
+        { status: 200 },
+      ),
+    )
+    const transcript = await api.getTranscript('m1')
+    expect(transcript.gaps).toEqual([])
+    expect(transcript.separateLabels).toBe(false)
+    expect(transcript.parts).toEqual([])
+    expect(transcript.segments[0]!.part).toBeNull()
+    expect(transcript.speakers[0]).toMatchObject({ parts: [], joined: false })
   })
 
   it('a bodyless 204 (delete) resolves undefined', async () => {

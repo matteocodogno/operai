@@ -167,7 +167,40 @@ export const deleteAudio = (id: string) => sendJson<Meeting>(`${meetingPath(id)}
 
 // ─── Transcript ─────────────────────────────────────────────────────────────
 
-export const getTranscript = (id: string, init?: Init) => getJson<Transcript>(`${meetingPath(id)}/transcript`, init)
+/**
+ * The transcript, with the fields of plan H-6 defaulted when a backend that predates them answers: no
+ * gaps, labels not separate, rows with no part, labels not joined. The UI then shows what it always did.
+ */
+export async function getTranscript(id: string, init?: Init): Promise<Transcript> {
+  const body = await getJson<Transcript>(`${meetingPath(id)}/transcript`, init)
+  return {
+    ...body,
+    segments: body.segments.map((segment) => ({ ...segment, part: segment.part ?? null })),
+    speakers: body.speakers.map(withParts),
+    parts: body.parts ?? [],
+    gaps: body.gaps ?? [],
+    separateLabels: body.separateLabels ?? false,
+  }
+}
+
+const withParts = (speaker: Speaker): Speaker => ({
+  ...speaker,
+  parts: speaker.parts ?? [],
+  joined: speaker.joined ?? false,
+})
+
+/**
+ * "Separate by part" (AC-6.16): the lowest part keeps the key, each further part gets its own. 403 for
+ * anyone but the creator or on a frozen meeting, 409 `not_ready` / `not_joined`, 404 for an unknown key.
+ * Answers the transcript's whole speaker list.
+ */
+export async function separateSpeaker(id: string, key: string): Promise<{ speakers: Speaker[] }> {
+  const body = await sendJson<{ speakers: Speaker[] }>(
+    `${meetingPath(id)}/transcript/speakers/${enc(key)}/separate`,
+    'POST',
+  )
+  return { speakers: body.speakers.map(withParts) }
+}
 
 /** `version` is the segment's own (`If-Match`); the answer bumps the meeting's `transcriptVersion` (AC-6.3, AC-6.8). */
 export const editSegment = (id: string, segmentId: string, version: number, text: string) =>

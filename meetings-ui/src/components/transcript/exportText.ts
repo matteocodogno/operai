@@ -2,10 +2,12 @@
  * exportText — the transcript as plain text (AC-6.6) and the speaker names that text uses.
  *
  * One line per segment: `[hh:mm:ss] Name: text`. A text meeting has no times and no speakers, so
- * its lines are the bare passages. Names are the labels the viewer sees on screen.
+ * its lines are the bare passages. Names are the labels the viewer sees on screen. A transcript marked
+ * possibly incomplete begins with the notice and a blank line, and carries a `[Possible gap …]` line
+ * where each gap sits on screen (AC-6.6, AC-6.12).
  */
 import { formatDuration } from '@operai/ui'
-import type { Participant, Speaker, SpeakerLabel, TranscriptPart, TranscriptSegment } from '../../lib/types'
+import type { Participant, Speaker, SpeakerLabel, TimeRange, TranscriptSegment } from '../../lib/types'
 import { strings } from '../../strings'
 
 const participantName = (participant: Participant | undefined): string | null => {
@@ -49,44 +51,65 @@ export function textFileName(title: string, fallback: string): string {
 
 export const clockOf = (ms: number): string => formatDuration(ms, { style: 'clock' })
 
-export function exportText(segments: TranscriptSegment[], speakers: Speaker[], participants: Participant[]): string {
-  return inOrder(segments)
-    .map((segment) => {
-      const name = speakerNameOf(segment.speakerKey, speakers, participants)
-      const head = [
-        segment.startMs === null ? null : `[${clockOf(segment.startMs)}]`,
-        name === null ? null : `${name}:`,
-      ]
-        .filter((part): part is string => part !== null)
-        .join(' ')
-      return head === '' ? segment.text : `${head} ${segment.text}`
-    })
-    .join('\n')
-}
-
-const partIndexOf = (segment: TranscriptSegment, parts: readonly TranscriptPart[]): number => {
-  const start = segment.startMs
-  if (start === null) return -1
-  let found = -1
-  parts.forEach((part, index) => {
-    if (part.startMs <= start) found = index
-  })
-  return found
-}
+/** The notice's ranges as the clock times the viewer reads (AC-6.12 a). */
+export const noticeRanges = (gaps: readonly TimeRange[]) =>
+  gaps.map((gap) => ({ from: clockOf(gap.startMs), to: clockOf(gap.endMs) }))
 
 /**
- * The part that opens at `segments[index]` (AC-6.2): the segment's part, when it differs from the
- * previous segment's and is not the first. Null otherwise. A segment belongs to the last part whose
- * start is at or before its own (times are never later than the speech, G-3), so a part with no
- * segment gets no divider.
+ * Where each gap's marker goes (AC-6.12 b): before the first segment (in transcript order) that starts
+ * at or after the gap's start, keyed by that segment's index; `segments.length` = after the last one.
+ * Markers of one index keep the gaps' order.
  */
-export function partStartingAt(
-  segments: readonly TranscriptSegment[],
-  index: number,
-  parts: readonly TranscriptPart[],
-): TranscriptPart | null {
-  const here = partIndexOf(segments[index]!, parts)
-  if (here <= 0) return null
-  const before = index === 0 ? -1 : partIndexOf(segments[index - 1]!, parts)
-  return here === before ? null : parts[here]!
+export function gapsBefore(segments: readonly TranscriptSegment[], gaps: readonly TimeRange[]): Map<number, TimeRange[]> {
+  const placed = new Map<number, TimeRange[]>()
+  for (const gap of gaps) {
+    const found = segments.findIndex((segment) => segment.startMs !== null && segment.startMs >= gap.startMs)
+    const index = found === -1 ? segments.length : found
+    placed.set(index, [...(placed.get(index) ?? []), gap])
+  }
+  return placed
+}
+
+export const gapMarkerText = (gap: TimeRange): string =>
+  strings.transcript.incomplete.marker(clockOf(gap.startMs), clockOf(gap.endMs))
+
+export function exportText(
+  segments: TranscriptSegment[],
+  speakers: Speaker[],
+  participants: Participant[],
+  gaps: readonly TimeRange[] = [],
+): string {
+  const ordered = inOrder(segments)
+  const markers = gapsBefore(ordered, gaps)
+  const lines: string[] = []
+  const markersAt = (index: number) => {
+    for (const gap of markers.get(index) ?? []) lines.push(`[${gapMarkerText(gap)}]`)
+  }
+  ordered.forEach((segment, index) => {
+    markersAt(index)
+    const name = speakerNameOf(segment.speakerKey, speakers, participants)
+    const head = [
+      segment.startMs === null ? null : `[${clockOf(segment.startMs)}]`,
+      name === null ? null : `${name}:`,
+    ]
+      .filter((part): part is string => part !== null)
+      .join(' ')
+    lines.push(head === '' ? segment.text : `${head} ${segment.text}`)
+  })
+  markersAt(ordered.length)
+  const body = lines.join('\n')
+  return gaps.length === 0 ? body : `${strings.transcript.incomplete.notice(noticeRanges(gaps))}\n\n${body}`
+}
+
+/** "1–3", "1, 3", "1–2, 4": the parts a joined label covers, runs of consecutive numbers collapsed. */
+export function partsText(parts: readonly number[]): string {
+  const runs: string[] = []
+  let start = 0
+  while (start < parts.length) {
+    let end = start
+    while (end + 1 < parts.length && parts[end + 1] === parts[end]! + 1) end++
+    runs.push(end === start ? String(parts[start]) : end === start + 1 ? `${parts[start]}, ${parts[end]}` : `${parts[start]}–${parts[end]}`)
+    start = end + 1
+  }
+  return runs.join(', ')
 }

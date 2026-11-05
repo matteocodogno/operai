@@ -18,11 +18,39 @@ const en = {
     heading: 'No transcript',
     body: 'This meeting has no transcript.',
   },
-  /** Transcript parts (AC-6.2, G-3): a long recording transcribed in parts numbers its speakers per part. */
+  /**
+   * Transcript parts (AC-6.2, AC-6.15): shown only when a later part's label stayed separate. It never
+   * says the labels are different people, and never that speakers are "numbered separately".
+   */
   parts: {
     banner: (n: number) =>
-      `This recording was transcribed in ${n} parts. Speakers are numbered separately in each part, so one person can appear under two labels. Rename a label to merge them.`,
+      `This recording was transcribed in ${n} parts. Speakers could not always be matched between parts, so one person can appear under two labels. Rename them to the same name to merge them.`,
     divider: (n: number, start: string) => `Part ${n} · ${start}`,
+  },
+  /** The possibly-incomplete notice and its markers (AC-6.12). `ranges` are clock times, `from`/`to`. */
+  incomplete: {
+    notice: (ranges: { from: string; to: string }[]) =>
+      `This transcript may be incomplete. Speech may be missing between ${ranges
+        .map((range) => `${range.from} and ${range.to}`)
+        .join(', and between ')}. The missing speech is not in the transcript and cannot be recovered from it.`,
+    rangesLabel: 'Ranges where speech may be missing',
+    marker: (from: string, to: string) => `Possible gap ${from}–${to}`,
+    play: 'Play',
+  },
+  /** A label matched across parts (AC-6.16). `parts` reads like "1–3" or "1, 3". */
+  joined: {
+    note: (parts: string) => `Matched automatically across parts ${parts}`,
+    part: (n: number) => `Part ${n}`,
+    separate: 'Separate by part',
+    separateLabel: (name: string) => `Separate by part: ${name}`,
+  },
+  separate: {
+    title: 'Separate by part?',
+    body: (name: string) =>
+      `Each part’s speech gets its own label. They keep the name “${name}” until you rename them. This cannot be undone.`,
+    confirm: 'Separate',
+    busy: 'Separating…',
+    notJoined: 'These labels are already separate.',
   },
   speaker: (index: number) => `Speaker ${index}`,
   unknownSpeaker: 'Unknown speaker',
@@ -73,8 +101,31 @@ const it: typeof en = {
   },
   parts: {
     banner: (n: number) =>
-      `Questa registrazione è stata trascritta in ${n} parti. Le voci sono numerate separatamente in ogni parte, quindi la stessa persona può comparire con due etichette. Rinomina un'etichetta per unirle.`,
+      `Questa registrazione è stata trascritta in ${n} parti. Non sempre è stato possibile abbinare i parlanti tra una parte e l’altra, quindi la stessa persona può comparire con due etichette. Rinominale con lo stesso nome per unirle.`,
     divider: (n: number, start: string) => `Parte ${n} · ${start}`,
+  },
+  incomplete: {
+    notice: (ranges: { from: string; to: string }[]) =>
+      `Questa trascrizione potrebbe essere incompleta. Potrebbe mancare del parlato tra ${ranges
+        .map((range) => `${range.from} e ${range.to}`)
+        .join(', e tra ')}. Il parlato mancante non è nella trascrizione e non può essere recuperato da essa.`,
+    rangesLabel: 'Intervalli in cui potrebbe mancare del parlato',
+    marker: (from: string, to: string) => `Possibile lacuna ${from}–${to}`,
+    play: 'Riproduci',
+  },
+  joined: {
+    note: (parts: string) => `Abbinata automaticamente tra le parti ${parts}`,
+    part: (n: number) => `Parte ${n}`,
+    separate: 'Separa per parte',
+    separateLabel: (name: string) => `Separa per parte: ${name}`,
+  },
+  separate: {
+    title: 'Separare per parte?',
+    body: (name: string) =>
+      `Il parlato di ogni parte ottiene una propria etichetta. Mantengono il nome “${name}” finché non le rinomini. L’operazione non si può annullare.`,
+    confirm: 'Separa',
+    busy: 'Separazione…',
+    notJoined: 'Queste etichette sono già separate.',
   },
   speaker: (index: number) => `Voce ${index}`,
   unknownSpeaker: 'Voce sconosciuta',
