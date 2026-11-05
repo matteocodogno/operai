@@ -222,6 +222,15 @@ describe("segments across the seam (AC-6.1, AC-6.5)", () => {
     expect(noGap).toHaveLength(1);
   });
 
+  it("a segment takes the time of its first trusted word, not of the untimed words before it", () => {
+    const words = [word("untimed", "p1:1", null), word("first", "p1:1", [40, 40.4]), word("second", "p1:1", [41, 41.4])];
+    const [segment] = run([part(1, 0, 600, words)]).segments;
+    expect([segment!.startMs, segment!.endMs]).toEqual([S(40), S(41.4)]);
+    // all untimed: it starts where its words are placed and has no length
+    const [lone] = run([part(1, 0, 600, [word("a", "p1:1", null)])]).segments;
+    expect([lone!.startMs, lone!.endMs]).toEqual([0, 0]);
+  });
+
   it("carries the part of each segment (1-based)", () => {
     const { segments } = run(parts());
     expect(new Set(segments.map((s) => s.part))).toEqual(new Set([1, 2]));

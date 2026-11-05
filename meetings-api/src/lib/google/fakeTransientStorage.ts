@@ -6,10 +6,10 @@
  */
 
 import { GoogleApiError } from "./auth";
-import { TransientObjectTooLargeError, attemptOfKey, isOutputPrefix, isTransientKey, transientKeys, type TransientStorage } from "./transientStorage";
+import { TransientObjectTooLargeError, attemptOfKey, isOutputPrefix, isPrefixOfOneMeetingAttemptOrTry, isTransientKey, transientKeys, type TransientStorage } from "./transientStorage";
 
 export interface TransientEvent {
-  readonly op: "put" | "read" | "deletePrefix" | "deleteBefore";
+  readonly op: "put" | "read" | "delete" | "deletePrefix" | "deleteBefore";
   readonly key: string;
 }
 
@@ -25,7 +25,6 @@ export interface FakeTransientStorage extends TransientStorage {
 }
 
 const BUCKET = "fake-transient-bucket";
-const PREFIX_PATTERN = /^transcribe\/[A-Za-z0-9_-]{1,64}\/(?:[1-9][0-9]{0,2}\/)?$/;
 
 export function createFakeTransientStorage(): FakeTransientStorage {
   const objects = new Map<string, Uint8Array>();
@@ -50,7 +49,7 @@ export function createFakeTransientStorage(): FakeTransientStorage {
       return `gs://${BUCKET}/${key}`;
     },
     prefixUri: (prefix) => {
-      if (!isOutputPrefix(prefix)) throw new Error("prefix is not one attempt's output prefix");
+      if (!isOutputPrefix(prefix)) throw new Error("prefix is not one try's output prefix");
       return `gs://${BUCKET}/${prefix}`;
     },
     keyOfUri(uri) {
@@ -73,8 +72,14 @@ export function createFakeTransientStorage(): FakeTransientStorage {
       if (bytes.byteLength > maxBytes) throw new TransientObjectTooLargeError();
       return bytes;
     },
+    async delete(key) {
+      if (!isTransientKey(key)) throw new Error("object key is outside the transient layout");
+      check();
+      events.push({ op: "delete", key });
+      objects.delete(key);
+    },
     async deletePrefix(prefix) {
-      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's or one attempt's");
+      if (!isPrefixOfOneMeetingAttemptOrTry(prefix)) throw new Error("prefix is not exactly one meeting's, one attempt's or one try's");
       check();
       events.push({ op: "deletePrefix", key: prefix });
       let deleted = 0;

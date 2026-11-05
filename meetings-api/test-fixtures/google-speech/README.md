@@ -34,5 +34,10 @@ as evidence of what Google sends: no recording ever contained a `resultEndOffset
 `operation-done-error.json` (an operation-level `error`), `output-two-speakers.json`, `output-speaker-change.json`,
 `output-no-labels.json`, `output-with-word-offsets.json`, `output-empty.json`, `output-silence.json`.
 
+`overlap-part-1.json` and `overlap-part-2.json` (T116): two consecutive OVERLAPPING parts (0-50 s and 30-80 s of one
+synthetic recording, a word every 0.5 s, in the recorded shape: one result per part, string offsets relative to the part,
+the first `startOffset` omitted, labels from 0 in part 1 and swapped in part 2). The 20 s overlap carries 20 matched words
+for each of two speakers. T124 replaces them with recorded ones.
+
 Placeholders, substituted by the test: `{{INPUT_URI}}` (the part's `gs://` input URI) and `{{OUTPUT_URI}}` (the output
 file's `gs://` URI).

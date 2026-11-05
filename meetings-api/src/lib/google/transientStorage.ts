@@ -4,8 +4,9 @@
  * `gs://` URIs, so each `transcribe` attempt stages its parts here and Speech writes its output beside them.
  * Bytes live here only while one attempt runs; Railway's bucket stays the only place audio is KEPT (ADR-0063).
  *
- *   transcribe/<meetingId>/<attempt>/in/<n>.ogg     the parts we upload
- *   transcribe/<meetingId>/<attempt>/out/...        what Speech writes
+ *   transcribe/<meetingId>/<attempt>/in/<k>.ogg         part k, uploaded once, deleted when the part settles
+ *   transcribe/<meetingId>/<attempt>/out/<k>-<t>/...    what Speech writes for try t of part k (H-4: its own
+ *                                                       prefix, read and deleted at once)
  *
  * Names carry identifiers only (no title, no content, AC-4.10): Google's residency guarantee excludes
  * resource metadata such as object names.
@@ -18,9 +19,10 @@
  * REST through `fetch`, not `@google-cloud/storage` (a large dependency for five JSON-API calls that would hide
  * the very URL the residency check pins).
  *
- * `deletePrefix` takes EXACTLY `transcribe/<meetingId>/` (the delete routes: every attempt) or
+ * `deletePrefix` takes EXACTLY `transcribe/<meetingId>/` (the delete routes: every attempt),
  * `transcribe/<meetingId>/<attempt>/` (one attempt: an attempt cleans up after itself only, because a stale one
- * must not delete what a newer attempt of the same meeting has staged), as the Railway storage does for
+ * must not delete what a newer attempt of the same meeting has staged) or `transcribe/<meetingId>/<attempt>/out/<k>-<t>/`
+ * (one try of one part, deleted as soon as it has been read), as the Railway storage does for
  * `meetings/<id>/`: a shorter prefix would wipe other meetings' attempts. `deleteAttemptsBefore` is the start of
  * an attempt: it clears the leftovers of OLDER attempts only.
  */
@@ -29,14 +31,18 @@ import { GoogleApiError, defaultFetch, googleAuth, googleFetch, toGoogleApiError
 import { TRANSIENT_BUCKET_ALLOWED_LOCATIONS } from "../residency";
 
 const ID = "[A-Za-z0-9_-]{1,64}";
-const PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/(?:[1-9][0-9]{0,2}/)?$`);
-const KEY_PATTERN = new RegExp(`^transcribe/${ID}/${ID}/(in|out)/(?!\\.+$)[A-Za-z0-9._=-]{1,200}$`);
+const TRY = "[1-9][0-9]{0,2}-[1-9]";
+const PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/(?:[1-9][0-9]{0,2}/(?:out/${TRY}/)?)?$`);
+const NAME = "(?!\\.+$)[A-Za-z0-9._=-]{1,200}";
+const KEY_PATTERN = new RegExp(`^transcribe/${ID}/${ID}/(?:in/${NAME}|out/${TRY}/${NAME})$`);
 const ID_PATTERN = new RegExp(`^${ID}$`);
-/** The one prefix Speech is given as its output location: exactly one attempt's `out/`. */
-const OUTPUT_PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/[1-9][0-9]{0,2}/out/$`);
-/** Whether `key` is an object name of the transient layout (`in/` or `out/`, never a prefix). Fakes share it. */
+/** The one prefix Speech is given as its output location: exactly one try of one part, `out/<k>-<t>/`. */
+const OUTPUT_PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/[1-9][0-9]{0,2}/out/${TRY}/$`);
+/** Whether `key` is an object name of the transient layout (`in/<name>` or `out/<k>-<t>/<name>`, never a prefix). Fakes share it. */
 export const isTransientKey = (key: string): boolean => KEY_PATTERN.test(key);
-/** Whether `prefix` is exactly one attempt's `out/` prefix. Fakes share it. */
+/** Whether `prefix` is exactly one try's `out/<k>-<t>/` prefix. Fakes share it. */
+export const isPrefixOfOneMeetingAttemptOrTry = (prefix: string): boolean => PREFIX_PATTERN.test(prefix);
+/** Whether `prefix` is exactly one try's output prefix. Fakes share it. */
 export const isOutputPrefix = (prefix: string): boolean => OUTPUT_PREFIX_PATTERN.test(prefix);
 
 /** 2 min per part upload (plan § G-9). */
@@ -63,9 +69,11 @@ export const transientKeys = {
     if (!Number.isInteger(part) || part < 1 || part > 999) throw new Error("invalid part number");
     return `${this.attemptPrefix(meetingId, attempt)}in/${part}.ogg`;
   },
-  /** Where Speech writes this attempt's output (a prefix, with a trailing slash). */
-  outputPrefix(meetingId: string, attempt: number): string {
-    return `${this.attemptPrefix(meetingId, attempt)}out/`;
+  /** Where Speech writes try `tryNo` of part `part` (a prefix, with a trailing slash): its own, never shared (H-4). */
+  outputPrefix(meetingId: string, attempt: number, part: number, tryNo: number): string {
+    if (!Number.isInteger(part) || part < 1 || part > 999) throw new Error("invalid part number");
+    if (!Number.isInteger(tryNo) || tryNo < 1 || tryNo > 9) throw new Error("invalid try number");
+    return `${this.attemptPrefix(meetingId, attempt)}out/${part}-${tryNo}/`;
   },
 } as const;
 
@@ -95,8 +103,8 @@ export interface TransientStorage {
   /** `gs://<bucket>/<key>`, the form Speech takes. */
   uri(key: string): string;
   /**
-   * `gs://<bucket>/transcribe/<id>/<attempt>/out/`: where Speech is told to write. A PREFIX (T107: the real
-   * `uri()` refuses it, as it only names objects), and only an attempt's own `out/`.
+   * `gs://<bucket>/transcribe/<id>/<attempt>/out/<k>-<t>/`: where Speech is told to write. A PREFIX (T107: the real
+   * `uri()` refuses it, as it only names objects), and only one try's own.
    */
   prefixUri(prefix: string): string;
   /** The key behind a `gs://<bucket>/<key>` URI of THIS bucket, or null for anything else. */
@@ -105,8 +113,10 @@ export interface TransientStorage {
   put(key: string, body: Blob | Uint8Array, signal?: AbortSignal): Promise<void>;
   /** At most `maxBytes` of the object; `TransientObjectTooLargeError` otherwise, before the rest is read. */
   read(key: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array>;
-  /** Deletes everything under `transcribe/<meetingId>/` or `transcribe/<meetingId>/<attempt>/` (and only that); returns how many objects went. */
+  /** Deletes everything under `transcribe/<meetingId>/`, `transcribe/<meetingId>/<attempt>/` or one try's `out/<k>-<t>/` (and only that); returns how many objects went. */
   deletePrefix(prefix: string): Promise<number>;
+  /** Deletes one object (a part's input once the part has settled). Already gone (404) is fine. */
+  delete(key: string): Promise<void>;
   /** Deletes what attempts numbered BELOW `attempt` staged for the meeting; this attempt and later ones are untouched. */
   deleteAttemptsBefore(meetingId: string, attempt: number): Promise<number>;
 }
@@ -202,9 +212,20 @@ export function createTransientStorage(options: TransientStorageOptions): Transi
     },
 
     async deletePrefix(prefix) {
-      // `transcribe/<id>/` or `transcribe/<id>/<attempt>/`: an empty or shorter prefix would wipe other meetings.
-      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's or one attempt's");
+      // `transcribe/<id>/`, `<attempt>/` or `<attempt>/out/<k>-<t>/`: an empty or shorter prefix would wipe other meetings.
+      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's, one attempt's or one try's");
       return purge(prefix, () => true);
+    },
+
+    async delete(key) {
+      assertKey(key);
+      // 404: already gone (a lifecycle rule, a concurrent cleanup): that is the goal.
+      const response = await googleFetch(auth, fetchImpl, `https://${host}/storage/v1/b/${bucketPath}/o/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+        timeoutMs: CONTROL_TIMEOUT_MS,
+        allow: [404],
+      });
+      await response.body?.cancel().catch(() => {});
     },
 
     async deleteAttemptsBefore(meetingId, attempt) {

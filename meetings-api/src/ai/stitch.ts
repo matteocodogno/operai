@@ -234,9 +234,12 @@ export function stitch(input: StitchInput): StitchResult {
   let run: Item[] = [];
   const flush = () => {
     if (run.length === 0) return;
-    const startMs = Math.min(...run.map((it) => it.eff.startMs));
-    const ends = run.filter((it) => it.span !== null).map((it) => it.span!.endMs);
-    const endMs = ends.length > 0 ? Math.max(startMs, ...ends) : startMs;
+    // A segment takes the times of its first trusted word and its latest trusted end (G-3: "a run takes its first and
+    // last trusted word"); with none it starts where its untimed words are placed and has no length. Never later than
+    // the first trusted word, so a click on the time never skips speech (AC-6.5).
+    const timed = run.filter((it) => it.span !== null);
+    const startMs = timed.length > 0 ? timed[0]!.span!.startMs : Math.min(...run.map((it) => it.eff.startMs));
+    const endMs = timed.length > 0 ? Math.max(startMs, ...timed.map((it) => it.span!.endMs)) : startMs;
     phrases.push({ speaker: rootOf(run[0]!.label), startMs, durationMs: endMs - startMs, text: run.map((it) => it.text).join(" "), part: run[0]!.part });
     run = [];
   };

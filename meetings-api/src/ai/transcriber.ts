@@ -31,12 +31,35 @@ export type TranscriptionOutcome =
        * long recording transcribed in parts. Non-empty, first element 0, ascending.
        */
       readonly partStartsMs: readonly number[];
+      /**
+       * Every part's span in meeting time (H-6): overlapping, so a part's end is not the next part's start.
+       * Same length and order as `partStartsMs`.
+       */
+      readonly parts: readonly TranscriptPart[];
+      /**
+       * The stretches that may be missing from the transcript (AC-6.12): meeting time, merged, ascending. Empty when the
+       * transcript has no known gap (which is not a statement that nothing is missing).
+       */
+      readonly gaps: readonly TranscriptGap[];
     }
   /** The provider heard no speech (AC-6.7): a `ready` meeting with nothing to summarise. */
   | { readonly kind: "noSpeech" };
 
-/** Closed set, the values a `failureCode` may take (plan.md § Data model). */
-export type TranscriptionFailureCode = "audio_unreadable" | "provider_unavailable" | "provider_rejected" | "too_long";
+export interface TranscriptPart {
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+export interface TranscriptGap {
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+/**
+ * Closed set, the values a `failureCode` may take (plan.md § Data model). `speech_not_transcribed` (AC-6.7, H-3): the
+ * recording has sound where speech is to be expected but the transcript came back empty after every retry; permanent.
+ */
+export type TranscriptionFailureCode = "audio_unreadable" | "provider_unavailable" | "provider_rejected" | "too_long" | "speech_not_transcribed";
 
 /**
  * Thrown by a transcriber. `transient` = worth retrying (429, 5xx, timeout, network);

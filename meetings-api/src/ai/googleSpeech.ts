@@ -1,44 +1,55 @@
 /**
  * Cloud Speech-to-Text v2, model Chirp 3, `BatchRecognize` (specs/021-meetings plan.md § Amendment 2026-11-05
- * G-2, G-3, G-8, ADR-0069, ADR-0070; AC-6.1, AC-6.2, AC-6.5, AC-6.7, AC-6.9, AC-13.2, AC-4.10, AC-4.12).
+ * G-2, G-3, G-8 and #2 H-1 to H-4, ADR-0069, ADR-0070; AC-6.1, AC-6.2, AC-6.5, AC-6.7, AC-6.9 to AC-6.15, AC-13.2,
+ * AC-13.4, AC-4.10, AC-4.12).
  *
  * WHY A BUCKET: Chirp 3 diarizes only in `Recognize` (<= 1 minute) and `BatchRecognize`, and BatchRecognize reads
  * audio only from a `gs://` URI. So one attempt stages its audio in the transient EU bucket (src/lib/google),
- * Speech writes its output beside it, and the attempt's own prefix is emptied in `finally`, older attempts'
- * leftovers at its start, and the whole meeting by the deletion routes. Nothing is kept here.
+ * Speech writes its output beside it, and everything is deleted as soon as it has been used (below). Nothing is kept.
  *
- * ONE ATTEMPT:
+ * ONE ATTEMPT (one claim of the `transcribe` job, ADR-0062):
  *   1. empty the prefixes of OLDER attempts of this meeting (`transcribe/<meetingId>/<n>/`, n < this attempt:
  *      leftovers, including late output). Never this attempt's or a newer one's: a job whose lease was lost can
- *      still be running while the runner has claimed attempt n+1 (ADR-0062), and a stale attempt must not
- *      delete what the live one staged;
- *   2. split the recording (src/media/split.ts) into parts of at most `PIECE_MAX_MS`;
- *   3. upload each part (`ifGenerationMatch=0`), submit ONE `batchRecognize` per part, all together:
- *      chirp_3, exactly one locale (AC-13.2, never "auto"), diarization, output to our bucket, never inline;
- *   4. poll each operation (10 s backing off to 30 s, 45 min deadline, a lost lease aborts);
- *   5. read each output (<= 8 MiB, URI checked to lie in THIS attempt's `out/`), then `operations.delete`;
- *   6. map to phrases with part offsets; ANY part failing fails the whole attempt (AC-6.9: no partial
- *      transcript at rest);
- *   7. `finally`: empty THIS attempt's prefix (only) and remove the temp directory.
+ *      still be running while the runner has claimed attempt n+1, and a stale attempt must not delete what the live
+ *      one staged;
+ *   2. split the recording (src/media/split.ts) into OVERLAPPING parts of at most `PIECE_MAX_MS`, with the silences
+ *      of the whole recording;
+ *   3. every part runs on its own (all together): upload `in/<k>.ogg` once, then up to `MAX_TRIES` TRIES (H-4). A try
+ *      submits ONE `batchRecognize` (chirp_3, exactly one locale, never "auto", diarization, output to a prefix of
+ *      its own `out/<k>-<t>/`), polls it, reads its output (<= 8 MiB, which must lie under THAT try's prefix),
+ *      deletes that prefix at once and the operation, turns the words into the provider-neutral model and asks the
+ *      detector (`completeness.ts`) whether the part is detectably incomplete: a gap or a repetition. A complete part
+ *      is never submitted again; otherwise the best try is kept (fewest gaps, least gap time, no repetition, the
+ *      earlier). The part's input is deleted the moment the part has settled;
+ *   4. the chosen words of every part go through `stitch.ts` (duplicates once, joins from text only) and the final
+ *      gaps through `finalGaps`; an empty transcript is `noSpeech` only if no gap is left, else the permanent
+ *      `speech_not_transcribed` (AC-6.7);
+ *   5. `finally`: empty THIS attempt's prefix (only) and remove the temp directory.
  *
- * TIMES (G-3, as recorded by the spike T107): a batch output has NO result-level time. It is ONE result per part with
- * the whole transcript and every word with its speaker, and no `resultEndOffset`. Times exist only as per-word
- * `startOffset`/`endOffset`, which `WORD_OFFSETS` asks for. They are a model's and are not all to be believed (a
- * garbled first sentence, a sentence-final word ending minutes early, a word stamped hours late), so a word is trusted
- * only when it is plausible and inside its part (`spanOf`); a run takes the times of its first and last trusted words,
- * and a run with none starts where the phrase before it ended: never later than the speech (AC-6.5).
+ * NO PARTIAL TRANSCRIPT AT REST: the best try of each part is held in process memory only (about 27 k words for 3 h);
+ * nothing reaches Postgres until the job's one commit. A lost lease or a dead process drops everything held.
  *
- * PARTS (G-3, T107): Google refuses a Chirp 3 batch file over 20 minutes, and parts of 18-19 minutes came back with
- * multi-minute stretches of speech missing, so `PIECE_MAX_MS` (src/media/split.ts) is 10 minutes. The adapter cannot
- * tell a transcript with a hole from a quiet stretch: see the T107 note in plan.md § G-3.
+ * ERRORS ON A TRY. On try 1, any provider error is the failure of the whole attempt (a transient one is retried by the
+ * runner, ADR-0062; a permanent one fails the meeting). On try 2 or 3 it is an improvement that did not happen: the
+ * part settles with its best try, which is then marked. A lost lease always aborts. Transcription never writes an
+ * `ai_request` row, retries included (AC-13.4); the stage stays `transcribing` (AC-6.10).
  *
- * SPEAKERS (G-3, ADR-0070): diarization labels are per word and per file. A result whose words change speaker is
- * split into one phrase per run, and every label is namespaced by its part (`p2:1`), so part 2's voices never
- * reuse part 1's keys: a system that cannot tell whether two voices are the same person must not say they are.
- * Merging is renaming.
+ * QUOTA. A process-wide semaphore (`SPEECH_MAX_INFLIGHT`, 24 operations) is shared by first tries and retries of every
+ * job, and polling starts at 30 s and goes on every 15 s, so two 3 h jobs stay under the Speech request quotas.
  *
- * FAILURES map into the closed codes by HTTP status and gRPC code only (G-8); provider text is never parsed,
- * logged or stored. Any thrown error is a `TranscriptionError` except a lost lease, which is the abort itself.
+ * TIMES (G-3, T107): a batch output has NO result-level time. It is ONE result per part with every word and its
+ * speaker, and no `resultEndOffset`. Times exist only as per-word `startOffset`/`endOffset`, which `WORD_OFFSETS` asks
+ * for. They are a model's and are not all to be believed (a garbled first sentence, a sentence-final word ending
+ * minutes early, a word stamped hours late), so a word is trusted only when it is plausible and inside its part
+ * (`spanOf`); a word with no trusted time is simply untimed, and the detector and the stitcher know how to place it.
+ *
+ * SPEAKERS (H-2, ADR-0070): diarization labels are per word and per file, namespaced by part (`p2:1`). A label of a
+ * later part is joined to an earlier part's only by `stitch.ts`, from the words of the overlap and nothing else; the
+ * adapter never decides who is who and never sees a voice.
+ *
+ * FAILURES map into the closed codes by HTTP status and gRPC code only (G-8); provider text is never parsed, logged
+ * or stored; logs carry counts only. Any thrown error is a `TranscriptionError` except a lost lease, which is the
+ * abort itself.
  */
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -46,8 +57,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GoogleApiError, defaultFetch, googleFetch, type GoogleAuth } from "../lib/google/auth";
 import { TransientObjectTooLargeError, transientKeys, type TransientStorage } from "../lib/google/transientStorage";
-import { PIECE_MAX_MS, SplitError, splitAudio, type SplitPart } from "../media/split";
-import { mapPhrases, type Phrase } from "./segments";
+import { SplitError, splitAudio, type SplitPart } from "../media/split";
+import { assess, finalGaps, isBetter, isIncomplete, type Assessment } from "./completeness";
+import { mapPhrases } from "./segments";
+import { stitch } from "./stitch";
+import type { PartWords, SpeechWord } from "./words";
 import {
   TranscriptionError,
   type TranscribeContext,
@@ -78,11 +92,17 @@ export const WORD_BACKSTEP_MS = 1_000;
 export const PART_END_SLACK_MS = 5_000;
 /** One output file, at most (G-2 step 7). */
 export const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
-/** Per part: how long to wait for Google before giving up (G-2 step 6). */
+/** A part's output with more words than this is refused (H-11): the detector and the stitcher do O(n) work per word. */
+export const MAX_WORDS_PER_PART = 8_000;
+/** Per try: how long to wait for Google before giving up (G-2 step 6). */
 export const POLL_DEADLINE_MS = 45 * 60_000;
-/** First poll delay, growing by 5 s to the ceiling. */
-export const POLL_FIRST_MS = 10_000;
-export const POLL_MAX_MS = 30_000;
+/** The first poll comes this long after the submit (Google-side median 72 s, p95 85 s), then every `POLL_EVERY_MS`. */
+export const POLL_FIRST_MS = 30_000;
+export const POLL_EVERY_MS = 15_000;
+/** Tries per part: 1 + the retry bound of 2 (AC-6.11). */
+export const MAX_TRIES = 3;
+/** Operations in flight at once, process-wide (H-4): 24 submits a minute and at most 96 polls a minute stay under quota. */
+export const SPEECH_MAX_INFLIGHT = 24;
 /** A single failed poll is a blip; this many in a row is an outage. */
 const MAX_CONSECUTIVE_POLL_FAILURES = 3;
 const CALL_TIMEOUT_MS = 30_000;
@@ -102,6 +122,7 @@ export interface GoogleTranscriberOptions {
   readonly fetchImpl?: typeof fetch;
   readonly wordOffsets?: boolean;
   readonly pieceMaxMs?: number;
+  readonly overlapTargetMs?: number;
   /** Where the temp directory is made; default the OS temp dir. */
   readonly tmpRoot?: string;
   /** Tests inject a clock and a sleep that advances it. */
@@ -148,9 +169,6 @@ const labelOf = (value: unknown): string => {
 
 /** The words the model uses for "no speech" (its prompt says `[BACKGROUND]`; the recording showed a lone `[`). */
 const NOISE_WORD = /^(?:\[|\]|\[?BACKGROUND\]?)$/i;
-/** A phrase with no letter and no digit is punctuation or a marker, never speech. */
-const HAS_SPEECH = /[\p{L}\p{N}]/u;
-
 interface WordSpan {
   readonly startMs: number;
   readonly endMs: number;
@@ -169,26 +187,31 @@ function spanOf(word: RawWord, first: boolean, frontier: number, limit: number):
 }
 
 /**
- * The phrases of one part's output file (`BatchRecognizeResults`), with the part's offset added. Pure. Returns
- * null when the document is not the shape this module understands.
+ * The words of one part's output file (`BatchRecognizeResults`) in the provider-neutral model, with the part's offset
+ * added to every trusted time, so every span is in MEETING time. Pure. Returns null when the document is not the shape
+ * this module understands; throws `provider_rejected` for an output with more than `MAX_WORDS_PER_PART` words.
  *
  * WHAT GOOGLE REALLY SENDS (recorded, test-fixtures/google-speech): one result for a whole part, with the full
- * `transcript` and every word with its `speakerLabel`; `startOffset`/`endOffset` per word only when asked for;
- * never a `resultEndOffset`. A result-level time is still honoured when present (older shapes, other models).
+ * `transcript` and every word with its `speakerLabel`; `startOffset`/`endOffset` per word only when asked for; never a
+ * `resultEndOffset`. A result-level time is still honoured when present (older shapes, other models): the words of
+ * that result that have no trusted time of their own then share the result's span.
+ *
+ * A word is `noise` when it is the model's "no speech" marker. A result with a transcript and no word list becomes
+ * untimed words of one voice (label `0`).
  */
-export function phrasesOfPart(doc: unknown, part: number, partStartMs: number, wordOffsets: boolean, partDurationMs: number = PIECE_MAX_MS): Phrase[] | null {
-  const limit = partDurationMs + PART_END_SLACK_MS;
+export function wordsOfPart(doc: unknown, part: number, partStartMs: number, partEndMs: number, wordOffsets: boolean): PartWords | null {
+  const limit = partEndMs - partStartMs + PART_END_SLACK_MS;
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return null;
   const results = (doc as { results?: unknown }).results;
-  if (results === undefined) return [];
+  const out: SpeechWord[] = [];
+  const done = (): PartWords => ({ part, startMs: partStartMs, endMs: partEndMs, words: out });
+  if (results === undefined) return done();
   if (!Array.isArray(results)) return null;
 
-  const phrases: Phrase[] = [];
   let previousEnd = 0; // end of the previous RESULT (result-level times)
   let frontier = 0; // the furthest end a trusted word has reached
-  let lastFrom = 0;
-  let lastTo = 0;
   let firstWord = true;
+  const label = (raw: string) => `p${part}:${raw}`;
   for (const result of results as unknown[]) {
     if (typeof result !== "object" || result === null) return null;
     const { alternatives, resultEndOffset } = result as { alternatives?: unknown; resultEndOffset?: unknown };
@@ -196,6 +219,7 @@ export function phrasesOfPart(doc: unknown, part: number, partStartMs: number, w
     const end = Math.max(previousEnd, parseOffsetMs(resultEndOffset) ?? previousEnd);
     const start = previousEnd;
     previousEnd = end;
+    const resultSpan: WordSpan | null = end > start ? { startMs: partStartMs + start, endMs: partStartMs + end } : null;
 
     const best = (alternatives as unknown[] | undefined)?.[0];
     if (best === undefined) continue; // a result with no hypothesis: silence
@@ -203,51 +227,33 @@ export function phrasesOfPart(doc: unknown, part: number, partStartMs: number, w
     const { transcript, words } = best as { transcript?: unknown; words?: unknown };
     if (transcript !== undefined && typeof transcript !== "string") return null;
     if (words !== undefined && !Array.isArray(words)) return null;
-    const text = (transcript ?? "").trim();
-    const speaker = (label: string) => `p${part}:${label}`;
-    const push = (label: string, body: string, from: number, to: number) => {
-      if (!HAS_SPEECH.test(body)) return; // "[" and friends: nothing was said
-      // Never backwards: a phrase does not start before the one before it, nor end before it starts.
-      const a = Math.max(from, lastFrom);
-      const b = Math.max(to, a);
-      lastFrom = a;
-      lastTo = b;
-      phrases.push({ speaker: speaker(label), startMs: partStartMs + a, durationMs: b - a, text: body });
-    };
 
-    const allWords = (words as RawWord[] | undefined) ?? [];
-    const spoken = allWords.filter((w) => typeof w === "object" && w !== null && typeof w.word === "string" && w.word !== "" && !NOISE_WORD.test(w.word));
-    if (spoken.length === 0) {
-      push("0", text.split(/\s+/).filter((t) => !NOISE_WORD.test(t)).join(" "), Math.max(start, lastTo), end);
+    const listed = ((words as RawWord[] | undefined) ?? []).filter((w) => typeof w === "object" && w !== null && typeof w.word === "string" && w.word !== "");
+    if (out.length + Math.max(listed.length, 0) > MAX_WORDS_PER_PART) throw new TranscriptionError("provider_rejected", false);
+    if (listed.length === 0) {
+      // No word list: the transcript's own words, one voice, untimed (or sharing the result's span).
+      for (const text of (transcript ?? "").split(/\s+/).filter((t) => t !== "")) {
+        if (out.length >= MAX_WORDS_PER_PART) throw new TranscriptionError("provider_rejected", false);
+        out.push({ text, label: label("0"), noise: NOISE_WORD.test(text), span: NOISE_WORD.test(text) ? null : resultSpan });
+      }
       continue;
     }
-
-    // Consecutive words of one speaker are one run; a change of speaker starts a new phrase.
-    const runs: { label: string; words: RawWord[]; spans: (WordSpan | null)[] }[] = [];
-    for (const word of spoken) {
-      const label = labelOf(word.speakerLabel);
-      const span = wordOffsets ? spanOf(word, firstWord, frontier, limit) : null;
-      firstWord = false;
-      if (span) frontier = Math.max(frontier, span.endMs);
-      const last = runs[runs.length - 1];
-      if (last && last.label === label) {
-        last.words.push(word);
-        last.spans.push(span);
-      } else runs.push({ label, words: [word], spans: [span] });
-    }
-    for (const run of runs) {
-      // One voice in the whole result, nothing dropped: keep the transcript as Google wrote it (punctuation and all).
-      const intact = runs.length === 1 && text !== "" && spoken.length === allWords.length;
-      const body = intact ? text : run.words.map((w) => w.word as string).join(" ");
-      const trusted = run.spans.filter((x): x is WordSpan => x !== null);
-      // Exact times from the run's first and last trusted words. Else the result's own start when the result has times
-      // (never late: every run of it starts there), else where the previous phrase ended.
-      const from = trusted.length > 0 ? trusted[0]!.startMs : end > start ? start : lastTo;
-      const to = trusted.length > 0 ? trusted[trusted.length - 1]!.endMs : Math.max(end, from);
-      push(run.label, body, from, to);
+    for (const raw of listed) {
+      const text = raw.word as string;
+      const noise = NOISE_WORD.test(text);
+      let span: WordSpan | null = null;
+      if (!noise) {
+        const own = wordOffsets ? spanOf(raw, firstWord, frontier, limit) : null;
+        firstWord = false;
+        if (own) {
+          frontier = Math.max(frontier, own.endMs);
+          span = { startMs: partStartMs + own.startMs, endMs: partStartMs + own.endMs };
+        } else span = resultSpan;
+      }
+      out.push({ text, label: label(labelOf(raw.speakerLabel)), noise, span });
     }
   }
-  return phrases;
+  return done();
 }
 
 const defaultSleep = (ms: number, signal: AbortSignal): Promise<void> =>
@@ -264,8 +270,56 @@ const defaultSleep = (ms: number, signal: AbortSignal): Promise<void> =>
     signal.addEventListener("abort", onAbort, { once: true });
   });
 
-/** The delay before poll number `n` (0-based): 10 s, then 5 s longer each time, to 30 s. */
-export const pollDelayMs = (n: number): number => Math.min(POLL_MAX_MS, POLL_FIRST_MS + 5_000 * n);
+/** The delay before poll number `n` (0-based): 30 s for the first, then every 15 s (H-4). */
+export const pollDelayMs = (n: number): number => (n === 0 ? POLL_FIRST_MS : POLL_EVERY_MS);
+
+/**
+ * A counting semaphore whose waiters give up with the lease: a job that lost it must not hold a place in the queue.
+ * One instance serves the whole process (`SPEECH_MAX_INFLIGHT`), so two concurrent transcribers share it.
+ */
+class Semaphore {
+  private available: number;
+  private readonly waiting: (() => void)[] = [];
+  /** The most places ever held at once; tests read it. */
+  peak = 0;
+  constructor(private readonly size: number) {
+    this.available = size;
+  }
+  get inFlight(): number {
+    return this.size - this.available;
+  }
+  async acquire(signal: AbortSignal): Promise<() => void> {
+    signal.throwIfAborted();
+    if (this.available > 0) this.available -= 1;
+    else {
+      await new Promise<void>((resolve, reject) => {
+        const grant = () => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        };
+        const onAbort = () => {
+          const at = this.waiting.indexOf(grant);
+          if (at >= 0) this.waiting.splice(at, 1);
+          reject(signal.reason ?? new Error("aborted"));
+        };
+        this.waiting.push(grant);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+    }
+    this.peak = Math.max(this.peak, this.inFlight);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const next = this.waiting.shift();
+      if (next) next(); // the place passes to the next waiter
+      else this.available += 1;
+    };
+  }
+}
+
+/** Shared by every transcriber in the process: Google's quota is per project, not per job. */
+export const speechInflight = new Semaphore(SPEECH_MAX_INFLIGHT);
 
 // ─── The transcriber ─────────────────────────────────────────────────────────
 
@@ -379,17 +433,38 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
       if (error instanceof TransientObjectTooLargeError) throw new TranscriptionError("provider_rejected", false);
       throw error instanceof GoogleApiError ? fromGoogle(error) : error;
     }
-    let doc: unknown;
-    try {
-      doc = JSON.parse(new TextDecoder().decode(bytes));
-    } catch {
-      throw unavailable();
-    }
+    // AC-4.12: this try's output copy lives only until it has been read. A failure here must not fail the try (the
+    // attempt's own prefix, the next attempt and the bucket's 1-day rule are the backstop).
+    await storage.deletePrefix(outputPrefix).catch(() => console.error("[transcribe] transient cleanup failed"));
     // "The client is no longer interested in the operation result." Best effort: the output is already ours.
     await call(`${host}/${name}`, { method: "DELETE", allow: [404] }, signal)
       .then((r) => r.body?.cancel().catch(() => {}))
       .catch(() => {});
-    return doc;
+    try {
+      return JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      throw unavailable();
+    }
+  }
+
+  /** The one try of a part: submit, wait (holding one of the process's places), read, delete. */
+  async function oneTry(storage: TransientStorage, locale: TranscriptionLocale, inputKey: string, outputPrefix: string, signal: AbortSignal): Promise<unknown> {
+    const release = await speechInflight.acquire(signal);
+    let name: string;
+    let operation: Record<string, unknown>;
+    try {
+      name = await submit(storage, locale, inputKey, outputPrefix, signal);
+      operation = await waitFor(name, signal);
+    } finally {
+      release();
+    }
+    return collect(storage, name, operation, storage.uri(inputKey), outputPrefix, signal);
+  }
+
+  interface Settled {
+    readonly words: PartWords;
+    readonly assessment: Assessment;
+    readonly tries: number;
   }
 
   return {
@@ -399,7 +474,6 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
       if (!context) throw new TranscriptionError("provider_rejected", false);
       const { meetingId, attempt } = context;
       const ownPrefix = transientKeys.attemptPrefix(meetingId, attempt);
-      const outputPrefix = transientKeys.outputPrefix(meetingId, attempt);
 
       const storage = await options.storage();
       const workDir = await mkdtemp(join(options.tmpRoot ?? tmpdir(), "meetings-speech-"));
@@ -412,15 +486,17 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
           throw error instanceof GoogleApiError ? fromGoogle(error) : error;
         });
 
-        // 2. Parts.
+        // 2. Parts, overlapping, and the silences of the whole recording.
         const input = join(workDir, "audio.ogg");
         await writeFile(input, new Uint8Array(await audio.arrayBuffer()), { mode: 0o600 });
         let parts: SplitPart[];
+        let silences: { startMs: number; endMs: number }[];
         try {
-          ({ parts } = await split({
+          ({ parts, silences } = await split({
             input,
             workDir,
             ...(options.pieceMaxMs !== undefined ? { pieceMaxMs: options.pieceMaxMs } : {}),
+            ...(options.overlapTargetMs !== undefined ? { overlapTargetMs: options.overlapTargetMs } : {}),
             signal: lease,
           }));
         } catch (error) {
@@ -428,30 +504,52 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
           throw error;
         }
 
-        // 3-5. One task per part; the first failure aborts the others.
+        // 3. One task per part; the first failure of a FIRST try aborts the others.
         const failed = new AbortController();
         const stop = AbortSignal.any([lease, failed.signal]);
         let first: { error: unknown } | null = null;
+        let totalTries = 0;
         const settled = await Promise.allSettled(
-          parts.map(async (part, index) => {
+          parts.map(async (part, index): Promise<Settled> => {
+            const number = index + 1;
+            const inputKey = transientKeys.input(meetingId, attempt, number);
             try {
-              const number = index + 1;
-              const inputKey = transientKeys.input(meetingId, attempt, number);
               try {
                 await storage.put(inputKey, Bun.file(part.path), stop);
               } catch (error) {
                 throw error instanceof GoogleApiError ? fromGoogle(error) : error;
               }
-              const name = await submit(storage, locale, inputKey, outputPrefix, stop);
-              const operation = await waitFor(name, stop);
-              const doc = await collect(storage, name, operation, storage.uri(inputKey), outputPrefix, stop);
-              const phrases = phrasesOfPart(doc, number, part.startMs, wordOffsets, part.endMs - part.startMs);
-              if (phrases === null) throw unavailable();
-              return phrases;
+              let best: { words: PartWords; assessment: Assessment } | null = null;
+              let tries = 0;
+              for (let tryNo = 1; tryNo <= MAX_TRIES; tryNo += 1) {
+                tries = tryNo;
+                let words: PartWords;
+                try {
+                  const doc = await oneTry(storage, locale, inputKey, transientKeys.outputPrefix(meetingId, attempt, number, tryNo), stop);
+                  const read = wordsOfPart(doc, number, part.startMs, part.endMs, wordOffsets);
+                  if (read === null) throw unavailable();
+                  words = read;
+                } catch (error) {
+                  // A lost lease, or the first try: the attempt fails. A later try that errs is an improvement that
+                  // did not happen: the part settles with what it has (the code only, never provider text).
+                  if (stop.aborted || tryNo === 1) throw error;
+                  console.error(`[transcribe] retry ended: ${error instanceof TranscriptionError ? error.code : "error"}`);
+                  tries -= 1;
+                  break;
+                }
+                const assessment = assess(words, silences);
+                if (best === null || isBetter(assessment, best.assessment)) best = { words, assessment };
+                if (!isIncomplete(best.assessment)) break;
+              }
+              totalTries += tries;
+              return { ...best!, tries };
             } catch (error) {
               first ??= { error };
               failed.abort();
               throw error;
+            } finally {
+              // AC-4.12: the input copy lives only until the part's last try has ended.
+              await storage.delete(inputKey).catch(() => console.error("[transcribe] transient cleanup failed"));
             }
           }),
         );
@@ -459,13 +557,30 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
           // A lost lease is the abort itself, not a provider failure.
           throw lease.aborted ? lease.reason ?? (first as { error: unknown }).error : (first as { error: unknown }).error;
         }
+        const chosen = settled.map((r) => (r as PromiseFulfilledResult<Settled>).value);
 
-        // 6. Map.
-        const phrases = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-        const segments = mapPhrases(phrases);
-        return segments.length === 0 ? { kind: "noSpeech" } : { kind: "segments", segments, partStartsMs: parts.map((p) => p.startMs) };
+        // 4. The gaps that remain, then one transcript.
+        const gaps = finalGaps(chosen.map((c) => ({ words: c.words, gaps: c.assessment.gaps })), silences);
+        const stitched = stitch({ parts: chosen.map((c) => c.words), gaps });
+        const segments = mapPhrases(stitched.phrases);
+        // Counts only: never a range, a text, an id.
+        console.log(
+          `[transcribe] parts=${parts.length} tries=${totalTries} gaps=${gaps.length} excused=${chosen.reduce((n, c) => n + c.assessment.excused, 0)} removed=${stitched.stats.removedWithinPart + stitched.stats.removedInOverlap} joined=${stitched.stats.joined} separate=${stitched.stats.separate}`,
+        );
+        if (segments.length === 0) {
+          // AC-6.7: "no speech" only when no stretch of the recording holds speech that the transcript lacks.
+          if (gaps.length > 0) throw new TranscriptionError("speech_not_transcribed", false);
+          return { kind: "noSpeech" };
+        }
+        return {
+          kind: "segments",
+          segments,
+          partStartsMs: parts.map((p) => p.startMs),
+          parts: parts.map((p) => ({ startMs: p.startMs, endMs: p.endMs })),
+          gaps,
+        };
       } finally {
-        // 7. Whatever happened: nothing of THIS attempt stays in the transient bucket - and nothing of another
+        // 5. Whatever happened: nothing of THIS attempt stays in the transient bucket - and nothing of another
         //    (a newer attempt may be running if our lease was lost). A failure here must not mask the attempt's
         //    own outcome; the next attempt's step 1 and the bucket's 1-day rule are the backstop.
         await storage.deletePrefix(ownPrefix).catch(() => console.error("[transcribe] transient cleanup failed"));

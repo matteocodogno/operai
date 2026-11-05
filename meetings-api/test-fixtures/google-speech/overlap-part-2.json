@@ -1,0 +1,613 @@
+{
+ "results": [
+  {
+   "alternatives": [
+    {
+     "transcript": "parola60 parola61 parola62 parola63 parola64 parola65 parola66 parola67 parola68 parola69 parola70 parola71 parola72 parola73 parola74 parola75 parola76 parola77 parola78 parola79 parola80 parola81 parola82 parola83 parola84 parola85 parola86 parola87 parola88 parola89 parola90 parola91 parola92 parola93 parola94 parola95 parola96 parola97 parola98 parola99 parola100 parola101 parola102 parola103 parola104 parola105 parola106 parola107 parola108 parola109 parola110 parola111 parola112 parola113 parola114 parola115 parola116 parola117 parola118 parola119 parola120 parola121 parola122 parola123 parola124 parola125 parola126 parola127 parola128 parola129 parola130 parola131 parola132 parola133 parola134 parola135 parola136 parola137 parola138 parola139 parola140 parola141 parola142 parola143 parola144 parola145 parola146 parola147 parola148 parola149 parola150 parola151 parola152 parola153 parola154 parola155 parola156 parola157 parola158 parola159",
+     "words": [
+      {
+       "word": "parola60",
+       "endOffset": "0.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola61",
+       "startOffset": "0.500s",
+       "endOffset": "0.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola62",
+       "startOffset": "1.000s",
+       "endOffset": "1.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola63",
+       "startOffset": "1.500s",
+       "endOffset": "1.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola64",
+       "startOffset": "2.000s",
+       "endOffset": "2.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola65",
+       "startOffset": "2.500s",
+       "endOffset": "2.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola66",
+       "startOffset": "3.000s",
+       "endOffset": "3.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola67",
+       "startOffset": "3.500s",
+       "endOffset": "3.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola68",
+       "startOffset": "4.000s",
+       "endOffset": "4.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola69",
+       "startOffset": "4.500s",
+       "endOffset": "4.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola70",
+       "startOffset": "5.000s",
+       "endOffset": "5.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola71",
+       "startOffset": "5.500s",
+       "endOffset": "5.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola72",
+       "startOffset": "6.000s",
+       "endOffset": "6.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola73",
+       "startOffset": "6.500s",
+       "endOffset": "6.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola74",
+       "startOffset": "7.000s",
+       "endOffset": "7.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola75",
+       "startOffset": "7.500s",
+       "endOffset": "7.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola76",
+       "startOffset": "8.000s",
+       "endOffset": "8.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola77",
+       "startOffset": "8.500s",
+       "endOffset": "8.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola78",
+       "startOffset": "9.000s",
+       "endOffset": "9.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola79",
+       "startOffset": "9.500s",
+       "endOffset": "9.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola80",
+       "startOffset": "10.000s",
+       "endOffset": "10.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola81",
+       "startOffset": "10.500s",
+       "endOffset": "10.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola82",
+       "startOffset": "11.000s",
+       "endOffset": "11.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola83",
+       "startOffset": "11.500s",
+       "endOffset": "11.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola84",
+       "startOffset": "12.000s",
+       "endOffset": "12.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola85",
+       "startOffset": "12.500s",
+       "endOffset": "12.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola86",
+       "startOffset": "13.000s",
+       "endOffset": "13.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola87",
+       "startOffset": "13.500s",
+       "endOffset": "13.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola88",
+       "startOffset": "14.000s",
+       "endOffset": "14.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola89",
+       "startOffset": "14.500s",
+       "endOffset": "14.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola90",
+       "startOffset": "15.000s",
+       "endOffset": "15.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola91",
+       "startOffset": "15.500s",
+       "endOffset": "15.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola92",
+       "startOffset": "16.000s",
+       "endOffset": "16.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola93",
+       "startOffset": "16.500s",
+       "endOffset": "16.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola94",
+       "startOffset": "17.000s",
+       "endOffset": "17.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola95",
+       "startOffset": "17.500s",
+       "endOffset": "17.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola96",
+       "startOffset": "18.000s",
+       "endOffset": "18.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola97",
+       "startOffset": "18.500s",
+       "endOffset": "18.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola98",
+       "startOffset": "19.000s",
+       "endOffset": "19.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola99",
+       "startOffset": "19.500s",
+       "endOffset": "19.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola100",
+       "startOffset": "20.000s",
+       "endOffset": "20.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola101",
+       "startOffset": "20.500s",
+       "endOffset": "20.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola102",
+       "startOffset": "21.000s",
+       "endOffset": "21.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola103",
+       "startOffset": "21.500s",
+       "endOffset": "21.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola104",
+       "startOffset": "22.000s",
+       "endOffset": "22.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola105",
+       "startOffset": "22.500s",
+       "endOffset": "22.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola106",
+       "startOffset": "23.000s",
+       "endOffset": "23.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola107",
+       "startOffset": "23.500s",
+       "endOffset": "23.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola108",
+       "startOffset": "24.000s",
+       "endOffset": "24.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola109",
+       "startOffset": "24.500s",
+       "endOffset": "24.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola110",
+       "startOffset": "25.000s",
+       "endOffset": "25.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola111",
+       "startOffset": "25.500s",
+       "endOffset": "25.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola112",
+       "startOffset": "26.000s",
+       "endOffset": "26.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola113",
+       "startOffset": "26.500s",
+       "endOffset": "26.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola114",
+       "startOffset": "27.000s",
+       "endOffset": "27.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola115",
+       "startOffset": "27.500s",
+       "endOffset": "27.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola116",
+       "startOffset": "28.000s",
+       "endOffset": "28.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola117",
+       "startOffset": "28.500s",
+       "endOffset": "28.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola118",
+       "startOffset": "29.000s",
+       "endOffset": "29.400s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola119",
+       "startOffset": "29.500s",
+       "endOffset": "29.900s",
+       "speakerLabel": "0"
+      },
+      {
+       "word": "parola120",
+       "startOffset": "30.000s",
+       "endOffset": "30.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola121",
+       "startOffset": "30.500s",
+       "endOffset": "30.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola122",
+       "startOffset": "31.000s",
+       "endOffset": "31.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola123",
+       "startOffset": "31.500s",
+       "endOffset": "31.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola124",
+       "startOffset": "32.000s",
+       "endOffset": "32.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola125",
+       "startOffset": "32.500s",
+       "endOffset": "32.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola126",
+       "startOffset": "33.000s",
+       "endOffset": "33.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola127",
+       "startOffset": "33.500s",
+       "endOffset": "33.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola128",
+       "startOffset": "34.000s",
+       "endOffset": "34.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola129",
+       "startOffset": "34.500s",
+       "endOffset": "34.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola130",
+       "startOffset": "35.000s",
+       "endOffset": "35.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola131",
+       "startOffset": "35.500s",
+       "endOffset": "35.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola132",
+       "startOffset": "36.000s",
+       "endOffset": "36.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola133",
+       "startOffset": "36.500s",
+       "endOffset": "36.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola134",
+       "startOffset": "37.000s",
+       "endOffset": "37.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola135",
+       "startOffset": "37.500s",
+       "endOffset": "37.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola136",
+       "startOffset": "38.000s",
+       "endOffset": "38.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola137",
+       "startOffset": "38.500s",
+       "endOffset": "38.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola138",
+       "startOffset": "39.000s",
+       "endOffset": "39.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola139",
+       "startOffset": "39.500s",
+       "endOffset": "39.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola140",
+       "startOffset": "40.000s",
+       "endOffset": "40.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola141",
+       "startOffset": "40.500s",
+       "endOffset": "40.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola142",
+       "startOffset": "41.000s",
+       "endOffset": "41.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola143",
+       "startOffset": "41.500s",
+       "endOffset": "41.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola144",
+       "startOffset": "42.000s",
+       "endOffset": "42.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola145",
+       "startOffset": "42.500s",
+       "endOffset": "42.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola146",
+       "startOffset": "43.000s",
+       "endOffset": "43.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola147",
+       "startOffset": "43.500s",
+       "endOffset": "43.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola148",
+       "startOffset": "44.000s",
+       "endOffset": "44.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola149",
+       "startOffset": "44.500s",
+       "endOffset": "44.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola150",
+       "startOffset": "45.000s",
+       "endOffset": "45.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola151",
+       "startOffset": "45.500s",
+       "endOffset": "45.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola152",
+       "startOffset": "46.000s",
+       "endOffset": "46.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola153",
+       "startOffset": "46.500s",
+       "endOffset": "46.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola154",
+       "startOffset": "47.000s",
+       "endOffset": "47.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola155",
+       "startOffset": "47.500s",
+       "endOffset": "47.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola156",
+       "startOffset": "48.000s",
+       "endOffset": "48.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola157",
+       "startOffset": "48.500s",
+       "endOffset": "48.900s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola158",
+       "startOffset": "49.000s",
+       "endOffset": "49.400s",
+       "speakerLabel": "1"
+      },
+      {
+       "word": "parola159",
+       "startOffset": "49.500s",
+       "endOffset": "49.900s",
+       "speakerLabel": "1"
+      }
+     ]
+    }
+   ],
+   "languageCode": "it-IT"
+  }
+ ]
+}
