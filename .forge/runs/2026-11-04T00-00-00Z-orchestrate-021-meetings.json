@@ -7,7 +7,7 @@
   "rigor": "production",
   "rigor_recorded": null,
   "started": "2026-11-04T00:00:00Z",
-  "finished": null,
+  "finished": "2026-11-05T04:19:43Z",
   "agents": [
     {
       "agent": "product-owner",
@@ -385,6 +385,30 @@
       "outcome": "FAIL",
       "score": 73.0,
       "notes": "round 1: no run trace, upload-duration drift, live gate exits 0 unconfigured"
+    },
+    {
+      "agent": "backend-dev",
+      "outcome": "completed",
+      "notes": "eval round 1 fix: uploads without stated duration accepted, bounded by decode caps (8666836)"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T84"
+      ],
+      "outcome": "completed",
+      "notes": "eval round 1 fix: dispatched live eval fails when unconfigured (9883e44)"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "notes": "ADR-0064 round 3"
+    },
+    {
+      "agent": "evaluator",
+      "outcome": "FAIL",
+      "score": 76.5,
+      "notes": "round 2 (last): spec fidelity 3 \u2014 over-length duration-less upload ends failed, not draft (AC-3.2); live eval and real tab-share unverified"
     }
   ],
   "drift_events": [
@@ -422,6 +446,12 @@
       "agent": "evaluator",
       "artifact": "spec.md AC-3.1/3.2",
       "summary": "uploads without stated duration refused; reverted (decode caps bound them)",
+      "resolved": true
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "spec.md AC-3.2",
+      "summary": "duration-less upload that decodes past 3 h ends failed (source locked) instead of refused-and-draft",
       "resolved": false
     }
   ],
@@ -504,7 +534,7 @@
       "live-eval environment protection is a repo setting"
     ]
   },
-  "result": "partial",
+  "result": "escalated",
   "tokens": null,
   "cost_usd": null,
   "terse": false,
