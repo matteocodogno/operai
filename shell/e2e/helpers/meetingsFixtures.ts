@@ -250,7 +250,13 @@ async function crmCall<T = Json>(session: SeededSession, method: 'GET' | 'POST',
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   const text = await res.text()
-  if (!res.ok) throw new Error(`[meetingsFixtures] CRM ${method} ${route} -> ${res.status}: ${text}`)
+  if (!res.ok) {
+    // A crm-api process started before its Prisma client was regenerated rejects every create.
+    const stale = res.status === 500 && text.includes('Unknown argument `source`')
+    throw new Error(
+      `[meetingsFixtures] ${stale ? 'ENVIRONMENT FAULT (crm-api runs a stale Prisma client: restart it after `prisma generate`): ' : ''}CRM ${method} ${route} -> ${res.status}: ${text.slice(0, 300)}`,
+    )
+  }
   return (text ? JSON.parse(text) : {}) as T
 }
 
