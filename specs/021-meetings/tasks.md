@@ -574,7 +574,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-api/evals/**`, `meetings-api/package.json`, `meetings-api/README.md`
   - done when: `cd meetings-api && bun run eval` exits 0 against the fake LLM in CI mode, and exits non-zero when the fake is scripted to obey one planted instruction; `README.md` § Release lists `bun run eval --live` with `BEDROCK_MODEL_ID` as a required step
 
-- [ ] T84: [OPS] CI: `meetings-eval.yml` runs `bun run eval` (fake) on every PR touching `meetings-api/`, and a manually dispatched / nightly `--live` job using the eval key secret — refs: AC-7.12, AC-9.7 — deps: T83
+- [x] T84: [OPS] CI: `meetings-eval.yml` runs `bun run eval` (fake) on every PR touching `meetings-api/`, and a manually dispatched / nightly `--live` job using the eval key secret — refs: AC-7.12, AC-9.7 — deps: T83
   - touch: `.github/workflows/meetings-eval.yml`
   - done when: `actionlint .github/workflows/meetings-eval.yml` passes, and the PR job runs green on the branch
 
