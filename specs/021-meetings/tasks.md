@@ -711,7 +711,7 @@ database after `bun run db:deploy`.
 > Re-synced 2026-11-05 from plan § H-14 (approved by the user 2026-11-05). T108's banner and dividers are superseded by T122.
 > T125 (O14, real consented recordings) is a go-live gate: it is NOT a dependency of T92 (user decision 2026-11-05).
 > T104 stays open until a CI run on the pushed branch proves it.
-> Re-synced 2026-11-05 for spec A8: per-part retries disabled (tries = 1), repetitions never flag a part, same-speaker duplicate rule and untimed repeated tails (follow-up commits on T115/T116). No new task; O15 tracks a different-audio retry.
+> Re-synced 2026-11-05 for spec A8: per-part retries disabled (tries = 1), repetitions never flag a part, same-speaker duplicate rule within a part (overlap: removed unless joined to different speakers) and untimed repeated tails (follow-up commits on T115/T116). No new task; O15 tracks a different-audio retry.
 
 - [x] T113: [BE] Overlapping parts: `chooseParts` (H-1), per-part output-seek stream copy (retires the segment muxer and `parts.csv`), silence pass on every recording with the speech-band filter, `splitAudio` returns `{parts {path,startMs,endMs}, silences, durationMs}` — refs: AC-6.2, AC-6.11, AC-6.14 — deps: none
   - touch: `meetings-api/src/media/split.ts`, `meetings-api/src/media/split.test.ts`, `meetings-api/src/media/split.real.test.ts`

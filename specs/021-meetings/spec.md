@@ -111,6 +111,11 @@ was not removed. The spec stays vendor-neutral; the body below is already update
   one or both carry none (AC-6.13). (c) **A repeated tail of a part whose words have no times**
   is removed when its text matches the preceding text of the part by at least the repeat bound
   in consecutive words, still keeping any speech found in only one version (AC-6.13).
+  **Clarification 2026-11-05 (orchestrator, from implementation):** the same-speaker rule of (b)
+  applies within a part only; in the overlap of two consecutive parts aligned passages meeting
+  the word/time evidence are the same speech unless each label is joined (AC-6.14) to a
+  different earlier label, because unjoined labels (no evidence, provider jitter) would
+  otherwise leave 60-120 s of duplicated overlap speech (AC-6.13).
 
 ## Problem
 
@@ -501,10 +506,15 @@ check what was actually said.
   are the same speech only when one has at least the repeat bound of consecutive words that
   match the other's (ignoring case, accents and punctuation) and their times overlap, or the
   later starts no more than the repeat bound's time distance after the earlier ends, **and**
-  they carry the same speaker label, or one or both carry no label (passages with two
-  different labels are never the same speech, however identical their words and close their
-  times; in the overlap of two parts a joined label, AC-6.14, counts as the same label); the
-  first is kept. Where the words of a part carry no times, a **repeated tail** of that part is
+  the speaker condition holds; the first is kept. The speaker condition: **within one part**,
+  the passages carry the same speaker label, or one or both carry no label (passages with two
+  different labels in one part are never the same speech, however identical their words and
+  close their times); **in the overlap of two consecutive parts**, both versions transcribe
+  the same audio, so passages that meet the word and time evidence above ARE the same speech
+  whatever their labels, unless their labels are known to belong to different speakers, that
+  is, each label is joined (AC-6.14) to a different label of the earlier part; a label that is
+  not joined to any label counts as unknown and never prevents removal, and a joined label
+  counts as the same label as the one it is joined to. Where the words of a part carry no times, a **repeated tail** of that part is
   removed when its text matches the part's preceding text by at least the repeat bound in
   consecutive words (ignoring case, accents and punctuation) and the passages satisfy the
   speaker condition above; any speech found in only one of the two versions is kept. A phrase that a speaker really says twice, with more than that distance between the
@@ -872,7 +882,7 @@ on 2026-11-05 (A7), O15 on 2026-11-05 (A8).
   returns the identical result for identical audio. Once production data exists, revisit a
   retry that sends **different** audio (for example the part re-cut around the gap), and
   decide whether it earns its cost; until then a gap is marked, not retried. The same review
-  checks the same-speaker rule of AC-6.13 (real speech wrongly kept as a duplicate when
+  checks the within-a-part same-speaker rule of AC-6.13 (real speech wrongly kept as a duplicate when
   speaker labels differ for one person) and the repeated-tail rule for parts without word
   times. — owner: user and architect
 
