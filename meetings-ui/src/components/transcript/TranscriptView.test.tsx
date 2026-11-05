@@ -191,10 +191,12 @@ describe('TranscriptView: transcript parts (AC-6.1, AC-6.2)', () => {
       en.transcript.parts.divider(2, '01:00:00'),
       en.transcript.parts.divider(3, '02:00:00'),
     ])
-    // The divider sits right before the first segment of its part.
+    // The divider is not a list item: it sits right before the list that starts with its part.
     expect(screen.getAllByRole('listitem')).toHaveLength(4)
-    expect(dividers[0]!.nextElementSibling).toBe(screen.getByTestId('meetings-segment-b1'))
-    expect(dividers[1]!.nextElementSibling).toBe(screen.getByTestId('meetings-segment-c1'))
+    expect(screen.getAllByRole('list')).toHaveLength(3)
+    expect(dividers[0]!.nextElementSibling).toBe(screen.getByTestId('meetings-segment-b1').parentElement)
+    expect(dividers[1]!.nextElementSibling).toBe(screen.getByTestId('meetings-segment-c1').parentElement)
+    expect(screen.getByTestId('meetings-segment-b1').previousElementSibling).toBeNull()
   })
 
   it('one part: neither banner nor divider', async () => {

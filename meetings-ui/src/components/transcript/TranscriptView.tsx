@@ -137,6 +137,14 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
   // `parts` is absent on a backend that predates it, which reads as a single part.
   const partCount = (transcript.parts as TranscriptPart[] | undefined)?.length ?? 0
   const manyParts = partCount > 1
+  // Consecutive segments grouped by part: a later part opens a new group, led by its divider.
+  const groups: { firstId: string; opened: TranscriptPart | null; indexes: number[] }[] = []
+  segments.forEach((segment, index) => {
+    const opened = manyParts ? partStartingAt(segments, index, transcript.parts) : null
+    const last = groups[groups.length - 1]
+    if (last === undefined || opened !== null) groups.push({ firstId: segment.id, opened, indexes: [index] })
+    else last.indexes.push(index)
+  })
   return (
     <div className="flex flex-col gap-4" data-testid="meetings-transcript">
       <AudioControl meeting={meeting} ref={audio} />
@@ -202,64 +210,76 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
           </Button>
         </div>
       )}
-      <ol
-        aria-label={isText ? strings.transcript.passagesHeading : strings.transcript.heading}
-        className="flex flex-col"
-      >
-        {segments.map((segment, index) => {
-          const opened = manyParts ? partStartingAt(segments, index, transcript.parts) : null
-          return (
-          <Fragment key={segment.id}>
-            {opened !== null && (
-              <li
-                role="separator"
-                aria-label={strings.transcript.parts.divider(opened.index, clockOf(opened.startMs))}
-                className="mt-3 border-t border-rule pt-2 font-mono text-xs text-soft"
-              >
-                {strings.transcript.parts.divider(opened.index, clockOf(opened.startMs))}
-              </li>
-            )}
-          <SegmentRow
-            segment={segment}
-            speaker={speakerNameOf(segment.speakerKey, transcript.speakers, meeting.participants)}
-            ranges={hits[index]!}
-            onPlay={audioKept && segment.startMs !== null ? () => audio.current?.playFrom(segment.startMs!) : null}
-            onEdit={canEdit ? () => setEditing(segment.id) : null}
-            editLabel={
-              segment.startMs === null
-                ? strings.transcript.editPassage(passageNumber(segment.ordinal))
-                : strings.transcript.editSegment(clockOf(segment.startMs))
+      {/* One list per part: a divider is not a list item, so it sits between the lists (WCAG 1.3.1). */}
+      {groups.map((group) => (
+        <Fragment key={group.firstId}>
+          {group.opened !== null && (
+            <div
+              role="separator"
+              aria-label={strings.transcript.parts.divider(group.opened.index, clockOf(group.opened.startMs))}
+              className="mt-3 border-t border-rule pt-2 font-mono text-xs text-soft"
+            >
+              {strings.transcript.parts.divider(group.opened.index, clockOf(group.opened.startMs))}
+            </div>
+          )}
+          <ol
+            aria-label={
+              group.opened !== null
+                ? strings.transcript.parts.divider(group.opened.index, clockOf(group.opened.startMs))
+                : isText
+                  ? strings.transcript.passagesHeading
+                  : strings.transcript.heading
             }
-            editor={
-              editing === segment.id ? (
-                <SegmentEditor
-                  meetingId={meeting.id}
+            className="flex flex-col"
+          >
+            {group.indexes.map((index) => {
+              const segment = segments[index]!
+              return (
+                <SegmentRow
+                  key={segment.id}
                   segment={segment}
-                  onCancel={() => setEditing(null)}
-                  onStale={() => {
-                    setEditing(null)
-                    setStale(true)
-                  }}
-                  onSaved={(saved) => {
-                    onTranscript({
-                      ...transcript,
-                      segments: transcript.segments.map((s) => (s.id === saved.id ? saved : s)),
-                    })
-                    setEditing(null)
+                  speaker={speakerNameOf(segment.speakerKey, transcript.speakers, meeting.participants)}
+                  ranges={hits[index]!}
+                  onPlay={
+                    audioKept && segment.startMs !== null ? () => audio.current?.playFrom(segment.startMs!) : null
+                  }
+                  onEdit={canEdit ? () => setEditing(segment.id) : null}
+                  editLabel={
+                    segment.startMs === null
+                      ? strings.transcript.editPassage(passageNumber(segment.ordinal))
+                      : strings.transcript.editSegment(clockOf(segment.startMs))
+                  }
+                  editor={
+                    editing === segment.id ? (
+                      <SegmentEditor
+                        meetingId={meeting.id}
+                        segment={segment}
+                        onCancel={() => setEditing(null)}
+                        onStale={() => {
+                          setEditing(null)
+                          setStale(true)
+                        }}
+                        onSaved={(saved) => {
+                          onTranscript({
+                            ...transcript,
+                            segments: transcript.segments.map((s) => (s.id === saved.id ? saved : s)),
+                          })
+                          setEditing(null)
+                        }}
+                      />
+                    ) : null
+                  }
+                  cited={segment.id === focusSegmentId}
+                  rowRef={(element) => {
+                    if (element === null) rows.current.delete(segment.id)
+                    else rows.current.set(segment.id, element)
                   }}
                 />
-              ) : null
-            }
-            cited={segment.id === focusSegmentId}
-            rowRef={(element) => {
-              if (element === null) rows.current.delete(segment.id)
-              else rows.current.set(segment.id, element)
-            }}
-          />
-          </Fragment>
-          )
-        })}
-      </ol>
+              )
+            })}
+          </ol>
+        </Fragment>
+      ))}
       {renaming !== null && (
         <SpeakerRenameDialog
           meetingId={meeting.id}
