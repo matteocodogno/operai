@@ -11,7 +11,8 @@
  *     running one whose LEASE has expired (the process holding it died);
  *   - lease 2 minutes, heartbeated every 30 s; a heartbeat that finds the claim gone
  *     aborts the handler's signal;
- *   - at most 2 jobs at a time, and only one of them ffmpeg (`prepare_audio`);
+ *   - at most 2 jobs at a time; ffmpeg is exclusive per INVOCATION (`withFfmpegSlot`, ADR-0064 / plan
+ *     G-11), not per job kind: a `transcribe` waiting on Google holds no slot and blocks nobody;
  *   - a transient error is retried up to the job's `maxAttempts` (default 3) with
  *     backoff 30 s, 2 min, 10 min; a permanent error fails at once;
  *   - SIGTERM: stop claiming, let running work finish within the grace period; what
@@ -49,8 +50,6 @@ const CONCURRENCY = 2;
 const BACKOFF_MS = [30_000, 2 * 60_000, 10 * 60_000] as const;
 const DEFAULT_MAX_ATTEMPTS = 3;
 const LISTEN_RECONNECT_MS = 5_000;
-/** The one kind that runs ffmpeg: never two at once in a process. */
-const FFMPEG_KIND: JobKind = "prepare_audio";
 
 // ─── Errors a handler throws ─────────────────────────────────────────────────
 
@@ -210,7 +209,6 @@ export function createRunner(options: RunnerOptions): Runner {
          SET "state" = 'failed', "leaseUntil" = NULL, "lastErrorCode" = 'lease_expired', "updatedAt" = ${ts(at)}
        WHERE "state" = 'running' AND "leaseUntil" < ${ts(at)} AND "attempts" >= "maxAttempts"`;
 
-    const excluded = [...active.values()].some((j) => j.kind === FFMPEG_KIND) ? [FFMPEG_KIND] : [];
     const rows = await db.$queryRaw<ClaimRow[]>`
       UPDATE "meeting_job"
          SET "state" = 'running',
@@ -223,7 +221,6 @@ export function createRunner(options: RunnerOptions): Runner {
                   ("state" = 'queued' AND "runAfter" <= ${ts(at)})
                OR ("state" = 'running' AND "leaseUntil" < ${ts(at)} AND "attempts" < "maxAttempts")
                 )
-            AND NOT ("kind"::text = ANY(${excluded}::text[]))
           ORDER BY "runAfter", "createdAt"
           LIMIT 1
             FOR UPDATE SKIP LOCKED)

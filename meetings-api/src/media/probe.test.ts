@@ -180,7 +180,8 @@ describe("runTool", () => {
   it("runs the tool with a minimal environment: PATH and TMPDIR only, none of the service's secrets", async () => {
     const secrets = {
       DATABASE_URL: "postgresql://u:p@db/x",
-      AZURE_SPEECH_KEY: "azure-secret",
+      MEETINGS_GCP_SERVICE_ACCOUNT_KEY: "gcp-key-secret",
+      GOOGLE_APPLICATION_CREDENTIALS: "/secret/adc.json",
       AWS_SECRET_ACCESS_KEY: "aws-secret",
       MEETINGS_S3_SECRET_ACCESS_KEY: "s3-secret",
       SERVICE_CLIENT_SECRET: "client-secret",

@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bu
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { db } from "../lib/db";
+import { withFfmpegSlot } from "../media/ffmpegSlot";
 import {
   JOBS_CHANNEL,
   PermanentJobError,
@@ -416,25 +417,53 @@ describe("concurrency", () => {
     expect(peak).toBe(2);
   });
 
-  it("runs at most one ffmpeg job (prepare_audio) at a time, while another kind uses the free slot", async () => {
+  it("two prepare_audio jobs are both claimed, but their ffmpeg stretches never overlap (ADR-0064 per invocation)", async () => {
     await Promise.all([insert({ kind: "prepare_audio" }), insert({ kind: "prepare_audio" }), insert({ kind: "prepare_audio" })]);
-    await insert({ kind: "transcribe" });
-    let prepareActive = 0;
-    let preparePeak = 0;
-    let transcribeRan = false;
+    let handlersActive = 0;
+    let handlersPeak = 0;
+    let ffmpegActive = 0;
+    let ffmpegPeak = 0;
     const runner = make({
-      prepare_audio: async () => {
-        prepareActive++;
-        preparePeak = Math.max(preparePeak, prepareActive);
-        await new Promise((r) => setTimeout(r, 60));
-        prepareActive--;
+      prepare_audio: async (ctx) => {
+        handlersActive++;
+        handlersPeak = Math.max(handlersPeak, handlersActive);
+        await withFfmpegSlot(async () => {
+          ffmpegActive++;
+          ffmpegPeak = Math.max(ffmpegPeak, ffmpegActive);
+          await new Promise((r) => setTimeout(r, 60));
+          ffmpegActive--;
+        }, ctx.signal);
+        handlersActive--;
       },
-      transcribe: async () => void (transcribeRan = true),
     });
     await runner.tick();
-    await until(async () => (await db.meetingJob.count({ where: { state: "done" } })) === 4, 8_000);
-    expect(preparePeak).toBe(1);
-    expect(transcribeRan).toBe(true);
+    await until(async () => (await db.meetingJob.count({ where: { state: "done" } })) === 3, 8_000);
+    expect(ffmpegPeak).toBe(1);
+    // The runner no longer serialises by kind: both slots of the pool were in use at once.
+    expect(handlersPeak).toBe(2);
+  });
+
+  it("a transcribe job waiting on Google outside the slot does not block a prepare_audio claim", async () => {
+    await insert({ kind: "transcribe" });
+    const waitingOnGoogle = deferred();
+    let transcribeRunning = false;
+    const runner = make({
+      transcribe: async () => {
+        transcribeRunning = true;
+        await waitingOnGoogle.promise; // minutes, in production: holds no ffmpeg slot
+      },
+      prepare_audio: async (ctx) => {
+        await withFfmpegSlot(async () => {}, ctx.signal);
+      },
+    });
+    await runner.tick();
+    await until(() => transcribeRunning);
+
+    const prepare = await insert({ kind: "prepare_audio" });
+    await runner.tick();
+    await until(async () => (await get(prepare.id)).state === "done");
+    expect(transcribeRunning).toBe(true); // still waiting: the prepare ran past it
+    waitingOnGoogle.resolve();
   });
 });
 

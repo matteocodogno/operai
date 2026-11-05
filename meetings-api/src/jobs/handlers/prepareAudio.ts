@@ -33,6 +33,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db } from "../../lib/db";
 import { MAX_CHUNK_BYTES, MAX_UPLOAD_BYTES, ObjectTooLargeError, isUploadKeyOf, objectKeys, requireStorage, type Storage } from "../../lib/storage";
+import { withFfmpegSlot } from "../../media/ffmpegSlot";
 import { MAX_NORMALIZED_MS, NormalizeError, groupIntoRuns, normalizeAudio, ToolMissingError } from "../../media/normalize";
 import { MAX_AUDIO_MS, pinnedDemuxer, probeMedia, type ProbeVerdict } from "../../media/probe";
 import { announce as defaultAnnounce, type NotifyEvent } from "../../lib/notify";
@@ -227,18 +228,21 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       }
 
       // 2. One valid container per run. The LOCAL files are probed: what is decoded is exactly
-      //    what was probed, through the demuxer the probe named.
-      const inputs = meeting.source === "uploaded" ? files : await groupIntoRuns(workDir, files);
-      const inputFormats: string[] = [];
-      for (const input of inputs) {
-        const verdict = await probe(input, { workDir, maxDurationMs: source.maxDurationMs });
-        if (!verdict.ok) throw new NormalizeError(verdict.reason === "too_long" ? "too_long" : "audio_unreadable");
-        const demuxer = pinnedDemuxer(verdict.format);
-        if (demuxer === undefined) throw new NormalizeError("audio_unreadable");
-        inputFormats.push(demuxer);
-      }
+      //    what was probed, through the demuxer the probe named. All of it runs under the process's
+      //    one ffmpeg slot (ADR-0064): a second prepare_audio, or the transcribe job's splitter, waits.
       const output = join(workDir, "audio.ogg");
-      const { durationMs } = await normalize({ inputs, inputFormats, workDir, output, signal: ctx.signal });
+      const { durationMs } = await withFfmpegSlot(async () => {
+        const inputs = meeting.source === "uploaded" ? files : await groupIntoRuns(workDir, files);
+        const inputFormats: string[] = [];
+        for (const input of inputs) {
+          const verdict = await probe(input, { workDir, maxDurationMs: source.maxDurationMs });
+          if (!verdict.ok) throw new NormalizeError(verdict.reason === "too_long" ? "too_long" : "audio_unreadable");
+          const demuxer = pinnedDemuxer(verdict.format);
+          if (demuxer === undefined) throw new NormalizeError("audio_unreadable");
+          inputFormats.push(demuxer);
+        }
+        return normalize({ inputs, inputFormats, workDir, output, signal: ctx.signal });
+      }, ctx.signal);
 
       // 3. audio.ogg first (idempotent key), then the state change and the next job together.
       const { sizeBytes } = await storage.putAudioFile(meetingId, output);
