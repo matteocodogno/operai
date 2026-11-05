@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createGoogleAuth } from "../lib/google/auth";
 import { LanguageModelError, type OutputSchema } from "./languageModel";
 import { createVertexClient, createVertexLanguageModel, vertexBaseUrl } from "./vertexClaude";
@@ -108,7 +109,7 @@ describe("the endpoint (R13, S2)", () => {
 });
 
 describe("the request (AC-7.10, ADR-0067)", () => {
-  it("carries the system prompt, the messages, max_tokens, exactly ONE tool and tool_choice forced to it", async () => {
+  it("carries the system prompt, the messages, max_tokens and exactly ONE tool, with NO tool_choice and NO thinking (H-8)", async () => {
     const { model, seen } = build(() => jsonResponse(reply()));
     await model.complete(REQUEST, SCHEMA);
     const body = seen[0]!.body;
@@ -116,7 +117,8 @@ describe("the request (AC-7.10, ADR-0067)", () => {
     expect(body["messages"]).toEqual([{ role: "user", content: "Quoted transcript: hello" }]);
     expect(body["max_tokens"]).toBe(1024);
     expect(body["tools"]).toEqual([{ name: "submit_summary", description: "Submit the summary", input_schema: SCHEMA.jsonSchema }]);
-    expect(body["tool_choice"]).toEqual({ type: "tool", name: "submit_summary" });
+    expect("tool_choice" in body).toBe(false); // Sonnet 5.5 refuses "tool"/"any"; an explicit "auto" is unverified (H-8)
+    expect("thinking" in body).toBe(false); // `disabled` is refused; an enabling value is never sent
     expect(body["anthropic_version"]).toBeDefined(); // Vertex takes the API version from the body
     expect(body["model"]).toBeUndefined(); // ...and the model from the path
   });
@@ -125,7 +127,7 @@ describe("the request (AC-7.10, ADR-0067)", () => {
     const { model, seen } = build(() => jsonResponse(reply()));
     await model.complete(REQUEST, SCHEMA);
     const text = JSON.stringify(seen[0]!.body);
-    for (const forbidden of ["cache_control", "advanced_ai_enabled", "betas", "anthropic_beta", "web_search", "code_execution", "bash", "computer", "text_editor", "mcp_servers", "container", "stream"]) {
+    for (const forbidden of ["cache_control", "disable_parallel_tool_use", "advanced_ai_enabled", "betas", "anthropic_beta", "web_search", "code_execution", "bash", "computer", "text_editor", "mcp_servers", "container", "stream"]) {
       expect(text, forbidden).not.toContain(forbidden);
     }
     const tools = seen[0]!.body["tools"] as { type?: string }[];
@@ -146,27 +148,93 @@ describe("the request (AC-7.10, ADR-0067)", () => {
   });
 });
 
-describe("the reply", () => {
-  it("returns the forced tool's input, unvalidated", async () => {
+describe("the reply (H-8 acceptance rule)", () => {
+  const call = (over: Record<string, unknown> = {}) => ({ type: "tool_use", id: "tu_1", name: "submit_summary", input: { sections: ["a"] }, ...over });
+  const lines = (spy: ReturnType<typeof spyOn>) => spy.mock.calls.map((args: unknown[]) => args.join(" "));
+  let warn: ReturnType<typeof spyOn>;
+  let error: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warn = spyOn(console, "warn").mockImplementation(() => {});
+    error = spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    error.mockRestore();
+  });
+
+  it("returns the tool's input, unvalidated, for stop_reason tool_use with exactly one call of the offered tool", async () => {
     const { model } = build(() => jsonResponse(reply()));
     expect(await model.complete(REQUEST, SCHEMA)).toEqual({ sections: ["a"] });
   });
 
-  it("is invalid_output (transient) when it stops for another reason, calls another tool, has no tool block, or is cut short", async () => {
-    const variants = [
-      reply({ stop_reason: "end_turn", content: [{ type: "text", text: "hello" }] }),
-      reply({ stop_reason: "max_tokens" }),
-      reply({ content: [{ type: "tool_use", id: "t", name: "other_tool", input: {} }] }),
-      reply({ content: [{ type: "text", text: "no tool" }] }),
-      reply({ content: [] }),
+  it("accepts text, thinking and redacted_thinking blocks around the call and never reads them", async () => {
+    const content = [
+      { type: "thinking", thinking: "SECRET-REASONING-ECHO", signature: "sig" },
+      { type: "redacted_thinking", data: "SECRET-REDACTED" },
+      { type: "text", text: "SECRET-PREAMBLE" },
+      call(),
+      { type: "text", text: "SECRET-TRAILER" },
     ];
-    for (const variant of variants) {
-      const { model } = build(() => jsonResponse(variant));
-      const error = await rejection(model.complete(REQUEST, SCHEMA));
-      expect(error).toBeInstanceOf(LanguageModelError);
-      expect(error).toMatchObject({ code: "invalid_output", transient: true });
-    }
+    const { model } = build(() => jsonResponse(reply({ content })));
+    expect(await model.complete(REQUEST, SCHEMA)).toEqual({ sections: ["a"] });
+    expect(lines(warn).join("\n") + lines(error).join("\n")).toBe("");
   });
+
+  const REJECTED: [string, Record<string, unknown>, string][] = [
+    ["text only", reply({ stop_reason: "end_turn", content: [{ type: "text", text: "SECRET-TEXT-REPLY" }] }), "no_call"],
+    ["no blocks", reply({ content: [] }), "no_call"],
+    ["thinking only", reply({ content: [{ type: "thinking", thinking: "SECRET-THOUGHT", signature: "s" }] }), "no_call"],
+    ["two calls of the offered tool", reply({ content: [call(), call({ id: "tu_2", input: { sections: ["b"] } })] }), "multiple_calls"],
+    ["another tool", reply({ content: [call({ name: "other_tool" })] }), "wrong_tool"],
+    ["the offered tool plus another", reply({ content: [call(), call({ id: "tu_2", name: "other_tool" })] }), "wrong_tool"],
+    ["a thinking-only reply cut at max_tokens (R30 stays observable)", reply({ stop_reason: "max_tokens", content: [{ type: "thinking", thinking: "SECRET-THOUGHT", signature: "s" }] }), "stop_reason"],
+    ["max_tokens stop", reply({ stop_reason: "max_tokens" }), "stop_reason"],
+    ["end_turn stop with a call", reply({ stop_reason: "end_turn" }), "stop_reason"],
+    ["pause_turn stop", reply({ stop_reason: "pause_turn" }), "stop_reason"],
+    ["a null stop reason", reply({ stop_reason: null }), "stop_reason"],
+    ["a server_tool_use block", reply({ content: [{ type: "server_tool_use", id: "s", name: "web_search", input: {} }, call()] }), "block_type"],
+    ["an unknown block type", reply({ content: [call(), { type: "mystery" }] }), "block_type"],
+  ];
+  for (const [label, variant, reason] of REJECTED) {
+    it(`is invalid_output (transient) for ${label}, logging only reason=${reason}`, async () => {
+      const { model } = build(() => jsonResponse(variant));
+      const failure = await rejection(model.complete(REQUEST, SCHEMA));
+      expect(failure).toBeInstanceOf(LanguageModelError);
+      expect(failure).toMatchObject({ code: "invalid_output", transient: true });
+      const logged = [...lines(warn), ...lines(error)];
+      expect(logged).toEqual([`[ai] invalid_output reason=${reason}`]);
+      expect(logged.join("\n")).not.toContain("SECRET");
+    });
+  }
+
+  it("an input that is not an object is still handed over unvalidated (the schema validators reject it)", async () => {
+    const { model } = build(() => jsonResponse(reply({ content: [call({ input: "oops" })] })));
+    expect(await model.complete(REQUEST, SCHEMA)).toBe("oops");
+  });
+});
+
+describe("recorded replies of the pinned model (test-fixtures/google-vertex/messages-*.json, T120)", () => {
+  const recorded = (name: string) => JSON.parse(readFileSync(new URL(`../../test-fixtures/google-vertex/messages-${name}.json`, import.meta.url), "utf8")).body as Record<string, unknown>;
+  let warn: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warn = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => warn.mockRestore());
+
+  for (const name of ["unforced-single-call", "auto-disable-parallel"]) {
+    it(`${name} is accepted`, async () => {
+      const { model } = build(() => jsonResponse(recorded(name)));
+      expect(await model.complete(REQUEST, SCHEMA)).toEqual({ sections: [expect.any(String), expect.any(String)] });
+    });
+  }
+
+  for (const [name, reason] of [["text-only", "no_call"], ["double-call", "multiple_calls"], ["max-tokens-cut", "stop_reason"]] as const) {
+    it(`${name} is invalid_output (${reason})`, async () => {
+      const { model } = build(() => jsonResponse(recorded(name)));
+      expect(await rejection(model.complete(REQUEST, SCHEMA))).toMatchObject({ code: "invalid_output", transient: true });
+      expect(warn.mock.calls.map((a: unknown[]) => a.join(" "))).toEqual([`[ai] invalid_output reason=${reason}`]);
+    });
+  }
 });
 
 describe("failures map into the closed codes (G-8)", () => {

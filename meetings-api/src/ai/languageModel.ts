@@ -4,7 +4,7 @@
  * (`vertexClaude.ts`, Claude on Vertex AI in the EU, ADR-0069) and a fake
  * (`fakeLanguageModel.ts`); a fallback provider would sit behind the same interface.
  *
- * STRUCTURED OUTPUT ONLY. `complete` forces the model to call ONE "tool", and that
+ * STRUCTURED OUTPUT ONLY. `complete` offers the model ONE "tool" (not forced, plan H-8), and that
  * tool is the output schema itself: there is no function that reaches anything, so
  * a hostile transcript has no capability to act on (AC-7.10). What comes back is
  * `unknown` on purpose: it is untrusted until a validator (`prompts/*.ts`) has

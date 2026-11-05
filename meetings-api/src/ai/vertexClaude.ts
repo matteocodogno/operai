@@ -12,10 +12,11 @@
  *   - `maxRetries: 0` and `timeout: 60 s`: the job runner owns retry (ADR-0062), a hidden retry would
  *     multiply the deadline.
  *
- * FORCED TOOL USE, and the only tool is the output schema (AC-7.10): `tool_choice: { type: "tool", name }`.
+ * ONE UNFORCED TOOL, and the only tool is the output schema (AC-7.10, plan H-8): the request carries no `tool_choice`
+ * (Sonnet 5.5 refuses "tool" and "any") and no `thinking` (`disabled` is refused; an enabling value is never sent).
  * There is no other tool, no server tool (web search, code execution), no `cache_control` (Vertex prompt caching
- * is stored for minutes to an hour), no `advanced_ai_enabled` and no beta. A reply that does not stop at
- * `tool_use` with the forced tool's block is `invalid_output`, as before.
+ * is stored for minutes to an hour), no `advanced_ai_enabled` and no beta. Because the call is not forced, the
+ * guarantee is the acceptance rule below plus the schema validators, never the mechanism (ADR-0067).
  *
  * Errors become `LanguageModelError` with a closed code and a status (plan § G-8). Provider text can echo the
  * prompt, so it is never copied into a message or a log line.
@@ -41,7 +42,6 @@ interface MessageBody {
   readonly messages: { role: "user" | "assistant"; content: string }[];
   readonly max_tokens: number;
   readonly tools: { name: string; description: string; input_schema: Record<string, unknown> }[];
-  readonly tool_choice: { type: "tool"; name: string };
 }
 
 interface MessageReply {
@@ -93,14 +93,35 @@ function classify(error: unknown): LanguageModelError {
   return new LanguageModelError(transient ? "provider_unavailable" : "provider_rejected", transient, httpStatus);
 }
 
-/** The forced tool's input, or not-found when the reply is anything else. */
-function toolInput(reply: MessageReply, toolName: string): { found: true; input: unknown } | { found: false } {
-  // A reply cut short (max_tokens), or stopped by a filter, is not a call we can trust the shape of.
-  if (reply.stop_reason !== "tool_use") return { found: false };
-  for (const block of reply.content ?? []) {
-    if (block.type === "tool_use" && block.name === toolName) return { found: true, input: block.input };
+/** Closed reasons for a rejected reply: logged instead of any content (H-8). */
+type InvalidReason = "no_call" | "multiple_calls" | "wrong_tool" | "stop_reason" | "block_type";
+
+/** Blocks the model may add around its call. They are discarded unread: thinking can echo the transcript (AC-4.10). */
+const IGNORED_BLOCKS: ReadonlySet<string | undefined> = new Set(["text", "thinking", "redacted_thinking"]);
+
+/**
+ * The acceptance rule (H-8): `stop_reason` "tool_use" and exactly one `tool_use` block, of the offered tool. Other
+ * blocks may only be text/thinking/redacted_thinking and are never read; any other block type is invalid.
+ * The input is returned unvalidated: the prompt validators own the schema.
+ */
+function toolCall(reply: MessageReply, toolName: string): { ok: true; input: unknown } | { ok: false; reason: InvalidReason } {
+  const blocks = reply.content ?? [];
+  let offered: { input: unknown }[] = [];
+  let others = 0;
+  for (const block of blocks) {
+    if (block.type === "tool_use") {
+      if (block.name === toolName) offered = [...offered, { input: block.input }];
+      else others += 1;
+    } else if (!IGNORED_BLOCKS.has(block.type)) return { ok: false, reason: "block_type" };
   }
-  return { found: false };
+  const stop = reply.stop_reason;
+  // A cut-off (max_tokens), a filter or a pause is reported as such even with no call: it is the signal R30 watches.
+  if (stop !== "tool_use" && stop !== "end_turn") return { ok: false, reason: "stop_reason" };
+  if (others > 0) return { ok: false, reason: "wrong_tool" };
+  if (offered.length === 0) return { ok: false, reason: "no_call" };
+  if (offered.length > 1) return { ok: false, reason: "multiple_calls" };
+  if (stop !== "tool_use") return { ok: false, reason: "stop_reason" };
+  return { ok: true, input: offered[0]!.input };
 }
 
 export function createVertexLanguageModel(options: VertexOptions): LanguageModel {
@@ -112,7 +133,6 @@ export function createVertexLanguageModel(options: VertexOptions): LanguageModel
         messages: request.messages.map((message) => ({ role: message.role, content: message.text })),
         max_tokens: request.maxTokens,
         tools: [{ name: outputSchema.name, description: outputSchema.description, input_schema: { ...outputSchema.jsonSchema } }],
-        tool_choice: { type: "tool", name: outputSchema.name },
       };
 
       let reply: MessageReply;
@@ -122,8 +142,12 @@ export function createVertexLanguageModel(options: VertexOptions): LanguageModel
         throw classify(error);
       }
 
-      const result = toolInput(reply, outputSchema.name);
-      if (!result.found) throw new LanguageModelError("invalid_output", true);
+      const result = toolCall(reply, outputSchema.name);
+      if (!result.ok) {
+        // Value-free: a closed reason only, never a block, a name or a length (AC-4.10). Schema rejections are the validators' and stay unlogged.
+        console.warn(`[ai] invalid_output reason=${result.reason}`);
+        throw new LanguageModelError("invalid_output", true);
+      }
       return result.input;
     },
   };

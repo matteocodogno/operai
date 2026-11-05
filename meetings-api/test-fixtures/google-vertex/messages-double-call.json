@@ -1,0 +1,48 @@
+{
+  "httpStatus": 200,
+  "body": {
+    "model": "claude-sonnet-5-5",
+    "id": "msg_1",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "tool_use",
+        "id": "toolu_1",
+        "name": "submit_summary",
+        "input": {
+          "sections": [
+            "Decision: The team agreed to ship the report on Friday."
+          ]
+        }
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_1",
+        "name": "submit_summary",
+        "input": {
+          "sections": [
+            "Action: Speaker 2 will send the invoice to the client on Monday."
+          ]
+        }
+      }
+    ],
+    "container": null,
+    "stop_reason": "tool_use",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 491,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 142,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      }
+    }
+  }
+}
