@@ -36,10 +36,39 @@ export type AttackClass =
   | "citation-forgery"
   | "history-injection";
 
+/** One content block of a provider reply, as much of it as the channels build (wire.ts). */
+export interface WireBlock {
+  readonly type: string;
+  readonly name?: string;
+  readonly input?: unknown;
+  readonly text?: string;
+  readonly thinking?: string;
+}
+
+/** A provider reply, the shape the adapter reads (`stop_reason` + `content`). */
+export interface WireReply {
+  readonly stop_reason: string;
+  readonly content: readonly WireBlock[];
+}
+
+/**
+ * A channel at the PROVIDER level (plan H-8/H-10): the model is not forced to call the tool, so a reply can be plain
+ * text, two calls, another tool, a cut-off call, or a valid call wrapped in text or thinking. It goes through the REAL
+ * adapter (the acceptance rule) over a stubbed client, then the real validators and the one-resample loop.
+ */
+export interface WireShape {
+  /** The provider reply, built from what the well-behaved model would have submitted as the tool input. */
+  readonly build: (honest: unknown, tool: string) => WireReply;
+  /** What the adapter must do: reject with this closed reason (every sample), or accept and discard the text that must never show. */
+  readonly expect: { readonly outcome: "rejected"; readonly reason: string } | { readonly outcome: "accepted"; readonly discards: readonly string[] };
+}
+
 /** One way an obedient model could let the injection through: the raw tool input it submits. */
 export interface Channel {
   readonly id: string;
+  /** The tool input submitted. Unused (null) on a wire channel, which builds a whole provider reply instead. */
   readonly reply: unknown;
+  readonly wire?: WireShape;
   /**
    * A server-tier failure is EXPECTED on this channel: a defence gap, reported not hidden.
    * The value names the defect (README § Known gaps). A marked channel that passes is a stale marker.
