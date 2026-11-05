@@ -2,9 +2,10 @@
 #
 # CI MODE ONLY. This job runs the evals against the scripted fake model: no network, no database,
 # no secrets (the workflow token is read-only and no `secrets.*` is referenced). The `--live` run
-# against the real EU model on Bedrock is a documented RELEASE STEP (meetings-api/README.md §
-# Prompt-injection evals) that needs cloud credentials; it must never be added here. The guard step
-# below fails the job if cloud credentials ever appear in this job's environment.
+# against the real EU model (Claude on Vertex AI) is meetings-eval-live.yml and a documented RELEASE
+# STEP (meetings-api/README.md § Prompt-injection evals) that needs cloud credentials; it must never be
+# added here. The guard step below fails the job if cloud credentials or provider configuration ever
+# appear in this job's environment.
 #
 # Like the other path-filtered workflows here, this is a real pre-merge gate only once a
 # required-status-check rule names the job on `main` (a human decision, see infra/README.md).
@@ -43,8 +44,12 @@ jobs:
       - name: Guard — no cloud credentials in the job
         run: |
           set -eu
-          if env | grep -qE '^(BEDROCK_|MEETINGS_AWS_|AWS_|AZURE_SPEECH_)'; then
-            env | grep -E '^(BEDROCK_|MEETINGS_AWS_|AWS_|AZURE_SPEECH_)' | cut -d= -f1
+          # Google (the providers, specs/021 plan G-7), plus the previous providers' and generic names, so a
+          # credential of any cloud cannot ride into this job. AZURE_EXTENSION_DIR is exempt: the runner
+          # image itself sets it (a path to the az CLI extensions, no credential).
+          hits="$(env | grep -E '^(MEETINGS_GCP_|MEETINGS_VERTEX_|MEETINGS_SPEECH_|GOOGLE_|CLOUDSDK_|ANTHROPIC_|AWS_|AZURE_)' | grep -v '^AZURE_EXTENSION_DIR=' | cut -d= -f1 || true)"
+          if [ -n "${hits}" ]; then
+            echo "${hits}"
             echo "::error::cloud credentials are present in the eval job; the live run is a release step, never CI"
             exit 1
           fi
