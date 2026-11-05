@@ -13,6 +13,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
+import { speakerIndexOf } from "../ai/segments";
 import { db } from "../lib/db";
 import { IdParams, commonErrors, etag, requireIfMatch, versionConflict } from "../lib/http";
 import { ProblemError, conflict, notFound, validationHook } from "../lib/problem";
@@ -36,6 +37,8 @@ const SegmentSchema = z.object({
   text: z.string(),
   edited: z.boolean(),
   version: z.number().int(),
+  /** The transcript part (1-based) the segment comes from; null for a text meeting and for rows older than the column. */
+  part: z.number().int().nullable(),
 });
 
 const LabelSchema = z.union([
@@ -45,16 +48,31 @@ const LabelSchema = z.union([
 ]);
 type Label = z.infer<typeof LabelSchema>;
 
+const SpeakerSchema = z.object({
+  key: z.string(),
+  label: LabelSchema,
+  /** The transcript parts the key's segments come from, ascending; `[]` for a text meeting and for rows with no part. */
+  parts: z.array(z.number().int().min(1)),
+  /** True when the key covers more than one part: the overlap showed it to be the same speaker (AC-6.14, AC-6.16). */
+  joined: z.boolean(),
+});
+type Speaker = z.infer<typeof SpeakerSchema>;
+
+const RangeSchema = z.object({ startMs: z.number().int().min(0), endMs: z.number().int().min(0) });
+
 const TranscriptSchema = z.object({
   version: z.number().int(),
   /**
-   * Where each transcript part starts (ADR-0070): `[]` for a text meeting and for one that heard nothing, else one
-   * entry per part (1-based `index`). More than one means the recording was transcribed in parts and speakers
-   * are numbered separately in each.
+   * The transcript parts (ADR-0070, H-6): `[]` for a text meeting and for one that heard nothing, else one entry per
+   * part (1-based `index`), overlapping: a part's end is not the next part's start.
    */
-  parts: z.array(z.object({ index: z.number().int().min(1), startMs: z.number().int().min(0) })),
+  parts: z.array(z.object({ index: z.number().int().min(1), startMs: z.number().int().min(0), endMs: z.number().int().min(0) })),
   segments: z.array(SegmentSchema),
-  speakers: z.array(z.object({ key: z.string(), label: LabelSchema })),
+  speakers: z.array(SpeakerSchema),
+  /** Stretches that may be missing from the transcript (AC-6.12): meeting time, merged, ascending. `[]` = no notice. */
+  gaps: z.array(RangeSchema),
+  /** AC-6.15's notice: more than one part and at least one label of a later part that is not joined. */
+  separateLabels: z.boolean(),
 });
 
 interface SegmentRow {
@@ -66,6 +84,7 @@ interface SegmentRow {
   readonly text: string;
   readonly edited: boolean;
   readonly version: number;
+  readonly part: number | null;
 }
 
 const toSegment = (row: SegmentRow) => ({
@@ -77,6 +96,7 @@ const toSegment = (row: SegmentRow) => ({
   text: row.text,
   edited: row.edited,
   version: row.version,
+  part: row.part,
 });
 
 /** Speaker keys in order of first appearance: that order is the "Speaker n" numbering. */
@@ -86,15 +106,34 @@ const speakerKeysOf = (segments: readonly { speakerKey: string | null }[]): stri
   return keys;
 };
 
-const labelOf = (
+/**
+ * The label a key reads as. The default "Speaker n" is the KEY'S OWN number (`s3` is Speaker 3) unless the label row
+ * stored a `defaultIndex` (a separated label that inherits an unnamed "Speaker n", AC-6.16): so separating a joined
+ * label never renumbers anyone else (H-5). A key that is not of the `s<n>` form reads as its position of first
+ * appearance, as before.
+ */
+export const labelOf = (
   key: string,
   order: readonly string[],
-  stored: { participantId: string | null; customLabel: string | null } | undefined,
+  stored: { participantId: string | null; customLabel: string | null; defaultIndex?: number | null } | undefined,
 ): Label => {
   if (stored?.participantId) return { kind: "participant", participantId: stored.participantId };
   if (stored?.customLabel) return { kind: "text", text: stored.customLabel };
-  return { kind: "default", index: order.indexOf(key) + 1 };
+  return { kind: "default", index: stored?.defaultIndex ?? speakerIndexOf(key) ?? order.indexOf(key) + 1 };
 };
+
+/** The speakers of a transcript, in order of first appearance, with the parts each covers (derived on read, H-5). */
+export function speakersOf(
+  segments: readonly { speakerKey: string | null; part: number | null }[],
+  labels: readonly { speakerKey: string; participantId: string | null; customLabel: string | null; defaultIndex: number | null }[],
+): Speaker[] {
+  const storedByKey = new Map(labels.map((l) => [l.speakerKey, l]));
+  const order = speakerKeysOf(segments);
+  return order.map((key) => {
+    const parts = [...new Set(segments.filter((s) => s.speakerKey === key && s.part !== null).map((s) => s.part as number))].sort((a, b) => a - b);
+    return { key, label: labelOf(key, order, storedByKey.get(key)), parts, joined: parts.length > 1 };
+  });
+}
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -166,19 +205,26 @@ transcriptRouter.openapi(getRoute, async (c) => {
   const { id } = c.req.valid("param");
   await openMeeting(id, callerOf(c));
 
-  const [meeting, segments, labels] = await Promise.all([
-    db.meeting.findUniqueOrThrow({ where: { id }, select: { transcriptVersion: true, transcriptPartStartsMs: true } }),
+  const [meeting, segments, labels, gaps] = await Promise.all([
+    db.meeting.findUniqueOrThrow({ where: { id }, select: { transcriptVersion: true, transcriptPartStartsMs: true, transcriptPartEndsMs: true } }),
     db.transcriptSegment.findMany({ where: { meetingId: id }, orderBy: { ordinal: "asc" } }),
     db.speakerLabel.findMany({ where: { meetingId: id } }),
+    db.transcriptGap.findMany({ where: { meetingId: id }, orderBy: { startMs: "asc" }, select: { startMs: true, endMs: true } }),
   ]);
-  const storedByKey = new Map(labels.map((l) => [l.speakerKey, l]));
-  const order = speakerKeysOf(segments);
+  const starts = meeting.transcriptPartStartsMs;
+  const lastEnd = segments.reduce((end, s) => Math.max(end, s.endMs ?? 0), 0);
+  // Parts stored before the ends existed end where the next starts, the last at its last segment (never before it starts).
+  const parts = starts.map((startMs, i) => ({ index: i + 1, startMs, endMs: meeting.transcriptPartEndsMs[i] ?? starts[i + 1] ?? Math.max(startMs, lastEnd) }));
+  const speakers = speakersOf(segments, labels);
   return c.json(
     {
       version: meeting.transcriptVersion,
-      parts: meeting.transcriptPartStartsMs.map((startMs, i) => ({ index: i + 1, startMs })),
+      parts,
       segments: segments.map(toSegment),
-      speakers: order.map((key) => ({ key, label: labelOf(key, order, storedByKey.get(key)) })),
+      speakers,
+      gaps,
+      // AC-6.15: more than one part and at least one key whose first part is a later one (derived, never stored)
+      separateLabels: parts.length > 1 && speakers.some((sp) => sp.parts.length > 0 && sp.parts[0]! > 1),
     },
     200,
   );
@@ -238,14 +284,14 @@ transcriptRouter.openapi(speakerRoute, async (c) => {
       await tx.speakerLabel.upsert({
         where: { meetingId_speakerKey: { meetingId: id, speakerKey: key } },
         create: { meetingId: id, speakerKey: key, participantId: participant.id },
-        update: { participantId: participant.id, customLabel: null },
+        update: { participantId: participant.id, customLabel: null, defaultIndex: null },
       });
       return labelOf(key, order, { participantId: participant.id, customLabel: null });
     }
     await tx.speakerLabel.upsert({
       where: { meetingId_speakerKey: { meetingId: id, speakerKey: key } },
       create: { meetingId: id, speakerKey: key, customLabel: body.text },
-      update: { customLabel: body.text, participantId: null },
+      update: { customLabel: body.text, participantId: null, defaultIndex: null },
     });
     return labelOf(key, order, { participantId: null, customLabel: body.text });
   });

@@ -5,9 +5,11 @@
  * Takes `audio.ogg` (put there by `prepare_audio`), sends it to the transcriber with the
  * meeting's OWN locale (chosen by its creator, never detected) and writes the outcome:
  *
- *   segments  -> `ready`, the segments and the parts' start offsets stored in ONE transaction with the status change
+ *   segments  -> `ready`, the segments, each one's part, the parts' spans and the gaps (AC-6.12) stored in ONE
+ *                transaction with the status change
  *   noSpeech  -> `ready` + `noSpeech`, no segments (AC-6.7)
- *   an error  -> `failed` + a closed code, no segments ever (AC-6.9)
+ *   an error  -> `failed` + a closed code, no segments ever (AC-6.9); `speech_not_transcribed` (AC-6.7) is one of them
+ *                and is permanent: every part has had its tries inside the one attempt, so the runner never re-runs it
  *
  * The stage moves `preparing` -> `transcribing` first (AC-6.10).
  *
@@ -87,8 +89,12 @@ export function createTranscribeHandler(overrides: Partial<TranscribeDeps> = {})
         await deps.transcriber()
       ).transcribe(audio, LOCALE_OF[meeting.language], maxSpeakersFor(participants), ctx.signal, { meetingId, attempt: ctx.attempt });
       const segments = outcome.kind === "segments" ? outcome.segments : [];
-      // Where each part starts (ADR-0070): [0] for one part, none for a meeting that heard nothing.
-      const partStartsMs = outcome.kind === "segments" && segments.length > 0 ? [...outcome.partStartsMs] : [];
+      // Where each part starts and ends (ADR-0070, H-5; they overlap): [0] and its end for one part, none for a meeting
+      // that heard nothing. The gaps (AC-6.12) only exist with a transcript.
+      const hasTranscript = outcome.kind === "segments" && segments.length > 0;
+      const partStartsMs = hasTranscript ? [...outcome.partStartsMs] : [];
+      const partEndsMs = hasTranscript ? outcome.parts.map((p) => p.endMs) : [];
+      const gaps = hasTranscript ? outcome.gaps : [];
 
       const result = await ctx.commit(async (tx) => {
         const written = await tx.meeting.updateMany({
@@ -102,16 +108,27 @@ export function createTranscribeHandler(overrides: Partial<TranscribeDeps> = {})
             transcriptVersion: { increment: 1 },
             // Replaced with the segments, never merged: a retry's parts are the parts.
             transcriptPartStartsMs: partStartsMs,
+            transcriptPartEndsMs: partEndsMs,
           },
         });
         if (written.count === 0) return false;
         // Replace, never append: a retried run must not stack on a half-written earlier one.
         await tx.transcriptSegment.deleteMany({ where: { meetingId } });
+        await tx.transcriptGap.deleteMany({ where: { meetingId } });
         if (segments.length > 0) {
           await tx.transcriptSegment.createMany({
-            data: segments.map((s) => ({ meetingId, ordinal: s.ordinal, startMs: s.startMs, endMs: s.endMs, speakerKey: s.speakerKey, text: s.text })),
+            data: segments.map((s) => ({
+              meetingId,
+              ordinal: s.ordinal,
+              startMs: s.startMs,
+              endMs: s.endMs,
+              speakerKey: s.speakerKey,
+              text: s.text,
+              part: s.part ?? null,
+            })),
           });
         }
+        if (gaps.length > 0) await tx.transcriptGap.createMany({ data: gaps.map((g) => ({ meetingId, startMs: g.startMs, endMs: g.endMs })) });
         return true;
       });
       if (result.committed && result.value) announceProcessing(deps.announce, meeting, "transcription_done");

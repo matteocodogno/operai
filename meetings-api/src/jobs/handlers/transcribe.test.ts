@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { db } from "../../lib/db";
-import { FakeTranscriber } from "../../ai/fakeTranscriber";
+import { FakeTranscriber, segmentsOf as scripted } from "../../ai/fakeTranscriber";
 import { TranscriptionError } from "../../ai/transcriber";
 import { createFakeStorage, type FakeStorage } from "../../test-support/fakeStorage";
 import type { NotifyEvent } from "../../lib/notify";
@@ -169,6 +169,96 @@ describe("transcript parts (ADR-0070, AC-6.1, AC-6.2)", () => {
     await run(m.id).catch(() => {});
     expect((await reread(m.id)).transcriptPartStartsMs).toEqual([]);
     expect(await segmentsOf(m.id)).toHaveLength(0);
+  });
+});
+
+describe("transcript quality (AC-6.2, AC-6.7, AC-6.12, AC-6.15, AC-6.16; H-5)", () => {
+  const PARTS = [{ startMs: 0, endMs: 600_000 }, { startMs: 510_000, endMs: 1_110_000 }];
+  const GAPS = [{ startMs: 60_000, endMs: 95_000 }, { startMs: 700_000, endMs: 740_000 }];
+  const gapsOf = (id: string) => db.transcriptGap.findMany({ where: { meetingId: id }, orderBy: { startMs: "asc" }, select: { startMs: true, endMs: true } });
+
+  it("writes the part ends beside the starts, each segment's part and the gaps in the same commit", async () => {
+    const m = await setup();
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "a"], [2, "s1", 540_000, "b"], [2, "s2", 560_000, "c"]]), parts: PARTS, gaps: GAPS });
+    await run(m.id);
+    const after = await reread(m.id);
+    expect(after).toMatchObject({ status: "ready", transcriptPartStartsMs: [0, 510_000], transcriptPartEndsMs: [600_000, 1_110_000] });
+    expect((await segmentsOf(m.id)).map((x) => [x.speakerKey, x.part])).toEqual([["s1", 1], ["s1", 2], ["s2", 2]]);
+    expect(await gapsOf(m.id)).toEqual(GAPS);
+  });
+
+  it("one part, no gap: [0] and its end, no gap rows", async () => {
+    const m = await setup();
+    await run(m.id);
+    const after = await reread(m.id);
+    expect(after.transcriptPartStartsMs).toEqual([0]);
+    expect(after.transcriptPartEndsMs).toHaveLength(1);
+    expect((await segmentsOf(m.id)).map((x) => x.part)).toEqual([1, 1]);
+    expect(await gapsOf(m.id)).toEqual([]);
+  });
+
+  it("a retry replaces the gaps, never appends to them", async () => {
+    const m = await setup();
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "a"]]), gaps: GAPS });
+    await run(m.id);
+    expect(await gapsOf(m.id)).toEqual(GAPS);
+    // the creator retries a failed transcription: here simulated by putting the meeting back to processing
+    await db.meeting.update({ where: { id: m.id }, data: { status: "processing", stage: "preparing" } });
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "a"]]), gaps: [{ startMs: 5_000, endMs: 30_000 }] });
+    await run(m.id);
+    expect(await gapsOf(m.id)).toEqual([{ startMs: 5_000, endMs: 30_000 }]);
+    await db.meeting.update({ where: { id: m.id }, data: { status: "processing", stage: "preparing" } });
+    await run(m.id); // the default transcript has no gap
+    expect(await gapsOf(m.id)).toEqual([]);
+  });
+
+  it("the gaps go with the meeting (AC-4.6)", async () => {
+    const m = await setup();
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "a"]]), gaps: GAPS });
+    await run(m.id);
+    await db.meeting.delete({ where: { id: m.id } });
+    expect(await db.transcriptGap.count({ where: { meetingId: m.id } })).toBe(0);
+  });
+
+  it("a stale claim writes no gaps and no part ends", async () => {
+    const m = await setup();
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "a"]]), gaps: GAPS });
+    await run(m.id, { stale: true });
+    expect(await gapsOf(m.id)).toEqual([]);
+    expect((await reread(m.id)).transcriptPartEndsMs).toEqual([]);
+  });
+
+  it("no speech stores no part, no end and no gap", async () => {
+    const m = await setup();
+    fake.respondWith({ kind: "noSpeech" });
+    await run(m.id);
+    expect(await reread(m.id)).toMatchObject({ noSpeech: true, transcriptPartStartsMs: [], transcriptPartEndsMs: [] });
+    expect(await gapsOf(m.id)).toEqual([]);
+  });
+
+  it("speech_not_transcribed fails the meeting at once with its code, permanently, with nothing stored (AC-6.7)", async () => {
+    const m = await setup();
+    fake.failWith(new TranscriptionError("speech_not_transcribed", false));
+    const error = await run(m.id, { attempt: 1 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(PermanentJobError);
+    expect((error as PermanentJobError).code).toBe("speech_not_transcribed");
+    expect(await reread(m.id)).toMatchObject({ status: "failed", failureCode: "speech_not_transcribed", noSpeech: false });
+    expect(await segmentsOf(m.id)).toHaveLength(0);
+    expect(await gapsOf(m.id)).toEqual([]);
+    expect(fake.calls).toHaveLength(1);
+    expect(pushed.map((e) => e.kind)).toEqual(["transcription_failed"]);
+  });
+
+  it("a ready meeting is never transcribed again: its segments, parts and gaps stay, so a separation cannot be undone (AC-6.16)", async () => {
+    const m = await setup();
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "a"], [2, "s2", 540_000, "b"]]), parts: PARTS, gaps: GAPS });
+    await run(m.id);
+    const before = await segmentsOf(m.id);
+    fake.respondWith({ kind: "segments", segments: scripted([[1, "s1", 0, "again"]]) });
+    await run(m.id);
+    expect(fake.calls).toHaveLength(1);
+    expect(await segmentsOf(m.id)).toEqual(before);
+    expect(await gapsOf(m.id)).toEqual(GAPS);
   });
 });
 

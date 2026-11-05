@@ -147,6 +147,8 @@ model Meeting {
   // where each transcript PART starts (ADR-0070): [0] for one part, [0, t2, ...] for a long recording;
   // empty for a `text` meeting and for `noSpeech`. Written with the segments, replaced on a retry.
   transcriptPartStartsMs Int[]     @default([])
+  // where each part ENDS (specs/021 plan H-5): paired with the starts, which now overlap. Empty exactly when they are.
+  transcriptPartEndsMs   Int[]     @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -156,6 +158,7 @@ model Meeting {
   upload        MeetingUpload?
   participants  MeetingParticipant[]
   segments      TranscriptSegment[]
+  gaps          TranscriptGap[]
   speakerLabels SpeakerLabel[]
   summaries     Summary[]
   turns         ConversationTurn[]
@@ -243,9 +246,24 @@ model TranscriptSegment {
   text       String
   edited     Boolean @default(false)
   version    Int     @default(1)
+  // 1-based transcript part the segment comes from (H-5); null for a `text` meeting and for rows older than the column
+  part       Int?
 
   @@unique([meetingId, ordinal])
   @@map("transcript_segment")
+}
+
+// A stretch of the recording that may be missing from the transcript (AC-6.12): meeting time, merged. Written with the
+// segments (replaced, never appended), deleted with the meeting, never edited: AC-6.3 does not touch it.
+model TranscriptGap {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  startMs   Int
+  endMs     Int
+
+  @@index([meetingId, startMs])
+  @@map("transcript_gap")
 }
 
 model SpeakerLabel {
@@ -255,6 +273,8 @@ model SpeakerLabel {
   participantId String?
   participant   MeetingParticipant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
   customLabel   String?
+  // a separated label that inherits an unnamed "Speaker n" keeps reading n until renamed (AC-6.16, H-0); a rename clears it
+  defaultIndex  Int?
 
   @@id([meetingId, speakerKey])
   @@map("speaker_label")
@@ -274,6 +294,8 @@ model Summary {
   // [{ heading, body, notDiscussed }]
   sections          Json?
   transcriptVersion Int
+  // the transcript's gaps when it was made (AC-7.13): [{ startMs, endMs }], a self-describing snapshot
+  transcriptGaps    Json            @default("[]")
   edited            Boolean         @default(false)
   version           Int             @default(1)
   createdAt         DateTime        @default(now())

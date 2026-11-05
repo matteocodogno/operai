@@ -6,8 +6,16 @@ import { authDown, forgetAuth, CREATOR, OTHER, call, db, json, kit, mkMeeting, u
 
 useKit();
 
-interface Seg { id: string; ordinal: number; startMs: number | null; endMs: number | null; speakerKey: string | null; text: string; edited: boolean; version: number }
-interface Transcript { version: number; parts: { index: number; startMs: number }[]; segments: Seg[]; speakers: { key: string; label: { kind: string; index?: number; participantId?: string; text?: string } }[] }
+interface Seg { id: string; ordinal: number; startMs: number | null; endMs: number | null; speakerKey: string | null; text: string; edited: boolean; version: number; part: number | null }
+interface Speaker { key: string; label: { kind: string; index?: number; participantId?: string; text?: string }; parts: number[]; joined: boolean }
+interface Transcript {
+  version: number;
+  parts: { index: number; startMs: number; endMs: number }[];
+  segments: Seg[];
+  speakers: Speaker[];
+  gaps: { startMs: number; endMs: number }[];
+  separateLabels: boolean;
+}
 
 const get = (id: string, user = CREATOR) => call("GET", `/meetings/${id}/transcript`, { user });
 const patch = (id: string, segmentId: string, text: unknown, ifMatch: string | null, user = CREATOR) =>
@@ -38,21 +46,31 @@ describe("GET /meetings/:id/transcript", () => {
     expect(body.segments.map((s) => s.startMs)).toEqual([0, 5000, 10_000, 15_000, 20_000]);
     expect(body.segments[0]).toMatchObject({ speakerKey: "B", text: "Hello", edited: false, version: 1 });
     expect(body.speakers).toEqual([
-      { key: "B", label: { kind: "default", index: 1 } },
-      { key: "A", label: { kind: "default", index: 2 } },
-      { key: "C", label: { kind: "default", index: 3 } },
+      { key: "B", label: { kind: "default", index: 1 }, parts: [], joined: false },
+      { key: "A", label: { kind: "default", index: 2 }, parts: [], joined: false },
+      { key: "C", label: { kind: "default", index: 3 }, parts: [], joined: false },
     ]);
   });
 
-  it("lists the parts: one entry per part, 1-based, with where each starts (ADR-0070)", async () => {
+  it("lists the parts: one entry per part, 1-based, with where each starts and ends (ADR-0070, H-6)", async () => {
+    const m = await ready({ transcriptPartStartsMs: [0, 510_000, 1_020_000], transcriptPartEndsMs: [600_000, 1_110_000, 1_620_000] });
+    const body = await json<Transcript>(await get(m.id));
+    expect(body.parts).toEqual([
+      { index: 1, startMs: 0, endMs: 600_000 },
+      { index: 2, startMs: 510_000, endMs: 1_110_000 },
+      { index: 3, startMs: 1_020_000, endMs: 1_620_000 },
+    ]);
+  });
+
+  it("a part stored before the ends existed ends where the next starts, the last never before it starts", async () => {
     const m = await ready({ transcriptPartStartsMs: [0, 3_600_000, 7_200_000] });
     const body = await json<Transcript>(await get(m.id));
-    expect(body.parts).toEqual([{ index: 1, startMs: 0 }, { index: 2, startMs: 3_600_000 }, { index: 3, startMs: 7_200_000 }]);
+    expect(body.parts).toEqual([{ index: 1, startMs: 0, endMs: 3_600_000 }, { index: 2, startMs: 3_600_000, endMs: 7_200_000 }, { index: 3, startMs: 7_200_000, endMs: 7_200_000 }]);
   });
 
   it("a single part reads as one entry at 0", async () => {
-    const m = await ready({ transcriptPartStartsMs: [0] });
-    expect((await json<Transcript>(await get(m.id))).parts).toEqual([{ index: 1, startMs: 0 }]);
+    const m = await ready({ transcriptPartStartsMs: [0], transcriptPartEndsMs: [30_000] });
+    expect((await json<Transcript>(await get(m.id))).parts).toEqual([{ index: 1, startMs: 0, endMs: 30_000 }]);
   });
 
   it("a meeting that heard nothing, a text meeting and one without a transcript yet have no parts", async () => {
@@ -60,6 +78,90 @@ describe("GET /meetings/:id/transcript", () => {
     const text = await mkMeeting({ source: "text", status: "ready", consentUserId: null, consentAt: null, consentNoticeVersion: null });
     const draft = await mkMeeting({});
     for (const m of [quiet, text, draft]) expect((await json<Transcript>(await get(m.id))).parts).toEqual([]);
+  });
+
+  describe("transcript quality (AC-6.2, AC-6.12, AC-6.15, AC-6.16; H-6)", () => {
+    const PARTS = { transcriptPartStartsMs: [0, 510_000], transcriptPartEndsMs: [600_000, 1_110_000] };
+    /** [ordinal, key, part] rows on a ready meeting with two parts. */
+    async function parted(rows: [number, string, number | null][], over = {}) {
+      const m = await mkMeeting({ status: "ready", transcriptVersion: 1, processingStartedAt: new Date(), ...PARTS, ...over });
+      await db.transcriptSegment.createMany({
+        data: rows.map(([ordinal, speakerKey, part]) => ({ meetingId: m.id, ordinal, startMs: ordinal * 100_000, endMs: ordinal * 100_000 + 4_000, speakerKey, text: `t${ordinal}`, part })),
+      });
+      return m;
+    }
+
+    it("a segment carries its part; a key shows the parts it covers and whether it is joined", async () => {
+      const m = await parted([[0, "s1", 1], [1, "s2", 1], [2, "s1", 2], [3, "s3", 2]]);
+      const body = await json<Transcript>(await get(m.id));
+      expect(body.segments.map((x) => x.part)).toEqual([1, 1, 2, 2]);
+      expect(body.speakers.map((x) => [x.key, x.parts, x.joined])).toEqual([["s1", [1, 2], true], ["s2", [1], false], ["s3", [2], false]]);
+    });
+
+    it("separateLabels is true when a key's lowest part is later than the first, and only then (AC-6.15)", async () => {
+      const separate = await parted([[0, "s1", 1], [1, "s2", 1], [2, "s1", 2], [3, "s3", 2]]);
+      expect((await json<Transcript>(await get(separate.id))).separateLabels).toBe(true);
+      const allJoined = await parted([[0, "s1", 1], [1, "s2", 1], [2, "s1", 2], [3, "s2", 2]]);
+      expect((await json<Transcript>(await get(allJoined.id))).separateLabels).toBe(false);
+      // one part: nothing is "later"
+      const one = await parted([[0, "s1", 1], [1, "s2", 1]], { transcriptPartStartsMs: [0], transcriptPartEndsMs: [600_000] });
+      expect((await json<Transcript>(await get(one.id))).separateLabels).toBe(false);
+    });
+
+    it("rows with no part (older than the column, or a text meeting) read as not joined, with no parts and no notice", async () => {
+      const m = await parted([[0, "s1", null], [1, "s2", null], [2, "s1", null]]);
+      const body = await json<Transcript>(await get(m.id));
+      expect(body.speakers.map((x) => [x.parts, x.joined])).toEqual([[[], false], [[], false]]);
+      expect(body.segments.every((x) => x.part === null)).toBe(true);
+      expect(body.separateLabels).toBe(false);
+    });
+
+    it("lists the gaps in meeting time, ascending, and none for a transcript without any", async () => {
+      const m = await parted([[0, "s1", 1]]);
+      await db.transcriptGap.createMany({ data: [{ meetingId: m.id, startMs: 700_000, endMs: 740_000 }, { meetingId: m.id, startMs: 60_000, endMs: 95_000 }] });
+      expect((await json<Transcript>(await get(m.id))).gaps).toEqual([{ startMs: 60_000, endMs: 95_000 }, { startMs: 700_000, endMs: 740_000 }]);
+      const clean = await parted([[0, "s1", 1]]);
+      expect((await json<Transcript>(await get(clean.id))).gaps).toEqual([]);
+    });
+
+    it("an edit of a segment leaves the gaps and the parts as they were (AC-6.3, AC-6.12)", async () => {
+      const m = await parted([[0, "s1", 1], [1, "s2", 2]]);
+      await db.transcriptGap.create({ data: { meetingId: m.id, startMs: 60_000, endMs: 95_000 } });
+      const seg = await segmentAt(m.id, 0);
+      expect((await patch(m.id, seg.id, "edited text", `"${seg.version}"`)).status).toBe(200);
+      const body = await json<Transcript>(await get(m.id));
+      expect(body.gaps).toEqual([{ startMs: 60_000, endMs: 95_000 }]);
+      expect(body.segments.map((x) => x.part)).toEqual([1, 2]);
+    });
+
+    it("the default 'Speaker n' is the key's own number, so separating never renumbers the others; a stored defaultIndex wins", async () => {
+      const m = await parted([[0, "s3", 1], [1, "s1", 1], [2, "s5", 2], [3, "s6", 2]]);
+      await db.speakerLabel.create({ data: { meetingId: m.id, speakerKey: "s6", defaultIndex: 2 } });
+      const body = await json<Transcript>(await get(m.id));
+      expect(body.speakers.map((x) => [x.key, x.label])).toEqual([
+        ["s3", { kind: "default", index: 3 }],
+        ["s1", { kind: "default", index: 1 }],
+        ["s5", { kind: "default", index: 5 }],
+        ["s6", { kind: "default", index: 2 }],
+      ]);
+    });
+
+    it("a rename clears the stored defaultIndex, and a reset deletes the row (the key's own number again)", async () => {
+      const m = await parted([[0, "s1", 1], [1, "s5", 2]]);
+      await db.speakerLabel.create({ data: { meetingId: m.id, speakerKey: "s5", defaultIndex: 1 } });
+      expect((await putSpeaker(m.id, "s5", { text: "Dana" })).status).toBe(200);
+      expect((await db.speakerLabel.findUniqueOrThrow({ where: { meetingId_speakerKey: { meetingId: m.id, speakerKey: "s5" } } })).defaultIndex).toBeNull();
+      expect((await putSpeaker(m.id, "s5", null)).status).toBe(200);
+      expect(await db.speakerLabel.count({ where: { meetingId: m.id } })).toBe(0);
+      expect((await json<Transcript>(await get(m.id))).speakers.find((x) => x.key === "s5")!.label).toEqual({ kind: "default", index: 5 });
+    });
+
+    it("a participant or text label wins over a stored defaultIndex", async () => {
+      const m = await parted([[0, "s1", 1], [1, "s2", 2]]);
+      await db.speakerLabel.create({ data: { meetingId: m.id, speakerKey: "s2", defaultIndex: 1, customLabel: "The client" } });
+      const body = await json<Transcript>(await get(m.id));
+      expect(body.speakers.find((x) => x.key === "s2")!.label).toEqual({ kind: "text", text: "The client" });
+    });
   });
 
   it("shows participant and free-text labels where the creator set them", async () => {
