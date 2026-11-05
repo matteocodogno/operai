@@ -10,14 +10,17 @@
  *                                the guarantee; this only keeps the meeting's own record honest.
  *   DELETE /meetings/:id/audio   the creator's, not frozen, and NEEDING NO `meetings:access`:
  *                                removing your own data never depends on a grant (A4). Deletes
- *                                everything under the meeting's prefix FIRST, then records it, so
- *                                a storage failure is a 503 with nothing changed (AC-4.5).
+ *                                everything under the meeting's prefix, and the transient
+ *                                transcription bucket's `transcribe/<id>/` (ADR-0069, AC-4.12),
+ *                                FIRST, then records it, so a storage failure is a 503 with
+ *                                nothing changed (AC-4.5).
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { db } from "../lib/db";
 import { IdParams, commonErrors } from "../lib/http";
 import { conflict, validationHook } from "../lib/problem";
+import { requireTransientStorage, transientKeys } from "../lib/google/transientStorage";
 import { objectKeys, requireStorage } from "../lib/storage";
 import { selfScoped } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
@@ -128,6 +131,9 @@ audioRouter.openapi(deleteRoute, async (c) => {
   if (row.audioCreatedAt === null && chunks === 0 && upload === 0) throw audioUnavailable();
 
   // Storage first: if it fails, the database still says the audio exists (AC-4.5).
+  // The transient copy first: losing it costs nothing, whereas the main bucket's audio gone under a row that
+  // still lists it would be a lie.
+  await storageCall(async () => (await requireTransientStorage()).deletePrefix(transientKeys.prefix(id)));
   await storageCall(() => requireStorage().deletePrefix(objectKeys.prefix(id)));
 
   await db.$transaction(async (tx) => {

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { GoogleApiError } from "../lib/google/auth";
+import { createFakeTransientStorage, type FakeTransientStorage } from "../lib/google/fakeTransientStorage";
+import { setTransientStorageForTests } from "../lib/google/transientStorage";
 import { createKit, type Kit } from "../test-support/routeKit";
 
 // AC-4.6, AC-4.8, AC-5.12, AC-14.6 (specs/021 T25): deleting a meeting, by its creator or by
@@ -7,7 +10,10 @@ import { createKit, type Kit } from "../test-support/routeKit";
 const kit: Kit = await createKit();
 
 let logs: ReturnType<typeof spyOn>[];
+let transient: FakeTransientStorage;
 beforeEach(async () => {
+  transient = createFakeTransientStorage();
+  setTransientStorageForTests(transient);
   await kit.reset();
   kit.grant("creator", "access");
   kit.grant("pat", "access");
@@ -16,7 +22,10 @@ beforeEach(async () => {
   kit.fake.setEntity("widget", "w1", { title: "Widget one", href: "/testhost/widgets/w1" });
   logs = [spyOn(console, "warn").mockImplementation(() => {}), spyOn(console, "error").mockImplementation(() => {}), spyOn(console, "log").mockImplementation(() => {})];
 });
-afterEach(() => logs.forEach((s) => s.mockRestore()));
+afterEach(() => {
+  logs.forEach((s) => s.mockRestore());
+  setTransientStorageForTests(null);
+});
 
 const json = async (res: Response) => (await res.json()) as Record<string, any>;
 const del = (id: string, who = "creator") => kit.call(who, "DELETE", `/meetings/${id}`);
@@ -90,6 +99,48 @@ describe("the creator deletes (AC-4.6)", () => {
 
     for (const who of ["creator", "pat", "stranger"]) expect((await kit.call(who, "GET", `/meetings/${m.id}`)).status).toBe(404);
     expect((await del(m.id)).status).toBe(404);
+  });
+
+  it("empties the meeting's transient transcription prefix (and only that) BEFORE the rows go (AC-4.6, AC-4.12)", async () => {
+    const m = await rich();
+    const other = await rich();
+    transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
+    transient.seed(`transcribe/${m.id}/1/out/1_transcript_ab.json`, "{}");
+    transient.seed(`transcribe/${other.id}/1/in/1.ogg`, "audio");
+    let rowsAtFirstCall: number | null = null;
+    const original = transient.deletePrefix.bind(transient);
+    transient.deletePrefix = async (prefix) => {
+      rowsAtFirstCall ??= (await rowsFor(m.id))["meeting"] ?? 0;
+      return original(prefix);
+    };
+    expect((await del(m.id)).status).toBe(204);
+    expect(rowsAtFirstCall).toBe(1); // the meeting still existed when the transient prefix was emptied
+    expect(transient.keys()).toEqual([`transcribe/${other.id}/1/in/1.ogg`]);
+    expect(transient.events[0]).toEqual({ op: "deletePrefix", key: `transcribe/${m.id}/` });
+  });
+
+  it("a holder of meeting:erase empties it too", async () => {
+    const m = await rich();
+    transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
+    expect((await del(m.id, "eraser")).status).toBe(204);
+    expect(transient.keys()).toEqual([]);
+  });
+
+  it("a transient-storage failure is 503 storage_unavailable and NOTHING is deleted, the main bucket included", async () => {
+    const m = await rich();
+    transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
+    transient.failWith(new GoogleApiError(true, 503));
+    const res = await del(m.id);
+    expect(res.status).toBe(503);
+    expect((await json(res))["code"]).toBe("storage_unavailable");
+    expect((await rowsFor(m.id))["meeting"]).toBe(1);
+    expect(await kit.db.meetingDeletion.count()).toBe(0);
+    expect(kit.fake.notices).toHaveLength(0);
+    expect(kit.storage.keys()).toContain(`meetings/${m.id}/audio.ogg`);
+
+    transient.failWith(null);
+    expect((await del(m.id)).status).toBe(204);
+    expect(transient.keys()).toEqual([]);
   });
 
   it("a storage failure is 503 storage_unavailable and NOTHING is deleted", async () => {

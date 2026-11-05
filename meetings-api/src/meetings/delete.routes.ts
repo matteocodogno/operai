@@ -10,9 +10,12 @@
  *             them 404 (AC-4.8).
  *
  * The order is what keeps the promise "nothing of it remains":
- *   1. the storage prefix `meetings/<id>/` goes FIRST. If storage fails the answer is 503
- *      `storage_unavailable` and nothing at all has been deleted, so the meeting can be
- *      deleted again later; the reverse order would orphan audio no row points to.
+ *   1. the storage prefixes go FIRST: the transient transcription bucket's `transcribe/<id>/`
+ *      (a transcript copy and staged audio, ADR-0069, AC-4.12), then `meetings/<id>/`. If either
+ *      fails the answer is 503 `storage_unavailable` and nothing at all has been deleted, so the
+ *      meeting can be deleted again later; the reverse order would orphan audio no row points to.
+ *      The transient one goes first because losing it costs nothing, whereas audio deleted from
+ *      the main bucket under a meeting that still exists would be a lie the row tells.
  *   2. one transaction: drop the meeting's titled outbox rows, record the `deleted` host
  *      notice (no title, no date-time) and the content-free `meeting_deletion` entry, then
  *      delete the meeting, whose rows cascade. The notice and its retry job outlive it.
@@ -27,6 +30,7 @@ import { db } from "../lib/db";
 import { IdParams, commonErrors } from "../lib/http";
 import { requireIdentities } from "../lib/identities";
 import { ProblemError, forbidden, validationHook } from "../lib/problem";
+import { requireTransientStorage, transientKeys } from "../lib/google/transientStorage";
 import { objectKeys, requireStorage } from "../lib/storage";
 import { deliverNotices, recordNotice } from "../hosts/notices";
 import { callerOf } from "./caller";
@@ -87,7 +91,9 @@ deleteRouter.openapi(deleteMeeting, async (c) => {
   // 1. The audio first: a failure here deletes nothing (AC-4.6).
   const storage = requireStorage();
   const prefix = objectKeys.prefix(id);
+  const transientPrefix = transientKeys.prefix(id);
   try {
+    await (await requireTransientStorage()).deletePrefix(transientPrefix);
     await storage.deletePrefix(prefix);
   } catch {
     console.error("[meetings] storage refused to delete a meeting's objects; nothing was deleted");
@@ -117,6 +123,11 @@ deleteRouter.openapi(deleteMeeting, async (c) => {
   await storage.deletePrefix(prefix).catch(() => {
     // The bucket's own lifecycle rule removes any straggler within 30 days (ADR-0063).
     console.warn("[meetings] late sweep of a deleted meeting's prefix failed");
+  });
+  // A Speech operation still running at deletion time can write its output after step 1: that is a transcript,
+  // swept here if the process is alive, else by the next attempt's start or the bucket's 1-day rule (plan G-2).
+  await (await requireTransientStorage()).deletePrefix(transientPrefix).catch(() => {
+    console.warn("[meetings] late sweep of a deleted meeting's transient prefix failed");
   });
   return c.body(null, 204);
 });

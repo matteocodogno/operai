@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { createFakeTransientStorage, type FakeTransientStorage } from "../lib/google/fakeTransientStorage";
+import { GoogleApiError } from "../lib/google/auth";
+import { setTransientStorageForTests } from "../lib/google/transientStorage";
 import { authDown, CREATOR, OTHER, call, db, json, kit, mkMeeting, useKit } from "../test-support/captureKit";
 
 // AC-4.4 (29 days, derived on read, deleted lazily and idempotently), AC-4.5 (delete
@@ -8,7 +11,15 @@ import { authDown, CREATOR, OTHER, call, db, json, kit, mkMeeting, useKit } from
 const { setAudioClockForTests } = await import("./audio.routes");
 
 useKit();
-afterEach(() => setAudioClockForTests(null));
+let transient: FakeTransientStorage;
+beforeEach(() => {
+  transient = createFakeTransientStorage();
+  setTransientStorageForTests(transient);
+});
+afterEach(() => {
+  setAudioClockForTests(null);
+  setTransientStorageForTests(null);
+});
 
 const DAY = 86_400_000;
 const T0 = new Date("2026-10-01T10:00:00.000Z");
@@ -124,6 +135,41 @@ describe("DELETE /meetings/:id/audio", () => {
     const playback = await getAudio(m.id);
     expect(playback.status).toBe(409);
     expect((await json<{ code: string }>(playback)).code).toBe("audio_unavailable");
+  });
+
+  it("also empties the transient transcription prefix of THAT meeting, before the database says the audio is gone (AC-4.12)", async () => {
+    const m = await withAudio();
+    const other = await withAudio();
+    transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
+    transient.seed(`transcribe/${m.id}/1/out/1_transcript_ab.json`, "{}");
+    transient.seed(`transcribe/${other.id}/1/in/1.ogg`, "audio");
+    let rowAtCall: { audioDeletedAt: Date | null } | null = null;
+    const original = transient.deletePrefix.bind(transient);
+    transient.deletePrefix = async (prefix) => {
+      rowAtCall = await db.meeting.findUniqueOrThrow({ where: { id: m.id }, select: { audioDeletedAt: true } });
+      return original(prefix);
+    };
+    at(new Date(T0.getTime() + DAY));
+    expect((await delAudio(m.id)).status).toBe(200);
+    expect(rowAtCall).toEqual({ audioDeletedAt: null }); // recorded before the change
+    expect(transient.keys()).toEqual([`transcribe/${other.id}/1/in/1.ogg`]);
+    expect(transient.events.map((e) => e.key)).toEqual([`transcribe/${m.id}/`]);
+  });
+
+  it("a transient-storage failure is 503 storage_unavailable, the audio is still listed and the main bucket untouched", async () => {
+    const m = await withAudio();
+    transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
+    transient.failWith(new GoogleApiError(true, 503));
+    at(new Date(T0.getTime() + DAY));
+    const res = await delAudio(m.id);
+    expect(res.status).toBe(503);
+    expect((await json<{ code: string }>(res)).code).toBe("storage_unavailable");
+    const row = await db.meeting.findUniqueOrThrow({ where: { id: m.id } });
+    expect(row.audioDeletedAt).toBeNull();
+    expect(row.audioKey).toBe(audioKey(m.id));
+    expect(kit.storage.keys()).toContain(audioKey(m.id));
+    transient.failWith(null);
+    expect((await delAudio(m.id)).status).toBe(200);
   });
 
   it("blocks a retry of processing: the transcript stays, the audio is gone (audioState deleted)", async () => {
