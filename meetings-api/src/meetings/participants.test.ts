@@ -191,3 +191,53 @@ describe("a deleted participant (AC-5.10)", () => {
     expect(view["participants"][0].person).toEqual({ id: "gone-pat", name: null, status: "deleted" });
   });
 });
+
+// AC-12.3 (T92 QE, specs/021): a notification failure never undoes or fails the action. The
+// notifier's own unit tests prove it never rejects; these prove the ROUTE is unaffected whichever
+// way the notifier breaks (rejects, throws before returning a promise, notify-api 500, token
+// service down).
+describe("a failing notifier never fails or rolls back the action (AC-12.3)", () => {
+  afterEach(() => setNotifierForTests({ async notify(event) { kit.notified.push(event); } }));
+
+  const cases: [string, () => Parameters<typeof setNotifierForTests>[0]][] = [
+    ["rejects", () => ({ notify: () => Promise.reject(new Error("notify exploded")) })],
+    [
+      "throws synchronously",
+      () => ({
+        notify: () => {
+          throw new Error("synchronous boom");
+        },
+      }),
+    ],
+    [
+      "notify-api answers 500",
+      () =>
+        createNotifier({
+          baseUrl: "http://notify.test",
+          tokens: { async getToken() { return "t"; }, invalidate() {} },
+          fetchImpl: (async () => new Response("nope", { status: 500 })) as unknown as typeof fetch,
+        }),
+    ],
+    [
+      "the service-token call fails",
+      () =>
+        createNotifier({
+          baseUrl: "http://notify.test",
+          tokens: { async getToken() { throw new Error("auth down"); }, invalidate() {} },
+          fetchImpl: (async () => new Response(null, { status: 201 })) as unknown as typeof fetch,
+        }),
+    ],
+  ];
+
+  for (const [name, make] of cases) {
+    it(`${name}: PUT participants is still 200 and the list is saved`, async () => {
+      setNotifierForTests(make());
+      const m = await seed();
+      const res = await put(m.id, [{ userId: "pat" }, { name: "Ext" }]);
+      expect(res.status).toBe(200);
+      expect((await json(res))["participants"]).toHaveLength(2);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(await rows(m.id)).toHaveLength(2);
+    });
+  }
+});
