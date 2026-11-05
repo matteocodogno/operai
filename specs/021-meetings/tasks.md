@@ -279,7 +279,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-api/src/ai/rateLimit.ts`, `meetings-api/src/ai/rateLimit.test.ts`
   - done when: `cd meetings-api && bun test src/ai/rateLimit.test.ts` passes with a fixed clock: the 31st call → limited with the exact `Retry-After`; concurrent calls never exceed 30; deleting content does not refund
 
-- [ ] T40: [BE] meetings-api summaries routes (list with per-item `can`, generate, regenerate, retry, PATCH with If-Match, DELETE) (≤ 20 under lock, template snapshot, derived `failed` after 10 min, stale flag) — refs: AC-7.1, AC-7.3, AC-7.4, AC-7.5, AC-7.7, AC-7.8, AC-7.11, AC-6.8 — deps: T93, T37, T39, T94
+- [x] T40: [BE] meetings-api summaries routes (list with per-item `can`, generate, regenerate, retry, PATCH with If-Match, DELETE) (≤ 20 under lock, template snapshot, derived `failed` after 10 min, stale flag) — refs: AC-7.1, AC-7.3, AC-7.4, AC-7.5, AC-7.7, AC-7.8, AC-7.11, AC-6.8 — deps: T93, T37, T39, T94
   - touch: `meetings-api/src/summaries/summaries.routes.ts`, `meetings-api/src/summaries/summaries.test.ts`
   - done when: `cd meetings-api && bun test src/summaries/summaries.test.ts` passes with the fake LLM, covering:
     - generate → `generating` → `ready`;
@@ -298,7 +298,7 @@ database after `bun run db:deploy`.
     - a stale `attemptId` result is discarded;
     - exactly one push, to the author
 
-- [ ] T41: [BE] meetings-api conversation routes: own turns only, ask (synchronous, persisted `pending` → `answered`/`failed`, derived `failed` after 2 min), retry, clear — refs: AC-9.1, AC-9.3, AC-9.5, AC-9.6, AC-9.8 — deps: T93, T36, T39
+- [x] T41: [BE] meetings-api conversation routes: own turns only, ask (synchronous, persisted `pending` → `answered`/`failed`, derived `failed` after 2 min), retry, clear — refs: AC-9.1, AC-9.3, AC-9.5, AC-9.6, AC-9.8 — deps: T93, T36, T39
   - touch: `meetings-api/src/conversation/conversation.routes.ts`, `meetings-api/src/conversation/conversation.test.ts`
   - done when: `cd meetings-api && bun test src/conversation/conversation.test.ts` passes with the fake LLM:
     - 0 / 1001 chars → 422;
