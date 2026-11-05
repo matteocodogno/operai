@@ -425,7 +425,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-ui/src/capture/capabilities.ts`, `meetings-ui/src/capture/capabilities.test.ts`, `meetings-ui/src/capture/mixer.ts`, `meetings-ui/src/capture/mixer.test.ts`
   - done when: `cd meetings-ui && pnpm test src/capture/capabilities.test.ts src/capture/mixer.test.ts` passes: stubbed navigators for Chrome, Edge, Firefox and Safari give the expected options; the mixer emits `tabAudioLost` and still routes the mic node
 
-- [ ] T63: [FE] meetings-ui `RecordingSession` controller + chunk uploader:
+- [x] T63: [FE] meetings-ui `RecordingSession` controller + chunk uploader:
   - MediaRecorder 10 s timeslice;
   - pause excluded from durations;
   - pre-minted next policy;
@@ -445,7 +445,7 @@ database after `bun run db:deploy`.
     - warning at 2 h 50 and stop at 3 h;
     - a static scan finds no `indexedDB` / `caches` / `localStorage` / `sessionStorage` in `src/capture`
 
-- [ ] T64: [FE] meetings-ui recording panel: capture options per capability, indicator (icon + text + elapsed `role="timer"`), Start/Pause/Resume/Stop by keyboard, polite live region, mic denied/no device message with upload/paste offers, tab-audio-lost banner, offline "not yet saved, only while this tab stays open", save progress (`ProgressBar`), `beforeunload` + shell navigation blocker registration — refs: AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.7, AC-2.10, AC-2.11, AC-13.3 — deps: T44, T45, T63
+- [x] T64: [FE] meetings-ui recording panel: capture options per capability, indicator (icon + text + elapsed `role="timer"`), Start/Pause/Resume/Stop by keyboard, polite live region, mic denied/no device message with upload/paste offers, tab-audio-lost banner, offline "not yet saved, only while this tab stays open", save progress (`ProgressBar`), `beforeunload` + shell navigation blocker registration — refs: AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.7, AC-2.10, AC-2.11, AC-13.3 — deps: T44, T45, T63
   - touch: `meetings-ui/src/components/meeting/RecordingPanel.tsx`, `meetings-ui/src/components/meeting/RecordingPanel.test.tsx`, `meetings-ui/src/strings/capture.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/RecordingPanel.test.tsx` passes:
     - keyboard-only start/pause/resume/stop with live-region announcements;
@@ -454,15 +454,15 @@ database after `bun run db:deploy`.
     - `beforeunload` and the blocker are registered while recording or unsaved, and released after;
     - axe finds no violation on the rendered panel
 
-- [ ] T65: [FE] meetings-ui interrupted panel: duration kept, `lostMs` "at least …" or the fallback sentence, Process what was captured / Discard (confirm) — refs: AC-2.8, AC-2.9 — deps: T64
+- [x] T65: [FE] meetings-ui interrupted panel: duration kept, `lostMs` "at least …" or the fallback sentence, Process what was captured / Discard (confirm) — refs: AC-2.8, AC-2.9 — deps: T64
   - touch: `meetings-ui/src/components/meeting/InterruptedPanel.tsx`, `meetings-ui/src/components/meeting/InterruptedPanel.test.tsx`, `meetings-ui/src/strings/capture.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/InterruptedPanel.test.tsx` passes for `lostMs` = null / 0 / > 0, process and discard calls, and Process hidden once audio is deleted
 
-- [ ] T66: [FE] meetings-ui upload card: `FilePicker`, client pre-check (type, ≤ 500 MiB, duration via `loadedmetadata`), XHR presigned POST with `ProgressBar`, failure + Retry, server rejection reasons — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T44, T46, T54
+- [x] T66: [FE] meetings-ui upload card: `FilePicker`, client pre-check (type, ≤ 500 MiB, duration via `loadedmetadata`), XHR presigned POST with `ProgressBar`, failure + Retry, server rejection reasons — refs: AC-3.1, AC-3.2, AC-3.3 — deps: T44, T46, T54
   - touch: `meetings-ui/src/components/meeting/UploadCard.tsx`, `meetings-ui/src/components/meeting/UploadCard.test.tsx`, `meetings-ui/src/strings/upload.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/UploadCard.test.tsx` passes with a fake XHR: progress shown; abort or error → Retry; each `upload_rejected` reason gets its own message; an oversize file is refused before upload
 
-- [ ] T67: [FE] meetings-ui text card: paste/type up to 200,000 characters with a counter, save → ready — refs: AC-3.4 — deps: T54
+- [x] T67: [FE] meetings-ui text card: paste/type up to 200,000 characters with a counter, save → ready — refs: AC-3.4 — deps: T54
   - touch: `meetings-ui/src/components/meeting/TextCard.tsx`, `meetings-ui/src/components/meeting/TextCard.test.tsx`, `meetings-ui/src/strings/text.ts`
   - done when: `cd meetings-ui && pnpm test src/components/meeting/TextCard.test.tsx` passes: the counter, refusal at 200,001, and no consent step shown
 
