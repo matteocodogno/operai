@@ -307,7 +307,7 @@ database after `bun run db:deploy`.
     - an LLM timeout → `failed` with no answer text;
     - the 31st request → 429
 
-- [ ] T42: [BE] meetings-api assembled-app tests: role × action authorization matrix over the real route table, log-privacy canary test across every route and job, auth-outage test — refs: AC-5.8, AC-5.3, AC-4.8, AC-4.10, AC-10.4, AC-10.6 — deps: T19, T21, T22, T23, T24, T25, T27, T28, T29, T32, T33, T34, T38, T40, T41
+- [x] T42: [BE] meetings-api assembled-app tests: role × action authorization matrix over the real route table, log-privacy canary test across every route and job, auth-outage test — refs: AC-5.8, AC-5.3, AC-4.8, AC-4.10, AC-10.4, AC-10.6 — deps: T19, T21, T22, T23, T24, T25, T27, T28, T29, T32, T33, T34, T38, T40, T41
   - touch: `meetings-api/src/matrix.test.ts`, `meetings-api/src/logPrivacy.test.ts`, `meetings-api/src/authz-outage.test.ts`
   - done when: `cd meetings-api && bun test` passes in full on `meetings_test`:
     - every route appears in the matrix, and each cell gets its expected 2xx or 403 code;
