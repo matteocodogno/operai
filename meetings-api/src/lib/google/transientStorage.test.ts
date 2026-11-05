@@ -4,6 +4,7 @@ import { createFakeTransientStorage } from "./fakeTransientStorage";
 import {
   TransientObjectTooLargeError,
   createTransientStorage,
+  createTransientStorageForBucket,
   readBucketConfig,
   regionalHost,
   transientKeys,
@@ -234,6 +235,23 @@ describe("keyOfUri", () => {
     expect(storage.keyOfUri("gs://other-bucket/transcribe/m1/1/out/a.json")).toBeNull();
     expect(storage.keyOfUri("gs://operai-transient/other/a.json")).toBeNull();
     expect(storage.keyOfUri("https://operai-transient/transcribe/m1/1/out/a.json")).toBeNull();
+  });
+});
+
+describe("createTransientStorageForBucket (the location is checked again before the host is built)", () => {
+  it("builds the regional host from an allowed location", async () => {
+    const s = stub((r) => (r.method === "GET" && r.url.host === "storage.googleapis.com" ? json({ location: "europe-west4" }) : json({ items: [] })));
+    const storage = await createTransientStorageForBucket({ bucket: "operai-transient", auth, fetchImpl: s.impl });
+    await storage.deletePrefix("transcribe/m1/");
+    expect(s.seen.at(-1)!.url.host).toBe("storage.europe-west4.rep.googleapis.com");
+  });
+
+  it("refuses a location outside the allowlist, a missing one and a non-string one, and contacts no regional host", async () => {
+    for (const body of [{ location: "US" }, { location: "EUROPE-WEST2" }, { location: "EUR4" }, { location: "evil.example.com/x" }, {}, { location: 5 }, { location: null }]) {
+      const s = stub(() => json(body));
+      await expect(createTransientStorageForBucket({ bucket: "operai-transient", auth, fetchImpl: s.impl }), JSON.stringify(body)).rejects.toBeInstanceOf(GoogleApiError);
+      expect(s.seen.every((r) => r.url.host === "storage.googleapis.com")).toBe(true);
+    }
   });
 });
 

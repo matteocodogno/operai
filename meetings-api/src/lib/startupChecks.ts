@@ -28,7 +28,7 @@ import {
   type S3Client,
 } from "@aws-sdk/client-s3";
 import { GoogleApiError, defaultFetch, googleAuth, googleFetch, type GoogleAuth } from "./google/auth";
-import { vertexHost } from "./residency";
+import { TRANSIENT_BUCKET_ALLOWED_LOCATIONS, vertexHost } from "./residency";
 import { readBucketConfig, type BucketConfig } from "./google/transientStorage";
 
 /** AC-4.4: 30 days (+ at most 24 h) from creation; expiration rounds up to midnight UTC. */
@@ -85,26 +85,7 @@ export async function checkBucket(client: S3Client, bucket: string): Promise<str
 // Google's defaults keep a deleted object for a week (soft delete) and nothing else guarantees the 1-day
 // backstop. Everything the bucket's metadata exposes is read at startup; absent or unreadable is a refusal.
 
-/**
- * Bucket locations that keep data in the EU or Switzerland AND are served by a regional endpoint (the EU
- * multi-region and single regions; dual-regions such as EUR4 have no regional endpoint). London
- * (`EUROPE-WEST2`) is not in the EU.
- */
-export const TRANSIENT_BUCKET_ALLOWED_LOCATIONS = [
-  "EU",
-  "EUROPE-CENTRAL2",
-  "EUROPE-NORTH1",
-  "EUROPE-NORTH2",
-  "EUROPE-SOUTHWEST1",
-  "EUROPE-WEST1",
-  "EUROPE-WEST3",
-  "EUROPE-WEST4",
-  "EUROPE-WEST6",
-  "EUROPE-WEST8",
-  "EUROPE-WEST9",
-  "EUROPE-WEST10",
-  "EUROPE-WEST12",
-] as const;
+export { TRANSIENT_BUCKET_ALLOWED_LOCATIONS };
 
 /** Whether a lifecycle rule deletes EVERY object after one day: `Delete`, `age` 1, and no other condition. */
 function expiresEverythingAfterOneDay(rule: NonNullable<NonNullable<BucketConfig["lifecycle"]>["rule"]>[number]): boolean {

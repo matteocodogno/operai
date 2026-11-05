@@ -117,3 +117,24 @@ export function checkNoVertexBaseUrlOverride(value: string | undefined): string 
 export function vertexHost(location: string): string {
   return location === "eu" ? "aiplatform.eu.rep.googleapis.com" : `${location}-aiplatform.googleapis.com`;
 }
+
+/**
+ * Bucket locations that keep data in the EU or Switzerland AND are served by a regional endpoint (the EU
+ * multi-region and single regions; dual-regions such as EUR4 have no regional endpoint). London
+ * (`EUROPE-WEST2`) is not in the EU.
+ */
+export const TRANSIENT_BUCKET_ALLOWED_LOCATIONS = [
+  "EU",
+  "EUROPE-CENTRAL2",
+  "EUROPE-NORTH1",
+  "EUROPE-NORTH2",
+  "EUROPE-SOUTHWEST1",
+  "EUROPE-WEST1",
+  "EUROPE-WEST3",
+  "EUROPE-WEST4",
+  "EUROPE-WEST6",
+  "EUROPE-WEST8",
+  "EUROPE-WEST9",
+  "EUROPE-WEST10",
+  "EUROPE-WEST12",
+] as const;

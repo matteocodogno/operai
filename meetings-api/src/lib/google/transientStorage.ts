@@ -26,6 +26,7 @@
  */
 
 import { GoogleApiError, defaultFetch, googleAuth, googleFetch, toGoogleApiError, type GoogleAuth } from "./auth";
+import { TRANSIENT_BUCKET_ALLOWED_LOCATIONS } from "../residency";
 
 const ID = "[A-Za-z0-9_-]{1,64}";
 const PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/(?:[1-9][0-9]{0,2}/)?$`);
@@ -310,9 +311,29 @@ async function build(): Promise<TransientStorage> {
   }
   const auth = await googleAuth();
   const bucket = env.MEETINGS_GCS_TRANSIENT_BUCKET!;
-  const config = await readBucketConfig({ bucket, auth });
-  if (typeof config.location !== "string") throw new GoogleApiError(false);
-  return createTransientStorage({ bucket, location: config.location, auth });
+  return createTransientStorageForBucket({ bucket, auth });
+}
+
+/**
+ * The storage for a bucket whose location is read NOW and checked against the EU/CH allowlist again before the
+ * regional host is built from it (defence in depth: startup proved it once, but the bucket named in the
+ * configuration could since have been deleted and recreated elsewhere, and a host built from an unchecked
+ * location would send audio there). A location that is missing or not allowed is a refusal, not a guess.
+ */
+export async function createTransientStorageForBucket(options: {
+  bucket: string;
+  auth: GoogleAuth;
+  fetchImpl?: typeof fetch;
+}): Promise<TransientStorage> {
+  const config = await readBucketConfig(options);
+  const location = typeof config.location === "string" ? config.location.toUpperCase() : "";
+  if (!(TRANSIENT_BUCKET_ALLOWED_LOCATIONS as readonly string[]).includes(location)) throw new GoogleApiError(false);
+  return createTransientStorage({
+    bucket: options.bucket,
+    location,
+    auth: options.auth,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+  });
 }
 
 /** Tests only: install a storage (or `null` to rebuild from the environment). */
