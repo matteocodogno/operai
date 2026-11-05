@@ -110,6 +110,16 @@ function holesOf(part: PartWords): Hole[] {
   return holes.filter((h) => h.to > h.from);
 }
 
+/**
+ * The stretches of a part with no trusted word, at least the gap bound long (H-2 J0): the text-and-time superset of
+ * "affected by a detected gap". It needs no sound, so what it says depends only on the words returned.
+ */
+export function longHoles(part: PartWords): Interval[] {
+  return holesOf(part)
+    .filter((h) => h.to - h.from >= GAP_BOUND_MS)
+    .map((h) => ({ startMs: h.from, endMs: h.to }));
+}
+
 /** A repetition of D1 (H-2): the tokens `[fromToken, toToken)` repeat an earlier passage and are to be removed. */
 export interface Removal {
   readonly fromToken: number;

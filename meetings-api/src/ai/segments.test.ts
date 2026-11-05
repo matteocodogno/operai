@@ -82,6 +82,12 @@ describe("segments", () => {
     expect(rounded).toMatchObject({ startMs: 11, endMs: 15 });
   });
 
+  it("carries the transcript part of a phrase to its segment, and leaves it out for a phrase with none (H-5)", () => {
+    const segments = mapPhrases([{ ...phrase(1, 0, "a"), part: 2 }, phrase(1, 2_000, "b")]);
+    expect(segments[0]).toMatchObject({ part: 2 });
+    expect("part" in segments[1]!).toBe(false);
+  });
+
   it("is empty for no phrases, which is how 'no speech' is decided (AC-6.7)", () => {
     expect(mapPhrases([])).toEqual([]);
     expect(mapPhrases([phrase(1, 0, " ")])).toEqual([]);

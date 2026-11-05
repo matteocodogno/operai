@@ -15,6 +15,8 @@ export interface Phrase {
   readonly startMs: number;
   readonly durationMs: number;
   readonly text: string;
+  /** The transcript part the phrase comes from (1-based): carried to the segment (AC-6.16). Absent for a text meeting. */
+  readonly part?: number | null;
 }
 
 /** A segment ready to be stored (`transcript_segment`), before ids and versions. */
@@ -24,6 +26,8 @@ export interface DraftSegment {
   readonly endMs: number;
   readonly speakerKey: string;
   readonly text: string;
+  /** 1-based transcript part (H-5); null/absent for a `text` meeting. */
+  readonly part?: number | null;
 }
 
 export const speakerKeyOf = (index: number): string => `s${index}`;
@@ -53,7 +57,14 @@ export function mapPhrases(phrases: readonly Phrase[]): DraftSegment[] {
     const speakerKey = phrase.speaker === null ? (previous ?? keyFor(keys, "none")) : keyFor(keys, String(phrase.speaker));
     previous = speakerKey;
     const startMs = whole(phrase.startMs);
-    return { ordinal, startMs, endMs: Math.max(startMs, startMs + whole(phrase.durationMs)), speakerKey, text };
+    return {
+      ordinal,
+      startMs,
+      endMs: Math.max(startMs, startMs + whole(phrase.durationMs)),
+      speakerKey,
+      text,
+      ...(phrase.part !== undefined && phrase.part !== null ? { part: phrase.part } : {}),
+    };
   });
 }
 
