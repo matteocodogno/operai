@@ -100,6 +100,33 @@ temp copy on failure.
 - Browser chunk streams vary (Safari fMP4, MediaRecorder timestamps after pause, R4):
   fixtures from Chrome, Firefox and Safari are part of the test suite.
 
+## Amended 2026-11-05 (security review)
+
+The OWASP review found point 3 wrong, and the fix (commits 5578708 and 4d94790 on
+`feat/021-meetings`) changed the design. Status stays Accepted.
+
+- **Wrong:** point 3 said the confirm-time probe ran with `-protocol_whitelist https,tls,tcp`
+  and implied that a playlist could not send ffprobe elsewhere. A protocol (scheme) list does
+  not bound hosts or ports, so an `https` playlist could still make ffprobe fetch from any
+  host.
+- **Now:** the demuxer allowlist, audio-stream and duration checks are authoritative **only on
+  the local file inside `prepare_audio`**, run with `-protocol_whitelist file`, and the decode
+  pins `-f` to the demuxer that probe found. The confirm-time probe over the presigned URL is
+  an **early reject only**: its input format is pinned from the declared content type, so
+  hls, concat and dash can never be selected over the network, and nothing it concludes is
+  trusted by the decode.
+- **Point 4 additionally:** the child process runs with a minimal environment (`PATH`,
+  `TMPDIR` only), and the byte ceilings are enforced on **bytes actually written**, summed
+  across the run, not on DB-recorded sizes.
+- **Point 5, keys:** the upload key is no longer a fixed `meetings/<id>/original`. Each mint
+  gets a unique `meetings/<id>/upload/<uuid>`, stored in `meeting_upload.object_key`, because
+  S3 POST policies are not single-use; other objects under the upload prefix are deleted. Keys
+  remain server-side, never client-supplied.
+
+Failure-shape note: the lesson is that a parser given a URL must be bounded by what it can
+*reach* (host and port), not by the scheme it speaks; the authoritative check belongs on the
+local copy, where no network is reachable.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
