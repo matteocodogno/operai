@@ -1,0 +1,233 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.56.0",
+  "run_id": "2026-11-05T09-00-00Z-orchestrate-021-meetings",
+  "command": "orchestrate",
+  "feature": "021-meetings",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-11-05T09:00:00Z",
+  "finished": null,
+  "agents": [
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T28",
+        "T30"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "76d6c29",
+        "77875d7"
+      ]
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T55"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "df40c69"
+      ],
+      "worktree": "worktree-agent-ae424f573c2ef07d9"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T28"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "6505339"
+      ]
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "commits": [
+        "5faea35",
+        "f75209d"
+      ]
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS WITH NOTES",
+      "scope": "AC-3.2 fix round"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "scope": "AC-3.2 fix round"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "artifact": "plan.md Amendment 2026-11-05 Google Cloud G-0..G-17"
+    },
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "artifact": "spec.md A5/A6"
+    },
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "artifact": "specs/022-meetings-live/spec.md (approved)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T95",
+        "T96",
+        "T97",
+        "T98",
+        "T99",
+        "T100",
+        "T101",
+        "T102",
+        "T103",
+        "T111"
+      ],
+      "outcome": "completed"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T108",
+        "T112"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a99d8bd561bfedc20"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T104",
+        "T105",
+        "T106",
+        "T110"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-afdadc5d0552126b5"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "REVIEW REQUIRED",
+      "scope": "Google switch round 1: 1 medium (N4), 6 low"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "scope": "Google switch round 1: D1 a11y list, D2 e2e consent version (fixed by QE)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T96",
+        "T97",
+        "T101"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "ccca3c3",
+        "37011b0",
+        "e77a16b",
+        "2345855"
+      ]
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T108"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "5bbdb44"
+      ]
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T104"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "92af5b1"
+      ]
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS WITH NOTES",
+      "scope": "Google switch round 2"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "scope": "Google switch round 2"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "orchestrator",
+      "artifact": "spec.md",
+      "summary": "AC-3.2 edge (duration-less upload >3h ended failed) fixed in code per user option 1",
+      "resolved": true
+    },
+    {
+      "agent": "user",
+      "artifact": "plan.md",
+      "summary": "User switched AI providers to Google Cloud (Chirp 3 + Claude on Vertex EU); plan amended G-0..G-17, approved 2026-11-05",
+      "resolved": true
+    },
+    {
+      "agent": "user",
+      "artifact": "spec.md",
+      "summary": "User accepted ~5-day provider retention of batch transcription result; spec A6 + AC-4.1 consent disclosure, A5 parts",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "G-11 Transcriber signature gained optional context {meetingId, attempt}",
+      "resolved": true
+    }
+  ],
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "quality-engineer",
+      "class": "ports",
+      "detail": "dev servers from stack script collided with Playwright preview ports",
+      "resolved_by": "let Playwright build/preview"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "machine-global files",
+      "detail": "docker ffmpeg wrapper mounted a mistyped path and needed TMPDIR mounted; docker latency timeouts",
+      "resolved_by": "corrected wrappers in scratchpad/qe/bin"
+    }
+  ],
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS"
+  },
+  "security": {
+    "matched_rules": [
+      "always_at_tier:production"
+    ],
+    "dispatched": true,
+    "notes": [
+      "L1 transient location re-check once per process",
+      "L2 N4 refuses 200 {} \u2014 T107 must confirm Google's real shape (and 404=disabled)",
+      "L3 WIF CEL and meetings-eval environment reviewers/branch policy are manual settings",
+      "L4 cross-job attempt-number leftovers bounded by 1-day lifecycle; S3 model denylist name-based by design",
+      "Speech data logging (H1) and ~5-day async result (H4) are sign-offs, not startup-checkable"
+    ]
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
