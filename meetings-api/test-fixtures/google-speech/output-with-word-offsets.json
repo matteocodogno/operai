@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "Good morning everyone.",
+          "words": [
+            { "word": "Good", "startOffset": "1.200s", "endOffset": "1.500s", "speakerLabel": "1" },
+            { "word": "morning", "startOffset": "1.500s", "endOffset": "1.900s", "speakerLabel": "1" },
+            { "word": "everyone.", "startOffset": "1.900s", "endOffset": "2.600s", "speakerLabel": "1" }
+          ]
+        }
+      ],
+      "resultEndOffset": "2.800s"
+    }
+  ]
+}

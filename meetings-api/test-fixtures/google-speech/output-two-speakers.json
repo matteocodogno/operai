@@ -1,0 +1,37 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "Let us start with the plan for next quarter.",
+          "confidence": 0.94,
+          "words": [
+            { "word": "Let", "speakerLabel": "1" }, { "word": "us", "speakerLabel": "1" },
+            { "word": "start", "speakerLabel": "1" }, { "word": "with", "speakerLabel": "1" },
+            { "word": "the", "speakerLabel": "1" }, { "word": "plan", "speakerLabel": "1" },
+            { "word": "for", "speakerLabel": "1" }, { "word": "next", "speakerLabel": "1" },
+            { "word": "quarter.", "speakerLabel": "1" }
+          ]
+        }
+      ],
+      "resultEndOffset": "4.200s",
+      "languageCode": "en-us"
+    },
+    {
+      "alternatives": [
+        {
+          "transcript": "Agreed. I will send the notes tomorrow.",
+          "confidence": 0.91,
+          "words": [
+            { "word": "Agreed.", "speakerLabel": "2" }, { "word": "I", "speakerLabel": "2" },
+            { "word": "will", "speakerLabel": "2" }, { "word": "send", "speakerLabel": "2" },
+            { "word": "the", "speakerLabel": "2" }, { "word": "notes", "speakerLabel": "2" },
+            { "word": "tomorrow.", "speakerLabel": "2" }
+          ]
+        }
+      ],
+      "resultEndOffset": "9.800s",
+      "languageCode": "en-us"
+    }
+  ]
+}

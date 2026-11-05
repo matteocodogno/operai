@@ -5,7 +5,7 @@
  *
  * Speaker keys are `s1`, `s2`, ... by FIRST APPEARANCE in time order, so the
  * "Speaker n" a reader sees does not depend on the provider's own numbering
- * (Azure numbers speakers from 1 in whatever order it likes). One voice, or a
+ * (a provider numbers its speakers in whatever order it likes; the Google adapter namespaces them per part, ADR-0070). One voice, or a
  * provider that did not diarize, gives one key.
  */
 

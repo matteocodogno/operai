@@ -1,0 +1,15 @@
+{
+  "name": "projects/123456789012/locations/eu/operations/op-1",
+  "metadata": { "@type": "type.googleapis.com/google.cloud.speech.v2.OperationMetadata", "progressPercent": 100 },
+  "done": true,
+  "response": {
+    "@type": "type.googleapis.com/google.cloud.speech.v2.BatchRecognizeResponse",
+    "results": {
+      "{{INPUT_URI}}": {
+        "cloudStorageResult": { "uri": "{{OUTPUT_URI}}" },
+        "uri": "{{INPUT_URI}}"
+      }
+    },
+    "totalBilledDuration": "75s"
+  }
+}

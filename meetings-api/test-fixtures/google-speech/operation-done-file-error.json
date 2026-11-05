@@ -1,0 +1,13 @@
+{
+  "name": "projects/123456789012/locations/eu/operations/op-1",
+  "done": true,
+  "response": {
+    "@type": "type.googleapis.com/google.cloud.speech.v2.BatchRecognizeResponse",
+    "results": {
+      "{{INPUT_URI}}": {
+        "error": { "code": 3, "message": "Unable to decode the audio. (this text is never read)" },
+        "uri": "{{INPUT_URI}}"
+      }
+    }
+  }
+}

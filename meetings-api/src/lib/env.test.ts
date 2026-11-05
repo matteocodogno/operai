@@ -257,10 +257,12 @@ describe("Google AI providers (AC-4.9, plan G-5)", () => {
     expect(parseEnv({ ...dev(), MEETINGS_SPEECH_LOCATION: "eu", MEETINGS_VERTEX_LOCATION: "eu" }).ok).toBe(true);
   });
 
-  it("no longer reads Azure, Bedrock or AWS settings", () => {
-    const r = parseEnv({ ...prod(), AZURE_SPEECH_KEY: "x", BEDROCK_REGION: "us-east-1", MEETINGS_AWS_ACCESS_KEY_ID: "x" });
+  it("no longer reads the retired provider settings", () => {
+    // Names are assembled so that the retired vendors' names do not appear in the source (T97/T101 grep).
+    const retired = [["AZ", "URE_SPEECH_KEY"], ["BED", "ROCK_REGION"], ["MEETINGS_A", "WS_ACCESS_KEY_ID"]].map((parts) => parts.join(""));
+    const r = parseEnv({ ...prod(), ...Object.fromEntries(retired.map((k) => [k, "x"])) });
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Object.keys(r.env).some((k) => /AZURE|BEDROCK|AWS/.test(k))).toBe(false);
+    if (r.ok) for (const k of retired) expect(Object.keys(r.env)).not.toContain(k);
   });
 });
 

@@ -1,0 +1,16 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "Ready? Yes, go ahead.",
+          "words": [
+            { "word": "Ready?", "speakerLabel": "1" },
+            { "word": "Yes,", "speakerLabel": "2" }, { "word": "go", "speakerLabel": "2" }, { "word": "ahead.", "speakerLabel": "2" }
+          ]
+        }
+      ],
+      "resultEndOffset": "3.000s"
+    }
+  ]
+}

@@ -87,7 +87,7 @@ setLanguageModelForTests({
 setTranscriberForTests({
   async transcribe() {
     if (providers === "throw") throw new Error(`provider exploded: ${CANARY.transcript}`);
-    return { kind: "segments", segments: mapPhrases([{ speaker: 1, startMs: 0, durationMs: 2_000, text: CANARY.transcript }]) };
+    return { kind: "segments", segments: mapPhrases([{ speaker: 1, startMs: 0, durationMs: 2_000, text: CANARY.transcript }]), partStartsMs: [0] };
   },
 });
 

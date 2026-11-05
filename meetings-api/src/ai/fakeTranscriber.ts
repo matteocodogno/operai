@@ -9,18 +9,25 @@
  *   fake.respondWith({ kind: "noSpeech" })
  *   fake.failWith(new TranscriptionError("provider_unavailable", true, 503))
  *   fake.respondWith(async (call) => ...)
+ *   fake.respondWith({ kind: "segments", segments, partStartsMs: [0, 3_600_000, 7_200_000] })   // a long recording
  */
 
-import { mapPhrases, type Phrase } from "./segments";
-import type { Transcriber, TranscriptionLocale, TranscriptionOutcome } from "./transcriber";
+import { mapPhrases, type DraftSegment, type Phrase } from "./segments";
+import type { TranscribeContext, Transcriber, TranscriptionLocale, TranscriptionOutcome } from "./transcriber";
 
 export interface TranscribeCall {
+  readonly context: TranscribeContext | undefined;
   readonly audio: Blob;
   readonly locale: TranscriptionLocale;
   readonly maxSpeakers: number;
 }
 
-type Script = TranscriptionOutcome | Error | ((call: TranscribeCall) => TranscriptionOutcome | Promise<TranscriptionOutcome>);
+/** A scripted segments outcome may leave `partStartsMs` out: it is one part, `[0]`. */
+type ScriptedOutcome = TranscriptionOutcome | { readonly kind: "segments"; readonly segments: readonly DraftSegment[]; readonly partStartsMs?: readonly number[] };
+type Script = ScriptedOutcome | Error | ((call: TranscribeCall) => ScriptedOutcome | Promise<ScriptedOutcome>);
+
+const complete = (outcome: ScriptedOutcome): TranscriptionOutcome =>
+  outcome.kind === "segments" ? { kind: "segments", segments: outcome.segments, partStartsMs: outcome.partStartsMs ?? [0] } : outcome;
 
 const DEFAULT_PHRASES: Record<TranscriptionLocale, readonly Phrase[]> = {
   "en-US": [
@@ -48,14 +55,14 @@ export class FakeTranscriber implements Transcriber {
     return this.respondWith(error);
   }
 
-  async transcribe(audio: Blob, locale: TranscriptionLocale, maxSpeakers: number, signal?: AbortSignal): Promise<TranscriptionOutcome> {
+  async transcribe(audio: Blob, locale: TranscriptionLocale, maxSpeakers: number, signal?: AbortSignal, context?: TranscribeContext): Promise<TranscriptionOutcome> {
     signal?.throwIfAborted();
-    const call: TranscribeCall = { audio, locale, maxSpeakers };
+    const call: TranscribeCall = { context, audio, locale, maxSpeakers };
     this.calls.push(call);
     const script = this.queue.shift();
     if (script instanceof Error) throw script;
-    if (typeof script === "function") return script(call);
-    if (script) return script;
-    return { kind: "segments", segments: mapPhrases(DEFAULT_PHRASES[locale]) };
+    if (typeof script === "function") return complete(await script(call));
+    if (script) return complete(script);
+    return { kind: "segments", segments: mapPhrases(DEFAULT_PHRASES[locale]), partStartsMs: [0] };
   }
 }

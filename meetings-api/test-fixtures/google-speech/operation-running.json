@@ -1,0 +1,7 @@
+{
+  "name": "projects/123456789012/locations/eu/operations/op-1",
+  "metadata": {
+    "@type": "type.googleapis.com/google.cloud.speech.v2.OperationMetadata",
+    "progressPercent": 40
+  }
+}
