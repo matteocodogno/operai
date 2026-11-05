@@ -3,6 +3,7 @@
  */
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import axe from 'axe-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('shell/session', () => ({
@@ -237,6 +238,22 @@ describe('TranscriptView: transcript parts (AC-6.1, AC-6.2)', () => {
     await userEvent.type(screen.getByRole('searchbox'), 'part two')
     expect(screen.getAllByRole('separator')).toHaveLength(2)
     expect(screen.getByText(en.transcript.matches(1))).not.toBeNull()
+  })
+
+  it('a multi-part transcript has no axe violation: the dividers are valid inside the segment list (AC-6.2, AC-13.3)', async () => {
+    serveTranscript(threeParts())
+    const { container } = view()
+    await screen.findByText('Start of part two.')
+    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
+  })
+
+  it('control: the same transcript with one part has no axe violation', async () => {
+    serveTranscript(transcript({ parts: [{ index: 1, startMs: 0 }] }))
+    const { container } = view()
+    await screen.findAllByRole('listitem')
+    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations.map((v) => v.id)).toEqual([])
   })
 
   it('has Italian copy for the banner and the divider', () => {
