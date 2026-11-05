@@ -126,16 +126,20 @@ production key, and do not wire the production key into CI: the nightly job uses
 
 ### Known gaps
 
-Production code is not changed by the eval task. The gaps below are real, found by the fixtures, and
-tracked as `knownGap` channels: the run expects them to fail, reports them, and exits non-zero when a
-marker becomes stale so the fix removes it and the case is guarded from then on. All three are in
-`sanitizeProse`'s "quote a line that opens with a role label" rule (`src/ai/prompts/sanitize.ts`):
+None open. The fixtures found three gaps in `sanitizeProse`'s "quote a line that opens with a role
+label" rule (`src/ai/prompts/sanitize.ts`); all were closed by T36 and their channels now guard
+against a regression:
 
-- **DEF-1** zero-width characters before or inside the label, and fullwidth letters, hide it
-  (`U+200B SYSTEM:`, `SYS U+200B TEM:`, fullwidth `SYSTEM:`).
-- **DEF-2** the keyword list has no `operator` / `admin` (nor Italian `operatore`), although the system
-  prompt itself names the operator and an administrator as sources a transcript may claim to be.
-- **DEF-3** `[[SYSTEM]]` and a numbered-list prefix (`1. SYSTEM:`) are not recognised.
+- **DEF-1** (closed) zero-width characters before or inside the label, and fullwidth letters, hid it
+  (`U+200B SYSTEM:`, `SYS U+200B TEM:`, fullwidth `SYSTEM:`). The label is now matched on an NFKC-folded
+  copy of the line with invisible characters removed, and every Unicode line break (CR, LF, VT, FF, NEL,
+  LS, PS) starts a line.
+- **DEF-2** (closed) the keyword list had no `operator` / `admin` (nor Italian `operatore`), although the
+  system prompt itself names the operator and an administrator as sources a transcript may claim to be.
+- **DEF-3** (closed) `[[SYSTEM]]` and a numbered-list prefix (`1. SYSTEM:`) were not recognised.
+
+A gap found later is tracked as a `knownGap` channel: the run expects it to fail, reports it, and
+exits non-zero once the marker is stale, so the fix removes the marker and the case stays guarded.
 
 Not defects, by design (documented so a reviewer does not rediscover them): a URL that the transcript
 itself contains is allowed through; a bare host with no scheme, path or `www.` (`evil.example`) and

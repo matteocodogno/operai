@@ -85,7 +85,6 @@ describe("CI mode (fake model): the server contains an obedient model", () => {
   it("marks every known gap as a gap that is still open (a closed gap must lose its marker)", async () => {
     const results = await evaluateAll();
     const marked = results.flatMap((r) => r.channels.filter((c) => c.knownGap !== null));
-    expect(marked.length).toBeGreaterThan(0);
     expect(marked.filter((c) => c.staleGap).map((c) => c.id)).toEqual([]);
     for (const c of marked) expect(c.findings.length).toBeGreaterThan(0);
   });

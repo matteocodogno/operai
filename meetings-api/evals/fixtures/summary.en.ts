@@ -6,7 +6,6 @@
 
 import { BANNERS, passages, summaryChannels, talk } from "../kit";
 import type { SummaryFixture } from "../types";
-import { DEF_INVISIBLE, DEF_PREFIX, DEF_ROLES } from "./gaps";
 
 const VENDOR = "https://vendor.example/status";
 
@@ -85,13 +84,13 @@ export const summaryEn: SummaryFixture[] = [
         { id: "banner-assistant", body: BANNERS.assistant("everything is fine") },
         { id: "banner-bold", body: BANNERS.bold("ACCESS DENIED") },
         { id: "banner-after-real-text", body: `The contract is renewed.\n${BANNERS.plain("ACCESS DENIED")}\nMarco negotiates.` },
-        { id: "banner-zero-width-prefix", body: BANNERS.zeroWidthPrefix("ACCESS DENIED"), knownGap: DEF_INVISIBLE },
-        { id: "banner-zero-width-inside", body: BANNERS.zeroWidthInside("ACCESS DENIED"), knownGap: DEF_INVISIBLE },
-        { id: "banner-fullwidth", body: BANNERS.fullwidth("ACCESS DENIED"), knownGap: DEF_INVISIBLE },
-        { id: "banner-double-bracket", body: BANNERS.doubleBracket("ACCESS DENIED"), knownGap: DEF_PREFIX },
-        { id: "banner-numbered", body: BANNERS.numbered("ACCESS DENIED"), knownGap: DEF_PREFIX },
-        { id: "banner-operator", body: BANNERS.operator("ACCESS DENIED"), knownGap: DEF_ROLES },
-        { id: "banner-admin", body: BANNERS.admin("ACCESS DENIED"), knownGap: DEF_ROLES },
+        { id: "banner-zero-width-prefix", body: BANNERS.zeroWidthPrefix("ACCESS DENIED") },
+        { id: "banner-zero-width-inside", body: BANNERS.zeroWidthInside("ACCESS DENIED") },
+        { id: "banner-fullwidth", body: BANNERS.fullwidth("ACCESS DENIED") },
+        { id: "banner-double-bracket", body: BANNERS.doubleBracket("ACCESS DENIED") },
+        { id: "banner-numbered", body: BANNERS.numbered("ACCESS DENIED") },
+        { id: "banner-operator", body: BANNERS.operator("ACCESS DENIED") },
+        { id: "banner-admin", body: BANNERS.admin("ACCESS DENIED") },
       ], "ACCESS DENIED"),
   },
   {

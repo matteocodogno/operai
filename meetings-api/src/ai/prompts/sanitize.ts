@@ -44,22 +44,75 @@ export function urlsIn(text: string): Set<string> {
   return new Set((text.match(URL_RE) ?? []).map(core));
 }
 
-const ROLE_KEYWORDS = "system|assistant|developer|operai|administrator|sistema|assistente|amministratore";
-const ROLE_WORDS = "message|notice|prompt|instructions?|update|alert|warning|override|messaggio|avviso";
+const ROLE_KEYWORDS = [
+  "system", "assistant", "developer", "operai", "operator", "admin", "administrator", // en
+  "sistema", "assistente", "sviluppatore", "operatore", "amministratore", // it
+].join("|");
+const ROLE_WORDS = [
+  "message", "notice", "prompt", "instructions?", "update", "alert", "warning", "override", // en
+  "messaggio", "avviso", "istruzion[ei]", "aggiornamento", "allerta", "avvertenza", // it
+].join("|");
+// A line opens with any run of whitespace, markdown markers (heading, quote, bold, bullets) and
+// list numbers ("1.", "12)"); then an optional one or two "[" (whitespace is allowed only after them: before them the
+// lead already took it, and two ways to take it is quadratic on a long blank run), the label, an optional qualifier
+// word, and a closer. The number marker carries no trailing `\s*`: the whitespace between markers
+// is matched by the `\s` alternative alone, so the run cannot be split two ways (no backtracking
+// blow-up on "1. 1. 1. ...").
 const ROLE_LINE = new RegExp(
-  String.raw`^([\s#>*\-•]*)\[?\s*(${ROLE_KEYWORDS})((?:\s+(?:${ROLE_WORDS}))?)\s*([\]:：])`,
-  "gim",
+  String.raw`^((?:[\s#>*\-•+]|\d{1,3}[.)])*)(?:\[{1,2}\s*)?(${ROLE_KEYWORDS})((?:\s+(?:${ROLE_WORDS}))?)\s*(\]{1,2}|[:：])`,
+  "i",
 );
+
+/** Characters that print as nothing (zero-width, joiners, bidi marks, soft hyphen, variation selectors). */
+const INVISIBLE = /[\p{Cf}\u034f\ufe00-\ufe0f]/u;
 
 const LEFT_QUOTE = String.fromCharCode(0x201c);
 const RIGHT_QUOTE = String.fromCharCode(0x201d);
-const LINE_SEPARATORS = new RegExp(`[${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`, "g");
+
+/** Line breaks other than "\n": CR(LF), VT, FF, NEL, LS and PS all start a new line when shown. */
+const LINE_BREAKS = /\r\n?|[\u000b\u000c\u0085\u2028\u2029]/g;
+
+/**
+ * The line as the label rule matches it: NFKC (fullwidth and compatibility forms fold to ASCII)
+ * with invisible characters removed, plus, for every folded UTF-16 unit, where it ends in the
+ * ORIGINAL line, so a match can be cut out of the original without rewriting the rest of it.
+ */
+function fold(line: string): { folded: string; ends: number[] } {
+  let folded = "";
+  const ends: number[] = [];
+  let pos = 0;
+  for (const ch of line) {
+    pos += ch.length;
+    if (INVISIBLE.test(ch)) continue;
+    const f = ch.normalize("NFKC");
+    for (let i = 0; i < f.length; i++) ends.push(pos);
+    folded += f;
+  }
+  return { folded, ends };
+}
+
+/** Quotes a role label opening a line; the label is matched normalised, the remainder of the line is untouched. */
+function quoteRoleLabel(line: string): string {
+  const { folded, ends } = fold(line);
+  const m = ROLE_LINE.exec(folded);
+  if (!m) return line;
+  const [whole, lead = "", keyword = "", words = "", closer = ""] = m;
+  const quoted = `${lead}${LEFT_QUOTE}${keyword}${words}${RIGHT_QUOTE}`;
+  const head = closer.startsWith("]") ? quoted : `${quoted}${closer}`;
+  return head + line.slice(ends[whole.length - 1]);
+}
+
+/** Trailing spaces off a line, in linear time (`/[ \t]+$/gm` rescans a long run from every position). */
+function trimEndBlanks(line: string): string {
+  let end = line.length;
+  while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t")) end--;
+  return end === line.length ? line : line.slice(0, end);
+}
 
 /** @param allowedUrls the URLs of the transcript, from `urlsIn` */
 export function sanitizeProse(text: string, allowedUrls: ReadonlySet<string>): string {
   let out = text
-    .replace(/\r\n?/g, "\n")
-    .replace(LINE_SEPARATORS, "\n")
+    .replace(LINE_BREAKS, "\n")
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
     .replace(/\t/g, " ");
@@ -78,15 +131,14 @@ export function sanitizeProse(text: string, allowedUrls: ReadonlySet<string>): s
     return TRAILING_PUNCTUATION.exec(token)?.[0] ?? "";
   });
 
-  // A role label at the start of a line is quoted.
-  out = out.replace(ROLE_LINE, (_match, lead: string, keyword: string, words: string, closer: string) => {
-    const quoted = `${lead}${LEFT_QUOTE}${keyword}${words}${RIGHT_QUOTE}`;
-    return closer === "]" ? quoted : `${quoted}${closer}`;
-  });
+  // A role label at the start of a line is quoted (matched on a normalised copy of the line).
+  out = out.split("\n").map(quoteRoleLabel).join("\n");
 
   return out
     .replace(/(?<=\S) {2,}(?=\S)/g, " ")
-    .replace(/[ \t]+$/gm, "")
+    .split("\n")
+    .map(trimEndBlanks)
+    .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
