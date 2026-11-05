@@ -139,6 +139,12 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // @module-federation/vite is kept at >= 1.23.9 in package.json on purpose (specs/021, T53):
+    // from 1.23 a remote's dev server seeds a React copy into the page-wide
+    // `__mf_module_cache__` and the first writer wins, so a host on an older plugin (1.16, no
+    // cache) never owns React and a remote's copy leaks into the shell: "Invalid hook call /
+    // Cannot read properties of null (reading 'useState')" in `mise run dev`, never in a build.
+    // The host on the same protocol seeds first and every remote reuses its React.
     federation({
       name: 'shell',
       // BUGFIX (found by T16's real-browser e2e run, specs/003-suite-shell):
