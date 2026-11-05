@@ -35,7 +35,7 @@ import {
 } from './helpers/meetingsFixtures'
 
 const runId = newRunId()
-const CONSENT_NOTICE_VERSION = '2026-11-01' // meetings-ui/src/strings/consent.ts
+const CONSENT_NOTICE_VERSION = '2026-11-05' // meetings-ui/src/strings/consent.ts = meetings-api CONSENT_NOTICE_VERSION (T111/T112)
 
 interface MeetingView {
   status: string
