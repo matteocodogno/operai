@@ -1,0 +1,56 @@
+# meetings-eval — prompt-injection evals for meetings-api (specs/021 T84, AC-7.12, AC-9.7, ADR-0067).
+#
+# CI MODE ONLY. This job runs the evals against the scripted fake model: no network, no database,
+# no secrets (the workflow token is read-only and no `secrets.*` is referenced). The `--live` run
+# against the real EU model on Bedrock is a documented RELEASE STEP (meetings-api/README.md §
+# Prompt-injection evals) that needs cloud credentials; it must never be added here. The guard step
+# below fails the job if cloud credentials ever appear in this job's environment.
+#
+# Like the other path-filtered workflows here, this is a real pre-merge gate only once a
+# required-status-check rule names the job on `main` (a human decision, see infra/README.md).
+name: meetings-eval
+
+on:
+  pull_request:
+    paths:
+      - "meetings-api/**"
+      - ".github/workflows/meetings-eval.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meetings-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    name: prompt-injection evals (fake model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: meetings-api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # Same Bun line as meetings-api/Dockerfile (oven/bun:1.4); exact patch for reproducibility.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - name: Guard — no cloud credentials in the job
+        run: |
+          set -eu
+          if env | grep -qE '^(BEDROCK_|MEETINGS_AWS_|AWS_|AZURE_SPEECH_)'; then
+            env | grep -E '^(BEDROCK_|MEETINGS_AWS_|AWS_|AZURE_SPEECH_)' | cut -d= -f1
+            echo "::error::cloud credentials are present in the eval job; the live run is a release step, never CI"
+            exit 1
+          fi
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Prompt-injection evals (fake model)
+        run: bun evals/run.ts
+      - name: Eval gate tests
+        run: bun test evals
