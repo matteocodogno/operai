@@ -84,7 +84,10 @@ const stubMedia = () => {
     get: () => '',
     set(this: HTMLMediaElement, value: string) {
       const duration = (durations[value] ?? mediaDuration) as typeof mediaDuration
-      Object.defineProperty(this, 'duration', { configurable: true, value: typeof duration === 'number' ? duration : Number.NaN })
+      Object.defineProperty(this, 'duration', {
+        configurable: true,
+        value: typeof duration === 'number' ? duration : Number.NaN,
+      })
       const fire = () => {
         if (duration === 'never') return
         this.dispatchEvent(new Event(duration === 'unreadable' ? 'error' : 'loadedmetadata'))
@@ -488,6 +491,59 @@ describe('the server refuses the file (AC-3.2)', () => {
     await userEvent.setup().click(submit())
     await screen.findByText(message)
     expect(FakeXHR.instances).toHaveLength(0)
+  })
+})
+
+describe('a file refused after upload (AC-3.2, draft with a failure)', () => {
+  const refusal = () => screen.queryByTestId('meetings-upload-refused')
+
+  it('says the last file was longer than 3 hours and removed, and still offers the upload, with no retry', () => {
+    renderCard(draft({ failure: { code: 'too_long' } }))
+    const notice = refusal()
+    expect(notice).not.toBeNull()
+    expect(within(notice as HTMLElement).getByText(t.refused.title)).toBeTruthy()
+    expect(notice?.textContent).toContain(t.refused.reasons.too_long)
+    expect(within(notice as HTMLElement).queryByRole('button')).toBeNull()
+    expect(screen.queryByText(t.retry)).toBeNull()
+    expect(screen.getByTestId('meetings-upload-choose')).toBeTruthy()
+    expect(submit()).toBeTruthy()
+  })
+
+  it('shows a generic refusal for a code this version does not know', () => {
+    renderCard(draft({ failure: { code: 'something_new' } }))
+    const notice = refusal()
+    expect(notice?.textContent).toContain(t.refused.title)
+    expect(notice?.textContent).toContain(t.refused.unknownReason)
+  })
+
+  it('shows nothing extra when the draft has no failure', () => {
+    renderCard(draft({ failure: null }))
+    expect(refusal()).toBeNull()
+  })
+
+  it('drops the notice once a new upload is minted, even if the transfer then fails', async () => {
+    renderCard(draft({ failure: { code: 'too_long' } }))
+    await choose(audioFile())
+    await waitFor(() => expect(submit().hasAttribute('disabled')).toBe(false))
+    await userEvent.setup().click(submit())
+    await waitFor(() => expect(FakeXHR.instances).toHaveLength(1))
+    expect(refusal()).toBeNull()
+    act(() => lastXhr().fail())
+    await screen.findByTestId('meetings-upload-failed')
+    expect(refusal()).toBeNull()
+  })
+
+  it('keeps the notice when the new file is refused before anything is minted', async () => {
+    renderCard(draft({ failure: { code: 'too_long' } }))
+    await choose(audioFile('notes.pdf', 'application/pdf', MIB))
+    await screen.findByText(t.problems.unsupported_type)
+    expect(refusal()).not.toBeNull()
+  })
+
+  it('has no axe violation', async () => {
+    const { container } = renderCard(draft({ failure: { code: 'too_long' } }))
+    const violations = (await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })).violations
+    expect(violations.map((v) => v.id)).toEqual([])
   })
 })
 

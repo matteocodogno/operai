@@ -24,6 +24,11 @@ const MAX_DURATION_SECONDS = 3 * 3600
 /** How long to wait for a file's metadata before giving up on the client-side length check. */
 const METADATA_TIMEOUT_MS = 8_000
 
+type RefusalKey = keyof typeof t.refused.reasons
+
+const isRefusalKey = (value: unknown): value is RefusalKey =>
+  typeof value === 'string' && Object.prototype.hasOwnProperty.call(t.refused.reasons, value)
+
 type ProblemKey = keyof typeof t.problems
 
 const isProblemKey = (value: unknown): value is ProblemKey =>
@@ -151,6 +156,9 @@ export default function UploadCard({ meeting, onChanged }: UploadCardProps) {
   const [stage, setStage] = useState<Stage>('idle')
   const [percent, setPercent] = useState(0)
   const [failure, setFailure] = useState<string>(t.failed)
+  // The server clears the reason when a new upload is minted; the page's copy of the meeting is only refreshed
+  // at confirm, so drop the notice here as soon as the mint succeeds.
+  const [refusalCleared, setRefusalCleared] = useState(false)
 
   const checkToken = useRef(0)
   const abortRef = useRef<(() => void) | null>(null)
@@ -194,6 +202,7 @@ export default function UploadCard({ meeting, onChanged }: UploadCardProps) {
     setStage('uploading')
     try {
       const policy = await requestUpload(meeting.id, { contentType, sizeBytes: file.size })
+      setRefusalCleared(true)
       if (cancelRequested.current) throw new UploadAborted()
       await postFile(
         policy,
@@ -247,6 +256,13 @@ export default function UploadCard({ meeting, onChanged }: UploadCardProps) {
 
   return (
     <Card title={t.title} data-testid="meetings-upload-card">
+      {meeting.failure !== null && !refusalCleared && (
+        <div className="mb-4">
+          <Banner tone="warning" title={t.refused.title} data-testid="meetings-upload-refused">
+            {isRefusalKey(meeting.failure.code) ? t.refused.reasons[meeting.failure.code] : t.refused.unknownReason}
+          </Banner>
+        </div>
+      )}
       <FilePicker
         label={t.fileLabel}
         chooseLabel={t.choose}

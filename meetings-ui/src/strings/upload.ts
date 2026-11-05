@@ -24,6 +24,15 @@ const en = {
   },
   /** A rejection whose reason this version does not know. */
   rejectedUnknown: 'This file was rejected. Check its type, size and length.',
+  /** A draft whose last uploaded file was refused while it was decoded and removed (AC-3.2): says why, then the normal upload follows. */
+  refused: {
+    title: 'The last file you uploaded was removed',
+    reasons: {
+      too_long: 'It was longer than 3 hours. Choose a shorter recording to try again.',
+    },
+    /** A reason this version does not know. */
+    unknownReason: 'It could not be accepted. Choose another file to try again.',
+  },
   submit: 'Upload and process',
   uploading: 'Uploading…',
   progressLabel: 'Uploading the recording',
@@ -62,6 +71,13 @@ const it: typeof en = {
     empty: 'Il file è vuoto',
   },
   rejectedUnknown: 'Questo file è stato rifiutato. Controlla tipo, dimensione e durata.',
+  refused: {
+    title: "L'ultimo file caricato è stato rimosso",
+    reasons: {
+      too_long: 'Durava più di 3 ore. Scegli una registrazione più breve per riprovare.',
+    },
+    unknownReason: 'Non è stato possibile accettarlo. Scegli un altro file per riprovare.',
+  },
   submit: 'Carica ed elabora',
   uploading: 'Caricamento…',
   progressLabel: 'Caricamento della registrazione',
