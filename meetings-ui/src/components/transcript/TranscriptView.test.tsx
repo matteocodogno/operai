@@ -12,7 +12,7 @@ vi.mock('shell/session', () => ({
 }))
 
 import { apiFetch } from 'shell/session'
-import { en } from '../../strings'
+import { en, it as italian } from '../../strings'
 import {
   CAN_NONE,
   fakeApi,
@@ -134,6 +134,114 @@ describe('TranscriptView: reading (AC-6.1)', () => {
     view()
     await userEvent.click(await screen.findByRole('button', { name: en.common.retry }))
     expect((await screen.findAllByRole('listitem')).length).toBe(2)
+  })
+})
+
+describe('TranscriptView: transcript parts (AC-6.1, AC-6.2)', () => {
+  const threeParts = () =>
+    transcript({
+      segments: [
+        segment({ id: 'a1', ordinal: 1, startMs: 0, endMs: 5_000, speakerKey: 'p1:1', text: 'Opening of part one.' }),
+        segment({
+          id: 'a2',
+          ordinal: 2,
+          startMs: 3_540_000,
+          endMs: 3_590_000,
+          speakerKey: 'p1:2',
+          text: 'End of part one.',
+        }),
+        segment({
+          id: 'b1',
+          ordinal: 3,
+          startMs: 3_600_000,
+          endMs: 3_620_000,
+          speakerKey: 'p2:1',
+          text: 'Start of part two.',
+        }),
+        segment({
+          id: 'c1',
+          ordinal: 4,
+          startMs: 7_200_000,
+          endMs: 7_230_000,
+          speakerKey: 'p3:1',
+          text: 'Start of part three.',
+        }),
+      ],
+      speakers: [
+        { key: 'p1:1', label: { kind: 'default', index: 1 } },
+        { key: 'p1:2', label: { kind: 'default', index: 2 } },
+        { key: 'p2:1', label: { kind: 'default', index: 3 } },
+        { key: 'p3:1', label: { kind: 'default', index: 4 } },
+      ],
+      parts: [
+        { index: 1, startMs: 0 },
+        { index: 2, startMs: 3_600_000 },
+        { index: 3, startMs: 7_200_000 },
+      ],
+    })
+
+  it('more than one part: an info banner says so, and a divider opens each part after the first', async () => {
+    serveTranscript(threeParts())
+    view()
+    await screen.findByText('Start of part two.')
+    expect(screen.getByText(en.transcript.parts.banner(3))).not.toBeNull()
+    const dividers = screen.getAllByRole('separator')
+    expect(dividers.map((d) => d.textContent)).toEqual([
+      en.transcript.parts.divider(2, '01:00:00'),
+      en.transcript.parts.divider(3, '02:00:00'),
+    ])
+    // The divider sits right before the first segment of its part.
+    expect(screen.getAllByRole('listitem')).toHaveLength(4)
+    expect(dividers[0]!.nextElementSibling).toBe(screen.getByTestId('meetings-segment-b1'))
+    expect(dividers[1]!.nextElementSibling).toBe(screen.getByTestId('meetings-segment-c1'))
+  })
+
+  it('one part: neither banner nor divider', async () => {
+    serveTranscript(transcript({ parts: [{ index: 1, startMs: 0 }] }))
+    view()
+    await screen.findAllByRole('listitem')
+    expect(screen.queryByText(en.transcript.parts.banner(1))).toBeNull()
+    expect(screen.queryByRole('separator')).toBeNull()
+  })
+
+  it('a text meeting (no parts) shows neither', async () => {
+    serveTranscript(
+      transcript({
+        segments: [segment({ startMs: null, endMs: null, speakerKey: null, text: 'First passage.' })],
+        speakers: [],
+        parts: [],
+      }),
+    )
+    view(participantMeeting({ source: 'text' }))
+    await screen.findByRole('listitem')
+    expect(screen.queryByRole('separator')).toBeNull()
+  })
+
+  it('renaming two labels to the same name reads as one speaker (AC-6.2)', async () => {
+    const t = threeParts()
+    serveTranscript({
+      ...t,
+      speakers: t.speakers.map((s) =>
+        s.key === 'p1:1' || s.key === 'p2:1' ? { ...s, label: { kind: 'text' as const, text: 'Ada' } } : s,
+      ),
+    })
+    view()
+    await screen.findByText('Start of part two.')
+    expect(screen.getAllByText('Ada')).toHaveLength(2)
+  })
+
+  it('searching keeps the dividers (they are structure, not matches)', async () => {
+    serveTranscript(threeParts())
+    view()
+    await screen.findByText('Start of part two.')
+    await userEvent.type(screen.getByRole('searchbox'), 'part two')
+    expect(screen.getAllByRole('separator')).toHaveLength(2)
+    expect(screen.getByText(en.transcript.matches(1))).not.toBeNull()
+  })
+
+  it('has Italian copy for the banner and the divider', () => {
+    expect(italian.transcript.parts.banner(3)).not.toBe(en.transcript.parts.banner(3))
+    expect(italian.transcript.parts.divider(2, '01:00:00')).not.toBe(en.transcript.parts.divider(2, '01:00:00'))
   })
 })
 

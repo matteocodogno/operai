@@ -5,7 +5,7 @@
  * its lines are the bare passages. Names are the labels the viewer sees on screen.
  */
 import { formatDuration } from '@operai/ui'
-import type { Participant, Speaker, SpeakerLabel, TranscriptSegment } from '../../lib/types'
+import type { Participant, Speaker, SpeakerLabel, TranscriptPart, TranscriptSegment } from '../../lib/types'
 import { strings } from '../../strings'
 
 const participantName = (participant: Participant | undefined): string | null => {
@@ -62,4 +62,31 @@ export function exportText(segments: TranscriptSegment[], speakers: Speaker[], p
       return head === '' ? segment.text : `${head} ${segment.text}`
     })
     .join('\n')
+}
+
+const partIndexOf = (segment: TranscriptSegment, parts: readonly TranscriptPart[]): number => {
+  const start = segment.startMs
+  if (start === null) return -1
+  let found = -1
+  parts.forEach((part, index) => {
+    if (part.startMs <= start) found = index
+  })
+  return found
+}
+
+/**
+ * The part that opens at `segments[index]` (AC-6.2): the segment's part, when it differs from the
+ * previous segment's and is not the first. Null otherwise. A segment belongs to the last part whose
+ * start is at or before its own (times are never later than the speech, G-3), so a part with no
+ * segment gets no divider.
+ */
+export function partStartingAt(
+  segments: readonly TranscriptSegment[],
+  index: number,
+  parts: readonly TranscriptPart[],
+): TranscriptPart | null {
+  const here = partIndexOf(segments[index]!, parts)
+  if (here <= 0) return null
+  const before = index === 0 ? -1 : partIndexOf(segments[index - 1]!, parts)
+  return here === before ? null : parts[here]!
 }

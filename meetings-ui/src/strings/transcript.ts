@@ -18,6 +18,12 @@ const en = {
     heading: 'No transcript',
     body: 'This meeting has no transcript.',
   },
+  /** Transcript parts (AC-6.2, G-3): a long recording transcribed in parts numbers its speakers per part. */
+  parts: {
+    banner: (n: number) =>
+      `This recording was transcribed in ${n} parts. Speakers are numbered separately in each part, so one person can appear under two labels. Rename a label to merge them.`,
+    divider: (n: number, start: string) => `Part ${n} · ${start}`,
+  },
   speaker: (index: number) => `Speaker ${index}`,
   unknownSpeaker: 'Unknown speaker',
   formerPerson: 'Former colleague',
@@ -64,6 +70,11 @@ const it: typeof en = {
   empty: {
     heading: 'Nessuna trascrizione',
     body: 'Questa riunione non ha una trascrizione.',
+  },
+  parts: {
+    banner: (n: number) =>
+      `Questa registrazione è stata trascritta in ${n} parti. Le voci sono numerate separatamente in ogni parte, quindi la stessa persona può comparire con due etichette. Rinomina un'etichetta per unirle.`,
+    divider: (n: number, start: string) => `Parte ${n} · ${start}`,
   },
   speaker: (index: number) => `Voce ${index}`,
   unknownSpeaker: 'Voce sconosciuta',

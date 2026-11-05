@@ -1,14 +1,14 @@
-import { Button, Field, Icon, StatePanel, VisuallyHidden } from '@operai/ui'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Banner, Button, Field, Icon, StatePanel, VisuallyHidden } from '@operai/ui'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LoadFailure, Loading, StaleWriteBanner } from '../LoadState'
 import { useResource } from '../../hooks/useResource'
 import { getTranscript } from '../../lib/meetingsApi'
 import { passageNumber } from '../../lib/passageNumber'
-import type { Meeting, Transcript } from '../../lib/types'
+import type { Meeting, Transcript, TranscriptPart } from '../../lib/types'
 import { strings } from '../../strings'
 import { AudioControl } from './AudioControl'
 import type { AudioHandle } from './AudioControl'
-import { clockOf, exportText, inOrder, speakerNameOf, textFileName } from './exportText'
+import { clockOf, exportText, inOrder, partStartingAt, speakerNameOf, textFileName } from './exportText'
 import { findMatches } from './fold'
 import { SegmentEditor } from './SegmentEditor'
 import { SegmentRow } from './SegmentRow'
@@ -133,6 +133,10 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
   }
 
   const isText = meeting.source === 'text'
+  // A long recording transcribed in parts (AC-6.2): say so once, and open each later part with a divider.
+  // `parts` is absent on a backend that predates it, which reads as a single part.
+  const partCount = (transcript.parts as TranscriptPart[] | undefined)?.length ?? 0
+  const manyParts = partCount > 1
   return (
     <div className="flex flex-col gap-4" data-testid="meetings-transcript">
       <AudioControl meeting={meeting} ref={audio} />
@@ -164,6 +168,11 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
         {notice === 'copied' ? strings.transcript.copied : notice === 'copyFailed' ? strings.transcript.copyFailed : ''}
       </VisuallyHidden>
       {notice === 'copyFailed' && <p className="text-xs text-red-text">{strings.transcript.copyFailed}</p>}
+      {manyParts && (
+        <Banner tone="info" data-testid="meetings-transcript-parts-banner">
+          {strings.transcript.parts.banner(partCount)}
+        </Banner>
+      )}
       {stale && <StaleWriteBanner onReload={onReload} />}
       {canEdit && transcript.speakers.length > 0 && (
         <ul aria-label={strings.transcript.speakersHeading} className="flex flex-wrap gap-2">
@@ -197,9 +206,20 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
         aria-label={isText ? strings.transcript.passagesHeading : strings.transcript.heading}
         className="flex flex-col"
       >
-        {segments.map((segment, index) => (
+        {segments.map((segment, index) => {
+          const opened = manyParts ? partStartingAt(segments, index, transcript.parts) : null
+          return (
+          <Fragment key={segment.id}>
+            {opened !== null && (
+              <li
+                role="separator"
+                aria-label={strings.transcript.parts.divider(opened.index, clockOf(opened.startMs))}
+                className="mt-3 border-t border-rule pt-2 font-mono text-xs text-soft"
+              >
+                {strings.transcript.parts.divider(opened.index, clockOf(opened.startMs))}
+              </li>
+            )}
           <SegmentRow
-            key={segment.id}
             segment={segment}
             speaker={speakerNameOf(segment.speakerKey, transcript.speakers, meeting.participants)}
             ranges={hits[index]!}
@@ -236,7 +256,9 @@ function TranscriptBody({ meeting, transcript, onTranscript, onReload, focusSegm
               else rows.current.set(segment.id, element)
             }}
           />
-        ))}
+          </Fragment>
+          )
+        })}
       </ol>
       {renaming !== null && (
         <SpeakerRenameDialog

@@ -262,8 +262,29 @@ export const transcript = (overrides: Partial<Transcript> = {}): Transcript => (
     { key: 'spk1', label: { kind: 'default', index: 1 } },
     { key: 'spk2', label: { kind: 'default', index: 2 } },
   ],
+  parts: [{ index: 1, startMs: 0 }],
   ...overrides,
 })
+
+/** A three-part transcript (G-11): part 2 starts at 1 h, part 3 at 2 h; speakers are numbered per part. */
+export const threePartTranscript = (): Transcript =>
+  transcript({
+    segments: [
+      segment({ id: 'a1', ordinal: 1, startMs: 0, endMs: 5_000, speakerKey: 'p1:1', text: 'Opening of part one.' }),
+      segment({ id: 'b1', ordinal: 2, startMs: 3_600_000, endMs: 3_620_000, speakerKey: 'p2:1', text: 'Start of part two.' }),
+      segment({ id: 'c1', ordinal: 3, startMs: 7_200_000, endMs: 7_230_000, speakerKey: 'p3:1', text: 'Start of part three.' }),
+    ],
+    speakers: [
+      { key: 'p1:1', label: { kind: 'default', index: 1 } },
+      { key: 'p2:1', label: { kind: 'default', index: 2 } },
+      { key: 'p3:1', label: { kind: 'default', index: 3 } },
+    ],
+    parts: [
+      { index: 1, startMs: 0 },
+      { index: 2, startMs: 3_600_000 },
+      { index: 3, startMs: 7_200_000 },
+    ],
+  })
 
 export const summary = (overrides: Partial<Summary> = {}): Summary => ({
   id: 's1',

@@ -131,7 +131,15 @@ export type SpeakerLabel =
 
 export type Speaker = { key: string; label: SpeakerLabel }
 
-export type Transcript = { version: number; segments: TranscriptSegment[]; speakers: Speaker[] }
+/** A transcript part (AC-6.2): `index` is 1-based, `startMs` the offset of its first moment. `[]` for a text meeting or no speech. */
+export type TranscriptPart = { index: number; startMs: number }
+
+export type Transcript = {
+  version: number
+  segments: TranscriptSegment[]
+  speakers: Speaker[]
+  parts: TranscriptPart[]
+}
 
 // ─── Templates ──────────────────────────────────────────────────────────────
 
