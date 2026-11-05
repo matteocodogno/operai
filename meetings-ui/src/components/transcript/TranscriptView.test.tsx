@@ -323,6 +323,11 @@ describe('TranscriptView: a transcript that may be incomplete (AC-6.12, AC-6.5)'
     view(participantMeeting({ audio: { state: 'deleted' } }))
     const notice = await screen.findByTestId('meetings-transcript-incomplete')
     expect(notice.id).toBe('meetings-transcript-incomplete')
+    // Persistent, non-dismissible condition: not an assertive live region (design.md accessibility).
+    expect(notice.getAttribute('role')).not.toBe('alert')
+    expect(notice.hasAttribute('aria-live')).toBe(false)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('note', { name: en.transcript.incomplete.label })).toBe(notice)
     expect(notice.textContent).toContain(NOTICE())
     expect(notice.textContent).toContain('cannot be recovered from it')
     expect(within(notice).queryByRole('button')).toBeNull()
@@ -407,6 +412,9 @@ describe('TranscriptView: a transcript that may be incomplete (AC-6.12, AC-6.5)'
     const notice = await screen.findByTestId('meetings-transcript-incomplete')
     await waitFor(() => expect(document.activeElement).toBe(notice))
     expect(scroll).toHaveBeenCalled()
+    // Focus is what announces it (by its accessible name); it is not a live region.
+    expect(screen.getByRole('note', { name: en.transcript.incomplete.label })).toBe(document.activeElement)
+    expect(notice.getAttribute('role')).not.toBe('alert')
   })
 
   it('copy begins with the notice and a blank line, and carries each marker at its place', async () => {

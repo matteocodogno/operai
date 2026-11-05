@@ -263,9 +263,12 @@ function TranscriptBody({
       {gaps.length > 0 && (
         // Possibly incomplete (AC-6.12): everyone who can open the meeting sees it, it cannot be
         // dismissed, and editing the transcript does not remove it. The id is the anchor of the
-        // "may be incomplete" label on summaries and answers.
+        // "may be incomplete" label on summaries and answers. A persistent condition, not time-critical:
+        // `live="off"` keeps the warning look without an assertive alert (design.md accessibility).
         <Banner
           tone="warning"
+          live="off"
+          aria-label={strings.transcript.incomplete.label}
           id="meetings-transcript-incomplete"
           tabIndex={-1}
           ref={incompleteNotice}

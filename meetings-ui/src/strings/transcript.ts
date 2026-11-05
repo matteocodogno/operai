@@ -33,6 +33,7 @@ const en = {
       `This transcript may be incomplete. Speech may be missing between ${ranges
         .map((range) => `${range.from} and ${range.to}`)
         .join(', and between ')}. The missing speech is not in the transcript and cannot be recovered from it.`,
+    label: 'Transcript may be incomplete',
     rangesLabel: 'Ranges where speech may be missing',
     marker: (from: string, to: string) => `Possible gap ${from}–${to}`,
     play: 'Play',
@@ -109,6 +110,7 @@ const it: typeof en = {
       `Questa trascrizione potrebbe essere incompleta. Potrebbe mancare del parlato tra ${ranges
         .map((range) => `${range.from} e ${range.to}`)
         .join(', e tra ')}. Il parlato mancante non è nella trascrizione e non può essere recuperato da essa.`,
+    label: 'La trascrizione potrebbe essere incompleta',
     rangesLabel: 'Intervalli in cui potrebbe mancare del parlato',
     marker: (from: string, to: string) => `Possibile lacuna ${from}–${to}`,
     play: 'Riproduci',

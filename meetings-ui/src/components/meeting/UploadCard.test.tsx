@@ -501,6 +501,8 @@ describe('a file refused after upload (AC-3.2, draft with a failure)', () => {
     renderCard(draft({ failure: { code: 'too_long' } }))
     const notice = refusal()
     expect(notice).not.toBeNull()
+    // design.md: the refused-upload banner is not an alert (nothing is lost by reading it late).
+    expect(notice?.getAttribute('role')).not.toBe('alert')
     expect(within(notice as HTMLElement).getByText(t.refused.title)).toBeTruthy()
     expect(notice?.textContent).toContain(t.refused.reasons.too_long)
     expect(within(notice as HTMLElement).queryByRole('button')).toBeNull()

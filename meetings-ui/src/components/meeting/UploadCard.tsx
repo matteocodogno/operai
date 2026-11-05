@@ -258,7 +258,7 @@ export default function UploadCard({ meeting, onChanged }: UploadCardProps) {
     <Card title={t.title} data-testid="meetings-upload-card">
       {meeting.failure !== null && !refusalCleared && (
         <div className="mb-4">
-          <Banner tone="warning" title={t.refused.title} data-testid="meetings-upload-refused">
+          <Banner tone="warning" live="polite" title={t.refused.title} data-testid="meetings-upload-refused">
             {isRefusalKey(meeting.failure.code) ? t.refused.reasons[meeting.failure.code] : t.refused.unknownReason}
           </Banner>
         </div>
