@@ -20,9 +20,10 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { IdParams, commonErrors } from "../lib/http";
-import { conflict, validationHook } from "../lib/problem";
-import { verifyHostReference } from "../hosts/reference";
+import { conflict, unprocessable, validationHook } from "../lib/problem";
+import { verifyHostReference, type HostReference } from "../hosts/reference";
 import { deliverNotices, recordNotice } from "../hosts/notices";
+import { hostRegistry } from "../hosts/registry";
 import { callerOf, creatorControl } from "./caller";
 import { lockMeeting } from "./lock";
 import {
@@ -52,6 +53,9 @@ const PatchBody = z.object({
   format: z.enum(MEETING_FORMATS).optional(),
   language: z.enum(MEETING_LANGUAGES).optional(),
   source: z.enum(MEETING_SOURCES).optional(),
+  /** An entity to link (or relink) to; `null` removes the link (AC-1.7). */
+  host: HostRefSchema.nullable().optional(),
+  hostVisible: z.boolean().optional(),
 });
 
 const createMeeting = createRoute({
@@ -139,6 +143,18 @@ coreRouter.openapi(getMeeting, async (c) => {
   return c.json(await loadMeetingView(id, callerOf(c), new Date()), 200);
 });
 
+const sameHostRef = (a: HostReference | null, b: HostReference | null): boolean =>
+  a === null || b === null ? a === b : a.app === b.app && a.entityType === b.entityType && a.entityId === b.entityId;
+
+/** Whether `target` is the entity the (visibility view of the) meeting is already linked to. */
+const sameHost = (
+  meeting: { hostApp: string | null; hostEntityType: string | null; hostEntityId: string | null },
+  target: HostReference,
+): boolean => meeting.hostApp === target.app && meeting.hostEntityType === target.entityType && meeting.hostEntityId === target.entityId;
+
+const hostTarget = (ref: HostReference) => ({ app: ref.app, entityType: ref.entityType, entityId: ref.entityId });
+const registryGet = (ref: HostReference) => hostRegistry().get(ref.app, ref.entityType);
+
 /** G1: the source is locked once the meeting left `draft` or any audio, chunk or text exists. Mirrors `can.changeSource`. */
 async function sourceIsLocked(tx: Prisma.TransactionClient, meeting: { id: string; status: string; audioKey: string | null; audioCreatedAt: Date | null }): Promise<boolean> {
   if (meeting.status !== "draft" || meeting.audioKey !== null || meeting.audioCreatedAt !== null) return true;
@@ -156,15 +172,24 @@ coreRouter.openapi(patchMeeting, async (c) => {
   const { meeting: visible, role } = await openMeeting(id, caller);
   await assertCreatorControl(role, caller, visible.creatorUserId);
 
+  // A new target is verified AS THE CREATOR, over the network and so BEFORE the transaction (AC-1.7).
+  // Naming the entity it is already on is no change and asks nobody.
+  const target = body.host ?? null;
+  const verified =
+    target && !sameHost(visible, target) ? await verifyHostReference(target, caller.authorization) : null;
+
+  const noticeIds: (string | null)[] = [];
   await db.$transaction(async (tx) => {
     await lockMeeting(tx, id);
     const row = await tx.meeting.findUnique({ where: { id } });
     if (!row) throw meetingNotFound();
 
     const data: Prisma.MeetingUpdateInput = {};
-    if (body.title !== undefined && body.title !== row.title) data.title = body.title;
+    const titleChanged = body.title !== undefined && body.title !== row.title;
+    const startsAtChanged = body.startsAt !== undefined && new Date(body.startsAt).getTime() !== row.startsAt.getTime();
+    if (titleChanged) data.title = body.title!;
     if (body.format !== undefined && body.format !== row.format) data.format = body.format;
-    if (body.startsAt !== undefined && new Date(body.startsAt).getTime() !== row.startsAt.getTime()) data.startsAt = new Date(body.startsAt);
+    if (startsAtChanged) data.startsAt = new Date(body.startsAt!);
 
     if (body.language !== undefined && body.language !== row.language) {
       if (row.processingStartedAt !== null) throw conflict("language_locked", "The language cannot change once processing has started");
@@ -182,8 +207,45 @@ coreRouter.openapi(patchMeeting, async (c) => {
       }
     }
 
+    // ── the link and who may read through it ────────────────────────────────
+    const current: HostReference | null =
+      row.hostApp !== null && row.hostEntityType !== null && row.hostEntityId !== null
+        ? { app: row.hostApp, entityType: row.hostEntityType, entityId: row.hostEntityId }
+        : null;
+    const hostChange = body.host !== undefined && !sameHostRef(current, target);
+    // Linking needs a verified target; the one thing that can be missing is a link that changed since we looked.
+    if (hostChange && target && !verified) throw conflict("host_changed", "The link changed while you were editing it; reload and try again");
+    const next = hostChange ? target : current;
+
+    let hostVisible = body.hostVisible ?? row.hostVisible;
+    const offers = next ? (verified?.definition ?? registryGet(next))?.offersHostVisible === true : false;
+    if (!offers) {
+      // A standalone meeting, or a host that does not offer it, has no one to share with (AC-5.5).
+      if (body.hostVisible === true) throw unprocessable("This meeting cannot be made visible through its host", { field: "hostVisible" }, "host_visible_unavailable");
+      hostVisible = false;
+    }
+    if (hostVisible !== row.hostVisible) data.hostVisible = hostVisible;
+    if (hostChange) {
+      data.hostApp = next?.app ?? null;
+      data.hostEntityType = next?.entityType ?? null;
+      data.hostEntityId = next?.entityId ?? null;
+    }
+
+    // ── what the hosts must be told (AC-11.8): nothing for a change they cannot see ──
+    const title = titleChanged ? body.title! : row.title;
+    const startsAt = startsAtChanged ? new Date(body.startsAt!) : row.startsAt;
+    const subject = { id, creatorUserId: row.creatorUserId };
+    if (hostChange) {
+      if (current) noticeIds.push(await recordNotice(tx, subject, hostTarget(current), { event: "unlinked" }));
+      if (next) noticeIds.push(await recordNotice(tx, subject, hostTarget(next), { event: "linked", title, startsAt }));
+    } else if (current && (titleChanged || startsAtChanged)) {
+      noticeIds.push(await recordNotice(tx, subject, hostTarget(current), { event: "changed", title, startsAt }));
+    }
+
     if (Object.keys(data).length > 0) await tx.meeting.update({ where: { id }, data });
   });
 
+  // One awaited attempt, in seq order; the change stands whatever the host says (AC-11.9).
+  await deliverNotices(noticeIds);
   return c.json(await loadMeetingView(id, caller, new Date()), 200);
 });

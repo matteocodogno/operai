@@ -222,13 +222,13 @@ export async function deliverNotices(ids: readonly (string | null)[]): Promise<v
   if (wanted.length === 0) return;
   try {
     const rows = await db.hostNotice.findMany({ where: { id: { in: wanted } }, orderBy: { seq: "asc" } });
-    await Promise.all(
-      rows.map((row) =>
-        attemptDelivery(row).catch(() => {
-          console.error(`[hosts] could not record the outcome of a notice host=${row.hostApp}/${row.entityType}`);
-        }),
-      ),
-    );
+    // In seq order and one at a time: a relink sends "unlinked" (old) then "linked" (new), and a
+    // host applies by seq, so the later one must not overtake the earlier.
+    for (const row of rows) {
+      await attemptDelivery(row).catch(() => {
+        console.error(`[hosts] could not record the outcome of a notice host=${row.hostApp}/${row.entityType}`);
+      });
+    }
   } catch {
     console.error("[hosts] could not attempt host notices");
   }
