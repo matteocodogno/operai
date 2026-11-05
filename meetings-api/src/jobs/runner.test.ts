@@ -539,7 +539,10 @@ describe("the handler table", () => {
     const { handlers } = await import("./handlers");
     expect(Object.keys(handlers).sort()).toEqual(["deliver_host_notice", "prepare_audio", "summarize", "transcribe"]);
     const ctx = { job: {}, attempt: 1, attemptId: null, signal: new AbortController().signal, commit: async () => ({ committed: false as const }) };
-    for (const handler of Object.values(handlers)) {
+    // A kind drops out of this list when its task replaces the stub (T94: summarize).
+    const implemented = new Set(["summarize"]);
+    for (const [kind, handler] of Object.entries(handlers)) {
+      if (implemented.has(kind)) continue;
       const error = await handler(ctx as never).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(PermanentJobError);
       expect((error as PermanentJobError).code).toBe("not_implemented");
