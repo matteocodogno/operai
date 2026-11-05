@@ -742,6 +742,7 @@ model Meeting {                                   // @@map("meeting")
   status               MeetingStatus   @default(draft)
   stage                ProcessingStage?
   failureCode          String?         // closed set in code: audio_unreadable | provider_unavailable | provider_rejected | too_long
+                                       // on a draft: the last upload refusal, not a failure (Addendum 2026-11-05, AC-3.2)
   noSpeech             Boolean         @default(false)
   creatorUserId        String
   hostApp              String?         // hostApp/hostEntityType/hostEntityId: all or none (CHECK)
@@ -2900,3 +2901,57 @@ twice. The gate:
 - AC-7.13/9.9 → T119, T123;
 - AC-7.12/9.7 → T121;
 - AC-13.4 → T116, T120.
+
+## Addendum 2026-11-05 (draft failure.code contract, AC-3.2)
+
+Source: eval rounds 3/4; records what commits 76d6c29 and 77875d7 implement
+(`src/jobs/handlers/prepareAudio.ts` `refuseUpload`, `src/meetings/view.ts`,
+`src/capture/upload.routes.ts`). Nothing above is rewritten; this addendum takes precedence
+over the `failureCode` comment in § Data model and the `failure` field in § API contracts.
+
+**Data model: `Meeting.failureCode` means two things, told apart by `status`.**
+- `status = failed`: why processing failed (closed set unchanged). The sources are kept for retry.
+- `status = draft`: the **last refusal** of an uploaded file. The only value written today is
+  `too_long`. This is not a failure: the meeting can still be edited and take another upload.
+- Other statuses (`processing`, `ready`): always `null`. The confirm flip to `processing`
+  writes `failureCode = null`.
+
+**When it is written.** `prepare_audio` decodes the local file. If an **uploaded** source is over
+3 h (`NormalizeError too_long`), `refuseUpload` runs these steps in order:
+1. A guard commit proves this attempt still owns a `processing` meeting. If not, the result is
+   "stale", nothing changes, and a superseded attempt never deletes a newer upload.
+2. It deletes the exact original object keys it read. If the delete fails, the job stays
+   `processing` and is retried (`TransientJobError storage_delete`). Only the **last** attempt
+   falls back to `failed` with `failureCode = too_long`, keeping the sources, as before.
+3. One job-guarded transaction deletes the `meeting_upload` row and sets `status = draft`,
+   `failureCode = too_long`. The same write clears `stage`, `processingStartedAt`,
+   `processingRequestedBy`, `processedAt` and `durationMs`.
+
+A **recorded** source that is too long is unchanged: it ends `failed` with `too_long` and its
+chunks are kept. Confirm-time refusals are **not** persisted. These are the 422 `upload_rejected
+{reason}`, `too_large` and `unsupported_type` from `POST .../upload/confirm`: the object is
+deleted, the meeting stays `draft` and `failureCode` is not touched. The client learns of them
+only from the 422 response.
+
+**View contract.** `Meeting.failure` is `{ code: failureCode }` when
+`(status = 'failed' || status = 'draft') && failureCode !== null`, otherwise `null`. A client
+reads `failure` on a `draft` as "the last file was refused (code), upload another", not as
+"processing failed". On a draft the retry action does not apply: AC-6.9 retry still needs
+`failed`.
+
+**Notification.** After step 3 commits, the creator gets a best-effort in-app notification of
+kind `upload_refused`. The recipient is `processingRequestedBy` read before the flip, falling
+back to `creatorUserId`; only the creator uploads, so in practice this is the creator. It is sent
+in English and Italian (ADR-0065), and goes through the same `announceProcessing` path as
+`transcription_done`/`transcription_failed`. EN copy: "File refused: <title>" / "The file
+uploaded for \"<title>\" is longer than 3 hours and was removed. Open the meeting to upload a
+shorter file." The refusal path enqueues no host notice.
+
+**Clearing rule.** The next upload mint (`POST .../upload`) clears `failureCode` to `null`. It does
+this in the **same transaction** as the `meeting_upload` upsert, and only `WHERE status = 'draft'`.
+A meeting that left `draft` in the meantime keeps its own `failureCode`. The confirm flip to
+`processing` also writes `null`. No other path clears it, and nothing derives or sweeps it.
+
+**Tests:** `src/jobs/handlers/prepareAudio.refuse.test.ts` (refuse, delete-failure retry and
+last-attempt fallback, stale attempt does not delete a newer upload, recorded source still
+fails) and `src/capture/upload.test.ts` (mint clears only on a draft, in the transaction).
