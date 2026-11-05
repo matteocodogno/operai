@@ -960,20 +960,19 @@ describe("what the adapter logs (AC-4.10)", () => {
   });
 });
 
-describe("the overlap fixtures (recorded shape; T116, replaced by recordings in T124)", () => {
-  const spans = [{ startMs: 0, endMs: 50_000 }, { startMs: 30_000, endMs: 80_000 }];
+describe("the recorded overlap fixtures (T124: real Chirp 3 output of a 60-minute synthetic file, boundary 1|2)", () => {
+  const meta = JSON.parse(fixture("overlap-recorded-meta.json"))["overlap-it"] as { parts: { startMs: number; endMs: number }[]; silences: { startMs: number; endMs: number }[] };
 
-  it("two consecutive overlapping parts: every word once, the same speaker joined across the parts, no gap", async () => {
-    const w = world({ spans, silences: [], output: (part) => fixture(`overlap-part-${part}.json`) });
+  it("two consecutive overlapping parts: the overlap appears once, both speakers are joined across the parts, no gap", async () => {
+    const w = world({ spans: meta.parts, silences: meta.silences, output: (part) => fixture(`overlap-it-part-${part}.json`) });
     const outcome = segmentsOf(await w.run("it-IT"));
-    const words = outcome.segments.flatMap((s) => s.text.split(" "));
-    expect(words).toHaveLength(160); // 0-80 s, a word every 0.5 s
-    expect(new Set(words).size).toBe(160);
     expect(outcome.gaps).toEqual([]);
     expect(w.submits).toHaveLength(2);
-    // speaker A (0-40 s) returns after speaker B (60-80 s) under part 2's label 1, which the overlap joins to part 1's label 0
-    // (a segment carries one part, so speaker B's run is cut where the seam is)
-    expect(outcome.segments.map((s) => s.speakerKey)).toEqual(["s1", "s2", "s2", "s1"]);
-    expect(outcome.segments.map((s) => s.part)).toEqual([1, 1, 2, 2]);
+    // 335 + 339 words returned, 272 of them said in both parts and kept once
+    expect(outcome.segments.flatMap((s) => s.text.split(" "))).toHaveLength(335 + 339 - 272);
+    const keysOf = (part: number) => new Set(outcome.segments.filter((s) => s.part === part).map((s) => s.speakerKey));
+    expect(keysOf(1).size).toBe(2);
+    expect(keysOf(2)).toEqual(keysOf(1));
+    expect(outcome.parts).toEqual(meta.parts);
   });
 });
