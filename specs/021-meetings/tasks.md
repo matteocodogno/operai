@@ -582,23 +582,23 @@ database after `bun run db:deploy`.
   - touch: `AGENTS.md`
   - done when: `grep -Ec 'docs/adr/00(5[89]|6[0-8])-' AGENTS.md` prints 11 and `mise run env:doctor` still passes (no contract drift introduced by the docs)
 
-- [ ] T86: [QE] e2e harness for meetings: `meetingsFixtures.ts` (seed meetings/participants via the API, start/stop the fake host, sessions with/without `meetings:access` / `crm-technical`), Playwright Chromium fake-media flags, stack env (`MEETINGS_AI_PROVIDER=fake`, `MEETINGS_TEST_HOSTS`) — refs: AC-11.4 — deps: T21, T23, T49, T80
+- [x] T86: [QE] e2e harness for meetings: `meetingsFixtures.ts` (seed meetings/participants via the API, start/stop the fake host, sessions with/without `meetings:access` / `crm-technical`), Playwright Chromium fake-media flags, stack env (`MEETINGS_AI_PROVIDER=fake`, `MEETINGS_TEST_HOSTS`) — refs: AC-11.4 — deps: T21, T23, T49, T80
   - touch: `shell/e2e/helpers/meetingsFixtures.ts`, `shell/e2e/meetings-smoke.spec.ts`, `shell/playwright.config.ts`
   - done when: `cd shell && pnpm e2e --list` lists the meetings projects, and `pnpm e2e meetings-smoke.spec.ts` (seed one meeting through the helper, open it in My meetings) passes against the running stack (`mise run dev`)
 
-- [ ] T87: [QE] e2e access journeys: a zero-grant user reaches My meetings from the user menu and sees only their own; a read-only participant has no controls and no sidebar entry; a holder sees Meetings with New meeting and Templates; a user without the grant sees no Start meeting on a deal — refs: AC-10.1, AC-10.4, AC-10.5, AC-1.4 — deps: T55, T57, T76, T77, T86
+- [x] T87: [QE] e2e access journeys: a zero-grant user reaches My meetings from the user menu and sees only their own; a read-only participant has no controls and no sidebar entry; a holder sees Meetings with New meeting and Templates; a user without the grant sees no Start meeting on a deal — refs: AC-10.1, AC-10.4, AC-10.5, AC-1.4 — deps: T55, T57, T76, T77, T86
   - touch: `shell/e2e/meetings-access.spec.ts`
   - done when: `cd shell && pnpm e2e meetings-access.spec.ts` passes against the stack
 
-- [ ] T88: [QE] e2e deal journey: start meeting from a deal (prefilled "Deal · title") → consent → record with the fake device → stop → `ready` (fake AI) → the meeting is in the deal section and in My meetings → the deal timeline shows the activity; link an existing meeting from the panel; a CRM reader without access follows the activity link to not found; `crm-technical` cannot see a host-visible meeting — refs: AC-1.1, AC-2.2, AC-11.2, AC-11.3, AC-14.1, AC-14.4, AC-5.6 — deps: T9, T22, T32, T56, T61, T64, T76, T77, T78, T86
+- [x] T88: [QE] e2e deal journey: start meeting from a deal (prefilled "Deal · title") → consent → record with the fake device → stop → `ready` (fake AI) → the meeting is in the deal section and in My meetings → the deal timeline shows the activity; link an existing meeting from the panel; a CRM reader without access follows the activity link to not found; `crm-technical` cannot see a host-visible meeting — refs: AC-1.1, AC-2.2, AC-11.2, AC-11.3, AC-14.1, AC-14.4, AC-5.6 — deps: T9, T22, T32, T56, T61, T64, T76, T77, T78, T86
   - touch: `shell/e2e/meetings-deal.spec.ts`
   - done when: `cd shell && pnpm e2e meetings-deal.spec.ts` passes against the stack
 
-- [ ] T89: [QE] e2e capture robustness: offline 40 s then back → every chunk saved; close the page mid-recording → reopen shows `interrupted` with duration ≥ recorded − 20 s; sidebar click while recording → shell confirmation; after Stop and after Discard the browser storage is empty; keyboard-only recording and an axe pass on the capture page, meeting page and list — refs: AC-2.8, AC-2.9, AC-2.10, AC-4.11, AC-13.3 — deps: T27, T50, T57, T64, T65, T86
+- [x] T89: [QE] e2e capture robustness: offline 40 s then back → every chunk saved; close the page mid-recording → reopen shows `interrupted` with duration ≥ recorded − 20 s; sidebar click while recording → shell confirmation; after Stop and after Discard the browser storage is empty; keyboard-only recording and an axe pass on the capture page, meeting page and list — refs: AC-2.8, AC-2.9, AC-2.10, AC-4.11, AC-13.3 — deps: T27, T50, T57, T64, T65, T86
   - touch: `shell/e2e/meetings-capture.spec.ts`
   - done when: `cd shell && pnpm e2e meetings-capture.spec.ts` passes against the stack
 
-- [ ] T90: [QE] e2e failure and deletion: meetings-api stopped → the deal page loads with the Meetings-unavailable section; the creator deletes a meeting through the cannot-be-undone dialog → gone from lists, link → not found; an erase holder finds and deletes a meeting from Erase without seeing content — refs: AC-11.6, AC-4.6, AC-4.7 — deps: T25, T51, T75, T77, T86
+- [x] T90: [QE] e2e failure and deletion: meetings-api stopped → the deal page loads with the Meetings-unavailable section; the creator deletes a meeting through the cannot-be-undone dialog → gone from lists, link → not found; an erase holder finds and deletes a meeting from Erase without seeing content — refs: AC-11.6, AC-4.6, AC-4.7 — deps: T25, T51, T75, T77, T86
   - touch: `shell/e2e/meetings-failure.spec.ts`
   - done when: `cd shell && pnpm e2e meetings-failure.spec.ts` passes against the stack
 
