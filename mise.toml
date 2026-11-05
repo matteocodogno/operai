@@ -50,12 +50,13 @@ dir = "operai-ui"
 run = "pnpm install --frozen-lockfile && pnpm storybook"
 
 [tasks."ui:check"]
-description = "Check @operai/ui and its consumers: library typecheck/lint/tests/Storybook build, then shell + refund-ui build and tests"
+description = "Check @operai/ui and its consumers: library typecheck/lint/tests/Storybook build, then shell + refund-ui + meetings-ui build and tests"
 run = """
 set -e
 (cd operai-ui && pnpm typecheck && pnpm lint && pnpm test && pnpm build-storybook --quiet)
 (cd shell && pnpm build && pnpm test)
 (cd refund-ui && pnpm build && pnpm lint && pnpm test)
+(cd meetings-ui && pnpm build && pnpm lint && pnpm test)
 """
 
 # --- Shared-copy drift guard: a few backend modules are COPIED between services
@@ -77,10 +78,10 @@ run = "bun tools/env-doctor/index.ts"
 
 # Run the WHOLE Operai suite locally (Module Federation, specs/003 + specs/005
 # + specs/007 + specs/015): Postgres + MinIO (local S3 for refund receipts and
-# inventory invoices) + all FIVE backends + the five tool frontends, one
+# inventory invoices) + all SIX backends + the six tool frontends, one
 # command. Ports: auth 3001, estimai-api 8080, notify-api 8081, refund-api
-# 8082, inventory-api 8083, crm-api 8084, shell 5173, estimai-ui 5174,
-# refund-ui 5175, notify-ui 5176, admin-ui 5177, inventory-ui 5178, crm-ui 5179 (frontend ports pinned in
+# 8082, inventory-api 8083, crm-api 8084, meetings-api 8085, shell 5173, estimai-ui 5174,
+# refund-ui 5175, notify-ui 5176, admin-ui 5177, inventory-ui 5178, crm-ui 5179, meetings-ui 5180 (frontend ports pinned in
 # each app's vite.config.ts); MinIO S3 9000 + console 9001. Open
 # http://localhost:5173 (the shell).
 # `trap 'kill 0'` reaps every child (backends + vite) on Ctrl-C. Postgres +
@@ -94,9 +95,13 @@ run = "bun tools/env-doctor/index.ts"
 # their secrets from their own `.envrc` (direnv + 1Password — refund-api's own .envrc has no
 # 1Password-sourced secrets yet, see refund-api/.envrc). The `direnv exec .`
 # wrappers below load `auth/.envrc` / `estimai-api/.envrc` / `notify-api/.envrc`
-# / `refund-api/.envrc` / `inventory-api/.envrc` explicitly — mise runs the task non-interactively, so
+# / `refund-api/.envrc` / `inventory-api/.envrc` / `crm-api/.envrc` explicitly — mise runs the task non-interactively, so
 # direnv's shell hook does NOT fire on its own (without this, the backends fall
 # back to placeholder creds and e.g. Google OAuth fails with `invalid_client`).
+#
+# meetings-api (specs/021) has NO .envrc yet: its `direnv exec .` below loads nothing
+# until one is added (mirror crm-api/.envrc: DATABASE_URL, AUTH_*, MEETINGS_S3_*, provider
+# keys), so until then those variables must be in the calling shell.
 #
 # Frontend env: admin-ui ALSO has its own `.envrc` (VITE_GOOGLE_MAPS_API_KEY,
 # specs/012 / ADR-0032) and so runs through `direnv exec .` too — note the
@@ -117,7 +122,7 @@ run = "bun tools/env-doctor/index.ts"
 # federation plugin adds is incompatible with React Fast Refresh's
 # consistent-exports rule); edits deeper in a remote's tree Fast-Refresh normally.
 [tasks.dev]
-description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179"
+description = "Run the FULL suite locally with HMR — Postgres + MinIO (S3 :9000, console :9001) + auth :3001 + estimai-api :8080 + notify-api :8081 + refund-api :8082 + inventory-api :8083 + crm-api :8084 + meetings-api :8085 + shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180"
 run = """
 docker compose up -d postgres minio minio-createbucket
 trap 'kill 0' EXIT INT TERM
@@ -127,11 +132,13 @@ trap 'kill 0' EXIT INT TERM
 (cd refund-api && direnv exec . bun run dev) &
 (cd inventory-api && direnv exec . bun run dev) &
 (cd crm-api && direnv exec . bun run dev) &
+(cd meetings-api && direnv exec . bun run dev) &
 pnpm --dir shell dev &
 pnpm --dir estimai-ui dev &
 pnpm --dir refund-ui dev &
 pnpm --dir inventory-ui dev &
 pnpm --dir crm-ui dev &
+pnpm --dir meetings-ui dev &
 (cd admin-ui && direnv exec . pnpm dev) &
 pnpm --dir notify-ui dev &
 node scripts/open-when-ready.mjs http://localhost:5173 http://localhost:3001/health &
@@ -141,21 +148,21 @@ wait
 # Frontends only (HMR) — for when the backends are already running elsewhere
 # (e.g. you started auth/estimai-api/notify-api/refund-api/inventory-api in their own terminals).
 [tasks."dev:web"]
-description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 (backends run separately)"
-run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
+description = "Frontends only (HMR) — shell :5173 + estimai-ui :5174 + refund-ui :5175 + notify-ui :5176 + admin-ui :5177 + inventory-ui :5178 + crm-ui :5179 + meetings-ui :5180 (backends run separately)"
+run = "trap 'kill 0' EXIT INT TERM; pnpm --dir shell dev & pnpm --dir estimai-ui dev & pnpm --dir refund-ui dev & pnpm --dir inventory-ui dev & pnpm --dir crm-ui dev & pnpm --dir meetings-ui dev & (cd admin-ui && direnv exec . pnpm dev) & pnpm --dir notify-ui dev & node scripts/open-when-ready.mjs http://localhost:5173 & wait"
 
 # Full stack, but the frontends run build + preview instead of dev: no HMR, but
 # deterministic and mirrors the Vercel deploy shape (independently built + served
 # remotes) — the same mode the e2e uses (shell/playwright.config.ts). Builds gate
 # the previews. Same prereqs + ports as `dev`.
 [tasks."dev:preview"]
-description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + built frontends"
+description = "Full suite, frontends build+preview (no HMR; mirrors deploy) — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + built frontends"
 run = """
 docker compose up -d postgres minio minio-createbucket
 # admin-ui builds through direnv: Vite bakes `import.meta.env.VITE_*` at BUILD
 # time, so without its .envrc here the preview bundle ships with no Maps key and
 # address autocomplete degrades silently (AC-3.2, specs/012) — invisibly.
-pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir inventory-ui build && pnpm --dir crm-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
+pnpm --dir shell build && pnpm --dir estimai-ui build && pnpm --dir refund-ui build && pnpm --dir inventory-ui build && pnpm --dir crm-ui build && pnpm --dir meetings-ui build && (cd admin-ui && direnv exec . pnpm build) && pnpm --dir notify-ui build
 trap 'kill 0' EXIT INT TERM
 (cd auth && direnv exec . bun run dev) &
 (cd estimai-api && direnv exec . bun run dev) &
@@ -163,25 +170,27 @@ trap 'kill 0' EXIT INT TERM
 (cd refund-api && direnv exec . bun run dev) &
 (cd inventory-api && direnv exec . bun run dev) &
 (cd crm-api && direnv exec . bun run dev) &
+(cd meetings-api && direnv exec . bun run dev) &
 pnpm --dir shell preview &
 pnpm --dir estimai-ui preview &
 pnpm --dir refund-ui preview &
 pnpm --dir inventory-ui preview &
 pnpm --dir crm-ui preview &
+pnpm --dir meetings-ui preview &
 pnpm --dir admin-ui preview &
 pnpm --dir notify-ui preview &
 node scripts/open-when-ready.mjs http://localhost:5173 http://localhost:3001/health &
 wait
 """
 
-# One-time / occasional: bring up Postgres and apply all five backends' Prisma
+# One-time / occasional: bring up Postgres and apply all six backends' Prisma
 # migrations (non-interactive `migrate deploy`). Run this before the first
 # `mise run dev` (or after pulling new migrations). refund-api has no
 # migrations yet (T5 lands prisma/migrations/0001_init) — `db:deploy` against
 # an empty migrations directory is a no-op, not an error, so this stays safe
 # to run today.
 [tasks."db:migrate"]
-description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api (needs backend env configured)"
+description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api (needs backend env configured)"
 run = """
 docker compose up -d postgres
 (cd auth && direnv exec . bun run db:deploy)
@@ -190,4 +199,5 @@ docker compose up -d postgres
 (cd refund-api && direnv exec . bun run db:deploy)
 (cd inventory-api && direnv exec . bun run db:deploy)
 (cd crm-api && direnv exec . bun run db:deploy)
+(cd meetings-api && direnv exec . bun run db:deploy)
 """
