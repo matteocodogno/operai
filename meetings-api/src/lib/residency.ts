@@ -1,81 +1,119 @@
 /**
  * Synchronous residency checks for the AI providers (specs/021-meetings AC-4.9,
- * plan.md § AI providers and residency, ADR-0061). Pure functions over the
+ * plan.md § Amendment 2026-11-05 G-5, ADR-0069). Pure functions over the
  * configured strings: `env.ts` runs them while parsing, so a misconfiguration
  * stops the process before it listens.
  *
  * A refusal NAMES the variable and never echoes the value it refused: the
- * startup output is read by operators and by log aggregators, and a region or
- * endpoint is configuration, but the habit of printing offending values is how
- * a key ends up in a log line.
+ * startup output is read by operators and by log aggregators, and a location is
+ * configuration, but the habit of printing offending values is how a key ends up
+ * in a log line.
  *
- * The checks that need the network (Bedrock inference-profile destinations, the
- * retention mode, the bucket lifecycle) are startup checks of their own tasks
- * (T14, T35); this file is what can be decided from the environment alone.
+ * The checks that need the network (the transient bucket, Vertex caching and
+ * request-response logging) are startup checks of their own (`startupChecks.ts`);
+ * this file is what can be decided from the environment alone (S1-S5).
  */
+
+/** S1. Chirp 3 is generally available in `eu` and `us` only; `us` is outside the permitted jurisdiction. */
+export const SPEECH_ALLOWED_LOCATIONS = ["eu"] as const;
 
 /**
- * Azure regions where fast transcription runs (plan.md table, Microsoft's
- * region list) AND that are in the EU, plus the two Swiss regions: residency
- * allows Switzerland, even though fast transcription is batch-only there today,
- * so a future availability change needs no code change. West Europe
- * (Amsterdam, next to Railway) is the recommended region.
+ * S2. Vertex locations whose data stays in the EU: the `eu` multi-region (current Claude models) and the two
+ * single regions Google lists for older ones. `global` gives no residency guarantee and is never allowed;
+ * London (`europe-west2`) is not EU.
  */
-export const AZURE_ALLOWED_REGIONS = [
-  "francecentral",
-  "germanywestcentral",
-  "italynorth",
-  "northeurope",
-  "swedencentral",
-  "westeurope",
-  "switzerlandnorth",
-  "switzerlandwest",
-] as const;
+export const VERTEX_ALLOWED_LOCATIONS = ["eu", "europe-west1", "europe-west4"] as const;
 
-/** Bedrock regions in the EU. London (eu-west-2) is not EU. */
-export const BEDROCK_ALLOWED_REGIONS = [
-  "eu-central-1",
-  "eu-central-2",
-  "eu-west-1",
-  "eu-west-3",
-  "eu-north-1",
-  "eu-south-1",
-  "eu-south-2",
-] as const;
-
-/** Microsoft hosts whose FIRST label is the region: the only endpoints whose location can be read from the name. */
-const AZURE_REGIONAL_HOST_SUFFIXES = [".api.cognitive.microsoft.com", ".stt.speech.microsoft.com"] as const;
-
-/**
- * `null` when `region` is allowed and, if given, `endpoint` is an https URL on a
- * Microsoft regional host naming that same region. A custom-domain endpoint
- * (`<name>.cognitiveservices.azure.com`) hides its region, so it cannot be
- * verified and is refused rather than trusted.
- */
-export function checkAzureResidency(region: string, endpoint: string | undefined): string | null {
-  if (!(AZURE_ALLOWED_REGIONS as readonly string[]).includes(region)) {
-    return `AZURE_SPEECH_REGION is not an EU or Swiss region. Allowed: ${AZURE_ALLOWED_REGIONS.join(", ")}`;
-  }
-  if (endpoint === undefined) return null;
-
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    return "AZURE_SPEECH_ENDPOINT is not a valid URL";
-  }
-  const host = url.hostname.toLowerCase();
-  const matches =
-    url.protocol === "https:" && AZURE_REGIONAL_HOST_SUFFIXES.some((suffix) => host === `${region}${suffix}`);
-  return matches
+/** S1: `null` when `location` is the one allowed Speech location. */
+export function checkSpeechLocation(location: string): string | null {
+  return (SPEECH_ALLOWED_LOCATIONS as readonly string[]).includes(location)
     ? null
-    : "AZURE_SPEECH_ENDPOINT must be an https Microsoft regional host (<region>.api.cognitive.microsoft.com or " +
-        "<region>.stt.speech.microsoft.com) for the same region as AZURE_SPEECH_REGION";
+    : `MEETINGS_SPEECH_LOCATION is not an allowed location. Allowed: ${SPEECH_ALLOWED_LOCATIONS.join(", ")}`;
 }
 
-/** `null` when `region` is one of the EU Bedrock regions. */
-export function checkBedrockRegion(region: string): string | null {
-  return (BEDROCK_ALLOWED_REGIONS as readonly string[]).includes(region)
+/** S2: `null` when `location` is an EU Vertex location. */
+export function checkVertexLocation(location: string): string | null {
+  return (VERTEX_ALLOWED_LOCATIONS as readonly string[]).includes(location)
     ? null
-    : `BEDROCK_REGION is not an EU region. Allowed: ${BEDROCK_ALLOWED_REGIONS.join(", ")}`;
+    : `MEETINGS_VERTEX_LOCATION is not an allowed EU location. Allowed: ${VERTEX_ALLOWED_LOCATIONS.join(", ")}`;
+}
+
+/**
+ * S3: a Claude model id that is not designated "Advanced AI" by Vertex (Fable and Mythos: prompt and response
+ * logging for up to 30 days that may not be possible to opt out of).
+ */
+export function checkVertexModelId(modelId: string): string | null {
+  if (!/^claude-[a-z0-9.@-]+$/.test(modelId)) {
+    return "MEETINGS_VERTEX_MODEL_ID must be a Claude model id (claude-...)";
+  }
+  if (/fable|mythos/i.test(modelId)) {
+    return "MEETINGS_VERTEX_MODEL_ID names a model that Google retains prompts and responses for; it is refused";
+  }
+  return null;
+}
+
+/** A Google Cloud project id: 6-30 chars, lowercase letters, digits and hyphens, starting with a letter. */
+export const GCP_PROJECT_ID_PATTERN = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+
+/** A Cloud Storage bucket name (3-63 chars; letters, digits, `-`, `_`, `.`; not an IP-like name). */
+export const GCS_BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$/;
+
+/** The members of a service-account key this service uses. */
+export interface ServiceAccountKey {
+  readonly projectId: string;
+  readonly clientEmail: string;
+  readonly privateKey: string;
+}
+
+/**
+ * S4: decodes `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` (base64 of the key's JSON). `error` names the problem and never
+ * a value; `key` is the parsed key otherwise. The caller keeps `key` away from logs.
+ */
+export function parseServiceAccountKey(
+  encoded: string,
+  projectId: string | undefined,
+): { readonly key: ServiceAccountKey; readonly error?: undefined } | { readonly key?: undefined; readonly error: string } {
+  const fail = (error: string) => ({ error });
+  if (encoded.length === 0 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY is not base64");
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+  } catch {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY does not decode to JSON");
+  }
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY does not decode to a JSON object");
+  }
+  const o = json as Record<string, unknown>;
+  if (o["type"] !== "service_account") return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY is not a service_account key");
+  if (typeof o["project_id"] !== "string" || o["project_id"] === "") {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY has no project_id");
+  }
+  if (projectId !== undefined && o["project_id"] !== projectId) {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY belongs to a different project than MEETINGS_GCP_PROJECT_ID");
+  }
+  if (typeof o["client_email"] !== "string" || o["client_email"] === "") {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY has no client_email");
+  }
+  if (typeof o["private_key"] !== "string" || o["private_key"] === "") {
+    return fail("MEETINGS_GCP_SERVICE_ACCOUNT_KEY has no private_key");
+  }
+  return { key: { projectId: o["project_id"], clientEmail: o["client_email"], privateKey: o["private_key"] } };
+}
+
+/**
+ * S5: `null` when no ambient Vertex base-URL override is set. The adapter passes its own base URL, but an
+ * override left in the environment is a misconfiguration worth stopping on (R13).
+ */
+export function checkNoVertexBaseUrlOverride(value: string | undefined): string | null {
+  return value === undefined || value === ""
+    ? null
+    : "ANTHROPIC_VERTEX_BASE_URL must not be set: the Vertex base URL is derived from MEETINGS_VERTEX_LOCATION";
+}
+
+/** The Vertex host for an allowed location: the `eu` multi-region has its own `rep` host. */
+export function vertexHost(location: string): string {
+  return location === "eu" ? "aiplatform.eu.rep.googleapis.com" : `${location}-aiplatform.googleapis.com`;
 }

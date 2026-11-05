@@ -1,69 +1,105 @@
 import { describe, expect, it } from "bun:test";
 import {
-  AZURE_ALLOWED_REGIONS,
-  BEDROCK_ALLOWED_REGIONS,
-  checkAzureResidency,
-  checkBedrockRegion,
+  SPEECH_ALLOWED_LOCATIONS,
+  VERTEX_ALLOWED_LOCATIONS,
+  checkNoVertexBaseUrlOverride,
+  checkSpeechLocation,
+  checkVertexLocation,
+  checkVertexModelId,
+  parseServiceAccountKey,
+  vertexHost,
 } from "./residency";
 
-// AC-4.9: transcription and language processing stay in the EU and Switzerland.
-describe("checkAzureResidency", () => {
-  it("accepts every allowlisted region with its default endpoint", () => {
-    for (const region of AZURE_ALLOWED_REGIONS) expect(checkAzureResidency(region, undefined)).toBeNull();
-  });
-
-  it("includes westeurope, the plan's recommended region", () => {
-    expect(AZURE_ALLOWED_REGIONS).toContain("westeurope");
-  });
-
-  it("refuses a region outside the EU and Switzerland", () => {
-    for (const region of ["eastus", "uksouth", "southeastasia", "WESTEUROPE ", ""]) {
-      expect(checkAzureResidency(region, undefined)).not.toBeNull();
-    }
-  });
-
-  it("accepts an endpoint whose host names the same region", () => {
-    expect(checkAzureResidency("westeurope", "https://westeurope.api.cognitive.microsoft.com")).toBeNull();
-    expect(checkAzureResidency("westeurope", "https://westeurope.stt.speech.microsoft.com/")).toBeNull();
-  });
-
-  it("refuses an endpoint in another region than the configured one", () => {
-    expect(checkAzureResidency("westeurope", "https://eastus.api.cognitive.microsoft.com")).not.toBeNull();
-  });
-
-  it("refuses an endpoint on a host that cannot be tied to a region", () => {
-    expect(checkAzureResidency("westeurope", "https://my-speech.cognitiveservices.azure.com")).not.toBeNull();
-    expect(checkAzureResidency("westeurope", "https://evil.example.com")).not.toBeNull();
-    // a lookalike: the region label must be the FIRST label of a Microsoft host
-    expect(checkAzureResidency("westeurope", "https://westeurope.api.cognitive.microsoft.com.evil.example")).not.toBeNull();
-    expect(checkAzureResidency("westeurope", "http://westeurope.api.cognitive.microsoft.com")).not.toBeNull();
-  });
-
-  it("refuses an endpoint that is not a URL", () => {
-    expect(checkAzureResidency("westeurope", "not a url")).not.toBeNull();
+// AC-4.9: transcription and language processing stay in the EU.
+describe("checkSpeechLocation (S1)", () => {
+  it("allows eu only", () => {
+    expect([...SPEECH_ALLOWED_LOCATIONS]).toEqual(["eu"]);
+    expect(checkSpeechLocation("eu")).toBeNull();
+    for (const location of ["us", "global", "europe-west4", "EU", ""]) expect(checkSpeechLocation(location)).not.toBeNull();
   });
 
   it("never echoes the value it refuses", () => {
-    const message = checkAzureResidency("secret-region-xyz", undefined) ?? "";
-    expect(message).not.toContain("secret-region-xyz");
+    expect(checkSpeechLocation("secret-loc-9") ?? "").not.toContain("secret-loc-9");
   });
 });
 
-describe("checkBedrockRegion", () => {
-  it("accepts the seven EU regions of the plan", () => {
-    expect([...BEDROCK_ALLOWED_REGIONS].sort() as string[]).toEqual(
-      ["eu-central-1", "eu-central-2", "eu-north-1", "eu-south-1", "eu-south-2", "eu-west-1", "eu-west-3"].sort(),
-    );
-    for (const region of BEDROCK_ALLOWED_REGIONS) expect(checkBedrockRegion(region)).toBeNull();
+describe("checkVertexLocation (S2)", () => {
+  it("allows eu, europe-west1 and europe-west4", () => {
+    expect([...VERTEX_ALLOWED_LOCATIONS].sort()).toEqual(["eu", "europe-west1", "europe-west4"]);
+    for (const location of VERTEX_ALLOWED_LOCATIONS) expect(checkVertexLocation(location)).toBeNull();
   });
 
-  it("refuses London (not EU), the US and anything else", () => {
-    for (const region of ["eu-west-2", "us-east-1", "us-west-2", "ap-southeast-1", "eu", ""]) {
-      expect(checkBedrockRegion(region)).not.toBeNull();
+  it("refuses global, the US, London and anything else", () => {
+    for (const location of ["global", "us", "us-central1", "europe-west2", "europe-west3", "eu-central-1", ""]) {
+      expect(checkVertexLocation(location)).not.toBeNull();
     }
   });
 
   it("never echoes the value it refuses", () => {
-    expect(checkBedrockRegion("us-secret-9") ?? "").not.toContain("us-secret-9");
+    expect(checkVertexLocation("us-secret-9") ?? "").not.toContain("us-secret-9");
+  });
+});
+
+describe("vertexHost", () => {
+  it("uses the eu multi-region host for eu and the regional host otherwise", () => {
+    expect(vertexHost("eu")).toBe("aiplatform.eu.rep.googleapis.com");
+    expect(vertexHost("europe-west4")).toBe("europe-west4-aiplatform.googleapis.com");
+  });
+});
+
+describe("checkVertexModelId (S3)", () => {
+  it("accepts Claude ids, versioned or not", () => {
+    for (const id of ["claude-sonnet-5-0", "claude-opus-4-7@20260401", "claude-haiku-4.5"]) expect(checkVertexModelId(id)).toBeNull();
+  });
+
+  it("refuses Fable and Mythos in any case, and anything that is not a Claude id", () => {
+    for (const id of ["claude-fable-1", "claude-sonnet-mythos", "CLAUDE-FABLE", "gemini-3", "claude_x", "claude-", "", "claude-a b"]) {
+      expect(checkVertexModelId(id)).not.toBeNull();
+    }
+  });
+
+  it("never echoes the id", () => {
+    expect(checkVertexModelId("claude-fable-secret") ?? "").not.toContain("secret");
+  });
+});
+
+describe("parseServiceAccountKey (S4)", () => {
+  const encode = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64");
+  const good = { type: "service_account", project_id: "proj-abcde", client_email: "a@b.c", private_key: "k" };
+
+  it("returns the parts this service uses", () => {
+    const r = parseServiceAccountKey(encode(good), "proj-abcde");
+    expect(r.error).toBeUndefined();
+    expect(r.key).toEqual({ projectId: "proj-abcde", clientEmail: "a@b.c", privateKey: "k" });
+  });
+
+  it("refuses non-base64, non-JSON, non-objects, other types, other projects and missing members", () => {
+    const bad = [
+      "***",
+      "",
+      Buffer.from("nope").toString("base64"),
+      encode([good]),
+      encode({ ...good, type: "external_account" }),
+      encode({ ...good, project_id: "other-project" }),
+      encode({ ...good, project_id: undefined }),
+      encode({ ...good, client_email: undefined }),
+      encode({ ...good, private_key: undefined }),
+    ];
+    for (const encoded of bad) expect(parseServiceAccountKey(encoded, "proj-abcde").error).toBeDefined();
+  });
+
+  it("its messages never contain the key, the email or the project ids", () => {
+    const encoded = encode({ ...good, project_id: "other-project" });
+    const message = parseServiceAccountKey(encoded, "proj-abcde").error ?? "";
+    for (const secret of ["other-project", "proj-abcde", "a@b.c", encoded]) expect(message).not.toContain(secret);
+  });
+});
+
+describe("checkNoVertexBaseUrlOverride (S5)", () => {
+  it("passes when unset or empty and refuses any value without echoing it", () => {
+    expect(checkNoVertexBaseUrlOverride(undefined)).toBeNull();
+    expect(checkNoVertexBaseUrlOverride("")).toBeNull();
+    expect(checkNoVertexBaseUrlOverride("https://evil.example") ?? "").not.toContain("evil");
+    expect(checkNoVertexBaseUrlOverride("https://evil.example")).not.toBeNull();
   });
 });

@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { checkEuResidency, isAwsS3Endpoint } from "./s3Residency";
-import { checkAzureResidency, checkBedrockRegion } from "./residency";
+import {
+  GCP_PROJECT_ID_PATTERN,
+  GCS_BUCKET_NAME_PATTERN,
+  checkNoVertexBaseUrlOverride,
+  checkSpeechLocation,
+  checkVertexLocation,
+  checkVertexModelId,
+  parseServiceAccountKey,
+} from "./residency";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 //
@@ -15,13 +23,15 @@ import { checkAzureResidency, checkBedrockRegion } from "./residency";
 // without audio storage is meaningless, so MEETINGS_S3_* is required.
 
 const NOTIFY_KEYS = ["NOTIFY_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"] as const;
+// plan.md § Amendment 2026-11-05 G-7: all six with MEETINGS_AI_PROVIDER=real; optional (and validated
+// when set) with the fake, so the local dev path needs no Google project.
 const REAL_PROVIDER_KEYS = [
-  "AZURE_SPEECH_REGION",
-  "AZURE_SPEECH_KEY",
-  "BEDROCK_REGION",
-  "BEDROCK_MODEL_ID",
-  "MEETINGS_AWS_ACCESS_KEY_ID",
-  "MEETINGS_AWS_SECRET_ACCESS_KEY",
+  "MEETINGS_SPEECH_LOCATION",
+  "MEETINGS_VERTEX_LOCATION",
+  "MEETINGS_VERTEX_MODEL_ID",
+  "MEETINGS_GCP_PROJECT_ID",
+  "MEETINGS_GCP_SERVICE_ACCOUNT_KEY",
+  "MEETINGS_GCS_TRANSIENT_BUCKET",
 ] as const;
 const PRODUCTION_REQUIRED_KEYS = [...NOTIFY_KEYS, "CRM_API_URL"] as const;
 
@@ -86,16 +96,20 @@ const envSchema = z
     // validated by the host registry (src/hosts/registry.ts).
     MEETINGS_TEST_HOSTS: z.string().optional(),
 
-    // ─── AI providers (ADR-0061) ────────────────────────────────────────────
+    // ─── AI providers (ADR-0061 principle, ADR-0069 providers) ──────────────
     MEETINGS_AI_PROVIDER: oneOf(["real", "fake"], "MEETINGS_AI_PROVIDER").default("real"),
-    AZURE_SPEECH_REGION: optionalString(),
-    AZURE_SPEECH_KEY: optionalString(),
-    // Optional: derived from the region when absent. When set, it must name that same region.
-    AZURE_SPEECH_ENDPOINT: optionalString(),
-    BEDROCK_REGION: optionalString(),
-    BEDROCK_MODEL_ID: optionalString(),
-    MEETINGS_AWS_ACCESS_KEY_ID: optionalString(),
-    MEETINGS_AWS_SECRET_ACCESS_KEY: optionalString(),
+    // Speech-to-Text v2 (Chirp 3): the endpoint host is derived from the location, never configured (S1).
+    MEETINGS_SPEECH_LOCATION: optionalString(),
+    // Claude on Vertex AI: the base URL is derived from the location (S2); the model id is pinned (S3).
+    MEETINGS_VERTEX_LOCATION: optionalString(),
+    MEETINGS_VERTEX_MODEL_ID: optionalString(),
+    MEETINGS_GCP_PROJECT_ID: optionalString(),
+    // Base64 of the runtime service account's JSON key (S4). SECRET: never logged, never echoed.
+    MEETINGS_GCP_SERVICE_ACCOUNT_KEY: optionalString(),
+    // The transient processing bucket; its location and rules are read at startup (N2).
+    MEETINGS_GCS_TRANSIENT_BUCKET: optionalString(),
+    // Refused when set (S5): the adapter derives its own base URL and must not be redirected by the environment.
+    ANTHROPIC_VERTEX_BASE_URL: z.string().optional(),
 
     // ─── Worker (ADR-0062) ──────────────────────────────────────────────────
     MEETINGS_WORKER: oneOf(["on", "off", "only"], "MEETINGS_WORKER").default("on"),
@@ -146,16 +160,37 @@ const envSchema = z
         if (val[key] === undefined) issue(key, `${key} is required with MEETINGS_AI_PROVIDER=real`);
       }
     }
-    // ...and located in the EU/CH. Checked whenever set, fake provider included: a wrong
-    // region should not wait for production to be noticed.
-    if (val.AZURE_SPEECH_REGION !== undefined) {
-      const azure = checkAzureResidency(val.AZURE_SPEECH_REGION, val.AZURE_SPEECH_ENDPOINT);
-      if (azure) issue(azure.startsWith("AZURE_SPEECH_ENDPOINT") ? "AZURE_SPEECH_ENDPOINT" : "AZURE_SPEECH_REGION", azure);
+    // ...and located in the EU, with a key that is the right kind of key. Checked whenever set, fake
+    // provider included: a wrong location should not wait for production to be noticed.
+    if (val.MEETINGS_SPEECH_LOCATION !== undefined) {
+      const speech = checkSpeechLocation(val.MEETINGS_SPEECH_LOCATION);
+      if (speech) issue("MEETINGS_SPEECH_LOCATION", speech);
     }
-    if (val.BEDROCK_REGION !== undefined) {
-      const bedrock = checkBedrockRegion(val.BEDROCK_REGION);
-      if (bedrock) issue("BEDROCK_REGION", bedrock);
+    if (val.MEETINGS_VERTEX_LOCATION !== undefined) {
+      const vertex = checkVertexLocation(val.MEETINGS_VERTEX_LOCATION);
+      if (vertex) issue("MEETINGS_VERTEX_LOCATION", vertex);
     }
+    if (val.MEETINGS_VERTEX_MODEL_ID !== undefined) {
+      const model = checkVertexModelId(val.MEETINGS_VERTEX_MODEL_ID);
+      if (model) issue("MEETINGS_VERTEX_MODEL_ID", model);
+    }
+    // The project id and the bucket name are placed in request paths: a shape check keeps them from steering one.
+    if (val.MEETINGS_GCP_PROJECT_ID !== undefined && !GCP_PROJECT_ID_PATTERN.test(val.MEETINGS_GCP_PROJECT_ID)) {
+      issue("MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_PROJECT_ID is not a valid Google Cloud project id");
+    }
+    if (val.MEETINGS_GCS_TRANSIENT_BUCKET !== undefined && !GCS_BUCKET_NAME_PATTERN.test(val.MEETINGS_GCS_TRANSIENT_BUCKET)) {
+      issue("MEETINGS_GCS_TRANSIENT_BUCKET", "MEETINGS_GCS_TRANSIENT_BUCKET is not a valid bucket name");
+    }
+    if (val.MEETINGS_GCP_SERVICE_ACCOUNT_KEY !== undefined) {
+      if (val.MEETINGS_GCP_PROJECT_ID === undefined) {
+        issue("MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_PROJECT_ID is required when MEETINGS_GCP_SERVICE_ACCOUNT_KEY is set");
+      } else {
+        const key = parseServiceAccountKey(val.MEETINGS_GCP_SERVICE_ACCOUNT_KEY, val.MEETINGS_GCP_PROJECT_ID);
+        if (key.error) issue("MEETINGS_GCP_SERVICE_ACCOUNT_KEY", key.error);
+      }
+    }
+    const baseUrl = checkNoVertexBaseUrlOverride(val.ANTHROPIC_VERTEX_BASE_URL);
+    if (baseUrl) issue("ANTHROPIC_VERTEX_BASE_URL", baseUrl);
   })
   .transform((val) => ({
     ...val,
