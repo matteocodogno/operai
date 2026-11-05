@@ -2203,3 +2203,698 @@ Sources (read 2026-11-05):
 - [G8] https://cloud.google.com/storage/docs/soft-delete (on by default, 7 days; 0 disables)
 - [G9] https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/use-partner-models (EU multi-region endpoint `aiplatform.eu.rep.googleapis.com`; Claude ≥ 4.7; EU quotas; prompts and responses not shared with third parties)
 - `@anthropic-ai/vertex-sdk` 1.1.2 `client.js` (region `eu` → `aiplatform.eu.rep.googleapis.com`; reads `ANTHROPIC_VERTEX_BASE_URL`/`CLOUD_ML_REGION` by default; `maxRetries` default 2)
+
+## Amendment 2026-11-05 (#2: T107 drifts and spec A7)
+
+> **Approved by the user 2026-11-05.** QH-1: wellD staff provide consented internal recordings (≥ 10, ≥ 8 h, it/en, in person and online). T125 (O14) is a **go-live** gate, not a gate on closing 021. QH-2: the live eval tolerates up to 2 `invalid_output` outcomes of ~55 fixtures after the resample; zero tolerance on safety findings.
+
+> **Scope.** The real-provider spike (T107 note, § G-3) found four drifts, and the user decided them on
+> 2026-11-05: spec amendment **A7** (approved, incl. AC-6.16 and the AC-6.7 `failed` outcome) and
+> decision **D4** (Claude Sonnet 5.5 on Vertex rejects a forced `tool_choice` and `thinking: disabled`;
+> a single tool is offered unforced, and anything other than exactly one valid call is `invalid_output`).
+> This amendment designs both. It **replaces** G-3's "Speakers across parts … never claimed to be the
+> same person", the G-3 banner copy and condition, G-4's `tool_choice` line, G-8's last row and the
+> G-11/G-12 rows named below. Everything else in G-0 to G-17 stands: the transient bucket and its
+> checks, residency, credentials, error codes, ADR-0062's runner, ADR-0067's prompt layout,
+> validators and plain-text rendering. Plan `status:` is untouched.
+
+### H-0 Spec check
+
+- Every A7 change has a section here: AC-4.12 (H-4), AC-6.2/6.14/6.15/6.17 (H-2), AC-6.6 (H-7),
+  AC-6.7/6.9/6.10/6.11 (H-3, H-4), AC-6.12 (H-3, H-5, H-7), AC-6.13 (H-2), AC-6.16 (H-5, H-7),
+  AC-7.9/9.6 (H-8), AC-7.13/9.9 (H-6, H-7), O13 (b) (H-4), O14 (H-9, T125).
+- **The Constraints' bounds are confirmed, provisionally until O14:** overlap 90 s, chosen in a pause
+  between 60 s and 120 s (bound 30 s–2 min); gap 20 s; retry 2 (3 tries per part); repeat 8 words and
+  2 s; match 20 words. They are code constants (H-1 table), never env.
+- **Two readings the plan takes, neither an amendment:**
+  - *AC-6.15 "the overlap affected by a gap" vs AC-6.17 "the joins are the same whatever the audio".*
+    A detected gap uses the audio's sound intervals, so a join rule that consulted it would depend on
+    the audio. The join rule therefore uses a text-and-time condition that is a **superset** of
+    "affected by a detected gap": the overlap is affected when either version has a stretch of at
+    least the gap bound with no timed word that reaches into the overlap (H-2 J0). A detected gap
+    always lies inside such a stretch (it needs at least 20 s of credited sound with no timed word),
+    so a gap that touches the overlap always triggers it, and both ACs hold literally. The cost is a
+    few extra separate labels where people were silent for 20 s across a seam.
+  - *AC-6.16 "each keeping the name the joined label had".* When the joined label had no name
+    ("Speaker 2"), each separated label keeps reading "Speaker 2" until renamed (a stored
+    `defaultIndex`, H-5); the UI shows each one's part, so they stay distinguishable.
+- **A watch item, not an amendment now.** AC-6.14 (b) "the earlier part attributes **all** of them to
+  the same L1" is applied word by word. Diarization often moves the first or last word of a turn to
+  the neighbouring speaker, and one such word blocks a join. That is the safe direction (a false
+  split costs a rename), so the plan applies it literally. If O14 shows the join rate is low for
+  that reason only, the architect proposes a spec amendment (e.g. ignore the first and last word of
+  each turn); it is not pre-empted here.
+
+### H-1 Overlapping parts
+
+**Evidence (T107).** Google refuses a Chirp 3 batch file over 20 min. At 18–19 min, 2 of 4 parts
+silently lost 19–45 % of their words. At 10 min, 6 of 7 parts of one file were complete (98–103 %)
+and 3 of 19 of another lost 16–28 %. The first sentence of a part often has implausible word
+offsets. So the part length stays at the measured 10 min, and the overlap must be long enough to
+carry 20 matched words for each speaker active across a seam, with both edges of a part in a pause.
+
+| Constant (code, `src/media/split.ts` unless noted) | Value | Bound / evidence |
+|---|---|---|
+| `PIECE_MAX_MS` | 10 min, **including** the overlap (unchanged length) | provider cap 20 min; omissions measured at 18–19 min |
+| `OVERLAP_TARGET_MS` / `OVERLAP_MIN_MS` / `OVERLAP_MAX_MS` | 90 s / 60 s / 120 s | spec 30 s–2 min. A speaker reaches the 20-word match bound with about 8–10 s of speech inside the overlap, so 90 s can join anyone who holds roughly 10 % of it (at 60 s, roughly 15 %). 120 s adds a third more billed overlap and makes J0's 20 s hole more likely inside it. The 60–120 s pause window keeps cuts in pauses. O14 confirms the value |
+| `CUT_WINDOW_MS`, `MIN_SILENCE_MS` | 90 s, 0.5 s (unchanged) | |
+| `SILENCE_NOISE_DB` | −35 dB, now measured on a **speech-band** signal (`highpass=f=150,lowpass=f=4000`) | removes hum and rumble from "sound"; music still counts (H-3) |
+| `MAX_PARTS` | 32 | 3 h + 60 s needs 22 |
+
+**Where parts start and end** (pure `chooseParts(durationMs, silences)`, replaces `chooseCuts`):
+
+```
+s1 = 0
+for k = 1, 2, …:
+  if D − s_k ≤ PIECE_MAX_MS: part k = [s_k, D]; stop
+  mark = s_k + PIECE_MAX_MS
+  e_k  = middle of the longest pause ≥ 0.5 s in [max(s_k + PIECE_MAX_MS/2, mark − CUT_WINDOW_MS), mark], else mark
+  s_k+1 = middle of the longest pause ≥ 0.5 s in [e_k − OVERLAP_MAX_MS, e_k − OVERLAP_MIN_MS], else e_k − OVERLAP_TARGET_MS
+  (ties: the later pause; refuse (SplitError) if s_k+1 ≤ s_k + PIECE_MAX_MS/2)
+```
+
+Both edges of every part fall in a pause where one exists, so few words are cut at either edge, and
+the garbled first sentence of part k+1 lies inside the overlap, where part k's version covers it.
+
+**How parts are written.** The segment muxer cannot write overlapping pieces, so `parts.csv` is
+retired. Each part is one stream copy with output seeking, under the ffmpeg slot:
+`ffmpeg <ADR-0064 input flags> -i audio.ogg -ss <s> -to <e> -c copy -f ogg part-<k>.ogg`. It demuxes
+from the start without decoding (about a second for 3 h of 16 kHz Opus) and is exact to one 20 ms
+packet, so the offset is the requested `s` (an error of at most 20 ms, below anything the detector or
+the 2 s repeat bound can see). The ADR-0064 hardening is unchanged.
+
+**The silence pass now always runs**, also for a recording of 10 min or less. Today it is skipped
+then. The gap detector (H-3) and AC-6.7 need the sound intervals of every recording. The pass costs
+1–2 s for 10 min and 10–30 s for 3 h. `splitAudio` returns `{ parts: {path, startMs, endMs}[],
+silences, durationMs }`.
+
+**Parts for 3 h + 60 s:** at the target overlap N = 1 + ⌈(D − L) / (L − O)⌉ = 1 + ⌈(10 860 − 600) / 510⌉ = **22**.
+In the worst case, when pauses pull every cut to the window edges (stride 390 s), there are 28 parts.
+`MAX_PARTS` = 32 holds, and the guard `s_k+1 > s_k + PIECE_MAX_MS/2` can never fail (390 > 300).
+
+**Cost (USD 0.016 per audio minute, G-10; confirm at provisioning).** Billed time = D + (N − 1) × O.
+- For 3 h + 60 s that is 181 + 31.5 = 212.5 min ≈ **USD 3.40** per attempt, against USD 2.90 without
+  overlap: +17 %. A 1 h meeting: 7 parts, 69 min ≈ USD 1.10 (+15 %).
+- Per-part retries (H-4): each costs one part (≤ 10 min ≈ USD 0.16). At the spike's rate
+  (about 1 part in 7 incomplete) that is about +USD 0.50 for 3 h. Worst case: every part tried 3
+  times, ≈ USD 10.20 per job attempt.
+- The job-level retry on a transient error (unchanged, ADR-0062) re-runs everything: the absolute
+  ceiling is 3 × USD 10.20 ≈ USD 30.60 for one 3 h meeting. It is not reachable in practice, and
+  per-meeting spend stays visible in Google billing.
+
+### H-2 Stitching: deduplication and speaker continuity (pure, `src/ai/stitch.ts`)
+
+**Input** (provider-neutral, defined in `src/ai/words.ts`). Per part k: its span `[s_k, e_k]` and its
+words in provider order. Each word carries: `text`; `label` (namespaced `p<k>:<label>`); `noise`
+(the `[`/`[BACKGROUND]` markers); and `span`, the trusted `[startMs, endMs]` in meeting time, or null
+(G-3/T107 `spanOf` rules, unchanged). **No audio-derived value enters `stitch.ts`'s join functions**;
+the type has no field for one (AC-6.17).
+
+**Normalisation** (shared by every rule, AC-6.13): Unicode NFD, combining marks removed, lower case,
+every character that is not a letter or digit removed; a token that becomes empty is dropped. Noise
+markers are never tokens.
+
+**Effective time of an untimed word**, used only where H-2 says so: the interval from the end of the
+nearest earlier timed word to the start of the nearest later timed word of the same part (the part's
+edges where there is none). It is never a point and never outside its part.
+
+**D1. Within one part (AC-6.13), on the part's chosen try.** A **repetition** is a pair of
+non-overlapping token runs A (earlier) and B (later) of at least `REPEAT_WORDS` = 8 equal tokens,
+such that A's last token and B's first token both have a trusted span and either the runs' time
+ranges overlap or `B.start − A.end ≤ REPEAT_GAP_MS` = 2 000.
+- The scan is deterministic: positions in order, using an 8-gram index; for each B the earliest
+  matching A; the match extended to its maximal length.
+- B's tokens are removed (the first is kept).
+- An untimed boundary token means no evidence, so the passage is left as returned. That is the spec's
+  "never removed" guarantee for a phrase really said twice more than 2 s apart.
+
+**D2. Across the overlap of parts k and k+1 (AC-6.13).**
+- Window: P = part k's tokens whose effective time reaches `s_k+1 − 2 s` or later, and Q = part k+1's
+  tokens whose effective time starts at `e_k + 2 s` or earlier.
+- Candidates: every maximal common run of at least 8 equal tokens between P and Q whose effective time
+  ranges overlap or lie within 2 s of each other.
+- Anchors: candidates accepted greedily, ordered by length (descending), then by the distance
+  between midpoints (ascending), then by P index, then by Q index. A candidate is accepted only if it
+  neither crosses nor overlaps an accepted one in **both** sequences. The result is an
+  order-preserving one-to-one alignment.
+- Q's anchored tokens are removed (part k's version is "the first", and is kept). Every unanchored
+  token of P or Q is kept, so no speech present in either version is dropped. Between two
+  consecutive anchors (and before the first and after the last), the unanchored tokens of P and Q are
+  merged by effective start time, P first on a tie.
+- An alignment cannot collapse two copies within one version, so a phrase said twice keeps both
+  copies.
+- Visible residual: text that the two versions transcribed differently (fewer than 8 equal words)
+  appears twice near the seam. The creator can edit it (AC-6.3).
+
+**J. Joins at the boundary k | k+1 (AC-6.14, AC-6.15).**
+- J0. No label of part k+1 is joined at this boundary if either version has a hole of at least
+  `GAP_BOUND_MS` = 20 000 (a stretch with no trusted word, computed on its own timeline as in H-3,
+  but without sound) that intersects the overlap window `[s_k+1, e_k]`. Every detected gap lies
+  inside such a hole, so this is the text-and-time superset of "the overlap affected by a gap"
+  (H-0).
+- J1. Over the anchors of D2, pair the tokens position by position and count `n[L2][L1]`: the tokens
+  that part k+1 attributes to L2 and part k attributes to L1.
+- J2. L2 is joined to L1 when all three hold:
+  - (a) Σ_L1 n[L2][L1] ≥ `MATCH_WORDS` = 20;
+  - (b) n[L2][L1′] = 0 for every L1′ ≠ L1;
+  - (c) n[L2′][L1] = 0 for every L2′ ≠ L2.
+- Otherwise L2 is **separate**. Nothing else (position, number, order of appearance, a default)
+  ever joins.
+- J3. Chaining: a join maps `p<k+1>:L2` → `p<k>:L1`, and each label resolves to its root by following
+  the map, one consecutive boundary at a time. A joined label of part 3 reaches part 1 only through
+  part 2.
+- J4. Segments: after D1, D2 and J, consecutive tokens with the same root form one segment carrying
+  the `part` of its tokens' version. A segment also ends at every final gap (H-3), so a gap marker
+  always falls between segments. Times follow the never-late rule (G-3).
+- J5. Speaker keys are numbered by first appearance of the **root** (`mapPhrases`, unchanged). A
+  joined label carries its root's key, name and number everywhere. A separate label gets the next
+  unused number (AC-6.2).
+
+**Determinism (AC-6.17).** D2 and J are pure functions of the part spans and the provider's words
+(text, labels, trusted times). No randomness, no clock, no locale-dependent comparison
+(normalisation is explicit). The replay test (H-10) asserts identical joins for identical outputs
+under different silence lists and different audio files.
+
+### H-3 The gap and repetition detector (pure, `src/ai/completeness.ts`)
+
+**Sound.** The complement of the silences (speech band, −35 dB, ≥ 0.5 s) within a span. It is energy,
+not speech: music and loud noise count as sound. Two rules keep that from becoming a flood of false
+gaps (below).
+
+**Per part and per try, the holes.** Sort the part's trusted speech words by start. The holes are the
+stretches between consecutive words, plus the stretch from the part's start to the first word and
+from the last word to the part's end. A part with no timed word is one hole.
+
+**A hole is a gap** when its credited sound is at least `GAP_BOUND_MS` = 20 s:
+- credited sound = (sound inside the hole) − `UNTIMED_WORD_CREDIT_MS` (600 ms) × (untimed speech
+  words that sit between the hole's bounding words in provider order);
+- an untimed word is text that exists somewhere in the hole, so it is credited the time a word takes
+  at 100 words/min (generous), never more;
+- the gap's range is from the first sound start to the last sound end inside the hole. It is never
+  narrower than what was detected.
+
+**False-positive handling.**
+1. *Hum and rumble* are filtered out by the speech-band filter.
+2. *The provider's noise marker.* T107 recorded a lone `[` (its `[BACKGROUND]`) for silence and for a
+   20 s tone, with an `endOffset` of 0.6 s whatever the length. That time cannot be used, so the
+   marker counts by position: a hole whose bounding words have a noise marker between them in
+   provider order is **declared non-speech by the provider** and is not a gap. This also holds for a
+   part whose only output is markers.
+   - Residual: a marker emitted inside real, untranscribed speech would hide a gap. It was never
+     observed (every observed omission was a hole between words, with no marker), and O14 measures it.
+   - Excused holes are counted in the log (sizes only).
+3. *Music or noise with no marker* stays a gap. It costs retries and, at worst, a "may be incomplete"
+   notice (the safe direction) or AC-6.7's `failed`.
+
+**Repetition.** D1's rule (H-2) run on one try's tokens. It only flags; removal happens on the chosen
+try.
+
+**Detectably incomplete** (AC-6.11) = at least one gap, or at least one repetition.
+
+**Ranking of a part's tries** (AC-6.11): fewest gaps → least total gap time → no repetition before
+repetition → the earlier try. Deterministic.
+
+**Final gaps of the meeting** (AC-6.12):
+- Start from the chosen try's gaps in every part.
+- Inside each such gap, recompute the holes over the union of both versions' trusted words (the
+  neighbour's version counts only within the overlap). A gap of part k that part k+1 transcribed is
+  not missing from the stitched transcript.
+- Keep a resulting hole only if its credited sound is still at least 20 s; its range is then
+  computed as above.
+- Merge ranges that touch or overlap, across part boundaries too.
+- Ranges are in meeting time (part offsets included). A range is never narrowed by stitching beyond
+  what the other version actually covers.
+
+**AC-6.7.**
+- An empty stitched transcript with no final gap is `noSpeech`.
+- An empty stitched transcript with any final gap (after the retries) is `failed` with the new code
+  **`speech_not_transcribed`**. "No speech detected" is never shown for it. It is permanent for the
+  job: the runner does not re-run the attempt, because each part has already had 3 tries. The
+  creator's retry (AC-6.9) stays available while the audio is kept.
+
+### H-4 Per-part retry inside one job attempt
+
+**Where the results live.** All tries of all parts run inside **one claim** of the `transcribe` job
+(ADR-0062 attempt n). Per-part results (the best try so far and the current one: words only, about
+27 k words for 3 h) are held in **process memory** and nowhere else. Nothing is written to Postgres
+until the single commit (G-11, unchanged guards: `ctx.commit` claim re-check,
+`WHERE status='processing'`).
+- If the lease is lost or the process dies, everything held is dropped, and the next claim starts
+  over.
+- ADR-0070's "no per-part result is stored between attempts" therefore still holds between **job**
+  attempts, and now explicitly within one: no partial transcript is ever at rest in our database.
+
+**Flow per part** (replaces G-2 steps 3–8 for one part; the parts still run in parallel):
+1. Upload `in/<k>.ogg` once (`ifGenerationMatch=0`).
+2. For try t = 1..3:
+   - submit with output prefix `transcribe/<id>/<attempt>/out/<k>-<t>/`, a prefix of its own;
+   - poll, then read the output (≤ 8 MiB), which must lie under **that try's** prefix;
+   - **delete that try's output prefix at once**, then `operations.delete` (best effort, G-2);
+   - map to words, run H-3, keep the result if it ranks better;
+   - stop when complete.
+3. When the part settles, delete `in/<k>.ogg` at once, without waiting for the other parts.
+4. The attempt's `finally` deletes the attempt prefix as today. `deleteAttemptsBefore` at the start is
+   unchanged.
+
+**AC-4.12.** Each try is "a transcription attempt like any other": its output copy exists only until
+it has been read, and its input copy only until the part's last try ends. The input is reused only
+by the tries that immediately follow one another. The crashed-attempt bound (next attempt, or the 1-day lifecycle) and "delete
+first, else 503" on explicit deletion are unchanged, because every new key is under
+`transcribe/<id>/`. `transientKeys` and the key and output-prefix patterns gain `out/<k>-<t>/` and
+lose the bare `out/`.
+
+**Errors on a try** (AC-6.9). A provider error on **try 1** is, as before, the failure of the whole
+attempt (transient → the runner retries the job; permanent → `failed`). A provider error on **try 2
+or 3** is an improvement that did not happen, not a failure: the part settles with its best try
+(still incomplete, so it is marked), and the code is logged. A lost lease always aborts.
+
+**Not AI requests (AC-13.4).** No `ai_request` row is written by transcription, retries included
+(unchanged). The stage stays `transcribing` throughout (AC-6.10).
+
+**Quota and polling** (replaces the G-9 worst case; 2 jobs × 22 parts would exceed 150 operation GETs
+per minute at a 10 s poll):
+- a process-wide semaphore `SPEECH_MAX_INFLIGHT` = 24 operations (in `googleSpeech.ts`), shared by
+  first tries and retries;
+- the first poll at 30 s, then every 15 s (Google-side median 72 s, p95 85 s). That gives at most
+  96 GETs a minute and at most 24 submits a minute, below quota;
+- the 45 min per-try deadline is unchanged; the lease is heartbeated meanwhile.
+
+**Latency.** One 3 h job runs its 22 parts at once. A retried part adds about 90 s per try, so the
+worst case is +3 min. The target (≤ 3 min + 0.2 × duration, p95) holds for long meetings. It is tight
+only for a 10-min meeting whose single part needs all 3 tries (about 5 min); that is rare, so p95
+holds. T124 measures it.
+
+**O13 (b).** Every try leaves Google one more transcription result under the ~5-day bound. This is
+disclosed by the existing AC-4.1 text (no consent version bump) and added to sign-off H4's question.
+
+### H-5 Data model (one new migration, `*_transcript_quality`; existing migrations untouched)
+
+| Change | Why |
+|---|---|
+| `meeting.transcriptPartEndsMs Int[] NOT NULL DEFAULT '{}'`, paired with `transcriptPartStartsMs` (now overlapping) | `parts[].endMs`; replaced with the segments, `{}` as before for text/noSpeech |
+| `transcript_segment.part Int NULL` (1-based; null for `text` meetings and pre-migration rows) | the joined label's coverage (AC-6.16), "Separate by part", dividers |
+| new `transcript_gap (id, meetingId → meeting ON DELETE CASCADE, startMs Int, endMs Int)`, `@@index([meetingId, startMs])` | the final gaps (AC-6.12). Written in the transcribe commit with the segments, under the same replace-never-append rule. Deleted with the meeting (cascade, AC-6.12/4.6); never edited (AC-6.3 does not touch it) |
+| `speaker_label.defaultIndex Int NULL` | a separated label that inherits an unnamed "Speaker n" (H-0). A rename sets participant/text and clears it; a reset deletes the row (unchanged) |
+| `summary.transcriptGaps Json NOT NULL DEFAULT '[]'` | the ranges the summary was built under (AC-7.13). A self-describing snapshot, the same posture as the template snapshot (AC-7.5) |
+| conversation `answer` JSON gains `possiblyIncomplete: boolean` (no column) | AC-9.9; an absent field on older rows reads false |
+| `TranscriptionFailureCode` gains `speech_not_transcribed` (code, not a column) | AC-6.7 |
+
+**Derived on read, never stored** (ADR-0013 lineage):
+- *possibly incomplete* = the meeting has gap rows;
+- a key is **joined** when its segments come from more than one part, and `parts` = those parts in
+  order;
+- a later label is **separate** when its key's lowest part is > 1;
+- the AC-6.15 notice = more than one part and at least one separate later label.
+
+Joins are decided once, in the transcribe commit. A `ready` meeting is never transcribed again (the
+retry route accepts only `failed`), so **separating cannot be undone by later processing** (AC-6.16).
+A test pins it: the transcribe handler returns for a `ready` meeting.
+
+**Edits, renames and separation (AC-6.3, AC-6.8).**
+- A text edit bumps `transcriptVersion` (stale summaries, unchanged) and never touches `part`, keys
+  or gaps.
+- A rename and "Separate by part" change labels, not text. They do **not** bump `transcriptVersion`
+  (G-3 posture). Summaries keep the names they were made with (`speakerNames` snapshot), and asks
+  read names live.
+- Default numbering: `label.default.index` becomes the **key's own number** (or `defaultIndex`), no
+  longer its position in first-appearance order. The values are identical for every existing
+  transcript (keys are numbered by first appearance), and a separation then never renumbers other
+  speakers. `speakerNamesFor` returns `Speaker <defaultIndex>` for such rows.
+
+### H-6 API contract changes (additive; OpenAPI updated)
+
+`GET /meetings/{id}/transcript`:
+```ts
+{ version, segments: [{ …unchanged, part: number | null }],
+  parts: [{ index: number, startMs: number, endMs: number }],          // endMs new; overlapping
+  speakers: [{ key, label, parts: number[], joined: boolean }],          // parts: [] for text meetings
+  gaps: [{ startMs: number, endMs: number }],                            // [] = no notice; meeting time, merged, ascending
+  separateLabels: boolean }                                              // AC-6.15 notice condition
+```
+
+`POST /meetings/{id}/transcript/speakers/{key}/separate` (new; AC-6.16). Body: none.
+- Guard: `creatorControl` + `openForControl`, identical to the rename. Not visible → 404; visible
+  but not the creator, creator without `meetings:access`, or a frozen meeting → **403** (AC-5.8,
+  AC-5.11); a failed frozen lookup → 503 `identity_unavailable` (unchanged). The UI hint is
+  `can.editTranscript`.
+- 409 `not_ready` for a meeting that is not `ready` or is `noSpeech`; 404 when the key does not exist
+  here; 409 `not_joined` when the key covers at most one part (so a second call is 409, not a no-op).
+- In one transaction, with the meeting row taken `FOR UPDATE` (it serialises with renames):
+  - the lowest part keeps the key;
+  - each further part, in ascending order, gets the next unused key number, and a `speaker_label` row
+    copying the key's participant or text, or `defaultIndex` = the key's number (or its own
+    `defaultIndex`);
+  - `UPDATE transcript_segment SET speakerKey = <new> WHERE meetingId AND speakerKey = <key> AND part = <p>`.
+  - No `transcriptVersion` bump; segment `version`s are unchanged.
+- 200 `{ speakers: [...] }` (the GET's shape). Logs: ids and counts only.
+
+`GET` and the writes of summaries return `possiblyIncomplete: { gaps: Range[] } | null`, from
+`summary.transcriptGaps`. The **service** writes it, the model never does (AC-7.13). When gaps exist
+at generation time:
+- `validateSummaryOutput` renders an empty section as `NOT_FOUND_INCOMPLETE[lang]` ("Not found in the
+  transcript, which may be incomplete" / "Non trovato nella trascrizione, che potrebbe essere
+  incompleta"), in place of `NOT_DISCUSSED`;
+- the summarize job reads the gaps with the transcript, under the same version-stable read, and
+  snapshots them;
+- a regeneration snapshots again, so it carries them too.
+
+Turns return `answer.possiblyIncomplete: boolean`. When it is true and the answer is "not in the
+meeting", the fixed text is `NOT_IN_MEETING_INCOMPLETE[lang]` ("The transcript does not contain an
+answer to this question. It may be incomplete, so the meeting itself may." / "La trascrizione non
+contiene una risposta a questa domanda. Potrebbe essere incompleta, quindi la riunione potrebbe
+contenerla."). It is server-written, in the question's language (AC-9.9). Both fixed texts are
+constants beside the existing ones. The eval fixtures have no gaps, so their fixed-text assertions
+are unchanged. `Range` = `{ startMs: number, endMs: number }` in meeting time.
+
+Meeting view: `failureCode` may be `speech_not_transcribed`. No host notice, notification or list
+carries anything about incompleteness (non-goal; AC-11.8 unchanged).
+
+**Rejected:** telling the model where the gaps are (a server-written `[GAP …]` line in the
+transcript block). It would change the eval baseline and add an unforgeable-marker problem to the
+escaping rules, while the guarantee is the service-written label either way. A named follow-up,
+triggered by summaries that treat a gap's absence as fact despite the label.
+
+### H-7 UI contract (meetings-ui)
+
+- **Notice (AC-6.12 a, c).**
+  - Shown when `gaps.length > 0`: a `Banner tone="warning"` above the transcript, with no dismiss
+    and the anchor id `meetings-transcript-incomplete`.
+  - Copy: "This transcript may be incomplete. Speech may be missing between {a} and {b}[, and between
+    …]. The missing speech is not in the transcript and cannot be recovered from it."
+  - Each range has a play control while the audio is kept (AC-6.5's seek); it is absent after audio
+    deletion.
+- **Markers (AC-6.12 b).** "Possible gap {a}–{b}", placed before the first segment whose start is at
+  or after the gap's start, between lists (the T108 WCAG 1.3.1 pattern), with the same play control.
+  Times use `formatDuration` clock style.
+- **Parts notice (AC-6.15).** The info `Banner` now shows only when `separateLabels`. New copy: "This
+  recording was transcribed in {n} parts. Speakers could not always be matched between parts, so one
+  person can appear under two labels. Rename them to the same name to merge them." It never says
+  "numbered separately" or "different people". The Italian is in the strings module.
+- **Dividers.** "Part {n} · {start}" goes before the first segment (by ordinal) whose `part` is n,
+  using `segment.part`, no longer the time-based `partStartingAt` (overlapping parts make time
+  ambiguous).
+- **Joined label (AC-6.16).**
+  - Wherever a speaker is listed or renamed, a joined key shows "Matched automatically across parts
+    {1–3}" (an `Icon` plus text, not colour alone).
+  - The creator (`can.editTranscript`) gets "Separate by part": a `ConfirmDialog` explains that each
+    part's speech gets its own label, keeping the current name until renamed. It then POSTs, replaces
+    the speakers and reloads the transcript.
+  - Each separated label shows its part.
+- **Copy and download (AC-6.6).** `exportText` takes `gaps`. The text begins with the notice (in the
+  UI language) and a blank line, and carries `[Possible gap hh:mm:ss–hh:mm:ss]` lines at the same
+  places as on screen.
+- **Summaries (AC-7.13).** A card with `possiblyIncomplete` shows the label "Based on a transcript
+  that may be incomplete" with its ranges, beside "AI-generated". `summaryText` (copy) includes the
+  label and the ranges.
+- **Answers (AC-9.9).** A turn with `answer.possiblyIncomplete` shows the same label with a link to
+  `#meetings-transcript-incomplete`. The answer text is the server's.
+- **Failure copy.** `speech_not_transcribed`: "Speech was detected in the recording but could not be
+  transcribed." / "Nella registrazione è stato rilevato del parlato, ma non è stato possibile
+  trascriverlo."
+- **Strings.** All copy goes in `strings/transcript.ts`, `summaries.ts`, `ask.ts` and `meeting.ts`,
+  `it: typeof en`, with the parity and no-hardcoded-copy tests (AC-13.1).
+
+### H-8 D4: Claude on Vertex with one unforced tool (replaces G-4's `tool_choice` line and G-8's last row)
+
+**Request** (`vertexClaude.ts`):
+```ts
+messages.create({ model, system, messages, max_tokens, tools: [<the one output schema>] })
+// no tool_choice, no thinking, no cache_control, no betas, no server tools, no advanced_ai_enabled
+```
+- **`tool_choice` omitted.** It is the only shape the spike saw accepted. An explicit
+  `{type:"auto", disable_parallel_tool_use:true}` would reduce double calls, but it is unverified on
+  this model. It may be adopted only after T120 records a 200 for it from the pinned model; until
+  then, a double call is simply invalid.
+- **`thinking` omitted, never sent.** `disabled` is refused. The spike reports the model wants an
+  adaptive mode or nothing, and sending an enabling value would add cost and a second unverified
+  parameter. Thinking blocks the model returns anyway (`thinking`, `redacted_thinking`) are
+  **discarded unread**: never validated as output, stored or logged (they can echo the transcript,
+  AC-4.10).
+  - The risk is a reply cut off at `max_tokens`. The live eval asserts no `max_tokens` stop across the
+    fixtures. If one appears, `SUMMARY_MAX_TOKENS`/`ANSWER_MAX_TOKENS` are raised, and the thinking
+    parameter is not touched.
+- The prompts are unchanged. Rules 4 and 6 already say "Answer only by calling the tool …", so the
+  injection baseline stays comparable.
+
+**Acceptance rule** (`toolCall(reply, name)`):
+- `stop_reason === "tool_use"`, and exactly one `tool_use` block, whose `name` is the offered tool.
+- Other blocks are allowed only as `text`, `thinking` or `redacted_thinking`, and are discarded
+  unread.
+- Any other block type (e.g. `server_tool_use`, which we never offered) is invalid.
+- The input then goes to the existing schema validators (`prompts/*.ts`).
+- Everything else is `invalid_output`: no call (text only), two calls, another name, a different stop
+  reason, or a schema rejection. It is never partial (AC-7.9, AC-9.6).
+
+**One automatic resample, kept.** `OUTPUT_TRIES` = 2 stays in the summarize job and the ask route:
+the same request sent again, with no corrective message, because feeding the model's own invalid
+reply back would put untrusted text in the request.
+- It is one AI request under AC-13.4: one `ai_request` row per user action, as today. A counted
+  request costs at most 2 model calls, so a user's worst case is 60 calls an hour.
+- The resample is not counted again because AC-13.4 limits what the user asks for. The model's
+  failure to comply is the provider's cost, and the 30/h limit already bounds it at ×2.
+- The ask route's 90 s limit covers both samples (unchanged).
+- The adapter logs each rejected reply with a closed reason (`[ai] invalid_output
+  reason=no_call|multiple_calls|wrong_tool|stop_reason|block_type`), never content, so the unforced
+  rate is observable in production. Schema rejections stay unlogged, as today.
+
+**ADR-0067 amendment text (for the adr-writer).** Point 3 reads: "Structured output through a single
+offered tool. The tool is only the output schema. The reply is accepted only as exactly one call of
+that tool, stopped for tool use, whose input passes the schema validator. Text-only replies, missing
+or repeated calls, another tool, or any other stop are `invalid_output`: sampled once more, then
+`failed`. Forcing the call (`tool_choice`) is used only where the pinned model supports it and is
+never relied on: the guarantee is the validation, not the mechanism. Reasoning output (thinking) is
+discarded unread." Point 6 adds the unforced-reply fixtures and the availability tier (H-10). The
+other points are unchanged.
+
+### H-9 Risks (delta; R1–R22 stand, R20 is replaced)
+
+| # | Risk | Mitigation / early check |
+|---|---|---|
+| R20 (replaced) | A false join: one person's words under another's label in the transcript and in every summary | J2 (a)–(c) are strict, and J0 rules out overlaps with a 20 s hole; text only. The joined indication shows which parts a label covers, and "Separate by part" repairs it. **O14 (T125) measures the join error rate on consented recordings before go-live; a false join found then is a defect** (spec), fixed by tightening the rule, never by tuning past it |
+| R23 | Detector false positives: music or noise with no provider marker reads as a gap, causing needless retries, a false notice, or `speech_not_transcribed` on a noise-only recording | Speech-band filter; the noise-marker excuse; the cost is bounded (H-1). The notice says "may", the safe direction. O14 measures the rate |
+| R24 | Detector false negatives: an omission under 20 s; a provider marker inside untranscribed speech; untimed-word credit masking a hole | Spec: no notice is not a promise (AC-6.12, non-goal). Excused holes and credits are counted in logs. O14 compares the detector with listened ground truth. T124 regresses the spike's known holes (18–19 min parts) |
+| R25 | Diarization jitter at turn boundaries blocks most joins (word-level (b)) | Safe direction (renames). O14 reports the join rate and, if low for this reason, a spec amendment is proposed (H-0) |
+| R26 | Seam text transcribed differently by the two versions appears twice | Spec-mandated union. The 90 s overlap and both edges in pauses reduce it. Visible and editable |
+| R27 | Cost +15–17 % from overlap, plus retries, plus the job-level worst case | Bounds stated (H-1). Google billing alert on the project. Retries settle on the best try, never loop |
+| R28 | Unforced tool use: a higher invalid rate, an injection pushing a text reply (availability, not integrity), a model update changing behaviour | Acceptance rule plus one resample. The eval's availability tier and unforced-reply fixtures; the model change is gated by the live eval (ADR-0067); `invalid_output` rate in the logs |
+| R29 | Speech quota exceeded when two long jobs run | `SPEECH_MAX_INFLIGHT` = 24 with a 15 s poll: ≤ 96 GETs/min |
+| R30 | Thinking consumes `max_tokens`, so replies are cut | Eval asserts no `max_tokens` stop; raise the constant |
+
+### H-10 Test strategy (delta)
+
+**Fixtures.**
+- T124 records, from synthetic it/en audio with the spike, two consecutive **overlapping** part
+  outputs per language (2 speakers and 3 speakers), one 18–19-min part with a known hole, and the
+  silencedetect list of each input. They are scrubbed as in G-12.
+- Unit cases are hand-built **in the recorded shape**: one result per part; words with string
+  offsets; the proto3 zero omitted; `speakerLabel` strings starting at 0 or 1; a lone `[`; the
+  T107 garbled offsets.
+
+| AC | Level | What proves it |
+|---|---|---|
+| AC-6.2 | unit + integration + component | `chooseParts`: 22 parts for 10 860 s, every part ≤ 10 min, overlaps in [60, 120] s, edges in pauses when available; joined keys share key and name; separate later labels take new numbers; numbering is by root first appearance |
+| AC-6.1, AC-6.5 | unit | stitched segments have non-decreasing starts across every seam and a start never later than their first trusted word; a segment never spans a gap |
+| AC-6.13 | unit | D1: 8 equal words 1.5 s apart removed; the same 2.5 s apart kept; 7 words kept; an untimed boundary kept; first kept. D2: an overlap duplicate appears once; tokens found in one version only kept from both sides; a phrase said twice in the overlap keeps both copies; a remaining repetition does not create a gap |
+| AC-6.14 | unit | 20 matched words, all to one L1, no rival → joined; chain p3 → p2 → p1 only via consecutive overlaps; a part-3 label never joins part 1 directly |
+| AC-6.15 | unit + component | separate on: 19 words; one word to another L1; two L2 to one L1; no speech in the overlap; a 20 s untimed stretch in the overlap (J0). Banner only when `separateLabels`; copy has neither forbidden phrase |
+| AC-6.17 | unit (**replay**) + static | the recorded overlap outputs run through the stitcher with three silence lists (none, the recorded one, all-sound) and two different audio files → byte-identical joins and segments' speaker keys; `stitch.ts` imports nothing from `src/media` and its join input type has no audio field |
+| AC-6.11 | unit + integration | fake Speech replies scripted per try: complete try 1 → one submit; gap then complete → two; three incomplete → three, best kept by ranking (each tie level tested); a complete part never resubmitted; an error on try 2 settles with try 1; no `ai_request` rows; stage `transcribing` throughout |
+| AC-6.12 | unit + integration + component | gap ranges in meeting time; merged across a boundary; a part-k gap covered by part k+1 is not reported; `transcript_gap` rows written in the commit and cascaded on delete; notice and markers render, play controls absent after audio deletion, notice not dismissable, unchanged by a segment edit |
+| AC-6.7 | unit + integration | empty with no sound ≥ 20 s → `noSpeech`; empty with sound and no marker after 3 tries → `failed` `speech_not_transcribed`, `PermanentJobError`, "No speech detected" absent; markers only → `noSpeech` |
+| AC-6.9, AC-6.10 | integration | try-1 provider error → whole attempt fails as before; no segments; stage stays `transcribing` |
+| AC-4.12 | unit (fake transient storage) | each try's `out/<k>-<t>/` deleted right after its read; `in/<k>.ogg` deleted when the part settles; the attempt prefix in `finally`; an output URI under another try's prefix refused |
+| AC-6.16 | integration + component | separate → each part's segments get their own key, names copied (participant, text, `defaultIndex`); 403 for a participant, a creator without access and a frozen meeting; 409 `not_joined` on the second call; a later processing path cannot rejoin; rename on a joined key renames every part |
+| AC-6.6 | component | copy and download begin with the notice and carry markers in place |
+| AC-7.13, AC-9.9 | unit + integration + component | the summary snapshot `transcriptGaps`; `NOT_FOUND_INCOMPLETE` in place of `NOT_DISCUSSED`; regenerate carries it; answer `possiblyIncomplete` and `NOT_IN_MEETING_INCOMPLETE`; labels in the copied text; the link targets the notice anchor |
+| AC-7.9, AC-9.6 | unit (wire-level, recorded reply shapes) | no `tool_choice`/`thinking` in the body; accepted: one call (with text or thinking blocks discarded); `invalid_output`: text only, two calls, another name, `max_tokens` stop, `server_tool_use`; one resample then `failed`; one `ai_request` row per request |
+| AC-7.12, AC-9.7 | eval | the 53 fixtures plus new channels: "answer in plain text", "call the tool twice", "call `web_search`" → the outcome is invalid or the template is followed, never injected text shown |
+| AC-4.10 | unit | the log canary through `completeness.ts`, `stitch.ts`, the new route and the thinking-block discard |
+
+**Spike regression (T124, a release gate outside the AC map).**
+- The spike gains `--reference <script.txt>`: per-part word ratio against the known script, detector
+  verdicts, retries, joins, dedup counts and timings, printed without content.
+- Pass:
+  - at 19-min parts the known holed parts are flagged;
+  - at 10-min parts with overlap, every part ≥ 95 % after retries, or flagged;
+  - zero false joins on the scripted speakers;
+  - job latency within the target.
+
+**Live eval (gate, ADR-0067).** `bun run eval --live` on the pinned `MEETINGS_VERTEX_MODEL_ID`, run
+twice. The gate:
+- zero safety findings;
+- no `max_tokens` stop;
+- the **availability tier**: at most 2 of the 53 (+ new) fixtures ending `invalid_output` after the
+  resample, per run;
+- the first-sample tool-call rate recorded in the PR.
+
+### H-11 Security (delta; still YES, frontier tier for this delta)
+
+- **No new processor, no new data class, no voice characteristic.** Joins read text, labels and times
+  only (static test, AC-6.17). The detector reads silence timestamps, our own energy measure, never a
+  voice feature.
+- **New surface:** `POST …/speakers/{key}/separate`, `creatorControl`, meeting-scoped key, identical
+  404, serialised by row lock. The owasp review covers it with the rename route.
+- **Untrusted provider output** now drives O(n²)-shaped work:
+  - a part's output over `MAX_WORDS_PER_PART` = 8 000 words is `provider_rejected`;
+  - D1 uses an 8-gram index;
+  - D2's windows are bounded by the overlap (≤ ~600 tokens).
+- **Gap ranges** are content-adjacent metadata (when someone spoke). They live in the meeting's
+  rows, are deleted with it and are never logged, notified or sent to a host.
+- **Transient bucket:** each try reads only under its own prefix; deletions are tighter than before
+  (per try, per part); the key patterns are narrowed.
+- **Vertex:** thinking blocks are discarded unread and never logged; unforced replies cannot widen
+  capability (still one schema tool, no server tool, and any `server_tool_use` block is refused).
+- Surfaces for the owasp pass: the separate route; `stitch.ts`/`completeness.ts` input bounds;
+  `vertexClaude.ts` acceptance; `transientStorage.ts` patterns.
+
+### H-12 ADR candidates
+
+14. **Amend ADR-0067: single tool offered unforced; validation is the guarantee**
+    (`docs/adr/0067-ai-output-structured-validated-plain-text.md`, amendment section; text in H-8).
+    - The rule: a guarantee must rest on what the application checks, not on a provider feature
+      that a model may drop.
+    - *Rejected:*
+      - keeping forced `tool_choice` by pinning an older model that supports it (it ties model choice
+        to a mechanism, and the eval, not the mechanism, is the gate);
+      - free-text JSON parsed from a text reply (loses the schema channel; a text answer then looks
+        valid);
+      - feature-detecting forcing at runtime (two untested paths);
+      - a corrective second turn that quotes the invalid reply (feeds untrusted output back into the
+        request);
+      - counting the resample as a second AI request (it charges the user for the model's failure).
+15. **Amend ADR-0070: overlapping parts and text-evidence joins, separable by the creator**
+    (`docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md`).
+    - Option D (overlap alignment) becomes the decision; the "never carried over" rule becomes
+      "joined only on clear text evidence (AC-6.14), otherwise separate".
+    - The failure shape is unchanged and now has a repair path ("Separate by part") and a visible
+      indication.
+    - The consequence "no per-part result is stored between attempts" is restated: per-part tries
+      live in memory within one claim.
+    - *Rejected:*
+      - joining by position or number;
+      - voice embeddings (GDPR art. 9);
+      - majority vote instead of J2 (b)/(c) (it tolerates a false merge);
+      - using the audio-based gap for J0 (it would break AC-6.17).
+16. **New ADR-0071: a transcript that cannot be proven complete says where it may not be; detect,
+    retry bounded, then mark** (`docs/adr/0071-meetings-transcript-completeness-detect-retry-mark.md`).
+    - Decision: the energy-vs-word-timeline detector, the provider's noise marker as a positional
+      excuse, 3 tries per part held in memory, the best try kept by a fixed ranking, final gaps
+      stored and shown, and service-written caveats on everything derived (summaries, answers,
+      copies). Failure shape: a silent omission consumed downstream as a complete record.
+    - *Rejected:*
+      - re-transcribing the whole meeting on a gap (the cost, and it discards nothing better);
+      - a VAD or speech model of our own (new processing; not needed for an energy bound);
+      - storing per-part tries in Postgres to survive a crash (a partial transcript at rest);
+      - telling the model about gaps (H-6);
+      - hiding gaps behind a setting.
+17. **Notes, not ADRs** (the adr-writer appends follow-up notes):
+    - ADR-0062: `transcribe` runs up to 3 tries per part inside one claim, holds them in memory and
+      writes no `ai_request`;
+    - ADR-0064: the silence pass runs on every recording, band-limited, and parts are cut by output
+      seeking; still our own derived file, so the trigger is not tripped;
+    - ADR-0069: per-try output prefixes, input deleted per part, `SPEECH_MAX_INFLIGHT`.
+- **AGENTS.md:** the 0071 line, and the 0067/0070 lines' amendment notes (T126).
+
+### H-13 Open questions for the user
+
+- **QH-1 (O14 logistics; before go-live).** O14 needs real recordings made for the purpose, with a
+  consent attestation.
+  - Proposal: ≥ 10 recordings, ≥ 8 h in total, Italian and English, in-person and online, 2–5
+    speakers, at least 3 over 1 h.
+  - The architect listens to a sample of the flagged and unflagged stretches and counts false joins.
+  - Who records, and may wellD staff serve as participants?
+- **QH-2 (eval gate threshold).** H-10 proposes that up to 2 of ~55 fixtures may end `invalid_output`
+  after the resample (a safe failure with Retry), with zero tolerance on safety findings. Accept it,
+  or require zero?
+- Everything else is decided above. The cost delta (+15–17 %, worst case stated) is for your
+  information.
+
+### H-14 Task-list delta (for the re-sync; tasks.md is not edited here)
+
+**Superseded / reopened.**
+- T108's banner copy and condition and its time-based dividers are superseded by T122 (keep `[x]`,
+  with the note "superseded 2026-11-05 (A7), see T122").
+- The T107 note's "a hole detector is a named follow-up" is delivered by T114.
+- The G-3 bullet "Named follow-up … overlapping parts" is delivered by T113/T115.
+- **T92 gains deps T113–T127.**
+
+- [ ] T113: [BE] Overlapping parts: `chooseParts` (H-1), per-part output-seek stream copy (retires the segment muxer and `parts.csv`), silence pass on every recording with the speech-band filter, `splitAudio` returns `{parts {path,startMs,endMs}, silences, durationMs}` — refs: AC-6.2, AC-6.11, AC-6.14 — deps: none
+  - touch: `meetings-api/src/media/split.ts`, `meetings-api/src/media/split.test.ts`, `meetings-api/src/media/split.real.test.ts`
+  - done when: `bun test src/media/split` passes with cases "10 860 s → 22 parts, each ≤ 600 s, overlaps within [60, 120] s, edges in pauses when offered", "≤ 10 min → 1 part and a silence list"; `split.real.test.ts` (ffmpeg image) cuts a 75 s fixture with `PIECE_MAX_MS` 30 s and overlap 10 s and ffprobe durations match ± 40 ms
+- [ ] T114: [BE] `src/ai/words.ts` (word model, normalisation, effective times) and `src/ai/completeness.ts` (holes, credited sound, noise-marker excuse, repetition D1 detection, try ranking, final-gap subtraction and merge) — refs: AC-6.7, AC-6.11, AC-6.12, AC-6.13 — deps: none
+  - touch: `meetings-api/src/ai/words.ts`, `meetings-api/src/ai/words.test.ts`, `meetings-api/src/ai/completeness.ts`, `meetings-api/src/ai/completeness.test.ts`
+  - done when: `bun test src/ai/words.test.ts src/ai/completeness.test.ts` passes with the AC-6.7/6.11/6.12 rows of H-10 (each ranking tie level, a lone `[` excusing a hole, 600 ms credit, cross-boundary merge, neighbour coverage subtraction)
+- [ ] T115: [BE] `src/ai/stitch.ts`: D1 removal, D2 alignment and union, J0–J5 joins, segments split at gaps with `part`; `mapPhrases` keeps `part` on `DraftSegment` — refs: AC-6.2, AC-6.13, AC-6.14, AC-6.15, AC-6.17 — deps: T114
+  - touch: `meetings-api/src/ai/stitch.ts`, `meetings-api/src/ai/stitch.test.ts`, `meetings-api/src/ai/segments.ts`, `meetings-api/src/ai/segments.test.ts`
+  - done when: `bun test src/ai/stitch.test.ts src/ai/segments.test.ts` passes with the AC-6.13/6.14/6.15 rows of H-10 and the static "no `src/media` import, no audio field" check
+- [ ] T116: [BE] Google adapter per-part tries (H-4): per-try output prefix read and deleted at once, input deleted per part, try-2/3 errors settle on best, `SPEECH_MAX_INFLIGHT` semaphore and 30 s/15 s polling, `MAX_WORDS_PER_PART`, words → `completeness` → `stitch`; the outcome gains `parts {startMs,endMs}[]`, `gaps`, segment `part`; `speech_not_transcribed`; `transientKeys` patterns `out/<k>-<t>/`; `FakeTranscriber` scriptable gaps, parts and joined keys — refs: AC-4.12, AC-6.7, AC-6.9, AC-6.10, AC-6.11, AC-13.4, AC-4.10 — deps: T113, T114, T115
+  - touch: `meetings-api/src/ai/googleSpeech.ts`, `meetings-api/src/ai/googleSpeech.test.ts`, `meetings-api/src/ai/transcriber.ts`, `meetings-api/src/ai/fakeTranscriber.ts`, `meetings-api/src/lib/google/transientStorage.ts`, `meetings-api/src/lib/google/transientStorage.test.ts`, `meetings-api/test-fixtures/google-speech/overlap-*.json`
+  - done when: `bun test src/ai src/lib/google` passes with the AC-6.11 and AC-4.12 rows of H-10 (fake Speech scripted per try; fake transient storage records per-try and per-part deletions) and "at most 24 operations in flight across two concurrent transcribers"
+- [ ] T117: [BE] Migration `*_transcript_quality` (H-5: part ends, `segment.part`, `transcript_gap`, `speaker_label.defaultIndex`, `summary.transcriptGaps`); the transcribe commit writes them (replace, never append); `speech_not_transcribed` is permanent; transcript GET adds `parts[].endMs`, `segments[].part`, `speakers[].parts/joined`, `gaps`, `separateLabels`, and default index = key number; OpenAPI — refs: AC-6.2, AC-6.7, AC-6.12, AC-6.15, AC-6.16 — deps: T116
+  - touch: `meetings-api/prisma/schema.prisma`, `meetings-api/prisma/migrations/*_transcript_quality/*`, `meetings-api/src/jobs/handlers/transcribe.ts`, `meetings-api/src/jobs/handlers/transcribe.test.ts`, `meetings-api/src/transcript/transcript.routes.ts`, `meetings-api/src/transcript/transcript.test.ts`
+  - done when: on `meetings_test`, `bun run db:deploy && bun test src/jobs/handlers/transcribe.test.ts src/transcript` passes: gaps rows written and cascaded on delete; a retry replaces them; `separateLabels` true iff a key's lowest part > 1; legacy rows (part null) read as not joined; a `ready` meeting is not re-transcribed
+- [ ] T118: [BE] `POST /meetings/{id}/transcript/speakers/{key}/separate` (H-6) with row lock, name copy incl. `defaultIndex`; `speakerNamesFor` honours `defaultIndex` — refs: AC-6.16, AC-5.8, AC-5.11, AC-6.2 — deps: T117
+  - touch: `meetings-api/src/transcript/transcript.routes.ts`, `meetings-api/src/transcript/separate.test.ts`, `meetings-api/src/meetings/promptSegments.ts`, `meetings-api/src/matrix.test.ts`
+  - done when: on `meetings_test`, `bun test src/transcript/separate.test.ts src/matrix.test.ts` passes: the AC-6.16 row of H-10, and the route appears in the authorization matrix (creator 200, participant 403, frozen 403, stranger 404)
+- [ ] T119: [BE] Service-written caveats: the summarize job snapshots `transcriptGaps` and renders `NOT_FOUND_INCOMPLETE`; the ask route stores `possiblyIncomplete` and uses `NOT_IN_MEETING_INCOMPLETE`; summary and turn responses carry them — refs: AC-7.13, AC-9.9, AC-7.4 — deps: T117
+  - touch: `meetings-api/src/jobs/handlers/summarize.ts`, `meetings-api/src/jobs/handlers/summarize.test.ts`, `meetings-api/src/ai/prompts/summary.ts`, `meetings-api/src/ai/prompts/summary.test.ts`, `meetings-api/src/ai/prompts/answer.ts`, `meetings-api/src/ai/prompts/answer.test.ts`, `meetings-api/src/summaries/summaries.routes.ts`, `meetings-api/src/summaries/summaries.test.ts`, `meetings-api/src/conversation/conversation.routes.ts`, `meetings-api/src/conversation/conversation.test.ts`
+  - done when: on `meetings_test`, these tests pass with the AC-7.13/9.9 rows of H-10, including "regenerate carries the snapshot" and "a meeting without gaps returns `possiblyIncomplete: null`/false and the old fixed texts"
+- [ ] T120: [BE] Vertex unforced single tool (H-8): no `tool_choice`, no `thinking`; the acceptance rule; thinking blocks discarded unread; the `invalid_output` log line; recorded reply-shape fixtures (scrubbed, synthetic content) from the pinned model, including whether explicit `auto` + `disable_parallel_tool_use` is accepted (recorded, not adopted) — refs: AC-7.9, AC-9.6, AC-7.10, AC-13.4, AC-4.10 — deps: none (it changes only the adapter; the resample paths in `summarize.ts`/`conversation.routes.ts` stay as they are)
+  - touch: `meetings-api/src/ai/vertexClaude.ts`, `meetings-api/src/ai/vertexClaude.test.ts`, `meetings-api/src/ai/languageModel.ts`, `meetings-api/test-fixtures/google-vertex/messages-*.json`, `meetings-api/test-fixtures/google-vertex/README.md`
+  - done when: `bun test src/ai/vertexClaude.test.ts` passes with the AC-7.9/9.6 row of H-10, and `git grep -n "tool_choice\|thinking" meetings-api/src/ai/vertexClaude.ts` matches only comments
+- [ ] T121: [QE] Evals: new channels (plain-text reply, double call, other tool) in en/it; the availability tier; a `max_tokens`-stop assertion in the live run; a live run on the pinned model, twice, recorded in the PR — refs: AC-7.12, AC-9.7, AC-7.9, AC-9.6 — deps: T120
+  - touch: `meetings-api/evals/assertions.ts`, `meetings-api/evals/types.ts`, `meetings-api/evals/fixtures/summary.en.ts`, `meetings-api/evals/fixtures/summary.it.ts`, `meetings-api/evals/fixtures/answer.en.ts`, `meetings-api/evals/fixtures/answer.it.ts`, `meetings-api/evals/run.ts`, `meetings-api/evals/eval.test.ts`
+  - done when: `bun run eval` (fake) exits 0; `bun test evals/eval.test.ts` passes; the live run's summary (safety 0, availability ≤ 2, no `max_tokens`, first-sample tool-call rate) is in the PR description
+- [ ] T122: [FE] meetings-ui transcript: types, the notice with ranges and play controls, gap markers, the new parts-banner rule and copy, dividers by `segment.part`, the joined indication and "Separate by part" dialog, export with notice and markers, `speech_not_transcribed` copy, en/it — refs: AC-6.2, AC-6.6, AC-6.7, AC-6.12, AC-6.15, AC-6.16, AC-13.1 — deps: none (contract H-6)
+  - touch: `meetings-ui/src/components/transcript/TranscriptView.tsx`, `meetings-ui/src/components/transcript/TranscriptView.test.tsx`, `meetings-ui/src/components/transcript/exportText.ts`, `meetings-ui/src/components/transcript/SpeakerRenameDialog.tsx`, `meetings-ui/src/components/transcript/SeparateSpeakerDialog.tsx`, `meetings-ui/src/components/transcript/Corrections.test.tsx`, `meetings-ui/src/strings/transcript.ts`, `meetings-ui/src/strings/meeting.ts`, `meetings-ui/src/lib/types.ts`, `meetings-ui/src/lib/meetingsApi.ts`, `meetings-ui/src/test-support/fakeApi.ts`
+  - done when: `cd meetings-ui && pnpm lint && pnpm build && pnpm test` passes with new cases: no gaps → no notice; two gaps → notice and markers in place, no dismiss, no play after audio deletion; banner only with `separateLabels` and without the forbidden phrases; Separate shown only with `can.editTranscript`; the exported text starts with the notice; `catalogGaps` parity
+- [ ] T123: [FE] meetings-ui summary and answer caveat labels, the link to the notice, labels in copied text — refs: AC-7.13, AC-9.9, AC-7.11 — deps: T122 (shared `lib/types.ts`, `fakeApi.ts`)
+  - touch: `meetings-ui/src/components/summaries/SummaryCard.tsx`, `meetings-ui/src/components/summaries/Summaries.test.tsx`, `meetings-ui/src/components/ask/Turn.tsx`, `meetings-ui/src/components/ask/Ask.test.tsx`, `meetings-ui/src/strings/summaries.ts`, `meetings-ui/src/strings/ask.ts`, `meetings-ui/src/lib/types.ts`, `meetings-ui/src/test-support/fakeApi.ts`
+  - done when: `cd meetings-ui && pnpm lint && pnpm build && pnpm test` passes; the copied summary text contains the label and the ranges; the answer label links to `#meetings-transcript-incomplete`
+- [ ] T124: [QE] Spike regression (release gate): `--reference`, detector, retry, join and dedup report without content; records the overlap, hole and silence fixtures; the AC-6.17 replay test on them — refs: AC-6.11, AC-6.12, AC-6.14, AC-6.17 — deps: T116
+  - touch: `meetings-api/scripts/spike-google-speech.ts`, `meetings-api/test-fixtures/google-speech/recorded-overlap-*.json`, `meetings-api/test-fixtures/google-speech/recorded-hole-*.json`, `meetings-api/test-fixtures/google-speech/README.md`, `meetings-api/src/ai/stitch.replay.test.ts`
+  - done when: `bun test src/ai/stitch.replay.test.ts` passes (three silence lists, two audio files, identical joins); the spike's pass criteria of H-10 are met on the sandbox and recorded in a dated note under H-1 (via the orchestrator)
+- [ ] T125: [QE] O14 measurement on consented recordings (QH-1): false-gap, missed-gap and false-join rates; bounds confirmed or changed; outcome in a dated note under H-3 (via the orchestrator). **Go-live gate.** — refs: AC-6.11, AC-6.13, AC-6.14, O14 — deps: T124
+  - touch: `meetings-api/scripts/measure-transcript-quality.ts`
+  - done when: the note records the three rates on ≥ 8 h, and zero false joins (any false join found is filed as a defect and fixed before go-live); any changed bound is a code constant with its test updated
+- [ ] T126: [OPS] ADRs via adr-writer: amend 0067 and 0070, new 0071, follow-up notes on 0062/0064/0069; AGENTS.md ADR lines — refs: AC-6.14, AC-6.11, AC-7.9 — deps: none (after plan approval)
+  - touch: `docs/adr/0067-ai-output-structured-validated-plain-text.md`, `docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md`, `docs/adr/0071-meetings-transcript-completeness-detect-retry-mark.md`, `docs/adr/0062-durable-job-runner-work-queued-state-derived.md`, `docs/adr/0064-meetings-api-reads-audio-bytes-third-reader.md`, `docs/adr/0069-meetings-ai-providers-google-cloud-eu.md`, `AGENTS.md`
+  - done when: each file carries its amendment or note with the rejected alternatives of H-12; `git grep -n "0071" AGENTS.md` matches the ADR list
+- [ ] T127: [OPS] Changesets for meetings-api and meetings-ui (A7, D4) — refs: AC-10.5 — deps: T113–T123
+  - touch: `.changeset/*.md`
+  - done when: `mise run changeset:check` passes
+
+**Overlaps** (all ordered by deps):
+
+| Shared file | Order |
+|---|---|
+| `src/transcript/transcript.routes.ts` | T117 → T118 |
+| `prisma/schema.prisma` + migration | T117 only (T118 and T119 depend on it) |
+| `test-fixtures/google-speech/*` | T116 (`overlap-*`, hand-built) → T124 (`recorded-*`, README) |
+| `src/ai/segments.ts` | T115 only; T116 consumes it |
+| `meetings-ui/src/lib/types.ts`, `src/test-support/fakeApi.ts` | T122 → T123 |
+| `src/ai/prompts/summary.ts`, `answer.ts` | T119 only (T120 does not touch prompts or callers) |
+| `src/jobs/handlers/summarize.ts`, `src/conversation/conversation.routes.ts` | T119 only |
+
+`split.ts` (T113), `completeness.ts`/`words.ts` (T114), `stitch.ts` (T115), `googleSpeech.ts`,
+`transcriber.ts`, `fakeTranscriber.ts`, `transientStorage.ts` (T116), `transcribe.ts` (T117),
+`promptSegments.ts` (T118), `vertexClaude.ts` (T120), `evals/*` (T121), the spike script (T124),
+`docs/adr/*` and `AGENTS.md` (T126) each have one owner.
+
+**Coverage additions:**
+- AC-4.12 → T116;
+- AC-6.2 → T113, T115, T117, T122;
+- AC-6.6 → T122;
+- AC-6.7 → T114, T116, T117, T122;
+- AC-6.9/6.10 → T116;
+- AC-6.11 → T113, T114, T116, T124, T125;
+- AC-6.12 → T114, T117, T122, T124;
+- AC-6.13 → T114, T115, T125;
+- AC-6.14 → T113, T115, T124, T125;
+- AC-6.15 → T115, T117, T122;
+- AC-6.16 → T117, T118, T122;
+- AC-6.17 → T115, T124;
+- AC-7.9/9.6 → T120, T121;
+- AC-7.13/9.9 → T119, T123;
+- AC-7.12/9.7 → T121;
+- AC-13.4 → T116, T120.
