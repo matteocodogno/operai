@@ -2,82 +2,82 @@
 spec: 021
 evaluated: 2026-11-05
 rubric: default-v2
-score: 76.5
-verdict: FAIL
-round: 2
+score: 80.0
+verdict: PASS
+round: 3
 ---
-# Eval report: Meetings — record, transcribe, summarise and question meetings (re-eval, round 2)
+# Eval report: Meetings — record, transcribe, summarise and question meetings (re-eval, round 3)
+
+**History.** Round 1: FAIL 73.0. Round 2: FAIL 76.5 (`spec_fidelity` 3 over the AC-3.2 edge; design S1
+E-filtered without Clear filters). Round 3 (this one): **PASS 80.0**, exactly at the threshold, with no margin.
 
 **Rubric.** `/Users/matteocodogno/.claude/plugins/cache/wellforge/wellforge/2.56.0/config/eval-rubric.yml`
-(`version: default-v2`). This is the plugin's bundled copy; the repo has no `gates/` and no
-`.wellforge-gates/`. There is no `specs/021-meetings/eval.md`, so no overrides apply.
-`design.md` exists, so `design_fidelity` applies and the weight pool is 115.
+(`version: default-v2`). This is the plugin's bundled copy; the repo has no `gates/` and no `.wellforge-gates/`.
+There is no `specs/021-meetings/eval.md`, so no overrides apply. `design.md` exists, so `design_fidelity` applies
+and the weight pool is 115.
 
-**Re-checked independently on `feat/021-meetings` @ 58cbae4.** No score was carried forward from round 1.
-- meetings-api `bun test` against a local `meetings_test` DB: **1299 pass / 27 skip / 0 fail**
-  (1326 tests). The skips are the real-ffmpeg suites; there is no ffmpeg on the host.
-- meetings-ui: **881 / 881 pass**.
-- `bun run eval` (fake model): 53/53 fixtures pass, still with "157 prose-only residual (only a
-  live run shows the model resisting)".
-- In the local `operai-ffmpeg-local` image I confirmed the premise of the 8666836 revert:
-  - a `-live 1` WebM/Opus probes with **no `format.duration`**;
-  - `-t` truncates the decode (a 30 s input with `-t 5` gives 5.01 s of output).
-- I did **not** reproduce the containerised 108/108 real-ffmpeg run, e2e, or the other apps'
-  suites. Those figures come from the QE record.
-- The run trace `.forge/runs/2026-11-04T00-00-00Z-orchestrate-021-meetings.json` was read in
-  full. I checked its worktree ids (e.g. `afed7159ba82da6b4`, `af842dbc2aceb9d7f`,
-  `a6add0e34696ca88c`) against the local Claude session logs, and they appear there.
+**What I checked myself on `feat/021-meetings` @ d32838c** (37 commits since 3b3c61f). No score was carried forward.
+- meetings-api suites that need no database: `bun test src/lib/google src/lib/startupChecks.test.ts src/lib/env.test.ts
+  src/lib/residency.test.ts src/ai src/media evals`. Every Google, startup-check, env, residency, AI, splitter and eval
+  test passes. The 54 failures are all database-backed files (`rateLimit`, `normalize`, `prepareAudio`), which fail
+  at Prisma authentication. The real-ffmpeg suites skip: there is no ffmpeg on the host.
+- `bun run typecheck`: exit 0. `bun run eval` (fake model): PASS, still with "157 prose-only residual (only a live
+  run shows the model resisting)".
+- meetings-ui: **900/900 tests pass**; `pnpm lint && pnpm build` exit 0. `bash -n infra/meetings-gcs-transient-policy.sh` OK.
+- **Not reproduced.** The DB integration suite (1534 tests) could not run here because the local Postgres
+  container has no `postgres` role. I also did not reproduce the e2e or the containerised real-ffmpeg run. For those
+  I rely on the QE PASS recorded in `.forge/runs/2026-11-05T09-00-00Z-orchestrate-021-meetings.json`.
+- **External APIs.** `@anthropic-ai/vertex-sdk` 1.1.2 accepts the `baseURL`, `region`, `projectId`, `authClient`
+  options that `vertexClaude.ts:76-84` passes (`node_modules/@anthropic-ai/vertex-sdk/client.d.ts:8-9,39`).
+  Nothing in the Google path has been observed against a real Google endpoint.
+- **Spec 022 has no effect on 021.** Commit 6290d43 touches only `specs/022-meetings-live/spec.md` and
+  `.claude/context/glossary.md`. No 021 artifact or code changed, so it is not weighed here.
 
 | Dimension | Weight | Score (/5) | Floor | Weighted | Evidence |
 |---|---|---|---|---|---|
-| AC satisfaction | 35 | 4 | 4 | 28.0 | 123/123 ACs are mapped, and the core ACs have strong evidence:<br>• visibility/roles: assembled-route matrix plus byte-identical 404 (`meetings-api/src/matrix.test.ts`);<br>• auth outage: `authz-outage.test.ts`;<br>• AC-2.8: `derived.test.ts` A1 cases plus the real-timing e2e `shell/e2e/meetings-capture.spec.ts:146`;<br>• AC-3.1, now fixed for browser WebM: `upload.integrity.test.ts:152,235,254` and `prepare.real.test.ts` "a browser-saved WebM/Opus upload with NO duration header is accepted".<br>Evidence is thin or partial for:<br>• AC-7.12 and AC-9.7: the model half has never been observed;<br>• AC-2.4 and AC-2.5: real tab audio never captured;<br>• AC-2.2: the e2e **replaces `getUserMedia`** with a WebAudio tone (`shell/e2e/helpers/meetingsFixtures.ts:363-388`), so the browser's own microphone request and grant are never exercised end to end;<br>• AC-3.2 has a new edge (see spec fidelity). |
-| Spec fidelity / no drift | 20 | 3 | 3 | 12.0 | The round-1 drift (every upload without a stated duration refused) is reverted: 8666836, `media/probe.ts` `judgeProbe` no longer has `requireDuration`. The revert leaves one edge at odds with AC-3.2, and neither the spec nor the plan records it: <br>• AC-3.2 says a file "over the … duration limit" is "refused **before processing** … and the meeting stays `draft`". <br>• A file with no stated duration that is longer than 3 h is now accepted at confirm and enters `processing`. The decode cap then raises `too_long`, and `prepareAudio.ts:226-231` calls `markFailed`, which sets the meeting to **`failed`**, not `draft`. <br>• Because the source is now locked (AC-3.5/G1), the creator cannot upload a shorter file to the same meeting; retrying (AC-6.9) re-runs the same cap. <br>• ADR-0064 round 3 says only "refused as `too_long`". No test asserts the meeting's final state in this case. <br>Doc nits: ADR-0064 round 3 cites commit `e06292b`, which is on no branch (the fix is 8666836); ADR-0061:38-39 still says "the region's" retention while the code checks every destination Region. The other changes (G1–G9, T94 and T19–T34 amendments, `host_reader`) are recorded in the plan. |
-| Test quality | 20 | 4 | 3 | 16.0 | Strengths: the route-table matrix; the stranger-vs-missing byte compare; the negative-control evals (`evals/eval.test.ts:67,74,85`); real-ffmpeg bomb and cap tests (`media/normalize.real.test.ts:49-108`) plus the new duration-less WebM real test; e2e with real timings. Gaps: <br>• the e2e microphone is a stubbed `getUserMedia`; <br>• tab audio is tested only with fake tracks (`capture/mixer.test.ts:156-213`); <br>• Azure Speech and Bedrock are only ever stubbed, and the R2 latency spike has no task; <br>• the real-ffmpeg suites run in no CI job; <br>• the mov `dref` case is untested; <br>• `--live` has never run; <br>• the new AC-3.2 edge (duration-less upload longer than 3 h, end state) has no test. |
-| Code quality & conventions | 15 | 4 | 3 | 12.0 | The code is idiomatic and fails closed: `auth/guards.ts`, `meetings/visibility.ts` `assertCreatorControl` (503 on an identity outage), the advisory-locked rate limiter `ai/rateLimit.ts:54-74`, and the server-owned output shape `ai/prompts/summary.ts`. I checked that the SDK APIs it calls exist (`GetAccountDataRetentionCommand` with `mode` "none", `GetInferenceProfileCommand`, `ConverseCommand`). The live gate is fixed in 9883e44: `meetings-eval-live.yml` now exits 1 on `workflow_dispatch` when unconfigured and skips only on `schedule`. Not 5: <br>• the upload `too_long` path makes the meeting `failed` with a retry that cannot succeed; <br>• open security residuals: the mint is not row-locked, there is no cap on container runs per recording, and the stored key stays writable until the policy expires. |
-| Design fidelity (UI) | 15 | 4 | 3 | 12.0 | `design.md` is complete: 17 flows; per-screen L/E/F/403/404/503 states; an a11y plan; reuse mapped. The build realises it, for example: <br>• focus moves to Pause on start and to the saving container on stop, and the timer is `role="timer"` (`components/meeting/RecordingPanel.tsx:190,354-357,425,462`); <br>• `aria-disabled` with the reason via `aria-describedby` (`SummariesPanel.tsx:92-93`); <br>• the four new library parts have stories, and the axe e2e passes. <br>One state diverges: design S1 **E-filtered** is "`StatePanel` 'No meetings match' + … **Clear filters** action". `pages/MeetingsListPage.tsx:184-186` renders that StatePanel without an action, although `StatePanel` supports `action`; Clear filters exists only in the filter card (`:271`). |
-| Trajectory | 10 | 4 | 2 | 8.0 | The trace (wellforge-run/v3) shows the expected sequence: product-owner → architect → adr-writer → designer → 34 dev/devops lanes in worktrees, in dependency order → T83 evals by QE (which found DEF-1..3) → e2e by QE → owasp-reviewer FAIL → FAIL → PASS-with-notes → QE FAIL → PASS → evaluator FAIL 73. It also records 6 drift events, 2 collisions and 5 env faults. Worktree ids are corroborated by the session logs. Not 5: <br>• the trace was written after the fact (committed in 58cbae4 after eval round 1, `started` is a placeholder `00:00:00Z`, `finished` and `rigor_recorded` are null); <br>• the evaluator drift event is still `resolved:false`; <br>• the collisions show `touch:` lists missing a shared test file; <br>• T84's GitHub run and T92 are not done. |
-| **Total** | 115 | | | **88.0 / 115 = 76.5 / 100** | |
+| AC satisfaction | 35 | 4 | 4 | 28.0 | **AC-3.2 edge (round-2 blocker) closed.** An uploaded file that decodes past 3 h now deletes the original and returns the meeting to `draft` with `failureCode=too_long`, and the creator is notified. See `meetings-api/src/jobs/handlers/prepareAudio.ts:175-192,279-288`. Nine cases cover it in `prepareAudio.refuse.test.ts:63-187`: draft + reason, metadata kept, a fresh mint works, a delete failure is not hidden, a stale attempt never deletes a newer upload, recorded sources unchanged. The UI names the reason (`UploadCard.tsx:261`, plus a test). <br>**New and changed ACs.** <br>• AC-4.1: notice version `2026-11-05` server-side (`consent.routes.ts:28`); disclosure in en/it (`strings/consent.ts:18,46`). <br>• AC-4.12 / 4.5 / 4.6: the transient prefix is deleted before any DB change, and 503 means nothing was deleted (`delete.routes.ts:94-96`, `delete.test.ts:104,153`). Attempt-scoped cleanup is in `googleSpeech.ts:351,411` and tested at `googleSpeech.test.ts:354-403`. <br>• AC-4.9: N2/N3/N4 refuse on every property, and unreadable counts as a refusal (`startupChecks.ts:101-124,202-242`). <br>• AC-6.2 parts: `googleSpeech.ts:129-191`, `TranscriptView.tsx:136-228`. <br>**At the floor because evidence is thin for a cluster,** all of one kind (a real third party never observed): <br>• AC-7.12 / 9.7: no `--live` run; <br>• AC-2.2 / 2.4 / 2.5: the e2e microphone is stubbed and tab audio only uses fake tracks; <br>• AC-6.1 / 6.2 / 6.5 on Chirp 3 and AC-4.9 N3/N4 on Vertex's control plane: only hand-built fixtures (`test-fixtures/google-speech/README.md`). Plan R2 itself says Google's page "contradicts itself on diarization … and on word timestamps". <br>That is more than the anchor's "one or two". I keep 4 because every AC's own contract is tested and the external observation is an explicit, open release gate (T107, then T92). A T107 outcome that contradicts the fixtures (for example, no `speakerLabel` without word offsets) would drop this to 3, which is below the floor. |
+| Spec fidelity / no drift | 20 | 4 | 3 | 16.0 | The round-2 drift is gone: the AC-3.2 fix follows the user's option 1 (trace drift event 1, resolved). The provider switch went spec-first: <br>• plan § Amendment G-0..G-17, approved by the user (`plan.md:1459-1463`); <br>• spec A5/A6 with the body updated (`spec.md:50-67,119-135`, AC-4.1, AC-4.6, AC-4.12, AC-6.2); <br>• ADR-0069/0070; tasks T95–T112 re-synced (`tasks.md:612`). <br>Implementation matches G-1/G-2/G-3/G-4: REST plus the explicit SDK client, `chirp_3` with one locale, `gcsOutputConfig`, per-part `p<n>:` keys, never `global`. The Azure and Bedrock code is gone (`git grep -i "azure\|bedrock" meetings-api/src package.json` is empty). The one contract drift, the G-11 Transcriber `context` parameter, is recorded and resolved. Not 5: <br>• AC-3.2's "refused before processing" is met in effect, not literally: the meeting enters `processing`, then reverts. Harmless and noted in ADR-0064. <br>• An upload that is `audio_unreadable` at decode still ends `failed`. Type and track are checked at confirm, so this is acceptable. <br>• **T104 is ticked although its done-when ("the PR job is green on the branch; a dispatched run without the vars fails") cannot have been met.** The branch has no upstream and there are no GitHub runs. |
+| Test quality | 20 | 4 | 3 | 16.0 | Strong, adversarial unit coverage of the new code: <br>• Speech, `googleSpeech.test.ts:154-494`: the request body, poll backoff and deadline, every G-8 row, one part failing fails the whole attempt, a stale attempt never touches a newer prefix, cleanup failure does not mask the outcome, log/message privacy, shape refusal; <br>• N2/N3/N4: one refusal per property; <br>• deletion ordering with a failing fake (`delete.test.ts:104-170`); <br>• the AC-3.2 race cases listed above; <br>• QE's red axe test (7d7b376) before the divider fix (5bbdb44); <br>• the policy-script harness with a fake `gcloud` (`infra/meetings-gcs-transient-policy.test.sh`). <br>Gaps, and they do weigh: <br>• the Speech adapter is proven only against **hand-built** fixtures, so the tests prove the code matches the team's reading of Google's REST reference, not Google; <br>• `split.real.test.ts:15` is `skipIf(!hasFfmpeg)` and runs in no CI job; <br>• `--live` has never run; <br>• the e2e microphone is stubbed; <br>• there is no test for a cross-job same-attempt key collision (see code quality). <br>Open T107 is the right place to close the fixture gap; until then this cannot be 5. |
+| Code quality & conventions | 15 | 4 | 3 | 12.0 | Idiomatic and fail-closed. Every SDK default is overridden on purpose (`vertexClaude.ts:73-85`), with a defence-in-depth location re-check (`:75`). Failures map to closed codes by status only, never provider text (`googleSpeech.ts:93-103`). Output reads are bounded and prefix-checked (`:311-320`). N4 passes only on a 404 or a body it fully understands (`startupChecks.ts:182-196`). The ffmpeg slot replaces kind exclusion (T98). Startup messages carry no values. Not 5: <br>• N3/N4 hosts and shapes on `aiplatform.eu.rep.googleapis.com` are unconfirmed (security L2). This fails closed, so it is a deploy risk, not a leak. <br>• A user retry of `transcribe` is a new job that restarts at attempt 1. A leftover from an older job's same attempt number makes the `ifGenerationMatch=0` upload answer 412, which maps to permanent `provider_rejected` (`transientStorage.ts:139`, `auth.ts:40`). It recovers on the next retry and the 1-day rule bounds it (security L4), but it is a spurious failure. <br>• Transient cleanup failure is log-only (`googleSpeech.ts:411`), by design. |
+| Design fidelity (UI) | 15 | 4 | 3 | 12.0 | The round-2 gap is fixed: the E-filtered `StatePanel` now carries Clear filters, and focus returns to the search field (`MeetingsListPage.tsx:130-136,185-197`; design `design.md:255-256`), with a test. The new UI is built to plan G-3 "What the UI shows": <br>• an info `Banner` plus per-part dividers, with the list-semantics fix after the axe failure (`TranscriptView.tsx:179-228`); <br>• the upload-refused warning `Banner` (`UploadCard.tsx:261`); <br>• the en/it consent statement. <br>Not 5: **`design.md` was not updated in this round** (no commit since 3b3c61f). The consent string table still lists `statements[5]` (`design.md:584`) where there are now 6. The transcript-parts banner and dividers and the draft "upload refused" state are not designed there. The design chain now lives partly in plan.md. |
+| Trajectory | 10 | 4 | 2 | 8.0 | The trace (wellforge-run/v3) shows a coherent order: <br>1. the AC-3.2 / T55 / ADR fixes, then owasp PASS WITH NOTES and QE PASS; <br>2. architect plan amendment, then PO spec A5/A6 (user-approved), with drift events resolved; <br>3. backend, frontend and devops lanes in worktrees (ids `a99d8bd561bfedc20`, `afdadc5d0552126b5`, `ae424f573c2ef07d9` all appear in the local session logs); <br>4. owasp REVIEW REQUIRED (N4 medium) and QE FAIL (D1 a11y, D2 e2e), then fix commits (ccca3c3, 5bbdb44, 37011b0, e77a16b, 2345855, 92af5b1), then owasp PASS WITH NOTES and QE PASS. <br>Commit timestamps match this order. Not 5: <br>• `finished`, `rigor_recorded` and `tokens` are null, and `result` is "partial"; <br>• `verdicts.security` says "PASS" where the agent said PASS WITH NOTES; <br>• the main backend lane records no commits; <br>• QE fixed D2 itself (93816f7) instead of routing it to a dev; <br>• T104 was ticked without its CI evidence; <br>• T107 and T92 are open (expected). |
+| **Total** | 115 | | | **92.0 / 115 = 80.0 / 100** | |
 
-**Verdict: FAIL.** The total of 76.5 is below the `pass_score` of 80. No dimension is below its floor; `ac_satisfaction` and `spec_fidelity` sit exactly at theirs.
+**Verdict: PASS.** The total of 80.0 meets `pass_score` 80 with zero margin. No dimension is below its floor;
+`ac_satisfaction` sits exactly at its floor of 4.
 
 ## Findings
 
-- **What changed since round 1.**
-  - The trace makes trajectory scorable: 2 → 4.
-  - The upload-duration revert and the live-gate fix are real and verified.
-  - The revert opened one new AC-3.2 edge, and that keeps `spec_fidelity` at 3. It is the only thing between this feature and a pass: at `spec_fidelity` 4 the total is exactly **80.0**.
-- **AC-3.2 edge (spec fidelity, test gap).**
-  - An upload with no stated duration that decodes past 3 h + 60 s ends `failed` / `too_long` after it enters `processing`. AC-3.2 requires the meeting to stay `draft`.
-  - The source is locked, so the only way out is deleting the meeting.
-  - To raise it, either:
-    - on an **upload's** `too_long` (or `audio_unreadable`) in `prepare_audio`, delete the original and return the meeting to `draft` with the reason, so it behaves as if refused at confirm; add a test asserting `status: "draft"` and that `can.changeSource` is restored; or
-    - amend AC-3.2 (spec first, per AGENTS.md) to say that a file of unstated length found too long while decoding ends `failed` with the reason, and add a test for that end state.
-- **AC-7.12 / AC-9.7.**
-  - Proved: the server enforces the template's shape and cleans the prose (fake-model evals with a negative control).
-  - Unproved: that the real model treats injected sentences as quoted content. No `--live` run exists.
-  - The gate now fails closed on dispatch, but it still has to actually run green before release, as the README now requires.
-- **AC-2.2 / 2.4 / 2.5 capture.**
-  - The e2e stubs `getUserMedia` (env fault "Chromium fake mic never answers in this macOS sandbox", recorded in the trace).
-  - The tab-share path is covered only by unit tests with fake tracks.
-  - Both need a real-browser check before release.
-- **Design S1 E-filtered** is missing its Clear filters action (`MeetingsListPage.tsx:184-186`).
-- **Docs:** ADR-0064 round 3 cites a commit (`e06292b`) that is not in history. ADR-0061 still describes the retention check as single-region.
-- **Security notes still open (low or accepted):**
-  - access through a residual JWT after deactivation;
-  - no transcription or upload quota;
-  - the directory is readable by all employees (ADR-0066);
-  - 15-minute playback URL;
-  - mint not row-locked;
-  - no cap on container runs;
-  - padding at the exact 3 h boundary;
-  - real-ffmpeg suites not in CI;
-  - live-eval environment protection is a repo setting.
-- **Rest-of-suite e2e:** the coordinator's attribution (the 6 EstimAI/notifications specs fail on both trees; the 3 others fail identically with main's shell) is consistent with the trace. I did not reproduce it.
+- **Why it passes now.** The round-2 blocker (AC-3.2 edge) is fixed with real tests, and the design gap
+  (E-filtered Clear filters) is closed. The provider switch is large: about 8 k lines across 108 files. It was done
+  spec-first with user approval, is well tested at the unit level, and introduces no contract drift that was not
+  recorded. Spec 022 does not affect 021.
+- **T107 and the hand-built fixtures (asked explicitly).**
+  - They weigh on `test_quality`: it holds 4, not 5, because the Speech adapter is verified only against the team's
+    reading of Google's REST reference.
+  - They weigh on `ac_satisfaction`: it sits at its floor because AC-6.1, 6.2, 6.5 and 4.9 (N3/N4) have no
+    observed real-provider behaviour.
+  - They do not sink the eval. T107 is an approved, explicit release gate, plan G-12 places it "outside the AC
+    mapping", and T92 depends on it, so nothing claims the feature is done.
+  - **This PASS does not cover release.** If T107 shows that Chirp 3 batch returns no `speakerLabel` without word
+    offsets, or that the N3/N4 shapes or hosts differ, `ac_satisfaction` falls below its floor and the feature
+    must be re-evaluated.
+- **T104 ticked without its done-when.** The branch is not pushed and there is no GitHub run. Either push it and
+  record the PR job plus a dispatched run without vars, or untick T104.
+- **design.md is stale for this round.** Update it with `statements[6]`, the transcript-parts banner and dividers,
+  and the draft upload-refused state, so the design chain stays complete.
+- **Cross-job transient key collision.** A user retry after a crashed last attempt can get a 412, reported as
+  `provider_rejected`. Consider treating 412 on `put` as "delete that key and retry", or keying the prefix by job
+  id as well as attempt.
+- **Still open from earlier rounds (release items, not scored again):**
+  - a green `--live` eval (AC-7.12 / 9.7);
+  - a real-Chromium microphone and tab-share check (AC-2.2 / 2.4 / 2.5);
+  - real-ffmpeg suites in CI.
+- **Accepted security notes:** L1–L4, and H1/H4 as sign-offs (O13).
 
 ## Recommended next step
 
-FAIL. This was round 2 of 2, so it goes back to the orchestrator and owner. The smallest change that would honestly earn a pass is the AC-3.2 edge fix and its test, through `/wellforge:implement` on T28/T30. That lifts `spec_fidelity` to 4 and the total to 80.0, a pass at the threshold.
-
-Adding the E-filtered Clear filters action (design → 5) would give margin: 82.6.
-
-Independently of the verdict, record a `--live` eval run and a real Chromium tab-share check before release.
+- PASS, so the eval gate is satisfied. Do **not** move the spec to `done` yet: T107 (the Google spike in a sandbox
+  project) and then T92 must close first, as `tasks.md` requires.
+- Re-run `/wellforge:eval` after T107 swaps the recorded fixtures in and sets `PIECE_MAX_MS` and word offsets,
+  because those can change the AC-6.2 evidence. Fix T104's evidence and the `design.md` sync in the same pass.
