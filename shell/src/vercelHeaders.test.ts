@@ -57,8 +57,15 @@ describe('shell/vercel.json — meetings (specs/021 T52)', () => {
     expect(connect).toContain('https://t3.storageapi.dev')
   })
 
-  it('allows audio playback from the bucket only, with no blanket media source', () => {
-    expect(csp.get('media-src')).toEqual(["'self'", 'https://t3.storageapi.dev'])
+  it('allows audio playback from the bucket and blob: object URLs only, with no blanket media source', () => {
+    // blob: is for the upload card's duration pre-check (URL.createObjectURL -> loadedmetadata, T66)
+    expect(csp.get('media-src')).toEqual(["'self'", 'https://t3.storageapi.dev', 'blob:'])
+  })
+
+  it('does not widen any other directive to blob:', () => {
+    for (const [name, sources] of csp) {
+      if (name !== 'media-src') expect(sources, name).not.toContain('blob:')
+    }
   })
 
   it('keeps the existing hardening directives', () => {
