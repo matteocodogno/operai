@@ -24,6 +24,8 @@ on user-supplied files.
 
 ## Decision
 
+> **Current state:** points 3 to 5 below were amended after the security review; the commands and probe rules in them are superseded by the section "Amended 2026-11-05 (security review)" at the end of this ADR, which is authoritative.
+
 1. **meetings-api may read object bytes in exactly one place: the `prepare_audio` job and the
    upload `confirm` probe**, both while it authors a derived document (`audio.ogg`) from a
    recording the creator made or uploaded. Proxying a file a client asked for stays forbidden;
@@ -136,8 +138,16 @@ allowlisted demuxers, confirm only the upload key it probed).**
   URL. An UPLOADED file must state its duration: missing means `unsupported_type` at confirm
   and `audio_unreadable` in `prepare_audio`. Recording runs are exempt (MediaRecorder WebM has
   no header duration) and are bounded by the output caps and the 128 MiB input cap instead.
+  **Superseded by round 3 below.**
 - **Confirm acts only on the key it probed:** it flips the meeting with a compare-and-set on
   `objectKey`; a mismatch (a newer mint superseded it) is 409 `upload_superseded`.
+
+**Round 3 (commit e06292b, reverts part of round 2).** The rule "an uploaded file must state
+its duration" is **reverted**: it refused legitimate browser-saved WebM files, for the wrong
+reason (eval finding; spec AC-3.1/3.2). Now an upload with no stated duration is accepted at
+confirm; the demuxer allowlist, the audio-stream check and, **when a duration is stated**, the
+3 h + 60 s limit still apply. The decode output caps `-t 10861 -fs 104857600` bound an absent
+or understated duration, and a file that decodes past the limit is refused as `too_long`.
 
 Failure-shape note: the lesson is that a parser given a URL must be bounded by what it can
 *reach* (host and port), not by the scheme it speaks; the authoritative check belongs on the

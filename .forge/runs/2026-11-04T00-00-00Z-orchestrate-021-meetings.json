@@ -1,0 +1,512 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.56.0",
+  "run_id": "2026-11-04T00-00-00Z-orchestrate-021-meetings",
+  "command": "orchestrate",
+  "feature": "021-meetings",
+  "rigor": "production",
+  "rigor_recorded": null,
+  "started": "2026-11-04T00:00:00Z",
+  "finished": null,
+  "agents": [
+    {
+      "agent": "product-owner",
+      "outcome": "completed",
+      "artifact": "specs/021-meetings/spec.md",
+      "notes": "draft, O1-O12 folded, A1-A4 amendments"
+    },
+    {
+      "agent": "architect",
+      "outcome": "completed",
+      "artifact": "specs/021-meetings/plan.md",
+      "notes": "plan + amendments (design stage G1-G9, T94, T19-T34); drafted tasks.md (94 tasks)"
+    },
+    {
+      "agent": "adr-writer",
+      "outcome": "completed",
+      "notes": "ADR-0058..0068; 0059/0060/0066 amended; 0064 amended twice after security review"
+    },
+    {
+      "agent": "designer",
+      "outcome": "completed",
+      "artifact": "specs/021-meetings/design.md"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T2",
+        "T3",
+        "T4"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a10a362cbae7a46c6"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T5"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-aa6d73f21be4ff911"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T6",
+        "T7",
+        "T8",
+        "T9"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a1aca4843a7a9118b",
+      "notes": "fix round: cross-file test interference"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16",
+        "T17"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-afed7159ba82da6b4"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T18",
+        "T93"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-aefdd6ea48e153e30"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T31",
+        "T35",
+        "T36",
+        "T37",
+        "T38",
+        "T39",
+        "T94"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-ac211f929ab4497b5"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T19",
+        "T20",
+        "T21",
+        "T22",
+        "T23",
+        "T24",
+        "T25"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a5d696e3c202d38d3"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T26",
+        "T27",
+        "T28",
+        "T29",
+        "T30",
+        "T33",
+        "T34"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-afb81be94297f7742"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T30"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-af31a6ac5ad30a2c8",
+      "notes": "real-ffmpeg expectation (Ogg Opus 48 kHz) + one caller helper"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T40",
+        "T41"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a394214ece4dad92d"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T32"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a6245b13e57611544"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T42"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a12b9d9402ca7f8f1",
+      "notes": "+ retry flag/route shared predicate"
+    },
+    {
+      "agent": "backend-dev",
+      "outcome": "completed",
+      "worktree": "worktree-agent-a1100a3a3ff7820ef",
+      "notes": "sanitizeProse DEF-1..3 found by T83 evals"
+    },
+    {
+      "agent": "backend-dev",
+      "outcome": "completed",
+      "worktree": "worktree-agent-acd0dd762b9dd818c",
+      "notes": "security round 1: unique upload key, local probe, actual-byte caps, minimal child env"
+    },
+    {
+      "agent": "backend-dev",
+      "outcome": "completed",
+      "worktree": "worktree-agent-adf493865b1d248b8",
+      "notes": "security round 2: decode output caps, format whitelist, confirm CAS"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T44",
+        "T45",
+        "T46",
+        "T47",
+        "T48"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a184b0ba477189458"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T53",
+        "T54",
+        "T62"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a8f8424bbd53fbecd"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T52",
+        "T79"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a67f992aa057903d6"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T77",
+        "T78"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-ac6f522d99a194b09"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T49",
+        "T50",
+        "T51"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a2c70522ebc92ebce"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T57",
+        "T58",
+        "T59",
+        "T60",
+        "T61",
+        "T75"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-afba9eccd4e092fae"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T63",
+        "T64",
+        "T65",
+        "T66",
+        "T67"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-ab7e02e0c08a5aec8"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T68",
+        "T69",
+        "T70",
+        "T71",
+        "T72",
+        "T73"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a07dcd7bd21a026ae"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T55",
+        "T56",
+        "T74",
+        "T76"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-af6b8788140d1e467"
+    },
+    {
+      "agent": "frontend-dev",
+      "outcome": "completed",
+      "notes": "follow-ups: host-visible only in access card; CSP blob:; recording panel stays mounted; FilePicker label-in-name; e2e D1-D4; shell MF plugin 1.16->1.23.9 (dev share race); 1-based passages"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T1",
+        "T81",
+        "T82",
+        "T85"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a6655bcd10bbd0e63"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T43"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-aea52de0b0e15c5a0"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T80"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a2b80d6f13ddb3fa8"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T84"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a6add0e34696ca88c",
+      "notes": "GitHub run unverified (not pushed)"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T91"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-a5b5912c5a3bdfced"
+    },
+    {
+      "agent": "devops",
+      "outcome": "completed",
+      "worktree": "worktree-agent-a0cac2689b978c8c7",
+      "notes": "secret-scan allowlist of 4 reviewed placeholders"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T83"
+      ],
+      "outcome": "completed",
+      "worktree": "worktree-agent-af842dbc2aceb9d7f",
+      "notes": "found DEF-1..3"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T86",
+        "T87",
+        "T88",
+        "T89",
+        "T90"
+      ],
+      "outcome": "completed",
+      "notes": "main tree; found D1-D4, E1-E4"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "FAIL",
+      "notes": "1 medium (upload TOCTOU, chunk cap, URL-probe SSRF), 6 low, 5 info"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "FAIL",
+      "notes": "originals closed; new medium N1 decompression bomb"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "outcome": "PASS",
+      "notes": "PASS WITH NOTES"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "FAIL",
+      "notes": "secret scan 4 placeholders; rest-of-suite e2e unattributed"
+    },
+    {
+      "agent": "quality-engineer",
+      "outcome": "PASS",
+      "notes": "after QE fix round 1"
+    },
+    {
+      "agent": "evaluator",
+      "outcome": "FAIL",
+      "score": 73.0,
+      "notes": "round 1: no run trace, upload-duration drift, live gate exits 0 unconfigured"
+    }
+  ],
+  "drift_events": [
+    {
+      "agent": "designer",
+      "artifact": "plan.md",
+      "summary": "G1-G9 gaps folded into plan",
+      "resolved": true
+    },
+    {
+      "agent": "architect",
+      "artifact": "spec.md",
+      "summary": "A1-A4 accepted by user at plan gate",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "speaker-name snapshot at enqueue; Bedrock retention checked in every destination region",
+      "resolved": true
+    },
+    {
+      "agent": "backend-dev",
+      "artifact": "plan.md",
+      "summary": "host_reader role; identity check skipped on high-frequency recording routes; new codes and limits",
+      "resolved": true
+    },
+    {
+      "agent": "owasp-reviewer",
+      "artifact": "docs/adr/0064",
+      "summary": "probe/decode design corrected twice",
+      "resolved": true
+    },
+    {
+      "agent": "evaluator",
+      "artifact": "spec.md AC-3.1/3.2",
+      "summary": "uploads without stated duration refused; reverted (decode caps bound them)",
+      "resolved": false
+    }
+  ],
+  "collision_events": [
+    {
+      "tasks": [
+        "T94",
+        "T30"
+      ],
+      "files": [
+        "meetings-api/src/jobs/runner.test.ts"
+      ],
+      "resolved_by": "union of handler-table exclusions merged during rebase; touch lists omitted the shared test"
+    },
+    {
+      "tasks": [
+        "T30",
+        "T20"
+      ],
+      "files": [
+        "meetings-api/src/jobs/runner.test.ts"
+      ],
+      "resolved_by": "same union"
+    }
+  ],
+  "env_faults": [
+    {
+      "agent": "backend-dev",
+      "class": "secret env",
+      "detail": "worktrees cannot resolve direnv/1Password; DB-backed tests verified in main tree; meetings-api lanes used throwaway Postgres containers",
+      "resolved_by": "main-tree verification"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "ports",
+      "detail": "user's own mise run dev (2026-11-04 15:18) held all ports; e2e hit stale processes (stale crm-api Prisma client; hot-reloaded meetings-api Prisma runtime broke job claims)",
+      "resolved_by": "stopped old stack, restarted clean"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "tooling",
+      "detail": "no ffmpeg on host; containerised wrapper; one WAV probe fails only through it",
+      "resolved_by": "real-ffmpeg suites in Debian container"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "secret env",
+      "detail": "notify-api env.emailNotices tests read the git-ignored local dotenv file",
+      "resolved_by": "passes 8/8 on clean git archive"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "tooling",
+      "detail": "Chromium fake mic never answers getUserMedia in this macOS sandbox",
+      "resolved_by": "WebAudio-tone mic in e2e harness"
+    }
+  ],
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS",
+    "eval": "FAIL"
+  },
+  "security": {
+    "matched_rules": [
+      "always_at_tier:production",
+      "auth/**"
+    ],
+    "dispatched": true,
+    "notes": [
+      "mint not conditional on status=draft under a row lock (self-inflicted UX only)",
+      "no cap on container-run count per recording",
+      "stored upload key writable until policy expiry (mitigated)",
+      "mov dref untested with real ffmpeg",
+      "exact 3h boundary may read too_long (Opus padding)",
+      "real-ffmpeg suite not in CI",
+      "deactivated user with unexpired JWT keeps read access (needs active flag from /authz/resolve)",
+      "no per-user transcription/upload quota",
+      "directory readable by all employees (ADR-0066 accepted)",
+      "15-min playback URL not revocable",
+      "live-eval environment protection is a repo setting"
+    ]
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
