@@ -120,14 +120,20 @@ deleteRouter.openapi(deleteMeeting, async (c) => {
 
   // 3. After the commit: tell the host (never blocking), and sweep what landed meanwhile.
   await deliverNotices([noticeId]);
-  await storage.deletePrefix(prefix).catch(() => {
+  // The deletion has committed: nothing below may turn it into an error, however the sweep fails (a rejection,
+  // a synchronous throw, the storage not being obtainable). Logged without an id or the provider's text.
+  try {
+    await storage.deletePrefix(prefix);
+  } catch {
     // The bucket's own lifecycle rule removes any straggler within 30 days (ADR-0063).
     console.warn("[meetings] late sweep of a deleted meeting's prefix failed");
-  });
+  }
   // A Speech operation still running at deletion time can write its output after step 1: that is a transcript,
   // swept here if the process is alive, else by the next attempt's start or the bucket's 1-day rule (plan G-2).
-  await (await requireTransientStorage()).deletePrefix(transientPrefix).catch(() => {
+  try {
+    await (await requireTransientStorage()).deletePrefix(transientPrefix);
+  } catch {
     console.warn("[meetings] late sweep of a deleted meeting's transient prefix failed");
-  });
+  }
   return c.body(null, 204);
 });

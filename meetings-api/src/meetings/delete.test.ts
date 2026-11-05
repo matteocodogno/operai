@@ -126,6 +126,30 @@ describe("the creator deletes (AC-4.6)", () => {
     expect(transient.keys()).toEqual([]);
   });
 
+  it("a late transient sweep that blows up (a synchronous throw, not a rejection) is logged and the deletion stays a 204", async () => {
+    const m = await rich();
+    const original = transient.deletePrefix.bind(transient);
+    let calls = 0;
+    transient.deletePrefix = (prefix) => {
+      calls += 1;
+      if (calls > 1) throw new Error("secret-late-sweep-detail");
+      return original(prefix);
+    };
+    const warnings: string[] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args.join(" "));
+    try {
+      expect((await del(m.id)).status).toBe(204);
+    } finally {
+      console.warn = warn;
+    }
+    expect(calls).toBe(2);
+    expect((await rowsFor(m.id))["meeting"] ?? 0).toBe(0);
+    expect(warnings.some((w) => w.includes("transient"))).toBe(true);
+    expect(warnings.join("\n")).not.toContain(m.id);
+    expect(warnings.join("\n")).not.toContain("secret-late-sweep-detail");
+  });
+
   it("a transient-storage failure is 503 storage_unavailable and NOTHING is deleted, the main bucket included", async () => {
     const m = await rich();
     transient.seed(`transcribe/${m.id}/1/in/1.ogg`, "audio");
