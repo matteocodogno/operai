@@ -64,6 +64,8 @@ interface Scenario {
   split?: () => Promise<SplitResult>;
   wordOffsets?: boolean;
   deleteOperation?: () => Response | Error;
+  /** Real milliseconds each fake sleep takes (default one macrotask): lets a slower part catch up before a faster one times out. */
+  realDelayMs?: number;
   /** Shared by several worlds: counts operations submitted and not yet done. */
   inflight?: { now: number; peak: number };
 }
@@ -149,7 +151,7 @@ function world(scenario: Scenario = {}) {
       signal.throwIfAborted();
       sleeps.push(ms);
       clock += ms;
-      await new Promise((r) => setTimeout(r, 0)); // a real macrotask: other parts get to run
+      await new Promise((r) => setTimeout(r, scenario.realDelayMs ?? 0)); // a real macrotask: other parts get to run
       signal.throwIfAborted();
     },
     split: scenario.split ?? (async () => ({ parts, silences: scenario.silences ?? ALL_SILENT, durationMs: parts[parts.length - 1]!.endMs })),
@@ -439,12 +441,15 @@ describe("three parts (ADR-0070)", () => {
   it("one part failing fails the whole attempt: no partial transcript, the other part stops polling, the prefix is emptied", async () => {
     const w = world({
       starts: [0, 3_600_000],
+      // part 1 must not reach its 45-minute deadline (180 polls) before part 2 has had its first poll, whatever the load
+      realDelayMs: 3,
       poll: (part, n) => (part === 2 ? new Response("{}", { status: 403 }) : "running"),
     });
     const error = (await rejection(w.run())) as TranscriptionError;
     expect(error).toBeInstanceOf(TranscriptionError);
     expect(error.code).toBe("provider_rejected");
-    expect(w.polls.get("1-1")!).toBeLessThan(5); // part 1 was told to stop, not left polling for 45 minutes
+    // part 1 was told to stop, not left polling for 45 minutes (180 polls at 15 s); how many it got in before part 2's 403 depends on scheduling
+    expect(w.polls.get("1-1")!).toBeLessThan(30);
     cleaned(w.storage);
   });
 });
