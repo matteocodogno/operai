@@ -36,6 +36,13 @@ const session = vi.hoisted(() => ({
   navigateSuite: vi.fn(),
 }))
 
+// Whether THIS tab holds a live recording session (capture/session's registry); off unless a test turns it on.
+const capture = vi.hoisted(() => ({ active: false }))
+vi.mock('../capture/session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../capture/session')>()),
+  hasActiveRecordingSession: () => capture.active,
+}))
+
 vi.mock('shell/session', () => ({
   apiFetch: session.apiFetch,
   getMeetingsApiBaseUrl: () => 'http://meetings-api.test',
@@ -125,6 +132,7 @@ vi.mock('../components/ask/AskPanel', () => ({
 beforeEach(() => {
   window.scrollTo = () => undefined
   session.navigateSuite.mockReset()
+  capture.active = false
 })
 
 afterEach(() => {
@@ -375,6 +383,27 @@ describe('MeetingPage: one status panel at a time (S3a)', () => {
     serve(meeting({ status: 'interrupted', role: 'participant', can: CAN_NONE }))
     await loaded('/my-meetings/m/m1', true)
     expect(screen.getByTestId('stub-interrupted')).not.toBeNull()
+  })
+
+  it.each(['interrupted', 'failed', 'processing'] as const)(
+    'keeps the recording panel mounted while this tab records, even when the server derives %s (T57)',
+    async (status) => {
+      capture.active = true
+      serve(meeting({ status, can: CAN_CREATOR_DRAFT }))
+      await loaded()
+      expect(screen.getByTestId('stub-recording')).not.toBeNull()
+      expect(screen.queryByTestId('stub-interrupted')).toBeNull()
+      expect(screen.queryByTestId('meetings-processing-panel')).toBeNull()
+      expect(screen.queryByTestId('meetings-failed-panel')).toBeNull()
+    },
+  )
+
+  it('shows the interrupted panel again once this tab no longer holds the session (T57)', async () => {
+    capture.active = false
+    serve(meeting({ status: 'interrupted', can: CAN_CREATOR_DRAFT }))
+    await loaded()
+    expect(screen.getByTestId('stub-interrupted')).not.toBeNull()
+    expect(screen.queryByTestId('stub-recording')).toBeNull()
   })
 
   it.each([

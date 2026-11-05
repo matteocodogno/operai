@@ -1,5 +1,6 @@
 import { Banner, Button, Card, Spinner, StatePanel } from '@operai/ui'
 import { useState } from 'react'
+import { hasActiveRecordingSession } from '../../capture/session'
 import { errorMessage } from '../../lib/errors'
 import { retryProcessing } from '../../lib/meetingsApi'
 import type { Meeting } from '../../lib/types'
@@ -98,6 +99,13 @@ function Failed({ meeting, onChanged, onRefresh }: StatusPanelsProps) {
  */
 export default function StatusPanels({ meeting, onChanged, onRefresh }: StatusPanelsProps) {
   const controls = meeting.can.capture || meeting.can.edit
+
+  // While THIS tab captures or is still saving the meeting, the recording panel stays up whatever the
+  // server derives: after a long offline spell it says `interrupted`, and swapping the panel out would
+  // unmount it and cut a recording that is still running.
+  if (hasActiveRecordingSession(meeting.id)) {
+    return <RecordingPanel meeting={meeting} onChanged={onChanged} />
+  }
 
   switch (meeting.status) {
     case 'draft': {
