@@ -14,6 +14,8 @@
  *          the input format PINNED (`-f`, from the declared content type), so the demuxers
  *          that follow playlists (hls, dash, concat, sdp...) are never selected. A URL
  *          probe without a pinned format is refused outright;
+ *   - `-format_whitelist` (the allowlisted demuxers) is on every input, local probe included: a file that
+ *     is really a playlist or concat script is refused at auto-detection, before it opens anything;
  *   - the demuxer must be on the allowlist (mov/mp4/m4a, matroska/webm, ogg, wav, mp3,
  *     aac, flac) and there must be an audio stream and a duration of at most 3 h;
  *   - 30 s wall clock, output bounded, process killed on timeout;
@@ -174,6 +176,16 @@ const DEMUXER_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
 
 export const demuxerForContentType = (contentType: string): string | undefined => DEMUXER_BY_CONTENT_TYPE[contentType];
 
+/**
+ * `-format_whitelist` for every input: auto-detection may only pick one of the allowlisted demuxers.
+ * Without it the demuxer is chosen by sniffing the bytes, so a crafted file that is really an HLS
+ * playlist, a concat script or an SDP is OPENED (and the segments it names are opened by it) before
+ * any verdict on the format is read. With it ffmpeg refuses such a file at detection ("Format not on
+ * whitelist") and nothing it names is touched. One name per alias is enough: ffmpeg 7.1 matches any
+ * alias of a demuxer's comma-separated name (`mov` is `mov,mp4,m4a,3gp,3g2,mj2`, `webm` is `matroska,webm`).
+ */
+export const FORMAT_WHITELIST: string = [...ALLOWED_DEMUXERS].join(",");
+
 /** Only a plain-container demuxer may be pinned with `-f`; a playlist-following one (hls, concat...) never. */
 export const isPinnableDemuxer = (name: string): boolean => ALLOWED_DEMUXERS.has(name);
 
@@ -190,6 +202,7 @@ export function buildProbeArgs(source: string, inputFormat?: string): string[] {
   return [
     "-v", "error",
     "-protocol_whitelist", protocols,
+    "-format_whitelist", FORMAT_WHITELIST,
     ...(inputFormat !== undefined ? ["-f", inputFormat] : []),
     "-probesize", "10000000",
     "-analyzeduration", "10000000",

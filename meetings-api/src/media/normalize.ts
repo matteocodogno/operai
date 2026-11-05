@@ -7,7 +7,7 @@
  * input (it is an input option) so a crafted file cannot make ffmpeg open a network
  * location, and `-vn -sn -dn` so only audio survives:
  *
- *   ffmpeg -protocol_whitelist file,pipe -i in -vn -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k \
+ *   ffmpeg -protocol_whitelist file,pipe -format_whitelist mov,mp4,m4a,matroska,webm,ogg,wav,mp3,aac,flac -i in -vn -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k \
  *     -t 10861 -fs 104857600 audio.ogg
  *
  * RECORDINGS ARE NOT ONE CONTAINER. A MediaRecorder writes its container header in
@@ -24,7 +24,7 @@
 
 import { appendFile, open, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MAX_AUDIO_MS, buildProbeArgs, ffmpegBinary, ffprobeBinary, isPinnableDemuxer, judgeProbe, runTool } from "./probe";
+import { FORMAT_WHITELIST, MAX_AUDIO_MS, buildProbeArgs, ffmpegBinary, ffprobeBinary, isPinnableDemuxer, judgeProbe, runTool } from "./probe";
 
 export { ToolMissingError } from "./probe";
 
@@ -122,7 +122,7 @@ export function buildFfmpegArgs(
   const perInput = inputs.flatMap((file, i) => {
     const format = inputFormats?.[i];
     if (format !== undefined && !isPinnableDemuxer(format)) throw new Error("input format is not an allowlisted demuxer");
-    return ["-protocol_whitelist", "file,pipe", ...(format !== undefined ? ["-f", format] : []), "-i", file];
+    return ["-protocol_whitelist", "file,pipe", "-format_whitelist", FORMAT_WHITELIST, ...(format !== undefined ? ["-f", format] : []), "-i", file];
   });
   const target = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k", "-t", String(maxSeconds), "-fs", String(maxBytes)];
   if (inputs.length === 1) return [...head, ...perInput, ...target, output];

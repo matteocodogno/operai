@@ -134,6 +134,18 @@ describe("how ffprobe is invoked (ADR-0064 point 3)", () => {
     }
   });
 
+  it("every probe, local or URL, restricts auto-detection to the allowlisted demuxers (-format_whitelist), before the input", () => {
+    for (const args of [buildProbeArgs("/work/in-000000"), buildProbeArgs("/work/in-000000", "matroska"), buildProbeArgs("https://h/k?s=1", "mov")]) {
+      const at = args.indexOf("-format_whitelist");
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(args.filter((a) => a === "-format_whitelist")).toHaveLength(1);
+      expect(at).toBeLessThan(args.indexOf("-i"));
+      expect(args[at + 1]!.split(",").sort()).toEqual(["aac", "flac", "m4a", "matroska", "mov", "mp3", "mp4", "ogg", "wav", "webm"]);
+      // no playlist-following or filter-graph demuxer can be named in it
+      expect(args[at + 1]).not.toMatch(/hls|dash|concat|sdp|rtsp|image2|lavfi|ffconcat/);
+    }
+  });
+
   it("pins the demuxer from the declared content type: never a playlist-following one", () => {
     expect(demuxerForContentType("video/mp4")).toBe("mov");
     expect(demuxerForContentType("audio/mpeg")).toBe("mp3");
@@ -283,5 +295,47 @@ describe.skipIf(!hasFfprobe || !hasFfmpeg)("probeMedia on generated media", () =
   it("an mp4 with no audio track is no_audio", async () => {
     const f = await gen("v.mp4", ["-f", "lavfi", "-i", "testsrc=d=1:s=64x64:r=5"]);
     expect(await probeMedia(f)).toEqual({ ok: false, reason: "no_audio" });
+  });
+
+  it("every allowlisted container is still accepted under the format whitelist (it is not too narrow)", async () => {
+    const cases: [string, string[]][] = [
+      ["a.m4a", ["-c:a", "aac"]],
+      ["a.mp4", ["-c:a", "aac"]],
+      ["a.mp3", ["-c:a", "libmp3lame"]],
+      ["a.aac", ["-c:a", "aac", "-f", "adts"]],
+      ["a.wav", []],
+      ["a.flac", ["-c:a", "flac"]],
+      ["a.ogg", ["-c:a", "libvorbis"]],
+      ["a.opus", ["-c:a", "libopus"]],
+      ["a.webm", ["-c:a", "libopus"]],
+    ];
+    for (const [name, codec] of cases) {
+      const f = await gen(name, ["-f", "lavfi", "-i", "sine=d=1", ...codec]);
+      expect(await probeMedia(f), name).toMatchObject({ ok: true });
+    }
+  });
+
+  it("a playlist or concat file is refused before its demuxer opens anything: the debug log never shows the segment being opened", async () => {
+    const segment = await gen("seg.wav", ["-f", "lavfi", "-i", "sine=d=1"]);
+    const hls = join(dir, "list.m3u8");
+    writeFileSync(hls, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nseg.wav\n#EXT-X-ENDLIST\n");
+    const concat = join(dir, "list.ffconcat");
+    writeFileSync(concat, "ffconcat version 1.0\nfile seg.wav\n");
+    // The exact vector the service uses, with the log level raised so the tool says what it opens.
+    const debugRun = async (file: string, drop: boolean) => {
+      const args = buildProbeArgs(file);
+      if (drop) args.splice(args.indexOf("-format_whitelist"), 2);
+      args[args.indexOf("-v") + 1] = "debug";
+      return runTool(process.env["FFPROBE_PATH"] ?? "ffprobe", args, { timeoutMs: 30_000 });
+    };
+    expect(segment).toContain("seg.wav");
+    for (const file of [hls, concat]) {
+      // Without the whitelist the demuxer WOULD open the segment: the assertion below can fail.
+      expect((await debugRun(file, true)).stderr).toMatch(/Opening '[^']*seg\.wav'/);
+      const guarded = await debugRun(file, false);
+      expect(guarded.stderr).toContain("Format not on whitelist");
+      expect(guarded.stderr).not.toMatch(/Opening '[^']*seg\.wav'/);
+      expect(await probeMedia(file)).toEqual({ ok: false, reason: "unsupported_type" });
+    }
   });
 });

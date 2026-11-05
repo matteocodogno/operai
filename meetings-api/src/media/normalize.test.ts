@@ -28,6 +28,9 @@ useKit();
 const scratch = mkdtempSync(join(tmpdir(), "normalize-test-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
+/** The demuxers auto-detection may pick (ADR-0064 point 3): every other one, hls/concat/dash/sdp included, is refused before it opens anything. */
+const FORMAT_WHITELIST = "mov,mp4,m4a,matroska,webm,ogg,wav,mp3,aac,flac";
+
 const EBML = [0x1a, 0x45, 0xdf, 0xa3];
 const webmChunk = (tag: string, withHeader: boolean) => Uint8Array.from([...(withHeader ? EBML : [0x1f, 0x43, 0xb6, 0x75]), ...Buffer.from(`${tag}|`)]);
 const mp4Header = Uint8Array.from([0, 0, 0, 0x18, ...Buffer.from("ftypiso5"), 0, 0, 0, 0]);
@@ -92,7 +95,7 @@ describe("buildFfmpegArgs (ADR-0064 point 4)", () => {
   it("one input: exactly the documented hardened command", () => {
     expect(buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg")).toEqual([
       "-nostdin", "-hide_banner", "-v", "error", "-y",
-      "-protocol_whitelist", "file,pipe", "-i", "/w/run-0",
+      "-protocol_whitelist", "file,pipe", "-format_whitelist", FORMAT_WHITELIST, "-i", "/w/run-0",
       "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k", "-t", "10861", "-fs", "104857600", "/w/audio.ogg",
     ]);
   });
@@ -127,7 +130,7 @@ describe("buildFfmpegArgs (ADR-0064 point 4)", () => {
   });
 
   it("a pinned format goes right before its own input, after the whitelist; one per input", () => {
-    expect(buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", ["mov"]).slice(5, 10)).toEqual(["-protocol_whitelist", "file,pipe", "-f", "mov", "-i"]);
+    expect(buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", ["mov"]).slice(5, 12)).toEqual(["-protocol_whitelist", "file,pipe", "-format_whitelist", FORMAT_WHITELIST, "-f", "mov", "-i"]);
     const args = buildFfmpegArgs(["/w/run-0", "/w/run-1"], "/w/audio.ogg", ["matroska", "mov"]);
     const inputs = args.flatMap((a, i) => (a === "-i" ? [i] : []));
     expect(inputs.map((i) => args[i - 1])).toEqual(["matroska", "mov"]);
@@ -142,8 +145,10 @@ describe("buildFfmpegArgs (ADR-0064 point 4)", () => {
     const inputs = args.flatMap((a, i) => (a === "-i" ? [i] : []));
     expect(inputs).toHaveLength(2);
     for (const i of inputs) {
-      expect(args[i - 2]).toBe("-protocol_whitelist");
-      expect(args[i - 1]).toBe("file,pipe");
+      expect(args[i - 4]).toBe("-protocol_whitelist");
+      expect(args[i - 3]).toBe("file,pipe");
+      expect(args[i - 2]).toBe("-format_whitelist");
+      expect(args[i - 1]).toBe(FORMAT_WHITELIST);
     }
     const filter = args[args.indexOf("-filter_complex") + 1]!;
     expect(filter).toContain("[0:a:0]");

@@ -104,4 +104,20 @@ describe.skipIf(!hasFfmpeg)("normalizeAudio output caps with the real ffmpeg", (
     expect(MAX_OUTPUT_SECONDS * 1000).toBeGreaterThan(durationMs);
     expect(MAX_OUTPUT_BYTES).toBeGreaterThan(sizeOf(join(scratch, "honest.ogg")));
   });
+
+  it("an unpinned decode still refuses a playlist or concat file: ffmpeg never opens the segment they name (format whitelist)", async () => {
+    const segment = join(scratch, "seg.wav");
+    const made = await runTool(ffmpegBinary(), ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=d=1", segment], { timeoutMs: 60_000 });
+    expect(made.code).toBe(0);
+    const hls = join(scratch, "list.m3u8");
+    writeFileSync(hls, "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nseg.wav\n#EXT-X-ENDLIST\n");
+    const concat = join(scratch, "list.ffconcat");
+    writeFileSync(concat, "ffconcat version 1.0\nfile seg.wav\n");
+    for (const input of [hls, concat]) {
+      const output = join(scratch, `refused-${input.split("/").pop()}.ogg`);
+      const error = await normalizeAudio({ inputs: [input], output }).catch((e) => e);
+      expect((error as NormalizeError).code).toBe("audio_unreadable");
+      expect(sizeOf(output)).toBe(0);
+    }
+  });
 });
