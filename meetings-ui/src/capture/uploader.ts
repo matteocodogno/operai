@@ -46,13 +46,19 @@ export class BucketError extends Error {
 }
 
 /**
- * POSTs one chunk to its presigned policy: the policy's fields first, the file LAST (S3 ignores
+ * POSTs one chunk to its presigned policy: the policy's fields first (plus the blob's `Content-Type`
+ * when the policy has none), the file LAST (S3 ignores
  * anything after it). No credentials and no Authorization header: this is the bucket, not
  * meetings-api (the policy is the authority).
  */
 export async function postToBucket(policy: PresignedPost, blob: Blob, fetchImpl: typeof fetch = fetch): Promise<void> {
   const form = new FormData()
   for (const [name, value] of Object.entries(policy.fields)) form.append(name, value)
+  // The chunk policy requires a `Content-Type` form field starting with `audio/` but does not hand one
+  // out in `fields` (the upload policy does, and fixes it exactly): without it the bucket answers 403
+  // "Policy Condition failed" for every chunk. A field is only a policy condition if it comes BEFORE the file.
+  const hasContentType = Object.keys(policy.fields).some((name) => name.toLowerCase() === 'content-type')
+  if (!hasContentType && blob.type !== '') form.append('Content-Type', blob.type)
   form.append('file', blob, 'chunk')
   const response = await fetchImpl(policy.url, { method: 'POST', body: form, credentials: 'omit' })
   if (!response.ok) throw new BucketError(response.status)

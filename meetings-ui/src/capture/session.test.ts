@@ -196,6 +196,13 @@ describe('starting (AC-2.1, AC-2.2, AC-2.3)', () => {
 const recorder_instances = () => FakeMediaRecorder.instances.length
 
 describe('chunks and the pre-minted policy (AC-2.1, AC-2.8)', () => {
+  it('types a chunk the recorder left untyped with the negotiated audio type, so the bucket policy (audio/*) accepts it', async () => {
+    const { session } = setup()
+    await session.start()
+    await advance(10_000)
+    expect(post.mock.calls[0]![1].type).toBe('audio/webm;codecs=opus')
+  })
+
   it('saves every 10 s slice as soon as it is emitted: one bucket POST, one confirm with the captured time', async () => {
     const { session } = setup()
     await session.start()

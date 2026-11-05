@@ -355,6 +355,39 @@ describe('postToBucket', () => {
     expect(init.headers).toBeUndefined()
   })
 
+  it("adds the blob's Content-Type before the file when the policy fields carry none (the chunk policy requires an audio/* one)", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
+    await postToBucket(
+      { url: 'https://bucket.test/', fields: { key: 'k', Policy: 'p' }, expiresAt: 'x' },
+      new Blob(['abc'], { type: 'audio/webm;codecs=opus' }),
+      fetchImpl,
+    )
+    const form = (fetchImpl.mock.calls[0]![1] as RequestInit).body as FormData
+    const names = [...form.keys()]
+    expect(form.get('Content-Type')).toBe('audio/webm;codecs=opus')
+    expect(names.at(-1)).toBe('file')
+    expect(names.indexOf('Content-Type')).toBeLessThan(names.indexOf('file'))
+    expect(names.filter((name) => name === 'Content-Type')).toHaveLength(1)
+  })
+
+  it('keeps the Content-Type the policy already fixed (the upload policy requires exactly its own)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
+    await postToBucket(
+      { url: 'https://bucket.test/', fields: { key: 'k', 'Content-Type': 'audio/mp4' }, expiresAt: 'x' },
+      new Blob(['abc'], { type: 'audio/webm' }),
+      fetchImpl,
+    )
+    const form = (fetchImpl.mock.calls[0]![1] as RequestInit).body as FormData
+    expect(form.getAll('Content-Type')).toEqual(['audio/mp4'])
+  })
+
+  it('sends no Content-Type field for a blob without a type (nothing true to say)', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }))
+    await postToBucket({ url: 'https://bucket.test/', fields: { key: 'k' }, expiresAt: 'x' }, new Blob(['abc']), fetchImpl)
+    const form = (fetchImpl.mock.calls[0]![1] as RequestInit).body as FormData
+    expect(form.has('Content-Type')).toBe(false)
+  })
+
   it('throws a BucketError carrying the status on a refusal', async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => new Response('denied', { status: 403 }))
     await expect(

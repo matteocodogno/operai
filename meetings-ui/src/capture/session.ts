@@ -338,8 +338,12 @@ export function createRecordingSession(
   }
 
   const onData = (event: Event) => {
-    const blob = (event as Event & { data?: Blob }).data
-    if (terminal || !uploader || !blob || blob.size === 0) return
+    const emitted = (event as Event & { data?: Blob }).data
+    if (terminal || !uploader || !emitted || emitted.size === 0) return
+    // The bucket policy wants an `audio/*` Content-Type; a recorder that leaves the blob untyped still
+    // recorded in the type it was asked for.
+    const mimeType = deps.capabilities.mimeType
+    const blob = emitted.type === '' && mimeType ? new Blob([emitted], { type: mimeType }) : emitted
     const now = activeNow()
     // At least 1 ms: the trailing bytes of a stream are still a chunk, and the server wants a length.
     const durationMs = Math.max(1, clamp(now - boundaryActive, 0, MAX_CHUNK_MS))
