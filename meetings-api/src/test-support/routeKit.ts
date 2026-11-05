@@ -173,8 +173,8 @@ export async function createKit() {
       identityCalls.length = 0;
       notified.length = 0;
       fake.reset();
-      for (const key of storage.keys()) await storage.deleteObject(key);
       storage.failWith(null);
+      for (const key of storage.keys()) await storage.deleteObject(key);
       __resetAuthzCacheForTests();
       __resetIdentityCacheForTests();
       await db.$executeRawUnsafe('TRUNCATE "meeting_job", "meeting", "host_notice", "meeting_deletion" CASCADE');

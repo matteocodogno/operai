@@ -110,12 +110,15 @@ export async function buildMeetingRows(rows: readonly RowSource[], options: RowO
   const latest = new Map<string, (typeof sessions)[number]>();
   for (const session of sessions) if (!latest.has(session.meetingId)) latest.set(session.meetingId, session);
 
-  return rows.map((row) => ({
+  return rows.map((row) => {
+    // Read-only: the status a row SHOWS, derived from its stored one and the clock, never written back.
+    const shown = derivedStatus(row.status, latest.get(row.id) ?? null, options.now);
+    return {
     id: row.id,
     title: row.title,
     startsAt: row.startsAt.toISOString(),
     format: row.format,
-    status: derivedStatus(row.status, latest.get(row.id) ?? null, options.now),
+    status: shown,
     host:
       row.hostApp !== null && row.hostEntityType !== null && row.hostEntityId !== null
         ? (hosts.get(hostKey(row.hostApp, row.hostEntityType, row.hostEntityId)) ?? null)
@@ -123,7 +126,8 @@ export async function buildMeetingRows(rows: readonly RowSource[], options: RowO
     role: options.roleOf(row),
     summaryCount: summaryCount.get(row.id) ?? 0,
     creator: toPersonRef(people.get(row.creatorUserId) ?? { id: row.creatorUserId, name: null, status: "unknown" }),
-  }));
+    };
+  });
 }
 
 /** The columns `buildMeetingRows` needs, for a Prisma `select`. */

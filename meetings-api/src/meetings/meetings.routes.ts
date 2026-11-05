@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { noticeRetryRouter } from "../hosts/noticeRetry.routes";
 import { coreRouter } from "./core.routes";
 import { consentRouter } from "./consent.routes";
+import { deleteRouter } from "./delete.routes";
 import { listRouter } from "./list.routes";
 import { participantsRouter } from "./participants.routes";
 
@@ -13,6 +14,7 @@ export const meetingsRouter = new OpenAPIHono();
 
 meetingsRouter.route("/", listRouter);
 meetingsRouter.route("/", coreRouter);
+meetingsRouter.route("/", deleteRouter);
 meetingsRouter.route("/", participantsRouter);
 meetingsRouter.route("/", consentRouter);
 meetingsRouter.route("/", noticeRetryRouter);
