@@ -220,9 +220,11 @@ export function stitch(input: StitchInput): StitchResult {
       }
     }
 
-    // The merged overlap: aligned words once (part k's version) where they are the same speaker's, the rest of both
-    // versions in time order. An aligned word of part k+1 under a label the overlap did not join stays.
-    const same = (a: Item, b: Item): boolean => (a.unlabelled || b.unlabelled ? sameSpeaker(a, b) : rootOf(a.label) === rootOf(b.label));
+    // The merged overlap: aligned words once (part k's version). Both versions transcribe the SAME audio, so aligned
+    // words are the same speech unless their labels are KNOWN to be different speakers: the later label is joined
+    // (AC-6.14) to a root other than the earlier label's. An unjoined or missing label is no evidence of a different
+    // speaker and never blocks the removal (A8; the strict same-speaker rule is for D1 and the untimed tail only).
+    const same = (a: Item, b: Item): boolean => a.unlabelled || b.unlabelled || !join.has(b.label) || rootOf(b.label) === rootOf(a.label);
     let pi = 0;
     let qi = 0;
     for (const anchor of anchors) {

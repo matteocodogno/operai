@@ -83,10 +83,9 @@ describe("what the real service did at the seam (AC-6.13, AC-6.14, AC-6.15)", ()
   it("overlap-en-jitter: 274 aligned words and still no join, because the provider itself mislabelled words of part 1 (R25)", () => {
     const parts = partsOf("overlap-en-jitter");
     const out = pipeline(parts, META["overlap-en-jitter"]!.silences);
-    // A8 (changed expectation, was removedInOverlap: 274): aligned words are the same speech only where the overlap joined
-    // their labels (or one has none). Nothing is joined here, so NONE of the 274 aligned words is removed: both versions stay.
-    expect(out.stats).toEqual({ removedWithinPart: 0, removedInOverlap: 0, joined: 0, separate: 2 });
-    expect(out.phrases.flatMap((p) => p.text.split(" "))).toHaveLength(parts[0]!.words.length + parts[1]!.words.length);
+    // A8: no join is no evidence of a different speaker, so the 274 aligned words are still the same speech and removed once.
+    expect(out.stats).toEqual({ removedWithinPart: 0, removedInOverlap: 274, joined: 0, separate: 2 });
+    expect(out.phrases.flatMap((p) => p.text.split(" "))).toHaveLength(parts[0]!.words.length + parts[1]!.words.length - 274);
     // nobody is joined, so every label of part 2 is a speaker of its own: the safe direction (a rename repairs it)
     expect(new Set(out.phrases.map((p) => p.speaker)).size).toBe(4);
   });
@@ -103,10 +102,10 @@ describe("what the real service did at the seam (AC-6.13, AC-6.14, AC-6.15)", ()
     expect(out.gaps[0]!.endMs).toBeLessThanOrEqual(META["overlap-it-hole"]!.parts[1]!.startMs);
     expect(out.stats.joined).toBe(0);
     expect(out.stats.separate).toBe(2);
-    // A8 (changed): J0 refused the joins, so the aligned words of the overlap are kept from both parts (was 206 removed in
-    // the overlap); the untimed tail of part 5 is now cut by content (157 words that repeat its own earlier text; 17 of its recorded
-    // words carry no label at all and so match any speaker).
-    expect(out.stats.removedInOverlap).toBe(0);
+    // A8 (changed, was removedInOverlap 206): J0 refused the joins, yet the aligned words are still the same speech (no join
+    // is no evidence of a different speaker). The untimed tail of part 5 is now cut by content first (157 words that repeat its
+    // own earlier text; 17 of its recorded words carry no label at all and so match any speaker), which leaves 123 to align.
+    expect(out.stats.removedInOverlap).toBe(123);
     expect(out.stats.removedWithinPart).toBe(157);
     // a segment never spans the gap
     for (const phrase of out.phrases) expect(phrase.startMs < out.gaps[0]!.startMs && phrase.startMs + phrase.durationMs > out.gaps[0]!.endMs).toBe(false);
@@ -118,9 +117,9 @@ describe("what the real service did at the seam (AC-6.13, AC-6.14, AC-6.15)", ()
     const out = pipeline(parts, META["overlap-en3"]!.silences);
     expect(out.stats.joined).toBe(0);
     expect(out.stats.separate).toBe(3);
-    // A8 (changed, was removedInOverlap 233): nothing joined, so the overlap's aligned words stay; 60 untimed-tail words
-    // of part 1 repeat its own earlier text and go.
-    expect(out.stats.removedInOverlap).toBe(0);
+    // A8 (changed, was removedInOverlap 233): 60 untimed-tail words of part 1 repeat its own earlier text and go first,
+    // which leaves 61 aligned words in the overlap (still removed though nothing is joined).
+    expect(out.stats.removedInOverlap).toBe(61);
     expect(out.stats.removedWithinPart).toBe(60);
     // KNOWN LIMIT, recorded by T124 and reported as drift on plan H-3 (R24): the 19-minute part has a 20 s hole, 1046 of
     // its 3019 words came back with no trusted time, and the credit for them (600 ms each) hides the hole, so it is not a gap.

@@ -119,15 +119,15 @@ describe("D2 and the speaker condition (AC-6.13 with AC-6.14, amendment A8)", ()
     expect(count(segments, "w3")).toBe(1);
   });
 
-  it("aligned words whose labels the overlap did NOT join are two speakers saying the same thing: both stay", () => {
-    // 19 aligned words are below the match bound (AC-6.14): no join, so the labels are different
+  it("aligned words whose labels the overlap did not join are still the same speech: no join is no evidence of another speaker", () => {
+    // 19 aligned words are below the match bound (AC-6.14): no join, but both versions heard the same audio
     const { segments, stats } = run(seam(19, "p1:1", "p2:2"));
     expect(stats.joined).toBe(0);
-    expect(stats.removedInOverlap).toBe(0);
-    expect(count(segments, "w3")).toBe(2);
+    expect(stats.removedInOverlap).toBe(19);
+    expect(count(segments, "w3")).toBe(1);
   });
 
-  it("a word without a label on either side is compatible with any: removed even with no join", () => {
+  it("a word without a label on either side is the same speech", () => {
     for (const side of ["first", "second"] as const) {
       const { segments, stats } = run(seam(19, "p1:1", "p2:2", side));
       expect(stats.removedInOverlap).toBe(19);
@@ -135,15 +135,18 @@ describe("D2 and the speaker condition (AC-6.13 with AC-6.14, amendment A8)", ()
     }
   });
 
-  it("a hole at the seam (J0) refuses the join, so its aligned words are kept from both parts", () => {
+  it("a hole at the seam (J0) refuses the join but not the removal of the aligned words", () => {
     const [a, b] = overlapSpeech(30, "p1:1", "p2:2");
-    // part 1 has nothing between 530 s and 590 s except its aligned words ending at 532; a 20 s untimed-free hole follows
     const p1 = part(1, 0, 600, [...a, word("tailword", "p1:1", [599, 599.5])]);
     const p2 = part(2, 510, 1110, [...b, word("after", "p2:2", [700, 701])]);
     const { stats } = run([p1, p2]);
     expect(stats.joined).toBe(0);
-    expect(stats.removedInOverlap).toBe(0);
+    expect(stats.removedInOverlap).toBe(30);
   });
+
+  // "Joined to different roots" cannot be built through `stitch`: a later label is joined only when every one of its
+  // aligned words matched ONE earlier label (J rule b), so every aligned pair of a joined label shares its root. The
+  // condition in `same()` is therefore a safeguard, not a branch any input reaches today.
 });
 
 describe("joins (AC-6.14, AC-6.15, AC-6.2)", () => {
