@@ -1,0 +1,76 @@
+# meetings-eval-live — the LIVE prompt-injection eval against the real EU model on Bedrock
+# (specs/021 T84, AC-7.12, AC-9.7, ADR-0067). Nightly and on demand ONLY; never on a pull request
+# (PR runs are meetings-eval.yml: fake model, no credentials, with a guard that rejects any).
+#
+# - The job runs in the GitHub environment `meetings-eval`; add required reviewers to it to make
+#   every run wait for a human approval (a human decision, set in the repo settings).
+# - Configuration comes from the environment's (or the repo's) secrets and variables; nothing is
+#   created here, and no value is ever printed:
+#     secrets: MEETINGS_EVAL_AWS_ACCESS_KEY_ID, MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY
+#     vars:    MEETINGS_EVAL_BEDROCK_REGION (an EU region), MEETINGS_EVAL_BEDROCK_MODEL_ID
+# - If any of the four is absent (a fork, an unconfigured repo) the job SKIPS cleanly: it reports
+#   the missing NAMES in the run summary and exits 0 without installing or running anything.
+# - A live failure (exit 1, an assertion failed) or bad live configuration (exit 2) fails the job.
+name: meetings-eval-live
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # nightly, 03:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meetings-eval-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: prompt-injection evals (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: meetings-eval
+    defaults:
+      run:
+        working-directory: meetings-api
+    steps:
+      - name: Check the live configuration
+        id: cfg
+        env:
+          KEY_ID: ${{ secrets.MEETINGS_EVAL_AWS_ACCESS_KEY_ID }}
+          KEY_SECRET: ${{ secrets.MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY }}
+          REGION: ${{ vars.MEETINGS_EVAL_BEDROCK_REGION }}
+          MODEL: ${{ vars.MEETINGS_EVAL_BEDROCK_MODEL_ID }}
+        run: |
+          set -eu
+          missing=""
+          [ -n "${KEY_ID}" ] || missing="${missing} MEETINGS_EVAL_AWS_ACCESS_KEY_ID"
+          [ -n "${KEY_SECRET}" ] || missing="${missing} MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY"
+          [ -n "${REGION}" ] || missing="${missing} MEETINGS_EVAL_BEDROCK_REGION"
+          [ -n "${MODEL}" ] || missing="${missing} MEETINGS_EVAL_BEDROCK_MODEL_ID"
+          if [ -n "${missing}" ]; then
+            echo "configured=false" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+            echo "::notice::live eval skipped, not configured (names only):${missing}"
+            exit 0
+          fi
+          echo "configured=true" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          bun-version: "1.4.2"
+      - name: Install dependencies
+        if: steps.cfg.outputs.configured == 'true'
+        run: bun install --frozen-lockfile
+      - name: Prompt-injection evals (live model)
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          BEDROCK_REGION: ${{ vars.MEETINGS_EVAL_BEDROCK_REGION }}
+          BEDROCK_MODEL_ID: ${{ vars.MEETINGS_EVAL_BEDROCK_MODEL_ID }}
+          MEETINGS_AWS_ACCESS_KEY_ID: ${{ secrets.MEETINGS_EVAL_AWS_ACCESS_KEY_ID }}
+          MEETINGS_AWS_SECRET_ACCESS_KEY: ${{ secrets.MEETINGS_EVAL_AWS_SECRET_ACCESS_KEY }}
+        run: bun evals/run.ts --live
