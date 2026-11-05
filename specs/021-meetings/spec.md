@@ -54,7 +54,8 @@ updated.
 
 - **A5 (AC-6.2, Domain language, Non-goals).** A long recording may be transcribed in parts,
   with speakers numbered separately in each part; speaker labels from different parts are
-  merged by renaming. New term **transcript part**.
+  merged by renaming. New term **transcript part**. (AC-6.2 and the matching non-goal are
+  narrowed again by A7.)
 - **A6 (Constraints, AC-4.1, AC-4.6, AC-4.9, new AC-4.12, O2, O3, new O13).** The owner
   **accepts** that the transcription processor may keep the transcription result of a
   recording for up to about 5 days (the documented retention of an asynchronous transcription
@@ -65,6 +66,32 @@ updated.
   is now AC-4.12. The consent notice must disclose the exception (AC-4.1), so its version
   bumps; attestations already recorded keep the version they were given under (AC-4.3). The
   contract confirmation is the tracked item O13.
+
+2026-11-05 (later), source: user decision on the outcome of the real-provider spike (plan.md
+§ T107 spike outcome, 2026-11-05; ADR-0067, ADR-0070). The spike found that the transcription
+provider takes at most 20 minutes per request (so a long recording is transcribed in parts of
+about 10 minutes), restarts speaker numbering in every part, and sometimes silently omits or
+duplicates speech within a part; and that the chosen language model does not accept a forced
+structured reply. The spec stays vendor-neutral; the body below is already updated.
+
+- **A7 — approved by the user 2026-11-05, incl. AC-6.16 and the AC-6.7 failed outcome (AC-4.12, AC-6.2, AC-6.6, AC-6.7, AC-6.9, AC-6.10, new AC-6.11 to AC-6.17, AC-7.9,
+  new AC-7.13, AC-9.6, new AC-9.9, Domain language, Constraints, Non-goals, O13, new O14).**
+  (a) A part whose transcript is **detectably incomplete** (a gap of missing speech, or
+  repeated speech) is transcribed again automatically, a bounded number of times; if a gap
+  remains, the meeting is `ready` with its transcript **marked possibly incomplete**: a notice
+  on the transcript, the affected time ranges, markers at those places, the same in the copy
+  and download, and a label on every summary and answer built from it (AC-6.11, AC-6.12,
+  AC-6.6, AC-7.13, AC-9.9). Speech returned twice appears once (AC-6.13).
+  (b) **Speaker continuity across parts**: consecutive parts overlap, and a speaker label of a
+  later part is joined to a label of the earlier part **only when the transcript text of the
+  overlapping audio gives clear evidence**; otherwise the labels stay separate. This replaces
+  A5's "never carried over". Continuity is never decided from voice characteristics (AC-6.14,
+  AC-6.15, AC-6.17), and a wrongly joined label can be separated again by the creator
+  (AC-6.16). The non-goal on matching speakers across parts is narrowed accordingly.
+  (c) The transcript-parts notice of A5 changes its copy and its condition (AC-6.15).
+  (d) **Structured replies from the AI**: a reply that does not have the structure the
+  service requires is a failure, never partial text. No AC named a mechanism (forced or not),
+  so only AC-7.9 and AC-9.6 gain one clause that states this outcome.
 
 ## Problem
 
@@ -101,8 +128,18 @@ New terms; see the glossary candidates returned with this spec.
   copy still kept. Video images are never kept.
 - **transcript** — the meeting as text, in **segments** (start time, **speaker label**, text).
 - **transcript part** — a span of one recording that is transcribed as one unit and has its
-  own speaker numbering. A short recording is one part; a long one may be several. Not a part
-  of a meeting: a meeting has exactly one source (AC-3.5). (A5)
+  own speaker numbering. A short recording is one part; a long one may be several, and
+  consecutive parts **overlap**: the same stretch of audio, at least the overlap bound
+  (Constraints), is transcribed in both. Not a part of a meeting: a meeting has exactly one
+  source (AC-3.5). (A5, A7)
+- **gap** — a stretch of the recording in which there is speech but the transcript has none
+  (speech the transcription silently omitted), at least the gap bound long. (A7)
+- **possibly incomplete transcript** — a `ready` transcript that still has at least one gap
+  after the automatic retries (AC-6.11, AC-6.12). Never a claim that the other parts are
+  complete. (A7)
+- **joined label** — a speaker label of a later transcript part that the overlap gave clear
+  evidence for treating as the same speaker as a label of the earlier part, and so carries
+  that label (AC-6.14). A label that is not joined is **separate**. (A7)
 - **summary** — an AI-generated text produced from the transcript through a **template**.
 - **template** — an ordered list of sections (heading + instruction) used to shape a
   summary: **built-in**, **shared** (company-wide) or **personal** (private to one user).
@@ -140,6 +177,23 @@ this spec does not choose vendors or mechanisms.
 - Processing time (how long a recording takes to become a transcript, how long a summary
   takes) is a target the architect sets in plan.md; it is deliberately not an acceptance
   criterion of this spec.
+- **Transcript quality bounds (A7).** The rules of AC-6.11 to AC-6.15 are decisions of this
+  spec; the numbers below are bounds that the architect confirms or changes in plan.md, and
+  the ACs hold with whatever values are confirmed. **Overlap bound:** consecutive transcript
+  parts overlap by at least 30 seconds and at most 2 minutes. **Gap bound:** 20 seconds of
+  speech in the audio with no transcript text. **Retry bound:** a part is transcribed again
+  at most 2 times (3 attempts in all). **Repeat bound:** 8 consecutive words, and a time
+  distance of 2 seconds. **Match bound:** 20 matched words. A stretch of non-speech sound
+  (music, noise) is not speech for the gap bound.
+- **Continuity evidence is text only (A7).** Whether two speaker labels of different parts are
+  the same speaker is decided only from the text, the labels and the times that the
+  transcription returned for the overlapping audio. Nothing derived from voice
+  characteristics (voiceprints, voice embeddings, acoustic similarity) may be computed,
+  stored or sent for this purpose: it would be biometric processing of personal data
+  (GDPR art. 9) that this spec does not ask for. Where the evidence is not clear, labels stay
+  separate: a false merge puts one person's words in another's mouth in the transcript and in
+  every summary and answer built from it, while a false split costs one visible rename
+  (ADR-0070).
 
 ## User stories
 
@@ -298,7 +352,8 @@ our clients' trust.
   `meeting:erase` deletes the recording (AC-4.5) or the meeting (AC-4.6), that copy is deleted
   first; if it cannot be deleted, the action is refused and nothing is deleted. A transcription
   result written into that storage by an attempt still running at that moment is covered by
-  the same 1-day bound. (A6)
+  the same 1-day bound. An automatic retry of a part (AC-6.11) is a transcription attempt like
+  any other for this criterion. (A6, A7)
 
 ### US-5: Participants, who can see what, and a frozen meeting
 As a meeting creator, I want to say who took part and to control who can read the meeting,
@@ -363,12 +418,16 @@ check what was actually said.
   times.
 - AC-6.2: Given distinct voices, then segments carry distinct labels ("Speaker 1", "Speaker
   2", …), best effort; where voices cannot be told apart, one label. The creator can rename a
-  label to a participant's name or free text, applied to all its segments. A long recording
-  may be transcribed in parts (**transcript parts**): speakers are numbered separately in each
-  part, so one person can carry different labels in different parts (a later part's labels
-  never reuse an earlier part's), and the transcript screen says when this applies. Labels
-  from different parts are merged by renaming them to the same name, after which they read as
-  one speaker everywhere the transcript is shown, copied or downloaded. (A5)
+  label to a participant's name or free text, applied to all its segments. A long recording is
+  transcribed in overlapping parts (**transcript parts**), and the transcription numbers
+  speakers separately in each part. A label of a later part is **joined** to a label of the
+  earlier part only when the overlap between the two parts gives clear evidence that they are
+  the same speaker (AC-6.14); a joined label is the earlier label, so it reads as one speaker
+  everywhere the transcript is shown, copied or downloaded. Every other label of a later part
+  stays **separate** (AC-6.15): it takes a number that no earlier label uses, so one person can
+  carry different labels in different parts. Separate labels can be merged by renaming them to
+  the same name. The decision to join uses only the text, the labels and the times returned
+  for the overlapping audio, never voice characteristics (AC-6.17). (A5, A7)
 - AC-6.3: Given the creator editing a segment's text, then the text is saved, the segment is
   marked "edited", and a concurrent edit by someone else is refused with a prompt to reload
   (ADR-0038 posture).
@@ -377,16 +436,89 @@ check what was actually said.
 - AC-6.5: Given retained audio, when a viewer selects a segment's time, then audio plays from
   that point; once audio is deleted the control is absent.
 - AC-6.6: Given the transcript, then any viewer can copy it or download it as plain text with
-  times and speaker names.
-- AC-6.7: Given a recording with no speech detected, then the status is `ready`, a "No speech
-  detected" message is shown, and generating summaries and asking questions are disabled.
+  times and speaker names. For a transcript marked possibly incomplete (AC-6.12), the copy and
+  the download begin with the notice and carry each gap marker at the same place as on screen.
+  (A7)
+- AC-6.7: Given a recording with no speech detected (an empty transcript, and no stretch of the
+  audio that contains speech for at least the gap bound), then the status is `ready`, a "No
+  speech detected" message is shown, and generating summaries and asking questions are
+  disabled. Given a recording whose transcript is empty although its audio does contain such
+  a stretch, after the retries of AC-6.11, then the status is `failed` with the plain-language
+  reason that speech was detected but could not be transcribed, and AC-6.9 applies: the
+  message "No speech detected" is never shown for it. (A7)
 - AC-6.8: Given a transcript edited after a summary was made, then that summary is labelled
   "Based on an earlier version of the transcript"; nothing is regenerated automatically.
 - AC-6.9: Given transcription fails, then the status is `failed` with a plain-language reason,
   no partial transcript is shown, and the creator can retry while audio is retained; after
-  audio deletion no retry is offered.
+  audio deletion no retry is offered. A transcript with gaps is not a failure (AC-6.12); a part
+  that cannot be transcribed at all (the request itself fails) is, as before, a failure of the
+  whole transcription. (A7)
 - AC-6.10: Given a `processing` meeting, then the screen shows the stage (uploading,
-  transcribing) and never blocks other pages.
+  transcribing) and never blocks other pages. The automatic retries of AC-6.11 stay within the
+  transcribing stage. (A7)
+- AC-6.11: Given a recording transcribed in parts, when the transcription of a part comes back
+  **detectably incomplete** (it has a gap, or it repeats speech as defined in AC-6.13), then
+  that part, and only that part, is transcribed again automatically, at most the retry bound
+  times. Of the attempts made, the most complete is kept: the fewest gaps, then the least
+  total gap time, then no repetition over repetition. A part that came back complete is never
+  transcribed again, the meeting stays `processing` (stage transcribing) until every part is
+  settled, and these retries are not AI requests under AC-13.4. (A7)
+- AC-6.12: Given a part that still has a gap after the retry bound is used up, then the meeting
+  becomes `ready` and its transcript is **marked possibly incomplete**: (a) a notice above the
+  transcript reads "This transcript may be incomplete. Speech may be missing between
+  hh:mm:ss and hh:mm:ss" for every affected range of the meeting's time, and says that the
+  missing speech is not in the transcript and cannot be recovered from it; (b) a marker
+  "Possible gap hh:mm:ss–hh:mm:ss" sits in the transcript between the segments it falls
+  between; (c) while audio is retained, selecting a range plays the audio from its start
+  (as AC-6.5), and once the audio is deleted that control is absent. A range is never
+  narrower than the gap detected, is expressed in the meeting's time (the part's offset
+  included), and ranges that touch or overlap, across a part boundary too, are one range. The
+  notice is shown to everyone who can open the meeting, cannot be dismissed, is not removed by
+  editing the transcript (AC-6.3), and is deleted with the meeting (AC-4.6). A transcript with
+  no notice is not a statement that nothing was missed: a gap shorter than the gap bound is not
+  detected. (A7)
+- AC-6.13: Given speech that the transcription returns twice, within one part or in the
+  overlap between two consecutive parts, then it appears once in the transcript. Two passages
+  are the same speech only when one has at least the repeat bound of consecutive words that
+  match the other's (ignoring case, accents and punctuation) and their times overlap, or the
+  later starts no more than the repeat bound's time distance after the earlier ends; the first
+  is kept. A phrase that a speaker really says twice, with more than that distance between the
+  two, is never removed, and a repetition that does not meet this evidence is left as
+  returned (the creator can still edit it, AC-6.3). In the overlap of two parts, every passage
+  found in only one of the two versions is kept, so that no speech present in either version
+  is dropped. A repetition that remains in a part after the retries is removed under this rule
+  and does not by itself mark the transcript possibly incomplete. (A7)
+- AC-6.14: Given two consecutive parts and a label L2 of the later part, then L2 is joined to a
+  label L1 of the earlier part when all of the following hold, over the passages of the
+  overlap that are found in both parts' transcripts (matched as in AC-6.13): (a) the passages
+  that the later part attributes to L2 total at least the match bound in words; (b) the earlier
+  part attributes all of them to the same L1; (c) no other label of the later part has any
+  matched passage attributed to L1 by the earlier part. A joined label keeps L1's number and
+  name. Joining chains from part to part, each link established only between consecutive
+  parts: a label of part 3 joins a label of part 2 (and so, through it, part 1) only by the
+  overlap of parts 2 and 3. (A7)
+- AC-6.15: Given a label of a later part for which the evidence of AC-6.14 is not clear (no
+  speech in the overlap, fewer matched words than the match bound, a matched passage attributed
+  to a different label, two later labels matching the same earlier one, or the overlap affected
+  by a gap), then the label stays separate. A label is never joined by position, number, order
+  of appearance or as a default. When the transcript has more than one part and at least one
+  label of a later part is separate, a non-blocking notice says that the recording was
+  transcribed in {n} parts, that speakers could not always be matched between parts, that one
+  person can therefore appear under two labels, and that renaming them to the same name merges
+  them. The notice never says that separate labels are different people and never says that
+  speakers are numbered separately in every part. When every label of every later part is
+  joined, or the transcript has one part, this notice is not shown. (A5, A7)
+- AC-6.16: Given a joined label, then the transcript shows that it was matched automatically
+  across parts and which parts it covers, a rename still applies to all its segments, and the
+  creator can "Separate by part", which gives each part's segments their own label again
+  (each keeping the name the joined label had at that moment, until renamed). Separating
+  cannot be undone by later processing, is refused with 403 to anyone but the creator, and is
+  unavailable on a frozen meeting (AC-5.11), as a rename is. (A7)
+- AC-6.17: Given the decision of AC-6.14 and AC-6.15, then it is computed only from the text,
+  the labels and the times that the transcription returned for the overlapping audio: with the
+  same returned text, labels and times, the joins are the same whatever the audio. No voice
+  characteristic (voiceprint, embedding, acoustic similarity) is computed, stored or sent for
+  this purpose. (A7)
 
 ### US-7: Summaries from templates
 As anyone who can open a meeting, I want AI summaries in the shape I need, and several of
@@ -412,9 +544,9 @@ them, so that one conversation can serve the sales note, the minutes and the act
   prompt to reload.
 - AC-7.8: Given a summary, then its author or the meeting's creator can delete it after
   confirming.
-- AC-7.9: Given an outage or timeout of the AI processing, then the summary is `failed` with a
-  retry action, no partial text is ever shown as `ready`, and transcript, other summaries and
-  questions stay usable.
+- AC-7.9: Given an outage or timeout of the AI processing, or a reply that does not have the
+  structure the summary requires, then the summary is `failed` with a retry action, no partial
+  text is ever shown as `ready`, and transcript, other summaries and questions stay usable. (A7)
 - AC-7.10: Given generation, then it uses only that meeting's transcript and the chosen
   template: no other meeting, no host record data, and no capability to act on anything.
 - AC-7.11: Given a summary, then everyone who can open the meeting can read it, and any viewer
@@ -422,6 +554,12 @@ them, so that one conversation can serve the sales note, the minutes and the act
 - AC-7.12: Given a transcript containing sentences that address the AI ("ignore your
   instructions and …"), then the summary still follows the template and treats them as
   quoted content.
+- AC-7.13: Given a summary generated from a transcript marked possibly incomplete (AC-6.12),
+  then it carries, written by the service and not by the AI, the label "Based on a transcript
+  that may be incomplete" with the affected ranges, and a section with nothing in the
+  transcript reads "Not found in the transcript, which may be incomplete" (localised) in place
+  of "Not discussed". The label and the wording are part of the text a viewer copies
+  (AC-7.11), and a regenerated summary carries them too. (A7)
 
 ### US-8: Summary templates
 As a user, I want ready-made templates and the ability to define my own, so that a discovery
@@ -465,12 +603,18 @@ the answer comes from, so that I do not re-listen to find one fact.
   previous 10 turns.
 - AC-9.5: Given a user's conversation with a meeting, then it is kept and shown again when
   they return; no other user, the creator included, can read it; the user can clear it.
-- AC-9.6: Given an AI outage or timeout, then the question stays in the conversation marked
-  failed with a retry action, and no answer is invented.
+- AC-9.6: Given an AI outage or timeout, or a reply that does not have the structure an answer
+  requires, then the question stays in the conversation marked failed with a retry action, and
+  no answer is invented and no partial answer is shown. (A7)
 - AC-9.7: Given a transcript containing sentences that address the AI, then answers still
   keep their format and scope.
 - AC-9.8: Given the AI request limit of AC-13.4, when exceeded, then the request is refused
   with a message saying when to retry.
+- AC-9.9: Given a meeting whose transcript is marked possibly incomplete (AC-6.12), then every
+  answer carries, written by the service and not by the AI, the label "Based on a transcript
+  that may be incomplete" with a link to the notice, and an answer that the meeting does not
+  contain what was asked (AC-9.3) also says that the transcript may be incomplete, so that
+  "not in the meeting" is never presented as certain. (A7)
 
 ### US-10: My meetings, and who reaches the tool
 As an employee, I want one page with every meeting I created or took part in, reachable even
@@ -639,8 +783,20 @@ history of the relationship in the CRM is complete without logging the meeting t
   have to reach meetings; plain names keep the two erasure paths separate.
 - **Multi-part meetings (one meeting made of several recordings) and recordings over 3
   hours.** Not to be confused with the transcript parts of AC-6.2, which split one recording.
-- **Automatic matching of the same speaker across transcript parts.** Merging is by renaming
-  (AC-6.2); matching voices would be new processing of voice characteristics (A5).
+- **Matching the same speaker across transcript parts by voice.** Continuity across parts is
+  established only from the transcript text of the overlapping audio (AC-6.14); anything based
+  on voice characteristics (voiceprints, embeddings, acoustic similarity) would be biometric
+  processing of personal data (GDPR art. 9) and is excluded (A5, A7). Where the evidence is
+  not clear the labels stay separate and the creator merges them by renaming.
+- **Guaranteeing a complete transcript.** Only a gap of at least the gap bound is detected;
+  scattered shorter omissions are not, so the absence of the notice (AC-6.12) is not a promise
+  (A7).
+- **Re-transcribing a whole meeting on demand to fill a gap.** It would discard the creator's
+  edits and renames and make every summary and answer stale; the creator's retry (AC-6.9) is
+  for failures only. Missing speech is recovered by listening while audio is retained (A7).
+- **Telling hosts, notifications or lists that a transcript may be incomplete.** The notice
+  lives on the meeting screens, in copies and downloads, and on summaries and answers; host
+  notices stay content-free (AC-11.8) (A7).
 - **Recovering audio captured offline after the tab is gone.** It would require keeping audio
   on the device, which AC-4.11 forbids (A2).
 - **Transcript version history, a read-access log, AI cost reporting.**
@@ -653,7 +809,8 @@ history of the relationship in the CRM is complete without logging the meeting t
 ## Open questions
 
 O2 and O3 are accepted as tracked risks by the owner (2026-11-04): the work proceeds on the
-working assumptions below, which the plan may rely on. O13 was added on 2026-11-05 (A6).
+working assumptions below, which the plan may rely on. O13 was added on 2026-11-05 (A6), O14
+on 2026-11-05 (A7).
 
 - [ ] O2 (accepted-as-risk) Retention beyond audio: working assumption is that transcripts and
   summaries are kept until their meeting is deleted, with no maximum life; how long the
@@ -669,12 +826,21 @@ working assumptions below, which the plan may rely on. O13 was added on 2026-11-
   chosen on 2026-11-05. (a) wellD's use of the cloud provider is under its Master Agreement
   with data-processing terms, not its online terms of service, so that no content is held for
   abuse monitoring or human review; (b) the provider confirms in writing that the
-  transcription result is kept no longer than about 5 days and is not used for training;
-  (c) the language-model vendor's commercial terms, accepted by enabling its models through
-  the cloud provider, do not make that vendor a processor of meeting content or let it retain
-  it. The owner's acceptance of the 5-day exception is conditional on (b): a longer or wider
-  retention returns to the owner. The consent notice bump of AC-4.1 ships with the release
-  that makes this change. — owner: user (owner) and data-protection lead
+  transcription result is kept no longer than about 5 days and is not used for training; since
+  A7 this holds for every automatic retry of a part too, each of which yields a further
+  transcription result under the same bound; (c) the language-model vendor's commercial terms,
+  accepted by enabling its models through the cloud provider, do not make that vendor a
+  processor of meeting content or let it retain it. The owner's acceptance of the 5-day
+  exception is conditional on (b): a longer or wider retention returns to the owner. The
+  consent notice bump of AC-4.1 ships with the release that makes this change.
+  — owner: user (owner) and data-protection lead
+- [ ] O14 (A7) The gap detector (AC-6.11), the repetition rule (AC-6.13) and the join evidence
+  (AC-6.14) were designed from a spike on synthetic audio only. Before go-live the architect
+  measures, on recordings made for the purpose with a consent attestation (AC-4.1), how often
+  non-speech sound is wrongly treated as a gap (needless retries, a false notice), how often a
+  real gap is missed, and how often a join is wrong, and confirms or changes the bounds of
+  Constraints. A false join found at that point is a defect, not a tuning matter; a join rate
+  that is low only costs renames. — owner: architect
 
 Closed by the owner on 2026-11-04 (recorded in the body): O1 languages (US-13, non-goals);
 O4 default grants (AC-10.8); O5 read-only participants (AC-5.8, AC-10.4); O6 limits accepted;
@@ -684,4 +850,7 @@ enough (AC-4.1); O10 uploaded video reduced to audio (AC-3.1); O11 host-visible 
 (Constraints).
 
 Closed by the owner on 2026-11-05: plan Q1, the 5-day transcription-result retention is
-accepted (Constraints, A6); plan A5, the transcript-parts clarification (AC-6.2).
+accepted (Constraints, A6); plan A5, the transcript-parts clarification (AC-6.2); spike
+decisions D3 and D4 (A7): automatic retry of a detectably incomplete part, speaker continuity
+from overlap text only, and a structured AI reply that is offered but not forced, where an
+invalid reply is a failure.
