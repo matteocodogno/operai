@@ -25,6 +25,7 @@
     "@scalar/hono-api-reference": "^0.5.165",
     "dotenv": "17.4.2",
     "effect": "^3.12.4",
+    "google-auth-library": "10.9.1",
     "hono": "^4.6.16",
     "jose": "6.2.3",
     "pg": "8.23.1",

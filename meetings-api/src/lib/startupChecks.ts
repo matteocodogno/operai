@@ -28,7 +28,8 @@ import {
   type LifecycleRule,
   type S3Client,
 } from "@aws-sdk/client-s3";
-import { BEDROCK_ALLOWED_REGIONS } from "./residency";
+import { googleAuth, type GoogleAuth } from "./google/auth";
+import { readBucketConfig, type BucketConfig } from "./google/transientStorage";
 
 /** AC-4.4: 30 days (+ at most 24 h) from creation; expiration rounds up to midnight UTC. */
 export const MAX_RETENTION_DAYS = 29;
@@ -77,7 +78,86 @@ export async function checkBucket(client: S3Client, bucket: string): Promise<str
   return problems;
 }
 
-// ─── Bedrock (AC-4.9, ADR-0061) ──────────────────────────────────────────────
+// ─── The transient processing bucket (N2; AC-4.9, AC-4.12, ADR-0069) ─────────
+//
+// Chirp 3 reads audio only from Cloud Storage, so each transcription attempt stages its parts in a bucket of
+// ours (plan § G-2). The promise users get (AC-4.12) is only as good as that bucket's own rules, because
+// Google's defaults keep a deleted object for a week (soft delete) and nothing else guarantees the 1-day
+// backstop. Everything the bucket's metadata exposes is read at startup; absent or unreadable is a refusal.
+
+/**
+ * Bucket locations that keep data in the EU or Switzerland AND are served by a regional endpoint (the EU
+ * multi-region and single regions; dual-regions such as EUR4 have no regional endpoint). London
+ * (`EUROPE-WEST2`) is not in the EU.
+ */
+export const TRANSIENT_BUCKET_ALLOWED_LOCATIONS = [
+  "EU",
+  "EUROPE-CENTRAL2",
+  "EUROPE-NORTH1",
+  "EUROPE-NORTH2",
+  "EUROPE-SOUTHWEST1",
+  "EUROPE-WEST1",
+  "EUROPE-WEST3",
+  "EUROPE-WEST4",
+  "EUROPE-WEST6",
+  "EUROPE-WEST8",
+  "EUROPE-WEST9",
+  "EUROPE-WEST10",
+  "EUROPE-WEST12",
+] as const;
+
+/** Whether a lifecycle rule deletes EVERY object after one day: `Delete`, `age` 1, and no other condition. */
+function expiresEverythingAfterOneDay(rule: NonNullable<NonNullable<BucketConfig["lifecycle"]>["rule"]>[number]): boolean {
+  if (rule.action?.type !== "Delete") return false;
+  const condition = rule.condition;
+  if (typeof condition !== "object" || condition === null) return false;
+  // `age` is the only condition allowed: prefix, suffix, storage class, `isLive`, dates... all narrow the rule.
+  // Age 0 is refused too: it would delete the parts an attempt has just uploaded and is still waiting on.
+  return Object.keys(condition).every((k) => k === "age") && condition["age"] === 1;
+}
+
+/** The problems with a transient bucket's configuration (empty when it is fit). Names the property, never a value. */
+export function transientBucketProblems(config: BucketConfig): string[] {
+  const problems: string[] = [];
+  const location = typeof config.location === "string" ? config.location.toUpperCase() : "";
+  if (!(TRANSIENT_BUCKET_ALLOWED_LOCATIONS as readonly string[]).includes(location)) {
+    problems.push("the transient bucket's location is not in the EU/CH allowlist");
+  }
+  const rules = config.lifecycle?.rule;
+  if (!Array.isArray(rules) || !rules.some(expiresEverythingAfterOneDay)) {
+    problems.push("the transient bucket has no lifecycle rule that deletes every object after one day (age 1, no other condition)");
+  }
+  if (config.versioning?.enabled === true) problems.push("the transient bucket has versioning enabled");
+  const soft = config.softDeletePolicy?.retentionDurationSeconds;
+  if (soft === undefined) problems.push("the transient bucket's soft-delete policy cannot be read");
+  else if (Number(soft) !== 0 || soft === "" || soft === null) problems.push("the transient bucket keeps deleted objects (soft delete is not off)");
+  if (config.retentionPolicy !== undefined && config.retentionPolicy !== null) problems.push("the transient bucket has a retention policy");
+  if (config.defaultEventBasedHold === true) problems.push("the transient bucket places a hold on new objects");
+  if (config.iamConfiguration?.uniformBucketLevelAccess?.enabled !== true) {
+    problems.push("the transient bucket does not enforce uniform bucket-level access");
+  }
+  if (config.iamConfiguration?.publicAccessPrevention !== "enforced") {
+    problems.push("the transient bucket does not enforce public access prevention");
+  }
+  return problems;
+}
+
+/** The problems with the transient bucket (empty when fit). Never throws; an unreadable bucket is a problem. */
+export async function checkTransientBucket(input: { bucket: string; auth: GoogleAuth; fetchImpl?: typeof fetch }): Promise<string[]> {
+  let config: BucketConfig;
+  try {
+    config = await readBucketConfig(input);
+  } catch {
+    return ["the transient bucket's configuration cannot be read"];
+  }
+  return transientBucketProblems(config);
+}
+
+// ─── Bedrock (AC-4.9, ADR-0061) - REMOVED BY T101 ────────────────────────────
+// Superseded by ADR-0069 (T95 dropped its environment). Kept only until T101 replaces it with the Vertex checks
+// N3/N4, so that the code between the two commits still loads; nothing reads it at runtime.
+const BEDROCK_ALLOWED_REGIONS = ["eu-central-1", "eu-central-2", "eu-west-1", "eu-west-3", "eu-north-1", "eu-south-1", "eu-south-2"] as const;
+//
 //
 // Two facts about the language model are not in our repository: WHERE a request is
 // processed (an inference profile can route to any Region in its set, and AWS warns
@@ -154,36 +234,39 @@ export async function checkBedrock(input: BedrockCheckInput): Promise<string[]> 
   return problems;
 }
 
-/** From the environment: a real provider is checked, the fake (refused in production by env.ts) is not. */
-export async function bedrockCheckFromEnv(): Promise<BedrockCheckInput | null> {
-  const { env } = await import("./env");
-  if (env.MEETINGS_AI_PROVIDER !== "real") return null;
-  const { BedrockClient } = await import("@aws-sdk/client-bedrock");
-  const credentials = { accessKeyId: env.MEETINGS_AWS_ACCESS_KEY_ID!, secretAccessKey: env.MEETINGS_AWS_SECRET_ACCESS_KEY! };
-  return {
-    region: env.BEDROCK_REGION!,
-    modelId: env.BEDROCK_MODEL_ID!,
-    controlFor: (region) => new BedrockClient({ region, credentials, maxAttempts: 2 }) as unknown as BedrockControl,
-  };
+/** Removed with T101 (the environment it read no longer exists). */
+async function bedrockCheckFromEnv(): Promise<BedrockCheckInput | null> {
+  return null;
 }
 
 /**
- * Runs the checks - the audio bucket, and the language model when a real provider is
- * configured - and exits 1 on any problem. Called once from `src/index.ts`, before the
- * server listens.
+ * Runs the checks - the audio bucket, and with a real provider the transient bucket and the language
+ * model - and exits 1 on any problem. Called once from `src/index.ts`, before the server listens.
  */
 export async function runStartupChecks(client: S3Client, bucket: string): Promise<void> {
   const audio = await checkBucket(client, bucket);
   const model = await bedrockCheckFromEnv();
   const ai = model ? await checkBedrock(model) : [];
-  if (audio.length === 0 && ai.length === 0) return;
+  const transient = await transientCheckFromEnv();
+  if (audio.length === 0 && ai.length === 0 && transient.length === 0) return;
   if (audio.length > 0) {
     console.error("Audio storage is not fit for recordings, refusing to start (AC-4.4, ADR-0063):");
     for (const problem of audio) console.error(`  - ${problem}`);
+  }
+  if (transient.length > 0) {
+    console.error("The transient transcription bucket is not fit to stage audio, refusing to start (AC-4.9, AC-4.12, ADR-0069):");
+    for (const problem of transient) console.error(`  - ${problem}`);
   }
   if (ai.length > 0) {
     console.error("The language model is not fit to process meetings, refusing to start (AC-4.9, ADR-0061):");
     for (const problem of ai) console.error(`  - ${problem}`);
   }
   process.exit(1);
+}
+
+/** From the environment: the transient bucket is checked with a real provider, never with the fake. */
+async function transientCheckFromEnv(): Promise<string[]> {
+  const { env } = await import("./env");
+  if (env.MEETINGS_AI_PROVIDER !== "real") return [];
+  return checkTransientBucket({ bucket: env.MEETINGS_GCS_TRANSIENT_BUCKET!, auth: await googleAuth() });
 }

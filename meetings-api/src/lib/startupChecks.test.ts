@@ -9,7 +9,18 @@ import {
   S3Client,
   type LifecycleRule,
 } from "@aws-sdk/client-s3";
-import { MAX_RETENTION_DAYS, checkBedrock, checkBucket, isInferenceProfileId, type BedrockControl } from "./startupChecks";
+import {
+  MAX_RETENTION_DAYS,
+  TRANSIENT_BUCKET_ALLOWED_LOCATIONS,
+  checkBedrock,
+  checkBucket,
+  checkTransientBucket,
+  isInferenceProfileId,
+  transientBucketProblems,
+  type BedrockControl,
+} from "./startupChecks";
+import type { GoogleAuth } from "./google/auth";
+import type { BucketConfig } from "./google/transientStorage";
 
 // AC-4.4 / ADR-0063: the 30-day deletion is the bucket's own lifecycle rule, so
 // the service refuses to start unless that rule is verifiably there.
@@ -251,6 +262,95 @@ describe("bedrock: retention mode (AC-4.9)", () => {
     expect(problems).not.toContain("secret-bedrock-text");
     expect(problems).not.toContain("123456789012");
     expect(problems).not.toContain(plain);
+  });
+});
+
+// ─── The transient processing bucket (N2; AC-4.9, AC-4.12, ADR-0069) ───────
+
+const goodTransient = (): BucketConfig => ({
+  location: "EUROPE-WEST4",
+  lifecycle: { rule: [{ action: { type: "Delete" }, condition: { age: 1 } }] },
+  softDeletePolicy: { retentionDurationSeconds: "0" },
+  iamConfiguration: { uniformBucketLevelAccess: { enabled: true }, publicAccessPrevention: "enforced" },
+});
+
+describe("transient bucket (N2)", () => {
+  it("passes a bucket that matches every property", () => {
+    expect(transientBucketProblems(goodTransient())).toEqual([]);
+  });
+
+  it("passes the EU multi-region and every allowlisted single region, in any letter case", () => {
+    for (const location of TRANSIENT_BUCKET_ALLOWED_LOCATIONS) {
+      expect(transientBucketProblems({ ...goodTransient(), location }), location).toEqual([]);
+      expect(transientBucketProblems({ ...goodTransient(), location: location.toLowerCase() }), location).toEqual([]);
+    }
+  });
+
+  const refusals: [string, (c: BucketConfig) => BucketConfig, RegExp][] = [
+    ["soft delete 7 days (the GCS default)", (c) => ({ ...c, softDeletePolicy: { retentionDurationSeconds: "604800" } }), /soft delete/i],
+    ["a soft-delete policy that is absent", ({ softDeletePolicy: _drop, ...c }) => c, /soft-delete/i],
+    ["a soft-delete value that is null or empty", (c) => ({ ...c, softDeletePolicy: { retentionDurationSeconds: null } }), /soft delete/i],
+    ["versioning on", (c) => ({ ...c, versioning: { enabled: true } }), /versioning/i],
+    ["a matchesPrefix rule", (c) => ({ ...c, lifecycle: { rule: [{ action: { type: "Delete" }, condition: { age: 1, matchesPrefix: ["transcribe/"] } }] } }), /lifecycle/i],
+    ["a matchesSuffix, storage class or isLive narrowing", (c) => ({ ...c, lifecycle: { rule: [{ action: { type: "Delete" }, condition: { age: 1, isLive: true } }] } }), /lifecycle/i],
+    ["age 2", (c) => ({ ...c, lifecycle: { rule: [{ action: { type: "Delete" }, condition: { age: 2 } }] } }), /lifecycle/i],
+    ["age 0 (would delete parts in flight)", (c) => ({ ...c, lifecycle: { rule: [{ action: { type: "Delete" }, condition: { age: 0 } }] } }), /lifecycle/i],
+    ["a rule that is not a Delete", (c) => ({ ...c, lifecycle: { rule: [{ action: { type: "SetStorageClass" }, condition: { age: 1 } }] } }), /lifecycle/i],
+    ["no lifecycle at all", ({ lifecycle: _drop, ...c }) => c, /lifecycle/i],
+    ["London (EUROPE-WEST2)", (c) => ({ ...c, location: "EUROPE-WEST2" }), /location/i],
+    ["the US", (c) => ({ ...c, location: "US" }), /location/i],
+    ["a dual-region", (c) => ({ ...c, location: "EUR4" }), /location/i],
+    ["no location", ({ location: _drop, ...c }) => c, /location/i],
+    ["public access prevention not enforced", (c) => ({ ...c, iamConfiguration: { ...c.iamConfiguration, publicAccessPrevention: "inherited" } }), /public access/i],
+    ["uniform access off", (c) => ({ ...c, iamConfiguration: { ...c.iamConfiguration, uniformBucketLevelAccess: { enabled: false } } }), /uniform/i],
+    ["a retention policy", (c) => ({ ...c, retentionPolicy: { retentionPeriod: "60" } }), /retention policy/i],
+    ["a default event-based hold", (c) => ({ ...c, defaultEventBasedHold: true }), /hold/i],
+  ];
+  for (const [name, mutate, expected] of refusals) {
+    it(`refuses ${name}`, () => {
+      const problems = transientBucketProblems(mutate(goodTransient()));
+      expect(problems.length).toBeGreaterThan(0);
+      expect(problems.join("\n")).toMatch(expected);
+    });
+  }
+
+  it("accepts a lifecycle with an extra unrelated rule next to the qualifying one", () => {
+    const good = goodTransient();
+    const config: BucketConfig = { ...good, lifecycle: { rule: [{ action: { type: "SetStorageClass" }, condition: { age: 30 } }, ...good.lifecycle!.rule!] } };
+    expect(transientBucketProblems(config)).toEqual([]);
+  });
+
+  it("never names a value", () => {
+    const problems = transientBucketProblems({ ...goodTransient(), location: "US-SECRET-9", softDeletePolicy: { retentionDurationSeconds: "604800" } }).join("\n");
+    expect(problems).not.toContain("US-SECRET-9");
+    expect(problems).not.toContain("604800");
+  });
+});
+
+describe("checkTransientBucket", () => {
+  const auth: GoogleAuth = { accessToken: async () => "tok", client: null as never };
+  const stubFetch = (respond: () => Response | Promise<Response>) => (async () => respond()) as unknown as typeof fetch;
+
+  it("reads the metadata and passes a good bucket", async () => {
+    const fetchImpl = stubFetch(() => Response.json(goodTransient()));
+    expect(await checkTransientBucket({ bucket: "operai-transient", auth, fetchImpl })).toEqual([]);
+  });
+
+  it("refuses unreadable metadata (403, 500 twice, not JSON) without naming the bucket or the error", async () => {
+    for (const respond of [() => new Response("denied secret-text", { status: 403 }), () => new Response("{}", { status: 500 }), () => new Response("not json")]) {
+      const problems = await checkTransientBucket({ bucket: "bucket-xyz-secret", auth, fetchImpl: stubFetch(respond) });
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/cannot be read/i);
+      expect(problems.join()).not.toContain("bucket-xyz-secret");
+      expect(problems.join()).not.toContain("secret-text");
+    }
+  });
+
+  it("refuses a network failure", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNRESET");
+    }) as unknown as typeof fetch;
+    expect(await checkTransientBucket({ bucket: "b-ucket", auth, fetchImpl })).toHaveLength(1);
   });
 });
 
