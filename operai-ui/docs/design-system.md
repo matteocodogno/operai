@@ -423,6 +423,11 @@ A page shows exactly one state at a time:
 | `success` | `status` | a confirmation; `compact` + `autoDismiss` for a transient save |
 | `info` | `status` | a neutral notice |
 
+A `warning` or `danger` that is not time-critical (a persistent, non-dismissible
+notice; a refusal the person reads in place) keeps its tone and takes `live="polite"`
+(`status`) or `live="off"` (static `role="note"`, pair it with an `aria-label`).
+`alert` is only for what must be heard at once. Defaults are unchanged.
+
 **Error colour (INC-20).** Orange says "try again": a failed load or a failed
 "load more", which the same control retries — `Banner tone="warning"` or the
 warning text in `LoadMore`. Red says "something you must fix": a field error, a

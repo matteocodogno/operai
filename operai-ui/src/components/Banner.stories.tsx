@@ -9,7 +9,9 @@ import { Button } from './Button'
  * meaning: `warning` (orange) for a recoverable failure the person can retry,
  * `danger` (red) for something that failed and needs them, `success` for a
  * confirmation, `info` for a neutral notice. `warning` and `danger` are
- * `role="alert"`; `info` and `success` a polite `role="status"`. The body
+ * `role="alert"`; `info` and `success` a polite `role="status"`. A persistent
+ * condition that is not time-critical keeps its tone but is not announced
+ * assertively: pass `live="polite"` or `live="off"` (see Not announced). The body
  * stays in the text colour; the tone is in the border, tint and title.
  */
 const meta = {
@@ -63,6 +65,26 @@ export const WithTitle: Story = {
           <li>Enter a name.</li>
           <li>Enter a price with at most two decimals.</li>
         </ul>
+      </Banner>
+    </div>
+  ),
+}
+
+/**
+ * A `warning` that is a persistent, non-dismissible condition (a transcript that
+ * may be incomplete) is not an alert: `live="off"` renders a static `role="note"`
+ * (give it an `aria-label` so it has a name when focused), `live="polite"` a
+ * `role="status"`. Tone, icon and colours are unchanged.
+ */
+export const NotAnnounced: Story = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex max-w-2xl flex-col gap-3">
+      <Banner tone="warning" live="off" aria-label="Transcript may be incomplete">
+        This transcript may be incomplete. Speech may be missing between 00:05:00 and 00:07:00.
+      </Banner>
+      <Banner tone="warning" live="polite" title="Upload refused">
+        The file is not a supported audio or video format.
       </Banner>
     </div>
   ),

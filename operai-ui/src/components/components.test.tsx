@@ -61,6 +61,33 @@ describe('Banner', () => {
     expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
   })
 
+  it('live overrides the announcement without changing the tone', () => {
+    const { rerender } = render(
+      <Banner tone="warning" live="off" aria-label="Heads up" data-testid="b">
+        Persistent notice
+      </Banner>,
+    )
+    const banner = screen.getByTestId('b')
+    expect(banner).toHaveAttribute('role', 'note')
+    expect(banner).not.toHaveAttribute('aria-live')
+    expect(banner).toHaveClass('banner-warning')
+    expect(screen.getByRole('note', { name: 'Heads up' })).toBe(banner)
+    expect(screen.queryByRole('alert')).toBeNull()
+    rerender(
+      <Banner tone="warning" live="polite" data-testid="b">
+        Persistent notice
+      </Banner>,
+    )
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
+    expect(screen.queryByRole('alert')).toBeNull()
+    rerender(
+      <Banner tone="info" live="assertive" data-testid="b">
+        Urgent
+      </Banner>,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('Urgent')
+  })
+
   it('renders Retry and Dismiss when given handlers', async () => {
     const onRetry = vi.fn()
     const onDismiss = vi.fn()

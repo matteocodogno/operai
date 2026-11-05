@@ -7,6 +7,13 @@ import { Icon } from './Icon'
 export type BannerTone = 'info' | 'success' | 'warning' | 'danger'
 
 /**
+ * How a banner is announced. `assertive` is `role="alert"`, `polite` a
+ * `role="status"` live region, `off` static content (`role="note"`, no live
+ * region) for a persistent condition that is read in place, not announced.
+ */
+export type BannerLive = 'assertive' | 'polite' | 'off'
+
+/**
  * How long a success confirmation stays before it dismisses itself — one value
  * for the whole suite (design-system.md § Feedback, decisions D-61).
  */
@@ -19,6 +26,14 @@ export type BannerProps = Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'role'>
    * `info` — a neutral notice.
    */
   tone?: BannerTone
+  /**
+   * How it is announced. Defaults from the tone (`warning`/`danger` assertive,
+   * `info`/`success` polite). Pass `polite` or `off` for a `warning` that is
+   * not time-critical, such as a persistent, non-dismissible notice; the tone,
+   * icon and colours do not change. `off` renders `role="note"`, so an
+   * `aria-label` still gives it an accessible name when it is focused.
+   */
+  live?: BannerLive
   /** Bold first line, in the tone's text colour. */
   title?: ReactNode
   titleTestId?: string
@@ -47,11 +62,13 @@ export type BannerProps = Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'role'>
 /**
  * Banner — an inline message about the page or a section of it. `warning` and
  * `danger` are `role="alert"` (announced at once); `info` and `success` are a
- * polite `role="status"`. The body text stays in --text for contrast in both
+ * polite `role="status"`; `live` overrides that (`polite`, or `off` for a static
+ * `role="note"`). The body text stays in --text for contrast in both
  * themes; the tone is in the border, the tint and the title.
  */
 export function Banner({
   tone = 'info',
+  live,
   title,
   titleTestId,
   children,
@@ -69,7 +86,7 @@ export function Banner({
   className,
   ...rest
 }: BannerProps) {
-  const assertive = tone === 'warning' || tone === 'danger'
+  const mode: BannerLive = live ?? (tone === 'warning' || tone === 'danger' ? 'assertive' : 'polite')
 
   // Keep the latest onDismiss without restarting the timer on every render.
   const onDismissRef = useRef(onDismiss)
@@ -89,8 +106,8 @@ export function Banner({
   return (
     <div
       ref={ref}
-      role={assertive ? 'alert' : 'status'}
-      aria-live={assertive ? undefined : 'polite'}
+      role={mode === 'assertive' ? 'alert' : mode === 'polite' ? 'status' : 'note'}
+      aria-live={mode === 'polite' ? 'polite' : undefined}
       className={cx('banner', tone !== 'info' && `banner-${tone}`, compact && 'banner-compact', className)}
       {...rest}
     >
