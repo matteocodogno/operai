@@ -22,7 +22,10 @@
  * Every step is idempotent: audio that is already stored is not rebuilt. A failure that
  * retrying cannot fix marks the meeting `failed` with a closed code and KEEPS the sources
  * so the creator may retry while they last (AC-6.9); a transient one is retried by the
- * runner and fails the meeting only on the last attempt. Logs name codes, never content.
+ * runner and fails the meeting only on the last attempt. EXCEPTION (AC-3.2): an UPLOADED file that
+ * decodes past 3 h (`too_long`) is refused, not failed: the original is deleted and the meeting goes
+ * back to `draft` with `failureCode = too_long` so the creator can upload another (`refuseUpload`).
+ * Logs name codes, never content.
  */
 
 import { mkdtemp, rm } from "node:fs/promises";
@@ -146,6 +149,37 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
     if (meeting) announceProcessing(announce, meeting, "transcription_failed");
   }
 
+  /**
+   * AC-3.2 for an UPLOADED file only the decode could measure (no stated duration, then past the
+   * 3 h cap): refuse it like the confirm-time probe does. Order matters (ADR-0063 discipline):
+   *   1. a guard commit proves this attempt still owns a `processing` meeting, so a stale or
+   *      superseded attempt deletes nothing;
+   *   2. the original object(s) are deleted. If that fails we do NOT pretend: the caller keeps the
+   *      meeting `processing` and retries, and only the last attempt falls back to `failed`;
+   *   3. in ONE job-guarded transaction the upload row goes and the meeting returns to `draft`
+   *      with `failureCode = too_long` (the view shows it as `failure`), processing marks cleared.
+   * Returns "refused", "stale" (nothing changed, whoever owns the meeting decides) or "undeleted".
+   */
+  async function refuseUpload(ctx: JobContext, storage: Storage, meetingId: string, source: Source): Promise<"refused" | "stale" | "undeleted"> {
+    const owned = await ctx.commit((tx) => tx.meeting.count({ where: { id: meetingId, status: "processing", audioKey: null } }));
+    if (!owned.committed || owned.value === 0) return "stale";
+    if (!(await deleteSources(storage, meetingId, source))) return "undeleted";
+
+    const before = await db.meeting.findUnique({ where: { id: meetingId }, select: { id: true, title: true, processingRequestedBy: true, creatorUserId: true } });
+    const result = await ctx.commit(async (tx) => {
+      const flipped = await tx.meeting.updateMany({
+        where: { id: meetingId, status: "processing", audioKey: null },
+        data: { status: "draft", stage: null, failureCode: "too_long", processingStartedAt: null, processingRequestedBy: null, processedAt: null, durationMs: null },
+      });
+      if (flipped.count === 0) return false;
+      await source.cleanupRows();
+      return true;
+    });
+    if (!result.committed || !result.value) return "stale";
+    if (before) announceProcessing(announce, before, "upload_refused");
+    return "refused";
+  }
+
   return async (ctx) => {
     const meetingId = ctx.job.meetingId;
     if (!meetingId) throw new PermanentJobError("no_meeting");
@@ -227,6 +261,16 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       if (error instanceof PermanentJobError) throw error;
       if (error instanceof NormalizeError || error instanceof ObjectTooLargeError) {
         const code: FailureCode = error instanceof NormalizeError ? error.code : "audio_unreadable";
+        // An uploaded file that is too long goes back to draft so the creator can upload another (AC-3.2).
+        if (code === "too_long" && meeting.source === "uploaded") {
+          const outcome = await refuseUpload(ctx, storage, meetingId, source);
+          if (outcome === "undeleted") {
+            // The original could not be removed: keep it retryable, and on the last attempt fail as before (sources kept).
+            if (ctx.attempt < ctx.job.maxAttempts) throw new TransientJobError("storage_delete");
+            await markFailed(ctx, meetingId, code);
+          }
+          throw new PermanentJobError(code);
+        }
         await markFailed(ctx, meetingId, code);
         throw new PermanentJobError(code);
       }

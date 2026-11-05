@@ -13,7 +13,7 @@ import type { NotifyEvent } from "../../lib/notify";
 /** Not a user: the actor of a job. */
 export const JOB_ACTOR = "system:meetings-api";
 
-export type ProcessingOutcome = "transcription_done" | "transcription_failed";
+export type ProcessingOutcome = "transcription_done" | "transcription_failed" | "upload_refused";
 
 export interface NoticeMeeting {
   readonly id: string;

@@ -18,6 +18,7 @@ export const NOTIFICATION_KINDS = [
   "participant_added",
   "transcription_done",
   "transcription_failed",
+  "upload_refused",
   "summary_done",
   "summary_failed",
 ] as const;
@@ -52,6 +53,10 @@ export const catalog: Record<NotificationLanguage, Record<NotificationKind, Copy
       title: (t) => `Transcription failed: ${t}`,
       body: (t) => `The transcript of "${t}" could not be produced. Open the meeting to try again.`,
     },
+    upload_refused: {
+      title: (t) => `File refused: ${t}`,
+      body: (t) => `The file uploaded for "${t}" is longer than 3 hours and was removed. Open the meeting to upload a shorter file.`,
+    },
     summary_done: {
       title: (t) => `Summary ready: ${t}`,
       body: (t) => `Your summary of "${t}" is ready.`,
@@ -75,6 +80,10 @@ export const catalog: Record<NotificationLanguage, Record<NotificationKind, Copy
       title: (t) => `Trascrizione non riuscita: ${t}`,
       body: (t) => `Non è stato possibile produrre la trascrizione di "${t}". Apri la riunione per riprovare.`,
     },
+    upload_refused: {
+      title: (t) => `File rifiutato: ${t}`,
+      body: (t) => `Il file caricato per "${t}" dura più di 3 ore ed è stato rimosso. Apri la riunione per caricarne uno più corto.`,
+    },
     summary_done: {
       title: (t) => `Riassunto pronto: ${t}`,
       body: (t) => `Il tuo riassunto di "${t}" è pronto.`,
@@ -90,6 +99,7 @@ const SEVERITY: Record<NotificationKind, NotificationSeverity> = {
   participant_added: "info",
   transcription_done: "success",
   transcription_failed: "warning",
+  upload_refused: "warning",
   summary_done: "success",
   summary_failed: "warning",
 };

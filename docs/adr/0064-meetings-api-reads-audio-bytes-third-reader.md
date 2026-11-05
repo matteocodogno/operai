@@ -147,7 +147,7 @@ its duration" is **reverted**: it refused legitimate browser-saved WebM files, f
 reason (eval finding; spec AC-3.1/3.2). Now an upload with no stated duration is accepted at
 confirm; the demuxer allowlist, the audio-stream check and, **when a duration is stated**, the
 3 h + 60 s limit still apply. The decode output caps `-t 10861 -fs 104857600` bound an absent
-or understated duration, and a file that decodes past the limit is refused as `too_long`.
+or understated duration, and an uploaded file that decodes past the limit is refused as `too_long`: `prepare_audio` deletes the original first, then returns the meeting to `draft` with `failure.code = too_long` (spec AC-3.2) and notifies the creator (`upload_refused`); if the delete fails the job is retried and only its last attempt falls back to `failed`. A recorded source that decodes too long still ends `failed` with its chunks kept.
 
 Failure-shape note: the lesson is that a parser given a URL must be bounded by what it can
 *reach* (host and port), not by the scheme it speaks; the authoritative check belongs on the

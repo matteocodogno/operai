@@ -215,7 +215,8 @@ export function buildMeetingView(input: ViewInput, now: Date): MeetingView {
     language: meeting.language,
     source: meeting.source,
     stage: status === "processing" ? meeting.stage : null,
-    failure: status === "failed" && meeting.failureCode !== null ? { code: meeting.failureCode } : null,
+    // On `failed`, and on a `draft` whose uploaded file was refused after processing began (AC-3.2): the reason stays until a new upload is minted.
+    failure: (status === "failed" || status === "draft") && meeting.failureCode !== null ? { code: meeting.failureCode } : null,
     noSpeech: meeting.noSpeech,
     durationMs: meeting.durationMs ?? (recording ? recording.durationMs : null),
     role,

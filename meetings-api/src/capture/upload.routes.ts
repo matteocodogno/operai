@@ -104,6 +104,8 @@ uploadRouter.openapi(mintRoute, async (c) => {
     create: { meetingId: id, objectKey, contentType, sizeBytes },
     update: { objectKey, contentType, sizeBytes, mintedAt: new Date() },
   });
+  // A new attempt retires the reason the last file was refused for (a refusal after processing began leaves it on the draft).
+  await db.meeting.update({ where: { id }, data: { failureCode: null } });
   // A retired mint's key (its policy may still be open) is dead weight, not a source: remove it.
   try {
     await storage.deleteUploadsExcept(id, objectKey);

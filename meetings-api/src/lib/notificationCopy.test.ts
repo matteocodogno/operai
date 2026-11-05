@@ -49,6 +49,7 @@ describe("renderNotification", () => {
       participant_added: "info",
       transcription_done: "success",
       transcription_failed: "warning",
+      upload_refused: "warning",
       summary_done: "success",
       summary_failed: "warning",
     };
