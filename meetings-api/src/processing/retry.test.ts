@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import { CREATOR, OTHER, authDown, call, db, json, kit, mkMeeting, useKit } from "../test-support/captureKit";
 
 // AC-6.9 (retry while the audio is kept; no retry after it is deleted), AC-6.10 (the stage),
@@ -161,5 +161,38 @@ describe("who may retry (creator control)", () => {
     authDown();
     expect((await retry(m.id)).status).toBe(503);
     expect(await jobs(m.id)).toHaveLength(0);
+  });
+});
+
+// The `can.retryProcessing` hint and the route's own rule are ONE predicate (AC-6.9): whatever the
+// view promises, the route does, in every state a failed meeting can be in.
+describe("the view's retryProcessing flag agrees with the route", () => {
+  afterEach(() => setSystemTime());
+
+  const uploaded = async () => {
+    const m = await mkMeeting({ source: "uploaded", status: "failed", failureCode: "audio_unreadable", processingStartedAt: T0 });
+    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/original`, contentType: "audio/mpeg", sizeBytes: 5, mintedAt: T0 } });
+    return m;
+  };
+  const nothing = () => mkMeeting({ status: "failed", failureCode: "audio_unreadable", processingStartedAt: T0 });
+
+  const scenarios: [string, () => Promise<{ id: string }>, number][] = [
+    ["audio kept", () => failedWithAudio(), 202],
+    ["sources only, fresh", () => failedWithChunks(), 202],
+    ["sources only, expired", () => failedWithChunks(new Date(T0.getTime() - 30 * DAY)), 409],
+    ["uploaded original, fresh", uploaded, 202],
+    ["nothing", nothing, 409],
+  ];
+
+  it.each(scenarios)("%s", async (_name, make, expected) => {
+    const m = await make();
+    // The GET reads the wall clock and the route the injected one: pin both to the same instant.
+    const now = new Date(T0.getTime() + DAY);
+    at(now);
+    setSystemTime(now);
+    const flag = (await json<{ can: { retryProcessing: boolean } }>(await call("GET", `/meetings/${m.id}`))).can.retryProcessing;
+    const status = (await retry(m.id)).status;
+    expect(status).toBe(expected);
+    expect(flag).toBe(status === 202);
   });
 });

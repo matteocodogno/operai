@@ -64,6 +64,7 @@ const input = (over: Partial<ViewInput> = {}): ViewInput => ({
   host: null,
   hostVisibleOffered: false,
   failedHostNotice: null,
+  retry: { audioKey: "meetings/m1/audio.ogg", oldestSourceAt: null },
   ...over,
 });
 
@@ -341,8 +342,18 @@ describe("can: the truth table (AC-5.8, AC-5.11, AC-10.6, G1)", () => {
     it("retryProcessing: failed with retained audio", () => {
       expect(can({ meeting: m("failed") }).retryProcessing).toBe(true);
       expect(can({ meeting: m("failed", { audioCreatedAt: at(-30 * DAY) }) }).retryProcessing).toBe(false);
-      expect(can({ meeting: m("failed", { audioCreatedAt: null }) }).retryProcessing).toBe(false);
+      expect(can({ meeting: m("failed", { audioCreatedAt: null }), retry: { audioKey: null, oldestSourceAt: null } }).retryProcessing).toBe(false);
       expect(can({ meeting: m("ready") }).retryProcessing).toBe(false);
+    });
+
+    // AC-6.9: after a prepare_audio failure audio.ogg never existed, only the sources were kept.
+    it("retryProcessing: failed with only retained sources, until 29 days after the oldest one", () => {
+      const sourcesOnly = (ageMs: number, over: Partial<MeetingRecord> = {}) =>
+        can({ meeting: m("failed", { audioCreatedAt: null, ...over }), retry: { audioKey: null, oldestSourceAt: at(-ageMs) } }).retryProcessing;
+      expect(sourcesOnly(DAY)).toBe(true);
+      expect(sourcesOnly(29 * DAY - 1000)).toBe(true);
+      expect(sourcesOnly(29 * DAY)).toBe(false);
+      expect(sourcesOnly(DAY, { audioDeletedAt: at(-1000) })).toBe(false);
     });
 
     it("deleteAudio: only while audio is kept and the meeting is not mid-recording or mid-processing", () => {

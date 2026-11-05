@@ -67,3 +67,34 @@ export function audioState(
   const until = new Date(meeting.audioCreatedAt.getTime() + AUDIO_RETENTION_DAYS * DAY_MS);
   return now.getTime() >= until.getTime() ? { state: "deleted" } : { state: "kept", until };
 }
+
+/** What a failed meeting's retry resumes at: `transcribe` when `audio.ogg` exists, `prepare_audio` when only the sources do. */
+export type RetryResume = "transcribe" | "prepare_audio";
+
+/** The facts the retry rule reads (AC-6.9). */
+export interface RetryFacts {
+  readonly audioKey: string | null;
+  readonly audioCreatedAt: Date | null;
+  readonly audioDeletedAt: Date | null;
+  /**
+   * When the oldest retained source was stored: the uploaded original's `mintedAt`, else the
+   * earliest stored chunk's `storedAt`; null when no source is kept.
+   */
+  readonly oldestSourceAt: Date | null;
+}
+
+/**
+ * THE rule for "can processing run again" (AC-6.9), shared by `POST /meetings/:id/retry` and the
+ * view's `can.retryProcessing`, so the hint can never disagree with the route. Returns the stage to
+ * resume at, or null when nothing usable is left (the route's 409 `audio_deleted`). It does not look
+ * at the status: the caller checks `failed` first.
+ *
+ *   - `audio.ogg` exists (`audioKey`): usable while `audioState` is `kept` -> resume at `transcribe`;
+ *   - otherwise (`prepare_audio` failed and kept its sources): usable unless the creator deleted the
+ *     audio, while the oldest source is under 29 days old -> resume at `prepare_audio`.
+ */
+export function retryResume(facts: RetryFacts, now: Date): RetryResume | null {
+  if (facts.audioKey !== null) return audioState(facts, now).state === "kept" ? "transcribe" : null;
+  if (facts.audioDeletedAt !== null || facts.oldestSourceAt === null) return null;
+  return now.getTime() >= facts.oldestSourceAt.getTime() + AUDIO_RETENTION_DAYS * DAY_MS ? null : "prepare_audio";
+}

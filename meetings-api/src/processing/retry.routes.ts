@@ -25,8 +25,9 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { openForControl } from "../capture/caller";
 import { enqueueJob } from "../jobs/runner";
 import { callerOf, creatorControl } from "../meetings/caller";
-import { AUDIO_RETENTION_DAYS, audioState } from "../meetings/derived";
+import { retryResume } from "../meetings/derived";
 import { lockMeeting } from "../meetings/lock";
+import { oldestSourceAt } from "../meetings/sources";
 import { loadMeetingView } from "../meetings/view";
 
 let clock: () => Date = () => new Date();
@@ -68,22 +69,9 @@ retryRouter.openapi(retryRoute, async (c) => {
     });
     if (meeting.status !== "failed") throw conflict("not_failed", "Only a meeting whose processing failed can be retried");
 
-    let resume: "transcribe" | "prepare_audio";
-    if (meeting.audioKey !== null) {
-      if (audioState(meeting, now).state !== "kept") throw audioDeleted();
-      resume = "transcribe";
-    } else {
-      // audio.ogg never existed (or is gone): only kept sources can be processed again.
-      if (meeting.audioDeletedAt !== null) throw audioDeleted();
-      const [chunks, upload] = await Promise.all([
-        tx.recordingChunk.aggregate({ where: { meetingId: id, storedAt: { not: null } }, _min: { storedAt: true }, _count: { _all: true } }),
-        tx.meetingUpload.findUnique({ where: { meetingId: id }, select: { mintedAt: true } }),
-      ]);
-      const oldest = upload?.mintedAt ?? chunks._min.storedAt;
-      if (oldest === null || oldest === undefined) throw audioDeleted();
-      if (now.getTime() >= oldest.getTime() + AUDIO_RETENTION_DAYS * 86_400_000) throw audioDeleted();
-      resume = "prepare_audio";
-    }
+    // The same predicate the view's `can.retryProcessing` uses, so the hint cannot disagree with this route.
+    const resume = retryResume({ ...meeting, oldestSourceAt: await oldestSourceAt(tx, id) }, now);
+    if (resume === null) throw audioDeleted();
 
     const flipped = await tx.meeting.updateMany({
       where: { id, status: "failed" },

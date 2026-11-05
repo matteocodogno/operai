@@ -20,7 +20,8 @@ import { db } from "../lib/db";
 import { resolveIdentities as liveDisplayIdentities, requireIdentities as liveIdentities, toPersonRef, type Identity, type PersonRef } from "../lib/identities";
 import { resolve as resolveAtHost } from "../hosts/client";
 import { hostRegistry } from "../hosts/registry";
-import { audioState, derivedStatus, lostMs, type DerivedStatus, type LiveSession } from "./derived";
+import { audioState, derivedStatus, lostMs, retryResume, type DerivedStatus, type LiveSession } from "./derived";
+import { oldestSourceAt } from "./sources";
 import { openMeeting, type Caller, type MeetingRole, type VisibilityDeps } from "./visibility";
 import type { MeetingFormat, MeetingLanguage, MeetingSource, MeetingStatus, NoticeEvent, ProcessingStage } from "../lib/generated/prisma/enums";
 
@@ -98,6 +99,8 @@ export interface ViewInput {
   readonly hostVisibleOffered: boolean;
   /** A failed `manual`-policy notice (linked / changed), if any. */
   readonly failedHostNotice: { readonly event: "linked" | "changed" } | null;
+  /** What the retry rule needs beyond the meeting row (AC-6.9): `audio.ogg`'s key and the oldest kept source. */
+  readonly retry: { readonly audioKey: string | null; readonly oldestSourceAt: Date | null };
 }
 
 export interface CanFlags {
@@ -190,7 +193,8 @@ export function buildMeetingView(input: ViewInput, now: Date): MeetingView {
     setVisibility: creatorControl && hasHost && input.hostVisibleOffered,
     capture: creatorControl && (status === "draft" || status === "recording" || status === "interrupted"),
     editTranscript: creatorControl && status === "ready" && !meeting.noSpeech,
-    retryProcessing: creatorControl && status === "failed" && audio.state === "kept",
+    // The retry route's own rule (AC-6.9): audio kept, or, after a prepare_audio failure, kept sources.
+    retryProcessing: creatorControl && status === "failed" && retryResume({ ...input.retry, audioCreatedAt: meeting.audioCreatedAt, audioDeletedAt: meeting.audioDeletedAt }, now) !== null,
     // Removing your own data never depends on a grant (A4), but it never races a live recording or a running job.
     deleteAudio: creatorOwn && audio.state === "kept" && status !== "recording" && status !== "processing",
     deleteMeeting: creatorOwn || caller.holdsErase,
@@ -330,6 +334,7 @@ export async function loadMeetingView(id: string, caller: ViewCaller, now: Date,
       host,
       hostVisibleOffered: offered,
       failedHostNotice,
+      retry: { audioKey: row.audioKey, oldestSourceAt: row.status === "failed" ? await oldestSourceAt(db, id) : null },
     },
     now,
   );
