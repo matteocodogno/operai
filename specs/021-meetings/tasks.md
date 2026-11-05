@@ -216,7 +216,7 @@ database after `bun run db:deploy`.
     - an mp4 video;
     - output is mono Opus with no video stream, the originals are deleted, the temp dir is empty after success and after a forced failure
 
-- [ ] T31: [BE] meetings-api `Transcriber` interface, Azure fast transcription implementation (one locale, diarization `maxSpeakers` clamp), fake transcriber, phrase → segment mapping with speaker labels by first appearance — refs: AC-6.2, AC-6.7, AC-13.2 — deps: T11
+- [x] T31: [BE] meetings-api `Transcriber` interface, Azure fast transcription implementation (one locale, diarization `maxSpeakers` clamp), fake transcriber, phrase → segment mapping with speaker labels by first appearance — refs: AC-6.2, AC-6.7, AC-13.2 — deps: T11
   - touch: `meetings-api/src/ai/transcriber.ts`, `meetings-api/src/ai/azureSpeech.ts`, `meetings-api/src/ai/azureSpeech.test.ts`, `meetings-api/src/ai/fakeTranscriber.ts`, `meetings-api/src/ai/segments.ts`, `meetings-api/src/ai/segments.test.ts`
   - done when: `cd meetings-api && bun test src/ai/azureSpeech.test.ts src/ai/segments.test.ts` passes with a stubbed `fetch`:
     - request locale is `it-IT` / `en-US` only, diarization on;
@@ -249,13 +249,13 @@ database after `bun run db:deploy`.
     - DELETE removes the prefix and blocks retry and playback;
     - a storage failure → 503 with nothing changed
 
-- [ ] T35: [BE] meetings-api `LanguageModel` interface, Bedrock Converse implementation (forced tool-use schema, 60 s timeout), fake LLM (scriptable hostile outputs), and Bedrock startup checks (inference-profile destinations ⊂ EU/CH allowlist; retention mode `none`, unreadable = refuse) — refs: AC-4.9, AC-7.10 — deps: T14
+- [x] T35: [BE] meetings-api `LanguageModel` interface, Bedrock Converse implementation (forced tool-use schema, 60 s timeout), fake LLM (scriptable hostile outputs), and Bedrock startup checks (inference-profile destinations ⊂ EU/CH allowlist; retention mode `none`, unreadable = refuse) — refs: AC-4.9, AC-7.10 — deps: T14
   - touch: `meetings-api/src/ai/languageModel.ts`, `meetings-api/src/ai/bedrock.ts`, `meetings-api/src/ai/bedrock.test.ts`, `meetings-api/src/ai/fakeLanguageModel.ts`, `meetings-api/src/lib/startupChecks.ts`, `meetings-api/src/lib/startupChecks.test.ts`
   - done when: `cd meetings-api && bun test src/ai/bedrock.test.ts src/lib/startupChecks.test.ts` passes with a stubbed AWS SDK:
     - the only tool sent is the output schema;
     - a profile with an `eu-west-2` destination, retention `default`, or an AccessDenied read → startup refuses
 
-- [ ] T36: [BE] meetings-api prompt builders and output validators: summary (server-rendered headings from the snapshot, `notDiscussed` localised, index coverage), answer (citation filtering, uncited → `notInMeeting`, last 10 turns), transcript block escaping, inputs limited to transcript + template — refs: AC-7.2, AC-7.10, AC-7.12, AC-8.6, AC-9.2, AC-9.3, AC-9.4, AC-9.7 — deps: T35
+- [x] T36: [BE] meetings-api prompt builders and output validators: summary (server-rendered headings from the snapshot, `notDiscussed` localised, index coverage), answer (citation filtering, uncited → `notInMeeting`, last 10 turns), transcript block escaping, inputs limited to transcript + template — refs: AC-7.2, AC-7.10, AC-7.12, AC-8.6, AC-9.2, AC-9.3, AC-9.4, AC-9.7 — deps: T35
   - touch: `meetings-api/src/ai/prompts/*.ts`, `meetings-api/src/ai/prompts/*.test.ts`
   - done when: `cd meetings-api && bun test src/ai/prompts` passes, covering:
     - request snapshots (system prompt + template + transcript only; 10 turns, not 11);
@@ -263,11 +263,11 @@ database after `bun run db:deploy`.
     - hostile fake outputs (extra or renamed sections, missing index, forged citations, URL in output, prose claiming to be system) are rejected or neutralised;
     - built-in headings in the output language
 
-- [ ] T37: [BE] meetings-api built-in templates (four, en + it, read-only) and `GET /templates?meetingId=` ordering (recommended for the meeting's host, personal, shared, built-in; `version` per item) — refs: AC-8.1, AC-8.5, AC-8.6 — deps: T13, T15, T12
+- [x] T37: [BE] meetings-api built-in templates (four, en + it, read-only) and `GET /templates?meetingId=` ordering (recommended for the meeting's host, personal, shared, built-in; `version` per item) — refs: AC-8.1, AC-8.5, AC-8.6 — deps: T13, T15, T12
   - touch: `meetings-api/src/templates/builtin.ts`, `meetings-api/src/templates/builtin.test.ts`, `meetings-api/src/templates/templates.routes.ts`, `meetings-api/src/templates/templates.list.test.ts`
   - done when: `cd meetings-api && bun test src/templates/builtin.test.ts src/templates/templates.list.test.ts` passes: four names in both languages with parity; Sales discovery call first for a `crm/deal` meeting; order and `source` / `recommended` flags asserted
 
-- [ ] T38: [BE] meetings-api template CRUD and duplicate: personal (unique among own), shared (`template:manage`, unique case-insensitive), built-in read-only, `PATCH` with If-Match (G8), duplicate built-in/shared → personal — refs: AC-8.2, AC-8.3, AC-8.4, AC-8.7 — deps: T37
+- [x] T38: [BE] meetings-api template CRUD and duplicate: personal (unique among own), shared (`template:manage`, unique case-insensitive), built-in read-only, `PATCH` with If-Match (G8), duplicate built-in/shared → personal — refs: AC-8.2, AC-8.3, AC-8.4, AC-8.7 — deps: T37
   - touch: `meetings-api/src/templates/templates.routes.ts`, `meetings-api/src/templates/templates.crud.test.ts`
   - done when: `cd meetings-api && bun test src/templates/templates.crud.test.ts` passes:
     - limits 80 / 15 / 80 / 500 / 2000 → 422 just past each;
@@ -275,7 +275,7 @@ database after `bun run db:deploy`.
     - PATCH without If-Match → 428, stale → 409;
     - another user cannot see a personal template
 
-- [ ] T39: [BE] meetings-api AI rate limiter: `ai_request` rows, 30 per user per rolling hour under an advisory lock, `Retry-After`, per-user pruning on insert — refs: AC-13.4, AC-9.8 — deps: T12
+- [x] T39: [BE] meetings-api AI rate limiter: `ai_request` rows, 30 per user per rolling hour under an advisory lock, `Retry-After`, per-user pruning on insert — refs: AC-13.4, AC-9.8 — deps: T12
   - touch: `meetings-api/src/ai/rateLimit.ts`, `meetings-api/src/ai/rateLimit.test.ts`
   - done when: `cd meetings-api && bun test src/ai/rateLimit.test.ts` passes with a fixed clock: the 31st call → limited with the exact `Retry-After`; concurrent calls never exceed 30; deleting content does not refund
 
@@ -288,7 +288,7 @@ database after `bun run db:deploy`.
     - per-item `can` equals the route outcome for author / creator / other / no-access;
     - `no_speech` → 409; participant without access → 403
 
-- [ ] T94: [BE] meetings-api `summarize` job: builds the prompt from the summary's snapshot and the current transcript, validates the output (T36), writes `ready` sections or `failed` + code under the `attemptId` guard, and notifies the author (title + outcome only) — refs: AC-7.5, AC-7.6, AC-7.9 — deps: T16, T17, T36
+- [x] T94: [BE] meetings-api `summarize` job: builds the prompt from the summary's snapshot and the current transcript, validates the output (T36), writes `ready` sections or `failed` + code under the `attemptId` guard, and notifies the author (title + outcome only) — refs: AC-7.5, AC-7.6, AC-7.9 — deps: T16, T17, T36
   - touch: `meetings-api/src/jobs/handlers/summarize.ts`, `meetings-api/src/jobs/handlers/summarize.test.ts`
   - done when: `cd meetings-api && bun test src/jobs/handlers/summarize.test.ts` passes with the fake LLM:
     - success writes sections in template order;
