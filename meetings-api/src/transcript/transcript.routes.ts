@@ -5,6 +5,7 @@
  *   GET   /meetings/:id/transcript                      selfScoped + visibility
  *   PATCH /meetings/:id/transcript/segments/:segmentId  creator-control + If-Match (segment version)
  *   PUT   /meetings/:id/transcript/speakers/:key        creator-control
+ *   POST  /meetings/:id/transcript/speakers/:key/separate   creator-control (AC-6.16)
  *
  * A segment edit bumps the segment's `version` (ADR-0038 CAS) and the MEETING's
  * `transcriptVersion`, which is how a summary made from an earlier text reads "stale"
@@ -13,7 +14,7 @@
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
-import { speakerIndexOf } from "../ai/segments";
+import { speakerIndexOf, speakerKeyOf } from "../ai/segments";
 import { db } from "../lib/db";
 import { IdParams, commonErrors, etag, requireIfMatch, versionConflict } from "../lib/http";
 import { ProblemError, conflict, notFound, validationHook } from "../lib/problem";
@@ -199,6 +200,27 @@ const speakerRoute = createRoute({
   },
 });
 
+const separateRoute = createRoute({
+  method: "post",
+  path: "/meetings/{id}/transcript/speakers/{key}/separate",
+  tags: ["Transcript"],
+  summary: "Separate a joined speaker by part (each part's speech gets its own label)",
+  description:
+    "The lowest part keeps the key; each further part, in ascending order, takes the next unused speaker number and a label that copies " +
+    "the joined label's name (a participant, a free text, or the unnamed 'Speaker n' it inherited). Changes labels only: no transcript " +
+    "version bump. 409 `not_joined` when the key covers at most one part (a second call is refused, not a no-op).",
+  middleware: creatorControl,
+  request: { params: IdParams.extend({ key: z.string().min(1).max(64) }) },
+  responses: {
+    200: { description: "The speakers, as the transcript lists them", content: { "application/json": { schema: z.object({ speakers: z.array(SpeakerSchema) }) } } },
+    409: { description: "not_ready or not_joined" },
+    ...commonErrors,
+  },
+});
+
+/** Takes the meeting row: renames and separations of one meeting never interleave (a copied name is never stale). */
+const lockMeeting = (tx: Pick<typeof db, "$queryRaw">, id: string) => tx.$queryRaw`SELECT "id" FROM "meeting" WHERE "id" = ${id} FOR UPDATE`;
+
 export const transcriptRouter = new OpenAPIHono<{ Variables: AuthzVariables }>({ defaultHook: validationHook });
 
 transcriptRouter.openapi(getRoute, async (c) => {
@@ -268,6 +290,7 @@ transcriptRouter.openapi(speakerRoute, async (c) => {
   await openForControl(id, callerOf(c));
 
   const label = await db.$transaction(async (tx) => {
+    await lockMeeting(tx, id);
     const segments = await tx.transcriptSegment.findMany({ where: { meetingId: id }, orderBy: { ordinal: "asc" }, select: { speakerKey: true } });
     const order = speakerKeysOf(segments);
     if (!order.includes(key)) throw notFound("Speaker not found");
@@ -297,4 +320,55 @@ transcriptRouter.openapi(speakerRoute, async (c) => {
   });
 
   return c.json({ key, label }, 200);
+});
+
+transcriptRouter.openapi(separateRoute, async (c) => {
+  const { id, key } = c.req.valid("param");
+  await openForControl(id, callerOf(c));
+
+  const speakers = await db.$transaction(async (tx) => {
+    // Serialised with renames and with another separation: the second one then finds the key already separated.
+    await lockMeeting(tx, id);
+    const meeting = await tx.meeting.findUniqueOrThrow({ where: { id }, select: { status: true, noSpeech: true } });
+    if (meeting.status !== "ready" || meeting.noSpeech) throw conflict("not_ready", "Speakers can only be separated once the transcript is ready");
+
+    const segments = await tx.transcriptSegment.findMany({ where: { meetingId: id }, orderBy: { ordinal: "asc" }, select: { speakerKey: true, part: true } });
+    const order = speakerKeysOf(segments);
+    if (!order.includes(key)) throw notFound("Speaker not found");
+    const parts = [...new Set(segments.filter((s) => s.speakerKey === key && s.part !== null).map((s) => s.part as number))].sort((a, b) => a - b);
+    if (parts.length <= 1) throw conflict("not_joined", "That speaker was not matched across parts");
+
+    const labels = await tx.speakerLabel.findMany({ where: { meetingId: id } });
+    const stored = labels.find((l) => l.speakerKey === key);
+    const named = Boolean(stored?.participantId || stored?.customLabel);
+    // An unnamed "Speaker n" keeps reading n on every part until renamed (H-0, H-5).
+    const inherited = stored?.defaultIndex ?? speakerIndexOf(key) ?? order.indexOf(key) + 1;
+    // The next unused number, over every key the meeting has ever carried (segments and label rows alike).
+    let next = 1 + Math.max(0, ...[...order, ...labels.map((l) => l.speakerKey)].map((k) => speakerIndexOf(k) ?? 0));
+
+    for (const part of parts.slice(1)) {
+      const created = speakerKeyOf(next);
+      next += 1;
+      await tx.speakerLabel.create({
+        data: {
+          meetingId: id,
+          speakerKey: created,
+          participantId: stored?.participantId ?? null,
+          customLabel: stored?.customLabel ?? null,
+          defaultIndex: named ? null : inherited,
+        },
+      });
+      // Labels only: the segment's text and `version` are untouched, and so is the transcript's version.
+      await tx.transcriptSegment.updateMany({ where: { meetingId: id, speakerKey: key, part }, data: { speakerKey: created } });
+    }
+
+    const [after, afterLabels] = await Promise.all([
+      tx.transcriptSegment.findMany({ where: { meetingId: id }, orderBy: { ordinal: "asc" }, select: { speakerKey: true, part: true } }),
+      tx.speakerLabel.findMany({ where: { meetingId: id } }),
+    ]);
+    return speakersOf(after, afterLabels);
+  });
+
+  console.log(`[transcript] separated speaker into ${speakers.length} labels`);
+  return c.json({ speakers }, 200);
 });

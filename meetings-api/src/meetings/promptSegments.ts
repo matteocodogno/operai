@@ -44,6 +44,8 @@ export async function speakerNamesFor(
       label.participant?.externalName?.trim() ||
       (label.participant?.userId ? (people.get(label.participant.userId)?.name?.trim() ?? "") : "");
     if (name) names[label.speakerKey] = name.slice(0, MAX_NAME);
+    // A separated label that inherited an unnamed "Speaker n" keeps reading n (AC-6.16): its key's own number is not it.
+    else if (label.defaultIndex !== null && label.defaultIndex !== undefined) names[label.speakerKey] = `Speaker ${label.defaultIndex}`;
   }
   return names;
 }

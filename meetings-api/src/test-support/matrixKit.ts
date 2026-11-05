@@ -199,7 +199,11 @@ export async function seedWorld(kit: Kit, persona: Persona, kinds: readonly Meet
     const key = `meetings/${m.ready}/audio.ogg`;
     await kit.db.meeting.update({ where: { id: m.ready }, data: { audioKey: key } });
     kit.storage.put(key, 10, "audio/ogg", new Uint8Array([1, 2, 3]));
-    segmentId = (await kit.db.transcriptSegment.create({ data: { meetingId: m.ready, ordinal: 0, startMs: 0, endMs: 2_000, speakerKey: "s1", text: texts.transcript } })).id;
+    // Two parts, and speaker s1 spans both: the one transcript every transcript row runs against, so "Separate by part" has a
+    // joined key to separate (AC-6.16). The extra segment changes no other row's answer.
+    await kit.db.meeting.update({ where: { id: m.ready }, data: { transcriptPartStartsMs: [0, 510_000], transcriptPartEndsMs: [600_000, 1_110_000] } });
+    segmentId = (await kit.db.transcriptSegment.create({ data: { meetingId: m.ready, ordinal: 0, startMs: 0, endMs: 2_000, speakerKey: "s1", text: texts.transcript, part: 1 } })).id;
+    await kit.db.transcriptSegment.create({ data: { meetingId: m.ready, ordinal: 1, startMs: 520_000, endMs: 522_000, speakerKey: "s1", text: texts.transcript, part: 2 } });
     const snapshot = { source: "personal", templateId: "tpl", name: texts.templateName, sections: [{ heading: texts.summaryHeading, instruction: texts.instruction }], generalInstructions: null };
     const summary = (status: "ready" | "failed") => ({
       meetingId: m.ready!,
@@ -461,6 +465,13 @@ export const ROWS: readonly RouteRow[] = [
   row("PUT /meetings/:id/transcript/speakers/:key", "ready", {
     path: (w) => `/meetings/${w.m.ready}/transcript/speakers/s1`,
     body: (w) => ({ text: w.texts.speakerLabel }),
+    ok: 200,
+    cells: CONTROL,
+    outage: "unavailable",
+  }),
+
+  row("POST /meetings/:id/transcript/speakers/:key/separate", "ready", {
+    path: (w) => `/meetings/${w.m.ready}/transcript/speakers/s1/separate`,
     ok: 200,
     cells: CONTROL,
     outage: "unavailable",
