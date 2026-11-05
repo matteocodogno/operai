@@ -19,7 +19,8 @@ import { ProblemError, conflict, notFound, validationHook } from "../lib/problem
 import { openMeeting } from "../meetings/visibility";
 import { selfScoped } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
-import { callerOf, creatorControl, openForControl } from "../capture/caller";
+import { openForControl } from "../capture/caller";
+import { callerOf, creatorControl } from "../meetings/caller";
 
 export const MAX_SEGMENT_CHARS = 10_000;
 export const MAX_SPEAKER_LABEL_CHARS = 100;

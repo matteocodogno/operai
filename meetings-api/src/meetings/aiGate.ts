@@ -3,25 +3,16 @@
  * "Action matrix": generate / regenerate / retry / ask need visibility + `meetings:access` +
  * `ready` + speech + the AI rate limit; AC-6.7, AC-7.1, AC-9.1).
  *
- *   callerOf        the caller as `visibility.ts` wants it, from the guard stack's context
  *   readyForAi      the meeting's state: 409 `not_ready` unless `ready`, 409 `no_speech` when the
  *                   recording held none (checked in that order, a `noSpeech` meeting is `ready`)
  *   takeAiRequest   one slot of the hourly limiter inside the caller's transaction, or the 429
  */
 
-import { MEETINGS_ACCESS, holds, type CapabilitySource } from "../auth/guards";
 import { consumeAiRequestIn, AiRateLimitedError } from "../ai/rateLimit";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { conflict, notFound } from "../lib/problem";
-import { meetingNotFound, type Caller } from "./visibility";
-
-/** What `callerOf` reads from a handler context (structural, so any route's `c` fits). */
-export type CallerContext = CapabilitySource & { get(key: "userId"): string; readonly req: { header(name: string): string | undefined } };
-
-export function callerOf(c: CallerContext): Caller {
-  return { userId: c.get("userId"), authorization: c.req.header("Authorization")!, holdsAccess: holds(c, MEETINGS_ACCESS) };
-}
+import { meetingNotFound } from "./visibility";
 
 export interface AiMeeting {
   readonly id: string;

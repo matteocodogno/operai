@@ -35,7 +35,8 @@ import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { commonErrors } from "../lib/http";
 import { conflict, notFound, validationHook } from "../lib/problem";
-import { AI_TX, callerOf, readyForAi, takeAiRequest, type AiMeeting, type CallerContext } from "../meetings/aiGate";
+import { AI_TX, readyForAi, takeAiRequest, type AiMeeting } from "../meetings/aiGate";
+import { callerOf, type CallerSource } from "../meetings/caller";
 import { promptSegmentsOf, speakerNamesFor } from "../meetings/promptSegments";
 import { openMeeting } from "../meetings/visibility";
 
@@ -93,7 +94,7 @@ const storedAnswerOf = (row: Row): StoredAnswer | null => {
 };
 
 /** The turns as a reader sees them: derived `failed`, citations resolved against the CURRENT transcript. */
-async function viewTurns(rows: readonly Row[], meetingId: string, isText: boolean, c: CallerContext): Promise<Turn[]> {
+async function viewTurns(rows: readonly Row[], meetingId: string, isText: boolean, c: CallerSource): Promise<Turn[]> {
   const now = Date.now();
   const answers = new Map(rows.filter((r) => r.status === "answered").map((r) => [r.id, storedAnswerOf(r)] as const));
   const wanted = [...new Set([...answers.values()].flatMap((a) => a?.citations ?? []))];

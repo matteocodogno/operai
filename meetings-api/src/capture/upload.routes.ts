@@ -25,7 +25,8 @@ import { enqueueJob } from "../jobs/runner";
 import { ToolMissingError, probeUpload, type RejectReason } from "../media/probe";
 import { loadMeetingView } from "../meetings/view";
 import type { AuthzVariables } from "../auth/authz.middleware";
-import { callerOf, creatorControl, openForControl, storageCall } from "./caller";
+import { openForControl, storageCall } from "./caller";
+import { callerOf, creatorControl } from "../meetings/caller";
 
 const PresignedPostSchema = z.object({ url: z.string(), fields: z.record(z.string()), expiresAt: z.string() });
 

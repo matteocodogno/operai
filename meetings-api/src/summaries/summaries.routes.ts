@@ -41,7 +41,8 @@ import { resolveIdentities, toPersonRef, type PersonRef } from "../lib/identitie
 import { conflict, forbidden, notFound, unprocessable, validationHook } from "../lib/problem";
 import { enqueueJob } from "../jobs/runner";
 import { MAX_SECTION_BODY } from "../ai/prompts/summary";
-import { AI_TX, callerOf, type CallerContext, readyForAi, summaryNotFound, takeAiRequest } from "../meetings/aiGate";
+import { AI_TX, readyForAi, summaryNotFound, takeAiRequest } from "../meetings/aiGate";
+import { callerOf, type CallerSource } from "../meetings/caller";
 import { speakerNamesFor, type SpeakerNames } from "../meetings/promptSegments";
 import { openMeeting, type MeetingRole } from "../meetings/visibility";
 import { TEMPLATE_LIMITS, builtinSnapshot, parseAcceptLanguage, type TemplateLanguage, type TemplateSection, type TemplateSnapshot } from "../templates/builtin";
@@ -151,7 +152,7 @@ async function attemptStarts(rows: readonly Row[]): Promise<Map<string, Date>> {
   return starts;
 }
 
-async function itemsOf(rows: readonly Row[], c: CallerContext, role: MeetingRole, meetingVersion: number): Promise<SummaryItem[]> {
+async function itemsOf(rows: readonly Row[], c: CallerSource, role: MeetingRole, meetingVersion: number): Promise<SummaryItem[]> {
   const caller = callerOf(c);
   const identities = await resolveIdentities(caller.authorization, [...new Set(rows.map((r) => r.authorUserId))]);
   const ctx: ItemContext = {

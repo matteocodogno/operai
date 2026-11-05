@@ -25,7 +25,8 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { AUDIO_RETENTION_DAYS, derivedStatus } from "../meetings/derived";
 import { loadMeetingView } from "../meetings/view";
 import { enqueueJob } from "../jobs/runner";
-import { callerOf, creatorControl, openForCapture, openForControl, storageCall } from "./caller";
+import { openForCapture, openForControl, storageCall } from "./caller";
+import { callerOf, creatorControl } from "../meetings/caller";
 
 /** AC-2.11: a recording stops itself at 3 h; the server tolerates 60 s more. */
 export const MAX_RECORDING_MS = 3 * 60 * 60 * 1000 + 60_000;

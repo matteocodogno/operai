@@ -15,7 +15,8 @@ import { conflict, validationHook } from "../lib/problem";
 import { loadMeetingView } from "../meetings/view";
 import { splitPassages } from "../transcript/passages";
 import type { AuthzVariables } from "../auth/authz.middleware";
-import { callerOf, creatorControl, openForControl } from "./caller";
+import { openForControl } from "./caller";
+import { callerOf, creatorControl } from "../meetings/caller";
 
 export const MAX_TEXT_CHARS = 200_000;
 

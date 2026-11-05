@@ -24,7 +24,8 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { audioState } from "../meetings/derived";
 import { loadMeetingView } from "../meetings/view";
 import { assertCreatorControl, openMeeting } from "../meetings/visibility";
-import { callerOf, storageCall } from "../capture/caller";
+import { storageCall } from "../capture/caller";
+import { callerOf } from "../meetings/caller";
 
 // ─── Clock seam (expiry is derived against it) ───────────────────────────────
 

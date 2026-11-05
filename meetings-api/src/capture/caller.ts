@@ -2,55 +2,18 @@
  * What the capture, transcript and audio routes share (specs/021-meetings
  * plan.md § Authorization "Action matrix", § API contracts).
  *
- * LOCAL to the media lane: the routes lane writes the shared `Caller` builder;
- * these small pieces are reconciled with it when the branches meet.
+ * `callerOf` and `creatorControl` live in `../meetings/caller` (one builder for every
+ * route); what stays here is specific to capture:
  *
- *   callerOf           the guards' facts about the caller, in the shape
- *                      `visibility.ts` and `view.ts` want.
- *   creatorControl     the stack of every "creator-control" route: JWT + a LIVE
- *                      resolve that fails CLOSED (503 on an `auth` outage), but no
- *                      capability refusal in the middleware, so the 403 stays the
- *                      plan's precise `creator_only` / `frozen` /
- *                      `meetings_access_required` and an outsider still gets the
- *                      byte-identical 404 (AC-5.3) rather than a bare 403.
  *   openForControl     visibility + the full creator gate (live identity lookup).
  *   openForCapture     the same gate WITHOUT the live identity lookup, for the
  *                      routes a recording calls every few seconds (see below).
  *   storageCall        a storage failure is a 503 `storage_unavailable`, never a 500.
  */
 
-import type { MiddlewareHandler } from "hono";
-import { jwtMiddleware } from "../auth/jwt.middleware";
-import { authzMiddleware, type AuthzVariables } from "../auth/authz.middleware";
-import { MEETING_ERASE, MEETINGS_ACCESS, holds } from "../auth/guards";
 import { assertCreatorControl, openMeeting, type MeetingRole, type VisibilityMeeting } from "../meetings/visibility";
 import type { ViewCaller } from "../meetings/view";
 import { ProblemError, forbidden } from "../lib/problem";
-
-/**
- * Structural, because a handler's context is typed by its route's middleware list
- * (`MiddlewareHandler[]` erases the variables): all that is needed is these reads.
- */
-export interface CallerContext {
-  get(key: "authz"): AuthzVariables["authz"];
-  get(key: "capabilities"): AuthzVariables["capabilities"];
-  get(key: "userId"): string;
-  readonly req: { header(name: string): string | undefined };
-}
-
-export function callerOf(c: CallerContext): ViewCaller {
-  return {
-    userId: c.get("userId"),
-    // jwtMiddleware ran: the header is there and well-formed.
-    authorization: c.req.header("Authorization") ?? "",
-    holdsAccess: holds(c, MEETINGS_ACCESS),
-    holdsErase: holds(c, MEETING_ERASE),
-    capabilities: c.get("capabilities"),
-  };
-}
-
-/** JWT + live resolve, 503 when `auth` cannot answer; the 403s are decided by the handler. */
-export const creatorControl: MiddlewareHandler[] = [jwtMiddleware, authzMiddleware];
 
 export interface Opened {
   readonly meeting: VisibilityMeeting;
