@@ -123,6 +123,22 @@ The OWASP review found point 3 wrong, and the fix (commits 5578708 and 4d94790 o
   S3 POST policies are not single-use; other objects under the upload prefix are deleted. Keys
   remain server-side, never client-supplied.
 
+**Round 2 (same review, later commits: cap decoded output, media inputs restricted to
+allowlisted demuxers, confirm only the upload key it probed).**
+
+- **Point 4, the documented command becomes:** `ffmpeg -protocol_whitelist file,pipe
+  -format_whitelist mov,mp4,m4a,matroska,webm,ogg,wav,mp3,aac,flac [-f <demuxer>] -i in -vn
+  -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k -t 10861 -fs 104857600 audio.ogg`. The output
+  caps are `too_long` triggers: `-t 10861` s is the 3 h + 60 s bound plus 1 s, so an honest
+  maximum-length file is distinguishable from a truncated one; `-fs` 100 MiB is about 2.3x the
+  3 h Opus budget.
+- **Point 3, the probe:** `-format_whitelist <allowlist>` applies to every input, local and
+  URL. An UPLOADED file must state its duration: missing means `unsupported_type` at confirm
+  and `audio_unreadable` in `prepare_audio`. Recording runs are exempt (MediaRecorder WebM has
+  no header duration) and are bounded by the output caps and the 128 MiB input cap instead.
+- **Confirm acts only on the key it probed:** it flips the meeting with a compare-and-set on
+  `objectKey`; a mismatch (a newer mint superseded it) is 409 `upload_superseded`.
+
 Failure-shape note: the lesson is that a parser given a URL must be bounded by what it can
 *reach* (host and port), not by the scheme it speaks; the authoritative check belongs on the
 local copy, where no network is reachable.
