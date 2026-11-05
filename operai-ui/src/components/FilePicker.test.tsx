@@ -39,11 +39,23 @@ function Harness(props: Partial<FilePickerProps> & { initial?: File | null; onPi
 const input = () => screen.getByTestId('picker-input') as HTMLInputElement
 
 describe('FilePicker', () => {
-  it('names the button by the field label and says no file is chosen', () => {
+  it('names the button by its own visible text (WCAG 2.5.3) and the group by the field label', () => {
     render(<Harness />)
-    expect(screen.getByRole('button', { name: /Recording/ })).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Choose file' })
+    // The accessible name is exactly the visible text, not the field label that used to win via <label for>.
+    expect(screen.queryByRole('button', { name: /Recording/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Recording' })).toContainElement(button)
     expect(screen.getByText('No file chosen')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Remove file' })).not.toBeInTheDocument()
+  })
+
+  it('still opens the file dialog from the field label', async () => {
+    const user = userEvent.setup()
+    render(<Harness />)
+    const opened = vi.fn()
+    input().addEventListener('click', opened)
+    await user.click(screen.getByText('Recording'))
+    expect(opened).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the file input out of the tab order and the accessibility tree, with the accept list', () => {
@@ -59,9 +71,9 @@ describe('FilePicker', () => {
     render(<Harness />)
     const opened = vi.fn()
     input().addEventListener('click', opened)
-    await user.click(screen.getByRole('button', { name: /Recording/ }))
+    await user.click(screen.getByRole('button', { name: 'Choose file' }))
     expect(opened).toHaveBeenCalledTimes(1)
-    screen.getByRole('button', { name: /Recording/ }).focus()
+    screen.getByRole('button', { name: 'Choose file' }).focus()
     await user.keyboard('{Enter}')
     await user.keyboard(' ')
     expect(opened).toHaveBeenCalledTimes(3)
@@ -104,7 +116,7 @@ describe('FilePicker', () => {
     expect(onPick).toHaveBeenLastCalledWith(null)
     expect(screen.getByText('No file chosen')).toBeInTheDocument()
     expect(input().value).toBe('')
-    expect(screen.getByRole('button', { name: /Recording/ })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Choose file' })).toHaveFocus()
   })
 
   it('lets the same file be chosen again after a clear', async () => {
@@ -128,7 +140,7 @@ describe('FilePicker', () => {
 
   it('wires hint and error to the button through aria-describedby, and marks it invalid', () => {
     render(<Harness hint="m4a, mp3 or wav, up to 500 MiB" error="This file type is not supported" />)
-    const button = screen.getByRole('button', { name: /Recording/ })
+    const button = screen.getByRole('button', { name: 'Choose file' })
     expect(button).toHaveAttribute('aria-invalid', 'true')
     const described = (button.getAttribute('aria-describedby') ?? '').split(' ')
     const texts = described.map((id) => document.getElementById(id)?.textContent)
@@ -138,14 +150,14 @@ describe('FilePicker', () => {
 
   it('points the button at the selected-file line so focusing it reads the choice', () => {
     render(<Harness initial={audio()} />)
-    const button = screen.getByRole('button', { name: /Recording/ })
+    const button = screen.getByRole('button', { name: 'Choose file' })
     const described = (button.getAttribute('aria-describedby') ?? '').split(' ')
     expect(described.map((id) => document.getElementById(id)?.textContent).join(' ')).toContain('standup.m4a')
   })
 
   it('shows the required marker and disables both buttons when disabled', () => {
     render(<Harness initial={audio()} required disabled />)
-    expect(screen.getByRole('button', { name: /Recording/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Choose file' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Remove file' })).toBeDisabled()
     expect(input()).toBeDisabled()
   })

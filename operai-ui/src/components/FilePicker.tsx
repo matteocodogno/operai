@@ -7,7 +7,11 @@ import { Field } from './Field'
 import { Icon } from './Icon'
 
 export type FilePickerProps = {
-  /** The field label. The choose button is the labelled control. */
+  /**
+   * The field label. It names the group around the button and the line, not the button: the button
+   * keeps its own visible text as its accessible name (WCAG 2.5.3 label in name). Clicking the label
+   * still opens the file dialog.
+   */
   label: ReactNode
   /** The choose button's text ("Choose file"). */
   chooseLabel: string
@@ -58,8 +62,10 @@ const defaultFormatSize = (bytes: number): string => {
 /**
  * FilePicker — choose one file: a visually hidden `<input type="file">`, a
  * `Button` that opens it (so mouse, Enter and Space all work), a line with the
- * chosen file's name and size, and a clear button. Wrapped in `Field`, so the
- * label, hint and error are wired to the button through `aria-describedby`.
+ * chosen file's name and size, and a clear button. Wrapped in `Field`:
+ * the label names the row (a `group`) and opens the file dialog when clicked; the
+ * button is named by its own text, and hint and error describe it through
+ * `aria-describedby`.
  *
  * It only picks. Checking the type, the size or the length, uploading, and the
  * progress are the app's: pass a failed check as `error`. A cancelled file
@@ -88,6 +94,7 @@ export function FilePicker({
   const input = useRef<HTMLInputElement>(null)
   const choose = useRef<HTMLButtonElement>(null)
   const lineId = useId()
+  const labelId = useId()
 
   // The browser keeps the old selection in the input, and does not fire `change` for the same file again:
   // whenever the app resets the file, empty the input too.
@@ -98,6 +105,7 @@ export function FilePicker({
   return (
     <Field
       label={label}
+      labelId={labelId}
       hint={hint}
       error={error}
       required={required}
@@ -108,6 +116,7 @@ export function FilePicker({
         <>
           <input
             ref={input}
+            id={control.id}
             type="file"
             accept={accept}
             disabled={disabled}
@@ -121,11 +130,10 @@ export function FilePicker({
               if (chosen) onChange(chosen)
             }}
           />
-          <div className="file-picker-row">
+          <div role="group" aria-labelledby={labelId} className="file-picker-row">
             <Button
               ref={choose}
               size="sm"
-              id={control.id}
               aria-describedby={[control['aria-describedby'], lineId].filter(Boolean).join(' ')}
               aria-invalid={control['aria-invalid']}
               aria-required={control['aria-required']}

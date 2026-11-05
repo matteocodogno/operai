@@ -9,6 +9,10 @@ import type { FilePickerProps } from './FilePicker'
  * announced politely) with a clear button. It only picks: the app checks the
  * type, size and length, uploads, shows progress (`ProgressBar`) and passes a
  * failed check back as `error`. All copy is a prop.
+ *
+ * Naming: the field label names the row as a `group`, and clicking it opens the
+ * dialog; the button's accessible name is its own visible text ("Choose file"),
+ * so a voice-control user can say what they see (WCAG 2.5.3).
  */
 const meta = {
   title: 'Components/Forms/FilePicker',
