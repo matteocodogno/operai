@@ -1367,8 +1367,9 @@ Troubleshooter, the names below are the intent).*
     constraint name in Google's docs; the code already refuses `global`).
 
 *7. Live eval identity (GitHub Actions, no key).* A Workload Identity Pool and an OIDC provider for
-`https://token.actions.githubusercontent.com`, with an **attribute condition** restricting it to this
-repository and the `meetings-eval` environment, bound to the eval service account with
+`https://token.actions.githubusercontent.com`, with an **attribute mapping** and an **attribute condition**
+pinning this repository, the `main` branch AND the `meetings-eval` environment (all three, never fewer),
+bound to the eval service account with
 `roles/iam.workloadIdentityUser` on that principal set only. Set the **variables** of the `meetings-eval`
 GitHub environment (none is secret): `MEETINGS_EVAL_GCP_WIF_PROVIDER`
 (`projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>`),
@@ -1377,6 +1378,21 @@ GitHub environment (none is secret): `MEETINGS_EVAL_GCP_WIF_PROVIDER`
 secrets and variables: delete those from the repository and from the environment. The workflow is
 `.github/workflows/meetings-eval-live.yml` (nightly: skips when unconfigured; on dispatch: fails naming the
 missing variables). The evals' content is synthetic.
+
+Attribute mapping (`--attribute-mapping`): `google.subject=assertion.sub`,
+`attribute.repository=assertion.repository`, `attribute.ref=assertion.ref`,
+`attribute.environment=assertion.environment`. Attribute condition (`--attribute-condition`), with
+`<owner>/<repo>` replaced by this repository (preferably also pin `assertion.repository_id`):
+
+```
+assertion.repository == '<owner>/<repo>' && assertion.ref == 'refs/heads/main' && assertion.environment == 'meetings-eval'
+```
+
+The `meetings-eval` GitHub environment must have **required reviewers** and a **deployment-branch
+policy limited to `main`** (settings, done by a person): the condition stops a foreign token, the
+environment stops an unreviewed or off-main run of this one. The workflow adds a guard step that fails
+unless `github.ref == 'refs/heads/main'` before it authenticates, and installs dependencies BEFORE the
+auth step so no dependency script can read the credentials file.
 
 *8. Sign-off checklist (H1-H6): a person records an owner and a date; re-attest quarterly and on any
 change to the project. The service cannot read these, so they are not checked at startup.* H4 **blocks

@@ -8,8 +8,10 @@
 #   The job holds `id-token: write` (it can mint the OIDC token) and nothing else beyond reading the
 #   repo; `google-github-actions/auth` exchanges the token for a short-lived credential of the eval
 #   service account, which may call Vertex predict only (infra/README.md § meetings-api, step 7).
-#   The WIF provider should carry an attribute condition pinning this repository and the
-#   `meetings-eval` environment.
+#   The WIF provider must carry an attribute condition pinning this repository, refs/heads/main and the
+#   `meetings-eval` environment (exact CEL in infra/README.md step 7), and that environment must have
+#   required reviewers and a deployment-branch policy limited to main. A guard step below also fails
+#   any run whose ref is not refs/heads/main, before authentication.
 # - Configuration comes from the environment's (or the repo's) VARIABLES (none is a secret); nothing is
 #   created here, and no value is ever printed:
 #     vars: MEETINGS_EVAL_GCP_WIF_PROVIDER, MEETINGS_EVAL_GCP_SERVICE_ACCOUNT, MEETINGS_EVAL_GCP_PROJECT_ID,
@@ -53,6 +55,17 @@ jobs:
       run:
         working-directory: meetings-api
     steps:
+      # Defence in depth with the WIF provider's attribute condition (infra/README.md step 7): refuse to
+      # run, before anything else, on any ref other than main (a dispatch from a branch).
+      - name: Require the main branch
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          if [ "${REF}" != "refs/heads/main" ]; then
+            echo "::error::the live eval runs only on refs/heads/main"
+            exit 1
+          fi
       - name: Check the live configuration
         id: cfg
         env:
@@ -88,6 +101,12 @@ jobs:
         if: steps.cfg.outputs.configured == 'true'
         with:
           bun-version: "1.4.2"
+      # Order matters: everything that runs third-party code (the dependency install and its lifecycle
+      # scripts) comes BEFORE the auth step, so the credentials file the action writes never exists while
+      # a dependency script runs. Auth is immediately before the live eval step.
+      - name: Install dependencies
+        if: steps.cfg.outputs.configured == 'true'
+        run: bun install --frozen-lockfile
       # Keyless: GitHub's OIDC token -> the WIF provider -> a short-lived credential of the eval service
       # account. The action writes an external-account credentials FILE (its path is exported as
       # GOOGLE_APPLICATION_CREDENTIALS) for the live eval to hand to the Vertex client; it holds no key.
@@ -98,9 +117,6 @@ jobs:
           workload_identity_provider: ${{ vars.MEETINGS_EVAL_GCP_WIF_PROVIDER }}
           service_account: ${{ vars.MEETINGS_EVAL_GCP_SERVICE_ACCOUNT }}
           create_credentials_file: true
-      - name: Install dependencies
-        if: steps.cfg.outputs.configured == 'true'
-        run: bun install --frozen-lockfile
       - name: Prompt-injection evals (live model)
         if: steps.cfg.outputs.configured == 'true'
         env:
