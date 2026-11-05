@@ -19,11 +19,6 @@ const en = {
   },
   textClearsConsent: 'Pasting text needs no consent confirmation, so the confirmation is removed.',
   consentAskedAgain: 'Recording or uploading needs a consent confirmation. You will be asked for it next.',
-  hostVisible: {
-    label: (host: string) => `Also visible to people who can open ${host}`,
-    /** The label with the host's own continuation phrase ("… and can see deal financials"). */
-    labelWithHint: (host: string, hint: string) => `Also visible to people who can open ${host} ${hint}`,
-  },
   removeLink: 'Remove link',
   removeLinkHint: "To link a different record, use that record's meetings panel.",
   errors: {
@@ -53,10 +48,6 @@ const it: typeof en = {
   },
   textClearsConsent: 'Incollare un testo non richiede la conferma del consenso, quindi la conferma viene rimossa.',
   consentAskedAgain: 'Registrare o caricare richiede la conferma del consenso. Ti verrà chiesta subito dopo.',
-  hostVisible: {
-    label: (host: string) => `Visibile anche a chi può aprire ${host}`,
-    labelWithHint: (host: string, hint: string) => `Visibile anche a chi può aprire ${host} ${hint}`,
-  },
   removeLink: 'Rimuovi collegamento',
   removeLinkHint: 'Per collegare un altro record, usa il pannello riunioni di quel record.',
   errors: {

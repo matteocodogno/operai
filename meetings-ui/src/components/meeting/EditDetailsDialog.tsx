@@ -1,15 +1,13 @@
-import { DateTimeInput, Field, FormDialog, RadioGroupField, focusFirstInvalid, resolveLocale } from '@operai/ui'
+import { DateTimeInput, Field, FormDialog, RadioGroupField, focusFirstInvalid } from '@operai/ui'
 import { useRef, useState } from 'react'
 import { codeOf, errorMessage, fieldErrorsOf } from '../../lib/errors'
 import { getMeeting, updateMeeting } from '../../lib/meetingsApi'
 import type { MeetingPatch } from '../../lib/meetingsApi'
-import type { HostInfo, Meeting, MeetingFormat, MeetingLanguage, MeetingSource } from '../../lib/types'
+import type { Meeting, MeetingFormat, MeetingLanguage, MeetingSource } from '../../lib/types'
 import { strings } from '../../strings'
 
 export type EditDetailsDialogProps = {
   meeting: Meeting
-  /** The host's registration, for the visibility hint (plan G6); null for a standalone meeting. */
-  hostInfo: HostInfo | null
   onClose: () => void
   onChanged: (meeting: Meeting) => void
 }
@@ -35,16 +33,15 @@ function fromLocalInput(value: string): string | null {
 const LOCKED_CODES = new Set(['language_locked', 'source_locked'])
 
 /**
- * EditDetailsDialog — title, date and time, format, language, source, host-visibility and
- * Remove link in one `FormDialog` (S3c, F7b). Which of them can change is the SERVER's call, read
+ * EditDetailsDialog — title, date and time, format, language, source and Remove link in one `FormDialog` (S3c, F7b). Which of them can change is the SERVER's call, read
  * from the meeting's `can` flags: the language is a control only while `can.changeLanguage`
- * (AC-1.8), the source only while `can.changeSource` (plan G1), the host-visible checkbox only for
- * a linked meeting whose host offers it (AC-5.5), and Remove link only while `can.link`. Locked
+ * (AC-1.8), the source only while `can.changeSource` (plan G1) and Remove link only while `can.link`.
+ * Host visibility is deliberately NOT here: it lives only in the People and access card (design S3/F13). Locked
  * fields read as plain text with the reason. Only what changed is sent (`PATCH`); a refusal
  * because the state moved on (`409 language_locked | source_locked`) shows inline and reloads the
  * meeting so the field locks. Linking and re-linking happen from the host's panel, not here.
  */
-export default function EditDetailsDialog({ meeting, hostInfo, onClose, onChanged }: EditDetailsDialogProps) {
+export default function EditDetailsDialog({ meeting, onClose, onChanged }: EditDetailsDialogProps) {
   const t = strings.editDetails
   const { can } = meeting
   const initialStart = toLocalInput(meeting.startsAt)
@@ -54,22 +51,13 @@ export default function EditDetailsDialog({ meeting, hostInfo, onClose, onChange
   const [format, setFormat] = useState<MeetingFormat>(meeting.format)
   const [language, setLanguage] = useState<MeetingLanguage>(meeting.language)
   const [source, setSource] = useState<MeetingSource>(meeting.source)
-  const [hostVisible, setHostVisible] = useState(meeting.hostVisible)
   const [removeLink, setRemoveLink] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const fieldsRef = useRef<HTMLDivElement>(null)
 
-  const labels = hostInfo?.labels[resolveLocale()]
   const host = meeting.host
-  const hostName =
-    host === null
-      ? null
-      : host.title !== null
-        ? strings.meeting.details.host.open(labels?.entity ?? host.entityType, host.title)
-        : (labels?.entity ?? host.entityType)
-  const offersVisibility = host !== null && meeting.hostVisibleOffered && can.setVisibility
   const canRemoveLink = host !== null && can.link
 
   const failWith = (errors: Record<string, string>, message: string | null) => {
@@ -98,7 +86,6 @@ export default function EditDetailsDialog({ meeting, hostInfo, onClose, onChange
     if (can.changeLanguage && language !== meeting.language) patch.language = language
     if (can.changeSource && source !== meeting.source) patch.source = source
     if (removeLink && canRemoveLink) patch.host = null
-    else if (offersVisibility && hostVisible !== meeting.hostVisible) patch.hostVisible = hostVisible
 
     if (Object.keys(patch).length === 0) {
       onClose()
@@ -214,22 +201,6 @@ export default function EditDetailsDialog({ meeting, hostInfo, onClose, onChange
             <p className="text-sm">{strings.meeting.source[meeting.source]}</p>
             <p className="field-hint">{t.sourceFixed}</p>
           </div>
-        )}
-
-        {offersVisibility && hostName !== null && (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={hostVisible && !removeLink}
-              disabled={removeLink}
-              onChange={(event) => setHostVisible(event.target.checked)}
-            />
-            <span>
-              {labels?.visibilityHint
-                ? t.hostVisible.labelWithHint(hostName, labels.visibilityHint)
-                : t.hostVisible.label(hostName)}
-            </span>
-          </label>
         )}
 
         {canRemoveLink && (

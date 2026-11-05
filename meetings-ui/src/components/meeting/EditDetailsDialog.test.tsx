@@ -2,19 +2,18 @@
  * @vitest-environment jsdom
  *
  * The Edit details dialog (specs/021-meetings T58; design.md S3c, F7b; AC-1.7, AC-1.8, AC-2.3,
- * AC-3.5, AC-5.5): which fields are editable comes from the meeting's `can` flags, the host-visible
- * hint comes from the host's registration (plan G6), and Remove link sends `host: null`.
+ * AC-3.5): which fields are editable comes from the meeting's `can` flags, Remove link sends
+ * `host: null`, and host visibility is NOT here (it lives only in the People and access card).
  */
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useState } from 'react'
-import type { HostInfo, Meeting } from '../../lib/types'
+import type { Meeting } from '../../lib/types'
 import { en } from '../../strings'
 import {
   CAN_CREATOR_DRAFT,
   CAN_NONE,
-  crmDealHost,
   fakeApi,
   hostView,
   meeting,
@@ -63,12 +62,11 @@ const servePatch = (current: Meeting, extra: Record<string, FakeHandler> = {}) =
 }
 
 /** Holds the meeting like the page does: what `onChanged` reports replaces the dialog's `meeting`. */
-function Page(props: { initial: Meeting; hostInfo: HostInfo | null; onClose: () => void; onChanged: (m: Meeting) => void }) {
+function Page(props: { initial: Meeting; onClose: () => void; onChanged: (m: Meeting) => void }) {
   const [current, setCurrent] = useState(props.initial)
   return (
     <EditDetailsDialog
       meeting={current}
-      hostInfo={props.hostInfo}
       onClose={props.onClose}
       onChanged={(next) => {
         setCurrent(next)
@@ -78,10 +76,10 @@ function Page(props: { initial: Meeting; hostInfo: HostInfo | null; onClose: () 
   )
 }
 
-const open = (current: Meeting, hostInfo = current.host ? crmDealHost : null) => {
+const open = (current: Meeting) => {
   const onClose = vi.fn()
   const onChanged = vi.fn()
-  render(<Page initial={current} hostInfo={hostInfo} onClose={onClose} onChanged={onChanged} />)
+  render(<Page initial={current} onClose={onClose} onChanged={onChanged} />)
   return { onClose, onChanged }
 }
 
@@ -311,7 +309,7 @@ describe('EditDetailsDialog: a lock that appears while open', () => {
   })
 })
 
-describe('EditDetailsDialog: host-visible and Remove link (AC-5.5, AC-1.7, plan G6)', () => {
+describe('EditDetailsDialog: Remove link (AC-1.7) and no host visibility', () => {
   const linked = (overrides: Partial<Meeting> = {}) =>
     readyMeeting({
       host: hostView(),
@@ -321,57 +319,18 @@ describe('EditDetailsDialog: host-visible and Remove link (AC-5.5, AC-1.7, plan 
       ...overrides,
     })
 
-  it("offers the checkbox with the host's own hint, from the registry (G6)", () => {
+  it('does not offer host visibility: that control lives only in the People and access card (S3/F13)', () => {
     open(linked())
-    const box = screen.getByRole('checkbox', { name: /Also visible to people who can open Deal · Acme renewal/ })
-    expect(box.closest("label")?.textContent).toContain("and can see deal financials")
-    expect(screen.getByText(/and can see deal financials/)).not.toBeNull()
+    expect(screen.queryByRole('checkbox', { name: /visible/i })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: t.removeLink })).not.toBeNull()
   })
 
-  it('the hint follows the UI language', () => {
-    document.documentElement.setAttribute('lang', 'it')
-    open(linked())
-    expect(screen.getByText(/e possono vedere i dati economici dell'opportunità/)).not.toBeNull()
-    expect(screen.queryByText(/and can see deal financials/)).toBeNull()
-  })
-
-  it('is absent for a standalone meeting, when the host does not offer it, and without can.setVisibility', () => {
-    open(readyMeeting({ host: null, hostVisibleOffered: false }))
-    expect(screen.queryByRole('checkbox', { name: /Also visible/ })).toBeNull()
-    cleanup()
-
-    open(linked({ hostVisibleOffered: false }))
-    expect(screen.queryByRole('checkbox', { name: /Also visible/ })).toBeNull()
-    cleanup()
-
-    open(linked({ can: { ...readyMeeting().can, setVisibility: false } }))
-    expect(screen.queryByRole('checkbox', { name: /Also visible/ })).toBeNull()
-  })
-
-  it('shows a hint-less label when the host registration could not be read', () => {
-    open(linked(), null)
-    const box = screen.getByRole('checkbox', { name: /Also visible to people who can open/ })
-    expect(box).not.toBeNull()
-    expect(screen.queryByText(/financials/)).toBeNull()
-  })
-
-  it('ticking it sends hostVisible: true', async () => {
-    const current = linked()
-    const { bodies } = servePatch(current)
-    open(current)
-    await userEvent.click(screen.getByRole('checkbox', { name: /Also visible/ }))
-    await save()
-    await vi.waitFor(() => expect(bodies).toEqual([{ hostVisible: true }]))
-  })
-
-  it('Remove link sends host: null, and then the visibility checkbox is off and disabled', async () => {
+  it('Remove link sends host: null', async () => {
     const current = linked({ hostVisible: true })
     const { bodies } = servePatch(current)
     open(current)
 
     await userEvent.click(screen.getByRole('checkbox', { name: t.removeLink }))
-    const visible = screen.getByRole('checkbox', { name: /Also visible/ }) as HTMLInputElement
-    expect(visible.disabled).toBe(true)
     await save()
     await vi.waitFor(() => expect(bodies).toEqual([{ host: null }]))
   })

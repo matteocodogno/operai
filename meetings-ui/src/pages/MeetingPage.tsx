@@ -346,7 +346,6 @@ function MeetingView({ meeting, replace, listPath, back, created }: MeetingViewP
       {dialog === 'edit' && (
         <EditDetailsDialog
           meeting={meeting}
-          hostInfo={hostInfo}
           onClose={() => setDialog(null)}
           // The dialog closes itself after a save; a reload it asks for (a lock that moved on) keeps it open.
           onChanged={(next) => changed(next, detailsChanged(meeting, next) ? t.saved.details : undefined)}
