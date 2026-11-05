@@ -16,6 +16,11 @@ import { fileURLToPath } from 'node:url'
 // dependency ranges so the graph cannot drift.
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
+// react / react-dom are pinned EXACTLY in package.json (the suite runs one React: a floating range
+// resolved 19.3.1 here against the shell's 19.2.7 and crashed the shell); the federation
+// `requiredVersion` stays the same caret range every other remote declares.
+const caret = (version: string) => (/^\d/.test(version) ? `^${version}` : version)
+
 // Build-time dev default only, overridable via env var (the shell's runtime
 // remote resolution is separate, ADR-0006): the shell dev server's pinned port.
 const shellRemoteUrl = process.env['SHELL_REMOTE_URL'] ?? 'http://localhost:5173/remoteEntry.js'
@@ -54,8 +59,8 @@ export default defineConfig({
         },
       },
       shared: {
-        react: { singleton: true, requiredVersion: pkg.dependencies.react },
-        'react-dom': { singleton: true, requiredVersion: pkg.dependencies['react-dom'] },
+        react: { singleton: true, requiredVersion: caret(pkg.dependencies.react) },
+        'react-dom': { singleton: true, requiredVersion: caret(pkg.dependencies['react-dom']) },
         '@tanstack/react-router': {
           singleton: true,
           requiredVersion: pkg.dependencies['@tanstack/react-router'],
