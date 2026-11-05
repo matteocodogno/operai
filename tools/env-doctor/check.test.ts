@@ -582,6 +582,47 @@ describe("env-doctor checker — meetings (specs/021)", () => {
     expect(warns(f)).toEqual([]);
   });
 
+  describe("MEETINGS_VERTEX_MODEL_ID is a bare Claude model id", () => {
+    const withModel = (v: string) => {
+      const s = meetingsSuite();
+      s["meetings-api"]!.MEETINGS_VERTEX_MODEL_ID = v;
+      return s;
+    };
+    test("a resource path (contains /) → error naming the variable, value never printed", () => {
+      const f = checkSuite(withModel("publishers/anthropic/models/claude-leaky-0"), PROD);
+      expect(errText(f)).toContain("MEETINGS_VERTEX_MODEL_ID must be a bare model id");
+      expect(JSON.stringify(f)).not.toContain("leaky");
+      expect(JSON.stringify(f)).not.toContain("anthropic/models");
+    });
+    test("not a claude- id, or odd characters → error, value not printed", () => {
+      for (const v of ["gemini-secretname", "Claude-3", "claude-x y", " claude-x"]) {
+        const f = checkSuite(withModel(v), PROD);
+        expect(errText(f)).toContain("MEETINGS_VERTEX_MODEL_ID must be a Claude model id");
+        expect(JSON.stringify(f)).not.toContain("secretname");
+      }
+    });
+    test("fable / mythos models → error, value not printed", () => {
+      for (const v of ["claude-fable-1", "claude-mythos-2"]) {
+        const f = checkSuite(withModel(v), PROD);
+        expect(errText(f)).toContain("MEETINGS_VERTEX_MODEL_ID names a model Google retains");
+        expect(JSON.stringify(f).toLowerCase()).not.toContain("mythos-2");
+      }
+    });
+    test("a versioned id with @ and . passes", () => {
+      expect(errs(checkSuite(withModel("claude-sonnet-4-5@20250929"), PROD))).toEqual([]);
+    });
+    test("a SET-ME placeholder: silent offline (template), a warning once values should be real", () => {
+      const s = withModel("SET-ME-pinned-model-id");
+      expect(checkSuite(s, { ...PROD, resolved: false })).toEqual([]);
+      const f = checkSuite(s, { ...PROD, resolved: true });
+      expect(errs(f)).toEqual([]);
+      expect(warns(f).map((w) => w.message).join("\n")).toContain("MEETINGS_VERTEX_MODEL_ID is still a SET-ME placeholder");
+    });
+    test("a Railway reference is not judged", () => {
+      expect(checkSuite(withModel("${{shared.MODEL}}"), PROD)).toEqual([]);
+    });
+  });
+
   test("a missing MEETINGS_S3_REGION → error naming it", () => {
     const s = meetingsSuite();
     delete s["meetings-api"]!.MEETINGS_S3_REGION;
