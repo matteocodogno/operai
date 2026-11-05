@@ -86,6 +86,8 @@ run_case 1 "soft delete policy absent -> refused (unreadable)" 'del(.softDeleteP
 run_case 1 "versioning on -> refused" '.versioning.enabled = true' "${B[@]}"
 run_case 1 "lifecycle rule with matchesPrefix -> refused" '.lifecycle.rule[0].condition.matchesPrefix = ["transcribe/"]' "${B[@]}"
 run_case 1 "lifecycle rule with matchesSuffix -> refused" '.lifecycle.rule[0].condition.matchesSuffix = [".ogg"]' "${B[@]}"
+run_case 1 "lifecycle age 0 -> refused (the service refuses it)" '.lifecycle.rule[0].condition.age = 0' "${B[@]}"
+run_case 0 "location EUROPE-WEST10 passes" '.location = "EUROPE-WEST10"' "${B[@]}"
 run_case 1 "lifecycle age 2 -> refused" '.lifecycle.rule[0].condition.age = 2' "${B[@]}"
 run_case 1 "lifecycle without any age -> refused" '.lifecycle.rule[0].condition = {"createdBefore": "2026-01-01"}' "${B[@]}"
 run_case 1 "lifecycle action SetStorageClass -> refused" '.lifecycle.rule[0].action = {"type": "SetStorageClass", "storageClass": "NEARLINE"}' "${B[@]}"

@@ -13,7 +13,8 @@
 # THE RULES (N2). All of them must hold; anything unreadable is a refusal, never a pass:
 #   - location: the EU multi-region, or ONE EU/CH single region from the allowlist below
 #               (London, EUROPE-WEST2, and every non-EU location are refused; so are dual-regions)
-#   - lifecycle: an enabled Delete rule whose ONLY condition is age <= 1 day (no matchesPrefix,
+#   - lifecycle: an enabled Delete rule whose ONLY condition is age == 1 day exactly (age 0 is refused: it would
+#               delete parts an attempt has just uploaded; no matchesPrefix,
 #               matchesSuffix, storage class, createdBefore or other narrowing). A backstop only:
 #               lifecycle runs asynchronously, deletion is the service's job
 #   - soft delete OFF: retention duration 0 (Cloud Storage enables 7 days on every new bucket, which
@@ -52,14 +53,14 @@
 set -uo pipefail
 
 KEY_PREFIX="transcribe"   # every object meetings-api writes here lives under transcribe/<meetingId>/
-MAX_AGE_DAYS=1
+AGE_DAYS=1
 
 # Allowed bucket locations (uppercase, as the API reports them). KEEP EQUAL to the allowlist in
-# meetings-api's startup check N2 (meetings-api/src/lib/google/transientStorage.ts, plan G-2): a
+# meetings-api's startup check N2 (TRANSIENT_BUCKET_ALLOWED_LOCATIONS in meetings-api/src/lib/startupChecks.ts, plan G-2): a
 # wider list here would let this script pass a bucket the service then refuses. EUROPE-WEST2
 # (London) is deliberately absent. Dual-regions (EUR4, ...) are refused: plan G-2 allows only the EU
 # multi-region or one EU/CH single region.
-ALLOWED_LOCATIONS="EU EUROPE-CENTRAL2 EUROPE-NORTH1 EUROPE-NORTH2 EUROPE-SOUTHWEST1 EUROPE-WEST1 EUROPE-WEST3 EUROPE-WEST4 EUROPE-WEST6 EUROPE-WEST8 EUROPE-WEST9 EUROPE-WEST12"
+ALLOWED_LOCATIONS="EU EUROPE-CENTRAL2 EUROPE-NORTH1 EUROPE-NORTH2 EUROPE-SOUTHWEST1 EUROPE-WEST1 EUROPE-WEST3 EUROPE-WEST4 EUROPE-WEST6 EUROPE-WEST8 EUROPE-WEST9 EUROPE-WEST10 EUROPE-WEST12"
 
 MODE=""; BUCKET="${MEETINGS_GCS_TRANSIENT_BUCKET:-}"; PROJECT="${MEETINGS_GCP_PROJECT_ID:-}"; FORCE=false
 
@@ -153,24 +154,21 @@ check_all() {
     fail "location '$loc' is not allowed: only the EU multi-region or one EU/CH single region from the allowlist (London, dual-regions and non-EU are refused)"
   fi
 
-  # Lifecycle: an enabled Delete rule, ONLY condition age <= 1. A rule with any other condition key
+  # Lifecycle: an enabled Delete rule, ONLY condition age == 1. A rule with any other condition key
   # (matchesPrefix, matchesSuffix, matchesStorageClass, createdBefore, isLive, numNewerVersions, ...)
   # is narrower than the whole bucket and does not count.
   local good total
   total="$(jq '[.lifecycle.rule[]?] | length' "$OUT")"
-  good="$(jq --argjson max "$MAX_AGE_DAYS" '
+  good="$(jq --argjson want "$AGE_DAYS" '
     [ .lifecycle.rule[]?
       | select(.action.type == "Delete")
       | select((.condition // {}) | keys == ["age"])
-      | select(.condition.age != null and (.condition.age | type) == "number" and .condition.age <= $max)
+      | select(.condition.age != null and (.condition.age | type) == "number" and .condition.age == $want)
     ] | length' "$OUT")"
   if [[ "$good" -ge 1 ]]; then
-    pass "lifecycle: a Delete rule on age <= ${MAX_AGE_DAYS} day with no other condition (no prefix, suffix, class or date filter)"
-    if [[ "$(jq '[.lifecycle.rule[]? | select(.action.type == "Delete" and .condition.age == 0)] | length' "$OUT")" -ge 1 ]]; then
-      warn "lifecycle: a rule with age 0 deletes objects as soon as the next lifecycle run sees them, possibly mid-attempt; age 1 is the intended value"
-    fi
+    pass "lifecycle: a Delete rule on age ${AGE_DAYS} day with no other condition (no prefix, suffix, class or date filter)"
   else
-    fail "lifecycle: no Delete rule with age <= ${MAX_AGE_DAYS} and no other condition (rules: $total; a matchesPrefix/matchesSuffix/storage-class/createdBefore condition, age > ${MAX_AGE_DAYS} or a non-Delete action does not count)"
+    fail "lifecycle: no Delete rule with age ${AGE_DAYS} and no other condition (rules: $total; a matchesPrefix/matchesSuffix/storage-class/createdBefore condition, any other age or a non-Delete action does not count)"
   fi
   if [[ "$total" -gt 1 ]]; then warn "lifecycle: $total rules present; only the whole-bucket age rule is required, check the others are intended"; fi
 
@@ -226,12 +224,12 @@ apply_all() {
   local stray
   stray="$(grep -v -x -e "gs://${BUCKET}/${KEY_PREFIX}/" -e '' "$OUT" | head -n 3 | tr '\n' ' ')"
   if [[ -n "$stray" ]] && ! $FORCE; then
-    echo "  FAIL  the bucket holds objects outside ${KEY_PREFIX}/ (e.g. ${stray}): refusing to put a ${MAX_AGE_DAYS}-day delete rule on it; use the right bucket, or --force if you are sure" >&2
+    echo "  FAIL  the bucket holds objects outside ${KEY_PREFIX}/ (e.g. ${stray}): refusing to put a ${AGE_DAYS}-day delete rule on it; use the right bucket, or --force if you are sure" >&2
     exit 1
   fi
 
   local lc="$WORK/lifecycle.json"
-  printf '{"rule":[{"action":{"type":"Delete"},"condition":{"age":%d}}]}\n' "$MAX_AGE_DAYS" >"$lc"
+  printf '{"rule":[{"action":{"type":"Delete"},"condition":{"age":%d}}]}\n' "$AGE_DAYS" >"$lc"
 
   # One update. Soft delete 0 disables it; --clear-retention-period fails on a LOCKED policy (by design:
   # that bucket must be recreated), which surfaces below as a failed apply, never a silent pass.
@@ -246,7 +244,7 @@ apply_all() {
     echo "  FAIL  buckets update was refused: $(err_line)" >&2
     exit 1
   fi
-  echo "  applied: lifecycle (Delete, age ${MAX_AGE_DAYS}), soft delete 0, versioning off, no retention, no default hold, uniform access, public access prevention"
+  echo "  applied: lifecycle (Delete, age ${AGE_DAYS}), soft delete 0, versioning off, no retention, no default hold, uniform access, public access prevention"
   echo "verifying what was applied:"
 }
 

@@ -1323,7 +1323,7 @@ bash infra/meetings-gcs-transient-policy.test.sh     # the script's own harness,
 
 The rules (all must hold; exit `0` they do, `1` they do not, `2` usage, `3` could not tell; **a check
 that cannot read the bucket is never a pass**): location in the EU multi-region or one EU/CH region;
-an enabled `Delete` lifecycle rule on `age <= 1` day as its **only** condition (no prefix or suffix
+an enabled `Delete` lifecycle rule on `age` exactly 1 day (0 is refused) as its **only** condition (no prefix or suffix
 filter); **soft delete off** (Cloud Storage turns on 7 days for every new bucket, which would leave a
 deleted object recoverable for a week); versioning off; no retention policy; no default event-based
 hold; uniform bucket-level access on; public access prevention `enforced`. Lifecycle is only a backstop
