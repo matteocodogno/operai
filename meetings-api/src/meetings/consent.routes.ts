@@ -25,7 +25,7 @@ import { loadMeetingView } from "./view";
 import { assertCreatorControl, openMeeting } from "./visibility";
 
 /** The consent notice in force. Must equal the version meetings-ui renders (strings/consent). */
-export const CONSENT_NOTICE_VERSION = "2026-11-01";
+export const CONSENT_NOTICE_VERSION = "2026-11-05";
 
 const Body = z.object({ noticeVersion: z.string().min(1).max(64) });
 

@@ -26,7 +26,9 @@ const consent = (id: string, noticeVersion: string = CONSENT_NOTICE_VERSION, who
 
 describe("the notice version", () => {
   it("is the one meetings-ui shows", () => {
-    expect(CONSENT_NOTICE_VERSION).toBe("2026-11-01");
+    // 2026-11-05: the notice now discloses that the transcription provider may keep the result for about 5 days
+    // (spec A6, AC-4.1). meetings-ui's strings/consent.ts carries the same string (T112).
+    expect(CONSENT_NOTICE_VERSION).toBe("2026-11-05");
   });
 });
 
@@ -37,12 +39,12 @@ describe("POST /meetings/:id/consent", () => {
     const res = await consent(m.id);
     expect(res.status).toBe(200);
     const body = await json(res);
-    expect(body["consent"]).toEqual({ by: { id: "creator", name: "Name creator", status: "active" }, at: expect.any(String), noticeVersion: "2026-11-01" });
+    expect(body["consent"]).toEqual({ by: { id: "creator", name: "Name creator", status: "active" }, at: expect.any(String), noticeVersion: "2026-11-05" });
     expect(new Date(body["consent"].at).getTime()).toBeGreaterThanOrEqual(before - 1000);
-    expect(await kit.db.meeting.findUniqueOrThrow({ where: { id: m.id } })).toMatchObject({ consentUserId: "creator", consentNoticeVersion: "2026-11-01" });
+    expect(await kit.db.meeting.findUniqueOrThrow({ where: { id: m.id } })).toMatchObject({ consentUserId: "creator", consentNoticeVersion: "2026-11-05" });
 
     const asPat = await json(await kit.call("pat", "GET", `/meetings/${m.id}`));
-    expect(asPat["consent"]).toMatchObject({ by: { id: "creator" }, noticeVersion: "2026-11-01" });
+    expect(asPat["consent"]).toMatchObject({ by: { id: "creator" }, noticeVersion: "2026-11-05" });
   });
 
   it("works for an uploaded meeting too, and confirming again keeps the original attestation", async () => {
@@ -56,13 +58,32 @@ describe("POST /meetings/:id/consent", () => {
   it("an attestation of an older version is replaced by the current one", async () => {
     const m = await seed({ consentUserId: "creator", consentAt: new Date("2025-01-01T00:00:00.000Z"), consentNoticeVersion: "2025-01-01" });
     const body = await json(await consent(m.id));
-    expect(body["consent"]).toMatchObject({ noticeVersion: "2026-11-01" });
+    expect(body["consent"]).toMatchObject({ noticeVersion: "2026-11-05" });
     expect(new Date(body["consent"].at).getFullYear()).toBeGreaterThanOrEqual(2026);
+  });
+
+  it("an attestation recorded under the previous notice keeps its version: no re-consent, nothing rewritten (AC-4.3)", async () => {
+    const at = new Date("2026-11-02T10:00:00.000Z");
+    const m = await seed({ consentUserId: "creator", consentAt: at, consentNoticeVersion: "2026-11-01", participants: { create: [{ userId: "pat", addedBy: "creator" }] } });
+    for (const who of ["creator", "pat"]) {
+      const view = await json(await kit.call(who, "GET", `/meetings/${m.id}`));
+      expect(view["consent"]).toEqual({ by: { id: "creator", name: "Name creator", status: "active" }, at: at.toISOString(), noticeVersion: "2026-11-01" });
+    }
+    const row = await kit.db.meeting.findUniqueOrThrow({ where: { id: m.id } });
+    expect([row.consentNoticeVersion, row.consentAt]).toEqual(["2026-11-01", at]);
+  });
+
+  it("the previous notice's version can no longer be confirmed: 409 notice_outdated, the old attestation untouched", async () => {
+    const at = new Date("2026-11-02T10:00:00.000Z");
+    const m = await seed({ consentUserId: "creator", consentAt: at, consentNoticeVersion: "2026-11-01" });
+    const res = await consent(m.id, "2026-11-01");
+    expect([res.status, (await json(res))["code"]]).toEqual([409, "notice_outdated"]);
+    expect((await kit.db.meeting.findUniqueOrThrow({ where: { id: m.id } })).consentNoticeVersion).toBe("2026-11-01");
   });
 
   it("409 notice_outdated when the page showed another version, and nothing is stored", async () => {
     const m = await seed();
-    for (const version of ["2025-01-01", "2026-11-01 "]) {
+    for (const version of ["2025-01-01", "2026-11-01", "2026-11-05 "]) {
       const res = await consent(m.id, version);
       expect([res.status, (await json(res))["code"]]).toEqual([409, "notice_outdated"]);
     }
