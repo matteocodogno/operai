@@ -25,7 +25,9 @@ import { join } from "node:path";
 import { db } from "../../lib/db";
 import { MAX_CHUNK_BYTES, MAX_UPLOAD_BYTES, ObjectTooLargeError, objectKeys, requireStorage, type Storage } from "../../lib/storage";
 import { NormalizeError, groupIntoRuns, normalizeAudio, ToolMissingError } from "../../media/normalize";
+import { announce as defaultAnnounce, type NotifyEvent } from "../../lib/notify";
 import { PermanentJobError, TransientJobError, enqueueJob, type JobContext, type JobHandler } from "../runner";
+import { announceProcessing } from "./processingNotice";
 
 /** 3 h at 32 kbit/s is ~43 MB; this is a generous ceiling on the sum of a recording's chunks. */
 export const MAX_RECORDING_BYTES = 128 * 1024 * 1024;
@@ -38,6 +40,8 @@ export interface PrepareDeps {
   /** Where per-job temp dirs are made; default the OS temp dir. */
   readonly tmpRoot?: string;
   readonly now?: () => Date;
+  /** The requester's failure notice (best effort, after the commit). */
+  readonly announce?: (event: NotifyEvent) => void;
 }
 
 interface Source {
@@ -73,6 +77,7 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
   const storageOf = deps.storage ?? requireStorage;
   const normalize = deps.normalize ?? normalizeAudio;
   const now = deps.now ?? (() => new Date());
+  const announce = deps.announce ?? defaultAnnounce;
 
   /** Best effort: the bucket's 29-day lifecycle rule is the backstop for what fails here. */
   async function deleteSources(storage: Storage, keys: readonly string[]): Promise<boolean> {
@@ -89,12 +94,16 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
   }
 
   async function markFailed(ctx: JobContext, meetingId: string, code: FailureCode): Promise<void> {
-    await ctx.commit((tx) =>
+    const result = await ctx.commit((tx) =>
       tx.meeting.updateMany({
         where: { id: meetingId, status: "processing", audioKey: null },
         data: { status: "failed", stage: null, failureCode: code, processedAt: now() },
       }),
     );
+    // Tell whoever asked (T32, AC-12.2), once, after the commit; a stale or lost write tells nobody.
+    if (!result.committed || result.value.count === 0) return;
+    const meeting = await db.meeting.findUnique({ where: { id: meetingId }, select: { id: true, title: true, processingRequestedBy: true, creatorUserId: true } });
+    if (meeting) announceProcessing(announce, meeting, "transcription_failed");
   }
 
   return async (ctx) => {
