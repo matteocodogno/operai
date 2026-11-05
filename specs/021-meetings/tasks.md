@@ -541,7 +541,7 @@ database after `bun run db:deploy`.
   - touch: `notify-ui/src/components/NotificationItem.tsx`, `notify-ui/src/components/NotificationItem.test.tsx`, `notify-ui/src/lib/notificationsApi.ts`, `notify-ui/src/lib/severity.ts`, `notify-ui/src/strings.ts`, `shell/src/components/ToastHost.tsx`, `shell/src/components/ToastHost.test.tsx`, `shell/src/lib/notifications.ts`
   - done when: `cd notify-ui && pnpm test && cd ../shell && pnpm test src/components/ToastHost.test.tsx` passes: Italian variant under `lang="it"`, English otherwise, fallback when `it` is null
 
-- [ ] T80: [OPS] Repo wiring: `lerna.json` (meetings-api, meetings-ui), `mise.toml` (`dev`, `dev:web`, `dev:preview`, `db:migrate` incl. `meetings`, `ui:check` consumers) — refs: AC-10.5, AC-11.4 — deps: T10, T53
+- [x] T80: [OPS] Repo wiring: `lerna.json` (meetings-api, meetings-ui), `mise.toml` (`dev`, `dev:web`, `dev:preview`, `db:migrate` incl. `meetings`, `ui:check` consumers) — refs: AC-10.5, AC-11.4 — deps: T10, T53
   - touch: `lerna.json`, `mise.toml`
   - done when: `mise tasks ls` lists the updated tasks; `mise run db:migrate` migrates `meetings`; `mise run ui:check` builds and tests meetings-ui; `pnpm changeset status` enumerates both new packages
 
