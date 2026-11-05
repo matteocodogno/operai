@@ -111,7 +111,7 @@ was not removed. The spec stays vendor-neutral; the body below is already update
   one or both carry none (AC-6.13). (c) **A repeated tail of a part whose words have no times**
   is removed when its text matches the preceding text of the part by at least the repeat bound
   in consecutive words, still keeping any speech found in only one version (AC-6.13).
-  **Clarification 2026-11-05 (orchestrator, from implementation):** the same-speaker rule of (b)
+  **Clarification 2026-11-05 (orchestrator, from implementation; confirmed by the user 2026-11-05):** the same-speaker rule of (b)
   applies within a part only; in the overlap of two consecutive parts aligned passages meeting
   the word/time evidence are the same speech unless each label is joined (AC-6.14) to a
   different earlier label, because unjoined labels (no evidence, provider jitter) would
