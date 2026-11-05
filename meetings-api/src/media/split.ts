@@ -99,8 +99,12 @@ export interface SplitResult {
 
 const NUMBER = String.raw`(-?\d+(?:\.\d+)?)`;
 
-/** The pauses `silencedetect` reported (it logs `silence_start` then `silence_end` for each). A trailing open one is dropped. */
-export function parseSilences(log: string): Silence[] {
+/**
+ * The pauses `silencedetect` reported (it logs `silence_start` then `silence_end` for each; the ffmpeg of the image also
+ * closes a pause at the end of the file). A trailing open one is closed at `durationMs` when it is given, else dropped:
+ * a recording that ends in silence must not read as sound to the gap detector (H-3).
+ */
+export function parseSilences(log: string, durationMs?: number): Silence[] {
   const out: Silence[] = [];
   let open: number | null = null;
   for (const line of log.split("\n")) {
@@ -116,6 +120,7 @@ export function parseSilences(log: string): Silence[] {
       open = null;
     }
   }
+  if (open !== null && durationMs !== undefined && durationMs > open) out.push({ startMs: Math.max(0, open), endMs: durationMs });
   return out;
 }
 
@@ -243,7 +248,7 @@ export async function splitAudio(options: SplitOptions): Promise<SplitResult> {
     if (pass.timedOut || pass.code !== 0) throw new SplitError();
     const durationMs = verdict.durationMs ?? parseElapsedMs(pass.stderr);
     if (durationMs === null || durationMs <= 0) throw new SplitError();
-    const silences = parseSilences(pass.stderr);
+    const silences = parseSilences(pass.stderr, durationMs);
 
     const spans = chooseParts(durationMs, silences, {
       ...(options.pieceMaxMs !== undefined ? { pieceMaxMs: options.pieceMaxMs } : {}),

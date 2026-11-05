@@ -36,6 +36,12 @@ describe("parseSilences", () => {
     expect(parseSilences(log)).toEqual([silence(12.5, 14.25), silence(20, 21)]);
   });
 
+  it("closes a trailing pause at the duration when it is known (a recording that ends in silence), else drops it", () => {
+    expect(parseSilences("silence_start: 5\n", 35_000)).toEqual([{ startMs: 5000, endMs: 35_000 }]);
+    expect(parseSilences("silence_start: 5\n")).toEqual([]);
+    expect(parseSilences("silence_start: 40\n", 35_000)).toEqual([]);
+  });
+
   it("drops a pause that never ended and ignores unrelated lines", () => {
     expect(parseSilences("noise\nsilence_start: 5\n")).toEqual([]);
     expect(parseSilences("silence_end: 5 | silence_duration: 1\n")).toEqual([]);
