@@ -5,6 +5,7 @@ import { regenerateSummary, retrySummary } from '../../lib/meetingsApi'
 import type { Meeting, Summary } from '../../lib/types'
 import { strings } from '../../strings'
 import { aiErrorMessage } from '../aiError'
+import { clockOf } from '../transcript/exportText'
 import { DeleteSummaryDialog } from './DeleteSummaryDialog'
 import { SummaryEditor } from './SummaryEditor'
 
@@ -25,11 +26,32 @@ export type SummaryCardProps = {
   onReload: () => void
 }
 
-/** The summary as plain text: the template name, then each section's heading and body (AC-7.11). */
-const summaryText = (summary: Summary): string =>
-  [summary.template.name, ...(summary.sections ?? []).map((section) => `${section.heading}\n${section.body}`)].join(
-    '\n\n',
-  )
+/** The ranges a summary was made without, as "00:05:00–00:07:00, 00:20:00–00:21:00"; null when there are none. */
+const gapRanges = (summary: Summary): string | null => {
+  const gaps = summary.possiblyIncomplete?.gaps ?? []
+  return gaps.length === 0 ? null : gaps.map((gap) => `${clockOf(gap.startMs)}–${clockOf(gap.endMs)}`).join(', ')
+}
+
+/**
+ * The summary as plain text: the template name, the service-written "may be incomplete" label with its
+ * ranges when the transcript had gaps (AC-7.13), then each section's heading and body (AC-7.11).
+ */
+const summaryText = (summary: Summary): string => {
+  const ranges = gapRanges(summary)
+  const incomplete =
+    summary.possiblyIncomplete == null
+      ? []
+      : [
+          ranges === null
+            ? strings.summaries.incomplete.label
+            : `${strings.summaries.incomplete.label}\n${strings.summaries.incomplete.ranges(ranges)}`,
+        ]
+  return [
+    summary.template.name,
+    ...incomplete,
+    ...(summary.sections ?? []).map((section) => `${section.heading}\n${section.body}`),
+  ].join('\n\n')
+}
 
 /**
  * One summary. Everything the AI wrote is rendered as plain text — React text nodes in a
@@ -82,6 +104,9 @@ export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onErro
   const author = summary.author.name ?? t.formerAuthor
   const generating = summary.status === 'generating'
   const failed = summary.status === 'failed'
+  // The label qualifies content, so it shows only once there is some (AC-7.13).
+  const incomplete = summary.status === 'ready' && summary.possiblyIncomplete != null
+  const ranges = incomplete ? gapRanges(summary) : null
   return (
     <div ref={root} tabIndex={-1} data-testid={`meetings-summary-${summary.id}`}>
       <Card title={summary.template.name} className="flex flex-col gap-3">
@@ -97,8 +122,14 @@ export function SummaryCard({ meeting, summary, atLimit, focus, onResult, onErro
           <Badge>{t.languages[summary.language]}</Badge>
           {summary.edited && <Badge>{t.edited}</Badge>}
           {summary.stale && <Badge tone="warning">{t.stale}</Badge>}
+          {incomplete && (
+            <Badge tone="warning" glyph={<Icon name="alert" />}>
+              {t.incomplete.label}
+            </Badge>
+          )}
         </div>
         <p className="text-xs text-soft">{t.byline(author, formatDateTime(summary.createdAt))}</p>
+        {ranges !== null && <p className="text-xs text-soft">{t.incomplete.ranges(ranges)}</p>}
 
         {generating && (
           <p className="flex items-center gap-2 text-sm text-soft">

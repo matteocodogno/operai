@@ -117,6 +117,8 @@ function ContentTabs({ meeting, hostInfo, onChanged, onRefresh }: ContentTabsPro
   const active: TabId = requested ?? fallback
 
   const [cited, setCited] = useState<string | null>(null)
+  // An answer's "may be incomplete" label was followed: the Transcript tab shows its notice (AC-9.9).
+  const [noticeRequested, setNoticeRequested] = useState(false)
 
   /**
    * Moves to a tab and reads the meeting again: the summaries and the transcript panels do not
@@ -133,10 +135,17 @@ function ContentTabs({ meeting, hostInfo, onChanged, onRefresh }: ContentTabsPro
   // The Ask panel remembers which source was pressed (ask/returnFocus) and takes focus back when it mounts again.
   const openSource = (segmentId: string) => {
     setCited(segmentId)
+    setNoticeRequested(false)
+    select('transcript')
+  }
+  const openNotice = () => {
+    setCited(null)
+    setNoticeRequested(true)
     select('transcript')
   }
   const backToAnswer = () => {
     setCited(null)
+    setNoticeRequested(false)
     select('ask')
   }
 
@@ -154,6 +163,7 @@ function ContentTabs({ meeting, hostInfo, onChanged, onRefresh }: ContentTabsPro
         idPrefix="meetings-tab"
         onChange={(id) => {
           setCited(null)
+          setNoticeRequested(false)
           if (id !== active) select(id)
         }}
       />
@@ -167,12 +177,13 @@ function ContentTabs({ meeting, hostInfo, onChanged, onRefresh }: ContentTabsPro
             meeting={meeting}
             focusSegmentId={cited}
             onBackToAnswer={cited !== null ? backToAnswer : null}
+            focusNotice={noticeRequested}
           />
         )}
       </div>
       {available.includes('ask') && (
         <div {...tabPanelProps('meetings-tab', 'ask')} hidden={active !== 'ask'}>
-          {active === 'ask' && <AskPanel meeting={meeting} onOpenSource={openSource} />}
+          {active === 'ask' && <AskPanel meeting={meeting} onOpenSource={openSource} onOpenNotice={openNotice} />}
         </div>
       )}
     </div>

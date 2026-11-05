@@ -109,8 +109,12 @@ vi.mock('../components/meeting/DeleteRecordingDialog', () => ({
   default: () => <div role="alertdialog" aria-label="stub-delete-recording" />,
 }))
 vi.mock('../components/transcript/TranscriptView', () => ({
-  default: (props: { focusSegmentId: string | null; onBackToAnswer: (() => void) | null }) => (
-    <div data-testid="stub-transcript" data-focus={props.focusSegmentId ?? ''}>
+  default: (props: { focusSegmentId: string | null; onBackToAnswer: (() => void) | null; focusNotice?: boolean }) => (
+    <div
+      data-testid="stub-transcript"
+      data-focus={props.focusSegmentId ?? ''}
+      data-focus-notice={String(props.focusNotice === true)}
+    >
       {props.onBackToAnswer && (
         <button type="button" onClick={props.onBackToAnswer}>
           stub-back-to-answer
@@ -120,10 +124,13 @@ vi.mock('../components/transcript/TranscriptView', () => ({
   ),
 }))
 vi.mock('../components/ask/AskPanel', () => ({
-  default: (props: { onOpenSource: (segmentId: string) => void }) => (
+  default: (props: { onOpenSource: (segmentId: string) => void; onOpenNotice?: () => void }) => (
     <div data-testid="stub-ask">
       <button type="button" onClick={() => props.onOpenSource('seg2')}>
         stub-source
+      </button>
+      <button type="button" onClick={props.onOpenNotice}>
+        stub-notice-link
       </button>
     </div>
   ),
@@ -713,6 +720,33 @@ describe('MeetingPage: tabs (S3b)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'stub-back-to-answer' }))
     expect(screen.getByRole('tab', { name: en.meeting.tabs.ask }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByTestId('stub-ask')).not.toBeNull()
+  })
+
+  it('the "may be incomplete" label of an answer opens the Transcript tab on its notice (AC-9.9)', async () => {
+    serve(readyMeeting({ summaryCount: 1 }))
+    await loaded('/meetings/m/m1?tab=ask')
+
+    await userEvent.click(screen.getByRole('button', { name: 'stub-notice-link' }))
+    expect(screen.queryByTestId('stub-ask')).toBeNull()
+    expect(screen.getByRole('tab', { name: en.meeting.tabs.transcript }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByTestId('stub-transcript').getAttribute('data-focus-notice')).toBe('true')
+    expect(screen.getByTestId('stub-transcript').getAttribute('data-focus')).toBe('')
+    expect(screen.queryByRole('button', { name: 'stub-back-to-answer' })).toBeNull()
+
+    // Leaving and coming back by the tab itself does not jump to the notice again.
+    await userEvent.click(screen.getByRole('tab', { name: en.meeting.tabs.summaries }))
+    await userEvent.click(screen.getByRole('tab', { name: en.meeting.tabs.transcript }))
+    expect(screen.getByTestId('stub-transcript').getAttribute('data-focus-notice')).toBe('false')
+  })
+
+  it('a source opened after a notice jump focuses its passage, not the notice', async () => {
+    serve(readyMeeting({ summaryCount: 1 }))
+    await loaded('/meetings/m/m1?tab=ask')
+    await userEvent.click(screen.getByRole('button', { name: 'stub-notice-link' }))
+    await userEvent.click(screen.getByRole('tab', { name: en.meeting.tabs.ask }))
+    await userEvent.click(screen.getByRole('button', { name: 'stub-source' }))
+    expect(screen.getByTestId('stub-transcript').getAttribute('data-focus')).toBe('seg2')
+    expect(screen.getByTestId('stub-transcript').getAttribute('data-focus-notice')).toBe('false')
   })
 
   it('without a jump, the transcript gets no focus target and no back link', async () => {

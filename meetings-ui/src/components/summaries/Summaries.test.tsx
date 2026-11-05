@@ -13,7 +13,8 @@ vi.mock('shell/session', () => ({
 }))
 
 import { apiFetch } from 'shell/session'
-import { en } from '../../strings'
+import axe from 'axe-core'
+import { en, it as italian } from '../../strings'
 import type { Meeting, Summary, Template } from '../../lib/types'
 import {
   CAN_NONE,
@@ -368,5 +369,99 @@ describe('the Generate control (AC-7.3, AC-6.7)', () => {
     const button = await screen.findByRole('button', { name: en.summaries.generate })
     expect(button.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText(en.summaries.noSpeechReason)).not.toBeNull()
+  })
+})
+
+describe('a summary made from a transcript that may be incomplete (AC-7.13, AC-7.11)', () => {
+  const GAPS = [
+    { startMs: 300_000, endMs: 420_000 },
+    { startMs: 1_200_000, endMs: 1_260_000 },
+  ]
+  const RANGES = '00:05:00–00:07:00, 00:20:00–00:21:00'
+  const incomplete = (overrides: Partial<Summary> = {}) =>
+    summary({
+      possiblyIncomplete: { gaps: GAPS },
+      sections: [
+        { heading: 'Decisions', body: 'Ship on Friday.' },
+        { heading: 'Risks', body: 'Not found in the transcript, which may be incomplete.', notDiscussed: true },
+      ],
+      ...overrides,
+    })
+
+  it('shows the service-written label and the ranges beside "AI-generated", and the server text for an empty section', async () => {
+    serve(list([incomplete()]))
+    panel()
+    const card = await screen.findByRole('region', { name: 'Sales discovery' })
+    expect(within(card).getByText(en.summaries.incomplete.label)).not.toBeNull()
+    expect(en.summaries.incomplete.label).toBe('Based on a transcript that may be incomplete')
+    expect(within(card).getByText(en.summaries.incomplete.ranges(RANGES))).not.toBeNull()
+    expect(within(card).getByText(en.summaries.aiGenerated)).not.toBeNull()
+    expect(within(card).getByText('Not found in the transcript, which may be incomplete.')).not.toBeNull()
+  })
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+  ])('possiblyIncomplete %s: no label (a meeting without gaps looks as it did)', async (_name, value) => {
+    serve(list([summary({ possiblyIncomplete: value })]))
+    panel()
+    await screen.findByRole('region', { name: 'Sales discovery' })
+    expect(screen.queryByText(en.summaries.incomplete.label)).toBeNull()
+  })
+
+  it('the label is not shown for a summary still generating or failed (there is no content to qualify)', async () => {
+    serve(
+      list([
+        incomplete({ id: 's2', status: 'generating', sections: undefined }),
+        incomplete({ id: 's3', status: 'failed', sections: undefined }),
+      ]),
+    )
+    panel()
+    await screen.findAllByRole('region', { name: 'Sales discovery' })
+    expect(screen.queryByText(en.summaries.incomplete.label)).toBeNull()
+  })
+
+  it('the copied text carries the label and the ranges, before the sections (AC-7.11)', async () => {
+    serve(list([incomplete()]))
+    const user = userEvent.setup()
+    panel()
+    await user.click(await screen.findByRole('button', { name: en.summaries.copyAsText }))
+    expect(await navigator.clipboard.readText()).toBe(
+      [
+        'Sales discovery',
+        `${en.summaries.incomplete.label}\n${en.summaries.incomplete.ranges(RANGES)}`,
+        'Decisions\nShip on Friday.',
+        'Risks\nNot found in the transcript, which may be incomplete.',
+      ].join('\n\n'),
+    )
+  })
+
+  it('a regenerated summary shows the label too (the snapshot is taken again)', async () => {
+    const fresh = incomplete({ id: 's2' })
+    let regenerated = false
+    serve({
+      'GET /meetings/:id/summaries': () => ({ status: 200, body: { items: regenerated ? [fresh, summary()] : [summary()] } }),
+      'POST /meetings/:id/summaries/:sid/regenerate': () => {
+        regenerated = true
+        return { status: 202, body: fresh }
+      },
+    })
+    panel()
+    expect(screen.queryByText(en.summaries.incomplete.label)).toBeNull()
+    await userEvent.click(await screen.findByRole('button', { name: en.summaries.regenerate }))
+    expect(await screen.findByText(en.summaries.incomplete.label)).not.toBeNull()
+  })
+
+  it('has Italian copy for the label and the ranges', () => {
+    expect(italian.summaries.incomplete.label).not.toBe(en.summaries.incomplete.label)
+    expect(italian.summaries.incomplete.ranges('a–b')).not.toBe(en.summaries.incomplete.ranges('a–b'))
+  })
+
+  it('has no axe violation (AC-13.3)', async () => {
+    serve(list([incomplete()]))
+    const { container } = render(<SummariesPanel meeting={readyMeeting()} hostInfo={null} onChanged={vi.fn()} />)
+    await screen.findByText(en.summaries.incomplete.label)
+    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
   })
 })

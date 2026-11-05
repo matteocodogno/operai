@@ -15,6 +15,8 @@ export type AskPanelProps = {
   meeting: Meeting
   /** A source was activated: the page switches to the Transcript tab and focuses that segment (F12). */
   onOpenSource: (segmentId: string) => void
+  /** An answer's "may be incomplete" label was followed: the page switches to the Transcript tab's notice (AC-9.9). */
+  onOpenNotice?: () => void
 }
 
 type Conversation = { turns: ConversationTurn[] }
@@ -36,6 +38,7 @@ export default function AskPanel(props: AskPanelProps) {
 function Conversation({
   meeting,
   onOpenSource,
+  onOpenNotice,
   turns,
   onTurns,
 }: AskPanelProps & { turns: ConversationTurn[]; onTurns: (turns: ConversationTurn[]) => void }) {
@@ -140,6 +143,7 @@ function Conversation({
               meetingId={meeting.id}
               turn={turn}
               onOpenSource={onOpenSource}
+              onOpenNotice={onOpenNotice}
               onRetry={canAsk && retrying === null ? () => void retry(turn) : null}
             />
           ))}

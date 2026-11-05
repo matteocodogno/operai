@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { formatDateTime } from '@operai/ui'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -13,7 +13,8 @@ vi.mock('shell/session', () => ({
 }))
 
 import { apiFetch } from 'shell/session'
-import { en } from '../../strings'
+import axe from 'axe-core'
+import { en, it as italian } from '../../strings'
 import type { ConversationTurn, Meeting } from '../../lib/types'
 import { CAN_NONE, fakeApi, problem, readyMeeting, turn, type FakeHandler } from '../../test-support/fakeApi'
 import AskPanel from './AskPanel'
@@ -30,8 +31,8 @@ const conversation = (turns: ConversationTurn[]): Record<string, FakeHandler> =>
 
 const bodyOf = (init: RequestInit | undefined) => JSON.parse(String(init?.body))
 
-const view = (meeting: Meeting = readyMeeting(), onOpenSource = vi.fn()) => {
-  render(<AskPanel meeting={meeting} onOpenSource={onOpenSource} />)
+const view = (meeting: Meeting = readyMeeting(), onOpenSource = vi.fn(), onOpenNotice?: () => void) => {
+  render(<AskPanel meeting={meeting} onOpenSource={onOpenSource} onOpenNotice={onOpenNotice} />)
   return { onOpenSource }
 }
 
@@ -402,5 +403,72 @@ describe('clear conversation (AC-9.5)', () => {
     await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: en.ask.clear.confirm }))
     expect(await within(screen.getByRole('alertdialog')).findByText(/Problem 500|Something went wrong/)).not.toBeNull()
     expect(screen.getByText('On Friday.')).not.toBeNull()
+  })
+})
+
+describe('an answer built on a transcript that may be incomplete (AC-9.9)', () => {
+  const flagged = (overrides: Partial<ConversationTurn> = {}) =>
+    turn({
+      answer: { text: 'On Friday.', notInMeeting: false, citations: [], possiblyIncomplete: true },
+      ...overrides,
+    })
+
+  it('shows the label with a link to the transcript notice, beside "AI-generated"', async () => {
+    serve(conversation([flagged()]))
+    view()
+    const link = await screen.findByRole('link', { name: en.ask.incompleteLabel })
+    expect(en.ask.incompleteLabel).toBe('Based on a transcript that may be incomplete')
+    expect(link.getAttribute('href')).toBe('#meetings-transcript-incomplete')
+    expect(screen.getByText(en.ask.aiGenerated)).not.toBeNull()
+  })
+
+  it('following the link asks the page to show the notice instead of navigating', async () => {
+    serve(conversation([flagged()]))
+    const onOpenNotice = vi.fn()
+    view(readyMeeting(), vi.fn(), onOpenNotice)
+    const link = await screen.findByRole('link', { name: en.ask.incompleteLabel })
+    const notPrevented = fireEvent.click(link)
+    expect(onOpenNotice).toHaveBeenCalledTimes(1)
+    expect(notPrevented).toBe(false)
+  })
+
+  it('an answer that says "not in the meeting" keeps the server text and gets the label too', async () => {
+    const text =
+      'The transcript does not contain an answer to this question. It may be incomplete, so the meeting itself may.'
+    serve(conversation([flagged({ answer: { text, notInMeeting: true, citations: [], possiblyIncomplete: true } })]))
+    view()
+    expect(await screen.findByText(text)).not.toBeNull()
+    expect(screen.getByRole('link', { name: en.ask.incompleteLabel })).not.toBeNull()
+  })
+
+  it.each([
+    ['false', false],
+    ['absent', undefined],
+  ])('possiblyIncomplete %s: no label (older rows, meetings without gaps)', async (_name, value) => {
+    serve(
+      conversation([turn({ answer: { text: 'On Friday.', notInMeeting: false, citations: [], possiblyIncomplete: value } })]),
+    )
+    view()
+    await screen.findByText('On Friday.')
+    expect(screen.queryByRole('link', { name: en.ask.incompleteLabel })).toBeNull()
+  })
+
+  it('a failed turn has no label', async () => {
+    serve(conversation([turn({ id: 'q2', status: 'failed', answer: null })]))
+    view()
+    await screen.findByText(en.ask.failed)
+    expect(screen.queryByText(en.ask.incompleteLabel)).toBeNull()
+  })
+
+  it('has Italian copy', () => {
+    expect(italian.ask.incompleteLabel).not.toBe(en.ask.incompleteLabel)
+  })
+
+  it('has no axe violation (AC-13.3)', async () => {
+    serve(conversation([flagged()]))
+    const { container } = render(<AskPanel meeting={readyMeeting()} onOpenSource={vi.fn()} />)
+    await screen.findByRole('link', { name: en.ask.incompleteLabel })
+    const result = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(result.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([])
   })
 })
