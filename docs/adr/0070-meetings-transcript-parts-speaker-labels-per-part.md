@@ -1,10 +1,10 @@
 # 0070 — A long recording is transcribed in parts, and speaker labels are numbered per part, never carried over
 
 **Date:** 2026-11-05
-**Status:** Accepted (specs/021-meetings; plan amendment "provider change: Google Cloud" approved by the user on 2026-11-05). Part size is confirmed by spike T107.
+**Status:** Accepted, amended 2026-11-05 (specs/021 plan amendment #2, spec A7, T107 findings): parts overlap, and labels are joined only on clear text evidence. Part size is 10 min (measured by spike T107), not 60.
 **Deciders:** wellD
 **Project:** Operai
-**Relates to:** [ADR-0069](0069-meetings-ai-providers-google-cloud-eu.md), [ADR-0064](0064-meetings-api-reads-audio-bytes-third-reader.md), [ADR-0067](0067-ai-output-structured-validated-plain-text.md)
+**Relates to:** [ADR-0071](0071-meetings-transcript-completeness-detect-retry-mark.md), [ADR-0069](0069-meetings-ai-providers-google-cloud-eu.md), [ADR-0064](0064-meetings-api-reads-audio-bytes-third-reader.md), [ADR-0067](0067-ai-output-structured-validated-plain-text.md)
 
 ---
 
@@ -26,6 +26,44 @@ meeting (part 2's voices become "Speaker 4", "Speaker 5", ...), and the creator 
 two labels to the same participant or text, which the data model already allows. Part start offsets
 are stored (`transcriptPartStartsMs`), `GET /meetings/:id/transcript` returns `parts`, and the UI shows
 a non-blocking banner and a "Part n" divider only when there is more than one part.
+
+## Amendment 2026-11-05: overlapping parts, joined on text evidence, separable by the creator
+
+The spike (T107) showed Chirp 3 silently loses words on long files, so parts are 10 min, not 60,
+and **Option D below became the decision**. This replaces the Decision paragraph's "never carry
+them across"; the principle behind it stands.
+
+- **Overlapping parts.** Each part overlaps the next by about 90 s (chosen in a pause between 60 s
+  and 120 s); both edges of a part fall in a pause where one exists. Words in the overlap are
+  deduplicated by alignment: runs of at least 8 equal normalised words whose times agree are kept
+  once, everything unmatched in either version is kept.
+- **A label joins a previous part's label only on text evidence (AC-6.14).** Over the aligned
+  overlap words, a label of part k+1 joins a label of part k only when at least 20 matched words
+  map to that label and to no other, in both directions (it is one-to-one, with no conflicting
+  match). Position, number, order of appearance and defaults never join. Nothing joins at a
+  boundary where either version has a stretch of at least 20 s with no timed word that touches
+  the overlap (J0), a text-and-time condition that is a superset of "the overlap affected by a
+  detected gap". The join depends only on the words, their labels and their trusted times, never
+  on the audio (AC-6.17); the same outputs join identically whatever the audio.
+- **The creator can separate (AC-6.16).** A joined label shows where it spans parts, and the
+  creator may "Separate by part", which splits it into one label per part, each keeping the
+  name the joined label had (an unnamed "Speaker n" keeps reading so, via `defaultIndex`, and
+  the UI shows each label's part). A false join therefore has a visible, cheap repair, like a
+  false split always had.
+- **Evidence thresholds enforce the principle.** "Never assert identity" is no longer a blanket
+  "never join"; it is "join only when the transcript itself proves it". The failure shape is
+  unchanged, and the asymmetry (a false merge is silent and corrupts everything derived, a false
+  split costs one rename) still decides every tie towards separate. A watch item: the rule is
+  applied word by word, so one mis-attributed word blocks a join; that is the safe direction.
+  Measured on real recordings by O14 (go-live gate) with a target of zero false joins.
+- **Per-part results.** "No per-part result is stored between attempts" now reads: per-part
+  tries live **in memory within one job claim** (ADR-0062) and nothing is at rest in the database
+  until the single commit; a retry of the job replaces, never appends. Part ends are stored too
+  (`transcriptPartEndsMs`), and each segment carries its `part`.
+- **Rejected:** joining by position or number (the failure shape); voice embeddings (biometric
+  data, GDPR art. 9); a majority vote instead of the one-to-one rule (it tolerates a false
+  merge); using the audio-based gap for J0 (it would make joins depend on the audio and break
+  AC-6.17).
 
 ## Failure shape
 
@@ -56,8 +94,8 @@ Rejected: part 2's "1" is not part 1's "1"; it would put one person's words in a
 ### Option C - Voice-embedding matching across parts
 Rejected: new processing of voice characteristics (biometric-adjacent personal data) that the spec never asked for.
 
-### Option D - Overlapping parts (about 2 min) and aligning the overlap's words
-Not now. **Named follow-up.** Trigger: users routinely merging labels on long meetings.
+### Option D - Overlapping parts and aligning the overlap's words
+**Adopted 2026-11-05** (see the amendment above): 90 s overlap, join only on text evidence. It was the named follow-up; the spike's omissions and the A7 spec amendment triggered it.
 
 ### Option E - One whole-meeting request regardless of Google's guidance
 The spike (T107) decides; the code allows it by raising `PIECE_MAX_MS` to the whole meeting.
@@ -75,6 +113,8 @@ The spike (T107) decides; the code allows it by raising `PIECE_MAX_MS` to the wh
 
 **Risks:**
 - R20: label splits confuse readers and summaries. Mitigation: never-merge rule, banner, part dividers, merge by rename, possible removal of splitting by the spike, overlap alignment as follow-up. An AC-6.2 clarification for parts (plan A5) is the PO's to decide.
+
+Note on the original options: Option A's "never a false attribution" is now "no join without text evidence, and a join the creator can undo"; Options B and C stay rejected.
 
 ## Compliance notes
 

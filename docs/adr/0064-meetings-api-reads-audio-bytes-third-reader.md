@@ -156,6 +156,8 @@ local copy, where no network is reachable.
 ## Follow-up notes
 
 - **2026-11-05 (ADR-0069, ADR-0070):** the `transcribe` job now splits our own derived `audio.ogg` with ffmpeg under the same hardening (`-protocol_whitelist file`, pinned `-f ogg`, minimal child env, timeout, temp dir, the process ffmpeg slot) and reads Google's output JSON with an 8 MiB cap, a check that its URI lies in the attempt's prefix and shape validation. Neither is a new reader of user-chosen bytes (the input is our own normalised file; the JSON is the provider's reply to it), so this ADR's escalation trigger is not tripped and its bounded-read rule is not widened.
+- **2026-11-05 (ADR-0070, ADR-0071):** the silence pass now runs on every recording, measured on a speech-band signal (`highpass=f=150,lowpass=f=4000`), because the transcript-completeness detector needs the sound intervals of every recording. Overlapping parts are cut from our own derived `audio.ogg` by stream copy with output seeking (`-ss`/`-to`, one ffmpeg per part under the process slot), replacing the segment muxer and `parts.csv`; the ADR-0064 input flags, whitelists, caps, env and timeouts are unchanged. Still our own derived file, so the escalation trigger is not tripped.
+
 
 ---
 
