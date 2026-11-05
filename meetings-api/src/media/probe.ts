@@ -16,13 +16,17 @@
  *          probe without a pinned format is refused outright;
  *   - the demuxer must be on the allowlist (mov/mp4/m4a, matroska/webm, ogg, wav, mp3,
  *     aac, flac) and there must be an audio stream and a duration of at most 3 h;
- *   - 30 s wall clock, output bounded, process killed on timeout.
+ *   - 30 s wall clock, output bounded, process killed on timeout;
+ *   - the tool runs with a MINIMAL environment (`PATH`, `TMPDIR`): never the service's
+ *     database URL, provider keys or client secrets.
  *
  * The verdict is DATA (`{ ok:false, reason }`), a missing binary is an ERROR
  * (`ToolMissingError`): a broken install must never read as "your file is bad".
  *
  * `FFPROBE_PATH` / `FFMPEG_PATH` (optional) override the binaries' names.
  */
+
+import { tmpdir } from "node:os";
 
 /** AC-3.1: at most 3 hours of audio. */
 export const MAX_AUDIO_MS = 3 * 60 * 60 * 1000;
@@ -66,6 +70,13 @@ export interface ToolOptions {
   readonly cwd?: string;
   /** Aborting kills the process (a job that lost its lease). */
   readonly signal?: AbortSignal;
+  /** The child's `TMPDIR` (the job's own work dir); default the OS temp dir. */
+  readonly tmpDir?: string;
+}
+
+/** The ONLY variables a media tool sees. Secrets of the service (DB, S3, providers, service client) never reach it. */
+export function toolEnv(tmpDir?: string): Record<string, string> {
+  return { PATH: process.env["PATH"] ?? "/usr/local/bin:/usr/bin:/bin", TMPDIR: tmpDir ?? tmpdir() };
 }
 
 async function drain(stream: ReadableStream<Uint8Array>, max: number): Promise<string> {
@@ -93,6 +104,7 @@ export async function runTool(bin: string, args: readonly string[], options: Too
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
+      env: toolEnv(options.tmpDir),
       ...(options.cwd ? { cwd: options.cwd } : {}),
     });
   } catch (error) {
@@ -211,6 +223,8 @@ export interface ProbeOptions {
   readonly maxDurationMs?: number;
   /** Pins the input demuxer (`-f`). Required for a URL source, optional for a local file. */
   readonly inputFormat?: string;
+  /** The child's `TMPDIR`. */
+  readonly workDir?: string;
 }
 
 /**
@@ -220,6 +234,7 @@ export interface ProbeOptions {
 export async function probeMedia(source: string, options: ProbeOptions = {}): Promise<ProbeVerdict> {
   const result = await runTool(options.bin ?? ffprobeBinary(), buildProbeArgs(source, options.inputFormat), {
     timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS,
+    ...(options.workDir ? { tmpDir: options.workDir } : {}),
   });
   if (result.timedOut || result.code !== 0) return reject("unsupported_type");
   let doc: unknown;

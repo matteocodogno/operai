@@ -45,7 +45,7 @@ export interface PrepareDeps {
   readonly storage?: () => Storage;
   readonly normalize?: typeof normalizeAudio;
   /** The local-file probe that is the trust decision; default `ffprobe` on the file, `file` protocol only. */
-  readonly probe?: (file: string, options: { maxDurationMs: number }) => Promise<ProbeVerdict>;
+  readonly probe?: (file: string, options: { workDir: string; maxDurationMs: number }) => Promise<ProbeVerdict>;
   /** Ceiling on the bytes of all a recording's chunks together (tests lower it). */
   readonly maxRecordingBytes?: number;
   /** Ceiling on an uploaded original (tests lower it). */
@@ -186,14 +186,14 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       const inputs = meeting.source === "uploaded" ? files : await groupIntoRuns(workDir, files);
       const inputFormats: string[] = [];
       for (const input of inputs) {
-        const verdict = await probe(input, { maxDurationMs: source.maxDurationMs });
+        const verdict = await probe(input, { workDir, maxDurationMs: source.maxDurationMs });
         if (!verdict.ok) throw new NormalizeError(verdict.reason === "too_long" ? "too_long" : "audio_unreadable");
         const demuxer = pinnedDemuxer(verdict.format);
         if (demuxer === undefined) throw new NormalizeError("audio_unreadable");
         inputFormats.push(demuxer);
       }
       const output = join(workDir, "audio.ogg");
-      const { durationMs } = await normalize({ inputs, inputFormats, output, signal: ctx.signal });
+      const { durationMs } = await normalize({ inputs, inputFormats, workDir, output, signal: ctx.signal });
 
       // 3. audio.ogg first (idempotent key), then the state change and the next job together.
       const { sizeBytes } = await storage.putAudioFile(meetingId, output);

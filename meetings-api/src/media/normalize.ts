@@ -114,6 +114,8 @@ export interface NormalizeRequest {
    * what is decoded; `prepare_audio` always passes it).
    */
   readonly inputFormats?: readonly string[];
+  /** The job's work dir: the tools' `TMPDIR`. */
+  readonly workDir?: string;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   /** Test seams. */
@@ -131,6 +133,7 @@ export interface NormalizeRequest {
 export async function normalizeAudio(request: NormalizeRequest): Promise<{ durationMs: number }> {
   const result = await runTool(request.ffmpegBin ?? ffmpegBinary(), buildFfmpegArgs(request.inputs, request.output, request.inputFormats), {
     timeoutMs: request.timeoutMs ?? FFMPEG_TIMEOUT_MS,
+    ...(request.workDir ? { tmpDir: request.workDir } : {}),
     ...(request.signal ? { signal: request.signal } : {}),
   });
   if (result.timedOut || result.code !== 0) throw new NormalizeError("audio_unreadable");
@@ -143,7 +146,10 @@ export async function normalizeAudio(request: NormalizeRequest): Promise<{ durat
   }
   if (size === 0) throw new NormalizeError("audio_unreadable");
 
-  const measured = await runTool(request.ffprobeBin ?? ffprobeBinary(), buildProbeArgs(request.output), { timeoutMs: PROBE_OUTPUT_TIMEOUT_MS });
+  const measured = await runTool(request.ffprobeBin ?? ffprobeBinary(), buildProbeArgs(request.output), {
+    timeoutMs: PROBE_OUTPUT_TIMEOUT_MS,
+    ...(request.workDir ? { tmpDir: request.workDir } : {}),
+  });
   if (measured.timedOut || measured.code !== 0) throw new NormalizeError("audio_unreadable");
   let doc: { streams?: { codec_type?: string }[] };
   try {

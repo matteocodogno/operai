@@ -157,6 +157,31 @@ describe("runTool", () => {
     await expect(runTool("definitely-not-a-binary-xyz", [], { timeoutMs: 1000 })).rejects.toBeInstanceOf(ToolMissingError);
   });
 
+  it("runs the tool with a minimal environment: PATH and TMPDIR only, none of the service's secrets", async () => {
+    const secrets = {
+      DATABASE_URL: "postgresql://u:p@db/x",
+      AZURE_SPEECH_KEY: "azure-secret",
+      AWS_SECRET_ACCESS_KEY: "aws-secret",
+      MEETINGS_S3_SECRET_ACCESS_KEY: "s3-secret",
+      SERVICE_CLIENT_SECRET: "client-secret",
+    };
+    const previous = Object.fromEntries(Object.keys(secrets).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, secrets);
+    try {
+      const r = await runTool("env", [], { timeoutMs: 5000, tmpDir: "/work/job-1" });
+      const seen = Object.fromEntries(r.stdout.trim().split("\n").map((line) => [line.split("=")[0], line.slice(line.indexOf("=") + 1)]));
+      expect(Object.keys(seen).filter((k) => !["PATH", "TMPDIR", "PWD", "SHLVL", "_", "OLDPWD"].includes(k as string))).toEqual([]);
+      expect(seen["TMPDIR"]).toBe("/work/job-1");
+      expect(seen["PATH"]).toBe(process.env["PATH"]);
+      for (const secret of Object.values(secrets)) expect(r.stdout).not.toContain(secret);
+    } finally {
+      for (const [k, v] of Object.entries(previous)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it("keeps only a bounded amount of output", async () => {
     const r = await runTool("sh", ["-c", "head -c 3000000 /dev/zero | tr '\\0' a"], { timeoutMs: 5000, maxOutputBytes: 1000 });
     expect(r.stdout.length).toBeLessThanOrEqual(1000);
