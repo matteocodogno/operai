@@ -122,6 +122,24 @@ export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName
     services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"],
     why: "the shared notify token was retired (specs/016, ADR-0049): every caller uses its own scoped service credential",
   },
+  // specs/021 plan § Amendment 2026-11-05 (G-7, ADR-0069): the provider change to Google Cloud retired
+  // these seven names. meetings-api no longer reads them; a leftover is a live Azure or AWS credential
+  // (or a stale setting) nobody uses, so it is made visible. Flagged by NAME, on meetings-api only.
+  ...(
+    [
+      ["AZURE_SPEECH_REGION", "use MEETINGS_SPEECH_LOCATION"],
+      ["AZURE_SPEECH_KEY", "a live credential nobody uses; use MEETINGS_GCP_SERVICE_ACCOUNT_KEY"],
+      ["AZURE_SPEECH_ENDPOINT", "the Speech endpoint is derived from MEETINGS_SPEECH_LOCATION"],
+      ["BEDROCK_REGION", "use MEETINGS_VERTEX_LOCATION"],
+      ["BEDROCK_MODEL_ID", "use MEETINGS_VERTEX_MODEL_ID"],
+      ["MEETINGS_AWS_ACCESS_KEY_ID", "a live credential nobody uses; use MEETINGS_GCP_SERVICE_ACCOUNT_KEY"],
+      ["MEETINGS_AWS_SECRET_ACCESS_KEY", "a live credential nobody uses; use MEETINGS_GCP_SERVICE_ACCOUNT_KEY"],
+    ] as const
+  ).map(([name, hint]) => ({
+    name,
+    services: ["meetings-api"] as ServiceName[],
+    why: `retired by the provider change to Google Cloud (specs/021, ADR-0069): ${hint}`,
+  })),
 ];
 
 /**
@@ -298,8 +316,12 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
     "NOTIFY_INTERNAL_URL", "CRM_API_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET",
     "MEETINGS_S3_ENDPOINT", "MEETINGS_S3_REGION", "MEETINGS_S3_EU_ENDPOINT_HOSTS",
-    "AZURE_SPEECH_REGION", "AZURE_SPEECH_KEY",
-    "BEDROCK_REGION", "BEDROCK_MODEL_ID", "MEETINGS_AWS_ACCESS_KEY_ID", "MEETINGS_AWS_SECRET_ACCESS_KEY",
+    // Google Cloud (plan § Amendment 2026-11-05, G-7): Speech-to-Text v2 (Chirp 3), Claude on Vertex AI
+    // and the transient GCS bucket, one project and one service account. The locations, the model id and
+    // the key are validated by meetings-api (env.ts S1-S5, startup checks N2-N4); here only their
+    // presence is part of the contract.
+    "MEETINGS_SPEECH_LOCATION", "MEETINGS_VERTEX_LOCATION", "MEETINGS_VERTEX_MODEL_ID",
+    "MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", "MEETINGS_GCS_TRANSIENT_BUCKET",
     "MEETINGS_AI_PROVIDER", "PORT",
   ],
 };
@@ -328,6 +350,9 @@ export const SECRET_VARS: ReadonlySet<string> = new Set([
   "CRM_S3_SECRET_ACCESS_KEY",
   "MEETINGS_S3_ACCESS_KEY_ID",
   "MEETINGS_S3_SECRET_ACCESS_KEY",
+  "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", // base64 service-account JSON key, carries a private key (specs/021, G-6/G-7)
+  // The retired provider credentials stay redacted: if one is found live it is flagged by name
+  // (FORBIDDEN_VARS) and its value must still never be surfaced.
   "AZURE_SPEECH_KEY",
   "MEETINGS_AWS_ACCESS_KEY_ID",
   "MEETINGS_AWS_SECRET_ACCESS_KEY",

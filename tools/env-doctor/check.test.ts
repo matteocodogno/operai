@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { checkSuite, hasErrors, showValue, type Finding, type SuiteEnv } from "./check";
-import { BACKENDS, ORIGINS, SERVICES } from "./manifest";
+import { BACKENDS, ORIGINS, SECRET_VARS, SERVICES, isSecretVar } from "./manifest";
 
 const TOKEN = "x".repeat(40);
 const AUD = "operai-suite";
@@ -526,6 +526,8 @@ describe("env-doctor checker", () => {
 // crm-api host-notice caller (crm-api now verifies service tokens), and an audio-bucket owner.
 describe("env-doctor checker — meetings (specs/021)", () => {
   const CLIENT_SECRET_MEET = "m".repeat(40);
+  // A synthetic stand-in for the base64 service-account key; the tests assert it is never printed.
+  const GCP_KEY = "eyJzeW50aGV0aWMta2V5LW5ldmVyLXByaW50ZWQi" + "Z".repeat(24);
   const meetingsRegistry = (scope = "notifications.push host-notices.send", secret = CLIENT_SECRET_MEET) =>
     JSON.stringify({
       "inventory-api": { secret: CLIENT_SECRET, scope: "notifications.push" },
@@ -562,12 +564,12 @@ describe("env-doctor checker — meetings (specs/021)", () => {
       MEETINGS_S3_ENDPOINT: "https://t3.storageapi.dev",
       MEETINGS_S3_REGION: "ams",
       MEETINGS_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
-      AZURE_SPEECH_REGION: "westeurope",
-      AZURE_SPEECH_KEY: "azure-key-synthetic",
-      BEDROCK_REGION: "eu-central-2",
-      BEDROCK_MODEL_ID: "model-synthetic",
-      MEETINGS_AWS_ACCESS_KEY_ID: "aws-id-synthetic",
-      MEETINGS_AWS_SECRET_ACCESS_KEY: "aws-secret-synthetic",
+      MEETINGS_SPEECH_LOCATION: "eu",
+      MEETINGS_VERTEX_LOCATION: "eu",
+      MEETINGS_VERTEX_MODEL_ID: "claude-synthetic-model",
+      MEETINGS_GCP_PROJECT_ID: "synthetic-project",
+      MEETINGS_GCP_SERVICE_ACCOUNT_KEY: GCP_KEY,
+      MEETINGS_GCS_TRANSIENT_BUCKET: "synthetic-transient-bucket",
       MEETINGS_AI_PROVIDER: "real",
       PORT: "8085",
     };
@@ -588,8 +590,9 @@ describe("env-doctor checker — meetings (specs/021)", () => {
 
   test("each required storage, provider and link variable is required", () => {
     for (const key of [
-      "MEETINGS_S3_ENDPOINT", "MEETINGS_S3_EU_ENDPOINT_HOSTS", "AZURE_SPEECH_REGION", "AZURE_SPEECH_KEY",
-      "BEDROCK_REGION", "BEDROCK_MODEL_ID", "MEETINGS_AWS_ACCESS_KEY_ID", "MEETINGS_AWS_SECRET_ACCESS_KEY",
+      "MEETINGS_S3_ENDPOINT", "MEETINGS_S3_EU_ENDPOINT_HOSTS",
+      "MEETINGS_SPEECH_LOCATION", "MEETINGS_VERTEX_LOCATION", "MEETINGS_VERTEX_MODEL_ID",
+      "MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", "MEETINGS_GCS_TRANSIENT_BUCKET",
       "MEETINGS_AI_PROVIDER", "CRM_API_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET",
     ]) {
       const s = meetingsSuite();
@@ -672,6 +675,64 @@ describe("env-doctor checker — meetings (specs/021)", () => {
     const f = checkSuite(s, PROD);
     expect(errText(f)).toContain("meetings-api must not hold NOTIFY_INTERNAL_TOKEN");
     expect(JSON.stringify(f)).not.toContain(TOKEN);
+  });
+
+  // specs/021 plan § Amendment 2026-11-05 (G-7, T105): the provider change to Google Cloud.
+  test("a missing MEETINGS_GCP_SERVICE_ACCOUNT_KEY is reported by name, and no value is printed", () => {
+    const s = meetingsSuite();
+    delete s["meetings-api"]!.MEETINGS_GCP_SERVICE_ACCOUNT_KEY;
+    const f = checkSuite(s, PROD);
+    expect(errText(f)).toContain("MEETINGS_GCP_SERVICE_ACCOUNT_KEY is missing");
+    expect(errs(f).some((x) => x.scope === "meetings-api")).toBe(true);
+    expect(JSON.stringify(f)).not.toContain(GCP_KEY);
+  });
+
+  test("the service-account key is a secret: redacted when it appears in a finding, never shown", () => {
+    expect(isSecretVar("MEETINGS_GCP_SERVICE_ACCOUNT_KEY")).toBe(true);
+    expect(SECRET_VARS.has("MEETINGS_GCP_SERVICE_ACCOUNT_KEY")).toBe(true);
+    const shown = showValue("MEETINGS_GCP_SERVICE_ACCOUNT_KEY", GCP_KEY);
+    expect(shown).not.toContain(GCP_KEY);
+    expect(shown).not.toContain("Z".repeat(10));
+    // the non-secret companions stay readable, so drift is still diagnosable
+    expect(showValue("MEETINGS_VERTEX_LOCATION", "eu")).toContain("eu");
+  });
+
+  test("the key never reaches any finding, even when other things are wrong", () => {
+    const s = meetingsSuite();
+    delete s["meetings-api"]!.MEETINGS_GCS_TRANSIENT_BUCKET;
+    s["meetings-api"]!.AZURE_SPEECH_KEY = GCP_KEY; // a secret value in a retired name: still flagged by name only
+    expect(JSON.stringify(checkSuite(s, PROD))).not.toContain(GCP_KEY);
+  });
+
+  // The seven names the provider change removed are flagged as retired, by name, never by value.
+  for (const name of [
+    "AZURE_SPEECH_REGION", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT",
+    "BEDROCK_REGION", "BEDROCK_MODEL_ID", "MEETINGS_AWS_ACCESS_KEY_ID", "MEETINGS_AWS_SECRET_ACCESS_KEY",
+  ]) {
+    test(`meetings-api holding the retired ${name} → error naming it as retired, value never printed`, () => {
+      const s = meetingsSuite();
+      s["meetings-api"]![name] = "retired-secret-value-0123456789";
+      const f = checkSuite(s, PROD);
+      expect(errText(f)).toContain(`meetings-api must not hold ${name} — retired by the provider change to Google Cloud`);
+      expect(JSON.stringify(f)).not.toContain("retired-secret-value-0123456789");
+      expect(errs(f).filter((x) => x.message.includes(name)).map((x) => x.scope)).toEqual(["meetings-api"]);
+    });
+  }
+
+  test("a retired name is flagged even when empty or a reference; another service is not affected", () => {
+    for (const value of ["", "${{shared.AZURE_SPEECH_KEY}}", "${OP:AIScream/anything/credential}"]) {
+      const s = meetingsSuite();
+      s["meetings-api"]!.AZURE_SPEECH_KEY = value;
+      expect(errText(checkSuite(s, PROD))).toContain("meetings-api must not hold AZURE_SPEECH_KEY");
+    }
+    const t = meetingsSuite();
+    t["crm-api"]!.BEDROCK_REGION = "eu-central-2"; // not a meetings-api variable on crm-api: out of this rule
+    expect(errText(checkSuite(t, PROD))).not.toContain("must not hold BEDROCK_REGION");
+  });
+
+  test("a suite without the retired names has no finding about them, and does not require them", () => {
+    const f = checkSuite(meetingsSuite(), PROD);
+    expect(f.some((x) => /AZURE_|BEDROCK_|MEETINGS_AWS_/.test(x.message))).toBe(false);
   });
 
   test("audio bucket residency: a non-AWS host outside the EU list, an empty list, a non-EU AWS region → error", () => {
