@@ -9,7 +9,8 @@
     "db:migrate": "node node_modules/prisma/build/index.js migrate dev",
     "db:deploy": "node node_modules/prisma/build/index.js migrate deploy",
     "db:generate": "node node_modules/prisma/build/index.js generate",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p evals/tsconfig.json",
+    "eval": "bun evals/run.ts",
     "test": "bun test"
   },
   "dependencies": {
