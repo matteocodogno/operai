@@ -1,7 +1,7 @@
 ---
 spec: 021
 generated: 2026-11-04
-synced: 2026-11-04
+synced: 2026-11-05
 ---
 
 # Tasks: Meetings — record, transcribe, summarise and question meetings
@@ -287,6 +287,8 @@ database after `bun run db:deploy`.
     - the template edited or deleted afterwards leaves the snapshot byte-identical;
     - per-item `can` equals the route outcome for author / creator / other / no-access;
     - `no_speech` → 409; participant without access → 403
+    - (re-sync 2026-11-05, plan amendment T94) generate/regenerate store `template.speakerNames` resolved with the caller's token (unknown → "Speaker n"), retry keeps the stored map, and the `summarize` job uses only that map
+  - touch (re-sync): also `meetings-api/src/jobs/handlers/summarize.ts`, `meetings-api/src/templates/templates.routes.ts` (recommended templates via the shared visibility helper)
 
 - [x] T94: [BE] meetings-api `summarize` job: builds the prompt from the summary's snapshot and the current transcript, validates the output (T36), writes `ready` sections or `failed` + code under the `attemptId` guard, and notifies the author (title + outcome only) — refs: AC-7.5, AC-7.6, AC-7.9 — deps: T16, T17, T36
   - touch: `meetings-api/src/jobs/handlers/summarize.ts`, `meetings-api/src/jobs/handlers/summarize.test.ts`

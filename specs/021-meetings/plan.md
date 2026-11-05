@@ -529,7 +529,9 @@ LLM feature; ReviewAI/ProposAI will inherit it).
   (`POST /authz/users/identities`, status `deleted`):
   - for display the lookup fails soft (`frozen: null` = unknown);
   - every creator control fails **closed**: 503 if the lookup fails, 403 `frozen` if the
-    creator is deactivated.
+    creator is deactivated. The one exception is the three high-frequency recording routes
+    (chunk confirm, upload-url re-mint, heartbeat), which skip the lookup; the residual this
+    accepts is stated in amendment 2026-11-05 #2.
 
   No caching: reactivation restores control on the next request.
 - **Action matrix** (403 codes where the caller can open the meeting, AC-5.8):
@@ -906,6 +908,8 @@ in the same request before emitting `linked`. That is also why AC-14.8's "creato
 - Instants are ISO 8601; durations are integer ms.
 - Every route: 401 without a valid token. Capability routes: 403 without the permission, 503
   when `auth` is unreachable.
+- Title search (`q`) escapes `%`, `_` and `\` before `ILIKE` (`likeLiteral`; Prisma `contains`
+  passes them through), so a search is always a literal substring.
 - Record routes answer **404 `not_found`, byte-identical for "does not exist" and "not
   visible"** (AC-5.3).
 - `ETag`/`If-Match` where noted: 428 `precondition_required`, 409 `version_conflict
@@ -921,7 +925,9 @@ type DerivedStatus = 'draft' | 'recording' | 'interrupted' | 'processing' | 'rea
 type PresignedPost = { url: string; fields: Record<string, string>; expiresAt: string }
 
 type MeetingRow = { id; title; startsAt; format; status: DerivedStatus; host: HostView | null;
-  role: 'creator' | 'participant'; summaryCount: number; creator: PersonRef }
+  role: 'creator' | 'participant' | 'host_reader'; summaryCount: number; creator: PersonRef }
+// 'host_reader' appears only in a host's own list (GET /hosts/:app/:type/:id/meetings); My meetings
+// rows are never 'host_reader' (amendment 2026-11-05 #1)
 type Meeting = Omit<MeetingRow, 'role'> & {
   language: 'en' | 'it'; source: 'recorded' | 'uploaded' | 'text'; stage: 'preparing' | 'transcribing' | null;
   failure: { code: string } | null; noSpeech: boolean; durationMs: number | null;
@@ -948,7 +954,7 @@ type Meeting = Omit<MeetingRow, 'role'> & {
 |---|---|---|---|
 | `GET /hosts` | selfScoped | | `{ items: [{ app, entityType, labels: { en, it: { app, entity, visibilityHint, noticeFailed } }, offersHostVisible, recommendedTemplates }] }` |
 | `GET /hosts/:app/:type/:id` | capability(`meetings:access`) | | `{ host: HostView }`; 422 `host_not_registered`; 422 `host_entity_not_found` (missing **or** closed, identical, AC-1.5); 503 `host_unavailable` |
-| `GET /hosts/:app/:type/:id/linkable-meetings` | capability(`meetings:access`) | `q?`, `page` | `Page<MeetingRow>` of the caller's own meetings as **creator**, not frozen, `host` ≠ this entity (standalone or linked elsewhere), `startsAt` desc (G2). 422 `host_not_registered`; no host call here: the link itself (`PATCH host`) resolves |
+| `GET /hosts/:app/:type/:id/linkable-meetings` | capability(`meetings:access`) | `q?`, `page` | `Page<MeetingRow>` of the caller's own meetings as **creator**, not frozen, `host` ≠ this entity (standalone or linked elsewhere), `startsAt` desc (G2). 422 `host_not_registered`. Rows linked elsewhere get their host labels batch-resolved as the caller (≤ 25 ids per host, fail soft → `unavailable`, as in My meetings); the link itself (`PATCH host`) still resolves the target fail closed (amendment 2026-11-05 #3) |
 | `GET /hosts/:app/:type/:id/meetings` | selfScoped (+ live checks for host readers) | `page` | `Page<MeetingRow>` of exactly what the caller may open (AC-11.2). No count of hidden rows. Host unreachable → only creator/participant rows plus `hostReadersUnavailable: true` |
 
 ### Meetings
@@ -967,14 +973,18 @@ type Meeting = Omit<MeetingRow, 'role'> & {
 *creator-control* = capability(`meetings:access`) + creator + not frozen (403 `creator_only` /
 `frozen` / `meetings_access_required`).
 
+*creator-control (light)* = capability(`meetings:access`) + creator, **without** the live
+frozen lookup. It is used only by the high-frequency recording routes: chunk confirm,
+upload-url re-mint and heartbeat (amendment 2026-11-05 #2).
+
 ### Capture
 
 | Route | Stack | Body | Answer |
 |---|---|---|---|
 | `POST /meetings/:id/recording/start` | creator-control | | 201 `{ sessionId, chunkSeconds: 10, maxChunkBytes: 8388608, next: PresignedPost /* seq 0 */ }`; 409 `consent_required` · `not_draft` · `recording_elsewhere` · `wrong_source` |
-| `POST /meetings/:id/recording/chunks/:seq/confirm` | creator-control | `{ sessionId, durationMs ≤ 15000, capturedMs? }` | `{ storedChunks: number, durationMs, next: PresignedPost }`; 409 `session_inactive` · `duration_limit`; 422 `chunk_missing` (HEAD 404) |
-| `POST /meetings/:id/recording/chunks/:seq/upload-url` | creator-control | `{ sessionId }` | `PresignedPost` (re-mint after expiry) |
-| `POST /meetings/:id/recording/heartbeat` | creator-control | `{ sessionId, paused: boolean, capturedMs: number ≤ 10 800 000 + 60 000 }` | 204 |
+| `POST /meetings/:id/recording/chunks/:seq/confirm` (`seq` 0..19,999) | creator-control (light) | `{ sessionId, durationMs ≤ 15000, capturedMs? }` | `{ storedChunks: number, durationMs, next: PresignedPost }`; 409 `session_inactive` · `duration_limit`; 422 `chunk_missing` (HEAD 404) |
+| `POST /meetings/:id/recording/chunks/:seq/upload-url` | creator-control (light) | `{ sessionId }` | `PresignedPost` (re-mint after expiry) |
+| `POST /meetings/:id/recording/heartbeat` | creator-control (light) | `{ sessionId, paused: boolean, capturedMs: number ≤ 10 800 000 + 60 000 }` | 204 |
 | `POST /meetings/:id/recording/stop` | creator-control | `{ sessionId, lastSeq }` | 202 `Meeting` (`processing`); 409 `chunks_missing { missing: number[] }` |
 | `POST /meetings/:id/recording/process` | creator-control | | 202 `Meeting` (only from `interrupted`); 409 `audio_deleted` |
 | `POST /meetings/:id/recording/discard` | creator-control | | `Meeting` (`draft`, chunks deleted) |
@@ -991,7 +1001,7 @@ type Meeting = Omit<MeetingRow, 'role'> & {
 |---|---|---|
 | `GET /meetings/:id/transcript` | selfScoped + visibility | `{ version, segments: [{ id, ordinal, startMs \| null, endMs \| null, speakerKey \| null, text, edited, version }], speakers: [{ key, label: { kind: 'default', index } \| { kind: 'participant', participantId } \| { kind: 'text', text } }] }` |
 | `PATCH /meetings/:id/transcript/segments/:segmentId` | creator-control, If-Match | `{ text 1..10000 }` → segment; bumps `transcriptVersion` |
-| `PUT /meetings/:id/transcript/speakers/:key` | creator-control | `{ participantId } \| { text } \| null` (null = back to "Speaker n") |
+| `PUT /meetings/:id/transcript/speakers/:key` | creator-control | `{ participantId } \| { text: 1..100 } \| null` (null = back to "Speaker n"); 422 `participant_not_in_meeting` |
 
 ### Summaries
 
@@ -1098,7 +1108,7 @@ Levels:
 | AC-2.8 | integration + e2e | clock + 2 min with no chunk/heartbeat → reads `interrupted`, `durationMs` kept, process/discard work; static test: no code path writes status from a time comparison; e2e: close the page mid-recording, reopen → `interrupted`, stored duration ≥ recorded − 20 s |
 | AC-2.9 | unit + integration + e2e | `lostMs` = last `capturedMs` − stored durations (vectors incl. null when never reported, floor 0), creator-only; UI "at least …" vs fallback sentence; uploader backs off and requeues while offline, indicator "Audio not yet saved" (and survives only while this tab is open); e2e `context.setOffline(true)` 40 s → back online → every seq stored, one session |
 | AC-2.10 | unit + e2e | `beforeunload` registered while recording/unsaved; shell `registerNavigationBlocker` honoured by `useBlocker` (shell unit); e2e sidebar click during recording → confirmation |
-| AC-2.11 | unit + integration | fake timers: warning at 2 h 50, auto-stop + save + `processing` at 3 h; chunk past 3 h + 60 s → 409 `duration_limit`; second `start` while live → 409 `recording_elsewhere` |
+| AC-2.11 | unit + integration | fake timers: warning at 2 h 50, auto-stop + save + `processing` at 3 h; chunk past 3 h + 60 s → 409 `duration_limit`; `seq` 20,000 → 422; second `start` while live → 409 `recording_elsewhere`; the light routes make no identities call (stub counts zero) while start/stop make one |
 | AC-3.1 | integration | upload → confirm → `processing`; `prepare_audio` on an mp4 video fixture → only `audio.ogg` stored, original deleted; ffmpeg args include `-vn -sn -dn` |
 | AC-3.2 | integration | mint: unsupported type / > 500 MiB → 422; confirm with fixtures (no audio track, metadata duration > 3 h, HLS playlist / unknown demuxer) → 422 `upload_rejected` with reason, object deleted, status `draft` |
 | AC-3.3 | component + integration | XHR error → failure shown + Retry; confirm without an object → 409 `upload_incomplete`, status stays `draft` |
@@ -1129,7 +1139,7 @@ Levels:
 | AC-5.12 | integration | erase holder deletes a frozen meeting; frozen audio expiry identical; no notice emitted while frozen |
 | AC-5.13 | integration | identities back to `active` → creator control 2xx on the next request |
 | AC-6.1 | integration + component | segments ordered by `startMs`; text meeting renders without times |
-| AC-6.2 | unit + integration | provider phrases → segments, labels by first appearance, single voice → one label; rename → all segments show the new label |
+| AC-6.2 | unit + integration | provider phrases → segments, labels by first appearance, single voice → one label; rename → all segments show the new label; text label 101 chars → 422; a participant of another meeting → 422 `participant_not_in_meeting` |
 | AC-6.3 | integration | segment edit without If-Match → 428, stale → 409, success → `edited:true`, version + 1, `transcriptVersion` + 1 |
 | AC-6.4 | unit + component | `fold()` vectors (case, accents: "perché" ~ "PERCHE"); highlight count matches |
 | AC-6.5 | integration + component | audio URL only while kept; control absent once `deleted` |
@@ -1166,7 +1176,7 @@ Levels:
 | AC-9.7 | unit + eval | answer schema enforced under hostile fake output; eval: off-scope injection → `notInMeeting` |
 | AC-9.8 | integration + component | 31st AI request → 429 `ai_rate_limited` + `Retry-After`; message names when to retry |
 | AC-10.1 | e2e + integration | zero-grant user opens My meetings from the user menu, sees only their own; admin sees only their own |
-| AC-10.2 | integration | row fields, `startsAt` desc, 25 per page, `q` substring case-insensitive, role/status (incl. derived `interrupted`)/host filters |
+| AC-10.2 | integration | row fields, `startsAt` desc, 25 per page, `q` substring case-insensitive, with `%` and `_` matched literally; role/status (incl. derived `interrupted`)/host filters |
 | AC-10.3 | integration + component | fake host `open` → "Deal · title" link, `closed`/`unavailable` → "CRM · deal", `missing` → "No longer available" |
 | AC-10.4 | integration + e2e | participant without `meetings:access` reads transcript and summaries; every mutation → 403 `meetings_access_required`; no controls; no sidebar entry |
 | AC-10.5 | e2e | holder sees Meetings in the sidebar with New meeting and Templates |
@@ -1174,7 +1184,7 @@ Levels:
 | AC-10.7 | component | empty state with and without New meeting |
 | AC-10.8 | contract (auth) | seed: `employee` holds `meetings:access`; `template:manage`/`meeting:erase` only on `admin`; no other rule mentions them |
 | AC-11.1 | unit | production registry is exactly `crm/deal` with requirement and notices flags; `MEETINGS_TEST_HOSTS` with `NODE_ENV=production` → exit 1 |
-| AC-11.2 | integration + e2e | deal list = exactly what the viewer may open, newest first, title/date/status/summaryCount/creator; response has no hidden counts; empty state + Start meeting for holders |
+| AC-11.2 | integration + e2e | deal list = exactly what the viewer may open, newest first, title/date/status/summaryCount/creator, `role: "host_reader"` on host-visible rows; response has no hidden counts; empty state + Start meeting for holders |
 | AC-11.3 | e2e | meeting started from a deal appears in the deal's section and in My meetings |
 | AC-11.4 | integration + component | `testhost/widget` runs create/list/open/visibility/summaries/questions through the same suite as CRM; `quiethost/gadget` receives no notice; meeting screens render a testhost meeting from `/hosts` labels |
 | AC-11.5 | integration | fake host `missing` → "No longer available", host readers 404, creator/participant still open |
@@ -1403,4 +1413,38 @@ Affected ADRs (not edited here):
   `bedrock:GetAccountDataRetention` in each. This is stricter than ADR-0061's wording ("the
   region's"); not edited here.
   - Changed: § AI providers (startup checks), § Environment (IAM), test AC-4.9.
+
+## Amendment 2026-11-05 (implementation, source: T19–T34)
+
+1. **`MeetingRow.role` gains `"host_reader"`** for a host-visible reader's row in a host's own
+   list (`GET /hosts/:app/:type/:id/meetings`). My meetings never returns it. Changed:
+   § API contracts (types), test AC-11.2.
+2. **High-frequency recording routes skip the live frozen lookup.**
+   - Chunk confirm, upload-url re-mint and heartbeat check creator + `meetings:access` only
+     ("creator-control (light)").
+   - The reason: `auth` rate-limits `/authz/users/identities` at 120 calls per 10 min per
+     caller, and a recording makes about 8 such calls a minute.
+   - Start, stop, process, discard, upload, text and transcript edits keep the full live
+     check.
+   - **Accepted residual:** a creator deactivated mid-recording can keep uploading chunks
+     until the next full-check call (stop or process refuses with 403 `frozen`). This is
+     bounded by the 3 h cap, in the same family as ADR-0012's residual JWT window; the
+     uploaded audio then sits in a frozen meeting and expires with the bucket rule.
+   - Changed: § API contracts (Capture), test AC-2.11.
+3. **Additive contract details:**
+   - problem codes `not_interrupted`, `no_audio`, `not_recording`, `wrong_source`,
+     `not_draft`, `not_editable`, `not_ready`, `in_progress`, `media_unavailable`,
+     `participant_not_in_meeting` (each a 409/422 refinement of a state the plan already
+     refuses; the UI's code → copy map in meetings-ui `lib/errors.ts` must list them all);
+   - title search escapes `ILIKE` wildcards (`likeLiteral`);
+   - limits: chunk `seq` ≤ 19,999, speaker label ≤ 100 characters, segment text ≤ 10,000
+     characters;
+   - the linkable-meetings list resolves host labels for rows linked elsewhere (batched,
+     fail soft).
+
+   Changed: § API contracts (Conventions, Hosts, Capture, Transcript), tests AC-2.11, AC-6.2
+   and AC-10.2.
+
+Not recorded: the 48 kHz decode rate of Ogg Opus seen by `ffprobe`. The plan only states the
+encode arguments (`-ar 16000`), not a probed rate, so nothing in it is wrong.
 
