@@ -6,7 +6,7 @@ import { CREATOR, call, db, json, kit, mkMeeting, useKit } from "../test-support
 import { objectKeys } from "../lib/storage";
 import { createPrepareAudio } from "../jobs/handlers/prepareAudio";
 import { PermanentJobError, type JobContext } from "../jobs/runner";
-import { setProberForTests, type ProbeVerdict } from "../media/probe";
+import { MAX_AUDIO_MS, setProberForTests, type ProbeVerdict } from "../media/probe";
 import type { NormalizeRequest } from "../media/normalize";
 
 // OWASP A08/A10 (QE fix round 1): the bytes that are DECODED must be the bytes that were
@@ -129,11 +129,11 @@ describe("upload confirm is bound to the key it probed (a re-mint during the pro
   });
 });
 
-describe("upload confirm requires a stated length", () => {
-  it("the default early-reject probe refuses a file whose ffprobe document has no duration: 422 upload_rejected, the object is deleted, the meeting stays draft", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "confirm-nodur-"));
-    const stub = join(dir, "ffprobe-nodur");
-    writeFileSync(stub, `#!/bin/sh\necho '{"format":{"format_name":"matroska,webm"},"streams":[{"codec_type":"audio"}]}'\n`);
+describe("upload confirm with the default early-reject probe (ffprobe document from a stubbed binary)", () => {
+  async function confirmWith(document: string) {
+    const dir = mkdtempSync(join(tmpdir(), "confirm-doc-"));
+    const stub = join(dir, "ffprobe-stub");
+    writeFileSync(stub, `#!/bin/sh\necho '${document}'\n`);
     chmodSync(stub, 0o755);
     const previous = process.env["FFPROBE_PATH"];
     process.env["FFPROBE_PATH"] = stub;
@@ -141,16 +141,28 @@ describe("upload confirm requires a stated length", () => {
       const m = await mkMeeting({ source: "uploaded" });
       const stored = (await json<{ fields: Record<string, string> }>(await mint(m.id, "video/webm"))).fields["key"]!;
       kit.storage.put(stored, 5 * MiB, "video/webm");
-      const res = await confirm(m.id);
-      expect(res.status).toBe(422);
-      expect((await json<{ code: string; reason: string }>(res)).reason).toBe("unsupported_type");
-      expect(kit.storage.keys()).not.toContain(stored);
-      expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).status).toBe("draft");
+      return { m, stored, res: await confirm(m.id) };
     } finally {
       if (previous === undefined) delete process.env["FFPROBE_PATH"];
       else process.env["FFPROBE_PATH"] = previous;
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+
+  it("a file whose ffprobe document states no duration (a browser-saved WebM) is accepted: processing, durationMs null, original kept for prepare_audio", async () => {
+    const { m, stored, res } = await confirmWith('{"format":{"format_name":"matroska,webm"},"streams":[{"codec_type":"audio"}]}');
+    expect(res.status).toBe(202);
+    expect(await json(res)).toMatchObject({ status: "processing", durationMs: null });
+    expect(kit.storage.keys()).toContain(stored);
+    expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).status).toBe("processing");
+  });
+
+  it("a STATED duration over 3 h is still refused: 422 upload_rejected too_long, the object is deleted, the meeting stays draft", async () => {
+    const { m, stored, res } = await confirmWith('{"format":{"format_name":"matroska,webm","duration":"10861.0"},"streams":[{"codec_type":"audio"}]}');
+    expect(res.status).toBe(422);
+    expect((await json<{ code: string; reason: string }>(res)).reason).toBe("too_long");
+    expect(kit.storage.keys()).not.toContain(stored);
+    expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).status).toBe("draft");
   });
 });
 
@@ -220,25 +232,26 @@ describe("prepare_audio decodes exactly the file it probed", () => {
     expect(readdirSync(tmpRoot)).toEqual([]);
   });
 
-  it("an UPLOAD is probed with requireDuration, and a duration-less one never reaches ffmpeg (header durations can be absent or understated)", async () => {
+  it("an UPLOAD with no stated duration (a browser-saved WebM) is accepted: probed with only the 3 h limit, decoded under the output caps", async () => {
     const { m } = await uploadedAt("meetings/<id>/upload/77777777-7777-4777-8777-777777777777", Uint8Array.from([5]));
-    const options: { requireDuration?: boolean }[] = [];
+    const options: unknown[] = [];
     const handler = createPrepareAudio({
-      normalize: fakeNormalize,
+      normalize: async (req) => {
+        writeFileSync(req.output, "OggS");
+        return { durationMs: 1 };
+      },
       tmpRoot,
       probe: async (_path, o) => {
         options.push(o);
-        return o.requireDuration ? { ok: false, reason: "unsupported_type" } : { ok: true, durationMs: null, format: "flac" };
+        return { ok: true, durationMs: null, format: "matroska,webm" };
       },
     });
-    await expect(handler(ctxFor(m.id))).rejects.toBeInstanceOf(PermanentJobError);
-    expect(options.map((o) => o.requireDuration)).toEqual([true]);
-    expect(normalized).toHaveLength(0);
-    expect(await failed(m.id)).toBe("audio_unreadable");
-    expect(readdirSync(tmpRoot)).toEqual([]);
+    await handler(ctxFor(m.id));
+    expect(options).toEqual([{ workDir: expect.any(String), maxDurationMs: MAX_AUDIO_MS }]);
+    expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).audioKey).toBe(`meetings/${m.id}/audio.ogg`);
   });
 
-  it("with the default probe: a stored upload whose ffprobe document states no duration fails audio_unreadable; ffmpeg never runs", async () => {
+  it("with the default probe: a stored upload whose ffprobe document states no duration is accepted and handed to the normaliser", async () => {
     const stub = join(tmpRoot, "ffprobe-nodur");
     writeFileSync(stub, `#!/bin/sh\necho '{"format":{"format_name":"flac"},"streams":[{"codec_type":"audio"}]}'\n`);
     chmodSync(stub, 0o755);
@@ -248,9 +261,9 @@ describe("prepare_audio decodes exactly the file it probed", () => {
       const { m } = await uploadedAt("meetings/<id>/upload/88888888-8888-4888-8888-888888888888", Uint8Array.from([5]));
       const work = mkdtempSync(join(tmpdir(), "integrity-nodur-"));
       try {
-        await expect(createPrepareAudio({ normalize: fakeNormalize, tmpRoot: work })(ctxFor(m.id))).rejects.toBeInstanceOf(PermanentJobError);
-        expect(normalized).toHaveLength(0);
-        expect(await failed(m.id)).toBe("audio_unreadable");
+        await createPrepareAudio({ normalize: fakeNormalize, tmpRoot: work })(ctxFor(m.id));
+        expect(normalized).toHaveLength(1);
+        expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).audioKey).toBe(`meetings/${m.id}/audio.ogg`);
       } finally {
         rmSync(work, { recursive: true, force: true });
       }
@@ -352,9 +365,8 @@ describe("prepare_audio caps the bytes actually written, across the whole record
     expect(readdirSync(tmpRoot)).toEqual([]);
   });
 
-  it("a RECORDING run may lack a duration (a MediaRecorder WebM has none): probed without requireDuration, the output caps bound it instead", async () => {
+  it("a RECORDING run may lack a duration (a MediaRecorder WebM has none): the output caps bound it", async () => {
     const m = await overwritten(2, 40);
-    const options: { requireDuration?: boolean }[] = [];
     const handler = createPrepareAudio({
       tmpRoot,
       maxRecordingBytes: 100,
@@ -362,13 +374,9 @@ describe("prepare_audio caps the bytes actually written, across the whole record
         writeFileSync(req.output, "OggS");
         return { durationMs: 1 };
       },
-      probe: async (_path, o) => {
-        options.push(o);
-        return { ok: true, durationMs: null, format: "matroska,webm" };
-      },
+      probe: async () => ({ ok: true, durationMs: null, format: "matroska,webm" }),
     });
     await handler(ctxFor(m.id));
-    expect(options.map((o) => o.requireDuration ?? false)).toEqual([false]);
     expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).audioKey).toBe(`meetings/${m.id}/audio.ogg`);
   });
 

@@ -213,19 +213,8 @@ export function buildProbeArgs(source: string, inputFormat?: string): string[] {
   ];
 }
 
-export interface JudgeOptions {
-  /**
-   * An UPLOADED file must state its own length: a header duration can be absent (FLAC with no
-   * total_samples, Matroska, Ogg) or understated, so a missing one is not "unknown but fine", it is
-   * a file whose size cannot be checked before decoding. Refused as `unsupported_type`. A recording's
-   * chunk run legitimately has none (a MediaRecorder WebM carries no duration); its decode is bounded
-   * by the output caps in normalize.ts instead.
-   */
-  readonly requireDuration?: boolean;
-}
-
 /** Pure: ffprobe's JSON document in, the AC-3.2 verdict out. */
-export function judgeProbe(raw: unknown, maxDurationMs: number = MAX_AUDIO_MS, options: JudgeOptions = {}): ProbeVerdict {
+export function judgeProbe(raw: unknown, maxDurationMs: number = MAX_AUDIO_MS): ProbeVerdict {
   const doc = raw as { format?: { format_name?: unknown; duration?: unknown }; streams?: unknown } | null;
   const format = doc && typeof doc === "object" ? doc.format : undefined;
   const name = format && typeof format === "object" && typeof format.format_name === "string" ? format.format_name : "";
@@ -237,7 +226,6 @@ export function judgeProbe(raw: unknown, maxDurationMs: number = MAX_AUDIO_MS, o
   const seconds = typeof format?.duration === "string" || typeof format?.duration === "number" ? Number(format.duration) : NaN;
   const durationMs = Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null;
   if (durationMs !== null && durationMs > maxDurationMs) return reject("too_long");
-  if (durationMs === null && options.requireDuration) return reject("unsupported_type");
   return { ok: true, durationMs, format: name };
 }
 
@@ -246,8 +234,6 @@ export interface ProbeOptions {
   readonly timeoutMs?: number;
   /** Defaults to 3 h; the normaliser allows the recording's 60 s of grace. */
   readonly maxDurationMs?: number;
-  /** An uploaded file must state a duration (see `JudgeOptions`). */
-  readonly requireDuration?: boolean;
   /** Pins the input demuxer (`-f`). Required for a URL source, optional for a local file. */
   readonly inputFormat?: string;
   /** The child's `TMPDIR`. */
@@ -270,15 +256,16 @@ export async function probeMedia(source: string, options: ProbeOptions = {}): Pr
   } catch {
     return reject("unsupported_type");
   }
-  return judgeProbe(doc, options.maxDurationMs, { requireDuration: options.requireDuration === true });
+  return judgeProbe(doc, options.maxDurationMs);
 }
 
 // ─── Test seam ───────────────────────────────────────────────────────────────
 
 /** `inputFormat` pins the demuxer (required for a URL). */
 export type Prober = (source: string, inputFormat?: string) => Promise<ProbeVerdict>;
-// The early reject runs on uploads only: a length must be stated (a header can understate it, but not be absent).
-const defaultProber: Prober = (source, inputFormat) => probeMedia(source, { requireDuration: true, ...(inputFormat !== undefined ? { inputFormat } : {}) });
+// A header duration can be absent (a browser-saved WebM has none) or understated: a stated one over the limit is
+// refused here, an absent or short one is bounded by the decode output caps in normalize.ts instead.
+const defaultProber: Prober = (source, inputFormat) => probeMedia(source, inputFormat !== undefined ? { inputFormat } : {});
 let prober: Prober = defaultProber;
 
 /** The early-reject probe the upload route runs over a presigned GET. */

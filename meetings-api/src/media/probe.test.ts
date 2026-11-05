@@ -67,19 +67,12 @@ describe("judgeProbe", () => {
     expect(judgeProbe(probeJson("wav", [{ codec_type: "audio" }], "N/A"))).toMatchObject({ ok: true, durationMs: null });
   });
 
-  it("an UPLOAD must state a length: requireDuration refuses no, N/A, negative and non-numeric durations as unsupported", () => {
+  it("a stated duration over the limit is refused whatever else is missing; no duration never is", () => {
     const audio = [{ codec_type: "audio" }];
-    for (const duration of [null, "N/A", "-5", "abc"]) {
-      expect(judgeProbe(probeJson("matroska,webm", audio, duration), MAX_AUDIO_MS, { requireDuration: true })).toEqual({ ok: false, reason: "unsupported_type" });
-    }
-    expect(judgeProbe(probeJson("wav", audio, "0"), MAX_AUDIO_MS, { requireDuration: true })).toMatchObject({ ok: true, durationMs: 0 });
-    expect(judgeProbe(probeJson("wav", audio, "12.5"), MAX_AUDIO_MS, { requireDuration: true })).toMatchObject({ ok: true, durationMs: 12_500 });
-  });
-
-  it("requireDuration does not hide the other verdicts: too_long and no_audio still win over the missing duration", () => {
-    expect(judgeProbe(probeJson("wav", [{ codec_type: "audio" }], "99999"), MAX_AUDIO_MS, { requireDuration: true })).toEqual({ ok: false, reason: "too_long" });
-    expect(judgeProbe(probeJson("wav", [], null), MAX_AUDIO_MS, { requireDuration: true })).toEqual({ ok: false, reason: "no_audio" });
-    expect(judgeProbe(probeJson("hls", [{ codec_type: "audio" }], null), MAX_AUDIO_MS, { requireDuration: true })).toEqual({ ok: false, reason: "unsupported_type" });
+    expect(judgeProbe(probeJson("wav", audio, "99999"))).toEqual({ ok: false, reason: "too_long" });
+    expect(judgeProbe(probeJson("wav", [], null))).toEqual({ ok: false, reason: "no_audio" });
+    expect(judgeProbe(probeJson("hls", audio, null))).toEqual({ ok: false, reason: "unsupported_type" });
+    expect(judgeProbe(probeJson("matroska,webm", audio, null))).toMatchObject({ ok: true, durationMs: null });
   });
 
   it("a negative or non-numeric duration is not trusted as a duration", () => {
@@ -229,9 +222,8 @@ describe("probeMedia with a stubbed binary", () => {
     expect(await probeMedia("/tmp/anything", { bin })).toEqual({ ok: true, durationMs: 1000, format: "wav" });
   });
 
-  it("requireDuration is passed through: a duration-less document is refused for an upload, accepted for a recording run", async () => {
+  it("a duration-less document is accepted with durationMs null (the decode output caps bound it)", async () => {
     const bin = stub("nodur", `echo '{"format":{"format_name":"matroska,webm"},"streams":[{"codec_type":"audio"}]}'`);
-    expect(await probeMedia("/tmp/anything", { bin, requireDuration: true })).toEqual({ ok: false, reason: "unsupported_type" });
     expect(await probeMedia("/tmp/anything", { bin })).toEqual({ ok: true, durationMs: null, format: "matroska,webm" });
   });
 

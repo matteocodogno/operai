@@ -6,7 +6,7 @@ import { db, kit, mkMeeting, useKit } from "../test-support/captureKit";
 import { PermanentJobError, type JobContext } from "../jobs/runner";
 import { createPrepareAudio } from "../jobs/handlers/prepareAudio";
 import { objectKeys } from "../lib/storage";
-import { ffmpegBinary, ffprobeBinary, runTool } from "./probe";
+import { ffmpegBinary, ffprobeBinary, probeMedia, runTool } from "./probe";
 
 // OWASP A08/A10 with the REAL ffprobe/ffmpeg: prepare_audio's default probe and a real decode
 // over what it stored. Skipped where the binaries are not installed (run in a container).
@@ -49,6 +49,19 @@ describe.skipIf(!hasFfmpeg)("prepare_audio with the real ffprobe and ffmpeg", ()
     expect(row.audioKey).toBe(objectKeys.audio(m.id));
     expect(Math.abs(row.durationMs! - 2000)).toBeLessThan(600);
     expect(kit.storage.keys()).toEqual([objectKeys.audio(m.id)]);
+    expect(readdirSync(tmpRoot)).toEqual([]);
+  });
+
+  it("a browser-saved WebM/Opus upload with NO duration header is accepted and normalised (ADR-0064: MediaRecorder writes none)", async () => {
+    // -live 1: the Matroska muxer writes no Duration, like MediaRecorder's output.
+    await ff(["-f", "lavfi", "-i", "sine=f=440:d=2", "-c:a", "libopus", "-b:a", "32k", "-f", "webm", "-live", "1", join(scratch, "nodur.webm")]);
+    expect(await probeMedia(join(scratch, "nodur.webm"))).toMatchObject({ ok: true, durationMs: null });
+    const m = await uploaded(new Uint8Array(readFileSync(join(scratch, "nodur.webm"))));
+    const tmpRoot = mkdtempSync(join(scratch, "root-"));
+    await run(tmpRoot, m.id);
+    const row = await db.meeting.findUniqueOrThrow({ where: { id: m.id } });
+    expect(row.audioKey).toBe(objectKeys.audio(m.id));
+    expect(Math.abs(row.durationMs! - 2000)).toBeLessThan(600);
     expect(readdirSync(tmpRoot)).toEqual([]);
   });
 

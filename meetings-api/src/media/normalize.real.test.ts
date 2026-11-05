@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_OUTPUT_BYTES, MAX_OUTPUT_SECONDS, NormalizeError, normalizeAudio } from "./normalize";
-import { ffmpegBinary, ffprobeBinary, probeMedia, runTool } from "./probe";
+import { ffmpegBinary, ffprobeBinary, probeMedia, probeUpload, runTool } from "./probe";
 
 // OWASP A04/A05 (security fix round 2, N1) with the REAL ffmpeg and ffprobe: a small, highly
 // compressible upload whose header says nothing (or something short) about how long it decodes
@@ -52,8 +52,8 @@ describe.skipIf(!hasFfmpeg)("normalizeAudio output caps with the real ffmpeg", (
     expect(sizeOf(noDuration)).toBeLessThan(5 * 1024 * 1024);
     expect(await probeMedia(noDuration)).toMatchObject({ ok: true, durationMs: null, format: "flac" });
     expect(await probeMedia(understated)).toMatchObject({ ok: true, durationMs: 5000, format: "flac" });
-    // An upload must state its length; the understated one passes this check and is the cap's job.
-    expect(await probeMedia(noDuration, { requireDuration: true })).toEqual({ ok: false, reason: "unsupported_type" });
+    // The upload route's probe accepts a duration-less file too: the caps are the bound, not a stated length.
+    expect(await probeUpload(noDuration, "flac")).toMatchObject({ ok: true, durationMs: null, format: "flac" });
   });
 
   it("an understated duration: decoding stops at the duration cap, the result is too_long, nothing is written past the cap", async () => {

@@ -45,7 +45,7 @@ export interface PrepareDeps {
   readonly storage?: () => Storage;
   readonly normalize?: typeof normalizeAudio;
   /** The local-file probe that is the trust decision; default `ffprobe` on the file, `file` protocol only. */
-  readonly probe?: (file: string, options: { workDir: string; maxDurationMs: number; requireDuration?: boolean }) => Promise<ProbeVerdict>;
+  readonly probe?: (file: string, options: { workDir: string; maxDurationMs: number }) => Promise<ProbeVerdict>;
   /** Ceiling on the bytes of all a recording's chunks together (tests lower it). */
   readonly maxRecordingBytes?: number;
   /** Ceiling on an uploaded original (tests lower it). */
@@ -67,8 +67,6 @@ interface Source {
   readonly purgeUploads: boolean;
   /** The longest the decoded media may be. */
   readonly maxDurationMs: number;
-  /** An upload must state its length; a recording run may have none (the output caps in normalize.ts bound it). */
-  readonly requireDuration: boolean;
   /** Deletes the announcement rows once the objects are gone. */
   readonly cleanupRows: () => Promise<void>;
 }
@@ -84,7 +82,6 @@ async function loadSource(meetingId: string, source: string, limits: { recording
       maxBytesTotal: limits.upload,
       purgeUploads: true,
       maxDurationMs: MAX_AUDIO_MS,
-      requireDuration: true,
       cleanupRows: async () => void (await db.meetingUpload.deleteMany({ where: { meetingId } })),
     };
   }
@@ -102,7 +99,6 @@ async function loadSource(meetingId: string, source: string, limits: { recording
     maxBytesTotal: limits.recording,
     purgeUploads: false,
     maxDurationMs: MAX_NORMALIZED_MS,
-    requireDuration: false,
     cleanupRows: async () => {},
   };
 }
@@ -190,7 +186,7 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
       const inputs = meeting.source === "uploaded" ? files : await groupIntoRuns(workDir, files);
       const inputFormats: string[] = [];
       for (const input of inputs) {
-        const verdict = await probe(input, { workDir, maxDurationMs: source.maxDurationMs, requireDuration: source.requireDuration });
+        const verdict = await probe(input, { workDir, maxDurationMs: source.maxDurationMs });
         if (!verdict.ok) throw new NormalizeError(verdict.reason === "too_long" ? "too_long" : "audio_unreadable");
         const demuxer = pinnedDemuxer(verdict.format);
         if (demuxer === undefined) throw new NormalizeError("audio_unreadable");
