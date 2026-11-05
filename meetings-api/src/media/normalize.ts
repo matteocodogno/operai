@@ -7,7 +7,8 @@
  * input (it is an input option) so a crafted file cannot make ffmpeg open a network
  * location, and `-vn -sn -dn` so only audio survives:
  *
- *   ffmpeg -protocol_whitelist file,pipe -i in -vn -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k audio.ogg
+ *   ffmpeg -protocol_whitelist file,pipe -i in -vn -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k \
+ *     -t 10861 -fs 104857600 audio.ogg
  *
  * RECORDINGS ARE NOT ONE CONTAINER. A MediaRecorder writes its container header in
  * the first chunk only, so plain concatenation of the chunks is a valid file. But the
@@ -32,6 +33,26 @@ export const FFMPEG_TIMEOUT_MS = 20 * 60_000;
 /** A recording may run 60 s past 3 h (AC-2.11); the result is held to the same bound. */
 export const MAX_NORMALIZED_MS = MAX_AUDIO_MS + 60_000;
 export const PROBE_OUTPUT_TIMEOUT_MS = 30_000;
+
+/**
+ * Output caps (OWASP A04: a decoded stream is not bounded by the size or the header of its input; a
+ * few MB of FLAC silence decode to days). Both are OUTPUT options, so ffmpeg itself stops writing:
+ *
+ *   -t   the longest output, in seconds. ONE second over the 3 h + 60 s bound, so an output that
+ *        reaches the cap is by construction over the bound and is told apart from a recording that
+ *        is honestly 3 h + 60 s long.
+ *   -fs  the largest output, in bytes. 3 h + 60 s at 32 kbit/s Opus is ~43 MB; 100 MiB leaves more
+ *        than twice that for VBR and container overhead, and nothing legitimate comes near it.
+ *
+ * Hitting either cap is `too_long` (permanent): the file is longer than the product accepts.
+ */
+export const MAX_OUTPUT_SECONDS = MAX_NORMALIZED_MS / 1000 + 1;
+export const MAX_OUTPUT_BYTES = 100 * 1024 * 1024;
+
+export interface OutputLimits {
+  readonly maxSeconds?: number;
+  readonly maxBytes?: number;
+}
 
 /** A failure that retrying cannot fix. `code` is the meeting's closed failure code. */
 export class NormalizeError extends Error {
@@ -85,8 +106,17 @@ export async function groupIntoRuns(dir: string, chunkFiles: readonly string[]):
 // ─── ffmpeg ──────────────────────────────────────────────────────────────────
 
 /** The hardened argument vector (ADR-0064 point 4); one input is exactly the documented command. */
-export function buildFfmpegArgs(inputs: readonly string[], output: string, inputFormats?: readonly string[]): string[] {
+export function buildFfmpegArgs(
+  inputs: readonly string[],
+  output: string,
+  inputFormats?: readonly string[],
+  limits: OutputLimits = {},
+): string[] {
   if (inputs.length === 0) throw new Error("nothing to normalise");
+  const maxSeconds = limits.maxSeconds ?? MAX_OUTPUT_SECONDS;
+  const maxBytes = limits.maxBytes ?? MAX_OUTPUT_BYTES;
+  // A cap that is not a positive integer would read as "no cap" or as another flag to ffmpeg.
+  for (const cap of [maxSeconds, maxBytes]) if (!Number.isSafeInteger(cap) || cap <= 0) throw new Error("output caps must be positive integers");
   if (inputFormats !== undefined && inputFormats.length !== inputs.length) throw new Error("one pinned format per input");
   const head = ["-nostdin", "-hide_banner", "-v", "error", "-y"];
   const perInput = inputs.flatMap((file, i) => {
@@ -94,7 +124,7 @@ export function buildFfmpegArgs(inputs: readonly string[], output: string, input
     if (format !== undefined && !isPinnableDemuxer(format)) throw new Error("input format is not an allowlisted demuxer");
     return ["-protocol_whitelist", "file,pipe", ...(format !== undefined ? ["-f", format] : []), "-i", file];
   });
-  const target = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k"];
+  const target = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k", "-t", String(maxSeconds), "-fs", String(maxBytes)];
   if (inputs.length === 1) return [...head, ...perInput, ...target, output];
 
   const prepared = inputs.map((_, i) => `[${i}:a:0]aformat=sample_rates=16000:channel_layouts=mono[a${i}]`).join(";");
@@ -114,6 +144,8 @@ export interface NormalizeRequest {
    * what is decoded; `prepare_audio` always passes it).
    */
   readonly inputFormats?: readonly string[];
+  /** Test seam: lower output caps (default `MAX_OUTPUT_SECONDS` / `MAX_OUTPUT_BYTES`). */
+  readonly limits?: OutputLimits;
   /** The job's work dir: the tools' `TMPDIR`. */
   readonly workDir?: string;
   readonly signal?: AbortSignal;
@@ -131,7 +163,7 @@ export interface NormalizeRequest {
  * `ToolMissingError` when a binary is not installed (a deployment fault, retried).
  */
 export async function normalizeAudio(request: NormalizeRequest): Promise<{ durationMs: number }> {
-  const result = await runTool(request.ffmpegBin ?? ffmpegBinary(), buildFfmpegArgs(request.inputs, request.output, request.inputFormats), {
+  const result = await runTool(request.ffmpegBin ?? ffmpegBinary(), buildFfmpegArgs(request.inputs, request.output, request.inputFormats, request.limits), {
     timeoutMs: request.timeoutMs ?? FFMPEG_TIMEOUT_MS,
     ...(request.workDir ? { tmpDir: request.workDir } : {}),
     ...(request.signal ? { signal: request.signal } : {}),
@@ -144,6 +176,9 @@ export async function normalizeAudio(request: NormalizeRequest): Promise<{ durat
   } catch {
     size = 0;
   }
+  // ffmpeg stopped at -fs: the input decodes to more than a legitimate recording can. Judged before
+  // anything else about the output, which is truncated and means nothing.
+  if (size >= (request.limits?.maxBytes ?? MAX_OUTPUT_BYTES)) throw new NormalizeError("too_long");
   if (size === 0) throw new NormalizeError("audio_unreadable");
 
   const measured = await runTool(request.ffprobeBin ?? ffprobeBinary(), buildProbeArgs(request.output), {
@@ -162,5 +197,8 @@ export async function normalizeAudio(request: NormalizeRequest): Promise<{ durat
   const probe = judgeProbe(doc, MAX_NORMALIZED_MS);
   if (!probe.ok) throw new NormalizeError(probe.reason === "too_long" ? "too_long" : "audio_unreadable");
   if (probe.durationMs === null) throw new NormalizeError("audio_unreadable");
+  // ffmpeg stopped at -t: more audio was cut off. (The default cap is above the bound, so judgeProbe
+  // already said so; this covers a lowered one.)
+  if (probe.durationMs >= (request.limits?.maxSeconds ?? MAX_OUTPUT_SECONDS) * 1000) throw new NormalizeError("too_long");
   return { durationMs: probe.durationMs };
 }

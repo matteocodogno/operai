@@ -65,6 +65,31 @@ describe("upload confirm uses only the stored key", () => {
   });
 });
 
+describe("upload confirm requires a stated length", () => {
+  it("the default early-reject probe refuses a file whose ffprobe document has no duration: 422 upload_rejected, the object is deleted, the meeting stays draft", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "confirm-nodur-"));
+    const stub = join(dir, "ffprobe-nodur");
+    writeFileSync(stub, `#!/bin/sh\necho '{"format":{"format_name":"matroska,webm"},"streams":[{"codec_type":"audio"}]}'\n`);
+    chmodSync(stub, 0o755);
+    const previous = process.env["FFPROBE_PATH"];
+    process.env["FFPROBE_PATH"] = stub;
+    try {
+      const m = await mkMeeting({ source: "uploaded" });
+      const stored = (await json<{ fields: Record<string, string> }>(await mint(m.id, "video/webm"))).fields["key"]!;
+      kit.storage.put(stored, 5 * MiB, "video/webm");
+      const res = await confirm(m.id);
+      expect(res.status).toBe(422);
+      expect((await json<{ code: string; reason: string }>(res)).reason).toBe("unsupported_type");
+      expect(kit.storage.keys()).not.toContain(stored);
+      expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).status).toBe("draft");
+    } finally {
+      if (previous === undefined) delete process.env["FFPROBE_PATH"];
+      else process.env["FFPROBE_PATH"] = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 // ─── prepare_audio ───────────────────────────────────────────────────────────
 
 describe("prepare_audio decodes exactly the file it probed", () => {
@@ -129,6 +154,46 @@ describe("prepare_audio decodes exactly the file it probed", () => {
     expect(normalized).toHaveLength(0);
     expect(await failed(m.id)).toBe("audio_unreadable");
     expect(readdirSync(tmpRoot)).toEqual([]);
+  });
+
+  it("an UPLOAD is probed with requireDuration, and a duration-less one never reaches ffmpeg (header durations can be absent or understated)", async () => {
+    const { m } = await uploadedAt("meetings/<id>/upload/77777777-7777-4777-8777-777777777777", Uint8Array.from([5]));
+    const options: { requireDuration?: boolean }[] = [];
+    const handler = createPrepareAudio({
+      normalize: fakeNormalize,
+      tmpRoot,
+      probe: async (_path, o) => {
+        options.push(o);
+        return o.requireDuration ? { ok: false, reason: "unsupported_type" } : { ok: true, durationMs: null, format: "flac" };
+      },
+    });
+    await expect(handler(ctxFor(m.id))).rejects.toBeInstanceOf(PermanentJobError);
+    expect(options.map((o) => o.requireDuration)).toEqual([true]);
+    expect(normalized).toHaveLength(0);
+    expect(await failed(m.id)).toBe("audio_unreadable");
+    expect(readdirSync(tmpRoot)).toEqual([]);
+  });
+
+  it("with the default probe: a stored upload whose ffprobe document states no duration fails audio_unreadable; ffmpeg never runs", async () => {
+    const stub = join(tmpRoot, "ffprobe-nodur");
+    writeFileSync(stub, `#!/bin/sh\necho '{"format":{"format_name":"flac"},"streams":[{"codec_type":"audio"}]}'\n`);
+    chmodSync(stub, 0o755);
+    const previous = process.env["FFPROBE_PATH"];
+    process.env["FFPROBE_PATH"] = stub;
+    try {
+      const { m } = await uploadedAt("meetings/<id>/upload/88888888-8888-4888-8888-888888888888", Uint8Array.from([5]));
+      const work = mkdtempSync(join(tmpdir(), "integrity-nodur-"));
+      try {
+        await expect(createPrepareAudio({ normalize: fakeNormalize, tmpRoot: work })(ctxFor(m.id))).rejects.toBeInstanceOf(PermanentJobError);
+        expect(normalized).toHaveLength(0);
+        expect(await failed(m.id)).toBe("audio_unreadable");
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    } finally {
+      if (previous === undefined) delete process.env["FFPROBE_PATH"];
+      else process.env["FFPROBE_PATH"] = previous;
+    }
   });
 
   it("only the stored key is read; strays under the upload prefix are deleted with the original", async () => {
@@ -221,6 +286,26 @@ describe("prepare_audio caps the bytes actually written, across the whole record
     expect(ran).toBe(false);
     expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).failureCode).toBe("audio_unreadable");
     expect(readdirSync(tmpRoot)).toEqual([]);
+  });
+
+  it("a RECORDING run may lack a duration (a MediaRecorder WebM has none): probed without requireDuration, the output caps bound it instead", async () => {
+    const m = await overwritten(2, 40);
+    const options: { requireDuration?: boolean }[] = [];
+    const handler = createPrepareAudio({
+      tmpRoot,
+      maxRecordingBytes: 100,
+      normalize: async (req) => {
+        writeFileSync(req.output, "OggS");
+        return { durationMs: 1 };
+      },
+      probe: async (_path, o) => {
+        options.push(o);
+        return { ok: true, durationMs: null, format: "matroska,webm" };
+      },
+    });
+    await handler(ctxFor(m.id));
+    expect(options.map((o) => o.requireDuration ?? false)).toEqual([false]);
+    expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).audioKey).toBe(`meetings/${m.id}/audio.ogg`);
   });
 
   it("a recording that fits is unaffected", async () => {

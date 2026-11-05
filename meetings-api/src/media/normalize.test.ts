@@ -5,7 +5,17 @@ import { join } from "node:path";
 import { db, kit, mkMeeting, useKit } from "../test-support/captureKit";
 import { PermanentJobError, TransientJobError, type JobContext } from "../jobs/runner";
 import { createPrepareAudio } from "../jobs/handlers/prepareAudio";
-import { NormalizeError, buildFfmpegArgs, groupIntoRuns, normalizeAudio, startsContainer, type NormalizeRequest } from "./normalize";
+import {
+  MAX_NORMALIZED_MS,
+  MAX_OUTPUT_BYTES,
+  MAX_OUTPUT_SECONDS,
+  NormalizeError,
+  buildFfmpegArgs,
+  groupIntoRuns,
+  normalizeAudio,
+  startsContainer,
+  type NormalizeRequest,
+} from "./normalize";
 import { ffmpegBinary, ffprobeBinary, runTool } from "./probe";
 
 // AC-3.1 (video never leaves this step), AC-2.6 (recordings, paused gaps), AC-4.4
@@ -83,8 +93,37 @@ describe("buildFfmpegArgs (ADR-0064 point 4)", () => {
     expect(buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg")).toEqual([
       "-nostdin", "-hide_banner", "-v", "error", "-y",
       "-protocol_whitelist", "file,pipe", "-i", "/w/run-0",
-      "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k", "/w/audio.ogg",
+      "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k", "-t", "10861", "-fs", "104857600", "/w/audio.ogg",
     ]);
+  });
+
+  it("the output caps are named constants derived from the 3 h + 60 s bound and the 32 kbit/s Opus budget", () => {
+    // One second of margin over the bound: an output that reaches the cap is, by construction, over 3 h + 60 s.
+    expect(MAX_OUTPUT_SECONDS).toBe(MAX_NORMALIZED_MS / 1000 + 1);
+    // 3 h + 60 s at 32 kbit/s is ~43 MB; the cap leaves more than twice that for VBR and container overhead.
+    expect(MAX_OUTPUT_BYTES).toBeGreaterThan(2 * ((MAX_NORMALIZED_MS / 1000) * 32_000) / 8);
+    expect(MAX_OUTPUT_BYTES).toBeLessThanOrEqual(128 * 1024 * 1024);
+  });
+
+  it("-t and -fs are OUTPUT options: after every input, before the output, also with several inputs", () => {
+    for (const inputs of [["/w/run-0"], ["/w/run-0", "/w/run-1"]]) {
+      const args = buildFfmpegArgs(inputs, "/w/audio.ogg");
+      const lastInput = args.lastIndexOf("-i");
+      for (const flag of ["-t", "-fs"]) {
+        expect(args.filter((a) => a === flag)).toHaveLength(1);
+        expect(args.indexOf(flag)).toBeGreaterThan(lastInput + 1);
+        expect(args.indexOf(flag)).toBeLessThan(args.length - 1);
+      }
+      expect(args[args.indexOf("-t") + 1]).toBe(String(MAX_OUTPUT_SECONDS));
+      expect(args[args.indexOf("-fs") + 1]).toBe(String(MAX_OUTPUT_BYTES));
+    }
+  });
+
+  it("a cap that is not a positive integer is a programming error, never an unbounded decode", () => {
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", undefined, { maxSeconds: bad })).toThrow();
+      expect(() => buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", undefined, { maxBytes: bad })).toThrow();
+    }
   });
 
   it("a pinned format goes right before its own input, after the whitelist; one per input", () => {
@@ -133,6 +172,35 @@ describe("normalizeAudio (stub ffmpeg/ffprobe)", () => {
 
   it("returns the real duration of what ffmpeg produced", async () => {
     expect(await normalizeAudio(request())).toEqual({ durationMs: 12_500 });
+  });
+
+  it("ffmpeg is run with the output caps on its command line", async () => {
+    const argsFile = join(scratch, "ff-args.txt");
+    const recording = bin("ff-args", `printf '%s\\n' "$@" > '${argsFile}'; for a; do last="$a"; done; printf OggS > "$last"`);
+    await normalizeAudio(request({ ffmpegBin: recording }));
+    const args = readFileSync(argsFile, "utf8").trim().split("\n");
+    expect(args[args.indexOf("-t") + 1]).toBe(String(MAX_OUTPUT_SECONDS));
+    expect(args[args.indexOf("-fs") + 1]).toBe(String(MAX_OUTPUT_BYTES));
+  });
+
+  it("an output that reached the byte cap was cut short: too_long, never a truncated transcript source", async () => {
+    // The stub writes 4 bytes; with a 4-byte cap that is "ffmpeg stopped because of -fs".
+    const error = await normalizeAudio(request({ limits: { maxBytes: 4 } })).catch((e) => e);
+    expect(error).toBeInstanceOf(NormalizeError);
+    expect((error as NormalizeError).code).toBe("too_long");
+    expect(await normalizeAudio(request({ limits: { maxBytes: 5 } }))).toEqual({ durationMs: 12_500 });
+  });
+
+  it("an output that reached the duration cap was cut short: too_long, however short the cap is", async () => {
+    const at = async (duration: string, maxSeconds: number) => normalizeAudio(request({ ffprobeBin: probeOf(duration), limits: { maxSeconds } })).catch((e) => e);
+    expect(((await at("20.0065", 20)) as NormalizeError).code).toBe("too_long");
+    expect(((await at("20", 20)) as NormalizeError).code).toBe("too_long");
+    expect(await at("19.9", 20)).toEqual({ durationMs: 19_900 });
+  });
+
+  it("the byte cap is judged before anything else about the output", async () => {
+    const error = await normalizeAudio(request({ limits: { maxBytes: 1 }, ffprobeBin: probeOf("5", `,{"codec_type":"video"}`) })).catch((e) => e);
+    expect((error as NormalizeError).code).toBe("too_long");
   });
 
   it("a failing ffmpeg is audio_unreadable", async () => {
