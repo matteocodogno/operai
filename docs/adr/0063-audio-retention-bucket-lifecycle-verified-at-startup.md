@@ -106,6 +106,10 @@ logs).
 - Audit trail: a content-free `MeetingDeletion` row (Tier-1 append-only trigger); no audio
   access log.
 
+## Follow-up notes
+
+- **2026-11-05 (ADR-0069):** a second bucket now exists: a transient Google Cloud Storage bucket used only while one transcription attempt runs, with its own startup-verified rules (EU/CH location, 1-day lifecycle `Delete` rule, soft delete retention 0, versioning off, no retention policy). It does not change this ADR's 29-day audio rule, which governs the Railway bucket. "Delete recording" and "Delete meeting" now clear the Railway prefix and the transient `transcribe/<meetingId>/` prefix first, before any database change, with a 503 and nothing changed on failure.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*

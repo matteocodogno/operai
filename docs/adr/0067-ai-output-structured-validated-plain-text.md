@@ -109,6 +109,10 @@ that feeds user-controlled text (a PR, a brief, a retrospective) to a model.
 - A model change shifts behaviour: gated by the eval run.
 - Prompt-injection evals are finite; residual injection remains possible (R14).
 
+## Follow-up notes
+
+- **2026-11-05 (ADR-0069):** the model runs on Vertex AI, so the model-change gate's variable is `MEETINGS_VERTEX_MODEL_ID` (was `BEDROCK_MODEL_ID`) and the live eval runs on Vertex, authenticated through Workload Identity Federation with a separate Vertex-only service account. The request carries exactly one forced tool and no server tools, `cache_control` or betas, asserted by a unit test. Prompts, validators and the eval fixtures are unchanged.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*

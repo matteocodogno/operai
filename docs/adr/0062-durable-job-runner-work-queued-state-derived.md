@@ -97,6 +97,10 @@ future "do this later" feature (report generation, imports, email batches).
   codes (`audio_unreadable | provider_unavailable | provider_rejected | too_long`) keeps it
   visible.
 
+## Follow-up notes
+
+- **2026-11-05 (ADR-0069, ADR-0070):** ffmpeg exclusivity is now a per-process slot (`withFfmpegSlot()`) wrapped around each ffmpeg invocation, not a job-kind exclusion: the `transcribe` job runs ffmpeg for seconds (splitting) and then waits up to 45 min on Google, which a kind-level rule would turn into a block on every `prepare_audio`. "One ffmpeg at a time per process" and the concurrency of 2 are unchanged. `transcribe` is now a long-running poll, still lease-heartbeated, and a lost lease aborts it. R6's re-run cost now includes re-uploading the parts.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*

@@ -153,6 +153,10 @@ Failure-shape note: the lesson is that a parser given a URL must be bounded by w
 *reach* (host and port), not by the scheme it speaks; the authoritative check belongs on the
 local copy, where no network is reachable.
 
+## Follow-up notes
+
+- **2026-11-05 (ADR-0069, ADR-0070):** the `transcribe` job now splits our own derived `audio.ogg` with ffmpeg under the same hardening (`-protocol_whitelist file`, pinned `-f ogg`, minimal child env, timeout, temp dir, the process ffmpeg slot) and reads Google's output JSON with an 8 MiB cap, a check that its URI lies in the attempt's prefix and shape validation. Neither is a new reader of user-chosen bytes (the input is our own normalised file; the JSON is the provider's reply to it), so this ADR's escalation trigger is not tripped and its bounded-read rule is not widened.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*

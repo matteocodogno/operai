@@ -1,7 +1,7 @@
 # 0061 — Meetings AI processing: Azure AI Speech fast transcription (EU) and Claude on Amazon Bedrock (EU) with zero retention, enforced at startup
 
 **Date:** 2026-11-04
-**Status:** Accepted (specs/021-meetings; plan approved by the user on 2026-11-04, D-5). Provider contract sign-off remains open (spec O3, accepted as a tracked risk).
+**Status:** Accepted (specs/021-meetings; plan approved by the user on 2026-11-04, D-5). Provider contract sign-off remains open (spec O3, accepted as a tracked risk). **Superseded in part by [ADR-0069](0069-meetings-ai-providers-google-cloud-eu.md) (2026-11-05):** the provider choice (decision points 1, 2, 4, 5 and the provider-specific parts of 3 and 6: Azure AI Speech and Claude on Amazon Bedrock) is replaced by Google Cloud (Chirp 3 and Claude on Vertex AI, EU). This ADR's principle (every hop verified at startup, unreadable means refuse, no fake in production) and its failure shape remain in force.
 **Deciders:** wellD
 **Project:** Operai
 **Relates to:** [ADR-0016](0016-eu-object-storage-refund-attachments.md), [ADR-0032](0032-google-places-browser-direct-referrer-restricted-key.md), [ADR-0067](0067-ai-output-structured-validated-plain-text.md), [ADR-0063](0063-audio-retention-bucket-lifecycle-verified-at-startup.md)
