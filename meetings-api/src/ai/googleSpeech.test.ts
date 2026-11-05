@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GoogleApiError, type GoogleAuth } from "../lib/google/auth";
 import { createFakeTransientStorage, type FakeTransientStorage } from "../lib/google/fakeTransientStorage";
-import { SplitError, type SplitPart } from "../media/split";
+import { PIECE_MAX_MS, SplitError, type SplitPart, type SplitResult } from "../media/split";
 import {
   WORD_OFFSETS,
   POLL_DEADLINE_MS,
@@ -49,7 +49,7 @@ interface Scenario {
   output?: (part: number) => string | Uint8Array;
   /** Rewrites the output file URI named in the finished operation. */
   outputUri?: (part: number, uri: string) => string;
-  split?: () => Promise<SplitPart[]>;
+  split?: () => Promise<SplitResult>;
   wordOffsets?: boolean;
   deleteOperation?: () => Response | Error;
 }
@@ -67,7 +67,7 @@ function world(scenario: Scenario = {}) {
   const parts: SplitPart[] = starts.map((startMs, i) => {
     const path = join(dir, `part-${i}.ogg`);
     writeFileSync(path, "OggS-fake");
-    return { path, startMs };
+    return { path, startMs, endMs: startMs + PIECE_MAX_MS };
   });
   // The recorded form is `projects/<number>/locations/eu/operations/v2-<uuid>` (batch-submit.json); the test's own
   // ids end in the part number so a poll can be routed back to its part.
@@ -124,7 +124,7 @@ function world(scenario: Scenario = {}) {
       await new Promise((r) => setTimeout(r, 0)); // a real macrotask: other parts get to run
       signal.throwIfAborted();
     },
-    split: scenario.split ?? (async () => parts),
+    split: scenario.split ?? (async () => ({ parts, silences: [], durationMs: parts[parts.length - 1]!.endMs })),
     ...(scenario.wordOffsets !== undefined ? { wordOffsets: scenario.wordOffsets } : {}),
   });
   const run = (locale: "it-IT" | "en-US" = "en-US", signal?: AbortSignal, context = { meetingId: MEETING, attempt: ATTEMPT }) =>

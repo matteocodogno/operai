@@ -417,12 +417,12 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
         await writeFile(input, new Uint8Array(await audio.arrayBuffer()), { mode: 0o600 });
         let parts: SplitPart[];
         try {
-          parts = await split({
+          ({ parts } = await split({
             input,
             workDir,
             ...(options.pieceMaxMs !== undefined ? { pieceMaxMs: options.pieceMaxMs } : {}),
             signal: lease,
-          });
+          }));
         } catch (error) {
           if (error instanceof SplitError) throw new TranscriptionError("audio_unreadable", false);
           throw error;
@@ -445,7 +445,7 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
               const name = await submit(storage, locale, inputKey, outputPrefix, stop);
               const operation = await waitFor(name, stop);
               const doc = await collect(storage, name, operation, storage.uri(inputKey), outputPrefix, stop);
-              const phrases = phrasesOfPart(doc, number, part.startMs, wordOffsets, part.durationMs ?? options.pieceMaxMs ?? PIECE_MAX_MS);
+              const phrases = phrasesOfPart(doc, number, part.startMs, wordOffsets, part.endMs - part.startMs);
               if (phrases === null) throw unavailable();
               return phrases;
             } catch (error) {

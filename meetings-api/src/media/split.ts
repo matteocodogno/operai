@@ -1,18 +1,20 @@
 /**
- * Splitting one recording into parts for Chirp 3 (specs/021-meetings plan.md § Amendment 2026-11-05 G-3,
- * ADR-0069, ADR-0070; AC-6.1, AC-6.2, AC-6.5, AC-6.10).
+ * Splitting one recording into OVERLAPPING parts for Chirp 3 (specs/021-meetings plan.md § Amendment 2026-11-05
+ * G-3 and #2 H-1, ADR-0069, ADR-0070; AC-6.1, AC-6.2, AC-6.5, AC-6.10, AC-6.11, AC-6.14).
  *
- * Google accepts at most 20 minutes of audio per `BatchRecognize` file (measured, T107), and our meetings run
- * to 3 h + 60 s, so a long recording is transcribed in parts of at most `PIECE_MAX_MS`:
+ * Google accepts at most 20 minutes of audio per `BatchRecognize` file and, measured (T107), silently drops speech
+ * from parts much longer than 10 minutes, so a recording is transcribed in parts of at most `PIECE_MAX_MS`. Each part
+ * overlaps the next by 60-120 s, so that the speech of the overlap is transcribed twice: that is what lets the stitcher
+ * (src/ai/stitch.ts) remove duplicates and decide, from text alone, which speaker labels are the same person.
  *
- *   1. a decode pass with `silencedetect` finds the pauses (about 10-30 s for 3 h of 16 kHz mono Opus);
- *   2. each cut is the longest pause of at least 0.5 s within the `CUT_WINDOW_MS` before each mark, else a
- *      hard cut at the mark: a sentence is rarely cut in half;
- *   3. a STREAM COPY (`-c copy -f segment`) writes the parts, cut at Opus packet boundaries (20 ms), with no
- *      re-encode; `parts.csv` gives the authoritative start of each one.
+ *   1. a decode pass with `silencedetect` on a SPEECH-BAND signal finds the pauses and, from the same pass, the sound
+ *      intervals the gap detector uses. It runs on EVERY recording, also one of a single part (about 1-2 s for 10 min);
+ *   2. `chooseParts` puts both edges of every part in a pause where one exists (the garbled first sentence of a part
+ *      then lies inside the overlap, where the previous part's version covers it);
+ *   3. each part is one STREAM COPY with output seeking (`-ss <s> -t <len> -c copy -f ogg`): no re-encode, exact to one
+ *      20 ms Opus packet, about a second for 3 h. The segment muxer cannot write overlapping pieces, so it is retired.
  *
- * `PIECE_MAX_MS` is a constant in code, not environment, set by the Google spike (T107). The code handles N >= 1
- * parts identically; a recording no longer than the constant is NOT re-muxed at all: its one part is the input file.
+ * The constants are code, never environment (plan H-1); T125 (O14) confirms them on real recordings.
  *
  * HARDENING (ADR-0064, unchanged): the input is our own derived `audio.ogg`, never a user-chosen file, and still
  * every ffmpeg runs with `-protocol_whitelist file`, the input format pinned (`-f ogg`) and `-format_whitelist`,
@@ -22,7 +24,7 @@
  */
 
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { withFfmpegSlot } from "./ffmpegSlot";
 import { MAX_NORMALIZED_MS } from "./normalize";
 import { FORMAT_WHITELIST, ToolMissingError, ffmpegBinary, ffprobeBinary, judgeProbe, buildProbeArgs, runTool } from "./probe";
@@ -30,27 +32,34 @@ import { FORMAT_WHITELIST, ToolMissingError, ffmpegBinary, ffprobeBinary, judgeP
 export { ToolMissingError };
 
 /**
- * The longest part: 10 minutes (T107, recorded against the real service). Two limits, and the second is the one
- * that binds:
+ * The longest part, the overlap INCLUDED: 10 minutes (T107, recorded against the real service). Two limits, and the
+ * second is the one that binds:
  *  - Google's docs say a Chirp 3 batch file is "good for long audio 1 minute to 1 hour", but a 1 h file is refused
  *    with INVALID_ARGUMENT "Only audio files up to 20 minutes long are supported for BatchRecognize" (billed 0 s);
  *  - at 18-19 minutes the service ACCEPTED the parts and then silently left out multi-minute stretches of speech
  *    (45 % and 19 % of the words missing in 2 of 4 parts of a 1 h recording, whose words are otherwise timed to
  *    the second), while 7 parts of 10 minutes of the same recording came back complete (98-103 %).
- * A transcript with a hole in it that nothing flags is worse than one with more speaker labels to merge.
  */
 export const PIECE_MAX_MS = 10 * 60_000;
-/** A cut is looked for in this long a stretch before each mark. */
+/**
+ * How far consecutive parts overlap (H-1): the next part starts in a pause 60-120 s before the end of this one, else
+ * 90 s before it. A speaker reaches the 20-word match bound with about 8-10 s of speech inside 90 s.
+ */
+export const OVERLAP_TARGET_MS = 90_000;
+export const OVERLAP_MIN_MS = 60_000;
+export const OVERLAP_MAX_MS = 120_000;
+/** A part's end is looked for in this long a stretch before the mark. */
 export const CUT_WINDOW_MS = 90_000;
 /** A pause shorter than this is not a place to cut. */
 export const MIN_SILENCE_MS = 500;
-/** `silencedetect` threshold (plan G-3). */
+/** `silencedetect` threshold (plan G-3), measured on the speech band so hum and rumble are not "sound". */
 export const SILENCE_NOISE_DB = -35;
-/** A sanity ceiling on the number of parts, independent of the constants above. */
+export const SPEECH_BAND_FILTER = "highpass=f=150,lowpass=f=4000";
+/** A sanity ceiling on the number of parts: 3 h + 60 s needs 22, the worst case (every cut at the window edge) 28. */
 export const MAX_PARTS = 32;
 
 const SILENCE_PASS_TIMEOUT_MS = 5 * 60_000;
-const SEGMENT_PASS_TIMEOUT_MS = 5 * 60_000;
+const PART_PASS_TIMEOUT_MS = 2 * 60_000;
 const PROBE_TIMEOUT_MS = 30_000;
 /** silencedetect logs two lines per pause: a 3 h recording can produce a few MB. */
 const SILENCE_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -68,13 +77,22 @@ export interface Silence {
   readonly endMs: number;
 }
 
-export interface SplitPart {
+export interface PartSpan {
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+export interface SplitPart extends PartSpan {
   /** An absolute path under the work directory (or the input itself when there is one part). */
   readonly path: string;
-  /** Where this part starts in the whole recording. Part 1 is always 0. */
-  readonly startMs: number;
-  /** How long it is, when known (the header of the input, or `parts.csv`): bounds the word times a transcript may claim. */
-  readonly durationMs?: number;
+}
+
+export interface SplitResult {
+  /** In order; consecutive parts overlap. Part 1 always starts at 0 and the last ends at `durationMs`. */
+  readonly parts: SplitPart[];
+  /** The pauses of the whole recording (speech band, at least `MIN_SILENCE_MS`): the complement is "sound" (H-3). */
+  readonly silences: Silence[];
+  readonly durationMs: number;
 }
 
 // ─── Pure pieces ─────────────────────────────────────────────────────────────
@@ -109,49 +127,56 @@ export function parseElapsedMs(log: string): number | null {
   return Math.round((Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3])) * 1000);
 }
 
-/**
- * Where to cut `durationMs` of audio into parts of at most `pieceMaxMs`. Each cut is the middle of the longest
- * pause (at least `MIN_SILENCE_MS`) lying within `windowMs` before the mark, else the mark itself. Pure.
- */
-export function chooseCuts(durationMs: number, silences: readonly Silence[], pieceMaxMs: number = PIECE_MAX_MS, windowMs: number = CUT_WINDOW_MS): number[] {
-  if (!(pieceMaxMs > 0)) throw new Error("pieceMaxMs must be positive");
-  const cuts: number[] = [];
-  let start = 0;
-  while (durationMs - start > pieceMaxMs) {
-    const mark = start + pieceMaxMs;
-    // Never reach back past half a part: the pause the previous cut used must not be cut in again.
-    const lo = Math.max(start + Math.ceil(pieceMaxMs / 2), mark - windowMs);
-    let best: { from: number; to: number } | null = null;
-    for (const silence of silences) {
-      const from = Math.max(silence.startMs, lo);
-      const to = Math.min(silence.endMs, mark);
-      if (to - from < MIN_SILENCE_MS) continue;
-      // The longest wins; on a tie the later one (fewer words carried into the next part).
-      if (best === null || to - from >= best.to - best.from) best = { from, to };
-    }
-    const cut = best === null ? mark : Math.round((best.from + best.to) / 2);
-    cuts.push(cut);
-    start = cut;
-  }
-  return cuts;
+export interface ChooseOptions {
+  readonly pieceMaxMs?: number;
+  /** The target overlap; the bounds scale with it (2/3 and 4/3: 60/90/120 s by default). */
+  readonly overlapTargetMs?: number;
+  readonly cutWindowMs?: number;
 }
 
-const SEGMENT_NAME = /^part-\d{3}\.ogg$/;
-
-/** `parts.csv` of the segment muxer: `name,start,end` in seconds. Anything that is not that shape is refused. */
-export function parseSegmentList(csv: string): { name: string; startMs: number; endMs: number }[] {
-  const rows: { name: string; startMs: number; endMs: number }[] = [];
-  for (const line of csv.split("\n")) {
-    if (line.trim() === "") continue;
-    const cells = line.trim().split(",");
-    const [name, start, end] = cells;
-    if (cells.length !== 3 || name === undefined || start === undefined || end === undefined || !SEGMENT_NAME.test(name)) throw new SplitError();
-    const startMs = Math.round(Number(start) * 1000);
-    const endMs = Math.round(Number(end) * 1000);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || startMs < 0 || endMs < startMs) throw new SplitError();
-    rows.push({ name, startMs, endMs });
+/** The middle of the longest pause (at least `MIN_SILENCE_MS`) within `[lo, hi]`, clipped to it; on a tie the later. */
+function longestPauseMiddle(silences: readonly Silence[], lo: number, hi: number): number | null {
+  let best: { from: number; to: number } | null = null;
+  for (const silence of silences) {
+    const from = Math.max(silence.startMs, lo);
+    const to = Math.min(silence.endMs, hi);
+    if (to - from < MIN_SILENCE_MS) continue;
+    if (best === null || to - from > best.to - best.from || (to - from === best.to - best.from && from > best.from)) best = { from, to };
   }
-  return rows;
+  return best === null ? null : Math.round((best.from + best.to) / 2);
+}
+
+/**
+ * The parts of `durationMs` of audio (plan H-1). Part k ends in the middle of the longest pause in the stretch
+ * before its mark (`s_k + pieceMaxMs`), else at the mark; part k+1 starts in the middle of the longest pause
+ * `OVERLAP_MIN..OVERLAP_MAX` before that end, else `OVERLAP_TARGET` before it. A recording no longer than a part is
+ * one part. Pure. Throws `SplitError` when more than `MAX_PARTS` would be needed.
+ */
+export function chooseParts(durationMs: number, silences: readonly Silence[], options: ChooseOptions = {}): PartSpan[] {
+  const piece = options.pieceMaxMs ?? PIECE_MAX_MS;
+  if (!(piece > 0)) throw new Error("pieceMaxMs must be positive");
+  const target = options.overlapTargetMs ?? OVERLAP_TARGET_MS;
+  const overlapMin = Math.round((target * OVERLAP_MIN_MS) / OVERLAP_TARGET_MS);
+  const overlapMax = Math.round((target * OVERLAP_MAX_MS) / OVERLAP_TARGET_MS);
+  const window = options.cutWindowMs ?? CUT_WINDOW_MS;
+
+  const parts: PartSpan[] = [];
+  let start = 0;
+  for (;;) {
+    if (durationMs - start <= piece) {
+      parts.push({ startMs: start, endMs: durationMs });
+      return parts;
+    }
+    if (parts.length + 1 >= MAX_PARTS) throw new SplitError();
+    const mark = start + piece;
+    // Never reach back past half a part plus the largest overlap, so the next part always starts at least half a part
+    // after this one (at production values that is 420 s, inside the 510 s the window already enforces).
+    const end = longestPauseMiddle(silences, Math.max(start + Math.ceil(piece / 2) + overlapMax, mark - window), mark) ?? mark;
+    parts.push({ startMs: start, endMs: end });
+    const next = longestPauseMiddle(silences, end - overlapMax, end - overlapMin) ?? end - target;
+    if (next <= start) throw new SplitError(); // cannot happen with a sane overlap; never loop
+    start = next;
+  }
 }
 
 const INPUT = (file: string): string[] => ["-protocol_whitelist", "file", "-format_whitelist", FORMAT_WHITELIST, "-f", "ogg", "-i", file];
@@ -160,21 +185,20 @@ export const buildSilenceArgs = (input: string): string[] => [
   "-nostdin", "-v", "info", "-hide_banner",
   ...INPUT(input),
   "-vn", "-sn", "-dn",
-  "-af", `silencedetect=noise=${SILENCE_NOISE_DB}dB:d=${MIN_SILENCE_MS / 1000}`,
+  "-af", `${SPEECH_BAND_FILTER},silencedetect=noise=${SILENCE_NOISE_DB}dB:d=${MIN_SILENCE_MS / 1000}`,
   "-f", "null", "-",
 ];
 
-export const buildSegmentArgs = (input: string, cutsMs: readonly number[], listFile: string, outputPattern: string): string[] => [
+const seconds = (ms: number): string => (ms / 1000).toFixed(3);
+
+/** One part: the input demuxed from the start (no decode), packets from `startMs` for `endMs - startMs`, copied. */
+export const buildPartArgs = (input: string, startMs: number, endMs: number, output: string): string[] => [
   "-nostdin", "-v", "error", "-hide_banner", "-y",
   ...INPUT(input),
-  "-vn", "-sn", "-dn", "-c", "copy",
-  "-f", "segment",
-  "-segment_times", cutsMs.map((ms) => (ms / 1000).toFixed(3)).join(","),
-  "-segment_format", "ogg",
-  "-segment_list", listFile,
-  "-segment_list_type", "csv",
-  "-reset_timestamps", "1",
-  outputPattern,
+  "-vn", "-sn", "-dn",
+  "-ss", seconds(startMs), "-t", seconds(endMs - startMs),
+  "-c", "copy", "-f", "ogg",
+  output,
 ];
 
 // ─── The split ───────────────────────────────────────────────────────────────
@@ -182,9 +206,10 @@ export const buildSegmentArgs = (input: string, cutsMs: readonly number[], listF
 export interface SplitOptions {
   /** The normalised `audio.ogg`, an absolute path. */
   readonly input: string;
-  /** The job's own work directory: the parts and `parts.csv` are written here. */
+  /** The job's own work directory: the parts are written here. */
   readonly workDir: string;
   readonly pieceMaxMs?: number;
+  readonly overlapTargetMs?: number;
   /** A lost lease aborts the wait for the slot and kills the running ffmpeg. */
   readonly signal?: AbortSignal;
   readonly ffmpegBin?: string;
@@ -192,11 +217,11 @@ export interface SplitOptions {
 }
 
 /**
- * Parts of `input`, in order, with their start offsets. One part (the input itself) when it is no longer than
- * `pieceMaxMs`. Throws `SplitError` for audio ffmpeg cannot read, `ToolMissingError` for a broken install.
+ * Parts of `input`, in order and overlapping, with the pauses of the whole recording. One part (the input itself)
+ * when it is no longer than `pieceMaxMs`. Throws `SplitError` for audio ffmpeg cannot read, `ToolMissingError` for a
+ * broken install.
  */
-export async function splitAudio(options: SplitOptions): Promise<SplitPart[]> {
-  const pieceMaxMs = options.pieceMaxMs ?? PIECE_MAX_MS;
+export async function splitAudio(options: SplitOptions): Promise<SplitResult> {
   const ffmpeg = options.ffmpegBin ?? ffmpegBinary();
   const ffprobe = options.ffprobeBin ?? ffprobeBinary();
   const tool = { tmpDir: options.workDir, cwd: options.workDir, ...(options.signal ? { signal: options.signal } : {}) };
@@ -212,32 +237,30 @@ export async function splitAudio(options: SplitOptions): Promise<SplitPart[]> {
       throw new SplitError();
     }
     if (!verdict.ok) throw new SplitError();
-    let durationMs: number | null = verdict.durationMs;
 
-    if (durationMs !== null && durationMs <= pieceMaxMs) return [{ path: options.input, startMs: 0, durationMs }];
-
+    // Always: the gap detector needs the sound intervals of every recording (H-3), not only of the long ones.
     const pass = await runTool(ffmpeg, buildSilenceArgs(options.input), { ...tool, timeoutMs: SILENCE_PASS_TIMEOUT_MS, maxOutputBytes: SILENCE_OUTPUT_BYTES });
     if (pass.timedOut || pass.code !== 0) throw new SplitError();
-    durationMs ??= parseElapsedMs(pass.stderr);
-    if (durationMs === null) throw new SplitError();
-    if (durationMs <= pieceMaxMs) return [{ path: options.input, startMs: 0, durationMs }];
+    const durationMs = verdict.durationMs ?? parseElapsedMs(pass.stderr);
+    if (durationMs === null || durationMs <= 0) throw new SplitError();
+    const silences = parseSilences(pass.stderr);
 
-    const cuts = chooseCuts(durationMs, parseSilences(pass.stderr), pieceMaxMs);
-    if (cuts.length + 1 > MAX_PARTS) throw new SplitError();
-
-    const listFile = join(options.workDir, "parts.csv");
-    const segmented = await runTool(ffmpeg, buildSegmentArgs(options.input, cuts, listFile, join(options.workDir, "part-%03d.ogg")), {
-      ...tool,
-      timeoutMs: SEGMENT_PASS_TIMEOUT_MS,
+    const spans = chooseParts(durationMs, silences, {
+      ...(options.pieceMaxMs !== undefined ? { pieceMaxMs: options.pieceMaxMs } : {}),
+      ...(options.overlapTargetMs !== undefined ? { overlapTargetMs: options.overlapTargetMs } : {}),
     });
-    if (segmented.timedOut || segmented.code !== 0) throw new SplitError();
+    if (spans.length === 1) return { parts: [{ path: options.input, startMs: 0, endMs: durationMs }], silences, durationMs };
 
-    const rows = parseSegmentList(await readFile(listFile, "utf8").catch(() => {
-      throw new SplitError();
-    }));
-    // Every cut must have produced a part, the first must start at 0 and they must run forward.
-    if (rows.length !== cuts.length + 1 || rows[0]!.startMs !== 0) throw new SplitError();
-    for (let i = 1; i < rows.length; i += 1) if (rows[i]!.startMs < rows[i - 1]!.startMs) throw new SplitError();
-    return rows.map((row) => ({ path: join(options.workDir, row.name), startMs: row.startMs, durationMs: row.endMs - row.startMs }));
+    const parts: SplitPart[] = [];
+    for (const [index, span] of spans.entries()) {
+      const path = join(options.workDir, `part-${String(index + 1).padStart(3, "0")}.ogg`);
+      const written = await runTool(ffmpeg, buildPartArgs(options.input, span.startMs, span.endMs, path), { ...tool, timeoutMs: PART_PASS_TIMEOUT_MS });
+      if (written.timedOut || written.code !== 0) throw new SplitError();
+      // A part that was not written is a failed split, not an empty part.
+      const info = await stat(path).catch(() => null);
+      if (info === null || !info.isFile()) throw new SplitError();
+      parts.push({ path, startMs: span.startMs, endMs: span.endMs });
+    }
+    return { parts, silences, durationMs };
   }, options.signal);
 }
