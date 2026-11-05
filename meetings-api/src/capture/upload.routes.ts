@@ -99,13 +99,16 @@ uploadRouter.openapi(mintRoute, async (c) => {
   const storage = requireStorage();
   const { objectKey, ...post } = await storageCall(() => storage.mintUploadPost(id, contentType));
   // The key is minted for this policy alone and kept here: confirm and prepare_audio read only it.
-  await db.meetingUpload.upsert({
-    where: { meetingId: id },
-    create: { meetingId: id, objectKey, contentType, sizeBytes },
-    update: { objectKey, contentType, sizeBytes, mintedAt: new Date() },
-  });
   // A new attempt retires the reason the last file was refused for (a refusal after processing began leaves it on the draft).
-  await db.meeting.update({ where: { id }, data: { failureCode: null } });
+  // Same transaction, and only while the meeting is still a draft: a meeting that moved on meanwhile keeps its failure.
+  await db.$transaction([
+    db.meetingUpload.upsert({
+      where: { meetingId: id },
+      create: { meetingId: id, objectKey, contentType, sizeBytes },
+      update: { objectKey, contentType, sizeBytes, mintedAt: new Date() },
+    }),
+    db.meeting.updateMany({ where: { id, status: "draft" }, data: { failureCode: null } }),
+  ]);
   // A retired mint's key (its policy may still be open) is dead weight, not a source: remove it.
   try {
     await storage.deleteUploadsExcept(id, objectKey);

@@ -117,6 +117,56 @@ describe("prepare_audio refuses an uploaded file that decodes past 3 h", () => {
     expect(pushed.map((e) => e.kind)).toEqual(["transcription_failed"]);
   });
 
+  it("an attempt that lost its lease mid-delete never removes the object of a NEW mint", async () => {
+    const m = await processingUpload();
+    const NEW = `meetings/${m.id}/upload/cccccccc-cccc-4ccc-8ccc-cccccccccccc`;
+    let swapped = false;
+    // While A is deleting, B reclaims and refuses, and the creator mints and uploads again.
+    const storage = {
+      ...kit.storage,
+      deleteObject: async (key: string) => {
+        if (!swapped) {
+          swapped = true;
+          await db.meeting.update({ where: { id: m.id }, data: { status: "draft", stage: null, failureCode: "too_long", processingRequestedBy: null, processingStartedAt: null } });
+          await db.meetingUpload.deleteMany({ where: { meetingId: m.id } });
+          await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: NEW, contentType: "audio/mpeg", sizeBytes: 5 } });
+          kit.storage.put(NEW, 5, "audio/mpeg", new Uint8Array([1, 2, 3, 4, 5]));
+        }
+        return kit.storage.deleteObject(key);
+      },
+    } as typeof kit.storage;
+    const handler = createPrepareAudio({
+      storage: () => storage,
+      probe: async () => ({ ok: true, durationMs: 1000, format: "matroska" }),
+      normalize: async () => { throw new NormalizeError("too_long"); },
+      announce: (event: NotifyEvent) => void pushed.push(event),
+    });
+    await expect(handler(ctxFor(m.id))).rejects.toBeInstanceOf(PermanentJobError);
+    expect(kit.storage.keys()).toEqual([NEW]);
+    expect((await db.meetingUpload.findUnique({ where: { meetingId: m.id } }))?.objectKey).toBe(NEW);
+    expect((await reread(m.id)).status).toBe("draft");
+  });
+
+  it("the post-commit cleanup does not sweep a newer mint either", async () => {
+    const m = await processingUpload({ audioKey: "meetings/x/audio.ogg" });
+    const NEW = `meetings/${m.id}/upload/cccccccc-cccc-4ccc-8ccc-cccccccccccc`;
+    let swapped = false;
+    const storage = {
+      ...kit.storage,
+      deleteObject: async (key: string) => {
+        if (!swapped) {
+          swapped = true;
+          await db.meetingUpload.deleteMany({ where: { meetingId: m.id } });
+          await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: NEW, contentType: "audio/mpeg", sizeBytes: 5 } });
+          kit.storage.put(NEW, 5, "audio/mpeg", new Uint8Array([1, 2, 3, 4, 5]));
+        }
+        return kit.storage.deleteObject(key);
+      },
+    } as typeof kit.storage;
+    await createPrepareAudio({ storage: () => storage })(ctxFor(m.id));
+    expect(kit.storage.keys()).toEqual([NEW]);
+  });
+
   it("a stale attempt deletes nothing and changes nothing", async () => {
     const m = await processingUpload();
     await expect(tooLong()(ctxFor(m.id, { stale: true }))).rejects.toBeInstanceOf(PermanentJobError);

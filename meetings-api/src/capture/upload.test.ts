@@ -59,6 +59,28 @@ describe("POST /meetings/:id/upload (mint)", () => {
     expect(await db.meetingUpload.findUniqueOrThrow({ where: { meetingId: m.id } })).toMatchObject({ contentType: "video/mp4", sizeBytes: 2 * MiB });
   });
 
+  it("a new mint clears the reason of a refused file, but only on a draft", async () => {
+    const m = await uploaded({ failureCode: "too_long" });
+    expect((await mint(m.id, { contentType: "audio/mpeg", sizeBytes: MiB })).status).toBe(200);
+    expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).failureCode).toBeNull();
+  });
+
+  it("does not wipe the failure of a meeting that stopped being a draft while the mint was in flight", async () => {
+    const m = await uploaded({ failureCode: "too_long" });
+    const original = kit.storage.mintUploadPost;
+    // Between the draft check and the writes the meeting is processed and fails for another reason.
+    kit.storage.mintUploadPost = async (meetingId, contentType) => {
+      await db.meeting.update({ where: { id: meetingId }, data: { status: "failed", failureCode: "audio_unreadable" } });
+      return original(meetingId, contentType);
+    };
+    try {
+      await mint(m.id, { contentType: "audio/mpeg", sizeBytes: MiB });
+    } finally {
+      kit.storage.mintUploadPost = original;
+    }
+    expect(await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).toMatchObject({ status: "failed", failureCode: "audio_unreadable" });
+  });
+
   it("an unsupported type is 422 unsupported_type and mints nothing", async () => {
     const m = await uploaded();
     for (const contentType of ["application/pdf", "text/html", "audio/x-unknown", "video/x-flv", ""]) {

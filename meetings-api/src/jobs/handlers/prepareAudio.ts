@@ -114,8 +114,17 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
   const now = deps.now ?? (() => new Date());
   const announce = deps.announce ?? defaultAnnounce;
 
-  /** Best effort: the bucket's 29-day lifecycle rule is the backstop for what fails here. */
-  async function deleteSources(storage: Storage, meetingId: string, source: Source): Promise<boolean> {
+  /**
+   * Best effort: the bucket's 29-day lifecycle rule is the backstop for what fails here.
+   *
+   * The job lock is released by the guard commit before this runs, so a stale attempt (lease lost)
+   * may get here after another attempt finished and the creator minted a NEW upload. Two rules keep
+   * such an attempt from deleting what it never owned: it deletes only the exact keys it read, and
+   * the stray sweep (`sweep`) first re-reads the stored upload and stands down when a different key
+   * owns the meeting now. `sweep: false` (the refusal) skips the sweep altogether: the next mint
+   * and confirm sweep their own retired keys.
+   */
+  async function deleteSources(storage: Storage, meetingId: string, source: Source, options: { sweep?: boolean } = {}): Promise<boolean> {
     let all = true;
     for (const key of source.keys) {
       try {
@@ -125,9 +134,11 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
         console.error("[prepare_audio] could not delete a source object:", error instanceof Error ? error.name : "unknown error");
       }
     }
-    if (source.purgeUploads) {
+    if (source.purgeUploads && options.sweep !== false) {
       try {
-        await storage.deleteUploadsExcept(meetingId);
+        const current = await db.meetingUpload.findUnique({ where: { meetingId }, select: { objectKey: true } });
+        // A different key is a newer mint that owns the prefix now: leave the sweep to it.
+        if (!current || source.keys.includes(current.objectKey)) await storage.deleteUploadsExcept(meetingId);
       } catch (error) {
         all = false;
         console.error("[prepare_audio] could not delete stray uploads:", error instanceof Error ? error.name : "unknown error");
@@ -163,7 +174,7 @@ export function createPrepareAudio(deps: PrepareDeps = {}): JobHandler {
   async function refuseUpload(ctx: JobContext, storage: Storage, meetingId: string, source: Source): Promise<"refused" | "stale" | "undeleted"> {
     const owned = await ctx.commit((tx) => tx.meeting.count({ where: { id: meetingId, status: "processing", audioKey: null } }));
     if (!owned.committed || owned.value === 0) return "stale";
-    if (!(await deleteSources(storage, meetingId, source))) return "undeleted";
+    if (!(await deleteSources(storage, meetingId, source, { sweep: false }))) return "undeleted";
 
     const before = await db.meeting.findUnique({ where: { id: meetingId }, select: { id: true, title: true, processingRequestedBy: true, creatorUserId: true } });
     const result = await ctx.commit(async (tx) => {
