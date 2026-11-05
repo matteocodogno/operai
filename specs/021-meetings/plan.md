@@ -2432,6 +2432,8 @@ repetition → the earlier try. Deterministic.
   job: the runner does not re-run the attempt, because each part has already had 3 tries. The
   creator's retry (AC-6.9) stays available while the audio is kept.
 
+> **T124 (2026-11-05, real sandbox, 115 min synthetic audio, 3 runs).** H-1: overlaps 62-118 s; D2 dedup lost no speech (overlap recall 100%); 12 of 14 labels joined at 7 boundaries with 0 false joins; refusals came from J0 or provider diarization jitter (R25), safe direction. H-3: at 10-min parts the one real hole (91% recall) was detected (marked range ~1.5 min wider than the true loss, safe direction); at 19-min parts a 6.7% loss with 1046 untimed words went undetected (untimed-word credit, R24). The provider also returns "repetition tails" as untimed words; D1 removed them only when the first word was timed. D1 twice removed real speech of two different speakers saying the same 8 words ~2 s apart. H-4: all 8 re-tries of flagged parts were byte-identical to try 1 (deterministic provider) — about USD 1.4 for no improvement; 5 of 7 flagged parts were repetition-only. **Decided by the user 2026-11-05 (spec A8):** per-part retries disabled (tries = 1) until production data exists; a repetition never flags a part; duplicates require the same (or no) speaker label; untimed repeated tails are removed by content. Billed 221.6 min ≈ USD 3.55.
+
 ### H-4 Per-part retry inside one job attempt
 
 **Where the results live.** All tries of all parts run inside **one claim** of the `transcribe` job
