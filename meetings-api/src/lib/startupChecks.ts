@@ -1,8 +1,8 @@
 /**
  * Startup checks that need the network (specs/021-meetings AC-4.4, AC-4.9,
- * ADR-0063, ADR-0061). The residency checks that can be decided from the
- * environment alone live in `env.ts` / `residency.ts`; these ask the bucket and
- * Bedrock's control plane.
+ * ADR-0063, ADR-0069). The residency checks that can be decided from the
+ * environment alone live in `env.ts` / `residency.ts`; these ask the audio bucket,
+ * the transient bucket and Vertex's control plane.
  *
  * Audio is deleted by the BUCKET, not by this service (no cron, ADR-0013): one
  * bucket-wide lifecycle rule expires every object within 30 days of creation.
@@ -21,14 +21,14 @@
  * credentials or the provider's error text.
  */
 
-import { GetAccountDataRetentionCommand, GetInferenceProfileCommand } from "@aws-sdk/client-bedrock";
 import {
   GetBucketLifecycleConfigurationCommand,
   GetBucketVersioningCommand,
   type LifecycleRule,
   type S3Client,
 } from "@aws-sdk/client-s3";
-import { googleAuth, type GoogleAuth } from "./google/auth";
+import { GoogleApiError, defaultFetch, googleAuth, googleFetch, type GoogleAuth } from "./google/auth";
+import { vertexHost } from "./residency";
 import { readBucketConfig, type BucketConfig } from "./google/transientStorage";
 
 /** AC-4.4: 30 days (+ at most 24 h) from creation; expiration rounds up to midnight UTC. */
@@ -153,101 +153,99 @@ export async function checkTransientBucket(input: { bucket: string; auth: Google
   return transientBucketProblems(config);
 }
 
-// ─── Bedrock (AC-4.9, ADR-0061) - REMOVED BY T101 ────────────────────────────
-// Superseded by ADR-0069 (T95 dropped its environment). Kept only until T101 replaces it with the Vertex checks
-// N3/N4, so that the code between the two commits still loads; nothing reads it at runtime.
-const BEDROCK_ALLOWED_REGIONS = ["eu-central-1", "eu-central-2", "eu-west-1", "eu-west-3", "eu-north-1", "eu-south-1", "eu-south-2"] as const;
+// ─── Vertex AI: caching and request-response logging (N3, N4; AC-4.9, ADR-0069) ─────────
 //
-//
-// Two facts about the language model are not in our repository: WHERE a request is
-// processed (an inference profile can route to any Region in its set, and AWS warns
-// not to rely on the geographic prefix) and WHETHER anything is kept (the account's
-// data-retention mode, per Region). Both are read from AWS at startup; anything that
-// cannot be read, or is not what the promise needs, refuses the start.
+// Two facts about the language model are not in our repository and are not on the request: whether the
+// PROJECT caches prompts (Google documents implicit caching for its own models, and the setting is
+// project-wide) and whether request-response LOGGING is on for this publisher model in this location. Both are
+// read from Google's control plane at startup; anything that cannot be read, or is not what the promise needs,
+// refuses the start. Both reads carry a project id and no content, the same class as the token exchange.
 
-/** What this module needs of a Bedrock control-plane client: tests pass a stub. */
-export interface BedrockControl {
-  send(command: GetInferenceProfileCommand | GetAccountDataRetentionCommand): Promise<unknown>;
-}
-
-export interface BedrockCheckInput {
-  /** `BEDROCK_REGION`: where requests are sent, and whose retention mode applies first. */
-  readonly region: string;
-  /** `BEDROCK_MODEL_ID`: a model id, or an inference profile id or ARN. */
+export interface VertexCheckInput {
+  /** `MEETINGS_GCP_PROJECT_ID`. */
+  readonly projectId: string;
+  /** `MEETINGS_VERTEX_LOCATION`, already checked (S2). */
+  readonly location: string;
+  /** `MEETINGS_VERTEX_MODEL_ID`, already checked (S3). */
   readonly modelId: string;
-  /** A control-plane client for a Region (retention is read per Region). */
-  readonly controlFor: (region: string) => BedrockControl;
+  readonly auth: GoogleAuth;
+  readonly fetchImpl?: typeof fetch;
 }
 
-/** A geographic or global profile id (`eu.anthropic...`) or a profile ARN, as opposed to a plain model id. */
-export function isInferenceProfileId(modelId: string): boolean {
-  return /(^|\/)(eu|us|us-gov|apac|jp|au|ca|global)\./.test(modelId) || /:(application-)?inference-profile\//.test(modelId);
+const CONTROL_TIMEOUT_MS = 30_000;
+
+/** One control-plane read, tried twice when the first failure is transient (plan R21); a refusal is final. */
+async function readControlPlane(input: VertexCheckInput, url: string, allow: readonly number[]): Promise<Response> {
+  const fetchImpl = input.fetchImpl ?? defaultFetch;
+  let last: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await googleFetch(input.auth, fetchImpl, url, { timeoutMs: CONTROL_TIMEOUT_MS, allow });
+    } catch (error) {
+      last = error;
+      if (!(error instanceof GoogleApiError) || !error.transient) break;
+    }
+  }
+  throw last;
 }
 
-const arnRegion = (arn: unknown): string | null =>
-  typeof arn === "string" ? (/^arn:aws[a-z-]*:bedrock:([a-z0-9-]+):/.exec(arn)?.[1] ?? null) : null;
-
-const isAllowed = (region: string): boolean => (BEDROCK_ALLOWED_REGIONS as readonly string[]).includes(region);
+const jsonObject = async (response: Response): Promise<Record<string, unknown> | null> => {
+  const body = (await response.json().catch(() => null)) as unknown;
+  return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+};
 
 /**
- * The problems with the configured model (empty when fit). Never throws. A problem names
- * the check, never a Region, a model id, an account id or the provider's error text.
+ * The problems with the Vertex project and model (empty when fit). Never throws. A problem names the check,
+ * never a project, a location, a model id or the provider's error text.
  */
-export async function checkBedrock(input: BedrockCheckInput): Promise<string[]> {
+export async function checkVertex(input: VertexCheckInput): Promise<string[]> {
   const problems: string[] = [];
-  const regions = new Set<string>([input.region]);
+  const base = `https://${vertexHost(input.location)}`;
+  const project = encodeURIComponent(input.projectId);
 
-  if (isInferenceProfileId(input.modelId)) {
-    try {
-      const profile = (await input.controlFor(input.region).send(
-        new GetInferenceProfileCommand({ inferenceProfileIdentifier: input.modelId }),
-      )) as { models?: { modelArn?: unknown }[] } | undefined;
-      const destinations = (profile?.models ?? []).map((model) => arnRegion(model.modelArn));
-      if (destinations.length === 0 || destinations.includes(null)) {
-        problems.push("the model's inference profile lists no readable destination Regions");
-      }
-      for (const destination of destinations) {
-        if (destination === null) continue;
-        if (isAllowed(destination)) regions.add(destination);
-        else problems.push("the model's inference profile has a destination Region outside the EU/CH allowlist");
-      }
-    } catch {
-      problems.push("the model's inference profile cannot be read");
-    }
+  // N3: all caching off for the project. `DURABLE` and `EPHEMERAL` (and an answer we cannot read) refuse.
+  try {
+    const body = await jsonObject(await readControlPlane(input, `${base}/v1/projects/${project}/cacheConfig`, []));
+    if (body?.["disableCache"] !== true) problems.push("Vertex data caching is not disabled for the project (cacheConfig)");
+  } catch {
+    problems.push("Vertex's cache configuration cannot be read");
   }
 
-  // Retention is a per-Region setting that does not propagate, and a profile may process a
-  // request in any destination Region: every one of them must read `none`.
-  let notNone = 0;
-  let unreadable = 0;
-  for (const region of regions) {
-    try {
-      const answer = (await input.controlFor(region).send(new GetAccountDataRetentionCommand({}))) as { mode?: unknown } | undefined;
-      if (answer?.mode !== "none") notNone += 1;
-    } catch {
-      unreadable += 1;
+  // N4: request-response logging not enabled for this exact location and model. A 404 is Google's "no
+  // configuration", i.e. the default, disabled state; `enabled` or `enableOtelLogging` true refuses; every other
+  // answer or error refuses.
+  try {
+    const url =
+      `${base}/v1beta1/projects/${project}/locations/${encodeURIComponent(input.location)}` +
+      `/publishers/anthropic/models/${encodeURIComponent(input.modelId)}:fetchPublisherModelConfig`;
+    const response = await readControlPlane(input, url, [404]);
+    if (response.status !== 404) {
+      const body = await jsonObject(response);
+      if (body === null) {
+        problems.push("Vertex's request-response logging configuration cannot be read");
+      } else {
+        const logging = (typeof body["loggingConfig"] === "object" && body["loggingConfig"] !== null ? body["loggingConfig"] : {}) as Record<string, unknown>;
+        if (logging["enabled"] === true || logging["enableOtelLogging"] === true || body["enableOtelLogging"] === true) {
+          problems.push("Vertex request-response logging is enabled for the model");
+        }
+      }
+    } else {
+      await response.body?.cancel().catch(() => {});
     }
+  } catch {
+    problems.push("Vertex's request-response logging configuration cannot be read");
   }
-  if (unreadable > 0) problems.push("Bedrock's data-retention mode cannot be read in every Region the model may run in");
-  if (notNone > 0) problems.push("Bedrock's data-retention mode is not 'none' in every Region the model may run in");
 
   return problems;
 }
 
-/** Removed with T101 (the environment it read no longer exists). */
-async function bedrockCheckFromEnv(): Promise<BedrockCheckInput | null> {
-  return null;
-}
-
 /**
- * Runs the checks - the audio bucket, and with a real provider the transient bucket and the language
- * model - and exits 1 on any problem. Called once from `src/index.ts`, before the server listens.
+ * Runs the checks - the audio bucket, and with a real provider the transient bucket and Vertex - and exits 1
+ * on any problem. Called once from `src/index.ts`, before the server listens.
  */
 export async function runStartupChecks(client: S3Client, bucket: string): Promise<void> {
   const audio = await checkBucket(client, bucket);
-  const model = await bedrockCheckFromEnv();
-  const ai = model ? await checkBedrock(model) : [];
-  const transient = await transientCheckFromEnv();
+  const { transient, ai } = await providerChecksFromEnv();
   if (audio.length === 0 && ai.length === 0 && transient.length === 0) return;
   if (audio.length > 0) {
     console.error("Audio storage is not fit for recordings, refusing to start (AC-4.4, ADR-0063):");
@@ -258,15 +256,24 @@ export async function runStartupChecks(client: S3Client, bucket: string): Promis
     for (const problem of transient) console.error(`  - ${problem}`);
   }
   if (ai.length > 0) {
-    console.error("The language model is not fit to process meetings, refusing to start (AC-4.9, ADR-0061):");
+    console.error("The language model is not fit to process meetings, refusing to start (AC-4.9, ADR-0069):");
     for (const problem of ai) console.error(`  - ${problem}`);
   }
   process.exit(1);
 }
 
-/** From the environment: the transient bucket is checked with a real provider, never with the fake. */
-async function transientCheckFromEnv(): Promise<string[]> {
+/** From the environment: a real provider is checked, the fake (refused in production by env.ts) is not. */
+async function providerChecksFromEnv(): Promise<{ transient: string[]; ai: string[] }> {
   const { env } = await import("./env");
-  if (env.MEETINGS_AI_PROVIDER !== "real") return [];
-  return checkTransientBucket({ bucket: env.MEETINGS_GCS_TRANSIENT_BUCKET!, auth: await googleAuth() });
+  if (env.MEETINGS_AI_PROVIDER !== "real") return { transient: [], ai: [] };
+  const auth = await googleAuth();
+  return {
+    transient: await checkTransientBucket({ bucket: env.MEETINGS_GCS_TRANSIENT_BUCKET!, auth }),
+    ai: await checkVertex({
+      projectId: env.MEETINGS_GCP_PROJECT_ID!,
+      location: env.MEETINGS_VERTEX_LOCATION!,
+      modelId: env.MEETINGS_VERTEX_MODEL_ID!,
+      auth,
+    }),
+  };
 }

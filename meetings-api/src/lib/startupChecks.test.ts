@@ -12,12 +12,10 @@ import {
 import {
   MAX_RETENTION_DAYS,
   TRANSIENT_BUCKET_ALLOWED_LOCATIONS,
-  checkBedrock,
+  checkVertex,
   checkBucket,
   checkTransientBucket,
-  isInferenceProfileId,
   transientBucketProblems,
-  type BedrockControl,
 } from "./startupChecks";
 import type { GoogleAuth } from "./google/auth";
 import type { BucketConfig } from "./google/transientStorage";
@@ -139,129 +137,135 @@ describe("what a refusal says", () => {
   });
 });
 
-// ─── Bedrock: where the model routes, and that nothing is retained (AC-4.9, ADR-0061) ──────
+// ─── Vertex: caching and logging (N3, N4; AC-4.9, ADR-0069) ──────────────────
 
-type Reply = Record<string, unknown> | Error;
+type Answer = Response | Error;
 
-/** A control-plane client per region, answering from a script; records who was asked what. */
-function bedrockWorld(script: { profile?: Reply; retention?: Record<string, Reply> }) {
-  const asked: { region: string; command: string }[] = [];
-  const controlFor = (region: string): BedrockControl => ({
-    send: async (command: { constructor: { name: string } }) => {
-      asked.push({ region, command: command.constructor.name });
-      const reply =
-        command.constructor.name === "GetInferenceProfileCommand"
-          ? script.profile
-          : (script.retention ?? {})[region] ?? new Error("no script for this region");
-      if (reply instanceof Error) throw reply;
-      return reply ?? {};
-    },
-  });
-  return { asked, controlFor };
+/** A Vertex control plane that answers by script and records every request. */
+function vertexWorld(script: { cache?: Answer | (() => Answer); logging?: Answer | (() => Answer) }) {
+  const seen: { url: URL; method: string }[] = [];
+  const auth: GoogleAuth = { accessToken: async () => "tok", client: null as never };
+  const answer = (a: Answer | (() => Answer) | undefined): Response => {
+    const value = typeof a === "function" ? a() : a;
+    if (value instanceof Error) throw value;
+    return value ?? new Response("{}", { status: 500 });
+  };
+  const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input));
+    seen.push({ url, method: init?.method ?? "GET" });
+    return url.pathname.endsWith("/cacheConfig") ? answer(script.cache) : answer(script.logging);
+  }) as unknown as typeof fetch;
+  const run = (over: Partial<Parameters<typeof checkVertex>[0]> = {}) =>
+    checkVertex({ projectId: "operai-meetings-test", location: "eu", modelId: "claude-sonnet-5-0", auth, fetchImpl, ...over });
+  return { seen, run };
 }
 
-const arnIn = (region: string) => ({ modelArn: `arn:aws:bedrock:${region}::foundation-model/anthropic.claude-test-v1:0` });
-const none = { mode: "none" };
+const okJson = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+const cacheOff = () => okJson({ name: "projects/p/cacheConfig", disableCache: true });
+const notConfigured = () => new Response("{}", { status: 404 });
 
-describe("which model ids are inference profiles", () => {
-  it("recognises geographic and global profile ids and profile ARNs, not plain model ids", () => {
-    for (const id of ["eu.anthropic.claude-x-v1:0", "us.anthropic.claude-x", "global.anthropic.claude-x", "apac.anthropic.claude-x"]) {
-      expect(isInferenceProfileId(id), id).toBe(true);
+describe("vertex N3: data caching is off for the project", () => {
+  it("passes only for disableCache: true", async () => {
+    expect(await vertexWorld({ cache: cacheOff(), logging: notConfigured() }).run()).toEqual([]);
+  });
+
+  it("refuses DURABLE and EPHEMERAL retention, an empty config and a config that says disableCache false", async () => {
+    for (const body of [
+      { name: "x", retentionConfig: { retentionType: "DURABLE" } },
+      { name: "x", retentionConfig: { retentionType: "EPHEMERAL" } },
+      {},
+      { disableCache: false },
+      { disableCache: "true" },
+    ]) {
+      const problems = await vertexWorld({ cache: okJson(body), logging: notConfigured() }).run();
+      expect(problems, JSON.stringify(body)).toHaveLength(1);
+      expect(problems[0]).toMatch(/caching/i);
     }
-    expect(isInferenceProfileId("arn:aws:bedrock:eu-central-1:123456789012:inference-profile/eu.anthropic.claude-x")).toBe(true);
-    expect(isInferenceProfileId("arn:aws:bedrock:eu-central-1:123456789012:application-inference-profile/abc123")).toBe(true);
-    expect(isInferenceProfileId("anthropic.claude-x-v1:0")).toBe(false);
-    expect(isInferenceProfileId("arn:aws:bedrock:eu-central-2::foundation-model/anthropic.claude-x")).toBe(false);
+  });
+
+  it("refuses when it cannot be read: 403, 404, 500, a network error, a body that is not JSON (fail closed)", async () => {
+    for (const cache of [okJson({}, 403), okJson({}, 404), okJson({}, 500), new Error("ECONNRESET"), new Response("<html>")]) {
+      const problems = await vertexWorld({ cache, logging: notConfigured() }).run();
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/cache/i);
+    }
+  });
+
+  it("reads the project's cacheConfig on the host derived from the location", async () => {
+    const w = vertexWorld({ cache: cacheOff(), logging: notConfigured() });
+    await w.run();
+    const read = w.seen.find((r) => r.url.pathname.endsWith("/cacheConfig"))!;
+    expect(read.url.host).toBe("aiplatform.eu.rep.googleapis.com");
+    expect(read.url.pathname).toBe("/v1/projects/operai-meetings-test/cacheConfig");
+    expect(read.method).toBe("GET");
+  });
+
+  it("tries a transient failure twice, a refusal once", async () => {
+    let transientCalls = 0;
+    const flaky = vertexWorld({ cache: () => (transientCalls++ === 0 ? okJson({}, 503) : cacheOff()), logging: notConfigured() });
+    expect(await flaky.run()).toEqual([]);
+    expect(transientCalls).toBe(2);
+
+    let refusedCalls = 0;
+    const denied = vertexWorld({ cache: () => (refusedCalls++, okJson({}, 403)), logging: notConfigured() });
+    await denied.run();
+    expect(refusedCalls).toBe(1);
+
+    let downCalls = 0;
+    const down = vertexWorld({ cache: () => (downCalls++, okJson({}, 503)), logging: notConfigured() });
+    expect((await down.run()).length).toBe(1);
+    expect(downCalls).toBe(2);
   });
 });
 
-describe("bedrock: inference-profile destinations (AC-4.9)", () => {
-  const modelId = "eu.anthropic.claude-test-v1:0";
-
-  it("passes when every destination is in the EU/CH allowlist and retention is none in each", async () => {
-    const world = bedrockWorld({
-      profile: { models: [arnIn("eu-central-1"), arnIn("eu-west-3"), arnIn("eu-north-1")] },
-      retention: { "eu-central-2": none, "eu-central-1": none, "eu-west-3": none, "eu-north-1": none },
-    });
-    expect(await checkBedrock({ region: "eu-central-2", modelId, controlFor: world.controlFor })).toEqual([]);
-    // the home region and EVERY destination region were asked, each once
-    expect(world.asked.filter((a) => a.command === "GetAccountDataRetentionCommand").map((a) => a.region).sort()).toEqual([
-      "eu-central-1",
-      "eu-central-2",
-      "eu-north-1",
-      "eu-west-3",
-    ]);
+describe("vertex N4: request-response logging is not enabled for the model", () => {
+  it("a 404 (no configuration, the default) passes", async () => {
+    expect(await vertexWorld({ cache: cacheOff(), logging: notConfigured() }).run()).toEqual([]);
   });
 
-  it("refuses a profile with a destination in eu-west-2 (London is not EU)", async () => {
-    const world = bedrockWorld({
-      profile: { models: [arnIn("eu-central-1"), arnIn("eu-west-2")] },
-      retention: { "eu-central-2": none, "eu-central-1": none, "eu-west-2": none },
-    });
-    const problems = await checkBedrock({ region: "eu-central-2", modelId, controlFor: world.controlFor });
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toMatch(/destination/i);
-    expect(problems[0]).not.toContain("eu-west-2");
-  });
-
-  it("refuses a profile that routes to the US, however it is named", async () => {
-    const world = bedrockWorld({ profile: { models: [arnIn("us-east-1")] }, retention: { "eu-central-2": none, "us-east-1": none } });
-    expect(await checkBedrock({ region: "eu-central-2", modelId: "eu.anthropic.fake", controlFor: world.controlFor })).toHaveLength(1);
-  });
-
-  it("refuses a profile with no destinations, an unparseable ARN or a profile it cannot read (fail closed)", async () => {
-    for (const profile of [{ models: [] }, {}, { models: [{ modelArn: "not-an-arn" }] }, { models: [{}] }, new Error("denied")]) {
-      const world = bedrockWorld({ profile, retention: { "eu-central-2": none } });
-      expect((await checkBedrock({ region: "eu-central-2", modelId, controlFor: world.controlFor })).length, JSON.stringify(profile)).toBeGreaterThan(0);
+  it("a configuration with logging disabled passes", async () => {
+    for (const body of [{ loggingConfig: { enabled: false } }, { loggingConfig: {} }, {}, { name: "x" }]) {
+      expect(await vertexWorld({ cache: cacheOff(), logging: okJson(body) }).run(), JSON.stringify(body)).toEqual([]);
     }
   });
 
-  it("does not look up a profile for a plain model id", async () => {
-    const world = bedrockWorld({ retention: { "eu-central-2": none } });
-    expect(await checkBedrock({ region: "eu-central-2", modelId: "anthropic.claude-test-v1:0", controlFor: world.controlFor })).toEqual([]);
-    expect(world.asked.map((a) => a.command)).toEqual(["GetAccountDataRetentionCommand"]);
-  });
-});
-
-describe("bedrock: retention mode (AC-4.9)", () => {
-  const plain = "anthropic.claude-test-v1:0";
-  const check = (retention: Reply) => checkBedrock({ region: "eu-central-2", modelId: plain, controlFor: bedrockWorld({ retention: { "eu-central-2": retention } }).controlFor });
-
-  it("passes only for none", async () => {
-    expect(await check(none)).toEqual([]);
-  });
-
-  it("refuses default, inherit, aws_review, provider_data_share and anything unexpected", async () => {
-    for (const mode of ["default", "inherit", "aws_review", "provider_data_share", "NONE", "", "no", 0, null]) {
-      const problems = await check({ mode });
-      expect(problems, String(mode)).toHaveLength(1);
-      expect(problems[0]).toMatch(/retention/i);
+  it("refuses enabled: true and enableOtelLogging: true, wherever the field sits", async () => {
+    for (const body of [{ loggingConfig: { enabled: true } }, { loggingConfig: { enableOtelLogging: true } }, { enableOtelLogging: true }, { loggingConfig: { enabled: true, enableOtelLogging: true } }]) {
+      const problems = await vertexWorld({ cache: cacheOff(), logging: okJson(body) }).run();
+      expect(problems, JSON.stringify(body)).toHaveLength(1);
+      expect(problems[0]).toMatch(/logging/i);
     }
-    expect(await check({})).toHaveLength(1); // no mode in the answer
   });
 
-  it("refuses when the mode cannot be read - an AccessDenied is a refusal, not a pass", async () => {
-    const denied = Object.assign(new Error("not authorized to perform bedrock:GetAccountDataRetention"), { name: "AccessDeniedException" });
-    const problems = await check(denied);
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toMatch(/cannot be read/i);
+  it("refuses every other error: 400, 401, 403, 500, a network error, a 200 that is not JSON", async () => {
+    for (const logging of [okJson({}, 400), okJson({}, 401), okJson({}, 403), okJson({}, 500), new Error("ECONNRESET"), new Response("<html>")]) {
+      const problems = await vertexWorld({ cache: cacheOff(), logging }).run();
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toMatch(/logging/i);
+    }
   });
 
-  it("refuses when a destination region's retention is not none even if the home region's is", async () => {
-    const world = bedrockWorld({
-      profile: { models: [arnIn("eu-central-1")] },
-      retention: { "eu-central-2": none, "eu-central-1": { mode: "default" } },
-    });
-    const problems = await checkBedrock({ region: "eu-central-2", modelId: "eu.anthropic.x", controlFor: world.controlFor });
-    expect(problems).toHaveLength(1);
+  it("asks about the exact location and model, with both encoded", async () => {
+    const w = vertexWorld({ cache: cacheOff(), logging: notConfigured() });
+    await w.run({ modelId: "claude-opus-4-7@20260401", location: "europe-west4" });
+    const read = w.seen.find((r) => r.url.pathname.endsWith(":fetchPublisherModelConfig"))!;
+    expect(read.url.host).toBe("europe-west4-aiplatform.googleapis.com");
+    expect(read.url.pathname).toBe(
+      "/v1beta1/projects/operai-meetings-test/locations/europe-west4/publishers/anthropic/models/claude-opus-4-7%4020260401:fetchPublisherModelConfig",
+    );
   });
 
-  it("names the check and never the provider's error text or the model id", async () => {
-    const leaky = Object.assign(new Error("secret-bedrock-text arn:aws:iam::123456789012:user/x"), { name: "AccessDeniedException" });
-    const problems = (await check(leaky)).join("\n");
-    expect(problems).not.toContain("secret-bedrock-text");
-    expect(problems).not.toContain("123456789012");
-    expect(problems).not.toContain(plain);
+  it("reports both problems together", async () => {
+    const problems = await vertexWorld({ cache: okJson({ disableCache: false }), logging: okJson({ loggingConfig: { enabled: true } }) }).run();
+    expect(problems).toHaveLength(2);
+  });
+
+  it("names the check and never the project, the model, the location or the provider's error text", async () => {
+    const leaky = () => new Response("secret-vertex-text operai-meetings-test", { status: 403 });
+    const problems = (await vertexWorld({ cache: leaky(), logging: leaky() }).run({ modelId: "claude-secret-model" })).join("\n");
+    for (const leak of ["secret-vertex-text", "operai-meetings-test", "claude-secret-model", "aiplatform", "eu"]) {
+      expect(problems.toLowerCase()).not.toContain(leak === "eu" ? " eu " : leak);
+    }
   });
 });
 
