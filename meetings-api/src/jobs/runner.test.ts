@@ -539,13 +539,15 @@ describe("the handler table", () => {
     const { handlers } = await import("./handlers");
     expect(Object.keys(handlers).sort()).toEqual(["deliver_host_notice", "prepare_audio", "summarize", "transcribe"]);
     const ctx = { job: {}, attempt: 1, attemptId: null, signal: new AbortController().signal, commit: async () => ({ committed: false as const }) };
-    // A kind drops out of this list when its task replaces the stub (T94: summarize).
+    // Kinds whose task has landed. `summarize` (T94) is exercised by its own suite and skipped here;
+    // the others, given a job with no meeting, refuse with their own code.
     const implemented = new Set(["summarize"]);
+    const landed: Record<string, string> = { prepare_audio: "no_meeting" };
     for (const [kind, handler] of Object.entries(handlers)) {
       if (implemented.has(kind)) continue;
       const error = await handler(ctx as never).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(PermanentJobError);
-      expect((error as PermanentJobError).code).toBe("not_implemented");
+      expect((error as PermanentJobError).code).toBe(landed[kind] ?? "not_implemented");
     }
   });
 });

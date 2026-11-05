@@ -29,8 +29,14 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   NotFound,
 } from "@aws-sdk/client-s3";
+import { createWriteStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env } from "./env";
@@ -129,6 +135,17 @@ export interface HeadResult {
   readonly contentType: string | undefined;
 }
 
+/** A read that would exceed its byte ceiling; the partial file is the caller's to remove. */
+export class ObjectTooLargeError extends Error {
+  constructor() {
+    super("object is larger than the allowed read size");
+    this.name = "ObjectTooLargeError";
+  }
+}
+
+/** `audio.ogg` is <= ~45 MB (ADR-0064); this is the hard ceiling on a put. */
+export const MAX_AUDIO_PUT_BYTES = 100 * 1024 * 1024;
+
 export interface Storage {
   /** Key `meetings/<id>/chunks/<seq>`, size 1..8 MiB, an `audio/*` content type, 5 minutes. */
   mintChunkPost(meetingId: string, seq: number): Promise<PresignedPost>;
@@ -148,6 +165,14 @@ export interface Storage {
    * in the database (AC-4.5/4.6). Any other prefix is refused.
    */
   deletePrefix(prefix: string): Promise<number>;
+  /**
+   * ADR-0064: the ONE streaming read of object bytes (for `prepare_audio`). Streams the
+   * object to `destPath` on disk, never into memory, and fails with `ObjectTooLargeError`
+   * as soon as it would pass `maxBytes`. Returns the bytes written.
+   */
+  getObjectToFile(objectKey: string, destPath: string, maxBytes: number): Promise<number>;
+  /** Writes the normalised `meetings/<id>/audio.ogg` from a local file (<= MAX_AUDIO_PUT_BYTES). */
+  putAudioFile(meetingId: string, filePath: string): Promise<{ sizeBytes: number }>;
 }
 
 const DELETE_BATCH = 1000;
@@ -247,6 +272,37 @@ export function createStorage(deps: { client: S3Client; bucket: string }): Stora
         token = page.IsTruncated ? page.NextContinuationToken : undefined;
       } while (token);
       return deleted;
+    },
+
+    async getObjectToFile(objectKey, destPath, maxBytes) {
+      assertKey(objectKey);
+      const res = await client.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+      if (!res.Body) throw new Error("storage returned no body");
+      const web = res.Body.transformToWebStream();
+      if (res.ContentLength !== undefined && res.ContentLength > maxBytes) {
+        await web.cancel();
+        throw new ObjectTooLargeError();
+      }
+      let written = 0;
+      const limit = new Transform({
+        transform(piece: Buffer, _encoding, callback) {
+          written += piece.length;
+          if (written > maxBytes) callback(new ObjectTooLargeError());
+          else callback(null, piece);
+        },
+      });
+      await pipeline(Readable.fromWeb(web as WebReadableStream), limit, createWriteStream(destPath, { mode: 0o600 }));
+      return written;
+    },
+
+    async putAudioFile(meetingId, filePath) {
+      const key = objectKeys.audio(meetingId);
+      const { size } = await stat(filePath);
+      if (size < 1 || size > MAX_AUDIO_PUT_BYTES) throw new Error("audio file size is out of range");
+      await client.send(
+        new PutObjectCommand({ Bucket: bucket, Key: key, Body: await readFile(filePath), ContentLength: size, ContentType: PLAYBACK_CONTENT_TYPE }),
+      );
+      return { sizeBytes: size };
     },
   };
 }

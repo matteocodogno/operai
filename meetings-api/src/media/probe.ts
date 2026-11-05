@@ -146,7 +146,7 @@ export function buildProbeArgs(source: string): string[] {
 }
 
 /** Pure: ffprobe's JSON document in, the AC-3.2 verdict out. */
-export function judgeProbe(raw: unknown): ProbeVerdict {
+export function judgeProbe(raw: unknown, maxDurationMs: number = MAX_AUDIO_MS): ProbeVerdict {
   const doc = raw as { format?: { format_name?: unknown; duration?: unknown }; streams?: unknown } | null;
   const format = doc && typeof doc === "object" ? doc.format : undefined;
   const name = format && typeof format === "object" && typeof format.format_name === "string" ? format.format_name : "";
@@ -157,13 +157,15 @@ export function judgeProbe(raw: unknown): ProbeVerdict {
 
   const seconds = typeof format?.duration === "string" || typeof format?.duration === "number" ? Number(format.duration) : NaN;
   const durationMs = Number.isFinite(seconds) && seconds >= 0 ? Math.round(seconds * 1000) : null;
-  if (durationMs !== null && durationMs > MAX_AUDIO_MS) return reject("too_long");
+  if (durationMs !== null && durationMs > maxDurationMs) return reject("too_long");
   return { ok: true, durationMs, format: name };
 }
 
 export interface ProbeOptions {
   readonly bin?: string;
   readonly timeoutMs?: number;
+  /** Defaults to 3 h; the normaliser allows the recording's 60 s of grace. */
+  readonly maxDurationMs?: number;
 }
 
 /** Probes `source` (absolute path or http(s) URL). Throws `ToolMissingError` if ffprobe is not installed. */
@@ -176,7 +178,7 @@ export async function probeMedia(source: string, options: ProbeOptions = {}): Pr
   } catch {
     return reject("unsupported_type");
   }
-  return judgeProbe(doc);
+  return judgeProbe(doc, options.maxDurationMs);
 }
 
 // ─── Test seam ───────────────────────────────────────────────────────────────
