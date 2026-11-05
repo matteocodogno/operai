@@ -209,7 +209,7 @@ database after `bun run db:deploy`.
   - touch: `meetings-api/src/capture/text.routes.ts`, `meetings-api/src/capture/text.test.ts`, `meetings-api/src/transcript/passages.ts`, `meetings-api/src/transcript/passages.test.ts`
   - done when: `cd meetings-api && bun test src/capture/text.test.ts src/transcript/passages.test.ts` passes: 200,000 chars → `ready`; 200,001 → 422; no consent required; passage vectors
 
-- [ ] T30: [BE] meetings-api `prepare_audio` job: stream chunks or the original to a temp dir, `ffmpeg -protocol_whitelist file,pipe … -vn -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k`, put `audio.ogg`, set `audioCreatedAt`, delete chunks/original, clean up in `finally`, then enqueue `transcribe` — refs: AC-3.1, AC-2.6, AC-4.4 — deps: T17, T28
+- [x] T30: [BE] meetings-api `prepare_audio` job: stream chunks or the original to a temp dir, `ffmpeg -protocol_whitelist file,pipe … -vn -sn -dn -ac 1 -ar 16000 -c:a libopus -b:a 32k`, put `audio.ogg`, set `audioCreatedAt`, delete chunks/original, clean up in `finally`, then enqueue `transcribe` — refs: AC-3.1, AC-2.6, AC-4.4 — deps: T17, T28
   - touch: `meetings-api/src/media/normalize.ts`, `meetings-api/src/media/normalize.test.ts`, `meetings-api/src/jobs/handlers/prepareAudio.ts`, `meetings-api/test-fixtures/media/*`
   - done when: `cd meetings-api && bun test src/media/normalize.test.ts` passes with real ffmpeg on fixtures:
     - Chrome webm and Safari fMP4 chunk sequences, including a paused gap;
