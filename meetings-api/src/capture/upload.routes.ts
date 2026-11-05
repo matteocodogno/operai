@@ -67,7 +67,7 @@ const confirmRoute = createRoute({
   request: { params: IdParams },
   responses: {
     202: { description: "The meeting, processing", content: { "application/json": { schema: z.object({}).passthrough() } } },
-    409: { description: "upload_incomplete, wrong_source or not_draft" },
+    409: { description: "upload_incomplete, upload_superseded (a new upload was started meanwhile), wrong_source or not_draft" },
     ...commonErrors, // 422 upload_rejected { reason }
   },
 });
@@ -143,7 +143,8 @@ uploadRouter.openapi(confirmRoute, async (c) => {
       // The bucket's 29-day lifecycle rule is the backstop; the refusal still stands.
       console.error("[upload] could not delete a refused file:", e instanceof Error ? e.name : "unknown error");
     }
-    await db.meetingUpload.deleteMany({ where: { meetingId: id } });
+    // Only the row of the key that was refused: a re-mint meanwhile owns the row now.
+    await db.meetingUpload.deleteMany({ where: { meetingId: id, objectKey: upload.objectKey } });
     throw error;
   };
 
@@ -169,6 +170,10 @@ uploadRouter.openapi(confirmRoute, async (c) => {
 
   const now = new Date();
   await db.$transaction(async (tx) => {
+    // The file that was HEADed and probed is the one the job will read: bind the flip to its key. A mint that
+    // replaced it meanwhile (another tab) changed the row, so this matches nothing and the whole flip rolls back.
+    const bound = await tx.meetingUpload.updateMany({ where: { meetingId: id, objectKey: upload.objectKey }, data: { sizeBytes: head.sizeBytes } });
+    if (bound.count === 0) throw conflict("upload_superseded", "A new upload was started meanwhile: upload the file again");
     const flipped = await tx.meeting.updateMany({
       where: { id, status: "draft" },
       data: {
@@ -182,7 +187,6 @@ uploadRouter.openapi(confirmRoute, async (c) => {
     });
     // Lost a race with a second confirm: that one queued the job.
     if (flipped.count === 0) throw conflict("not_draft", "A file can only be confirmed on a draft meeting");
-    await tx.meetingUpload.update({ where: { meetingId: id }, data: { sizeBytes: head.sizeBytes } });
     await enqueueJob(tx, { kind: "prepare_audio", meetingId: id });
   });
   // Whatever else sits under the upload prefix is never read; drop it now (best effort: prepare_audio sweeps again).

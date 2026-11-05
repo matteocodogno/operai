@@ -65,6 +65,70 @@ describe("upload confirm uses only the stored key", () => {
   });
 });
 
+describe("upload confirm is bound to the key it probed (a re-mint during the probe)", () => {
+  /** The mint the creator's second tab makes while confirm is waiting on the probe. */
+  async function reMintDuringProbe(id: string, verdict: ProbeVerdict) {
+    const minted: { key?: string } = {};
+    setProberForTests(async () => {
+      minted.key = (await json<{ fields: Record<string, string> }>(await mint(id))).fields["key"]!;
+      return verdict;
+    });
+    return minted;
+  }
+
+  it("a re-mint between the read and the flip: 409 upload_superseded, nothing queued, the meeting stays draft, the NEW key and its object are untouched", async () => {
+    const m = await mkMeeting({ source: "uploaded" });
+    const stored = (await json<{ fields: Record<string, string> }>(await mint(m.id))).fields["key"]!;
+    kit.storage.put(stored, 5 * MiB, "video/mp4");
+    const minted = await reMintDuringProbe(m.id, { ok: true, durationMs: 1000, format: "mov,mp4,m4a,3gp,3g2,mj2" });
+    const res = await confirm(m.id);
+    expect(res.status).toBe(409);
+    expect((await json<{ code: string }>(res)).code).toBe("upload_superseded");
+    expect((await db.meeting.findUniqueOrThrow({ where: { id: m.id } })).status).toBe("draft");
+    expect(await db.meetingJob.count({ where: { meetingId: m.id } })).toBe(0);
+    const row = await db.meetingUpload.findUniqueOrThrow({ where: { meetingId: m.id } });
+    expect(row.objectKey).toBe(minted.key!);
+    expect(row.objectKey).not.toBe(stored);
+    // The new mint's key is the only one left under the prefix: confirm did not sweep it as "other".
+    expect(kit.storage.keys()).not.toContain(stored);
+  });
+
+  it("the new mint can then be uploaded to and confirmed normally", async () => {
+    const m = await mkMeeting({ source: "uploaded" });
+    const stored = (await json<{ fields: Record<string, string> }>(await mint(m.id))).fields["key"]!;
+    kit.storage.put(stored, 5 * MiB, "video/mp4");
+    const minted = await reMintDuringProbe(m.id, { ok: true, durationMs: 1000, format: "mov,mp4,m4a,3gp,3g2,mj2" });
+    expect((await confirm(m.id)).status).toBe(409);
+    setProberForTests(async () => ({ ok: true, durationMs: 1000, format: "mov,mp4,m4a,3gp,3g2,mj2" }));
+    kit.storage.put(minted.key!, 5 * MiB, "video/mp4");
+    expect((await confirm(m.id)).status).toBe(202);
+    expect(kit.storage.keys()).toEqual([minted.key!]);
+  });
+
+  it("a REFUSAL after a re-mint deletes only the key it probed: the new mint's row and object survive", async () => {
+    const m = await mkMeeting({ source: "uploaded" });
+    const stored = (await json<{ fields: Record<string, string> }>(await mint(m.id))).fields["key"]!;
+    kit.storage.put(stored, 5 * MiB, "video/mp4");
+    const minted = await reMintDuringProbe(m.id, { ok: false, reason: "unsupported_type" });
+    kit.storage.put(stored, 5 * MiB, "video/mp4"); // the retired key still holds the refused object when discard runs
+    const res = await confirm(m.id);
+    expect(res.status).toBe(422);
+    const row = await db.meetingUpload.findUnique({ where: { meetingId: m.id } });
+    expect(row?.objectKey).toBe(minted.key!);
+    expect(kit.storage.keys()).not.toContain(stored);
+  });
+
+  it("without a re-mint nothing changes: the same key is flipped, its size recorded from the HEAD", async () => {
+    const m = await mkMeeting({ source: "uploaded" });
+    const stored = (await json<{ fields: Record<string, string> }>(await mint(m.id))).fields["key"]!;
+    kit.storage.put(stored, 7 * MiB, "video/mp4");
+    setProberForTests(async () => ({ ok: true, durationMs: 1000, format: "mov,mp4,m4a,3gp,3g2,mj2" }));
+    expect((await confirm(m.id)).status).toBe(202);
+    const row = await db.meetingUpload.findUniqueOrThrow({ where: { meetingId: m.id } });
+    expect(row).toMatchObject({ objectKey: stored, sizeBytes: 7 * MiB });
+  });
+});
+
 describe("upload confirm requires a stated length", () => {
   it("the default early-reject probe refuses a file whose ffprobe document has no duration: 422 upload_rejected, the object is deleted, the meeting stays draft", async () => {
     const dir = mkdtempSync(join(tmpdir(), "confirm-nodur-"));
