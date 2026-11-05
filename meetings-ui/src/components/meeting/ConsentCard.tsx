@@ -19,7 +19,7 @@ type Copied = 'idle' | 'copied' | 'failed'
 
 /**
  * ConsentCard — the consent attestation (F3; AC-4.1, AC-4.2, AC-4.3). Until it is given, a
- * `recorded` or `uploaded` draft shows only this: the versioned notice (five statements), the
+ * `recorded` or `uploaded` draft shows only this: the versioned notice (six statements), the
  * announcement to read aloud or paste in the meeting chat, one explicit tick, and Continue, which
  * posts the notice version that was shown. The page renders no capture control before the meeting
  * carries an attestation (AC-2.1). Afterwards the card is the one-line fact "Confirmed by <name>

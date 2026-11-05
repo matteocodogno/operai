@@ -42,23 +42,35 @@ describe('consent notice copy (AC-4.1)', () => {
       /EU or Switzerland/, // … processed in the EU or Switzerland
       /read/i, // who can read the result
       /30 days/, // how long the audio is kept
+      /transcription provider may keep .* 5 days/i, // the bounded provider copy (A6)
+      /EU or Switzerland/, // … in the EU or Switzerland
+      /training/i, // … never for training
+      /not remove that copy/i, // deleting the meeting does not delete it (AC-4.6)
       /Zoom, Teams or Meet/, // a platform banner does not cover this tool
     ],
-    it: [/informate .* consenso/i, /IA/, /UE o in Svizzera/, /letto|leggerlo/i, /30 giorni/, /Zoom, Teams o Meet/],
+    it: [/informate .* consenso/i, /IA/, /UE o in Svizzera/, /letto|leggerlo/i, /30 giorni/, /fornitore .* 5 giorni/i, /UE o in Svizzera/, /addestrare/i, /non rimuove questa copia/i, /Zoom, Teams o Meet/],
   }
-  // Statement 2 carries two requirements (AI, and where it is processed); the rest one each.
+  // Statement 2 carries two requirements (AI, and where it is processed); statement 6 (the provider's
+  // bounded copy, A6) carries four; the rest one each.
   const split = (language: 'en' | 'it') => {
     const patterns = REQUIRED[language]
-    return [[patterns[0]!], [patterns[1]!, patterns[2]!], [patterns[3]!], [patterns[4]!], [patterns[5]!]]
+    return [
+      [patterns[0]!],
+      [patterns[1]!, patterns[2]!],
+      [patterns[3]!],
+      [patterns[4]!],
+      [patterns[5]!, patterns[6]!, patterns[7]!, patterns[8]!],
+      [patterns[9]!],
+    ]
   }
 
   it.each([
     ['en', en.consent.statements],
     ['it', italian.consent.statements],
   ] as const)(
-    'the %s notice has exactly the five required statements, each saying what AC-4.1 asks',
+    'the %s notice has exactly the six required statements, each saying what AC-4.1 asks',
     (language, statements) => {
-      expect(statements).toHaveLength(5)
+      expect(statements).toHaveLength(6)
       split(language).forEach((patterns, index) => {
         for (const pattern of patterns) expect(statements[index]).toMatch(pattern)
       })
@@ -75,10 +87,14 @@ describe('consent notice copy (AC-4.1)', () => {
     expect(en.consent.version).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(italian.consent.version).toBe(en.consent.version)
   })
+
+  it('is version 2026-11-05: the notice now discloses the provider copy (A6), so the version moved (AC-4.3)', () => {
+    expect(en.consent.version).toBe('2026-11-05')
+  })
 })
 
 describe('ConsentCard: the notice and the tick (AC-4.1)', () => {
-  it('shows the notice: the five statements, in order, under the card title', () => {
+  it('shows the notice: the statements, in order, under the card title', () => {
     render(<ConsentCard meeting={unattested()} onChanged={vi.fn()} />)
     const card = screen.getByRole('region', { name: t.title })
     const items = within(card).getAllByRole('listitem')

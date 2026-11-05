@@ -6,15 +6,16 @@
  */
 const en = {
   /** The notice version posted with the attestation. Identical in every language: it names the legal text, not a translation. */
-  version: '2026-11-01',
+  version: '2026-11-05',
   title: 'Consent to record',
   intro: 'Before any audio is captured, confirm that:',
-  /** The five statements AC-4.1 requires, in this order. */
+  /** The six statements AC-4.1 requires, in this order (the sixth is the provider's bounded copy, A6). */
   statements: [
     'Everyone present has been told that this meeting is recorded and has agreed to it.',
     'The audio is transcribed and summarised by AI, and processed in the EU or Switzerland.',
     'The result can be read by you and by the participants you add. If you link a record and allow it, people who can open that record can read it too.',
     'The audio is kept for 30 days and then deleted. The transcript and summaries stay until the meeting is deleted.',
+    'The transcription provider may keep the written transcription for about 5 days after processing, in the EU or Switzerland and never for training. Deleting the meeting does not remove that copy: it expires on its own.',
     'A recording banner shown by Zoom, Teams or Meet does not cover recording made with this tool.',
   ],
   announcementTitle: 'Announcement',
@@ -34,7 +35,7 @@ const en = {
 }
 
 const it: typeof en = {
-  version: '2026-11-01',
+  version: '2026-11-05',
   title: 'Consenso alla registrazione',
   intro: 'Prima di acquisire qualsiasi audio, conferma che:',
   statements: [
@@ -42,6 +43,7 @@ const it: typeof en = {
     "L'audio viene trascritto e riassunto da un'IA ed elaborato nell'UE o in Svizzera.",
     'Il risultato può essere letto da te e dai partecipanti che aggiungi. Se colleghi un record e lo consenti, possono leggerlo anche le persone che possono aprire quel record.',
     "L'audio viene conservato per 30 giorni e poi eliminato. La trascrizione e i riassunti restano finché la riunione non viene eliminata.",
+    "Il fornitore della trascrizione può conservare il testo trascritto per circa 5 giorni dopo l'elaborazione, nell'UE o in Svizzera e mai per addestrare modelli. L'eliminazione della riunione non rimuove questa copia: scade da sola.",
     'Il banner di registrazione mostrato da Zoom, Teams o Meet non copre la registrazione fatta con questo strumento.',
   ],
   announcementTitle: 'Annuncio',
