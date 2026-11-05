@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseEnv } from "./env";
 
@@ -57,9 +59,15 @@ const prod = (): Record<string, string> => ({
   MEETINGS_GCS_TRANSIENT_BUCKET: "operai-meetings-transient",
 });
 
-/** Runs `bun src/lib/env.ts` with exactly this environment. */
+/**
+ * Runs `bun src/lib/env.ts` with exactly this environment. Bun auto-loads dotenv files from the
+ * child's cwd (a developer machine has local ones here), which would silently supply a variable
+ * the test deleted. So the child gets `--no-env-file` AND an empty cwd; the absolute ENV_FILE
+ * path still exercises src/lib/env.ts.
+ */
 async function spawnEnv(source: Record<string, string>) {
-  const proc = Bun.spawn([process.execPath, ENV_FILE], {
+  const proc = Bun.spawn([process.execPath, "--no-env-file", ENV_FILE], {
+    cwd: mkdtempSync(join(tmpdir(), "meetings-env-")),
     env: { PATH: process.env["PATH"] ?? "", ...source },
     stdout: "pipe",
     stderr: "pipe",
