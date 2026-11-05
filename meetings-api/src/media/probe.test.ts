@@ -2,7 +2,18 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MAX_AUDIO_MS, ToolMissingError, buildProbeArgs, judgeProbe, probeMedia, protocolsFor, runTool } from "./probe";
+import { UPLOAD_CONTENT_TYPES } from "../lib/storage";
+import {
+  MAX_AUDIO_MS,
+  ToolMissingError,
+  buildProbeArgs,
+  demuxerForContentType,
+  judgeProbe,
+  pinnedDemuxer,
+  probeMedia,
+  protocolsFor,
+  runTool,
+} from "./probe";
 
 // AC-3.1 / AC-3.2 (ADR-0064 point 3): what ffprobe must show before an upload is
 // accepted: an allowlisted demuxer, an audio stream, a duration of at most 3 h.
@@ -81,15 +92,50 @@ describe("how ffprobe is invoked (ADR-0064 point 3)", () => {
     expect(() => protocolsFor("concat:a|b")).toThrow();
     expect(() => protocolsFor("file:///etc/passwd")).toThrow();
   });
-  it("the argument vector pins the whitelist before the input, asks for JSON and ends at the input", () => {
-    const args = buildProbeArgs("https://h/k?s=1");
+  it("the argument vector pins the whitelist and the input format before the input, asks for JSON and ends at the input", () => {
+    const args = buildProbeArgs("https://h/k?s=1", "mov");
     expect(args.indexOf("-protocol_whitelist")).toBeGreaterThanOrEqual(0);
     expect(args[args.indexOf("-protocol_whitelist") + 1]).toBe("https,tls,tcp");
     expect(args.indexOf("-protocol_whitelist")).toBeLessThan(args.indexOf("-i"));
+    expect(args[args.indexOf("-f") + 1]).toBe("mov");
+    expect(args.indexOf("-f")).toBeLessThan(args.indexOf("-i"));
     expect(args.slice(-2)).toEqual(["-i", "https://h/k?s=1"]);
     expect(args).toContain("-show_streams");
     expect(args).toContain("-show_format");
     expect(args[args.indexOf("-print_format") + 1]).toBe("json");
+  });
+
+  it("a scheme list is not a destination list: a URL is never probed without a pinned format (no playlist demuxer can be chosen)", () => {
+    expect(() => buildProbeArgs("https://h/k?s=1")).toThrow();
+    expect(() => buildProbeArgs("http://localhost:9000/b/k?s=1")).toThrow();
+    for (const bad of ["hls", "mov,mp4", "-i", "", "mov;x"]) expect(() => buildProbeArgs("https://h/k", bad)).toThrow();
+  });
+
+  it("a local file is probed with the file protocol only, and no network protocol appears anywhere in the vector", () => {
+    for (const args of [buildProbeArgs("/work/in-000000"), buildProbeArgs("/work/in-000000", "matroska")]) {
+      expect(args[args.indexOf("-protocol_whitelist") + 1]).toBe("file");
+      expect(args.slice(-2)).toEqual(["-i", "/work/in-000000"]);
+      expect(args.join(" ")).not.toMatch(/https?|tcp|tls|ftp/);
+    }
+  });
+
+  it("pins the demuxer from the declared content type: never a playlist-following one", () => {
+    expect(demuxerForContentType("video/mp4")).toBe("mov");
+    expect(demuxerForContentType("audio/mpeg")).toBe("mp3");
+    expect(demuxerForContentType("video/webm")).toBe("matroska");
+    for (const type of UPLOAD_CONTENT_TYPES) {
+      const demuxer = demuxerForContentType(type);
+      expect(demuxer).toBeDefined();
+      expect(["hls", "dash", "concat", "sdp", "rtsp", "applehttp"]).not.toContain(demuxer!);
+    }
+    expect(demuxerForContentType("application/vnd.apple.mpegurl")).toBeUndefined();
+  });
+
+  it("the decode is pinned to the first allowlisted name of the format the probe reported", () => {
+    expect(pinnedDemuxer("mov,mp4,m4a,3gp,3g2,mj2")).toBe("mov");
+    expect(pinnedDemuxer("matroska,webm")).toBe("matroska");
+    expect(pinnedDemuxer("wav")).toBe("wav");
+    expect(pinnedDemuxer("hls,applehttp")).toBeUndefined();
   });
 });
 

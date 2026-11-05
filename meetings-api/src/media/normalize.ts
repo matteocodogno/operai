@@ -23,7 +23,7 @@
 
 import { appendFile, open, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MAX_AUDIO_MS, buildProbeArgs, ffmpegBinary, ffprobeBinary, judgeProbe, runTool } from "./probe";
+import { MAX_AUDIO_MS, buildProbeArgs, ffmpegBinary, ffprobeBinary, isPinnableDemuxer, judgeProbe, runTool } from "./probe";
 
 export { ToolMissingError } from "./probe";
 
@@ -85,10 +85,15 @@ export async function groupIntoRuns(dir: string, chunkFiles: readonly string[]):
 // ─── ffmpeg ──────────────────────────────────────────────────────────────────
 
 /** The hardened argument vector (ADR-0064 point 4); one input is exactly the documented command. */
-export function buildFfmpegArgs(inputs: readonly string[], output: string): string[] {
+export function buildFfmpegArgs(inputs: readonly string[], output: string, inputFormats?: readonly string[]): string[] {
   if (inputs.length === 0) throw new Error("nothing to normalise");
+  if (inputFormats !== undefined && inputFormats.length !== inputs.length) throw new Error("one pinned format per input");
   const head = ["-nostdin", "-hide_banner", "-v", "error", "-y"];
-  const perInput = inputs.flatMap((file) => ["-protocol_whitelist", "file,pipe", "-i", file]);
+  const perInput = inputs.flatMap((file, i) => {
+    const format = inputFormats?.[i];
+    if (format !== undefined && !isPinnableDemuxer(format)) throw new Error("input format is not an allowlisted demuxer");
+    return ["-protocol_whitelist", "file,pipe", ...(format !== undefined ? ["-f", format] : []), "-i", file];
+  });
   const target = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k"];
   if (inputs.length === 1) return [...head, ...perInput, ...target, output];
 
@@ -102,6 +107,13 @@ export interface NormalizeRequest {
   /** Local files, each one valid container (see `groupIntoRuns`), in playing order. */
   readonly inputs: readonly string[];
   readonly output: string;
+  /**
+   * The demuxer to pin (`-f`) for each input, parallel to `inputs`: the one a LOCAL probe of
+   * exactly that file named. Pinned, ffmpeg cannot auto-detect a playlist or other format
+   * the probe did not approve. Omitted, nothing is pinned (the probe's verdict is then not
+   * what is decoded; `prepare_audio` always passes it).
+   */
+  readonly inputFormats?: readonly string[];
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   /** Test seams. */
@@ -117,7 +129,7 @@ export interface NormalizeRequest {
  * `ToolMissingError` when a binary is not installed (a deployment fault, retried).
  */
 export async function normalizeAudio(request: NormalizeRequest): Promise<{ durationMs: number }> {
-  const result = await runTool(request.ffmpegBin ?? ffmpegBinary(), buildFfmpegArgs(request.inputs, request.output), {
+  const result = await runTool(request.ffmpegBin ?? ffmpegBinary(), buildFfmpegArgs(request.inputs, request.output, request.inputFormats), {
     timeoutMs: request.timeoutMs ?? FFMPEG_TIMEOUT_MS,
     ...(request.signal ? { signal: request.signal } : {}),
   });

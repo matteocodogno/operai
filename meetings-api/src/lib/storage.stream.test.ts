@@ -44,12 +44,12 @@ describe("getObjectToFile", () => {
 
   it("refuses at once when the announced length is over the ceiling", async () => {
     const { storage } = client(() => ({ Body: body(new Uint8Array(100)), ContentLength: 100 }));
-    await expect(storage.getObjectToFile("meetings/m1/original", join(dir, "b.bin"), 99)).rejects.toBeInstanceOf(ObjectTooLargeError);
+    await expect(storage.getObjectToFile("meetings/m1/upload/11111111-1111-4111-8111-111111111111", join(dir, "b.bin"), 99)).rejects.toBeInstanceOf(ObjectTooLargeError);
   });
 
   it("stops a stream that outgrows the ceiling even when no length was announced", async () => {
     const { storage } = client(() => ({ Body: body(new Uint8Array(1000), 10) }));
-    await expect(storage.getObjectToFile("meetings/m1/original", join(dir, "c.bin"), 500)).rejects.toBeInstanceOf(ObjectTooLargeError);
+    await expect(storage.getObjectToFile("meetings/m1/upload/11111111-1111-4111-8111-111111111111", join(dir, "c.bin"), 500)).rejects.toBeInstanceOf(ObjectTooLargeError);
   });
 
   it("refuses a key outside the meetings layout", async () => {

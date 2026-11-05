@@ -41,7 +41,7 @@ async function uploaded(over: Record<string, unknown> = {}) {
       ...over,
     },
   });
-  const objectKey = `meetings/${meeting.id}/original`;
+  const objectKey = `meetings/${meeting.id}/upload/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`;
   await db.meetingUpload.create({ data: { meetingId: meeting.id, objectKey, contentType: "audio/mpeg", sizeBytes: 3 } });
   storage.put(objectKey, 3, "audio/mpeg", new Uint8Array([1, 2, 3]));
   return meeting;
@@ -64,6 +64,7 @@ function ctxFor(meetingId: string, over: { attempt?: number; stale?: boolean } =
 const handlerFailing = (error: Error) =>
   createPrepareAudio({
     storage: () => storage,
+    probe: async () => ({ ok: true, durationMs: 1000, format: "wav" }),
     normalize: async () => {
       throw error;
     },

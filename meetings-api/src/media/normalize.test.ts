@@ -87,6 +87,17 @@ describe("buildFfmpegArgs (ADR-0064 point 4)", () => {
     ]);
   });
 
+  it("a pinned format goes right before its own input, after the whitelist; one per input", () => {
+    expect(buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", ["mov"]).slice(5, 10)).toEqual(["-protocol_whitelist", "file,pipe", "-f", "mov", "-i"]);
+    const args = buildFfmpegArgs(["/w/run-0", "/w/run-1"], "/w/audio.ogg", ["matroska", "mov"]);
+    const inputs = args.flatMap((a, i) => (a === "-i" ? [i] : []));
+    expect(inputs.map((i) => args[i - 1])).toEqual(["matroska", "mov"]);
+    expect(inputs.map((i) => args[i - 2])).toEqual(["-f", "-f"]);
+    expect(() => buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", [])).toThrow();
+    expect(() => buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", ["hls"])).toThrow();
+    expect(() => buildFfmpegArgs(["/w/run-0"], "/w/audio.ogg", ["concat"])).toThrow();
+  });
+
   it("several inputs: every input carries its own protocol whitelist and the audio is concatenated, resampled and mono", () => {
     const args = buildFfmpegArgs(["/w/run-0", "/w/run-1"], "/w/audio.ogg");
     const inputs = args.flatMap((a, i) => (a === "-i" ? [i] : []));
@@ -195,7 +206,10 @@ describe("prepare_audio handler", () => {
     signal: over.signal ?? new AbortController().signal,
     commit: async (fn) => ({ committed: true, value: await db.$transaction(fn) }),
   });
-  const handler = (normalize = fakeNormalize()) => createPrepareAudio({ normalize, tmpRoot });
+  // The local probe has its own tests (upload.integrity.test.ts, probe.test.ts); here the bytes are placeholders.
+  const probe = async () => ({ ok: true as const, durationMs: 1000, format: "matroska,webm" });
+  const handler = (normalize = fakeNormalize()) => createPrepareAudio({ normalize, tmpRoot, probe });
+  const uploadKey = (id: string) => `meetings/${id}/upload/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`;
   const chunkKey = (id: string, seq: number) => `meetings/${id}/chunks/${String(seq).padStart(6, "0")}`;
 
   async function recorded(chunks: Uint8Array[]) {
@@ -209,8 +223,8 @@ describe("prepare_audio handler", () => {
   }
   async function uploadedMeeting(bytes: Uint8Array, over = {}) {
     const m = await mkMeeting({ source: "uploaded", status: "processing", stage: "preparing", durationMs: null, processingStartedAt: new Date(), ...over });
-    kit.storage.put(`meetings/${m.id}/original`, bytes.length, "video/mp4", bytes);
-    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/original`, contentType: "video/mp4", sizeBytes: bytes.length } });
+    kit.storage.put(uploadKey(m.id), bytes.length, "video/mp4", bytes);
+    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: uploadKey(m.id), contentType: "video/mp4", sizeBytes: bytes.length } });
     return m;
   }
 
@@ -258,7 +272,7 @@ describe("prepare_audio handler", () => {
   it("uploaded: streams the original, deletes it and its announcement, takes the duration from the output when none was known", async () => {
     const m = await uploadedMeeting(Uint8Array.from([1, 2, 3, 4]));
     await handler(fakeNormalize(61_000))(ctxFor(m.id));
-    expect(kit.storage.reads).toEqual([`meetings/${m.id}/original`]);
+    expect(kit.storage.reads).toEqual([uploadKey(m.id)]);
     expect(kit.storage.keys()).toEqual([`meetings/${m.id}/audio.ogg`]);
     expect(await db.meetingUpload.count({ where: { meetingId: m.id } })).toBe(0);
     const row = await db.meeting.findUniqueOrThrow({ where: { id: m.id } });

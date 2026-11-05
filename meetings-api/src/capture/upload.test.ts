@@ -10,10 +10,16 @@ useKit();
 afterEach(() => setProberForTests(null));
 
 const MiB = 1024 * 1024;
-const mint = (id: string, body: unknown, user = CREATOR) => call("POST", `/meetings/${id}/upload`, { user, body });
+/** The key each meeting's latest mint pinned (a key is minted per policy: it is only known from the response). */
+const stored = new Map<string, string>();
+const mint = async (id: string, body: unknown, user = CREATOR) => {
+  const res = await call("POST", `/meetings/${id}/upload`, { user, body });
+  if (res.status === 200) stored.set(id, ((await res.clone().json()) as { fields: Record<string, string> }).fields["key"]!);
+  return res;
+};
 const confirm = (id: string, user = CREATOR) => call("POST", `/meetings/${id}/upload/confirm`, { user });
 const uploaded = (over = {}) => mkMeeting({ source: "uploaded", ...over });
-const original = (id: string) => `meetings/${id}/original`;
+const original = (id: string) => stored.get(id) ?? `meetings/${id}/upload/00000000-0000-4000-8000-000000000000`;
 
 /** A meeting that has minted an upload whose object reached the bucket. */
 async function withObject(size = 5 * MiB) {
@@ -33,7 +39,7 @@ const probes = (verdict: ProbeVerdict | Error) => {
 };
 
 describe("POST /meetings/:id/upload (mint)", () => {
-  it("mints one presigned POST at the fixed key and remembers what was announced", async () => {
+  it("mints one presigned POST at a key of its own and remembers what was announced", async () => {
     const m = await uploaded();
     const res = await mint(m.id, { contentType: "audio/mpeg", sizeBytes: 10 * MiB });
     expect(res.status).toBe(200);

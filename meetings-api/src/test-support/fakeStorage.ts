@@ -6,6 +6,7 @@
  * without a bucket. Nothing here touches the network.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   CHUNK_POST_SECONDS,
   PLAYBACK_GET_SECONDS,
@@ -25,6 +26,8 @@ export interface FakeStorage extends Storage {
   bytesOf(objectKey: string): Uint8Array | undefined;
   /** Keys read by `getObjectToFile`, in order. */
   readonly reads: readonly string[];
+  /** The `maxBytes` each `getObjectToFile` call was given, in order. */
+  readonly limits: readonly number[];
   /** Every key currently stored, sorted. */
   keys(): string[];
   /** Makes every following call throw `error`; `null` restores normal behaviour. */
@@ -39,6 +42,7 @@ export function createFakeStorage(): FakeStorage {
   const objects = new Map<string, HeadResult>();
   const contents = new Map<string, Uint8Array>();
   const reads: string[] = [];
+  const limits: number[] = [];
   const minted: { kind: "chunk" | "upload"; key: string }[] = [];
   let failure: Error | null = null;
   const check = () => {
@@ -54,6 +58,7 @@ export function createFakeStorage(): FakeStorage {
   return {
     minted,
     reads,
+    limits,
     put(objectKey, sizeBytes, contentType, bytes) {
       objects.set(objectKey, { sizeBytes, contentType });
       if (bytes) contents.set(objectKey, bytes);
@@ -74,9 +79,22 @@ export function createFakeStorage(): FakeStorage {
     async mintUploadPost(meetingId, contentType) {
       check();
       if (!isUploadContentType(contentType)) throw new Error("content type is not an accepted audio or video type");
-      const key = objectKeys.original(meetingId);
+      const key = objectKeys.upload(meetingId, randomUUID());
       minted.push({ kind: "upload", key });
-      return post(key, UPLOAD_POST_SECONDS, { "Content-Type": contentType });
+      return { ...post(key, UPLOAD_POST_SECONDS, { "Content-Type": contentType }), objectKey: key };
+    },
+    async deleteUploadsExcept(meetingId, keepKey) {
+      check();
+      const prefix = objectKeys.uploadPrefix(meetingId);
+      let deleted = 0;
+      for (const key of [...objects.keys()]) {
+        if (key.startsWith(prefix) && key !== keepKey) {
+          objects.delete(key);
+          contents.delete(key);
+          deleted++;
+        }
+      }
+      return deleted;
     },
     async mintProbeGet(objectKey) {
       check();
@@ -113,9 +131,12 @@ export function createFakeStorage(): FakeStorage {
       check();
       const found = objects.get(objectKey);
       if (!found) throw new Error("NoSuchKey");
+      limits.push(maxBytes);
+      // Like the real one: the announced length is a cheap early refusal, the bytes actually read are the ceiling.
       if (found.sizeBytes > maxBytes) throw new ObjectTooLargeError();
       reads.push(objectKey);
       const bytes = contents.get(objectKey) ?? new Uint8Array(found.sizeBytes);
+      if (bytes.length > maxBytes) throw new ObjectTooLargeError();
       await Bun.write(destPath, bytes);
       return bytes.length;
     },

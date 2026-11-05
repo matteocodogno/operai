@@ -63,7 +63,7 @@ describe("POST /meetings/:id/retry while the audio is kept", () => {
   it("an uploaded original that was kept is retried the same way", async () => {
     at(new Date(T0.getTime() + DAY));
     const m = await mkMeeting({ source: "uploaded", status: "failed", failureCode: "audio_unreadable", processingStartedAt: T0 });
-    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/original`, contentType: "audio/mpeg", sizeBytes: 5, mintedAt: T0 } });
+    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/upload/cccccccc-cccc-4ccc-8ccc-cccccccccccc`, contentType: "audio/mpeg", sizeBytes: 5, mintedAt: T0 } });
     expect((await retry(m.id)).status).toBe(202);
     expect((await jobs(m.id)).map((j) => j.kind)).toEqual(["prepare_audio"]);
   });
@@ -171,7 +171,7 @@ describe("the view's retryProcessing flag agrees with the route", () => {
 
   const uploaded = async () => {
     const m = await mkMeeting({ source: "uploaded", status: "failed", failureCode: "audio_unreadable", processingStartedAt: T0 });
-    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/original`, contentType: "audio/mpeg", sizeBytes: 5, mintedAt: T0 } });
+    await db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/upload/cccccccc-cccc-4ccc-8ccc-cccccccccccc`, contentType: "audio/mpeg", sizeBytes: 5, mintedAt: T0 } });
     return m;
   };
   const nothing = () => mkMeeting({ status: "failed", failureCode: "audio_unreadable", processingStartedAt: T0 });

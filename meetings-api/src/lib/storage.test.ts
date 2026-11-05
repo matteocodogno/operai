@@ -19,6 +19,7 @@ const signing = () =>
     credentials: { accessKeyId: "AKIATEST", secretAccessKey: "secret-test-key" },
   });
 
+const TOKEN = "11111111-1111-4111-8111-111111111111";
 const storage = (): Storage => createStorage({ client: signing(), bucket: "meetings-test" });
 
 type PolicyCondition = Record<string, string> | [string, ...unknown[]];
@@ -32,13 +33,15 @@ describe("object keys are fixed server-side", () => {
     expect(objectKeys.prefix("m1")).toBe("meetings/m1/");
     expect(objectKeys.chunk("m1", 0)).toBe("meetings/m1/chunks/000000");
     expect(objectKeys.chunk("m1", 123456)).toBe("meetings/m1/chunks/123456");
-    expect(objectKeys.original("m1")).toBe("meetings/m1/original");
+    expect(objectKeys.upload("m1", TOKEN)).toBe(`meetings/m1/upload/${TOKEN}`);
+    expect(objectKeys.uploadPrefix("m1")).toBe("meetings/m1/upload/");
     expect(objectKeys.audio("m1")).toBe("meetings/m1/audio.ogg");
   });
 
   it("refuses an id that could escape the prefix, and a seq that is not a chunk number", () => {
     for (const id of ["", "../x", "a/b", "a b", "x".repeat(65), "m1/"]) expect(() => objectKeys.prefix(id)).toThrow();
     for (const seq of [-1, 1.5, 1_000_000, Number.NaN]) expect(() => objectKeys.chunk("m1", seq)).toThrow();
+    for (const token of ["", "original", "../x", "11111111-1111-4111-8111-11111111111Z"]) expect(() => objectKeys.upload("m1", token)).toThrow();
   });
 });
 
@@ -74,7 +77,9 @@ describe("original upload policy (presigned POST)", () => {
     const post = await storage().mintUploadPost("m1", "video/mp4");
     const policy = policyOf(post.fields);
 
-    expect(has(policy.conditions, { key: "meetings/m1/original" })).toBe(true);
+    expect(post.objectKey).toMatch(/^meetings\/m1\/upload\/[0-9a-f-]{36}$/);
+    expect(post.fields["key"]).toBe(post.objectKey);
+    expect(has(policy.conditions, { key: post.objectKey })).toBe(true);
     expect(has(policy.conditions, ["content-length-range", 1, 500 * 1024 * 1024])).toBe(true);
     expect(MAX_UPLOAD_BYTES).toBe(500 * 1024 * 1024);
     expect(has(policy.conditions, ["eq", "$Content-Type", "video/mp4"])).toBe(true);
@@ -83,6 +88,11 @@ describe("original upload policy (presigned POST)", () => {
     const ttl = Date.parse(post.expiresAt) - before;
     expect(ttl).toBeGreaterThan(1_799_000);
     expect(ttl).toBeLessThan(1_801_500);
+  });
+
+  it("mints a different key every time: a POST policy is not single-use, so a key is never shared between mints", async () => {
+    const keys = await Promise.all([1, 2, 3, 4].map(() => storage().mintUploadPost("m1", "audio/mpeg")));
+    expect(new Set(keys.map((k) => k.objectKey)).size).toBe(4);
   });
 
   it("refuses a content type outside the allowlist", async () => {
@@ -103,7 +113,7 @@ describe("presigned GET", () => {
 
   it("a probe lives 60 s and a playback URL 15 minutes", async () => {
     const s = storage();
-    expect(expiresIn(await s.mintProbeGet("meetings/m1/original"))).toBe(60);
+    expect(expiresIn(await s.mintProbeGet(`meetings/m1/upload/${TOKEN}`))).toBe(60);
     const playback = await s.mintPlaybackGet("meetings/m1/audio.ogg");
     expect(expiresIn(playback.url)).toBe(900);
     const ttl = Date.parse(playback.expiresAt) - Date.now();
@@ -210,11 +220,40 @@ describe("deletePrefix", () => {
   });
 });
 
+describe("deleteUploadsExcept", () => {
+  const keep = `meetings/m1/upload/${TOKEN}`;
+  const stray = "meetings/m1/upload/22222222-2222-4222-8222-222222222222";
+
+  it("lists only the meeting's upload prefix and deletes everything but the kept key", async () => {
+    const { client, sent } = scripted((name) =>
+      name === "ListObjectsV2Command" ? { Contents: [{ Key: keep }, { Key: stray }], IsTruncated: false } : { Deleted: [{ Key: stray }] },
+    );
+    expect(await createStorage({ client, bucket: "b" }).deleteUploadsExcept("m1", keep)).toBe(1);
+    expect(sent[0]!.input["Prefix"]).toBe("meetings/m1/upload/");
+    expect(sent[1]!.input["Delete"]).toEqual({ Objects: [{ Key: stray }], Quiet: true });
+  });
+
+  it("without a kept key it deletes them all; with nothing there it deletes nothing", async () => {
+    const all = scripted((name) => (name === "ListObjectsV2Command" ? { Contents: [{ Key: keep }, { Key: stray }], IsTruncated: false } : {}));
+    expect(await createStorage({ client: all.client, bucket: "b" }).deleteUploadsExcept("m1")).toBe(2);
+    const none = scripted(() => ({ Contents: [{ Key: keep }], IsTruncated: false }));
+    expect(await createStorage({ client: none.client, bucket: "b" }).deleteUploadsExcept("m1", keep)).toBe(0);
+    expect(none.sent.some((s) => s.name === "DeleteObjectsCommand")).toBe(false);
+  });
+
+  it("refuses an id that could escape the prefix and a kept key outside the layout", async () => {
+    const { client, sent } = scripted(() => ({}));
+    await expect(createStorage({ client, bucket: "b" }).deleteUploadsExcept("../x")).rejects.toThrow();
+    await expect(createStorage({ client, bucket: "b" }).deleteUploadsExcept("m1", "other/x")).rejects.toThrow();
+    expect(sent).toHaveLength(0);
+  });
+});
+
 describe("deleteObject", () => {
   it("deletes one key", async () => {
     const { client, sent } = scripted(() => ({}));
-    await createStorage({ client, bucket: "b" }).deleteObject("meetings/m1/original");
-    expect(sent[0]).toEqual({ name: "DeleteObjectCommand", input: { Bucket: "b", Key: "meetings/m1/original" } });
+    await createStorage({ client, bucket: "b" }).deleteObject(`meetings/m1/upload/${TOKEN}`);
+    expect(sent[0]).toEqual({ name: "DeleteObjectCommand", input: { Bucket: "b", Key: `meetings/m1/upload/${TOKEN}` } });
   });
 });
 
@@ -224,7 +263,7 @@ describe("fake storage", () => {
   it("mints the same keys and enforces the same refusals", async () => {
     const fake = createFakeStorage();
     expect((await fake.mintChunkPost("m1", 2)).fields["key"]).toBe("meetings/m1/chunks/000002");
-    expect((await fake.mintUploadPost("m1", "audio/mpeg")).fields["key"]).toBe("meetings/m1/original");
+    expect((await fake.mintUploadPost("m1", "audio/mpeg")).fields["key"]).toMatch(/^meetings\/m1\/upload\/[0-9a-f-]{36}$/);
     await expect(fake.mintUploadPost("m1", "application/pdf")).rejects.toThrow();
     await expect(fake.deletePrefix("meetings/")).rejects.toThrow();
   });

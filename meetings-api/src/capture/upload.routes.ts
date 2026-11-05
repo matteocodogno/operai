@@ -2,15 +2,20 @@
  * Upload a recording made elsewhere (specs/021-meetings US-3, AC-3.1..AC-3.3;
  * plan.md § Browser capture "Upload"; ADR-0064).
  *
- *   POST /meetings/:id/upload          mints ONE presigned POST at the fixed key
- *                                      `meetings/<id>/original` (type allowlist, <= 500 MiB,
- *                                      30 min) and remembers what was announced.
- *   POST /meetings/:id/upload/confirm  HEADs the object, then runs `ffprobe`
- *                                      SYNCHRONOUSLY over a 60 s presigned GET: demuxer
- *                                      allowlist, an audio stream, <= 3 h. A failure deletes
- *                                      the object and leaves the meeting `draft`; a pass moves
- *                                      it to `processing` and queues `prepare_audio`, which
- *                                      is the only other reader of the bytes.
+ *   POST /meetings/:id/upload          mints ONE presigned POST at a key minted for that policy
+ *                                      alone (`meetings/<id>/upload/<uuid>`: a POST policy is
+ *                                      not single-use, so a shared key could be overwritten
+ *                                      after the probe; type allowlist, <= 500 MiB, 30 min) and
+ *                                      remembers that key and what was announced.
+ *   POST /meetings/:id/upload/confirm  HEADs the STORED key's object, then runs `ffprobe`
+ *                                      SYNCHRONOUSLY over a 60 s presigned GET, the input
+ *                                      format pinned to the declared type: demuxer allowlist,
+ *                                      an audio stream, <= 3 h. This is an early reject only;
+ *                                      the policy may still be open, so `prepare_audio` probes
+ *                                      the local file it decodes. A failure deletes the object
+ *                                      and leaves the meeting `draft`; a pass moves it to
+ *                                      `processing` and queues `prepare_audio`, which is the
+ *                                      only other reader of the bytes.
  *
  * The meeting is never `processing` with an incomplete file (AC-3.3): the state change
  * happens only after the object exists AND passed the probe, in one transaction with the job.
@@ -20,9 +25,9 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { db } from "../lib/db";
 import { IdParams, commonErrors } from "../lib/http";
 import { ProblemError, conflict, validationHook } from "../lib/problem";
-import { MAX_UPLOAD_BYTES, isUploadContentType, objectKeys, requireStorage } from "../lib/storage";
+import { MAX_UPLOAD_BYTES, isUploadContentType, requireStorage } from "../lib/storage";
 import { enqueueJob } from "../jobs/runner";
-import { ToolMissingError, probeUpload, type RejectReason } from "../media/probe";
+import { ToolMissingError, demuxerForContentType, probeUpload, type RejectReason } from "../media/probe";
 import { loadMeetingView } from "../meetings/view";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { openForControl, storageCall } from "./caller";
@@ -91,13 +96,20 @@ uploadRouter.openapi(mintRoute, async (c) => {
     throw new ProblemError({ status: 422, code: "too_large", detail: "The file is larger than 500 MiB", extras: { field: "sizeBytes" } });
   }
 
-  const post = await storageCall(() => requireStorage().mintUploadPost(id, contentType));
-  const objectKey = objectKeys.original(id);
+  const storage = requireStorage();
+  const { objectKey, ...post } = await storageCall(() => storage.mintUploadPost(id, contentType));
+  // The key is minted for this policy alone and kept here: confirm and prepare_audio read only it.
   await db.meetingUpload.upsert({
     where: { meetingId: id },
     create: { meetingId: id, objectKey, contentType, sizeBytes },
     update: { objectKey, contentType, sizeBytes, mintedAt: new Date() },
   });
+  // A retired mint's key (its policy may still be open) is dead weight, not a source: remove it.
+  try {
+    await storage.deleteUploadsExcept(id, objectKey);
+  } catch (e) {
+    console.error("[upload] could not delete a retired upload key:", e instanceof Error ? e.name : "unknown error");
+  }
   return c.json(post, 200);
 });
 
@@ -137,10 +149,15 @@ uploadRouter.openapi(confirmRoute, async (c) => {
 
   if (head.sizeBytes > MAX_UPLOAD_BYTES) return discard(rejected("too_large"));
 
+  // The early reject. The input format is pinned to what the declared type must be, so a playlist
+  // format (hls, concat...) that could name other hosts is never selected over this URL; the
+  // decision that counts is the local-file probe in prepare_audio (src/media/probe.ts header).
+  const pinned = demuxerForContentType(upload.contentType);
+  if (pinned === undefined) return discard(rejected("unsupported_type"));
   const source = await storageCall(() => storage.mintProbeGet(upload.objectKey));
   let verdict;
   try {
-    verdict = await probeUpload(source);
+    verdict = await probeUpload(source, pinned);
   } catch (error) {
     if (error instanceof ToolMissingError) {
       console.error("[upload] media tooling is not available:", error.tool);
@@ -168,6 +185,12 @@ uploadRouter.openapi(confirmRoute, async (c) => {
     await tx.meetingUpload.update({ where: { meetingId: id }, data: { sizeBytes: head.sizeBytes } });
     await enqueueJob(tx, { kind: "prepare_audio", meetingId: id });
   });
+  // Whatever else sits under the upload prefix is never read; drop it now (best effort: prepare_audio sweeps again).
+  try {
+    await storage.deleteUploadsExcept(id, upload.objectKey);
+  } catch (e) {
+    console.error("[upload] could not delete stray uploads:", e instanceof Error ? e.name : "unknown error");
+  }
 
   return c.json(await loadMeetingView(id, caller, new Date()), 202);
 });

@@ -41,7 +41,7 @@ async function rich(over: Record<string, unknown> = {}) {
   });
   const session = await kit.db.recordingSession.create({ data: { meetingId: m.id } });
   await kit.db.recordingChunk.create({ data: { meetingId: m.id, seq: 0, sessionId: session.id, objectKey: `meetings/${m.id}/chunks/000000`, sizeBytes: 1, durationMs: 1000 } });
-  await kit.db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/original`, contentType: "audio/mpeg", sizeBytes: 1 } });
+  await kit.db.meetingUpload.create({ data: { meetingId: m.id, objectKey: `meetings/${m.id}/upload/cccccccc-cccc-4ccc-8ccc-cccccccccccc`, contentType: "audio/mpeg", sizeBytes: 1 } });
   await kit.db.transcriptSegment.create({ data: { meetingId: m.id, ordinal: 0, text: "secret words" } });
   await kit.db.speakerLabel.create({ data: { meetingId: m.id, speakerKey: "s1", participantId: m.participants[0]!.id } });
   await kit.db.summary.create({ data: { meetingId: m.id, authorUserId: "creator", template: {}, language: "en", status: "ready", attemptId: "a", transcriptVersion: 0 } });

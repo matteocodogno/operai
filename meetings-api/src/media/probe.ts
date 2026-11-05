@@ -4,9 +4,16 @@
  * also a network client, so the file is never trusted before this says it is a plain
  * audio or video container:
  *
- *   - `-protocol_whitelist` names the ONLY protocols the input may open
- *     (`https,tls,tcp` for a presigned GET, `http,tcp` for a dev MinIO, `file` for a
- *     local path); a playlist cannot send ffprobe to another host;
+ *   - `-protocol_whitelist` restricts the SCHEMES an input may open, NOT the hosts or
+ *     ports: `https,tls,tcp` lets a playlist name any https host or `tcp://host:port`.
+ *     A scheme list therefore does not make a network source safe, and two rules follow:
+ *       1. THE TRUST DECISION IS MADE ON A LOCAL FILE (`-protocol_whitelist file`), where
+ *          there is no network protocol to abuse; `prepare_audio` probes the very file it
+ *          then decodes, and pins the demuxer the probe named (`-f`) for the decode;
+ *       2. a URL source (the cheap early reject at upload confirm) is only ever probed with
+ *          the input format PINNED (`-f`, from the declared content type), so the demuxers
+ *          that follow playlists (hls, dash, concat, sdp...) are never selected. A URL
+ *          probe without a pinned format is refused outright;
  *   - the demuxer must be on the allowlist (mov/mp4/m4a, matroska/webm, ogg, wav, mp3,
  *     aac, flac) and there must be an audio stream and a duration of at most 3 h;
  *   - 30 s wall clock, output bounded, process killed on timeout.
@@ -124,6 +131,9 @@ export async function runTool(bin: string, args: readonly string[], options: Too
  * The protocols an input may open, by what it is. Anything that is not an absolute
  * path, an `http://` or an `https://` URL is refused before it reaches the tool, so
  * `concat:…`, `file:…`, `pipe:…` and friends cannot be smuggled in as a "source".
+ *
+ * For a URL these are SCHEMES, not destinations: they say nothing about which host
+ * or port a playlist may name (see the header). Only `file` is a safe answer.
  */
 export function protocolsFor(source: string): string {
   if (source.startsWith("https://")) return "https,tls,tcp";
@@ -132,10 +142,43 @@ export function protocolsFor(source: string): string {
   throw new Error("media source is not an absolute path or an http(s) URL");
 }
 
-export function buildProbeArgs(source: string): string[] {
+/** The ffmpeg demuxer a declared upload content type must be, pinned so a playlist format can never be chosen. */
+const DEMUXER_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
+  "audio/mpeg": "mp3",
+  "audio/mp4": "mov",
+  "audio/x-m4a": "mov",
+  "video/mp4": "mov",
+  "video/quicktime": "mov",
+  "audio/aac": "aac",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/ogg": "ogg",
+  "audio/webm": "matroska",
+  "video/webm": "matroska",
+  "video/x-matroska": "matroska",
+  "audio/flac": "flac",
+  "audio/x-flac": "flac",
+};
+
+export const demuxerForContentType = (contentType: string): string | undefined => DEMUXER_BY_CONTENT_TYPE[contentType];
+
+/** Only a plain-container demuxer may be pinned with `-f`; a playlist-following one (hls, concat...) never. */
+export const isPinnableDemuxer = (name: string): boolean => ALLOWED_DEMUXERS.has(name);
+
+/** The one allowlisted demuxer a verdict's `format_name` (a comma list) names: what `-f` should pin for the decode. */
+export function pinnedDemuxer(format: string): string | undefined {
+  return format.split(",").find((part) => ALLOWED_DEMUXERS.has(part));
+}
+
+export function buildProbeArgs(source: string, inputFormat?: string): string[] {
+  const protocols = protocolsFor(source);
+  // A network source is only ever read as a pinned, plain container (header rule 2).
+  if (protocols !== "file" && inputFormat === undefined) throw new Error("a URL source must be probed with a pinned input format");
+  if (inputFormat !== undefined && !isPinnableDemuxer(inputFormat)) throw new Error("input format is not an allowlisted demuxer");
   return [
     "-v", "error",
-    "-protocol_whitelist", protocolsFor(source),
+    "-protocol_whitelist", protocols,
+    ...(inputFormat !== undefined ? ["-f", inputFormat] : []),
     "-probesize", "10000000",
     "-analyzeduration", "10000000",
     "-print_format", "json",
@@ -166,11 +209,18 @@ export interface ProbeOptions {
   readonly timeoutMs?: number;
   /** Defaults to 3 h; the normaliser allows the recording's 60 s of grace. */
   readonly maxDurationMs?: number;
+  /** Pins the input demuxer (`-f`). Required for a URL source, optional for a local file. */
+  readonly inputFormat?: string;
 }
 
-/** Probes `source` (absolute path or http(s) URL). Throws `ToolMissingError` if ffprobe is not installed. */
+/**
+ * Probes `source` (absolute path or http(s) URL). Throws `ToolMissingError` if ffprobe is not installed.
+ * A URL source needs `options.inputFormat`; the trust decision belongs to a local-file probe.
+ */
 export async function probeMedia(source: string, options: ProbeOptions = {}): Promise<ProbeVerdict> {
-  const result = await runTool(options.bin ?? ffprobeBinary(), buildProbeArgs(source), { timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS });
+  const result = await runTool(options.bin ?? ffprobeBinary(), buildProbeArgs(source, options.inputFormat), {
+    timeoutMs: options.timeoutMs ?? PROBE_TIMEOUT_MS,
+  });
   if (result.timedOut || result.code !== 0) return reject("unsupported_type");
   let doc: unknown;
   try {
@@ -183,13 +233,15 @@ export async function probeMedia(source: string, options: ProbeOptions = {}): Pr
 
 // ─── Test seam ───────────────────────────────────────────────────────────────
 
-export type Prober = (source: string) => Promise<ProbeVerdict>;
-let prober: Prober = (source) => probeMedia(source);
+/** `inputFormat` pins the demuxer (required for a URL). */
+export type Prober = (source: string, inputFormat?: string) => Promise<ProbeVerdict>;
+const defaultProber: Prober = (source, inputFormat) => probeMedia(source, inputFormat !== undefined ? { inputFormat } : {});
+let prober: Prober = defaultProber;
 
-/** The probe the upload route runs. */
-export const probeUpload: Prober = (source) => prober(source);
+/** The early-reject probe the upload route runs over a presigned GET. */
+export const probeUpload: Prober = (source, inputFormat) => prober(source, inputFormat);
 
 /** Tests only: replace (or restore with `null`) the prober. */
 export function setProberForTests(next: Prober | null): void {
-  prober = next ?? ((source) => probeMedia(source));
+  prober = next ?? defaultProber;
 }

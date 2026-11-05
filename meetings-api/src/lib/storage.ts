@@ -14,9 +14,14 @@
  * The bucket is private; there is no other client-facing path. (The service does
  * READ bytes itself to normalise audio: ADR-0064, a separate, bounded reader.)
  *
- * Every key is built here, from a meeting id and a number, and checked again
- * before use: a caller cannot name the key it writes, and no method can reach
- * outside `meetings/<id>/`.
+ * Every key is built here, from a meeting id and a number (or a fresh random token),
+ * and checked again before use: a caller cannot name the key it writes, and no method
+ * can reach outside `meetings/<id>/`.
+ *
+ * An S3 POST policy is not single-use, so a FIXED key stays writable until the policy
+ * expires: the bytes a probe approved could be replaced before they are decoded. An upload
+ * therefore gets a fresh key per mint (`upload/<uuid>`), the route persists it, and
+ * everything downstream uses only that stored key (ADR-0064; plan.md § Capture).
  *
  * Routes call the wired instance's methods (never destructure them) so a test can
  * replace it with `setStorageForTests`.
@@ -32,6 +37,7 @@ import {
   PutObjectCommand,
   NotFound,
 } from "@aws-sdk/client-s3";
+import { randomUUID } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
@@ -87,7 +93,9 @@ const PLAYBACK_CONTENT_TYPE = "audio/ogg";
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_SEQ = 999_999;
-const KEY_PATTERN = /^meetings\/[A-Za-z0-9_-]{1,64}\/(chunks\/\d{6}|original|audio\.ogg)$/;
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const UPLOAD_TOKEN_PATTERN = new RegExp(`^${UUID}$`);
+const KEY_PATTERN = new RegExp(`^meetings/[A-Za-z0-9_-]{1,64}/(chunks/\\d{6}|upload/${UUID}|audio\\.ogg)$`);
 const PREFIX_PATTERN = /^meetings\/[A-Za-z0-9_-]{1,64}\/$/;
 
 function assertMeetingId(meetingId: string): void {
@@ -105,10 +113,16 @@ export const objectKeys = {
     if (!Number.isInteger(seq) || seq < 0 || seq > MAX_SEQ) throw new Error("invalid chunk sequence number");
     return `meetings/${meetingId}/chunks/${String(seq).padStart(6, "0")}`;
   },
-  /** The uploaded file as received (audio or video); deleted once `audio.ogg` exists. */
-  original(meetingId: string): string {
+  /** Where every uploaded original of one meeting lives; one object per mint. */
+  uploadPrefix(meetingId: string): string {
     assertMeetingId(meetingId);
-    return `meetings/${meetingId}/original`;
+    return `meetings/${meetingId}/upload/`;
+  },
+  /** One uploaded file as received (audio or video), under a token minted for that policy alone; deleted once `audio.ogg` exists. */
+  upload(meetingId: string, token: string): string {
+    assertMeetingId(meetingId);
+    if (!UPLOAD_TOKEN_PATTERN.test(token)) throw new Error("invalid upload token");
+    return `meetings/${meetingId}/upload/${token}`;
   },
   /** The normalised mono 16 kHz opus audio (AC-3.1). */
   audio(meetingId: string): string {
@@ -116,6 +130,12 @@ export const objectKeys = {
     return `meetings/${meetingId}/audio.ogg`;
   },
 } as const;
+
+/** Is `key` one of THIS meeting's upload keys (`meetings/<id>/upload/<uuid>`)? */
+export function isUploadKeyOf(meetingId: string, key: string): boolean {
+  const prefix = objectKeys.uploadPrefix(meetingId);
+  return key.startsWith(prefix) && KEY_PATTERN.test(key);
+}
 
 function assertKey(key: string): void {
   if (!KEY_PATTERN.test(key)) throw new Error("object key is outside the meetings layout");
@@ -146,11 +166,22 @@ export class ObjectTooLargeError extends Error {
 /** `audio.ogg` is <= ~45 MB (ADR-0064); this is the hard ceiling on a put. */
 export const MAX_AUDIO_PUT_BYTES = 100 * 1024 * 1024;
 
+/** What an upload mint returns: the policy for the browser, and the key the policy is pinned to (for the server to keep). */
+export interface UploadPost extends PresignedPost {
+  readonly objectKey: string;
+}
+
 export interface Storage {
   /** Key `meetings/<id>/chunks/<seq>`, size 1..8 MiB, an `audio/*` content type, 5 minutes. */
   mintChunkPost(meetingId: string, seq: number): Promise<PresignedPost>;
-  /** Key `meetings/<id>/original`, size 1..500 MiB, exactly `contentType` (allowlisted), 30 minutes. */
-  mintUploadPost(meetingId: string, contentType: string): Promise<PresignedPost>;
+  /** A NEW key `meetings/<id>/upload/<uuid>` per call, size 1..500 MiB, exactly `contentType` (allowlisted), 30 minutes. */
+  mintUploadPost(meetingId: string, contentType: string): Promise<UploadPost>;
+  /**
+   * Deletes every object under `meetings/<id>/upload/` except `keepKey` (all of them when
+   * omitted) and returns how many: a retired mint's key, or an object written by a policy
+   * that was never the stored one, is never read and does not linger.
+   */
+  deleteUploadsExcept(meetingId: string, keepKey?: string): Promise<number>;
   /** A 60 s GET for ffprobe at upload confirm. */
   mintProbeGet(objectKey: string): Promise<string>;
   /** A 15 min GET for `<audio>`; mint only after the visibility check. */
@@ -199,7 +230,7 @@ export function createStorage(deps: { client: S3Client; bucket: string }): Stora
 
     async mintUploadPost(meetingId, contentType) {
       if (!isUploadContentType(contentType)) throw new Error("content type is not an accepted audio or video type");
-      const key = objectKeys.original(meetingId);
+      const key = objectKeys.upload(meetingId, randomUUID());
       const { url, fields } = await createPresignedPost(client, {
         Bucket: bucket,
         Key: key,
@@ -210,7 +241,30 @@ export function createStorage(deps: { client: S3Client; bucket: string }): Stora
         Fields: { "Content-Type": contentType },
         Expires: UPLOAD_POST_SECONDS,
       });
-      return { url, fields, expiresAt: inSeconds(UPLOAD_POST_SECONDS) };
+      return { url, fields, expiresAt: inSeconds(UPLOAD_POST_SECONDS), objectKey: key };
+    },
+
+    async deleteUploadsExcept(meetingId, keepKey) {
+      const prefix = objectKeys.uploadPrefix(meetingId);
+      if (keepKey !== undefined) assertKey(keepKey);
+      let deleted = 0;
+      let token: string | undefined;
+      do {
+        const page = await client.send(
+          new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ...(token ? { ContinuationToken: token } : {}) }),
+        );
+        const keys = (page.Contents ?? []).flatMap((o) => (o.Key && o.Key !== keepKey ? [o.Key] : []));
+        for (let i = 0; i < keys.length; i += DELETE_BATCH) {
+          const batch = keys.slice(i, i + DELETE_BATCH);
+          const result = await client.send(
+            new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true } }),
+          );
+          if ((result.Errors ?? []).length > 0) throw new Error(`storage refused to delete ${result.Errors!.length} stray upload(s)`);
+          deleted += batch.length;
+        }
+        token = page.IsTruncated ? page.NextContinuationToken : undefined;
+      } while (token);
+      return deleted;
     },
 
     async mintProbeGet(objectKey) {
