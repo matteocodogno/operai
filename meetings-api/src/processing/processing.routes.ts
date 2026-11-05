@@ -1,5 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { retryRouter } from "./retry.routes";
 
-// Stub: the routes of this group arrive with their own tasks (specs/021-meetings
-// tasks.md). Registered in src/index.ts now so the route table is complete.
+// Processing routes (specs/021-meetings): the retry of failed processing (T32).
 export const processingRouter = new OpenAPIHono();
+processingRouter.route("/", retryRouter);

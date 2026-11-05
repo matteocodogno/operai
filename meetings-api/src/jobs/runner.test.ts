@@ -539,9 +539,9 @@ describe("the handler table", () => {
     const { handlers } = await import("./handlers");
     expect(Object.keys(handlers).sort()).toEqual(["deliver_host_notice", "prepare_audio", "summarize", "transcribe"]);
     const ctx = { job: {}, attempt: 1, attemptId: null, signal: new AbortController().signal, commit: async () => ({ committed: false as const }) };
-    // Kinds whose task has landed. `summarize` (T94) and `deliver_host_notice` (T20) are exercised by
-    // their own suites and skipped here; the others, given a job with no meeting, refuse with their own code.
-    const implemented = new Set(["summarize", "deliver_host_notice"]);
+    // Kinds whose task has landed. `summarize` (T94), `deliver_host_notice` (T20) and `transcribe` (T32)
+    // are exercised by their own suites and skipped here; the others, given a job with no meeting, refuse with their own code.
+    const implemented = new Set(["summarize", "deliver_host_notice", "transcribe"]);
     const landed: Record<string, string> = { prepare_audio: "no_meeting" };
     for (const [kind, handler] of Object.entries(handlers)) {
       if (implemented.has(kind)) continue;
