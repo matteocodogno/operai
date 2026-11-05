@@ -2,7 +2,7 @@
  * Splitting one recording into parts for Chirp 3 (specs/021-meetings plan.md § Amendment 2026-11-05 G-3,
  * ADR-0069, ADR-0070; AC-6.1, AC-6.2, AC-6.5, AC-6.10).
  *
- * Google documents `BatchRecognize` as good for audio "1 minute to 1 hour in general", and our meetings run
+ * Google accepts at most 20 minutes of audio per `BatchRecognize` file (measured, T107), and our meetings run
  * to 3 h + 60 s, so a long recording is transcribed in parts of at most `PIECE_MAX_MS`:
  *
  *   1. a decode pass with `silencedetect` finds the pauses (about 10-30 s for 3 h of 16 kHz mono Opus);
@@ -11,9 +11,8 @@
  *   3. a STREAM COPY (`-c copy -f segment`) writes the parts, cut at Opus packet boundaries (20 ms), with no
  *      re-encode; `parts.csv` gives the authoritative start of each one.
  *
- * `PIECE_MAX_MS` is a constant in code, not environment; the Google spike (T107) may raise it to the whole
- * meeting (one part, nothing to stitch) or lower it. The code handles N >= 1 parts identically; a recording no
- * longer than the constant is NOT re-muxed at all: its one part is the input file.
+ * `PIECE_MAX_MS` is a constant in code, not environment, set by the Google spike (T107). The code handles N >= 1
+ * parts identically; a recording no longer than the constant is NOT re-muxed at all: its one part is the input file.
  *
  * HARDENING (ADR-0064, unchanged): the input is our own derived `audio.ogg`, never a user-chosen file, and still
  * every ffmpeg runs with `-protocol_whitelist file`, the input format pinned (`-f ogg`) and `-format_whitelist`,
@@ -30,8 +29,17 @@ import { FORMAT_WHITELIST, ToolMissingError, ffmpegBinary, ffprobeBinary, judgeP
 
 export { ToolMissingError };
 
-/** The longest part. Chirp 3 batch is "good for long audio 1 minute to 1 hour" (plan G-3); the spike may change it. */
-export const PIECE_MAX_MS = 60 * 60_000;
+/**
+ * The longest part: 10 minutes (T107, recorded against the real service). Two limits, and the second is the one
+ * that binds:
+ *  - Google's docs say a Chirp 3 batch file is "good for long audio 1 minute to 1 hour", but a 1 h file is refused
+ *    with INVALID_ARGUMENT "Only audio files up to 20 minutes long are supported for BatchRecognize" (billed 0 s);
+ *  - at 18-19 minutes the service ACCEPTED the parts and then silently left out multi-minute stretches of speech
+ *    (45 % and 19 % of the words missing in 2 of 4 parts of a 1 h recording, whose words are otherwise timed to
+ *    the second), while 7 parts of 10 minutes of the same recording came back complete (98-103 %).
+ * A transcript with a hole in it that nothing flags is worse than one with more speaker labels to merge.
+ */
+export const PIECE_MAX_MS = 10 * 60_000;
 /** A cut is looked for in this long a stretch before each mark. */
 export const CUT_WINDOW_MS = 90_000;
 /** A pause shorter than this is not a place to cut. */
@@ -65,6 +73,8 @@ export interface SplitPart {
   readonly path: string;
   /** Where this part starts in the whole recording. Part 1 is always 0. */
   readonly startMs: number;
+  /** How long it is, when known (the header of the input, or `parts.csv`): bounds the word times a transcript may claim. */
+  readonly durationMs?: number;
 }
 
 // ─── Pure pieces ─────────────────────────────────────────────────────────────
@@ -204,13 +214,13 @@ export async function splitAudio(options: SplitOptions): Promise<SplitPart[]> {
     if (!verdict.ok) throw new SplitError();
     let durationMs: number | null = verdict.durationMs;
 
-    if (durationMs !== null && durationMs <= pieceMaxMs) return [{ path: options.input, startMs: 0 }];
+    if (durationMs !== null && durationMs <= pieceMaxMs) return [{ path: options.input, startMs: 0, durationMs }];
 
     const pass = await runTool(ffmpeg, buildSilenceArgs(options.input), { ...tool, timeoutMs: SILENCE_PASS_TIMEOUT_MS, maxOutputBytes: SILENCE_OUTPUT_BYTES });
     if (pass.timedOut || pass.code !== 0) throw new SplitError();
     durationMs ??= parseElapsedMs(pass.stderr);
     if (durationMs === null) throw new SplitError();
-    if (durationMs <= pieceMaxMs) return [{ path: options.input, startMs: 0 }];
+    if (durationMs <= pieceMaxMs) return [{ path: options.input, startMs: 0, durationMs }];
 
     const cuts = chooseCuts(durationMs, parseSilences(pass.stderr), pieceMaxMs);
     if (cuts.length + 1 > MAX_PARTS) throw new SplitError();
@@ -228,6 +238,6 @@ export async function splitAudio(options: SplitOptions): Promise<SplitPart[]> {
     // Every cut must have produced a part, the first must start at 0 and they must run forward.
     if (rows.length !== cuts.length + 1 || rows[0]!.startMs !== 0) throw new SplitError();
     for (let i = 1; i < rows.length; i += 1) if (rows[i]!.startMs < rows[i - 1]!.startMs) throw new SplitError();
-    return rows.map((row) => ({ path: join(options.workDir, row.name), startMs: row.startMs }));
+    return rows.map((row) => ({ path: join(options.workDir, row.name), startMs: row.startMs, durationMs: row.endMs - row.startMs }));
   }, options.signal);
 }

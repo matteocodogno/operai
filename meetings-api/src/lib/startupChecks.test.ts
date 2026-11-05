@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   CreateBucketCommand,
   DeleteBucketCommand,
@@ -18,6 +20,7 @@ import {
   transientBucketProblems,
 } from "./startupChecks";
 import type { GoogleAuth } from "./google/auth";
+import { checkVertexModelId } from "./residency";
 import type { BucketConfig } from "./google/transientStorage";
 
 // AC-4.4 / ADR-0063: the 30-day deletion is the bucket's own lifecycle rule, so
@@ -163,6 +166,26 @@ function vertexWorld(script: { cache?: Answer | (() => Answer); logging?: Answer
 const okJson = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 const cacheOff = () => okJson({ name: "projects/p/cacheConfig", disableCache: true });
 const notConfigured = () => new Response("{}", { status: 404 });
+
+const recorded = (name: string): string => readFileSync(join(import.meta.dir, "../../test-fixtures/google-vertex", name), "utf8");
+
+describe("vertex N3 and N4 on the RECORDED answers of the real eu endpoint (T107)", () => {
+  it("passes: cacheConfig 200 with disableCache true, fetchPublisherModelConfig 404 NOT_FOUND for a never-configured model", async () => {
+    const w = vertexWorld({
+      cache: new Response(recorded("cache-config.json"), { status: 200 }),
+      logging: new Response(recorded("fetch-publisher-model-config-not-found.json"), { status: 404 }),
+    });
+    expect(await w.run({ modelId: "claude-sonnet-5-5" })).toEqual([]);
+    const control = w.seen.find((r) => r.url.pathname.endsWith(":fetchPublisherModelConfig"))!;
+    expect(control.url.host).toBe("aiplatform.eu.rep.googleapis.com");
+    expect(control.url.pathname).toBe("/v1beta1/projects/operai-meetings-test/locations/eu/publishers/anthropic/models/claude-sonnet-5-5:fetchPublisherModelConfig");
+  });
+
+  it("the model id is the bare id: a resource path in the variable is refused by env.ts (S3), not smuggled into the URL", () => {
+    expect(checkVertexModelId("claude-sonnet-5-5")).toBeNull();
+    expect(checkVertexModelId("publishers/anthropic/models/claude-sonnet-5-5")).not.toBeNull();
+  });
+});
 
 describe("vertex N3: data caching is off for the project", () => {
   it("passes only for disableCache: true", async () => {

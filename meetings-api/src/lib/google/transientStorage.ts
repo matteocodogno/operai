@@ -32,6 +32,12 @@ const ID = "[A-Za-z0-9_-]{1,64}";
 const PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/(?:[1-9][0-9]{0,2}/)?$`);
 const KEY_PATTERN = new RegExp(`^transcribe/${ID}/${ID}/(in|out)/(?!\\.+$)[A-Za-z0-9._=-]{1,200}$`);
 const ID_PATTERN = new RegExp(`^${ID}$`);
+/** The one prefix Speech is given as its output location: exactly one attempt's `out/`. */
+const OUTPUT_PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/[1-9][0-9]{0,2}/out/$`);
+/** Whether `key` is an object name of the transient layout (`in/` or `out/`, never a prefix). Fakes share it. */
+export const isTransientKey = (key: string): boolean => KEY_PATTERN.test(key);
+/** Whether `prefix` is exactly one attempt's `out/` prefix. Fakes share it. */
+export const isOutputPrefix = (prefix: string): boolean => OUTPUT_PREFIX_PATTERN.test(prefix);
 
 /** 2 min per part upload (plan § G-9). */
 const UPLOAD_TIMEOUT_MS = 2 * 60_000;
@@ -88,6 +94,11 @@ export class TransientObjectTooLargeError extends Error {
 export interface TransientStorage {
   /** `gs://<bucket>/<key>`, the form Speech takes. */
   uri(key: string): string;
+  /**
+   * `gs://<bucket>/transcribe/<id>/<attempt>/out/`: where Speech is told to write. A PREFIX (T107: the real
+   * `uri()` refuses it, as it only names objects), and only an attempt's own `out/`.
+   */
+  prefixUri(prefix: string): string;
   /** The key behind a `gs://<bucket>/<key>` URI of THIS bucket, or null for anything else. */
   keyOfUri(uri: string): string | null;
   /** Creates the object; refuses to overwrite one (`ifGenerationMatch=0`). */
@@ -124,6 +135,10 @@ export function createTransientStorage(options: TransientStorageOptions): Transi
     uri: (key) => {
       assertKey(key);
       return `gs://${bucket}/${key}`;
+    },
+    prefixUri: (prefix) => {
+      if (!OUTPUT_PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not one attempt's output prefix");
+      return `gs://${bucket}/${prefix}`;
     },
     keyOfUri(uri) {
       const head = `gs://${bucket}/`;

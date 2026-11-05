@@ -1,0 +1,22 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "[",
+          "words": [
+            {
+              "endOffset": "0.600s",
+              "word": "[",
+              "speakerLabel": "0"
+            }
+          ]
+        }
+      ],
+      "languageCode": "it-IT"
+    }
+  ],
+  "metadata": {
+    "prompt": "Transcribe the following speech segment with speaker labels in Italian: Follow these specific instructions for formatting the answer:\n* Only output the transcript, with no newlines.\n* When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 100 instead of one hundred etc.\n* Only output the transcript, exactly as said in the speech segment.\n* Do not continue the speech segment.\n* Include everything said in the speech segment.\n* Use mathematical notation where needed, eg. x ^ 6Y.\n* If there is background speech that is not part of the main conversation, discard the background speech and only output the main conversation.\n* If there is no clear speech, just output [BACKGROUND].\nThere may be multiple speakers in the speech segment. Annotate the speakers like spk:1, spk:2, spk:3 and so on. Each speaker annotation starts with spk, followed by a colon and a digit. The speaker annotation should be output after the transcript of that speaker's speech. The digit is the anonymous identity of the speaker and the same speaker should always have the same digit throughout the speech segment. An example transcript with speaker annotation is as follows:\nHello. spk:1 Good morning. spk:2 How are you? spk:1 Respond in the original language of the speech, Italian. Include the end timestamp for each word in ctrl token format using numerals from <ctrl1> to <ctrl64>."
+  }
+}

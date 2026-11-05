@@ -1,0 +1,257 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "The platform wants to bring forward the integration with the accounting system according to this month's priorities. The customer wants to bring forward the contract changes before the Monday meeting. The platform still requires the risk analysis in line with the fiscal deadlines. The new system still requires the release plan by next Friday. The project wants to bring forward",
+          "words": [
+            {
+              "word": "The",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "platform",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "wants",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "to",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "bring",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "forward",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "integration",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "with",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "accounting",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "system",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "according",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "to",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "this",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "month's",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "priorities.",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "The",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "customer",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "wants",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "to",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "bring",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "forward",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "contract",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "changes",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "before",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "Monday",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "meeting.",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "The",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "platform",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "still",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "requires",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "risk",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "analysis",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "in",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "line",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "with",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "fiscal",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "deadlines.",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "The",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "new",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "system",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "still",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "requires",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "the",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "release",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "plan",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "by",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "next",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "Friday.",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "The",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "project",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "wants",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "to",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "bring",
+              "speakerLabel": "2"
+            },
+            {
+              "word": "forward",
+              "speakerLabel": "2"
+            }
+          ]
+        }
+      ],
+      "languageCode": "en-US"
+    }
+  ],
+  "metadata": {
+    "prompt": "Transcribe the following speech segment with speaker labels in English: Follow these specific instructions for formatting the answer:\n* Only output the transcript, with no newlines.\n* When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 100 instead of one hundred etc.\n* Only output the transcript, exactly as said in the speech segment.\n* Do not continue the speech segment.\n* Include everything said in the speech segment.\n* Use mathematical notation where needed, eg. x ^ 6Y.\n* If there is background speech that is not part of the main conversation, discard the background speech and only output the main conversation.\n* If there is no clear speech, just output [BACKGROUND].\nThere may be multiple speakers in the speech segment. Annotate the speakers like spk:1, spk:2, spk:3 and so on. Each speaker annotation starts with spk, followed by a colon and a digit. The speaker annotation should be output after the transcript of that speaker's speech. The digit is the anonymous identity of the speaker and the same speaker should always have the same digit throughout the speech segment. An example transcript with speaker annotation is as follows:\nHello. spk:1 Good morning. spk:2 How are you? spk:1 Respond in the original language of the speech, English."
+  }
+}

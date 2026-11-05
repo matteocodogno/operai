@@ -1,0 +1,194 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "rapporto trimestrale con il supporto del reparto legale. Il progetto ha approvato il piano di rilascio secondo le priorità di questo mese. Il team di sviluppo sta valutando l'integrazione con",
+          "words": [
+            {
+              "startOffset": "805.160s",
+              "endOffset": "805.640s",
+              "word": "rapporto",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "805.640s",
+              "endOffset": "806.320s",
+              "word": "trimestrale",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "806.320s",
+              "endOffset": "806.480s",
+              "word": "con",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "806.480s",
+              "endOffset": "806.600s",
+              "word": "il",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "806.600s",
+              "endOffset": "807.120s",
+              "word": "supporto",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "807.120s",
+              "endOffset": "807.280s",
+              "word": "del",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "807.280s",
+              "endOffset": "807.800s",
+              "word": "reparto",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "807.800s",
+              "endOffset": "9852.800s",
+              "word": "legale.",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "9985.280s",
+              "endOffset": "9985.440s",
+              "word": "Il",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "9985.440s",
+              "endOffset": "810.880s",
+              "word": "progetto",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "810.880s",
+              "endOffset": "9985.960s",
+              "word": "ha",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "9985.960s",
+              "endOffset": "811.440s",
+              "word": "approvato",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "811.440s",
+              "endOffset": "811.520s",
+              "word": "il",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "811.520s",
+              "endOffset": "811.800s",
+              "word": "piano",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "811.800s",
+              "endOffset": "811.920s",
+              "word": "di",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "811.920s",
+              "endOffset": "812.360s",
+              "word": "rilascio",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "812.360s",
+              "endOffset": "812.760s",
+              "word": "secondo",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "812.760s",
+              "endOffset": "812.880s",
+              "word": "le",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "812.880s",
+              "endOffset": "813.320s",
+              "word": "priorità",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "813.320s",
+              "endOffset": "813.440s",
+              "word": "di",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "813.440s",
+              "endOffset": "813.800s",
+              "word": "questo",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "813.800s",
+              "endOffset": "814.120s",
+              "word": "mese.",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "815.120s",
+              "endOffset": "815.200s",
+              "word": "Il",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "815.200s",
+              "endOffset": "815.400s",
+              "word": "team",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "815.400s",
+              "endOffset": "815.480s",
+              "word": "di",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "815.480s",
+              "endOffset": "816s",
+              "word": "sviluppo",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "816s",
+              "endOffset": "816.280s",
+              "word": "sta",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "816.280s",
+              "endOffset": "816.880s",
+              "word": "valutando",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "816.880s",
+              "endOffset": "817.680s",
+              "word": "l'integrazione",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "817.680s",
+              "endOffset": "817.840s",
+              "word": "con",
+              "speakerLabel": "0"
+            }
+          ]
+        }
+      ],
+      "languageCode": "it-IT"
+    }
+  ]
+}

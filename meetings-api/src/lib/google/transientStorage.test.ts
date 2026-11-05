@@ -49,6 +49,21 @@ describe("transientKeys", () => {
   });
 });
 
+describe("prefixUri (T107: the output location Speech is given is a PREFIX, which uri() refuses)", () => {
+  const storage = make("EUROPE-WEST4", stub(() => json({})).impl);
+
+  it("builds gs://<bucket>/transcribe/<id>/<attempt>/out/ for exactly one attempt's out/ prefix", () => {
+    expect(storage.prefixUri(transientKeys.outputPrefix("m_1", 2))).toBe("gs://operai-transient/transcribe/m_1/2/out/");
+    expect(() => storage.uri(transientKeys.outputPrefix("m_1", 2))).toThrow(); // the reason prefixUri exists
+  });
+
+  it("refuses anything else: the meeting prefix, an in/ prefix, an object, a traversal", () => {
+    for (const bad of ["transcribe/m_1/", "transcribe/m_1/2/", "transcribe/m_1/2/in/", "transcribe/m_1/2/out/x.json", "transcribe/m_1/../2/out/", "", "transcribe//2/out/"]) {
+      expect(() => storage.prefixUri(bad)).toThrow();
+    }
+  });
+});
+
 describe("regional endpoint (G7)", () => {
   it("derives storage.<location>.rep.googleapis.com from the bucket location, lowercased", () => {
     expect(regionalHost("EU")).toBe("storage.eu.rep.googleapis.com");

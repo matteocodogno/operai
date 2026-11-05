@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 404,
+    "message": "PublisherModelConfig not found for 'projects/operai-meetings-sandbox/locations/eu/publishers/anthropic/models/claude-sonnet-5-5'. Ensure that the configuration is set using 'setPublisherModelConfig'. If it's already set up, verify that the project, location, and publisher model name in your request exactly match the existing configuration.",
+    "status": "NOT_FOUND"
+  }
+}

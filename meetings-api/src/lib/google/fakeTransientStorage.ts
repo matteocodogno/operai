@@ -6,7 +6,7 @@
  */
 
 import { GoogleApiError } from "./auth";
-import { TransientObjectTooLargeError, attemptOfKey, transientKeys, type TransientStorage } from "./transientStorage";
+import { TransientObjectTooLargeError, attemptOfKey, isOutputPrefix, isTransientKey, transientKeys, type TransientStorage } from "./transientStorage";
 
 export interface TransientEvent {
   readonly op: "put" | "read" | "deletePrefix" | "deleteBefore";
@@ -44,7 +44,15 @@ export function createFakeTransientStorage(): FakeTransientStorage {
     failWith(error) {
       failure = error;
     },
-    uri: (key) => `gs://${BUCKET}/${key}`,
+    // As strict as the real one: a prefix is not an object name (T107: the real `uri()` threw on `out/`).
+    uri: (key) => {
+      if (!isTransientKey(key)) throw new Error("object key is outside the transient layout");
+      return `gs://${BUCKET}/${key}`;
+    },
+    prefixUri: (prefix) => {
+      if (!isOutputPrefix(prefix)) throw new Error("prefix is not one attempt's output prefix");
+      return `gs://${BUCKET}/${prefix}`;
+    },
     keyOfUri(uri) {
       const head = `gs://${BUCKET}/`;
       return uri.startsWith(head) ? uri.slice(head.length) : null;

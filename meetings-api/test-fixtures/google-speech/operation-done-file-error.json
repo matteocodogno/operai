@@ -1,13 +1,52 @@
 {
-  "name": "projects/123456789012/locations/eu/operations/op-1",
+  "name": "projects/123456789012/locations/eu/operations/v2-00000000-0000-0000-0000-000000000001",
+  "metadata": {
+    "@type": "type.googleapis.com/google.cloud.speech.v2.OperationMetadata",
+    "createTime": "2026-11-05T16:00:43.369891Z",
+    "updateTime": "2026-11-05T16:00:48.260448Z",
+    "resource": "projects/operai-meetings-sandbox/locations/eu/recognizers/_",
+    "method": "google.cloud.speech.v2.Speech.BatchRecognize",
+    "batchRecognizeRequest": {
+      "recognizer": "projects/operai-meetings-sandbox/locations/eu/recognizers/_",
+      "files": [
+        {
+          "uri": "{{INPUT_URI}}"
+        }
+      ],
+      "config": {
+        "features": {
+          "enableWordTimeOffsets": true,
+          "diarizationConfig": {}
+        },
+        "autoDecodingConfig": {},
+        "model": "chirp_3",
+        "languageCodes": [
+          "it-IT"
+        ]
+      },
+      "recognitionOutputConfig": {
+        "gcsOutputConfig": {
+          "uri": "gs://operai-meetings-transient/transcribe/meeting_1/1/out/"
+        }
+      }
+    },
+    "progressPercent": 100
+  },
   "done": true,
   "response": {
     "@type": "type.googleapis.com/google.cloud.speech.v2.BatchRecognizeResponse",
     "results": {
       "{{INPUT_URI}}": {
-        "error": { "code": 3, "message": "Unable to decode the audio. (this text is never read)" },
-        "uri": "{{INPUT_URI}}"
+        "uri": "{{OUTPUT_URI}}",
+        "error": {
+          "code": 3,
+          "message": "Audio data does not appear to be in a supported encoding. If you believe this to be incorrect, try explicitly specifying the decoding parameters."
+        },
+        "cloudStorageResult": {
+          "uri": "{{OUTPUT_URI}}"
+        }
       }
-    }
+    },
+    "totalBilledDuration": "0s"
   }
 }

@@ -6,6 +6,7 @@ import { GoogleApiError, type GoogleAuth } from "../lib/google/auth";
 import { createFakeTransientStorage, type FakeTransientStorage } from "../lib/google/fakeTransientStorage";
 import { SplitError, type SplitPart } from "../media/split";
 import {
+  WORD_OFFSETS,
   POLL_DEADLINE_MS,
   MAX_OUTPUT_BYTES,
   codeForRpc,
@@ -68,7 +69,10 @@ function world(scenario: Scenario = {}) {
     writeFileSync(path, "OggS-fake");
     return { path, startMs };
   });
-  const partOf = (opName: string): number => Number(/op-(\d+)$/.exec(opName)![1]);
+  // The recorded form is `projects/<number>/locations/eu/operations/v2-<uuid>` (batch-submit.json); the test's own
+  // ids end in the part number so a poll can be routed back to its part.
+  const opNameOf = (part: number) => `projects/123456789012/locations/eu/operations/v2-00000000-0000-0000-0000-00000000000${part}`;
+  const partOf = (opName: string): number => Number(/(\d)$/.exec(opName)![1]);
   const inputUriOf = (part: number) => storage.uri(`transcribe/${MEETING}/${ATTEMPT}/in/${part}.ogg`);
 
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -80,9 +84,9 @@ function world(scenario: Scenario = {}) {
       const part = Number(/\/in\/(\d+)\.ogg$/.exec(body.files[0].uri)![1]);
       const custom = scenario.submit?.(part);
       if (custom instanceof Error) throw custom;
-      return custom ?? json({ name: `projects/123456789012/locations/eu/operations/op-${part}`, metadata: {} });
+      return custom ?? json({ ...JSON.parse(fixture("batch-submit.json")), name: opNameOf(part) });
     }
-    const op = /\/(projects\/[^/]+\/locations\/eu\/operations\/(op-\d+))$/.exec(url.pathname);
+    const op = /\/(projects\/[^/]+\/locations\/eu\/operations\/(v2-[A-Za-z0-9-]+))$/.exec(url.pathname);
     if (op && method === "GET") {
       const part = partOf(op[2]!);
       const pollNo = (polls.get(part) ?? 0) + 1;
@@ -94,7 +98,7 @@ function world(scenario: Scenario = {}) {
       const outKey = `${OUT}${part}_transcript_ab12.json`;
       const raw = scenario.operation?.(part) ?? fixture("operation-done.json");
       const outUri = scenario.outputUri?.(part, storage.uri(outKey)) ?? storage.uri(outKey);
-      if (!raw.includes("\"error\"")) storage.seed(outKey, scenario.output?.(part) ?? fixture("output-two-speakers.json"));
+      if (!raw.includes("\"error\"")) storage.seed(outKey, scenario.output?.(part) ?? fixture("output-recorded-it-word-offsets.json"));
       return new Response(fill(raw, { INPUT_URI: inputUriOf(part), OUTPUT_URI: outUri }), { status: 200 });
     }
     if (op && method === "DELETE") {
@@ -151,13 +155,26 @@ const cleaned = (storage: FakeTransientStorage) => {
 };
 
 describe("one part", () => {
-  it("transcribes, with the part offsets and the speakers in order of appearance", async () => {
+  it("transcribes a RECORDED output, with the part offsets and the speakers in order of appearance", async () => {
     const w = world();
-    const outcome = segmentsOf(await w.run());
+    const outcome = segmentsOf(await w.run("it-IT"));
     expect(outcome.partStartsMs).toEqual([0]);
+    // output-recorded-it-word-offsets.json: ONE result, two speaker runs, times from the run's first and last word.
     expect(outcome.segments).toEqual([
-      { ordinal: 0, startMs: 0, endMs: 4200, speakerKey: "s1", text: "Let us start with the plan for next quarter." },
-      { ordinal: 1, startMs: 4200, endMs: 9800, speakerKey: "s2", text: "Agreed. I will send the notes tomorrow." },
+      {
+        ordinal: 0,
+        startMs: 0,
+        endMs: 17_080,
+        speakerKey: "s1",
+        text: "Il cliente ha segnalato la documentazione tecnica prima della riunione di lunedì. Il progetto ha completato l'analisi dei rischi con il supporto del reparto legale.",
+      },
+      {
+        ordinal: 1,
+        startMs: 18_040,
+        endMs: 29_760,
+        speakerKey: "s2",
+        text: "Il fornitore richiede ancora il piano di rilascio secondo le priorità di questo mese. Il nuovo sistema richiede ancora l'analisi dei rischi entro venerdì prossimo. Il team di sviluppo richiede ancora le modifiche al contratto",
+      },
     ]);
     cleaned(w.storage);
   });
@@ -174,7 +191,7 @@ describe("one part", () => {
       expect(body.config["languageCodes"]).toEqual([locale]);
       expect(JSON.stringify(body)).not.toContain('"auto"');
       expect(body.config["autoDecodingConfig"]).toEqual({});
-      expect(body.config["features"]).toEqual({ diarizationConfig: {} });
+      expect(body.config["features"]).toEqual({ diarizationConfig: {}, enableWordTimeOffsets: true }); // T107: the only source of times
       expect(JSON.stringify(body)).not.toMatch(/SpeakerCount/i);
       expect(body.files).toEqual([{ uri: `gs://fake-transient-bucket/transcribe/${MEETING}/${ATTEMPT}/in/1.ogg` }]);
       expect(body.recognitionOutputConfig).toEqual({ gcsOutputConfig: { uri: `gs://fake-transient-bucket/${OUT}` } });
@@ -182,12 +199,15 @@ describe("one part", () => {
     }
   });
 
-  it("asks for word offsets only when the constant says so", async () => {
-    const w = world({ wordOffsets: true, output: () => fixture("output-with-word-offsets.json") });
-    const outcome = segmentsOf(await w.run());
-    const body = w.seen.find((r) => r.method === "POST")!.body as { config: { features: unknown } };
-    expect(body.config.features).toEqual({ diarizationConfig: {}, enableWordTimeOffsets: true });
-    expect(outcome.segments[0]).toMatchObject({ startMs: 1200, endMs: 2600 });
+  it("asks for word offsets by default (T107) and not when switched off", async () => {
+    expect(WORD_OFFSETS).toBe(true);
+    const on = world();
+    await on.run();
+    expect((on.seen.find((r) => r.method === "POST")!.body as { config: { features: unknown } }).config.features).toEqual({ diarizationConfig: {}, enableWordTimeOffsets: true });
+    const off = world({ wordOffsets: false, output: () => fixture("output-with-word-offsets.json") });
+    const outcome = segmentsOf(await off.run());
+    expect((off.seen.find((r) => r.method === "POST")!.body as { config: { features: unknown } }).config.features).toEqual({ diarizationConfig: {} });
+    expect(outcome.segments).toHaveLength(1); // offsets ignored: the synthetic result-level times are used
   });
 
   it("polls 10 s first and backs off to 30 s, calls operations.delete after reading, and uses the lease signal", async () => {
@@ -195,7 +215,7 @@ describe("one part", () => {
     await w.run();
     expect(w.sleeps).toEqual([10_000, 15_000, 20_000, 25_000, 30_000, 30_000]);
     expect(pollDelayMs(100)).toBe(30_000);
-    expect(w.seen.filter((r) => r.method === "DELETE").map((r) => r.url.pathname)).toEqual(["/v2/projects/123456789012/locations/eu/operations/op-1"]);
+    expect(w.seen.filter((r) => r.method === "DELETE").map((r) => r.url.pathname)).toEqual(["/v2/projects/123456789012/locations/eu/operations/v2-00000000-0000-0000-0000-000000000001"]);
     // every call went to the eu Speech host (the order: submit, polls, delete)
     expect(new Set(w.seen.map((r) => r.url.host))).toEqual(new Set(["eu-speech.googleapis.com"]));
   });
@@ -213,6 +233,121 @@ describe("one part", () => {
     const outcome = segmentsOf(await w.run("it-IT"));
     expect(outcome.segments).toHaveLength(1);
     expect(outcome.segments[0]!.speakerKey).toBe("s1");
+  });
+});
+
+describe("recorded Google responses (T107; test-fixtures/google-speech/README.md)", () => {
+  const doc = (name: string): unknown => JSON.parse(fixture(name));
+  const phrases = (name: string, wordOffsets: boolean) => phrasesOfPart(doc(name), 1, 0, wordOffsets)!;
+
+  it("the submit answer's operation name is accepted and the polls address it (v2-<uuid>, project NUMBER)", async () => {
+    const w = world();
+    await w.run();
+    const got = w.seen.find((r) => r.method === "GET")!;
+    expect(got.url.pathname).toBe("/v2/projects/123456789012/locations/eu/operations/v2-00000000-0000-0000-0000-000000000001");
+  });
+
+  it("without word offsets Google returns ONE result with no resultEndOffset: speaker runs survive, every time collapses to the part start", () => {
+    const got = phrases("output-recorded-it.json", false);
+    expect(got.map((p) => p.speaker)).toEqual(["p1:0", "p1:1", "p1:0"]);
+    expect(got.every((p) => p.startMs === 0 && p.durationMs === 0)).toBe(true); // why WORD_OFFSETS is on
+  });
+
+  it("with word offsets the times of a run are its first word's start and its last word's end", () => {
+    const got = phrases("output-recorded-it-word-offsets.json", true);
+    expect(got.map((p) => [p.speaker, p.startMs, p.durationMs])).toEqual([
+      ["p1:0", 0, 17_080], // the first word omits startOffset: proto3 drops a zero
+      ["p1:1", 18_040, 11_720],
+    ]);
+  });
+
+  it("garbled word offsets inside the first utterance (a recorded defect) do not move a run's edges", () => {
+    const words = (doc("output-recorded-it-word-offsets.json") as { results: { alternatives: { words: Record<string, string>[] }[] }[] }).results[0]!.alternatives[0]!.words;
+    // Recorded: 'documentazione' has no endOffset, 'tecnica' no startOffset, 'lunedì.' ends at 162.84 s, the next word starts at 176.4 s and ends at 12.68 s.
+    expect(words[5]).not.toHaveProperty("endOffset");
+    expect(words[6]).not.toHaveProperty("startOffset");
+    expect(words[11]!["endOffset"]).toBe("162.840s");
+    const got = phrases("output-recorded-it-word-offsets.json", true);
+    expect(got[0]!.startMs + got[0]!.durationMs).toBe(17_080);
+  });
+
+  it("RECORDED: a sentence-initial word at 9985 s inside an 18.6-minute part is ignored, not believed (the part's duration bounds every word)", () => {
+    // output-recorded-garbled-offsets.json: 'legale.' 807.8->9852.8 s, 'Il' 9985.28->9985.44 s, 'progetto' 9985.44->810.88 s, ...
+    const bounded = phrasesOfPart(doc("output-recorded-garbled-offsets.json"), 1, 0, true, 1_116_000)!;
+    expect(bounded.map((p) => [p.speaker, p.startMs, p.startMs + p.durationMs])).toEqual([
+      ["p1:0", 805_160, 807_800],
+      ["p1:1", 811_440, 814_120],
+      ["p1:0", 815_120, 817_840],
+    ]);
+    // Unbounded, the same words would start the second run at 9985 s and every later one after it: the poison.
+    const unbounded = phrasesOfPart(doc("output-recorded-garbled-offsets.json"), 1, 0, true, 4 * 3_600_000)!;
+    expect(unbounded.some((p) => p.startMs > 9_000_000)).toBe(true);
+  });
+
+  it("the bound also holds when nobody says how long the part is: a part is never longer than PIECE_MAX_MS", () => {
+    const words = [
+      { word: "a", speakerLabel: "1", startOffset: "1s", endOffset: "2s" },
+      { word: "b", speakerLabel: "1", startOffset: "99999s", endOffset: "100000s" },
+    ];
+    const got = phrasesOfPart({ results: [{ alternatives: [{ transcript: "a b", words }] }] }, 1, 0, true)!;
+    expect([got[0]!.startMs, got[0]!.startMs + got[0]!.durationMs]).toEqual([1000, 2000]);
+  });
+
+  it("a word whose offsets run backwards, are absurdly long or precede what was already heard is not trusted", () => {
+    const result = (words: Record<string, string>[]) => ({ results: [{ alternatives: [{ transcript: "a b c d", words }] }] });
+    const word = (w: string, startOffset: string | undefined, endOffset: string | undefined) => ({ word: w, speakerLabel: "1", ...(startOffset ? { startOffset } : {}), ...(endOffset ? { endOffset } : {}) });
+    const got = phrasesOfPart(result([word("a", "1s", "2s"), word("b", "176.4s", "12.68s"), word("c", "2s", "400s"), word("d", "3s", "4s")]), 1, 0, true)!;
+    expect(got).toHaveLength(1);
+    expect([got[0]!.startMs, got[0]!.startMs + got[0]!.durationMs]).toEqual([1000, 4000]);
+  });
+
+  it("a run with no trustworthy word at all starts where the previous phrase ended, and never earlier", () => {
+    const words = [
+      { word: "a", speakerLabel: "1", startOffset: "1s", endOffset: "5s" },
+      { word: "b", speakerLabel: "2" },
+    ];
+    const got = phrasesOfPart({ results: [{ alternatives: [{ transcript: "a b", words }] }] }, 1, 0, true)!;
+    expect(got.map((p) => [p.startMs, p.durationMs])).toEqual([[1000, 4000], [5000, 0]]);
+  });
+
+  it("Google labels from 0 or from 1 and the English recording from 1: every label is just the part's key", () => {
+    expect(phrases("output-recorded-en.json", false).map((p) => p.speaker)).toEqual(["p1:1", "p1:2", "p1:1", "p1:2"]);
+  });
+
+  it("silence and noise come back as a lone '[' (the model's [BACKGROUND] cut short): that is no speech (AC-6.7)", async () => {
+    expect(phrases("output-recorded-silence.json", true)).toEqual([]);
+    const w = world({ output: () => fixture("output-recorded-silence.json") });
+    expect(await w.run("it-IT")).toEqual({ kind: "noSpeech" });
+    cleaned(w.storage);
+  });
+
+  it("a [BACKGROUND] marker inside a transcript is dropped, the words around it are kept", () => {
+    const words = [
+      { word: "ciao", speakerLabel: "0", startOffset: "0.5s", endOffset: "1s" },
+      { word: "[BACKGROUND]", speakerLabel: "0", startOffset: "1s", endOffset: "2s" },
+      { word: "[", speakerLabel: "0", startOffset: "2s", endOffset: "2.5s" },
+      { word: "grazie", speakerLabel: "0", startOffset: "3s", endOffset: "3.5s" },
+    ];
+    const got = phrasesOfPart({ results: [{ alternatives: [{ transcript: "ciao [BACKGROUND] [ grazie", words }] }] }, 1, 0, true)!;
+    expect(got).toHaveLength(1);
+    expect(got[0]!.text).toBe("ciao grazie");
+    expect([got[0]!.startMs, got[0]!.durationMs]).toEqual([500, 3000]);
+  });
+
+  it("a per-file 'too long' (code 3, recorded) is audio_unreadable, which is why PIECE_MAX_MS must stay under 20 min", async () => {
+    const w = world({ operation: () => fixture("operation-done-file-too-long.json") });
+    expect(await rejection(w.run())).toMatchObject({ code: "audio_unreadable", transient: false });
+  });
+
+  it("a per-file 'object not found' (code 5, recorded) is provider_rejected and no output is read", async () => {
+    const w = world({ operation: () => fixture("operation-done-file-not-found.json") });
+    expect(await rejection(w.run())).toMatchObject({ code: "provider_rejected", transient: false });
+    cleaned(w.storage);
+  });
+
+  it("an undecodable file (code 3, recorded) is audio_unreadable", async () => {
+    const w = world({ operation: () => fixture("operation-done-file-error.json") });
+    expect(await rejection(w.run())).toMatchObject({ code: "audio_unreadable", transient: false });
   });
 });
 

@@ -21,9 +21,16 @@
  *      transcript at rest);
  *   7. `finally`: empty THIS attempt's prefix (only) and remove the temp directory.
  *
- * TIMES (G-3): Chirp 3 gives utterance times only when streaming. A batch result carries `resultEndOffset`, so a
- * segment starts at the previous result's end and ends at its own: never LATER than the speech, so "play from
- * here" (AC-6.5) starts at or just before the words. With `WORD_OFFSETS` on (a spike outcome) the times are exact.
+ * TIMES (G-3, as recorded by the spike T107): a batch output has NO result-level time. It is ONE result per part with
+ * the whole transcript and every word with its speaker, and no `resultEndOffset`. Times exist only as per-word
+ * `startOffset`/`endOffset`, which `WORD_OFFSETS` asks for. They are a model's and are not all to be believed (a
+ * garbled first sentence, a sentence-final word ending minutes early, a word stamped hours late), so a word is trusted
+ * only when it is plausible and inside its part (`spanOf`); a run takes the times of its first and last trusted words,
+ * and a run with none starts where the phrase before it ended: never later than the speech (AC-6.5).
+ *
+ * PARTS (G-3, T107): Google refuses a Chirp 3 batch file over 20 minutes, and parts of 18-19 minutes came back with
+ * multi-minute stretches of speech missing, so `PIECE_MAX_MS` (src/media/split.ts) is 10 minutes. The adapter cannot
+ * tell a transcript with a hole from a quiet stretch: see the T107 note in plan.md § G-3.
  *
  * SPEAKERS (G-3, ADR-0070): diarization labels are per word and per file. A result whose words change speaker is
  * split into one phrase per run, and every label is namespaced by its part (`p2:1`), so part 2's voices never
@@ -39,7 +46,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GoogleApiError, defaultFetch, googleFetch, type GoogleAuth } from "../lib/google/auth";
 import { TransientObjectTooLargeError, transientKeys, type TransientStorage } from "../lib/google/transientStorage";
-import { SplitError, splitAudio, type SplitPart } from "../media/split";
+import { PIECE_MAX_MS, SplitError, splitAudio, type SplitPart } from "../media/split";
 import { mapPhrases, type Phrase } from "./segments";
 import {
   TranscriptionError,
@@ -50,8 +57,25 @@ import {
   type TranscriptionOutcome,
 } from "./transcriber";
 
-/** Word-level time offsets: off by default (Chirp 3 batch is "up to 20 minutes with word-level timestamps"). The spike (T107) decides. */
-export const WORD_OFFSETS = false;
+/**
+ * Word-level time offsets: ON (T107, recorded against the real service). Without them a batch output carries NO
+ * time at all: one result for the whole file, no `resultEndOffset`, nothing a segment could be placed by (AC-6.5).
+ * They cost little in latency (+10% on a 5-minute file) and the speaker labels come back either way.
+ */
+export const WORD_OFFSETS = true;
+/**
+ * The longest word the offsets may describe, and how far a word may start before what was already heard. Chirp 3's
+ * word times are a model's, and the recording showed a garbled first utterance (a word ending at 162 s inside a
+ * 5-minute file, the next one ending before it began). A word outside these bounds is ignored, not believed.
+ */
+export const MAX_WORD_MS = 10_000;
+export const WORD_BACKSTEP_MS = 1_000;
+/**
+ * A word may not end later than its part does, give or take this. Recorded: a sentence-initial word stamped
+ * 9985.28 s inside an 18.6-minute part (valid-looking: start before end, 0.16 s long); trusted, it would have moved
+ * every later run to "2 h 46 min".
+ */
+export const PART_END_SLACK_MS = 5_000;
 /** One output file, at most (G-2 step 7). */
 export const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 /** Per part: how long to wait for Google before giving up (G-2 step 6). */
@@ -122,18 +146,49 @@ const labelOf = (value: unknown): string => {
   return /^[A-Za-z0-9_-]{1,16}$/.test(text) ? text : "0";
 };
 
+/** The words the model uses for "no speech" (its prompt says `[BACKGROUND]`; the recording showed a lone `[`). */
+const NOISE_WORD = /^(?:\[|\]|\[?BACKGROUND\]?)$/i;
+/** A phrase with no letter and no digit is punctuation or a marker, never speech. */
+const HAS_SPEECH = /[\p{L}\p{N}]/u;
+
+interface WordSpan {
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
+/**
+ * One word's time, or null when it is not to be trusted. Recorded facts (T107): proto3 omits a zero, so the very
+ * first word of a file has no `startOffset`; anywhere else a missing offset is a defect, not a zero.
+ */
+function spanOf(word: RawWord, first: boolean, frontier: number, limit: number): WordSpan | null {
+  const startMs = parseOffsetMs(word.startOffset) ?? (first ? 0 : null);
+  const endMs = parseOffsetMs(word.endOffset);
+  if (startMs === null || endMs === null) return null;
+  if (endMs < startMs || endMs - startMs > MAX_WORD_MS || startMs < frontier - WORD_BACKSTEP_MS || endMs > limit) return null;
+  return { startMs, endMs };
+}
+
 /**
  * The phrases of one part's output file (`BatchRecognizeResults`), with the part's offset added. Pure. Returns
  * null when the document is not the shape this module understands.
+ *
+ * WHAT GOOGLE REALLY SENDS (recorded, test-fixtures/google-speech): one result for a whole part, with the full
+ * `transcript` and every word with its `speakerLabel`; `startOffset`/`endOffset` per word only when asked for;
+ * never a `resultEndOffset`. A result-level time is still honoured when present (older shapes, other models).
  */
-export function phrasesOfPart(doc: unknown, part: number, partStartMs: number, wordOffsets: boolean): Phrase[] | null {
+export function phrasesOfPart(doc: unknown, part: number, partStartMs: number, wordOffsets: boolean, partDurationMs: number = PIECE_MAX_MS): Phrase[] | null {
+  const limit = partDurationMs + PART_END_SLACK_MS;
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) return null;
   const results = (doc as { results?: unknown }).results;
   if (results === undefined) return [];
   if (!Array.isArray(results)) return null;
 
   const phrases: Phrase[] = [];
-  let previousEnd = 0;
+  let previousEnd = 0; // end of the previous RESULT (result-level times)
+  let frontier = 0; // the furthest end a trusted word has reached
+  let lastFrom = 0;
+  let lastTo = 0;
+  let firstWord = true;
   for (const result of results as unknown[]) {
     if (typeof result !== "object" || result === null) return null;
     const { alternatives, resultEndOffset } = result as { alternatives?: unknown; resultEndOffset?: unknown };
@@ -150,41 +205,46 @@ export function phrasesOfPart(doc: unknown, part: number, partStartMs: number, w
     if (words !== undefined && !Array.isArray(words)) return null;
     const text = (transcript ?? "").trim();
     const speaker = (label: string) => `p${part}:${label}`;
-    const phrase = (label: string, body: string, from: number, to: number): Phrase => ({
-      speaker: speaker(label),
-      startMs: partStartMs + from,
-      durationMs: Math.max(0, to - from),
-      text: body,
-    });
+    const push = (label: string, body: string, from: number, to: number) => {
+      if (!HAS_SPEECH.test(body)) return; // "[" and friends: nothing was said
+      // Never backwards: a phrase does not start before the one before it, nor end before it starts.
+      const a = Math.max(from, lastFrom);
+      const b = Math.max(to, a);
+      lastFrom = a;
+      lastTo = b;
+      phrases.push({ speaker: speaker(label), startMs: partStartMs + a, durationMs: b - a, text: body });
+    };
 
-    const spoken = ((words as RawWord[] | undefined) ?? []).filter((w) => typeof w === "object" && w !== null && typeof w.word === "string" && w.word !== "");
+    const allWords = (words as RawWord[] | undefined) ?? [];
+    const spoken = allWords.filter((w) => typeof w === "object" && w !== null && typeof w.word === "string" && w.word !== "" && !NOISE_WORD.test(w.word));
     if (spoken.length === 0) {
-      if (text !== "") phrases.push(phrase("0", text, start, end));
+      push("0", text.split(/\s+/).filter((t) => !NOISE_WORD.test(t)).join(" "), Math.max(start, lastTo), end);
       continue;
     }
 
     // Consecutive words of one speaker are one run; a change of speaker starts a new phrase.
-    const runs: { label: string; words: RawWord[] }[] = [];
+    const runs: { label: string; words: RawWord[]; spans: (WordSpan | null)[] }[] = [];
     for (const word of spoken) {
       const label = labelOf(word.speakerLabel);
+      const span = wordOffsets ? spanOf(word, firstWord, frontier, limit) : null;
+      firstWord = false;
+      if (span) frontier = Math.max(frontier, span.endMs);
       const last = runs[runs.length - 1];
-      if (last && last.label === label) last.words.push(word);
-      else runs.push({ label, words: [word] });
+      if (last && last.label === label) {
+        last.words.push(word);
+        last.spans.push(span);
+      } else runs.push({ label, words: [word], spans: [span] });
     }
     for (const run of runs) {
-      // One voice in the whole result keeps the transcript as Google wrote it (punctuation and all).
-      const body = runs.length === 1 && text !== "" ? text : run.words.map((w) => w.word as string).join(" ");
-      let from = start;
-      let to = end;
-      if (wordOffsets) {
-        const first = parseOffsetMs(run.words[0]!.startOffset);
-        const last = parseOffsetMs(run.words[run.words.length - 1]!.endOffset);
-        if (first !== null && last !== null && last >= first) {
-          from = first;
-          to = last;
-        }
-      }
-      phrases.push(phrase(run.label, body, from, to));
+      // One voice in the whole result, nothing dropped: keep the transcript as Google wrote it (punctuation and all).
+      const intact = runs.length === 1 && text !== "" && spoken.length === allWords.length;
+      const body = intact ? text : run.words.map((w) => w.word as string).join(" ");
+      const trusted = run.spans.filter((x): x is WordSpan => x !== null);
+      // Exact times from the run's first and last trusted words. Else the result's own start when the result has times
+      // (never late: every run of it starts there), else where the previous phrase ended.
+      const from = trusted.length > 0 ? trusted[0]!.startMs : end > start ? start : lastTo;
+      const to = trusted.length > 0 ? trusted[trusted.length - 1]!.endMs : Math.max(end, from);
+      push(run.label, body, from, to);
     }
   }
   return phrases;
@@ -251,7 +311,7 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
         features: { diarizationConfig: {}, ...(wordOffsets ? { enableWordTimeOffsets: true } : {}) },
       },
       files: [{ uri: storage.uri(inputKey) }],
-      recognitionOutputConfig: { gcsOutputConfig: { uri: storage.uri(outputPrefix) } },
+      recognitionOutputConfig: { gcsOutputConfig: { uri: storage.prefixUri(outputPrefix) } },
     };
     const response = await call(`${host}/${recognizer}:batchRecognize`, { method: "POST", body: JSON.stringify(body) }, signal);
     const operation = (await jsonOf(response)) as { name?: unknown };
@@ -385,7 +445,7 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
               const name = await submit(storage, locale, inputKey, outputPrefix, stop);
               const operation = await waitFor(name, stop);
               const doc = await collect(storage, name, operation, storage.uri(inputKey), outputPrefix, stop);
-              const phrases = phrasesOfPart(doc, number, part.startMs, wordOffsets);
+              const phrases = phrasesOfPart(doc, number, part.startMs, wordOffsets, part.durationMs ?? options.pieceMaxMs ?? PIECE_MAX_MS);
               if (phrases === null) throw unavailable();
               return phrases;
             } catch (error) {

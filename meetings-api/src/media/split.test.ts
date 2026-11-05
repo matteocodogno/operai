@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   CUT_WINDOW_MS,
+  MAX_PARTS,
   PIECE_MAX_MS,
   SplitError,
   ToolMissingError,
@@ -51,40 +52,59 @@ describe("parseElapsedMs", () => {
   });
 });
 
+describe("PIECE_MAX_MS (T107: Google refuses a Chirp 3 batch file over 20 minutes)", () => {
+  it("stays under Google's 20-minute limit with a margin for the cut and the container", () => {
+    // Recorded: "Only audio files up to 20 minutes long are supported for BatchRecognize." (code 3, billed 0 s)
+    expect(PIECE_MAX_MS).toBeLessThanOrEqual(19 * 60_000);
+    expect(PIECE_MAX_MS).toBeGreaterThanOrEqual(10 * 60_000);
+  });
+
+  it("splits the longest meeting (3 h + 60 s) into parts that are all within it, and no more than the sanity ceiling", () => {
+    const duration = 3 * 3_600_000 + 60_000;
+    const cuts = chooseCuts(duration, []);
+    const edges = [0, ...cuts, duration];
+    for (let i = 1; i < edges.length; i += 1) expect(edges[i]! - edges[i - 1]!).toBeLessThanOrEqual(PIECE_MAX_MS);
+    expect(cuts.length + 1).toBeLessThanOrEqual(MAX_PARTS);
+  });
+});
+
 describe("chooseCuts", () => {
-  const hour = 60 * 60_000;
+  const piece = PIECE_MAX_MS;
+  const pieceS = piece / 1000;
 
   it("needs no cut for a recording no longer than a part", () => {
-    expect(chooseCuts(hour, [])).toEqual([]);
+    expect(chooseCuts(piece, [])).toEqual([]);
     expect(chooseCuts(10 * 60_000, [silence(100, 102)])).toEqual([]);
   });
 
   it("cuts a 3 h recording hard at each mark when there is no pause", () => {
-    expect(chooseCuts(3 * hour + 60_000, [])).toEqual([hour, 2 * hour, 3 * hour]);
+    const duration = 3 * 3_600_000 + 60_000;
+    const cuts = chooseCuts(duration, []);
+    expect(cuts).toEqual(Array.from({ length: Math.ceil(duration / piece) - 1 }, (_, i) => (i + 1) * piece));
   });
 
   it("cuts in the middle of the longest pause within the window before the mark", () => {
-    const silences = [silence(3600 - 80, 3600 - 79), silence(3600 - 60, 3600 - 55), silence(3600 - 30, 3600 - 29)];
-    expect(chooseCuts(hour + 30 * 60_000, silences)).toEqual([s(3600 - 57.5)]);
+    const silences = [silence(pieceS - 80, pieceS - 79), silence(pieceS - 60, pieceS - 55), silence(pieceS - 30, pieceS - 29)];
+    expect(chooseCuts(piece + 5 * 60_000, silences)).toEqual([s(pieceS - 57.5)]);
   });
 
   it("ignores a pause that ends before the window opens and one shorter than 0.5 s", () => {
-    const tooEarly = silence(3600 - 200, 3600 - 150);
-    const tooShort = silence(3600 - 40, 3600 - 39.7);
-    expect(chooseCuts(hour + 600_000, [tooEarly, tooShort])).toEqual([hour]);
+    const tooEarly = silence(pieceS - 200, pieceS - 150);
+    const tooShort = silence(pieceS - 40, pieceS - 39.7);
+    expect(chooseCuts(piece + 600_000, [tooEarly, tooShort])).toEqual([piece]);
   });
 
   it("takes only the part of a pause that lies inside the window", () => {
-    // pause from 3600-100 to 3600-85: only 3600-90..3600-85 is inside the window
-    expect(chooseCuts(hour + 600_000, [silence(3600 - 100, 3600 - 85)])).toEqual([s(3600 - 87.5)]);
+    // pause from mark-100 to mark-85: only mark-90..mark-85 is inside the window
+    expect(chooseCuts(piece + 300_000, [silence(pieceS - 100, pieceS - 85)])).toEqual([s(pieceS - 87.5)]);
   });
 
   it("measures the next mark from the previous cut, so no part exceeds the maximum", () => {
-    const duration = 3 * hour + 60_000;
-    const cuts = chooseCuts(duration, [silence(3600 - 10, 3600 - 8), silence(7200 - 70, 7200 - 60)]);
+    const duration = 3 * 3_600_000 + 60_000;
+    const cuts = chooseCuts(duration, [silence(pieceS - 10, pieceS - 8), silence(2 * pieceS - 70, 2 * pieceS - 60)]);
     const edges = [0, ...cuts, duration];
     for (let i = 1; i < edges.length; i += 1) expect(edges[i]! - edges[i - 1]!).toBeLessThanOrEqual(PIECE_MAX_MS);
-    expect(cuts[0]).toBe(s(3600 - 9));
+    expect(cuts[0]).toBe(s(pieceS - 9));
   });
 
   it("honours a smaller piece length and window", () => {
@@ -170,7 +190,7 @@ describe("splitAudio", () => {
     const ffprobeBin = stub(join(bin, "ffprobe"), probeJson(600));
     const ffmpegBin = stub(join(bin, "ffmpeg"), `touch ${marker}`);
     const parts = await splitAudio({ input: "/in/audio.ogg", workDir: work, ffmpegBin, ffprobeBin });
-    expect(parts).toEqual([{ path: "/in/audio.ogg", startMs: 0 }]);
+    expect(parts).toEqual([{ path: "/in/audio.ogg", startMs: 0, durationMs: 600_000 }]);
     expect(existsSync(marker)).toBe(false);
   });
 
@@ -188,9 +208,9 @@ esac`,
     );
     const parts = await splitAudio({ input: "/in/audio.ogg", workDir: work, pieceMaxMs: 30_000, ffmpegBin, ffprobeBin });
     expect(parts).toEqual([
-      { path: join(work, "part-000.ogg"), startMs: 0 },
-      { path: join(work, "part-001.ogg"), startMs: 28520 },
-      { path: join(work, "part-002.ogg"), startMs: 57760 },
+      { path: join(work, "part-000.ogg"), startMs: 0, durationMs: 28520 },
+      { path: join(work, "part-001.ogg"), startMs: 28520, durationMs: 29240 },
+      { path: join(work, "part-002.ogg"), startMs: 57760, durationMs: 17240 },
     ]);
     expect(readFileSync(join(work, "segment-args"), "utf8")).toContain("-segment_times 28.500,57.750");
   });
