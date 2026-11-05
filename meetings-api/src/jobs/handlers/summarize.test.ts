@@ -137,10 +137,9 @@ describe("a successful run", () => {
   });
 
   it("asks the model with the snapshot and the CURRENT transcript, and nothing else (AC-7.10)", async () => {
-    const { meeting, summary } = await setup();
-    await db.speakerLabel.create({ data: { meetingId: meeting.id, speakerKey: "s1", customLabel: "Alice" } });
-    const guest = await db.meetingParticipant.create({ data: { meetingId: meeting.id, externalName: "Bruno (Acme)", addedBy: "creator" } });
-    await db.speakerLabel.create({ data: { meetingId: meeting.id, speakerKey: "s2", participantId: guest.id } });
+    const { meeting, summary } = await setup({
+      summary: { template: { ...SNAPSHOT, speakerNames: { s1: "Alice", s2: "Bruno (Acme)" } } },
+    });
     // the transcript is edited after the summary was requested: the job reads what is there now
     await db.transcriptSegment.updateMany({ where: { meetingId: meeting.id, ordinal: 1 }, data: { text: "The vendor is two weeks late." } });
     // the live template is gone: the summary uses its own copy
@@ -156,21 +155,31 @@ describe("a successful run", () => {
     expect(text).toContain("Section 0: Decisions - List each decision.");
     expect(text).toContain("[S0 00:00:00 Alice] We decided to ship on Friday.");
     expect(text).toContain("[S1 00:00:05 Bruno (Acme)] The vendor is two weeks late.");
-    expect(text).not.toContain("quarterly");
     expect(text).not.toContain("Quarterly planning"); // not even the title: only transcript + template
     expect((schema.jsonSchema as any).properties.sections.minItems).toBe(2);
   });
 
-  it("falls back to 'Speaker n' for a speaker nobody named, and for an Operai participant it cannot name without a caller", async () => {
-    const { meeting, summary } = await setup({ segments: [{ text: "one", speakerKey: "s1" }, { text: "two", speakerKey: "s3" }] });
-    const member = await db.meetingParticipant.create({ data: { meetingId: meeting.id, userId: "u-2", addedBy: "creator" } });
-    await db.speakerLabel.create({ data: { meetingId: meeting.id, speakerKey: "s1", participantId: member.id } });
+  it("names speakers from the snapshot's speakerNames ONLY: labels edited in the database afterwards are not read", async () => {
+    const { meeting, summary } = await setup({ summary: { template: { ...SNAPSHOT, speakerNames: { s1: "Alice" } } } });
+    await db.speakerLabel.create({ data: { meetingId: meeting.id, speakerKey: "s1", customLabel: "Mallory" } });
+    const guest = await db.meetingParticipant.create({ data: { meetingId: meeting.id, externalName: "Eve", addedBy: "creator" } });
+    await db.speakerLabel.create({ data: { meetingId: meeting.id, speakerKey: "s2", participantId: guest.id } });
+    model.respondWith(valid(["a", "b"]));
+    await run(summary.id);
+    const text = model.requests[0]!.request.messages[0]!.text;
+    expect(text).toContain("Alice] We decided");
+    expect(text).toContain("Speaker 2] The vendor");
+    expect(text).not.toContain("Mallory");
+    expect(text).not.toContain("Eve");
+  });
+
+  it("falls back to 'Speaker n' for a speaker the snapshot does not name, and for a snapshot that predates speakerNames", async () => {
+    const { summary } = await setup({ segments: [{ text: "one", speakerKey: "s1" }, { text: "two", speakerKey: "s3" }] });
     model.respondWith(valid(["a", "b"]));
     await run(summary.id);
     const text = model.requests[0]!.request.messages[0]!.text;
     expect(text).toContain("Speaker 1] one");
     expect(text).toContain("Speaker 3] two");
-    expect(text).not.toContain("u-2");
   });
 
   it("sends a text meeting's passages with no time and no speaker", async () => {

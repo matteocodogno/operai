@@ -26,17 +26,19 @@
  * the outcome, never the summary (AC-7.6, ADR-0065). It is best-effort and sent AFTER the commit.
  *
  * SPEAKER NAMES. A job has no caller token, so it cannot look an Operai participant's name up
- * (`auth` identities are fetched with the caller's own JWT, ADR-0039). A speaker label is therefore
- * the creator's free text, an external participant's name, or "Speaker n".
+ * (`auth` identities are fetched with the caller's own JWT, ADR-0039). The request that enqueued it
+ * did have one, and stored every speaker's name in the snapshot (`template.speakerNames`, built by
+ * `speakerNamesFor`). The job uses ONLY that map: a speaker it does not name is "Speaker n", and a
+ * label edited after the request is not read.
  */
 
 import { z } from "zod";
 import { LanguageModelError, languageModel, type LanguageModel } from "../../ai/languageModel";
 import { buildSummaryRequest, validateSummaryOutput, type RenderedSection, type SummaryInput } from "../../ai/prompts/summary";
 import type { PromptSegment } from "../../ai/prompts/transcript";
-import { speakerIndexOf } from "../../ai/segments";
 import { db as defaultDb } from "../../lib/db";
 import type { Prisma, PrismaClient } from "../../lib/generated/prisma/client";
+import { promptSegmentsOf, type SpeakerNames } from "../../meetings/promptSegments";
 import { announce as defaultAnnounce, type NotifyEvent } from "../../lib/notify";
 import { PermanentJobError, TransientJobError, type JobHandler } from "../runner";
 
@@ -61,6 +63,8 @@ const SnapshotSchema = z.object({
   name: z.string(),
   sections: z.array(z.object({ heading: z.string(), instruction: z.string() })).min(1).max(15),
   generalInstructions: z.string().nullable(),
+  // Resolved at enqueue time with the requester's token (see SPEAKER NAMES); absent on older snapshots.
+  speakerNames: z.record(z.string(), z.string()).default({}),
 });
 
 export interface SummarizeDeps {
@@ -75,6 +79,7 @@ async function loadTranscript(
   db: PrismaClient,
   meetingId: string,
   isText: boolean,
+  names: Readonly<SpeakerNames>,
 ): Promise<{ segments: PromptSegment[]; transcriptVersion: number }> {
   // Segment edits and the version bump are separate writes: read until the version holds still.
   for (let attempt = 0; ; attempt++) {
@@ -84,23 +89,7 @@ async function loadTranscript(
     if (!before || !after) return { segments: [], transcriptVersion: 0 };
     if (before.transcriptVersion !== after.transcriptVersion && attempt < 2) continue;
 
-    const labels = new Map<string, string>();
-    if (!isText) {
-      const named = await db.speakerLabel.findMany({ where: { meetingId }, include: { participant: { select: { externalName: true } } } });
-      for (const row of named) {
-        const label = row.customLabel?.trim() || row.participant?.externalName?.trim();
-        if (label) labels.set(row.speakerKey, label);
-      }
-    }
-    const segments = rows.map(
-      (row): PromptSegment => ({
-        id: row.id,
-        ordinal: row.ordinal,
-        startMs: isText ? null : row.startMs,
-        speakerLabel: isText || row.speakerKey === null ? null : (labels.get(row.speakerKey) ?? `Speaker ${speakerIndexOf(row.speakerKey) ?? row.speakerKey}`),
-        text: row.text,
-      }),
-    );
+    const segments = promptSegmentsOf(rows, isText, names);
     return { segments, transcriptVersion: after.transcriptVersion };
   }
 }
@@ -156,7 +145,7 @@ export function createSummarizeHandler(overrides: Partial<SummarizeDeps> = {}): 
     const template = SnapshotSchema.safeParse(summary.template);
     if (!template.success) return finish({ status: "failed", code: "template_invalid" });
 
-    const { segments, transcriptVersion } = await loadTranscript(deps.db, summary.meetingId, summary.meeting.source === "text");
+    const { segments, transcriptVersion } = await loadTranscript(deps.db, summary.meetingId, summary.meeting.source === "text", template.data.speakerNames);
     if (segments.length === 0) return finish({ status: "failed", code: "no_transcript" });
 
     const input: SummaryInput = { template: template.data, language: summary.language, segments };

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { setupTestAuth } from "../test-support/testAuth";
 import type { ResolveResponse } from "../authz/resolveClient";
+import { startFakeHost } from "../test-support/fakeHost";
 
 // AC-8.1, AC-8.5, AC-8.6: GET /templates?meetingId= - recommended for the meeting's host first,
 // then personal, shared, built-in; `version` per item. Real app, real Postgres (`meetings_test`).
@@ -218,6 +219,42 @@ describe("with a meeting (AC-8.5)", () => {
     const m = await meeting({ hostApp: "crm", hostEntityType: "deal", hostEntityId: "deal-1" });
     await db.meetingParticipant.create({ data: { meetingId: m.id, userId: "carol", addedBy: "alice" } });
     expect((await call(`/templates?meetingId=${m.id}`, "carol")).json.items[0].id).toBe("builtin:sales-discovery");
+  });
+
+  describe("a host-visible reader (shared visibility, AC-5.2)", () => {
+    const fake = startFakeHost();
+    afterAll(() => fake.stop());
+
+    beforeEach(() => {
+      fake.reset();
+      setRegistryForTests({ all: () => fake.definitions, get: (a, t) => fake.definitions.find((d) => d.app === a && d.entityType === t) });
+    });
+
+    // the host recommends builtin:minutes; sorted by default it is also first, so use a personal
+    // template named to sort FIRST and check `recommended` flags instead of the order alone.
+    const recommendedOf = (json: { items: { id: string; recommended: boolean }[] }) => json.items.filter((i) => i.recommended).map((i) => i.id);
+
+    it("gets the host's recommendation when the host vouches for them", async () => {
+      fake.setEntity("widget", "w1", { title: "W1", href: "/w/1", hostVisible: true });
+      const m = await meeting({ hostApp: "testhost", hostEntityType: "widget", hostEntityId: "w1", hostVisible: true });
+      // neither creator nor participant: bob reads it only as a host reader
+      const { json } = await call(`/templates?meetingId=${m.id}`, "bob");
+      expect(recommendedOf(json)).toEqual(["builtin:minutes"]);
+      expect(fake.resolves).toHaveLength(1); // asked as the caller, live
+    });
+
+    it("gets nothing when the meeting is not host-visible, or the host does not vouch, or is down - the same bytes as no meetingId", async () => {
+      fake.setEntity("widget", "w1", { title: "W1", href: "/w/1", hostVisible: true });
+      const notVisible = await meeting({ hostApp: "testhost", hostEntityType: "widget", hostEntityId: "w1", hostVisible: false });
+      const closed = await meeting({ hostApp: "testhost", hostEntityType: "widget", hostEntityId: "w2", hostVisible: true });
+      fake.setEntity("widget", "w2", { title: "W2", href: "/w/2", state: "closed" });
+      const plain = (await call("/templates", "bob")).text;
+      expect((await call(`/templates?meetingId=${notVisible.id}`, "bob")).text).toBe(plain);
+      expect((await call(`/templates?meetingId=${closed.id}`, "bob")).text).toBe(plain);
+      fake.mode.resolve = { status: 503 };
+      const down = await meeting({ hostApp: "testhost", hostEntityType: "widget", hostEntityId: "w1", hostVisible: true });
+      expect((await call(`/templates?meetingId=${down.id}`, "bob")).text).toBe(plain);
+    });
   });
 
   it("answers the same for a meeting the caller cannot see, or that does not exist, as for no meeting at all", async () => {

@@ -26,6 +26,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { MEETINGS_ACCESS, TEMPLATE_MANAGE, capability, holds } from "../auth/guards";
 import { hostRegistry } from "../hosts/registry";
+import { loadMeetingForVisibility, resolveAccess, type Caller } from "../meetings/visibility";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { IdParams, commonErrors, etag, requireIfMatch, versionConflict } from "../lib/http";
@@ -114,18 +115,18 @@ export function orderTemplates(
 }
 
 /**
- * The templates the host of `meetingId` recommends for `userId`. Only a meeting the caller
- * created or was added to counts: for any other, and for a meeting that does not exist, the
+ * The templates the host of `meetingId` recommends for `caller`. Only a meeting the caller may
+ * open counts, by the shared visibility rule (creator, participant, or an opted-in host reader
+ * whom the host vouches for, live): for any other, and for a meeting that does not exist, the
  * answer is "none", which is also the answer for no meeting at all, so the picker cannot be
  * used to learn whether a meeting exists or what it is linked to (AC-5.3).
  */
-async function recommendedFor(meetingId: string | undefined, userId: string): Promise<string[]> {
+async function recommendedFor(meetingId: string | undefined, caller: Caller): Promise<string[]> {
   if (!meetingId) return [];
-  const meeting = await db.meeting.findFirst({
-    where: { id: meetingId, OR: [{ creatorUserId: userId }, { participants: { some: { userId } } }] },
-    select: { hostApp: true, hostEntityType: true },
-  });
+  const meeting = await loadMeetingForVisibility(meetingId);
   if (!meeting?.hostApp || !meeting.hostEntityType) return [];
+  // A host that cannot answer grants nothing (fail closed): the picker then simply recommends nothing.
+  if ((await resolveAccess(meeting, caller)).role === null) return [];
   return [...(hostRegistry().get(meeting.hostApp, meeting.hostEntityType)?.recommendedTemplates ?? [])];
 }
 
@@ -150,7 +151,7 @@ templatesRouter.openapi(listRoute, async (c) => {
 
   const [rows, recommendedIds] = await Promise.all([
     db.summaryTemplate.findMany({ where: { OR: [{ scope: "shared" }, { scope: "personal", ownerUserId: userId }] } }),
-    recommendedFor(meetingId, userId),
+    recommendedFor(meetingId, { userId, authorization: c.req.header("Authorization")!, holdsAccess: holds(c, MEETINGS_ACCESS) }),
   ]);
 
   const builtins = BUILTIN_TEMPLATES.map((t) => {
