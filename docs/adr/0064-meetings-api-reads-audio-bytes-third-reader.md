@@ -142,7 +142,7 @@ allowlisted demuxers, confirm only the upload key it probed).**
 - **Confirm acts only on the key it probed:** it flips the meeting with a compare-and-set on
   `objectKey`; a mismatch (a newer mint superseded it) is 409 `upload_superseded`.
 
-**Round 3 (commit e06292b, reverts part of round 2).** The rule "an uploaded file must state
+**Round 3 (commit 8666836, reverts part of round 2).** The rule "an uploaded file must state
 its duration" is **reverted**: it refused legitimate browser-saved WebM files, for the wrong
 reason (eval finding; spec AC-3.1/3.2). Now an upload with no stated duration is accepted at
 confirm; the demuxer allowlist, the audio-stream check and, **when a duration is stated**, the

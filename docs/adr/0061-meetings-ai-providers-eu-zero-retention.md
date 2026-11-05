@@ -35,8 +35,10 @@ documentation on 2026-11-04 (plan.md § AI providers carries the sources).
    `AZURE_SPEECH_REGION` in the EU/CH allowlist and matching the endpoint host; `BEDROCK_REGION`
    in `{eu-central-1, eu-central-2, eu-west-1, eu-west-3, eu-north-1, eu-south-1, eu-south-2}`
    (London is not EU); when `BEDROCK_MODEL_ID` is an inference profile, `GetInferenceProfile`
-   is called and **every destination Region must be in that allowlist**; the region's Bedrock
-   retention configuration must read `none`, and **if it cannot be read, start is refused**; a
+   is called and **every destination Region must be in that allowlist**; Bedrock's retention
+   configuration (a per-Region setting that does not propagate) must read `none` in `BEDROCK_REGION`
+   and in **every** destination Region of the profile, and **if it cannot be read in any of them,
+   start is refused**; a
    fake provider is accepted only when `NODE_ENV !== "production"`.
 4. **Two interfaces, one real implementation each plus a fake:**
    `Transcriber.transcribe(audio, locale, maxSpeakers)` and `LanguageModel.complete(request,
