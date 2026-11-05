@@ -4,11 +4,14 @@
  *
  * WHY A BUCKET: Chirp 3 diarizes only in `Recognize` (<= 1 minute) and `BatchRecognize`, and BatchRecognize reads
  * audio only from a `gs://` URI. So one attempt stages its audio in the transient EU bucket (src/lib/google),
- * Speech writes its output beside it, and the attempt's prefix is emptied at its start, in `finally`, and by the
- * deletion routes. Nothing is kept here.
+ * Speech writes its output beside it, and the attempt's own prefix is emptied in `finally`, older attempts'
+ * leftovers at its start, and the whole meeting by the deletion routes. Nothing is kept here.
  *
  * ONE ATTEMPT:
- *   1. empty `transcribe/<meetingId>/` (leftovers of an earlier attempt, including late output);
+ *   1. empty the prefixes of OLDER attempts of this meeting (`transcribe/<meetingId>/<n>/`, n < this attempt:
+ *      leftovers, including late output). Never this attempt's or a newer one's: a job whose lease was lost can
+ *      still be running while the runner has claimed attempt n+1 (ADR-0062), and a stale attempt must not
+ *      delete what the live one staged;
  *   2. split the recording (src/media/split.ts) into parts of at most `PIECE_MAX_MS`;
  *   3. upload each part (`ifGenerationMatch=0`), submit ONE `batchRecognize` per part, all together:
  *      chirp_3, exactly one locale (AC-13.2, never "auto"), diarization, output to our bucket, never inline;
@@ -16,7 +19,7 @@
  *   5. read each output (<= 8 MiB, URI checked to lie in THIS attempt's `out/`), then `operations.delete`;
  *   6. map to phrases with part offsets; ANY part failing fails the whole attempt (AC-6.9: no partial
  *      transcript at rest);
- *   7. `finally`: empty the prefix again and remove the temp directory.
+ *   7. `finally`: empty THIS attempt's prefix (only) and remove the temp directory.
  *
  * TIMES (G-3): Chirp 3 gives utterance times only when streaming. A batch result carries `resultEndOffset`, so a
  * segment starts at the previous result's end and ends at its own: never LATER than the speech, so "play from
@@ -335,15 +338,17 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
       if (!LOCALES.includes(locale)) throw new TranscriptionError("provider_rejected", false);
       if (!context) throw new TranscriptionError("provider_rejected", false);
       const { meetingId, attempt } = context;
-      const prefix = transientKeys.prefix(meetingId);
+      const ownPrefix = transientKeys.attemptPrefix(meetingId, attempt);
       const outputPrefix = transientKeys.outputPrefix(meetingId, attempt);
 
       const storage = await options.storage();
       const workDir = await mkdtemp(join(options.tmpRoot ?? tmpdir(), "meetings-speech-"));
       const lease = signal ?? new AbortController().signal;
       try {
-        // 1. Leftovers of any earlier attempt, including output a dead process's operation wrote late.
-        await storage.deletePrefix(prefix).catch((error: unknown) => {
+        // 1. Leftovers of OLDER attempts, including output a dead process's operation wrote late. Nothing at or
+        //    above this attempt's number: the job runner claims attempts in increasing order, so a number below
+        //    ours belongs to an attempt that was superseded before ours began.
+        await storage.deleteAttemptsBefore(meetingId, attempt).catch((error: unknown) => {
           throw error instanceof GoogleApiError ? fromGoogle(error) : error;
         });
 
@@ -400,9 +405,10 @@ export function createGoogleTranscriber(options: GoogleTranscriberOptions): Tran
         const segments = mapPhrases(phrases);
         return segments.length === 0 ? { kind: "noSpeech" } : { kind: "segments", segments, partStartsMs: parts.map((p) => p.startMs) };
       } finally {
-        // 7. Whatever happened: nothing of this meeting stays in the transient bucket. A failure here must not
-        //    mask the attempt's own outcome; the next attempt's step 1 and the bucket's 1-day rule are the backstop.
-        await storage.deletePrefix(prefix).catch(() => console.error("[transcribe] transient cleanup failed"));
+        // 7. Whatever happened: nothing of THIS attempt stays in the transient bucket - and nothing of another
+        //    (a newer attempt may be running if our lease was lost). A failure here must not mask the attempt's
+        //    own outcome; the next attempt's step 1 and the bucket's 1-day rule are the backstop.
+        await storage.deletePrefix(ownPrefix).catch(() => console.error("[transcribe] transient cleanup failed"));
         await rm(workDir, { recursive: true, force: true });
       }
     },

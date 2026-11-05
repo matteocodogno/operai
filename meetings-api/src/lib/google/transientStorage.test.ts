@@ -138,10 +138,20 @@ describe("deletePrefix", () => {
   it("refuses transcribe/, another meeting layout, a deeper prefix and malformed ones, without calling Google", async () => {
     const s = stub(() => json({ items: [] }));
     const storage = make("EU", s.impl);
-    for (const prefix of ["", "transcribe/", "transcribe", "transcribe//", "transcribe/m1", "transcribe/m1/1/", "meetings/m1/", "/", "transcribe/a/../"]) {
+    for (const prefix of ["", "transcribe/", "transcribe", "transcribe//", "transcribe/m1", "transcribe/m1/1/in/", "transcribe/m1/x/", "transcribe/m1/0/", "transcribe/m1/1000/", "transcribe/m1/01/", "meetings/m1/", "/", "transcribe/a/../"]) {
       await expect(storage.deletePrefix(prefix)).rejects.toThrow();
     }
     expect(s.seen).toHaveLength(0);
+  });
+
+  it("takes one attempt's prefix too, and deletes only that attempt's objects", async () => {
+    const s = stub((r) =>
+      r.method === "DELETE"
+        ? new Response(null, { status: 204 })
+        : json({ items: [{ name: "transcribe/m1/2/in/1.ogg" }, { name: "transcribe/m1/2/out/a.json" }] }),
+    );
+    expect(await make("EU", s.impl).deletePrefix("transcribe/m1/2/")).toBe(2);
+    expect(s.seen.find((r) => r.method === "GET")!.url.searchParams.get("prefix")).toBe("transcribe/m1/2/");
   });
 
   it("lists page by page and deletes every object under the prefix", async () => {
@@ -180,6 +190,39 @@ describe("deletePrefix", () => {
 
   it("a failed listing rejects (the caller answers 503 and changes nothing)", async () => {
     await expect(make("EU", stub(() => json({}, 500)).impl).deletePrefix("transcribe/m1/")).rejects.toBeInstanceOf(GoogleApiError);
+  });
+});
+
+describe("deleteAttemptsBefore", () => {
+  const listing = [
+    "transcribe/m1/1/in/1.ogg",
+    "transcribe/m1/2/out/a.json",
+    "transcribe/m1/3/in/1.ogg",
+    "transcribe/m1/4/in/1.ogg",
+    "transcribe/m1/9/out/x.json",
+    "transcribe/m1/odd/in/1.ogg",
+    "transcribe/m2/1/in/1.ogg",
+  ];
+  const deleted = (s: ReturnType<typeof stub>) =>
+    s.seen.filter((r) => r.method === "DELETE").map((r) => decodeURIComponent(r.url.pathname.split("/o/")[1]!)).sort();
+
+  it("lists the meeting and deletes only the attempts numbered below the given one", async () => {
+    const s = stub((r) => (r.method === "DELETE" ? new Response(null, { status: 204 }) : json({ items: listing.map((name) => ({ name })) })));
+    expect(await make("EU", s.impl).deleteAttemptsBefore("m1", 3)).toBe(2);
+    expect(deleted(s)).toEqual(["transcribe/m1/1/in/1.ogg", "transcribe/m1/2/out/a.json"]);
+    expect(s.seen.find((r) => r.method === "GET")!.url.searchParams.get("prefix")).toBe("transcribe/m1/");
+  });
+
+  it("attempt 1 deletes nothing, and an invalid id or attempt is refused without calling Google", async () => {
+    const s = stub((r) => (r.method === "DELETE" ? new Response(null, { status: 204 }) : json({ items: listing.map((name) => ({ name })) })));
+    const storage = make("EU", s.impl);
+    expect(await storage.deleteAttemptsBefore("m1", 1)).toBe(0);
+    expect(deleted(s)).toEqual([]);
+    const calls = s.seen.length;
+    await expect(storage.deleteAttemptsBefore("../x", 2)).rejects.toThrow();
+    await expect(storage.deleteAttemptsBefore("m1", 0)).rejects.toThrow();
+    await expect(storage.deleteAttemptsBefore("m1", 1000)).rejects.toThrow();
+    expect(s.seen).toHaveLength(calls);
   });
 });
 
@@ -233,5 +276,14 @@ describe("the fake", () => {
     expect(fake.events.map((e) => e.op)).toEqual(["put", "deletePrefix"]);
     fake.failWith(new Error("down"));
     await expect(fake.deletePrefix("transcribe/m1/")).rejects.toThrow("down");
+  });
+
+  it("takes an attempt's prefix, and deleteAttemptsBefore keeps the given attempt and every later one", async () => {
+    const fake = createFakeTransientStorage();
+    for (const key of ["transcribe/m1/1/in/1.ogg", "transcribe/m1/2/in/1.ogg", "transcribe/m1/3/in/1.ogg", "transcribe/m2/1/in/1.ogg"]) fake.seed(key, "x");
+    expect(await fake.deletePrefix("transcribe/m1/1/")).toBe(1);
+    expect(await fake.deleteAttemptsBefore("m1", 3)).toBe(1);
+    expect(fake.keys()).toEqual(["transcribe/m1/3/in/1.ogg", "transcribe/m2/1/in/1.ogg"]);
+    await expect(fake.deletePrefix("transcribe/m1/1/in/")).rejects.toThrow();
   });
 });

@@ -18,14 +18,17 @@
  * REST through `fetch`, not `@google-cloud/storage` (a large dependency for five JSON-API calls that would hide
  * the very URL the residency check pins).
  *
- * `deletePrefix` takes EXACTLY `transcribe/<meetingId>/`, as the Railway storage does for `meetings/<id>/`:
- * a shorter prefix would wipe other meetings' attempts.
+ * `deletePrefix` takes EXACTLY `transcribe/<meetingId>/` (the delete routes: every attempt) or
+ * `transcribe/<meetingId>/<attempt>/` (one attempt: an attempt cleans up after itself only, because a stale one
+ * must not delete what a newer attempt of the same meeting has staged), as the Railway storage does for
+ * `meetings/<id>/`: a shorter prefix would wipe other meetings' attempts. `deleteAttemptsBefore` is the start of
+ * an attempt: it clears the leftovers of OLDER attempts only.
  */
 
 import { GoogleApiError, defaultFetch, googleAuth, googleFetch, toGoogleApiError, type GoogleAuth } from "./auth";
 
 const ID = "[A-Za-z0-9_-]{1,64}";
-const PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/$`);
+const PREFIX_PATTERN = new RegExp(`^transcribe/${ID}/(?:[1-9][0-9]{0,2}/)?$`);
 const KEY_PATTERN = new RegExp(`^transcribe/${ID}/${ID}/(in|out)/(?!\\.+$)[A-Za-z0-9._=-]{1,200}$`);
 const ID_PATTERN = new RegExp(`^${ID}$`);
 
@@ -63,6 +66,12 @@ function assertId(meetingId: string): void {
   if (!ID_PATTERN.test(meetingId)) throw new Error("invalid meeting id for a transient object key");
 }
 
+/** The attempt number in `transcribe/<id>/<attempt>/...`, or null when the key has none that is a number. */
+export function attemptOfKey(key: string): number | null {
+  const match = new RegExp(`^transcribe/${ID}/([1-9][0-9]{0,2})/`).exec(key);
+  return match ? Number(match[1]) : null;
+}
+
 function assertAttempt(attempt: number): void {
   if (!Number.isInteger(attempt) || attempt < 1 || attempt > 999) throw new Error("invalid attempt number");
 }
@@ -84,8 +93,10 @@ export interface TransientStorage {
   put(key: string, body: Blob | Uint8Array, signal?: AbortSignal): Promise<void>;
   /** At most `maxBytes` of the object; `TransientObjectTooLargeError` otherwise, before the rest is read. */
   read(key: string, maxBytes: number, signal?: AbortSignal): Promise<Uint8Array>;
-  /** Deletes everything under `transcribe/<meetingId>/` (and only that); returns how many objects went. */
+  /** Deletes everything under `transcribe/<meetingId>/` or `transcribe/<meetingId>/<attempt>/` (and only that); returns how many objects went. */
   deletePrefix(prefix: string): Promise<number>;
+  /** Deletes what attempts numbered BELOW `attempt` staged for the meeting; this attempt and later ones are untouched. */
+  deleteAttemptsBefore(meetingId: string, attempt: number): Promise<number>;
 }
 
 export interface TransientStorageOptions {
@@ -175,45 +186,58 @@ export function createTransientStorage(options: TransientStorageOptions): Transi
     },
 
     async deletePrefix(prefix) {
-      // Exactly `transcribe/<id>/`: an empty or shorter prefix would wipe other meetings' attempts.
-      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's");
-      const names: string[] = [];
-      let pageToken: string | undefined;
-      do {
-        const query = new URLSearchParams({ prefix, fields: "items(name),nextPageToken" });
-        if (pageToken) query.set("pageToken", pageToken);
-        const response = await googleFetch(auth, fetchImpl, `https://${host}/storage/v1/b/${bucketPath}/o?${query}`, {
-          timeoutMs: CONTROL_TIMEOUT_MS,
-        });
-        const page = (await response.json().catch(() => null)) as { items?: { name?: unknown }[]; nextPageToken?: unknown } | null;
-        if (page === null || typeof page !== "object") throw new GoogleApiError(true);
-        for (const item of page.items ?? []) {
-          // Belt and braces: whatever the listing says, only names under the prefix are ever deleted.
-          if (typeof item.name === "string" && item.name.startsWith(prefix)) names.push(item.name);
-        }
-        pageToken = typeof page.nextPageToken === "string" ? page.nextPageToken : undefined;
-      } while (pageToken);
+      // `transcribe/<id>/` or `transcribe/<id>/<attempt>/`: an empty or shorter prefix would wipe other meetings.
+      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's or one attempt's");
+      return purge(prefix, () => true);
+    },
 
-      let deleted = 0;
-      for (let i = 0; i < names.length; i += DELETE_PARALLELISM) {
-        const batch = names.slice(i, i + DELETE_PARALLELISM);
-        await Promise.all(
-          batch.map(async (name) => {
-            // 404: already gone (a lifecycle rule, a concurrent cleanup): that is the goal.
-            const response = await googleFetch(
-              auth,
-              fetchImpl,
-              `https://${host}/storage/v1/b/${bucketPath}/o/${encodeURIComponent(name)}`,
-              { method: "DELETE", timeoutMs: CONTROL_TIMEOUT_MS, allow: [404] },
-            );
-            await response.body?.cancel().catch(() => {});
-          }),
-        );
-        deleted += batch.length;
-      }
-      return deleted;
+    async deleteAttemptsBefore(meetingId, attempt) {
+      const prefix = transientKeys.prefix(meetingId);
+      assertAttempt(attempt);
+      return purge(prefix, (name) => {
+        const mine = attemptOfKey(name);
+        return mine !== null && mine < attempt;
+      });
     },
   };
+
+  async function purge(prefix: string, selected: (name: string) => boolean): Promise<number> {
+    const names: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const query = new URLSearchParams({ prefix, fields: "items(name),nextPageToken" });
+      if (pageToken) query.set("pageToken", pageToken);
+      const response = await googleFetch(auth, fetchImpl, `https://${host}/storage/v1/b/${bucketPath}/o?${query}`, {
+        timeoutMs: CONTROL_TIMEOUT_MS,
+      });
+      const page = (await response.json().catch(() => null)) as { items?: { name?: unknown }[]; nextPageToken?: unknown } | null;
+      if (page === null || typeof page !== "object") throw new GoogleApiError(true);
+      for (const item of page.items ?? []) {
+        // Belt and braces: whatever the listing says, only names under the prefix are ever deleted.
+        if (typeof item.name === "string" && item.name.startsWith(prefix) && selected(item.name)) names.push(item.name);
+      }
+      pageToken = typeof page.nextPageToken === "string" ? page.nextPageToken : undefined;
+    } while (pageToken);
+
+    let deleted = 0;
+    for (let i = 0; i < names.length; i += DELETE_PARALLELISM) {
+      const batch = names.slice(i, i + DELETE_PARALLELISM);
+      await Promise.all(
+        batch.map(async (name) => {
+          // 404: already gone (a lifecycle rule, a concurrent cleanup): that is the goal.
+          const response = await googleFetch(
+            auth,
+            fetchImpl,
+            `https://${host}/storage/v1/b/${bucketPath}/o/${encodeURIComponent(name)}`,
+            { method: "DELETE", timeoutMs: CONTROL_TIMEOUT_MS, allow: [404] },
+          );
+          await response.body?.cancel().catch(() => {});
+        }),
+      );
+      deleted += batch.length;
+    }
+    return deleted;
+  }
 }
 
 // ─── The bucket's own configuration (metadata read) ─────────────────────────

@@ -6,10 +6,10 @@
  */
 
 import { GoogleApiError } from "./auth";
-import { TransientObjectTooLargeError, type TransientStorage } from "./transientStorage";
+import { TransientObjectTooLargeError, attemptOfKey, transientKeys, type TransientStorage } from "./transientStorage";
 
 export interface TransientEvent {
-  readonly op: "put" | "read" | "deletePrefix";
+  readonly op: "put" | "read" | "deletePrefix" | "deleteBefore";
   readonly key: string;
 }
 
@@ -25,7 +25,7 @@ export interface FakeTransientStorage extends TransientStorage {
 }
 
 const BUCKET = "fake-transient-bucket";
-const PREFIX_PATTERN = /^transcribe\/[A-Za-z0-9_-]{1,64}\/$/;
+const PREFIX_PATTERN = /^transcribe\/[A-Za-z0-9_-]{1,64}\/(?:[1-9][0-9]{0,2}\/)?$/;
 
 export function createFakeTransientStorage(): FakeTransientStorage {
   const objects = new Map<string, Uint8Array>();
@@ -66,12 +66,27 @@ export function createFakeTransientStorage(): FakeTransientStorage {
       return bytes;
     },
     async deletePrefix(prefix) {
-      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's");
+      if (!PREFIX_PATTERN.test(prefix)) throw new Error("prefix is not exactly one meeting's or one attempt's");
       check();
       events.push({ op: "deletePrefix", key: prefix });
       let deleted = 0;
       for (const key of [...objects.keys()]) {
         if (key.startsWith(prefix)) {
+          objects.delete(key);
+          deleted += 1;
+        }
+      }
+      return deleted;
+    },
+    async deleteAttemptsBefore(meetingId, attempt) {
+      const prefix = transientKeys.prefix(meetingId);
+      if (!Number.isInteger(attempt) || attempt < 1 || attempt > 999) throw new Error("invalid attempt number");
+      check();
+      events.push({ op: "deleteBefore", key: `${prefix}<${attempt}` });
+      let deleted = 0;
+      for (const key of [...objects.keys()]) {
+        const mine = key.startsWith(prefix) ? attemptOfKey(key) : null;
+        if (mine !== null && mine < attempt) {
           objects.delete(key);
           deleted += 1;
         }

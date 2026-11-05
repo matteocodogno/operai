@@ -143,11 +143,11 @@ beforeEach(() => {
 });
 afterEach(() => spies.forEach((s) => s.mockRestore()));
 
-/** The prefix is empty and the last storage call was the cleanup (the `finally`). */
+/** The bucket is empty; the first storage call cleared older attempts and the last emptied this attempt's prefix (the `finally`). */
 const cleaned = (storage: FakeTransientStorage) => {
   expect(storage.keys()).toEqual([]);
-  expect(storage.events[0]).toEqual({ op: "deletePrefix", key: PREFIX });
-  expect(storage.events[storage.events.length - 1]).toEqual({ op: "deletePrefix", key: PREFIX });
+  expect(storage.events[0]).toEqual({ op: "deleteBefore", key: `${PREFIX}<${ATTEMPT}` });
+  expect(storage.events[storage.events.length - 1]).toEqual({ op: "deletePrefix", key: `${PREFIX}${ATTEMPT}/` });
 };
 
 describe("one part", () => {
@@ -351,6 +351,34 @@ describe("failures map into the closed codes (G-8) and the prefix is emptied eac
     expect(await rejection(w.run())).toMatchObject({ code: "provider_rejected", transient: false });
   });
 
+  it("cleans up only its own attempt's prefix: a newer attempt's staged parts survive, on success and on failure (ADR-0062 stale attempt)", async () => {
+    const newer = `transcribe/${MEETING}/${ATTEMPT + 1}/in/1.ogg`;
+    const w = world();
+    w.storage.seed(newer, "newer attempt's audio");
+    segmentsOf(await w.run());
+    expect(w.storage.keys()).toEqual([newer]);
+    expect(w.storage.events.filter((e) => e.op === "deletePrefix").map((e) => e.key)).toEqual([`transcribe/${MEETING}/${ATTEMPT}/`]);
+
+    const failing = world();
+    failing.storage.seed(newer, "newer attempt's audio");
+    failing.storage.put = async () => {
+      throw new GoogleApiError(false, 403);
+    };
+    await rejection(failing.run());
+    expect(failing.storage.keys()).toEqual([newer]);
+  });
+
+  it("at its start clears the leftovers of OLDER attempts only, never a newer attempt's", async () => {
+    const w = world();
+    const older = `transcribe/${MEETING}/${ATTEMPT - 1}/out/late.json`;
+    const newer = `transcribe/${MEETING}/${ATTEMPT + 1}/in/1.ogg`;
+    const another = `transcribe/other_meeting/1/in/1.ogg`;
+    for (const object of [older, newer, another]) w.storage.seed(object, "x");
+    segmentsOf(await w.run());
+    expect(w.storage.events[0]).toEqual({ op: "deleteBefore", key: `transcribe/${MEETING}/<${ATTEMPT}` });
+    expect(w.storage.keys()).toEqual([another, newer].sort());
+  });
+
   it("a failure to empty the prefix before the attempt stops it before any upload", async () => {
     const w = world();
     w.storage.failWith(new GoogleApiError(true, 503));
@@ -362,10 +390,9 @@ describe("failures map into the closed codes (G-8) and the prefix is emptied eac
   it("a failure to empty the prefix at the end does not mask the transcript, and says so without naming anything", async () => {
     const w = world();
     const original = w.storage.deletePrefix.bind(w.storage);
-    let calls = 0;
     w.storage.deletePrefix = async (prefix) => {
-      calls += 1;
-      if (calls === 2) throw new GoogleApiError(true, 503);
+      // The start is deleteAttemptsBefore; the only deletePrefix is the one at the end.
+      if (prefix === `transcribe/${MEETING}/${ATTEMPT}/`) throw new GoogleApiError(true, 503);
       return original(prefix);
     };
     segmentsOf(await w.run());
