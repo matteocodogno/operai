@@ -209,6 +209,31 @@ describe("GET /authz/users/directory (T5, specs/015-hardware-inventory; ADR-0047
     expect((await callDirectory(eraser.token)).status).toBe(403);
   });
 
+  // specs/021-projects, ADR-0055: the project manager / team pickers are the third consumer.
+  test("a holder of the projects catalog's project:manage (entity-scoped) gets the roster", async () => {
+    const manager = await mintUser("projects-manager", {
+      grants: [
+        { resource: "projects", action: "access" },
+        { resource: "project", action: "manage", conditions: ENTITY_CONDITION },
+      ],
+    });
+    const res = await callDirectory(manager.token);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as DirectoryBody).users.some((u) => u.id === manager.userId)).toBe(true);
+  });
+
+  test("projects:access alone, or purchase-order:bexio, does NOT open the directory", async () => {
+    const reader = await mintUser("projects-reader", { grants: [{ resource: "projects", action: "access" }] });
+    const accountant = await mintUser("projects-bexio", {
+      grants: [
+        { resource: "projects", action: "access" },
+        { resource: "purchase-order", action: "bexio" },
+      ],
+    });
+    expect((await callDirectory(reader.token)).status).toBe(403);
+    expect((await callDirectory(accountant.token)).status).toBe(403);
+  });
+
   test("the grant is matched on resource AND action: asset:other / ledger:manage do not open it", async () => {
     const lookalike = await mintUser("lookalike", {
       grants: [

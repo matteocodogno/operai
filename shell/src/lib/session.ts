@@ -43,6 +43,8 @@
  *     • The inventory-api origin (VITE_INVENTORY_API_URL), if defined (T41,
  *       specs/015-hardware-inventory) — same shape as refund-api above.
  *     • The crm-api origin (VITE_CRM_API_URL), if defined (specs/017-crm).
+ *     • The projects-api origin (VITE_PROJECTS_API_URL), if defined
+ *       (specs/021-projects).
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -129,6 +131,13 @@ export const getInventoryApiBaseUrl = (): string => getInventoryApiUrl()
  * mirrors `getInventoryApiBaseUrl()`.
  */
 export const getCrmApiBaseUrl = (): string => import.meta.env.VITE_CRM_API_URL as string
+
+/**
+ * The projects-api base URL (`VITE_PROJECTS_API_URL`, specs/021-projects), exposed
+ * for the federated `projects` remote, which ships no `VITE_*` env of its own.
+ * Lazily read, mirrors `getCrmApiBaseUrl()`.
+ */
+export const getProjectsApiBaseUrl = (): string => import.meta.env.VITE_PROJECTS_API_URL as string
 
 /** Clears the in-memory JWT cache. */
 export const clearJwtCache = (): void => {
@@ -234,6 +243,16 @@ const getTrustedOrigins = (): Set<string> => {
   if (crmUrl) {
     try {
       trusted.add(new URL(crmUrl).origin)
+    } catch {
+      /* ignore invalid env value */
+    }
+  }
+
+  // specs/021-projects: projects-api origin, trusted only when configured (same shape).
+  const projectsUrl = import.meta.env.VITE_PROJECTS_API_URL as string | undefined
+  if (projectsUrl) {
+    try {
+      trusted.add(new URL(projectsUrl).origin)
     } catch {
       /* ignore invalid env value */
     }

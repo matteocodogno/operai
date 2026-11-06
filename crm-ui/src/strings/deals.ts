@@ -73,7 +73,16 @@ const en = {
     move: 'Move to stage',
     saved: 'Deal saved.',
     moved: (stage: string) => `Deal moved to ${stage}.`,
-    readOnly: 'You can see this deal but not change it: managing deals of this entity needs a permission you do not have.',
+    readOnly:
+      'You can see this deal but not change it: managing deals of this entity needs a permission you do not have.',
+  },
+  /** The deal page's Delivery card: the project that carries the deal, read from projects-api (specs/022 AC-3.4). */
+  delivery: {
+    title: 'Delivery',
+    project: 'Project',
+    bexioOrderId: 'Bexio order id',
+    unavailable:
+      'The delivery side is unavailable right now, so the project for this deal cannot be shown. Try again later.',
   },
   form: {
     createTitle: 'New deal',
@@ -181,6 +190,13 @@ const it: typeof en = {
     moved: (stage: string) => `Opportunità spostata in fase ${stage}.`,
     readOnly:
       'Puoi vedere questa opportunità ma non modificarla: gestire le opportunità di questa società richiede un permesso che non hai.',
+  },
+  delivery: {
+    title: 'Consegna',
+    project: 'Progetto',
+    bexioOrderId: 'ID ordine Bexio',
+    unavailable:
+      'La parte di consegna non è disponibile al momento, quindi il progetto di questa opportunità non può essere mostrato. Riprova più tardi.',
   },
   form: {
     createTitle: 'Nuova opportunità',

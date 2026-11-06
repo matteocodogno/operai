@@ -53,6 +53,7 @@ import { PROMOTED_ON_WIN } from "../companies/status";
 import { requireCrmUsers } from "../lib/identities";
 import { MAX_NAME, announce, clip } from "../lib/notify";
 import { loadPeople } from "../lib/people";
+import { deliveryOfDeal } from "../lib/projects";
 import { ProblemError, notFound, unprocessable, validationHook } from "../lib/problem";
 import {
   CLOSED_STAGES,
@@ -160,6 +161,13 @@ export const DealEstimateSchema = z.object({
 
 const EstimateOverrideSchema = z.object({ by: PersonRefSchema, reason: z.string(), at: z.string() });
 
+// specs/022 (AC-3.4): what projects-api knows of the deal, on `GET /deals/{id}` alone.
+const DeliverySchema = z.object({
+  project: z.object({ id: z.string(), name: z.string() }),
+  // Typed in by accounting in the Projects tool; empty until then.
+  bexioOrderId: z.string().nullable(),
+});
+
 const DealSchema = DealSummarySchema.extend({
   lostReason: z.string().nullable(),
   // Left out for a caller without deal:financials: notes often carry prices (specs/018 O3).
@@ -168,6 +176,13 @@ const DealSchema = DealSummarySchema.extend({
   estimate: DealEstimateSchema.nullable(),
   // An admin let the deal past the estimate gate (AC-3.7); independent of `estimate`.
   estimateOverride: EstimateOverrideSchema.nullable(),
+});
+
+const DealWithDeliverySchema = DealSchema.extend({
+  /** The project that carries the deal and its purchase order's Bexio order id; `null` when none does. */
+  delivery: DeliverySchema.nullable(),
+  /** `false` when projects-api is not configured or did not answer: `delivery` is then unknown, not absent. */
+  deliveryKnown: z.boolean(),
 });
 
 /** Open deals, plus deals closed in the current UTC calendar year (D-10). */
@@ -389,10 +404,14 @@ const getRoute = createRoute({
   method: "get",
   path: "/deals/{id}",
   tags: ["Deals"],
-  summary: "Get a deal",
+  summary: "Get a deal, with the project that carries it (read live from projects-api, fail-soft)",
   middleware: authorized,
   request: { params: IdParams },
-  responses: { 200: { description: "The deal", ...json(DealSchema) }, 404: { description: "Not found" }, ...commonErrors },
+  responses: {
+    200: { description: "The deal", ...json(DealWithDeliverySchema) },
+    404: { description: "Not found" },
+    ...commonErrors,
+  },
 });
 
 const updateRoute = createRoute({
@@ -527,7 +546,9 @@ dealsRouter.openapi(getRoute, async (c) => {
   const row = await db.deal.findUnique({ where: { id }, include: withCompany });
   if (!row) throw notFound("Deal not found");
   c.header("ETag", etag(row.version));
-  return c.json(await toView(c, row), 200);
+  // projects-api is read live and fails soft: it can never fail the deal page (specs/022 AC-3.4).
+  const [view, { known, delivery }] = await Promise.all([toView(c, row), deliveryOfDeal(id)]);
+  return c.json({ ...view, delivery, deliveryKnown: known }, 200);
 });
 
 /**

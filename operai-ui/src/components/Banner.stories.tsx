@@ -110,6 +110,30 @@ export const WithActions: Story = {
   ),
 }
 
+/**
+ * In a narrow container (a phone at 360px) the actions wrap below the message, which keeps its readable
+ * width, instead of being squeezed to a word per line beside them.
+ */
+export const NarrowWithActions: Story = {
+  name: 'With actions, narrow',
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="w-80">
+      <Banner
+        tone="info"
+        title="Awaiting project manager"
+        actions={
+          <Button size="sm" variant="primary" onClick={fn()}>
+            Pick project manager
+          </Button>
+        }
+      >
+        Ada Rossi is the ops manager for this purchase order and will pick the project manager.
+      </Banner>
+    </div>
+  ),
+}
+
 function TransientSave({ dismissible }: { dismissible: boolean }) {
   const [shown, setShown] = useState(true)
   const [count, setCount] = useState(1)

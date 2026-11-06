@@ -146,6 +146,18 @@ describe("scoped service JWT", () => {
     expect(seen.origins).toEqual(["crm"]);
   });
 
+  it("system:projects-api may raise the projects origin and no other (specs/022 AC-4.3)", async () => {
+    const { app, seen } = buildApp();
+    const res = await post(app, bearer(await sign({ sub: "system:projects-api" })));
+    expect(res.status).toBe(200);
+    expect(seen.origins).toEqual(["projects"]);
+    // The route's gate (originAllowed) refuses every other origin app.
+    expect(originAllowed(seen.origins!, "projects")).toBe(true);
+    for (const other of ["crm", "inventory", "refund", "estimai", "admin"]) {
+      expect(originAllowed(seen.origins!, other)).toBe(false);
+    }
+  });
+
   it("exposes every scope of the token on the context (a route may need a second one)", async () => {
     const { app, seen } = buildApp();
     const res = await post(app, bearer(await sign({ scope: "notifications.push emails.send" })));

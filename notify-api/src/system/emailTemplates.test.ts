@@ -293,6 +293,14 @@ describe("renderEmailTemplate — notification_notice (specs/019, ADR-0056)", ()
     expect(subject).not.toMatch(/[\r\n]/);
   });
 
+  it("names the Projects tool in the footer for the projects origin (specs/022)", () => {
+    const { html } = renderEmailTemplate({
+      template: "notification_notice",
+      data: { ...data, originApp: "projects", href: "/projects/handoff" },
+    });
+    expect(html).toContain("Sent by Operai Projects");
+  });
+
   it("names no tool in the footer for an unknown origin app", () => {
     const { html } = renderEmailTemplate({
       template: "notification_notice",

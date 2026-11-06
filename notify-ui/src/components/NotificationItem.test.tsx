@@ -68,6 +68,13 @@ const baseNotification: Notification = {
 }
 
 describe('NotificationItem', () => {
+  // specs/022 AC-4.3 — the handoff notification's origin
+  it('labels a notification raised by the projects origin "Projects"', () => {
+    render(<NotificationItem notification={{ ...baseNotification, originApp: 'projects' }} wasUnread={false} />)
+
+    expect(screen.getByTestId('notification-origin-notif-1').textContent).toBe('Projects')
+  })
+
   // (A) Base render
   it('renders title, body, origin app, time, and a severity icon+sr-only label', () => {
     render(<NotificationItem notification={baseNotification} wasUnread={false} />)

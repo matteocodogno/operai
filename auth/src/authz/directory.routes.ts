@@ -11,8 +11,9 @@
  * erode in either direction:
  *
  *   - GATE: the caller must hold an entry of {@link DIRECTORY_GATE_PERMISSIONS}
- *     (the `inventory` catalog's `asset:manage` and, since ADR-0053, the `crm`
- *     catalog's `deal:manage`, each under ANY entity scope) — an explicit
+ *     (the `inventory` catalog's `asset:manage`, since ADR-0053 the `crm`
+ *     catalog's `deal:manage`, and since specs/021 the `projects` catalog's
+ *     `project:manage`, each under ANY entity scope) — an explicit
  *     allowlist, resolved live through `auth`'s own resolver (revocation is
  *     immediate). A second consuming app is ADDED to
  *     that list deliberately; the gate is never relaxed to "any app-access
@@ -69,6 +70,12 @@ export const DIRECTORY_GATE_PERMISSIONS: readonly { resource: string; action: st
   // so no other catalog may declare a `deal` resource with a `manage` action:
   // it would open this gate too (crm.test.ts checks resource keys stay unique).
   { resource: "deal", action: "manage" },
+  // The `projects` catalog's project:manage (specs/021, ADR-0055): the project
+  // manager and team pickers. Deliberately NOT projects:access (reading the
+  // projects is no reason to list people) nor purchase-order:bexio. Same
+  // resource-key uniqueness rule as above: no other catalog may declare a
+  // `project` resource.
+  { resource: "project", action: "manage" },
 ];
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -106,11 +113,12 @@ const getDirectoryRoute = createRoute({
   method: "get",
   path: "/authz/users/directory",
   tags: ["Authorization"],
-  summary: "List active users (capability-gated; for the inventory assign and CRM owner pickers)",
+  summary: "List active users (capability-gated; for the inventory assign, CRM owner and projects pickers)",
   description:
     `Returns every active user as { id, name, email, entity }, name-sorted, both entities. ` +
-    `The caller must hold the '${INVENTORY_APP_ID}' catalog's asset:manage or the 'crm' catalog's ` +
-    `deal:manage permission under any entity scope (403 otherwise, ADR-0047/0053). Not paginated, ` +
+    `The caller must hold the '${INVENTORY_APP_ID}' catalog's asset:manage, the 'crm' catalog's ` +
+    `deal:manage or the 'projects' catalog's project:manage permission under any entity scope ` +
+    `(403 otherwise, ADR-0047/0053/0055). Not paginated, ` +
     `takes no query parameters, never returns soft-deleted users or any other attribute (ADR-0047).`,
   request: { query: DirectoryQuerySchema },
   responses: {

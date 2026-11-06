@@ -62,7 +62,31 @@
 - **Approve** (an access request): creates an invitation for the requester through the
   invitation flow; it never creates a user by itself.
 
+### Projects hand-off (specs/022)
+- **To-start queue**: the won CRM deals that have no purchase order yet; computed live from
+  the CRM on every read, never stored; seen by `sales` and admins only. _Avoid:_ backlog,
+  inbox.
+- **Purchase order (PO)**: the delivery-side record of one won deal — its deal, client
+  company, dates, terms, Bexio order id, estimate link, referent and ops-manager. A project
+  has zero or one; a PO is born only from a won deal, together with its project, and is never
+  added later nor deleted. Not the offer PDF. _Avoid:_ contract (its earlier name), order.
+- **A PO's deal**: the won deal a PO was made from; the PO keeps the deal's id and its
+  estimate id.
+- **Terms**: the type-specific delivery terms (deadline and max effort, SLA, hour package,
+  positions, licence period). Required by type on a PO; optional on a hand-made project.
+- **Hand-made project**: a project created directly, not from a deal; it never has a PO, its
+  creator is its project manager, and it may carry its type's terms.
+- **Referent** (referente): the person at the client the delivery talks to — a CRM contact
+  of the PO's company, optional; read live from the CRM, never copied onto the PO.
+- **Ops-manager** (responsabile OPS): an entity-scoped role; a PO is assigned to one (or to
+  an admin) at creation, who is notified and is the only one, besides an admin, who picks
+  the project's project manager.
+- **Awaiting a project manager**: a project made from a deal whose assigned ops-manager has
+  not picked a project manager yet; it cannot become `active` until one is picked.
+
 ## Relationships
+- A won deal feeds at most one PO, which is born with its own project; a project has zero
+  or one PO, and a project created without one never gets one.
 - An **Asset** belongs to exactly one entity for its whole life and has at most one
   **Holder** and at most one `pending` **Assignment** at a time.
 - An **Asset** has exactly one **Schedule**, produced by the one **Depreciation rule** in

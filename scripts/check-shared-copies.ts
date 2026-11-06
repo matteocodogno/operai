@@ -38,8 +38,14 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
       "estimai-api/src/lib/serviceToken.ts",
       "crm-api/src/lib/serviceToken.ts",
       "notify-api/src/lib/serviceToken.ts",
+      "projects-api/src/lib/serviceToken.ts",
     ],
     why: "the auth service-token client (ADR-0044/0049/0056); a fix to one copy must reach every copy",
+  },
+  {
+    name: "manDays",
+    files: ["crm-api/src/offers/scope.ts", "estimai-api/src/system/manDays.ts"],
+    why: "the Expected-effort arithmetic behind a contract's man-days (specs/022, ADR-0061); estimai-ui's pertCalc is the source of truth",
   },
 ];
 

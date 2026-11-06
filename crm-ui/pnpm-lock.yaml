@@ -28,7 +28,7 @@ importers:
         specifier: ^9.39.4
         version: 9.39.5
       '@module-federation/vite':
-        specifier: ^1.16.14
+        specifier: 1.23.2
         version: 1.23.2(typescript@5.9.3)(vite@8.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0))
       '@tailwindcss/postcss':
         specifier: ^4.2.2

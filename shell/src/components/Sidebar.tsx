@@ -83,6 +83,7 @@ const TOOL_ICONS: Record<ToolId, ReactNode> = {
   admin: <Icon name="settings" size={TOOL_ICON_SIZE} className="shrink-0" />,
   inventory: <Icon name="box" size={TOOL_ICON_SIZE} className="shrink-0" />,
   crm: <Icon name="users" size={TOOL_ICON_SIZE} className="shrink-0" />,
+  projects: <Icon name="calendar" size={TOOL_ICON_SIZE} className="shrink-0" />,
 }
 
 export default function Sidebar() {

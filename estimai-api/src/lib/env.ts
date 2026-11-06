@@ -87,6 +87,29 @@ const envSchema = z.object({
     .int()
     .positive()
     .default(600000),
+
+  // ─── Service credentials accepted on /system/* (specs/022, ADR-0061) ────────
+  //
+  // The `aud` of the scoped service JWTs `auth` mints (`POST /system/service-token`);
+  // byte-identical to auth's, crm-api's and notify-api's, and different from
+  // AUTH_AUDIENCE so a user JWT is never a system credential. Optional so the service
+  // starts without it; unset, every /system/* request is a 401 (fail closed).
+  // tools/env-doctor lists it as required in production.
+  SERVICE_AUDIENCE: z
+    .string()
+    .min(1, "SERVICE_AUDIENCE must not be empty")
+    .optional(),
+}).superRefine((val, ctx) => {
+  if (
+    val.SERVICE_AUDIENCE !== undefined &&
+    val.SERVICE_AUDIENCE === val.AUTH_AUDIENCE
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["SERVICE_AUDIENCE"],
+      message: "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR-0044)",
+    });
+  }
 });
 
 const result = envSchema.safeParse(process.env);

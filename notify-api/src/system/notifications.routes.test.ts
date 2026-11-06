@@ -38,16 +38,18 @@ const keyPair = await generateKeyPair("RS256");
 const localJwks = createLocalJWKSet({
   keys: [{ ...(await exportJWK(keyPair.publicKey)), kid: KID, alg: "RS256", use: "sig" }],
 });
-const serviceToken = (scope: string = "notifications.push") =>
+const serviceToken = (scope: string = "notifications.push", sub: string = "system:refund-api") =>
   new SignJWT({ scope })
     .setProtectedHeader({ alg: "RS256", kid: KID })
     .setIssuedAt()
     .setIssuer(env.AUTH_ISSUER)
     .setAudience(SERVICE_AUD)
-    .setSubject("system:refund-api")
+    .setSubject(sub)
     .setExpirationTime("5m")
     .sign(keyPair.privateKey);
-const authHeader = async () => ({ Authorization: `Bearer ${await serviceToken()}` });
+const authHeader = async (sub?: string) => ({
+  Authorization: `Bearer ${await serviceToken("notifications.push", sub)}`,
+});
 
 // ─── Real DB (compose, database: notify) ──────────────────────────────────────
 
@@ -213,6 +215,48 @@ describe("POST /system/notifications — valid service credential", () => {
     const created = (await res.json()) as Record<string, unknown>;
     expect(created["severity"]).toBe("info");
     expect("link" in created).toBe(false);
+  });
+});
+
+// ─── Origin binding: the projects origin (specs/022 AC-4.3) ────────────────────
+// The handoff take notifies the ops-manager from projects-api. The origin
+// binding (systemAuth.middleware) is covered in isolation; this goes through
+// the real route, where the body's originApp enum is validated BEFORE the
+// binding is checked — an enum without "projects" answers 400 to a bound caller.
+
+describe("POST /system/notifications — projects origin (specs/022 AC-4.3)", () => {
+  const PROJECTS_SUB = "system:projects-api";
+  const post = async (sub: string, body: Record<string, unknown>) =>
+    buildApp().request("/system/notifications", {
+      method: "POST",
+      headers: { ...(await authHeader(sub)), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const rowCount = () => testDb.notification.count({ where: { recipientId: RECIPIENT_ID } });
+
+  it("201: system:projects-api may raise a projects notification, persisted for the recipient", async () => {
+    const res = await post(
+      PROJECTS_SUB,
+      validBody({ originApp: "projects", link: { href: "/projects/handoff" } }),
+    );
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { id: string; originApp: string };
+    expect(created.originApp).toBe("projects");
+    const row = await testDb.notification.findUnique({ where: { id: created.id } });
+    expect(row?.recipientId).toBe(RECIPIENT_ID);
+    expect(row?.originApp).toBe("projects");
+  });
+
+  it("403: system:projects-api may not raise another tool's origin; nothing persisted", async () => {
+    const res = await post(PROJECTS_SUB, validBody({ originApp: "crm" }));
+    expect(res.status).toBe(403);
+    expect(await rowCount()).toBe(0);
+  });
+
+  it("403: another service may not raise projects; nothing persisted", async () => {
+    const res = await post("system:crm-api", validBody({ originApp: "projects" }));
+    expect(res.status).toBe(403);
+    expect(await rowCount()).toBe(0);
   });
 });
 

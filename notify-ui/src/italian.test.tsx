@@ -54,6 +54,29 @@ describe('notification center in Italian', () => {
     expect(document.querySelector('time')?.textContent).toBe('2 ore fa')
   })
 
+  it('labels a notification raised by the projects origin "Progetti" (specs/022 AC-4.3)', async () => {
+    vi.mocked(markAllRead).mockResolvedValue({ updated: 0, count: 0 })
+    vi.mocked(listNotifications).mockResolvedValue({
+      items: [
+        {
+          id: 'n-2',
+          title: 'New project to staff',
+          body: 'A project is waiting for a project manager.',
+          severity: 'info',
+          originApp: 'projects',
+          toastWorthy: false,
+          readAt: null,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      nextCursor: null,
+    })
+
+    render(<NotificationCenterPage />)
+
+    expect((await screen.findByTestId('notification-origin-n-2')).textContent).toBe('Progetti')
+  })
+
   it('shows the Italian empty state', async () => {
     vi.mocked(markAllRead).mockResolvedValue({ updated: 0, count: 0 })
     vi.mocked(listNotifications).mockResolvedValue({ items: [], nextCursor: null })

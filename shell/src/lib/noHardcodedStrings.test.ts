@@ -102,6 +102,7 @@ const TECHNICAL = new Set([
   'admin',
   'inventory',
   'crm',
+  'projects',
   'notify',
   'settings',
   'sun',
@@ -131,6 +132,8 @@ const TECHNICAL = new Set([
   '/inventory/$',
   '/crm',
   '/crm/$',
+  '/projects',
+  '/projects/$',
   '/operai.svg',
   // The product name, the same in every language.
   'Operai',

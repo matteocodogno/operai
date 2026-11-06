@@ -68,8 +68,94 @@ describe("parseServiceClients", () => {
     if (!result.ok) expect(result.errors.join("\n")).not.toContain(SECRET_A);
   });
 
-  test("the scope allowlist is exactly notifications.push, emails.send and users.contact", () => {
-    expect([...KNOWN_SERVICE_SCOPES]).toEqual(["notifications.push", "emails.send", "users.contact", "estimate-notices.send"]);
+  test("the scope allowlist is exactly the known service scopes (specs/021, specs/022)", () => {
+    expect([...KNOWN_SERVICE_SCOPES]).toEqual([
+      "notifications.push",
+      "emails.send",
+      "users.contact",
+      "estimate-notices.send",
+      "crm.companies.read",
+      "crm.deals.read",
+      "crm.contacts.read",
+      "estimai.estimates.read",
+      "projects.purchase-orders.read",
+    ]);
+  });
+
+  test.each([
+    ["projects-api", "crm.deals.read"],
+    ["projects-api", "crm.contacts.read"],
+    ["projects-api", "estimai.estimates.read"],
+    ["crm-api", "projects.purchase-orders.read"],
+  ])("%s may hold the specs/022 scope %s", (clientId, scope) => {
+    const result = parseServiceClients(raw({ [clientId]: { secret: SECRET_A, scope } }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get(clientId)?.scopes).toEqual([scope]);
+  });
+
+  test("the specs/022 scopes combine with existing ones on one client", () => {
+    const result = parseServiceClients(
+      raw({
+        "projects-api": {
+          secret: SECRET_A,
+          scope: "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push",
+        },
+        "crm-api": { secret: SECRET_B, scope: "notifications.push emails.send projects.purchase-orders.read" },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("projects-api")?.scopes).toEqual([
+      "crm.companies.read",
+      "crm.deals.read",
+      "crm.contacts.read",
+      "estimai.estimates.read",
+      "notifications.push",
+    ]);
+    expect(result.clients.get("crm-api")?.scopes).toEqual([
+      "notifications.push",
+      "emails.send",
+      "projects.purchase-orders.read",
+    ]);
+  });
+
+  test("the retired `projects.contracts.read` scope refuses to start, naming the client and no secret (D38)", () => {
+    const result = parseServiceClients(
+      raw({ "crm-api": { secret: SECRET_A, scope: "notifications.push projects.contracts.read" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join("\n")).toContain('"crm-api"');
+      expect(result.errors.join("\n")).not.toContain(SECRET_A);
+    }
+  });
+
+  test("a near-miss of a specs/022 scope still refuses to start", () => {
+    for (const scope of [
+      "crm.deals.write",
+      "crm.deals",
+      "crm.contacts.write",
+      "crm.contact.read",
+      "estimai.estimate.read",
+      "projects.contracts.write",
+      "projects.purchase-order.read",
+      "projects.purchase-orders.write",
+    ]) {
+      const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope } }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.join("\n")).toContain('"projects-api"');
+        expect(result.errors.join("\n")).not.toContain(SECRET_A);
+      }
+    }
+  });
+
+  test("crm.companies.read is an accepted scope: a projects-api client holding it parses (specs/021)", () => {
+    const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope: "crm.companies.read" } }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("projects-api")?.scopes).toEqual(["crm.companies.read"]);
   });
 
   test("a client holding emails.send parses, alone or beside notifications.push", () => {

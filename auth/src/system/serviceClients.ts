@@ -37,8 +37,30 @@ import { createHash, timingSafeEqual } from "node:crypto";
  * - `estimate-notices.send`: tell crm-api an EstimAI estimate was closed or
  *   reopened (`POST /system/estimate-notices`, specs/018 AC-3.3, ADR-0073).
  *   Only estimai-api holds it.
+ * - `crm.companies.read`: read CRM companies through crm-api's
+ *   `GET /system/companies` (specs/021, ADR-0059). Only projects-api holds it.
+ * - `crm.deals.read`: read won deals through crm-api's `GET /system/deals` (specs/022).
+ *   Only projects-api holds it.
+ * - `estimai.estimates.read`: read an estimate's man-days through estimai-api's
+ *   `GET /system/estimates/{id}/summary` (specs/022). Only projects-api holds it.
+ * - `crm.contacts.read`: read a company's contacts, or contacts by id (the referent of a
+ *   purchase order), through crm-api's `GET /system/contacts` (specs/022, D49). Only
+ *   projects-api holds it.
+ * - `projects.purchase-orders.read`: read the purchase orders of given deals through
+ *   projects-api's `GET /system/purchase-orders` (specs/022; was `projects.contracts.read`,
+ *   retired with "contract", D38). Only crm-api holds it.
  */
-export const KNOWN_SERVICE_SCOPES = ["notifications.push", "emails.send", "users.contact", "estimate-notices.send"] as const;
+export const KNOWN_SERVICE_SCOPES = [
+  "notifications.push",
+  "emails.send",
+  "users.contact",
+  "estimate-notices.send",
+  "crm.companies.read",
+  "crm.deals.read",
+  "crm.contacts.read",
+  "estimai.estimates.read",
+  "projects.purchase-orders.read",
+] as const;
 
 /**
  * Client id `auth` itself mints under (`sub="system:auth"`, in process — specs/016).

@@ -298,6 +298,7 @@ const ORIGIN_APP_LABELS: Readonly<Record<string, string>> = {
   admin: "Admin",
   inventory: "Inventory",
   crm: "CRM",
+  projects: "Projects",
 };
 
 /**

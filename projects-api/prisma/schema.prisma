@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Data model of specs/021-projects (tasks.md § Data model) as re-shaped by specs/022-projects-handoff
+// (tasks.md § Data model, T23): a project has 0..1 `project_terms` and 0..1 `purchase_order`.
+// Every id is TEXT (a cuid): CRM and auth ids are cuids, never uuids. People are opaque `auth`
+// user ids and the company and the deal are opaque CRM ids (no foreign key across services);
+// their names are resolved live. There is NO money anywhere in this schema (D14). Calendar dates
+// are @db.Date; man-days are numeric(6,1).
+//
+// Raw SQL in the migrations (specs/021's `*_init`, then `*_purchase_order`, which renames the
+// contract tables and adds the purchase order), the ENFORCEMENT and not a duplicate (Prisma cannot
+// express CHECKs):
+//   project        companyId set iff the type is not `internal` (`saas` is a client type, D40);
+//                  stateBeforeHold set iff on_hold (and only to a state a project can be put on
+//                  hold from); name not blank
+//   project_terms  not on an `internal` project; fixed price needs deadline and max effort > 0;
+//                  maintenance needs an SLA or an hour package; the SLA pair is both-or-neither,
+//                  each 0-60; the hour package is a both-or-neither group, hours > 0, expiry only
+//                  for `capacity`; endDate >= startDate; estimated man-days >= 0
+//   position       planned man-days > 0; profile not blank
+// and as unique indexes: one terms row and one purchase order per project, one purchase order per
+// deal (AC-1.6, the database half).
+
+enum Entity {
+  welld_ch
+  welld_it
+}
+
+enum ProjectType {
+  t_and_m
+  fixed_price
+  maintenance
+  saas
+  internal
+}
+
+enum ProjectState {
+  planned
+  active
+  on_hold
+  closed
+  cancelled
+}
+
+enum HourPackageKind {
+  capacity
+  yearly
+}
+
+model Project {
+  id               String        @id @default(cuid())
+  name             String        @db.VarChar(200)
+  type             ProjectType
+  state            ProjectState  @default(planned)
+  /// The state an `on_hold` project returns to; set iff `state = on_hold`.
+  stateBeforeHold  ProjectState?
+  /// Fixed at creation (a wrong one is a new project).
+  entity           Entity
+  /// CRM company id; set iff `type` is not `internal` (CHECK `project_company_matches_type`).
+  companyId        String?
+  /// `auth` user id; must hold projects:access (checked live at write time). Null only while a
+  /// project made from a deal awaits the ops-manager's pick (specs/022 D42); the API keeps it so.
+  projectManagerId String?
+  /// Optimistic-concurrency counter (ADR-0038, AC-1.7).
+  version          Int           @default(1)
+  createdById      String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  members       ProjectMember[]
+  terms         ProjectTerms?
+  purchaseOrder PurchaseOrder?
+
+  @@index([projectManagerId])
+  @@index([state])
+  @@index([type])
+  @@index([companyId])
+  @@map("project")
+}
+
+model ProjectMember {
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// `auth` user id.
+  userId    String
+  addedAt   DateTime @default(now())
+
+  @@id([projectId, userId])
+  @@index([userId])
+  @@map("project_member")
+}
+
+/// The type-specific delivery terms of a project (specs/021 AC-2.3 – AC-2.8), 0..1 per project: a
+/// project made from a deal always has them, a hand-made one may (specs/022 D50). Never on an
+/// `internal` project (CHECK `terms_not_internal`).
+model ProjectTerms {
+  id        String      @id @default(cuid())
+  /// One terms row per project; RESTRICT, terms are removed by the API, never by a cascade.
+  projectId String      @unique
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  /// Always the project's type; kept equal by the API (the CHECKs read it).
+  type      ProjectType
+  startDate DateTime    @db.Date
+  endDate   DateTime?   @db.Date
+  version   Int         @default(1)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  // fixed_price
+  deadline         DateTime? @db.Date
+  estimatedManDays Decimal?  @db.Decimal(6, 1)
+  maxEffortManDays Decimal?  @db.Decimal(6, 1)
+
+  // maintenance and saas: an SLA (both priorities or neither) ...
+  slaHighDays       Int?
+  slaNormalDays     Int?
+  // ... and/or an hour package (hours, kind and start, or none of them; expiry only for capacity)
+  hourPackageHours  Int?
+  hourPackageKind   HourPackageKind?
+  hourPackageStart  DateTime?        @db.Date
+  hourPackageExpiry DateTime?        @db.Date
+
+  /// t_and_m
+  positions ProjectTermsPosition[]
+
+  @@map("project_terms")
+}
+
+/// A profile in T&M terms ("Senior developer") with its planned man-days; not a person (A8).
+model ProjectTermsPosition {
+  id             String       @id @default(cuid())
+  termsId        String
+  terms          ProjectTerms @relation(fields: [termsId], references: [id], onDelete: Cascade)
+  profile        String       @db.VarChar(120)
+  plannedManDays Decimal      @db.Decimal(6, 1)
+  position       Int
+
+  @@index([termsId])
+  @@map("project_terms_position")
+}
+
+/// The delivery-side record of one won deal (specs/022 D38), 0..1 per project: born only with its
+/// project, in the take of a deal; a hand-made project never has one. Never deleted (D34): the
+/// project relation is RESTRICT and the API has no DELETE.
+model PurchaseOrder {
+  id                String   @id @default(cuid())
+  projectId         String   @unique
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  /// The won deal this was made from. Unique: a deal feeds at most one purchase order (AC-1.6, the
+  /// database half).
+  dealId            String   @unique
+  /// The deal's EstimAI estimate id, copied when the order is made (AC-3.2); null for a deal without one.
+  estimateId        String?
+  /// Typed in by accounting (purchase-order:bexio); unchecked free text (A24).
+  bexioOrderId      String?  @db.VarChar(64)
+  /// A CRM contact id of the deal's company; its details are read live, never stored (D49).
+  referentContactId String?
+  /// `auth` user id of the ops-manager the order is assigned to, who picks the project manager (D42).
+  opsManagerId      String
+  createdById       String
+  version           Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("purchase_order")
+}

@@ -32,6 +32,20 @@ describe('resolveRuntimeRemotes', () => {
     ])
   })
 
+  it('resolves the projects remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/021-projects)', async () => {
+    window.__OPERAI_RUNTIME_CONFIG__ = { projects: 'https://projects.example.test/remoteEntry.js' }
+
+    await expect(resolveRuntimeRemotes()).resolves.toEqual([
+      {
+        name: 'projects',
+        entry: 'https://projects.example.test/remoteEntry.js',
+        type: 'module',
+        entryGlobalName: 'projects',
+        shareScope: 'default',
+      },
+    ])
+  })
+
   it('resolves the inventory remote from a fetched /runtime-config.json', async () => {
     vi.stubGlobal(
       'fetch',

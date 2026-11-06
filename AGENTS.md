@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Six tools ship today, composed into one suite by a
+back-office workflows. Seven tools ship today, composed into one suite by a
 Module Federation shell (ADR-0006):
 
 | Tool | Route | What it does |
@@ -11,15 +11,16 @@ Module Federation shell (ADR-0006):
 | **Admin** | `/admin` | Roles, departments, users, permissions, invitations, mileage rates |
 | **Inventory** | `/inventory` | Hardware register — assets, assignment to employees (confirmed by the employee), depreciation ledger, fiscal-year close, invoice files (specs/015) |
 | **CRM** | `/crm` | Companies, contacts, deals through a stage pipeline, activities and follow-up tasks (specs/017, ADR-0052) |
+| **Projects** | `/projects` | The delivery work wellD runs — projects (type, state, project manager, team), their terms (per-type delivery terms) and, for a project made from a won deal, its purchase order (Bexio order id, referent, ops-manager); no money (specs/021, 022, ADR-0058/0059/0062/0063) |
 
-Those five are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
-notification center (`notify-ui`) is a fifth remote but **not** a `TOOLS` entry: it mounts at
+Those six are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
 the shell-owned `/notify` route, reached from the header bell (ADR-0009). `inventory-ui` also
 exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
 (any signed-in user sees their own devices; ADR-0045).
 
-Backed by six Bun services: `auth` (identity + authorization), `estimai-api`,
-`notify-api`, `refund-api`, `inventory-api`, `crm-api`.
+Backed by seven Bun services: `auth` (identity + authorization), `estimai-api`,
+`notify-api`, `refund-api`, `inventory-api`, `crm-api`, `projects-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -72,6 +73,8 @@ operai/
 │                        # through shell/session (no VITE_* of its own) (specs/015)
 ├── crm-ui/              # CRM tool — federated remote (port 5179): exposes ./App (gated, /crm) and ./version; calls
 │                        # crm-api and auth's user directory through shell/session (specs/017, ADR-0052/0053)
+├── projects-ui/         # Projects tool — federated remote (port 5180): exposes ./App (gated, /projects) and ./version; calls
+│                        # projects-api and auth's user directory through shell/session (specs/021, ADR-0058)
 ├── operai-ui/           # @operai/ui — the DESIGN SYSTEM (ADR-0050): tokens/themes/fonts + component classes
 │                        # (src/styles/tokens.css, re-exported by shell/tokens.css), React components (src/components),
 │                        # Storybook (`mise run ui:storybook`), rules in docs/. NOT an app: never built or deployed;
@@ -81,7 +84,8 @@ operai/
 │                        # allowed-domain (`ALLOWED_SIGNUP_DOMAINS`) email holding a live invitation (or the bootstrap admin, also allowed-domain only); an allowed-domain email without one joins a waiting list (`access_request`), an outside-domain one is refused (nothing recorded) (specs/023, ADR-0071/0072)
 │   ├── src/
 │   │   ├── auth/        # better-auth config, middleware (requireAuth/requireAdmin), routes
-│   │   ├── authz/        # authorization (specs/004, ADR-0007): resolver, /authz/me, catalog, audit, seed
+│   │   ├── authz/        # authorization (specs/004, ADR-0007): resolver, /authz/me, catalog, audit, seed; user directory (ADR-0047) and the
+│   │   │                 # `handoff:take`-gated holders listing `GET /authz/users/holders` (specs/022, ADR-0063)
 │   │   ├── admin/        # admin API — roles/departments/users routes + last-admin guard; user soft-delete + bulk (specs/006)
 │   │   ├── invitations/  # invitation lifecycle + admin API (create/list/resend/revoke); notify email trigger (specs/006, ADR-0012/0013)
 │   │   ├── invite/       # hosted invite landing page (GET /invite, bilingual) + state JSON (specs/006)
@@ -96,7 +100,8 @@ operai/
 │
 ├── estimai-api/         # Bun + Hono + TypeScript backend — estimate persistence (specs/001, ADR-0004/0005);
 │                        # + record-level collaborator ACL, optimistic concurrency, live identity resolution
-│                        # (specs/013, ADR-0036/0037/0038/0039/0040)
+│                        # (specs/013, ADR-0036/0037/0038/0039/0040); + `GET /system/estimates/{id}/summary` for a
+│                        # scoped service credential (specs/022, ADR-0061)
 ├── notify-api/          # Bun + Hono + TypeScript backend — notification persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery channel via Resend, internal /system/emails (specs/006, ADR-0011); + internal /system/notifications for cross-user push (specs/007, ADR-0017)
 ├── refund-api/          # Bun + Hono + TypeScript backend — reimbursement persistence; authorization-enforcing
 │                        # resource server + EU object storage for receipts (specs/007, ADR-0014/0015/0016);
@@ -109,8 +114,16 @@ operai/
 │
 ├── crm-api/             # Bun + Hono + TypeScript backend (port 8084, DB `crm`) — companies, contacts, deals + pipeline,
 │                        # activities/tasks; authorization-enforcing (crm:access, entity-scoped deal:manage, contact:erase),
-│                        # optimistic concurrency via If-Match (specs/017, ADR-0052)
-├── docs/adr/            # Architecture Decision Records (0001–0057, 0071–0073; see ## Architecture decisions)
+│                        # optimistic concurrency via If-Match (specs/017, ADR-0052); + `GET /system/deals` and
+│                        # `GET /system/contacts` for projects-api (specs/022, ADR-0060/0063)
+├── projects-api/        # Bun + Hono + TypeScript backend (port 8085, DB `projects`) — projects, their team, terms and purchase
+│                        # order, the Bexio order id; authorization-enforcing (projects:access, entity-scoped project:manage,
+│                        # handoff:take, purchase-order:receive, purchase-order:bexio), If-Match on every write, no money; reads
+│                        # CRM company names from crm-api with a scoped service credential (specs/021, ADR-0058/0059); + the
+│                        # to-start queue of won deals, taking a deal into a project + terms + purchase order, the deal's
+│                        # estimate man-days, the PO's referent and ops-manager picker, all read live, and a notification to
+│                        # the ops-manager (specs/022, ADR-0060–0063)
+├── docs/adr/            # Architecture Decision Records (0001–0063, 0071–0073; see ## Architecture decisions)
 ├── docs/ui-inconsistencies.md  # UI/UX audit across the six frontends, with what each migration fixed
 ├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md);
 │                        # provision-tool.sh creates/audits one tool's Railway service, Vercel project and DNS
@@ -129,14 +142,14 @@ operai/
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui)
-All seven share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, projects-ui)
+All eight share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other six are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
+  other seven are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR-0001/0002)
@@ -176,8 +189,8 @@ degrades silently when the key is absent (ADR-0032).
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api)
-All five are implemented and share the `auth` service's shape (see ADR-0003 — one backend
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, projects-api)
+All six are implemented and share the `auth` service's shape (see ADR-0003 — one backend
 stack across the monorepo; it supersedes the earlier Kotlin/Spring intention).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
@@ -192,7 +205,10 @@ Per-service specifics:
 - `estimai-api` — estimate persistence as a JSONB document + listing columns (ADR-0004);
   record-level collaborator ACL owned by the service itself, not `auth`'s catalog (ADR-0036);
   optimistic concurrency via integer `version` + required `If-Match`/`ETag` (ADR-0038).
-  It deliberately is **not** an authorization-enforcing resource server.
+  It deliberately is **not** an authorization-enforcing resource server. Its one `/system/*`
+  route, `GET /system/estimates/{id}/summary` (scope `estimai.estimates.read`, `SERVICE_AUDIENCE`
+  JWT only), is read by projects-api and returns `{ id, name, manDays }`, never the estimate's
+  content (specs/022, ADR-0061).
 - `inventory-api` — hardware register (specs/015): authorization-enforcing like `refund-api`
   (live `auth GET /authz/resolve`, fails closed, entity-scoped ABAC) with `inventory:access`,
   `asset:manage`, `ledger:manage`; `/me/*` routes need only a valid JWT and scope to `sub`
@@ -211,14 +227,37 @@ Per-service specifics:
   rendered from per-entity, editable templates on the entity's letterhead, numbered `NNNN/YYYY[rN]`,
   with deal PDFs appendable as annexes (specs/020, ADR-0057);
   pushes CRM notifications to notify-api as `system:crm-api`, with email notices for handovers
-  (specs/019, ADR-0056)
+  (specs/019, ADR-0056); its first `/system/*` route, `GET /system/companies`, is read by
+  projects-api behind the scope `crm.companies.read` (specs/021, ADR-0059), as is `GET /system/deals`
+  behind `crm.deals.read` (won deals, no money, specs/022, ADR-0060) and `GET /system/contacts` behind
+  `crm.contacts.read` (a PO's referent: one minimal shape per mode, `ids` ≤ 20, ADR-0063); its deal page
+  reads the deal's project and Bexio order id from projects-api (`GET /system/purchase-orders`, scope
+  `projects.purchase-orders.read`) as `system:crm-api` and fails soft (`deliveryKnown`)
+- `projects-api` — Projects (specs/021, 022): authorization-enforcing (live `/authz/resolve`, fails closed) with
+  `projects:access` (read every project, its terms and purchase order), entity-scoped `project:manage` (403
+  `out_of_scope`, not 404 — records are readable, ADR-0052 posture), `handoff:take` (sales, own entity; the
+  to-start queue and the take), `purchase-order:receive` (ops-manager, own entity; admin unconditioned = the
+  override `oversees`, via `scopeFor`, never `hasCapability`) and `purchase-order:bexio` (the Bexio order id, its
+  own route, held by `accounting`; ADR-0063); If-Match/ETag on every write on a project, its terms or its PO,
+  creates excepted (ADR-0038); a project has 0..1 terms and 0..1 purchase order, a PO born only from a won deal
+  and never deleted (a hand-made project may carry terms, never a PO; "contract" is retired, ADR-0062); no money
+  anywhere; PM and team ids checked as module users against `auth` (fail closed); CRM company names via crm-api
+  with its own service credential, `name: null` when the CRM cannot answer and 503 `crm_unavailable` on a write
+  that must confirm a company (ADR-0059); ids are text cuids (ADR-0058); the to-start queue (`GET /queue`) and
+  taking a deal (`POST /queue/{dealId}/project`, `handoff:take` + `project:manage` for the deal's entity) read
+  the deal live from crm-api and never sync it; the take's ops-manager is chosen from auth's holders listing
+  (live, fail closed) and notified after the commit through notify-api (`NOTIFY_INTERNAL_URL`, best effort); a
+  fixed-price PO from a deal copies its estimate's man-days from estimai-api once and the client never sets them
+  (ADR-0060/0061); the PO's referent is a CRM contact id read live from crm-api, never stored or cached
+  (`no-store`, ADR-0063); a project from a deal awaits its project manager until the ops-manager (or an admin)
+  picks one; `GET /system/purchase-orders` serves crm-api behind `projects.purchase-orders.read`
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` (scope `emails.send`) + `/system/notifications` (scope
   `notifications.push`), each behind a scoped service JWT verified via `auth`'s JWKS with
   `aud=SERVICE_AUDIENCE`; every caller authenticates as itself (`auth` mints its own in
-  process, ADR-0048; `refund-api`, `estimai-api`, `inventory-api` and `crm-api` via the
-  service-token endpoint) and the shared `X-Internal-Token` is refused (ADR-0049); for an
+  process, ADR-0048; `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `projects-api` via the
+  service-token endpoint; `system:projects-api` may raise `projects` notifications only, specs/022) and the shared `X-Internal-Token` is refused (ADR-0049); for an
   `email: true` notification it looks the recipient's address up in `auth`
   (`POST /system/users/contact`, as `system:notify-api`, ADR-0056)
 - `refund-api` — the suite's authorization-enforcing resource server: resolves the caller's
@@ -324,7 +363,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send` and/or `users.contact`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `notify-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact` and/or `crm.companies.read`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `notify-api` and `projects-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
 
 ### Inventory (specs/015)
 
@@ -487,7 +526,7 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 
 ### The whole suite (preferred)
 ```bash
-mise run db:migrate   # once: Postgres up + Prisma migrations for all five backends
+mise run db:migrate   # once: Postgres up + Prisma migrations for every backend
 mise run dev          # everything, with HMR — opens http://localhost:5173 (the shell) once it answers;
                       # OPERAI_NO_OPEN=1 skips the browser
 mise run dev:web      # frontends only (backends already running elsewhere)
@@ -495,12 +534,12 @@ mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy s
 ```
 
 Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
-crm-api `8084`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`,
-inventory-ui `5178`, crm-ui `5179`; MinIO S3 `9000`
+crm-api `8084`, projects-api `8085`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
+admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, projects-ui `5180`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `projects-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task.
 
@@ -511,7 +550,7 @@ docker compose up -d postgres minio minio-createbucket   # PostgreSQL 17 :5435, 
 
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / projects-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -546,7 +585,7 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, projects-api :8085)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
 Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` point at local MinIO in dev
@@ -667,7 +706,7 @@ These defaults are optimized for AI coding agents (and humans) working on apps t
 - [0044] The fourth notify caller (`inventory-api`) gets a scoped, short-lived service JWT — `auth POST /system/service-token` (client-credentials against a per-client `SERVICE_CLIENTS` entry, identical 401, rate-limited) mints a 5-minute RS256 JWT `sub="system:inventory-api"`, `aud=SERVICE_AUDIENCE` (distinct from `AUTH_AUDIENCE`), `scope="notifications.push"`, verified by `notify-api` via the existing JWKS; rejected: forwarding the acting user's JWT (an employee with no capability triggers the push), a keypair per service with multi-JWKS trust, and a prerequisite spec migrating all callers first; extended to every caller by 0049 (see docs/adr/0044-scoped-service-jwt-fourth-notify-caller.md)
 - [0045] A gated tool remote may expose a second, UNGATED federated entry mounted at a shell-owned route when the screen is identity-scoped (ADR-0034's test) — `inventory-ui` exposes `./App` (gated), `./MyDevices` (ungated) and `./version`, the shell adds an un-guarded `/devices` child of `shellRoute` absent from `TOOLS` (the `/notify` shape, first applied to a remote that also has a gated entry) plus a "My devices" UserMenu link, and `inventory-api`'s `/me/*` routes need only a valid JWT, skip authz middleware and scope every query to the verified `sub` (ADR-0042 posture, not-yours 404, no price/ledger fields); both halves (ungated route AND self-scoped API) are required; rejected: a shell-native AccountScreen-style screen (tool business logic in the shell, against ADR-0009), granting everyone `inventory:access` (breaks specs/015 AC-9.6), and a fifth remote for one screen (see docs/adr/0045-ungated-second-federated-entry-of-a-gated-remote.md)
 - [0046] Depreciation is derived on read for open years and snapshotted, immutably, only when a fiscal year is closed — an asset stores only entity/purchase date/price in integer cents, its rule is the latest `depreciation_rule` effective at purchase date (resolved on read like mileage rates, no FK), the schedule is a pure `schedule()` with one round-half-up rule and the remainder in the final year, closing writes immutable `fiscal_year` + `asset_year_figure` rows (Tier 1 triggers; row existence IS the closed state, no reopen; imported history uses the same rows as the anchor), and every dated write plus the close takes `pg_advisory_xact_lock` on the entity; rejected: persisting each asset's whole schedule at registration, computing everything live with no snapshot, and a 31-December materialisation cron (see docs/adr/0046-depreciation-derived-on-read-closed-years-snapshotted.md)
-- [0047] A list-of-people read is a fact endpoint, acceptable only behind a named capability whose holders have a business need to pick a person — `auth GET /authz/users/directory` returns active `{id,name,email,entity}` (both entities, name-sorted, no pagination) on the forwarded-caller JWT, gated on the `inventory` catalog's `asset:manage`, rate-limited, called directly by `inventory-ui` with `inventory-api` keeping no copy; it narrows ADR-0039 (which stays in force for `/authz/users/identities`) for that one audience only, and each further consumer is added to the gate deliberately; rejected: an exact-email decision endpoint (ADR-0035 style), reusing `requireAdmin` `GET /admin/users`, proxying/caching the list in `inventory-api`, and adding search/email to `/authz/users/identities`; escalation trigger: a second consuming app or a user count that makes an unpaginated list unreasonable (see docs/adr/0047-user-directory-endpoint-capability-gated.md)
+- [0047] A list-of-people read is a fact endpoint, acceptable only behind a named capability whose holders have a business need to pick a person — `auth GET /authz/users/directory` returns active `{id,name,email,entity}` (both entities, name-sorted, no pagination) on the forwarded-caller JWT, gated on the `inventory` catalog's `asset:manage`, rate-limited, called directly by `inventory-ui` with `inventory-api` keeping no copy; it narrows ADR-0039 (which stays in force for `/authz/users/identities`) for that one audience only, and each further consumer is added to the gate deliberately; rejected: an exact-email decision endpoint (ADR-0035 style), reusing `requireAdmin` `GET /admin/users`, proxying/caching the list in `inventory-api`, and adding search/email to `/authz/users/identities`; escalation trigger: a second consuming app or a user count that makes an unpaginated list unreasonable ; amended by ADR-0063 for the separate `handoff:take`-gated holders listing, which may carry the `unconditioned` bit (see docs/adr/0047-user-directory-endpoint-capability-gated.md)
 - [0048] `auth` is both the issuer of service credentials and a notify-api caller (invitation emails), so it mints its own credential IN PROCESS instead of calling its own `POST /system/service-token` — `sub="system:auth"`, `aud=SERVICE_AUDIENCE`, scope `emails.send`, same better-auth signer and 300 s lifetime, one claim/sign function shared with the endpoint, signer injected in `src/index.ts`; the client id `auth` is RESERVED (a `SERVICE_CLIENTS` entry named `auth` refuses to start, otherwise the holder of that entry's secret could mint tokens indistinguishable from `auth`'s own); rejected: loopback HTTP to its own endpoint with its own client secret (extra hop, spends the endpoint's rate limit, a secret that proves nothing because the verifier is the holder), and keeping the shared token for `auth` alone (it could never be retired, specs/016 US-5) (see docs/adr/0048-auth-mints-own-service-credential-in-process.md)
 - [0049] Every notify-api caller authenticates as itself and the shared token is retired — `auth`, `refund-api`, `estimai-api` and `inventory-api` use scoped 5-minute service JWTs, one scope per capability (`notifications.push`, `emails.send`; estimai-api and inventory-api push only, auth email only, refund-api both), push origin bound per client, one notify-api middleware guards both `/system` routes and logs `caller=<sub>`; retirement is THREE pushes (notify-api and auth accept the new mechanism → callers switch, verified from the caller log → a person deletes the variable from notify-api, the point of no return, undone by restoring it → legacy code, env-doctor, infra and docs removed), because one push redeploys every Railway service in no fixed order; **supersedes the shared-token parts of ADR-0011, ADR-0017 and ADR-0040** and completes ADR-0044's named follow-up; rejected: one scope for both capabilities, a single push, a caller-side fallback to the shared token (keeps it alive, hides a misconfigured client), and per-template binding of the email scope (deferred; trigger: a client that should send only some templates) (see docs/adr/0049-all-notify-callers-scoped-credentials-shared-token-retired.md)
 - [0050] The design system becomes a shared React library, `@operai/ui` in `operai-ui/`, that every frontend compiles FROM SOURCE via a Vite alias + `resolve.dedupe: ['react','react-dom']` + tsconfig `paths` (no build, no publish, no workspace, one React under the MF singleton); `tokens.css` moves into it and `shell/src/styles/tokens.css` becomes a one-line `@import` so `shell/tokens.css` keeps working; components render only library classes (no utilities, no inline colours) and take all copy as props; apps keep thin adapters that bind copy and e2e test ids; adoption is app by app (refund-ui first); rejected: pnpm `link:`/`file:` (second or missing React on Vercel, stale snapshot), a workspace (breaks per-app installs), exposing components via Module Federation (untyped runtime coupling), a private registry (publish step, credentials) (see docs/adr/0050-shared-ui-library-consumed-as-source.md)
@@ -678,6 +717,12 @@ These defaults are optimized for AI coding agents (and humans) working on apps t
 - [0055] `auth POST /authz/app-access-check` also answers by `{ appId, userId }` (exactly one of email/userId; same caller gate, limiter, byte-identical negative and timing floor; probe `id = $1 AND deletedAt IS NULL`) and `GET /authz/users/directory` takes an optional `?appId=` narrowing to holders of `(appId,"access")` — `crm-api` knows only auth ids and the pickers must offer only people who can open the CRM; amends ADR-0035 and ADR-0047, same gate so the audience does not widen (see docs/adr/0055-app-access-check-by-user-id-and-directory-app-filter.md)
 - [0056] An email notice is addressed by user id: a caller sets `email: true` on notify-api's `POST /system/notifications` (and must hold `emails.send` as well as `notifications.push`), and notify-api resolves the active user's address at send time from a new auth endpoint `POST /system/users/contact` (one user per call, service JWT with the new scope `users.contact` held only by `system:notify-api`, rate-limited, logs no id or address) — no copy kept, a deactivated user gets nothing, the generic English `notification_notice` template is built from the notification itself and is unreachable through `/system/emails`; best effort with `emailStatus` sent/failed/skipped, the in-app row always stands; rejected: crm-api looking addresses up itself (a technician lacks `deal:manage`, every tool would repeat it), granting `users.contact` to crm-api, a synced address copy in notify-api, a batch lookup (see docs/adr/0056-notify-api-resolves-email-notice-address-from-auth.md)
 - [0057] crm-api reads its own bucket's object bytes to build an offer — the bounded-read rule of ADR-0043, second caller: the deal PDFs a user appends as annexes (≤ 5, total `sizeBytes` ≤ 20 MiB checked from the DB BEFORE any `getObject`) and the entity's letterhead PDF (≤ 5 MiB, key must match `letterheads/<entity>/<uuid>.pdf` before it is read or deleted); proxying a requested file stays forbidden (ADR-0016) and downloads stay presigned GETs; an unreadable or non-PDF file fails the WHOLE generation with 422 `attachment_unreadable` naming it (no placeholder, the rolled-back transaction keeps the offer number); escalation trigger — a third service reading bytes, a file the user did not choose, or > 25 MiB per request (see docs/adr/0057-crm-api-reads-attachment-bytes-for-offer-annexes.md)
+- [0058] The project module is a seventh tool (`projects-api` :8085, DB `projects` + `projects-ui` :5180, shell route `/projects/$`) — a capability must be checked at the grain of what it protects (this record's entity, this field's owner), never just at the route, and a shared record must never be written from a stale picture; gating reads like writes is the same mistake as gating writes like reads: reads are open to every `projects:access` holder (both entities, ADR-0052 posture); every write on a project or contract is entity-scoped `project:manage` (403 `out_of_scope`, NOT 404 — the caller can read the record; a refused write changes nothing) AND takes `If-Match` (ADR-0038; creates do not), including derived writes (transition, type change, team replacement, end date) and whatever principal runs them (specs/022 hand-off); the Bexio order id is a field owned by another role, so it has its own route and capability `contract:bexio` (`accounting`, unconditioned), accepted by no other route, and no other route reads it to decide anything; contracts are never deleted (DELETE 405 `not_deletable`, they end by an end date); no money anywhere in the module (D14); ids are text cuids; the seed adds the system role `project-manager`, gives `sales` access + entity-scoped manage and `accounting` access + bexio (no new administration role), `employee` nothing; `project:manage` joins `DIRECTORY_GATE_PERMISSIONS` (ADR-0053/0055, no other catalog may declare a `project:manage`) for the PM/team pickers while the list's PM filter reads `GET /project-managers` (access only); rejected: project tables inside crm-api, per-project visibility, a dedicated administration role, deleting a contract, a create-only capability for `sales`; its contract vocabulary is read through ADR-0062 (terms + purchase order, `contract:bexio` → `purchase-order:bexio`) and ADR-0063 (a take needs `handoff:take`) (see docs/adr/0058-projects-tool-shape-and-authorization.md)
+- [0059] A service that needs a narrow fact owned by another permission domain gets it over a narrow, purpose-scoped channel — never by forwarding the user's token (it fails for the users the feature is for), by widening the other domain's access, or by copying the data — and an unanswered question is handled per path, not once (a read degrades, a write that must confirm refuses), in either direction between two tools: projects-api reads CRM companies as `system:projects-api` with the scope `crm.companies.read` (`KNOWN_SERVICE_SCOPES`, ADR-0044/0049 pattern) on crm-api `GET /system/companies` — its first `/system/*` route; `SERVICE_AUDIENCE` JWT only, a user JWT is never accepted, every credential failure is the same 401; returns `{id,name,entity,archived}` and nothing else (`q` non-archived, `ids` ≤ 100 archived included, `limit` default `ids.length` with ids); reads fail soft (`name: null`), a write that must confirm a company is 503 `crm_unavailable`, an unknown or archived company is 422 `company_not_found`; crm-api reading projects would need its own scope and its own route, and specs/022's deals scope is a new scope, never a wider `crm.companies.read`; rejected: forwarding the user JWT, snapshotting company names, granting OPS `crm:access` (see docs/adr/0059-projects-api-reads-crm-companies-with-scoped-service-credential.md)
+- [0060] Two tools that own different facts see each other's by asking the owner live over a scoped service credential — never by a copy or an event that must be kept right — and "could not find out" never shows as "nothing there", and "still free?" is decided by the store, not by a check: `crm.deals.read` (crm-api `GET /system/deals`: `stage=won` or `ids`, no amount/currency/owner/notes, won capped at 500 with `truncated`) and `projects.purchase-orders.read` (projects-api `GET /system/purchase-orders?dealIds=`: project + Bexio order id; amended 2026-11-05 from the 2026-11-04 `contracts` names, ADR-0062) behind `system:<client>` service JWTs, a user JWT never accepted, one identical 401; the to-start queue and the "deal is no longer won" notice are computed at read time (no event, sync or backfill, D17); the queue and a take fail closed (503 `crm_unavailable`), a project/purchase order and the CRM deal page fail soft with unknown kept distinct from none (`deal.won: null` vs `false`, `deliveryKnown: false` vs `delivery: null`); crm-api reads projects-api through its OWN token provider, so `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` are a pair required with `NOTIFY_INTERNAL_URL` or `PROJECTS_INTERNAL_URL`; a take re-reads the deal's live stage and writes the project, its terms and its purchase order in one transaction — the unique `purchase_order.dealId` index, not the pre-check, arbitrates a race (409 `deal_taken`, nothing left behind); amended 2026-11-05: a third channel `crm.contacts.read` (crm-api `GET /system/contacts`, the PO's referent, personal data, ADR-0063) and no attach; rejected: syncing or eventing deals into projects-api, forwarding the user JWT, reusing notify's token provider (see docs/adr/0060-projects-handoff-live-reads-between-crm-and-projects-over-service-credentials.md)
+- [0061] A figure has one author, and a value whose authority is elsewhere is never client input on ANY write path (create, update, import) — estimate-backed contract man-days are copied once from the estimate: a take sets them, `PATCH` keeps them, the client OMITS the member and sending it, even as `null`, is 422 `estimated_man_days_from_estimate` (omitted is never `null`); EstimAI 404 → `null` with `estimateId` kept, EstimAI unreachable or unconfigured → 503 and nothing written; estimai-api's first `/system/*` route, `GET /system/estimates/{id}/summary` (scope `estimai.estimates.read`, `SERVICE_AUDIENCE` JWT only, one identical 401), reads any estimate regardless of owner or collaborators — the one query not scoped to `sub` — so its answer is only `{ id, name, manDays }`, never content; `manDays` = Expected effort without AI gain, the unrounded sum rounded half up ONCE to one decimal, the formula a byte-identical copy of crm-api `src/offers/scope.ts` (`manDays` group in `scripts/check-shared-copies.ts`; change both in one commit); the router is mounted BEFORE the user-JWT estimates routers in `estimai-api/src/index.ts` (mounted after, it meets their wildcard `jwtMiddleware` and a service credential gets 401); rejected: forwarding the user JWT, a snapshot in crm-api when an estimate is marked ready, the latest offer's figure (see docs/adr/0061-estimai-api-first-system-route-estimate-man-days-for-a-service-credential.md)
+- [0062] A project has two OPTIONAL records, never one record with a half-null side: `project_terms` (0..1, `projectId` UNIQUE — the old `contract` table minus its deal/company/origin/Bexio columns, every 021 terms CHECK kept as `terms_*`, `terms_not_internal`) for ANY project that has terms, and `purchase_order` (0..1, `projectId` UNIQUE, `dealId` UNIQUE NOT NULL, `estimateId`, `bexioOrderId`, `referentContactId`, `opsManagerId` NOT NULL) only for what a won deal brings; a PO is born only from the take (project + terms + PO in ONE transaction) — no route attaches, adds a PO to an existing project or changes a type, so "a hand-made project never has a PO" is "no route creates one" (PO routes `404 purchase_order_not_found`), and a PO is never deleted; a hand-made project may carry terms (`POST`/`PATCH`/`DELETE /projects/{id}/terms`; `409 terms_exist`/`terms_required`/`terms_not_allowed`), the nested 021 wire shape `{ startDate, endDate?, terms: <per-type> }` is kept, `projectManagerId` is nullable only while a PO exists, and the company CHECK is `("companyId" IS NULL) = ("type" = 'internal')` (`saas` is a client type); "contract" is retired in every checked identifier (`contract:bexio` → `purchase-order:bexio`, the contracts service scope → `projects.purchase-orders.read`, the old one refused at startup, `/system/contracts` → `/system/purchase-orders`); the migration is STACKED on PR #7 — 021's `20261103163000_init` kept byte-for-byte, one new `20261105120000_purchase_order` that opens with a guard REFUSING to run if `contract` has any row or any `saas` project exists (refuse instead of convert: data the new model cannot represent unambiguously is handled by hand); rejected: terms as columns of `project`, one `purchase_order` table with nullable deal columns (the hand-entered contract again), keeping the word "contract", converting data in the migration, rewriting 021's init (see docs/adr/0062-terms-and-purchase-order-two-optional-records-of-a-project-contract-retired.md)
+- [0063] A permission about people is decided at the grain of what it protects and never by a copy: `handoff:take` (sales own entity, admin unconditioned: the queue and the take, with `project:manage` for the deal's entity — `403 forbidden` without any, `403 out_of_scope` for another entity) and `purchase-order:receive` (the new `ops-manager` role own entity, admin unconditioned: be a PO's ops-manager); auth `GET /authz/users/holders?resource=purchase-order&action=receive&entity=` (forwarded caller JWT, gate `HOLDERS_GATE_PERMISSIONS = [handoff:take]` — NOT the directory gate —, own limiter counting 403s, `no-store`, strict query, the pair pinned server-side so any other is `400 unsupported_permission`) answers `{ users: [{ id, name, unconditioned }] }` — no email, no entity — for active users who hold the pair for that entity (mirroring `scopeFor`, fail closed) and `projects:access`; **amends ADR-0047** for this endpoint only by allowing the `unconditioned` bit (the directory's four fields, gate and "no role or other attribute" rule are unchanged; a further field is a change to ADR-0063); the admin override `oversees` = `scopeFor(permissions, "purchase-order", "receive", entity).length === ENTITIES.length`, NEVER `hasCapability` (it ignores conditions); the project manager of an awaiting project is picked only by the PO's `opsManagerId` read from the row who STILL holds `receive` for the entity, or by an `oversees` admin (`403 not_ops_manager`), check and write under the `If-Match` CAS, `planned` → `active` refused while awaiting; the ops-manager is chosen from auth live at the form and re-validated at the take (`422 ops_manager_invalid`, auth down `503 identity_unavailable`, fail closed, no cache); security rules (T18): the referent is an id on the PO, its name/job title/email/phone read LIVE from crm-api `GET /system/contacts` (`crm.contacts.read`, projects-api only; per-mode minimal shapes via explicit `select`, `ids` ≤ 20) once per project read and only when set, NEVER stored or cached, `Cache-Control: no-store` on every referent/contact answer, the same predicate at read and set (exact id + the project's/deal's company; one identical `422 referent_invalid` body), company derived by the server never sent by the client, no contact data in `/system/purchase-orders`, notifications, logs, error bodies or OpenAPI examples, one structured log line per take/referent change/pick, UI memory-only with text rendering and fixed-scheme `mailto:`/`tel:`; rejected: role-name filters on the directory, the directory gate, a reassign-PO flow, `hasCapability` for the override, copying or caching the referent, granting OPS `crm:access` (see docs/adr/0063-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047.md)
 - [0071] Access is decided where a principal comes into being, never after — only a live pending invitation (verified email) or the bootstrap admin creates a user, and both only for an allowed-domain email, in better-auth `user.create.before`; an outside-`ALLOWED_SIGNUP_DOMAINS` email (welld.ch, welld.it) is refused even with an invitation; everyone else is recorded in a separate `access_request` waiting list that grants nothing, and approving it creates an invitation via specs/006 (never a user, no second activation path); a new user-creating path (import, SSO, test endpoint) must be deliberate and listed, and no test exemption goes inside the gate; amends specs/004 AC-6.3 and specs/006 Non-goals (see docs/adr/0071-access-only-by-invitation-waiting-list.md)
 - [0072] A best-effort notice must not block, undo or leak through the action it announces — `system:auth` gains `notifications.push` bound to origin `admin` (amends ADR-0048/0049 "auth: email only") to notify every effective admin of a new access request, in-app plus `email: true` (notify-api resolves addresses, ADR-0056; auth sends none), not awaited by the sign-in, failures logged; a new scope ships with its origin binding, and any other origin revisits the ADR (see docs/adr/0072-auth-pushes-admin-notifications.md)
 - [0073] A state written in two places drifts, and a state replicated by messages must survive loss, repetition and reordering — an estimate is finished only when closed in EstimAI (owner/editor, If-Match, read-only until reopened); estimai-api pushes a content-free notice `{estimateId, event, version, at, byUserId}` to crm-api `POST /system/estimate-notices` with its service JWT (new scope `estimate-notices.send`, ADR-0044/0049), best effort; crm-api accepts only `system:estimai-api`, applies under a row lock only a newer version (`estimaiVersion`, reset on relink), completes or reopens the task and notifies; the CRM's own Mark ready/Reopen are removed, the admin override stays; a second follower, content in the notice or guaranteed delivery revisits it (see docs/adr/0073-estimai-closes-the-estimate-crm-follows.md)

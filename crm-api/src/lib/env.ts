@@ -18,8 +18,10 @@ const S3_KEYS = [
   "CRM_S3_SECRET_ACCESS_KEY",
 ] as const;
 
-// specs/019: the notifier's credentials, all or none (decisions D-7).
-const NOTIFY_KEYS = ["NOTIFY_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"] as const;
+// specs/019: the notifier's credentials, all or none (decisions D-7). specs/022: the same service
+// client also reads projects-api (PROJECTS_INTERNAL_URL), so the client is the pair
+// SERVICE_CLIENT_ID + SERVICE_CLIENT_SECRET, required with either URL and never alone.
+const CLIENT_KEYS = ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"] as const;
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
@@ -67,12 +69,20 @@ const envSchema = z.object({
   // JWT (`notifications.push emails.send`) at auth. Without the group the
   // notifier is a no-op.
   NOTIFY_INTERNAL_URL: z.string().url("NOTIFY_INTERNAL_URL must be a valid URL").optional(),
+  // ─── projects-api (specs/022, ADR-0060) ────────────────────────────────────
+  // The deal page reads its project and Bexio order id from `GET /system/purchase-orders` as ITSELF,
+  // with the same service client as the notifier (scope `projects.purchase-orders.read`). Optional:
+  // without it the deal page says the delivery side is unavailable and everything else works.
+  PROJECTS_INTERNAL_URL: z.string().url("PROJECTS_INTERNAL_URL must be a valid URL").optional(),
   SERVICE_CLIENT_ID: z.string().min(1).optional(),
   SERVICE_CLIENT_SECRET: z.string().min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters").optional(),
-  // ─── estimai-api notices (specs/018 AC-3.3, ADR-0073) ───────────────────────
-  // The `aud` of the service JWTs auth mints (never AUTH_AUDIENCE). Without it
-  // `POST /system/estimate-notices` refuses every call: it fails closed.
-  SERVICE_AUDIENCE: z.string().min(1).optional(),
+  // ─── Service credentials accepted on /system/* (specs/021, ADR-0059; specs/018 AC-3.3, ADR-0073) ──
+  // The `aud` of the scoped service JWTs `auth` mints (`POST /system/service-token`);
+  // byte-identical to auth's and notify-api's, and different from AUTH_AUDIENCE so a
+  // user JWT is never a system credential. Optional so the service starts without it;
+  // unset, every /system/* request (`/system/companies`, `/system/estimate-notices`, …)
+  // is a 401 (fail closed). tools/env-doctor lists it as required in production.
+  SERVICE_AUDIENCE: z.string().min(1, "SERVICE_AUDIENCE must not be empty").optional(),
   CRM_S3_EU_ENDPOINT_HOSTS: z
     .string()
     .optional()
@@ -86,10 +96,14 @@ const envSchema = z.object({
   if (val.SERVICE_AUDIENCE !== undefined && val.SERVICE_AUDIENCE === val.AUTH_AUDIENCE) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["SERVICE_AUDIENCE"], message: "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR-0044)" });
   }
-  const notifySet = NOTIFY_KEYS.filter((key) => val[key] !== undefined);
-  if (notifySet.length > 0 && notifySet.length < NOTIFY_KEYS.length) {
-    for (const key of NOTIFY_KEYS.filter((k) => val[k] === undefined)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required when any of NOTIFY_INTERNAL_URL, SERVICE_CLIENT_ID, SERVICE_CLIENT_SECRET is set` });
+  const urlSet = val.NOTIFY_INTERNAL_URL !== undefined || val.PROJECTS_INTERNAL_URL !== undefined;
+  const clientSet = CLIENT_KEYS.some((key) => val[key] !== undefined);
+  if (urlSet || clientSet) {
+    for (const key of CLIENT_KEYS.filter((k) => val[k] === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `${key} is required when NOTIFY_INTERNAL_URL, PROJECTS_INTERNAL_URL or the other SERVICE_CLIENT_* is set` });
+    }
+    if (!urlSet) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["NOTIFY_INTERNAL_URL"], message: "NOTIFY_INTERNAL_URL or PROJECTS_INTERNAL_URL is required when SERVICE_CLIENT_* is set" });
     }
   }
   const set = S3_KEYS.filter((key) => val[key] !== undefined);

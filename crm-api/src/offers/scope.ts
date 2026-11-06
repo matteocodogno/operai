@@ -14,29 +14,17 @@
  * as man-days in tenths (integers), summed unrounded and rounded once per line,
  * like the money rule of ADR-0025. `scope.test.ts` pins shared vectors against
  * estimai-ui's `pertCalc`.
+ *
+ * The block between the `shared-copy:begin manDays` markers (the Expected-effort arithmetic
+ * and `totalManDays`) is copied byte for byte into estimai-api's `src/system/manDays.ts`,
+ * which serves a contract's man-days figure (specs/022, ADR-0061); `scripts/check-shared-
+ * copies.ts` fails when the two drift. Change both in the same commit.
  */
 
 import type { EstimateDocument } from "../lib/estimai";
 
+// shared-copy:begin manDays
 export const DEFAULT_AI_GAIN = 0.3;
-
-export interface ScopeEpic {
-  readonly epic: string;
-  /** Man-days × 10, rounded half up once. */
-  readonly manDaysTenths: number;
-}
-
-export interface ScopeRelease {
-  readonly name: string;
-  readonly epics: readonly ScopeEpic[];
-  readonly manDaysTenths: number;
-}
-
-export interface Scope {
-  readonly aiAssisted: boolean;
-  readonly releases: readonly ScopeRelease[];
-  readonly manDaysTenths: number;
-}
 
 const num = (value: number | string | undefined): number => {
   const parsed = Number(value);
@@ -65,6 +53,38 @@ export function expectedOf(
   return expected * (1 - gain);
 }
 
+export const globalAiGainOf = (estimate: EstimateDocument): number => {
+  const { aiGain } = estimate.content.params;
+  return aiGain !== undefined && aiGain !== "" ? num(aiGain) : DEFAULT_AI_GAIN;
+};
+
+const sum = (values: Iterable<number>): number => [...values].reduce((total, value) => total + value, 0);
+
+/** The estimate's total expected man-days, unrounded: round it once, where it is printed. */
+export function totalManDays(estimate: EstimateDocument, aiAssisted: boolean): number {
+  const globalAiGain = globalAiGainOf(estimate);
+  return sum(estimate.content.acts.map((act) => expectedOf(act, { aiAssisted, globalAiGain })));
+}
+// shared-copy:end manDays
+
+export interface ScopeEpic {
+  readonly epic: string;
+  /** Man-days × 10, rounded half up once. */
+  readonly manDaysTenths: number;
+}
+
+export interface ScopeRelease {
+  readonly name: string;
+  readonly epics: readonly ScopeEpic[];
+  readonly manDaysTenths: number;
+}
+
+export interface Scope {
+  readonly aiAssisted: boolean;
+  readonly releases: readonly ScopeRelease[];
+  readonly manDaysTenths: number;
+}
+
 const tenths = (manDays: number): number => Math.round(manDays * 10 + Number.EPSILON);
 
 export type EstimateActivity = EstimateDocument["content"]["acts"][number];
@@ -83,11 +103,6 @@ export function releaseKeyOf(estimate: EstimateDocument, act: EstimateActivity):
     ""
   );
 }
-
-export const globalAiGainOf = (estimate: EstimateDocument): number => {
-  const { aiGain } = estimate.content.params;
-  return aiGain !== undefined && aiGain !== "" ? num(aiGain) : DEFAULT_AI_GAIN;
-};
 
 interface ReleaseGroup {
   readonly name: string;
@@ -127,8 +142,6 @@ function groupByRelease(
   return result;
 }
 
-const sum = (values: Iterable<number>): number => [...values].reduce((total, value) => total + value, 0);
-
 /**
  * Groups the estimate's activities by release (in the estimate's release
  * order) and epic (first-seen order). Activities of an unknown release are
@@ -154,12 +167,6 @@ export function releaseManDays(
   options: { aiAssisted: boolean; unassignedLabel: string; noEpicLabel: string },
 ): { name: string; manDays: number }[] {
   return groupByRelease(estimate, options).map((group) => ({ name: group.name, manDays: sum(group.epics.values()) }));
-}
-
-/** The estimate's total expected man-days, unrounded: round it once, where it is printed. */
-export function totalManDays(estimate: EstimateDocument, aiAssisted: boolean): number {
-  const globalAiGain = globalAiGainOf(estimate);
-  return sum(estimate.content.acts.map((act) => expectedOf(act, { aiAssisted, globalAiGain })));
 }
 
 /** Round half up to a whole number, once (ADR-0025 posture). */

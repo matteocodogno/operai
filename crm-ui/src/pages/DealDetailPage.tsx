@@ -16,6 +16,7 @@ import ActivityTimeline from '../components/ActivityTimeline'
 import AttachmentsCard from '../components/AttachmentsCard'
 import { DealStageBadge, EntityBadge } from '../components/Badges'
 import DealFormDialog from '../components/DealFormDialog'
+import DeliveryCard from '../components/DeliveryCard'
 import EstimateCard from '../components/EstimateCard'
 import { LoadFailure, Loading, Saved, StaleWriteBanner } from '../components/LoadState'
 import MoveStageDialog from '../components/MoveStageDialog'
@@ -91,7 +92,11 @@ export default function DealDetailPage() {
   const showsMoney = financials && current.amountCents !== undefined && current.currency !== undefined
   const hasAmount = showsMoney && current.amountCents !== null
   const updated = (next: Deal, message: string) => {
-    deal.replace([next, probabilities])
+    // Only `GET /deals/{id}` carries the delivery; a write answers a plain deal, so keep what was read.
+    deal.replace([
+      { ...next, delivery: current.delivery ?? null, deliveryKnown: current.deliveryKnown ?? true },
+      probabilities,
+    ])
     setSaved(message)
     setStale(false)
   }
@@ -215,6 +220,7 @@ export default function DealDetailPage() {
             onStale={onStale}
           />
         )}
+        <DeliveryCard delivery={current.delivery ?? null} deliveryKnown={current.deliveryKnown ?? true} />
         <AttachmentsCard dealId={current.id} />
         <ActivityTimeline
           key={timelineRevision}

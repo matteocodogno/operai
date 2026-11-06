@@ -54,6 +54,11 @@ export default defineConfig({
       // specs/017-crm: the crm remote's tool entry and version.
       'crm/App': fileURLToPath(new URL('./src/federation/__stubs__/crmApp.tsx', import.meta.url)),
       'crm/version': fileURLToPath(new URL('./src/federation/__stubs__/crmVersion.ts', import.meta.url)),
+      // specs/021-projects: the projects remote's tool entry and version.
+      'projects/App': fileURLToPath(new URL('./src/federation/__stubs__/projectsApp.tsx', import.meta.url)),
+      'projects/version': fileURLToPath(
+        new URL('./src/federation/__stubs__/projectsVersion.ts', import.meta.url),
+      ),
     },
   },
   test: {

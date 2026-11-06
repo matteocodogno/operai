@@ -57,7 +57,10 @@ const renderDeal = async (scope: string[], extra: Record<string, FakeHandler> = 
   dealGets = 0
   apiFetch.mockImplementation(
     fakeApi({
-      'GET /scope': () => ({ status: 200, body: { deal: scope, canErase: false, financials: true, managesAll: false } }),
+      'GET /scope': () => ({
+        status: 200,
+        body: { deal: scope, canErase: false, financials: true, managesAll: false },
+      }),
       'GET /deals/d1': () => {
         dealGets += 1
         return { status: 200, body: DEAL }
@@ -96,9 +99,13 @@ describe('DealDetailPage', () => {
     await renderDeal(['welld_ch'])
     fireEvent.click(screen.getByTestId('crm-deal-move'))
     const dialog = await screen.findByRole('dialog', { name: 'Move to stage' })
-    expect(dialog.textContent).toContain('The estimate is ready; the offer is being written or revised. Win probability 50%.')
+    expect(dialog.textContent).toContain(
+      'The estimate is ready; the offer is being written or revised. Win probability 50%.',
+    )
     fireEvent.change(within(dialog).getByLabelText('Stage'), { target: { value: 'negotiation' } })
-    expect(dialog.textContent).toContain('The client has the offer: waiting for an answer or agreeing changes. Win probability 75%.')
+    expect(dialog.textContent).toContain(
+      'The client has the offer: waiting for an answer or agreeing changes. Win probability 75%.',
+    )
   })
 
   it('outside the entity scope the deal is read-only (AC-3.5)', async () => {
@@ -106,6 +113,65 @@ describe('DealDetailPage', () => {
     expect(screen.queryByTestId('crm-deal-move')).toBeNull()
     expect(screen.queryByTestId('crm-deal-edit')).toBeNull()
     expect(screen.getByText(/You can see this deal but not change it/)).not.toBeNull()
+  })
+
+  describe('Delivery card (specs/022 AC-3.4)', () => {
+    const withDelivery = (extra: Record<string, unknown>): Record<string, FakeHandler> => ({
+      'GET /deals/d1': () => ({ status: 200, body: { ...DEAL, stage: 'won', ...extra } }),
+    })
+
+    it('shows the project and the Bexio order id of a deal that feeds a project, read-only', async () => {
+      await renderDeal(
+        ['welld_ch'],
+        withDelivery({
+          delivery: { project: { id: 'p1', name: 'Platform rebuild — delivery' }, bexioOrderId: 'AB-2026-0042' },
+          deliveryKnown: true,
+        }),
+      )
+      const card = screen.getByTestId('crm-delivery-card')
+      expect(card.textContent).toContain('Platform rebuild — delivery')
+      expect(card.textContent).toContain('AB-2026-0042')
+      expect(within(card).queryByRole('button')).toBeNull()
+      expect(within(card).queryByRole('textbox')).toBeNull()
+    })
+
+    it('shows "—" for a contract without a Bexio order id', async () => {
+      await renderDeal(
+        ['welld_ch'],
+        withDelivery({
+          delivery: { project: { id: 'p1', name: 'Platform rebuild — delivery' }, bexioOrderId: null },
+          deliveryKnown: true,
+        }),
+      )
+      expect(screen.getByTestId('crm-delivery-facts').textContent).toContain('—')
+    })
+
+    it('has no card for a deal no project carries', async () => {
+      await renderDeal(['welld_ch'], withDelivery({ delivery: null, deliveryKnown: true }))
+      expect(screen.queryByTestId('crm-delivery-card')).toBeNull()
+    })
+
+    it('says the delivery side is unavailable when projects-api did not answer, and the deal still shows', async () => {
+      await renderDeal(['welld_ch'], withDelivery({ delivery: null, deliveryKnown: false }))
+      expect(screen.getByTestId('crm-delivery-unavailable').textContent).toMatch(/unavailable/i)
+      expect(screen.getByTestId('crm-deal-facts')).not.toBeNull()
+    })
+
+    it('keeps the card after a write, whose answer carries no delivery', async () => {
+      await renderDeal(['welld_ch'], {
+        ...withDelivery({
+          delivery: { project: { id: 'p1', name: 'Platform rebuild — delivery' }, bexioOrderId: 'AB-2026-0042' },
+          deliveryKnown: true,
+        }),
+        'POST /deals/d1/stage': () => ({ status: 200, body: { ...DEAL, stage: 'negotiation', version: 5 } }),
+      })
+      fireEvent.click(screen.getByTestId('crm-deal-move'))
+      const dialog = await screen.findByRole('dialog', { name: 'Move to stage' })
+      fireEvent.change(within(dialog).getByLabelText('Stage'), { target: { value: 'negotiation' } })
+      fireEvent.click(within(dialog).getByTestId('crm-stage-dialog-submit'))
+      await screen.findByTestId('crm-saved')
+      expect(screen.getByTestId('crm-delivery-card').textContent).toContain('AB-2026-0042')
+    })
   })
 
   it('a stale move shows the reload banner, and Reload fetches the deal again', async () => {

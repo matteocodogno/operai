@@ -1,0 +1,337 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.57.1",
+  "run_id": "2026-11-06T09-00-00Z-orchestrate-022-projects-handoff",
+  "command": "orchestrate",
+  "feature": "022-projects-handoff",
+  "rigor": "mvp",
+  "rigor_recorded": null,
+  "started": "2026-11-04T08:30:00Z",
+  "finished": "2026-11-06T08:45:37Z",
+  "agents": [
+    {
+      "agent": "product-owner",
+      "tasks": [],
+      "outcome": "completed",
+      "commits": [],
+      "note": "steering amendment D37–D42 (28 ACs), grilling amendment D43–D51 (35 ACs), D52 AC-6.1 (36), D53 AC-6.2 + AC-7.1 (38); gate 1 re-approved 2026-11-05 and 2026-11-06"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T18"
+      ],
+      "outcome": "PASS-WITH-CHANGES",
+      "commits": [],
+      "note": "design review: 5 medium folded into the contract before T20/T21/T24/T26"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T19",
+        "T20"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "0fb8176",
+        "15e6143"
+      ],
+      "note": "auth catalog/role/scopes; holders listing (drift: HTTP tests in src/auth)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T21"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "3c0b523"
+      ],
+      "note": "crm-api /system/contacts (drift: matrix exemption)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T22"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "8c829c2",
+        "9e06cf1"
+      ],
+      "note": "notify origin projects (drift: ORIGIN_APPS enum, follow-up commit)"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T23",
+        "T24",
+        "T25",
+        "T26",
+        "T27",
+        "T28",
+        "T29"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "07fb8ae",
+        "5f5455f",
+        "7efeb24",
+        "881ade1",
+        "f7c72bd",
+        "f7cd9af",
+        "f8aaf73"
+      ],
+      "note": "projects-api model + guarded migration on top of #7, take rules, notification, referent, pick, hand-made, matrix"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T30",
+        "T31",
+        "T32",
+        "T33"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "0dc705e",
+        "2393f84",
+        "32a0e9d",
+        "393c447",
+        "4f706fb"
+      ],
+      "note": "projects-ui rename, take form, PO card, list and hand-made create"
+    },
+    {
+      "agent": "backend-dev",
+      "tasks": [
+        "T34"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "c17d77c"
+      ],
+      "note": "ADR-0062, ADR-0063 (amends 0047), READMEs, changesets"
+    },
+    {
+      "agent": "devops",
+      "tasks": [
+        "T35"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "74c038c",
+        "d5588da"
+      ],
+      "note": "env-doctor manifest/templates; env examples applied by the developer's script"
+    },
+    {
+      "agent": "orchestrator",
+      "tasks": [
+        "T36"
+      ],
+      "outcome": "completed",
+      "commits": [],
+      "note": "local DBs reset and reseeded (destructive steps run by the developer)"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T37",
+        "T38"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "403caba",
+        "8da6dd6",
+        "a111f9f"
+      ],
+      "note": "remote routers per mount + basepath filter; history subscription for the whole mount"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T39"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "44e84c6"
+      ],
+      "note": "field errors clear on change in four dialogs"
+    },
+    {
+      "agent": "frontend-dev",
+      "tasks": [
+        "T17 fix round 1",
+        "T17 fix round 2"
+      ],
+      "outcome": "completed",
+      "commits": [
+        "4b5c402",
+        "5d264be",
+        "e8faa28"
+      ],
+      "note": "D1 banner wrap, D2/A1; blank page after T37 (keyed RouterProvider)"
+    },
+    {
+      "agent": "owasp-reviewer",
+      "tasks": [
+        "T17"
+      ],
+      "outcome": "PASS",
+      "commits": [
+        "4b5c402",
+        "5d264be",
+        "e8faa28"
+      ],
+      "note": "pre-merge implementation review: 0 critical/high/medium, 8 lows"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T17"
+      ],
+      "outcome": "FAIL",
+      "commits": [
+        "4b5c402",
+        "5d264be",
+        "e8faa28"
+      ],
+      "note": "round 1: AC-6.1 (T37) and D1"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T17"
+      ],
+      "outcome": "PASS",
+      "commits": [
+        "4b5c402",
+        "5d264be",
+        "e8faa28"
+      ],
+      "note": "round 2: 36/36; advisory D4, D2 remainder, N1 → D53"
+    },
+    {
+      "agent": "quality-engineer",
+      "tasks": [
+        "T17"
+      ],
+      "outcome": "BLOCKED→PASS",
+      "commits": [
+        "4b5c402",
+        "5d264be",
+        "e8faa28"
+      ],
+      "note": "round 3: 38/38, gates green; BLOCKED only on main's ADR-0073 dev smoke, ruled not required for 022 by the user; R1 accepted ('ignora')"
+    }
+  ],
+  "drift_events": [
+    {
+      "source": "user",
+      "kind": "steering",
+      "detail": "queue sales-only, contract→purchase order 0..1, no attach, referent, ops-manager (D37–D42); grilling D43–D51",
+      "resolution": "gate 1 re-opened, spec amended by the PO, tasks re-synced (T18–T36)"
+    },
+    {
+      "source": "user",
+      "kind": "scope-add",
+      "detail": "D52 browser back across modules (pre-existing)",
+      "resolution": "AC-6.1, T37"
+    },
+    {
+      "source": "user",
+      "kind": "scope-add",
+      "detail": "D53 in-module back/forward (pre-existing) and field errors (D2 remainder)",
+      "resolution": "AC-6.2, AC-7.1, T38, T39"
+    },
+    {
+      "source": "user",
+      "kind": "constraint",
+      "detail": "022 PR stacked on PR #7: 021's migration kept, guarded purchase-order migration on top",
+      "resolution": "T23 contract amended mid-task"
+    },
+    {
+      "source": "agents",
+      "kind": "touch-list",
+      "detail": "touch lists amended for T20, T21, T22, T24, T26 (files the contract implied); Terms wire shape clarified (nested, If-Match); T28 400 vs 422",
+      "resolution": "tasks.md clarified in place"
+    }
+  ],
+  "worktree": {
+    "mode": "worktree",
+    "note": "projects-api / projects-ui / docs / env-doctor / UI fixes in agent worktrees, integrated by rebase + --ff-only; auth, crm-api, notify in the main tree (their tests need direnv env that the guard forbids carrying in)"
+  },
+  "collision_events": [],
+  "env_faults": [
+    {
+      "agent": "backend-dev",
+      "class": "secret env",
+      "detail": "auth SERVICE_CLIENTS still carried the retired scope projects.contracts.read; auth refused to start",
+      "resolved_by": "developer ran the scratchpad env script"
+    },
+    {
+      "agent": "backend-dev",
+      "class": "database",
+      "detail": "projects_test could not be dropped by the agent (destructive SQL guard)",
+      "resolved_by": "developer dropped/recreated it"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "database",
+      "detail": "dev crm 6 migrations behind main; CRM UI 500",
+      "resolved_by": "developer ran db:deploy"
+    },
+    {
+      "agent": "orchestrator",
+      "class": "dependencies",
+      "detail": "auth node_modules from pnpm overlaid by bun install after main moved auth to bun.lock: 26 type errors",
+      "resolved_by": "bun install --force"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "database",
+      "detail": "main's auth test-auth suite afterAll deletes every @operai.test user of its DB; running auth tests on the shared operai_auth wiped all dev personas",
+      "resolved_by": "personas restored from the 2026-11-05 backup with original ids; auth tests moved to a seeded operai_auth_test"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "runtime",
+      "detail": "Node 26 on PATH instead of the pinned 24: Web Storage tests fail in shell and estimai-ui",
+      "resolved_by": "not a code defect; green on Node 24.22.1"
+    },
+    {
+      "agent": "quality-engineer",
+      "class": "secret env",
+      "detail": "main's ADR-0073 needs estimai-api CRM_INTERNAL_URL + estimate-notices.send locally",
+      "resolved_by": "row ruled not required for 022 by the user"
+    }
+  ],
+  "fix_rounds": 2,
+  "verdicts": {
+    "qe": "PASS",
+    "security": "PASS"
+  },
+  "security": {
+    "dispatched": true,
+    "matched_rules": [
+      "auth/**",
+      "**/auth/**",
+      "token",
+      "credential",
+      "jwt",
+      "permission",
+      "session",
+      "**/migrations/**"
+    ],
+    "notes": [
+      "T18 design review PASS-WITH-CHANGES (5 medium folded in)",
+      "pre-merge review PASS, 8 lows recorded in security-review.md"
+    ]
+  },
+  "result": "done — 38/38 ACs; QE round 3 BLOCKED only on an out-of-scope main smoke (user: not required); advisory R1 accepted by the user",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
