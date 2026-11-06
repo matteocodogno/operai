@@ -531,7 +531,7 @@ describe("env-doctor checker — meetings (specs/021)", () => {
   const meetingsRegistry = (scope = "notifications.push host-notices.send", secret = CLIENT_SECRET_MEET) =>
     JSON.stringify({
       "inventory-api": { secret: CLIENT_SECRET, scope: "notifications.push" },
-      "estimai-api": { secret: CLIENT_SECRET_EST, scope: "notifications.push" },
+      "estimai-api": { secret: CLIENT_SECRET_EST, scope: "notifications.push estimate-notices.send" },
       "refund-api": { secret: CLIENT_SECRET_REF, scope: "notifications.push emails.send" },
       "meetings-api": { secret, scope },
     });
