@@ -1,7 +1,7 @@
 ---
 spec: 021
 generated: 2026-11-04
-synced: 2026-11-05
+synced: 2026-11-06
 ---
 
 # Tasks: Meetings — record, transcribe, summarise and question meetings
@@ -666,9 +666,9 @@ database after `bun run db:deploy`.
 - [x] T103: [QE] Live eval on Vertex. `evals/run.ts --live` builds the Vertex model (explicit key or a WIF credential file; S2/S3 applied). The tests check the Vertex module is loaded only in the live branch. The meetings-api README covers env (§ G-7) and release (`MEETINGS_VERTEX_MODEL_ID`) — refs: AC-7.12, AC-9.7 — deps: T100
   - touch: `meetings-api/evals/run.ts`, `meetings-api/evals/eval.test.ts`, `meetings-api/README.md`
   - done when: `bun run eval` (fake) exits 0; `bun test evals/eval.test.ts` passes, including "refuses without the Vertex configuration, naming the variables and no values" and "location `global` refused"; `git grep -i bedrock meetings-api/evals meetings-api/README.md` is empty
-- [ ] T104: [OPS] CI. `meetings-eval-live.yml` authenticates by GitHub OIDC WIF (`permissions: id-token: write`, `google-github-actions/auth` pinned by SHA) with the `MEETINGS_EVAL_*` vars of § G-7, keeping the skip-on-schedule / fail-on-dispatch behaviour. The `meetings-eval.yml` guard regex is updated — refs: AC-7.12, AC-9.7 — deps: T103
+- [x] T104: [OPS] CI. `meetings-eval-live.yml` authenticates by GitHub OIDC WIF (`permissions: id-token: write`, `google-github-actions/auth` pinned by SHA) with the `MEETINGS_EVAL_*` vars of § G-7, keeping the skip-on-schedule / fail-on-dispatch behaviour. The `meetings-eval.yml` guard regex is updated — refs: AC-7.12, AC-9.7 — deps: T103
   - touch: `.github/workflows/meetings-eval-live.yml`, `.github/workflows/meetings-eval.yml`
-  - done when: `actionlint` passes on both files; the PR job is green on the branch; a dispatched run without the vars fails naming them
+  - done when: `actionlint` passes on both files; the PR job is green on the branch. (The dispatched-run check moved to T128: GitHub dispatches only a workflow already on the default branch.)
 - [x] T105: [OPS] env-doctor. `meetings-api` required keys and `SECRET_VARS` per § G-7; the seven removed names flagged as retired; the production template updated — refs: AC-4.9 — deps: T95
   - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/meetings-api.env`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/retiredToken.test.ts`
   - done when: `mise run env:doctor` passes on the production templates. The env-doctor tests pass with new cases: missing `MEETINGS_GCP_SERVICE_ACCOUNT_KEY` reported; `AZURE_SPEECH_KEY` present → retired; the key's value never printed
@@ -710,7 +710,7 @@ database after `bun run db:deploy`.
 
 > Re-synced 2026-11-05 from plan § H-14 (approved by the user 2026-11-05). T108's banner and dividers are superseded by T122.
 > T125 (O14, real consented recordings) is a go-live gate: it is NOT a dependency of T92 (user decision 2026-11-05).
-> T104 stays open until a CI run on the pushed branch proves it.
+> T104 closed 2026-11-06: `actionlint` 1.7.12 passes on both workflows and PR #8's `prompt-injection evals (fake model)` job is green. Its dispatched-run check cannot run before the merge (`workflow_dispatch` needs the file on `main`), so it is T128, a post-merge check that is NOT a dependency of T92 (like T125).
 > Re-synced 2026-11-06 after the plan addendum (draft failure.code contract, AC-3.2, already implemented in T28/T30) — no task change.
 > Re-synced 2026-11-05 for spec A8: per-part retries disabled (tries = 1), repetitions never flag a part, same-speaker duplicate rule within a part (overlap: removed unless joined to different speakers) and untimed repeated tails (follow-up commits on T115/T116). No new task; O15 tracks a different-audio retry.
 
@@ -753,6 +753,9 @@ database after `bun run db:deploy`.
 - [ ] T125: [QE] O14 measurement on consented recordings (QH-1): false-gap, missed-gap and false-join rates; bounds confirmed or changed; outcome in a dated note under H-3 (via the orchestrator). **Go-live gate.** — refs: AC-6.11, AC-6.13, AC-6.14, O14 — deps: T124
   - touch: `meetings-api/scripts/measure-transcript-quality.ts`
   - done when: the note records the three rates on ≥ 8 h, and zero false joins (any false join found is filed as a defect and fixed before go-live); any changed bound is a code constant with its test updated
+- [ ] T128: [OPS] Post-merge: dispatch `meetings-eval-live` on `main` without the `MEETINGS_EVAL_*` vars and confirm it fails naming them; then set the vars and confirm a dispatched run passes. **Post-merge check.** — refs: AC-7.12, AC-9.7 — deps: T104
+  - touch: none (GitHub repository variables and a workflow run)
+  - done when: the dispatched run without the vars fails with each missing name in its log, and one with the vars set passes
 - [x] T126: [OPS] ADRs via adr-writer: amend 0067 and 0070, new 0074, follow-up notes on 0062/0064/0069; AGENTS.md ADR lines — refs: AC-6.14, AC-6.11, AC-7.9 — deps: none (after plan approval)
   - touch: `docs/adr/0067-ai-output-structured-validated-plain-text.md`, `docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md`, `docs/adr/0074-meetings-transcript-completeness-detect-retry-mark.md`, `docs/adr/0062-durable-job-runner-work-queued-state-derived.md`, `docs/adr/0064-meetings-api-reads-audio-bytes-third-reader.md`, `docs/adr/0069-meetings-ai-providers-google-cloud-eu.md`, `AGENTS.md`
   - done when: each file carries its amendment or note with the rejected alternatives of H-12; `git grep -n "0074" AGENTS.md` matches the ADR list
