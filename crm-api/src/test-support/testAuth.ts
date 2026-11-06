@@ -204,8 +204,8 @@ const harness: TestAuthHarness = {
       keys: [{ ...publicJwk, use: "sig", alg: "RS256", kid: TEST_KID }],
     });
     // Imported here, not at the top: env.ts validates at import, after the values above.
-    const { setServiceJwksForTests } = await import("../system/serviceAuth");
-    setServiceJwksForTests(localJWKS);
+    const { __setDefaultJwksForTests } = await import("../auth/systemAuth.middleware");
+    __setDefaultJwksForTests(localJWKS);
   },
   async signServiceToken({ sub, scope, audience = TEST_SERVICE_AUDIENCE }) {
     if (!privateKey) throw new Error("harness.init() was not called");

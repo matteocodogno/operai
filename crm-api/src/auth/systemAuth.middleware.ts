@@ -1,5 +1,6 @@
 /**
- * systemAuth middleware (specs/021 T6, AC-11.8; ADR-0044/0049 mechanism, ADR-0059).
+ * systemAuth middleware — the only credential of crm-api's `/system` routes
+ * (specs/021 T6, AC-11.8; specs/018 AC-3.3; ADR-0044/0049 mechanism, ADR-0059).
  * Copied from notify-api/src/system/systemAuth.middleware.ts — the repo has no
  * workspace (ADR-0003), so each resource server owns its copy.
  *
@@ -8,7 +9,8 @@
  * pinned, `aud` = SERVICE_AUDIENCE (never AUTH_AUDIENCE, so a user JWT is not a
  * system credential), the route's scope in the space-delimited `scope` claim,
  * and a `sub` that is on the route's allowlist (`system:meetings-api` for the
- * meeting-host notices). A system sub that is not listed is refused: holding a
+ * meeting-host notices, `system:estimai-api` for the estimate notices of specs/018
+ * AC-3.3, ADR-0073). A system sub that is not listed is refused: holding a
  * service credential is not holding THIS route's.
  *
  * Every failure — no credential, any JWT defect, the wrong scope or sub —
@@ -109,7 +111,7 @@ export const createSystemAuthMiddleware = (opts: SystemAuthOptions) => {
       console.log(`[system-auth] ${c.req.method} ${c.req.path} caller=${sub}`);
     } catch (err) {
       const code = err instanceof joseErrors.JOSEError ? (err.code ?? err.constructor.name) : "JWT_VERIFY_FAILED";
-      console.warn("[system-jwt] verification failed:", code);
+      console.warn("[system-auth] verification failed:", code);
       return unauthorized(c.req.path);
     }
 
