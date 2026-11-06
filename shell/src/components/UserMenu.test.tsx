@@ -66,12 +66,17 @@ async function renderUserMenu(props: UserMenuProps) {
     path: '/account',
     component: () => <p data-testid="account-content">account</p>,
   })
+  const myMeetingsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/my-meetings',
+    component: () => <p data-testid="my-meetings-content">my meetings</p>,
+  })
   const devicesRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/devices',
     component: () => <p data-testid="devices-content">devices</p>,
   })
-  const routeTree = rootRoute.addChildren([indexRoute, accountRoute, devicesRoute])
+  const routeTree = rootRoute.addChildren([indexRoute, accountRoute, devicesRoute, myMeetingsRoute])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
   const displayName = props.user.name || props.user.email || 'Account'
@@ -175,11 +180,13 @@ describe('UserMenu', () => {
 
       const menu = screen.getByRole('menu')
       const items = menu.querySelectorAll('[role="menuitem"]')
-      expect(items).toHaveLength(3)
+      expect(items).toHaveLength(4)
       expect(items[0].textContent).toBe('My profile')
       expect(items[0].getAttribute('href')).toBe('/account')
       expect(items[1].textContent).toBe('My devices')
-      expect(items[2].textContent).toBe('Sign out')
+      expect(items[2].textContent).toBe('My meetings')
+      expect(items[2].getAttribute('href')).toBe('/my-meetings')
+      expect(items[3].textContent).toBe('Sign out')
     })
 
     it('navigates to /account and closes the menu when clicked', async () => {
@@ -223,5 +230,31 @@ describe('UserMenu', () => {
     })
     // The Italian rendering moved to src/italian.test.tsx: the language is now
     // resolved once for the suite (<html lang>), not by this menu at render time.
+  })
+
+  describe('(h) "My meetings" links to /my-meetings (specs/021-meetings, AC-10.1, ADR-0045 shape)', () => {
+    it('is a real link directly after "My devices", visible to any signed-in user', async () => {
+      await renderUserMenu({ user: { name: 'Alice Welld', email: null, image: null }, onSignOut: () => {} })
+      openMenu('Alice Welld')
+
+      const item = screen.getByRole('menuitem', { name: 'My meetings' })
+      expect(item.tagName).toBe('A')
+      expect(item.getAttribute('href')).toBe('/my-meetings')
+      expect(item.previousElementSibling?.textContent).toBe('My devices')
+    })
+
+    it('navigates to /my-meetings and closes the menu when clicked', async () => {
+      const { router } = await renderUserMenu({
+        user: { name: 'Alice Welld', email: null, image: null },
+        onSignOut: () => {},
+      })
+      openMenu('Alice Welld')
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'My meetings' }))
+
+      expect(await screen.findByTestId('my-meetings-content')).not.toBeNull()
+      expect(router.state.location.pathname).toBe('/my-meetings')
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
   })
 })

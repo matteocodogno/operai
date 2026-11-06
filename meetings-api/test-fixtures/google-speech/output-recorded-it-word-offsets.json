@@ -1,0 +1,374 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "Il cliente ha segnalato la documentazione tecnica prima della riunione di lunedì. Il progetto ha completato l'analisi dei rischi con il supporto del reparto legale. Il fornitore richiede ancora il piano di rilascio secondo le priorità di questo mese. Il nuovo sistema richiede ancora l'analisi dei rischi entro venerdì prossimo. Il team di sviluppo richiede ancora le modifiche al contratto",
+          "words": [
+            {
+              "endOffset": "0.120s",
+              "word": "Il",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "0.120s",
+              "endOffset": "0.560s",
+              "word": "cliente",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "0.560s",
+              "endOffset": "0.600s",
+              "word": "ha",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "0.600s",
+              "endOffset": "1.200s",
+              "word": "segnalato",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "1.200s",
+              "endOffset": "1.280s",
+              "word": "la",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "1.280s",
+              "word": "documentazione",
+              "speakerLabel": "0"
+            },
+            {
+              "endOffset": "0.120s",
+              "word": "tecnica",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "0.120s",
+              "endOffset": "0.400s",
+              "word": "prima",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "0.400s",
+              "endOffset": "0.600s",
+              "word": "della",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "0.600s",
+              "endOffset": "1.040s",
+              "word": "riunione",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "1.040s",
+              "endOffset": "1.120s",
+              "word": "di",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "1.120s",
+              "endOffset": "162.840s",
+              "word": "lunedì.",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "176.400s",
+              "endOffset": "12.680s",
+              "word": "Il",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "12.680s",
+              "endOffset": "13.240s",
+              "word": "progetto",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "13.240s",
+              "endOffset": "13.320s",
+              "word": "ha",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "13.320s",
+              "endOffset": "14s",
+              "word": "completato",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "14s",
+              "endOffset": "14.520s",
+              "word": "l'analisi",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "14.520s",
+              "endOffset": "14.680s",
+              "word": "dei",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "14.680s",
+              "endOffset": "15.040s",
+              "word": "rischi",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "15.040s",
+              "endOffset": "15.240s",
+              "word": "con",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "15.240s",
+              "endOffset": "15.320s",
+              "word": "il",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "15.320s",
+              "endOffset": "15.840s",
+              "word": "supporto",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "15.840s",
+              "endOffset": "16s",
+              "word": "del",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "16s",
+              "endOffset": "16.520s",
+              "word": "reparto",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "16.520s",
+              "endOffset": "17.080s",
+              "word": "legale.",
+              "speakerLabel": "0"
+            },
+            {
+              "startOffset": "18.040s",
+              "endOffset": "18.200s",
+              "word": "Il",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "18.200s",
+              "endOffset": "18.720s",
+              "word": "fornitore",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "18.720s",
+              "endOffset": "19.120s",
+              "word": "richiede",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "19.120s",
+              "endOffset": "19.480s",
+              "word": "ancora",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "19.480s",
+              "endOffset": "19.600s",
+              "word": "il",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "19.600s",
+              "endOffset": "19.880s",
+              "word": "piano",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "19.880s",
+              "endOffset": "19.960s",
+              "word": "di",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "19.960s",
+              "endOffset": "20.440s",
+              "word": "rilascio",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "20.440s",
+              "endOffset": "20.840s",
+              "word": "secondo",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "20.840s",
+              "endOffset": "20.960s",
+              "word": "le",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "20.960s",
+              "endOffset": "21.400s",
+              "word": "priorità",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "21.400s",
+              "endOffset": "21.520s",
+              "word": "di",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "21.520s",
+              "endOffset": "21.880s",
+              "word": "questo",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "21.880s",
+              "endOffset": "22.240s",
+              "word": "mese.",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "22.440s",
+              "endOffset": "22.600s",
+              "word": "Il",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "22.600s",
+              "endOffset": "22.880s",
+              "word": "nuovo",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "22.880s",
+              "endOffset": "23.360s",
+              "word": "sistema",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "23.360s",
+              "endOffset": "23.760s",
+              "word": "richiede",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "23.760s",
+              "endOffset": "24.120s",
+              "word": "ancora",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "24.120s",
+              "endOffset": "24.600s",
+              "word": "l'analisi",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "24.600s",
+              "endOffset": "24.760s",
+              "word": "dei",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "24.760s",
+              "endOffset": "25.120s",
+              "word": "rischi",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "25.120s",
+              "endOffset": "25.400s",
+              "word": "entro",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "25.400s",
+              "endOffset": "25.840s",
+              "word": "venerdì",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "25.840s",
+              "endOffset": "26.520s",
+              "word": "prossimo.",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "26.720s",
+              "endOffset": "26.880s",
+              "word": "Il",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "26.880s",
+              "endOffset": "27.120s",
+              "word": "team",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "27.120s",
+              "endOffset": "27.240s",
+              "word": "di",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "27.240s",
+              "endOffset": "27.680s",
+              "word": "sviluppo",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "27.680s",
+              "endOffset": "28.080s",
+              "word": "richiede",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "28.080s",
+              "endOffset": "28.440s",
+              "word": "ancora",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "28.440s",
+              "endOffset": "28.560s",
+              "word": "le",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "28.560s",
+              "endOffset": "29s",
+              "word": "modifiche",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "29s",
+              "endOffset": "29.160s",
+              "word": "al",
+              "speakerLabel": "1"
+            },
+            {
+              "startOffset": "29.160s",
+              "endOffset": "29.760s",
+              "word": "contratto",
+              "speakerLabel": "1"
+            }
+          ]
+        }
+      ],
+      "languageCode": "it-IT"
+    }
+  ],
+  "metadata": {
+    "prompt": "Transcribe the following speech segment with speaker labels in Italian: Follow these specific instructions for formatting the answer:\n* Only output the transcript, with no newlines.\n* When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 100 instead of one hundred etc.\n* Only output the transcript, exactly as said in the speech segment.\n* Do not continue the speech segment.\n* Include everything said in the speech segment.\n* Use mathematical notation where needed, eg. x ^ 6Y.\n* If there is background speech that is not part of the main conversation, discard the background speech and only output the main conversation.\n* If there is no clear speech, just output [BACKGROUND].\nThere may be multiple speakers in the speech segment. Annotate the speakers like spk:1, spk:2, spk:3 and so on. Each speaker annotation starts with spk, followed by a colon and a digit. The speaker annotation should be output after the transcript of that speaker's speech. The digit is the anonymous identity of the speaker and the same speaker should always have the same digit throughout the speech segment. An example transcript with speaker annotation is as follows:\nHello. spk:1 Good morning. spk:2 How are you? spk:1 Respond in the original language of the speech, Italian. Include the end timestamp for each word in ctrl token format using numerals from <ctrl1> to <ctrl64>."
+  }
+}

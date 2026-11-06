@@ -28,6 +28,11 @@ model Notification {
   recipientId String
   title       String
   body        String
+  // Optional Italian variant (specs/021-meetings, ADR-0065). Both set or both
+  // null (the zod boundary requires the pair); the READER picks it from
+  // <html lang>, English title/body stay the fallback.
+  titleIt     String?
+  bodyIt      String?
   severity    String // "info" | "success" | "warning" | "error" (zod-enum at the boundary)
   originApp   String // "estimai" | "refund" | "admin" | … (zod-enum at the boundary)
   linkHref    String?

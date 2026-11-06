@@ -1071,6 +1071,75 @@ select:not([multiple]):not([size]) {
     min-width: 0;
   }
 
+  /* ── Sections editor — <SectionsEditor> (a fieldset of headed text rows) ── */
+  .sections-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+
+  .sections-editor-hint,
+  .sections-editor-row-label {
+    font-size: 12px;
+    color: var(--soft);
+  }
+
+  .sections-editor-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+  }
+
+  .sections-editor-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .sections-editor-row-actions {
+    display: flex;
+    gap: 4px;
+  }
+
+  /* ── File picker — <FilePicker> (the input itself is .visually-hidden) ── */
+  .file-picker-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    min-width: 0;
+  }
+
+  .file-picker-line {
+    display: inline-flex;
+    flex: 1;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--soft);
+  }
+
+  .file-picker-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  .file-picker-size {
+    font-family: var(--mono);
+  }
+
   .radio-options {
     display: flex;
     flex-wrap: wrap;
@@ -1440,6 +1509,44 @@ select:not([multiple]):not([size]) {
     border-width: 3px;
   }
 
+  /* ── Progress — <ProgressBar> ──────────────────────────────────────── */
+  .progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .progress-track {
+    position: relative;
+    flex: 1;
+    height: 8px;
+    overflow: hidden;
+    border: 1px solid var(--dim);
+    border-radius: 999px;
+    background: var(--ink-mid);
+  }
+
+  .progress-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--acc-solid);
+    transition: width 0.2s ease;
+  }
+
+  .progress-indeterminate .progress-fill {
+    position: absolute;
+    width: 40%;
+    animation: op-progress 1.4s ease-in-out infinite;
+  }
+
+  .progress-text {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--soft);
+  }
+
   .page-title:focus {
     outline: none;
   }
@@ -1527,6 +1634,15 @@ select:not([multiple]):not([size]) {
   }
 }
 
+@keyframes op-progress {
+  from {
+    left: -40%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
 @keyframes op-spin {
   to {
     transform: rotate(360deg);
@@ -1538,5 +1654,15 @@ select:not([multiple]):not([size]) {
   .spinner,
   .drawer {
     animation: none;
+  }
+
+  .progress-fill {
+    transition: none;
+  }
+
+  /* No sweep: a still segment says "working" without motion. */
+  .progress-indeterminate .progress-fill {
+    animation: none;
+    left: 0;
   }
 }

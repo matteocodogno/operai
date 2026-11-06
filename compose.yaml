@@ -238,9 +238,17 @@ services:
       - operai_minio_data:/bitnami/minio/data
 
   # One-shot: waits for MinIO, creates the dev buckets (refund receipts +
-  # inventory invoices) if absent, and asserts it
+  # inventory invoices + CRM files + meetings audio) if absent, and asserts it
   # stays PRIVATE (no anonymous access), then exits. Re-running compose is
   # idempotent (`mb --ignore-existing`).
+  #
+  # The `meetings` bucket (specs/021, ADR-0063) holds recorded audio only. It gets ONE
+  # bucket-wide lifecycle rule (expire after 29 days, no prefix filter) and must never be
+  # versioned: meetings-api refuses to start against a bucket without that rule or with
+  # versioning Enabled. The rule is replaced on every run (`rm --all` then `add`) rather
+  # than appended, because `ilm rule add` is not idempotent and a second run would leave
+  # two rules. A bucket from an older volume that was versioned cannot be un-versioned:
+  # the check above fails the one-shot instead of letting dev drift from production.
   minio-createbucket:
     image: docker.io/bitnamilegacy/minio-client:latest
     depends_on:
@@ -259,7 +267,15 @@ services:
       echo 'minio bucket ready (private): ${INVENTORY_S3_BUCKET:-operai-inventory-invoices-dev}' &&
       mc mb --ignore-existing local/${CRM_S3_BUCKET:-operai-crm-files-dev} &&
       mc anonymous set none local/${CRM_S3_BUCKET:-operai-crm-files-dev} &&
-      echo 'minio bucket ready (private): ${CRM_S3_BUCKET:-operai-crm-files-dev}'
+      echo 'minio bucket ready (private): ${CRM_S3_BUCKET:-operai-crm-files-dev}' &&
+      mc mb --ignore-existing local/${MEETINGS_S3_BUCKET:-meetings} &&
+      mc anonymous set none local/${MEETINGS_S3_BUCKET:-meetings} &&
+      (mc ilm rule rm --all --force local/${MEETINGS_S3_BUCKET:-meetings} || true) &&
+      mc ilm rule add --expire-days 29 local/${MEETINGS_S3_BUCKET:-meetings} &&
+      if mc version info --json local/${MEETINGS_S3_BUCKET:-meetings} | grep -Eq '\"status\": ?\"Enabled\"'; then
+        echo 'meetings bucket has versioning ENABLED - recreate the volume (docs: infra/README.md, Meetings)'; exit 1;
+      fi &&
+      echo 'minio bucket ready (private, audio expires after 29 days, versioning off): ${MEETINGS_S3_BUCKET:-meetings}'
       "
     restart: "no"
 

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+
+# Prisma generated client
+src/lib/generated/
+prisma/generated/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Key material
+*.pem
+
+.bun/
+# bun.lock is committed: the Dockerfile's `bun install --frozen-lockfile` needs it
+.DS_Store

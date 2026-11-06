@@ -44,6 +44,28 @@ export const Labelled: Story = {
   ),
 }
 
+/** The recording controls: each icon-only button carries its own name. */
+export const RecordingControls: Story = {
+  name: 'Recording controls',
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex gap-2">
+      <Button iconOnly aria-label="Start recording">
+        <Icon name="mic" />
+      </Button>
+      <Button iconOnly aria-label="Pause">
+        <Icon name="pause" />
+      </Button>
+      <Button iconOnly aria-label="Resume">
+        <Icon name="play" />
+      </Button>
+      <Button iconOnly aria-label="Stop and save">
+        <Icon name="stop" />
+      </Button>
+    </div>
+  ),
+}
+
 /** Inside an icon-only button the button has the name; the icon stays decorative. */
 export const InAButton: Story = {
   name: 'In a button',

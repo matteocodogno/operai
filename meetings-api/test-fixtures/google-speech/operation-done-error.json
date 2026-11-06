@@ -1,0 +1,5 @@
+{
+  "name": "projects/123456789012/locations/eu/operations/op-1",
+  "done": true,
+  "error": { "code": 14, "message": "The service is currently unavailable. (this text is never read)" }
+}

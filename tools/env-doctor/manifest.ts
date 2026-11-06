@@ -30,6 +30,7 @@ export const SERVICES = {
   "refund-api": { platform: "railway", kind: "backend" },
   "inventory-api": { platform: "railway", kind: "backend" },
   "crm-api": { platform: "railway", kind: "backend" },
+  "meetings-api": { platform: "railway", kind: "backend" },
   shell: { platform: "vercel", kind: "frontend" },
   "estimai-ui": { platform: "vercel", kind: "frontend" },
   "refund-ui": { platform: "vercel", kind: "frontend" },
@@ -37,6 +38,7 @@ export const SERVICES = {
   "admin-ui": { platform: "vercel", kind: "frontend" },
   "inventory-ui": { platform: "vercel", kind: "frontend" },
   "crm-ui": { platform: "vercel", kind: "frontend" },
+  "meetings-ui": { platform: "vercel", kind: "frontend" },
 } as const satisfies Record<string, ServiceDef>;
 
 export type ServiceName = keyof typeof SERVICES;
@@ -60,6 +62,8 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "inventory-ui": "https://inventory.operai.welld.io",
     // ASSUMED (matches the shell CSP, specs/017-crm) — confirm once the Vercel project exists.
     "crm-ui": "https://crm.operai.welld.io",
+    // ASSUMED (specs/021-meetings, plan § Rollout) — confirm once the Vercel project exists.
+    "meetings-ui": "https://meetings.operai.welld.io",
   },
   preview: {
     // Vercel preview URLs are per-deploy; usually validated via the live-diff
@@ -73,14 +77,17 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "admin-ui": "http://localhost:5177",
     "inventory-ui": "http://localhost:5178",
     "crm-ui": "http://localhost:5179",
+    "meetings-ui": "http://localhost:5180",
   },
 };
 
 /** Vars that MUST hold a byte-for-byte identical value across the listed services. */
 export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api"] },
+  { name: "AUTH_AUDIENCE", services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"] },
   // The `aud` auth stamps on scoped service JWTs and notify-api verifies (ADR-0044).
   // specs/018 AC-3.3: crm-api verifies estimai-api's notices against it too (ADR-0073).
+  // crm-api verifies them too since specs/021: meetings-api posts host notices to it as
+  // `system:meetings-api` with scope `host-notices.send` (ADR-0059).
   { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api", "crm-api"] },
 ];
 
@@ -98,7 +105,7 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
     a: "SERVICE_AUDIENCE",
     b: "AUTH_AUDIENCE",
     services: ["auth", "notify-api", "crm-api"],
-    why: "a service token would be accepted on user routes and a user JWT on /system/notifications or /system/estimate-notices (ADR-0044)",
+    why: "a service token would be accepted on user routes and a user JWT on /system/notifications, /system/estimate-notices or /system/meeting-host/v1/notices (ADR-0044)",
   },
 ];
 
@@ -112,9 +119,27 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
 export const FORBIDDEN_VARS: ReadonlyArray<{ name: string; services: ServiceName[]; why: string }> = [
   {
     name: "NOTIFY_INTERNAL_TOKEN",
-    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api"],
+    services: ["auth", "estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"],
     why: "the shared notify token was retired (specs/016, ADR-0049): every caller uses its own scoped service credential",
   },
+  // specs/021 plan § Amendment 2026-11-05 (G-7, ADR-0069): the provider change to Google Cloud retired
+  // these seven names. meetings-api no longer reads them; a leftover is a live Azure or AWS credential
+  // (or a stale setting) nobody uses, so it is made visible. Flagged by NAME, on meetings-api only.
+  ...(
+    [
+      ["AZURE_SPEECH_REGION", "use MEETINGS_SPEECH_LOCATION"],
+      ["AZURE_SPEECH_KEY", "a live credential nobody uses; use MEETINGS_GCP_SERVICE_ACCOUNT_KEY"],
+      ["AZURE_SPEECH_ENDPOINT", "the Speech endpoint is derived from MEETINGS_SPEECH_LOCATION"],
+      ["BEDROCK_REGION", "use MEETINGS_VERTEX_LOCATION"],
+      ["BEDROCK_MODEL_ID", "use MEETINGS_VERTEX_MODEL_ID"],
+      ["MEETINGS_AWS_ACCESS_KEY_ID", "a live credential nobody uses; use MEETINGS_GCP_SERVICE_ACCOUNT_KEY"],
+      ["MEETINGS_AWS_SECRET_ACCESS_KEY", "a live credential nobody uses; use MEETINGS_GCP_SERVICE_ACCOUNT_KEY"],
+    ] as const
+  ).map(([name, hint]) => ({
+    name,
+    services: ["meetings-api"] as ServiceName[],
+    why: `retired by the provider change to Google Cloud (specs/021, ADR-0069): ${hint}`,
+  })),
 ];
 
 /**
@@ -143,6 +168,9 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   // notify-api looks up the notice's address in auth (ADR-0056). Both optional until provisioned.
   { ...LINK_BASE, caller: "crm-api", requiredScopes: ["notifications.push", "emails.send"] },
   { ...LINK_BASE, caller: "notify-api", requiredScopes: ["users.contact"] },
+  // specs/021: meetings-api pushes meeting notifications (notify-api) and posts host notices to
+  // crm-api (ADR-0059). No emails.send: an email notice, if ever wanted, is a deliberate widening.
+  { ...LINK_BASE, caller: "meetings-api", requiredScopes: ["notifications.push", "host-notices.send"] },
 ];
 
 /**
@@ -155,6 +183,9 @@ export const S3_RESIDENCY: ReadonlyArray<{ service: ServiceName; prefix: string 
   { service: "inventory-api", prefix: "INVENTORY_S3" },
   // specs/018: optional until the CRM bucket is provisioned (crm-api starts without it).
   { service: "crm-api", prefix: "CRM_S3" },
+  // specs/021 (ADR-0061/0063): REQUIRED — a tool without audio storage is meaningless, and
+  // meetings-api additionally verifies the bucket's lifecycle rule and versioning at startup.
+  { service: "meetings-api", prefix: "MEETINGS_S3" },
 ];
 export const EU_AWS_REGIONS: ReadonlyArray<string> = [
   "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-central-2",
@@ -169,7 +200,7 @@ export const ISSUER = {
   authService: "auth" as ServiceName,
   authVar: "BETTER_AUTH_URL",
   issuerVar: "AUTH_ISSUER",
-  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api"] as ServiceName[],
+  resourceServers: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"] as ServiceName[],
 };
 
 /**
@@ -183,19 +214,21 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   services: ServiceName[];
   target: ServiceName;
 }> = [
-  { name: "AUTH_JWKS_URL", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api"], target: "auth" },
+  { name: "AUTH_JWKS_URL", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"], target: "auth" },
   // specs/019: notify-api resolves an email notice's address through auth (ADR-0056).
-  { name: "AUTH_BASE_URL", services: ["refund-api", "inventory-api", "crm-api", "notify-api"], target: "auth" },
-  { name: "NOTIFY_INTERNAL_URL", services: ["auth", "refund-api", "inventory-api", "crm-api"], target: "notify-api" },
+  { name: "AUTH_BASE_URL", services: ["refund-api", "inventory-api", "crm-api", "notify-api", "meetings-api"], target: "auth" },
+  { name: "NOTIFY_INTERNAL_URL", services: ["auth", "refund-api", "inventory-api", "crm-api", "meetings-api"], target: "notify-api" },
   // specs/018: crm-api calls estimai-api with the caller's JWT (estimate requests, offers).
   { name: "ESTIMAI_API_URL", services: ["crm-api"], target: "estimai-api" },
   // specs/018 AC-3.3: estimai-api tells crm-api an estimate was closed or reopened (ADR-0073).
   { name: "CRM_INTERNAL_URL", services: ["estimai-api"], target: "crm-api" },
+  // specs/021: meetings-api calls the CRM host's resolve (as the caller) and notices (as itself), ADR-0059.
+  { name: "CRM_API_URL", services: ["meetings-api"], target: "crm-api" },
 ];
 
 /** Browser-facing / identity-claim URLs — must stay PUBLIC (`https://`, not localhost/internal in prod). */
 export const PUBLIC_URL_VARS: ReadonlyArray<{ name: string; services: ServiceName[] }> = [
-  { name: "AUTH_ISSUER", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api"] },
+  { name: "AUTH_ISSUER", services: ["estimai-api", "notify-api", "refund-api", "inventory-api", "crm-api", "meetings-api"] },
   { name: "BETTER_AUTH_URL", services: ["auth"] },
   { name: "UI_HOME_URL", services: ["auth"] },
   { name: "REFUND_APP_BASE_URL", services: ["refund-api"] },
@@ -214,6 +247,9 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
   { backend: "inventory-api", mustAllow: ["shell"] },
   // crm-ui is a remote reached through the shell (specs/017-crm).
   { backend: "crm-api", mustAllow: ["shell"] },
+  // meetings-ui is a remote reached through the shell (specs/021); the audio bucket's own CORS rule
+  // (shell origin, POST + GET) is separate and cannot be checked here: infra/meetings-bucket-policy.sh.
+  { backend: "meetings-api", mustAllow: ["shell"] },
 ];
 
 /**
@@ -266,7 +302,27 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   // everything) but required by the contract, like CRM_INTERNAL_URL on estimai-api (ADR-0073).
   "crm-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "PORT",
+    // specs/021: crm-api verifies the scoped service JWT meetings-api posts host notices with (ADR-0059).
+    // Required by the contract: without it every notice is a silent 401 and the deal never learns about
+    // its meetings. (crm-api's own env.ts may treat it as optional until the host endpoints ship.)
     "SERVICE_AUDIENCE",
+  ],
+  // specs/021-meetings. A plain-REQUIRED set (no "optional group"): the tool is meaningless without audio
+  // storage, transcription or an LLM (plan § Environment). The bucket NAME and its two credentials are
+  // set by reference to the Railway bucket by infra/provision-tool.sh --bucket and stay out of the
+  // committed template (as for crm-api / inventory-api), so they are not required here; meetings-api's own
+  // src/lib/env.ts is the authority and exits at startup without them.
+  "meetings-api": [
+    "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
+    "NOTIFY_INTERNAL_URL", "CRM_API_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET",
+    "MEETINGS_S3_ENDPOINT", "MEETINGS_S3_REGION", "MEETINGS_S3_EU_ENDPOINT_HOSTS",
+    // Google Cloud (plan § Amendment 2026-11-05, G-7): Speech-to-Text v2 (Chirp 3), Claude on Vertex AI
+    // and the transient GCS bucket, one project and one service account. The locations, the model id and
+    // the key are validated by meetings-api (env.ts S1-S5, startup checks N2-N4); here only their
+    // presence is part of the contract.
+    "MEETINGS_SPEECH_LOCATION", "MEETINGS_VERTEX_LOCATION", "MEETINGS_VERTEX_MODEL_ID",
+    "MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", "MEETINGS_GCS_TRANSIENT_BUCKET",
+    "MEETINGS_AI_PROVIDER", "PORT",
   ],
 };
 
@@ -292,6 +348,14 @@ export const SECRET_VARS: ReadonlySet<string> = new Set([
   "INVENTORY_S3_SECRET_ACCESS_KEY",
   "CRM_S3_ACCESS_KEY_ID",
   "CRM_S3_SECRET_ACCESS_KEY",
+  "MEETINGS_S3_ACCESS_KEY_ID",
+  "MEETINGS_S3_SECRET_ACCESS_KEY",
+  "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", // base64 service-account JSON key, carries a private key (specs/021, G-6/G-7)
+  // The retired provider credentials stay redacted: if one is found live it is flagged by name
+  // (FORBIDDEN_VARS) and its value must still never be surfaced.
+  "AZURE_SPEECH_KEY",
+  "MEETINGS_AWS_ACCESS_KEY_ID",
+  "MEETINGS_AWS_SECRET_ACCESS_KEY",
 ]);
 export const isSecretVar = (name: string): boolean => SECRET_VARS.has(name);
 

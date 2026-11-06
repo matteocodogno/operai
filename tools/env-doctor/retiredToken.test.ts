@@ -44,3 +44,36 @@ describe("the retired shared notify token is absent from every service's src/", 
     });
   }
 });
+
+// specs/021 plan § Amendment 2026-11-05 (G-7, T105): the Azure and AWS provider variables meetings-api
+// used to read are retired by the move to Google Cloud. The contract flags a deployed copy by name
+// (check.test.ts); this pins the manifest, so the list cannot shrink by accident.
+describe("the seven variables retired by the Google Cloud provider change are forbidden on meetings-api", () => {
+  const SEVEN = [
+    "AZURE_SPEECH_REGION", "AZURE_SPEECH_KEY", "AZURE_SPEECH_ENDPOINT",
+    "BEDROCK_REGION", "BEDROCK_MODEL_ID", "MEETINGS_AWS_ACCESS_KEY_ID", "MEETINGS_AWS_SECRET_ACCESS_KEY",
+  ];
+  for (const name of SEVEN) {
+    test(`${name} is forbidden on meetings-api only, with a reason naming the provider change`, () => {
+      const entry = FORBIDDEN_VARS.find((v) => v.name === name);
+      expect(entry).toBeDefined();
+      expect(entry!.services).toEqual(["meetings-api"]);
+      expect(entry!.why).toContain("retired by the provider change to Google Cloud");
+    });
+  }
+
+  test("the production template holds none of them and holds the Google variables instead", () => {
+    const tpl = readFileSync(join(import.meta.dir, "templates", "production", "meetings-api.env"), "utf8");
+    const assigned = new Set(tpl.split("\n").filter((l) => /^[A-Z][A-Z0-9_]*=/.test(l)).map((l) => l.split("=")[0]));
+    for (const name of SEVEN) expect(assigned.has(name)).toBe(false);
+    for (const name of [
+      "MEETINGS_SPEECH_LOCATION", "MEETINGS_VERTEX_LOCATION", "MEETINGS_VERTEX_MODEL_ID",
+      "MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", "MEETINGS_GCS_TRANSIENT_BUCKET",
+    ]) expect(assigned.has(name)).toBe(true);
+  });
+
+  test("the template's service-account key is a 1Password reference, never a literal", () => {
+    const tpl = readFileSync(join(import.meta.dir, "templates", "production", "meetings-api.env"), "utf8");
+    expect(tpl).toMatch(/^MEETINGS_GCP_SERVICE_ACCOUNT_KEY=\$\{OP:[^}]+\}$/m);
+  });
+});

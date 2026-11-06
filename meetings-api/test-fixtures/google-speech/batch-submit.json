@@ -1,0 +1,31 @@
+{
+  "name": "projects/123456789012/locations/eu/operations/v2-00000000-0000-0000-0000-000000000001",
+  "metadata": {
+    "@type": "type.googleapis.com/google.cloud.speech.v2.OperationMetadata",
+    "createTime": "2026-11-05T15:53:25.634293Z",
+    "updateTime": "2026-11-05T15:53:25.634293Z",
+    "batchRecognizeRequest": {
+      "recognizer": "projects/operai-meetings-sandbox/locations/eu/recognizers/_",
+      "files": [
+        {
+          "uri": "{{INPUT_URI}}"
+        }
+      ],
+      "config": {
+        "features": {
+          "diarizationConfig": {}
+        },
+        "autoDecodingConfig": {},
+        "model": "chirp_3",
+        "languageCodes": [
+          "it-IT"
+        ]
+      },
+      "recognitionOutputConfig": {
+        "gcsOutputConfig": {
+          "uri": "gs://operai-meetings-transient/transcribe/meeting_1/1/out/"
+        }
+      }
+    }
+  }
+}

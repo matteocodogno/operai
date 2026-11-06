@@ -47,6 +47,7 @@ function remoteFixture(
     notify: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
     inventory: () => Promise.resolve({ REMOTE_VERSION: '2.0.1' }),
     crm: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
+    meetings: () => Promise.resolve({ REMOTE_VERSION: '0.1.0' }),
   }
   return [
     { id: 'estimai', label: 'EstimAI', loader: overrides.estimai ?? defaults.estimai },
@@ -55,6 +56,7 @@ function remoteFixture(
     { id: 'notify', label: 'Notify', loader: overrides.notify ?? defaults.notify },
     { id: 'inventory', label: 'Inventory', loader: overrides.inventory ?? defaults.inventory },
     { id: 'crm', label: 'CRM', loader: overrides.crm ?? defaults.crm },
+    { id: 'meetings', label: 'Meetings', loader: overrides.meetings ?? defaults.meetings },
   ]
 }
 

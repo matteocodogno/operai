@@ -1,0 +1,10 @@
+[install]
+exact = true
+production = false
+
+[run]
+bun = true
+
+[test]
+preload = ["./src/test-support/testEnv.ts"]
+timeout = 10000

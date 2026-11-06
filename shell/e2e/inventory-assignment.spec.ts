@@ -8,7 +8,7 @@
  * Journey 1 (AC-2.3, AC-4.1, AC-9.6): an inventory manager registers a device
  * through the form and assigns it to an employee who holds NO grant at all. The
  * employee has no Inventory entry in the navigation, `/inventory` sends them to
- * `/no-access`, yet `/devices` (the ungated second federated entry, ADR-0045)
+ * a tool they do hold (Meetings since specs/021, `/no-access` before it), yet `/devices` (the ungated second federated entry, ADR-0045)
  * lists the offered device with its description, category, serial number and
  * date and no price, and confirming it makes the employee the holder, which the
  * manager then sees on the asset.
@@ -118,7 +118,10 @@ test.describe('specs/015 T45: assignment journeys', () => {
     const employeeCtx = await inContext(browser, employee)
     const emp = await employeeCtx.newPage()
     await emp.goto('/')
-    await expect(emp).toHaveURL(/\/no-access$/, { timeout: 20_000 })
+    // specs/021 (AC-10.8): the baseline `employee` role now carries `meetings:access`, so a person with
+    // no OTHER grant lands on Meetings, not `/no-access`. The point of this journey is unchanged: no
+    // Inventory entry for them.
+    await expect(emp).toHaveURL(/\/meetings(\/|$)/, { timeout: 20_000 })
     await expect(emp.getByRole('link', { name: 'Inventory' })).toHaveCount(0)
     // The one inventory entry they do have: "My devices" in the user menu.
     await emp.getByRole('button', { name: EMPLOYEE_NAME }).click()
@@ -127,7 +130,8 @@ test.describe('specs/015 T45: assignment journeys', () => {
 
     // The tool itself is not reachable by URL either (AC-9.6).
     await emp.goto('/inventory')
-    await expect(emp).toHaveURL(/\/no-access$/, { timeout: 20_000 })
+    await expect(emp).not.toHaveURL(/\/inventory/, { timeout: 20_000 })
+    await expect(emp).toHaveURL(/\/meetings(\/|$)/)
 
     // ── ...but their devices view works with zero grants (AC-4.1) ────────────
     await emp.goto('/devices')

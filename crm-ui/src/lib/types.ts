@@ -258,7 +258,12 @@ export type PipelineTotal = { currency: Currency; amountCents: number; weightedC
 /** `totals` is left out for a caller without `deal:financials`. */
 export type PipelineStage = { stage: DealStage; count: number; totals?: PipelineTotal[] }
 /** `years`: the years with won or lost deals, newest first (the board's year picker); absent from an older server. */
-export type Pipeline = { probabilities: Record<DealStage, number>; year: number; years?: number[]; stages: PipelineStage[] }
+export type Pipeline = {
+  probabilities: Record<DealStage, number>
+  year: number
+  years?: number[]
+  stages: PipelineStage[]
+}
 
 export type ActivityTask = {
   dueDate: string | null
@@ -283,6 +288,12 @@ export type Activity = {
   /** The wellD colleagues who took part (specs/017 US-8). Absent from an older server. */
   participants?: PersonRef[]
   task: ActivityTask | null
+  /**
+   * The meeting this activity mirrors (specs/021 US-14): set only on a `meeting`
+   * activity that Meetings created. Its body is null — the link is the content.
+   * Absent from a server that predates Meetings.
+   */
+  meeting?: { id: string; href: string } | null
   createdAt: string
   updatedAt: string
 }

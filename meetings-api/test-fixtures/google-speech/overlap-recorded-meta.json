@@ -1,0 +1,511 @@
+{
+ "overlap-it": {
+  "locale": "it-IT",
+  "tag": "recorded 2026-11-05, 2 voices",
+  "parts": [
+   {
+    "startMs": 391876,
+    "endMs": 539967
+   },
+   {
+    "startMs": 421876,
+    "endMs": 569967
+   }
+  ],
+  "silences": [
+   {
+    "startMs": 392794,
+    "endMs": 393807
+   },
+   {
+    "startMs": 403728,
+    "endMs": 404694
+   },
+   {
+    "startMs": 409436,
+    "endMs": 411051
+   },
+   {
+    "startMs": 419715,
+    "endMs": 423784
+   },
+   {
+    "startMs": 428282,
+    "endMs": 429601
+   },
+   {
+    "startMs": 443348,
+    "endMs": 444019
+   },
+   {
+    "startMs": 448252,
+    "endMs": 450180
+   },
+   {
+    "startMs": 464871,
+    "endMs": 465527
+   },
+   {
+    "startMs": 474844,
+    "endMs": 476176
+   },
+   {
+    "startMs": 479803,
+    "endMs": 482359
+   },
+   {
+    "startMs": 486997,
+    "endMs": 488003
+   },
+   {
+    "startMs": 501197,
+    "endMs": 501865
+   },
+   {
+    "startMs": 516147,
+    "endMs": 517757
+   },
+   {
+    "startMs": 521507,
+    "endMs": 523068
+   },
+   {
+    "startMs": 532790,
+    "endMs": 534416
+   },
+   {
+    "startMs": 538684,
+    "endMs": 541249
+   },
+   {
+    "startMs": 556356,
+    "endMs": 557974
+   },
+   {
+    "startMs": 566833,
+    "endMs": 569393
+   }
+  ],
+  "source": "recorded 2026-11-05, 2 voices, boundary 1|2, overlap 118.1 s, margins 30 s"
+ },
+ "overlap-en-jitter": {
+  "locale": "en-US",
+  "tag": "recorded 2026-11-05, 2 voices, provider mislabels 10% of part 1",
+  "parts": [
+   {
+    "startMs": 454206,
+    "endMs": 593076
+   },
+   {
+    "startMs": 484206,
+    "endMs": 623076
+   }
+  ],
+  "silences": [
+   {
+    "startMs": 456244,
+    "endMs": 456999
+   },
+   {
+    "startMs": 465510,
+    "endMs": 466170
+   },
+   {
+    "startMs": 469989,
+    "endMs": 474043
+   },
+   {
+    "startMs": 482938,
+    "endMs": 485474
+   },
+   {
+    "startMs": 498279,
+    "endMs": 499844
+   },
+   {
+    "startMs": 504743,
+    "endMs": 505982
+   },
+   {
+    "startMs": 510214,
+    "endMs": 511473
+   },
+   {
+    "startMs": 520000,
+    "endMs": 521567
+   },
+   {
+    "startMs": 533351,
+    "endMs": 534616
+   },
+   {
+    "startMs": 543094,
+    "endMs": 543775
+   },
+   {
+    "startMs": 552683,
+    "endMs": 553772
+   },
+   {
+    "startMs": 566445,
+    "endMs": 567688
+   },
+   {
+    "startMs": 576896,
+    "endMs": 578230
+   },
+   {
+    "startMs": 591801,
+    "endMs": 594351
+   },
+   {
+    "startMs": 602031,
+    "endMs": 602759
+   },
+   {
+    "startMs": 606873,
+    "endMs": 609442
+   },
+   {
+    "startMs": 617410,
+    "endMs": 618971
+   }
+  ],
+  "source": "recorded 2026-11-05, 2 voices, provider mislabels 10% of part 1, boundary 1|2, overlap 108.9 s, margins 30 s"
+ },
+ "overlap-it-hole": {
+  "locale": "it-IT",
+  "tag": "recorded 2026-11-05, 2 voices, a hole in part 5",
+  "parts": [
+   {
+    "startMs": 2067238,
+    "endMs": 2373254
+   },
+   {
+    "startMs": 2277238,
+    "endMs": 2403254
+   }
+  ],
+  "silences": [
+   {
+    "startMs": 2076506,
+    "endMs": 2077177
+   },
+   {
+    "startMs": 2093115,
+    "endMs": 2096033
+   },
+   {
+    "startMs": 2105076,
+    "endMs": 2109126
+   },
+   {
+    "startMs": 2114569,
+    "endMs": 2116187
+   },
+   {
+    "startMs": 2124980,
+    "endMs": 2127548
+   },
+   {
+    "startMs": 2132096,
+    "endMs": 2133412
+   },
+   {
+    "startMs": 2137458,
+    "endMs": 2138425
+   },
+   {
+    "startMs": 2148634,
+    "endMs": 2150253
+   },
+   {
+    "startMs": 2154019,
+    "endMs": 2156576
+   },
+   {
+    "startMs": 2171100,
+    "endMs": 2173024
+   },
+   {
+    "startMs": 2177027,
+    "endMs": 2179590
+   },
+   {
+    "startMs": 2193473,
+    "endMs": 2197898
+   },
+   {
+    "startMs": 2206916,
+    "endMs": 2208180
+   },
+   {
+    "startMs": 2218107,
+    "endMs": 2220021
+   },
+   {
+    "startMs": 2224967,
+    "endMs": 2227527
+   },
+   {
+    "startMs": 2241645,
+    "endMs": 2244560
+   },
+   {
+    "startMs": 2258539,
+    "endMs": 2260099
+   },
+   {
+    "startMs": 2275777,
+    "endMs": 2278699
+   },
+   {
+    "startMs": 2288312,
+    "endMs": 2290885
+   },
+   {
+    "startMs": 2295138,
+    "endMs": 2296445
+   },
+   {
+    "startMs": 2310088,
+    "endMs": 2312648
+   },
+   {
+    "startMs": 2317286,
+    "endMs": 2319192
+   },
+   {
+    "startMs": 2328595,
+    "endMs": 2329857
+   },
+   {
+    "startMs": 2335360,
+    "endMs": 2336965
+   },
+   {
+    "startMs": 2341753,
+    "endMs": 2343020
+   },
+   {
+    "startMs": 2353866,
+    "endMs": 2355789
+   },
+   {
+    "startMs": 2365357,
+    "endMs": 2366327
+   },
+   {
+    "startMs": 2371788,
+    "endMs": 2374720
+   },
+   {
+    "startMs": 2379594,
+    "endMs": 2382157
+   },
+   {
+    "startMs": 2396078,
+    "endMs": 2398981
+   }
+  ],
+  "source": "recorded 2026-11-05, 2 voices, a hole in part 5, boundary 5|6, overlap 96.0 s, margins 30 s"
+ },
+ "overlap-en3": {
+  "locale": "en-US",
+  "tag": "recorded 2026-11-05, 3 voices, 19-minute parts",
+  "parts": [
+   {
+    "startMs": 998386,
+    "endMs": 1125288
+   },
+   {
+    "startMs": 1028386,
+    "endMs": 1155288
+   }
+  ],
+  "silences": [
+   {
+    "startMs": 998386,
+    "endMs": 999367
+   },
+   {
+    "startMs": 1003335,
+    "endMs": 1004606
+   },
+   {
+    "startMs": 1013114,
+    "endMs": 1013769
+   },
+   {
+    "startMs": 1022802,
+    "endMs": 1023468
+   },
+   {
+    "startMs": 1027603,
+    "endMs": 1029169
+   },
+   {
+    "startMs": 1043434,
+    "endMs": 1044167
+   },
+   {
+    "startMs": 1056447,
+    "endMs": 1057999
+   },
+   {
+    "startMs": 1062454,
+    "endMs": 1063103
+   },
+   {
+    "startMs": 1071660,
+    "endMs": 1072619
+   },
+   {
+    "startMs": 1076821,
+    "endMs": 1077470
+   },
+   {
+    "startMs": 1086081,
+    "endMs": 1088618
+   },
+   {
+    "startMs": 1092046,
+    "endMs": 1093308
+   },
+   {
+    "startMs": 1097549,
+    "endMs": 1099088
+   },
+   {
+    "startMs": 1103283,
+    "endMs": 1104837
+   },
+   {
+    "startMs": 1112622,
+    "endMs": 1113280
+   },
+   {
+    "startMs": 1123257,
+    "endMs": 1127319
+   },
+   {
+    "startMs": 1135432,
+    "endMs": 1136968
+   },
+   {
+    "startMs": 1144660,
+    "endMs": 1148713
+   },
+   {
+    "startMs": 1153378,
+    "endMs": 1154341
+   }
+  ],
+  "source": "recorded 2026-11-05, 3 voices, 19-minute parts, boundary 1|2, overlap 96.9 s, margins 30 s"
+ },
+ "output-recorded-repeat-tail": {
+  "locale": "it-IT",
+  "tag": "recorded 2026-11-05, 2 voices",
+  "parts": [
+   {
+    "startMs": 3120000,
+    "endMs": 3325837
+   }
+  ],
+  "silences": [
+   {
+    "startMs": 3126863,
+    "endMs": 3127828
+   },
+   {
+    "startMs": 3142472,
+    "endMs": 3144388
+   },
+   {
+    "startMs": 3148658,
+    "endMs": 3149910
+   },
+   {
+    "startMs": 3154983,
+    "endMs": 3156602
+   },
+   {
+    "startMs": 3160562,
+    "endMs": 3161234
+   },
+   {
+    "startMs": 3166187,
+    "endMs": 3167514
+   },
+   {
+    "startMs": 3181882,
+    "endMs": 3182536
+   },
+   {
+    "startMs": 3187311,
+    "endMs": 3188941
+   },
+   {
+    "startMs": 3194279,
+    "endMs": 3198343
+   },
+   {
+    "startMs": 3207869,
+    "endMs": 3209182
+   },
+   {
+    "startMs": 3218953,
+    "endMs": 3220218
+   },
+   {
+    "startMs": 3224241,
+    "endMs": 3225571
+   },
+   {
+    "startMs": 3230103,
+    "endMs": 3231082
+   },
+   {
+    "startMs": 3240567,
+    "endMs": 3241891
+   },
+   {
+    "startMs": 3245946,
+    "endMs": 3246603
+   },
+   {
+    "startMs": 3250731,
+    "endMs": 3252652
+   },
+   {
+    "startMs": 3262483,
+    "endMs": 3266558
+   },
+   {
+    "startMs": 3275620,
+    "endMs": 3278550
+   },
+   {
+    "startMs": 3291916,
+    "endMs": 3295974
+   },
+   {
+    "startMs": 3300055,
+    "endMs": 3301675
+   },
+   {
+    "startMs": 3306157,
+    "endMs": 3307728
+   },
+   {
+    "startMs": 3318001,
+    "endMs": 3319321
+   },
+   {
+    "startMs": 3323799,
+    "endMs": 3325837
+   }
+  ],
+  "source": "part 7 of a 60-minute file, cropped to its last 3.4 minutes: the model repeated its last 2.5 minutes as 345 untimed words"
+ }
+}

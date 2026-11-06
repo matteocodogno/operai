@@ -11,8 +11,9 @@
  * erode in either direction:
  *
  *   - GATE: the caller must hold an entry of {@link DIRECTORY_GATE_PERMISSIONS}
- *     (the `inventory` catalog's `asset:manage` and, since ADR-0053, the `crm`
- *     catalog's `deal:manage`, each under ANY entity scope) — an explicit
+ *     (the `inventory` catalog's `asset:manage`, since ADR-0053 the `crm`
+ *     catalog's `deal:manage` and since ADR-0066 the `meetings` catalog's
+ *     `meetings:access`, each under ANY entity scope) — an explicit
  *     allowlist, resolved live through `auth`'s own resolver (revocation is
  *     immediate). A second consuming app is ADDED to
  *     that list deliberately; the gate is never relaxed to "any app-access
@@ -69,6 +70,12 @@ export const DIRECTORY_GATE_PERMISSIONS: readonly { resource: string; action: st
   // so no other catalog may declare a `deal` resource with a `manage` action:
   // it would open this gate too (crm.test.ts checks resource keys stay unique).
   { resource: "deal", action: "manage" },
+  // The `meetings` catalog's meetings:access (specs/021, ADR-0066): the meeting
+  // participant picker, the third consumer. Every employee holds it by default
+  // (AC-10.8), so the roster (name, email, entity) is visible to every employee
+  // by design; the picker calls it WITHOUT `?appId=` because a participant needs
+  // no tool grant (AC-10.4). `template:manage` / `meeting:erase` do not open it.
+  { resource: "meetings", action: "access" },
 ];
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -109,8 +116,9 @@ const getDirectoryRoute = createRoute({
   summary: "List active users (capability-gated; for the inventory assign and CRM owner pickers)",
   description:
     `Returns every active user as { id, name, email, entity }, name-sorted, both entities. ` +
-    `The caller must hold the '${INVENTORY_APP_ID}' catalog's asset:manage or the 'crm' catalog's ` +
-    `deal:manage permission under any entity scope (403 otherwise, ADR-0047/0053). Not paginated, ` +
+    `The caller must hold the '${INVENTORY_APP_ID}' catalog's asset:manage, the 'crm' catalog's ` +
+    `deal:manage or the 'meetings' catalog's meetings:access permission under any entity scope ` +
+    `(403 otherwise, ADR-0047/0053/0066). Not paginated, ` +
     `takes no query parameters, never returns soft-deleted users or any other attribute (ADR-0047).`,
   request: { query: DirectoryQuerySchema },
   responses: {

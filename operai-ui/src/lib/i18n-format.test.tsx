@@ -10,6 +10,7 @@ import {
   formatDate,
   formatDateLong,
   formatDateTime,
+  formatDuration,
   formatMoney,
   formatNumber,
   formatRelative,
@@ -58,6 +59,40 @@ describe('formatters', () => {
     expect(formatNumber(1234.5, {}, 'it')).toBe('1234,5')
     expect(formatNumber(12345.5, {}, 'it')).toBe('12.345,5')
   })
+
+  it('writes a duration as a clock: hh:mm:ss, zero-padded, hours past 99 kept whole', () => {
+    expect(formatDuration(0, { style: 'clock' })).toBe('00:00:00')
+    expect(formatDuration(3_723_000, { style: 'clock' })).toBe('01:02:03')
+    expect(formatDuration(59_999, { style: 'clock' })).toBe('00:00:59')
+    expect(formatDuration(360_000_000, { style: 'clock' })).toBe('100:00:00')
+  })
+
+  it('clamps a negative duration to zero and refuses a non-finite one', () => {
+    expect(formatDuration(-5_000, { style: 'clock' })).toBe('00:00:00')
+    expect(() => formatDuration(Number.NaN, { style: 'clock' })).toThrow(TypeError)
+    expect(() => formatDuration(Number.POSITIVE_INFINITY, { style: 'spoken' })).toThrow(TypeError)
+  })
+
+  it('speaks a duration in the language, omitting zero units but never saying nothing', () => {
+    expect(formatDuration(3_723_000, { style: 'spoken' }, 'en')).toBe('1 hour, 2 minutes, 3 seconds')
+    expect(formatDuration(3_723_000, { style: 'spoken' }, 'it')).toBe('1 ora, 2 minuti e 3 secondi')
+    expect(formatDuration(60_000, { style: 'spoken' }, 'en')).toBe('1 minute')
+    expect(formatDuration(0, { style: 'spoken' }, 'en')).toBe('0 seconds')
+    expect(formatDuration(400, { style: 'spoken' }, 'it')).toBe('0 secondi')
+  })
+
+  it('speaks the same words without Intl.DurationFormat (older browsers)', () => {
+    // Intl's constructors are not enumerable, so a spread would lose them: hide just this one.
+    vi.stubGlobal(
+      'Intl',
+      new Proxy(Intl, { get: (target, key) => (key === 'DurationFormat' ? undefined : Reflect.get(target, key)) }),
+    )
+    expect((Intl as { DurationFormat?: unknown }).DurationFormat).toBeUndefined()
+    expect(formatDuration(3_723_000, { style: 'spoken' }, 'en')).toBe('1 hour, 2 minutes, 3 seconds')
+    expect(formatDuration(3_723_000, { style: 'spoken' }, 'it')).toBe('1 ora, 2 minuti e 3 secondi')
+    expect(formatDuration(0, { style: 'spoken' }, 'en')).toBe('0 seconds')
+    expect(formatDuration(7_200_000, { style: 'spoken' }, 'it')).toBe('2 ore')
+  })
 })
 
 describe('languages and catalogs', () => {
@@ -94,6 +129,15 @@ describe('Icon and StatusBadge', () => {
     expect(container.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
     render(<Icon name="alert" label="Warning" />)
     expect(screen.getByRole('img', { name: 'Warning' })).toBeInTheDocument()
+  })
+
+  it('draws the recording controls', () => {
+    for (const name of ['mic', 'pause', 'play', 'stop'] as const) {
+      expect(ICON_NAMES).toContain(name)
+      const { container, unmount } = render(<Icon name={name} />)
+      expect(container.querySelector('svg path, svg rect, svg circle')).not.toBeNull()
+      unmount()
+    }
   })
 
   it('gives every status meaning its own icon', () => {

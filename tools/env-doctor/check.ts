@@ -549,6 +549,66 @@ function checkSignupDomains(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   ];
 }
 
+// ── Layer B10: meetings-api's model id (mirrors meetings-api/src/lib/residency.ts checkVertexModelId) ──
+/** Same pattern as residency.ts S3: a bare Claude model id. A `/` (a resource path such as `publishers/…`) never matches. */
+const MODEL_ID_PATTERN = /^claude-[a-z0-9.@-]+$/;
+/** The committed-template spelling of "an operator must fill this in". */
+const isSetMePlaceholder = (v: string): boolean => v.startsWith("SET-ME");
+
+function checkMeetingsModelId(suite: SuiteEnv, opts: CheckOptions): Finding[] {
+  const name = "MEETINGS_VERTEX_MODEL_ID";
+  const v = suite["meetings-api"]?.[name];
+  // Missing is Layer A's finding; a Railway/secret reference is unknowable here.
+  if (isEmpty(v) || !isConcrete(v)) return [];
+  const scope = "meetings-api";
+  if (isSetMePlaceholder(v)) {
+    // The production template ships a placeholder by design; only a run that claims its values are
+    // real (a resolved --dir, local) should say it is still unset. Offline template mode stays quiet.
+    return (opts.resolved ?? true)
+      ? [
+          {
+            scope,
+            level: "warn",
+            message: `${name} is still a SET-ME placeholder — the service cannot start`,
+            fix: `Set ${name} to the pinned bare Claude model id (claude-...).`,
+          },
+        ]
+      : [];
+  }
+  // Names only: the value is never printed.
+  if (v.includes("/")) {
+    return [
+      {
+        scope,
+        level: "error",
+        message: `${name} must be a bare model id, not a resource path (contains "/") — the service refuses to start`,
+        fix: `Use only the model id (claude-...), without publishers/…/models/.`,
+      },
+    ];
+  }
+  if (!MODEL_ID_PATTERN.test(v)) {
+    return [
+      {
+        scope,
+        level: "error",
+        message: `${name} must be a Claude model id (claude-...) — the service refuses to start`,
+        fix: `Use the bare model id, e.g. claude-<name>-<version>.`,
+      },
+    ];
+  }
+  if (/fable|mythos/i.test(v)) {
+    return [
+      {
+        scope,
+        level: "error",
+        message: `${name} names a model Google retains prompts and responses for (data residency) — the service refuses to start`,
+        fix: `Pin a Claude model that is not designated Advanced AI on Vertex.`,
+      },
+    ];
+  }
+  return [];
+}
+
 export function checkSuite(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   return [
     ...checkRequiredKeys(suite, opts),
@@ -562,6 +622,7 @@ export function checkSuite(suite: SuiteEnv, opts: CheckOptions): Finding[] {
     ...checkServiceClients(suite),
     ...checkS3Residency(suite),
     ...checkSignupDomains(suite, opts),
+    ...checkMeetingsModelId(suite, opts),
   ];
 }
 

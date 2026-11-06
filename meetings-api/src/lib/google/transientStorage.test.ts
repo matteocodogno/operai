@@ -1,0 +1,365 @@
+import { describe, expect, it } from "bun:test";
+import { GoogleApiError, type GoogleAuth } from "./auth";
+import { createFakeTransientStorage } from "./fakeTransientStorage";
+import {
+  TransientObjectTooLargeError,
+  createTransientStorage,
+  createTransientStorageForBucket,
+  readBucketConfig,
+  regionalHost,
+  transientKeys,
+} from "./transientStorage";
+
+// plan § G-2: the transient bucket is reached only through its regional endpoint, and only
+// `transcribe/<meetingId>/` is ever listed or deleted.
+
+const auth: GoogleAuth = { accessToken: async () => "tok", client: null as never };
+
+interface Seen {
+  readonly method: string;
+  readonly url: URL;
+  readonly headers: Headers;
+}
+
+/** A stub `fetch`: routes by script, records every request. */
+function stub(respond: (seen: Seen) => Response | Promise<Response>) {
+  const seen: Seen[] = [];
+  const impl = (async (input: string | URL | Request, init?: RequestInit) => {
+    const record: Seen = { method: init?.method ?? "GET", url: new URL(String(input)), headers: new Headers(init?.headers) };
+    seen.push(record);
+    return respond(record);
+  }) as unknown as typeof fetch;
+  return { seen, impl };
+}
+
+const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
+const make = (location: string, fetchImpl: typeof fetch) => createTransientStorage({ bucket: "operai-transient", location, auth, fetchImpl });
+
+describe("transientKeys", () => {
+  it("lays an attempt out under transcribe/<meetingId>/<attempt>/, each try of each part with an output prefix of its own (H-4)", () => {
+    expect(transientKeys.prefix("m_1")).toBe("transcribe/m_1/");
+    expect(transientKeys.input("m_1", 2, 3)).toBe("transcribe/m_1/2/in/3.ogg");
+    expect(transientKeys.outputPrefix("m_1", 2, 3, 1)).toBe("transcribe/m_1/2/out/3-1/");
+    expect(transientKeys.outputPrefix("m_1", 2, 3, 2)).toBe("transcribe/m_1/2/out/3-2/");
+    expect(transientKeys.outputPrefix("m_1", 2, 22, 3)).toBe("transcribe/m_1/2/out/22-3/");
+  });
+
+  it("refuses ids that could steer the path", () => {
+    for (const id of ["", "a/b", "..", "a b", "x".repeat(65)]) expect(() => transientKeys.prefix(id)).toThrow();
+    expect(() => transientKeys.input("m", 0, 1)).toThrow();
+    expect(() => transientKeys.input("m", 1, 0)).toThrow();
+    expect(() => transientKeys.outputPrefix("m", 1, 0, 1)).toThrow();
+    expect(() => transientKeys.outputPrefix("m", 1, 1, 0)).toThrow();
+  });
+});
+
+describe("prefixUri (T107: the output location Speech is given is a PREFIX, which uri() refuses)", () => {
+  const storage = make("EUROPE-WEST4", stub(() => json({})).impl);
+
+  it("builds gs://<bucket>/transcribe/<id>/<attempt>/out/<k>-<t>/ for exactly one try's prefix", () => {
+    expect(storage.prefixUri(transientKeys.outputPrefix("m_1", 2, 3, 2))).toBe("gs://operai-transient/transcribe/m_1/2/out/3-2/");
+    expect(() => storage.uri(transientKeys.outputPrefix("m_1", 2, 3, 2))).toThrow(); // the reason prefixUri exists
+  });
+
+  it("refuses anything else: the meeting prefix, an in/ prefix, the whole out/, an object, a traversal", () => {
+    for (const bad of ["transcribe/m_1/", "transcribe/m_1/2/", "transcribe/m_1/2/in/", "transcribe/m_1/2/out/", "transcribe/m_1/2/out/3/", "transcribe/m_1/2/out/3-2/x.json", "transcribe/m_1/../2/out/3-2/", "", "transcribe//2/out/3-2/"]) {
+      expect(() => storage.prefixUri(bad)).toThrow();
+    }
+  });
+});
+
+describe("regional endpoint (G7)", () => {
+  it("derives storage.<location>.rep.googleapis.com from the bucket location, lowercased", () => {
+    expect(regionalHost("EU")).toBe("storage.eu.rep.googleapis.com");
+    expect(regionalHost("EUROPE-WEST4")).toBe("storage.europe-west4.rep.googleapis.com");
+  });
+
+  it("sends every object call (upload, download, list, delete) to the regional host", async () => {
+    const s = stub((r) => {
+      if (r.method === "POST") return json({});
+      if (r.method === "DELETE") return new Response(null, { status: 204 });
+      if (r.url.searchParams.get("alt") === "media") return new Response(new Uint8Array([1, 2, 3]));
+      return json({ items: [{ name: "transcribe/m1/1/in/1.ogg" }] });
+    });
+    const storage = make("EUROPE-WEST4", s.impl);
+    await storage.put("transcribe/m1/1/in/1.ogg", new Uint8Array([1]));
+    await storage.read("transcribe/m1/1/in/1.ogg", 100);
+    await storage.deletePrefix("transcribe/m1/");
+    expect(s.seen.length).toBeGreaterThanOrEqual(4);
+    for (const r of s.seen) {
+      expect(r.url.protocol).toBe("https:");
+      expect(r.url.host).toBe("storage.europe-west4.rep.googleapis.com");
+      expect(r.headers.get("authorization")).toBe("Bearer tok");
+    }
+  });
+});
+
+describe("put", () => {
+  it("creates the object with ifGenerationMatch=0 on the upload endpoint", async () => {
+    const s = stub(() => json({}));
+    await make("EU", s.impl).put("transcribe/m1/1/in/1.ogg", new Uint8Array([1, 2]));
+    const { url, method } = s.seen[0]!;
+    expect(method).toBe("POST");
+    expect(url.pathname).toBe("/upload/storage/v1/b/operai-transient/o");
+    expect(url.searchParams.get("ifGenerationMatch")).toBe("0");
+    expect(url.searchParams.get("uploadType")).toBe("media");
+    expect(url.searchParams.get("name")).toBe("transcribe/m1/1/in/1.ogg");
+  });
+
+  it("an existing object (412) is a permanent failure, not an overwrite", async () => {
+    const failure = (await make("EU", stub(() => json({}, 412)).impl).put("transcribe/m1/1/in/1.ogg", new Uint8Array()).catch((e: unknown) => e)) as GoogleApiError;
+    expect(failure).toBeInstanceOf(GoogleApiError);
+    expect(failure.transient).toBe(false);
+  });
+
+  it("refuses a key outside the transient layout without calling Google", async () => {
+    const s = stub(() => json({}));
+    const storage = make("EU", s.impl);
+    for (const key of ["meetings/m1/audio.ogg", "transcribe/m1/audio.ogg", "transcribe/m1/1/in/../x", "transcribe/m1/1/in/..", "transcribe/m1/1/other/1.ogg"]) {
+      await expect(storage.put(key, new Uint8Array())).rejects.toThrow();
+    }
+    expect(s.seen).toHaveLength(0);
+  });
+});
+
+describe("read", () => {
+  it("returns the bytes and asks for the media of the encoded object name", async () => {
+    const s = stub(() => new Response(new Uint8Array([7, 8, 9])));
+    expect(await make("EU", s.impl).read("transcribe/m1/1/out/1-1/a_transcript.json", 10)).toEqual(new Uint8Array([7, 8, 9]));
+    expect(s.seen[0]!.url.pathname).toBe("/download/storage/v1/b/operai-transient/o/transcribe%2Fm1%2F1%2Fout%2F1-1%2Fa_transcript.json");
+    expect(s.seen[0]!.url.searchParams.get("alt")).toBe("media");
+  });
+
+  it("refuses a declared size over the ceiling before reading", async () => {
+    const big = new Response(new Uint8Array(10), { headers: { "content-length": "999999" } });
+    await expect(make("EU", stub(() => big).impl).read("transcribe/m1/1/out/1-1/x.json", 100)).rejects.toBeInstanceOf(TransientObjectTooLargeError);
+  });
+
+  it("refuses a stream that exceeds the ceiling even when it declares nothing", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(60));
+        controller.enqueue(new Uint8Array(60));
+        controller.close();
+      },
+    });
+    await expect(make("EU", stub(() => new Response(body)).impl).read("transcribe/m1/1/out/1-1/x.json", 100)).rejects.toBeInstanceOf(TransientObjectTooLargeError);
+  });
+
+  it("a 404 is a permanent failure and a 503 a transient one", async () => {
+    const f404 = (await make("EU", stub(() => json({}, 404)).impl).read("transcribe/m1/1/out/1-1/x.json", 10).catch((e: unknown) => e)) as GoogleApiError;
+    expect(f404.transient).toBe(false);
+    const f503 = (await make("EU", stub(() => json({}, 503)).impl).read("transcribe/m1/1/out/1-1/x.json", 10).catch((e: unknown) => e)) as GoogleApiError;
+    expect(f503.transient).toBe(true);
+  });
+});
+
+describe("deletePrefix", () => {
+  it("refuses transcribe/, another meeting layout, a deeper prefix and malformed ones, without calling Google", async () => {
+    const s = stub(() => json({ items: [] }));
+    const storage = make("EU", s.impl);
+    for (const prefix of ["", "transcribe/", "transcribe", "transcribe//", "transcribe/m1", "transcribe/m1/1/in/", "transcribe/m1/x/", "transcribe/m1/0/", "transcribe/m1/1000/", "transcribe/m1/01/", "meetings/m1/", "/", "transcribe/a/../"]) {
+      await expect(storage.deletePrefix(prefix)).rejects.toThrow();
+    }
+    expect(s.seen).toHaveLength(0);
+  });
+
+  it("takes one try's output prefix, and nothing between it and the attempt's", async () => {
+    const s = stub((r) => (r.method === "DELETE" ? new Response(null, { status: 204 }) : json({ items: [{ name: "transcribe/m1/2/out/3-2/a.json" }] })));
+    const storage = make("EU", s.impl);
+    expect(await storage.deletePrefix("transcribe/m1/2/out/3-2/")).toBe(1);
+    expect(s.seen.find((r) => r.method === "GET")!.url.searchParams.get("prefix")).toBe("transcribe/m1/2/out/3-2/");
+    const calls = s.seen.length;
+    for (const bad of ["transcribe/m1/2/out/", "transcribe/m1/2/out/3/", "transcribe/m1/2/out/3-2", "transcribe/m1/2/out/0-1/", "transcribe/m1/2/out/3-2/a.json"]) {
+      await expect(storage.deletePrefix(bad), bad).rejects.toThrow();
+    }
+    expect(s.seen).toHaveLength(calls);
+  });
+
+  it("takes one attempt's prefix too, and deletes only that attempt's objects", async () => {
+    const s = stub((r) =>
+      r.method === "DELETE"
+        ? new Response(null, { status: 204 })
+        : json({ items: [{ name: "transcribe/m1/2/in/1.ogg" }, { name: "transcribe/m1/2/out/a.json" }] }),
+    );
+    expect(await make("EU", s.impl).deletePrefix("transcribe/m1/2/")).toBe(2);
+    expect(s.seen.find((r) => r.method === "GET")!.url.searchParams.get("prefix")).toBe("transcribe/m1/2/");
+  });
+
+  it("lists page by page and deletes every object under the prefix", async () => {
+    const s = stub((r) => {
+      if (r.method === "DELETE") return new Response(null, { status: 204 });
+      return r.url.searchParams.get("pageToken") === "p2"
+        ? json({ items: [{ name: "transcribe/m1/1/out/a.json" }] })
+        : json({ items: [{ name: "transcribe/m1/1/in/1.ogg" }, { name: "transcribe/m1/1/in/2.ogg" }], nextPageToken: "p2" });
+    });
+    expect(await make("EU", s.impl).deletePrefix("transcribe/m1/")).toBe(3);
+    const lists = s.seen.filter((r) => r.method === "GET");
+    expect(lists).toHaveLength(2);
+    expect(lists[0]!.url.searchParams.get("prefix")).toBe("transcribe/m1/");
+    expect(s.seen.filter((r) => r.method === "DELETE").map((r) => decodeURIComponent(r.url.pathname.split("/o/")[1]!)).sort()).toEqual([
+      "transcribe/m1/1/in/1.ogg",
+      "transcribe/m1/1/in/2.ogg",
+      "transcribe/m1/1/out/a.json",
+    ]);
+  });
+
+  it("never deletes a name outside the prefix, whatever the listing says", async () => {
+    const s = stub((r) =>
+      r.method === "DELETE" ? new Response(null, { status: 204 }) : json({ items: [{ name: "transcribe/m2/1/in/1.ogg" }, { name: "meetings/m1/audio.ogg" }, { name: "transcribe/m1/1/in/1.ogg" }] }),
+    );
+    expect(await make("EU", s.impl).deletePrefix("transcribe/m1/")).toBe(1);
+    expect(s.seen.filter((r) => r.method === "DELETE")).toHaveLength(1);
+  });
+
+  it("an object that is already gone (404) is fine; any other failure rejects", async () => {
+    const gone = stub((r) => (r.method === "DELETE" ? json({}, 404) : json({ items: [{ name: "transcribe/m1/1/in/1.ogg" }] })));
+    expect(await make("EU", gone.impl).deletePrefix("transcribe/m1/")).toBe(1);
+
+    const denied = stub((r) => (r.method === "DELETE" ? json({}, 403) : json({ items: [{ name: "transcribe/m1/1/in/1.ogg" }] })));
+    await expect(make("EU", denied.impl).deletePrefix("transcribe/m1/")).rejects.toBeInstanceOf(GoogleApiError);
+  });
+
+  it("a failed listing rejects (the caller answers 503 and changes nothing)", async () => {
+    await expect(make("EU", stub(() => json({}, 500)).impl).deletePrefix("transcribe/m1/")).rejects.toBeInstanceOf(GoogleApiError);
+  });
+});
+
+describe("delete (one object: a part's input once the part has settled)", () => {
+  it("deletes the named object only, 404 is fine, any other failure rejects, a key outside the layout is refused unsent", async () => {
+    const s = stub(() => new Response(null, { status: 204 }));
+    await make("EU", s.impl).delete("transcribe/m1/2/in/3.ogg");
+    expect(s.seen).toHaveLength(1);
+    expect(s.seen[0]!.method).toBe("DELETE");
+    expect(decodeURIComponent(s.seen[0]!.url.pathname.split("/o/")[1]!)).toBe("transcribe/m1/2/in/3.ogg");
+    await make("EU", stub(() => json({}, 404)).impl).delete("transcribe/m1/2/in/3.ogg");
+    await expect(make("EU", stub(() => json({}, 403)).impl).delete("transcribe/m1/2/in/3.ogg")).rejects.toBeInstanceOf(GoogleApiError);
+    const refused = stub(() => json({}));
+    for (const bad of ["transcribe/m1/2/in/", "transcribe/m1/2/", "meetings/m1/audio.ogg", "transcribe/m1/2/out/3/a.json"]) {
+      await expect(make("EU", refused.impl).delete(bad), bad).rejects.toThrow();
+    }
+    expect(refused.seen).toHaveLength(0);
+  });
+});
+
+describe("deleteAttemptsBefore", () => {
+  const listing = [
+    "transcribe/m1/1/in/1.ogg",
+    "transcribe/m1/2/out/a.json",
+    "transcribe/m1/3/in/1.ogg",
+    "transcribe/m1/4/in/1.ogg",
+    "transcribe/m1/9/out/x.json",
+    "transcribe/m1/odd/in/1.ogg",
+    "transcribe/m2/1/in/1.ogg",
+  ];
+  const deleted = (s: ReturnType<typeof stub>) =>
+    s.seen.filter((r) => r.method === "DELETE").map((r) => decodeURIComponent(r.url.pathname.split("/o/")[1]!)).sort();
+
+  it("lists the meeting and deletes only the attempts numbered below the given one", async () => {
+    const s = stub((r) => (r.method === "DELETE" ? new Response(null, { status: 204 }) : json({ items: listing.map((name) => ({ name })) })));
+    expect(await make("EU", s.impl).deleteAttemptsBefore("m1", 3)).toBe(2);
+    expect(deleted(s)).toEqual(["transcribe/m1/1/in/1.ogg", "transcribe/m1/2/out/a.json"]);
+    expect(s.seen.find((r) => r.method === "GET")!.url.searchParams.get("prefix")).toBe("transcribe/m1/");
+  });
+
+  it("attempt 1 deletes nothing, and an invalid id or attempt is refused without calling Google", async () => {
+    const s = stub((r) => (r.method === "DELETE" ? new Response(null, { status: 204 }) : json({ items: listing.map((name) => ({ name })) })));
+    const storage = make("EU", s.impl);
+    expect(await storage.deleteAttemptsBefore("m1", 1)).toBe(0);
+    expect(deleted(s)).toEqual([]);
+    const calls = s.seen.length;
+    await expect(storage.deleteAttemptsBefore("../x", 2)).rejects.toThrow();
+    await expect(storage.deleteAttemptsBefore("m1", 0)).rejects.toThrow();
+    await expect(storage.deleteAttemptsBefore("m1", 1000)).rejects.toThrow();
+    expect(s.seen).toHaveLength(calls);
+  });
+});
+
+describe("keyOfUri", () => {
+  it("maps this bucket's gs:// URIs back to keys and refuses anything else", () => {
+    const storage = make("EU", stub(() => json({})).impl);
+    expect(storage.uri("transcribe/m1/1/in/1.ogg")).toBe("gs://operai-transient/transcribe/m1/1/in/1.ogg");
+    expect(storage.keyOfUri("gs://operai-transient/transcribe/m1/1/out/1-1/a.json")).toBe("transcribe/m1/1/out/1-1/a.json");
+    expect(storage.keyOfUri("gs://other-bucket/transcribe/m1/1/out/1-1/a.json")).toBeNull();
+    expect(storage.keyOfUri("gs://operai-transient/other/a.json")).toBeNull();
+    expect(storage.keyOfUri("https://operai-transient/transcribe/m1/1/out/1-1/a.json")).toBeNull();
+  });
+});
+
+describe("createTransientStorageForBucket (the location is checked again before the host is built)", () => {
+  it("builds the regional host from an allowed location", async () => {
+    const s = stub((r) => (r.method === "GET" && r.url.host === "storage.googleapis.com" ? json({ location: "europe-west4" }) : json({ items: [] })));
+    const storage = await createTransientStorageForBucket({ bucket: "operai-transient", auth, fetchImpl: s.impl });
+    await storage.deletePrefix("transcribe/m1/");
+    expect(s.seen.at(-1)!.url.host).toBe("storage.europe-west4.rep.googleapis.com");
+  });
+
+  it("refuses a location outside the allowlist, a missing one and a non-string one, and contacts no regional host", async () => {
+    for (const body of [{ location: "US" }, { location: "EUROPE-WEST2" }, { location: "EUR4" }, { location: "evil.example.com/x" }, {}, { location: 5 }, { location: null }]) {
+      const s = stub(() => json(body));
+      await expect(createTransientStorageForBucket({ bucket: "operai-transient", auth, fetchImpl: s.impl }), JSON.stringify(body)).rejects.toBeInstanceOf(GoogleApiError);
+      expect(s.seen.every((r) => r.url.host === "storage.googleapis.com")).toBe(true);
+    }
+  });
+});
+
+describe("readBucketConfig", () => {
+  it("reads the metadata from the global endpoint with the fields N2 needs", async () => {
+    const s = stub(() => json({ location: "EU" }));
+    expect(await readBucketConfig({ bucket: "operai-transient", auth, fetchImpl: s.impl })).toEqual({ location: "EU" });
+    expect(s.seen[0]!.url.host).toBe("storage.googleapis.com");
+    expect(s.seen[0]!.url.pathname).toBe("/storage/v1/b/operai-transient");
+    const fields = s.seen[0]!.url.searchParams.get("fields")!.split(",");
+    for (const field of ["location", "lifecycle", "versioning", "softDeletePolicy", "retentionPolicy", "defaultEventBasedHold", "iamConfiguration"]) {
+      expect(fields).toContain(field);
+    }
+  });
+
+  it("retries once on a transient failure, then gives up", async () => {
+    let n = 0;
+    const flaky = stub(() => (n++ === 0 ? json({}, 503) : json({ location: "EU" })));
+    expect(await readBucketConfig({ bucket: "b-ucket", auth, fetchImpl: flaky.impl })).toEqual({ location: "EU" });
+    expect(flaky.seen).toHaveLength(2);
+
+    const down = stub(() => json({}, 503));
+    await expect(readBucketConfig({ bucket: "b-ucket", auth, fetchImpl: down.impl })).rejects.toBeInstanceOf(GoogleApiError);
+    expect(down.seen).toHaveLength(2);
+  });
+
+  it("does not retry a permanent refusal", async () => {
+    const denied = stub(() => json({}, 403));
+    await expect(readBucketConfig({ bucket: "b-ucket", auth, fetchImpl: denied.impl })).rejects.toBeInstanceOf(GoogleApiError);
+    expect(denied.seen).toHaveLength(1);
+  });
+});
+
+describe("the fake", () => {
+  it("keeps the same prefix rule and records calls in order", async () => {
+    const fake = createFakeTransientStorage();
+    await fake.put("transcribe/m1/1/in/1.ogg", new Uint8Array([1]));
+    await expect(fake.deletePrefix("transcribe/")).rejects.toThrow();
+    expect(await fake.deletePrefix("transcribe/m1/")).toBe(1);
+    expect(fake.events.map((e) => e.op)).toEqual(["put", "deletePrefix"]);
+    fake.failWith(new Error("down"));
+    await expect(fake.deletePrefix("transcribe/m1/")).rejects.toThrow("down");
+  });
+
+  it("takes an attempt's prefix, and deleteAttemptsBefore keeps the given attempt and every later one", async () => {
+    const fake = createFakeTransientStorage();
+    for (const key of ["transcribe/m1/1/in/1.ogg", "transcribe/m1/2/in/1.ogg", "transcribe/m1/3/in/1.ogg", "transcribe/m2/1/in/1.ogg"]) fake.seed(key, "x");
+    expect(await fake.deletePrefix("transcribe/m1/1/")).toBe(1);
+    expect(await fake.deleteAttemptsBefore("m1", 3)).toBe(1);
+    expect(fake.keys()).toEqual(["transcribe/m1/3/in/1.ogg", "transcribe/m2/1/in/1.ogg"]);
+    await expect(fake.deletePrefix("transcribe/m1/1/in/")).rejects.toThrow();
+  });
+
+  it("deletes a try's prefix and one object, as the real one does", async () => {
+    const fake = createFakeTransientStorage();
+    for (const key of ["transcribe/m1/1/in/1.ogg", "transcribe/m1/1/out/1-1/a.json", "transcribe/m1/1/out/1-2/a.json"]) fake.seed(key, "x");
+    expect(await fake.deletePrefix("transcribe/m1/1/out/1-1/")).toBe(1);
+    await fake.delete("transcribe/m1/1/in/1.ogg");
+    expect(fake.keys()).toEqual(["transcribe/m1/1/out/1-2/a.json"]);
+    expect(fake.events.map((e) => e.op)).toEqual(["deletePrefix", "delete"]);
+    await expect(fake.deletePrefix("transcribe/m1/1/out/")).rejects.toThrow();
+  });
+});

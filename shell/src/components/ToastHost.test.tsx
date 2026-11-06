@@ -28,7 +28,12 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import type { Notification, NotificationSeverity, ToastEvent } from '../lib/notifications'
 
 const { subscribeToasts } = vi.hoisted(() => ({ subscribeToasts: vi.fn() }))
-vi.mock('../lib/notifications', () => ({ subscribeToasts }))
+// Only the subscription seam is faked; the pure `localizedText` helper stays real so these tests
+// exercise the real language choice.
+vi.mock('../lib/notifications', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/notifications')>()),
+  subscribeToasts,
+}))
 
 import ToastHost from './ToastHost'
 
@@ -252,5 +257,57 @@ describe('ToastHost', () => {
 
     const toast = screen.getByRole('alert')
     expect(within(toast).getByText('Severity: error', { selector: '.sr-only' })).toBeDefined()
+  })
+
+  // Bilingual system notifications (ADR-0065, AC-12.5): the reader picks the variant.
+  describe('Italian variant', () => {
+    const meetingsNotification = (overrides: Partial<Notification> = {}): Notification =>
+      makeNotification({
+        title: 'Transcript ready',
+        body: 'The meeting was recorded and transcribed with AI.',
+        originApp: 'meetings',
+        it: { title: 'Trascrizione pronta', body: 'La riunione è stata registrata e trascritta con l’IA.' },
+        ...overrides,
+      })
+
+    afterEach(() => {
+      document.documentElement.setAttribute('lang', 'en')
+    })
+
+    it('shows the Italian title and body under <html lang="it">', () => {
+      document.documentElement.setAttribute('lang', 'it')
+      render(<ToastHost />)
+
+      emit(meetingsNotification())
+
+      expect(screen.getByText('Trascrizione pronta')).toBeDefined()
+      expect(screen.getByText('La riunione è stata registrata e trascritta con l’IA.')).toBeDefined()
+      expect(screen.queryByText('Transcript ready')).toBeNull()
+    })
+
+    it('shows the English title and body under <html lang="en">', () => {
+      document.documentElement.setAttribute('lang', 'en')
+      render(<ToastHost />)
+
+      emit(meetingsNotification())
+
+      expect(screen.getByText('Transcript ready')).toBeDefined()
+      expect(screen.getByText('The meeting was recorded and transcribed with AI.')).toBeDefined()
+      expect(screen.queryByText('Trascrizione pronta')).toBeNull()
+    })
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['blank', { title: '', body: ' ' }],
+    ])('falls back to the English text under "it" when the variant is %s', (_label, it) => {
+      document.documentElement.setAttribute('lang', 'it')
+      render(<ToastHost />)
+
+      emit(meetingsNotification({ it }))
+
+      expect(screen.getByText('Transcript ready')).toBeDefined()
+      expect(screen.getByText('The meeting was recorded and transcribed with AI.')).toBeDefined()
+    })
   })
 })

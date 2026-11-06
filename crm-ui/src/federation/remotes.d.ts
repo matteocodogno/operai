@@ -1,6 +1,6 @@
 // Ambient module declarations for the shell modules crm-ui consumes as a
-// remote (specs/017-crm). Module Federation resolves `shell/session` and
-// `shell/tokens.css` at runtime through a virtual module tsc cannot see; the
+// remote (specs/017-crm, specs/021-meetings). Module Federation resolves
+// `shell/session`, `shell/extensions` and `shell/tokens.css` at runtime through a virtual module tsc cannot see; the
 // `dts` option is off in vite.config.ts so this remote builds without a live
 // shell. Keep in sync by hand with shell/src/lib/session.ts.
 
@@ -42,6 +42,26 @@ declare module 'shell/session' {
   }
 
   export const usePermissions: () => PermissionsResult
+}
+
+// The host-extension seam (specs/021-meetings, ADR-0060): a federated panel the
+// shell loads on behalf of a host, raced against a timeout, with an error
+// boundary; a failure of any kind renders `fallback`. Keep in sync by hand with
+// shell/src/lib/extensions.tsx. crm-ui imports it DYNAMICALLY and treats a
+// missing module or export as "unavailable" (a shell that predates the expose).
+declare module 'shell/extensions' {
+  import type { JSX, ReactNode } from 'react'
+
+  export interface ExtensionProps {
+    'meetings.hostMeetings': { hostApp: string; entityType: string; entityId: string }
+  }
+
+  export function HostExtension<K extends keyof ExtensionProps>(props: {
+    name: K
+    props: ExtensionProps[K]
+    fallback: ReactNode
+    loading?: ReactNode
+  }): JSX.Element
 }
 
 declare module 'shell/tokens.css' {

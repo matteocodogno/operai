@@ -96,6 +96,7 @@ const ActivitySchema = z.object({
   id: z.string(),
   type: TypeSchema,
   subject: z.string(),
+  /** Null for a meeting activity: its content is the meeting, reached through `meeting` (specs/021 AC-14.2). */
   body: z.string().nullable(),
   occurredAt: z.string(),
   company: z.object({ id: z.string(), name: z.string() }),
@@ -104,6 +105,11 @@ const ActivitySchema = z.object({
   author: PersonRefSchema,
   /** The wellD colleagues who took part, besides the author and the assignee (US-8). */
   participants: z.array(PersonRefSchema),
+  /**
+   * The Meetings meeting this activity mirrors (specs/021 US-14), or null. The link is all a reader
+   * gets: whether they may open it is Meetings' decision (404 for anyone without access, AC-14.4).
+   */
+  meeting: z.object({ id: z.string(), href: z.string() }).nullable(),
   task: z
     .object({
       dueDate: z.string().nullable(),
@@ -147,13 +153,15 @@ async function toViews(c: HeaderSource, rows: readonly ActivityRow[]) {
     id: row.id,
     type: row.type,
     subject: row.subject,
-    body: row.body,
+    // AC-14.2: a meeting activity's body is the link and nothing else, whatever the row holds.
+    body: row.meetingId === null ? row.body : null,
     occurredAt: row.occurredAt.toISOString(),
     company: row.company,
     contact: row.contact ? { id: row.contact.id, name: `${row.contact.firstName} ${row.contact.lastName}` } : null,
     deal: row.deal,
     author: person(row.authorUserId),
     participants: row.participants.map((participant) => person(participant.userId)),
+    meeting: row.meetingId === null ? null : { id: row.meetingId, href: `/my-meetings/m/${row.meetingId}` },
     task:
       row.type === "task"
         ? {

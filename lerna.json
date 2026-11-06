@@ -9,11 +9,13 @@
     "refund-api",
     "inventory-api",
     "crm-api",
+    "meetings-api",
     "shell",
     "estimai-ui",
     "refund-ui",
     "inventory-ui",
     "crm-ui",
+    "meetings-ui",
     "notify-ui",
     "admin-ui",
     "operai-ui"

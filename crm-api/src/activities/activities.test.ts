@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { call, makeCompany, makeDeal, resetWorld } from "../test-support/world";
+import { call, db, makeCompany, makeDeal, resetWorld } from "../test-support/world";
 
 beforeEach(resetWorld);
 
@@ -87,5 +87,78 @@ describe("activities and tasks (US-4)", () => {
     expect((await task("user-gone")).json).toMatchObject({ code: "owner_not_crm_user", field: "assigneeUserId" });
     expect((await task("user-outsider")).json).toMatchObject({ code: "owner_not_crm_user", field: "assigneeUserId" });
     expect((await task("user-tech")).status).toBe(201);
+  });
+});
+
+describe("a meeting activity (specs/021 US-14, AC-14.2, AC-14.4)", () => {
+  // What the notices reconciler writes, inserted directly: this file is about how it READS.
+  async function meetingActivity(companyId: string, dealId: string, extra: { body?: string } = {}) {
+    const meetingId = crypto.randomUUID();
+    const row = await db.activity.create({
+      data: {
+        type: "meeting",
+        subject: "Discovery call",
+        body: extra.body ?? null,
+        occurredAt: new Date("2026-11-10T09:30:00Z"),
+        companyId,
+        dealId,
+        authorUserId: "user-consultant",
+        meetingId,
+      },
+    });
+    return { row, meetingId };
+  }
+
+  it("shows subject, occurredAt, no body and the meeting link on the deal's and the company's timeline", async () => {
+    const company = await makeCompany();
+    const deal = await makeDeal(company.id);
+    const { row, meetingId } = await meetingActivity(company.id, deal.id);
+    const expected = {
+      id: row.id,
+      type: "meeting",
+      subject: "Discovery call",
+      occurredAt: "2026-11-10T09:30:00.000Z",
+      body: null,
+      meeting: { id: meetingId, href: `/my-meetings/m/${meetingId}` },
+      deal: { id: deal.id },
+      author: { id: "user-consultant", status: "active" },
+    };
+    for (const url of [`/activities?dealId=${deal.id}`, `/activities?companyId=${company.id}`]) {
+      const res = await call("GET", url, { as: "colleague" });
+      expect(res.status).toBe(200);
+      expect(res.json.items).toHaveLength(1);
+      expect(res.json.items[0]).toMatchObject(expected);
+    }
+  });
+
+  it("never exposes a body on it, even one the row holds", async () => {
+    const company = await makeCompany();
+    const deal = await makeDeal(company.id);
+    await meetingActivity(company.id, deal.id, { body: "Transcript excerpt that must not leak" });
+    const res = await call("GET", `/activities?dealId=${deal.id}`, { as: "consultant" });
+    expect(res.json.items[0].body).toBeNull();
+    expect(JSON.stringify(res.json)).not.toContain("must not leak");
+  });
+
+  it("an ordinary activity has meeting: null and keeps its body; a client cannot set a meeting id", async () => {
+    const company = await makeCompany();
+    const created = await call("POST", "/activities", { as: "consultant", body: { type: "note", subject: "N", body: "Kept", companyId: company.id } });
+    expect(created.status).toBe(201);
+    expect(created.json).toMatchObject({ body: "Kept", meeting: null });
+    const forged = await call("POST", "/activities", {
+      as: "consultant",
+      body: { type: "meeting", subject: "M", companyId: company.id, meetingId: "forged" },
+    });
+    expect(forged.status).toBe(422);
+    expect((await call("PATCH", `/activities/${created.json.id}`, { as: "consultant", body: { meetingId: "forged" } })).status).toBe(422);
+  });
+
+  it("a PATCH response shows it the same way", async () => {
+    const company = await makeCompany();
+    const deal = await makeDeal(company.id);
+    const { row, meetingId } = await meetingActivity(company.id, deal.id);
+    const res = await call("PATCH", `/activities/${row.id}`, { as: "consultant", body: { body: "mine" } });
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ body: null, meeting: { id: meetingId } });
   });
 });

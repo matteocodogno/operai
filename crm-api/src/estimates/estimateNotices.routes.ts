@@ -6,7 +6,7 @@
  * to `requested` and reopens the task.
  *
  * Service-to-service only: a service JWT of `system:estimai-api` with scope
- * `estimate-notices.send` (serviceAuth). The body is ids and a version, nothing
+ * `estimate-notices.send` (systemAuth). The body is ids and a version, nothing
  * from the estimate's content. Notices may arrive late or out of order: one whose
  * EstimAI version is not newer than the last applied is ignored. An estimate the
  * CRM does not link answers 204 like any other, so nothing is learnt from it.
@@ -17,7 +17,7 @@ import { db } from "../lib/db";
 import { MAX_NAME, announce, clip } from "../lib/notify";
 import { validationHook } from "../lib/problem";
 import { announceUnblocked } from "../activities/blockers";
-import { serviceAuth, type ServiceAuthVariables } from "../system/serviceAuth";
+import { createSystemAuthMiddleware, type SystemAuthVariables } from "../auth/systemAuth.middleware";
 
 export const ESTIMATE_NOTICES_SCOPE = "estimate-notices.send";
 const ESTIMAI_CALLER = "system:estimai-api";
@@ -37,7 +37,7 @@ const noticeRoute = createRoute({
   path: "/system/estimate-notices",
   tags: ["System"],
   summary: "An EstimAI estimate was closed or reopened (estimai-api only)",
-  middleware: [serviceAuth({ scope: ESTIMATE_NOTICES_SCOPE, callers: [ESTIMAI_CALLER] })] as const,
+  middleware: [createSystemAuthMiddleware({ scope: ESTIMATE_NOTICES_SCOPE, allowedSubs: [ESTIMAI_CALLER] })] as const,
   request: { body: { content: { "application/json": { schema: NoticeSchema } }, required: true } },
   responses: {
     204: { description: "Applied, ignored as stale, or about an estimate the CRM does not link" },
@@ -46,7 +46,7 @@ const noticeRoute = createRoute({
   },
 });
 
-export const estimateNoticesRouter = new OpenAPIHono<{ Variables: ServiceAuthVariables }>({
+export const estimateNoticesRouter = new OpenAPIHono<{ Variables: SystemAuthVariables }>({
   defaultHook: validationHook,
 });
 

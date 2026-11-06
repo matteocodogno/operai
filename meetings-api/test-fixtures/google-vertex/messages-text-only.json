@@ -1,0 +1,32 @@
+{
+  "httpStatus": 200,
+  "body": {
+    "model": "claude-sonnet-5-5",
+    "id": "msg_1",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "The meeting covered two commitments: the team agreed to ship the report on Friday, and Speaker 2 will send the client the invoice on Monday."
+      }
+    ],
+    "container": null,
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "stop_details": null,
+    "usage": {
+      "input_tokens": 481,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cache_creation": {
+        "ephemeral_5m_input_tokens": 0,
+        "ephemeral_1h_input_tokens": 0
+      },
+      "output_tokens": 49,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      }
+    }
+  }
+}

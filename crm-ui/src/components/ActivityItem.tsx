@@ -92,7 +92,22 @@ export default function ActivityItem({
         )}
         <span className="font-medium text-text">{activity.subject}</span>
       </div>
-      {activity.body && <p className="whitespace-pre-line text-sm text-soft">{activity.body}</p>}
+      {/* A meeting activity's body is the link and nothing else (AC-14.2): never show one. */}
+      {activity.body && !activity.meeting && <p className="whitespace-pre-line text-sm text-soft">{activity.body}</p>}
+      {activity.meeting && (
+        <p className="text-sm">
+          {/* The Meetings tool is a sibling route of the shell, outside this tool's router basepath, so a plain
+              anchor (not the router's Link). The href is built from the id: the server's own href is not trusted
+              into an attribute. A reader without access lands on the meeting's not-found state (AC-14.4). */}
+          <a
+            className="link"
+            href={`/my-meetings/m/${encodeURIComponent(activity.meeting.id)}`}
+            data-testid={`crm-activity-${activity.id}-open-meeting`}
+          >
+            {t.openMeeting}
+          </a>
+        </p>
+      )}
       <p className={listRowMetaClassName}>
         {t.by(personName(activity.author, currentUserId), formatDateTime(activity.occurredAt))}
         {showCompany && (

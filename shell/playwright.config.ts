@@ -102,6 +102,15 @@ const inventoryApiUrl =
   process.env['VITE_INVENTORY_API_URL'] ??
   'http://localhost:8083'
 
+// crm-api / meetings-api base URLs (specs/017 / specs/021). The SHELL's build needs both
+// for the trusted-origin allowlist (ADR-0001), exactly like refundApiUrl above.
+const crmApiUrl =
+  process.env['E2E_CRM_API_URL'] ?? process.env['VITE_CRM_API_URL'] ?? 'http://localhost:8084'
+const meetingsApiUrl =
+  process.env['E2E_MEETINGS_API_URL'] ??
+  process.env['VITE_MEETINGS_API_URL'] ??
+  'http://localhost:8085'
+
 // The shell's preview port. 5173 by default — the origin in auth's committed
 // ALLOWED_ORIGINS. E2E_SHELL_PORT only exists for a machine where 5173 is
 // already taken by an unrelated dev server (the services under test must then
@@ -131,6 +140,16 @@ const adminRemoteOrigin = 'http://localhost:5179'
 // inventory-ui (specs/015-hardware-inventory, T45) — gated `./App` at /inventory,
 // ungated `./MyDevices` at /devices. 5180 is the next free e2e-preview slot.
 const inventoryRemoteOrigin = 'http://localhost:5180'
+// crm-ui (specs/017) and meetings-ui (specs/021-meetings, T86): the next two free e2e-preview
+// slots. The meetings journeys reach a deal's Meetings card (crm-ui `HostExtension` -> meetings-ui
+// `./HostMeetings`), so both remotes must be served. The ports are overridable for a machine that
+// already serves them (the `mise run dev` stack has crm-ui on 5179 and meetings-ui on 5180:
+// `E2E_CRM_REMOTE_PORT=5179 E2E_MEETINGS_REMOTE_PORT=5180 pnpm e2e meetings-*`; Playwright then
+// reuses whatever answers on those URLs).
+const crmRemoteOrigin = `http://localhost:${process.env['E2E_CRM_REMOTE_PORT'] ?? '5181'}`
+const meetingsRemoteOrigin = `http://localhost:${process.env['E2E_MEETINGS_REMOTE_PORT'] ?? '5182'}`
+const crmRemotePort = new URL(crmRemoteOrigin).port
+const meetingsRemotePort = new URL(meetingsRemoteOrigin).port
 
 export default defineConfig({
   testDir: './e2e',
@@ -151,7 +170,30 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      testIgnore: '**/meetings-*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // specs/021-meetings (T86). Chromium with a FAKE microphone: the permission prompt is
+      // auto-accepted and getUserMedia returns a synthetic tone, so the in-browser recorder runs
+      // for real with no hardware (where the OS audio stack is unreachable, e.g. a sandboxed
+      // macOS shell, Chromium's fake device never answers; the fixtures then install a WebAudio
+      // microphone, see `installFakeMicrophone` in helpers/meetingsFixtures.ts). Tab audio (getDisplayMedia) cannot be captured headless: the
+      // journeys cover the mic-only path and the capability notice. The AI side is meetings-api's
+      // own `MEETINGS_AI_PROVIDER=fake` (fake transcriber and LLM), an env of that process.
+      name: 'meetings',
+      testMatch: '**/meetings-*.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        permissions: ['microphone'],
+        launchOptions: {
+          args: [
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            '--autoplay-policy=no-user-gesture-required',
+          ],
+        },
+      },
     },
   ],
 
@@ -260,6 +302,33 @@ export default defineConfig({
       },
     },
     {
+      // crm-ui (specs/017): the deal page that hosts the Meetings card (specs/021).
+      command: `pnpm build && pnpm preview --port ${crmRemotePort} --strictPort`,
+      cwd: '../crm-ui',
+      url: crmRemoteOrigin,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+      },
+    },
+    {
+      // meetings-ui (specs/021-meetings, T86): ./App, ./MyMeetings, ./HostMeetings, ./version.
+      // Reads no VITE_* of its own: the meetings-api origin comes from the shell.
+      command: `pnpm build && pnpm preview --port ${meetingsRemotePort} --strictPort`,
+      cwd: '../meetings-ui',
+      url: meetingsRemoteOrigin,
+      reuseExistingServer: !process.env['CI'],
+      timeout: 180_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: {
+        SHELL_REMOTE_URL: `${shellUrl}/remoteEntry.js`,
+      },
+    },
+    {
       command: `pnpm build && pnpm preview --port ${shellPort} --strictPort`,
       url: shellUrl,
       reuseExistingServer: !process.env['CI'],
@@ -272,11 +341,15 @@ export default defineConfig({
         NOTIFY_REMOTE_URL: `${notifyRemoteOrigin}/remoteEntry.js`,
         ADMIN_REMOTE_URL: `${adminRemoteOrigin}/remoteEntry.js`,
         INVENTORY_REMOTE_URL: `${inventoryRemoteOrigin}/remoteEntry.js`,
+        CRM_REMOTE_URL: `${crmRemoteOrigin}/remoteEntry.js`,
+        MEETINGS_REMOTE_URL: `${meetingsRemoteOrigin}/remoteEntry.js`,
         VITE_AUTH_URL: authUrl,
         VITE_API_URL: apiUrl,
         VITE_NOTIFY_API_URL: notifyApiUrl,
         VITE_REFUND_API_URL: refundApiUrl,
         VITE_INVENTORY_API_URL: inventoryApiUrl,
+        VITE_CRM_API_URL: crmApiUrl,
+        VITE_MEETINGS_API_URL: meetingsApiUrl,
       },
     },
   ],

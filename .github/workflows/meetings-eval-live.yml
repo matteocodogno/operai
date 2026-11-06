@@ -1,0 +1,126 @@
+# meetings-eval-live — the LIVE prompt-injection eval against the real EU model, Claude on Vertex AI
+# (specs/021 T84/T104, AC-7.12, AC-9.7, ADR-0067, ADR-0069). Nightly and on demand ONLY; never on a
+# pull request (PR runs are meetings-eval.yml: fake model, no credentials, with a guard that rejects any).
+#
+# - The job runs in the GitHub environment `meetings-eval`; add required reviewers to it to make
+#   every run wait for a human approval (a human decision, set in the repo settings).
+# - Authentication is Workload Identity Federation with GitHub's OIDC token: NO key and NO secret.
+#   The job holds `id-token: write` (it can mint the OIDC token) and nothing else beyond reading the
+#   repo; `google-github-actions/auth` exchanges the token for a short-lived credential of the eval
+#   service account, which may call Vertex predict only (infra/README.md § meetings-api, step 7).
+#   The WIF provider must carry an attribute condition pinning this repository, refs/heads/main and the
+#   `meetings-eval` environment (exact CEL in infra/README.md step 7), and that environment must have
+#   required reviewers and a deployment-branch policy limited to main. A guard step below also fails
+#   any run whose ref is not refs/heads/main, before authentication.
+# - Configuration comes from the environment's (or the repo's) VARIABLES (none is a secret); nothing is
+#   created here, and no value is ever printed:
+#     vars: MEETINGS_EVAL_GCP_WIF_PROVIDER, MEETINGS_EVAL_GCP_SERVICE_ACCOUNT, MEETINGS_EVAL_GCP_PROJECT_ID,
+#           MEETINGS_EVAL_VERTEX_LOCATION (eu, europe-west1 or europe-west4; `global` is refused by the
+#           eval itself), MEETINGS_EVAL_VERTEX_MODEL_ID
+# - If any of the five is absent, the outcome depends on the trigger. A `schedule` run (the nightly)
+#   SKIPS cleanly: it reports the missing NAMES as a notice and exits 0 without installing,
+#   authenticating or running anything, so an unconfigured repo or fork does not go red every night. A
+#   `workflow_dispatch` run (the human release step, meetings-api/README.md) FAILS: it prints an
+#   `::error::` naming the missing NAMES and exits 1, so the release gate cannot pass by being
+#   unconfigured. Any trigger other than `schedule` is treated like a dispatch (fail closed).
+#   Names only, never values.
+# - A live failure (exit 1, an assertion failed) or bad live configuration (exit 2) fails the job.
+# - Action pins: every action below is pinned by full commit SHA, the tag is in the comment. To bump,
+#   resolve the new tag's commit with `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`.
+name: meetings-eval-live
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # nightly, 03:17 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meetings-eval-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    name: prompt-injection evals (live model)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: meetings-eval
+    # Job-level so that only this job can mint the OIDC token (a job-level block replaces the top one).
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: meetings-api
+    steps:
+      # Defence in depth with the WIF provider's attribute condition (infra/README.md step 7): refuse to
+      # run, before anything else, on any ref other than main (a dispatch from a branch).
+      - name: Require the main branch
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          if [ "${REF}" != "refs/heads/main" ]; then
+            echo "::error::the live eval runs only on refs/heads/main"
+            exit 1
+          fi
+      - name: Check the live configuration
+        id: cfg
+        env:
+          WIF_PROVIDER: ${{ vars.MEETINGS_EVAL_GCP_WIF_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.MEETINGS_EVAL_GCP_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ vars.MEETINGS_EVAL_GCP_PROJECT_ID }}
+          LOCATION: ${{ vars.MEETINGS_EVAL_VERTEX_LOCATION }}
+          MODEL: ${{ vars.MEETINGS_EVAL_VERTEX_MODEL_ID }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -eu
+          missing=""
+          [ -n "${WIF_PROVIDER}" ] || missing="${missing} MEETINGS_EVAL_GCP_WIF_PROVIDER"
+          [ -n "${SERVICE_ACCOUNT}" ] || missing="${missing} MEETINGS_EVAL_GCP_SERVICE_ACCOUNT"
+          [ -n "${PROJECT_ID}" ] || missing="${missing} MEETINGS_EVAL_GCP_PROJECT_ID"
+          [ -n "${LOCATION}" ] || missing="${missing} MEETINGS_EVAL_VERTEX_LOCATION"
+          [ -n "${MODEL}" ] || missing="${missing} MEETINGS_EVAL_VERTEX_MODEL_ID"
+          if [ -n "${missing}" ]; then
+            if [ "${EVENT}" = "schedule" ]; then
+              echo "configured=false" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+              echo "::notice::live eval skipped, not configured (names only):${missing}"
+              exit 0
+            fi
+            echo "::error::live eval not configured, so the release gate cannot pass (names only):${missing}"
+            exit 1
+          fi
+          echo "configured=true" >> "${GITHUB_OUTPUT:-/dev/stdout}"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          bun-version: "1.4.2"
+      # Order matters: everything that runs third-party code (the dependency install and its lifecycle
+      # scripts) comes BEFORE the auth step, so the credentials file the action writes never exists while
+      # a dependency script runs. Auth is immediately before the live eval step.
+      - name: Install dependencies
+        if: steps.cfg.outputs.configured == 'true'
+        run: bun install --frozen-lockfile
+      # Keyless: GitHub's OIDC token -> the WIF provider -> a short-lived credential of the eval service
+      # account. The action writes an external-account credentials FILE (its path is exported as
+      # GOOGLE_APPLICATION_CREDENTIALS) for the live eval to hand to the Vertex client; it holds no key.
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: steps.cfg.outputs.configured == 'true'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.MEETINGS_EVAL_GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.MEETINGS_EVAL_GCP_SERVICE_ACCOUNT }}
+          create_credentials_file: true
+      - name: Prompt-injection evals (live model)
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          MEETINGS_GCP_PROJECT_ID: ${{ vars.MEETINGS_EVAL_GCP_PROJECT_ID }}
+          MEETINGS_VERTEX_LOCATION: ${{ vars.MEETINGS_EVAL_VERTEX_LOCATION }}
+          MEETINGS_VERTEX_MODEL_ID: ${{ vars.MEETINGS_EVAL_VERTEX_MODEL_ID }}
+        run: bun evals/run.ts --live

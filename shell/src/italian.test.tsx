@@ -61,6 +61,13 @@ describe('shell chrome in Italian', () => {
     render(<NoAccessScreen />)
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Nessuno strumento disponibile')
-    expect(TOOLS.map((tool) => tool.label)).toEqual(['EstimAI', 'Rimborsi', 'Amministrazione', 'Inventario', 'CRM'])
+    expect(TOOLS.map((tool) => tool.label)).toEqual([
+      'EstimAI',
+      'Rimborsi',
+      'Amministrazione',
+      'Inventario',
+      'CRM',
+      'Riunioni',
+    ])
   })
 })

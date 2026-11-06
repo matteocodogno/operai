@@ -53,6 +53,15 @@ export default defineConfig({
       ),
       // specs/017-crm: the crm remote's tool entry and version.
       'crm/App': fileURLToPath(new URL('./src/federation/__stubs__/crmApp.tsx', import.meta.url)),
+      // specs/021-meetings, T49/T51: the meetings remote's three mountable entries + ./version.
+      'meetings/App': fileURLToPath(new URL('./src/federation/__stubs__/meetingsApp.tsx', import.meta.url)),
+      'meetings/MyMeetings': fileURLToPath(
+        new URL('./src/federation/__stubs__/meetingsMyMeetings.tsx', import.meta.url),
+      ),
+      'meetings/HostMeetings': fileURLToPath(
+        new URL('./src/federation/__stubs__/meetingsHostMeetings.tsx', import.meta.url),
+      ),
+      'meetings/version': fileURLToPath(new URL('./src/federation/__stubs__/meetingsVersion.ts', import.meta.url)),
       'crm/version': fileURLToPath(new URL('./src/federation/__stubs__/crmVersion.ts', import.meta.url)),
     },
   },

@@ -38,6 +38,8 @@ export type {
   FieldProps,
   RadioGroupFieldProps,
 } from './components/Field'
+export { FilePicker } from './components/FilePicker'
+export type { FilePickerProps } from './components/FilePicker'
 export { FormDialog } from './components/FormDialog'
 export type { FormDialogProps } from './components/FormDialog'
 export { LoadMore } from './components/LoadMore'
@@ -54,6 +56,12 @@ export { Pagination } from './components/Pagination'
 export type { PaginationProps, PaginationStatus } from './components/Pagination'
 export { PageHeader } from './components/PageHeader'
 export type { PageHeaderProps } from './components/PageHeader'
+export { ProgressBar } from './components/ProgressBar'
+export type { ProgressBarProps } from './components/ProgressBar'
+export { PersonPicker } from './components/PersonPicker'
+export type { Person, PersonChoice, PersonLoadFailure, PersonPickerProps } from './components/PersonPicker'
+export { SectionsEditor } from './components/SectionsEditor'
+export type { Section, SectionRowErrors, SectionsEditorProps } from './components/SectionsEditor'
 export { Skeleton, SkeletonRows } from './components/Skeleton'
 export type { SkeletonProps, SkeletonRowsProps } from './components/Skeleton'
 export { Spinner } from './components/Spinner'
@@ -86,8 +94,10 @@ export {
   formatDate,
   formatDateLong,
   formatDateTime,
+  formatDuration,
   formatMoney,
   formatNumber,
   formatRelative,
 } from './lib/format'
+export type { DurationStyle } from './lib/format'
 export { useFocusOnMount } from './lib/useFocusOnMount'

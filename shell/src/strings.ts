@@ -22,9 +22,11 @@ const en = {
     admin: 'Admin',
     inventory: 'Inventory',
     crm: 'CRM',
+    meetings: 'Meetings',
     notify: 'Notify',
     notifications: 'Notifications',
     myDevices: 'My devices',
+    myMeetings: 'My meetings',
   },
   app: {
     description:
@@ -37,6 +39,16 @@ const en = {
     headerPlaceholder: 'Header placeholder — suite chrome (logo, About, user menu, theme toggle) lands in T6.',
     sidebarPlaceholder: 'Sidebar placeholder — tool switcher (EstimAI, Refund) lands in T7.',
     footerPlaceholder: 'Footer placeholder — legal link, version, company info land in T8.',
+  },
+  /** The confirmation shown when a remote has registered a navigation blocker (specs/021-meetings, AC-2.10). */
+  leavePage: {
+    title: 'Leave this page?',
+    // Shown only if the remote unregistered between the click and the render.
+    fallbackBody: 'You have work on this page that has not been saved.',
+    leave: 'Leave',
+    leaving: 'Leaving…',
+    stay: 'Stay',
+    close: 'Close',
   },
   logoMenu: {
     trigger: (app: string) => `${app} menu`,
@@ -60,6 +72,7 @@ const en = {
     accountFallback: 'Account',
     myProfile: 'My profile',
     myDevices: 'My devices',
+    myMeetings: 'My meetings',
     signOut: 'Sign out',
   },
   about: {
@@ -114,9 +127,11 @@ const it: typeof en = {
     admin: 'Amministrazione',
     inventory: 'Inventario',
     crm: 'CRM',
+    meetings: 'Riunioni',
     notify: 'Notifiche',
     notifications: 'Notifiche',
     myDevices: 'I miei dispositivi',
+    myMeetings: 'Le mie riunioni',
   },
   app: {
     description:
@@ -130,6 +145,14 @@ const it: typeof en = {
       'Segnaposto intestazione — gli elementi della suite (logo, Informazioni, menu utente, tema) arrivano con T6.',
     sidebarPlaceholder: 'Segnaposto barra laterale — il selettore degli strumenti (EstimAI, Rimborsi) arriva con T7.',
     footerPlaceholder: 'Segnaposto piè di pagina — note legali, versione e dati aziendali arrivano con T8.',
+  },
+  leavePage: {
+    title: 'Uscire da questa pagina?',
+    fallbackBody: 'In questa pagina ci sono dati non ancora salvati.',
+    leave: 'Esci',
+    leaving: 'Uscita…',
+    stay: 'Resta',
+    close: 'Chiudi',
   },
   logoMenu: {
     trigger: (app: string) => `Menu ${app}`,
@@ -153,6 +176,7 @@ const it: typeof en = {
     accountFallback: 'Account',
     myProfile: 'Il mio profilo',
     myDevices: 'I miei dispositivi',
+    myMeetings: 'Le mie riunioni',
     signOut: 'Esci',
   },
   about: {

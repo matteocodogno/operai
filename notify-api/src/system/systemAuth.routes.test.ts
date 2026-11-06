@@ -300,6 +300,30 @@ describe("origin bindings for the migrated callers", () => {
   });
 });
 
+describe("origin binding for meetings-api (specs/021 T5, ADR-0065)", () => {
+  it("meetings-api may raise 'meetings' (201) but neither 'crm' nor 'refund' (403)", async () => {
+    const t = await serviceJwt("system:meetings-api");
+    expect((await send(bearer(t), body({ originApp: "meetings" }))).status).toBe(201);
+    expect((await send(bearer(t), body({ originApp: "crm" }))).status).toBe(403);
+    expect((await send(bearer(t), body({ originApp: "refund" }))).status).toBe(403);
+    expect(await count()).toBe(1);
+  });
+
+  it("no other service may raise 'meetings' (403); nothing persisted", async () => {
+    for (const sub of ["system:crm-api", "system:inventory-api", "system:refund-api", "system:estimai-api"]) {
+      const t = await serviceJwt(sub);
+      expect((await send(bearer(t), body({ originApp: "meetings" }))).status).toBe(403);
+    }
+    expect(await count()).toBe(0);
+  });
+
+  it("meetings-api holding only notifications.push cannot ask for an email (403, nothing written)", async () => {
+    const t = await serviceJwt("system:meetings-api");
+    expect((await send(bearer(t), body({ originApp: "meetings", email: true }))).status).toBe(403);
+    expect(await count()).toBe(0);
+  });
+});
+
 describe("the retired shared token is refused on both routes (AC-5.1)", () => {
   it("/system/notifications: X-Internal-Token alone -> 401 and no row; beside a valid JWT it adds nothing", async () => {
     expect((await send(RETIRED, body({ originApp: "refund" }))).status).toBe(401);

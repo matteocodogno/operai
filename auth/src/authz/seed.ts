@@ -91,7 +91,15 @@
  *      `crm:access` + entity-scoped `deal:manage`). `crm` is registered once,
  *      here, never through `SUITE_APPS`.
  *
- * A TENTH, per-user concern — assigning the baseline `employee` role (and
+ *  11. {@link seedMeetingsCatalog} + {@link seedMeetingsGrants} (specs/021-
+ *      meetings — AC-10.8, AC-1.4, AC-10.5) — register the Meetings catalog
+ *      (`catalogs/meetings.ts`) and attach its grants: `employee` gets
+ *      `meetings:access` (the FIRST default grant on `employee`, a departure
+ *      from specs/004 forced by AC-10.8), `admin` gets `template:manage` and
+ *      `meeting:erase` (its `meetings:access` comes from `ALL_APP_IDS`).
+ *      `meetings` is registered once, here, never through `SUITE_APPS`.
+ *
+ * A further, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
  * `auth.config.ts`'s `databaseHooks.user.create.after` hook, via
@@ -103,10 +111,11 @@ import { ADMIN_ROLE_NAME } from "../admin/lastAdminGuard";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
 import type { Prisma } from "../lib/generated/prisma/client";
-import { upsertAppCatalog } from "./catalog";
+import { type AppCatalogInput, upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
 import { CRM_APP_ID, CRM_CATALOG } from "./catalogs/crm";
 import { INVENTORY_APP_ID, INVENTORY_CATALOG } from "./catalogs/inventory";
+import { MEETINGS_APP_ID, MEETINGS_CATALOG } from "./catalogs/meetings";
 import { REFUND_APP_ID, REFUND_CATALOG } from "./catalogs/refund";
 
 export const EMPLOYEE_ROLE_NAME = "employee";
@@ -215,6 +224,30 @@ export async function seedCrmCatalog(): Promise<void> {
 }
 
 /**
+ * Registers the Meetings catalog (specs/021-meetings — AC-10.8):
+ * `meetings:access`, `template:manage` and `meeting:erase`, all unconditioned.
+ * Idempotent (full-replace upsert keyed by `appId`). `meetings` is registered
+ * ONLY here, never via `SUITE_APPS`.
+ */
+export async function seedMeetingsCatalog(): Promise<void> {
+  await upsertAppCatalog(MEETINGS_CATALOG);
+}
+
+/**
+ * Every catalog a suite app declares itself (everything registered by a
+ * `seed<App>Catalog` above; the access-only {@link SUITE_APPS} are separate).
+ * `catalogs/uniqueResourceKeys.test.ts` checks no two of them share a resource
+ * key — add a new app's catalog here when it ships.
+ */
+export const DECLARED_CATALOGS: readonly AppCatalogInput[] = [
+  ESTIMAI_CATALOG,
+  REFUND_CATALOG,
+  INVENTORY_CATALOG,
+  CRM_CATALOG,
+  MEETINGS_CATALOG,
+];
+
+/**
  * Every suite app id. `estimai`/`refund`/`inventory` declare their own
  * catalogs; the rest come from SUITE_APPS. (`inventory` being listed here is
  * only so `seedAdminRoleGrants` grants `admin` its `access`; it is NOT a
@@ -225,6 +258,7 @@ export const ALL_APP_IDS: readonly string[] = [
   REFUND_APP_ID,
   INVENTORY_APP_ID,
   CRM_APP_ID,
+  MEETINGS_APP_ID,
   ...SUITE_APPS.map((a) => a.appId),
 ];
 
@@ -590,12 +624,44 @@ export async function seedCrmGrants(): Promise<void> {
 }
 
 /**
+ * Seeds the Meetings role grants (specs/021-meetings — AC-10.8, AC-1.4,
+ * AC-10.5; plan § Authorization):
+ *
+ *   - `employee` — `meetings:access`, unconditioned. The FIRST default grant on
+ *     `employee`: every signed-in employee can create meetings and be invited
+ *     to them without an admin step (AC-10.8), a deliberate departure from
+ *     specs/004's "employees get no default grants".
+ *   - `admin` — `template:manage` and `meeting:erase`, unconditioned. Its
+ *     `meetings:access` comes from {@link seedAdminRoleGrants} (`ALL_APP_IDS`).
+ *   - nothing else: no role ever grants reading a meeting.
+ *
+ * Idempotent and non-destructive, through {@link ensureGrant}, exactly like
+ * {@link seedCrmGrants}.
+ */
+export async function seedMeetingsGrants(): Promise<void> {
+  const employeeRole = await db.role.upsert({
+    where: { name: EMPLOYEE_ROLE_NAME },
+    update: {},
+    create: { name: EMPLOYEE_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(employeeRole.id, MEETINGS_APP_ID, "access");
+
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(adminRole.id, "template", "manage");
+  await ensureGrant(adminRole.id, "meeting", "erase");
+}
+
+/**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
  * seed leaves `admin` with zero permission rules, so even the bootstrap admin
  * resolves to `apps: []` and is stranded on the shell's `/no-access` screen —
  * unable to reach the very Admin tool needed to grant anyone (themselves
  * included) anything. So `admin` must be able to see the whole suite out of the
- * box. Employees deliberately get NO default grants — app access is fully
+ * box. Employees get no default grants but `meetings:access` (specs/021) — other app access is fully
  * admin-assigned (product decision, specs/004). Idempotent: each
  * (role, resource, action) grant is created only when absent.
  */
@@ -660,6 +726,7 @@ export async function seed(): Promise<void> {
   await seedRefundCatalog();
   await seedInventoryCatalog();
   await seedCrmCatalog();
+  await seedMeetingsCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
@@ -667,6 +734,7 @@ export async function seed(): Promise<void> {
   await seedSettingsAdminGrants();
   await seedInventoryGrants();
   await seedCrmGrants();
+  await seedMeetingsGrants();
   await ensureBootstrapAdmin();
 }
 

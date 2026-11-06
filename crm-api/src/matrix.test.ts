@@ -14,13 +14,21 @@ beforeEach(resetWorld);
 
 const PUBLIC = new Set(["GET /health", "GET /openapi.json", "GET /docs"]);
 
+// The meeting-host contract (specs/021, ADR-0059) is the one deliberate exception to "403 without
+// crm:access": `resolve` answers a caller without it `closed`/`missing` (a 200), and `notices` is no
+// user route at all (a scoped service JWT, 401 for everything else). Each exception is asserted
+// below by name instead of by the generic rule, and the list is pinned, so another route cannot
+// hide here.
+const HOST_CONTRACT = new Set(["POST /meeting-host/v1/resolve", "POST /system/meeting-host/v1/notices"]);
+
 const routes = [
   ...new Set(
     app.routes
       .filter((route) => route.method !== "ALL")
       .map((route) => `${route.method} ${route.path}`),
   ),
-].filter((key) => !PUBLIC.has(key));
+].filter((key) => !PUBLIC.has(key) && !HOST_CONTRACT.has(key));
+const allRoutes = [...new Set(app.routes.filter((route) => route.method !== "ALL").map((route) => `${route.method} ${route.path}`))];
 const isSystem = (key: string) => key.split(" ")[1]!.startsWith("/system/");
 const userRoutes = routes.filter((key) => !isSystem(key));
 const systemRoutes = routes.filter(isSystem);
@@ -65,6 +73,26 @@ describe("authorization matrix", () => {
     const body = method === "GET" || method === "DELETE" ? undefined : {};
     expect((await call(method, concrete(path), { as: null, body })).status).toBe(401);
     expect((await call(method, concrete(path), { as: "outsider", body, ifMatch: 1 })).status).toBe(403);
+  });
+
+  it("the host-contract exceptions are exactly the listed routes, and each is mounted", () => {
+    for (const key of HOST_CONTRACT) expect(allRoutes).toContain(key);
+    expect(allRoutes.filter((key) => key.includes("meeting-host"))).toHaveLength(HOST_CONTRACT.size);
+  });
+
+  it("POST /meeting-host/v1/resolve: 401 without a token, a 200 `closed` (not 403) without crm:access", async () => {
+    const body = { entityType: "deal", ids: ["some-id"] };
+    expect((await call("POST", "/meeting-host/v1/resolve", { as: null, body })).status).toBe(401);
+    const res = await call("POST", "/meeting-host/v1/resolve", { as: "outsider", body });
+    expect(res.status).toBe(200);
+    expect(res.json).toEqual({ items: [{ id: "some-id", state: "missing" }] });
+  });
+
+  it("POST /system/meeting-host/v1/notices: a service route, 401 for every user token, whatever the grants", async () => {
+    const body = { noticeId: crypto.randomUUID(), seq: 1, event: "deleted", meeting: { id: "m", title: null, startsAt: null, creatorId: "u" }, entity: { type: "deal", id: "d" } };
+    for (const as of [null, "outsider", "consultant", "admin"] as const) {
+      expect((await call("POST", "/system/meeting-host/v1/notices", { as, body })).status).toBe(401);
+    }
   });
 
   it("GET /scope reports deal entities and erase per persona", async () => {

@@ -19,7 +19,7 @@
 import { Effect } from "effect";
 import { db } from "@/lib/db";
 import { DatabaseError } from "@/lib/errors";
-import type { Link, NotificationDto } from "./notifications.schemas";
+import type { ItVariant, Link, NotificationDto } from "./notifications.schemas";
 
 // ─── Row → DTO mapping ────────────────────────────────────────────────────────
 
@@ -27,6 +27,8 @@ type NotificationRow = {
   id: string;
   title: string;
   body: string;
+  titleIt: string | null;
+  bodyIt: string | null;
   severity: string;
   originApp: string;
   linkHref: string | null;
@@ -53,6 +55,9 @@ export const toDto = (row: NotificationRow): NotificationDto => {
     severity: row.severity as NotificationDto["severity"],
     originApp: row.originApp as NotificationDto["originApp"],
     ...(link !== undefined ? { link } : {}),
+    // Both columns or neither: a half-stored pair degrades to English (null)
+    // rather than rendering blank (ADR-0065).
+    it: row.titleIt !== null && row.bodyIt !== null ? { title: row.titleIt, body: row.bodyIt } : null,
     toastWorthy: row.toastWorthy,
     readAt: row.readAt ? row.readAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -68,8 +73,24 @@ export type CreateNotificationInput = {
   severity: string;
   originApp: string;
   link?: Link | undefined;
+  /** Optional Italian variant (specs/021, ADR-0065); stored as titleIt/bodyIt. */
+  it?: ItVariant | undefined;
   toastWorthy: boolean;
 };
+
+/** The column values a new Notification row is written with. */
+export const toCreateData = (input: CreateNotificationInput) => ({
+  recipientId: input.recipientId,
+  title: input.title,
+  body: input.body,
+  titleIt: input.it?.title ?? null,
+  bodyIt: input.it?.body ?? null,
+  severity: input.severity,
+  originApp: input.originApp,
+  linkHref: input.link?.href ?? null,
+  linkLabel: input.link?.label ?? null,
+  toastWorthy: input.toastWorthy,
+});
 
 export const createNotification = (
   input: CreateNotificationInput,
@@ -77,16 +98,7 @@ export const createNotification = (
   Effect.tryPromise({
     try: async () => {
       const row = await db.notification.create({
-        data: {
-          recipientId: input.recipientId,
-          title: input.title,
-          body: input.body,
-          severity: input.severity,
-          originApp: input.originApp,
-          linkHref: input.link?.href ?? null,
-          linkLabel: input.link?.label ?? null,
-          toastWorthy: input.toastWorthy,
-        },
+        data: toCreateData(input),
       });
       return toDto(row);
     },

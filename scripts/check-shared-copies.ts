@@ -38,8 +38,44 @@ export const SHARED_COPIES: readonly SharedGroup[] = [
       "estimai-api/src/lib/serviceToken.ts",
       "crm-api/src/lib/serviceToken.ts",
       "notify-api/src/lib/serviceToken.ts",
+      "meetings-api/src/lib/serviceToken.ts",
     ],
     why: "the auth service-token client (ADR-0044/0049/0056); a fix to one copy must reach every copy",
+  },
+  // s3Residency is registered as TWO narrow regions on purpose. Each copy re-points the
+  // MEETINGS_/CRM_/INVENTORY_S3_* names and its refusal messages (meetings-api's deliberately
+  // never echo the endpoint, host or region, specs/021 T11; crm/inventory-api's do), so
+  // `checkEuResidency` cannot be byte-identical. Only the allowlist helpers (region list,
+  // isAwsS3Endpoint, host matching) and the path-style rule are shared; the divergent function
+  // is outside the markers. refund-api's copy is structured differently and is not in a group.
+  {
+    name: "s3ResidencyAllowlist",
+    files: [
+      "inventory-api/src/lib/s3Residency.ts",
+      "crm-api/src/lib/s3Residency.ts",
+      "meetings-api/src/lib/s3Residency.ts",
+    ],
+    why: "the EU region list and endpoint-host matching of the data-residency guard (ADR-0016); a fix must reach every bucket-owning service",
+  },
+  {
+    name: "s3ResidencyAddressing",
+    files: [
+      "inventory-api/src/lib/s3Residency.ts",
+      "crm-api/src/lib/s3Residency.ts",
+      "meetings-api/src/lib/s3Residency.ts",
+    ],
+    why: "the path-style addressing rule for non-AWS S3 endpoints; a fix must reach every bucket-owning service",
+  },
+  // meetings-api's problem/logger are whole-file copies of crm-api's (crm-api is the template).
+  {
+    name: "problem",
+    files: ["crm-api/src/lib/problem.ts", "meetings-api/src/lib/problem.ts"],
+    why: "RFC 7807 Problem JSON helpers; the error shape is a suite contract",
+  },
+  {
+    name: "logger",
+    files: ["crm-api/src/lib/logger.ts", "meetings-api/src/lib/logger.ts"],
+    why: "the request logger; it must keep logging no business data (data residency)",
   },
 ];
 

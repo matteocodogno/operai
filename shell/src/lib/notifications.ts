@@ -44,6 +44,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { resolveLocale } from '@operai/ui'
 import { apiFetch, onSignOut } from './session'
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,7 @@ import { apiFetch, onSignOut } from './session'
 // ---------------------------------------------------------------------------
 
 /** Known Operai suite tool ids that can originate a notification (notify-api's ORIGIN_APPS). */
-export type NotificationOriginApp = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm'
+export type NotificationOriginApp = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm' | 'meetings'
 
 /** notify-api's severity enum. */
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'error'
@@ -65,11 +66,22 @@ export interface NotificationLink {
   label?: string
 }
 
+/**
+ * The optional Italian variant a system caller may attach (ADR-0065). The sender does not know the
+ * reader's language, so the reader picks: see `localizedText`.
+ */
+export interface NotificationItalianVariant {
+  title: string
+  body: string
+}
+
 /** The shape returned by notify-api for a single notification (201 / list items / SSE payload). */
 export interface Notification {
   id: string
   title: string
   body: string
+  /** Italian variant, `null`/absent for a notification that carries none (ADR-0065). */
+  it?: NotificationItalianVariant | null
   severity: NotificationSeverity
   originApp: NotificationOriginApp
   link?: NotificationLink
@@ -91,6 +103,25 @@ export interface RaiseNotificationInput {
   originApp: NotificationOriginApp
   link?: NotificationLink
   toast?: boolean
+}
+
+const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
+
+/**
+ * The title and body in the reader's language (ADR-0065, AC-12.5): the Italian variant when
+ * `<html lang>` is `it` and the notification carries a complete one, the default text otherwise.
+ * A missing or half-empty variant degrades to the default, never to a blank toast or a mixed pair.
+ * Read at render time, so it follows the current `<html lang>`.
+ */
+export function localizedText(notification: Pick<Notification, 'title' | 'body' | 'it'>): {
+  title: string
+  body: string
+} {
+  const italian = notification.it
+  if (resolveLocale() === 'it' && italian && isText(italian.title) && isText(italian.body)) {
+    return { title: italian.title, body: italian.body }
+  }
+  return { title: notification.title, body: notification.body }
 }
 
 // ---------------------------------------------------------------------------

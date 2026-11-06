@@ -41,7 +41,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Button, Icon, type IconName } from '@operai/ui'
-import { subscribeToasts, type Notification, type NotificationSeverity, type ToastEvent } from '../lib/notifications'
+import { localizedText, subscribeToasts, type Notification, type NotificationSeverity, type ToastEvent } from '../lib/notifications'
 import { strings } from '../strings'
 
 /** Visually cap concurrent toasts; anything beyond this queues (design.md "Stacking"). */
@@ -153,6 +153,8 @@ export default function ToastHost() {
 
 function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) {
   const { notification } = item
+  // The reader's language picks the variant, not the sender (ADR-0065).
+  const { title, body } = localizedText(notification)
   const severity = notification.severity
   const duration = AUTO_DISMISS_MS[severity]
 
@@ -233,8 +235,8 @@ function Toast({ item, onDismiss }: { item: ToastItem; onDismiss: () => void }) 
         </span>
         <span className="sr-only">{strings.toast.severity(strings.toast.severities[severity])}</span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-text">{notification.title}</p>
-          <p className="mt-0.5 text-sm text-soft">{notification.body}</p>
+          <p className="text-sm font-semibold text-text">{title}</p>
+          <p className="mt-0.5 text-sm text-soft">{body}</p>
           {notification.link && (
             <Link to={notification.link.href} onClick={onDismiss} className="link mt-1 inline-block text-sm">
               {notification.link.label ?? strings.toast.open}

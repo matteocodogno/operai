@@ -103,3 +103,61 @@ export function formatNumber(
 ): string {
   return minus(new Intl.NumberFormat(NUMBER_LOCALE[locale], options).format(value))
 }
+
+export type DurationStyle = 'clock' | 'spoken'
+
+type DurationFormatCtor = new (
+  locale: string,
+  options: { style: 'long'; secondsDisplay?: 'always' },
+) => { format(duration: { hours: number; minutes: number; seconds: number }): string }
+
+/**
+ * A length of time given in milliseconds. Whole seconds only (the remainder is
+ * dropped, as a clock does); a negative duration is shown as zero and a
+ * non-finite one throws, like the money formatters.
+ *
+ *   formatDuration(3_723_000, { style: 'clock' })    01:02:03   (hours are never capped: 100:00:00)
+ *   formatDuration(3_723_000, { style: 'spoken' })   1 hour, 2 minutes, 3 seconds / 1 ora, 2 minuti e 3 secondi
+ *
+ * `clock` is for a timer, a segment time or a citation; `spoken` is for an
+ * `aria-label` or a sentence. Spoken uses `Intl.DurationFormat` where the
+ * browser has it and the same words from `Intl.NumberFormat` units otherwise.
+ */
+export function formatDuration(
+  ms: number,
+  options: { style: DurationStyle },
+  locale: Locale = resolveLocale(),
+): string {
+  if (!Number.isFinite(ms)) throw new TypeError(`formatDuration: expected a finite number of milliseconds, got ${ms}`)
+  const total = Math.floor(Math.max(0, ms) / 1000)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  if (options.style === 'clock') return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+
+  const intlLocale = NUMBER_LOCALE[locale]
+  const DurationFormat = (Intl as unknown as { DurationFormat?: DurationFormatCtor }).DurationFormat
+  if (DurationFormat) {
+    // An all-zero duration formats as an empty string unless seconds are forced.
+    const zero = total === 0
+    return new DurationFormat(
+      intlLocale,
+      zero ? { style: 'long', secondsDisplay: 'always' } : { style: 'long' },
+    ).format({
+      hours,
+      minutes,
+      seconds,
+    })
+  }
+  const parts: Array<[number, 'hour' | 'minute' | 'second']> = [
+    [hours, 'hour'],
+    [minutes, 'minute'],
+    [seconds, 'second'],
+  ]
+  const words = parts
+    .filter(([value, unit]) => value > 0 || (total === 0 && unit === 'second'))
+    .map(([value, unit]) =>
+      new Intl.NumberFormat(intlLocale, { style: 'unit', unit, unitDisplay: 'long' }).format(value),
+    )
+  return new Intl.ListFormat(intlLocale, { type: 'unit', style: 'long' }).format(words)
+}

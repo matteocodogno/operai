@@ -1,8 +1,10 @@
 import { type MouseEvent, type ReactNode, useCallback } from 'react'
-import { Outlet } from '@tanstack/react-router'
+import { Outlet, useBlocker } from '@tanstack/react-router'
+import { ConfirmDialog } from '@operai/ui'
 import { SidebarCollapsedProvider } from '../hooks/SidebarCollapsedProvider'
 import { useSidebarCollapsed } from '../hooks/sidebarCollapsed'
 import ToastHost from './ToastHost'
+import { getNavigationBlocker, isNavigationBlocked } from '../lib/navigationBlocker'
 import { strings } from '../strings'
 
 /**
@@ -81,6 +83,18 @@ export function ShellLayout(props: ShellLayoutProps) {
 function ShellLayoutFrame({ header, sidebar, footer }: ShellLayoutProps) {
   const { collapsed } = useSidebarCollapsed()
 
+  // Navigation blocker (specs/021-meetings, T50, AC-2.10): a remote that must not
+  // be left casually (meetings-ui while recording) registers one through
+  // `shell/session`; in-app navigation then waits for the person's answer. Only a
+  // change of PAGE asks — a search/hash update on the same pathname does not. The
+  // browser's own tab-close prompt stays the remote's `beforeunload`
+  // (`enableBeforeUnload: false` here so the two never double up).
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => current.pathname !== next.pathname && isNavigationBlocked(),
+    enableBeforeUnload: false,
+    withResolver: true,
+  })
+
   // Belt-and-braces skip link: `href="#id"` + a focusable (tabIndex=-1) target
   // is enough in every modern browser, but jsdom/older engines don't always
   // move focus on a same-document fragment click (especially a second click
@@ -152,6 +166,24 @@ function ShellLayoutFrame({ header, sidebar, footer }: ShellLayoutProps) {
 
         <ToastHost />
       </div>
+
+      {blocker.status === 'blocked' && (
+        <ConfirmDialog
+          tone="primary"
+          title={strings.leavePage.title}
+          confirmLabel={strings.leavePage.leave}
+          busyLabel={strings.leavePage.leaving}
+          cancelLabel={strings.leavePage.stay}
+          closeLabel={strings.leavePage.close}
+          busy={false}
+          error={null}
+          onConfirm={blocker.proceed}
+          onCancel={blocker.reset}
+          testIdPrefix="leave-page"
+        >
+          {getNavigationBlocker()?.message ?? strings.leavePage.fallbackBody}
+        </ConfirmDialog>
+      )}
 
       <footer role="contentinfo" className="shrink-0 border-t border-rule bg-ink-soft">
         {footer ?? <ShellFooterPlaceholder />}

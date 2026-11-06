@@ -19,6 +19,7 @@
 //     closed — never a silent pass.
 //
 
+// shared-copy:begin s3ResidencyAllowlist
 /** AWS regions whose physical location is EU. */
 export const EU_AWS_REGIONS = [
   "eu-west-1",
@@ -49,6 +50,8 @@ function hostMatchesEuAllowlist(
     (allowed) => lower === allowed || lower.endsWith(`.${allowed}`),
   );
 }
+
+// shared-copy:end s3ResidencyAllowlist
 
 /**
  * Returns an error message when EU residency cannot be asserted, or `null`
@@ -97,6 +100,7 @@ export function checkEuResidency(
   return null;
 }
 
+// shared-copy:begin s3ResidencyAddressing
 /**
  * Non-AWS S3-compatible providers (Railway, MinIO, Scaleway, R2) need
  * path-style bucket addressing; real AWS S3 keeps the SDK's virtual-hosted
@@ -105,3 +109,4 @@ export function checkEuResidency(
 export function needsPathStyleAddressing(endpoint: string): boolean {
   return !isAwsS3Endpoint(endpoint);
 }
+// shared-copy:end s3ResidencyAddressing

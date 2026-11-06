@@ -222,4 +222,54 @@ describe('NotificationItem', () => {
       expect(event).toBe(true)
     })
   })
+
+  // (F) Bilingual system notifications (ADR-0065, AC-12.5): the READER picks the variant.
+  describe('Italian variant (ADR-0065)', () => {
+    const withIt: Notification = {
+      ...baseNotification,
+      title: 'Transcript ready',
+      body: 'The meeting was recorded and transcribed with AI.',
+      originApp: 'meetings',
+      it: { title: 'Trascrizione pronta', body: 'La riunione è stata registrata e trascritta con l’IA.' },
+    }
+
+    afterEach(() => {
+      document.documentElement.setAttribute('lang', 'en')
+    })
+
+    it('shows the Italian title and body under <html lang="it">', () => {
+      document.documentElement.setAttribute('lang', 'it')
+      render(<NotificationItem notification={withIt} wasUnread={false} />)
+
+      expect(screen.getByTestId('notification-title-notif-1').textContent).toBe('Trascrizione pronta')
+      expect(screen.getByText('La riunione è stata registrata e trascritta con l’IA.')).not.toBeNull()
+      expect(screen.queryByText('Transcript ready')).toBeNull()
+    })
+
+    it('shows the English title and body under <html lang="en">', () => {
+      document.documentElement.setAttribute('lang', 'en')
+      render(<NotificationItem notification={withIt} wasUnread={false} />)
+
+      expect(screen.getByTestId('notification-title-notif-1').textContent).toBe('Transcript ready')
+      expect(screen.getByText('The meeting was recorded and transcribed with AI.')).not.toBeNull()
+      expect(screen.queryByText('Trascrizione pronta')).toBeNull()
+    })
+
+    it.each([
+      ['null', null],
+      ['absent', undefined],
+      ['blank', { title: ' ', body: '' }],
+    ])('falls back to the English text under "it" when the variant is %s', (_label, it) => {
+      document.documentElement.setAttribute('lang', 'it')
+      render(<NotificationItem notification={{ ...withIt, it }} wasUnread={false} />)
+
+      expect(screen.getByTestId('notification-title-notif-1').textContent).toBe('Transcript ready')
+      expect(screen.getByText('The meeting was recorded and transcribed with AI.')).not.toBeNull()
+    })
+
+    it('labels the meetings origin in the reader language', () => {
+      render(<NotificationItem notification={withIt} wasUnread={false} />)
+      expect(screen.getByTestId('notification-origin-notif-1').textContent).toBe('Meetings')
+    })
+  })
 })

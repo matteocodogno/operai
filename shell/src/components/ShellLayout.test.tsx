@@ -13,12 +13,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
+import { createRootRoute, createRoute, createRouter, Link, RouterProvider } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { ShellLayout, SHELL_MAIN_CONTENT_ID } from './ShellLayout'
 import Sidebar from './Sidebar'
+import { registerNavigationBlocker, resetNavigationBlocker } from '../lib/navigationBlocker'
 
 // jsdom doesn't implement scrollIntoView/scrollTo; TanStack Router's
 // navigation and hash-scroll restoration call them (the latter when the URL
@@ -33,6 +34,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  resetNavigationBlocker()
   cleanup()
   // Reset the URL between tests: the skip link mutates `window.history` via
   // `pushState`, and jsdom's `window`/`history` persist across tests within
@@ -161,5 +163,144 @@ describe('ShellLayout', () => {
     expect(screen.queryByText(/header placeholder/i)).toBeNull()
     expect(screen.queryByText(/sidebar placeholder/i)).toBeNull()
     expect(screen.queryByText(/footer placeholder/i)).toBeNull()
+  })
+})
+
+// specs/021-meetings, T50 (AC-2.10): the shell honours a navigation blocker a
+// remote registered through shell/session — useBlocker + a ConfirmDialog.
+describe('ShellLayout — navigation blocker (AC-2.10)', () => {
+  async function renderWithBlockerRouter() {
+    const rootRoute = createRootRoute({ component: () => <ShellLayout /> })
+    const indexRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/',
+      component: () => (
+        <>
+          <p data-testid="home">Home</p>
+          <Link to="/account">Go elsewhere</Link>
+        </>
+      ),
+    })
+    const otherRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/account',
+      component: () => <p data-testid="other">Other</p>,
+    })
+    const router = createRouter({ routeTree: rootRoute.addChildren([indexRoute, otherRoute]) })
+    render(<RouterProvider router={router} />)
+    await screen.findByTestId('home')
+    return router
+  }
+
+  it('lets navigation through when no blocker is registered', async () => {
+    const user = userEvent.setup()
+    const router = await renderWithBlockerRouter()
+
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+
+    expect(await screen.findByTestId('other')).toBeDefined()
+    expect(router.state.location.pathname).toBe('/account')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it('asks before leaving while a blocker says so: title, the remote\'s message, focus on Stay', async () => {
+    const user = userEvent.setup()
+    registerNavigationBlocker(() => true, 'A recording is in progress. If you leave, it will be stopped and saved.')
+    const router = await renderWithBlockerRouter()
+
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Leave this page?' })
+    expect(dialog.textContent).toContain('A recording is in progress. If you leave, it will be stopped and saved.')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Stay' }))
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('Stay cancels the navigation and closes the dialog', async () => {
+    const user = userEvent.setup()
+    registerNavigationBlocker(() => true, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+    await screen.findByRole('alertdialog')
+
+    await user.click(screen.getByRole('button', { name: 'Stay' }))
+
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(router.state.location.pathname).toBe('/')
+    expect(screen.getByTestId('home')).toBeDefined()
+  })
+
+  it('Escape is Stay: it cancels the navigation too', async () => {
+    const user = userEvent.setup()
+    registerNavigationBlocker(() => true, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+    await screen.findByRole('alertdialog')
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('Leave lets the navigation proceed', async () => {
+    const user = userEvent.setup()
+    registerNavigationBlocker(() => true, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+    await screen.findByRole('alertdialog')
+
+    await user.click(screen.getByRole('button', { name: 'Leave' }))
+
+    expect(await screen.findByTestId('other')).toBeDefined()
+    expect(router.state.location.pathname).toBe('/account')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it('unregistering lets navigation through again', async () => {
+    const user = userEvent.setup()
+    const unregister = registerNavigationBlocker(() => true, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+    unregister()
+
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+
+    expect(await screen.findByTestId('other')).toBeDefined()
+    expect(router.state.location.pathname).toBe('/account')
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+  })
+
+  it('does not ask when the blocker answers false at the moment of navigation', async () => {
+    const user = userEvent.setup()
+    registerNavigationBlocker(() => false, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+
+    expect(await screen.findByTestId('other')).toBeDefined()
+    expect(router.state.location.pathname).toBe('/account')
+  })
+
+  it('never traps the person behind a blocker that throws', async () => {
+    const user = userEvent.setup()
+    registerNavigationBlocker(() => {
+      throw new Error('remote bug')
+    }, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+
+    await user.click(screen.getByRole('link', { name: 'Go elsewhere' }))
+
+    expect(await screen.findByTestId('other')).toBeDefined()
+    expect(router.state.location.pathname).toBe('/account')
+  })
+
+  it('does not ask for a change that stays on the same page (a search-param update)', async () => {
+    registerNavigationBlocker(() => true, 'Unsaved.')
+    const router = await renderWithBlockerRouter()
+
+    router.history.push('/?tab=notes')
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ tab: 'notes' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
   })
 })

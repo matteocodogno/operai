@@ -69,10 +69,14 @@ const envSchema = z.object({
   NOTIFY_INTERNAL_URL: z.string().url("NOTIFY_INTERNAL_URL must be a valid URL").optional(),
   SERVICE_CLIENT_ID: z.string().min(1).optional(),
   SERVICE_CLIENT_SECRET: z.string().min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters").optional(),
-  // ─── estimai-api notices (specs/018 AC-3.3, ADR-0073) ───────────────────────
-  // The `aud` of the service JWTs auth mints (never AUTH_AUDIENCE). Without it
-  // `POST /system/estimate-notices` refuses every call: it fails closed.
-  SERVICE_AUDIENCE: z.string().min(1).optional(),
+  // ─── Service callers (specs/018 AC-3.3 ADR-0073, specs/021 ADR-0044/0049/0059) ─
+  // The `aud` that `auth` stamps on scoped service JWTs (the same value as
+  // notify-api's). MUST differ from AUTH_AUDIENCE so a user JWT is never a
+  // system credential. Optional at the schema level: without it
+  // `POST /system/estimate-notices` and `POST /system/meeting-host/v1/notices`
+  // answer 401 to everyone (fail closed) and the rest of the service is
+  // unaffected; the production template lists it as required (tools/env-doctor).
+  SERVICE_AUDIENCE: z.string().min(1, "SERVICE_AUDIENCE must not be empty").optional(),
   CRM_S3_EU_ENDPOINT_HOSTS: z
     .string()
     .optional()

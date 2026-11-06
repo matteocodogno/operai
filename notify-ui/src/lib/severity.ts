@@ -26,7 +26,7 @@
  * shell.
  */
 
-import type { IconName } from '@operai/ui'
+import { resolveLocale, type IconName } from '@operai/ui'
 import { strings } from '../strings'
 
 export type NotificationSeverity = 'info' | 'success' | 'warning' | 'error'
@@ -47,11 +47,32 @@ export const SEVERITY_META: Record<NotificationSeverity, SeverityMeta> = {
   error: { icon: 'x-circle', label: strings.severities.error, iconClassName: 'text-red' },
 }
 
-export type NotificationOriginApp = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm'
+export type NotificationOriginApp = 'estimai' | 'refund' | 'admin' | 'inventory' | 'crm' | 'meetings'
 
 export const ORIGIN_APP_LABELS: Record<NotificationOriginApp, string> = strings.originApps
 
 /** Falls back to the raw id for a not-yet-known origin app rather than throwing (forward-compat: a new tool id shipped before this lookup is updated should still render, not crash the center). */
 export function originAppLabel(originApp: string): string {
   return (ORIGIN_APP_LABELS as Record<string, string>)[originApp] ?? originApp
+}
+
+const isText = (value: unknown): value is string => typeof value === 'string' && value.trim() !== ''
+
+/**
+ * The title and body in the reader's language (ADR-0065, AC-12.5): the Italian variant when
+ * `<html lang>` is `it` and the notification carries a complete one, the default text otherwise.
+ * A missing or half-empty variant degrades to the default, never to a blank row or a mixed pair.
+ * Read at render time, so it follows the current `<html lang>`. Lives here, not in
+ * `notificationsApi`, because that module is the one the page tests replace wholesale.
+ */
+export function localizedText(notification: {
+  title: string
+  body: string
+  it?: { title: string; body: string } | null
+}): { title: string; body: string } {
+  const italian = notification.it
+  if (resolveLocale() === 'it' && italian && isText(italian.title) && isText(italian.body)) {
+    return { title: italian.title, body: italian.body }
+  }
+  return { title: notification.title, body: notification.body }
 }

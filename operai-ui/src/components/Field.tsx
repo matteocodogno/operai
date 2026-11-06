@@ -14,6 +14,8 @@ export type FieldProps = {
   label: ReactNode
   /** A fixed id for the control, when something else must address it (a combobox's listbox ids). Generated otherwise. */
   id?: string
+  /** An id for the `<label>`, when something else is named by it (FilePicker's group, via `aria-labelledby`). */
+  labelId?: string
   /** Help text under the control. */
   hint?: ReactNode
   /** The field's error (from validation or a 422). The hint stays. */
@@ -40,6 +42,7 @@ export type FieldProps = {
 export function Field({
   label,
   id: fixedId,
+  labelId,
   hint,
   error,
   required = false,
@@ -57,7 +60,7 @@ export function Field({
 
   return (
     <div className={cx('field', className)} data-testid={testId}>
-      <label htmlFor={id} className="field-label">
+      <label id={labelId} htmlFor={id} className="field-label">
         {label}
         {required && (
           <span aria-hidden="true" className="field-required">

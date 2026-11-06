@@ -87,6 +87,7 @@ const TECHNICAL = new Set([
   // ARIA role / live values chosen in a lookup table.
   'status',
   'alert',
+  'blocked',
   'polite',
   'assertive',
   // Severity and theme enum values, tool ids, icon names.
@@ -102,6 +103,7 @@ const TECHNICAL = new Set([
   'admin',
   'inventory',
   'crm',
+  'meetings',
   'notify',
   'settings',
   'sun',
@@ -112,6 +114,7 @@ const TECHNICAL = new Set([
   'chevron-right',
   'banknote',
   'box',
+  'mic',
   // Route paths and route ids.
   '/',
   '_shell',
@@ -131,6 +134,12 @@ const TECHNICAL = new Set([
   '/inventory/$',
   '/crm',
   '/crm/$',
+  // A host-extension name (lib/extensions.tsx): a dotted id, not copy.
+  'meetings.hostMeetings',
+  '/meetings',
+  '/meetings/$',
+  '/my-meetings',
+  '/my-meetings/$',
   '/operai.svg',
   // The product name, the same in every language.
   'Operai',

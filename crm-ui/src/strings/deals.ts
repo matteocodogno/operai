@@ -13,7 +13,8 @@ const en = {
   } as Record<DealStage, string>,
   pipeline: {
     heading: 'Pipeline',
-    description: 'Every open deal by stage, with the won and lost of the chosen year. Drag a deal to another stage to move it; weighted amounts use each stage’s win probability.',
+    description:
+      'Every open deal by stage, with the won and lost of the chosen year. Drag a deal to another stage to move it; weighted amounts use each stage’s win probability.',
     newDeal: 'New deal',
     loading: 'Loading the pipeline…',
     entityFilter: 'Entity',
@@ -73,7 +74,14 @@ const en = {
     move: 'Move to stage',
     saved: 'Deal saved.',
     moved: (stage: string) => `Deal moved to ${stage}.`,
-    readOnly: 'You can see this deal but not change it: managing deals of this entity needs a permission you do not have.',
+    readOnly:
+      'You can see this deal but not change it: managing deals of this entity needs a permission you do not have.',
+  },
+  /** The Meetings section (specs/021, ADR-0060): the panel is Meetings' own; these are the host's loading and fallback copy. */
+  meetings: {
+    heading: 'Meetings',
+    loading: 'Loading meetings…',
+    unavailable: 'Meetings are unavailable. Reload the page to try again.',
   },
   form: {
     createTitle: 'New deal',
@@ -119,7 +127,8 @@ const it: typeof en = {
   },
   pipeline: {
     heading: 'Pipeline',
-    description: "Tutte le opportunità aperte per fase, con le vinte e le perse dell'anno scelto. Trascina un'opportunità in un'altra fase per spostarla; gli importi ponderati usano la probabilità di successo di ogni fase.",
+    description:
+      "Tutte le opportunità aperte per fase, con le vinte e le perse dell'anno scelto. Trascina un'opportunità in un'altra fase per spostarla; gli importi ponderati usano la probabilità di successo di ogni fase.",
     newDeal: 'Nuova opportunità',
     loading: 'Caricamento della pipeline…',
     entityFilter: 'Società',
@@ -181,6 +190,11 @@ const it: typeof en = {
     moved: (stage: string) => `Opportunità spostata in fase ${stage}.`,
     readOnly:
       'Puoi vedere questa opportunità ma non modificarla: gestire le opportunità di questa società richiede un permesso che non hai.',
+  },
+  meetings: {
+    heading: 'Riunioni',
+    loading: 'Caricamento delle riunioni…',
+    unavailable: 'Le riunioni non sono disponibili. Ricarica la pagina per riprovare.',
   },
   form: {
     createTitle: 'Nuova opportunità',

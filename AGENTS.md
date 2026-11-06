@@ -1,7 +1,7 @@
 # Operai
 
 Internal toolsuite by **wellD** (wellD.ch) for AI-assisted software consulting and
-back-office workflows. Six tools ship today, composed into one suite by a
+back-office workflows. Seven tools ship today, composed into one suite by a
 Module Federation shell (ADR-0006):
 
 | Tool | Route | What it does |
@@ -11,15 +11,19 @@ Module Federation shell (ADR-0006):
 | **Admin** | `/admin` | Roles, departments, users, permissions, invitations, mileage rates |
 | **Inventory** | `/inventory` | Hardware register — assets, assignment to employees (confirmed by the employee), depreciation ledger, fiscal-year close, invoice files (specs/015) |
 | **CRM** | `/crm` | Companies, contacts, deals through a stage pipeline, activities and follow-up tasks (specs/017, ADR-0052) |
+| **Meetings** | `/meetings` | Record (browser), upload or paste a meeting; EU transcription, summaries from editable templates and cited Q&A; linkable to a host record such as a CRM deal; audio kept 29 days (specs/021, ADR-0058–0068) |
 
-Those five are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
-notification center (`notify-ui`) is a fifth remote but **not** a `TOOLS` entry: it mounts at
+Those six are the entries in `shell/src/lib/tools.ts` — access-gated remotes. The
+notification center (`notify-ui`) is a further remote but **not** a `TOOLS` entry: it mounts at
 the shell-owned `/notify` route, reached from the header bell (ADR-0009). `inventory-ui` also
 exposes a second, UNGATED entry, `./MyDevices`, mounted at the shell-owned `/devices` route
-(any signed-in user sees their own devices; ADR-0045).
+(any signed-in user sees their own devices; ADR-0045). `meetings-ui` does the same with
+`./MyMeetings` at `/my-meetings` (a participant can always read what was captured about them;
+ADR-0058) and exposes a coarse `./HostMeetings` panel that a host app (today the CRM deal page)
+embeds through the shell's `HostExtension` seam with a timeout and an error boundary (ADR-0060).
 
-Backed by six Bun services: `auth` (identity + authorization), `estimai-api`,
-`notify-api`, `refund-api`, `inventory-api`, `crm-api`.
+Backed by seven Bun services: `auth` (identity + authorization), `estimai-api`,
+`notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`.
 
 **Tagline:** *AI tools built by craftspeople, for craftspeople.*
 
@@ -72,6 +76,10 @@ operai/
 │                        # through shell/session (no VITE_* of its own) (specs/015)
 ├── crm-ui/              # CRM tool — federated remote (port 5179): exposes ./App (gated, /crm) and ./version; calls
 │                        # crm-api and auth's user directory through shell/session (specs/017, ADR-0052/0053)
+├── meetings-ui/         # Meetings tool — federated remote (port 5180): exposes ./App (gated, /meetings), ./MyMeetings
+│                        # (ungated, /my-meetings; ADR-0058), ./HostMeetings (panel embedded by hosts via shell/extensions,
+│                        # ADR-0060) and ./version; calls meetings-api and auth's user directory through shell/session
+│                        # (specs/021)
 ├── operai-ui/           # @operai/ui — the DESIGN SYSTEM (ADR-0050): tokens/themes/fonts + component classes
 │                        # (src/styles/tokens.css, re-exported by shell/tokens.css), React components (src/components),
 │                        # Storybook (`mise run ui:storybook`), rules in docs/. NOT an app: never built or deployed;
@@ -110,11 +118,18 @@ operai/
 ├── crm-api/             # Bun + Hono + TypeScript backend (port 8084, DB `crm`) — companies, contacts, deals + pipeline,
 │                        # activities/tasks; authorization-enforcing (crm:access, entity-scoped deal:manage, contact:erase),
 │                        # optimistic concurrency via If-Match (specs/017, ADR-0052)
-├── docs/adr/            # Architecture Decision Records (0001–0057, 0071–0073; see ## Architecture decisions)
+├── meetings-api/        # Bun + Hono + TypeScript backend (port 8085, DB `meetings`, single replica) — meetings, transcripts,
+│                        # summaries, templates, cited Q&A; authorization-enforcing (`meetings:access`, `template:manage`,
+│                        # `meeting:erase`) but creator/participant reads need only a JWT (ADR-0058); audio ONLY in its own EU
+│                        # bucket (`MEETINGS_S3_*`, 29-day lifecycle verified at startup, ADR-0063); in-process durable job
+│                        # runner (ADR-0062); Google Cloud Chirp 3 + Claude on Vertex AI, EU (ADR-0069/0061); host contract
+│                        # with crm-api (ADR-0059); pushes to notify-api as `system:meetings-api` (specs/021)
+├── docs/adr/            # Architecture Decision Records (0001–0074; see ## Architecture decisions)
 ├── docs/ui-inconsistencies.md  # UI/UX audit across the six frontends, with what each migration fixed
 ├── infra/               # Deploy/verify scripts + the cross-service env contract notes (README.md);
 │                        # provision-tool.sh creates/audits one tool's Railway service, Vercel project and DNS
-│                        # (runbook: .claude/skills/provision-tool)
+│                        # (runbook: .claude/skills/provision-tool); meetings-bucket-policy.sh applies/verifies the audio
+│                        # bucket's 29-day lifecycle rule, versioning off and CORS (specs/021)
 ├── tools/env-doctor/    # Pre-deploy cross-service env-contract checker (`mise run env:doctor`)
 ├── scripts/             # Release tooling — version.mjs (umbrella bump), tag.mjs, check-changeset.mjs
 ├── .github/workflows/   # changeset-check.yml, env-doctor.yml
@@ -122,21 +137,21 @@ operai/
 ├── lerna.json           # The package list Changesets reads — NOT a pnpm/Bun workspace (see ### Git)
 ├── mise.toml            # Node 24, corepack-managed pnpm; `mise run dev` / `db:migrate` / `changeset` /
 │                        # `release:version` / `release:tag` / `env:doctor`
-└── specs/               # Spec-driven workflow (001–017; 015 hardware-inventory and 017 crm are in progress; see below)
+└── specs/               # Spec-driven workflow (001–021; 015 hardware-inventory, 017 crm and 021 meetings are in progress; see below)
 ```
 
 ---
 
 ## Tech stack
 
-### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui)
-All seven share one stack. Each is installed and deployed on its own (no npm workspace).
+### Frontends (shell, estimai-ui, refund-ui, admin-ui, notify-ui, inventory-ui, crm-ui, meetings-ui)
+All eight share one stack. Each is installed and deployed on its own (no npm workspace).
 
 - **Runtime:** Node 24 via mise (pnpm via corepack, see `mise.toml`)
 - **Package manager:** pnpm
 - **Framework:** Vite 8 + React 19 (TypeScript)
 - **Composition:** Module Federation (`@module-federation/vite`) — the shell is the host, the
-  other six are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
+  other seven are remotes whose URLs resolve at runtime per-env, never build-baked (ADR-0006)
 - **Routing:** TanStack Router
 - **Auth/session:** better-auth client; in-memory JWT + `apiFetch` interceptor, owned by
   `shell/session` and reused by every remote (ADR-0001/0002)
@@ -176,9 +191,10 @@ degrades silently when the key is absent (ADR-0032).
 - **Errors:** Effect TS; RFC 7807 Problem JSON
 - **Secrets:** 1Password references via `.envrc` (direnv); see `auth/.env.example`
 
-### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api)
-All five are implemented and share the `auth` service's shape (see ADR-0003 — one backend
-stack across the monorepo; it supersedes the earlier Kotlin/Spring intention).
+### Resource backends (estimai-api, notify-api, refund-api, inventory-api, crm-api, meetings-api)
+All six share the `auth` service's shape (see ADR-0003 — one backend stack across the monorepo;
+it supersedes the earlier Kotlin/Spring intention). Five are implemented; `meetings-api` is in
+progress (specs/021).
 
 - **Runtime/framework:** Bun + Hono + `@hono/zod-openapi` (Scalar API reference)
 - **Persistence:** Prisma 7 + PostgreSQL, own logical DB per service
@@ -211,14 +227,30 @@ Per-service specifics:
   rendered from per-entity, editable templates on the entity's letterhead, numbered `NNNN/YYYY[rN]`,
   with deal PDFs appendable as annexes (specs/020, ADR-0057);
   pushes CRM notifications to notify-api as `system:crm-api`, with email notices for handovers
-  (specs/019, ADR-0056)
+  (specs/019, ADR-0056); verifies meetings-api's host notices (scope `host-notices.send`,
+  `aud=SERVICE_AUDIENCE`) and answers its `resolve` calls as the caller (specs/021, ADR-0059)
+- `meetings-api` — Meetings (specs/021): authorization-enforcing, but content is visible by
+  relationship to the record, never by role (creator / Operai participant / opted-in host reader;
+  anything else 404, ADR-0058) — `selfScoped` reads need only a valid JWT and survive an `auth`
+  outage, every create/generate/ask/edit is `capability(...)` live and fails closed, with
+  `meetings:access` (granted to every `employee` by default, ADR-0068), `template:manage` and
+  `meeting:erase` (admin only, erase never reads content); audio ONLY in its own EU bucket
+  (`MEETINGS_S3_*`) behind a bucket-wide 29-day lifecycle rule that is verified at startup
+  (ADR-0063); transcription by Google Cloud Speech-to-Text v2 Chirp 3 batch (`eu`) through a
+  transient EU Cloud Storage bucket, long recordings in 10-minute overlapping parts, labels joined only on text evidence
+  and separable by the creator, gaps detected and marked (ADR-0069/0070/0074), and summaries/Q&A by Claude on Vertex AI (`eu` multi-region, never `global`),
+  every setting Google exposes checked at startup and the rest a recorded sign-off (ADR-0069/0061); an
+  in-process Postgres job runner for asked-for work, so it runs as a single replica (ADR-0062);
+  the THIRD reader of bucket bytes, bounded (ADR-0064); model output is validated structure and
+  plain text only (ADR-0067); pushes to notify-api as `system:meetings-api` (`notifications.push`)
+  and notices to the host as the same principal (`host-notices.send`), ADR-0059/0065
 - `notify-api` — notification persistence + ticket-authed SSE stream (ADR-0008); pinned to a
   single production instance (in-process ticket store + fan-out); email channel via Resend;
   internal `/system/emails` (scope `emails.send`) + `/system/notifications` (scope
   `notifications.push`), each behind a scoped service JWT verified via `auth`'s JWKS with
   `aud=SERVICE_AUDIENCE`; every caller authenticates as itself (`auth` mints its own in
-  process, ADR-0048; `refund-api`, `estimai-api`, `inventory-api` and `crm-api` via the
-  service-token endpoint) and the shared `X-Internal-Token` is refused (ADR-0049); for an
+  process, ADR-0048; `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `meetings-api`
+  via the service-token endpoint) and the shared `X-Internal-Token` is refused (ADR-0049); for an
   `email: true` notification it looks the recipient's address up in `auth`
   (`POST /system/users/contact`, as `system:notify-api`, ADR-0056)
 - `refund-api` — the suite's authorization-enforcing resource server: resolves the caller's
@@ -324,7 +356,7 @@ Money is always integer minor units (cents); mileage rates are integer micros (A
 | `access` | The `(appId, "access")` permission that gates whether a tool appears at all |
 | `perm_epoch` | JWT claim bumped on any grant change — forces live permission re-resolution (ADR-0007) |
 | `invitation` | A pending email-matched grant; `expired` is derived on read, never written (ADR-0013) |
-| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send` and/or `users.contact`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `notify-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
+| `service client` | A non-user principal in `auth`'s `SERVICE_CLIENTS` that mints a scoped service JWT (`sub="system:<id>"`, `aud=SERVICE_AUDIENCE`, scope `notifications.push`, `emails.send`, `users.contact` and/or `host-notices.send`); today `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `meetings-api` and `notify-api` (`auth` mints its own in process and may not be a client, ADR-0048/0049) |
 
 ### Inventory (specs/015)
 
@@ -341,6 +373,20 @@ The authoritative glossary is `specs/015-hardware-inventory/spec.md` § Domain l
 | `roll-forward` | Opening book value − disposals + purchases − depreciation = closing book value |
 
 Capabilities: `inventory manager` = `asset:manage`, `hardware accountant` = `ledger:manage`.
+
+### Meetings (specs/021)
+
+The authoritative glossary is `specs/021-meetings/spec.md` § Domain language.
+
+| Term | Meaning |
+|---|---|
+| `meeting` | One conversation captured in Operai: metadata, one source, a transcript, any number of summaries, and each participant's private Q&A history |
+| `creator` | The one Operai user who created the meeting; a meeting whose creator is deactivated is frozen, not orphaned |
+| `participant` | An Operai participant (an active account) or an external participant (a name, never an account) |
+| `host` | An Operai app that lists and starts meetings about its own records (today CRM, entity type `deal`); a host reference is `{app, entityType, entityId}`, at most one per meeting |
+| `host notice` | The content-free message (id, event, creator, per-meeting `seq`) a host that opted in receives when a linked meeting is linked, changed, relinked, unlinked or deleted (ADR-0059) |
+| `source` | `recorded` (browser), `uploaded` (a file) or `text` (typed/pasted) — exactly one per meeting |
+| `audio` | The only thing in the bucket; kept until 29 days after creation, then deleted by the bucket's lifecycle rule (ADR-0063) |
 
 ---
 
@@ -393,9 +439,28 @@ wellD operates across Italy and Switzerland. Some clients are in regulated secto
 - Object storage is EU too — `REFUND_S3_REGION` / `INVENTORY_S3_REGION` (or, for a non-AWS
   endpoint, the `*_S3_EU_ENDPOINT_HOSTS` allowlist) are validated at startup and the process
   exits if it fails (ADR-0016); inventory has its own bucket, never refund's
+- Meetings handles the most sensitive content in the suite (recorded conversations), so EVERY hop
+  is EU/CH and checked at startup, the process exiting if one fails (ADR-0061, AC-4.9): its own
+  audio bucket (`MEETINGS_S3_*`, never another tool's), transcription by Google Cloud Speech-to-Text
+  v2 (Chirp 3, location `eu` only), summaries and Q&A by Claude on Vertex AI through the `eu`
+  multi-region endpoint (`global`, `us` and London are refused; Claude Fable/Mythos excluded), and a
+  transient Google Cloud Storage bucket in an EU/CH location that holds audio only while a
+  transcription attempt runs (reached through its regional endpoint; 1-day lifecycle rule, soft delete
+  0, versioning off and public access prevention verified at startup; deleted at attempt start, in
+  `finally` and on explicit deletion, ADR-0069). A setting Google exposes (bucket rules, Vertex cache
+  and request logging) that cannot be read is a refusal; one it does not expose (Speech data logging,
+  contract type, Advanced AI consent) is a recorded go-live sign-off. Known, user-accepted exception
+  (2026-11-05): Google may keep the async transcript result for about 5 days. `MEETINGS_AI_PROVIDER=fake`
+  is refused in production. Audio is deleted by a bucket-wide 29-day lifecycle rule with versioning
+  off (a missing or prefix-filtered rule, `Days > 29` or versioning Enabled stops the start,
+  ADR-0063); set and prove it with `infra/meetings-bucket-policy.sh`. Transcripts and summaries live
+  in Postgres until the meeting is deleted; database backups keep deleted content for the backup
+  retention period (open item R7 in specs/021). Provider DPAs are a go-live sign-off (plan O3)
 - No business data should be logged by the hosting provider beyond standard access logs
 - Frontends are purely client-side — they transmit data only to the suite's own services
-  (and, for admin-ui, address text to Google Places; ADR-0032)
+  (and, for admin-ui, address text to Google Places; ADR-0032). meetings-ui sends microphone audio
+  only to the meetings bucket by presigned POST and never to a third party; the browser never
+  holds a provider key
 
 ---
 
@@ -487,7 +552,7 @@ wrong, update the spec first, then re-sync tasks. Run traces live in `.forge/run
 
 ### The whole suite (preferred)
 ```bash
-mise run db:migrate   # once: Postgres up + Prisma migrations for all five backends
+mise run db:migrate   # once: Postgres up + Prisma migrations for every backend (meetings included)
 mise run dev          # everything, with HMR — opens http://localhost:5173 (the shell) once it answers;
                       # OPERAI_NO_OPEN=1 skips the browser
 mise run dev:web      # frontends only (backends already running elsewhere)
@@ -495,23 +560,34 @@ mise run dev:preview  # frontends build+preview — no HMR, mirrors the deploy s
 ```
 
 Ports: auth `3001`, estimai-api `8080`, notify-api `8081`, refund-api `8082`, inventory-api `8083`,
-crm-api `8084`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`, admin-ui `5177`,
-inventory-ui `5178`, crm-ui `5179`; MinIO S3 `9000`
+crm-api `8084`, meetings-api `8085`, shell `5173`, estimai-ui `5174`, refund-ui `5175`, notify-ui `5176`,
+admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`; MinIO S3 `9000`
 (console `9001`). Frontend ports are pinned in each app's `vite.config.ts`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `admin-ui`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
-explicitly — direnv's shell hook does not fire for a non-interactive mise task.
+explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
+fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
+the Google Cloud project is provisioned (ADR-0069).
 
 ### Database + object storage (shared)
 ```bash
 docker compose up -d postgres minio minio-createbucket   # PostgreSQL 17 :5435, MinIO :9000
 ```
 
+`minio-createbucket` also creates the private `meetings` bucket with the 29-day expiration rule and
+versioning off, which meetings-api checks at startup (ADR-0063). Verify it (needs the AWS CLI and `jq`;
+the default MinIO dev credentials):
+
+```bash
+MEETINGS_S3_ACCESS_KEY_ID=minioadmin MEETINGS_S3_SECRET_ACCESS_KEY=minioadmin \
+  infra/meetings-bucket-policy.sh --check --endpoint http://localhost:9000 --bucket meetings --path-style
+```
+
 ### A single frontend
 ```bash
-cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui
+cd estimai-ui        # or shell / refund-ui / admin-ui / notify-ui / inventory-ui / crm-ui / meetings-ui
 pnpm install
 pnpm dev              # standalone; a remote still needs the shell for an authed session
 pnpm lint             # ESLint
@@ -546,10 +622,10 @@ bun run typecheck     # tsc --noEmit
 bun test
 ```
 
-### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084)
+### Resource backends (estimai-api :8080, notify-api :8081, refund-api :8082, inventory-api :8083, crm-api :8084, meetings-api :8085)
 Same shape as the auth service (Bun + Hono + Prisma, own logical DB, own `.envrc`):
 `bun install`, `bun run db:migrate`, `bun run dev`. See **### Resource backends** under
-Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` point at local MinIO in dev
+Tech stack for what each one is; `REFUND_S3_*` / `INVENTORY_S3_*` / `MEETINGS_S3_*` point at local MinIO in dev
 — check `infra/README.md` for the deployed-environment state and the inventory rollout checklist.
 
 The one-off legacy register import is a script, dry-run by default (see `infra/README.md`
@@ -578,7 +654,7 @@ mise run changeset:check   # local parity with CI — did this branch's app-code
 
 ## Operai suite — future tools
 
-Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify**, **Inventory**, **CRM** — see the table at
+Shipped today: **EstimAI**, **Rimborsi** (refund), **Admin**, **Notify**, **Inventory**, **CRM**, **Meetings** — see the table at
 the top. Still on the roadmap, not yet built:
 
 | Tool | Purpose |
@@ -678,6 +754,20 @@ These defaults are optimized for AI coding agents (and humans) working on apps t
 - [0055] `auth POST /authz/app-access-check` also answers by `{ appId, userId }` (exactly one of email/userId; same caller gate, limiter, byte-identical negative and timing floor; probe `id = $1 AND deletedAt IS NULL`) and `GET /authz/users/directory` takes an optional `?appId=` narrowing to holders of `(appId,"access")` — `crm-api` knows only auth ids and the pickers must offer only people who can open the CRM; amends ADR-0035 and ADR-0047, same gate so the audience does not widen (see docs/adr/0055-app-access-check-by-user-id-and-directory-app-filter.md)
 - [0056] An email notice is addressed by user id: a caller sets `email: true` on notify-api's `POST /system/notifications` (and must hold `emails.send` as well as `notifications.push`), and notify-api resolves the active user's address at send time from a new auth endpoint `POST /system/users/contact` (one user per call, service JWT with the new scope `users.contact` held only by `system:notify-api`, rate-limited, logs no id or address) — no copy kept, a deactivated user gets nothing, the generic English `notification_notice` template is built from the notification itself and is unreachable through `/system/emails`; best effort with `emailStatus` sent/failed/skipped, the in-app row always stands; rejected: crm-api looking addresses up itself (a technician lacks `deal:manage`, every tool would repeat it), granting `users.contact` to crm-api, a synced address copy in notify-api, a batch lookup (see docs/adr/0056-notify-api-resolves-email-notice-address-from-auth.md)
 - [0057] crm-api reads its own bucket's object bytes to build an offer — the bounded-read rule of ADR-0043, second caller: the deal PDFs a user appends as annexes (≤ 5, total `sizeBytes` ≤ 20 MiB checked from the DB BEFORE any `getObject`) and the entity's letterhead PDF (≤ 5 MiB, key must match `letterheads/<entity>/<uuid>.pdf` before it is read or deleted); proxying a requested file stays forbidden (ADR-0016) and downloads stay presigned GETs; an unreadable or non-PDF file fails the WHOLE generation with 422 `attachment_unreadable` naming it (no placeholder, the rolled-back transaction keeps the offer number); escalation trigger — a third service reading bytes, a file the user did not choose, or > 25 MiB per request (see docs/adr/0057-crm-api-reads-attachment-bytes-for-offer-annexes.md)
+- [0058] Visibility by relationship to the record, never by role, and a read of your own data must not hang on a remote authority — meetings content opens only for creator / Operai participant / opted-in host reader (anything else 404, identical to nonexistent); no role (admin, `meeting:erase`) ever reads content; `selfScoped` reads work without `auth`, every create/generate/ask/edit is `capability(...)` live + fail closed; deletion of your own data needs no grant; ungated `./MyMeetings` AND self-scoped API both required (see docs/adr/0058-meetings-tool-shape-visibility-by-participation.md)
+- [0059] A cross-service "may this user…" question is asked as the USER, a state push is sent as the SERVICE, and a replicated state must survive reordering — meeting host `resolve` forwards the caller's JWT and fails closed for every grant (soft only for labels); `notices` use scope `host-notices.send`, a strict content-minimal body, per-meeting `seq` and an outbox (manual retry for linked/changed, until-delivered for unlinked/deleted, null title on removal so nothing outlives a delete); hosts are registry data, never a branch (see docs/adr/0059-meeting-host-contract-resolve-and-notices.md)
+- [0060] A cross-app UI seam must not let the other side's code failure become the host page's failure — hosts embed Meetings via `shell/extensions` `HostExtension` (props = three strings) with 5 s timeout + error boundary + the host's own fallback, and import the seam dynamically; coarse domain widgets only, NOT precedent for shared primitives (ADR-0050 stands) (see docs/adr/0060-host-extension-federated-panel-through-the-shell.md)
+- [0061] User content must never leave the permitted jurisdiction or be retained by a processor through a change we did not make in code — every hop (storage, transcription, LLM, any future one) is verified at STARTUP (exit 1): EU/CH regions, retention settings (unreadable = refuse), no fake provider in production, model id pinned, a model change needs a green eval; the provider choice (Azure Speech + Bedrock) is superseded by 0069 (see docs/adr/0061-meetings-ai-providers-eu-zero-retention.md)
+- [0062] User-requested work must be neither lost nor left looking pending, and time-based state must never depend on a writer — Postgres `meeting_job` queue (SKIP LOCKED, lease, `attemptId` re-check at commit, enqueue in the same transaction) runs asked-for work only; every time-derived state (interrupted, expired, stale, stuck-pending reads failed) stays derived on read, never swept (ADR-0013 boundary) (see docs/adr/0062-durable-job-runner-work-queued-state-derived.md)
+- [0063] A deletion promise must hold when our code is not running, and a storage setting must not quietly undo it — audio expires by a bucket-wide 29-day lifecycle rule verified at startup (no prefix filter, versioning not enabled, else refuse), lazy delete on read, explicit deletes remove the bucket prefix FIRST (503 and nothing changed on failure); backups of transcripts are an open gap (R7) (see docs/adr/0063-audio-retention-bucket-lifecycle-verified-at-startup.md)
+- [0064] Reading user-supplied bytes through our own process needs a ceiling, an allowlist and isolation, and the reason must not widen — meetings-api is the THIRD byte reader (ADR-0043/0057): only `prepare_audio` and the upload probe, ≤ 500 MiB streamed to disk, demuxer allowlist authoritative only on the LOCAL file (`-protocol_whitelist file`; the URL probe is an early reject, a scheme list does not bound hosts), `-format_whitelist` on every input, output caps (`-t`, `-fs`) that fail as `too_long`, non-root, minimal child env, timeouts, keys fixed server-side; a FOURTH reader, a file the user did not choose, or a new media type revisits this ADR (see docs/adr/0064-meetings-api-reads-audio-bytes-third-reader.md)
+- [0065] A message crossing a service boundary must be rendered in the READER's language, and a new field must reach every surface that renders it — notify-api `/system/notifications` takes optional `it: {title, body}`, stored, returned by list AND SSE, picked by notify-ui and `ToastHost` from `<html lang>` with English fallback; no per-user language on the server (see docs/adr/0065-bilingual-system-notifications.md)
+- [0066] A gate defined by a permission is only as narrow as that permission's holders — `meetings:access` joins `DIRECTORY_GATE_PERMISSIONS` (third consumer after 0053/0055), so with the default employee grant (0068) EVERY employee can list every active user; the user accepted this explicitly at the plan gate; participants are re-validated server-side as active (fail closed); any new default grant must first enumerate the gates that list the permission (see docs/adr/0066-user-directory-gate-meetings-access.md)
+- [0067] Untrusted text is never instructions and model output is never trusted structure — transcripts are escaped and delimited as quoted data, output is one offered, unforced tool whose reply is accepted only as exactly one schema-valid call (else `invalid_output`, one resample, then `failed`; text/thinking discarded unread — the guarantee is our validation, not a provider mechanism, amended 2026-11-05) with no actionable tools, the server renders headings/order/count and drops uncited or unknown citations, invalid output is `failed` never partial, rendering is plain text (no links/images), whole record in context with no embeddings store; injection evals are a release and model-change gate (ReviewAI/ProposAI inherit) (see docs/adr/0067-ai-output-structured-validated-plain-text.md)
+- [0068] A default grant silently widens every gate that lists its permission — `employee` gets `meetings:access` (the suite's FIRST default grant, explicit departure from specs/004, accepted by the user at the plan gate); `template:manage`/`meeting:erase` stay `admin`-only and pinned by a seed contract test; not a template for tools reading shared business data; the auth re-seed deploys first (see docs/adr/0068-default-employee-grant-meetings-access.md)
+- [0069] Meetings AI on Google Cloud, with every retention setting either read at startup or signed off — a processor's intermediate storage (staging bucket, soft-delete window, operation store, logging toggle) is a retention decision of its own and its default is often long; whatever the vendor exposes is verified (exit 1 when wrong or unreadable), whatever it does not is a named sign-off with an owner, never implicit: Chirp 3 BatchRecognize (`eu`) through a transient EU GCS bucket (1-day lifecycle, soft delete 0, deleted at attempt start/in `finally`/before any DB change on user deletion) + Claude on Vertex `eu` multi-region (never `global`, no Fable/Mythos, no caching); user-accepted exception 2026-11-05: Google may keep the async transcript ~5 days; supersedes 0061's provider choice (see docs/adr/0069-meetings-ai-providers-google-cloud-eu.md)
+- [0070] Never assert that two independently labelled things are the same — long recordings are transcribed in parts and parts overlap and a label joins the previous part's only on text evidence (≥ 20 matched words, one-to-one, never by position, number, voice matching or the audio), otherwise it stays separate and the creator can separate a joined one (a false merge reaches every summary invisibly, a false split costs one rename; amended 2026-11-05); the same shape applies to any labels, ids or clusters joined by position across files, batches or meetings (see docs/adr/0070-meetings-transcript-parts-speaker-labels-per-part.md)
 - [0071] Access is decided where a principal comes into being, never after — only a live pending invitation (verified email) or the bootstrap admin creates a user, and both only for an allowed-domain email, in better-auth `user.create.before`; an outside-`ALLOWED_SIGNUP_DOMAINS` email (welld.ch, welld.it) is refused even with an invitation; everyone else is recorded in a separate `access_request` waiting list that grants nothing, and approving it creates an invitation via specs/006 (never a user, no second activation path); a new user-creating path (import, SSO, test endpoint) must be deliberate and listed, and no test exemption goes inside the gate; amends specs/004 AC-6.3 and specs/006 Non-goals (see docs/adr/0071-access-only-by-invitation-waiting-list.md)
 - [0072] A best-effort notice must not block, undo or leak through the action it announces — `system:auth` gains `notifications.push` bound to origin `admin` (amends ADR-0048/0049 "auth: email only") to notify every effective admin of a new access request, in-app plus `email: true` (notify-api resolves addresses, ADR-0056; auth sends none), not awaited by the sign-in, failures logged; a new scope ships with its origin binding, and any other origin revisits the ADR (see docs/adr/0072-auth-pushes-admin-notifications.md)
 - [0073] A state written in two places drifts, and a state replicated by messages must survive loss, repetition and reordering — an estimate is finished only when closed in EstimAI (owner/editor, If-Match, read-only until reopened); estimai-api pushes a content-free notice `{estimateId, event, version, at, byUserId}` to crm-api `POST /system/estimate-notices` with its service JWT (new scope `estimate-notices.send`, ADR-0044/0049), best effort; crm-api accepts only `system:estimai-api`, applies under a row lock only a newer version (`estimaiVersion`, reset on relink), completes or reopens the task and notifies; the CRM's own Mark ready/Reopen are removed, the admin override stays; a second follower, content in the notice or guaranteed delivery revisits it (see docs/adr/0073-estimai-closes-the-estimate-crm-follows.md)
+- [0074] A transcript that cannot be proven complete says where it may not be — a silent omission by a producer that reports success is read downstream as a complete record (and absence as fact): detect probable gaps from an independent signal (audio energy vs the word timeline), mark final gaps (the per-part retry is suspended, tries = 1, because the provider returned byte-identical results 8 of 8 times; revisit under O15 only with DIFFERENT audio; a repetition never flags a part; duplicates removed same-speaker within a part) and have the SERVICE write the caveat on every derived artefact (summary, answer, copy); empty-with-gaps is `failed` `speech_not_transcribed`, never "no speech"; any new consumer of a transcript must carry the gaps (see docs/adr/0074-meetings-transcript-completeness-detect-retry-mark.md)

@@ -1,0 +1,257 @@
+{
+  "results": [
+    {
+      "alternatives": [
+        {
+          "transcript": "Il cliente ha segnalato la documentazione tecnica prima della riunione di lunedì. La piattaforma ha completato il rapporto trimestrale entro venerdì prossimo. Il progetto ha completato l'analisi dei rischi con il supporto del reparto legale. Il fornitore richiede ancora il piano di rilascio secondo le priorità di questo mese. Il nuovo sistema richiede ancora l'analisi dei rischi entro venerdì prossimo.",
+          "words": [
+            {
+              "word": "Il",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "cliente",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "ha",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "segnalato",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "la",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "documentazione",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "tecnica",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "prima",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "della",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "riunione",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "di",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "lunedì.",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "La",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "piattaforma",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "ha",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "completato",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "il",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "rapporto",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "trimestrale",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "entro",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "venerdì",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "prossimo.",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "Il",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "progetto",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "ha",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "completato",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "l'analisi",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "dei",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "rischi",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "con",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "il",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "supporto",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "del",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "reparto",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "legale.",
+              "speakerLabel": "1"
+            },
+            {
+              "word": "Il",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "fornitore",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "richiede",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "ancora",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "il",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "piano",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "di",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "rilascio",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "secondo",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "le",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "priorità",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "di",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "questo",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "mese.",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "Il",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "nuovo",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "sistema",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "richiede",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "ancora",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "l'analisi",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "dei",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "rischi",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "entro",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "venerdì",
+              "speakerLabel": "0"
+            },
+            {
+              "word": "prossimo.",
+              "speakerLabel": "0"
+            }
+          ]
+        }
+      ],
+      "languageCode": "it-IT"
+    }
+  ],
+  "metadata": {
+    "prompt": "Transcribe the following speech segment with speaker labels in Italian: Follow these specific instructions for formatting the answer:\n* Only output the transcript, with no newlines.\n* When transcribing numbers, write the digits, i.e. write 1.7 and not one point seven, and write 100 instead of one hundred etc.\n* Only output the transcript, exactly as said in the speech segment.\n* Do not continue the speech segment.\n* Include everything said in the speech segment.\n* Use mathematical notation where needed, eg. x ^ 6Y.\n* If there is background speech that is not part of the main conversation, discard the background speech and only output the main conversation.\n* If there is no clear speech, just output [BACKGROUND].\nThere may be multiple speakers in the speech segment. Annotate the speakers like spk:1, spk:2, spk:3 and so on. Each speaker annotation starts with spk, followed by a colon and a digit. The speaker annotation should be output after the transcript of that speaker's speech. The digit is the anonymous identity of the speaker and the same speaker should always have the same digit throughout the speech segment. An example transcript with speaker annotation is as follows:\nHello. spk:1 Good morning. spk:2 How are you? spk:1 Respond in the original language of the speech, Italian."
+  }
+}

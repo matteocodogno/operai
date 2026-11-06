@@ -27,6 +27,11 @@
  * `/devices` route. Shown to every signed-in user — no permission check here,
  * by design (the route and `/me/*` API are identity-scoped).
  *
+ * "My meetings" (specs/021-meetings, AC-10.1, ADR-0045 shape): a third real
+ * `<Link role="menuitem">` after "My devices", to the ungated `/my-meetings`
+ * route. Shown to every signed-in user — no permission check here, by design (a
+ * participant without `meetings:access` still reads the meetings they were added to).
+ *
  * The menu itself — opening, keyboard (arrows, Home/End, Escape back to the
  * avatar), closing on choice or outside click — is the library `Menu`
  * (decisions D-60), shared with LogoMenu.
@@ -51,6 +56,11 @@ type UserMenuProps = {
   user: UserMenuUser
   onSignOut?: () => void
 }
+
+// `/my-meetings/$` is a splat route (the remote has an inner router), and the
+// router's typed `to` only knows its `$` form; like Sidebar's `tool.to`, the
+// bare prefix is passed as a plain string so the link renders `/my-meetings`.
+const MY_MEETINGS_PATH: string = '/my-meetings'
 
 const defaultOnSignOut = (): void => {
   void signOut()
@@ -101,6 +111,9 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
       </Link>
       <Link to="/devices" role="menuitem" className="menu-item">
         {strings.userMenu.myDevices}
+      </Link>
+      <Link to={MY_MEETINGS_PATH} role="menuitem" className="menu-item">
+        {strings.userMenu.myMeetings}
       </Link>
       <MenuItem onClick={onSignOut}>{strings.userMenu.signOut}</MenuItem>
     </Menu>
