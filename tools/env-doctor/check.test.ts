@@ -862,11 +862,11 @@ describe("env-doctor checker — projects-api and the crm-api service audience (
     }
   });
 
-  test("crm-api SERVICE_AUDIENCE is required in production, not locally", () => {
+  test("crm-api SERVICE_AUDIENCE is required in production and locally (ADR-0073; /system/companies relies on it too)", () => {
     const s = projectsSuite();
     delete s["crm-api"]!.SERVICE_AUDIENCE;
     expect(errText(checkSuite(s, PROD))).toContain("SERVICE_AUDIENCE is missing");
-    expect(errText(checkSuite(s, LOCAL))).not.toContain("SERVICE_AUDIENCE is missing");
+    expect(errText(checkSuite(s, LOCAL))).toContain("SERVICE_AUDIENCE is missing");
   });
 
   test("crm-api SERVICE_AUDIENCE equal to its AUTH_AUDIENCE → error", () => {

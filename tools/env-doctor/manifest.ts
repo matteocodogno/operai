@@ -112,13 +112,7 @@ export const DISTINCT_VARS: ReadonlyArray<{ a: string; b: string; services: Serv
     a: "SERVICE_AUDIENCE",
     b: "AUTH_AUDIENCE",
     services: ["auth", "notify-api", "crm-api", "estimai-api"],
-    why: "a service token would be accepted on user routes and a user JWT on /system/notifications, /system/estimate-notices, /system/meeting-host/v1/notices or /system/deal-link-notices (ADR-0044)",
-  },
-  {
-    a: "SERVICE_AUDIENCE",
-    b: "AUTH_AUDIENCE",
-    services: ["crm-api"],
-    why: "a service token would be accepted on user routes and a user JWT on /system/companies (ADR-0044, specs/021)",
+    why: "a service token would be accepted on user routes and a user JWT on /system/notifications, /system/estimate-notices, /system/meeting-host/v1/notices, /system/deal-link-notices or /system/companies (ADR-0044)",
   },
 ];
 
@@ -363,9 +357,8 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
  * environment (production/preview) — a local run is not flagged for lacking them.
  */
 export const PRODUCTION_REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
-  // specs/021: crm-api's `GET /system/companies` answers 401 to every caller until it knows the
-  // audience the service credential is minted for (ADR-0044); equal across auth, notify-api and crm-api.
-  "crm-api": ["SERVICE_AUDIENCE"],
+  // crm-api's SERVICE_AUDIENCE is in REQUIRED_KEYS since specs/018 AC-3.3 (ADR-0073); specs/021's
+  // `GET /system/companies` relies on the same key (ADR-0059), so no production-only entry is needed.
   // specs/021: projects-api's all-or-none CRM group — without it a company name is `null` and the
   // company picker answers 503 `crm_unavailable`.
   "projects-api": ["CRM_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"],
