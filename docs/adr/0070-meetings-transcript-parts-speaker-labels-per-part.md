@@ -4,7 +4,7 @@
 **Status:** Accepted, amended 2026-11-05 (specs/021 plan amendment #2, spec A7, T107 findings): parts overlap, and labels are joined only on clear text evidence. Part size is 10 min (measured by spike T107), not 60.
 **Deciders:** wellD
 **Project:** Operai
-**Relates to:** [ADR-0073](0073-meetings-transcript-completeness-detect-retry-mark.md), [ADR-0069](0069-meetings-ai-providers-google-cloud-eu.md), [ADR-0064](0064-meetings-api-reads-audio-bytes-third-reader.md), [ADR-0067](0067-ai-output-structured-validated-plain-text.md)
+**Relates to:** [ADR-0074](0074-meetings-transcript-completeness-detect-retry-mark.md), [ADR-0069](0069-meetings-ai-providers-google-cloud-eu.md), [ADR-0064](0064-meetings-api-reads-audio-bytes-third-reader.md), [ADR-0067](0067-ai-output-structured-validated-plain-text.md)
 
 ---
 
@@ -40,7 +40,7 @@ them across"; the principle behind it stands.
   **Refined by spec A8 (2026-11-05):** within a part, duplicates are removed only when both passages carry
   the same speaker label (or one has none); in the overlap of two consecutive parts they are removed
   unless each label is joined to a different earlier label. Untimed repeated tails are removed by
-  content. Per-part tries are suspended (tries = 1, ADR-0073), so the "tries" below currently number one.
+  content. Per-part tries are suspended (tries = 1, ADR-0074), so the "tries" below currently number one.
 - **A label joins a previous part's label only on text evidence (AC-6.14).** Over the aligned
   overlap words, a label of part k+1 joins a label of part k only when at least 20 matched words
   map to that label and to no other, in both directions (it is one-to-one, with no conflicting

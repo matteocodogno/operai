@@ -1,4 +1,4 @@
-# 0073 — A transcript that cannot be proven complete says where it may not be: detect, then mark (the retry is suspended, O15)
+# 0074 — A transcript that cannot be proven complete says where it may not be: detect, then mark (the retry is suspended, O15)
 
 **Date:** 2026-11-05
 **Status:** Accepted (specs/021-meetings; plan amendment #2 and spec A7 approved by the user on 2026-11-05); amended 2026-11-05 by spec A8: per-part retry suspended. Bounds are provisional until O14 (go-live gate).
