@@ -12,7 +12,9 @@ import { app, call, resetWorld } from "./test-support/world";
 
 beforeEach(resetWorld);
 
-const PUBLIC = new Set(["GET /health", "GET /openapi.json", "GET /docs"]);
+// `GET /system/companies` (specs/021) is guarded by a scoped SERVICE credential, not by user
+// capabilities; its own 401 matrix lives in src/system/companies.routes.test.ts.
+const PUBLIC = new Set(["GET /health", "GET /openapi.json", "GET /docs", "GET /system/companies"]);
 
 const routes = [
   ...new Set(

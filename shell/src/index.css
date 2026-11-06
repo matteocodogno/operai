@@ -17,6 +17,7 @@
 @source "../../admin-ui/src";
 @source "../../inventory-ui/src";
 @source "../../crm-ui/src";
+@source "../../projects-ui/src";
 @source "../../notify-ui/src";
 /* The shared component library (ADR-0050). Its components render only the
    classes in its tokens.css, but a page may compose them with utilities. */

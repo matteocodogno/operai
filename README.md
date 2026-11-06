@@ -11,12 +11,14 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/007) |
 | `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/004); user invitations, resend/revoke & soft-delete (specs/006, admin-only) |
 | `inventory-ui/` | Hardware inventory (federated remote) — asset register, assignments, depreciation ledger and year close; plus the ungated "My devices" screen at `/devices` (specs/015, ADR-0045) |
+| `projects-ui/` | Projects (federated remote) — the delivery work wellD runs: projects with their type, state, project manager and team, and their contracts' delivery terms and Bexio order id; no money (specs/021, ADR-0058) |
 | `notify-ui/` | Notification center (federated remote) — the `/notify` page; reached from the header bell (specs/005) |
 | `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR-0007); user invitations + soft-delete + hosted invite landing (specs/006) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
 | `notify-api/` | Notification backend (Bun + Hono) — persistence + SSE push, ticket-authed stream (specs/005, ADR-0008/0009); + email delivery via Resend, internal `/system/emails` (specs/006, ADR-0011); + internal `/system/notifications` for cross-user push (specs/007, ADR-0017) |
 | `refund-api/` | Reimbursement backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for receipt attachments (specs/007, ADR-0014/0015/0016) |
 | `inventory-api/` | Hardware-inventory backend (Bun + Hono) — authorization-enforcing resource server, EU object storage for invoices, depreciation derived on read with immutable year closes; pushes notifications to notify-api with a scoped service JWT (specs/015, ADR-0044/0046/0047) |
+| `projects-api/` | Projects backend (Bun + Hono) — authorization-enforcing resource server, entity-scoped writes with optimistic concurrency; reads CRM company names from crm-api with a scoped service credential (specs/021, ADR-0058/0059) |
 | `specs/`, `docs/adr/` | Spec-driven workflow + Architecture Decision Records |
 | `infra/` | Deploy config + runbooks (Railway, Vercel) |
 
@@ -31,20 +33,20 @@ One-time setup:
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
    `direnv allow .`, `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`,
-   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api` and `direnv allow admin-ui`, and set up
+   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api` and `direnv allow admin-ui`, and set up
    the 1Password service account described in
-   [1Password for local development](#1password-for-local-development). All six backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
+   [1Password for local development](#1password-for-local-development). All seven backends require `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
    `aud` claim `auth` stamps and the resource servers verify (ADR-0010); a mismatch rejects
    every token with 401. Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide
    real `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with
    `http://localhost:3001/auth/callback/google` as an authorized redirect URI) if you want
-   Google login locally. `refund-api`, `estimai-api` and `inventory-api` each need
+   Google login locally. `refund-api`, `estimai-api`, `inventory-api`, `crm-api` and `projects-api` each need
    `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` (their own credentials for `auth`'s
    service-token endpoint, matching an entry of `auth`'s `SERVICE_CLIENTS`; ADR-0049) — see
    each `.env.example`. `refund-api`'s object-storage vars (`REFUND_S3_*`) are documented
    but not yet enforced (no bucket provisioned yet); `inventory-api` also needs its own
    `INVENTORY_S3_*` bucket.
-2. **Apply DB migrations** (brings up Postgres, then migrates all six backends):
+2. **Apply DB migrations** (brings up Postgres, then migrates all seven backends):
 
    ```bash
    mise run db:migrate
@@ -53,7 +55,7 @@ One-time setup:
 Then run the whole suite with **one command**:
 
 ```bash
-mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + all 6 frontends
+mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + all 7 frontends
 ```
 
 The three `dev*` tasks open the shell (http://localhost:5173) in your browser as soon as it
@@ -72,13 +74,15 @@ open **http://localhost:5173**.
 | admin-ui (remote) | 5177 | roles & permissions admin (specs/004) |
 | inventory-ui (remote) | 5178 | hardware inventory + `/devices` (specs/015) |
 | crm-ui (remote) | 5179 | CRM (specs/017) |
+| projects-ui (remote) | 5180 | Projects (specs/021) |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
 | notify-api | 8081 | Bun + Hono — SSE push (specs/005) |
 | refund-api | 8082 | Bun + Hono — authz-enforcing resource server (specs/007) |
 | inventory-api | 8083 | Bun + Hono — authz-enforcing resource server (specs/015) |
 | crm-api | 8084 | Bun + Hono — authz-enforcing resource server (specs/017) |
-| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`) |
+| projects-api | 8085 | Bun + Hono — authz-enforcing resource server (specs/021) |
+| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`) |
 | MinIO | 9000 / 9001 | `docker compose` — local S3 + console for receipts and invoices |
 
 Other `mise` tasks:
@@ -86,7 +90,7 @@ Other `mise` tasks:
 ```bash
 mise run dev:web        # frontends only (HMR) — when backends run elsewhere
 mise run dev:preview    # full stack, but frontends build+preview (no HMR; mirrors deploy)
-mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api + crm-api migrations
+mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api migrations
 ```
 
 One-off, production only: the legacy Excel asset register is loaded by
@@ -141,7 +145,7 @@ to the `OperAILocal` vault.
 3. Allow the files and check that none is missing a variable. Nothing should ask for Touch ID:
 
    ```bash
-   for d in . auth estimai-api notify-api refund-api inventory-api crm-api admin-ui; do direnv allow "$d"; done
+   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api admin-ui; do direnv allow "$d"; done
    OP_SERVICE_ACCOUNT_TOKEN="$(security find-generic-password -a "$USER" -s op-sa-operai-local -w)" \
      op item list --vault OperAILocal --format json | jq length   # the items the service account can see
    mise run env:doctor -- --env local

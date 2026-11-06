@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('TOOLS — inventory', () => {
   it('lists Inventory at /inventory, after Admin', () => {
-    expect(TOOLS.map((t) => t.id)).toEqual(['estimai', 'refund', 'admin', 'inventory', 'crm'])
+    expect(TOOLS.map((t) => t.id)).toEqual(['estimai', 'refund', 'admin', 'inventory', 'crm', 'projects'])
     expect(TOOLS.find((t) => t.id === 'inventory')).toEqual({
       id: 'inventory',
       label: 'Inventory',
@@ -53,5 +53,32 @@ describe('TOOLS — crm', () => {
     expect(TOOLS.find((t) => t.id === 'crm')).toEqual({ id: 'crm', label: 'CRM', to: '/crm' })
     expect(isToolId('crm')).toBe(true)
     expect(toolPath('crm')).toBe('/crm')
+  })
+})
+
+// specs/021-projects (AC-4.1): Projects is a gated tool, after CRM. The id is the
+// auth catalog resource (`projects`), so the sidebar's `apps.includes(tool.id)`
+// filter shows it exactly to the callers `/authz/me` reports `projects:access` for.
+describe('TOOLS — projects', () => {
+  it('lists Projects at /projects and resolves it as a tool id', () => {
+    expect(TOOLS.find((t) => t.id === 'projects')).toEqual({ id: 'projects', label: 'Projects', to: '/projects' })
+    expect(isToolId('projects')).toBe(true)
+    expect(toolPath('projects')).toBe('/projects')
+  })
+
+  it('round-trips projects through the last-tool record', () => {
+    recordLastTool('projects')
+    expect(readLastToolId()).toBe('projects')
+    expect(resolveLastToolPath()).toBe('/projects')
+  })
+
+  it('is offered only to callers whose apps include projects (projects:access)', () => {
+    const visibleFor = (apps: string[]) => TOOLS.filter((tool) => apps.includes(tool.id)).map((tool) => tool.id)
+
+    expect(visibleFor(['projects'])).toEqual(['projects'])
+    expect(visibleFor(['estimai', 'crm', 'projects'])).toEqual(['estimai', 'crm', 'projects'])
+    // `crm:access` or any other grant is not `projects:access` (AC-4.1, D13).
+    expect(visibleFor(['estimai', 'refund', 'admin', 'inventory', 'crm'])).not.toContain('projects')
+    expect(visibleFor([])).toEqual([])
   })
 })

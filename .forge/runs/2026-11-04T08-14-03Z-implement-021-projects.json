@@ -1,0 +1,29 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.57.1",
+  "run_id": "2026-11-04T08-14-03Z-implement-021-projects",
+  "command": "implement",
+  "feature": "021-projects",
+  "rigor": "mvp",
+  "rigor_recorded": null,
+  "started": "2026-11-04T08:14:03Z",
+  "finished": "2026-11-04T08:45:03Z",
+  "agents": [
+    { "agent": "orchestrator", "tasks": ["T17"], "outcome": "completed", "commits": ["bbeba17", "39f984f"], "note": "T17 applied by the developer (env files are guard-blocked); the orchestrator drafted projects-api's env example in the scratchpad and committed the developer-staged files after a staged gitleaks scan" },
+    { "agent": "quality-engineer", "tasks": ["T19"], "outcome": "PASS", "commits": ["1a8ca2f"] }
+  ],
+  "drift_events": [],
+  "env_faults": [
+    { "agent": "orchestrator", "class": "secret env", "detail": "Stale projects-api/.env set PORT=8084, so projects-api took crm-api's port and crm-api failed EADDRINUSE", "resolved_by": "developer set PORT=8085 (T17)" },
+    { "agent": "orchestrator", "class": "secret env", "detail": "auth SERVICE_CLIENTS entry for projects-api carried scope notifications.push (copied from another client); crm-api returned an undiagnosed 401 on /system/companies, so the picker answered 503 crm_unavailable", "resolved_by": "developer set scope crm.companies.read; diagnosed by printing only the scope value" },
+    { "agent": "quality-engineer", "class": "browser", "detail": "Live rows NOT RUN at the previous pass (T17 open, no test identity)", "resolved_by": "five @operai.test identities seeded through the test-auth seam and the e2e fixture script; all live rows walked" },
+    { "agent": "quality-engineer", "class": "app start", "detail": "E4: hard page loads in the dev federation stack intermittently crash with an invalid hook call (two React copies), 8 of 16 loads across /crm, /projects, /inventory; client-side navigation unaffected", "resolved_by": "open — not specs/021; owner of the dev federation setup" }
+  ],
+  "verdicts": { "qe": "PASS" },
+  "security": { "matched_rules": [], "dispatched": false, "notes": ["Not re-dispatched: no code change since the PASS WITH NOTES review of the earlier run; QE ran semgrep p/typescript, p/owasp-top-ten, p/security-audit (0 findings) and a full-history gitleaks scan (no new findings)"] },
+  "result": "completed",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}

@@ -290,6 +290,8 @@ const loadInventoryApp = () => import('inventory/App')
 const loadMyDevices = () => import('inventory/MyDevices')
 // specs/017-crm: crm-ui's gated tool entry (`/crm/$`).
 const loadCrmApp = () => import('crm/App')
+// specs/021-projects: projects-ui's gated tool entry (`/projects/$`).
+const loadProjectsApp = () => import('projects/App')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -409,6 +411,14 @@ const crmRoute = createRoute({
   component: () => <RemoteMount loader={loadCrmApp} moduleLabel={strings.tools.crm} />,
 })
 
+// specs/021-projects (AC-4.1): the Projects module, gated by `projects:access`.
+const projectsRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/projects/$',
+  beforeLoad: createToolAccessBeforeLoad('projects'),
+  component: () => <RemoteMount loader={loadProjectsApp} moduleLabel={strings.tools.projects} />,
+})
+
 // ---------------------------------------------------------------------------
 // `/devices` — "My devices" (specs/015-hardware-inventory, T42, US-4 AC-4.1,
 // ADR-0045). The second, UNGATED federated entry of the inventory remote:
@@ -500,6 +510,7 @@ export const routeTree = rootRoute.addChildren([
       adminRoute,
       inventoryRoute,
       crmRoute,
+      projectsRoute,
       notifyRoute,
       accountRoute,
       devicesRoute,

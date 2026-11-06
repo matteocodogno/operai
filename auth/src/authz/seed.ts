@@ -91,6 +91,14 @@
  *      `crm:access` + entity-scoped `deal:manage`). `crm` is registered once,
  *      here, never through `SUITE_APPS`.
  *
+ *  11. {@link seedProjectsCatalog} + {@link seedProjectsGrants} (specs/021-
+ *      projects — AC-4.1, AC-4.3–4.6) — register the projects module's catalog
+ *      (`catalogs/projects.ts`) and attach its grants (`admin` all unconditioned,
+ *      the new `project-manager` system role and `sales` `projects:access` +
+ *      entity-scoped `project:manage`, `accounting` `projects:access` +
+ *      `contract:bexio`). `projects` is registered once, here, never through
+ *      `SUITE_APPS`.
+ *
  * A TENTH, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
@@ -107,6 +115,7 @@ import { upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
 import { CRM_APP_ID, CRM_CATALOG } from "./catalogs/crm";
 import { INVENTORY_APP_ID, INVENTORY_CATALOG } from "./catalogs/inventory";
+import { PROJECTS_APP_ID, PROJECTS_CATALOG } from "./catalogs/projects";
 import { REFUND_APP_ID, REFUND_CATALOG } from "./catalogs/refund";
 
 export const EMPLOYEE_ROLE_NAME = "employee";
@@ -116,6 +125,7 @@ export const INVENTORY_MANAGER_ROLE_NAME = "inventory-manager";
 export const SALES_ROLE_NAME = "sales";
 /** System role holding only `crm:access` (specs/018): technical staff who read the CRM, no financials. */
 export const CRM_TECHNICAL_ROLE_NAME = "crm-technical";
+export const PROJECT_MANAGER_ROLE_NAME = "project-manager";
 
 /** The four seed system roles (AC-6.2). Order is insignificant; upserts run sequentially for deterministic logging. */
 export const SYSTEM_ROLE_NAMES = [
@@ -215,6 +225,16 @@ export async function seedCrmCatalog(): Promise<void> {
 }
 
 /**
+ * Registers the projects module's catalog (specs/021-projects — AC-4.1):
+ * `projects:access`, entity-scoped `project:manage` and `contract:bexio`.
+ * Idempotent (full-replace upsert keyed by `appId`). `projects` is registered
+ * ONLY here, never via `SUITE_APPS`.
+ */
+export async function seedProjectsCatalog(): Promise<void> {
+  await upsertAppCatalog(PROJECTS_CATALOG);
+}
+
+/**
  * Every suite app id. `estimai`/`refund`/`inventory` declare their own
  * catalogs; the rest come from SUITE_APPS. (`inventory` being listed here is
  * only so `seedAdminRoleGrants` grants `admin` its `access`; it is NOT a
@@ -225,6 +245,7 @@ export const ALL_APP_IDS: readonly string[] = [
   REFUND_APP_ID,
   INVENTORY_APP_ID,
   CRM_APP_ID,
+  PROJECTS_APP_ID,
   ...SUITE_APPS.map((a) => a.appId),
 ];
 
@@ -590,6 +611,73 @@ export async function seedCrmGrants(): Promise<void> {
 }
 
 /**
+ * Seeds the projects module's role grants (specs/021-projects — AC-4.3–4.6;
+ * decisions D13, D35, D36):
+ *
+ *   - `admin` — `project:manage` and `contract:bexio`, UNCONDITIONED. Its
+ *     `projects:access` comes from {@link seedAdminRoleGrants} (`ALL_APP_IDS`).
+ *   - `project-manager` (NEW system role) — `projects:access` + `project:manage`
+ *     conditioned on the entity ({@link REFUND_ENTITY_CONDITION}).
+ *   - `sales` — gains the same two grants as `project-manager` (A29).
+ *   - `accounting` — gains `projects:access` + `contract:bexio` (no manage).
+ *   - `employee` — nothing: projects access is admin-assigned (specs/004).
+ *
+ * Idempotent and non-destructive, through {@link ensureGrant}, exactly like
+ * {@link seedCrmGrants}.
+ */
+export async function seedProjectsGrants(): Promise<void> {
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(adminRole.id, "project", "manage");
+  await ensureGrant(adminRole.id, "contract", "bexio");
+
+  const managerRole = await db.role.upsert({
+    where: { name: PROJECT_MANAGER_ROLE_NAME },
+    update: {},
+    create: {
+      name: PROJECT_MANAGER_ROLE_NAME,
+      description: "Project manager — runs the projects of their own entity",
+      isSystem: true,
+    },
+  });
+  await ensureGrant(managerRole.id, PROJECTS_APP_ID, "access");
+  await ensureGrant(
+    managerRole.id,
+    "project",
+    "manage",
+    REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+  );
+
+  const salesRole = await db.role.upsert({
+    where: { name: SALES_ROLE_NAME },
+    update: {},
+    create: {
+      name: SALES_ROLE_NAME,
+      description: "Sales — manages the CRM deals of their own entity",
+      isSystem: true,
+    },
+  });
+  await ensureGrant(salesRole.id, PROJECTS_APP_ID, "access");
+  await ensureGrant(
+    salesRole.id,
+    "project",
+    "manage",
+    REFUND_ENTITY_CONDITION as Prisma.InputJsonValue,
+  );
+
+  const accountingRole = await db.role.upsert({
+    where: { name: ACCOUNTING_ROLE_NAME },
+    update: {},
+    create: { name: ACCOUNTING_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(accountingRole.id, PROJECTS_APP_ID, "access");
+  await ensureGrant(accountingRole.id, "contract", "bexio");
+}
+
+/**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
  * seed leaves `admin` with zero permission rules, so even the bootstrap admin
  * resolves to `apps: []` and is stranded on the shell's `/no-access` screen —
@@ -660,6 +748,7 @@ export async function seed(): Promise<void> {
   await seedRefundCatalog();
   await seedInventoryCatalog();
   await seedCrmCatalog();
+  await seedProjectsCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
@@ -667,6 +756,7 @@ export async function seed(): Promise<void> {
   await seedSettingsAdminGrants();
   await seedInventoryGrants();
   await seedCrmGrants();
+  await seedProjectsGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -746,7 +836,7 @@ if (import.meta.main) {
         "Seeded system roles + suite app-access catalog + EstimAI catalog + refund catalog " +
           "+ admin app-access grants + accounting refund grants + refund-admin role + " +
           "rate admin grants + settings admin grants + inventory catalog + inventory grants " +
-          "+ CRM catalog + CRM grants " +
+          "+ CRM catalog + CRM grants + projects catalog + projects grants " +
           "+ bootstrap admin",
       );
       process.exit(0);

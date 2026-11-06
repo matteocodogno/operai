@@ -37,8 +37,16 @@ import { createHash, timingSafeEqual } from "node:crypto";
  * - `estimate-notices.send`: tell crm-api an EstimAI estimate was closed or
  *   reopened (`POST /system/estimate-notices`, specs/018 AC-3.3, ADR-0073).
  *   Only estimai-api holds it.
+ * - `crm.companies.read`: read CRM companies through crm-api's
+ *   `GET /system/companies` (specs/021, ADR-0059). Only projects-api holds it.
  */
-export const KNOWN_SERVICE_SCOPES = ["notifications.push", "emails.send", "users.contact", "estimate-notices.send"] as const;
+export const KNOWN_SERVICE_SCOPES = [
+  "notifications.push",
+  "emails.send",
+  "users.contact",
+  "estimate-notices.send",
+  "crm.companies.read",
+] as const;
 
 /**
  * Client id `auth` itself mints under (`sub="system:auth"`, in process — specs/016).

@@ -1,0 +1,56 @@
+{
+  "schema": "wellforge-run/v3",
+  "plugin_version": "2.57.1",
+  "run_id": "2026-11-03T15-17-48Z-implement-021-projects",
+  "command": "implement",
+  "feature": "021-projects",
+  "rigor": "mvp",
+  "rigor_recorded": null,
+  "started": "2026-11-03T15:17:48Z",
+  "finished": "2026-11-03T17:20:00Z",
+  "agents": [
+    { "agent": "backend-dev", "tasks": ["T1", "T2"], "outcome": "completed", "commits": ["d038854", "cbc7017"] },
+    { "agent": "backend-dev", "tasks": ["T3", "T4"], "outcome": "completed", "commits": ["1f1677e", "10b455a"] },
+    { "agent": "backend-dev", "tasks": ["T5"], "outcome": "completed", "commits": ["c2c5ffb"] },
+    { "agent": "backend-dev", "tasks": ["T6", "T7"], "outcome": "completed", "commits": ["d891ab6", "a643ce7"] },
+    { "agent": "backend-dev", "tasks": ["T8", "T9"], "outcome": "completed", "commits": ["39826d7", "ecf5053"] },
+    { "agent": "backend-dev", "tasks": ["T10"], "outcome": "completed", "commits": ["31e3e93"] },
+    { "agent": "frontend-dev", "tasks": ["T11", "T12"], "outcome": "completed", "commits": ["f6663b3", "b7ed33d"] },
+    { "agent": "backend-dev", "tasks": ["T20"], "outcome": "completed", "commits": ["4f5dd76"] },
+    { "agent": "frontend-dev", "tasks": ["T13", "T14"], "outcome": "completed", "commits": ["8d1c834", "73cd2bd"] },
+    { "agent": "frontend-dev", "tasks": ["T15"], "outcome": "completed", "commits": ["f98e855"] },
+    { "agent": "devops", "tasks": ["T16"], "outcome": "completed", "commits": ["5c8db1b"] },
+    { "agent": "adr-writer", "tasks": ["T18"], "outcome": "completed", "commits": ["2e4a0e8"] },
+    { "agent": "owasp-reviewer", "outcome": "PASS WITH NOTES" },
+    { "agent": "quality-engineer", "outcome": "PASS", "commits": ["a0021d1"] }
+  ],
+  "drift_events": [
+    { "agent": "backend-dev", "artifact": "tasks.md", "summary": "Architecture notes typed CRM company and auth user ids as uuid; both are cuid TEXT", "resolved": true },
+    { "agent": "frontend-dev", "artifact": "tasks.md", "summary": "Project lacked stateBeforeHold (UI cannot offer Resume) and the list's project-manager filter needed the manager-only user directory; re-sync added T20 (stateBeforeHold, GET /project-managers)", "resolved": true },
+    { "agent": "quality-engineer", "artifact": "tasks.md", "summary": "T19 done-when required bash infra/check.sh green, which probes unprovisioned production hosts; moved to the deferred provisioning step", "resolved": true }
+  ],
+  "env_faults": [
+    { "agent": "orchestrator", "class": "secret env", "detail": "A guard blocks copying .env files, so worktrees could not get the service env (auth DATABASE_URL via direnv)", "resolved_by": "sequential" },
+    { "agent": "orchestrator", "class": "toolchain", "detail": "Shell tests failed 83/284 at baseline: mise exec left Node 26 on PATH, whose global localStorage shadows jsdom; green 284/284 with Node 24 first on PATH", "resolved_by": "PATH=$HOME/.local/share/mise/installs/node/24/bin:$PATH for shell and projects-ui" },
+    { "agent": "orchestrator", "class": "toolchain", "detail": "auth tests need direnv for DATABASE_URL (ECONNREFUSED :5432 without it)", "resolved_by": "direnv exec . bun test" },
+    { "agent": "backend-dev", "class": "secret env", "detail": "Pre-existing untracked projects-api/.env sets PORT=8084 (crm-api's port); tests unaffected (preload overrides)", "resolved_by": "open — developer replaces it with T17" },
+    { "agent": "quality-engineer", "class": "browser", "detail": "No signed-in browser pass: T17 env not applied and no seeded test identity", "resolved_by": "open — re-run the listed rows after T17" }
+  ],
+  "verdicts": { "qe": "PASS", "security": "PASS" },
+  "security": {
+    "matched_rules": [],
+    "dispatched": true,
+    "notes": [
+      "LOW A05 projects-api NODE_ENV defaults to development (error detail and Prisma info logging fail open if a deploy omits it)",
+      "LOW A01 directory gate widened to project:manage returns the full roster without appId (pre-existing behaviour for asset:manage/deal:manage)",
+      "LOW A09 no per-actor audit trail for project/contract writes, including the Bexio order id",
+      "LOW A04/A09 /openapi.json and /docs served unauthenticated in production",
+      "LOW hardening projects-api lib/crm.ts fetch lacks redirect: error"
+    ]
+  },
+  "result": "partial",
+  "tokens": null,
+  "cost_usd": null,
+  "terse": false,
+  "control_run_id": null
+}
