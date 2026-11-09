@@ -107,9 +107,12 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
   `projects:access`, checked live via auth `app-access-check` by user id, ADR-0055); 403
   `out_of_scope`. PM defaults to the caller (T5).
 - `GET /projects/:id` → `Project = { id, name, type, state, stateBeforeHold: ProjectState |
-  null, entity, company, projectManager, team: Person[], contracts: ContractSummary[],
+  null, entity, company, projectManager, team: Person[], contracts: Contract[],
   startDate, endDate, version, createdAt, updatedAt }` (T5; `stateBeforeHold` added by T20 —
-  the UI needs it to offer the one state an `on_hold` project can return to).
+  the UI needs it to offer the one state an `on_hold` project can return to). Each contract
+  is whole (terms and version, as `GET /projects/:id/contracts/:contractId`), with every
+  company name from one CRM read, so the page reads no contract on its own (PR 7 review: the
+  per-card read was an N+1).
 - `GET /project-managers` → `{ items: Person[] }` — the distinct project managers of all
   projects, sorted by name; access only (the user directory is open to managers only, so
   this is what feeds the list's project-manager filter for every reader, AC-1.4) (T20). `ContractSummary = { id, type, company: CompanyRef, origin,
