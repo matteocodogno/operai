@@ -168,17 +168,28 @@ contractsRouter.openapi(createContractRoute, async (c) => {
   }
   const terms = parseTerms(project.type, body.terms ?? {});
   const companyId = await resolveCompany(project, body.companyId);
-  const row = await db.contract.create({
-    data: {
-      projectId: id,
-      type: project.type,
-      companyId,
-      startDate: fromDateOnly(body.startDate)!,
-      endDate: fromDateOnly(body.endDate) ?? null,
-      ...termColumns(terms),
-      positions: { create: positionRows(terms) },
-    },
-    include: contractInclude,
+  const row = await db.$transaction(async (tx) => {
+    // The checks above read the project without a lock, and the CRM call may take a while. Re-read
+    // its state under a row lock, so a close or cancel that committed meanwhile refuses the
+    // contract, and one that comes later waits for this insert (a closed project takes none).
+    const [locked] = await tx.$queryRaw<{ state: string }[]>`
+      SELECT "state"::text AS "state" FROM "project" WHERE "id" = ${id} FOR UPDATE`;
+    if (!locked) throw notFound("Project not found");
+    if (locked.state === "closed" || locked.state === "cancelled") {
+      throw conflict("project_not_open", `A ${locked.state} project takes no new contract`, { state: locked.state });
+    }
+    return tx.contract.create({
+      data: {
+        projectId: id,
+        type: project.type,
+        companyId,
+        startDate: fromDateOnly(body.startDate)!,
+        endDate: fromDateOnly(body.endDate) ?? null,
+        ...termColumns(terms),
+        positions: { create: positionRows(terms) },
+      },
+      include: contractInclude,
+    });
   });
   c.header("ETag", etag(row.version));
   return c.json(await toContractView(row), 201);
