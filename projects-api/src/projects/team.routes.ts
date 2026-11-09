@@ -11,7 +11,7 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { PROJECT_MANAGE, assertCanManage, authorized, requireCapability } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
 import { db } from "../lib/db";
-import { IdParams, IdSchema, assertVersion, commonErrors, etag, requireIfMatch, versionConflict } from "../lib/http";
+import { IdParams, IdSchema, assertVersion, casMiss, commonErrors, etag, requireIfMatch } from "../lib/http";
 import { requireProjectUsers } from "../lib/identities";
 import { notFound, validationHook } from "../lib/problem";
 import { findProjectRow, projectInclude, toProjectView } from "./projects.routes";
@@ -68,8 +68,7 @@ teamRouter.openapi(replaceTeamRoute, async (c) => {
       data: { version: { increment: 1 } },
     });
     if (bumped.count === 0) {
-      const now = await tx.project.findUnique({ where: { id }, select: { version: true } });
-      throw now ? versionConflict(now.version) : notFound("Project not found");
+      throw casMiss(await tx.project.findUnique({ where: { id }, select: { version: true } }), "Project not found");
     }
     // Members who stay are left alone, so they keep their place in the order people joined in.
     await tx.projectMember.deleteMany({ where: { projectId: id, userId: { notIn: wanted } } });

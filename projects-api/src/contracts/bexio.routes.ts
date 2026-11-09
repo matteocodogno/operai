@@ -15,10 +15,9 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { CONTRACT_BEXIO, authorized, requireCapability } from "../auth/guards";
 import type { AuthzVariables } from "../auth/authz.middleware";
-import { db } from "../lib/db";
-import { assertVersion, commonErrors, etag, isRecordNotFound, requireIfMatch, versionConflict } from "../lib/http";
+import { assertVersion, commonErrors, etag, requireIfMatch } from "../lib/http";
 import { notFound, validationHook } from "../lib/problem";
-import { contractInclude, findContractRow, toContractView } from "./contracts.routes";
+import { findContractRow, toContractView, updateContractIfVersion } from "./contracts.routes";
 import { ContractParams, ContractSchema } from "./contracts.schemas";
 
 export const MAX_BEXIO_ORDER_ID = 64;
@@ -65,19 +64,7 @@ bexioRouter.openapi(setBexioOrderRoute, async (c) => {
   const current = await findContractRow(id, contractId);
   if (!current) throw notFound("Contract not found");
   assertVersion(current.version, expected);
-  // Compare-and-set on the version: of two saves of the same version only one matches.
-  const row = await db.contract
-    .update({
-      where: { id: contractId, version: expected },
-      data: { bexioOrderId, version: { increment: 1 } },
-      include: contractInclude,
-    })
-    .catch(async (error: unknown) => {
-      if (!isRecordNotFound(error)) throw error;
-      const now = await db.contract.findUnique({ where: { id: contractId }, select: { version: true } });
-      if (!now) throw notFound("Contract not found");
-      throw versionConflict(now.version);
-    });
+  const row = await updateContractIfVersion(contractId, expected, { bexioOrderId });
   c.header("ETag", etag(row.version));
   return c.json(await toContractView(row), 200);
 });

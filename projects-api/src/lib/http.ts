@@ -7,7 +7,7 @@
 
 import { z } from "@hono/zod-openapi";
 import { ENTITIES } from "../authz/conditions";
-import { ProblemError } from "./problem";
+import { notFound, ProblemError } from "./problem";
 
 // ─── Paging (AC-1.4: 25 per page) ───────────────────────────────────────────────────────────
 
@@ -78,6 +78,32 @@ export function assertVersion(current: number, expected: number): void {
 /** Prisma's "record to update not found" — a concurrent writer won the race. */
 export const isRecordNotFound = (error: unknown): boolean =>
   typeof error === "object" && error !== null && (error as { code?: unknown }).code === "P2025";
+
+/**
+ * The error for a compare-and-set that matched no row (AC-1.7, ADR-0038): someone saved first
+ * (409 `version_conflict` carrying the version now stored) or the record is gone (404).
+ */
+export const casMiss = (now: { version: number } | null, notFoundDetail: string): ProblemError =>
+  now ? versionConflict(now.version) : notFound(notFoundDetail);
+
+/**
+ * Compare-and-set on the version: `update` must match `version: expected` in its `where` and
+ * increment it. Of two saves of the same version only one matches; the other's miss is read back
+ * through `readVersion` and becomes {@link casMiss}. The one place the mapping lives, so every
+ * model's write answers a lost race the same way.
+ */
+export async function updateIfVersion<T>(
+  update: () => Promise<T>,
+  readVersion: () => Promise<{ version: number } | null>,
+  notFoundDetail: string,
+): Promise<T> {
+  try {
+    return await update();
+  } catch (error) {
+    if (!isRecordNotFound(error)) throw error;
+    throw casMiss(await readVersion(), notFoundDetail);
+  }
+}
 
 // ─── Shared shapes ───────────────────────────────────────────────────────────
 

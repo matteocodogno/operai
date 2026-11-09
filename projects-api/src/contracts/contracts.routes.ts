@@ -18,7 +18,17 @@ import type { AuthzVariables } from "../auth/authz.middleware";
 import { companyRefs, findActiveCompany, orCrmUnavailable } from "../lib/crm";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
-import { assertVersion, commonErrors, etag, fromDateOnly, IdParams, requireIfMatch, toDateOnly, versionConflict } from "../lib/http";
+import {
+  assertVersion,
+  casMiss,
+  commonErrors,
+  etag,
+  fromDateOnly,
+  IdParams,
+  requireIfMatch,
+  toDateOnly,
+  updateIfVersion,
+} from "../lib/http";
 import { ProblemError, conflict, notFound, unprocessable, validationHook } from "../lib/problem";
 import { isClientType, type ProjectType } from "../projects/projects.schemas";
 import { ContractParams, ContractSchema, CreateContractSchema, UpdateContractSchema } from "./contracts.schemas";
@@ -33,6 +43,23 @@ export type ContractRow = Prisma.ContractGetPayload<{ include: typeof contractIn
 /** The contract, only when it belongs to that project. */
 export const findContractRow = (projectId: string, contractId: string): Promise<ContractRow | null> =>
   db.contract.findFirst({ where: { id: contractId, projectId }, include: contractInclude });
+
+/** Compare-and-set a contract write on its version ({@link updateIfVersion}); returns the new row. */
+export const updateContractIfVersion = (
+  contractId: string,
+  expected: number,
+  data: Prisma.ContractUpdateInput,
+): Promise<ContractRow> =>
+  updateIfVersion(
+    () =>
+      db.contract.update({
+        where: { id: contractId, version: expected },
+        data: { ...data, version: { increment: 1 } },
+        include: contractInclude,
+      }),
+    () => db.contract.findUnique({ where: { id: contractId }, select: { version: true } }),
+    "Contract not found",
+  );
 
 /**
  * The `Contract` of tasks.md § API contracts: the `ContractSummary` of the project page plus the
@@ -236,8 +263,7 @@ contractsRouter.openapi(updateContractRoute, async (c) => {
       },
     });
     if (bumped.count === 0) {
-      const now = await tx.contract.findUnique({ where: { id: contractId }, select: { version: true } });
-      throw now ? versionConflict(now.version) : notFound("Contract not found");
+      throw casMiss(await tx.contract.findUnique({ where: { id: contractId }, select: { version: true } }), "Contract not found");
     }
     if (terms?.type === "t_and_m") {
       await tx.contractPosition.deleteMany({ where: { contractId } });
