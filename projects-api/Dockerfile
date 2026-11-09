@@ -38,7 +38,7 @@ COPY --chown=bun:bun tsconfig.json prisma.config.ts ./
 # exceeds the risk floor — switch before the process starts.
 USER bun
 
-EXPOSE 8085
+EXPOSE 8086
 
 # DATA-RESIDENCY (specs/024-projects): this image is deployed to Railway EU region
 # only (europe-west4, see railway.json) — projects-api holds contract terms and the

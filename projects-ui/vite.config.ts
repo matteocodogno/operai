@@ -69,15 +69,15 @@ export default defineConfig({
     modulePreload: false,
   },
   server: {
-    // Pinned local-dev port for projects-ui as a remote (5180); the shell
+    // Pinned local-dev port for projects-ui as a remote (5181); the shell
     // (:5173) consumes its remoteEntry.js from here. cors lets the shell's
     // different dev origin fetch it; strictPort fails fast on a collision.
-    port: 5180,
+    port: 5181,
     strictPort: true,
     cors: true,
   },
   preview: {
-    port: 5180,
+    port: 5181,
     strictPort: true,
     cors: true,
   },

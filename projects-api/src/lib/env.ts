@@ -35,7 +35,7 @@ const envSchema = z
     // (ADR-0014), POST /authz/users/identities (ADR-0039), POST /authz/app-access-check
     // (ADR-0055) and, for the service credential, POST /system/service-token (ADR-0044).
     AUTH_BASE_URL: z.string().url("AUTH_BASE_URL must be a valid URL"),
-    PORT: z.coerce.number().int().positive().default(8085),
+    PORT: z.coerce.number().int().positive().default(8086),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     // ─── crm-api, read as ITSELF (specs/024, ADR-0076) ───────────────────────
     // projects-api trades its service client for a 5-minute scoped JWT

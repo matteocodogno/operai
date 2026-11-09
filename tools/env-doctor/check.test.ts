@@ -840,7 +840,7 @@ describe("env-doctor checker — projects-api and the crm-api service audience (
       CRM_INTERNAL_URL: "http://crm-api.railway.internal:8084",
       SERVICE_CLIENT_ID: "projects-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_PROJECTS,
-      PORT: "8085",
+      PORT: "8086",
     };
     return s;
   }

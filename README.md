@@ -74,14 +74,14 @@ open **http://localhost:5173**.
 | admin-ui (remote) | 5177 | roles & permissions admin (specs/004) |
 | inventory-ui (remote) | 5178 | hardware inventory + `/devices` (specs/015) |
 | crm-ui (remote) | 5179 | CRM (specs/017) |
-| projects-ui (remote) | 5180 | Projects (specs/024) |
+| projects-ui (remote) | 5181 | Projects (specs/024) |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
 | notify-api | 8081 | Bun + Hono — SSE push (specs/005) |
 | refund-api | 8082 | Bun + Hono — authz-enforcing resource server (specs/007) |
 | inventory-api | 8083 | Bun + Hono — authz-enforcing resource server (specs/015) |
 | crm-api | 8084 | Bun + Hono — authz-enforcing resource server (specs/017) |
-| projects-api | 8085 | Bun + Hono — authz-enforcing resource server (specs/024) |
+| projects-api | 8086 | Bun + Hono — authz-enforcing resource server (specs/024) |
 | Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`) |
 | MinIO | 9000 / 9001 | `docker compose` — local S3 + console for receipts and invoices |
 

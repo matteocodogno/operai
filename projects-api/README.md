@@ -1,8 +1,8 @@
 # projects-api
 
 The Projects module's resource server (specs/024-projects): the delivery work wellD runs,
-its team and its contracts, and the Bexio order id. Bun + Hono + Prisma, port **8085**,
-logical database **`projects`**. Live API reference at `http://localhost:8085/docs`.
+its team and its contracts, and the Bexio order id. Bun + Hono + Prisma, port **8086**,
+logical database **`projects`**. Live API reference at `http://localhost:8086/docs`.
 
 It is authorization-enforcing (ADR-0014): every route except `/health` needs a valid JWT
 and the `projects:access` permission, resolved live from auth. If auth cannot answer, the
@@ -27,7 +27,7 @@ a company name is `null` and the company picker answers 503 `crm_unavailable`.
 | `AUTH_ISSUER` | `http://localhost:3001` | must equal auth's `BETTER_AUTH_URL` |
 | `AUTH_AUDIENCE` | auth's `AUTH_AUDIENCE` (`operai-suite` locally) | |
 | `AUTH_BASE_URL` | `http://localhost:3001` | `/authz/resolve`, `/authz/users/identities`, `/authz/app-access-check`, `/system/service-token` |
-| `PORT` | `8085` (default) | |
+| `PORT` | `8086` (default) | |
 | `CRM_INTERNAL_URL` | `http://localhost:8084` | optional group, all three or none: crm-api's base URL |
 | `SERVICE_CLIENT_ID` | `projects-api` | its entry in auth's `SERVICE_CLIENTS` needs scope `crm.companies.read` |
 | `SERVICE_CLIENT_SECRET` | the secret of that entry, at least 32 characters | secret |
@@ -39,7 +39,7 @@ crm-api also needs `SERVICE_AUDIENCE` (auth's value) to accept the credential.
 ```bash
 bun install
 bun run db:deploy      # applies the migrations to the database DATABASE_URL names
-bun run dev            # http://localhost:8085
+bun run dev            # http://localhost:8086
 bun run typecheck
 bun test               # runs against the `<name>_test` database; see below
 ```

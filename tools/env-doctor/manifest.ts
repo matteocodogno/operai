@@ -82,7 +82,7 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "inventory-ui": "http://localhost:5178",
     "crm-ui": "http://localhost:5179",
     "meetings-ui": "http://localhost:5180",
-    "projects-ui": "http://localhost:5180",
+    "projects-ui": "http://localhost:5181",
   },
 };
 

@@ -28,8 +28,8 @@ The module serves people the suite has not served before, and that decides the r
 
 ## Decision
 
-1. **Shape.** A new service pair, `projects-api` (Bun + Hono + Prisma, port 8085, logical DB
-   `projects`, Railway EU) and `projects-ui` (remote `projects`, port 5180, exposes `./App` and
+1. **Shape.** A new service pair, `projects-api` (Bun + Hono + Prisma, port 8086, logical DB
+   `projects`, Railway EU) and `projects-ui` (remote `projects`, port 5181, exposes `./App` and
    `./version`), mounted by the shell at the gated `/projects/$` route. No object storage and no
    notify-api calls in v1. Ids are text cuids like the rest of the suite. **No money anywhere in
    the module** (D14): figures stay on the CRM deal behind `deal:financials` (ADR-0054).

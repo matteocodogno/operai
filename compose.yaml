@@ -225,7 +225,7 @@ services:
       dockerfile: Dockerfile
       target: production
     ports:
-      - "8085:8085"
+      - "8086:8086"
     env_file:
       - ./projects-api/.env
     environment:
@@ -238,7 +238,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8086/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -15,10 +15,10 @@ against it is routed to the product owner.
 - **auth** — new catalog `projects`, one new system role, grants added to `sales` and
   `accounting`, the directory gate widened, one new service scope.
 - **crm-api** — one new system route: CRM companies readable by a scoped service credential.
-- **projects-api** (new; Bun + Hono + Prisma like crm-api, port **8085**, logical DB
+- **projects-api** (new; Bun + Hono + Prisma like crm-api, port **8086**, logical DB
   **`projects`**, test DB `projects_test`) — authorization-enforcing (ADR-0014): live
   `/authz/resolve`, fail closed 503; every route requires `projects:access`.
-- **projects-ui** (new federated remote `projects`, port **5180**, exposes `./App` and
+- **projects-ui** (new federated remote `projects`, port **5181**, exposes `./App` and
   `./version`), mounted by the shell at the gated route `/projects/$`.
 - **shell**, repo wiring (lerna, mise, compose, env-doctor, infra/check.sh), docs.
 
