@@ -73,16 +73,13 @@ const renderCard = async (
   contract: Contract,
   callerScope: Scope = scope({ manage: ['welld_ch'] }),
   routes: Record<string, FakeHandler> = {},
-  summary: ContractSummary = { ...SUMMARY, type: contract.type, endDate: contract.endDate },
 ) => {
-  apiFetch.mockImplementation(
-    fakeApi({ 'GET /projects/p1/contracts/k1': () => ({ status: 200, body: contract }), ...routes }),
-  )
+  apiFetch.mockImplementation(fakeApi(routes))
   render(
     <ScopeContext.Provider value={callerScope}>
       <ContractCard
         project={projectDetail({ type: contract.type })}
-        summary={summary}
+        contract={contract}
         canManage={callerScope.manage.includes('welld_ch')}
         onChanged={onChanged}
         onStale={onStale}
@@ -140,32 +137,9 @@ describe('the contract and its terms (AC-2.1, AC-2.3 – AC-2.8)', () => {
     expect(card.textContent).not.toMatch(/\b(price|rate|amount|fee|budget|cost)\b|CHF|EUR|€/i)
   })
 
-  it('says a contract that fails to load can be retried, without taking the page down', async () => {
-    let calls = 0
-    apiFetch.mockImplementation(
-      fakeApi({
-        'GET /projects/p1/contracts/k1': () => {
-          calls += 1
-          return calls === 1
-            ? problem(500, undefined, {}, 'boom')
-            : { status: 200, body: contractOf('saas', { sla: null, hourPackage: null }) }
-        },
-      }),
-    )
-    render(
-      <ScopeContext.Provider value={scope()}>
-        <ContractCard
-          project={projectDetail({ type: 'saas' })}
-          summary={SUMMARY}
-          canManage={false}
-          onChanged={onChanged}
-          onStale={onStale}
-        />
-      </ScopeContext.Provider>,
-    )
-    expect((await screen.findByTestId('projects-load-error')).textContent).toContain('boom')
-    fireEvent.click(screen.getByTestId('projects-load-error-retry'))
-    expect(await screen.findByTestId('contract-terms')).not.toBeNull()
+  it('renders the contract the project carries, with no request of its own (no N+1 reads)', async () => {
+    await renderCard(contractOf('saas', { sla: null, hourPackage: null }))
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 })
 

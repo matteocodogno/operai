@@ -10,7 +10,6 @@
 
 import { z } from "@hono/zod-openapi";
 import { DateOnlySchema, IdSchema, requiredText } from "../lib/http";
-import { ContractSummarySchema } from "../projects/projects.schemas";
 
 // ─── Terms (input) ───────────────────────────────────────────────────────────
 
@@ -68,32 +67,9 @@ export const SlaAndHoursTermsSchema = z
 
 export const TAndMTermsSchema = z.object({ positions: z.array(PositionSchema).min(1).max(MAX_POSITIONS) }).strict();
 
-// ─── Terms (output): every member present, `null` when absent ────────────────
-
-const SlaView = z.object({ highDays: z.number().int(), normalDays: z.number().int() });
-const HourPackageView = z.object({
-  hours: z.number().int(),
-  kind: z.enum(["capacity", "yearly"]),
-  startDate: z.string(),
-  expiryDate: z.string().nullable(),
-});
-
-export const TermsViewSchema = z.union([
-  z.object({ deadline: z.string(), estimatedManDays: z.number().nullable(), maxEffortManDays: z.number() }),
-  z.object({ sla: SlaView.nullable(), hourPackage: HourPackageView.nullable() }),
-  z.object({ positions: z.array(z.object({ profile: z.string(), plannedManDays: z.number() })) }),
-  z.object({}),
-]);
-
-// ─── Contract ────────────────────────────────────────────────────────────────
-
-export const ContractSchema = ContractSummarySchema.extend({
-  projectId: z.string(),
-  /** Filled by the CRM hand-off (specs/025); `null` for a contract entered by hand. */
-  dealId: z.string().nullable(),
-  terms: TermsViewSchema,
-  version: z.number().int(),
-});
+// ─── Terms (output) and the Contract view ───────────────────────────────────
+// Defined with the project's shapes (a project carries its contracts whole); re-exported here.
+export { ContractSchema, TermsViewSchema } from "../projects/projects.schemas";
 
 export const ContractParams = z.object({ id: IdSchema, contractId: IdSchema });
 

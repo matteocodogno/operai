@@ -77,11 +77,11 @@ function ContractsCard({
             <p className="text-sm text-soft">{t.empty}</p>
           ) : (
             <div className="flex flex-col divide-y divide-rule">
-              {project.contracts.map((summary) => (
+              {project.contracts.map((contract) => (
                 <ContractCard
-                  key={summary.id}
+                  key={contract.id}
                   project={project}
-                  summary={summary}
+                  contract={contract}
                   canManage={canManage}
                   onChanged={onChanged}
                   onStale={onStale}

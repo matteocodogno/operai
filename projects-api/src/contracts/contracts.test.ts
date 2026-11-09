@@ -146,17 +146,16 @@ describe("POST /projects/:id/contracts — a contract per project type (AC-2.1, 
 });
 
 describe("GET /projects/:id/contracts/:contractId (AC-2.1, AC-4.3)", () => {
-  it("shows the same contract to every holder of access, and the project page lists it as a summary", async () => {
+  it("shows the same contract to every holder of access, and the project page carries it whole", async () => {
     const project = await seed("fixed_price");
     const created = await create(project.id, { startDate: "2026-12-01", terms: TERMS.fixed_price });
     const res = await read(project.id, created.json.id, "viewer");
     expect(res.status).toBe(200);
     expect(res.headers.get("ETag")).toBe('"1"');
     expect(res.json).toEqual(created.json);
-    // ContractSummary (T5) is the same facts: what the project page lists is what the contract says.
+    // The project page carries the same contract, terms and version included: it reads no contract on its own.
     const page = await call("GET", `/projects/${project.id}`, { as: "viewer" });
-    const { id, type, company, origin, bexioOrderId, startDate, endDate } = res.json;
-    expect(page.json.contracts).toEqual([{ id, type, company, origin, bexioOrderId, startDate, endDate }]);
+    expect(page.json.contracts).toEqual([res.json]);
   });
 
   it("is 404 for an unknown contract, a contract of another project, and an unknown project", async () => {

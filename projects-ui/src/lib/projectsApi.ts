@@ -94,8 +94,6 @@ export type UpdateContractInput = {
   terms?: ContractTermsInput
 }
 
-export const getContract = (projectId: string, contractId: string, init?: Init) =>
-  getJson<Contract>(contractPath(projectId, contractId), init)
 export const createContract = (projectId: string, input: CreateContractInput) =>
   sendJson<Contract>(`${projectPath(projectId)}/contracts`, 'POST', input)
 export const updateContract = (projectId: string, contractId: string, version: number, input: UpdateContractInput) =>

@@ -39,8 +39,6 @@ const renderProject = async (
     fakeApi({
       [`GET /projects/${project.id}`]: () => ({ status: 200, body: project }),
       'GET /authz/users/directory': () => ({ status: 200, body: { users: [BOB, CARA] } }),
-      'GET /projects/p1/contracts/k1': () => ({ status: 200, body: fullContract('k1') }),
-      'GET /projects/p1/contracts/k2': () => ({ status: 200, body: fullContract('k2', { id: 'c2', name: 'Beta AG' }) }),
       ...routes,
     }),
   )
@@ -92,15 +90,7 @@ describe('the project page (AC-1.4, AC-1.5)', () => {
         startDate: '2026-02-01',
         endDate: '2026-12-31',
         contracts: [
-          {
-            id: 'k1',
-            type: 't_and_m',
-            company: { id: 'c1', name: 'Acme SA' },
-            origin: 'manual',
-            bexioOrderId: 'AB-100',
-            startDate: '2026-02-01',
-            endDate: '2026-12-31',
-          },
+          { ...fullContract('k1'), endDate: '2026-12-31' },
         ],
       }),
     )
@@ -522,26 +512,24 @@ describe('the team (AC-1.5, AC-1.6)', () => {
   })
 })
 
-const CONTRACT = {
-  id: 'k1',
-  type: 't_and_m' as const,
-  company: { id: 'c1', name: 'Acme SA' },
-  origin: 'manual' as const,
-  bexioOrderId: null,
-  startDate: '2026-02-01',
-  endDate: null,
+function fullContract(id: string, company = { id: 'c1', name: 'Acme SA' }): Contract {
+  return {
+    id,
+    type: 't_and_m',
+    company,
+    origin: 'manual',
+    bexioOrderId: id === 'k1' ? 'AB-100' : null,
+    startDate: '2026-02-01',
+    endDate: null,
+    projectId: 'p1',
+    dealId: null,
+    terms: { positions: [{ profile: 'Senior developer', plannedManDays: 20 }] },
+    version: 4,
+  }
 }
 
-const fullContract = (id: string, company = { id: 'c1', name: 'Acme SA' }): Contract => ({
-  ...CONTRACT,
-  id,
-  company,
-  bexioOrderId: id === 'k1' ? 'AB-100' : null,
-  projectId: 'p1',
-  dealId: null,
-  terms: { positions: [{ profile: 'Senior developer', plannedManDays: 20 }] },
-  version: 4,
-})
+/** The project's one contract, whole: the page renders it with no request of its own. */
+const CONTRACT: Contract = fullContract('k1')
 
 describe('contracts (AC-2.2, AC-2.10)', () => {
   const withContract = (over: Partial<Project> = {}) =>
@@ -679,12 +667,12 @@ describe('contracts (AC-2.2, AC-2.10)', () => {
     expect(reads).toBe(2)
   })
 
-  it('a stale contract write shows the page’s reload banner, and Reload reads the contract again', async () => {
-    let contractReads = 0
+  it('a stale contract write shows the page’s reload banner, and Reload reads the project (and its contracts) again', async () => {
+    let projectReads = 0
     await renderProject(withContract(), {
-      'GET /projects/p1/contracts/k1': () => {
-        contractReads += 1
-        return { status: 200, body: fullContract('k1') }
+      'GET /projects/p1': () => {
+        projectReads += 1
+        return { status: 200, body: withContract() }
       },
       'PATCH /projects/p1/contracts/k1': () => problem(409, 'version_conflict', { currentVersion: 9 }),
     })
@@ -693,7 +681,17 @@ describe('contracts (AC-2.2, AC-2.10)', () => {
     fireEvent.change(within(dialog).getByLabelText(/End date/), { target: { value: '2026-06-30' } })
     fireEvent.click(within(dialog).getByTestId('contract-end-submit'))
     fireEvent.click(await screen.findByTestId('projects-stale-write-reload'))
-    await waitFor(() => expect(contractReads).toBe(2))
+    await waitFor(() => expect(projectReads).toBe(2))
     expect(await screen.findByTestId('contract-terms')).not.toBeNull()
+  })
+
+  it('reads the project once and no contract on its own, however many contracts it has (no N+1)', async () => {
+    await renderProject(
+      withContract({ type: 'saas', company: null, contracts: [CONTRACT, fullContract('k2', { id: 'c2', name: 'Beta AG' })] }),
+    )
+    await waitFor(() => expect(screen.getAllByTestId('contract-terms')).toHaveLength(2))
+    const reads = apiFetch.mock.calls.map(([input]) => new URL(String(input)).pathname)
+    expect(reads.filter((path) => path.includes('/contracts'))).toEqual([])
+    expect(reads.filter((path) => path === '/projects/p1')).toHaveLength(1)
   })
 })

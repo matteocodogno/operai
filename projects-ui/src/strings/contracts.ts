@@ -9,7 +9,6 @@ const en = {
   add: 'Add contract',
   edit: 'Edit',
   endContract: 'End contract',
-  loading: 'Loading contract…',
   loadFailed: 'This contract could not be loaded.',
   saved: {
     created: 'Contract added.',
@@ -132,7 +131,6 @@ const it: typeof en = {
   add: 'Aggiungi contratto',
   edit: 'Modifica',
   endContract: 'Termina contratto',
-  loading: 'Caricamento del contratto…',
   loadFailed: 'Non è stato possibile caricare questo contratto.',
   saved: {
     created: 'Contratto aggiunto.',

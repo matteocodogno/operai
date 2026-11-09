@@ -57,7 +57,8 @@ export type Project = {
   company: CompanyRef | null
   projectManager: Person
   team: Person[]
-  contracts: ContractSummary[]
+  /** Every contract whole (terms and version), so a contract card needs no request of its own. */
+  contracts: Contract[]
   /** Earliest contract start; `null` with no contract. */
   startDate: string | null
   /** Latest contract end; `null` with no contract or when any contract is open-ended. */

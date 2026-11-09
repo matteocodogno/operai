@@ -229,6 +229,10 @@ describe("GET /projects/:id", () => {
           bexioOrderId: "ORD-7",
           startDate: "2026-03-01",
           endDate: null,
+          projectId: project.id,
+          dealId: null,
+          terms: { sla: null, hourPackage: null },
+          version: 1,
         },
       ],
       startDate: "2026-03-01",
@@ -237,6 +241,23 @@ describe("GET /projects/:id", () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     });
+  });
+
+  it("carries every contract whole (terms, version) with ONE CRM read, however many contracts (no N+1)", async () => {
+    const project = await seed({ type: "saas", companyId: null });
+    await seedContract(project.id, { type: "saas", companyId: "co-acme", startDate: date("2026-01-01") });
+    await seedContract(project.id, { type: "saas", companyId: "co-zeta", startDate: date("2026-02-01") });
+    await seedContract(project.id, { type: "saas", companyId: "co-acme", startDate: date("2026-03-01") });
+    crm.calls = 0;
+    const res = await call("GET", `/projects/${project.id}`, { as: "viewer" });
+    expect(res.status).toBe(200);
+    expect(crm.calls).toBe(1);
+    const contracts = res.json.contracts as { company: { name: string | null }; terms: unknown; version: number }[];
+    expect(contracts.map((contract) => contract.company.name)).toEqual(["Acme SA", "Zeta AG", "Acme SA"]);
+    for (const contract of contracts) {
+      expect(contract.terms).toEqual({ sla: null, hourPackage: null });
+      expect(contract.version).toBe(1);
+    }
   });
 
   it.each([

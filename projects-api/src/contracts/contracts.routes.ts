@@ -62,11 +62,11 @@ export const updateContractIfVersion = (
   );
 
 /**
- * The `Contract` of tasks.md § API contracts: the `ContractSummary` of the project page plus the
- * project, the deal link and the terms. The company name is live (fail soft, ADR-0076).
+ * The `Contract` of tasks.md § API contracts: the `ContractSummary` plus the project, the deal
+ * link and the terms. `company` names a company from one CRM read the caller already made, so a
+ * project's contracts cost one CRM call together, not one each.
  */
-export async function toContractView(row: ContractRow) {
-  const company = await companyRefs([row.companyId]);
+export function contractView(row: ContractRow, company: (id: string) => { id: string; name: string | null }) {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -80,6 +80,11 @@ export async function toContractView(row: ContractRow) {
     terms: termsView(row),
     version: row.version,
   };
+}
+
+/** One contract's view, its company name read live (fail soft, ADR-0076). */
+export async function toContractView(row: ContractRow) {
+  return contractView(row, await companyRefs([row.companyId]));
 }
 
 // ─── Rules ───────────────────────────────────────────────────────────────────

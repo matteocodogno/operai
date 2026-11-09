@@ -28,10 +28,10 @@ import {
   etag,
   requireIfMatch,
   skipTake,
-  toDateOnly,
   updateIfVersion,
   type HeaderSource,
 } from "../lib/http";
+import { contractInclude, contractView } from "../contracts/contracts.routes";
 import { requireProjectUsers } from "../lib/identities";
 import { loadPeople } from "../lib/people";
 import { notFound, unprocessable, validationHook } from "../lib/problem";
@@ -51,7 +51,7 @@ import {
 
 export const projectInclude = {
   members: { orderBy: [{ addedAt: "asc" }, { userId: "asc" }] },
-  contracts: { orderBy: [{ startDate: "asc" }, { createdAt: "asc" }, { id: "asc" }] },
+  contracts: { orderBy: [{ startDate: "asc" }, { createdAt: "asc" }, { id: "asc" }], include: contractInclude },
 } satisfies Prisma.ProjectInclude;
 
 export type ProjectRow = Prisma.ProjectGetPayload<{ include: typeof projectInclude }>;
@@ -92,15 +92,8 @@ export async function toProjectView(c: HeaderSource, row: ProjectRow) {
     company: row.companyId === null ? null : company(row.companyId),
     projectManager: people.person(row.projectManagerId),
     team: row.members.map((member) => people.person(member.userId)),
-    contracts: row.contracts.map((contract) => ({
-      id: contract.id,
-      type: contract.type,
-      company: company(contract.companyId),
-      origin: contract.origin,
-      bexioOrderId: contract.bexioOrderId,
-      startDate: toDateOnly(contract.startDate)!,
-      endDate: toDateOnly(contract.endDate),
-    })),
+    // Whole, with one CRM read for every company above: the page reads no contract on its own.
+    contracts: row.contracts.map((contract) => contractView(contract, company)),
     ...deriveDates(row.contracts),
     version: row.version,
     createdAt: row.createdAt.toISOString(),

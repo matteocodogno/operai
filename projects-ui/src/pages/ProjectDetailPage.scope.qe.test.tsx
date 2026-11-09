@@ -51,7 +51,7 @@ const projectOf = (entity: Entity): Project =>
     company: null,
     state: 'active',
     entity,
-    contracts: [CONTRACT],
+    contracts: [fullContract],
     startDate: '2026-02-01',
     endDate: null,
   })
@@ -60,14 +60,13 @@ const render_ = async (project: Project, callerScope: Scope) => {
   apiFetch.mockImplementation(
     fakeApi({
       [`GET /projects/${project.id}`]: () => ({ status: 200, body: project }),
-      'GET /projects/p1/contracts/k1': () => ({ status: 200, body: fullContract }),
       'GET /authz/users/directory': () => ({ status: 200, body: { users: [] } }),
     }),
   )
   window.history.pushState(null, '', `/${project.id}`)
   render(<RouterProvider router={createAppRouter(undefined, scopeRoot(callerScope))} />)
   await screen.findByTestId('project-detail-page')
-  // The contract card loads its own terms: wait for it, so "no Edit button" is not a not-yet-rendered one.
+  // The contract card renders the terms the project carries: wait for it, so "no Edit button" is not a not-yet-rendered one.
   await screen.findByTestId('contract-terms')
 }
 

@@ -1,15 +1,13 @@
-import { useCallback, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { Button, DataTable, DateInput, Field, FactList, FormDialog, formatDate, formatNumber } from '@operai/ui'
 import type { DataTableColumn, Fact } from '@operai/ui'
-import { useResource } from '../hooks/useResource'
 import { isStaleWrite } from '../lib/api'
 import { errorMessage, fieldErrorOf } from '../lib/errors'
-import { getContract, updateContract } from '../lib/projectsApi'
-import type { Contract, ContractSummary, HourPackage, Position, Project, Sla } from '../lib/types'
+import { updateContract } from '../lib/projectsApi'
+import type { Contract, HourPackage, Position, Project, Sla } from '../lib/types'
 import { strings } from '../strings'
 import BexioOrderField from './BexioOrderField'
 import ContractFormDialog from './ContractFormDialog'
-import { LoadFailure, Loading } from './LoadState'
 
 const manDays = (value: number) => strings.contracts.card.manDays(formatNumber(value, { maximumFractionDigits: 1 }))
 
@@ -147,22 +145,22 @@ function EndContractDialog({
 
 /**
  * ContractCard — one contract of a project (AC-2.1): its client, origin, dates,
- * Bexio order id and the terms of its type. The terms and the version come from
- * `GET /projects/:id/contracts/:contractId`. A holder of manage projects edits it
- * or ends it by setting its end date (AC-2.10); there is no delete. Only a holder
- * of the Bexio-order capability edits the order id (AC-3.1), which bumps the
- * contract's version — the card keeps the one each write returns. A stale write
- * is the page's to handle (`onStale`).
+ * Bexio order id and the terms of its type, as `GET /projects/:id` returned it (the
+ * card makes no request of its own). A holder of manage projects edits it or ends it
+ * by setting its end date (AC-2.10); there is no delete. Only a holder of the
+ * Bexio-order capability edits the order id (AC-3.1), which bumps the contract's
+ * version — the card keeps the one each write returns until the page's next read
+ * brings it. A stale write is the page's to handle (`onStale`).
  */
 export default function ContractCard({
   project,
-  summary,
+  contract: given,
   canManage,
   onChanged,
   onStale,
 }: {
   project: Pick<Project, 'id' | 'type' | 'company'>
-  summary: ContractSummary
+  contract: Contract
   canManage: boolean
   /** A write succeeded: the page refreshes what it derives from contracts and confirms. */
   onChanged: (message: string) => void
@@ -170,32 +168,27 @@ export default function ContractCard({
 }) {
   const t = strings.contracts
   const titleId = useId()
-  const load = useCallback(
-    (signal: AbortSignal) => getContract(project.id, summary.id, { signal }),
-    [project.id, summary.id],
-  )
-  const resource = useResource(load)
   const [dialog, setDialog] = useState<'edit' | 'end' | null>(null)
-
-  const contract = resource.data
-  const shown: ContractSummary = contract ?? summary
+  // What this card last wrote, until the page's next read of the project carries it (or a newer one).
+  const [written, setWritten] = useState<Contract | null>(null)
+  const contract = written && written.version > given.version ? written : given
   const stale = () => {
     setDialog(null)
     onStale()
   }
-  const written = (next: Contract, message: string) => {
+  const saved = (next: Contract, message: string) => {
     setDialog(null)
-    resource.replace(next)
+    setWritten(next)
     onChanged(message)
   }
 
   return (
-    <article aria-labelledby={titleId} className="flex flex-col gap-3 py-3" data-testid={`contract-${summary.id}`}>
+    <article aria-labelledby={titleId} className="flex flex-col gap-3 py-3" data-testid={`contract-${contract.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 id={titleId} className="text-sm font-semibold text-text">
-          {shown.company.name ?? t.card.companyUnavailable}
+          {contract.company.name ?? t.card.companyUnavailable}
         </h4>
-        {canManage && contract && (
+        {canManage && (
           <div className="flex gap-2">
             <Button size="sm" aria-haspopup="dialog" onClick={() => setDialog('edit')}>
               {t.edit}
@@ -210,38 +203,34 @@ export default function ContractCard({
       </div>
       <FactList
         items={[
-          { id: 'start', term: t.card.start, value: formatDate(shown.startDate) },
-          { id: 'end', term: t.card.end, value: shown.endDate ? formatDate(shown.endDate) : t.card.openEnded },
-          { id: 'origin', term: t.card.origin, value: t.card.origins[shown.origin] },
+          { id: 'start', term: t.card.start, value: formatDate(contract.startDate) },
+          { id: 'end', term: t.card.end, value: contract.endDate ? formatDate(contract.endDate) : t.card.openEnded },
+          { id: 'origin', term: t.card.origin, value: t.card.origins[contract.origin] },
         ]}
       />
-      {resource.status === 'loading' && <Loading label={t.loading} rows={2} />}
-      {resource.status === 'error' && <LoadFailure error={resource.error} onRetry={resource.retry} />}
-      {contract && (
-        <div className="flex flex-col gap-3" data-testid="contract-terms">
-          <Terms contract={contract} />
-          <BexioOrderField
-            projectId={project.id}
-            contract={contract}
-            onSaved={(next) => written(next, t.saved.bexio)}
-            onStale={stale}
-          />
-        </div>
-      )}
-      {dialog === 'edit' && contract && (
+      <div className="flex flex-col gap-3" data-testid="contract-terms">
+        <Terms contract={contract} />
+        <BexioOrderField
+          projectId={project.id}
+          contract={contract}
+          onSaved={(next) => saved(next, t.saved.bexio)}
+          onStale={stale}
+        />
+      </div>
+      {dialog === 'edit' && (
         <ContractFormDialog
           project={project}
           contract={contract}
-          onSaved={(next) => written(next, t.saved.updated)}
+          onSaved={(next) => saved(next, t.saved.updated)}
           onCancel={() => setDialog(null)}
           onStale={stale}
         />
       )}
-      {dialog === 'end' && contract && (
+      {dialog === 'end' && (
         <EndContractDialog
           projectId={project.id}
           contract={contract}
-          onEnded={(next) => written(next, t.saved.ended)}
+          onEnded={(next) => saved(next, t.saved.ended)}
           onCancel={() => setDialog(null)}
           onStale={stale}
         />

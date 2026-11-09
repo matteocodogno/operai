@@ -43,6 +43,33 @@ export const ContractSummarySchema = z.object({
   endDate: DateOnlyOrNull,
 });
 
+// ─── Terms (output): every member present, `null` when absent ────────────────
+
+const SlaView = z.object({ highDays: z.number().int(), normalDays: z.number().int() });
+const HourPackageView = z.object({
+  hours: z.number().int(),
+  kind: z.enum(["capacity", "yearly"]),
+  startDate: z.string(),
+  expiryDate: z.string().nullable(),
+});
+
+export const TermsViewSchema = z.union([
+  z.object({ deadline: z.string(), estimatedManDays: z.number().nullable(), maxEffortManDays: z.number() }),
+  z.object({ sla: SlaView.nullable(), hourPackage: HourPackageView.nullable() }),
+  z.object({ positions: z.array(z.object({ profile: z.string(), plannedManDays: z.number() })) }),
+  z.object({}),
+]);
+
+// ─── Contract ────────────────────────────────────────────────────────────────
+
+export const ContractSchema = ContractSummarySchema.extend({
+  projectId: z.string(),
+  /** Filled by the CRM hand-off (specs/025); `null` for a contract entered by hand. */
+  dealId: z.string().nullable(),
+  terms: TermsViewSchema,
+  version: z.number().int(),
+});
+
 export const ProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -54,7 +81,8 @@ export const ProjectSchema = z.object({
   company: CompanyRefSchema.nullable(),
   projectManager: PersonSchema,
   team: z.array(PersonSchema),
-  contracts: z.array(ContractSummarySchema),
+  /** Every contract whole, terms and version included: the page needs no read per contract. */
+  contracts: z.array(ContractSchema),
   /** Earliest contract start; `null` with no contract. */
   startDate: DateOnlyOrNull,
   /** Latest contract end; `null` with no contract or when any contract is open-ended. */
