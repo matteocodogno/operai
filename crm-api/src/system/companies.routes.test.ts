@@ -1,5 +1,5 @@
 /**
- * GET /system/companies (specs/021-projects T2 — AC-1.1, AC-1.4, AC-2.2; ADR-0059):
+ * GET /system/companies (specs/024-projects T2 — AC-1.1, AC-1.4, AC-2.2; ADR-0076):
  * CRM companies read service-to-service by projects-api with a scoped service
  * credential (`crm.companies.read`). Real Postgres (compose, `crm` database); the
  * JWKS is an in-memory one injected into the middleware, so no live `auth` is needed.

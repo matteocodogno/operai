@@ -7,7 +7,7 @@ datasource db {
   provider = "postgresql"
 }
 
-// Data model of specs/021-projects (tasks.md § Data model). Every id is TEXT (a cuid):
+// Data model of specs/024-projects (tasks.md § Data model). Every id is TEXT (a cuid):
 // CRM and auth ids are cuids, never uuids. People are opaque `auth` user ids and the
 // company is an opaque CRM company id (no foreign key across services); their names are
 // resolved live. There is NO money anywhere in this schema (D14). Calendar dates are
@@ -44,7 +44,7 @@ enum ProjectState {
   cancelled
 }
 
-/// Where a contract came from: typed in by hand, or created from a won deal (specs/022).
+/// Where a contract came from: typed in by hand, or created from a won deal (specs/025).
 enum ContractOrigin {
   manual
   deal
@@ -107,7 +107,7 @@ model Contract {
   /// CRM company id.
   companyId         String
   origin            ContractOrigin @default(manual)
-  /// The won deal this contract came from; filled by specs/022. Unique: a deal yields one contract.
+  /// The won deal this contract came from; filled by specs/025. Unique: a deal yields one contract.
   dealId            String?        @unique
   /// Typed in by accounting (contract:bexio); unchecked free text (A24).
   bexioOrderId      String?        @db.VarChar(64)

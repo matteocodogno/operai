@@ -80,7 +80,7 @@ export interface RuntimeRemoteConfig {
   crm?: string
   /** specs/021-meetings: the Meetings remote's remoteEntry.js (three mountable entries + ./version). */
   meetings?: string
-  /** specs/021-projects: the Projects remote's remoteEntry.js. */
+  /** specs/024-projects: the Projects remote's remoteEntry.js. */
   projects?: string
 }
 

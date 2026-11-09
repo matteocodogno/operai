@@ -1,5 +1,5 @@
 /**
- * systemAuthMiddleware (specs/021-projects T2, ADR-0059) — the ONLY auth for the
+ * systemAuthMiddleware (specs/024-projects T2, ADR-0076) — the ONLY auth for the
  * `/system/*` routes. Copied, minus the origin binding, from notify-api's
  * `src/system/systemAuth.middleware.ts` (specs/015 T6, ADR-0044/0049): the same
  * credential, verified the same way, so every resource server that exposes a

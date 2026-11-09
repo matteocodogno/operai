@@ -1,5 +1,5 @@
 /**
- * Project states and the type change (specs/021 T6; AC-1.2, AC-1.3, AC-1.7, AC-4.4). Runs the
+ * Project states and the type change (specs/024 T6; AC-1.2, AC-1.3, AC-1.7, AC-4.4). Runs the
  * ASSEMBLED app against the `*_test` database; auth and the identity service are the fakes of
  * test-support/world.ts. Projects are seeded straight in the database (the API under test is
  * not its own fixture); an `internal` project needs no company, so no CRM fixture either.

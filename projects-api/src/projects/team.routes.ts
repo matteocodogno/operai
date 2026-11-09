@@ -1,5 +1,5 @@
 /**
- * The team of a project (specs/021 T7; AC-1.5, AC-1.6, AC-1.7, AC-4.4).
+ * The team of a project (specs/024 T7; AC-1.5, AC-1.6, AC-1.7, AC-4.4).
  *
  * `PUT /projects/:id/team` replaces the whole team. It is a write on the project: `project:manage`
  * for the project's entity, `If-Match` required, and it bumps the project's `version` — someone who

@@ -77,7 +77,7 @@ describe('TOOLS — meetings', () => {
   })
 })
 
-// specs/021-projects (AC-4.1): Projects is a gated tool, after CRM. The id is the
+// specs/024-projects (AC-4.1): Projects is a gated tool, after CRM. The id is the
 // auth catalog resource (`projects`), so the sidebar's `apps.includes(tool.id)`
 // filter shows it exactly to the callers `/authz/me` reports `projects:access` for.
 describe('TOOLS — projects', () => {

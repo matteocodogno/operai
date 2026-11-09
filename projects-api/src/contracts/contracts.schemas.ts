@@ -1,5 +1,5 @@
 /**
- * Request and response shapes of the contract routes (specs/021-projects T8, tasks.md § API
+ * Request and response shapes of the contract routes (specs/024-projects T8, tasks.md § API
  * contracts; AC-2.1 – AC-2.9).
  *
  * A contract's `terms` depend on the project's type, which only the handler knows, so the request
@@ -89,7 +89,7 @@ export const TermsViewSchema = z.union([
 
 export const ContractSchema = ContractSummarySchema.extend({
   projectId: z.string(),
-  /** Filled by the CRM hand-off (specs/022); `null` for a contract entered by hand. */
+  /** Filled by the CRM hand-off (specs/025); `null` for a contract entered by hand. */
   dealId: z.string().nullable(),
   terms: TermsViewSchema,
   version: z.number().int(),

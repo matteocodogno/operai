@@ -27,7 +27,7 @@ interface ImportMetaEnv {
    */
   readonly VITE_MEETINGS_API_URL?: string
   /**
-   * Public origin of projects-api (specs/021-projects), e.g.
+   * Public origin of projects-api (specs/024-projects), e.g.
    * `https://projects-api.operai.welld.io`. Optional, like VITE_CRM_API_URL: unset →
    * not trusted, no Bearer JWT sent.
    */

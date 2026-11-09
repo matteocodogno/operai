@@ -1,5 +1,5 @@
 /**
- * Project states and the type change (specs/021 T6; AC-1.2, AC-1.3, AC-1.7, AC-4.4).
+ * Project states and the type change (specs/024 T6; AC-1.2, AC-1.3, AC-1.7, AC-4.4).
  *
  * Both are writes on a project: `project:manage` for the project's entity, `If-Match` required,
  * compare-and-set on `version`. They answer `200 Project` like every other project write.

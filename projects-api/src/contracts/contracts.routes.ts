@@ -1,6 +1,6 @@
 /**
  * Contracts of a project: create by hand, read, edit terms and dates, end — never delete
- * (specs/021 T8; AC-1.7, AC-2.1 – AC-2.10, AC-4.3, AC-4.4).
+ * (specs/024 T8; AC-1.7, AC-2.1 – AC-2.10, AC-4.3, AC-4.4).
  *
  * Reading needs `projects:access` only (D13). Writing needs `project:manage` for the PROJECT'S
  * entity, like every write on a project. A contract has its project's type for life (D25): it is
@@ -36,7 +36,7 @@ export const findContractRow = (projectId: string, contractId: string): Promise<
 
 /**
  * The `Contract` of tasks.md § API contracts: the `ContractSummary` of the project page plus the
- * project, the deal link and the terms. The company name is live (fail soft, ADR-0059).
+ * project, the deal link and the terms. The company name is live (fail soft, ADR-0076).
  */
 export async function toContractView(row: ContractRow) {
   const company = await companyRefs([row.companyId]);

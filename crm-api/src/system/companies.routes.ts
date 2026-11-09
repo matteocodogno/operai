@@ -1,5 +1,5 @@
 /**
- * GET /system/companies (specs/021-projects T2, ADR-0059) — CRM companies read
+ * GET /system/companies (specs/024-projects T2, ADR-0076) — CRM companies read
  * service-to-service. projects-api resolves company names and lets a project
  * manager pick a company, for users who may hold no `crm:access` (D13), so this
  * route trusts a scoped SERVICE credential (`crm.companies.read`), never a user

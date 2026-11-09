@@ -1,7 +1,7 @@
-# 0059 — projects-api reads CRM companies with a scoped service credential (`crm.companies.read`) through crm-api `GET /system/companies`
+# 0076 — projects-api reads CRM companies with a scoped service credential (`crm.companies.read`) through crm-api `GET /system/companies`
 
 **Date:** 2026-11-03
-**Status:** Accepted (specs/021-projects, tasks.md § Architecture notes "Decided here"; taken at rigor `mvp` without an architect — review before merge)
+**Status:** Accepted (specs/024-projects, tasks.md § Architecture notes "Decided here"; taken at rigor `mvp` without an architect — review before merge)
 **Deciders:** wellD
 **Project:** Operai
 
@@ -10,13 +10,13 @@
 ## Context
 
 A client project belongs to one CRM company, and a `saas` project's contracts name any CRM company
-(specs/021, D5, D24, D25). `projects-api` stores only the CRM's company id (a text cuid, no
+(specs/024, D5, D24, D25). `projects-api` stores only the CRM's company id (a text cuid, no
 foreign key across services). Two things need the company itself:
 - every project row, contract and project page shows the company **name**;
 - a manager creating a project or a contract must **pick** a company, and the write must know the
   company exists.
 
-The users of the project module may hold no `crm:access` at all: OPS does not (D13, ADR-0058),
+The users of the project module may hold no `crm:access` at all: OPS does not (D13, ADR-0075),
 and `crm-api` answers `403` on every route without it (ADR-0052). So the read has to work for
 people who are not allowed to read the CRM.
 
@@ -81,7 +81,7 @@ verify, are the same mistake made in opposite directions.
 
 Where else this shape can appear, in the mirror-image position:
 - **The other direction.** `crm-api` reading project data (a deal page showing its project,
-  specs/022) is the same edge reversed: its own scope, its own `/system` route on `projects-api`,
+  specs/025) is the same edge reversed: its own scope, its own `/system` route on `projects-api`,
   never the user's token forwarded, never a grant of `projects:access` to CRM users.
 - **Other kinds of reference by id.** A deal, an estimate, a user: whichever tool owns the thing,
   ask who may ask, exactly which fields leave, and what the caller does when no answer comes.
@@ -121,7 +121,7 @@ Where else this shape can appear, in the mirror-image position:
     entities through `GET /companies`, whether or not they hold `crm:access`. That is deliberate
     and limited to id, name and entity.
 - **Risks:**
-  - Each further capability on this channel — specs/022 adds a deals scope — is a new scope in
+  - Each further capability on this channel — specs/025 adds a deals scope — is a new scope in
     `KNOWN_SERVICE_SCOPES` and a new route behind it. It must not widen `crm.companies.read`,
     which only ever answers the four fields above.
   - The configuration is optional and all-or-nothing in projects-api, so a deployment can start

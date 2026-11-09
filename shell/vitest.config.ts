@@ -56,7 +56,7 @@ export default defineConfig({
       ),
       'meetings/version': fileURLToPath(new URL('./src/federation/__stubs__/meetingsVersion.ts', import.meta.url)),
       'crm/version': fileURLToPath(new URL('./src/federation/__stubs__/crmVersion.ts', import.meta.url)),
-      // specs/021-projects: the projects remote's tool entry and version.
+      // specs/024-projects: the projects remote's tool entry and version.
       'projects/App': fileURLToPath(new URL('./src/federation/__stubs__/projectsApp.tsx', import.meta.url)),
       'projects/version': fileURLToPath(
         new URL('./src/federation/__stubs__/projectsVersion.ts', import.meta.url),

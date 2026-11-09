@@ -1,7 +1,7 @@
-# 0058 — The project module is a seventh tool (`projects-api` + `projects-ui`) whose reads are open to every `projects:access` holder, whose writes are entity-scoped `project:manage`, and whose Bexio order id is `contract:bexio`
+# 0075 — The project module is a seventh tool (`projects-api` + `projects-ui`) whose reads are open to every `projects:access` holder, whose writes are entity-scoped `project:manage`, and whose Bexio order id is `contract:bexio`
 
 **Date:** 2026-11-03
-**Status:** Accepted (specs/021-projects; the product owner chose D13, D34, D35 and D36 in the grilling and at spec review; the rest is the tasks.md architecture notes, written at rigor `mvp` without an architect — review before merge)
+**Status:** Accepted (specs/024-projects; the product owner chose D13, D34, D35 and D36 in the grilling and at spec review; the rest is the tasks.md architecture notes, written at rigor `mvp` without an architect — review before merge)
 **Deciders:** wellD
 **Project:** Operai
 
@@ -9,7 +9,7 @@
 
 ## Context
 
-wellD wants the delivery work it runs to have a home in Operai (specs/021-projects): **projects**
+wellD wants the delivery work it runs to have a home in Operai (specs/024-projects): **projects**
 (a type, a state, a project manager, a team), the **contracts** on them (what one client bought, as
 structured delivery terms: deadline and effort cap, SLA, hour package, T&M positions, licence
 period) and the **Bexio order id** that administration opens for each contract. The suite has a
@@ -78,7 +78,7 @@ The module serves people the suite has not served before, and that decides the r
    `projects:access` and returns the distinct project managers of projects the reader can already
    see, so every reader can filter.
 
-CRM company names and the company picker are the subject of ADR-0059.
+CRM company names and the company picker are the subject of ADR-0076.
 
 ## Failure shape
 
@@ -109,7 +109,7 @@ Where else these shapes appear, in the position opposite to where they were met:
   contracts.
 - **Derived and indirect writes.** A state transition, a type change, a team replacement, an
   end-dated contract, a record created by a hand-off from another tool or by a background job
-  (specs/022 creates contracts from won deals): each is a write on a scoped, versioned record and
+  (specs/025 creates contracts from won deals): each is a write on a scoped, versioned record and
   needs the same entity decision and the same precondition, whichever principal runs it.
 - **Field-level capabilities.** A field owned by a different role than its record (the Bexio order
   id) belongs behind its own route and capability; the record's general update must not accept it
@@ -122,7 +122,7 @@ Where else these shapes appear, in the position opposite to where they were met:
 
 - **Project tables inside crm-api.** Rejected: different users (OPS holds no `crm:access`, and
   giving them it would open every CRM record to them) and a different lifecycle (a project
-  outlives and aggregates sales opportunities; specs/022 hands deals over one at a time). One
+  outlives and aggregates sales opportunities; specs/025 hands deals over one at a time). One
   service would carry two permission domains and one deploy cadence.
 - **Per-project visibility.** Rejected (D13): OPS needs colleagues' projects (cover, workload),
   and visibility per project needs an access list per record — ADR-0036's primitive, meant for a
@@ -165,7 +165,7 @@ Where else these shapes appear, in the position opposite to where they were met:
   - `projects-api` has a hard runtime dependency on `auth` for every request (ADR-0014's accepted
     trade-off) and for every project-manager or team write.
 - **Risks:**
-  - specs/023 adds writes that need less than `project:manage` (any access holder opens a thread
+  - specs/026 adds writes that need less than `project:manage` (any access holder opens a thread
     and replies, D31; the assignee of a task marks it done, A22). Those are named exceptions to
     point 4's "writes are entity-scoped", to be recorded when that spec lands, not a quiet
     loosening of this one.

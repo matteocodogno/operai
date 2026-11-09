@@ -22,7 +22,7 @@
 # override the defaults with MAPS_ORIGIN/PLACES_ORIGIN), and (specs/015) the
 # inventory-api origin in connect-src, the inventory-ui origin in script-src +
 # connect-src and the invoice-bucket origin (override INVENTORY_BUCKET_ORIGIN).
-# specs/017 + specs/021 add crm-api / crm-ui and projects-api / projects-ui to the same checks
+# specs/017 + specs/024 add crm-api / crm-ui and projects-api / projects-ui to the same checks
 # (health, an anonymous 401 on a gated route, remoteEntry.js + CORS, the three CSP pins), plus
 # crm-api's service-credential route GET /system/companies answering 401 to a call with no
 # credential. Override PROJECTS_API_URL / PROJECTS_URL (ASSUMED hostnames) if the domains differ.
@@ -65,7 +65,7 @@ CRM_URL="${CRM_URL:-https://crm.operai.welld.io}"
 MEETINGS_API_URL="${MEETINGS_API_URL:-https://meetings-api.operai.welld.io}"
 MEETINGS_URL="${MEETINGS_URL:-https://meetings.operai.welld.io}"
 
-# ASSUMED hostnames (specs/021-projects): the ones shell/vercel.json's CSP already names. They
+# ASSUMED hostnames (specs/024-projects): the ones shell/vercel.json's CSP already names. They
 # do NOT resolve until the Railway service / Vercel project + custom domains + DNS exist
 # (infra/provision-tool.sh) — until then the projects checks below fail by design. Override
 # both if the real domains differ.
@@ -143,13 +143,13 @@ IAC="$(code "$INVENTORY_API_URL/assets")"
 [[ "$(code "$CRM_API_URL/health")" == 200 ]] && pass "crm-api /health 200 ($CRM_API_URL)" || fail "crm-api /health not 200 ($CRM_API_URL)"
 CAC="$(code "$CRM_API_URL/companies")"
 [[ "$CAC" == 401 ]] && pass "crm-api rejects an anonymous request on a gated route (401)" || fail "crm-api GET /companies without a token did not return 401 (got HTTP ${CAC:-?}) — the JWT gate may be missing or the service not deployed"
-# specs/021 (ADR-0059): GET /system/companies is the service-credential route projects-api reads
+# specs/024 (ADR-0076): GET /system/companies is the service-credential route projects-api reads
 # company names from. No credential at all is the frozen 401 (also the answer while SERVICE_AUDIENCE
-# is unset); a 404 means crm-api predates specs/021. No credential is used, read or printed.
+# is unset); a 404 means crm-api predates specs/024. No credential is used, read or printed.
 CSC="$(code "$CRM_API_URL/system/companies")"
-[[ "$CSC" == 401 ]] && pass "crm-api /system/companies rejects a call with no credential (401)" || fail "crm-api GET /system/companies without a credential did not return 401 (got HTTP ${CSC:-?}) — 404 = a crm-api build older than specs/021, anything else = the service-credential gate is not live (ADR-0059)"
+[[ "$CSC" == 401 ]] && pass "crm-api /system/companies rejects a call with no credential (401)" || fail "crm-api GET /system/companies without a credential did not return 401 (got HTTP ${CSC:-?}) — 404 = a crm-api build older than specs/024, anything else = the service-credential gate is not live (ADR-0076)"
 
-# projects-api (specs/021-projects): same contract — healthy (the DB connection gates the status code),
+# projects-api (specs/024-projects): same contract — healthy (the DB connection gates the status code),
 # and the JWT gate is live. ASSUMED hostname until DNS exists — see PROJECTS_API_URL above.
 [[ "$(code "$PROJECTS_API_URL/health")" == 200 ]] && pass "projects-api /health 200 ($PROJECTS_API_URL)" || fail "projects-api /health not 200 ($PROJECTS_API_URL)"
 PAC="$(code "$PROJECTS_API_URL/projects")"
@@ -311,21 +311,21 @@ if [[ -n "$CSP" ]]; then
   else
     fail "  CSP connect-src is MISSING $MEETINGS_URL (specs/021)"
   fi
-  # specs/021-projects — the same three pins for projects-api and projects-ui.
+  # specs/024-projects — the same three pins for projects-api and projects-ui.
   if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$PROJECTS_API_URL"; then
-    pass "  CSP connect-src includes $PROJECTS_API_URL (projects-api origin — specs/021)"
+    pass "  CSP connect-src includes $PROJECTS_API_URL (projects-api origin — specs/024)"
   else
-    fail "  CSP connect-src is MISSING $PROJECTS_API_URL — projects-ui's API calls will be blocked (specs/021)"
+    fail "  CSP connect-src is MISSING $PROJECTS_API_URL — projects-ui's API calls will be blocked (specs/024)"
   fi
   if [[ -n "$SCRIPT_SRC" ]] && echo "$SCRIPT_SRC" | grep -q "$PROJECTS_URL"; then
-    pass "  CSP script-src includes $PROJECTS_URL (projects-ui remote — specs/021)"
+    pass "  CSP script-src includes $PROJECTS_URL (projects-ui remote — specs/024)"
   else
-    fail "  CSP script-src is MISSING $PROJECTS_URL — the shell cannot load projects-ui's remoteEntry.js (specs/021)"
+    fail "  CSP script-src is MISSING $PROJECTS_URL — the shell cannot load projects-ui's remoteEntry.js (specs/024)"
   fi
   if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$PROJECTS_URL"; then
-    pass "  CSP connect-src includes $PROJECTS_URL (projects-ui remote chunks — specs/021)"
+    pass "  CSP connect-src includes $PROJECTS_URL (projects-ui remote chunks — specs/024)"
   else
-    fail "  CSP connect-src is MISSING $PROJECTS_URL (specs/021)"
+    fail "  CSP connect-src is MISSING $PROJECTS_URL (specs/024)"
   fi
 
   # ADR-0016 — receipt uploads POST DIRECTLY to the object-storage bucket, not

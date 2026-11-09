@@ -1,5 +1,5 @@
 /**
- * crm-api client for CRM companies (specs/021-projects T5, ADR-0059).
+ * crm-api client for CRM companies (specs/024-projects T5, ADR-0076).
  *
  * projects-api reads `GET /system/companies` as ITSELF: a 5-minute service JWT with scope
  * `crm.companies.read` (`serviceTokens`, ADR-0044/0049), never the caller's token — a

@@ -1,5 +1,5 @@
 /**
- * Request and response shapes of the project routes (specs/021-projects, tasks.md § API
+ * Request and response shapes of the project routes (specs/024-projects, tasks.md § API
  * contracts). The type and state vocabularies live here so the transition and contract
  * routes (T6, T8) reuse them.
  */

@@ -174,9 +174,9 @@ Decided (the user chose):
 - D32 Rigor **mvp** — user: "proceed with mvp if the CRM was done in mvp" (it was: F12);
   the user had first picked production over the recommended mvp, then conditioned it on the
   CRM — B7
-- D33 The feature is **split in three specs**: specs/021 projects (projects, contracts,
-  Bexio order id, access), specs/022 projects-handoff (to-start queue, contracts from won
-  deals, reopen notices, estimate link and copy, CRM deal page), specs/023
+- D33 The feature is **split in three specs**: specs/024 projects (projects, contracts,
+  Bexio order id, access), specs/025 projects-handoff (to-start queue, contracts from won
+  deals, reopen notices, estimate link and copy, CRM deal page), specs/026
   project-collaboration (tasks, threads). One ledger, here — asked by the user at spec
   review; recommended option chosen
 - D34 (closes O3) **A contract is never removed**: it ends by setting its end date. A deal
@@ -185,10 +185,10 @@ Decided (the user chose):
   to the queue"
 - D35 (amends D13) The Bexio order id is written by the **existing `accounting` role**
   (amministrazione / contabilità), which gains module access and the Bexio-order
-  capability; **no new "administration" role** — recommended option chosen at 021 review
+  capability; **no new "administration" role** — recommended option chosen at 024 review
 - D36 (amends D2/D13) **Both OPS and BD open projects**: besides the project manager role,
   the existing **`sales`** role (BD) can create a project — from the queue or by hand —
-  user, at 021 review ("il progetto lo possono aprire sia OPS che BD")
+  user, at 024 review ("il progetto lo possono aprire sia OPS che BD")
 
 Delegated (the user deferred to the recommendation):
 - D21 An internal project (Koordy) has a fourth type, **Internal**, with no terms — user:

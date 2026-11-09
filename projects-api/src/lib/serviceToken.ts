@@ -1,9 +1,9 @@
 /**
- * Service-token client (specs/021-projects, copied from crm-api; ADR-0044/0049).
+ * Service-token client (specs/024-projects, copied from crm-api; ADR-0044/0049).
  * Exchanges `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` for the 5-minute RS256
  * service JWT `auth POST /system/service-token` mints, and hands it to `crm.ts` as
  * the Bearer credential for crm-api's `/system/companies` (scope `crm.companies.read`,
- * ADR-0059).
+ * ADR-0076).
  *
  * - Cached in memory; refetched once the token is within 60 s of expiry.
  * - SINGLE-FLIGHT: concurrent callers share one in-flight exchange (a burst of

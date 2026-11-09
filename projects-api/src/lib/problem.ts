@@ -1,5 +1,5 @@
 /**
- * RFC 7807 Problem JSON for projects-api (specs/021-projects, tasks.md § API
+ * RFC 7807 Problem JSON for projects-api (specs/024-projects, tasks.md § API
  * contracts). Copied from crm-api/src/lib/problem.ts.
  *
  * The extra members a problem carries (`code`, `userIds`, `currentVersion`,

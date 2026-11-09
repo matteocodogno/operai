@@ -10,7 +10,7 @@ import { createAppRouter } from './router'
 /**
  * App — projects-ui's gated tool root, exposed via Module Federation as `./App`
  * (vite.config.ts) and mounted by the shell at the access-gated `/projects/*`
- * (specs/021-projects). An inner TanStack Router rebased to `/projects`, with
+ * (specs/024-projects). An inner TanStack Router rebased to `/projects`, with
  * `ProjectsShell` as its root layout; no auth guard and no chrome (the shell
  * owns both).
  */

@@ -1,5 +1,5 @@
 ---
-spec: 021
+spec: 024
 generated: 2026-11-03
 synced: 2026-11-03
 ---
@@ -28,7 +28,7 @@ against it is routed to the product owner.
   projects-api calls crm-api `GET /system/companies` with an auth-issued service credential
   (`sub = system:projects-api`, scope `crm.companies.read`, ADR-0049 pattern). Rejected:
   forwarding the user JWT (fails for users without `crm:access`); snapshotting company names
-  (stale on rename). specs/022 adds a deals scope on the same channel.
+  (stale on rename). specs/025 adds a deals scope on the same channel.
 - **A project's entity and company are fixed at creation** (not discussed in the grilling;
   no AC asks to change them). A wrong one is a new project (cf. D7).
 - **Derived dates (AC-1.5):** `startDate` = earliest contract start, `null` with no
@@ -54,7 +54,7 @@ ADR-0053/0055). `crm.companies.read` joins `KNOWN_SERVICE_SCOPES`.
   `stateBeforeHold` NOT NULL iff `state = on_hold`.
 - `ProjectMember` — `(projectId, userId)` PK, `addedAt`.
 - `Contract` — `id`, `projectId` FK, `type ProjectType`, `companyId text`, `origin`
-  (`manual` | `deal`) default `manual`, `dealId text?` (unique, filled by specs/022),
+  (`manual` | `deal`) default `manual`, `dealId text?` (unique, filled by specs/025),
   `bexioOrderId varchar(64)?`, `startDate date`, `endDate date?`, `version`, timestamps;
   fixed price: `deadline date?`, `estimatedManDays numeric(6,1)?`, `maxEffortManDays
   numeric(6,1)?`; SLA: `slaHighDays int?`, `slaNormalDays int?`; hour package:
@@ -146,7 +146,7 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
   `provision-tool` skill after merge; `bash infra/check.sh` goes green only after it (QE D1).
 - A shell e2e journey for `/projects` (CRM precedent: specs/017 T15) — next step towards
   `production`.
-- Hand-off from the CRM (specs/022), tasks and threads (specs/023), glossary entries.
+- Hand-off from the CRM (specs/025), tasks and threads (specs/026), glossary entries.
 
 ## Tasks
 
@@ -204,12 +204,12 @@ string | null }` — `name` is `null` when crm-api cannot answer (fail soft).
 - [x] T17: local env — `projects-api/.env.example` and `.envrc`, auth `SERVICE_CLIENTS` entry for `projects-api` (`crm.companies.read`), crm-api `SERVICE_AUDIENCE`, shell `VITE_PROJECTS_API_URL` / remote URL — drafted by the agent, applied by the developer (the guard stops agents writing env files) — refs: AC-4.1 — deps: T16
   - touch: `projects-api/.env.example`, `projects-api/.envrc`, `auth/.env.example`, `crm-api/.env.example`, `shell/.env.example`
   - done when: `mise run dev` serves `/projects` in the shell for a signed-in admin and the company picker returns CRM companies.
-- [x] T18: docs — ADR-0058 (projects tool shape and authorization), ADR-0059 (projects-api reads CRM companies with a scoped service credential), AGENTS.md (tools table, layout, ADR index), README, changesets — refs: AC-4.1, AC-4.4, AC-4.5 — deps: T10, T15
-  - touch: `docs/adr/0058-*.md`, `docs/adr/0059-*.md`, `docs/adr/README.md`, `AGENTS.md`, `README.md`, `.changeset/*.md`
+- [x] T18: docs — ADR-0075 (projects tool shape and authorization), ADR-0076 (projects-api reads CRM companies with a scoped service credential), AGENTS.md (tools table, layout, ADR index), README, changesets — refs: AC-4.1, AC-4.4, AC-4.5 — deps: T10, T15
+  - touch: `docs/adr/0075-*.md`, `docs/adr/0076-*.md`, `docs/adr/README.md`, `AGENTS.md`, `README.md`, `.changeset/*.md`
   - done when: both ADRs exist with Context / Decision / Alternatives / Consequences, AGENTS.md's ADR index lists them, and `pnpm changeset status` shows bumps for auth, crm-api, projects-api, projects-ui and shell.
 - [x] T19: QE-light verification; all gates green; spec status → done — refs: every AC — deps: T1, T2, T10, T14, T15, T16, T17, T18
-  - touch: `specs/021-projects/qe-report.md`, `specs/021-projects/spec.md`
-  - done when: the quality-engineer's QE-light verdict is PASS in `qe-report.md`, every local gate it lists is green (auth, crm-api, projects-api, projects-ui, shell, env-doctor, shared copies, changeset, secret scan), and `/wellforge:done 021-projects` accepts the feature. (Amended 2026-11-03, QE D1: `bash infra/check.sh` probes production hosts and belongs to the deferred provisioning step, not to this gate.)
+  - touch: `specs/024-projects/qe-report.md`, `specs/024-projects/spec.md`
+  - done when: the quality-engineer's QE-light verdict is PASS in `qe-report.md`, every local gate it lists is green (auth, crm-api, projects-api, projects-ui, shell, env-doctor, shared copies, changeset, secret scan), and `/wellforge:done 024-projects` accepts the feature. (Amended 2026-11-03, QE D1: `bash infra/check.sh` probes production hosts and belongs to the deferred provisioning step, not to this gate.)
 
 ## Coverage
 

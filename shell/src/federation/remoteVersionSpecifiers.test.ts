@@ -159,7 +159,7 @@ describe('vercel.json CSP — crm origins', () => {
   })
 })
 
-// specs/021-projects: the shell's CSP lets the page load the Projects remote and reach projects-api.
+// specs/024-projects: the shell's CSP lets the page load the Projects remote and reach projects-api.
 describe('vercel.json CSP — projects origins', () => {
   const vercel = JSON.parse(readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf-8')) as {
     headers: { source: string; headers: { key: string; value: string }[] }[]

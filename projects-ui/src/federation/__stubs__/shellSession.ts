@@ -1,5 +1,5 @@
 // Test-only resolution stub for the `shell/session` federated module
-// (specs/021-projects). vitest.config.ts aliases the specifier here so Vite's import
+// (specs/024-projects). vitest.config.ts aliases the specifier here so Vite's import
 // analysis can resolve it; every test that relies on shell/session overrides
 // these exports with vi.mock. In production the specifier resolves through
 // @module-federation/vite (vite.config.ts `remotes`).

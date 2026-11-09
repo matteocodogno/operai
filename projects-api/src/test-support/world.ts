@@ -1,5 +1,5 @@
 /**
- * Test world for projects-api route tests (specs/021-projects): personas with literal
+ * Test world for projects-api route tests (specs/024-projects): personas with literal
  * permission sets, a request helper over the ASSEMBLED app, fakes for the three things
  * outside the system (auth's identity and app-access endpoints, auth's service-token
  * endpoint, crm-api's `/system/companies`), and a reset between tests.
@@ -105,7 +105,7 @@ resetAppAccess();
 export const SERVICE_JWT = "service-jwt-for-projects-api";
 
 /**
- * A fake crm-api `GET /system/companies` (specs/021 T2 contract): `q` is a case-insensitive
+ * A fake crm-api `GET /system/companies` (specs/024 T2 contract): `q` is a case-insensitive
  * substring over non-archived names, `ids` are comma-separated and include archived ones,
  * `limit` defaults to 20, or to `ids.length` when only `ids` is given.
  */

@@ -1,5 +1,5 @@
 /**
- * Shared route-integration test harness (specs/021-projects T3), copied from
+ * Shared route-integration test harness (specs/024-projects T3), copied from
  * crm-api/src/test-support/testAuth.ts.
  *
  * Mocks the TWO network-calling dependencies every gated route sits behind —

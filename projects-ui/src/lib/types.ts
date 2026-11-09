@@ -1,5 +1,5 @@
 /**
- * The wire shapes of projects-api (specs/021-projects, tasks.md § API contracts)
+ * The wire shapes of projects-api (specs/024-projects, tasks.md § API contracts)
  * and of the `auth` directory read. Ids are text (cuids), dates are `YYYY-MM-DD`,
  * and no amount, price or rate exists anywhere (AC-2.9).
  */
@@ -98,7 +98,7 @@ export type ContractTerms =
 
 export type Contract = ContractSummary & {
   projectId: string
-  /** Filled by the CRM hand-off (specs/022); `null` for a contract entered by hand. */
+  /** Filled by the CRM hand-off (specs/025); `null` for a contract entered by hand. */
   dealId: string | null
   terms: ContractTerms
   version: number

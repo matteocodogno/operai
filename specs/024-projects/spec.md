@@ -1,5 +1,5 @@
 ---
-id: 021
+id: 024
 slug: projects
 status: done
 rigor: mvp
@@ -22,8 +22,8 @@ Decision ledger: `ledger.md`
 > assumed and strikeable, O = open).
 >
 > The work is split in three specs (ledger D33): **this one** is the core — projects,
-> contracts, the Bexio order id, access. **specs/022** hands won deals over from the CRM
-> ("in series"); **specs/023** adds tasks and discussion threads. Both build on this one.
+> contracts, the Bexio order id, access. **specs/025** hands won deals over from the CRM
+> ("in series"); **specs/026** adds tasks and discussion threads. Both build on this one.
 
 ## Problem
 
@@ -48,7 +48,7 @@ piece of work, and who is on it, lives in people's heads.
 
   Chosen at creation and never changed, except `internal` → `saas` (D7, D24).
 - **contract** — what one client bought on a project, as delivery terms. It always has its
-  project's type (D25). In this spec every contract is entered by hand; specs/022 creates
+  project's type (D25). In this spec every contract is entered by hand; specs/025 creates
   them from won deals. *Working name — see glossary changes.*
 - **Bexio order id** — the identifier of the order administration opens in Bexio for a
   contract; typed in, never synchronised (D1a, D3).
@@ -106,7 +106,7 @@ I know what we promised without reading the offer PDF.
   takes no contract (D5, D24, A12, A27).
 - AC-2.3 A `fixed_price` contract has a deadline, estimated man-days and a max effort in
   man-days (D8). Deadline and max effort are required (A21); estimated man-days are typed
-  in or left empty (A6; specs/022 copies them from the deal's estimate).
+  in or left empty (A6; specs/025 copies them from the deal's estimate).
 - AC-2.4 A `maintenance` contract has an SLA, an hour package, or both; saving one with
   neither is refused (D9).
 - AC-2.5 An SLA has a take-in-charge time in whole working days for *high* and for
@@ -154,8 +154,8 @@ each person sees and changes exactly what their role allows.
 ## Non-goals
 
 - **The hand-off from the CRM** — the to-start queue, projects and contracts created from a
-  won deal, the estimate link, the CRM deal page showing its project: **specs/022**.
-- **Tasks and discussion threads** on a project: **specs/023**.
+  won deal, the estimate link, the CRM deal page showing its project: **specs/025**.
+- **Tasks and discussion threads** on a project: **specs/026**.
 - **Time tracking** and anything consumed against what was sold: hours used from a
   package, man-days used against max effort or positions, remaining hours (D1, D27).
 - **Service desk**: tickets, and measuring take-in-charge times against an SLA (D1).
@@ -169,7 +169,7 @@ each person sees and changes exactly what their role allows.
 ## Assumptions (from the ledger — strike any that is wrong)
 
 - A5 The project manager picks the type; no offer template carries one.
-- A6 Estimated man-days, once copied from an estimate (specs/022), are a snapshot.
+- A6 Estimated man-days, once copied from an estimate (specs/025), are a snapshot.
 - A7 A yearly hour package runs in 12-month periods from its start date, not the calendar
   year.
 - A8 A position is a profile, not a person; a project has no dates of its own.

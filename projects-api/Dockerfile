@@ -40,7 +40,7 @@ USER bun
 
 EXPOSE 8085
 
-# DATA-RESIDENCY (specs/021-projects): this image is deployed to Railway EU region
+# DATA-RESIDENCY (specs/024-projects): this image is deployed to Railway EU region
 # only (europe-west4, see railway.json) — projects-api holds contract terms and the
 # ids of the people on each project (names are resolved live from auth, never
 # stored). Request/response bodies are NEVER logged — only method+path+status

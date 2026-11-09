@@ -116,7 +116,7 @@ ALTER TABLE "contract" ADD CONSTRAINT "contract_projectId_fkey" FOREIGN KEY ("pr
 ALTER TABLE "contract_position" ADD CONSTRAINT "contract_position_contractId_fkey" FOREIGN KEY ("contractId") REFERENCES "contract"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 
--- ─── CHECK constraints (Prisma cannot express them; specs/021 tasks.md § Data model) ───
+-- ─── CHECK constraints (Prisma cannot express them; specs/024 tasks.md § Data model) ───
 -- Every expression is written so a NULL operand fails it: a CHECK passes on NULL, and the
 -- NULL-able terms (max effort, expiry, kind) are exactly where that would let a row through.
 

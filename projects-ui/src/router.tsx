@@ -5,7 +5,7 @@ import ProjectDetailPage from './pages/ProjectDetailPage'
 import ProjectsPage from './pages/ProjectsPage'
 
 /**
- * projects-ui's inner router (specs/021-projects), basepath `/projects` — the
+ * projects-ui's inner router (specs/024-projects), basepath `/projects` — the
  * shell mounts this remote at its gated `/projects/$` route:
  *
  *   /projects        Projects list (T12)

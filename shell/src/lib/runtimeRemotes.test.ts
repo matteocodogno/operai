@@ -32,7 +32,7 @@ describe('resolveRuntimeRemotes', () => {
     ])
   })
 
-  it('resolves the projects remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/021-projects)', async () => {
+  it('resolves the projects remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/024-projects)', async () => {
     window.__OPERAI_RUNTIME_CONFIG__ = { projects: 'https://projects.example.test/remoteEntry.js' }
 
     await expect(resolveRuntimeRemotes()).resolves.toEqual([

@@ -1,17 +1,17 @@
 ---
-id: 023
+id: 026
 slug: project-collaboration
 status: draft
 rigor: mvp
 created: 2026-11-03
-depends-on: 021
+depends-on: 024
 ---
 
 # Project collaboration — tasks and discussion threads
 
-Decision ledger: `../021-projects/ledger.md` (shared with specs/021 and specs/022)
+Decision ledger: `../024-projects/ledger.md` (shared with specs/024 and specs/025)
 
-> **Origin.** Split out of specs/021 on 2026-11-03 (ledger D33). specs/021 gives projects,
+> **Origin.** Split out of specs/024 on 2026-11-03 (ledger D33). specs/024 gives projects,
 > their project manager and team; this spec gives that team a shared to-do list and a place
 > to discuss the project that keeps its history.
 
@@ -64,7 +64,7 @@ As anyone with access to the project module, I want to read every project's task
 threads in my language, so that I can cover for a colleague.
 
 - AC-3.1 Every holder of the project module's access reads every task and thread
-  (D13, specs/021 AC-4.3).
+  (D13, specs/024 AC-4.3).
 - AC-3.2 All new copy exists in English and Italian; dates use the library formatters.
 
 ## Non-goals

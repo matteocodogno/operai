@@ -999,7 +999,7 @@ describe("seedCrmGrants (specs/017 — AC-5.2, D-4)", () => {
     await seedCrmGrants();
     const role = await db.role.findUniqueOrThrow({ where: { name: SALES_ROLE_NAME } });
     expect(role.isSystem).toBe(true);
-    // CRM grants only: `sales` also holds projects grants since specs/021.
+    // CRM grants only: `sales` also holds projects grants since specs/024.
     const rules = await db.permissionRule.findMany({ where: { roleId: role.id, resource: { in: CRM_RESOURCES } } });
     expect(rules.map((r) => `${r.resource}:${r.action}`).sort()).toEqual(["crm:access", "deal:financials", "deal:manage"]);
     expect(rules.find((r) => r.action === "financials")?.conditions).toBeNull();
@@ -1121,9 +1121,9 @@ describe("seedMeetingsGrants (specs/021 — AC-10.8, AC-1.4, AC-10.5)", () => {
   });
 });
 
-// ─── specs/021-projects ─────────────────────────────────────────────────────
+// ─── specs/024-projects ─────────────────────────────────────────────────────
 
-describe("seedProjectsCatalog (specs/021 — AC-4.1)", () => {
+describe("seedProjectsCatalog (specs/024 — AC-4.1)", () => {
   test("registers the projects catalog — projects:access + entity-scoped project:manage + contract:bexio, idempotent", async () => {
     await seedProjectsCatalog();
     await seedProjectsCatalog();
@@ -1143,7 +1143,7 @@ describe("seedProjectsCatalog (specs/021 — AC-4.1)", () => {
   });
 });
 
-describe("seedProjectsGrants (specs/021 — AC-4.3–4.6, D13, D35, D36)", () => {
+describe("seedProjectsGrants (specs/024 — AC-4.3–4.6, D13, D35, D36)", () => {
   const ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
   const PROJECTS_RESOURCES = [PROJECTS_APP_ID, "project", "contract"];
   const GRANTED_ROLES = [ADMIN_ROLE_NAME, SALES_ROLE_NAME, ACCOUNTING_ROLE_NAME, PROJECT_MANAGER_ROLE_NAME];

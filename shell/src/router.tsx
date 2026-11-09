@@ -294,7 +294,7 @@ const loadCrmApp = () => import('crm/App')
 // `/meetings/$`) and `./MyMeetings` (the identity-scoped entry, ungated `/my-meetings/$`).
 const loadMeetingsApp = () => import('meetings/App')
 const loadMyMeetings = () => import('meetings/MyMeetings')
-// specs/021-projects: projects-ui's gated tool entry (`/projects/$`).
+// specs/024-projects: projects-ui's gated tool entry (`/projects/$`).
 const loadProjectsApp = () => import('projects/App')
 
 // ---------------------------------------------------------------------------
@@ -423,7 +423,7 @@ const meetingsRoute = createRoute({
   component: () => <RemoteMount loader={loadMeetingsApp} moduleLabel={strings.tools.meetings} />,
 })
 
-// specs/021-projects (AC-4.1): the Projects module, gated by `projects:access`.
+// specs/024-projects (AC-4.1): the Projects module, gated by `projects:access`.
 const projectsRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/projects/$',

@@ -1,5 +1,5 @@
 /**
- * projectsApi — typed calls for every projects-api route of specs/021-projects
+ * projectsApi — typed calls for every projects-api route of specs/024-projects
  * (tasks.md § API contracts), plus the directory read on `auth`. Every write of
  * an existing project or contract passes the record's `version` (sent as
  * `If-Match`, AC-1.7); creating a project or a contract has no precondition.

@@ -1,5 +1,5 @@
 /**
- * A contract's terms, by project type (specs/021-projects T8; AC-2.3 – AC-2.8): validation of the
+ * A contract's terms, by project type (specs/024-projects T8; AC-2.3 – AC-2.8): validation of the
  * request's `terms`, the columns they are stored in, and the view they are read back as.
  *
  * The database CHECKs already refuse a malformed row; these rules exist so a bad request is a

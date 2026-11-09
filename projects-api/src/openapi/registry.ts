@@ -10,7 +10,7 @@ export function setupOpenAPI(app: OpenAPIHono): void {
       version: "0.1.0",
       description:
         "Projects, their teams and contracts, and the Bexio order id, for the Projects " +
-        "tool (specs/021-projects). Requires a valid RS256 Bearer JWT issued by the " +
+        "tool (specs/024-projects). Requires a valid RS256 Bearer JWT issued by the " +
         "Operai auth service and the projects:access permission.",
       contact: {
         name: "wellD",

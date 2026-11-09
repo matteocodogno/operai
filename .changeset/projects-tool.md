@@ -6,7 +6,7 @@
 "@operai/shell": minor
 ---
 
-Add the Projects module (specs/021-projects, ADR-0058/0059): the delivery work wellD runs. A
+Add the Projects module (specs/024-projects, ADR-0075/0076): the delivery work wellD runs. A
 project has a type (T&M, fixed price, maintenance, SaaS, internal), a state, a project manager and
 a team; its contracts record what each client bought as structured delivery terms (deadline and
 max effort, SLA, hour package, T&M positions, licence period), and `accounting` records the Bexio

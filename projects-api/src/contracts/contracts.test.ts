@@ -1,5 +1,5 @@
 /**
- * Contracts of a project (specs/021 T8; AC-1.7, AC-2.1 – AC-2.10, AC-4.4). Runs the ASSEMBLED app
+ * Contracts of a project (specs/024 T8; AC-1.7, AC-2.1 – AC-2.10, AC-4.4). Runs the ASSEMBLED app
  * against the `*_test` database; auth and the CRM are the fakes of test-support/world.ts. Projects
  * are seeded straight in the database (the API under test is not its own fixture).
  */

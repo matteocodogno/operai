@@ -1,5 +1,5 @@
 /**
- * projects-api's authorization-enforcing middleware (specs/021-projects, ADR-0014).
+ * projects-api's authorization-enforcing middleware (specs/024-projects, ADR-0014).
  * Copied from crm-api/src/auth/authz.middleware.ts — the repo has no workspace
  * (ADR-0003), so each resource server owns its copy.
  *

@@ -74,7 +74,7 @@ const envSchema = z.object({
   // as ITSELF with the service client above (scope `deal-link-notices.send`).
   // Unset: the push is a no-op, logged once at startup.
   ESTIMAI_INTERNAL_URL: z.string().url("ESTIMAI_INTERNAL_URL must be a valid URL").optional(),
-  // ─── Service credentials accepted on /system/* (specs/018 AC-3.3 ADR-0073, specs/021-meetings, specs/021-projects ADR-0059) ──
+  // ─── Service credentials accepted on /system/* (specs/018 AC-3.3 ADR-0073, specs/021-meetings, specs/024-projects ADR-0076) ──
   // The `aud` of the scoped service JWTs `auth` mints (`POST /system/service-token`);
   // byte-identical to auth's and notify-api's, and different from AUTH_AUDIENCE so a
   // user JWT is never a system credential. Optional so the service starts without it;

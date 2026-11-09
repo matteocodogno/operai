@@ -1,6 +1,6 @@
 # projects-api
 
-The Projects module's resource server (specs/021-projects): the delivery work wellD runs,
+The Projects module's resource server (specs/024-projects): the delivery work wellD runs,
 its team and its contracts, and the Bexio order id. Bun + Hono + Prisma, port **8085**,
 logical database **`projects`**. Live API reference at `http://localhost:8085/docs`.
 
@@ -10,7 +10,7 @@ route answers 503 `authz_unavailable`, never "allow". Writes are further scoped 
 `project:manage` (entity) and `contract:bexio` (see `GET /scope`).
 
 CRM company names are read from crm-api with a service credential (`crm.companies.read`,
-ADR-0059): projects-api trades its service client for a 5-minute JWT at auth and calls
+ADR-0076): projects-api trades its service client for a 5-minute JWT at auth and calls
 `GET /system/companies`.
 
 ## Environment

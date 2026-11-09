@@ -53,7 +53,7 @@ export const TOOLS: readonly SuiteTool[] = [
   // signed-in user (ADR-0045 shape), so it never appears in the filtered sidebar
   // nor is recorded as a last-used tool.
   { id: 'meetings', label: strings.tools.meetings, to: '/meetings' },
-  // specs/021-projects: a gated tool, shown to holders of `projects:access`. The id
+  // specs/024-projects: a gated tool, shown to holders of `projects:access`. The id
   // is the auth catalog resource, which is what `/authz/me`'s `apps` carries.
   { id: 'projects', label: strings.tools.projects, to: '/projects' },
 ]

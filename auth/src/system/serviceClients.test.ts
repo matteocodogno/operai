@@ -120,7 +120,7 @@ describe("parseServiceClients", () => {
     expect(scopes).not.toContain("emails.send");
   });
 
-  test("crm.companies.read is an accepted scope: a projects-api client holding it parses (specs/021)", () => {
+  test("crm.companies.read is an accepted scope: a projects-api client holding it parses (specs/024)", () => {
     const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope: "crm.companies.read" } }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;

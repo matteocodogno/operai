@@ -1,5 +1,5 @@
 /**
- * Thin HTTP client for `auth GET /authz/resolve` (specs/021-projects, ADR-0014
+ * Thin HTTP client for `auth GET /authz/resolve` (specs/024-projects, ADR-0014
  * point 1). Copied from projects-api/src/authz/resolveClient.ts.
  *
  * Deliberately isolated in its own module — mirrors `auth/src/lib/notify.ts`'s

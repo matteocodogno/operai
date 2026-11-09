@@ -1,5 +1,5 @@
 /**
- * The team of a project (specs/021 T7; AC-1.5, AC-1.6, AC-1.7, AC-4.4). Runs the ASSEMBLED app
+ * The team of a project (specs/024 T7; AC-1.5, AC-1.6, AC-1.7, AC-4.4). Runs the ASSEMBLED app
  * against the `*_test` database; auth, its identity and app-access endpoints are the fakes of
  * test-support/world.ts. Projects are seeded straight in the database.
  */

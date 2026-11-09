@@ -1,6 +1,6 @@
 /**
  * Contract terms as a form holds them (text in every input) and as the API takes
- * them (specs/021-projects, tasks.md § API contracts; AC-2.3 – AC-2.8): the empty
+ * them (specs/024-projects, tasks.md § API contracts; AC-2.3 – AC-2.8): the empty
  * form of a type, a stored contract back into the form, and the form into the
  * request's `terms` with the checks the server makes (limits, one decimal, a
  * maintenance contract needs an SLA or an hour package).

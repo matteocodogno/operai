@@ -1,5 +1,5 @@
 /**
- * Projects: list, create, read, rename / change project manager (specs/021 T5; AC-1.1,
+ * Projects: list, create, read, rename / change project manager (specs/024 T5; AC-1.1,
  * AC-1.4 – AC-1.7, AC-4.3, AC-4.4).
  *
  * Reading needs `projects:access` only (every holder reads every project, D13). Writing needs
@@ -8,7 +8,7 @@
  * once the entity is known. A project's entity, company and type are fixed at creation.
  *
  * Names are live: people come from `auth` (fail soft, ADR-0039), company names from crm-api
- * with the service credential (fail soft, ADR-0059).
+ * with the service credential (fail soft, ADR-0076).
  *
  * `toProjectView`, `projectInclude` and `findProjectRow` are exported for the routes that
  * answer with a `Project` after their own write (transitions, team — T6, T7).

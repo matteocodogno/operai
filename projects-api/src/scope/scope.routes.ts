@@ -1,5 +1,5 @@
 /**
- * `GET /scope` (specs/021-projects, tasks.md § API contracts): which entities
+ * `GET /scope` (specs/024-projects, tasks.md § API contracts): which entities
  * `project:manage` covers for the caller, whether that is every entity, and whether
  * they may write a contract's Bexio order id — so projects-ui offers exactly the
  * controls the server would accept (AC-4.4, AC-4.5). An `auth` outage is a 503, never
