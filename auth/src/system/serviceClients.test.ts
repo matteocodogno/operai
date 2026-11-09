@@ -127,6 +127,14 @@ describe("parseServiceClients", () => {
     expect(result.clients.get("projects-api")?.scopes).toEqual(["crm.companies.read"]);
   });
 
+  test("the documented projects-api entry is exactly crm.companies.read: no push, no email (specs/024)", () => {
+    const documented = DOCUMENTED_CLIENT_SCOPES["projects-api"];
+    const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope: documented } }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("projects-api")?.scopes).toEqual(["crm.companies.read"]);
+  });
+
   test("a client holding emails.send parses, alone or beside notifications.push", () => {
     const result = parseServiceClients(
       raw({

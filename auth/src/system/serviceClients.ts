@@ -63,9 +63,12 @@ export const KNOWN_SERVICE_SCOPES = [
  * env value, validated by {@link parseServiceClients}.
  * - `meetings-api` (specs/021): pushes in-app notifications and relays host
  *   notices to crm-api; it never sends email (AC-12.4), so no `emails.send`.
+ * - `projects-api` (specs/024): reads CRM companies and nothing else, so exactly
+ *   `crm.companies.read` (no push, no email; ADR-0049 one scope per capability).
  */
 export const DOCUMENTED_CLIENT_SCOPES = {
   "meetings-api": "notifications.push host-notices.send",
+  "projects-api": "crm.companies.read",
 } as const;
 
 /**
