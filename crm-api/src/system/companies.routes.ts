@@ -20,7 +20,13 @@ import { db } from "../lib/db";
 import { EntitySchema } from "../lib/http";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { problem } from "../lib/problem";
-import { createSystemAuthMiddleware, type SystemAuthVariables } from "./systemAuth.middleware";
+import { createSystemAuthMiddleware, type SystemAuthVariables } from "../auth/systemAuth.middleware";
+
+/**
+ * The one service principal this route serves. Holding `crm.companies.read` is not enough: a
+ * service credential opens only the routes that list its `sub` (ADR-0059/0073 posture).
+ */
+export const COMPANIES_ALLOWED_SUBS = ["system:projects-api"] as const;
 
 export const MAX_IDS = 100;
 export const MAX_LIMIT = 50;
@@ -112,5 +118,5 @@ export const createSystemCompaniesRouter = (auth: MiddlewareHandler) => {
 
 /** The router `src/index.ts` mounts: the default JWKS and SERVICE_AUDIENCE. */
 export const systemCompaniesRouter = createSystemCompaniesRouter(
-  createSystemAuthMiddleware({ scope: "crm.companies.read" }),
+  createSystemAuthMiddleware({ scope: "crm.companies.read", allowedSubs: COMPANIES_ALLOWED_SUBS }),
 );

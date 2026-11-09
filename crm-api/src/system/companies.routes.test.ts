@@ -5,8 +5,8 @@
  * JWKS is an in-memory one injected into the middleware, so no live `auth` is needed.
  *
  * The credential matrix: every failure — no token, a user JWT, another scope,
- * another audience, a non-service `sub`, an expired or malformed token, a
- * missing SERVICE_AUDIENCE — answers the SAME 401, byte for byte.
+ * another audience, a non-service `sub`, another service client holding the scope, an
+ * expired or malformed token, a missing SERVICE_AUDIENCE — answers the SAME 401, byte for byte.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -15,8 +15,8 @@ import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from "jose";
 import { TEST_AUDIENCE, TEST_ISSUER } from "../test-support/testAuth";
 
 const { db } = await import("../lib/db");
-const { createSystemAuthMiddleware } = await import("./systemAuth.middleware");
-const { createSystemCompaniesRouter } = await import("./companies.routes");
+const { createSystemAuthMiddleware } = await import("../auth/systemAuth.middleware");
+const { COMPANIES_ALLOWED_SUBS, createSystemCompaniesRouter } = await import("./companies.routes");
 
 const SERVICE_AUD = "operai-system-test";
 const KID = "svc-companies-kid";
@@ -79,14 +79,14 @@ beforeAll(async () => {
   app.route(
     "/",
     createSystemCompaniesRouter(
-      createSystemAuthMiddleware({ scope: "crm.companies.read", jwks, audience: SERVICE_AUD }),
+      createSystemAuthMiddleware({ scope: "crm.companies.read", allowedSubs: COMPANIES_ALLOWED_SUBS, jwks, audience: SERVICE_AUD }),
     ),
   );
   noAudienceApp = new Hono();
   noAudienceApp.route(
     "/",
     createSystemCompaniesRouter(
-      createSystemAuthMiddleware({ scope: "crm.companies.read", jwks, audience: undefined }),
+      createSystemAuthMiddleware({ scope: "crm.companies.read", allowedSubs: COMPANIES_ALLOWED_SUBS, jwks, audience: undefined }),
     ),
   );
   await cleanup();
@@ -118,6 +118,7 @@ describe("GET /system/companies — the credential (every failure is the same 40
       ["another audience", await get("", await serviceJwt({ aud: "someone-else" }))],
       ["a sub that is not a service principal", await get("", await serviceJwt({ sub: "projects-api" }))],
       ["an empty service sub", await get("", await serviceJwt({ sub: "system:" }))],
+      ["another service client holding the scope", await get("", await serviceJwt({ sub: "system:meetings-api" }))],
       ["an expired token", await get("", await serviceJwt({ exp: Math.floor(Date.now() / 1000) - 60 }))],
       ["a malformed token", await get("", "not-a-jwt")],
     ];

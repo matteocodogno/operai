@@ -1,6 +1,6 @@
 /**
- * The consolidated service-JWT middleware serves two /system routes (specs/021 AC-11.8, specs/018
- * AC-3.3). A service credential is valid for ITS route only: meetings-api's host-notices token must
+ * The consolidated service-JWT middleware serves three /system routes (specs/021 AC-11.8, specs/018
+ * AC-3.3, specs/024 `GET /system/companies`). A service credential is valid for ITS route only: meetings-api's host-notices token must
  * not open the estimate-notices route and estimai-api's estimate-notices token must not open the
  * host-notices route, whatever else each token carries (QE rebase-seam check, specs/021).
  */
@@ -12,6 +12,7 @@ void TEST_ISSUER;
 
 const HOST = "/system/meeting-host/v1/notices";
 const ESTIMATE = "/system/estimate-notices";
+const COMPANIES = "/system/companies";
 beforeEach(resetWorld);
 
 const post = async (path: string, token: string) => {
@@ -45,5 +46,14 @@ describe("cross-route service credentials are refused with 401", () => {
     const estimai = await signServiceToken({ sub: "system:estimai-api", scope: "notifications.push estimate-notices.send" });
     expect(await post(HOST, meetings)).toBe(422);
     expect(await post(ESTIMATE, estimai)).toBe(422);
+  });
+
+  it("only projects-api reads CRM companies: another client holding crm.companies.read is refused", async () => {
+    const get = async (token: string) =>
+      (await app.request(COMPANIES, { headers: { Authorization: `Bearer ${token}` } })).status;
+    const scope = "crm.companies.read";
+    expect(await get(await signServiceToken({ sub: "system:meetings-api", scope: `host-notices.send ${scope}` }))).toBe(401);
+    expect(await get(await signServiceToken({ sub: "system:estimai-api", scope }))).toBe(401);
+    expect(await get(await signServiceToken({ sub: "system:projects-api", scope }))).toBe(200);
   });
 });
