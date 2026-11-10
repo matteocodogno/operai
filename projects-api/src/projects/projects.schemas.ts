@@ -1,5 +1,5 @@
 /**
- * Request and response shapes of the project routes (specs/024-projects, tasks.md § API
+ * Request and response shapes of the project routes (specs/025-projects, tasks.md § API
  * contracts). The type and state vocabularies live here so the transition and contract
  * routes (T6, T8) reuse them.
  */
@@ -64,7 +64,7 @@ export const TermsViewSchema = z.union([
 
 export const ContractSchema = ContractSummarySchema.extend({
   projectId: z.string(),
-  /** Filled by the CRM hand-off (specs/025); `null` for a contract entered by hand. */
+  /** Filled by the CRM hand-off (specs/026); `null` for a contract entered by hand. */
   dealId: z.string().nullable(),
   terms: TermsViewSchema,
   version: z.number().int(),

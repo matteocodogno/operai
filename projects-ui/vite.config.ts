@@ -4,7 +4,7 @@ import { federation } from '@module-federation/vite'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-// specs/024-projects: projects-ui — the Projects tool's federated REMOTE (ADR-0006),
+// specs/025-projects: projects-ui — the Projects tool's federated REMOTE (ADR-0006),
 // modelled on crm-ui/vite.config.ts. Two exposed modules: `./App` (the
 // access-gated tool, mounted at the shell's `/projects/*`) and `./version`
 // (ADR-0030, the About modal). `requiredVersion` for every shared singleton is

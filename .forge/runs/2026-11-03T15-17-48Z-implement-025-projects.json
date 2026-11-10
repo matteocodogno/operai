@@ -1,9 +1,9 @@
 {
   "schema": "wellforge-run/v3",
   "plugin_version": "2.57.1",
-  "run_id": "2026-11-03T15-17-48Z-implement-024-projects",
+  "run_id": "2026-11-03T15-17-48Z-implement-025-projects",
   "command": "implement",
-  "feature": "024-projects",
+  "feature": "025-projects",
   "rigor": "mvp",
   "rigor_recorded": null,
   "started": "2026-11-03T15:17:48Z",

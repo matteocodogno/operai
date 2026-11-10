@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Tests for the `/projects/$` tool route (specs/024-projects, T15, AC-4.1): the
+ * Tests for the `/projects/$` tool route (specs/025-projects, T15, AC-4.1): the
  * Projects module appears in the suite only for holders of `projects:access`
  * (ADR-0007 posture), the same gate the other tools sit behind.
  *

@@ -1,5 +1,5 @@
 /**
- * Projects: create, list, read, rename / change project manager (specs/024 T5;
+ * Projects: create, list, read, rename / change project manager (specs/025 T5;
  * AC-1.1, AC-1.4, AC-1.5, AC-1.6, AC-1.7, AC-4.3, AC-4.4). Runs the ASSEMBLED app against the
  * `*_test` database; auth, the identity service and crm-api are the fakes of
  * test-support/world.ts.

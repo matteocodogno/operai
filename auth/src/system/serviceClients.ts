@@ -44,7 +44,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *   estimai-api's `/system/deal-link-notices` (specs/024, ADR-0076).
  *   estimai-api verifies it; its sub allowlist names `system:crm-api`.
  * - `crm.companies.read`: read CRM companies through crm-api's
- *   `GET /system/companies` (specs/024, ADR-0076). Only projects-api holds it.
+ *   `GET /system/companies` (specs/025, ADR-0080). Only projects-api holds it.
  */
 export const KNOWN_SERVICE_SCOPES = [
   "notifications.push",
@@ -63,7 +63,7 @@ export const KNOWN_SERVICE_SCOPES = [
  * env value, validated by {@link parseServiceClients}.
  * - `meetings-api` (specs/021): pushes in-app notifications and relays host
  *   notices to crm-api; it never sends email (AC-12.4), so no `emails.send`.
- * - `projects-api` (specs/024): reads CRM companies and nothing else, so exactly
+ * - `projects-api` (specs/025): reads CRM companies and nothing else, so exactly
  *   `crm.companies.read` (no push, no email; ADR-0049 one scope per capability).
  */
 export const DOCUMENTED_CLIENT_SCOPES = {

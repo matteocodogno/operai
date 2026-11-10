@@ -1,5 +1,5 @@
 /**
- * Shared request/response pieces of every projects-api route group (specs/024-projects,
+ * Shared request/response pieces of every projects-api route group (specs/025-projects,
  * tasks.md § API contracts): the paging query, the optimistic-concurrency
  * precondition (AC-1.7, ADR-0038) and the shapes several groups return. Copied from
  * crm-api/src/lib/http.ts.

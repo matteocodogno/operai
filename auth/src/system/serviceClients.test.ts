@@ -120,14 +120,14 @@ describe("parseServiceClients", () => {
     expect(scopes).not.toContain("emails.send");
   });
 
-  test("crm.companies.read is an accepted scope: a projects-api client holding it parses (specs/024)", () => {
+  test("crm.companies.read is an accepted scope: a projects-api client holding it parses (specs/025)", () => {
     const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope: "crm.companies.read" } }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.clients.get("projects-api")?.scopes).toEqual(["crm.companies.read"]);
   });
 
-  test("the documented projects-api entry is exactly crm.companies.read: no push, no email (specs/024)", () => {
+  test("the documented projects-api entry is exactly crm.companies.read: no push, no email (specs/025)", () => {
     const documented = DOCUMENTED_CLIENT_SCOPES["projects-api"];
     const result = parseServiceClients(raw({ "projects-api": { secret: SECRET_A, scope: documented } }));
     expect(result.ok).toBe(true);

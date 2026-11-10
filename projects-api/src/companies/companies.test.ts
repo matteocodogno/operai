@@ -1,6 +1,6 @@
 /**
- * `GET /companies?q=` (specs/024 T5, AC-1.1): the company picker, answered from the CRM
- * through a service credential (ADR-0076) for people who may hold no `crm:access` (D13).
+ * `GET /companies?q=` (specs/025 T5, AC-1.1): the company picker, answered from the CRM
+ * through a service credential (ADR-0080) for people who may hold no `crm:access` (D13).
  * crm-api is the fake of test-support/world.ts.
  */
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";

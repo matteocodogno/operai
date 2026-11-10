@@ -244,7 +244,7 @@ export async function seedMeetingsCatalog(): Promise<void> {
 }
 
 /**
- * Registers the projects module's catalog (specs/024-projects — AC-4.1):
+ * Registers the projects module's catalog (specs/025-projects — AC-4.1):
  * `projects:access`, entity-scoped `project:manage` and `contract:bexio`.
  * Idempotent (full-replace upsert keyed by `appId`). `projects` is registered
  * ONLY here, never via `SUITE_APPS`.
@@ -692,7 +692,7 @@ export async function seedMeetingsGrants(): Promise<void> {
 }
 
 /**
- * Seeds the projects module's role grants (specs/024-projects — AC-4.3–4.6;
+ * Seeds the projects module's role grants (specs/025-projects — AC-4.3–4.6;
  * decisions D13, D35, D36):
  *
  *   - `admin` — `project:manage` and `contract:bexio`, UNCONDITIONED. Its

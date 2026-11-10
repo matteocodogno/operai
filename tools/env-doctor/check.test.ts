@@ -807,9 +807,9 @@ describe("env-doctor checker — meetings (specs/021)", () => {
   });
 });
 
-// specs/024-projects: projects-api (a new resource server) reads CRM companies from crm-api with a scoped
+// specs/025-projects: projects-api (a new resource server) reads CRM companies from crm-api with a scoped
 // service credential; crm-api gains SERVICE_AUDIENCE. The baseline is the suite above plus the two services.
-describe("env-doctor checker — projects-api and the crm-api service audience (specs/024)", () => {
+describe("env-doctor checker — projects-api and the crm-api service audience (specs/025)", () => {
   const CLIENT_SECRET_PROJECTS = "p".repeat(40);
   const projectsRegistry = (scope = "crm.companies.read") =>
     JSON.stringify({

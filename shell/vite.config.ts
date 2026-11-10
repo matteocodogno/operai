@@ -128,7 +128,7 @@ const crmRemoteUrl = process.env['CRM_REMOTE_URL'] ?? 'http://localhost:5179/rem
 // through this shell's own `./extensions` expose, ADR-0060).
 const meetingsRemoteUrl = process.env['MEETINGS_REMOTE_URL'] ?? 'http://localhost:5180/remoteEntry.js'
 
-// specs/024-projects: projects-ui, the Projects module's federated remote. Same
+// specs/025-projects: projects-ui, the Projects module's federated remote. Same
 // pattern; dev default targets its own pinned port (5181).
 const projectsRemoteUrl = process.env['PROJECTS_REMOTE_URL'] ?? 'http://localhost:5181/remoteEntry.js'
 
@@ -268,7 +268,7 @@ export default defineConfig({
           entryGlobalName: 'meetings',
           shareScope: 'default',
         },
-        // specs/024-projects: projects-ui, mounted at the access-gated `/projects/$`.
+        // specs/025-projects: projects-ui, mounted at the access-gated `/projects/$`.
         projects: {
           type: 'module',
           name: 'projects',

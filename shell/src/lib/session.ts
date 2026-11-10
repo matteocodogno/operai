@@ -46,7 +46,7 @@
  *     • The meetings-api origin (VITE_MEETINGS_API_URL), if defined
  *       (specs/021-meetings, T50) — and only that origin.
  *     • The projects-api origin (VITE_PROJECTS_API_URL), if defined
- *       (specs/024-projects).
+ *       (specs/025-projects).
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -160,7 +160,7 @@ export { registerNavigationBlocker } from './navigationBlocker'
 export { closeFloating, openFloating } from './floating'
 
 /**
- * The projects-api base URL (`VITE_PROJECTS_API_URL`, specs/024-projects), exposed
+ * The projects-api base URL (`VITE_PROJECTS_API_URL`, specs/025-projects), exposed
  * for the federated `projects` remote, which ships no `VITE_*` env of its own.
  * Lazily read, mirrors `getCrmApiBaseUrl()`.
  */
@@ -286,7 +286,7 @@ const getTrustedOrigins = (): Set<string> => {
     }
   }
 
-  // specs/024-projects: projects-api origin, trusted only when configured (same shape).
+  // specs/025-projects: projects-api origin, trusted only when configured (same shape).
   const projectsUrl = import.meta.env.VITE_PROJECTS_API_URL as string | undefined
   if (projectsUrl) {
     try {

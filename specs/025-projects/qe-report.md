@@ -1,4 +1,4 @@
-# QE report — specs/024-projects (T19, QE-light)
+# QE report — specs/025-projects (T19, QE-light)
 
 Mode: **advisory, rigor `mvp`**. Blocking rows: SAST-high, lint, typecheck, security floor (secret scan over
 the full git history). Advisory rows: coverage, dependency audit.
@@ -23,7 +23,7 @@ a load-order race in the shell's language seam, so AC-4.7 is proven on the catal
 crash intermittently in the dev servers (duplicate React). Neither is a defect in `projects-api` /
 `projects-ui`; both are listed with their evidence below. If the caller reads AC-4.7 as "an Italian user sees
 Italian", D2 makes it a FAIL until the shell is fixed — at `mvp` I rate it a suite-level finding, not a
-specs/024 one, because the same screen in CRM behaves identically.
+specs/025 one, because the same screen in CRM behaves identically.
 
 **Still not run.** (1) `bash infra/check.sh`: out of the T19 gate since the `tasks.md` amendment of 2026-11-03
 (D1, resolved); it waits for provisioning. (2) Live items not walked, listed under "Live pass: not covered" below.
@@ -49,7 +49,7 @@ specs/024 one, because the same screen in CRM behaves identically.
 | shared copies (`bun scripts/check-shared-copies.ts`) | exit 0 | 1 group in sync (serviceToken), exit 0 | ✓ |
 | changeset (`check-changeset.mjs --base=main --head=HEAD`) | OK | OK, matched `.changeset/projects-tool.md` | ✓ |
 | Migration applied | up to date | `prisma migrate status` on `projects`: "Database schema is up to date" (1 migration) | ✓ |
-| **Security floor: secret scan, full history** (re-run in the live pass, at `39f984f`) | no secret introduced | gitleaks **8.30.1**, 822 commits / 20.72 MB: **19 findings, none a secret, none in feature code**. Triage by commit and file: 10 are dummy test-secret constants in `auth/*.test.ts` and `auth/src/test-setup.ts`; 5 are the runtime-generated key-pair variable (`kp2.privateKey`) in four `jwt.middleware.test.ts` files (inventory twice, refund, notify, estimai); 2 are `infra/check.sh` probes with a deliberately bogus credential; 1 is the truncated `MIIE...` placeholder in the `auth` env example (commit `a44f699`, older than the feature, not read this pass); **1 is new since the gate pass (the 19th): commit `a0021d1`, `specs/024-projects/qe-report.md:38`, i.e. this report's own triage prose quoting the key-pair assignment**: a false positive that I caused. This revision of the report no longer contains the literal text; the finding stays in history (no history rewrite). `main..HEAD` (26 commits) scans with that single finding and nothing else; the three T17 commits (the direnv loader and the two env examples) are inside the range and produce no finding. The repo has no gitleaks config or CI scan, so all of these are re-reported every run. | ✓ (see N1) |
+| **Security floor: secret scan, full history** (re-run in the live pass, at `39f984f`) | no secret introduced | gitleaks **8.30.1**, 822 commits / 20.72 MB: **19 findings, none a secret, none in feature code**. Triage by commit and file: 10 are dummy test-secret constants in `auth/*.test.ts` and `auth/src/test-setup.ts`; 5 are the runtime-generated key-pair variable (`kp2.privateKey`) in four `jwt.middleware.test.ts` files (inventory twice, refund, notify, estimai); 2 are `infra/check.sh` probes with a deliberately bogus credential; 1 is the truncated `MIIE...` placeholder in the `auth` env example (commit `a44f699`, older than the feature, not read this pass); **1 is new since the gate pass (the 19th): commit `a0021d1`, `specs/025-projects/qe-report.md:38`, i.e. this report's own triage prose quoting the key-pair assignment**: a false positive that I caused. This revision of the report no longer contains the literal text; the finding stays in history (no history rewrite). `main..HEAD` (26 commits) scans with that single finding and nothing else; the three T17 commits (the direnv loader and the two env examples) are inside the range and produce no finding. The repo has no gitleaks config or CI scan, so all of these are re-reported every run. | ✓ (see N1) |
 | No secret-bearing file committed by the branch | none | since the gate pass T17 added or changed three files: the `projects-api` env example, the `projects-api` direnv loader, the `auth` env example: an example and a loader, committed by design. I did not read them (guard policy: no env-file reads) and rely on the gitleaks result above (no finding in them). My by-name grep of `main..HEAD` for env/key/pem files was blocked by the same guard hook and I did not work around it, so the gate pass's by-name check is not repeated | ✓ (by gitleaks; by-name check not repeated) |
 | SAST-high (**executed in the live pass**; the gate pass had no tool) | none | semgrep **1.182.0** run through `mise exec` (no SAST tool is installed or configured in the repo or its CI, so this was an ad hoc run), rule packs `p/typescript` + `p/owasp-top-ten` + `p/security-audit`, severities ERROR and WARNING, `--metrics off`: **95 rules on 250 files, 0 findings (0 blocking)**, ~99.9% of lines parsed (a first run on a narrower scope: 92 rules on 159 files, 0 findings). Scope: `projects-api/src`, `projects-ui/src`, `crm-api/src/system`, `auth/src/authz`, all of `shell/src`, `tools/env-doctor`, `scripts` (every directory the branch changes source in). One parser warning, not a finding: `auth/src/authz/resolver.ts:142` ("`\u0000` was unexpected", partial parse). The gate pass's manual stand-in (grep sweep: one hit, the constant ``db.$queryRaw`SELECT 1` `` health probe; no token or secret logging) is superseded. The owasp-reviewer pass (PASS WITH NOTES, 0 critical/high/medium) was reported by the caller and is not repeated | ✓ (see N2) |
 | Coverage, projects-api (advisory) | ≥80% (production floor) | 96.16% lines, 95.27% funcs (bun) | ADVISORY, above floor |
@@ -146,7 +146,7 @@ run it after `provision-tool`. QE did not run the full script: it issues request
 **D2 — The shell's language seam does not deliver the person's language to any remote in the dev build, so
 projects-ui (and CRM, inventory, ...) render English for an Italian user.** New in the live pass; **missed
 earlier** (the gate pass could not render Italian at all). Owner: **shell / suite-wide language seam (INC-25,
-`shell/src/lib/documentLanguage.ts`, `shell/src/main.tsx`), not specs/024 and not a projects dev agent.**
+`shell/src/lib/documentLanguage.ts`, `shell/src/main.tsx`), not specs/025 and not a projects dev agent.**
 Severity for this feature: AC-4.7 is satisfied as worded ("all copy exists in English and Italian", proven by
 the catalog tests and by a complete Italian render with the right `lang`); the user-visible outcome is not, and
 the caller may weigh it as an AC-4.7 failure (see "Read first").
@@ -197,7 +197,7 @@ No AC is wrong or untestable.
 - **N5** `projects-api/src/authz/conditions.ts`: 63.9% line coverage; `findPermission` and `inScope` are copied
   from crm-api and unused here. Dead copy, harmless.
 - **N6** Deferred by `tasks.md` and unchanged: shell e2e journey for `/projects`, production provisioning,
-  specs/025 and 023.
+  specs/026 and 023.
 - **N7** `projects-ui` has no coverage provider, so UI coverage is unmeasured at every tier until
   `@vitest/coverage-v8` is added (shell and the other UIs: not checked).
 
@@ -220,7 +220,7 @@ No AC is wrong or untestable.
   sharing of React across seven dev servers racing at startup, not the projects module. No stale-cache,
   stored-session or service-worker cause found (localStorage held only the theme and last tool; no service worker).
   An earlier symptom in this pass (the Playwright browser closing mid-run) was also seen once and not
-  investigated. Owner: whoever owns the dev federation setup (shell / `mise run dev`); not a specs/024 dev agent.
+  investigated. Owner: whoever owns the dev federation setup (shell / `mise run dev`); not a specs/025 dev agent.
   A production build was not tested. Workaround used here: reload until the page renders.
 - **E5** (QE tooling, for the next agent) The Playwright default context is shared and persistent; I used the
   default context for single-identity steps (cookie swapped per identity) and fresh `browser.newContext()`
@@ -275,7 +275,7 @@ were seeded by the developer and are left as they were (each session-seam call I
   credential is only reachable through `GET /companies`, which an employee gets 403 on and which returned the same
   3 companies as the CRM. Re-run only if the `SERVICE_CLIENTS` scope changes.
 - Route **D2** to the shell owner (and decide whether it blocks AC-4.7 for you); route **E4** to whoever owns the dev
-  federation setup. Neither needs a specs/024 dev agent.
+  federation setup. Neither needs a specs/025 dev agent.
 - **D1** is resolved by the `tasks.md` amendment. T19's remaining done-when is the verdict plus
-  `/wellforge:done 024-projects`; I do not touch `tasks.md` or the spec status.
+  `/wellforge:done 025-projects`; I do not touch `tasks.md` or the spec status.
 - The developer can remove the QE021 rows listed above; nothing else in the database was created by this pass.

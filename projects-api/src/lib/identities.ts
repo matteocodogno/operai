@@ -1,6 +1,6 @@
 /**
  * Display-identity resolution for project managers and team members
- * (specs/024-projects, ADR-0039). Copied from crm-api/src/lib/identities.ts, with
+ * (specs/025-projects, ADR-0039). Copied from crm-api/src/lib/identities.ts, with
  * `requireProjectUsers` for writes in place of its `requireCrmUsers` (ADR-0055).
  *
  * projects-api stores only opaque auth user ids. Names are resolved LIVE from

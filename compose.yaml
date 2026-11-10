@@ -194,7 +194,7 @@ services:
 
   # ─── projects-api ───────────────────────────────────────────────────────────
   # Bun + Hono resource server for the projects module: projects, their contracts
-  # and the project team (specs/024-projects).
+  # and the project team (specs/025-projects).
   #
   # DATA-RESIDENCY: in production this service is deployed to Railway EU region
   # (see projects-api/railway.json). Locally it runs against the shared Postgres

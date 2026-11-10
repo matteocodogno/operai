@@ -1,5 +1,5 @@
 /**
- * The state machine of a project and the one allowed type change (specs/024 AC-1.2, AC-1.3,
+ * The state machine of a project and the one allowed type change (specs/025 AC-1.2, AC-1.3,
  * A10, D7, D24). Pure: no database, no request.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Authorization matrix over the ASSEMBLED app (specs/024-projects T10; AC-4.2 – AC-4.6, ADR-0014).
+ * Authorization matrix over the ASSEMBLED app (specs/025-projects T10; AC-4.2 – AC-4.6, ADR-0014).
  *
  * The route list is read from the app's own table, so a route added without a row here fails the
  * inventory test, and one added without a guard fails the matrix. Every route is then driven by

@@ -261,7 +261,7 @@ describe("GET /authz/users/directory (T5, specs/015-hardware-inventory; ADR-0047
     expect((await callDirectory(attendee.token)).status).toBe(403);
   });
 
-  // specs/024-projects, ADR-0055: the project manager / team pickers are the fourth consumer.
+  // specs/025-projects, ADR-0055: the project manager / team pickers are the fourth consumer.
   test("a holder of the projects catalog's project:manage (entity-scoped) gets the roster", async () => {
     const manager = await mintUser("projects-manager", {
       grants: [

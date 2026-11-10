@@ -1,6 +1,6 @@
 /**
  * The consolidated service-JWT middleware serves three /system routes (specs/021 AC-11.8, specs/018
- * AC-3.3, specs/024 `GET /system/companies`). A service credential is valid for ITS route only: meetings-api's host-notices token must
+ * AC-3.3, specs/025 `GET /system/companies`). A service credential is valid for ITS route only: meetings-api's host-notices token must
  * not open the estimate-notices route and estimai-api's estimate-notices token must not open the
  * host-notices route, whatever else each token carries (QE rebase-seam check, specs/021).
  */

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * QE additions for specs/024-projects (T19, QE-light). The page tests prove the project-level
+ * QE additions for specs/025-projects (T19, QE-light). The page tests prove the project-level
  * controls vanish for a caller who manages the other entity (AC-4.4), but the contract cards,
  * "Add contract" and the Bexio field were only exercised for a caller who manages NOTHING. These
  * drive the whole project page, through the app's real router against a fake projects-api, for

@@ -1,5 +1,5 @@
 /**
- * The Bexio order id of a contract (specs/024 T9; AC-3.1, AC-3.2, AC-3.3, AC-4.5). Runs the
+ * The Bexio order id of a contract (specs/025 T9; AC-3.1, AC-3.2, AC-3.3, AC-4.5). Runs the
  * ASSEMBLED app against the `*_test` database; auth and the CRM are the fakes of
  * test-support/world.ts. Projects and contracts are seeded straight in the database.
  */

@@ -13,7 +13,7 @@
  *   - GATE: the caller must hold an entry of {@link DIRECTORY_GATE_PERMISSIONS}
  *     (the `inventory` catalog's `asset:manage`, since ADR-0053 the `crm`
  *     catalog's `deal:manage`, since ADR-0066 the `meetings` catalog's
- *     `meetings:access` and since specs/024-projects the `projects` catalog's
+ *     `meetings:access` and since specs/025-projects the `projects` catalog's
  *     `project:manage`, each under ANY entity scope) — an explicit
  *     allowlist, resolved live through `auth`'s own resolver (revocation is
  *     immediate). A second consuming app is ADDED to
@@ -77,7 +77,7 @@ export const DIRECTORY_GATE_PERMISSIONS: readonly { resource: string; action: st
   // by design; the picker calls it WITHOUT `?appId=` because a participant needs
   // no tool grant (AC-10.4). `template:manage` / `meeting:erase` do not open it.
   { resource: "meetings", action: "access" },
-  // The `projects` catalog's project:manage (specs/024, ADR-0055): the project
+  // The `projects` catalog's project:manage (specs/025, ADR-0055): the project
   // manager and team pickers. Deliberately NOT projects:access (reading the
   // projects is no reason to list people) nor contract:bexio. Same resource-key
   // uniqueness rule as above: no other catalog may declare a `project` resource.

@@ -1,5 +1,5 @@
 /**
- * A contract's Bexio order id (specs/024 T9; AC-3.1, AC-3.2, AC-3.3, AC-1.7, AC-4.5).
+ * A contract's Bexio order id (specs/025 T9; AC-3.1, AC-3.2, AC-3.3, AC-1.7, AC-4.5).
  *
  * `PUT /projects/:id/contracts/:contractId/bexio-order` is the ONLY way to write it: it needs the
  * `contract:bexio` capability (the `accounting` role, D35) — not `project:manage`, and not scoped

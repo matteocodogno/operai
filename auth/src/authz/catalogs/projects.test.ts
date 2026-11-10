@@ -1,5 +1,5 @@
 /**
- * Structural checks of the projects catalog constant (specs/024-projects — AC-4.1,
+ * Structural checks of the projects catalog constant (specs/025-projects — AC-4.1,
  * AC-4.3–4.5). The registration path and the role grants are covered by `../seed.test.ts`.
  */
 
@@ -10,7 +10,7 @@ import { INVENTORY_CATALOG } from "./inventory";
 import { PROJECTS_APP_ID, PROJECTS_CATALOG } from "./projects";
 import { REFUND_CATALOG } from "./refund";
 
-describe("PROJECTS_CATALOG (specs/024)", () => {
+describe("PROJECTS_CATALOG (specs/025)", () => {
   test("declares appId `projects` with a condition-free `access` action on the app-access resource", () => {
     expect(PROJECTS_APP_ID).toBe("projects");
     expect(PROJECTS_CATALOG.appId).toBe("projects");

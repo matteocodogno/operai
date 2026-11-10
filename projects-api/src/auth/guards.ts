@@ -1,6 +1,6 @@
 /**
- * The guard stack and capabilities every projects-api route uses (specs/024-projects,
- * ADR-0014, ADR-0075). Copied in shape from crm-api/src/auth/guards.ts.
+ * The guard stack and capabilities every projects-api route uses (specs/025-projects,
+ * ADR-0014, ADR-0079). Copied in shape from crm-api/src/auth/guards.ts.
  *
  *   authorized   JWT + live authorization (`GET /authz/resolve`) + `projects:access`.
  *                Every route except `/health`. An `auth` outage is a 503.

@@ -392,7 +392,7 @@ describe('apiFetch', () => {
       expect(headers?.['Authorization']).toBeUndefined()
     })
 
-    // specs/024-projects: projects-api origin, set via VITE_PROJECTS_API_URL, is
+    // specs/025-projects: projects-api origin, set via VITE_PROJECTS_API_URL, is
     // trusted so projects-ui's calls carry the Bearer JWT.
     it('sends Authorization header for a request to the projects-api origin (VITE_PROJECTS_API_URL)', async () => {
       vi.stubEnv('VITE_PROJECTS_API_URL', PROJECTS_API_URL)
@@ -936,7 +936,7 @@ describe('registerNavigationBlocker', () => {
   })
 })
 
-// getProjectsApiBaseUrl (specs/024-projects) — mirrors getCrmApiBaseUrl(): lazily
+// getProjectsApiBaseUrl (specs/025-projects) — mirrors getCrmApiBaseUrl(): lazily
 // read, exposed so projects-ui (a remote with no VITE_* env of its own) sources the
 // API origin from the shell.
 describe('getProjectsApiBaseUrl', () => {

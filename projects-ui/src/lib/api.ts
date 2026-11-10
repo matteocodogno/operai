@@ -1,5 +1,5 @@
 /**
- * api — the one place projects-ui talks HTTP (specs/024-projects).
+ * api — the one place projects-ui talks HTTP (specs/025-projects).
  *
  * Every authenticated call goes through `shell/session`'s `apiFetch`
  * (ADR-0001/ADR-0006): it attaches the Bearer JWT to trusted origins only and

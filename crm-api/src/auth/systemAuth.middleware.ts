@@ -10,8 +10,8 @@
  * system credential), the route's scope in the space-delimited `scope` claim,
  * and a `sub` that is on the route's allowlist (`system:meetings-api` for the
  * meeting-host notices, `system:estimai-api` for the estimate notices of specs/018
- * AC-3.3, ADR-0073, `system:projects-api` for `GET /system/companies`, specs/024,
- * ADR-0076). A system sub that is not listed is refused: holding a
+ * AC-3.3, ADR-0073, `system:projects-api` for `GET /system/companies`, specs/025,
+ * ADR-0080). A system sub that is not listed is refused: holding a
  * service credential is not holding THIS route's.
  *
  * Every failure — no credential, any JWT defect, the wrong scope or sub —

@@ -1,5 +1,5 @@
 /**
- * Pure, DB-free authorization-condition helpers (specs/024-projects, ADR-0014
+ * Pure, DB-free authorization-condition helpers (specs/025-projects, ADR-0014
  * point 3 + ADR-0015). Copied from crm-api/src/authz/conditions.ts, which fails
  * CLOSED on a condition it does not recognise; kept as is.
  *

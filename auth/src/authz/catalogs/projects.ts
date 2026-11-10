@@ -1,6 +1,6 @@
 /**
- * The projects module's declared permission catalog (specs/024-projects — AC-4.1,
- * AC-4.3–4.6; ADR-0075).
+ * The projects module's declared permission catalog (specs/025-projects — AC-4.1,
+ * AC-4.3–4.6; ADR-0079).
  *
  * Mirrors `catalogs/crm.ts`'s shape: a plain constant describing the
  * (resource, action, supportedConditions) surface `projects-api` enforces

@@ -1,5 +1,5 @@
 /**
- * QE addition for specs/024-projects (T19): AC-4.7 says dates use the library formatters
+ * QE addition for specs/025-projects (T19): AC-4.7 says dates use the library formatters
  * (`formatDate` from `@operai/ui`, which follows the suite's language). `strings.test.ts` and
  * `noHardcodedStrings.test.ts` guard the copy half of that AC; nothing guarded the date half, so
  * a hand-rolled `toLocaleDateString('en-GB')` or `Intl.DateTimeFormat` would have passed every

@@ -113,7 +113,7 @@ function checkRequiredKeys(suite: SuiteEnv, opts: CheckOptions): Finding[] {
   for (const svc of BACKENDS) {
     const env = suite[svc];
     if (!env) continue; // service not in scope for this run
-    // Keys a service treats as optional locally but production must hold (specs/024) join the list only for a prod-like env.
+    // Keys a service treats as optional locally but production must hold (specs/025) join the list only for a prod-like env.
     const keys = [...(REQUIRED_KEYS[svc] ?? []), ...(opts.isProdLike ? (PRODUCTION_REQUIRED_KEYS[svc] ?? []) : [])];
     for (const key of keys) {
       const v = env[key];

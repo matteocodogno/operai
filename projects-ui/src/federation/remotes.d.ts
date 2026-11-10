@@ -1,5 +1,5 @@
 // Ambient module declarations for the shell modules projects-ui consumes as a
-// remote (specs/024-projects). Module Federation resolves `shell/session` and
+// remote (specs/025-projects). Module Federation resolves `shell/session` and
 // `shell/tokens.css` at runtime through a virtual module tsc cannot see; the
 // `dts` option is off in vite.config.ts so this remote builds without a live
 // shell. Keep in sync by hand with shell/src/lib/session.ts (T15 adds

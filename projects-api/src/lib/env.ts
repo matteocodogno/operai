@@ -2,8 +2,8 @@ import { z } from "zod";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 //
-// projects-api is an authorization-enforcing resource server (specs/024, ADR-0014).
-// It reads CRM company names from crm-api with a service credential (ADR-0076), an
+// projects-api is an authorization-enforcing resource server (specs/025, ADR-0014).
+// It reads CRM company names from crm-api with a service credential (ADR-0080), an
 // OPTIONAL group, all-or-nothing: without it the service starts, a company name is
 // `null` and the company picker answers 503 `crm_unavailable`, so a developer's local
 // setup keeps working before the group is configured. The production template lists
@@ -37,7 +37,7 @@ const envSchema = z
     AUTH_BASE_URL: z.string().url("AUTH_BASE_URL must be a valid URL"),
     PORT: z.coerce.number().int().positive().default(8086),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
-    // ─── crm-api, read as ITSELF (specs/024, ADR-0076) ───────────────────────
+    // ─── crm-api, read as ITSELF (specs/025, ADR-0080) ───────────────────────
     // projects-api trades its service client for a 5-minute scoped JWT
     // (`crm.companies.read`) at auth and calls crm-api `GET /system/companies`.
     CRM_INTERNAL_URL: z.string().url("CRM_INTERNAL_URL must be a valid URL").optional(),

@@ -1,18 +1,18 @@
 ---
-id: 025
+id: 026
 slug: projects-handoff
 status: approved
 rigor: mvp
 created: 2026-11-03
 approved: 2026-11-03
-depends-on: 024
+depends-on: 025
 ---
 
 # Projects hand-off — a won deal reaches OPS "in series"
 
-Decision ledger: `../024-projects/ledger.md` (shared with specs/024 and specs/026)
+Decision ledger: `../025-projects/ledger.md` (shared with specs/025 and specs/027)
 
-> **Origin.** Split out of specs/024 on 2026-11-03 (ledger D33). specs/024 gives projects
+> **Origin.** Split out of specs/025 on 2026-11-03 (ledger D33). specs/025 gives projects
 > and hand-entered contracts; this spec connects them to the CRM pipeline of specs/017 and
 > the estimates of specs/018, so that every won deal becomes a contract on a project.
 
@@ -27,7 +27,7 @@ mind — leaves the delivery side unaware.
 ## Domain language
 
 - **to-start queue** — the won deals no project has taken yet (D2).
-- A contract's **deal** — the won deal a contract was made from (specs/024 contract,
+- A contract's **deal** — the won deal a contract was made from (specs/025 contract,
   D25). A deal feeds at most one contract, hence one project (D4).
 
 ## User stories
@@ -43,7 +43,7 @@ work is forgotten between sales and delivery.
   — OPS or BD — chooses "new project", then a project is created with the name prefilled
   from the deal's title (editable), the deal's company and entity, the type they pick among
   the client types, state `planned` and them as project manager, changeable (A5, D15,
-  specs/024 AC-1.3) (amended 2026-11-03 after approval: D36, BD may also take a deal).
+  specs/025 AC-1.3) (amended 2026-11-03 after approval: D36, BD may also take a deal).
 - AC-1.3 Given AC-1.2 completes, then the new project has one contract made from the deal
   (company, deal, project type), and the deal is no longer in the queue.
 - AC-1.4 Given a deal in the queue, when a holder of manage projects for the deal's entity
@@ -54,7 +54,7 @@ work is forgotten between sales and delivery.
 - AC-1.6 A deal feeds at most one project: a deal that already has a contract is not in the
   queue and cannot be attached again (D4).
 - AC-1.7 A deal attached to a project cannot be detached or moved to another project; its
-  contract, like any contract, can only be ended (D34, specs/024 AC-2.10).
+  contract, like any contract, can only be ended (D34, specs/025 AC-2.10).
 
 ### US-2 A reopened deal is visible, never destructive
 As a project manager, I want to know when a deal behind my work is no longer won, so that
@@ -80,7 +80,7 @@ recorded, so that I do not retype it.
   it shows a link that opens the estimate in EstimAI; a person without access to it in
   EstimAI sees it as unavailable (D29, A16).
 - AC-3.3 A contract made from a deal shows the deal's title as a link to the CRM, and the
-  origin "from deal" instead of "entered by hand" (specs/024 AC-2.1).
+  origin "from deal" instead of "entered by hand" (specs/025 AC-2.1).
 - AC-3.4 Given a deal that feeds a project, when a CRM user opens the deal page, then it
   shows the project's name and the contract's Bexio order id (empty if none), read-only (D3).
 

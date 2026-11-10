@@ -1,5 +1,5 @@
 /**
- * No hardcoded user-facing strings anywhere in `src/` (specs/024-projects, AC-4.7;
+ * No hardcoded user-facing strings anywhere in `src/` (specs/025-projects, AC-4.7;
  * ported from crm-ui). This scans EVERY component and page
  * under `src/` with the TypeScript parser, so a file added by a later task is
  * covered the moment it exists, with no list to remember to extend. It flags

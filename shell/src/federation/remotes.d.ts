@@ -147,7 +147,7 @@ declare module 'meetings/version' {
   export const REMOTE_VERSION: string
 }
 
-// specs/024-projects: the `projects` remote — `./App` (the gated tool, `/projects/*`) and `./version`.
+// specs/025-projects: the `projects` remote — `./App` (the gated tool, `/projects/*`) and `./version`.
 declare module 'projects/App' {
   import type { ComponentType } from 'react'
 

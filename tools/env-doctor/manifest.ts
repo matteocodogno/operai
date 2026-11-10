@@ -66,7 +66,7 @@ export const ORIGINS: Record<string, Partial<Record<ServiceName, string | null>>
     "crm-ui": "https://crm.operai.welld.io",
     // ASSUMED (specs/021-meetings, plan § Rollout) — confirm once the Vercel project exists.
     "meetings-ui": "https://meetings.operai.welld.io",
-    // ASSUMED (matches the shell CSP in shell/vercel.json, specs/024-projects) — confirm once the Vercel project exists.
+    // ASSUMED (matches the shell CSP in shell/vercel.json, specs/025-projects) — confirm once the Vercel project exists.
     "projects-ui": "https://projects.operai.welld.io",
   },
   preview: {
@@ -93,7 +93,7 @@ export const SHARED_VARS: ReadonlyArray<{ name: string; services: ServiceName[] 
   // specs/018 AC-3.3: crm-api verifies estimai-api's notices against it too (ADR-0073).
   // crm-api verifies them too since specs/021: meetings-api posts host notices to it as
   // `system:meetings-api` with scope `host-notices.send` (ADR-0059), and projects-api reads
-  // `GET /system/companies` as `system:projects-api` (specs/024-projects).
+  // `GET /system/companies` as `system:projects-api` (specs/025-projects).
   // specs/024: estimai-api verifies crm-api's deal-link notices against it (ADR-0076).
   { name: "SERVICE_AUDIENCE", services: ["auth", "notify-api", "crm-api", "estimai-api"] },
 ];
@@ -179,7 +179,7 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   // specs/021: meetings-api pushes meeting notifications (notify-api) and posts host notices to
   // crm-api (ADR-0059). No emails.send: an email notice, if ever wanted, is a deliberate widening.
   { ...LINK_BASE, caller: "meetings-api", requiredScopes: ["notifications.push", "host-notices.send"] },
-  // specs/024: projects-api reads CRM company names from crm-api as itself (ADR-0076). It sends no
+  // specs/025: projects-api reads CRM company names from crm-api as itself (ADR-0080). It sends no
   // notifications, so it holds exactly this one scope. The group is optional locally and required in
   // production (PRODUCTION_REQUIRED_KEYS).
   { ...LINK_BASE, caller: "projects-api", requiredScopes: ["crm.companies.read"] },
@@ -233,7 +233,7 @@ export const INTERNAL_URL_VARS: ReadonlyArray<{
   // specs/018: crm-api calls estimai-api with the caller's JWT (estimate requests, offers).
   { name: "ESTIMAI_API_URL", services: ["crm-api"], target: "estimai-api" },
   // specs/018 AC-3.3: estimai-api tells crm-api an estimate was closed or reopened (ADR-0073).
-  // specs/024: projects-api reads CRM companies from crm-api with its own service credential (ADR-0076).
+  // specs/025: projects-api reads CRM companies from crm-api with its own service credential (ADR-0080).
   { name: "CRM_INTERNAL_URL", services: ["estimai-api", "projects-api"], target: "crm-api" },
   // specs/024: crm-api tells estimai-api an estimate was linked to or unlinked from a deal (ADR-0076).
   { name: "ESTIMAI_INTERNAL_URL", services: ["crm-api"], target: "estimai-api" },
@@ -265,7 +265,7 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
   // meetings-ui is a remote reached through the shell (specs/021); the audio bucket's own CORS rule
   // (shell origin, POST + GET) is separate and cannot be checked here: infra/meetings-bucket-policy.sh.
   { backend: "meetings-api", mustAllow: ["shell"] },
-  // projects-ui is a remote reached through the shell (specs/024-projects).
+  // projects-ui is a remote reached through the shell (specs/025-projects).
   { backend: "projects-api", mustAllow: ["shell"] },
 ];
 
@@ -344,7 +344,7 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
     "MEETINGS_GCP_PROJECT_ID", "MEETINGS_GCP_SERVICE_ACCOUNT_KEY", "MEETINGS_GCS_TRANSIENT_BUCKET",
     "MEETINGS_AI_PROVIDER", "PORT",
   ],
-  // specs/024-projects: a JWKS + authorization-enforcing resource server (ADR-0014). Its CRM
+  // specs/025-projects: a JWKS + authorization-enforcing resource server (ADR-0014). Its CRM
   // service-credential group is optional in env.ts, so it is listed in PRODUCTION_REQUIRED_KEYS instead.
   "projects-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "PORT",
@@ -357,9 +357,9 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
  * environment (production/preview) — a local run is not flagged for lacking them.
  */
 export const PRODUCTION_REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
-  // crm-api's SERVICE_AUDIENCE is in REQUIRED_KEYS since specs/018 AC-3.3 (ADR-0073); specs/024's
-  // `GET /system/companies` relies on the same key (ADR-0076), so no production-only entry is needed.
-  // specs/024: projects-api's all-or-none CRM group — without it a company name is `null` and the
+  // crm-api's SERVICE_AUDIENCE is in REQUIRED_KEYS since specs/018 AC-3.3 (ADR-0073); specs/025's
+  // `GET /system/companies` relies on the same key (ADR-0080), so no production-only entry is needed.
+  // specs/025: projects-api's all-or-none CRM group — without it a company name is `null` and the
   // company picker answers 503 `crm_unavailable`.
   "projects-api": ["CRM_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"],
 };

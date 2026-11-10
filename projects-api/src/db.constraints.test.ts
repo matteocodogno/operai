@@ -1,5 +1,5 @@
 /**
- * The rules the schema itself enforces (specs/024 T4): Prisma cannot express CHECKs, so the
+ * The rules the schema itself enforces (specs/025 T4): Prisma cannot express CHECKs, so the
  * initial migration adds them by hand, and these tests prove at the DATABASE that each one
  * refuses what the model forbids. Each refusal is asserted by its constraint's NAME, so a
  * row refused for some other reason (a missing column, a bad enum) cannot pass for it; each

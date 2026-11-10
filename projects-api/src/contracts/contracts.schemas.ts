@@ -1,5 +1,5 @@
 /**
- * Request and response shapes of the contract routes (specs/024-projects T8, tasks.md § API
+ * Request and response shapes of the contract routes (specs/025-projects T8, tasks.md § API
  * contracts; AC-2.1 – AC-2.9).
  *
  * A contract's `terms` depend on the project's type, which only the handler knows, so the request
