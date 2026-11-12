@@ -202,6 +202,18 @@
 - **Option line**: a cost line the client may tick; priced and numbered, never counted in a
   total or in the offer's price. _Avoid:_ optional line (confused with optional block).
 
+### Time tracking (specs/029)
+- **Time entry**: one person's own declaration that they spent a duration, on one day, on
+  one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
+  activity, but may point at one. _Avoid:_ timesheet row, worklog, booking.
+- **Category** (time tracking): what a time entry on no entity is about (training, talk
+  preparation, administration, …), from a list an admin manages. Not the inventory's
+  **Asset category**. _Avoid:_ activity type.
+- **Work type**: the optional kind of work of a time entry on a project or a deal, from one of
+  two lists an admin manages (one for projects, one for deals). _Avoid:_ task type, service.
+- **Contractual day**: 8 h 24 min, from 42 hours a week, Monday to Friday. Nothing checks a
+  day against it in specs/029.
+
 ## Relationships
 - An **Offer draft** belongs to one deal and starts from one **Offer template**; generating
   it creates an offer whose snapshot holds the draft's answers, and removes the draft.
@@ -218,6 +230,8 @@
   one private **Conversation** per user who asked.
 - An **Access request** that is approved leads to exactly one invitation; the person
   becomes a user only by accepting it.
+- A **Time entry** is on exactly one of a project, a deal, a meeting or no entity, and points
+  at most at one **Activity**; one **Activity** may have any number of time entries.
 
 ## Open ambiguities
 - Whether the `welld_ch` **Residual value** is kept until **Disposal** or written off the
