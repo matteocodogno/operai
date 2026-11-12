@@ -66,6 +66,11 @@ Decided for specs/030 (batched interview while writing 030, 2026-11-12):
 - D33 Time-and-material projects get no alerts of any kind — user, 2026-11-12 (narrows D32's option, which also named T&M positions)
 - D34 Split of specs/030 (the user asked whether alerts should be a spec of their own): specs/030 keeps consumption and the hours on the project and deal pages (read-only); the alerts (D12, D29–D33, A27–A31) move to a new specs/032, which depends on 030 and carries the decision on how date-based alerts fire — user chose the recommended option, 2026-11-12
 
+Decided during /wellforge:plan 029 (2026-11-12):
+- D35 Spec amendment AC-4.10: a holder of see everyone's hours who cannot read an entry's project, deal or meeting sees the entry's type, minutes and day but not the entity's name nor the activity's subject — user chose the recommended option over "always show names"
+- D36 Time entries live in a new service `hours-api`, not inside activities-api — user chose this over the recommended activities-api (cleaner boundary, at the cost of a new service and cross-service reads)
+- D37 The hours screens are a new remote `hours-ui`, mounted ungated at `/hours`; the admin lists live in admin-ui — user chose the recommended option over an ungated entry in projects-ui
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 

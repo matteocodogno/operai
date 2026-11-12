@@ -149,6 +149,10 @@ visible to whom it concerns and to no one else.
 - AC-4.8 Given a person whose Operai name changes, then the hours view shows the new name on all
   their entries (ADR-0039 posture).
 - AC-4.9 Given a duration, then it is shown as hours and minutes (for example "2 h 30").
+- AC-4.10 Given a holder of see everyone's hours who cannot read an entry's project, deal or
+  meeting, then the entry is listed, counted and exported with its type, but without the name of
+  that project, deal or meeting and without the subject of the activity it points at (ADR-0058,
+  ADR-0081 posture). *(Added 2026-11-12 during planning, approved by the owner.)*
 
 ### US-5 Access and copy
 As an admin, I want time tracking to follow the suite's permission rules, so that hours are
