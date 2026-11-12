@@ -56,6 +56,16 @@ Decided (the user chose):
 - D25 Global view (B9): filters by period, person, project, deal, category and work type; totals grouped by person, project, deal, category and month; export to a file of exactly what the filters show; no charts in v1 — user chose the recommended option, 2026-11-12
 - D26 Further split (asked by the user after seeing the size, ~7 stories / ~38 ACs): specs/029 keeps time entries, categories and work types, the hours views with export, and access; the hours on the project and deal pages (D22) move to specs/030, because they touch projects-ui and the CRM deal page that PR #9 changes heavily and 030 already shows a project's hours; the hours suggested from meetings (D17, A4, A5, A17–A19) move to a new specs/031, the only part that touches Meetings. No decision changes, only which spec carries it — user chose the recommended option, 2026-11-12
 
+Decided for specs/030 (batched interview while writing 030, 2026-11-12):
+- D27 O1 closed: in every comparison 1 man-day = 8 hours (EstimAI also divides by 8; the contractual day of D3 is not the day sold) — user chose the recommended option
+- D28 O2 closed: no carry-over — each 12-month period of a yearly hour package stands alone, unused hours are lost — user chose the recommended option
+- D29 Hour package alert: a task at 80 % and another at 100 % of the package's hours (the current period for a yearly package, until expiry for a capacity one), one per threshold and period, to the project manager (or the ops-manager while the project awaits one) — user chose the recommended option
+- D30 Idle-hours alerts, both: (a) 15 days before the end of the period or the expiry, if more than 25 % of the hours are left; (b) no hours recorded on the project for 10 days — user chose "both, with lower thresholds" over the recommended end-of-period check alone (30 days, 50 %), then 15 days / 25 % / 10 days over the recommended 15 / 30 % / 15
+- D31 Dates alert: when a project's terms have a start and an end date, a task 30 days before the end date — user chose the recommended option
+- D32 Delay alert: a task when the terms' end date or a fixed price's deadline has passed and the project is not closed or cancelled; plus effort tasks at 80 % and 100 % of a fixed price's max effort — user chose "date + effort overrun" over the recommended "date only"
+- D33 Time-and-material projects get no alerts of any kind — user, 2026-11-12 (narrows D32's option, which also named T&M positions)
+- D34 Split of specs/030 (the user asked whether alerts should be a spec of their own): specs/030 keeps consumption and the hours on the project and deal pages (read-only); the alerts (D12, D29–D33, A27–A31) move to a new specs/032, which depends on 030 and carries the decision on how date-based alerts fire — user chose the recommended option, 2026-11-12
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
@@ -98,8 +108,22 @@ Assumed (not load-bearing; strike any that is wrong):
 - A21 When the tool that owns a project, deal or meeting cannot confirm the person may book on it, the write is refused and nothing changes (fail closed, ADR-0014/0081 posture); the person's own list still shows every entry, with an unknown name where it cannot be resolved
 - A22 When an activity an entry points at is deleted, the entry stays on its project or deal without the pointer
 
+Assumed while writing specs/031 and specs/030 (2026-11-12, not grilled — strike any that is wrong):
+- A23 (031) A suggested entry is visible only to its person
+- A24 (031) A suggestion follows its meeting's day, duration and participants until confirmed; a confirmed entry never changes with the meeting
+- A25 (031) When Meetings cannot be reached, the hours view loads and says suggestions are unavailable
+- A26 (031) No notification for a new suggestion
+- A27 (032) An alert is assigned to the project manager, or to the PO's ops-manager while the project awaits one
+- A28 (032) One alert per moment (threshold and period, end date, deadline, idle stretch); a changed date is a new moment
+- A29 (032) The idle check runs only while the project is `active`; one alert per idle stretch, which ends when hours are recorded again
+- A30 (032) Closed and cancelled projects get no alerts
+- A31 (032) Projects made by hand with terms get the same alerts as those with a purchase order
+- A32 (030) Consumption figures are visible to every holder of the project module's access, like D22's totals
+- A33 (030) Hour packages are compared in hours; fixed price and time-and-material in man-days
+- A34 (030) Man-days are shown with one decimal
+
 Open (unresolved — each needs an owner):
-- O1 (specs/030) Man-day ↔ hours for comparisons: the contract day (8 h 24) or another figure — owner: product owner, 030 grilling
-- O2 (specs/030) Yearly package carry-over, specs/025 O2 — owner: product owner, 030 grilling
+- O1 (specs/030) closed by D27
+- O2 (specs/030) closed by D28
 - O3 Labour-law check before go-live: informing employees about the hours recorded and who reads them (IT: art. 4 L. 300/1970; CH: art. 26 OLL 3) — owner: management / HR
 - O4 A lock or approval of recorded hours before they are used to bill T&M on a timesheet — owner: product owner, at the latest with specs/030 or a billing export

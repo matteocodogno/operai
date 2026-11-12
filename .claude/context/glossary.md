@@ -213,6 +213,18 @@
   two lists an admin manages (one for projects, one for deals). _Avoid:_ task type, service.
 - **Contractual day**: 8 h 24 min, from 42 hours a week, Monday to Friday. Nothing checks a
   day against it in specs/029.
+- **Suggested entry**: a time entry Operai offers a person from a Meetings meeting they took
+  part in; it counts for nothing until the person confirms it (specs/031). _Avoid:_ proposal
+  (ProposAI's word), draft entry.
+- **Consumption**: the hours recorded on a project set against what its terms sold — the hour
+  package, the max effort and estimated man-days, or the positions' planned man-days
+  (specs/030). _Avoid:_ burn, usage.
+- **Man-day**: 8 hours, in every comparison with what was sold — not the **Contractual day**.
+- **Package period**: for a yearly hour package, each 12 months from its start date; for a
+  capacity package, from its start date to its expiry. Unused hours never carry over.
+- **Alert**: a project task Operai creates when a project reaches a moment that needs a
+  decision (a package threshold, an end date, a deadline, idle hours). _Avoid:_ warning,
+  reminder, notification (a notification is how notify-api tells a person).
 
 ## Relationships
 - An **Offer draft** belongs to one deal and starts from one **Offer template**; generating

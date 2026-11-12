@@ -13,12 +13,12 @@ depends-on: 017, 021, 025, 028
 Decision ledger: `ledger.md`
 
 > **Origin.** Requested and grilled on 2026-11-12 (ledger D1–D26). Time tracking was left out
-> on purpose by specs/025 (D27), specs/027 and specs/028. The work is split in three specs
-> (D11, D26): **this one** records time entries and shows them to the people they concern;
-> **specs/030** (not yet written) compares a project's hours with what was sold, adds the
-> proactive alerts of D12 and shows hours on the project and deal pages (D22), after PR #9
-> (specs/026, project terms and purchase order) is merged; **specs/031** (not yet written)
-> suggests hours from the meetings a person took part in (D17).
+> on purpose by specs/025 (D27), specs/027 and specs/028. The work is split in four specs
+> (D11, D26, D34): **this one** records time entries and shows them to the people they concern;
+> **specs/030** compares a project's hours with what was sold and shows hours on the project and
+> deal pages (D22), after PR #9 (specs/026, project terms and purchase order) is merged;
+> **specs/031** suggests hours from the meetings a person took part in (D17); **specs/032** turns
+> the moments that need a decision into tasks (D12).
 
 ## Problem
 
@@ -174,8 +174,8 @@ recorded by everyone and read only by whom they concern.
 - **Recording, changing or deleting hours for someone else**, admins included (D14).
 - **Locking or approving hours** — open as O4 (D24).
 - **Comparing hours with what was sold** (hour packages, max effort, estimated man-days, T&M
-  positions), the **proactive alerts** of D12 and the **hours on the project and deal pages**
-  (D22): **specs/030**.
+  positions) and the **hours on the project and deal pages** (D22): **specs/030**; the
+  **proactive alerts** of D12: **specs/032**.
 - **Hours suggested from meetings** (D17): **specs/031**. In this spec a meeting's hours are
   recorded by hand (AC-2.5).
 - **T&M positions or estimate activities on an entry** (D13).
