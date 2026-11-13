@@ -333,5 +333,18 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - assumption: the scan counts an activity's `task.assignee` and `participants` only, never its author (AC-2.3) — where: `bookability.ts`
 - glossary candidate (not yet accepted): "involved (in a deal)" — owner, technical contact, or the assignee or a participant of one of its activities (AC-2.3)
 
+## T18 · backend-dev · 2026-11-13
+- default: `totalMinutes` is the sum of the tallied group rows, not a second aggregate — why: `Σ groups === totalMinutes` by construction, from one snapshot — where: `src/totals/groups.ts` `Tally`
+- default: the totals query is strict — `cursor`, `limit` or any unknown member is 400 with empty `field` — where: `totals.routes.ts` `TotalsQuerySchema`
+- default: project, deal and category groups tie-break on label with the same `Intl.Collator("en",{sensitivity:"base"})` as person, then key — where: `groups.ts`
+- scope: the `whose=all` TRANSITIONAL 501 duplicated in `totals.routes.ts` for T19 to replace — where: `totals.routes.ts`
+- default: `groupBy=deal&dealId=D` makes two system-route calls (`?dealId=` for the filter, `?ids=` for the grouping); the second can fail alone (meeting entries to `deal-unknown`, total whole); a relink between them could show a meeting under another deal — a millisecond window, accepted — where: `totals.ts` `byDeal`
+- default: a person `auth` returns as `deleted` is `label: null, status: "deleted"`, not an outage; only `unknown` names `identities` — where: `totals.ts` `byPerson`
+- default: a stored category missing from `time_category` throws (500) — why: the FK forbids it — where: `totals.ts` `byCategory`
+- scope: extra tests — `groups.test.ts` (pure comparators, `Tally`), viewer-not-author via `totalsOf` with everyone's `where` (T19's shape), 130-person/130-meeting batches, OpenAPI wire shape — where: `src/totals/*.test.ts`
+- assumption: `unavailable` follows T13's `SOURCE_ORDER` — where: `totals.test.ts`
+- hand-off: `totalsOf(groupBy, where, authorization)` is where-agnostic; T19 adds the everyone scope where `where` is built
+- note for T37: `GET /time-entries/totals?dealId=D` is the same link oracle as the list's (minutes of the caller's own meeting entries linked to D; no id or name)
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
