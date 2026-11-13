@@ -346,5 +346,20 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - hand-off: `totalsOf(groupBy, where, authorization)` is where-agnostic; T19 adds the everyone scope where `where` is built
 - note for T37: `GET /time-entries/totals?dealId=D` is the same link oracle as the list's (minutes of the caller's own meeting entries linked to D; no id or name)
 
+## T30 · frontend-dev · 2026-11-13
+- reinterpretation: the Person column uses T29's `personName` rule (resolved name, else "Unknown user", "(deactivated)" suffix for a deleted account), not the plan row's plain `person.name` — why: the file must not disagree with the table it exports — where: `lib/hoursWorkbook.ts` `personOf` (plan row to amend)
+- default: the Category or work type column writes the name as typed, no "(retired)" suffix — why: plan "the name as typed (AC-3.8)"; summing by name must not split one item — where: `categoryOrWorkTypeCell`
+- default: Name, Counts for deal and Activity apply the screen's rule with injected words — a name only for `visibility: "visible"`; a visible one with no label is "Name unavailable", never an id — where: `nameOf`, `meetingDealCell`
+- default: `buildHoursWorkbook` throws `RangeError` on non-integer minutes (the button shows its failed alert) — where: `hoursOf`
+- default: the walk stops with an error if the server repeats a cursor; no page cap (a cap would silently shorten the file) — where: `lib/exportPages.ts`
+- default: a walk is not aborted when the button unmounts; it finishes and downloads (library behaviour) — where: `components/HoursExport.tsx`
+- default: file name `hours-<from>_<to>.xlsx` is code, validated as two ISO days — where: `hoursFileName`
+- default: the AC-4.11 export refusal applies only with a deal filter set, remembered as the first-page object it happened over (cleared by Retry, "Clear the deal filter", any filter change); the banner takes focus only if focus was lost — where: `MyHoursPage.tsx`, `EveryoneHoursPage.tsx`
+- default: any other export refusal (403, 503 `authz_unavailable`, 500, network) is the button's generic alert, view unchanged — where: `HoursExport.tsx`
+- default: bold header, frozen header row, column widths, wrap-text on Note cells; `exceljs` in its own lazy chunk (931 kB), the App chunk grew 104 → 108 kB — where: `lib/hoursWorkbook.ts`
+- assumption: Italian copy chosen by the agent ("Esporta", "Preparazione del file…", "File pronto", sheet "Ore", the nine headers incl. "Conta per l'opportunità") — where: `strings/export.ts`
+- scope: `workbookCopyOf(catalog)` builds the file's words from the screen's catalogs — where: `lib/hoursWorkbook.ts`
+- library follow-up (not done): the status line under `ExportButton` grows the card header 36 → 52 px and shifts the heading ~8 px (`.card-header` is `align-items: center`)
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
