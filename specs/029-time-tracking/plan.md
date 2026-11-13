@@ -126,6 +126,24 @@ approved: 2026-11-12
 > T18 notes for T37), the credential-less answers (T20), and `src/targets/` among the surfaces. § Entries "A
 > day" and "A change and a move" record T27, T29, T15 and T16. Test rows AC-1.6, 2.10, 4.2, 4.4, 4.5, 4.6 and
 > 5.3 updated.
+>
+> Amended a seventh time 2026-11-13, after the OWASP review (T37) — a decision on the wire contract, made by
+> the review as the user delegated it (ledger D44: "keep the id, decide at review"); no AC, endpoint or
+> feature added (`owasp-report.md` § F1 and § 4; ADR-0089 A1, "Decided 2026-11-13 (D44): WITHHOLD"): (37)
+> § Views, `on.id` (project, deal, meeting) and `activity.id` become `string | null` — returned only when the
+> record is `visible` to the viewer or the entry is the viewer's own, else `null` (finding F1: the ids of
+> hidden records, fed back as `dealId` / `projectId` / `meetingId` filters, told a read-all holder which hidden
+> meetings are linked to which hidden deal) — applied in `src/entries/view.ts`, not `src/labels/**`; `on.deal`,
+> the totals, the export, the `none` target and the author's `POST` / `PATCH` responses unchanged; (38)
+> § Security, the bullet that left D44 to the reviewer replaced by the decision, its reason and the residual
+> of an author's own ids; the four questions the section put to the reviewer answered (the A1 rule confirmed,
+> D44 withhold, F2 the `dealId` link oracle accepted, I2 activities-api's outage side channel accepted) and
+> the other accepted findings listed (F3–F7, I1, I3–I5); (39) § Sequences "List / totals" step 4 and "A
+> pointed activity that was deleted", § Decisions this plan makes and the ADR-0089 bullet of § ADR candidates
+> point at the rule. Test rows AC-4.2 (own versus other) and AC-4.10 (the withheld ids and the composition
+> test `src/entries/withheldIds.test.ts`) updated. The spec is unchanged: AC-4.10's added words "… and, for
+> anyone but its author, without its id" are the review's proposal, for the owner to approve. Built by T41
+> (hours-api) and T42 (hours-ui); the review stays REVIEW REQUIRED until T41 is built and re-checked.
 
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/026);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
@@ -243,7 +261,9 @@ then only delete an entry to correct it, losing the hours, while delete already 
    `GET /meetings?ids=`, 25 — only meetings the **viewer** took part in), meeting → deal links
    (`meeting-deals`; `GET /system/meetings/hosts?ids=`, 100). Labels follow the **viewer's** access
    (AC-4.10): an entity the viewer cannot read is `visibility: "hidden"`, label `null`, and the
-   activity subject is `null`. Totals ask only the sources their grouping needs (§ Totals).
+   activity subject is `null`; on an entry that is not the viewer's own, `on.id` and `activity.id` are
+   `null` too unless `visible` (D44; § Views, "Ids of what the viewer cannot read"). Totals ask only the
+   sources their grouping needs (§ Totals).
 5. Grouping by deal places a meeting's entries under its current deal (AC-2.6); a meeting whose
    link could not be read goes to the `deal-unknown` group.
 
@@ -251,7 +271,8 @@ then only delete an entry to correct it, losing the hours, while delete already 
 the viewer can read the entry's project or deal and activities-api no longer returns the pointed
 id, the view shows `activity: null`; when the project or deal itself is hidden from the viewer the
 activity is shown as hidden too (AC-4.10); when the project's or deal's owner did not answer, the activity
-is `{ id, subject: null, visibility: "unavailable" }` whatever activities-api said, and `activities` is named
+is `{ id, subject: null, visibility: "unavailable" }` (`id: null` on an entry that is not the viewer's own,
+D44) whatever activities-api said, and `activities` is named
 only when its own call failed (T13, `src/labels/resolve.ts`). The stored id is **never cleared** — not on
 read, not on a later write (D47): activities-api omits an id the caller cannot read exactly like a deleted one, so
 clearing it on a write would drop a live pointer for an author who merely lost read access, and a
@@ -303,6 +324,9 @@ call waits 5 s and follows redirects.
 - **What the viewer cannot name is merged**, in totals and in the export, into one group per reason
   (`hidden`, `unavailable`, `deal-unknown`); the deal a meeting is linked to is returned with its id
   only to a viewer who can read that deal (design gap 3, D40, § Views and § Totals).
+- **An id the viewer cannot read travels only on their own entries** (D44, decided by the OWASP review
+  2026-11-13): `on.id` and `activity.id` are `null` on someone else's entry unless the record is `visible`
+  (§ Views, "Ids of what the viewer cannot read"; ADR-0089 A1).
 
 ## Data model
 
@@ -408,13 +432,15 @@ type TimeEntryView = {
   note: string | null               // null: no note; never blank (§ Entries, "A blank note")
   person: Person
   on:
-    | { type: "project"; id: string; label: string | null; href: string | null; visibility: Visibility }
-    | { type: "deal"; id: string; label: string | null; href: string | null; visibility: Visibility }
-    | { type: "meeting"; id: string; label: string | null; href: string | null; visibility: Visibility;
+    | { type: "project"; id: string | null; label: string | null; href: string | null; visibility: Visibility }
+    | { type: "deal"; id: string | null; label: string | null; href: string | null; visibility: Visibility }
+    | { type: "meeting"; id: string | null; label: string | null; href: string | null; visibility: Visibility;
         deal: MeetingDeal }
     | { type: "none"; category: { id: string; name: string; retired: boolean } }
   workType: { id: string; name: string; retired: boolean } | null
-  activity: { id: string; subject: string | null; visibility: Visibility } | null // null: none, or deleted
+  activity: { id: string | null; subject: string | null; visibility: Visibility } | null // null: none, or deleted
+  // on.id, activity.id: null only on an entry that is not the viewer's own, when the visibility next to the
+  //   id is not "visible" (D44; "Ids of what the viewer cannot read", below)
   createdAt: string
   updatedAt: string
 }
@@ -475,6 +501,53 @@ project, deal, meeting or activity id stored on an entry — passed the id rule 
 its hours out of the deal totals as if it were unlinked); sending it and reading the 422 as `unavailable`
 (one stored value fails every deal on the page); `unavailable` for that meeting alone (says crm-api did not
 answer when it was never asked).
+
+**Ids of what the viewer cannot read** (amended a seventh time 2026-11-13: ledger D44, decided by the OWASP
+review — `owasp-report.md` § F1 and § 4; ADR-0089 A1, "Decided 2026-11-13 (D44): WITHHOLD"). An entry's own
+target and activity pointer are stored by hours-api when the author records the entry, not read with its
+service credential, so the rule above for `on.deal` did not reach their ids. It does now:
+- `on.id` — project, deal or meeting — is the stored id when `on.visibility` is `"visible"` **or** the entry
+  is the viewer's own; otherwise `null`. *Own* means `row.userId` equals the caller's verified `sub`, whatever
+  `whose` says: a holder of `time-entry:read-all` listing `whose=all` keeps the ids on their own rows.
+- `activity.id` follows the same rule with the activity's own `visibility`: on someone else's entry it is
+  `null` whenever the activity is not `"visible"` — its project or deal is `hidden` or `unavailable`, or
+  activities-api did not answer (`activity.visibility: "unavailable"`, R6). `activity` itself stays an
+  object, so a hidden or unanswered pointer is still told apart from one that is gone (`activity: null`,
+  AC-2.9).
+- The author keeps both ids on their own entries whatever the visibility, `unavailable` included: they chose
+  the target when they recorded it, and the edit dialog re-picks it (`hours-ui/src/components/EntryDialogModel.ts`
+  `valuesOf`, `sameTarget`). A `visible` record keeps its id for every viewer: they can read it, and its
+  `href` already carries the id.
+- Unchanged: `label` and `href` (already `null` unless `visible`); `on.deal` (the rule above — an id only with
+  `visible`, for every viewer, the author included, D43); the `none` target's `category.id`, `workType.id`
+  (hours-api's own lists), `person.id` and the entry's own `id`; the totals (a `keyed` group's key is a record
+  the viewer reads, the rest is merged, § Totals); the export (no ids, § Export file); and the `POST` /
+  `PATCH` responses, which are always the author's own entry.
+- **Where it is applied:** `src/entries/view.ts`, the one module that sees both the viewer and the row's
+  author. `toView(row, labels, viewerId)` and `viewEntries(authorization, rows, viewerId)` set `on.id` and
+  `activity.id` to `own || <its visibility> === "visible" ? id : null`, with `viewerId` = `c.get("userId")`
+  at the three call sites (`entries.routes.ts` `POST` and `PATCH`, `list.routes.ts` `GET /time-entries`).
+  `TimeEntryViewSchema`'s `id` becomes `z.string().nullable()` in `on` (project, deal, meeting) and in
+  `activity`, and the OpenAPI follows. **Not** in `src/labels/**`: the labels layer is shared with the totals,
+  labels one id at a time and knows no author, so it keeps returning what it returns today; `src/totals/**`
+  is unchanged. (T37's text named `src/labels/**`; the review moved the strip to `view.ts`.)
+- **hours-ui** (T42): `on.id` and `activity.id` are typed `string | null` (`src/lib/hoursApi.types.ts`). The
+  only reader of either id is the edit dialog, which My hours opens on the person's own entries — Everyone's
+  hours offers no edit — so both ids are always present there; it narrows at that boundary (`valuesOf`, and
+  the stored activity `EntryDialog` hands to `ActivityField` as `current`), a `null` read as nothing to
+  re-pick. Everyone's hours and the export read no id (`src/lib/names.ts`, `src/lib/hoursWorkbook.ts`): no
+  screen changes.
+
+*Why:* with the ids kept, a holder of `time-entry:read-all` without `crm:access` fed a hidden deal's id back
+as the `dealId` filter and got exactly the entries on the hidden meetings linked to it, with their ids —
+which hidden meetings are linked to which hidden deal, the disclosure A1 forbids, reached through ids rather
+than names — and `projectId` / `meetingId` gave per-record figures that `groupBy` merges into one `hidden`
+group by design (F1, Medium; § Security). Withholding closes the three pivots at once, at no product cost.
+*Rejected:* keeping the ids and asking crm-api as the viewer on every `dealId` filter (a new call and a new
+refusal, and the `projectId` / `meetingId` pivots stay open); `null` for the author too (uniform with D43's
+name rule, but it breaks the author's edit dialog for no gain — the author already knows their own targets).
+AC-4.10's wording "… and, for anyone but its author, without its id" is the review's proposed spec
+amendment, for the owner to approve; this plan does not change the spec.
 
 ### Entries
 
@@ -1187,7 +1260,7 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-3.7 | migration | a fresh test database holds exactly the A15 rows |
 | AC-3.8 | component (hours-ui, admin-ui) | a name typed "Formazione" renders verbatim with `lang=en` and `lang=it` |
 | AC-4.1 | integration + component + e2e | integration: `groupBy=day` keys `YYYY-MM-DD`, newest first, each the sum of that day's matching entries; the list's cursor walks every matching row exactly once in `day desc, createdAt desc, id desc` — rows inserted with the same day and `createdAt` included — with `limit` 1, 2 and 500. component: My hours shows each day's total from `groupBy=day` — a day whose entries straddle two list pages shows its full total before Load more; no "incomplete" marker in the DOM; no notification call. e2e: two entries on one day → that day's total on `/hours` |
-| AC-4.2 | integration | `whose=all`, with or without `userId`, without the permission → 403 `read_all_required` (list, and totals for every `groupBy`), with no system-route call recorded even beside a `dealId` filter; `userId` without `whose=all` → 400 `field: "userId"`, a holder's included, no `auth` call; `whose=mine` never returns another person's row |
+| AC-4.2 | integration | `whose=all`, with or without `userId`, without the permission → 403 `read_all_required` (list, and totals for every `groupBy`), with no system-route call recorded even beside a `dealId` filter; `userId` without `whose=all` → 400 `field: "userId"`, a holder's included, no `auth` call; `whose=mine` never returns another person's row; own versus other (D44, § Views "Ids of what the viewer cannot read"): a `whose=mine` read returns the caller's rows only, so a project, deal, meeting or activity hidden from them or `unavailable` (owner down) keeps its id there; a holder's `whose=all` read keeps `on.id` and `activity.id` on the holder's own rows and answers `null` on another person's rows whose record is not `visible`, while a `visible` record keeps its id on every row |
 | AC-4.3 | integration | holder sees entries of `welld_ch` and `welld_it` users |
 | AC-4.4 | integration + component | each filter narrows items and totals alike; the period counts both end days, on list and totals: `from = to` (one day), `2026-01-01..2027-01-01` and the leap year `2028-01-01..2028-12-31` (366 days each) → 200, `2026-01-01..2027-01-02` (367) and `from` after `to` → 400 `invalid_request` with `field: "to"`; a `from` or `to` that is not a real calendar day from 2000-01-01 — `2026-02-30`, `1999-12-31`, `0000-01-01`, `2026-2-01`, empty, repeated — → 400 `invalid_request` naming it on list and totals, also beside a valid `cursor` (the period is named, not the cursor), no `auth`, owner or system-route call recorded, never a 500; `2000-01-01..2000-12-31` and `from = to = 9999-12-31` → 200; the person filter's options are the `groupBy=person` groups without `userId`: complete with more people than one list page holds, `key` = user id, `label` = live name, `null` + `identities` in `unavailable` when identities fail; each filter id (`userId` with `whose=all`, `projectId`, `dealId`, `meetingId`, `categoryId`, `workTypeId`) outside the id rule — empty (`projectId=`), 65 characters, `%00`, a comma, a space at either end, repeated — → 400 `invalid_request` naming it on list and totals, no `auth`, owner or system-route call recorded, never a 500; a `cursor` hours-api did not mint — empty, repeated, 201 characters, a character outside base64url, a non-canonical encoding, decoding to junk, to a NUL, to an impossible day (`2026-02-30`), to a day outside `from..to`, to an instant that is not 13 digits or to an id outside the id rule — → 400 `invalid_request` with `field: "cursor"`, never a 500, while the list's own `nextCursor` → 200; a query member the route does not name (`projectID=`, `groupBy` on the list, `cursor` or `limit` on the totals) → 400 `field: ""`. component: `hoursApi` omits a filter that is not set |
 | AC-4.11 | integration + component | `dealId` filter with `GET /system/meetings/hosts?dealId=` down / timeout / 500 → list and totals both 503 `host_unavailable`, no `items`/`groups` body; same filter with the route up → 200 including the meeting entries; no `dealId` filter with the route down → 200 (degrades as AC-4.5/4.7); a `dealId` outside the id rule → 400 `invalid_request` with `field: "dealId"` and no `GET /system/meetings/hosts` call recorded — never the 503. component: the filtered view shows its "try again" error state, not an empty or partial list; export with the deal filter fails with the same error |
@@ -1196,7 +1269,7 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-4.7 | integration | each source down → entries still listed and counted, `visibility: "unavailable"`, source in `unavailable`; system route down → meeting entries listed with `on.deal = { state: "unknown" }`, `meeting-deals` named; a by-ids answer that ignored its filter (an item nobody asked for, an asked id missing) → as that source down — `activity.visibility: "unavailable"`, not `activity: null`; the meeting `unavailable`, not `hidden`; `on.deal = { state: "unknown" }`, not `none` — and the source named |
 | AC-4.8 | integration | the identities stub renames a person between two calls → the second list and the `person` groups show the new name |
 | AC-4.9 | unit (operai-ui) + unit + component | `formatDuration` `short`: 150 min → "2 h 30", 120 → "2 h", 30 → "30 min", both locales; hours-ui rows, day totals and totals render through it; the workbook's Hours cell is a number, never the short string (D39) |
-| AC-4.10 | integration + unit | holder without `crm:access` lists a deal entry → `visibility: "hidden"`, `label: null`, `activity.subject: null`, minutes counted; a meeting entry linked to a deal the holder cannot read → `on.deal = { state: "linked", visibility: "hidden" }` with no `id`; `groupBy=deal` counts both in the one `hidden` group; the workbook writes the type and "Not visible to you" in Name, Counts for deal and Activity, never a name or an id |
+| AC-4.10 | integration + unit + component | holder without `crm:access` lists a deal entry → `visibility: "hidden"`, `label: null`, `activity.subject: null`, minutes counted; a meeting entry linked to a deal the holder cannot read → `on.deal = { state: "linked", visibility: "hidden" }` with no `id`; `groupBy=deal` counts both in the one `hidden` group; the workbook writes the type and "Not visible to you" in Name, Counts for deal and Activity, never a name or an id. Ids (D44; § Views "Ids of what the viewer cannot read"; `src/entries/view.test.ts`, `activityPointer.test.ts`): on another person's entry, a hidden project, deal and meeting → `on.id: null`, and an `unavailable` one (its owner down) → `on.id: null`; its `activity` stays an object, with `id: null`, when the project or deal is hidden or unavailable and when activities-api is down; a `visible` project, deal or meeting keeps its id for others; the author's own hidden or unavailable entry keeps `on.id` and `activity.id` — in `POST` and `PATCH` responses, in `whose=mine`, and when a holder lists their own entry with `whose=all`; `activityPointer.test.ts`'s "still keeps the id" split into own versus other; `TimeEntryViewSchema` and the OpenAPI pin (`openapi.contract.test.ts`) declare both ids nullable. Composition (`src/entries/withheldIds.test.ts`, the review's F1 probe): a holder of `time-entry:read-all` without `crm:access`, who can read none of the records and recorded none of the entries, lists `whose=all` over another person's entry on a hidden deal pointing at one of its activities, another person's entry on a hidden project, and two other people's entries on hidden meetings linked to that deal → `on.id: null` on all four and `activity.id: null`, and the serialized answer, `nextCursor` included, contains none of the hidden deal, project, meeting or activity ids, so hours-api hands out no id to feed a `dealId`, `projectId` or `meetingId` filter. component (hours-ui, T42): fixtures with `null` ids on another person's entries render Everyone's hours and the export unchanged, and `valuesOf` reads a `null` id as nothing to re-pick |
 | AC-5.1 | e2e + shell unit | a user with only `employee` opens `/hours` (no access redirect) and records a `none` entry; `tools.test` asserts `/hours` is not a tool |
 | AC-5.2 | auth seed contract | catalog `hours` has exactly the two actions with `[]` conditions; admin is the only holder, unconditioned; a role rule `time-entry:read-all` is accepted by `roles.routes` |
 | AC-5.3 | matrix | every hours-api route is classified and answers 401 without a credential; `/health`, `/openapi.json` and `/docs` answer anyone, and a CORS preflight answers 204 with no body, `Access-Control-Allow-Origin` only for an allowed origin (T20); no cell answers 501 (R11) |
@@ -1240,6 +1313,11 @@ entry's 404 carries `not_found` (hours-ui would read a vanished entry as a vanis
 names its kind, a holder is told `owner_only` about nothing, a non-holder makes hours-api ask meetings-api, a
 mistyped query member widens a read, a deactivated person is reported as an outage, a failed second call loses
 minutes, the file names a person otherwise than the table, or a credential-less request reaches a handler.
+Re-checked after the seventh 2026-11-13 amendment (all 44 ACs still have a row): the rows for AC-4.2 and
+AC-4.10 gained the withheld ids, own versus other and the review's composition probe, each failing when the
+id of a project, deal, meeting or activity that is not `visible` reaches a viewer who is not the entry's
+author — and with it a `dealId`, `projectId` or `meetingId` pivot — or when an author loses an id of their own
+entry that the edit dialog needs.
 
 ## Risks
 
@@ -1334,36 +1412,84 @@ minutes, the file names a person otherwise than the table, or a credential-less 
 - What hours-api learns with its **own** credential (a meeting's deal) reaches a viewer only with
   their own right to read that deal: `on.deal` carries an id and a name only when `visible`; totals
   merge what the viewer cannot read; the export carries no ids. A stored host that is not a CRM deal,
-  and a stored deal id outside the id rule, is never sent to crm-api and never shown (§ Views). Reviewer to check
-  `src/labels/` and `src/totals/` for that rule.
-- `on.id` and `activity.id` of a hidden project, deal or meeting stay in the item (the entry's own
-  stored value, which the owner's edit dialog keeps): an oversight holder can tell that two people's
-  hidden entries are on the same record, without its name. Reviewer to confirm, or to ask for `null`
-  on entries that are not the viewer's own.
+  and a stored deal id outside the id rule, is never sent to crm-api and never shown (§ Views). Confirmed by
+  the OWASP review on the direct channel (`owasp-report.md` § Answers 1: `labels/resolve.ts` `meetingDealOf`,
+  `totals/totals.ts` `placeEntity` and `byDeal`); its one bypass, by composition, was F1 (next bullet).
+- **Ids of what the viewer cannot read — D44, decided by the OWASP review 2026-11-13: WITHHOLD** (ledger
+  D44, delegated by the user; ADR-0089 A1). `on.id` (project, deal, meeting) and `activity.id` are returned
+  only when the record is `visible` to the viewer or the entry is the viewer's own, else `null` (§ Views,
+  "Ids of what the viewer cannot read"; T41, T42). *Reason* — finding F1 (Medium, A01; `owasp-report.md`
+  § F1): with the ids kept, a holder of `time-entry:read-all` without `crm:access` (a custom controller role,
+  R4's audience; the seeded admin has CRM access) read a hidden deal's id and two hidden meetings' ids from
+  `GET /time-entries?whose=all`, fed the deal's id back as `dealId`, and got exactly the entries on those
+  two meetings: which hidden meetings are linked to which hidden deal, the disclosure ADR-0089 A1 forbids,
+  reached through ids instead of names; `projectId` and `meetingId` gave per-record totals that
+  `groupBy=project|deal` merges into one `hidden` group by design. Withholding the ids closes the three
+  pivots at once, at no product cost. *Rejected:* keeping the ids and asking crm-api as the viewer on every
+  `dealId` filter (a new call and a new refusal, and the `projectId` / `meetingId` pivots stay open); `null`
+  for the author too (breaks the edit dialog for no gain). *Residual:* an author keeps the ids of their own
+  entries, so an author who also holds `time-entry:read-all` can use their own entry's target id as a filter
+  over everyone's entries — F2's case below (an id the viewer already knows), not F1's (an id hours-api hands
+  to someone who cannot read the record); the other people's rows it returns carry no id of a record hidden
+  from the viewer. *Verdict:* the review stays REVIEW REQUIRED (`verdicts.security: "FAIL"`) until T41 is
+  built and the review's probe re-run (its step 1 must show `on.id: null` on the hidden deal entry and on
+  both meeting entries, and no pivot possible); PASS then, unless the re-check finds something new at
+  medium or above.
 - Cross-service bookability checks run as the caller and fail closed; labels follow the viewer's
   own access (AC-4.10). hours-ui's pickers call projects-api, crm-api, meetings-api and
   activities-api from the browser as the person, on existing routes — no new origin, no CORS change.
 - activities-api `ids` asks only the hosts that own a matching row (T6, § API contracts): while one
   host is down, a guessed id it holds answers 503 where an unknown id answers 200 — existence, never
-  content, to someone who guesses a cuid or UUID during an outage. Reviewer to accept it, or to ask
-  that every host be asked (a CRM lookup would then fail while projects-api is down).
+  content, to someone who guesses a cuid or UUID during an outage. **Accepted by the review** (I2): it
+  needs a 41-bit-plus (cuid) or 122-bit (UUID v4) guess and an outage, and the host call an owned id
+  triggers already shows in the response time without an outage. *Rejected:* asking every host (a CRM
+  lookup would then fail while projects-api is down).
 - The person filter reuses the totals route behind `time-entry:read-all`; the user directory's
   audience is not widened (ADR-0066).
 - A `dealId` filter on the list or the totals counts the meeting entries linked to that deal, so a
   person who knows the id of a deal they cannot read learns which of their own meetings with hours in the
   period are linked to it — a holder, which of everyone's — never the deal's name (T17, T18 notes for T37). D45 and AC-2.6
-  prescribe the filter; it sits beside § Views' rule that `on.deal` withholds a hidden deal's id. Reviewer
-  to accept it, or to ask that the filter require the viewer to read the deal (one crm-api resolve before
-  the system route).
+  prescribe the filter; it sits beside § Views' rule that `on.deal` withholds a hidden deal's id. **Accepted
+  by the review** (F2, Low): the id must already be known — after D44 hours-api no longer hands one out for
+  a deal the viewer cannot read, except on the viewer's own entries (above); for `whose=mine`, meetings-api's
+  own list already shows a current creator or participant the deal id of the meeting's host
+  (`meetings-api/src/meetings/rows.ts`), so the only new case is an author who has since left the meeting;
+  and the fact carries no name or content. *Rejected:* requiring the viewer to read the deal (one crm-api
+  resolve before the system route) — a new dependency and a new refusal on top of D45's 503, for a marginal
+  gain; the review lists it as optional hardening, not taken here.
 - Without a credential every route answers 401 (default deny, `src/index.ts`) except `/health`,
   `/openapi.json` and `/docs`, a CORS preflight (204, no body, `Access-Control-Allow-Origin` only for an
   allowed origin) and a body over 64 KiB (413, refused before the session is read) — pinned by T20's
   matrix, the 413 by `src/lib/app.test.ts`.
 - The export file is built in the browser from data the viewer can already read; no server file.
+- **The review's other findings, accepted** (T37, 2026-11-13, `owasp-report.md`: 0 critical, 0 high, one
+  medium — F1, above — and six low; none is a task of this spec):
+  - F3 (A09): oversight reads leave no record of who read — accepted by ADR-0088; the one line the review
+    suggests when `holdsReadAll` grants (`[oversight] read-all granted sub=<sub> path=<path>`, no query, no
+    body) belongs with O3's go-live sign-off.
+  - F4 (A04): no rate limit or quota in hours-api, the suite's posture (only `auth` limits); a per-`sub`
+    limiter on `POST` is the next step if R2's 800 ms p95 slips.
+  - F5 (A04): "involved in a deal" is self-attestable — any `crm:access` holder may write activities on any
+    deal and any employee may create a meeting — as AC-2.3 defines it; specs/030 and specs/031 must not build
+    billing or approval rules on it.
+  - F6 (A03): hours-ui's `suitePath` (`src/lib/names.ts`) is weaker than the server's `isSuitePath`;
+    unreachable today (the server refuses whitespace and control characters, and the meeting `href` is built
+    with `encodeURIComponent`); defence in depth is to reuse the server's pattern.
+  - F7 (A06): hours-api's `bun audit` matches its Bun siblings' (all but `zod` transitive through the
+    dev-time Prisma CLI; no request schema takes a user-sized array) and hours-ui's `pnpm audit` is cleaner
+    than inventory-ui's; not exploitable here; the osv-scanner gate stays the enforcement point.
+  - Notes, no action: I1, the oversight and `time-list:manage` checks count any grant of the pair and ignore
+    `conditions`, safe while the catalog declares none (hardening: count only a grant without conditions);
+    I2, above; I3, `on.deal` `linked`/`hidden` versus `none` tells a holder that a meeting is linked to some
+    deal they cannot read, which the `hidden` / `none` totals need, with no id or name; I4, `NODE_ENV`
+    defaults to `development` (a 500 then carries `err.message`), while the production template, the
+    Dockerfile and compose set `production` and env-doctor lists it; I5, the CORS preflight answers 204 without
+    a credential, `Access-Control-Allow-Origin` only for an allowed origin, pinned by T20's matrix.
 
 Surfaces to review: every hours-api route (`src/entries/`, `src/totals/`, `src/lists/`,
 `src/oversight/`, `src/labels/`, `src/targets/`), crm-api resolve `deal`, activities-api `ids`, meetings-api `ids` and
-`GET /system/meetings/hosts`, the `hours-api` service client, hours-ui's export.
+`GET /system/meetings/hosts`, the `hours-api` service client, hours-ui's export. Reviewed 2026-11-13 (T37,
+`owasp-report.md` § Surface coverage): every surface passes except F1, which T41 closes and T37 re-checks.
 
 ## ADR candidates
 
@@ -1393,7 +1519,10 @@ Surfaces to review: every hours-api route (`src/entries/`, `src/totals/`, `src/l
   an export that cannot match them without ids, and a service-credential fact handed to someone who
   cannot read it); returning the linked deal's id with a null name (tells the viewer which deal a
   meeting they may not read is linked to). Constrains specs/030's hours on project and deal pages and
-  any later consumer of hours totals.
+  any later consumer of hours totals. A1 also records D44 (decided 2026-11-13 by the OWASP review: an
+  entry's `on.id` / `activity.id` only when the record is `visible` or the entry is the viewer's own;
+  rejected: a viewer crm read on every `dealId` filter, and `null` for the author too) — already written in
+  the ADR (§ A1, "Decided 2026-11-13 (D44): WITHHOLD"); no new ADR.
 - **ADR-0090** (`docs/adr/0090-hours-ui-ungated-remote.md`) — Hours get their own remote, mounted
   ungated at `/hours` and absent from `TOOLS` (the ADR-0009/0045 shape without a gated half).
   Rejected: an ungated entry in projects-ui (wrong domain; PR #9 rewrites projects-ui), a
