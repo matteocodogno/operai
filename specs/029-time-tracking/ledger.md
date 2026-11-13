@@ -90,6 +90,9 @@ Decided during /wellforge:tasks 029 (2026-11-13, raised while deriving tasks):
 Decided during /wellforge:orchestrate 029 (2026-11-13, raised by the third plan amendment):
 - D50 `note_required` (AC-3.6) is checked only when a `POST` records an entry, or a `PATCH` sends `note` or moves the entry (`on`) — a `PATCH` that touches neither (e.g. minutes only) on an entry recorded before its category was marked as requiring a note goes through; rejected: checking every save against the stored result (the literal reading the architect first wrote), which blocks a minutes-only fix until a note is typed — user chose the recommended, least invasive option
 
+Decided by the OWASP review (T37, 2026-11-13), as the user delegated D44 ("keep the id, decide at review"):
+- D44 (resolved) WITHHOLD — in a `TimeEntryView`, `on.id` (project, deal, meeting) and `activity.id` are returned only when the record is `visible` to the viewer or the entry is the viewer's own; otherwise `null`. Reason: finding F1 (Medium, A01) — a `time-entry:read-all` holder without CRM access could feed hidden ids back as `dealId`/`projectId`/`meetingId` filters and learn which hidden meetings are linked to which hidden deal, the disclosure ADR-0089 A1 forbids; no product cost (Everyone's hours and the export use no ids; the author keeps own ids for editing). Rejected: keeping the ids and adding a viewer crm read on every `dealId` filter (new call and refusal, does not close the `projectId`/`meetingId` pivots); nulling them for the author too (breaks the edit dialog for no gain). See `owasp-report.md`.
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
