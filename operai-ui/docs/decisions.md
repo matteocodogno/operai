@@ -522,6 +522,25 @@ there (`Combobox` consumes it), where before it also closed the `Dialog` around 
 the dialog. The two `CompanyPicker`s are not migrated here; they move when their screens are
 next touched. Undo: an app keeps its own picker; nothing else depends on it.
 
+**D-68 — `ExportButton` for a download (2026-11-13, specs/029).** inventory-ui's
+`ExportYearButton` is "Export XLSX" on the fiscal-year page; hours-ui needs the same control
+in two views, so by the library rule it moves in. The library's `ExportButton` is that
+button with the app-specific parts passed in: `build` returns the file (`data`, `fileName`,
+and an optional `readyMessage` for a caveat such as "names are missing"), `mimeType` defaults
+to XLSX, the three sentences are props, and `resetKey` replaces the year's status that the old
+button tied to by hand. Kept from the original: `aria-busy`, never `disabled` (it would drop
+keyboard focus), a second click ignored (also within one tick, with a ref, since a click can
+land before React shows the busy state), a polite "preparing" then "ready", an inline alert on
+failure with the button usable again. Changed on purpose: the status is cleared when `resetKey`
+changes and does not return if the key does; a file that finishes after the key changed is
+still handed over (the person asked for it) and says nothing, and does not swallow the next
+click; the anchor is attached to the page for the click (some browsers ignore a detached
+one) and the object URL is revoked after 30 s instead of at once (a browser reads it
+asynchronously, and an early revoke can cancel the download). A failure has one fixed
+sentence; an app that must say why routes that to its own banner and rejects. inventory-ui is
+not migrated here; it moves when its year page is next touched. Undo: an app keeps its own
+button; nothing else depends on it.
+
 ## Not done (deliberately)
 
 - **refund-ui's detail pages keep their own `<h2 class="page-title">`**

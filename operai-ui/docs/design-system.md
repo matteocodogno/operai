@@ -231,6 +231,12 @@ Rules:
    "New request"), from the app's strings module. **No glyph prefixes** in a
    label ("+ New request", "↑ Import JSON"): the variant says it is an action
    (INC-11). Glyphs belong in badges, where they are the non-colour signal.
+7. **A download is `ExportButton`.** Not a `Button` with an `onClick` of your own: it builds
+   the file on click (`build` — lazy-import the spreadsheet library there), is `aria-busy` and
+   never `disabled` while it builds, ignores a second click, says "preparing" then "ready"
+   politely (`readyMessage` when the file has a caveat), shows an alert on failure and is usable
+   again, and revokes the object URL. `secondary` (default) or `ghost`, never the page's
+   primary. A new `resetKey` (the filters changed) clears a status that described another file.
 
 ## Dialogs — `ConfirmDialog`, `FormDialog`, `NoticeDialog`, `Dialog`, `Drawer`
 
