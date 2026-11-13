@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Data model of specs/029-time-tracking (plan.md § Data model, ADR-0088). A time entry is one
+// person's duration on one day, on exactly one of a project, a deal, a meeting or no entity. The
+// project, deal, meeting and activity ids are opaque ids in other services' databases (no foreign
+// key across services); the person is the opaque `auth` user id of the JWT `sub`, never client
+// input. Names are resolved live from the owners and from `auth` (ADR-0039), never stored here.
+// Ids are text cuids, except the seeded list rows, which have the fixed ids of the plan.
+//
+// Raw SQL in the initial migration, the ENFORCEMENT and not a duplicate (Prisma cannot express
+// CHECKs or expression indexes), proved by src/db.constraints.test.ts:
+//   time_entry  time_entry_minutes          30..1440 in steps of 30 (AC-1.2)
+//               time_entry_note_length      a note is at most 1000 characters (AC-1.7)
+//               time_entry_target_shape     exactly the target's columns; a category only on `none`,
+//                                           and `none` and `meeting` carry no work type (AC-2.1, AC-3.5)
+//               time_entry_activity_target  an activity pointer only on a project or deal entry (AC-2.7)
+//   time_category / work_type  a name is unique case-insensitively, per list for work types,
+//                              retired rows included (unique indexes on lower(name))
+// `onDelete: Restrict` backs "nobody can delete a category or work type" at the database (AC-3.2).
+// The rules that need another row or another service (the work type's list matches the target,
+// the activity belongs to the same project or deal, no retired item on a create or change, a
+// category that requires a note, no future day) stay application checks.
+// The migration also inserts the initial lists (A15, AC-3.7) with fixed ids.
+
+enum TimeTarget {
+  project
+  deal
+  meeting
+  none
+}
+
+enum WorkTypeList {
+  project
+  deal
+}
+
+model TimeEntry {
+  id         String        @id @default(cuid())
+  /// The JWT `sub` of its creator, never client input (AC-1.1, AC-1.6).
+  userId     String
+  day        DateTime      @db.Date
+  /// 30..1440, a multiple of 30 (CHECK time_entry_minutes). A duration only, never a start or an
+  /// end time (AC-1.8).
+  minutes    Int
+  target     TimeTarget
+  /// projects-api id (no FK: another service); set only on a `project` entry (CHECK)
+  projectId  String?
+  /// crm-api id; set only on a `deal` entry (CHECK)
+  dealId     String?
+  /// meetings-api id; set only on a `meeting` entry (CHECK). The deal a meeting counts for is
+  /// read live, never stored here (AC-2.6).
+  meetingId  String?
+  /// set only on a `none` entry (CHECK)
+  categoryId String?
+  category   TimeCategory? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  /// optional; never on a `meeting` or `none` entry (CHECK). Whether it comes from the list that
+  /// matches the target is an application check.
+  workTypeId String?
+  workType   WorkType?     @relation(fields: [workTypeId], references: [id], onDelete: Restrict)
+  /// activities-api id; only on a project or deal entry (CHECK). Shown only while the activity
+  /// still exists; never cleared by a read or a write (D47).
+  activityId String?
+  /// <= 1000 characters (CHECK time_entry_note_length)
+  note       String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([userId, day])
+  @@index([projectId, day])
+  @@index([dealId, day])
+  @@index([meetingId])
+  @@map("time_entry")
+}
+
+model TimeCategory {
+  id           String      @id @default(cuid())
+  /// Shown exactly as typed in both languages (AC-3.8). Unique case-insensitively
+  /// (unique index on lower("name"), in the migration).
+  name         String
+  requiresNote Boolean     @default(false)
+  /// null = active; set by retire, cleared by restore (D38)
+  retiredAt    DateTime?
+  createdBy    String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  entries      TimeEntry[]
+
+  @@map("time_category")
+}
+
+model WorkType {
+  id        String       @id @default(cuid())
+  list      WorkTypeList
+  /// Unique case-insensitively within a list (unique index on ("list", lower("name")), in the
+  /// migration).
+  name      String
+  /// as TimeCategory.retiredAt
+  retiredAt DateTime?
+  createdBy String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  entries   TimeEntry[]
+
+  @@map("work_type")
+}
