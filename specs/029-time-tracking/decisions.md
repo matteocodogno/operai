@@ -145,3 +145,26 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - scope: `src/clients/hosts.test.ts` and `contract.test.ts` pin the fake's strictness, recording and reset — where: `hours-api/src/clients/`.
 - default: `hosts.ts` imports `./world` for `onReset`; one fake instance per test file; `stop()` restores the env it found; `FailureMode` adds `withStatus` and `after` — where: `hours-api/src/test-support/hosts.ts`.
 - default: the fake meetings-api mirrors T9's route rules (trim, empty/blank members 422, raw caps 6500/128, NUL `dealId` → `[]`, id ascending, exact `{crm, deal, dealId}` match) — where: `hosts.ts`.
+
+## T23 · frontend-dev · 2026-11-13
+- scope: also edited `shell/src/italian.test.tsx` (outside `touch:`) to assert the Italian "Le mie ore" row after "Le mie riunioni" — why: the UI language is fixed when the strings module loads, so `UserMenu.test.tsx` cannot switch to Italian (AC-5.5) — where: `shell/src/italian.test.tsx`
+- default: `strings.tools.hours` is "Hours" / "Ore", used for the `RemoteMount` label and the About row (Italian load error "Impossibile caricare Ore.") — where: `shell/src/strings.ts`, `router.tsx`
+- default: the changeset `@operai/shell` minor also describes the `VITE_HOURS_API_URL` trust from T21 — why: T21 deferred the shell changeset to T23 — where: `.changeset/shell-hours.md`
+- default: dev default `HOURS_REMOTE_URL` is `http://localhost:5184/remoteEntry.js` (same env name T34 used in `shell/playwright.config.ts`) — where: `shell/vite.config.ts`
+- assumption: production hostnames `hours.operai.welld.io` and `hours-api.operai.welld.io` in the CSP and `runtime-config.example.json` — where: `shell/vercel.json`, `shell/public/runtime-config.example.json`
+- scope: `/hours` and `/hours/$` added to the route-path allowlist of the hardcoded-copy scan — where: `shell/src/lib/noHardcodedStrings.test.ts`
+- scope: tests beyond the done-when (CSP names exactly the two hours origins, no wildcard; `remotes.d.ts` declares both modules; the shell's remote name/exposes/port agree with `hours-ui/vite.config.ts`; `@source` line; runtime override; `TOOLS` guards; About degrade cases) — where: `remoteVersionSpecifiers.test.ts`, `runtimeRemotes.test.ts`, `tools.test.ts`, `AboutModal.test.tsx`
+- reinterpretation: "no session → the `_authed` sign-in redirect" is tested as "not mounted, `getSession` consulted, and the route sits under `_authed`" rather than by asserting the redirect URL — why: jsdom cannot follow the document redirect; `router.test.tsx` pins the guard's URL — where: `shell/src/router.hours.test.tsx`
+
+## T26 · frontend-dev · 2026-11-13
+- scope: optional props `current` (the edited entry's activity, typed as the view's `activity`), `error` and `disabled` beyond the task text — why: T27/T28 wire this component but their `touch:` excluded `ActivityField*`; `current` is "the current activity stays an option", `error` carries `activity_not_allowed` onto the field (design S2), `disabled` covers the dialog while saving — where: `ActivityField.tsx`
+- reinterpretation: while the field is `aria-disabled` (idle, loading, failed) a pick is ignored and the select keeps what it had — why: design-system rule 5 (an `aria-disabled` control ignores its action); clearing an existing activity is possible once Try again succeeds — where: `ActivityField.tsx`
+- assumption: Try again moves focus to the select before the read starts — why: the button unmounts as loading begins and focus would fall to `<body>` — where: `ActivityField.tsx`
+- default: the status text is both the visible Field hint (`aria-describedby`) and a persistent `VisuallyHidden role="status"` — why: a live region that already exists is announced reliably (`Combobox` does the same) — where: `ActivityField.tsx`
+- default: Try again sits after the Field as a sibling (`Button ghost sm`, `strings.common.tryAgain`) — where: `ActivityField.tsx`
+- default: the current activity goes right after "No activity", reads as the page words it when present (no duplicate), else "Name unavailable" / "Not visible to you" — why: never invents a name — where: `ActivityField.tsx`, `strings/activity.ts`
+- default: an unknown activity type shows its subject alone; a malformed item is skipped; a body that is not a page is a failed read, never an empty one — where: `lib/activitiesRead.ts`
+- default: the read's failure is `errorFromResponse`'s `HoursApiError`; the field has one UI state for 404, 503 and network — where: `lib/activitiesRead.ts`
+- default: the select gets `aria-disabled:opacity-60 aria-disabled:cursor-not-allowed` (the `Combobox` inert look) — why: tokens.css draws no `select[aria-disabled]` state; relies on T23's `@source` — where: `ActivityField.tsx`
+- assumption: Italian wording ("Scegli prima un'opportunità.", "Nessuna attività", "Non visibile a te", "Nome non disponibile", `task` → "Attività") chosen by the agent; "Non visibile a te" may want harmonising with T25's `names.ts` — where: `strings/activity.ts`
+- default: test ids `hours-activity`, `-field`, `-select`, `-retry`, `-error`; status is `role="status"` — where: `ActivityField.tsx`
