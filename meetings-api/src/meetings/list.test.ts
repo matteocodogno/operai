@@ -230,3 +230,114 @@ describe("host labels (AC-10.3, AC-11.5)", () => {
     expect(kit.fake.resolves).toHaveLength(0);
   });
 });
+
+// AC-2.5, AC-2.10 (specs/029 T8): `ids` is one more filter on the caller's OWN list. hours-api asks
+// "may this person record hours on this meeting?" with it (and reads the title with it), so a meeting the
+// caller may only read through its host, and one that does not exist, must come back the same: absent.
+describe("ids filter (specs/029 AC-2.5, AC-2.10)", () => {
+  const ids = (...asked: string[]) => `?ids=${asked.join(",")}`;
+  const idsOf = (body: Record<string, any>) => body["items"].map((i: { id: string }) => i.id).sort();
+
+  it("returns only the asked-for meetings the caller created or is an Operai participant of, as unchanged rows", async () => {
+    const mine = await seed({ title: "Mine" });
+    const invited = await seed({ title: "Invited", creatorUserId: "bob", participants: { create: [{ userId: "alice", addedBy: "bob" }] } });
+    const notAsked = await seed({ title: "Mine, not asked for" });
+    const bobs = await seed({ title: "Bob's private", creatorUserId: "bob" });
+    const external = await seed({ title: "External", creatorUserId: "bob", participants: { create: [{ externalName: "alice", addedBy: "bob" }] } });
+
+    const res = await list("alice", ids(mine.id, invited.id, bobs.id, external.id));
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(idsOf(body)).toEqual([invited.id, mine.id].sort());
+    expect(idsOf(body)).not.toContain(notAsked.id);
+    expect(body).toMatchObject({ total: 2, page: 1, pageSize: 25 });
+    // the very same row the unfiltered list gives, not a slimmer one
+    expect(Object.keys(body["items"][0]).sort()).toEqual(["creator", "format", "host", "id", "role", "startsAt", "status", "summaryCount", "title"]);
+    const unfiltered = await json(await list("alice"));
+    for (const row of body["items"]) expect(row).toEqual(unfiltered["items"].find((i: { id: string }) => i.id === row.id));
+    expect(body["items"].find((i: { id: string }) => i.id === mine.id)).toMatchObject({ role: "creator" });
+    expect(body["items"].find((i: { id: string }) => i.id === invited.id)).toMatchObject({ role: "participant" });
+  });
+
+  it("a meeting the caller reads only as a host reader, someone else's private one and an unknown id are absent alike (AC-2.10)", async () => {
+    const hostOnly = await seed({ title: "Host-visible", creatorUserId: "bob", hostVisible: true, ...W1 });
+    const bobs = await seed({ title: "Private", creatorUserId: "bob" });
+    const mine = await seed({ title: "Mine" });
+    // the premise: she opens the first one, through its host, and the second not at all
+    const opened = await kit.call("alice", "GET", `/meetings/${hostOnly.id}`);
+    expect(opened.status).toBe(200);
+    expect(await json(opened)).toMatchObject({ id: hostOnly.id, role: "host_reader" });
+    expect((await kit.call("alice", "GET", `/meetings/${bobs.id}`)).status).toBe(404);
+
+    const unknown = await list("alice", ids("no-such-meeting"));
+    expect(unknown.status).toBe(200);
+    const nothing = await json(unknown);
+    expect(nothing).toEqual({ items: [], total: 0, page: 1, pageSize: 25 });
+    for (const id of [hostOnly.id, bobs.id]) {
+      const res = await list("alice", ids(id));
+      expect(res.status).toBe(200);
+      expect(await json(res)).toEqual(nothing);
+    }
+    // asked together with her own, still only her own comes back
+    expect(idsOf(await json(await list("alice", ids(hostOnly.id, bobs.id, "no-such-meeting", mine.id))))).toEqual([mine.id]);
+  });
+
+  it("25 ids are fine, 26 are a 422 whatever they are (a duplicate counts)", async () => {
+    const mine = await seed({ title: "Mine" });
+    const unknown = (n: number) => Array.from({ length: n }, (_, i) => `ghost${i}`);
+    const ok = await list("alice", ids(mine.id, ...unknown(24)));
+    expect(ok.status).toBe(200);
+    expect(idsOf(await json(ok))).toEqual([mine.id]);
+    const tooMany = await list("alice", ids(mine.id, ...unknown(25)));
+    expect(tooMany.status).toBe(422);
+    expect(((await json(tooMany)) as { status: number }).status).toBe(422);
+    expect((await list("alice", ids(...Array.from({ length: 26 }, () => mine.id)))).status).toBe(422);
+  });
+
+  it("answers with auth down, and for a participant who holds no grant at all (AC-10.6, selfScoped)", async () => {
+    const invited = await seed({ title: "Invited", creatorUserId: "bob", participants: { create: [{ userId: "guest", addedBy: "bob" }] } });
+    const other = await seed({ title: "Bob's", creatorUserId: "bob" });
+    kit.setAuthDown(true);
+    const res = await list("guest", ids(invited.id, other.id));
+    expect(res.status).toBe(200);
+    expect(idsOf(await json(res))).toEqual([invited.id]);
+  });
+
+  it("names each meeting once however often it is asked for, and trims the ids", async () => {
+    const a = await seed({ title: "A" });
+    const b = await seed({ title: "B" });
+    const body = await json(await list("alice", `?ids=${a.id},${a.id},%20${b.id}%20,${a.id}`));
+    expect(idsOf(body)).toEqual([a.id, b.id].sort());
+    expect(body["total"]).toBe(2);
+  });
+
+  it("is one more filter: it intersects with the others, newest first, and total counts the intersection", async () => {
+    const draft = await seed({ title: "Mine, draft", status: "draft", startsAt: new Date("2026-10-01T09:00:00Z") });
+    const ready = await seed({ title: "Mine, ready", status: "ready", startsAt: new Date("2026-10-02T09:00:00Z") });
+    const invited = await seed({ title: "Invited, ready", creatorUserId: "bob", status: "ready", startsAt: new Date("2026-10-03T09:00:00Z"), participants: { create: [{ userId: "alice", addedBy: "bob" }] } });
+    const all = ids(draft.id, ready.id, invited.id);
+    expect(titles(await json(await list("alice", all)))).toEqual(["Invited, ready", "Mine, ready", "Mine, draft"]);
+    expect(titles(await json(await list("alice", `${all}&status=ready`)))).toEqual(["Invited, ready", "Mine, ready"]);
+    const narrow = await json(await list("alice", `${all}&status=ready&role=participant`));
+    expect(titles(narrow)).toEqual(["Invited, ready"]);
+    expect(narrow["total"]).toBe(1);
+    expect(await json(await list("alice", `${all}&q=nothing`))).toMatchObject({ items: [], total: 0 });
+    // a second page of at most 25 ids is empty, with the total still the answer's size
+    expect(await json(await list("alice", `${all}&page=2`))).toMatchObject({ items: [], total: 3, page: 2 });
+  });
+
+  it("an id that cannot be stored, a NUL byte, is no meeting and no server error", async () => {
+    const mine = await seed({ title: "Mine" });
+    const res = await list("alice", `?ids=${mine.id},a%00b`);
+    expect(res.status).toBe(200);
+    expect(idsOf(await json(res))).toEqual([mine.id]);
+  });
+
+  it("an empty list, an empty member, an id over 64 characters and a repeated parameter are a 422, never 'no filter'", async () => {
+    await seed({ title: "Mine" });
+    expect((await list("alice", ids("x".repeat(64)))).status).toBe(200);
+    for (const query of ["?ids=", "?ids=a,,b", "?ids=a,", "?ids=,a", "?ids=%20", `?ids=${"x".repeat(65)}`, "?ids=a&ids=b"]) {
+      expect([query, (await list("alice", query)).status]).toEqual([query, 422]);
+    }
+  });
+});
