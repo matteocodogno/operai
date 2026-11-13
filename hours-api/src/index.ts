@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import { jwtMiddleware } from "./auth/jwt.middleware";
 import { healthRouter } from "./health/health.routes";
 import { entriesRouter } from "./entries/entries.routes";
+import { entryListRouter } from "./entries/list.routes";
 import { handleError, handleNotFound, invalidRequestHook } from "./lib/errors";
 import { listsRouter } from "./lists/lists.routes";
 import { requestLogger } from "./lib/logger";
@@ -69,6 +70,7 @@ app.use("*", jwtMiddleware);
 
 app.route("/", listsRouter);
 app.route("/", entriesRouter);
+app.route("/", entryListRouter);
 
 // ─── Error answers (RFC 7807 Problem JSON) ───────────────────────────────────
 
