@@ -1,18 +1,19 @@
 /**
- * The Project and Deal filters' searches (specs/029-time-tracking T24; plan § Components `hours-ui`
- * "Target pickers"): projects-api `GET /projects?q=` and crm-api `GET /deals?q=`, read as the person
- * through `apiFetch`, with the answer mapped to what `SearchPicker` takes — a 403 is `forbidden` (the
- * person may not search that kind of record), a 503, any other refusal or a network failure is
- * `unavailable` (an unreachable service is never "no match").
+ * The pickers' searches (specs/029-time-tracking T24, T27; plan § Components `hours-ui` "Target pickers"):
+ * projects-api `GET /projects?q=` and crm-api `GET /deals?q=` (the filters and the entry dialog) and
+ * meetings-api `GET /meetings?q=` (the entry dialog), read as the person through `apiFetch`, with the answer
+ * mapped to what `SearchPicker` takes — a 403 is `forbidden` (the person may not search that kind of
+ * record), a 503, any other refusal or a network failure is `unavailable` (an unreachable service is never
+ * "no match").
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('shell/session', async () => (await import('../test-support/fakeSession')).shellSessionMock(apiFetch))
 
-import { dealItem, fakeApi, page, problem, projectItem, requests } from '../test-support/fakeApi'
+import { dealItem, fakeApi, meetingRow, page, problem, projectItem, requests } from '../test-support/fakeApi'
 import { ORIGINS } from '../test-support/fakeSession'
-import { searchDeals, searchProjects } from './searchers'
+import { searchDeals, searchMeetings, searchProjects } from './searchers'
 
 const signal = () => new AbortController().signal
 
@@ -153,5 +154,74 @@ describe('searchDeals (crm-api GET /deals?q=)', () => {
     const api = useApi()
     await searchDeals('', signal())
     expect(requests(api, 'GET /deals')[0]!.query).toEqual({})
+  })
+})
+
+describe("searchMeetings (meetings-api GET /meetings?q=: the caller's own meetings)", () => {
+  it('asks meetings-api, as the person, and offers each meeting by id, title and start', async () => {
+    const api = useApi({
+      'GET /meetings': () => ({
+        status: 200,
+        body: page([
+          meetingRow({ id: 'm1', title: 'Kick-off with Acme', startsAt: '2026-11-03T09:30:00.000Z' }),
+          meetingRow({ id: 'm2', title: 'Retro', startsAt: null }),
+        ]),
+      }),
+    })
+
+    const result = await searchMeetings('kick', signal())
+
+    expect(requests(api)).toHaveLength(1)
+    expect(requests(api, 'GET /meetings')[0]).toMatchObject({ origin: ORIGINS.meetings, query: { q: 'kick' } })
+    expect(result).toEqual({
+      ok: true,
+      items: [
+        { id: 'm1', title: 'Kick-off with Acme', startsAt: '2026-11-03T09:30:00.000Z' },
+        { id: 'm2', title: 'Retro', startsAt: null },
+      ],
+    })
+  })
+
+  it('leaves q out when the field is empty (the list opened), and hands over the abort signal', async () => {
+    const api = useApi()
+    const controller = new AbortController()
+    await searchMeetings('', controller.signal)
+    expect(requests(api, 'GET /meetings')[0]!.query).toEqual({})
+    expect(apiFetch.mock.calls[0]![1]!.signal).toBe(controller.signal)
+  })
+
+  it('403 is forbidden; 503, other refusals and a network failure are unavailable, never "no match"', async () => {
+    useApi({ 'GET /meetings': () => ({ status: 403, body: problem(403) }) })
+    expect(await searchMeetings('a', signal())).toEqual({ ok: false, reason: 'forbidden' })
+
+    useApi({ 'GET /meetings': () => ({ status: 503, body: problem(503) }) })
+    expect(await searchMeetings('a', signal())).toEqual({ ok: false, reason: 'unavailable' })
+
+    apiFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+    expect(await searchMeetings('a', signal())).toEqual({ ok: false, reason: 'unavailable' })
+  })
+
+  it('an answer that is not a page is unavailable, and a row without an id or a title is left out', async () => {
+    useApi({ 'GET /meetings': () => ({ status: 200, body: { nope: true } }) })
+    expect(await searchMeetings('a', signal())).toEqual({ ok: false, reason: 'unavailable' })
+
+    useApi({
+      'GET /meetings': () => ({
+        status: 200,
+        body: { items: [{ id: 'm1' }, { title: 'No id' }, meetingRow({ id: 'm2', title: 'Fine' }), null] },
+      }),
+    })
+    expect(await searchMeetings('a', signal())).toEqual({
+      ok: true,
+      items: [{ id: 'm2', title: 'Fine', startsAt: '2026-11-03T09:30:00.000Z' }],
+    })
+  })
+
+  it('a request the picker aborted rejects, so the picker can drop it', async () => {
+    useApi()
+    const controller = new AbortController()
+    const pending = searchMeetings('a', controller.signal)
+    controller.abort()
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
   })
 })

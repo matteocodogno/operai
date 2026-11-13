@@ -224,3 +224,67 @@ describe('the entries by day in Italian (AC-5.5, AC-3.8, AC-4.10)', () => {
     expect(within(alert).getByRole('button', { name: 'Rimuovi il filtro opportunità' })).not.toBeNull()
   })
 })
+
+describe('the entry dialog in Italian (AC-5.5, AC-3.8; specs/029 T27)', () => {
+  it('writes the action, the dialog, the choices and the first errors in Italian, and a typed category verbatim', async () => {
+    await setup('it')
+    await userEvent.click(screen.getByRole('button', { name: 'Registra ore' }))
+    const dialog = screen.getByRole('dialog', { name: 'Registra ore' })
+    const inside = within(dialog)
+
+    expect(
+      within(inside.getByRole('radiogroup', { name: 'Su cosa hai lavorato' }))
+        .getAllByRole('radio')
+        .map((radio) => radio.closest('label')?.textContent),
+    ).toEqual(['Progetto', 'Opportunità', 'Riunione', 'Altro lavoro'])
+    expect(inside.getByText('A intervalli di 30 minuti, fino a 24 ore.')).not.toBeNull()
+    expect(
+      within(inside.getByRole('combobox', { name: 'Durata' }))
+        .getAllByRole('option')
+        .map((option) => option.textContent)
+        .slice(0, 3),
+    ).toEqual(['30 min', '1 h', '1 h 30'])
+    expect(inside.getByText('0 su 1000')).not.toBeNull()
+
+    await userEvent.click(inside.getByRole('radio', { name: 'Altro lavoro' }))
+    // A name the administrator typed is shown as typed; a retired one is not offered (AC-3.4).
+    expect(
+      within(inside.getByRole('combobox', { name: 'Categoria' }))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Formazione', 'Administration'])
+
+    await userEvent.click(inside.getByRole('button', { name: 'Salva registrazione' }))
+    expect(inside.getByText('Scegli una durata.')).not.toBeNull()
+    expect(inside.getByText('Scegli una categoria.')).not.toBeNull()
+    expect(screen.queryByText('Choose a duration.')).toBeNull()
+    expect(screen.queryByText('Save entry')).toBeNull()
+  })
+
+  it('says the pickers and a refusal in Italian', async () => {
+    await setup('it', '/hours', {
+      'POST /time-entries': () => ({
+        status: 403,
+        body: { type: 'about:blank', title: 'Problem 403', status: 403, code: 'not_on_project' },
+      }),
+      'GET /projects': () => ({
+        status: 200,
+        body: { items: [{ id: 'p1', name: 'Project Alpha', company: null }], total: 1, page: 1, pageSize: 25 },
+      }),
+    })
+    await userEvent.click(screen.getByRole('button', { name: 'Registra ore' }))
+    const inside = within(screen.getByRole('dialog', { name: 'Registra ore' }))
+    await userEvent.selectOptions(inside.getByRole('combobox', { name: 'Durata' }), '60')
+    await userEvent.click(inside.getByRole('radio', { name: 'Progetto' }))
+    expect(
+      inside.getByText('Puoi registrare ore sui progetti di cui sei project manager o in cui fai parte del team.'),
+    ).not.toBeNull()
+    await userEvent.type(inside.getByRole('combobox', { name: 'Progetto' }), 'a')
+    await userEvent.click(await screen.findByRole('option', { name: /Project Alpha/ }))
+    await userEvent.click(inside.getByRole('button', { name: 'Salva registrazione' }))
+
+    expect(
+      await inside.findByText('Non sei il project manager né fai parte del team di questo progetto.'),
+    ).not.toBeNull()
+  })
+})

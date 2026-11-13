@@ -1,11 +1,12 @@
 /**
- * searchers — what the Project and Deal filters of My hours search, as the person (specs/029-time-tracking
- * T24; plan § Components `hours-ui` "Target pickers").
+ * searchers — what the Project, Deal and Meeting pickers search, as the person (specs/029-time-tracking
+ * T24 for the filters, T27 for the entry dialog; plan § Components `hours-ui` "Target pickers").
  *
  * The browser asks the owning service directly, with the person's own JWT through `apiFetch`
- * (`getProjectsApiBaseUrl`, `getCrmApiBaseUrl`): projects-api `GET /projects?q=` and crm-api
- * `GET /deals?q=` list what the person may already open, so the picker offers nothing they could not
- * find there (hours-api decides the rest). Each answer is mapped to what `SearchPicker` takes
+ * (`getProjectsApiBaseUrl`, `getCrmApiBaseUrl`, `getMeetingsApiBaseUrl`): projects-api `GET /projects?q=`,
+ * crm-api `GET /deals?q=` and meetings-api `GET /meetings?q=` (T27: the caller's own meetings, created or
+ * taken part in) list what the person may already open, so the picker offers nothing they could not find
+ * there (hours-api decides the rest). Each answer is mapped to what `SearchPicker` takes
  * (`SearchResult`): a 403 is `forbidden` — this person may not search that kind of record, which the
  * picker says in words — and a 503, any other refusal, a network failure or an answer that is not a
  * page is `unavailable`. An unreachable service is never "no match".
@@ -13,13 +14,15 @@
  * A request the picker has outrun (the text changed, the list closed) rejects with the abort and is
  * left to the picker, which discards it: an abort is not "unavailable".
  */
-import { apiFetch, getCrmApiBaseUrl, getProjectsApiBaseUrl } from 'shell/session'
+import { apiFetch, getCrmApiBaseUrl, getMeetingsApiBaseUrl, getProjectsApiBaseUrl } from 'shell/session'
 import type { SearchResult } from '@operai/ui'
 
 /** A project as the picker offers it and the filter keeps it in memory (the URL carries no label). */
 export type ProjectChoice = { id: string; name: string; companyName: string | null }
 /** A deal as the picker offers it. */
 export type DealChoice = { id: string; title: string; companyName: string | null }
+/** A meeting as the picker offers it: the caller's own (created, or taken part in as an Operai participant). */
+export type MeetingChoice = { id: string; title: string; startsAt: string | null }
 
 const asText = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null)
 
@@ -68,4 +71,12 @@ export const searchDeals = (q: string, signal: AbortSignal): Promise<SearchResul
     const id = asText(row['id'])
     const title = asText(row['title'])
     return id === null || title === null ? null : { id, title, companyName: companyNameOf(row['company']) }
+  })
+
+/** A meeting with no start (a draft) is still one the person can record on, so `startsAt` may be `null`. */
+export const searchMeetings = (q: string, signal: AbortSignal): Promise<SearchResult<MeetingChoice>> =>
+  search(`${getMeetingsApiBaseUrl()}/meetings${queryFor(q)}`, signal, (row) => {
+    const id = asText(row['id'])
+    const title = asText(row['title'])
+    return id === null || title === null ? null : { id, title, startsAt: asText(row['startsAt']) }
   })

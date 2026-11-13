@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { Banner, Button, Card, LoadMore, PageHeader, SkeletonRows, StatePanel, VisuallyHidden } from '@operai/ui'
+import {
+  Banner,
+  Button,
+  Card,
+  LoadMore,
+  PageHeader,
+  SkeletonRows,
+  StatePanel,
+  VisuallyHidden,
+  formatDate,
+} from '@operai/ui'
 import DealFilterUnavailable from '../components/DealFilterUnavailable'
 import EntryDayList from '../components/EntryDayList'
+import EntryDialog from '../components/EntryDialog'
 import ErrorBanner from '../components/ErrorBanner'
 import HoursBanners from '../components/HoursBanners'
 import type { HoursBannersProps } from '../components/HoursBanners'
@@ -10,12 +21,13 @@ import HoursFilters from '../components/HoursFilters'
 import type { ListsView } from '../components/HoursFilters'
 import { applyFilterPatch, clearFilterSearch, isFiltered, parseFilterSearch } from '../components/HoursFiltersState'
 import type { FilterPatch } from '../components/HoursFiltersState'
+import SuccessBanner from '../components/SuccessBanner'
 import TotalsCard from '../components/TotalsCard'
 import type { TotalsCardHandle, TotalsView } from '../components/TotalsCard'
 import { isCode, statusOf } from '../lib/errors'
-import { getTimeLists, getTotals, listEntries } from '../lib/hoursApi'
+import { createEntry, getTimeLists, getTotals, listEntries } from '../lib/hoursApi'
 import type { EntryFilters } from '../lib/hoursApi'
-import type { EntriesPage, TimeEntryView, TotalsAnswer } from '../lib/hoursApi.types'
+import type { EntriesPage, EntryInput, TimeEntryView, TotalsAnswer } from '../lib/hoursApi.types'
 import { hasHiddenName, unavailableSources } from '../lib/names'
 import { rangeOf } from '../lib/period'
 import type { DealChoice, ProjectChoice } from '../lib/searchers'
@@ -211,13 +223,50 @@ export default function MyHoursPage() {
 
   const filtered = isFiltered(state, { project, deal })
 
+  // Recording (T27). A save that worked closes the dialog (focus goes back to Record hours: the library gives
+  // it to the button that opened the dialog), asks the three reads again with the same filters, and says so;
+  // a save that was refused rejects into the dialog, which words it, and nothing here changes.
+  const [recording, setRecording] = useState(false)
+  const [saved, setSaved] = useState<{ message: string; count: number } | null>(null)
+  const record = async (input: EntryInput) => {
+    await createEntry(input)
+    const outside = range !== null && (input.day < range.from || input.day > range.to)
+    setRecording(false)
+    setSaved((previous) => ({
+      message: outside ? strings.entry.savedOutsidePeriod(formatDate(input.day)) : strings.entry.saved,
+      count: (previous?.count ?? 0) + 1,
+    }))
+    entries.reload()
+    days.reload()
+    totals.reload()
+  }
+
   return (
     <section aria-labelledby="hours-my-heading" data-testid="hours-my-page" className="flex flex-col gap-4">
       <PageHeader
         title={strings.myHours.heading}
         titleId="hours-my-heading"
         description={strings.myHours.description}
+        actions={
+          <Button
+            variant="primary"
+            aria-haspopup="dialog"
+            onClick={() => setRecording(true)}
+            data-testid="hours-record"
+          >
+            {strings.entry.record}
+          </Button>
+        }
       />
+
+      {saved !== null && (
+        <SuccessBanner
+          key={saved.count}
+          message={saved.message}
+          onDismiss={() => setSaved(null)}
+          testId="hours-entry-saved"
+        />
+      )}
 
       <HoursBanners {...(blocked ? NO_BANNERS : banners)} />
 
@@ -317,6 +366,15 @@ export default function MyHoursPage() {
             )}
           </Card>
         </>
+      )}
+
+      {recording && (
+        <EntryDialog
+          lists={listsView}
+          onReloadLists={lists.reload}
+          onSubmit={record}
+          onCancel={() => setRecording(false)}
+        />
       )}
     </section>
   )
