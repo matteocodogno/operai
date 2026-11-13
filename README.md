@@ -9,9 +9,10 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `shell/` | Suite host — shared chrome (header/sidebar/footer) + single session; mounts each tool as a federated remote |
 | `estimai-ui/` | EstimAI, as a federated remote |
 | `refund-ui/` | Reimbursement tool (federated remote) — expense requests + accounting review/decision (specs/20260716-refund-service); WellD CH accounting: default classification per expense type in Settings (chosen among Accounting's entries), a classification panel on the review page, receipt numbers, and the accounting CSV export on the batch page (specs/20261118-refund-accounting-export); the ledger accounts, VAT codes and exchange rates moved to `accounting-ui/` (specs/20261119-accounting) |
-| `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/20260713-auth-roles-permissions); user invitations, resend/revoke & soft-delete (specs/20260713-user-invitations, admin-only) |
+| `admin-ui/` | Admin tool (federated remote) — roles, departments, users & fine-grained permissions (specs/20260713-auth-roles-permissions); user invitations, resend/revoke & soft-delete (specs/20260713-user-invitations, admin-only); the Time lists page — time categories and work types for hours-api, shown to holders of `time-list:manage` (specs/20261112-time-tracking) |
 | `inventory-ui/` | Hardware inventory (federated remote) — asset register, assignments, depreciation ledger and year close; plus the ungated "My devices" screen at `/devices` (specs/20261006-hardware-inventory, ADR 20261006-ungated-second-federated-entry-of-a-gated-remote) |
 | `projects-ui/` | Projects (federated remote) — the delivery work wellD runs: projects with their type, state, project manager and team, and their contracts' delivery terms and Bexio order id; no money (specs/20261103-projects, ADR 20261103-projects-tool-shape-and-authorization) |
+| `hours-ui/` | Hours / time tracking (federated remote) — record the hours you spent on a project, a deal, a meeting or other work, and read your own; holders of "see everyone's hours" also get everyone's, totals and an XLSX export. Ungated, mounted at `/hours` from the user menu's "My hours" (specs/20261112-time-tracking, ADR 20261112-hours-ui-ungated-remote) |
 | `notify-ui/` | Notification center (federated remote) — the `/notify` page; reached from the header bell (specs/20260713-notification-center) |
 | `auth/` | Bun + Hono auth service — OAuth, sessions, RS256 JWT + JWKS, hosted sign-in; + authorization (roles/departments/permissions, admin API, ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims); user invitations + soft-delete + hosted invite landing (specs/20260713-user-invitations) |
 | `estimai-api/` | Estimate-persistence backend (Bun + Hono) |
@@ -22,6 +23,7 @@ Module-Federation shell that hosts each tool as a runtime remote.
 | `accounting-ui/` | Accounting tool (federated remote, port 5183) — the ledger accounts, VAT codes and monthly average exchange rates of each legal entity: add, deactivate and reactivate, read and correct rates; reached at `/accounting` by holders of `accounting:read` or `accounting:manage` (specs/20261119-accounting, ADR 20261119-accounting-reference-data-belongs-to-accounting-api-…) |
 | `accounting-api/` | Accounting backend (Bun + Hono, port 8089, database `accounting`) — owner of the accounting reference data, authorization-enforcing per entity, with monthly rates fetched on demand from the federal source (`ACCOUNTING_FX_SOURCE`); one read-only service route for `refund-api`; the one-off `bun run seed:welld-ch` loads WellD CH's list (specs/20261119-accounting) |
 | `activities-api/` | Activities backend (Bun + Hono) — the activities, tasks and blockers of the CRM (pre-sales) and Projects (operational); no UI and no permission catalog of its own: every access decision is asked of the host as the caller, failing closed (specs/20261110-activities, ADR 20261110-activities-service-access-delegated-to-host/0082/0083) |
+| `hours-api/` | Time-tracking backend (Bun + Hono) — time entries, categories and work types; own hours need only a JWT, everyone's hours is a live-checked oversight permission (`time-entry:read-all`); whether you may record on a project, deal or meeting is asked of its owner as you, failing closed; reads a meeting's deal from meetings-api with its own scoped service credential (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog/0089) |
 | `specs/`, `docs/adr/` | Spec-driven workflow + Architecture Decision Records |
 | `infra/` | Deploy config + runbooks (Railway, Vercel) |
 
@@ -36,17 +38,19 @@ One-time setup:
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
    `direnv allow .`, `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`,
-   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`, `direnv allow accounting-api` and `direnv allow admin-ui`, and set up
+   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`, `direnv allow accounting-api`, `direnv allow hours-api` and `direnv allow admin-ui`, and set up
    the 1Password service account described in
    [1Password for local development](#1password-for-local-development). Every backend requires `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
    `aud` claim `auth` stamps and the resource servers verify (ADR 20260713-jwt-audience-claim-enforcement); a mismatch rejects
    every token with 401. Set `ENABLE_TEST_AUTH=true` for a seeded local session, and provide
    real `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (with
    `http://localhost:3001/auth/callback/google` as an authorized redirect URI) if you want
-   Google login locally. `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `projects-api` and `activities-api` each need
+   Google login locally. `refund-api`, `estimai-api`, `inventory-api`, `crm-api`, `projects-api`, `activities-api` and `hours-api` each need
    `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` (their own credentials for `auth`'s
    service-token endpoint, matching an entry of `auth`'s `SERVICE_CLIENTS`; ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired) — see
-   each `.env.example`. `refund-api` also requires `ACCOUNTING_INTERNAL_URL` (accounting-api's address, `http://localhost:8089`; it exits 1 without it), and its `SERVICE_CLIENTS` entry must hold the scope `accounting.reference.read` (`users.contact` only for a production release window, T84). `refund-api`'s object-storage vars (`REFUND_S3_*`) are documented
+   each `.env.example`. `refund-api` also requires `ACCOUNTING_INTERNAL_URL` (accounting-api's address, `http://localhost:8089`; it exits 1 without it), and its `SERVICE_CLIENTS` entry must hold the scope `accounting.reference.read` (`users.contact` only for a production release window, T84). `hours-api`'s entry carries the scope `meetings.hosts.read` alone, and
+   meetings-api needs `SERVICE_AUDIENCE` for it (specs/20261112-time-tracking). `hours-api`'s `.envrc` is written by a
+   person, from `hours-api/.env.example`. `refund-api`'s object-storage vars (`REFUND_S3_*`) are documented
    but not yet enforced (no bucket provisioned yet); `inventory-api` also needs its own
    `INVENTORY_S3_*` bucket.
 2. **Apply DB migrations** (brings up Postgres, then migrates every backend, `accounting-api` included):
@@ -58,7 +62,7 @@ One-time setup:
 Then run the whole suite with **one command**:
 
 ```bash
-mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + accounting-api + all the frontends
+mise run dev            # HMR — Postgres + MinIO + auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + accounting-api + hours-api + all the frontends
 ```
 
 The three `dev*` tasks open the shell (http://localhost:5173) in your browser as soon as it
@@ -79,6 +83,7 @@ open **http://localhost:5173**.
 | crm-ui (remote) | 5179 | CRM (specs/20261101-crm) |
 | projects-ui (remote) | 5181 | Projects (specs/20261103-projects) |
 | accounting-ui (remote) | 5183 | Accounting (specs/20261119-accounting); 5185 in the e2e preview |
+| hours-ui (remote) | 5184 | Hours / time tracking, ungated `/hours` (specs/20261112-time-tracking); 5182 and 5183 are left free (e2e preview defaults) |
 | auth | 3001 | Bun + Hono |
 | estimai-api | 8080 | Bun + Hono |
 | notify-api | 8081 | Bun + Hono — SSE push (specs/20260713-notification-center) |
@@ -88,7 +93,8 @@ open **http://localhost:5173**.
 | projects-api | 8086 | Bun + Hono — authz-enforcing resource server (specs/20261103-projects) |
 | activities-api | 8087 | Bun + Hono — activities and tasks of the CRM and Projects; access asked of the host (specs/20261110-activities) |
 | accounting-api | 8089 | Bun + Hono — accounting reference data per entity; read live by refund-api (specs/20261119-accounting) |
-| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`, `activities`, `accounting`) |
+| hours-api | 8088 | Bun + Hono — time entries; own hours need only a JWT, everyone's is a live-checked permission; booking asked of each owner (specs/20261112-time-tracking) |
+| Postgres | 5435 | `docker compose` (databases: `auth`, `estimai`, `notify`, `refund`, `inventory`, `crm`, `projects`, `activities`, `accounting`, `hours`) |
 | MinIO | 9000 / 9001 | `docker compose` — local S3 + console for receipts and invoices |
 
 Other `mise` tasks:
@@ -96,7 +102,7 @@ Other `mise` tasks:
 ```bash
 mise run dev:web        # frontends only (HMR) — when backends run elsewhere
 mise run dev:preview    # full stack, but frontends build+preview (no HMR; mirrors deploy)
-mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + accounting-api migrations
+mise run db:migrate     # apply auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + projects-api + activities-api + accounting-api + hours-api migrations
 ```
 
 One-off, production only: the legacy Excel asset register is loaded by
@@ -151,7 +157,7 @@ to the `OperAILocal` vault.
 3. Allow the files and check that none is missing a variable. Nothing should ask for Touch ID:
 
    ```bash
-   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api activities-api accounting-api admin-ui; do direnv allow "$d"; done
+   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api activities-api accounting-api hours-api admin-ui; do direnv allow "$d"; done
    OP_SERVICE_ACCOUNT_TOKEN="$(security find-generic-password -a "$USER" -s op-sa-operai-local -w)" \
      op item list --vault OperAILocal --format json | jq length   # the items the service account can see
    mise run env:doctor -- --env local
