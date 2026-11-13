@@ -120,8 +120,11 @@ a permission that widens a directory.
 - A new service to provision (`infra/provision-tool.sh hours`), add to the env contract
   (`tools/env-doctor`), and deploy in the order auth → activities-api, crm-api, meetings-api → hours-api
   → UIs.
-- The activity pointer is an id resolved on read: a deleted activity shows as no pointer, and the
-  pointer is cleared on the owner's next write of that entry. A 503 from activities-api clears nothing.
+- The activity pointer is an id resolved on read: a deleted activity shows as no pointer while the
+  project or deal is readable, and as hidden when it is not. The stored id is never cleared, not even on
+  the owner's next write (amended 2026-11-13, specs/029 ledger D47): activities-api omits an id the
+  caller cannot read exactly like a deleted one, so clearing on write would drop a live pointer for an
+  author who only lost read access. A 503 from activities-api clears nothing either.
 - Labels follow the viewer's access: a holder of read-all who cannot read a project sees the entry's
   type, minutes and day, but not its name (spec AC-4.10).
 - No version precondition: a person with two tabs can overwrite their own entry from a stale one.

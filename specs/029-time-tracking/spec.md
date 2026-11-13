@@ -171,8 +171,9 @@ visible to whom it concerns and to no one else.
   planning, approved by the owner; widened from holders of see everyone's hours to every viewer
   during design, D43.)*
 - AC-4.11 Given a view filtered by a deal, when Meetings cannot say which meetings are linked to
-  that deal, then the view is refused as unavailable and nothing partial is shown; without a deal
-  filter the view still answers as AC-4.7 says (D45). *(Added 2026-11-12 during design.)*
+  that deal, then the view is refused as unavailable and nothing partial is shown; pages already
+  shown before a later page fails stay, with the error below them (D48); without a deal filter the
+  view still answers as AC-4.7 says (D45). *(Added 2026-11-12 during design; D48 2026-11-13.)*
 
 ### US-5 Access and copy
 As an admin, I want time tracking to follow the suite's permission rules, so that hours are

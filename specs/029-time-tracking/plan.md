@@ -44,7 +44,7 @@ ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-ho
 
 | Component | Change |
 |---|---|
-| `hours-api` (new) | Service skeleton copied from activities-api's shape: `src/index.ts` (CORS with `ALLOWED_ORIGINS`, request logger, 64 KiB body limit, routers, OpenAPI + Scalar, RFC 7807 `onError`/`notFound`), `src/auth/jwt.middleware.ts` (RS256, issuer, `aud=AUTH_AUDIENCE`), `src/lib/{env,db,problem,logger,identities,serviceToken}.ts`, `src/health`. Feature modules: `src/entries/` (CRUD + list), `src/totals/`, `src/lists/` (categories, work types), `src/targets/` (bookability checks), `src/labels/` (fail-soft names and meeting→deal links), `src/oversight/` (read-all, copied from estimai-api `src/estimates/oversight.ts` + `src/lib/authClient.ts`), `src/authz/` (live `time-list:manage`, copied from projects-api `src/auth/authz.middleware.ts` + `src/authz/resolveClient.ts`). Clients: `src/clients/{projects,crm,activities,meetings}.ts` (caller JWT, 2 s, batched; meetings system call with a service JWT). Copied modules registered in `scripts/check-shared-copies.ts`. Test harness: `src/test-support/{env,world,hosts}.ts` (activities-api pattern: one scriptable `Bun.serve` playing projects-api, crm-api, activities-api and meetings-api) and `src/matrix.test.ts`. Env (`src/lib/env.ts`): `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE` (≠ `AUTH_AUDIENCE`), `PORT=8088`, `NODE_ENV`. Files: `.env.example`, `.envrc`, `Dockerfile`, `bunfig.toml`, `package.json`, `prisma.config.ts`, `railway.json` (`preDeployCommand: bun run db:deploy`), `tsconfig.json`. |
+| `hours-api` (new) | Service skeleton copied from activities-api's shape: `src/index.ts` (CORS with `ALLOWED_ORIGINS`, request logger, 64 KiB body limit, routers, OpenAPI + Scalar, RFC 7807 `onError`/`notFound`), `src/auth/jwt.middleware.ts` (RS256, issuer, `aud=AUTH_AUDIENCE`), `src/lib/{env,db,problem,logger,identities,serviceToken}.ts`, `src/health`. Feature modules: `src/entries/` (CRUD + list), `src/totals/`, `src/lists/` (categories, work types), `src/targets/` (bookability checks), `src/labels/` (fail-soft names and meeting→deal links), `src/oversight/` (read-all, copied from estimai-api `src/estimates/oversight.ts` + `src/lib/authClient.ts`), `src/authz/` (live `time-list:manage`, copied from projects-api `src/auth/authz.middleware.ts` + `src/authz/resolveClient.ts`). Clients: `src/clients/{projects,crm,activities,meetings}.ts` (caller JWT, 2 s, batched; meetings system call with a service JWT). Copied modules registered in `scripts/check-shared-copies.ts` where a group exists (R10). Test harness: `src/test-support/{env,world,hosts}.ts` (activities-api pattern: one scriptable `Bun.serve` playing projects-api, crm-api, activities-api and meetings-api) and `src/matrix.test.ts`. Env (`src/lib/env.ts`): `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE` (≠ `AUTH_AUDIENCE`), `PORT=8088`, `NODE_ENV`. Files: `.env.example`, `.envrc`, `Dockerfile`, `bunfig.toml`, `package.json`, `prisma.config.ts`, `railway.json` (`preDeployCommand: bun run db:deploy`), `tsconfig.json`. |
 | `activities-api` | `GET /activities` accepts `ids` (≤ 50, comma-separated) as a fifth "exactly one of" filter. Each id's host is resolved **as the caller**, exactly as today; unreadable or missing ids are omitted (identical); an unreachable host is the existing 503. No new table, no catalog. |
 | `crm-api` | `src/activity-host/resolve.routes.ts`: `entityType` becomes `"company" \| "deal"`. For `deal` each id is answered with label/href and `involved: [ownerUserId, technicalUserId?]`, the technical contact taken **as the deal view does** (`estimate?.technical` — an override row with `estimateId: ""` is not a technical contact, `deals.routes.ts:244`). Reader = `crm:access`, as for companies. |
 | `meetings-api` | (1) `GET /meetings` gains `ids` (≤ 25) — still the caller's own meetings only (creator or Operai participant, `list.routes.ts:57-62`), so one call is both the booking check and the label. (2) First `/system/*` route, `GET /system/meetings/hosts` (service JWT, `aud=SERVICE_AUDIENCE`, scope `meetings.hosts.read`, sub `system:hours-api` only, one identical 401), answering `{id, host}` and nothing else. Copies crm-api's `src/auth/systemAuth.middleware.ts` (verifies against the existing `AUTH_JWKS_URL`). Env: `SERVICE_AUDIENCE`. |
@@ -109,9 +109,14 @@ already needs no check.
 
 **A pointed activity that was deleted** (AC-2.9) is derived on read, not swept (ADR-0013): when
 the viewer can read the entry's project or deal and activities-api no longer returns the pointed
-id, the view shows `activity: null`. When the owner changes the entry and the pointed activity is
-gone, the stored id is cleared in that write (reconcile on write); a changed `activityId` is
-validated as in step 5.
+id, the view shows `activity: null`; when the project or deal itself is hidden from the viewer the
+activity is shown as hidden too (AC-4.10). The stored id is **never cleared** — not on read, not on a
+later write (D47): activities-api omits an id the caller cannot read exactly like a deleted one, so
+clearing it on a write would drop a live pointer for an author who merely lost read access, and a
+`PATCH` that keeps the target makes no owner call at all (AC-2.12). A changed `activityId` is validated
+as in step 5. *Rejected:* reconcile on write (loses live pointers, needs an owner call on every keep-
+target `PATCH`); clearing only after the host confirms the author still reads the target (an extra call
+for a cosmetic cleanup). A dangling id costs one text column.
 
 **Oversight** (`whose=all`, a `userId` filter, any write on someone else's entry): hours-api asks
 `auth GET /authz/resolve` with the caller's JWT for `time-entry:read-all`. A refusal is cached by
@@ -564,7 +569,7 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-2.6 | integration + meetings-api integration | meeting entries grouped under deal A and listed with `on.deal = { state: "linked", id: A }`; fake system route relinks to B → totals and the item move to B. meetings-api: the system route answers `{id, host}` only; a user JWT, a wrong scope or a wrong sub → identical 401 |
 | AC-2.7 | integration + activities-api integration + component | activity of another project/deal → 422 `activity_not_allowed`; on `meeting`/`none` → 422; a task of the same project → 201. activities-api: `ids` filter returns readable activities only, omits missing and unreadable alike. hours-ui: the activity picker loads `GET /activities?projectId=` / `?dealId=` for the picked entity; a 404 or 503 shows its error state and Save stays enabled |
 | AC-2.8 | integration | two people, three days, one task → all 201, same `activity.id` in the list |
-| AC-2.9 | integration | fake activities-api stops returning the pointed id → entry still listed and counted, `activity: null`; owner changes the note → stored pointer cleared, 200 |
+| AC-2.9 | integration | fake activities-api stops returning the pointed id → entry still listed and counted, `activity: null`, export activity cell empty; owner then changes the note → 200 and the stored `activityId` is unchanged (D47); project hidden from the viewer → activity rendered hidden, not `null` |
 | AC-2.12 | integration (fake projects + crm + activities + meetings) | entry on a project, caller then removed from `assignees`: `PATCH {minutes, note, workTypeId, day}` → 200 and the fake host records **no** resolve call; same with the project now `reader:false` → 200; `PATCH {on: <same project>}` → 200, no call; `PATCH {on: <another project the caller is not on>}` → 403 `not_on_project`, row unchanged; `PATCH {activityId: <task of that project>}` with activities-api down → 503; deal (involvement lost) and meeting (no longer a participant) variants alike |
 | AC-2.10 | integration | missing vs unreadable project, deal, meeting → byte-identical 404 bodies |
 | AC-2.11 | integration | each source down / timeout / 500 during a write → 503 `host_unavailable`, no row written |
@@ -616,20 +621,36 @@ name or an id that leaks).
   above 800 ms (an activities-api `involvedIn=me` filter, a `POST /system/meetings/hosts` taking ≤ 1000
   ids, or a server-built export, in that order).
 - **R3 PR #9 overlap.** Additive edits in files PR #9 also changes: `auth/src/authz/seed.ts`,
-  `auth/src/system/serviceClients.ts`, `tools/env-doctor/manifest.ts`, `admin-ui/src/App.tsx`.
-  *Mitigation:* edits in new blocks. *Early check:* `git merge-tree` against
-  `feat/projects-handoff` before the auth task merges.
+  `auth/src/authz/seed.test.ts`, `auth/src/system/serviceClients.ts`,
+  `auth/src/system/serviceClients.test.ts`, `auth/.env.example`, `compose.yaml`,
+  `scripts/check-shared-copies.ts`, `tools/env-doctor/manifest.ts`, env-doctor `check.test.ts` /
+  `resolve.test.ts` and its `auth.env` / `crm-api.env` production templates, `AGENTS.md` (the admin-ui
+  route goes in `admin-ui/src/router.tsx`, which PR #9 does not touch; list corrected 2026-11-13 while
+  deriving tasks). *Mitigation:* edits in new blocks. *Early check:* `git merge-tree` against
+  `fork/feat/projects-handoff` (or `main` once PR #9 merges) before each of those tasks merges.
 - **R4 Managers see less than they expect** (AC-4.10). A holder without CRM or Projects access sees
   hours on deals/projects without names, and their by-project or by-deal totals show one merged
   "not visible to you" group. *Mitigation:* the UI says "not visible to you" with the type.
 - **R5 Picker offers projects/deals the person may not book on.** Search uses existing list
   endpoints; the server refuses with a clear 403. *Mitigation:* copy names the reason; a member-only
   project filter can follow PR #9 (projects-api is not touched here).
-- **R6 Deleted activity vs unreachable activities-api.** Only an answer that omits the id clears a
-  pointer; a 503 never does. *Early check:* AC-2.9 test plus a 503 variant.
+- **R6 Deleted activity vs unreachable or unreadable.** Nothing clears a pointer (D47): an omitted id
+  shows `activity: null` while the project/deal is readable, a 503 names `activities` in `unavailable`.
+  *Early check:* AC-2.9 test plus a 503 variant and a lost-access variant (id kept).
 - **R7 Deploy order.** auth (catalog, scope) → activities-api, crm-api, meetings-api → hours-api →
-  admin-ui, hours-ui, shell. hours-api treats a 404 from a not-yet-deployed route as
-  `unavailable` (`meeting-deals` for the system route), so a wrong order degrades, never breaks.
+  admin-ui, hours-ui, shell. A not-yet-updated owner does not answer 404: an old crm-api answers 422 to
+  `entityType:"deal"`, an old activities-api 422 to `ids` alone, and an old meetings-api ignores `ids`
+  and returns the caller's latest page. hours-api's clients therefore treat **any unexpected 4xx** as
+  `unavailable` (503 `host_unavailable` on a write) and **drop ids they did not ask for** (corrected
+  2026-11-13), so a wrong order degrades, never breaks.
+- **R9 Deal involvement beyond the scan bound.** The activities scan reads at most 10 pages (1000
+  activities) of a deal; a person involved only through an activity past that bound is refused
+  `not_involved_in_deal` (accepted 2026-11-13). *Early check:* none needed below 1000 activities per
+  deal; revisit with R2's `involvedIn=me` filter.
+- **R10 Copied modules not drift-checked.** `scripts/check-shared-copies.ts` has no group for estimai-
+  api's oversight code or projects-api's authz code, and adding one needs markers inside those apps;
+  hours-api registers only in the existing groups (accepted 2026-11-13). *Mitigation:* the copies cite
+  their source file in a header comment; a later chore adds the groups.
 - **R8 Library components land with one new consumer each.** `SearchPicker` and `ExportButton` are
   shaped by hours-ui while two `CompanyPicker` copies and `ExportYearButton` stay in their apps.
   *Mitigation:* the contracts above cover what the existing copies do (debounce, stale-answer discard,

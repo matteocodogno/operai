@@ -82,6 +82,11 @@ Decided during /wellforge:design 029 (2026-11-12, gaps raised by the designer):
 - D45 New AC-4.11: a view filtered by a deal is refused as unavailable while meetings-api cannot say which meetings are linked to that deal (seconds to minutes: a redeploy of its single replica, a crash, a network error); nothing partial is shown; without a deal filter the view still degrades (AC-4.7) — user chose this over the recommended "deal's own entries + a warning banner", knowing the next read after Meetings answers is complete
 - D46 (2026-11-13) Bookability is checked only when an entry is created or moved to another project, deal or meeting: its author may still correct the day, duration, note and work type of an entry on a project/deal they left or a target they can no longer read (new AC-2.12; AC-2.2/2.3 reworded; A3 narrowed); an activity pointer change is still checked (AC-2.7) — user chose the recommended option over "every change is checked, delete only after leaving"
 
+Decided during /wellforge:tasks 029 (2026-11-13, raised while deriving tasks):
+- D47 A pointed activity that no longer resolves is worked out on read only (`activity: null` while the project/deal is readable, hidden when it is hidden); the stored id is never cleared — user chose the recommended option over "clear it after an owner check"
+- D48 Under a deal filter, a failed "Load more" keeps the pages already shown, with the error and Retry below them; only a failing first page, totals or export replaces the view (AC-4.11 amended) — user chose this over replacing the whole view
+- D49 The list's `target` and `meetingId` filters stay in hours-api although no AC uses them (likely needed by specs/031) — user chose the recommended option over dropping them
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
