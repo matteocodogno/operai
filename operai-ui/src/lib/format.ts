@@ -120,7 +120,7 @@ export function formatNumber(
   return minus(new Intl.NumberFormat(NUMBER_LOCALE[locale], options).format(value))
 }
 
-export type DurationStyle = 'clock' | 'spoken'
+export type DurationStyle = 'clock' | 'spoken' | 'short'
 
 type DurationFormatCtor = new (
   locale: string,
@@ -134,10 +134,16 @@ type DurationFormatCtor = new (
  *
  *   formatDuration(3_723_000, { style: 'clock' })    01:02:03   (hours are never capped: 100:00:00)
  *   formatDuration(3_723_000, { style: 'spoken' })   1 hour, 2 minutes, 3 seconds / 1 ora, 2 minuti e 3 secondi
+ *   formatDuration(9_000_000, { style: 'short' })    2 h 30   (7_200_000: 2 h; 1_800_000: 30 min; 7_500_000: 2 h 05)
  *
  * `clock` is for a timer, a segment time or a citation; `spoken` is for an
  * `aria-label` or a sentence. Spoken uses `Intl.DurationFormat` where the
  * browser has it and the same words from `Intl.NumberFormat` units otherwise.
+ * `short` is for a list or a total of hours worked (specs/029): whole minutes, the
+ * remainder dropped; the minutes after the hours are padded ("2 h 05") so they never
+ * read as a decimal; hours are never capped and are grouped like any number in the
+ * language. The same text in both languages, since "h" and "min" are one symbol in each.
+ * A screen reader may say "h" as a letter, so give it the `spoken` form as an `aria-label`.
  */
 export function formatDuration(
   ms: number,
@@ -150,6 +156,11 @@ export function formatDuration(
   const minutes = Math.floor((total % 3600) / 60)
   const seconds = total % 60
   if (options.style === 'clock') return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`
+  if (options.style === 'short') {
+    if (hours === 0) return `${minutes} min`
+    const shownHours = `${formatNumber(hours, {}, locale)} h`
+    return minutes === 0 ? shownHours : `${shownHours} ${pad(minutes)}`
+  }
 
   const intlLocale = NUMBER_LOCALE[locale]
   const DurationFormat = (Intl as unknown as { DurationFormat?: DurationFormatCtor }).DurationFormat

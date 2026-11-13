@@ -117,6 +117,44 @@ describe('formatters', () => {
   })
 })
 
+describe('short durations (specs/029: AC-4.9)', () => {
+  const minutes = (n: number) => n * 60_000
+
+  it.each(['en', 'it'] as const)('writes a duration short as "2 h 30", "2 h" or "30 min" in %s', (locale) => {
+    expect(formatDuration(minutes(150), { style: 'short' }, locale)).toBe('2 h 30')
+    expect(formatDuration(minutes(120), { style: 'short' }, locale)).toBe('2 h')
+    expect(formatDuration(minutes(30), { style: 'short' }, locale)).toBe('30 min')
+  })
+
+  it('reads the language from <html lang> when none is given', () => {
+    document.documentElement.setAttribute('lang', 'it')
+    expect(formatDuration(minutes(150), { style: 'short' })).toBe('2 h 30')
+  })
+
+  it('pads the minutes next to hours so "2 h 05" is never read as 2.5, and drops what is under a minute', () => {
+    expect(formatDuration(minutes(125), { style: 'short' }, 'en')).toBe('2 h 05')
+    expect(formatDuration(minutes(60), { style: 'short' }, 'en')).toBe('1 h')
+    expect(formatDuration(minutes(5), { style: 'short' }, 'en')).toBe('5 min')
+    expect(formatDuration(minutes(59) + 59_999, { style: 'short' }, 'en')).toBe('59 min')
+    expect(formatDuration(minutes(60) - 1, { style: 'short' }, 'en')).toBe('59 min')
+  })
+
+  it('shows zero as "0 min", a negative duration as zero, and refuses a non-finite one', () => {
+    expect(formatDuration(0, { style: 'short' }, 'en')).toBe('0 min')
+    expect(formatDuration(30_000, { style: 'short' }, 'it')).toBe('0 min')
+    expect(formatDuration(-minutes(30), { style: 'short' }, 'en')).toBe('0 min')
+    expect(() => formatDuration(Number.NaN, { style: 'short' })).toThrow(TypeError)
+    expect(() => formatDuration(Number.NEGATIVE_INFINITY, { style: 'short' })).toThrow(TypeError)
+  })
+
+  it('never caps the hours and groups them like any other number in the language', () => {
+    expect(formatDuration(minutes(24 * 60), { style: 'short' }, 'en')).toBe('24 h')
+    expect(formatDuration(minutes(1234 * 60 + 30), { style: 'short' }, 'en')).toBe('1,234 h 30')
+    expect(formatDuration(minutes(1234 * 60 + 30), { style: 'short' }, 'it')).toBe('1234 h 30')
+    expect(formatDuration(minutes(12345 * 60), { style: 'short' }, 'it')).toBe('12.345 h')
+  })
+})
+
 describe('languages and catalogs', () => {
   it('resolves the language from <html lang>, then the browser, else English', () => {
     document.documentElement.setAttribute('lang', 'it-CH')

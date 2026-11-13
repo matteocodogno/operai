@@ -517,6 +517,10 @@ Display only; APIs keep ISO 8601 and integer minor units (ADR 20260720-mileage-r
 | a date and time | `formatDateTime` | 31.10.2026 14:05 | 31.10.2026 14:05 |
 | a date in prose | `formatDateLong` | 31 October 2026 | 31 ottobre 2026 |
 | a recent moment | `formatRelative` | 3 hours ago | 3 ore fa |
+| a calendar month (a `YYYY-MM` key) | `formatMonth` | November 2026 | novembre 2026 |
+| hours worked, in a list or a total | `formatDuration(ms, { style: 'short' })` | 2 h 30 · 2 h · 30 min | 2 h 30 · 2 h · 30 min |
+| a duration in a sentence or an `aria-label` | `formatDuration(ms, { style: 'spoken' })` | 2 hours, 30 minutes | 2 ore e 30 minuti |
+| a timer or a segment time | `formatDuration(ms, { style: 'clock' })` | 02:30:00 | 02:30:00 |
 | an amount | `formatMoney(cents, 'EUR')` | EUR 12,345.50 | 12.345,50 EUR |
 | an amount, currency shown elsewhere | `formatAmount(cents)` | 12,345.50 | 12.345,50 |
 | any other number | `formatNumber(n, options)` | 30% | 30% |
