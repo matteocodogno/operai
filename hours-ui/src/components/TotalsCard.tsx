@@ -28,6 +28,8 @@ export type TotalsCardHandle = {
 export type TotalsCardProps = {
   view: TotalsView
   groupBy: GroupChoice
+  /** The groupings offered, in order: My hours' four (the default), or Everyone's hours' five, Person first. */
+  choices?: readonly GroupChoice[]
   onGroupByChange: (group: GroupChoice) => void
   /** Retry after a failed read. */
   onRetry: () => void
@@ -64,7 +66,14 @@ const columns = (groupBy: GroupChoice) =>
  * the rest of the page) and a range that cannot be sent. The total is announced politely when it arrives;
  * the card never moves focus by itself — the page can ask for it (`focusHeading`, T25).
  */
-export default function TotalsCard({ view, groupBy, onGroupByChange, onRetry, ref }: TotalsCardProps) {
+export default function TotalsCard({
+  view,
+  groupBy,
+  choices = GROUP_CHOICES,
+  onGroupByChange,
+  onRetry,
+  ref,
+}: TotalsCardProps) {
   const root = useRef<HTMLDivElement>(null)
 
   // `Card` has no focusable heading yet, so the heading is found through the card's own `aria-labelledby`.
@@ -98,12 +107,12 @@ export default function TotalsCard({ view, groupBy, onGroupByChange, onRetry, re
                 {...control}
                 value={groupBy}
                 onChange={(event) => {
-                  const choice = GROUP_CHOICES.find((candidate) => candidate === event.target.value)
+                  const choice = choices.find((candidate) => candidate === event.target.value)
                   if (choice !== undefined) onGroupByChange(choice)
                 }}
                 data-testid="hours-totals-group"
               >
-                {GROUP_CHOICES.map((choice) => (
+                {choices.map((choice) => (
                   <option key={choice} value={choice}>
                     {strings.totals.groupBy[choice]}
                   </option>

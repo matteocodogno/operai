@@ -83,6 +83,19 @@ describe('HoursBanners', () => {
     })
   })
 
+  it('the note can carry the page’s own words (Everyone’s hours reads "not visible to you"), still a named static note', () => {
+    const own = strings.everyone.entries.hidden
+    render(<HoursBanners {...none} hiddenNames hiddenCopy={own} />)
+
+    const note = screen.getByRole('note', { name: own.label })
+    expect(note.textContent).toContain(own.body)
+    expect(note.textContent).not.toContain(e.banners.hidden.body)
+    expect(note.getAttribute('aria-live')).toBeNull()
+    expect(own.body).toBe(
+      'Some projects, deals or meetings are not visible to you, so they show without a name. Their hours are still counted.',
+    )
+  })
+
   it('shows the three in a fixed order: names missing, deal grouping, names not visible', () => {
     render(<HoursBanners sources={['crm', 'meeting-deals']} dealGroupingUnavailable hiddenNames />)
     expect(screen.getAllByTestId(/^hours-banner-/).map((banner) => banner.getAttribute('data-testid'))).toEqual([

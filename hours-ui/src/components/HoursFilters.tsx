@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { Button, Card, DateInput, Field, SearchPicker } from '@operai/ui'
+import { Button, Card, DateInput, Field, SearchPicker, formatDate } from '@operai/ui'
 import type { ComboboxOption } from '@operai/ui'
 import type { TimeListsView } from '../lib/hoursApi.types'
-import { PERIODS } from '../lib/period'
+import { MIN_DAY, PERIODS } from '../lib/period'
 import type { RangeErrors } from '../lib/period'
 import { searchDeals, searchProjects } from '../lib/searchers'
 import type { DealChoice, ProjectChoice } from '../lib/searchers'
 import { strings } from '../strings'
 import ErrorBanner from './ErrorBanner'
 import type { FilterPatch, HoursFilterState } from './HoursFiltersState'
+import PersonFilter from './PersonFilter'
+import type { PeopleView } from './PersonFilter'
 
 /** The categories and work types the selects offer, from one `GET /time-lists?includeRetired=true`. */
 export type ListsView = { status: 'loading' } | { status: 'error' } | { status: 'loaded'; lists: TimeListsView }
@@ -22,6 +24,12 @@ export type HoursFiltersProps = {
   project: ProjectChoice | null
   deal: DealChoice | null
   lists: ListsView
+  /**
+   * The people the Person select offers (Everyone's hours, T29): given, the card has a Person select, between
+   * the period and the project, holding `state.personId` and reporting a choice as `{ personId }`; absent
+   * (My hours), there is none.
+   */
+  people?: PeopleView
   /** Whether anything differs from the defaults: only then is "Clear filters" offered. */
   filtered: boolean
   /** A new value gives the pickers a new `key`, which empties text typed and never picked (Clear filters). */
@@ -45,9 +53,10 @@ const dealOption = (deal: DealChoice): ComboboxOption => ({
 })
 
 /**
- * HoursFilters — the Filters card of My hours (specs/029-time-tracking T24; AC-4.4; design S1 "Filters"):
- * Period (with From and To under Custom range), Project and Deal (server-side searches, as the person),
- * Category and Work type (both from one read of the lists). Controlled and presentational: it renders the
+ * HoursFilters — the Filters card of My hours and Everyone's hours (specs/029-time-tracking T24, T29; AC-4.4;
+ * design S1 "Filters", S4): Period (with From and To under Custom range), Person (Everyone's hours only, when the
+ * page gives `people`), Project and Deal (server-side searches, as the person), Category and Work type (both
+ * from one read of the lists). Controlled and presentational: it renders the
  * state it is given and reports every change as a patch — it never fetches the lists or the hours, and the
  * page owns the URL.
  *
@@ -57,8 +66,9 @@ const dealOption = (deal: DealChoice): ComboboxOption => ({
  * `aria-disabled` (reachable, doing nothing) and a failure says so inside the card with Retry; the period,
  * the project and the deal keep working.
  *
- * A date left empty is reported as "required" only after the person leaves the field, so typing a date
- * never flashes an error; "To before From" and "over 366 days" show at once.
+ * A date left empty, or before 01.01.2000 (the earliest day hours-api takes), is reported only after the
+ * person leaves the field, so typing a date never flashes an error; "To before From" and "over 366 days"
+ * show at once.
  */
 export default function HoursFilters({
   state,
@@ -66,6 +76,7 @@ export default function HoursFilters({
   project,
   deal,
   lists,
+  people,
   filtered,
   pickerKey,
   onChange,
@@ -78,17 +89,28 @@ export default function HoursFilters({
   const [touched, setTouched] = useState({ from: false, to: false })
   const listsReady = lists.status === 'loaded'
 
-  const fromError = rangeErrors.from === 'required' && touched.from ? t.rangeErrors.fromRequired : undefined
-  const toError =
-    rangeErrors.to === 'required'
-      ? touched.to
-        ? t.rangeErrors.toRequired
+  // "Required" and "too early" wait for the person to leave the field: a year typed digit by digit passes
+  // through 0002, 0020 and 0202, which would otherwise flash the error at every key.
+  const tooEarly = t.rangeErrors.tooEarly(formatDate(MIN_DAY))
+  const fromError = !touched.from
+    ? undefined
+    : rangeErrors.from === 'required'
+      ? t.rangeErrors.fromRequired
+      : rangeErrors.from === 'too-early'
+        ? tooEarly
         : undefined
-      : rangeErrors.to === 'before-from'
-        ? t.rangeErrors.toBeforeFrom
-        : rangeErrors.to === 'too-long'
-          ? t.rangeErrors.tooLong
-          : undefined
+  const toError =
+    rangeErrors.to === 'before-from'
+      ? t.rangeErrors.toBeforeFrom
+      : rangeErrors.to === 'too-long'
+        ? t.rangeErrors.tooLong
+        : !touched.to
+          ? undefined
+          : rangeErrors.to === 'required'
+            ? t.rangeErrors.toRequired
+            : rangeErrors.to === 'too-early'
+              ? tooEarly
+              : undefined
 
   /** What the first option of a list select says: the wait, or "all". */
   const anyLabel = (any: string) => (lists.status === 'loading' ? t.listsLoading : any)
@@ -160,6 +182,10 @@ export default function HoursFilters({
                 )}
               </Field>
             </>
+          )}
+
+          {people !== undefined && (
+            <PersonFilter value={state.personId} people={people} onChange={(personId) => onChange({ personId })} />
           )}
 
           <SearchPicker<ProjectChoice>

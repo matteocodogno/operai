@@ -142,6 +142,48 @@ describe('the Custom range’s field errors (nothing is sent while one shows)', 
     expect(screen.getByText(t.rangeErrors.fromRequired)).not.toBeNull()
     expect(screen.queryByText(t.rangeErrors.toRequired)).toBeNull()
   })
+
+  describe('a day before 01.01.2000 (plan amendment 4: the floor hours-api holds)', () => {
+    const floor = t.rangeErrors.tooEarly('01.01.2000')
+
+    it('says so in the suite’s date format, and in words', () => {
+      expect(floor).toBe('The date cannot be before 01.01.2000.')
+    })
+
+    it('From before it is an error on From, once the person has left the field (typing a year passes through 0002, 0020, 0202)', () => {
+      renderFilters({ state: { ...custom, from: '0202-10-09', to: '2026-10-12' }, rangeErrors: { from: 'too-early' } })
+      expect(screen.queryByText(floor)).toBeNull()
+
+      fireEvent.blur(screen.getByLabelText(t.from))
+
+      const message = screen.getByText(floor)
+      expect(message.getAttribute('role')).toBe('alert')
+      expect(screen.getByLabelText(t.from).getAttribute('aria-invalid')).toBe('true')
+      expect(screen.getByLabelText(t.from).getAttribute('aria-describedby')).toBe(message.id)
+      expect(screen.getByLabelText(t.to).getAttribute('aria-invalid')).toBeNull()
+    })
+
+    it('To before it is an error on To, once the person has left that field', () => {
+      renderFilters({ state: { ...custom, from: '2026-10-05', to: '1999-12-31' }, rangeErrors: { to: 'too-early' } })
+      expect(screen.queryByText(floor)).toBeNull()
+
+      fireEvent.blur(screen.getByLabelText(t.to))
+
+      expect(screen.getByText(floor)).not.toBeNull()
+      expect(screen.getByLabelText(t.to).getAttribute('aria-invalid')).toBe('true')
+      expect(screen.getByLabelText(t.from).getAttribute('aria-invalid')).toBeNull()
+    })
+
+    it('each field says it for itself: both before the floor, both fields have the error', () => {
+      renderFilters({
+        state: { ...custom, from: '1990-01-01', to: '1990-01-05' },
+        rangeErrors: { from: 'too-early', to: 'too-early' },
+      })
+      fireEvent.blur(screen.getByLabelText(t.from))
+      fireEvent.blur(screen.getByLabelText(t.to))
+      expect(screen.getAllByText(floor)).toHaveLength(2)
+    })
+  })
 })
 
 describe('Category and Work type: one read, retired ones marked, names as typed (AC-3.4, AC-3.8)', () => {
@@ -220,6 +262,57 @@ describe('Category and Work type: one read, retired ones marked, names as typed 
 
     await userEvent.click(within(alert).getByRole('button', { name: strings.common.retry }))
     expect(onRetryLists).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Person (Everyone’s hours, T29: AC-4.4)', () => {
+  const people = {
+    status: 'loaded',
+    options: [
+      { id: 'u-ada', label: 'Ada Lovelace' },
+      { id: 'u-grace', label: 'Grace Hopper' },
+    ],
+  } as const
+
+  it('is not there on My hours: no `people`, no Person select', () => {
+    renderFilters()
+    expect(screen.queryByRole('combobox', { name: t.person.label })).toBeNull()
+  })
+
+  it('is a Person select with Everyone first, between the period and the project', () => {
+    renderFilters({ people })
+    const person = screen.getByRole('combobox', { name: t.person.label })
+    expect(optionTexts(person)).toEqual(['Everyone', 'Ada Lovelace', 'Grace Hopper'])
+    const period = screen.getByRole('combobox', { name: t.period.label })
+    const project = screen.getByRole('combobox', { name: t.project.label })
+    expect(period.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(person.compareDocumentPosition(project) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('under Custom range it follows From and To', () => {
+    renderFilters({ people, state: { ...DEFAULT_FILTERS, period: 'custom', from: '2026-11-01', to: '2026-11-30' } })
+    const to = screen.getByLabelText(t.to)
+    const person = screen.getByRole('combobox', { name: t.person.label })
+    expect(to.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows the person chosen (the state’s personId) and reports a choice as a patch, "" for Everyone', async () => {
+    const { onChange } = renderFilters({ people, state: { ...DEFAULT_FILTERS, personId: 'u-grace' } })
+    const person = screen.getByRole('combobox', { name: t.person.label }) as HTMLSelectElement
+    expect(person.value).toBe('u-grace')
+    await userEvent.selectOptions(person, 'Ada Lovelace')
+    expect(onChange).toHaveBeenLastCalledWith({ personId: 'u-ada' })
+    await userEvent.selectOptions(person, 'Everyone')
+    expect(onChange).toHaveBeenLastCalledWith({ personId: '' })
+  })
+
+  it('while the people load it says so and does nothing; the other filters keep working', async () => {
+    const { onChange } = renderFilters({ people: { status: 'loading' } })
+    const person = screen.getByRole('combobox', { name: t.person.label })
+    expect(person.getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByText(t.person.loading)).not.toBeNull()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: t.period.label }), 'lastMonth')
+    expect(onChange).toHaveBeenLastCalledWith({ period: 'lastMonth' })
   })
 })
 

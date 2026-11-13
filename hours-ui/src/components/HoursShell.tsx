@@ -13,6 +13,10 @@ import { strings } from '../strings'
  * tab is out of the DOM — never disabled — while the permissions resolve and for a non-holder; it is a
  * UX convenience, and the server is the gate (ADR-0075), so `/all` typed by hand reaches the
  * page, which the server then refuses.
+ *
+ * A tab is the PAGE, not the whole address: both pages keep their filters in the URL's search params
+ * (`?period=…&person=…`), and a link is "active" only when the search matches too unless `includeSearch` is
+ * off — without it the current tab lost its `aria-current` as soon as a filter was set.
  */
 export default function HoursShell() {
   const { canReadAll } = useHoursAccess()
@@ -24,10 +28,10 @@ export default function HoursShell() {
       nav={
         canReadAll ? (
           <TabNav label={strings.common.nav.landmarkLabel}>
-            <Link to="/" className={tabLinkClassName} activeOptions={{ exact: true }}>
+            <Link to="/" className={tabLinkClassName} activeOptions={{ exact: true, includeSearch: false }}>
               {strings.common.nav.myHours}
             </Link>
-            <Link to="/all" className={tabLinkClassName} activeOptions={{ exact: true }}>
+            <Link to="/all" className={tabLinkClassName} activeOptions={{ exact: true, includeSearch: false }}>
               {strings.common.nav.everyone}
             </Link>
           </TabNav>

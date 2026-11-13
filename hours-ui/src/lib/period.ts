@@ -11,7 +11,8 @@
  * no entry can be dated after today (`future_day`), so the entries are the same, and the period shown in
  * Custom (and in the exported file's name) is the period the person chose. Every preset is at most 366
  * days, the longest span hours-api takes (plan § Entries); Custom is held to the same bound here so the
- * server's 400 is not how the person finds out.
+ * server's 400 is not how the person finds out — and to the floor of 2000-01-01 (`MIN_DAY`, plan "A day"),
+ * which catches a mistyped year the same way.
  */
 
 export const PERIODS = ['thisWeek', 'lastWeek', 'thisMonth', 'lastMonth', 'thisYear', 'custom'] as const
@@ -20,12 +21,22 @@ export type PresetPeriod = Exclude<Period, 'custom'>
 export type DateRange = { from: string; to: string }
 
 /** What is wrong with a Custom range, by field. */
-export type RangeErrors = { from?: 'required'; to?: 'required' | 'before-from' | 'too-long' }
+export type RangeErrors = {
+  from?: 'required' | 'too-early'
+  to?: 'required' | 'too-early' | 'before-from' | 'too-long'
+}
 
 export const DEFAULT_PERIOD: Period = 'thisMonth'
 
 /** The longest range the server accepts, counting both end days (plan § Entries: "span ≤ 366 days"). */
 export const MAX_SPAN_DAYS = 366
+
+/**
+ * The earliest day hours-api takes, for an entry's day and for a period's ends (plan § Entries, "A day",
+ * amendment 4): the suite records hours from 2026, so a day decades back is a mistyped year. The format is
+ * fixed-width, so the floor is compared as text.
+ */
+export const MIN_DAY = '2000-01-01'
 
 const DAY_MS = 86_400_000
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/
@@ -76,16 +87,30 @@ export const presetRange = (period: PresetPeriod, today: string): DateRange => {
 }
 
 /**
- * What is wrong with a typed range, by field; `{}` is a range that can be sent. A date that is empty or
- * not on the calendar is "required" (an `<input type="date">` holds '' until its date is complete).
+ * What is wrong with one typed date: a day before the floor is "too early" (the years 0000–0099 included,
+ * which a date parser reads as 19xx, so the calendar check alone would call them "required"); text that is
+ * empty or not on the calendar is "required" (an `<input type="date">` holds '' until its date is complete).
+ */
+const dayError = (text: string): 'required' | 'too-early' | null => {
+  if (!ISO_DATE.test(text)) return 'required'
+  if (text < MIN_DAY) return 'too-early'
+  return dayOf(text) === null ? 'required' : null
+}
+
+/**
+ * What is wrong with a typed range, by field; `{}` is a range that can be sent. The span rules (To not
+ * before From, at most 366 days) are measured only between two valid days: a bad From or To is reported on
+ * its own field and never as a span error, as hours-api does.
  */
 export const rangeErrors = (from: string, to: string): RangeErrors => {
-  const start = dayOf(from)
-  const end = dayOf(to)
   const errors: RangeErrors = {}
-  if (start === null) errors.from = 'required'
-  if (end === null) errors.to = 'required'
-  if (start !== null && end !== null) {
+  const fromError = dayError(from)
+  const toError = dayError(to)
+  if (fromError !== null) errors.from = fromError
+  if (toError !== null) errors.to = toError
+  if (fromError === null && toError === null) {
+    const start = dayOf(from)!
+    const end = dayOf(to)!
     if (end < start) errors.to = 'before-from'
     else if (spanDays(from, to) > MAX_SPAN_DAYS) errors.to = 'too-long'
   }

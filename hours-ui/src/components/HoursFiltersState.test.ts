@@ -19,6 +19,7 @@ describe('parseFilterSearch', () => {
       period: 'thisMonth',
       from: '',
       to: '',
+      personId: '',
       categoryId: '',
       workTypeId: '',
       group: 'project',
@@ -40,6 +41,7 @@ describe('parseFilterSearch', () => {
       period: 'custom',
       from: '2026-10-05',
       to: '2026-10-09',
+      personId: '',
       categoryId: 'tc-1',
       workTypeId: 'wt-1',
       group: 'month',
@@ -65,6 +67,45 @@ describe('parseFilterSearch', () => {
       to: '',
       workTypeId: '',
     })
+  })
+})
+
+describe('parseFilterSearch for Everyone’s hours (T29: Person, and Person as the default Group by)', () => {
+  it('an empty URL is the defaults, grouped by person and with no one chosen', () => {
+    expect(parseFilterSearch({}, 'everyone')).toEqual({
+      ...DEFAULT_FILTERS,
+      personId: '',
+      group: 'person',
+    })
+  })
+
+  it('reads the person, and Group by person among the others', () => {
+    expect(parseFilterSearch({ person: 'u-ada', group: 'deal' }, 'everyone')).toMatchObject({
+      personId: 'u-ada',
+      group: 'deal',
+    })
+    expect(parseFilterSearch({ group: 'person' }, 'everyone').group).toBe('person')
+  })
+
+  it('My hours knows no Person: a person in its URL is nobody, and Group by person is the default there', () => {
+    expect(parseFilterSearch({ person: 'u-ada', group: 'person' })).toMatchObject({ personId: '', group: 'project' })
+    expect(parseFilterSearch({ person: 'u-ada' }, 'mine').personId).toBe('')
+  })
+
+  it('an id the router parsed as a number is the same id as text', () => {
+    expect(parseFilterSearch({ person: 1234 }, 'everyone').personId).toBe('1234')
+  })
+
+  it('an id outside the id rule is nobody: it never reaches the API (empty, 65 characters, a comma, a NUL, a space at either end)', () => {
+    for (const bad of ['a'.repeat(65), 'a,b', 'a\u0000b', ' u-ada', 'u-ada ', '   ']) {
+      expect(parseFilterSearch({ person: bad }, 'everyone').personId).toBe('')
+    }
+    expect(parseFilterSearch({ person: 'a'.repeat(64) }, 'everyone').personId).toBe('a'.repeat(64))
+    expect(parseFilterSearch({ person: 'two words' }, 'everyone').personId).toBe('two words')
+  })
+
+  it('an unknown group is the view’s default', () => {
+    expect(parseFilterSearch({ group: 'day' }, 'everyone').group).toBe('person')
   })
 })
 
@@ -105,6 +146,21 @@ describe('applyFilterPatch: what the URL becomes when one filter changes', () =>
     })
   })
 
+  it('writes the person, and leaves "everyone" (no one chosen) out of the URL', () => {
+    expect(applyFilterPatch({ period: 'lastWeek' }, { personId: 'u-ada' }, 'everyone')).toEqual({
+      period: 'lastWeek',
+      person: 'u-ada',
+    })
+    expect(applyFilterPatch({ person: 'u-ada' }, { personId: '' }, 'everyone')).toEqual({})
+  })
+
+  it('the default Group by is the view’s own: person on Everyone’s hours, project on My hours', () => {
+    expect(applyFilterPatch({ group: 'deal' }, { group: 'person' }, 'everyone')).toEqual({})
+    expect(applyFilterPatch({}, { group: 'project' }, 'everyone')).toEqual({ group: 'project' })
+    expect(applyFilterPatch({}, { group: 'person' })).toEqual({ group: 'person' })
+    expect(applyFilterPatch({ group: 'deal' }, { group: 'project' }, 'mine')).toEqual({})
+  })
+
   it('a date emptied in Custom is kept as empty, so the range reads as incomplete and nothing is sent', () => {
     expect(
       parseFilterSearch(applyFilterPatch({ period: 'custom', from: '2026-11-01', to: '2026-11-30' }, { from: '' })),
@@ -113,7 +169,7 @@ describe('applyFilterPatch: what the URL becomes when one filter changes', () =>
 })
 
 describe('clearFilterSearch (Clear filters)', () => {
-  it('drops period, dates, category and work type, and keeps Group by (a view choice, not a filter) and other keys', () => {
+  it('drops period, dates, person, category and work type, and keeps Group by (a view choice, not a filter) and other keys', () => {
     expect(
       clearFilterSearch({
         period: 'custom',
@@ -123,8 +179,9 @@ describe('clearFilterSearch (Clear filters)', () => {
         workType: 'wt-1',
         group: 'deal',
         person: 'u-1',
+        elsewhere: 'kept',
       }),
-    ).toEqual({ group: 'deal', person: 'u-1' })
+    ).toEqual({ group: 'deal', elsewhere: 'kept' })
   })
 })
 
@@ -134,6 +191,10 @@ describe('isFiltered (when "Clear filters" is offered)', () => {
   it('is false for the defaults, whatever Group by is', () => {
     expect(isFiltered(DEFAULT_FILTERS, none)).toBe(false)
     expect(isFiltered({ ...DEFAULT_FILTERS, group: 'month' }, none)).toBe(false)
+  })
+
+  it('is true when the person differs (Everyone’s hours)', () => {
+    expect(isFiltered({ ...DEFAULT_FILTERS, personId: 'u-ada' }, none)).toBe(true)
   })
 
   it('is true when the period, the category, the work type, the project or the deal differ', () => {

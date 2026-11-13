@@ -5,7 +5,7 @@
  * daylight-saving change can move a boundary.
  */
 import { describe, expect, it } from 'vitest'
-import { PERIODS, presetRange, rangeErrors, rangeOf, spanDays } from './period'
+import { MIN_DAY, PERIODS, presetRange, rangeErrors, rangeOf, spanDays } from './period'
 
 // 2026-11-13 is a Friday: its week is Monday 9 – Sunday 15 November.
 const FRIDAY = '2026-11-13'
@@ -97,7 +97,57 @@ describe('rangeErrors: the Custom range (AC-4.4: nothing is sent while it is inv
   })
 })
 
+describe('the floor: no day before 2000-01-01 (plan § Entries "A day", amendment 4)', () => {
+  it('is 2000-01-01, as a string (the format is fixed-width, so it compares as one)', () => {
+    expect(MIN_DAY).toBe('2000-01-01')
+  })
+
+  it('a From before it is an error on From, and a To before it an error on To (never "before From")', () => {
+    expect(rangeErrors('1999-12-31', '2026-11-13')).toEqual({ from: 'too-early' })
+    expect(rangeErrors('2026-11-13', '1999-12-31')).toEqual({ to: 'too-early' })
+    expect(rangeErrors('1999-12-30', '1999-12-31')).toEqual({ from: 'too-early', to: 'too-early' })
+  })
+
+  it('a mistyped year is one (0226, 1026) and so are the years a date parser reads as 19xx (0000, 0050)', () => {
+    for (const early of ['0226-11-05', '1026-11-05', '0000-01-01', '0050-01-01', '0099-12-31', '1000-01-01']) {
+      expect(rangeErrors(early, '2026-11-13')).toEqual({ from: 'too-early' })
+    }
+  })
+
+  it('2000-01-01 itself is allowed, and 366 days from it (2000 is a leap year) is the longest span', () => {
+    expect(rangeErrors('2000-01-01', '2000-01-01')).toEqual({})
+    expect(rangeErrors('2000-01-01', '2000-12-31')).toEqual({})
+    expect(rangeErrors('2000-01-01', '2001-01-01')).toEqual({ to: 'too-long' })
+  })
+
+  it('the span is measured only between two valid days: a bad From or To is reported on its field alone', () => {
+    // 1999-01-01..2026-11-13 is far over 366 days, but only the field that is wrong is named.
+    expect(rangeErrors('1999-01-01', '2026-11-13')).toEqual({ from: 'too-early' })
+    expect(rangeErrors('2026-11-13', '')).toEqual({ to: 'required' })
+  })
+
+  it('a day that is not on the calendar and not before the floor is still "required", not "too early"', () => {
+    expect(rangeErrors('2026-02-30', '2026-03-05')).toEqual({ from: 'required' })
+    expect(rangeErrors('2000-02-30', '2026-03-05')).toEqual({ from: 'required' })
+  })
+
+  it('a preset is never held to it', () => {
+    expect(rangeOf('thisYear', '1999-01-01', '1999-01-02', FRIDAY).errors).toEqual({})
+  })
+})
+
 describe('rangeOf: the range a view sends, or none', () => {
+  it('Custom from before the floor has no range, so nothing can be sent (both views)', () => {
+    expect(rangeOf('custom', '1999-12-31', '2026-11-13', FRIDAY)).toEqual({
+      range: null,
+      errors: { from: 'too-early' },
+    })
+    expect(rangeOf('custom', '2026-11-01', '1999-12-31', FRIDAY)).toEqual({
+      range: null,
+      errors: { to: 'too-early' },
+    })
+  })
+
   it('a preset is its range, whatever from and to hold', () => {
     expect(rangeOf('lastWeek', 'junk', '', FRIDAY)).toEqual({
       range: { from: '2026-11-02', to: '2026-11-08' },

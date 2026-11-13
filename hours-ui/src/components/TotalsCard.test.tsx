@@ -14,9 +14,11 @@ import { formatDuration, formatMonth } from '@operai/ui'
 import { strings } from '../strings'
 import type { TotalsAnswer, TotalsGroup } from '../lib/hoursApi.types'
 import { totalsAnswer } from '../test-support/fakeApi'
+import { PERSON_TOTALS } from '../test-support/fixtures/everyone'
 import { CATEGORY_TOTALS, DEAL_TOTALS, MONTH_TOTALS, PROJECT_TOTALS } from '../test-support/fixtures/myHours'
 import TotalsCard from './TotalsCard'
 import type { TotalsCardHandle, TotalsCardProps } from './TotalsCard'
+import { EVERYONE_GROUP_CHOICES } from './TotalsCardRows'
 import type { GroupChoice } from './TotalsCardRows'
 
 afterEach(() => cleanup())
@@ -120,6 +122,23 @@ describe('the total and the groups (AC-4.5, AC-4.9)', () => {
     expect(formatMonth('2026-11')).toBe('November 2026')
   })
 
+  it('by person (Everyone’s hours): names in the server’s order, "Unknown user" and "(deactivated)" in words, no merged row', () => {
+    renderCard({ view: loaded(PERSON_TOTALS), groupBy: 'person' })
+    expect(tableRows(t.caption.person)).toEqual([
+      ['Ada Lovelace', '12 h'],
+      ['Grace Hopper', '10 h 30'],
+      ['Unknown user (deactivated)', '4 h'],
+      ['Unknown user', '1 h'],
+    ])
+    const table = screen.getByRole('table', { name: t.caption.person })
+    expect(
+      within(table)
+        .getAllByRole('columnheader')
+        .map((cell) => cell.textContent),
+    ).toEqual([t.groupBy.person, t.columnTime])
+    expect(t.caption.person).toBe('Hours by person')
+  })
+
   it('a month key it cannot read is shown as it is, not a crash', () => {
     renderCard({
       view: loaded(totalsAnswer([{ kind: 'keyed', key: '2026-1x', label: null, minutes: 60 }])),
@@ -154,6 +173,17 @@ describe('Group by (design S1: Project, Deal, Category, Month)', () => {
         .map((option) => option.textContent),
     ).toEqual(['Project', 'Deal', 'Category', 'Month'])
     expect((select as HTMLSelectElement).value).toBe('category')
+  })
+
+  it('Everyone’s hours offers Person first, then the four: the card is told which groupings to offer', () => {
+    renderCard({ view: loaded(PERSON_TOTALS), groupBy: 'person', choices: EVERYONE_GROUP_CHOICES })
+    const select = screen.getByRole('combobox', { name: t.groupBy.label })
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Person', 'Project', 'Deal', 'Category', 'Month'])
+    expect((select as HTMLSelectElement).value).toBe('person')
   })
 
   it('reports the choice', async () => {

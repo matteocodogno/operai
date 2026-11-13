@@ -1,6 +1,6 @@
 /**
- * The Totals card of My hours (T24); Everyone's hours (T29) adds the person words here. Group names that
- * come from the data (a project, a deal, a category, as the viewer may read them) are never in this file:
+ * The Totals card of My hours (T24); Everyone's hours (T29) adds Person as a grouping (the words for a
+ * person's name are in `everyone`). Group names that come from the data (a project, a deal, a category, as the viewer may read them) are never in this file:
  * they are shown exactly as the server sends them (AC-3.8).
  */
 
@@ -9,6 +9,7 @@ const en = {
   total: 'Total',
   groupBy: {
     label: 'Group by',
+    person: 'Person',
     project: 'Project',
     deal: 'Deal',
     category: 'Category',
@@ -16,6 +17,7 @@ const en = {
   },
   /** The table's caption names the grouping (screen readers read it). */
   caption: {
+    person: 'Hours by person',
     project: 'Hours by project',
     deal: 'Hours by deal',
     category: 'Hours by category',
@@ -65,12 +67,14 @@ const it: typeof en = {
   total: 'Totale',
   groupBy: {
     label: 'Raggruppa per',
+    person: 'Persona',
     project: 'Progetto',
     deal: 'Opportunità',
     category: 'Categoria',
     month: 'Mese',
   },
   caption: {
+    person: 'Ore per persona',
     project: 'Ore per progetto',
     deal: 'Ore per opportunità',
     category: 'Ore per categoria',

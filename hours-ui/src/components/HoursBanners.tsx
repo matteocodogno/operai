@@ -9,6 +9,11 @@ export type HoursBannersProps = {
   dealGroupingUnavailable: boolean
   /** Anything on screen is withheld because the viewer may not read it (`hasHiddenName`). */
   hiddenNames: boolean
+  /**
+   * The words of that note when a page has its own (Everyone's hours, T29, design S4); My hours uses the
+   * entries catalog's. The note stays a named, static one whatever the words.
+   */
+  hiddenCopy?: { label: string; body: string }
 }
 
 /**
@@ -23,7 +28,12 @@ export type HoursBannersProps = {
  * - names not visible (`info`, `live="off"`): a standing fact the viewer reads in place, named for a screen
  *   reader that lands on it, and never announced.
  */
-export default function HoursBanners({ sources, dealGroupingUnavailable, hiddenNames }: HoursBannersProps) {
+export default function HoursBanners({
+  sources,
+  dealGroupingUnavailable,
+  hiddenNames,
+  hiddenCopy = strings.entries.banners.hidden,
+}: HoursBannersProps) {
   const t = strings.entries.banners
   if (sources.length === 0 && !dealGroupingUnavailable && !hiddenNames) return null
   return (
@@ -39,8 +49,8 @@ export default function HoursBanners({ sources, dealGroupingUnavailable, hiddenN
         </Banner>
       )}
       {hiddenNames && (
-        <Banner tone="info" live="off" aria-label={t.hidden.label} data-testid="hours-banner-hidden">
-          {t.hidden.body}
+        <Banner tone="info" live="off" aria-label={hiddenCopy.label} data-testid="hours-banner-hidden">
+          {hiddenCopy.body}
         </Banner>
       )}
     </div>

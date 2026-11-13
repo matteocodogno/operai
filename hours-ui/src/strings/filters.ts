@@ -35,6 +35,8 @@ const en = {
     toRequired: 'Choose an end date.',
     toBeforeFrom: 'The end date cannot be before the start date.',
     tooLong: 'The period cannot be longer than 366 days.',
+    /** The earliest day hours-api takes, in the suite's date format (the caller formats it): a mistyped year. */
+    tooEarly: (earliest: string) => `The date cannot be before ${earliest}.`,
   },
   project: {
     label: 'Project',
@@ -72,6 +74,14 @@ const en = {
     title: 'Categories and work types could not be loaded',
     body: 'You can still filter by period, project and deal.',
   },
+  /** Everyone's hours only (T29). The people are never typed in this file: they are the names `auth` resolved. */
+  person: {
+    label: 'Person',
+    everyone: 'Everyone',
+    /** The options come from the totals, a read of their own: the select says so while it runs, and when it fails. */
+    loading: 'Loading people…',
+    error: 'People could not be loaded.',
+  },
 }
 
 const it: typeof en = {
@@ -96,6 +106,7 @@ const it: typeof en = {
     toRequired: 'Scegli la data di fine.',
     toBeforeFrom: 'La data di fine non può precedere quella di inizio.',
     tooLong: 'Il periodo non può superare 366 giorni.',
+    tooEarly: (earliest: string) => `La data non può essere precedente al ${earliest}.`,
   },
   project: {
     label: 'Progetto',
@@ -133,6 +144,12 @@ const it: typeof en = {
   listsError: {
     title: 'Impossibile caricare categorie e tipi di lavoro',
     body: 'Puoi comunque filtrare per periodo, progetto e opportunità.',
+  },
+  person: {
+    label: 'Persona',
+    everyone: 'Tutti',
+    loading: 'Caricamento delle persone…',
+    error: 'Impossibile caricare le persone.',
   },
 }
 

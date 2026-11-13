@@ -137,6 +137,19 @@ describe('the tabs (AC-5.1, ADR-0075)', () => {
     expect(screen.getByRole('link', { name: strings.common.nav.myHours }).getAttribute('aria-current')).toBeNull()
   })
 
+  it('stay marked while the address carries filters (?period=…, ?person=…): the tab is the page, not the whole address', async () => {
+    renderAt('/hours/all?period=lastMonth&person=u-ada', HOLDER)
+    await screen.findByTestId('hours-everyone-page')
+    expect(screen.getByRole('link', { name: strings.common.nav.everyone }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: strings.common.nav.myHours }).getAttribute('aria-current')).toBeNull()
+    cleanup()
+
+    renderAt('/hours?period=custom&from=2026-11-01&to=2026-11-05', HOLDER)
+    await screen.findByTestId('hours-my-page')
+    expect(screen.getByRole('link', { name: strings.common.nav.myHours }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: strings.common.nav.everyone }).getAttribute('aria-current')).toBeNull()
+  })
+
   it('appear once the permissions arrive, without the page being remounted', async () => {
     renderAt('/hours', NOT_RESOLVED)
     const page = await screen.findByTestId('hours-my-page')
