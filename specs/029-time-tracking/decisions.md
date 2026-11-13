@@ -285,5 +285,14 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - assumption: "404 byte-identical" is asserted with the requested id normalised out of `instance` (the shared `problem()` echoes the path) — where: `write.test.ts` `sameAnswer`
 - default: `DELETE` is `deleteMany({id, userId})`, `PATCH` is `update({where:{id,userId}})`, Prisma `P2025` mapped to the same 404; one test creates and drops a temporary trigger on `hours_test` to produce a real `P2025` — where: `entries.routes.ts`, `write.test.ts`
 
+## T15 · backend-dev · 2026-11-13
+- default: the target's 404 carries `code: "not_found"` and one generic detail with no id or kind (project, meeting, missing and unreadable byte-identical) — why: plan § Errors, AC-2.10; hours-ui `failureOf` switches on `not_found` — where: `src/targets/errors.ts`
+- assumption: T14's entry 404 (`entryNotFound()`, entry not the caller's or gone) keeps NO `code` — why: hours-ui reads `not_found` on a save as "that project, deal or meeting is gone", which would be wrong for a vanished entry; told to T28 — where: `entries.routes.ts`
+- default: bookability runs before the activity pointer, so a 403/404 is never hidden behind the pointer's answer — where: `entries.routes.ts` `askOwners`
+- default: a project resolved without usable `assignees`, or an answered map with the asked id undefined, is 503 (fail closed) — where: `targets/bookability.ts`
+- default: 403 `not_on_project` carries no `field` — where: `targets/errors.ts`
+- scope: POST/PATCH OpenAPI docs gained 403 and 503; 404 also covers the target; DELETE keeps the entry-only 404 — where: `entries.routes.ts`
+- default: the deal branch of `assertBookable` and the activity branch in `askOwners` still answer the transitional 501 for T16 to replace — where: `targets/bookability.ts`, `entries.routes.ts`
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
