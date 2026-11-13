@@ -294,5 +294,20 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - scope: POST/PATCH OpenAPI docs gained 403 and 503; 404 also covers the target; DELETE keeps the entry-only 404 — where: `entries.routes.ts`
 - default: the deal branch of `assertBookable` and the activity branch in `askOwners` still answer the transitional 501 for T16 to replace — where: `targets/bookability.ts`, `entries.routes.ts`
 
+## T17 · backend-dev · 2026-11-13
+- reinterpretation: `whose=all` answers 501 `not_implemented` after validation and before any owner, `auth` or database call, until T19 puts the live `time-entry:read-all` check there — where: `list.routes.ts` (TRANSITIONAL block)
+- default: the query is strict — an unknown member (`projectID=`, `groupBy=` on the list) is 400 `invalid_request` with empty `field` — why: a mistyped filter would silently widen a view — where: `list.routes.ts` `ListQuerySchema`
+- default: `userId` next to `whose=mine` is 400 `field: "userId"` — where: `filters.ts` `readFilters`
+- default: `limit` is plain digits 1–500 (no sign, exponent or leading zero); empty or repeated → 400 `field: "limit"`; default 100 — where: `list.routes.ts` `isLimit`
+- default: the cursor's instant is zero-padded to 13 digits when minted and any 13 digits accepted when read — why: rows before 2001-09-09 have a 12-digit epoch ms — where: `mintCursor`, `readCursor`
+- default: `nextCursor` is `null` on the last page (fetch `limit + 1`); the cursor codec lives in `list.routes.ts` — where: `list.routes.ts`
+- default: the `target` filter is the entry's own stored target (a meeting entry is `meeting` even under `dealId`); filters AND together — where: `filters.ts` `entryWhere`
+- default: meeting ids from the system route's `?dealId=` answer that fail the id rule are dropped from the SQL `IN` list — why: a NUL would otherwise reach Postgres — where: `filters.ts` `dealCondition`
+- default: `hostUnavailable` (503) and `invalidRequest` (400 in `invalidRequestHook`'s shape) are local helpers in `filters.ts` (T15's was not in the tree yet) — to unify with `src/targets/errors.ts` in T19 (re-sync) — where: `filters.ts`
+- default: check order — shape, then `userId`/`whose`/span, then cursor, then 501, then the `dealId` call, then the database — where: `filters.ts`, `list.routes.ts`
+- default: response `unavailable` documented as an enum of the six source names (`UnavailableSchema`); the 503 documented on the route — where: `list.routes.ts`
+- hand-off: `filters.ts` exports `filterShape`, `readFilters`, `assertPeriod`, `spanDays`, `invalidRequest`, `entryWhere` (always `userId: sub`; T19 adds the everyone scope); `list.routes.ts` exports `UnavailableSchema`, `mintCursor`, `DEFAULT_LIMIT`, `MAX_LIMIT`
+- note for T37: `GET /time-entries?dealId=D` is a link oracle for a caller who knows a deal id (prescribed by D45/AC-2.6; `on.deal` still withholds id and name)
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
