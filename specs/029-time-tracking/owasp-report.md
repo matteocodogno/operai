@@ -153,3 +153,98 @@ Date 2026-11-13 · reviewer: owasp-reviewer · diff `8cc763d5..HEAD` on `feat/ti
 
 ## SELF-CRITIQUE
 I read, ran and probed hours-api, but I did not execute the crm-api, activities-api and meetings-api suites, the hours-ui or shell Vitest suites, or any browser flow, so those verdicts rest on reading plus the shared-copy check. The Medium relies on one scratch probe that I did not commit, and I rated F1 Medium rather than Low because it breaks a stated ADR rule by composition for a narrow audience (opaque ids, no names). I could not exercise Prisma 7's error-log content, Railway network exposure, or meetings-api's real `HostView` for a non-reader beyond the code, and `osv-scanner` itself was not run.
+
+## Re-check 2026-11-13 (after T41)
+
+Reviewer: owasp-reviewer. Commit 37e8897a (T41, D44) on `feat/time-tracking`. Since the first review only docs commits and T41 touched the tree; T41's 8 files are all under `hours-api/src` (`git diff 66495600~1..HEAD -- . ':!specs'`).
+
+### Verdict: PASS
+
+- F1 is closed. The list no longer hands out the id of a hidden record, so the `dealId` / `meetingId` / `projectId` filters have nothing to be fed.
+- Nothing new at medium or above.
+- Trace mapping: `verdicts.security: "PASS"`; `security.notes[]` = F2 (with the refinement below) through F7 verbatim from the first review.
+- Counts: 0 critical · 0 high · 0 medium · 6 low (F2-F7, unchanged and accepted), plus informational notes.
+
+### What was run
+
+- **Probe, as asked:** the repointed original, with its import paths changed to the main checkout `/Users/edoardo.paronzini/Work/Experiments/operai/hours-api/`. Copy: `/private/tmp/claude-331608204/-Users-edoardo-paronzini-Work-Experiments-operai/e64faa20-c60e-4ef1-b693-704bd0bf97dc/scratchpad/t41/d44.probe.main.test.ts`.
+- **Extended probe:** `/private/tmp/claude-331608204/-Users-edoardo-paronzini-Work-Experiments-operai/e64faa20-c60e-4ef1-b693-704bd0bf97dc/scratchpad/t41/d44.recheck.test.ts`. Both ran with `cd hours-api && DATABASE_URL=postgresql://postgres:postgres@localhost:5435/hours_test bun test <path>`.
+- **Full suite:** `bun test` in `hours-api` on `hours_test`: **1812 pass, 0 fail, 43 files** (was 1789; T41 added tests).
+- **Typecheck:** `bunx tsc --noEmit` in `hours-api`: clean.
+- **Diff:** read `git show 37e8897a` in full (code and tests), plus `labels/resolve.ts`, `totals/totals.ts`, `filters.ts`, the cursor code and `entries.routes.ts`.
+
+### Probe output (the original, step by step)
+
+Same world as before: a holder with `time-entry:read-all` and no CRM access. Bob's entry is on the hidden deal; Alice and Carol have entries on three meetings, two of them linked to the deal.
+
+Step 1, `GET /time-entries?...&whose=all`:
+
+| Entry | `on` |
+|---|---|
+| carol, meeting linked to none | `{type: meeting, id: null, visibility: hidden, label: null, href: null, deal: {state: none}}` |
+| carol, meeting linked to the deal | `{type: meeting, id: null, visibility: hidden, label: null, href: null, deal: {state: linked, visibility: hidden}}` |
+| alice, meeting linked to the deal | same as the row above |
+| bob, hidden deal | `{type: deal, id: null, visibility: hidden, label: null, href: null}` |
+
+This is the re-check line the first report asked for: `on.id: null` for Bob's deal entry and for both meeting entries.
+
+Step 2 and 3:
+- The probe interpolates the id the list handed out, and that id is now `null`, so the request is `dealId=null`.
+- Step 2 returns `[]` and step 3 (totals, `groupBy=deal&dealId=null`) returns `{"totalMinutes":0,"groups":[],"unavailable":[]}`.
+- No pivot is possible.
+
+### Extended probe (5 tests, 35 expects, all pass)
+
+- **No hidden id or name anywhere in any read surface.**
+  - 18 requests as the holder: `whose=all` with and without `userId` (bob, alice, carol), a 5-page `limit=1` walk, and totals for all six groupings with `whose=all` plus `person`/`project`/`deal` with `whose=mine`.
+  - The concatenated bodies contain none of `deal-secret`, `p-secret`, `mtg-alice`, `mtg-carol`, `mtg-other`, `t-secret`, "Acquisition of ACME", "Apollo", "ACME board call" or "Rotate the keys".
+  - The decoded cursors carry only `day|createdAt|<entry id>` (hours-api's own entry ids).
+- **The author exception is exactly "own".**
+  - The holder's own entry on the hidden deal keeps `id: "deal-secret"`.
+  - The other five entries (Bob's deal and project, the three meetings) all have `id: null`.
+  - Bob's `whose=mine` list keeps all of his ids, and Bob with `whose=all` gets 403.
+- **Residual F2, confirmed accepted.** A holder who already knows `deal-secret` gets 200 with 3 entries (Bob's deal entry and the two linked-meeting entries). All three have `on.id: null`, and no hidden id or name is in the body. The response no longer yields anything that was not already known.
+- **Mixed visibility.**
+  - The holder can read the deal but not the meetings: every meeting has `id: null`.
+  - `on.deal` is `{linked, visible, id: deal-secret, label, href}`, which is ADR-0089 A1 by design (the deal's visibility is the viewer's access to the deal), and the holder can read that deal already.
+  - The holder never sees a meeting id.
+- **Participant case.** The holder is a participant of `mtg-alice` but cannot read its deal: the meeting id is kept (the holder can read the meeting) and `on.deal` is `{linked, hidden}` with no deal id.
+
+The developer's own `withheldIds.test.ts` covers `unavailable`, activity pointers, POST/PATCH and the schema/OpenAPI pin. It passes in the full run, and no assertion was weakened. The existing assertions that changed (`view.test.ts`, `oversight/read.test.ts`, `activityPointer.test.ts`) were narrowed to the D44 rule (author keeps, anyone else null), not removed.
+
+### Diff review of 37e8897a
+
+- **Call sites.** Every `viewEntries` caller passes the viewer: `list.routes.ts:162` (`c.get("userId")`), `entries.routes.ts:329` (POST) and `:368` (PATCH), both with the `userId` from the verified JWT.
+  - `viewerId` is a required parameter of `viewEntries` and `toView`, so a forgotten call site does not compile; `tsc` is clean.
+  - `toView` and `viewEntries` have no other non-test caller. The labels layer is reached from `view.ts` and `totals.ts` only.
+- **Viewer identity.** `userId` is set only in `auth/jwt.middleware.ts:145` from the verified `sub`. `own` is strict equality `row.userId === viewerId`.
+  - It cannot be widened by a query parameter, a header, or `whose=all` with `userId=<other>`; another person's row is never own.
+  - A holder who edits an entry gets 403/404 before any view, so `own` also covers every write response.
+- **No id through another member.**
+  - `on.id` for project, deal and meeting and `activity.id` go through `idFor` (visible or own).
+  - `href` and `label` exist only when visible. `on.deal` is the existing union with an id only on `visible`.
+  - The remaining ids are not records the viewer is kept from: `person.id`, `workType.id`, the `none` category id, and `id` (the entry id).
+  - `unavailable` is withheld like `hidden` (fails closed).
+  - `activity.id` follows the activity's own visibility, which already follows the target's.
+  - Totals still key a group by id only when visible; the shape of `totals.ts` is unchanged, and the six-grouping scan above found no hidden id.
+- **No other new surface.** No new route, dependency, env var or log line. `c.json` sites: list, POST, PATCH, totals, lists, health.
+
+### New findings
+
+None at medium or above. One refinement of an existing Low, no new entry:
+
+- **F2 refinement (Low, accepted).** The author keeps own ids even on a record they can no longer read.
+  - A holder who once booked on deal D (bookability needed involvement at that time) and has since lost read access still has D's id from their own entry.
+  - With `whose=all&dealId=D` they see which other people's meeting entries sit on meetings currently linked to D, with days and minutes but no ids or names.
+  - Why Low: it needs prior knowledge of D, the same precondition as F2, and the holder can already read everyone's hours. It exposes the link and nothing else.
+  - If ever tightened, the one fix F2 already names (expand to linked meetings only if the viewer can read the deal) covers it.
+
+### Informational (T42, not a security finding)
+
+`hours-ui` has not been adapted yet. `EntryDialogModel.valuesOf` (lines 239-251) reads `on.id` and `activity.id` without a null guard and builds picker values from them.
+- It is safe today because only the author's own entry opens in the dialog and own ids are always kept.
+- Everyone's hours and the export never use ids.
+- T42's guard should treat `null` as "not re-pickable", as planned.
+
+### SELF-CRITIQUE
+The fix was checked mainly by reading the diff and running a probe that scans response text for chosen ids, so a leak under a derived or re-encoded form of an id would not be caught by the scan; none was found by reading. The host fakes (CRM, projects, activities, meetings) stand in for the real owners, so real crm-api and meetings-api answers for a non-reader are exercised only as the first review described, by reading. The hours-api suite and typecheck were run once each, not lint; the hours-ui, shell and other backend suites and the T42 UI companion were not run. New Mediums were ruled out by reading `view.ts`, the labels and totals layers and the three call sites, not by an exhaustive search of every service.
