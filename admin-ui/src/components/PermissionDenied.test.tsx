@@ -61,4 +61,15 @@ describe('PermissionDenied', () => {
     // The heading stays the same regardless of the message override.
     expect(alert.textContent).toContain('You no longer have admin access.')
   })
+
+  // T31 (specs/029-time-tracking) — the Time lists screen is reached BY someone with admin access
+  // who lacks one permission, so "You no longer have admin access." would be untrue there.
+  it('renders a caller-provided title instead of the generic heading, still focused on mount', () => {
+    render(<PermissionDenied title="You can't manage the time lists" message="Ask an administrator." />)
+
+    const heading = screen.getByTestId('permission-denied-heading')
+    expect(heading.textContent).toBe("You can't manage the time lists")
+    expect(screen.getByRole('alert').textContent).not.toContain('You no longer have admin access.')
+    expect(document.activeElement).toBe(heading)
+  })
 })

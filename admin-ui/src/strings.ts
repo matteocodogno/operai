@@ -20,6 +20,7 @@ import * as invitations from './strings/invitations'
 import * as legalEntities from './strings/legalEntities'
 import * as nav from './strings/nav'
 import * as roles from './strings/roles'
+import * as timeLists from './strings/timeLists'
 import * as users from './strings/users'
 
 export const en = {
@@ -33,6 +34,7 @@ export const en = {
   legalEntities: legalEntities.en,
   nav: nav.en,
   roles: roles.en,
+  timeLists: timeLists.en,
   users: users.en,
 }
 
@@ -47,6 +49,7 @@ export const it: typeof en = {
   legalEntities: legalEntities.it,
   nav: nav.it,
   roles: roles.it,
+  timeLists: timeLists.it,
   users: users.it,
 }
 

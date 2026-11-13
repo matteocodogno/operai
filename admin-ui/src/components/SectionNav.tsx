@@ -66,6 +66,15 @@ export type SectionNavProps = {
  * text labels, so plain native tab order is the correct, proportionate a11y
  * posture — adding Sidebar's extra keyboard handling here would solve a
  * problem this nav doesn't have.
+ *
+ * Time lists gate (T31, specs/029-time-tracking, AC-3.3): reads the caller's live
+ * effective permissions through the suite's one mechanism, `shell/session`'s
+ * `usePermissions()` (the shell's cached `GET /authz/me`), and only appends the
+ * "Time lists" entry if `time-list:manage` is present. Until the permissions resolve
+ * they are EMPTY, so the entry defaults to HIDDEN (never flashes in then out) and
+ * fails CLOSED on any error (INC-32). This is UX only — hours-api enforces
+ * `time-list:manage` live on every list write; `TimeListsPage` renders
+ * `PermissionDenied` for a direct visit without it.
  */
 export default function SectionNav({ showAdmin, legalEntities }: SectionNavProps) {
   if (!showAdmin && legalEntities === 'hidden') return null

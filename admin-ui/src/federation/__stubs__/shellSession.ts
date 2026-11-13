@@ -15,6 +15,7 @@ export const useSession = () => ({ data: null })
 export const getSession = async () => null
 export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)
 export const getAuthBaseUrl = () => (import.meta.env.VITE_AUTH_URL as string | undefined) ?? ''
+export const getHoursApiBaseUrl = () => (import.meta.env.VITE_HOURS_API_URL as string | undefined) ?? ''
 export const signOut = async () => undefined
 export const clearJwtCache = () => undefined
 

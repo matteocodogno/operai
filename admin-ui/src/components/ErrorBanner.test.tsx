@@ -72,4 +72,19 @@ describe('ErrorBanner', () => {
 
     expect(screen.queryByRole('button')).toBeNull()
   })
+
+  it('renders an optional title above the message, inside the same alert (T31: "Authorization service unavailable")', () => {
+    render(<ErrorBanner title="Authorization service unavailable" message="Try again in a moment." />)
+
+    const banner = screen.getByRole('alert')
+    expect(banner.textContent).toContain('Authorization service unavailable')
+    expect(banner.textContent).toContain('Try again in a moment.')
+    expect(screen.getByTestId('error-banner-title').textContent).toBe('Authorization service unavailable')
+  })
+
+  it('renders no title element when none is passed', () => {
+    render(<ErrorBanner message="Could not load your roles." />)
+
+    expect(screen.queryByTestId('error-banner-title')).toBeNull()
+  })
 })

@@ -49,19 +49,25 @@ import { StatePanel } from '@operai/ui'
 import { strings } from '../strings'
 
 export type PermissionDeniedProps = {
+  /**
+   * Overrides the generic "You no longer have admin access." heading, for a screen reached by
+   * someone who DOES have admin access and lacks one permission (Time lists, specs/029 T31). Omit
+   * for the default.
+   */
+  title?: string
   /** Overrides the generic "If this is unexpected…" body copy. Omit for the default. */
   message?: string
   /** 2 when it replaces a whole page (no PageHeader above it), 3 under a page's own header. */
   headingLevel?: 2 | 3
 }
 
-export default function PermissionDenied({ message, headingLevel = 2 }: PermissionDeniedProps = {}) {
+export default function PermissionDenied({ title, message, headingLevel = 2 }: PermissionDeniedProps = {}) {
   return (
     <StatePanel
       role="alert"
       focusOnMount
       headingLevel={headingLevel}
-      title={strings.common.permissionDenied.title}
+      title={title ?? strings.common.permissionDenied.title}
       testId="permission-denied"
       headingTestId="permission-denied-heading"
     >
