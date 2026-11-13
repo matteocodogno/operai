@@ -324,5 +324,14 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: `host_unavailable` on an edit uses design's wording ("could not check that you may record hours on this <target>") even when only a new activity was checked; the "outside the period" note after an edit only when the day changed — where: `strings/entry.ts`, `MyHoursPage.tsx`
 - assumption: Italian copy chosen by the agent ("Modifica registrazione", the delete dialog, "not visible" hints, entry-gone and locked-activity sentences) — where: `strings/entry.ts`, `strings/activity.ts`
 
+## T16 · backend-dev · 2026-11-13
+- default: a deal scan that finds nobody is 403 `not_involved_in_deal` even when `truncated` (R9); one log line `[bookability] deal activity scan stopped at the 10-page bound (R9) and found nobody` (no id, deal or person) so R9's "revisit" signal can be measured — where: `src/targets/bookability.ts`
+- default: 403 `not_involved_in_deal` carries no `field`; its detail names the rule, no id — where: `src/targets/errors.ts`
+- default: `assertActivityOf` in its own module compares `activity.projectId` (project target) or `activity.dealId` (deal target) with the target's id, no check of the activity's type (a project's activities are tasks only; any pre-sales activity of a deal counts, AC-2.7) — where: `src/targets/activity.ts`
+- default: the "ask only when new or carried" rule stays in T14's `validateWrite` unchanged (D47) — where: `entries.routes.ts`
+- default: won and lost deals accepted — hours-api reads no stage; proved by scripting crm bodies with a `stage` member — where: `deals.test.ts`
+- assumption: the scan counts an activity's `task.assignee` and `participants` only, never its author (AC-2.3) — where: `bookability.ts`
+- glossary candidate (not yet accepted): "involved (in a deal)" — owner, technical contact, or the assignee or a participant of one of its activities (AC-2.3)
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
