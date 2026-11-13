@@ -306,6 +306,75 @@ describe("meetings-api: the system route answers one identical 401 to anything b
     expect((await systemHosts("ids=m1&dealId=d1", serviceToken())).status).toBe(422);
     expect((await systemHosts(`ids=${Array.from({ length: 101 }, (_, i) => `m${i}`).join(",")}`, serviceToken())).status).toBe(422);
   });
+
+  // As T9 built it (plan § API contracts, amended 2026-11-13).
+  describe("the ids and the host, as T9 built them", () => {
+    const host = { app: "crm", entityType: "deal", entityId: "d1" };
+
+    it("answers the host as stored: three strings of any value, not narrowed to crm / deal", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", host: { app: "testhost", entityType: "widget", entityId: "w9" } });
+      hosts.meetings.add({ id: "m2", creator: "user-bob", dealId: "d1" });
+      hosts.meetings.add({ id: "m3", creator: "user-bob" });
+      hosts.meetings.setHost("m3", { app: "ünï", entityType: "", entityId: "a,b" });
+      expect(await (await systemHosts("ids=m1,m2,m3", serviceToken())).json()).toEqual({
+        items: [
+          { id: "m1", host: { app: "testhost", entityType: "widget", entityId: "w9" } },
+          { id: "m2", host },
+          { id: "m3", host: { app: "ünï", entityType: "", entityId: "a,b" } },
+        ],
+      });
+    });
+
+    it("answers id ascending, whatever order the ids were asked in or the meetings were added", async () => {
+      for (const id of ["m3", "m1", "m2"]) hosts.meetings.add({ id, creator: "user-bob", dealId: "d1" });
+      const ofIds = (await (await systemHosts("ids=m2,m3,m1", serviceToken())).json()) as { items: { id: string }[] };
+      expect(ofIds.items.map((item) => item.id)).toEqual(["m1", "m2", "m3"]);
+      const ofDeal = (await (await systemHosts("dealId=d1", serviceToken())).json()) as { items: { id: string }[] };
+      expect(ofDeal.items.map((item) => item.id)).toEqual(["m1", "m2", "m3"]);
+    });
+
+    it("trims each id, counts members as sent, and names a NUL member absent", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
+      const body = (await (await systemHosts("ids=%20m1%20,a%00b", serviceToken())).json()) as { items: { id: string }[] };
+      expect(body.items.map((item) => item.id)).toEqual(["m1"]);
+    });
+
+    it.each([
+      ["an empty list", "ids="],
+      ["a blank member", "ids=a,%20,b"],
+      ["a trailing comma", "ids=a,"],
+      ["a member over 64 characters", `ids=${"x".repeat(65)}`],
+      ["a repeated parameter", "ids=a&ids=b"],
+      ["more than 6500 characters", `ids=${"x,".repeat(3251)}`],
+    ])("refuses %s with a 422", async (_label, query) => {
+      expect((await systemHosts(query, serviceToken())).status).toBe(422);
+    });
+
+    it("matches `?dealId=` on a stored host that is EXACTLY {crm, deal, dealId}, and on nothing else", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
+      hosts.meetings.add({ id: "m2", creator: "user-bob", host: { app: "testhost", entityType: "deal", entityId: "d1" } });
+      hosts.meetings.add({ id: "m3", creator: "user-bob", host: { app: "crm", entityType: "company", entityId: "d1" } });
+      hosts.meetings.add({ id: "m4", creator: "user-bob", host: { app: "crm", entityType: "deal", entityId: "D1" } });
+      hosts.meetings.add({ id: "m5", creator: "user-bob" });
+      expect(await (await systemHosts("dealId=d1", serviceToken())).json()).toEqual({ items: [{ id: "m1", host }] });
+    });
+
+    it("trims `dealId`, refuses an empty, blank, over-long or repeated one, and answers a NUL as nothing linked", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
+      expect(((await (await systemHosts("dealId=%20d1%20", serviceToken())).json()) as { items: unknown[] }).items).toHaveLength(1);
+      for (const query of ["dealId=", "dealId=%20%20", `dealId=${"x".repeat(65)}`, `dealId=${"x".repeat(129)}`, "dealId=a&dealId=b"]) {
+        expect((await systemHosts(query, serviceToken())).status).toBe(422);
+      }
+      const nul = await systemHosts("dealId=a%00b", serviceToken());
+      expect([nul.status, await nul.json()]).toEqual([200, { items: [] }]);
+    });
+
+    it("never narrows the list's host view either: the caller's own meeting shows the stored host", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-alice", host: { app: "testhost", entityType: "widget", entityId: "w9" } });
+      const body = (await (await meetings("ids=m1")).json()) as { items: { host: unknown }[] };
+      expect(body.items[0]?.host).toMatchObject({ app: "testhost", entityType: "widget", entityId: "w9" });
+    });
+  });
 });
 
 describe("auth", () => {

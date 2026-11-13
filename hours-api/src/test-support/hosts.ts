@@ -126,10 +126,22 @@ export interface ScriptedMeeting {
   readonly creator: string;
   /** The Operai participants' user ids. A host-only reader is neither: the list never has the meeting for them. */
   readonly participants?: readonly string[];
-  /** The deal it is linked to; null: none. */
+  /** The CRM deal it is linked to (host `{crm, deal, dealId}`); null: none. */
   readonly dealId?: string | null;
+  /**
+   * The host the meeting stores, three strings of ANY value (ADR-0059: a host is data; production has only
+   * `crm` / `deal`). Wins over `dealId`. null: none.
+   */
+  readonly host?: StoredHost | null;
   /** ISO instant; default: later than every meeting added before (so the list is newest first). */
   readonly startsAt?: string;
+}
+
+/** What meetings-api stores and its system route returns: three strings. */
+export interface StoredHost {
+  readonly app: string;
+  readonly entityType: string;
+  readonly entityId: string;
 }
 
 export interface ScriptedIdentity {
@@ -200,8 +212,10 @@ export interface ActivitiesHost {
 
 export interface MeetingsHost {
   add(meeting: ScriptedMeeting): void;
-  /** Links the meeting to `dealId`, or to none: the relink of AC-2.6. */
+  /** Links the meeting to the CRM deal `dealId`, or to none: the relink of AC-2.6. */
   relink(id: string, dealId: string | null): void;
+  /** Stores any host on the meeting, or none: a host that is not a CRM deal. */
+  setHost(id: string, host: StoredHost | null): void;
   /** meetings-api before T8: ignores `ids` and returns the caller's latest page (plan R7). */
   legacy: boolean;
 }
@@ -280,6 +294,15 @@ function readerOf(readers: ReadonlyMap<string, boolean>, sub: string | null): bo
   return readers.get("*") ?? true;
 }
 
+const dealHost = (dealId: string): StoredHost => ({ app: "crm", entityType: "deal", entityId: dealId });
+
+/** A meeting as the fake keeps it: its host resolved to what is stored, and its place in the order it was added. */
+type StoredMeeting = Omit<ScriptedMeeting, "dealId" | "host" | "startsAt"> & {
+  readonly host: StoredHost | null;
+  readonly startsAt: string;
+  readonly order: number;
+};
+
 /** `limit` of elements, each 1..64 characters: the comma list of `ids` / `dealId`. `null`: refuse (422). */
 function commaList(raw: string, options: { max: number; trim: boolean }): string[] | null {
   if (raw.length > options.max * 65) return null;
@@ -304,7 +327,7 @@ export function startHosts(): Hosts {
   const crmReaders = new Map<string, boolean>();
   const activities: ScriptedActivity[] = [];
   const activityReaders = new Map<string, boolean>();
-  const meetings: (ScriptedMeeting & { readonly order: number })[] = [];
+  const meetings: StoredMeeting[] = [];
   const identities = new Map<string, ScriptedIdentity>();
   const grants = new Map<string, { resource: string; action: string }[]>();
   const flags = { crmLegacy: false, activitiesLegacy: false, meetingsLegacy: false };
@@ -445,8 +468,7 @@ export function startHosts(): Hosts {
 
   // ── meetings-api ────────────────────────────────────────────────────────────
 
-  const newestFirstMeetings = (a: ScriptedMeeting & { order: number }, b: ScriptedMeeting & { order: number }) =>
-    b.startsAt!.localeCompare(a.startsAt!) || b.order - a.order;
+  const newestFirstMeetings = (a: StoredMeeting, b: StoredMeeting) => b.startsAt.localeCompare(a.startsAt) || b.order - a.order;
 
   function meetingsList(query: URLSearchParams, sub: string | null): Response {
     const invalid = () => problem(422, "validation_failed");
@@ -473,10 +495,7 @@ export function startHosts(): Hosts {
       startsAt: meeting.startsAt,
       format: "online",
       status: "ready",
-      host:
-        meeting.dealId == null
-          ? null
-          : { app: "crm", entityType: "deal", entityId: meeting.dealId, state: "open", title: null, href: `/crm/deals/${meeting.dealId}` },
+      host: meeting.host === null ? null : { ...meeting.host, state: "open", title: null, href: null },
       role: meeting.creator === sub ? "creator" : "participant",
       summaryCount: 0,
       creator: person(meeting.creator),
@@ -503,24 +522,28 @@ export function startHosts(): Hosts {
     const idsParams = query.getAll("ids");
     const dealIds = query.getAll("dealId");
     if (idsParams.length + dealIds.length !== 1) return invalid();
-    const hostOf = (meeting: ScriptedMeeting) =>
-      meeting.dealId == null ? null : { app: "crm", entityType: "deal", entityId: meeting.dealId };
+    // Id ascending, whatever the question (T9).
+    const byId = (a: StoredMeeting, b: StoredMeeting) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const row = (meeting: StoredMeeting) => ({ id: meeting.id, host: meeting.host });
 
     if (dealIds.length === 1) {
-      const dealId = dealIds[0]!;
-      if (!isOwnerId(dealId)) return invalid();
-      const linked = meetings.filter((meeting) => meeting.dealId === dealId).sort(newestFirstMeetings);
-      return Response.json({ items: linked.map((meeting) => ({ id: meeting.id, host: hostOf(meeting) })) });
+      // One id, ≤ 128 characters raw, trimmed, then 1..64; a NUL names no deal: nothing is linked to it.
+      const raw = dealIds[0]!;
+      const dealId = raw.trim();
+      if (raw.length > 128 || dealId.length < 1 || dealId.length > 64) return invalid();
+      if (dealId.includes("\u0000")) return Response.json({ items: [] });
+      // The meetings whose stored host is EXACTLY { crm, deal, dealId }: never paged, never capped.
+      const linked = meetings.filter(
+        (meeting) => meeting.host?.app === "crm" && meeting.host.entityType === "deal" && meeting.host.entityId === dealId,
+      );
+      return Response.json({ items: linked.sort(byId).map(row) });
     }
-    const ids = commaList(idsParams[0]!, { max: 100, trim: false });
-    if (ids === null || ids.some((id) => id.includes("\u0000"))) return invalid();
-    const asked = [...new Set(ids)];
+    // ≤ 6500 characters raw, ≤ 100 members as sent, each trimmed then 1..64; a NUL member names no meeting.
+    const ids = commaList(idsParams[0]!, { max: 100, trim: true });
+    if (ids === null) return invalid();
+    const asked = new Set(ids);
     // Unknown ids are omitted.
-    const items = asked.flatMap((id) => {
-      const meeting = meetings.find((candidate) => candidate.id === id);
-      return meeting ? [{ id, host: hostOf(meeting) }] : [];
-    });
-    return Response.json({ items });
+    return Response.json({ items: meetings.filter((meeting) => asked.has(meeting.id)).sort(byId).map(row) });
   }
 
   // ── auth ────────────────────────────────────────────────────────────────────
@@ -738,11 +761,21 @@ export function startHosts(): Hosts {
       },
     },
     meetings: {
-      add: (meeting) => void meetings.push({ ...meeting, startsAt: meeting.startsAt ?? tick(), order: meetings.length }),
+      add({ dealId, host, ...meeting }) {
+        meetings.push({
+          ...meeting,
+          host: host !== undefined ? host : dealId != null ? dealHost(dealId) : null,
+          startsAt: meeting.startsAt ?? tick(),
+          order: meetings.length,
+        });
+      },
       relink(id, dealId) {
+        this.setHost(id, dealId === null ? null : dealHost(dealId));
+      },
+      setHost(id, host) {
         const index = meetings.findIndex((meeting) => meeting.id === id);
-        if (index === -1) throw new Error(`hosts.meetings.relink: no meeting ${id}`);
-        meetings[index] = { ...meetings[index]!, dealId };
+        if (index === -1) throw new Error(`hosts.meetings: no meeting ${id}`);
+        meetings[index] = { ...meetings[index]!, host };
       },
       get legacy() {
         return flags.meetingsLegacy;

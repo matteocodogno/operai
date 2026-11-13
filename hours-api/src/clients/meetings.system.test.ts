@@ -63,9 +63,57 @@ describe("readMeetingHosts", () => {
     expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null });
   });
 
-  it("reads a host that is not a CRM deal as no deal", async () => {
-    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: { app: "projects", entityType: "project", entityId: "p1" } }] } });
-    expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null });
+  // ADR-0059: a host is data, never a branch. meetings-api stores and returns three strings, so this client
+  // accepts any strings and decides per item: only exactly crm / deal is a deal. Any other host (production has
+  // none, specs/021 AC-11.1) is "no deal", like null: it must not fail the batch, which would make every
+  // meeting of a page read "unknown", and its entityId is never taken for a deal.
+  describe("a host that is not a CRM deal (amended 2026-11-13)", () => {
+    const row = (id: string, host: unknown) => ({ id, host });
+
+    it("is no deal, and the other meetings of the batch are unaffected", async () => {
+      hosts.fail("meetings.system-hosts", {
+        body: {
+          items: [
+            row("m1", { app: "crm", entityType: "deal", entityId: "d1" }),
+            row("m2", { app: "testhost", entityType: "widget", entityId: "w9" }),
+            row("m3", null),
+          ],
+        },
+      });
+      const items = await hostsOf(["m1", "m2", "m3"]);
+      expect(items.get("m1")).toEqual({ dealId: "d1" });
+      expect(items.get("m2")).toEqual({ dealId: null });
+      expect(items.get("m3")).toEqual({ dealId: null });
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("is no deal when the fake meetings-api stores another host, in a batch with a real deal link", async () => {
+      hosts.meetings.add({ id: "m1", creator: "user-bob", dealId: "d1" });
+      hosts.meetings.add({ id: "m2", creator: "user-bob", host: { app: "testhost", entityType: "widget", entityId: "d1" } });
+      hosts.meetings.add({ id: "m3", creator: "user-bob" });
+      const items = await hostsOf(["m1", "m2", "m3"]);
+      expect([...items].map(([id, host]) => [id, host.dealId])).toEqual([["m1", "d1"], ["m2", null], ["m3", null]]);
+      // The same deal asked the other way round: the other host's meeting is not one of this deal's, though its entityId says d1.
+      expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "ok", meetingIds: ["m1"] });
+    });
+
+    it.each([
+      ["another app and another type", { app: "testhost", entityType: "widget", entityId: "w9" }],
+      ["a CRM host that is not a deal", { app: "crm", entityType: "company", entityId: "c1" }],
+      ["another app's deal", { app: "testhost", entityType: "deal", entityId: "d1" }],
+      ["a differently cased crm / deal", { app: "CRM", entityType: "Deal", entityId: "d1" }],
+      ["crm / deal with padding", { app: "crm ", entityType: "deal", entityId: "d1" }],
+      ["a crm / deal that names no deal", { app: "crm", entityType: "deal", entityId: "" }],
+      ["the old projects host", { app: "projects", entityType: "project", entityId: "p1" }],
+    ])("reads %s as no deal, never as a failed batch and never as the id it carries", async (_label, host) => {
+      hosts.fail("meetings.system-hosts", { body: { items: [row("m1", host)] } });
+      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null }]]) });
+    });
+
+    it("is no deal whatever the strings are: a stored host of unusual strings is data", async () => {
+      hosts.fail("meetings.system-hosts", { body: { items: [row("m1", { app: "ünïcode ✓", entityType: "x".repeat(300), entityId: "a,b&c" })] } });
+      expect(await readMeetingHosts(["m1"])).toEqual({ state: "ok", items: new Map([["m1", { dealId: null }]]) });
+    });
   });
 
   describe("the credential", () => {
@@ -172,9 +220,35 @@ describe("readMeetingHosts", () => {
     expect(await readMeetingHosts(["m1"])).toEqual({ state: "unavailable" });
   });
 
-  it("answers `unavailable` for an item that breaks the contract", async () => {
-    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: "d1" }] } });
+  // Only an answer that is not the route's shape is `unavailable`: a `host` that is neither null nor an object of
+  // three strings is a contract break, and it fails its batch (never "no deal": that would be a guess).
+  it.each([
+    ["a string", "d1"],
+    ["a number", 7],
+    ["an array", ["crm", "deal", "d1"]],
+    ["an empty object", {}],
+    ["an object missing its entityId", { app: "crm", entityType: "deal" }],
+    ["an object missing its app", { entityType: "deal", entityId: "d1" }],
+    ["a numeric entityId", { app: "crm", entityType: "deal", entityId: 7 }],
+    ["a null entityType", { app: "crm", entityType: null, entityId: "d1" }],
+    ["an object entityId", { app: "crm", entityType: "deal", entityId: { id: "d1" } }],
+  ])("answers `unavailable` for a host that is %s", async (_label, host) => {
+    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host }] } });
     expect(await readMeetingHosts(["m1"])).toEqual({ state: "unavailable" });
+  });
+
+  it("answers `unavailable` for an item with no `host` member at all, and for one with no id", async () => {
+    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1" }] } });
+    expect(await readMeetingHosts(["m1"])).toEqual({ state: "unavailable" });
+    hosts.fail("meetings.system-hosts", { body: { items: [{ host: null }] } });
+    expect(await readMeetingHosts(["m1"])).toEqual({ state: "unavailable" });
+  });
+
+  it("fails the whole answer when one batch holds a host of the wrong shape, though another batch is fine", async () => {
+    const ids = Array.from({ length: 150 }, (_, i) => `m${i}`);
+    for (const id of ids) hosts.meetings.add({ id, creator: "user-bob", dealId: "d1" });
+    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m0", host: "d1" }] }, times: 1 });
+    expect(await readMeetingHosts(ids)).toEqual({ state: "unavailable" });
   });
 });
 
@@ -213,15 +287,51 @@ describe("readMeetingsLinkedToDeal", () => {
     expect(hosts.callsTo("meetings.system-hosts").map((call) => call.query.get("dealId"))).toEqual(["d&1", "d#2", "d+3", "d%4", "d 5"]);
   });
 
-  // AC-4.11: a deal's figures are never shown low. A meeting that is not linked to this deal in an answer
-  // about this deal means the owner did not apply the filter, so what it left out cannot be known.
-  it("answers `unavailable` when the owner hands back a meeting that is not linked to the deal", async () => {
-    hosts.fail("meetings.system-hosts", {
-      body: { items: [{ id: "m1", host: { app: "crm", entityType: "deal", entityId: "d1" } }, { id: "m2", host: { app: "crm", entityType: "deal", entityId: "other" } }] },
+  // The route matches meetings whose stored host is EXACTLY { crm, deal, <dealId> } (amended 2026-11-13). From
+  // its answer this client keeps only those: an item with any other host is not a meeting of this deal, and is
+  // dropped, never counted for it and never a reason to refuse the answer.
+  describe("what a `?dealId=` answer may hold (amended 2026-11-13)", () => {
+    const deal = (entityId: string) => ({ app: "crm", entityType: "deal", entityId });
+
+    it("keeps only the items whose host is exactly {crm, deal, <that dealId>}", async () => {
+      hosts.fail("meetings.system-hosts", {
+        body: {
+          items: [
+            { id: "m1", host: deal("d1") },
+            { id: "m2", host: deal("other") },
+            { id: "m3", host: null },
+            { id: "m4", host: { app: "testhost", entityType: "widget", entityId: "d1" } },
+            { id: "m5", host: { app: "crm", entityType: "company", entityId: "d1" } },
+            { id: "m6", host: { app: "testhost", entityType: "deal", entityId: "d1" } },
+            { id: "m7", host: deal("D1") },
+            { id: "m8", host: deal("d1 ") },
+            { id: "m9", host: deal("d1") },
+          ],
+        },
+      });
+      expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "ok", meetingIds: ["m1", "m9"] });
+      expect(warn).not.toHaveBeenCalled();
     });
-    expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "unavailable" });
-    hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: null }] } });
-    expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "unavailable" });
+
+    it("answers an empty list when none of what it holds is linked to the deal: a fact, not `unavailable`", async () => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: deal("other") }, { id: "m2", host: null }] } });
+      expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "ok", meetingIds: [] });
+    });
+
+    it("lists a meeting once", async () => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: deal("d1") }, { id: "m1", host: deal("d1") }] } });
+      expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "ok", meetingIds: ["m1"] });
+    });
+
+    it.each([
+      ["a string", "d1"],
+      ["an array", []],
+      ["an object missing its entityId", { app: "crm", entityType: "deal" }],
+      ["a numeric entityId", { app: "crm", entityType: "deal", entityId: 7 }],
+    ])("answers `unavailable` for an item whose host is %s: the wrong shape fails the batch, it is not dropped", async (_label, host) => {
+      hosts.fail("meetings.system-hosts", { body: { items: [{ id: "m1", host: deal("d1") }, { id: "m2", host }] } });
+      expect(await readMeetingsLinkedToDeal("d1")).toEqual({ state: "unavailable" });
+    });
   });
 });
 

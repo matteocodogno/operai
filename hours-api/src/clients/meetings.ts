@@ -16,7 +16,9 @@
  *   `auth POST /system/service-token` (scope `meetings.hosts.read`, `sub` `system:hours-api`,
  *   `aud` = SERVICE_AUDIENCE), cached by `serviceTokens`, dropped after a 401 and fetched fresh ONCE.
  *   NEVER the caller's token, and nothing here takes one. What it learns reaches a viewer only with the
- *   right to read the deal it names (labels, T13). It answers `{id, host}` and nothing else.
+ *   right to read the deal it names (labels, T13). It answers `{id, host}` and nothing else, where `host`
+ *   is what the meeting stores: null, or three strings of any value (ADR-0059). Only exactly
+ *   crm / deal is a deal; any other host counts as no deal and never fails a batch (plan § Views).
  *
  * An unknown id is simply absent from the system answer (the meeting no longer exists). Absence means
  * so only when the answer carries nothing nobody asked for (`keepAsked`).
@@ -92,14 +94,23 @@ export interface MeetingHost {
 export type MeetingHosts = Unavailable | { readonly state: "ok"; /** An id that is absent: the meeting no longer exists. */ readonly items: ReadonlyMap<string, MeetingHost> };
 export type LinkedMeetings = Unavailable | { readonly state: "ok"; readonly meetingIds: readonly string[] };
 
+// `host` is what the meeting stores: null, or THREE STRINGS, whatever they are (ADR-0059: a host is data,
+// never a branch; T9 does not narrow it). So the shape accepts any strings and `dealOf` decides per item;
+// anything that is neither null nor an object of three strings is not the route's shape: `unavailable`.
 const wireSystemItem = z.object({
   id: nonEmpty,
-  host: z.object({ app: z.string(), entityType: z.string(), entityId: nonEmpty }).nullable(),
+  host: z.object({ app: z.string(), entityType: z.string(), entityId: z.string() }).nullable(),
 });
 const systemBody = z.object({ items: z.array(wireSystemItem) });
 
+/**
+ * The deal a stored host names: only exactly `app: "crm"`, `entityType: "deal"` is one. Any other host
+ * (production has none, specs/021 AC-11.1) counts as NO deal, like `null`, and its `entityId` is never
+ * taken for a deal id; nor is an empty one, which names nothing (and would be an id outside the id rule
+ * on its way to crm-api).
+ */
 const dealOf = (host: z.infer<typeof wireSystemItem>["host"]): string | null =>
-  host !== null && host.app === "crm" && host.entityType === "deal" ? host.entityId : null;
+  host !== null && host.app === "crm" && host.entityType === "deal" && host.entityId !== "" ? host.entityId : null;
 
 /** One call to the system route under hours-api's own credential; a 401 is retried once with a fresh token. */
 async function callAsService(op: string, query: URLSearchParams, options: CallOptions): Promise<OwnerAnswer> {
@@ -149,9 +160,12 @@ export async function readMeetingHosts(ids: readonly string[], options: CallOpti
 }
 
 /**
- * The meetings linked to `dealId` now. A deal's figures are never shown low (AC-4.11): an answer that
- * holds a meeting not linked to this deal is an owner that did not apply the filter, so nothing it left
- * out can be known: `unavailable`.
+ * The meetings linked to `dealId` now. The route answers the meetings whose stored host is exactly
+ * `{ app: "crm", entityType: "deal", entityId: dealId }`, unpaged and uncapped, so a deal's figures are
+ * never answered low (AC-4.11). From that answer this client KEEPS ONLY the items whose host is exactly
+ * that: any other item (another deal, no host, another host) is not a meeting of this deal and is
+ * dropped, never counted for it and never a reason to refuse the answer. Only an item that is not the
+ * route's shape (`host` neither null nor three strings) is `unavailable`.
  */
 export async function readMeetingsLinkedToDeal(dealId: string, options: CallOptions = {}): Promise<LinkedMeetings> {
   const answer = await callAsService("meetings-of-deal", new URLSearchParams({ dealId }), options);
@@ -161,8 +175,7 @@ export async function readMeetingsLinkedToDeal(dealId: string, options: CallOpti
 
   const meetingIds = new Set<string>();
   for (const item of parsed.data.items) {
-    if (dealOf(item.host) !== dealId) return unavailable("meetings", "meetings-of-deal", "filter_ignored");
-    meetingIds.add(item.id);
+    if (dealOf(item.host) === dealId) meetingIds.add(item.id);
   }
   return { state: "ok", meetingIds: [...meetingIds] };
 }
