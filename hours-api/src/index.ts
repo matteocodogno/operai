@@ -8,6 +8,7 @@ import type { Context } from "hono";
 import { jwtMiddleware } from "./auth/jwt.middleware";
 import { healthRouter } from "./health/health.routes";
 import { handleError, handleNotFound, invalidRequestHook } from "./lib/errors";
+import { listsRouter } from "./lists/lists.routes";
 import { requestLogger } from "./lib/logger";
 import { problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
@@ -63,7 +64,9 @@ app.use("*", jwtMiddleware);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 // Every area router is mounted here, once, in this order (src/index.ts is shared by T12, T14, T17
-// and T18): lists, entries, list, totals. T10 mounts none.
+// and T18): lists, entries, list, totals. T10 mounted none; T12 mounts the lists.
+
+app.route("/", listsRouter);
 
 // ─── Error answers (RFC 7807 Problem JSON) ───────────────────────────────────
 
