@@ -186,3 +186,52 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: entries and day totals are fetched now but drawn by T25 — where: `MyHoursPage.tsx`
 - default: filter grid `minmax(160px, 1fr)`; pickers show the company as a secondary label; an empty field asks without `q` — where: `HoursFilters.tsx`, `lib/searchers.ts`
 - glossary candidates (not yet accepted): "merged group" (the one row for hidden, unavailable, deal-unknown or none), "day total".
+
+## T32 · frontend-dev · 2026-11-13
+- reinterpretation: success wording names the item (`Category “X” added.`, `Renamed to “X”.`, `“X” updated: entries now need a note.`); Retire/Restore text is design.md's verbatim — why: design gave only "Category added" / "Renamed", and the banner sits above all three cards — where: `strings/timeLists.ts`
+- default: the dialog sends only members that changed and closes with no request when nothing changed — why: an empty PATCH is 400; an unchanged `requiresNote` could overwrite another admin's change — where: `TimeListsPage.tsx` `submitItem`
+- default: the dialog owns form state and validation; the page owns the request via `onSubmit(values) => Promise<failure|null>` — where: `TimeListItemDialog.tsx`
+- default: Name counts `[...trimmed].length` (code points, not grapheme clusters), refuses NUL client-side, validates on blur once typed — where: `TimeListItemDialog.tsx`
+- default: 403 on Add/Rename is an inline dialog line; 403 on Retire/Restore switches the page to `PermissionDenied` (design S5); 404 on Retire/Restore/Rename closes any dialog, reloads and shows an info banner (`Banner tone="info"`); 404 on create is a generic failure — where: `TimeListsPage.tsx`
+- default: the row-failure banner has a dismiss ×, clears when that item is asked again; a new error removes an older success banner; rows act concurrently with busy per row, latest failure wins — where: `TimeListsPage.tsx`
+- default: after Add/Rename focus returns to the opener (library behaviour) — where: n/a
+- assumption: a newly added item is appended before the retired ones without a refetch (T12 orders `createdAt asc, name asc, id asc`, consistent) — where: `TimeListsPage.tsx` `withItem`
+- default: work-type cards side by side from `lg` (1024px); success banner `wrap-anywhere`; table name cells scroll inside the table's focusable region (at 360px the Categories table scrolls sideways to reach its actions) — where: `TimeListsPage.tsx`, `TimeListCard.tsx`
+- default: both work-type cards read "Add work type" (design), no extra `aria-label` (WCAG 2.5.3); dialog titles name the list — where: `TimeListCard.tsx`
+- default: work-type cards also get the "retired, not deleted" footnote; a busy toggle's name becomes "Retiring X" / "Restoring X" — where: `strings/timeLists.ts`, `TimeListCard.tsx`
+- assumption: Italian copy chosen by the agent (Attivo, Ritirato, Rinomina, Ritira, Ripristina, "Richiede una nota", "Aggiungi categoria", "Aggiungi tipo di lavoro", feminine/masculine banner sentences, "Nome cambiato in “X”.") — where: `strings/timeLists.ts`, `strings/badges.ts`
+- scope: `TimeListStatusBadge.tsx`, `TimeListsPage.cards.test.tsx` added; `TimeListsPage.it.test.tsx` mock extended — where: as named
+
+## T12 · backend-dev · 2026-11-13
+- default: `GET /time-lists` orders by `createdAt asc, name asc, id asc` — why: plan silent; seeded rows share one `createdAt` so they come out alphabetical, a new item lands last (design S5 mock-up) — where: `src/lists/lists.routes.ts` `inListOrder`
+- reinterpretation: only a refusal is cached (30 s per `(sub, perm_epoch)`), a grant never; an outage is cached as neither — why: § Sequences says "resolved live on every list write"; the projects-api shape caches grants too, which would let a revoked holder write for 30 s — where: `src/authz/timeListManage.ts`
+- default: the `auth` resolve call has a 2 s timeout and `redirect:"error"` (projects-api uses 5 s) — why: plan R2; a redirect would replay the Bearer — where: `src/authz/resolveClient.ts`
+- default: the resolve answer is read strictly (every entry an object with string `resource`/`action`, else 503) — where: `resolveClient.ts`
+- default: any grant of `(time-list, manage)` counts; `conditions` not read — why: the catalog declares none — where: `timeListManage.ts`
+- scope: the id rule and name rule live in `src/lists/idRule.ts` and `nameRule.ts` (`src/lib/` outside `touch:`) — note: T13 built a second copy of the id rule in `src/labels/idRule.ts`; consolidated by T14 (re-sync) — where: `src/lists/`
+- reinterpretation: `PATCH {}` is 400 (`field` empty); a PATCH whose members all equal the stored values is 200 and writes nothing, `updatedAt` included; retire keeps the first `retiredAt` — where: `lists.routes.ts`
+- default: Rename allowed on a retired item, which stays retired; a case-only self-rename is allowed — where: `changesTo`
+- assumption: any P2002 on a list write is `name_taken`; non-ASCII case-insensitivity is Postgres `lower()` under the DB locale — where: `lists.routes.ts`, `lists.test.ts`
+- default: 403/503/409 bodies are `problem()` responses returned (not thrown) from the middleware; `__resetTimeListManageCacheForTests` exported; the OpenAPI problem schema is not a named component — where: `timeListManage.ts`, `errorDocs.ts`
+- hand-off: `fetchResolvedPermissions` in `src/authz/resolveClient.ts` is reusable by T19; to simulate a revocation use `hosts.fail("auth.resolve", { body: { …, permissions: [] } })`
+
+## T13 · backend-dev · 2026-11-13
+- default: a person `auth` answers `unknown` is named as `identities` in `unavailable`, like an outage — why: `resolveIdentities` cannot tell the two apart; `auth` answers `unknown` only for an id with no row — where: `labels/resolve.ts`
+- default: an activity whose project or deal did not answer shows `{ id, subject: null, visibility: "unavailable" }` even if activities-api answered, and `activities` is not named — why: AC-4.10 forbids the subject unless the viewer is known to read the target — where: `labels/resolve.ts` `activity()`
+- default: a hidden target hides its activity (`visibility: "hidden"`, no subject) whatever activities-api said; `activities` is still named if its call failed — where: `labels/resolve.ts`
+- default: `TimeEntryViewSchema` is strict zod with `.openapi("TimeEntryView")`, `TimeEntryView` inferred from it, for T14/T17 to reuse — where: `entries/view.ts`
+- default: `satisfiesIdRule` exported from `src/labels/idRule.ts` (UTF-16 units, `trim() === id`, no NUL, no comma) — a second copy of T12's rule; see T12 — where: `labels/idRule.ts`
+- default: a meeting `href` is `/my-meetings/m/` + `encodeURIComponent(id)`; a stored blank note reads as `note: null` — where: `labels/resolve.ts`, `entries/view.ts`
+- assumption: the parallel-sources test uses 300 ms delays and a 1200 ms ceiling — timing-based, could flake under heavy load — where: `labels/resolve.test.ts`
+- hand-off: T14/T17 call `viewEntries(authorization, rows)` after `findMany({ include: ENTRY_INCLUDE })`; T18 calls `resolveLabels` with only the ids its grouping needs; a label asked for an unlisted id throws
+
+## T25 · frontend-dev · 2026-11-13
+- default: Edit/Delete render only when the page passes `onEdit`/`onDelete` (none in T25; T27/T28 add one prop each) — where: `components/EntryDayList.tsx`, `pages/MyHoursPage.tsx`
+- default: Edit/Delete `aria-label`s use the short duration ("Edit 4 h on Project Alpha, 12.11.2026", design S1), not the spoken form — where: `strings/entries.ts`, `lib/names.ts`
+- default: focus on the Totals heading via a `display: contents` wrapper, the card's `aria-labelledby` lookup and `tabIndex=-1` (`TotalsCard.focusHeading()`); no library change — where: `components/TotalsCard.tsx`
+- default: "Clear the deal filter" finds the Deal input through T24's test id `hours-filter-deal-input` (coupling) — where: `pages/MyHoursPage.tsx`
+- default: banners keep their last settled content while reads load, none while blocked; the deal-grouping warning shows only when Group by is Deal and totals name `meeting-deals`; Retry in the AC-4.11 state re-asks all three reads — where: `pages/MyHoursPage.tsx`
+- default: a day appears once at its first entry (server order); Other-work rows show the category, no name; Load more announces "N more entries loaded, M shown" — where: `EntryDayList.tsx`, `strings/entries.ts`
+- default: paging hook `useHoursPages` added to `lib/useHoursQuery.ts` for T29 to reuse — where: `lib/useHoursQuery.ts`
+- assumption: Italian copy chosen by the agent ("Registrazioni", "Totale del giorno", "Altro lavoro", "Carica altre", banner and AC-4.11 sentences); "Non visibile a te" / "Nome non disponibile" harmonised with T26 — where: `strings/entries.ts`, `strings/names.ts`
+- scope: own fixtures `ENTRY_DAY_TOTALS`, `totalsWithDays`; `entries.invalidPeriod` string; T24's `MyHoursPage.test.tsx` and `.it.test.tsx` adjusted for the Entries card and AC-4.11 — where: as named

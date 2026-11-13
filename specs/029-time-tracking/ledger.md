@@ -87,6 +87,9 @@ Decided during /wellforge:tasks 029 (2026-11-13, raised while deriving tasks):
 - D48 Under a deal filter, a failed "Load more" keeps the pages already shown, with the error and Retry below them; only a failing first page, totals or export replaces the view (AC-4.11 amended) — user chose this over replacing the whole view
 - D49 The list's `target` and `meetingId` filters stay in hours-api although no AC uses them (likely needed by specs/031) — user chose the recommended option over dropping them
 
+Decided during /wellforge:orchestrate 029 (2026-11-13, raised by the third plan amendment):
+- D50 `note_required` (AC-3.6) is checked only when a `POST` records an entry, or a `PATCH` sends `note` or moves the entry (`on`) — a `PATCH` that touches neither (e.g. minutes only) on an entry recorded before its category was marked as requiring a note goes through; rejected: checking every save against the stored result (the literal reading the architect first wrote), which blocks a minutes-only fix until a note is typed — user chose the recommended, least invasive option
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
