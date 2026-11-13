@@ -168,3 +168,21 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: the select gets `aria-disabled:opacity-60 aria-disabled:cursor-not-allowed` (the `Combobox` inert look) — why: tokens.css draws no `select[aria-disabled]` state; relies on T23's `@source` — where: `ActivityField.tsx`
 - assumption: Italian wording ("Scegli prima un'opportunità.", "Nessuna attività", "Non visibile a te", "Nome non disponibile", `task` → "Attività") chosen by the agent; "Non visibile a te" may want harmonising with T25's `names.ts` — where: `strings/activity.ts`
 - default: test ids `hours-activity`, `-field`, `-select`, `-retry`, `-error`; status is `role="status"` — where: `ActivityField.tsx`
+
+## T24 · frontend-dev · 2026-11-13
+- assumption: presets are whole calendar spans (Monday–Sunday, the month, the year), not "up to today" — why: no entry can be dated after today, so the data is the same; Custom and the export name show the period chosen — where: `lib/period.ts`
+- assumption: the 366-day span counts both end days (sent to the architect as batch-3 item) — why: stricter reading; the client never sends what the server could refuse under either reading — where: `lib/period.ts`
+- scope: new `lib/useHoursQuery.ts` (+ test) outside `touch:` — why: three reads need the same key, stale-discard, abort and reload logic; T29 reuses it — where: `lib/useHoursQuery*`
+- default: URL read with `useSearch({ strict: false })`, written with a replacing `navigate` (inventory-ui `AssetsPage` way), not `validateSearch` on the route — why: `router.tsx` is outside T24's `touch:` — where: `pages/MyHoursPage.tsx`
+- default: a category or work type in the URL counts only once the lists hold it; a link naming one waits for the lists before the first request; if the lists fail it is not applied — why: the card must show exactly what is applied — where: `MyHoursPage.tsx`
+- default: Group by is a view choice — "Clear filters" keeps it and it does not make the button appear — where: `HoursFiltersState.ts`
+- default: choosing Custom opens on the range being looked at; "required" date errors appear after the field is left, "To before From" and "over 366 days" at once — where: `MyHoursPage.tsx`, `HoursFilters.tsx`
+- reinterpretation: the failed-totals message comes from the catalog, not the server's English `detail` — why: AC-5.5 — where: `MyHoursPage.tsx`
+- reinterpretation: "Clear filters" sits in the Card `action` slot, so Tab reaches it before Period (design's keyboard path lists it last, its placement says `action`); DOM order = visual order — where: `HoursFilters.tsx`
+- scope: `HoursFiltersState.ts` and `TotalsCardRows.ts` split out — why: a component file may export only components (`react-refresh`) — where: `components/`
+- default: an unknown group kind shows as "Other hours", a keyed group with no name "Name unavailable" (never an id), a malformed month key as sent — where: `TotalsCardRows.ts`
+- assumption: Italian copy chosen by the agent ("Totali", "Raggruppa per", "archiviata/archiviato", "Tipi di lavoro dei progetti/delle opportunità", "Intervallo personalizzato") — where: `strings/{filters,totals,myHours}.ts`
+- default: the "(retired)" suffix is defined in both `filters` and `totals` strings (area ownership; `names` is T25's) — where: `strings/`
+- default: entries and day totals are fetched now but drawn by T25 — where: `MyHoursPage.tsx`
+- default: filter grid `minmax(160px, 1fr)`; pickers show the company as a secondary label; an empty field asks without `q` — where: `HoursFilters.tsx`, `lib/searchers.ts`
+- glossary candidates (not yet accepted): "merged group" (the one row for hidden, unavailable, deal-unknown or none), "day total".
