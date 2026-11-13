@@ -417,5 +417,13 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: the "unreadable vs missing" view test compares both entries through the same viewer — where: `view.test.ts`
 - verified: the review's probe re-run against the branch — `on.id: null` on the hidden deal entry and all hidden meeting entries; the pivot returns `[]` / `{"totalMinutes":0,"groups":[]}` (copy at scratchpad `t41/d44.probe.worktree.test.ts`); 13 mutants killed
 
+## T42 · frontend-dev · 2026-11-13
+- default: an own entry whose target id is `null` (unreachable under T41) opens with the target empty and the ordinary hint; Save asks for the target again; it does not open the locked "not visible" variant — why: no id may be invented or sent — where: `EntryDialogModel.valuesOf`
+- default: `ActivityField`'s `current` typing fixed by narrowing in the dialog with `keptActivity(activity)`; `ActivityField`'s prop type unchanged — why: plan § Views names the dialog as the boundary — where: `EntryDialog.tsx`, `EntryDialogModel.ts`
+- assumption: an activity pointer with an unknown id on an own entry is not handled specially — after a move the client cannot send `activityId: null` for it; unreachable under T41 — where: `toPatch`, `valuesOf`
+- scope: edited `EntriesTable.test.tsx`, `hoursWorkbook.test.ts` (forced by the type change), `EntryDialog.edit.test.tsx`, `EntryDialogModel.edit.test.ts`, `fakeApi.test.ts` (outside the literal `touch:`) — where: as named
+- default: `fixtures/everyone.ts` and `fixtures/export.ts` entries go through `seenByOthers` (others' entries); My hours/edit fixtures keep ids (own); the export's "no id" test runs over `EXPORT_ENTRIES.map(withIds)` — where: `fixtures/*`, `hoursWorkbook.test.ts`
+- default: three `fakeApi.ts` helpers (`seenByOthers`, `withoutIds`, `withIds`) encode the D44 rule instead of on-builders accepting a `null` id — where: `fakeApi.ts`
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
