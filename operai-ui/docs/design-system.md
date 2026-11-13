@@ -336,6 +336,21 @@ Enter picks, Escape closes, Tab leaves without picking. Inside a `Field`, pass t
 props as `id`, `ariaInvalid`, `ariaDescribedBy`, `ariaRequired`. A row after the options
 (an attribution) is an `<li className="combobox-footer">` passed as `footer`.
 
+Which one to reach for, by where the options come from:
+
+| The options are… | Use | Why |
+|---|---|---|
+| a short list the page already holds, or anything that needs its own rules | `Combobox` | The "dumb" one: you own the text, the options, when the popup opens and what an empty list says. |
+| the Operai users, loaded once and filtered in the browser | `PersonPicker` | The typed text never leaves the browser; it loads the list, handles a 403 and a rate limit, and can add to a list. |
+| a record found by a **server-side search** (a project, a deal, a company), too many to load | `SearchPicker` | It owns the debounce, the abort of a request the text has outrun, the discard of a late answer, "picked, never typed" (typing after a pick reports `null`; free text is never reported), the empty-list line for searching / no match / forbidden / unavailable and the announced result count. You pass `search`, `toOption` and the strings. |
+
+`SearchPicker` asks again every time the list opens and says "searching" until that answer
+arrives; the app maps its own 403 to `forbidden` and a 503 or network failure to `unavailable`
+(an unreachable service is never "no match"). The field follows `value`: reset it from outside
+by setting `value`, and clear half-typed text with a new `key`. Do not wrap `Combobox` in a
+new `CompanyPicker`-style component per app: `crm-ui` and `projects-ui` still carry two such
+copies and move to `SearchPicker` when next touched.
+
 A single-line `<select>` draws the suite's chevron, 10px from the right edge,
 with 30px of right padding reserved for it (unlayered rule: padding utilities
 do not move it). An inline `background:` shorthand erases the chevron — set

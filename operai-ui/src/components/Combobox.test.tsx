@@ -19,6 +19,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { Combobox } from './Combobox'
 import type { ComboboxOption } from './Combobox'
+import { Dialog } from './Dialog'
 
 afterEach(() => {
   cleanup()
@@ -132,6 +133,24 @@ describe('Combobox', () => {
     expect(input.getAttribute('aria-expanded')).toBe('false')
     expect(onSelect).not.toHaveBeenCalled()
     expect(input.value).toBe('')
+  })
+
+  it('Escape with the popup open closes only the popup, not the dialog around it; the next Escape closes the dialog', () => {
+    const onClose = vi.fn()
+    render(
+      <Dialog title="Record hours" onClose={onClose}>
+        <Harness onSelect={vi.fn()} />
+      </Dialog>,
+    )
+    const input = screen.getByRole('combobox', { name: 'Street' })
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+    expect(onClose).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('Tab closes the popup and does NOT select the active option', () => {

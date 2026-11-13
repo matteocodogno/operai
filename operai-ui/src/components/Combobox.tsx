@@ -138,6 +138,9 @@ export function Combobox({
       case 'Escape':
         if (!isOpen) return
         e.preventDefault()
+        // The popup used this Escape: a dialog around the field listens on the window and must
+        // not close with it. The next Escape, with the popup closed, reaches the dialog.
+        e.stopPropagation()
         onOpenChange(false)
         setActiveIndex(null)
         return

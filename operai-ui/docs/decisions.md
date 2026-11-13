@@ -501,6 +501,26 @@ letterheads-ui is **not** migrated in this change: it keeps its own copies, beca
 may still fix them in its QE/eval. **Follow-up (open):** once that spec is done, replace letterheads-ui's
 `ErrorSummary.tsx`, the table in `HistoryPanel.tsx` and the banner in `HistoryPanelVersion.tsx` with thin adapters
 over these three (binding its strings and its e2e test ids), and delete the copies.
+**D-67 — `SearchPicker` for a server-side search (2026-11-13, specs/029).** hours-ui is the
+third app that picks a record out of a search the server answers, with five uses (project,
+deal and meeting in the entry dialog, project and deal in the filters); crm-ui and
+projects-ui each already carry a near-identical `CompanyPicker`. The library's `SearchPicker`
+is that component with its rules written down and tested: one `search` call per settled text
+(250 ms), the request in flight aborted when the text changes, the list closes or the picker
+unmounts, a late answer to an older text discarded even when the app's `search` ignores the
+signal, "picked, never typed", and a polite announcement of each state. It differs from the
+two copies on purpose: it asks again on every open and says "searching" until that answer
+arrives (they showed the cached list, which can be one permission or one booking out of
+date); it follows `value` when the app changes it (they read it once, so a "Clear filters"
+left the old name in the field); it keeps `forbidden` and `unavailable` apart (a 403 and an
+unreachable service are different sentences, and neither is "no match"); and it announces
+searching, no match and the failures as well as the count. `PersonPicker` could not be
+stretched to it (it loads a whole list once and filters in the browser) and `Combobox` stays
+the dumb primitive (D-56), with one fix made for this use: Escape with the popup open now stops
+there (`Combobox` consumes it), where before it also closed the `Dialog` around the field
+(`useDialogBehavior` listens on the window), so the first Escape closes the list and the next
+the dialog. The two `CompanyPicker`s are not migrated here; they move when their screens are
+next touched. Undo: an app keeps its own picker; nothing else depends on it.
 
 ## Not done (deliberately)
 
