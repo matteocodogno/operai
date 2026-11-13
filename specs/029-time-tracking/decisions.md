@@ -395,5 +395,16 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: production smoke tests — a record-and-delete employee entry, a read-only admin Time lists view, a read-only Deal-filter check, one booking per owner on things the tester already owns — where: step 5
 - rollback trap recorded: never roll `auth` back while its `SERVICE_CLIENTS` still names `meetings.hosts.read`; never delete hours-api or the `hours` DB to roll back — where: "Rollback"
 
+## T20 · backend-dev · 2026-11-13
+- default: the matrix runs against the harness's mock of the JWT middleware (same RS256, issuer and audience rules); the real middleware stays proved in `auth/jwt.middleware.test.ts` — why: `mock.module` is process-global — where: `hours-api/src/matrix.test.ts`
+- scope: a fifth caller `adminGranted` (admin with both default grants) beside the four named — why: AC-1.6/AC-5.2 "admin included" — where: `matrix.test.ts`
+- default: method `ALL` entries are accepted only on `/*`, so no handler can hide behind `app.all`/`app.use("/x")`/`mount` — where: `matrix.test.ts` `audit`
+- default: the tests never write the literal `not_implemented` (status 501 only; a regex for the document) so the R11 grep keeps printing nothing — where: both files
+- assumption: the contract test also drives the app (extra body keys, 64 vs 65-character ids, path ids); `TimeEntryView` pinned to an exact member list (AC-1.8) — where: `openapi.contract.test.ts`
+- scope: extra document checks — every JWT operation documents 401, every read documents 400, document equals route table, no 501/"transitional" text, `limit` 1..500, `from`/`to` pattern, totals without `cursor`/`limit` — where: `openapi.contract.test.ts`
+- defect found and fixed (touch widened by re-sync): the `cursor` query parameter lacked `maxLength: 200` in the OpenAPI document (the code already enforced it) — `fix(hours-api)` commit — where: `src/entries/list.routes.ts`
+- env note: a mutation briefly deleted the seeded `tc-training` row from `hours_test`; restored with the migration's values
+- note for T37: an unauthenticated CORS preflight answers 204, allow-origin only for allowed origins — the only other credential-less answer, pinned by the matrix
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
