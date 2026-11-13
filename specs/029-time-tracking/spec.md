@@ -1,7 +1,7 @@
 ---
 id: 029
 slug: time-tracking
-status: approved
+status: in-progress
 rigor: production
 created: 2026-11-12
 approved: 2026-11-12
