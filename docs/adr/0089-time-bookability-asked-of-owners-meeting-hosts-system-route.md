@@ -184,12 +184,34 @@ reproduce them without ids (AC-4.10), and it hands the id of a fact held with a 
 person who cannot read it. *Rejected:* returning the linked deal's id with a null name, which still tells
 the viewer which deal a meeting they may not read is linked to.
 
-**Open item — not decided (D44).** An entry's own target (`on.id` of a project, deal or meeting, and
-`activity.id`) is stored by hours-api when the author records the entry; it is not learned with the
-service credential. Those ids are still returned when the name is hidden, so a viewer with oversight can
-tell that two hidden entries sit on the same record. Whether to withhold them too is left to the owasp
-review, by the owner's choice (D44). The plan keeps the ids and flags the question under its Security
-section. Resolving it changes the Views contract (§ Views), not this amendment.
+**Decided 2026-11-13 (D44): WITHHOLD.** An entry's own target is stored by hours-api when the author records
+the entry; it is not learned with the service credential, so the name rule above does not reach it. In a
+time entry view, `on.id` (project, deal or meeting) and `activity.id` are returned only when the record is
+visible to the viewer or the entry belongs to the viewer; otherwise they are `null`. A visible record keeps
+its id for everyone, since the viewer can already read it and its `href` carries the id. The author keeps
+the ids of their own entries whatever the visibility, including `unavailable`, so the edit dialog keeps
+working. Totals, labels and the export are unchanged: totals never carried ids, and the export and everyone's
+hours use none.
+
+*Reason.* Before this decision a holder of `time-entry:read-all` without `crm:access` could take the ids of
+hidden records from the list and feed them back as `dealId`, `projectId` or `meetingId` filters. The OWASP
+review of 2026-11-13 reproduced it (finding F1, Medium, `specs/029-time-tracking/owasp-report.md` § F1): the
+list returned the id of a hidden deal and the ids of two hidden meetings, and the `dealId` filter then
+returned exactly the entries on those two meetings. The holder learned which hidden meetings are linked to
+which hidden deal. That is the disclosure A1 forbids, reached through ids rather than names. Withholding the
+ids closes the pivot for all three filters at once.
+
+*Rejected:* keeping the ids and adding a viewer `crm` read on every `dealId` filter. It adds a call and a
+refusal, and it does not close the `projectId` and `meetingId` pivots. *Rejected:* withholding the ids from the
+author too. That is uniform with the name rule, but it breaks the author's edit dialog for no gain, since the
+author already knows their own targets.
+
+*Residual, accepted (F2, Low):* a deal id obtained outside hours-api (from the CRM, or from a meeting the
+viewer can read) can still be used as a `dealId` filter. What it reveals is only "this entry's meeting is
+linked to the deal you named", with no name or content.
+
+*Where it lands:* the plan's § Views contract (`id: string | null`) and spec AC-4.10. The decision and its
+rationale are recorded in `specs/029-time-tracking/ledger.md` (D44) and `owasp-report.md` § 4.
 
 **Constrains:** specs/030 (hours on project and deal pages) and any later consumer of hours totals must
 take the same groups, must not name a project, deal or meeting the viewer cannot read, and must show the
@@ -241,7 +263,7 @@ does not cover `groupBy=deal` without a filter (still degrades), the other filte
 - The `dealId` filter on list, totals and export is refused for as long as meetings-api cannot answer.
 - hours-ui must render that refusal as a retryable error. It must not render an empty list or a zero total
   for it.
-- The own-target ids stay visible while D44 is open.
+- The author's own entries are the only ones that show the id of a record the viewer cannot read (D44).
 
 **Risks:**
 - A person reads a refused deal view as "no hours". Mitigation: the refusal is a `503 host_unavailable`
