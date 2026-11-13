@@ -53,6 +53,8 @@
  *       (specs/20261119-accounting).
  *     • The activities-api origin (VITE_ACTIVITIES_API_URL), if defined
  *       (specs/20261110-activities).
+ *     • The hours-api origin (VITE_HOURS_API_URL), if defined
+ *       (specs/20261112-time-tracking).
  *   Requests to any other origin proceed unauthenticated — no Authorization
  *   header is sent and credentials are not included cross-origin.
  *
@@ -196,6 +198,13 @@ export const getAccountingApiBaseUrl = (): string => import.meta.env.VITE_ACCOUN
  * Lazily read, mirrors `getProjectsApiBaseUrl()`.
  */
 export const getActivitiesApiBaseUrl = (): string => import.meta.env.VITE_ACTIVITIES_API_URL as string
+
+/**
+ * The hours-api base URL (`VITE_HOURS_API_URL`, specs/029-time-tracking), exposed for the
+ * federated `hours` remote and for admin-ui's time-lists screen, which ship no `VITE_*` env of
+ * their own. Lazily read, mirrors `getActivitiesApiBaseUrl()`.
+ */
+export const getHoursApiBaseUrl = (): string => import.meta.env.VITE_HOURS_API_URL as string
 
 /** Clears the in-memory JWT cache. */
 export const clearJwtCache = (): void => {
@@ -356,6 +365,16 @@ const getTrustedOrigins = (): Set<string> => {
   if (activitiesUrl) {
     try {
       trusted.add(new URL(activitiesUrl).origin)
+    } catch {
+      /* ignore invalid env value */
+    }
+  }
+
+  // specs/029-time-tracking: hours-api origin, trusted only when configured (same shape).
+  const hoursUrl = import.meta.env.VITE_HOURS_API_URL as string | undefined
+  if (hoursUrl) {
+    try {
+      trusted.add(new URL(hoursUrl).origin)
     } catch {
       /* ignore invalid env value */
     }

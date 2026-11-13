@@ -65,6 +65,7 @@ const {
   getLetterheadsApiBaseUrl,
   getProjectsApiBaseUrl,
   getActivitiesApiBaseUrl,
+  getHoursApiBaseUrl,
   registerNavigationBlocker,
   onBeforeSignOut,
   onSignOut,
@@ -85,6 +86,7 @@ const PROJECTS_API_URL = 'http://projects-api.test'
 const ACTIVITIES_API_URL = 'http://activities-api.test'
 const LETTERHEADS_API_URL = 'http://letterhead-api.test'
 const ACCOUNTING_API_URL = 'http://accounting-api.test'
+const HOURS_API_URL = 'http://hours-api.test'
 const TARGET_URL = `${API_URL}/estimates`
 const THIRD_PARTY_URL = 'https://evil.example.com/x'
 const SAME_ORIGIN_PATH = '/estimates'
@@ -540,6 +542,76 @@ describe('apiFetch', () => {
       const [, init] = mockFetch.mock.calls[0]
       const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
       expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    // specs/029-time-tracking, T21: hours-api origin, set via VITE_HOURS_API_URL, is
+    // trusted so hours-ui's and admin-ui's calls carry the Bearer JWT (AC-5.1, AC-3.1).
+    it('sends Authorization header for a request to the hours-api origin (VITE_HOURS_API_URL)', async () => {
+      vi.stubEnv('VITE_HOURS_API_URL', HOURS_API_URL)
+      const mockFetch = vi.mocked(fetch)
+
+      mockFetch.mockResolvedValueOnce(tokenResponse(FAKE_JWT)).mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${HOURS_API_URL}/time-entries`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      const [, init] = mockFetch.mock.calls[1]
+      expect((init as RequestInit & { headers: Record<string, string> }).headers).toMatchObject({
+        Authorization: `Bearer ${FAKE_JWT}`,
+      })
+    })
+
+    it('does NOT trust the hours origin when VITE_HOURS_API_URL is unset', async () => {
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch(`${HOURS_API_URL}/time-entries`)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('does NOT send the Bearer to an untrusted origin while VITE_HOURS_API_URL is set', async () => {
+      vi.stubEnv('VITE_HOURS_API_URL', HOURS_API_URL)
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch(THIRD_PARTY_URL)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('ignores a malformed VITE_HOURS_API_URL: apiFetch still works and trusts nothing extra', async () => {
+      vi.stubEnv('VITE_HOURS_API_URL', 'not a url')
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse())
+
+      await apiFetch(THIRD_PARTY_URL)
+
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      const [, init] = mockFetch.mock.calls[0]
+      const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+      expect(headers?.['Authorization']).toBeUndefined()
+    })
+
+    it('trusts the hours-api origin exactly: another scheme or port of the same host gets no Bearer', async () => {
+      vi.stubEnv('VITE_HOURS_API_URL', HOURS_API_URL)
+      const mockFetch = vi.mocked(fetch)
+      mockFetch.mockResolvedValueOnce(okResponse()).mockResolvedValueOnce(okResponse())
+
+      await apiFetch('https://hours-api.test/time-entries')
+      await apiFetch('http://hours-api.test:9999/time-entries')
+
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+      for (const [, init] of mockFetch.mock.calls) {
+        const headers = (init as (RequestInit & { headers?: Record<string, string> }) | undefined)?.headers
+        expect(headers?.['Authorization']).toBeUndefined()
+      }
     })
 
     it('does NOT send Authorization header for a third-party URL', async () => {
@@ -1219,6 +1291,25 @@ describe('getActivitiesApiBaseUrl', () => {
 
     vi.stubEnv('VITE_ACTIVITIES_API_URL', 'http://second.test')
     expect(getActivitiesApiBaseUrl()).toBe('http://second.test')
+  })
+})
+
+// getHoursApiBaseUrl (specs/029-time-tracking, T21) — mirrors getActivitiesApiBaseUrl():
+// lazily read, exposed so hours-ui and admin-ui (remotes with no VITE_* env of their own)
+// source the API origin from the shell.
+describe('getHoursApiBaseUrl', () => {
+  it('returns the VITE_HOURS_API_URL configured on the shell', () => {
+    vi.stubEnv('VITE_HOURS_API_URL', HOURS_API_URL)
+
+    expect(getHoursApiBaseUrl()).toBe(HOURS_API_URL)
+  })
+
+  it('reads the env lazily, not at module-evaluation time', () => {
+    vi.stubEnv('VITE_HOURS_API_URL', 'http://first.test')
+    expect(getHoursApiBaseUrl()).toBe('http://first.test')
+
+    vi.stubEnv('VITE_HOURS_API_URL', 'http://second.test')
+    expect(getHoursApiBaseUrl()).toBe('http://second.test')
   })
 })
 
