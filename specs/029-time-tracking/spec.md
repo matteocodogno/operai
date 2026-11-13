@@ -75,13 +75,14 @@ that is not in Operai, so that every hour I worked has a place.
 - AC-2.1 Given a time entry, then it is on exactly one of: a project, a deal, a meeting, or no
   entity. An entry on no entity must have a category; an entry on a project, a deal or a
   meeting has none. Any other combination is refused (D18).
-- AC-2.2 Given a project, when a person records or changes an entry on it, then it is accepted
-  only if, at that moment, the person is the project's project manager or a member of its team;
-  otherwise it is refused and nothing changes (D16, A3). The project may be in any state (A12).
-- AC-2.3 Given a deal, when a person records or changes an entry on it, then it is accepted only
-  if, at that moment, the person is the deal's owner, its technical contact, or the assignee or a
-  participant of one of its activities; otherwise it is refused and nothing changes (D16, A3).
-  The deal may be in any stage, won and lost included (A13).
+- AC-2.2 Given a project, when a person records an entry on it or moves an entry to it, then it is
+  accepted only if, at that moment, the person is the project's project manager or a member of its
+  team; otherwise it is refused and nothing changes (D16, A3, D46). The project may be in any state
+  (A12).
+- AC-2.3 Given a deal, when a person records an entry on it or moves an entry to it, then it is
+  accepted only if, at that moment, the person is the deal's owner, its technical contact, or the
+  assignee or a participant of one of its activities; otherwise it is refused and nothing changes
+  (D16, A3, D46). The deal may be in any stage, won and lost included (A13).
 - AC-2.4 Given a person who leaves a project's team, or stops being involved in a deal, then the
   entries they recorded there stay unchanged and keep counting on that project or deal (A3).
 - AC-2.5 Given a Meetings meeting, when its creator or one of its Operai participants records an
@@ -101,16 +102,26 @@ that is not in Operai, so that every hour I worked has a place.
 - AC-2.11 Given the tool that owns a project, deal or meeting cannot confirm whether the person
   may record on it, when the entry is saved, then it is refused as unavailable and nothing
   changes (A21, fail closed).
+- AC-2.12 Given a person's own entry on a project, deal or meeting they are no longer on, no
+  longer involved in, or can no longer read, when they change its day, duration, note or work
+  type and leave it on the same project, deal or meeting, then the change is saved without the
+  checks of AC-2.2, AC-2.3 and AC-2.5; a new activity pointer is still checked as AC-2.7 says,
+  and moving the entry elsewhere is checked like a new entry (D46). *(Added 2026-11-13 during
+  design.)*
 
 ### US-3 Categories and work types
 As an admin, I want to manage the categories and work types people pick from, so that hours are
 grouped consistently without a release.
 
-- AC-3.1 Given an admin, then they can create, rename and retire a category, and likewise a work
-  type in each of the two lists (projects, deals) (D18, D20, A8).
+- AC-3.1 Given a holder of the permission to manage the lists (held by default by the `admin` role
+  only), then they can create, rename, retire and restore a category, and likewise a work type in
+  each of the two lists (projects, deals) (D18, D20, A8). *(Restore added 2026-11-12 during
+  design, D38; wording aligned with AC-3.3, D41.)*
 - AC-3.2 Given a category or a work type, then nobody, admins included, can delete it.
-- AC-3.3 Given a user who is not an admin, when they try to create, rename or retire a category or
-  a work type, then it is refused and nothing changes.
+- AC-3.3 Given a user without the permission to manage the lists, when they try to create, rename,
+  retire or restore a category or a work type, then it is refused and nothing changes. The lists
+  are managed from the Admin tool, so a role granted that permission also needs access to Admin
+  to reach the screen. *(Wording amended 2026-11-12 during design, D41.)*
 - AC-3.4 Given a retired category or work type, then it is no longer offered for a new entry or a
   change, and the entries that already have it keep it and show it.
 - AC-3.5 Given an entry on a project, then its work type is optional and, when given, comes from
@@ -142,17 +153,26 @@ visible to whom it concerns and to no one else.
   that deal (D25, A6).
 - AC-4.6 Given a filtered view, when the viewer exports it, then they get a spreadsheet file with
   exactly the entries the view shows, each with its day, person, duration, what it was on,
-  category or work type, the activity it points at and its note (D25, A11).
+  category or work type, the activity it points at and its note (D25, A11); the duration is a
+  number of hours with decimals (2 h 30 is 2.5), so the file can be summed (D39), and an entry on
+  a meeting linked to a deal also carries that deal, so the file summed by deal matches the
+  by-deal totals of AC-4.5 (D40). *(Duration and deal columns added 2026-11-12 during design.)*
 - AC-4.7 Given an entry whose project, deal, meeting or activity cannot be resolved because the
   owning tool does not answer, then the entry is still listed and counted, with its name shown
   as unknown (A21).
 - AC-4.8 Given a person whose Operai name changes, then the hours view shows the new name on all
   their entries (ADR-0039 posture).
-- AC-4.9 Given a duration, then it is shown as hours and minutes (for example "2 h 30").
-- AC-4.10 Given a holder of see everyone's hours who cannot read an entry's project, deal or
-  meeting, then the entry is listed, counted and exported with its type, but without the name of
-  that project, deal or meeting and without the subject of the activity it points at (ADR-0058,
-  ADR-0081 posture). *(Added 2026-11-12 during planning, approved by the owner.)*
+- AC-4.9 Given a duration on screen, then it is shown as hours and minutes (for example "2 h 30");
+  the exported file uses decimal hours instead (AC-4.6, D39).
+- AC-4.10 Given any viewer — the entry's own author included — who cannot read an entry's project,
+  deal or meeting, or the deal a meeting is linked to, then the entry is listed, counted and
+  exported with its type, but without the name of that project, deal or meeting and without the
+  subject of the activity it points at (ADR-0058, ADR-0081 posture). *(Added 2026-11-12 during
+  planning, approved by the owner; widened from holders of see everyone's hours to every viewer
+  during design, D43.)*
+- AC-4.11 Given a view filtered by a deal, when Meetings cannot say which meetings are linked to
+  that deal, then the view is refused as unavailable and nothing partial is shown; without a deal
+  filter the view still answers as AC-4.7 says (D45). *(Added 2026-11-12 during design.)*
 
 ### US-5 Access and copy
 As an admin, I want time tracking to follow the suite's permission rules, so that hours are
@@ -196,8 +216,9 @@ recorded by everyone and read only by whom they concern.
 
 - A1 Overlapping hours count in full on each thing they are booked on.
 - A2 Every active Operai user can record their own hours, whatever tools they can open.
-- A3 Team membership and deal involvement are checked when an entry is created or changed;
-  entries already recorded stay when they end.
+- A3 Team membership and deal involvement are checked when an entry is created or moved to a
+  project or deal; entries already recorded stay, and stay correctable by their author, when they
+  end (narrowed 2026-11-13, D46).
 - A6 A meeting's creator and Operai participants may book on it; a linked meeting's hours count
   for its deal without the involvement check and follow it when relinked.
 - A7 A category can require a note; the initial "Other" does.

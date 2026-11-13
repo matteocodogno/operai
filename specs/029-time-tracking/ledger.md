@@ -71,6 +71,17 @@ Decided during /wellforge:plan 029 (2026-11-12):
 - D36 Time entries live in a new service `hours-api`, not inside activities-api — user chose this over the recommended activities-api (cleaner boundary, at the cost of a new service and cross-service reads)
 - D37 The hours screens are a new remote `hours-ui`, mounted ungated at `/hours`; the admin lists live in admin-ui — user chose the recommended option over an ungated entry in projects-ui
 
+Decided during /wellforge:design 029 (2026-11-12, gaps raised by the designer):
+- D38 AC-3.1 gains restore: a retired category or work type can be brought back from the Time lists screen (the plan already allowed `retired: false`) — user chose the recommended option over "retire is final in the UI"
+- D39 The export's duration is one numeric column of decimal hours (2 h 30 = 2.5), so the file sums; AC-4.9's "2 h 30" applies to the screen only — user chose the recommended option over two columns (text + decimal)
+- D40 The export carries, for an entry on a meeting linked to a deal, that deal, so the file summed by deal matches the by-deal totals (AC-4.5); its name follows the viewer's access (AC-4.10) — user chose the recommended option over no extra column
+- D41 AC-3.3 is reworded to "a user without the permission to manage the lists"; the screen stays in admin-ui, so a role granted that permission also needs Admin access (the mileage-rate pattern, ADR-0023/0090) — user chose the recommended option over moving the screen to hours-ui; AC-3.1's "an admin" aligned to the same wording as a consequence
+- D42 The plan amended after design (totals semantics, `groupBy=day`, person filter from the totals, browser-side activity picker, 9-column export with one "Counts for deal" column instead of a "Deal (via meeting)" column, list restore, `formatMonth`/`SearchPicker`/`ExportButton` in `@operai/ui`) stays approved — user approved the amended plan
+- D43 AC-4.10 applies to every viewer, the entry's author included: a project, deal, meeting or meeting's deal the viewer cannot read shows no name — user chose the recommended option over "the author always sees names"
+- D44 Whether the id of a hidden project, deal or meeting is withheld along with its name (an oversight holder can otherwise tell two hidden entries are on the same record) is left to the owasp review — user chose "keep the id, decide at review" over the recommended "withhold the id too"; the plan keeps `on.id`/`activity.id` and flags it under Security
+- D45 New AC-4.11: a view filtered by a deal is refused as unavailable while meetings-api cannot say which meetings are linked to that deal (seconds to minutes: a redeploy of its single replica, a crash, a network error); nothing partial is shown; without a deal filter the view still degrades (AC-4.7) — user chose this over the recommended "deal's own entries + a warning banner", knowing the next read after Meetings answers is complete
+- D46 (2026-11-13) Bookability is checked only when an entry is created or moved to another project, deal or meeting: its author may still correct the day, duration, note and work type of an entry on a project/deal they left or a target they can no longer read (new AC-2.12; AC-2.2/2.3 reworded; A3 narrowed); an activity pointer change is still checked (AC-2.7) — user chose the recommended option over "every change is checked, delete only after leaving"
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
@@ -92,7 +103,7 @@ Found (read from the repo, not asked):
 Assumed (not load-bearing; strike any that is wrong):
 - A1 Overlapping hours count in full on each thing they are booked on (10:00–12:00 on two projects gives each project 2 h) — follows from D4
 - A2 Every active Operai user (every employee) can record their own hours, whatever tools they can open — follows from D1, D2
-- A3 Being on the team or involved in the deal is checked when an entry is created or changed; entries already recorded stay when the person leaves the team or stops being involved (the specs/028 AC-3.7 pattern)
+- A3 Being on the team or involved in the deal is checked when an entry is created or moved to a project or deal; entries already recorded stay, and stay correctable by their author, when the person leaves the team or stops being involved (the specs/028 AC-3.7 pattern; narrowed by D46)
 - A4 A meeting's duration is rounded to the nearest 30 minutes, never below 30; a meeting with no duration (typed or pasted) suggests nothing
 - A5 A suggested entry stays until the person confirms or dismisses it; it does not expire
 - A6 A meeting's creator and Operai participants may book on it; when the meeting is linked to a deal its hours also count for that deal, without D16's involvement check, and follow the meeting when it is relinked
