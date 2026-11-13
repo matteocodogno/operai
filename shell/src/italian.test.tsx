@@ -45,6 +45,10 @@ describe('shell chrome in Italian', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Il mio profilo' }).getAttribute('href')).toBe('/account')
     expect(screen.getByRole('menuitem', { name: 'I miei dispositivi' }).getAttribute('href')).toBe('/devices')
+    // specs/029-time-tracking (AC-5.5): "Le mie ore", right after "Le mie riunioni".
+    const hoursItem = screen.getByRole('menuitem', { name: 'Le mie ore' })
+    expect(hoursItem.getAttribute('href')).toBe('/hours')
+    expect(hoursItem.previousElementSibling?.textContent).toBe('Le mie riunioni')
     expect(screen.getByRole('menuitem', { name: 'Esci' })).not.toBeNull()
   })
 

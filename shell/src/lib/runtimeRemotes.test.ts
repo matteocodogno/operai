@@ -103,6 +103,28 @@ describe('resolveRuntimeRemotes', () => {
     ])
   })
 
+  it('resolves the hours remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/029-time-tracking)', async () => {
+    window.__OPERAI_RUNTIME_CONFIG__ = { hours: 'https://hours.example.test/remoteEntry.js' }
+
+    await expect(resolveRuntimeRemotes()).resolves.toEqual([
+      {
+        name: 'hours',
+        entry: 'https://hours.example.test/remoteEntry.js',
+        type: 'module',
+        entryGlobalName: 'hours',
+        shareScope: 'default',
+      },
+    ])
+  })
+
+  it('omits the hours remote when the config does not name it, so the build-time default governs', async () => {
+    window.__OPERAI_RUNTIME_CONFIG__ = { projects: 'https://projects.example.test/remoteEntry.js' }
+
+    const remotes = await resolveRuntimeRemotes()
+
+    expect(remotes.map((r) => r.name)).toEqual(['projects'])
+  })
+
   it('omits the inventory remote when the config does not name it, keeping the others', async () => {
     window.__OPERAI_RUNTIME_CONFIG__ = { estimai: 'https://estimai.example.test/remoteEntry.js' }
 

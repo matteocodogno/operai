@@ -125,6 +125,17 @@ import { strings } from './strings'
 //     all — `AccountScreen` is a shell-local component (T14) — so there is
 //     no `RemoteMount`/loader here, just a plain `component`. Reached from
 //     the new "My profile" entry in `UserMenu` (T15), not the nav/sidebar.
+//
+// specs/029-time-tracking, T23 (AC-5.1, ADR-0090) adds:
+//   - `/hours/$`: mounts the new `hours-ui` remote, a remote with NO gated half —
+//     every screen is a signed-in person's own hours, so it is structurally the
+//     `/my-meetings/$` shape (child of `shellRoute`, NO `beforeLoad`, NO
+//     `recordLastTool`, absent from `TOOLS`) and for the identical reason: an
+//     employee holding ZERO app grants must still record and read their hours.
+//     The `_authed` session guard on its ancestors still applies. Reached from the
+//     new "My hours" row in `UserMenu`, not the nav. Everyone's hours (`/hours/all`)
+//     is the SAME shell route: the oversight gate (`time-entry:read-all`) lives in
+//     the remote and hours-api, never here.
 // ---------------------------------------------------------------------------
 
 const getAuthUrl = (): string => import.meta.env.VITE_AUTH_URL as string
@@ -300,6 +311,8 @@ const loadProjectsApp = () => import('projects/App')
 const loadLetterheadsApp = () => import('letterheads/App')
 // specs/20261119-accounting: accounting-ui's gated tool entry (`/accounting/$`).
 const loadAccountingApp = () => import('accounting/App')
+// specs/029-time-tracking (ADR-0090): hours-ui's one entry, ungated (`/hours/$`).
+const loadHoursApp = () => import('hours/App')
 
 // ---------------------------------------------------------------------------
 // App-access guard (T25, US-7, AC-7.3/7.4/7.5) — one factory shared by every
@@ -503,6 +516,27 @@ const myMeetingsRoute = createRoute({
 })
 
 // ---------------------------------------------------------------------------
+// `/hours/$` — "Hours" (specs/029-time-tracking, T23, AC-5.1, AC-5.3, ADR-0090). The
+// ONLY entry of the hours remote, and wholly ungated: recording and reading your own
+// hours is a person's own act, not a tool grant, so a caller with zero app grants must
+// reach it (ADR-0034's test; listing it in `TOOLS` behind an `hours:access` grant would
+// recreate the lockout). Splat route — the remote has an inner router (`/hours`,
+// `/hours/all`, not-found) — with the same three deliberate absences as `/my-meetings/$`:
+//   - NO `beforeLoad` app-access guard (the `_authed` session guard still applies, so no
+//     session still means the sign-in redirect);
+//   - NO `recordLastTool` (no ToolId, absent from `TOOLS`);
+//   - NOT under any gated tool's path prefix, which would inherit that tool's guard.
+// The route is ungated; the oversight view behind it is not (`time-entry:read-all`, checked
+// live by hours-api and by the remote's own tab) — keep both halves.
+// ---------------------------------------------------------------------------
+
+const hoursRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: '/hours/$',
+  component: () => <RemoteMount loader={loadHoursApp} moduleLabel={strings.tools.hours} />,
+})
+
+// ---------------------------------------------------------------------------
 // `/notify/$` — mounts notify-ui via RemoteMount (T13, specs/20260713-notification-
 // center, US-2 AC-2.1). Structurally identical to estimaiRoute/refundRoute/
 // adminRoute above (same catch-all `/$` shape, same RemoteMount boundary,
@@ -574,6 +608,7 @@ export const routeTree = rootRoute.addChildren([
       accountRoute,
       devicesRoute,
       myMeetingsRoute,
+      hoursRoute,
       noAccessRoute,
     ]),
   ]),

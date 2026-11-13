@@ -32,6 +32,10 @@
  * route. Shown to every signed-in user — no permission check here, by design (a
  * participant without `meetings:access` still reads the meetings they were added to).
  *
+ * "My hours" (specs/029-time-tracking, AC-5.1, ADR-0090): a fourth real `<Link role="menuitem">`
+ * after "My meetings", to the ungated `/hours` route. Shown to every signed-in user — no permission
+ * check here, by design (recording your own hours is not a tool grant).
+ *
  * The menu itself — opening, keyboard (arrows, Home/End, Escape back to the
  * avatar), closing on choice or outside click — is the library `Menu`
  * (decisions D-60), shared with LogoMenu.
@@ -61,6 +65,8 @@ type UserMenuProps = {
 // router's typed `to` only knows its `$` form; like Sidebar's `tool.to`, the
 // bare prefix is passed as a plain string so the link renders `/my-meetings`.
 const MY_MEETINGS_PATH: string = '/my-meetings'
+// Same for `/hours/$` (specs/029-time-tracking, ADR-0090): the remote has an inner router.
+const MY_HOURS_PATH: string = '/hours'
 
 const defaultOnSignOut = (): void => {
   void signOut()
@@ -114,6 +120,9 @@ const UserMenu = ({ user, onSignOut = defaultOnSignOut }: UserMenuProps) => {
       </Link>
       <Link to={MY_MEETINGS_PATH} role="menuitem" className="menu-item">
         {strings.userMenu.myMeetings}
+      </Link>
+      <Link to={MY_HOURS_PATH} role="menuitem" className="menu-item">
+        {strings.userMenu.myHours}
       </Link>
       <MenuItem onClick={onSignOut}>{strings.userMenu.signOut}</MenuItem>
     </Menu>

@@ -76,7 +76,12 @@ async function renderUserMenu(props: UserMenuProps) {
     path: '/devices',
     component: () => <p data-testid="devices-content">devices</p>,
   })
-  const routeTree = rootRoute.addChildren([indexRoute, accountRoute, devicesRoute, myMeetingsRoute])
+  const hoursRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/hours',
+    component: () => <p data-testid="hours-content">hours</p>,
+  })
+  const routeTree = rootRoute.addChildren([indexRoute, accountRoute, devicesRoute, myMeetingsRoute, hoursRoute])
   const router = createRouter({ routeTree })
   const utils = render(<RouterProvider router={router} />)
   const displayName = props.user.name || props.user.email || 'Account'
@@ -180,13 +185,15 @@ describe('UserMenu', () => {
 
       const menu = screen.getByRole('menu')
       const items = menu.querySelectorAll('[role="menuitem"]')
-      expect(items).toHaveLength(4)
+      expect(items).toHaveLength(5)
       expect(items[0].textContent).toBe('My profile')
       expect(items[0].getAttribute('href')).toBe('/account')
       expect(items[1].textContent).toBe('My devices')
       expect(items[2].textContent).toBe('My meetings')
       expect(items[2].getAttribute('href')).toBe('/my-meetings')
-      expect(items[3].textContent).toBe('Sign out')
+      expect(items[3].textContent).toBe('My hours')
+      expect(items[3].getAttribute('href')).toBe('/hours')
+      expect(items[4].textContent).toBe('Sign out')
     })
 
     it('navigates to /account and closes the menu when clicked', async () => {
@@ -254,6 +261,33 @@ describe('UserMenu', () => {
 
       expect(await screen.findByTestId('my-meetings-content')).not.toBeNull()
       expect(router.state.location.pathname).toBe('/my-meetings')
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
+  })
+
+  describe('(i) "My hours" links to /hours (specs/029-time-tracking, AC-5.1, design S6, ADR-0090)', () => {
+    it('is a real link directly after "My meetings", visible to any signed-in user', async () => {
+      await renderUserMenu({ user: { name: 'Alice Welld', email: null, image: null }, onSignOut: () => {} })
+      openMenu('Alice Welld')
+
+      const item = screen.getByRole('menuitem', { name: 'My hours' })
+      expect(item.tagName).toBe('A')
+      expect(item.getAttribute('href')).toBe('/hours')
+      expect(item.previousElementSibling?.textContent).toBe('My meetings')
+      expect(item.nextElementSibling?.textContent).toBe('Sign out')
+    })
+
+    it('navigates to /hours and closes the menu when clicked', async () => {
+      const { router } = await renderUserMenu({
+        user: { name: 'Alice Welld', email: null, image: null },
+        onSignOut: () => {},
+      })
+      openMenu('Alice Welld')
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'My hours' }))
+
+      expect(await screen.findByTestId('hours-content')).not.toBeNull()
+      expect(router.state.location.pathname).toBe('/hours')
       expect(screen.queryByRole('menu')).toBeNull()
     })
   })

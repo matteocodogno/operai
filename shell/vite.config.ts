@@ -92,7 +92,7 @@ const suiteVersion = readSuiteVersion()
 // every remote's own config): shell 5173, estimai-ui 5174, refund-ui 5175,
 // notify-ui 5176 (the slot admin-ui/vite.config.ts deliberately left free —
 // see notify-ui/vite.config.ts, T14), admin-ui 5177, inventory-ui 5178, crm-ui 5179, meetings-ui 5180,
-// projects-ui 5181, letterheads-ui 5182, accounting-ui 5183. The shell consumes
+// projects-ui 5181, letterheads-ui 5182, accounting-ui 5183, hours-ui 5184. The shell consumes
 // estimai at :5174, refund at :5175, notify at :5176, and admin at :5177;
 // each remote consumes the shell (shell/session, shell/tokens.css) at :5173.
 // The e2e harness (playwright.config.ts) uses its own explicit ports+env and
@@ -135,6 +135,10 @@ const projectsRemoteUrl = process.env['PROJECTS_REMOTE_URL'] ?? 'http://localhos
 // specs/20261116-letterhead-service: letterheads-ui, the Letterheads tool's federated remote. Same
 // pattern; dev default targets its own pinned port (5182).
 const letterheadsRemoteUrl = process.env['LETTERHEADS_REMOTE_URL'] ?? 'http://localhost:5182/remoteEntry.js'
+// specs/029-time-tracking: hours-ui, the Hours screens' federated remote (ADR-0090). Same
+// pattern; dev default targets its own pinned port (5184). Its one entry, ./App, is mounted at
+// the UNGATED `/hours/$` (not a TOOLS entry).
+const hoursRemoteUrl = process.env['HOURS_REMOTE_URL'] ?? 'http://localhost:5184/remoteEntry.js'
 
 // specs/20261119-accounting: accounting-ui, the Accounting tool's federated remote. Same
 // pattern; dev default targets its own pinned port (5183).
@@ -384,6 +388,15 @@ export default defineConfig({
           name: 'accounting',
           entry: accountingRemoteUrl,
           entryGlobalName: 'accounting',
+          shareScope: 'default',
+        },
+        // specs/029-time-tracking: hours-ui. ./App is mounted at the UNGATED `/hours/$`
+        // (ADR-0090): every signed-in user records and reads their own hours.
+        hours: {
+          type: 'module',
+          name: 'hours',
+          entry: hoursRemoteUrl,
+          entryGlobalName: 'hours',
           shareScope: 'default',
         },
       },

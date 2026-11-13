@@ -67,6 +67,7 @@ interface RemoteFixture {
     | 'projects'
     | 'letterheads'
     | 'accounting'
+    | 'hours'
   /** Directory name, sibling to shell/, per CLAUDE.md's monorepo layout. */
   dirName: string
 }
@@ -84,6 +85,8 @@ const ALL_REMOTES: readonly RemoteFixture[] = [
   { id: 'projects', dirName: 'projects-ui' },
   { id: 'letterheads', dirName: 'letterheads-ui' },
   { id: 'accounting', dirName: 'accounting-ui' },
+  // specs/029-time-tracking (T23): the Hours remote, built here like the others.
+  { id: 'hours', dirName: 'hours-ui' },
 ]
 
 function remoteDir(dirName: string): string {
