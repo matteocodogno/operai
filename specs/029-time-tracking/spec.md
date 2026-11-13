@@ -127,8 +127,12 @@ grouped consistently without a release.
 - AC-3.5 Given an entry on a project, then its work type is optional and, when given, comes from
   the projects list; on a deal, from the deals list; an entry on a meeting or on no entity
   carries no work type. Anything else is refused (D20, A8).
-- AC-3.6 Given a category marked as requiring a note, when an entry with it has no note, then it
-  is refused (A7).
+- AC-3.6 Given a category marked as requiring a note, when an entry with it is recorded, or when a
+  change to an entry sets its note or moves it to that category, and the entry would then have no
+  note (a blank note — empty or only whitespace — counts as none), then it is refused and nothing
+  changes; a change that sets neither — a new day or duration alone, for instance, on an entry
+  recorded before the category was marked as requiring a note — is accepted (A7, D50).
+  *(Amended 2026-11-13 during implementation, D50.)*
 - AC-3.7 Given a new installation, then the lists start as: categories Training, Talk
   preparation, Administration, Other (Other requires a note); project work types Development,
   Analysis, Project management, Support; deal work types Analysis, Estimate, Demo, Offer (A15).
