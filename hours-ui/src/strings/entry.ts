@@ -26,6 +26,7 @@ const en = {
   savedOutsidePeriod: (date: string) => `Entry saved. ${date} is outside the period you are viewing.`,
   dialog: {
     recordTitle: 'Record hours',
+    editTitle: 'Edit entry',
     save: 'Save entry',
     saving: 'Saving…',
   },
@@ -49,6 +50,9 @@ const en = {
     project: {
       label: 'Project',
       hint: 'You can record hours on projects where you are the project manager or on the team.',
+      /** The hint of the "not visible" variant (design S2, AC-4.10): the field holds "Not visible to you". */
+      hiddenHint:
+        "You can't open this project, so its name isn't shown. The entry stays on it unless you choose another.",
       messages: pickerMessages({
         none: 'No projects match.',
         forbidden: "You can't search projects.",
@@ -59,6 +63,7 @@ const en = {
     deal: {
       label: 'Deal',
       hint: 'You can record hours on deals you own, are the technical contact of, or take part in through an activity.',
+      hiddenHint: "You can't open this deal, so its name isn't shown. The entry stays on it unless you choose another.",
       messages: pickerMessages({
         none: 'No deals match.',
         forbidden: "You can't search deals.",
@@ -69,6 +74,8 @@ const en = {
     meeting: {
       label: 'Meeting',
       hint: 'You can record hours on meetings you created or take part in.',
+      hiddenHint:
+        "You can't open this meeting, so its title isn't shown. The entry stays on it unless you choose another.",
       messages: pickerMessages({
         none: 'No meetings match.',
         forbidden: "You can't search meetings.",
@@ -97,6 +104,28 @@ const en = {
       /** The category chosen needs a note (AC-3.6): shown with the required marker. */
       needed: 'This category needs a note.',
     },
+  },
+  /**
+   * The delete confirmation (design S3, F3; AC-1.5): what it asks, what it says on success, and what it says when
+   * the entry was already gone. The entry is named as its row's Edit and Delete buttons name it, except that a
+   * target the person cannot read is "a project that is not visible to you" (AC-4.10).
+   */
+  delete: {
+    title: 'Delete this entry?',
+    body: (duration: string, on: string, date: string) => `${duration} on ${on}, ${date}. This can't be undone.`,
+    on: {
+      project: { hidden: 'a project that is not visible to you', unavailable: 'a project whose name is unavailable' },
+      deal: { hidden: 'a deal that is not visible to you', unavailable: 'a deal whose name is unavailable' },
+      meeting: { hidden: 'a meeting that is not visible to you', unavailable: 'a meeting whose name is unavailable' },
+    },
+    confirm: 'Delete entry',
+    busy: 'Deleting…',
+    /** The request failed (not a 404): the dialog stays open and nothing was deleted. */
+    error: 'Something went wrong. The entry was not deleted.',
+    /** The confirmation, where the person acted (INC-19). */
+    deleted: 'Entry deleted.',
+    /** A 404: someone (another tab, another device) deleted it first; the list has been read again. */
+    gone: 'That entry no longer exists. The list has been refreshed.',
   },
   /** The lists could not be read: the category and work type selects cannot be filled until they are. */
   listsRetry: 'Try again',
@@ -138,6 +167,12 @@ const en = {
       deal: 'This deal is no longer available to you. Choose another.',
       meeting: 'This meeting is no longer available to you. Choose another.',
     },
+    /**
+     * A 404 on a save that kept the target (design S2, F2 step 3): the entry itself is gone — or what it is on is,
+     * for the caller cannot be told which (AC-2.10). The list reloads when the dialog closes.
+     */
+    entryGone:
+      'This entry, or what it is on, can no longer be found. If it is still listed, you can delete it. Close this window; the list will reload.',
     /** `host_unavailable` (AC-2.11): the check failed closed, nothing was saved. */
     hostUnavailable: {
       project:
@@ -157,6 +192,7 @@ const it: typeof en = {
   savedOutsidePeriod: (date: string) => `Registrazione salvata. Il ${date} è fuori dal periodo che stai guardando.`,
   dialog: {
     recordTitle: 'Registra ore',
+    editTitle: 'Modifica registrazione',
     save: 'Salva registrazione',
     saving: 'Salvataggio…',
   },
@@ -179,6 +215,8 @@ const it: typeof en = {
     project: {
       label: 'Progetto',
       hint: 'Puoi registrare ore sui progetti di cui sei project manager o in cui fai parte del team.',
+      hiddenHint:
+        'Non puoi aprire questo progetto, quindi il suo nome non viene mostrato. La registrazione resta su di esso, a meno che tu non ne scelga un altro.',
       messages: {
         searching: 'Ricerca in corso…',
         noMatch: 'Nessun progetto corrisponde.',
@@ -190,6 +228,8 @@ const it: typeof en = {
     deal: {
       label: 'Opportunità',
       hint: "Puoi registrare ore sulle opportunità di cui sei responsabile o referente tecnico, o a cui partecipi tramite un'attività.",
+      hiddenHint:
+        "Non puoi aprire questa opportunità, quindi il suo nome non viene mostrato. La registrazione resta su di essa, a meno che tu non ne scelga un'altra.",
       messages: {
         searching: 'Ricerca in corso…',
         noMatch: 'Nessuna opportunità corrisponde.',
@@ -201,6 +241,8 @@ const it: typeof en = {
     meeting: {
       label: 'Riunione',
       hint: 'Puoi registrare ore sulle riunioni che hai creato o a cui partecipi.',
+      hiddenHint:
+        "Non puoi aprire questa riunione, quindi il suo titolo non viene mostrato. La registrazione resta su di essa, a meno che tu non ne scelga un'altra.",
       messages: {
         searching: 'Ricerca in corso…',
         noMatch: 'Nessuna riunione corrisponde.',
@@ -227,6 +269,24 @@ const it: typeof en = {
       counter: (count: number, max: number) => `${count} su ${max}`,
       needed: 'Questa categoria richiede una nota.',
     },
+  },
+  delete: {
+    title: 'Eliminare questa registrazione?',
+    body: (duration: string, on: string, date: string) =>
+      `${duration} su ${on}, ${date}. L'azione non si può annullare.`,
+    on: {
+      project: { hidden: 'un progetto non visibile a te', unavailable: 'un progetto il cui nome non è disponibile' },
+      deal: {
+        hidden: "un'opportunità non visibile a te",
+        unavailable: "un'opportunità il cui nome non è disponibile",
+      },
+      meeting: { hidden: 'una riunione non visibile a te', unavailable: 'una riunione il cui nome non è disponibile' },
+    },
+    confirm: 'Elimina registrazione',
+    busy: 'Eliminazione…',
+    error: 'Qualcosa è andato storto. La registrazione non è stata eliminata.',
+    deleted: 'Registrazione eliminata.',
+    gone: 'Questa registrazione non esiste più. L’elenco è stato aggiornato.',
   },
   listsRetry: 'Riprova',
   errors: {
@@ -255,6 +315,8 @@ const it: typeof en = {
       deal: "Questa opportunità non è più disponibile per te. Scegline un'altra.",
       meeting: "Questa riunione non è più disponibile per te. Scegline un'altra.",
     },
+    entryGone:
+      'Questa registrazione, o ciò su cui riguarda, non si trova più. Se è ancora in elenco, puoi eliminarla. Chiudi questa finestra: l’elenco verrà ricaricato.',
     hostUnavailable: {
       project:
         'Operai non è riuscito a verificare che tu possa registrare ore su questo progetto. Non è stato salvato nulla. Riprova tra un momento.',

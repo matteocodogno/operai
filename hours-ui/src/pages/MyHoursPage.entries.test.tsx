@@ -52,6 +52,9 @@ const n = strings.names
 
 let api: ReturnType<typeof fakeApi>
 
+/** The row of an entry (`hours-entry-<id>`), not the Edit and Delete buttons inside it (`hours-entry-<id>-edit`). */
+const ROW_TEST_ID = /^hours-entry-(?!.*-(?:edit|delete)$)/
+
 const useApi = (overrides: Parameters<typeof fakeApi>[0] = {}) => {
   api = fakeApi({
     'GET /time-lists': listsHandler(LISTS),
@@ -221,11 +224,13 @@ describe('the entries by day (AC-4.1, AC-4.9)', () => {
     expect(within(kickoff).getByText('Walked through the scope')).not.toBeNull()
   })
 
-  it('offers neither Edit nor Delete yet: their dialogs are T27 and T28, and a control that does nothing is not shipped', async () => {
+  it('offers Edit and Delete on every row, now that their dialogs exist (T28): each button names its entry', async () => {
     useApi()
     await renderPage()
     await screen.findByTestId('hours-day-list')
-    expect(screen.queryByRole('button', { name: /^Edit|^Delete/ })).toBeNull()
+    const rows = PAGE_ONE.items.length
+    expect(screen.getAllByRole('button', { name: /^Edit / })).toHaveLength(rows)
+    expect(screen.getAllByRole('button', { name: /^Delete / })).toHaveLength(rows)
   })
 })
 
@@ -251,7 +256,7 @@ describe('Load more (D48)', () => {
     expect(totalsCalls('day')).toHaveLength(1)
     // The first page's rows are still there, before the new ones.
     const ids = within(screen.getByTestId('hours-day-list'))
-      .getAllByTestId(/^hours-entry-e-/)
+      .getAllByTestId(ROW_TEST_ID)
       .map((row) => row.getAttribute('data-testid'))
     expect(ids).toEqual(
       [...PAGE_ONE.items, ...PAGE_TWO.items.filter((item) => item.day === '2026-11-12')]
@@ -351,7 +356,7 @@ describe('Load more (D48)', () => {
 
     expect(screen.queryByTestId('hours-entry-e-alpha')).toBeNull()
     expect(screen.queryByTestId('hours-entry-e-kickoff')).toBeNull()
-    expect(screen.getAllByTestId(/^hours-entry-/)).toHaveLength(1)
+    expect(screen.getAllByTestId(ROW_TEST_ID)).toHaveLength(1)
   })
 })
 

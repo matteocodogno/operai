@@ -11,7 +11,7 @@ import {
   formatDuration,
 } from '@operai/ui'
 import type { ComboboxOption } from '@operai/ui'
-import type { EntryInput, TimeListsView } from '../lib/hoursApi.types'
+import type { EntryInput, EntryPatch, TimeEntryView, TimeListsView } from '../lib/hoursApi.types'
 import { searchDeals, searchMeetings, searchProjects } from '../lib/searchers'
 import type { DealChoice, MeetingChoice, ProjectChoice } from '../lib/searchers'
 import { todayZurich } from '../lib/todayZurich'
@@ -26,9 +26,15 @@ import {
   failureOf,
   noteLength,
   noteRequired,
+  offeredCategories,
+  offeredWorkTypes,
+  ownWorkTypeOf,
   ruleError,
+  sameTarget,
   toInput,
+  toPatch,
   validate,
+  valuesOf,
   withKind,
 } from './EntryDialogModel'
 import type { EntryFormValues, EntryKind, FieldErrors, FieldName, RuleContext } from './EntryDialogModel'
@@ -36,14 +42,24 @@ import type { EntryFormValues, EntryKind, FieldErrors, FieldName, RuleContext } 
 /** The categories and work types, as the page read them (`includeRetired=true`): retired ones are never offered. */
 export type EntryDialogLists = { status: 'loading' } | { status: 'error' } | { status: 'loaded'; lists: TimeListsView }
 
-export type EntryDialogProps = {
+type EntryDialogShared = {
   lists: EntryDialogLists
   /** Asks the page to read the lists again (they failed, or a save found them out of date). */
   onReloadLists: () => void
-  /** Records the entry. Resolves when saved (the page then closes the dialog); rejects with what hours-api answered. */
-  onSubmit: (input: EntryInput) => Promise<void>
   onCancel: () => void
 }
+
+/**
+ * Recording (no `entry`): `onSubmit` records the entry. Editing (`entry`, the view of the entry being changed):
+ * the dialog opens filled and `onSubmit` takes only the members the person changed (`PATCH`, never empty: with
+ * nothing changed Save just closes). Either resolves when saved (the page then closes the dialog) and rejects
+ * with what hours-api answered.
+ */
+export type EntryDialogProps = EntryDialogShared &
+  (
+    | { entry?: undefined; onSubmit: (input: EntryInput) => Promise<void> }
+    | { entry: TimeEntryView; onSubmit: (patch: EntryPatch) => Promise<void> }
+  )
 
 const projectOption = (project: ProjectChoice): ComboboxOption => ({
   id: project.id,
@@ -81,19 +97,31 @@ const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-60'
  * of 30 minutes), What was it on (nothing chosen), then only the fields that apply to the choice — a project,
  * deal or meeting picker, or a category; the work type and activity for a project or a deal — and the note.
  *
- * It is prop-driven: the lists in, one `onSubmit` out, no router and no knowledge of the page, so edit (T28)
- * and the project and deal pages (specs/030, 031) can reuse it. The dialog owns the form, the client rules
- * and the words for every refusal; the page owns the request.
+ * It is prop-driven: the lists in, one `onSubmit` out, no router and no knowledge of the page, so the project
+ * and deal pages (specs/030, 031) can reuse it. The dialog owns the form, the client rules and the words for
+ * every refusal; the page owns the request.
+ *
+ * Editing (T28; design F2, S2 "Edit entry"; AC-1.5, AC-2.12, AC-3.4, AC-4.10; plan § Entries "Change an entry",
+ * "A change and a move", "A blank note", D46, D50): with an `entry` the dialog opens filled from its view and
+ * `onSubmit` gets only the members the person changed — `on` only when another target was picked, a member that
+ * no longer fits the new target (the activity, or a work type of the other list) as an explicit `null`, an
+ * untouched note never. With nothing changed Save just closes (`PATCH {}` is a 400). The entry's own retired
+ * category or work type stays on offer and is never read as unchosen. An entry whose project, deal or meeting
+ * the author can no longer read opens the "not visible" variant: the target is the placeholder "Not visible to
+ * you" and the Activity is not editable until another target is picked.
  *
  * Validation runs on Save (focus then goes to the first invalid field) and, for Day and the note, on leaving
  * the field; an error that is showing is judged again as the field is edited, so it goes the moment the
  * value is right. A refusal from hours-api lands where design S2 puts it and every value stays.
  */
-export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }: EntryDialogProps) {
+export default function EntryDialog(props: EntryDialogProps) {
+  const { lists, onReloadLists, onCancel, entry } = props
   const t = strings.entry
   const baseId = useId()
   const [today] = useState(() => todayZurich())
-  const [values, setValues] = useState<EntryFormValues>(() => emptyValues(today))
+  // Editing: what the entry is stored with, which the form is judged against and `PATCH` is the difference from.
+  const [stored] = useState<EntryFormValues | null>(() => (entry === undefined ? null : valuesOf(entry)))
+  const [values, setValues] = useState<EntryFormValues>(() => stored ?? emptyValues(today))
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -102,15 +130,14 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
 
   const loaded = lists.status === 'loaded' ? lists.lists : null
   const listsReady = loaded !== null
-  const categories = (loaded?.categories ?? []).filter((category) => !category.retired)
-  const workTypes = (
-    values.kind === 'project'
-      ? (loaded?.workTypes.project ?? [])
-      : values.kind === 'deal'
-        ? (loaded?.workTypes.deal ?? [])
-        : []
-  ).filter((workType) => !workType.retired)
-  const context: RuleContext = { today, categories }
+  // A retired item is never offered for a new choice (AC-3.4), except the edited entry's own, which it keeps.
+  const categories = offeredCategories(loaded?.categories ?? [], entry?.on.type === 'none' ? entry.on.category : null)
+  const ownWorkType = entry === undefined ? null : ownWorkTypeOf(entry)
+  const workTypes =
+    values.kind === 'project' || values.kind === 'deal'
+      ? offeredWorkTypes(loaded?.workTypes[values.kind] ?? [], ownWorkType?.list === values.kind ? ownWorkType : null)
+      : []
+  const context: RuleContext = { today, categories, stored: stored ?? undefined }
 
   // A category or work type the lists no longer offer (retired since) reads as unchosen, and is not sent.
   const effective = (current: EntryFormValues): EntryFormValues => ({
@@ -121,6 +148,15 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
   const shown = effective(values)
   const needsNote = noteRequired(shown, context)
   const count = noteLength(values.note)
+
+  // The "not visible" variant (design S2, AC-4.10, D43): the author can no longer read the project, deal or
+  // meeting the entry is on. While the entry stays on it the picker holds the placeholder and the Activity is
+  // not editable; the first other pick makes both ordinary again.
+  const atStoredTarget = stored !== null && sameTarget(shown, stored)
+  const withheld = entry !== undefined && entry.on.type !== 'none' && entry.on.visibility === 'hidden'
+  const placeholderShown = withheld && atStoredTarget
+  const targetHint = (kind: 'project' | 'deal' | 'meeting') =>
+    placeholderShown ? t.fields[kind].hiddenHint : t.fields[kind].hint
 
   /** Moves to `next` and judges again the errors of the fields that changed, clearing the ones that cannot be. */
   const edit = (next: EntryFormValues, ...changed: FieldName[]) => {
@@ -166,11 +202,25 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
       askFocus()
       return
     }
+    // Editing sends only what changed; with nothing changed there is nothing to save, and `PATCH {}` is a 400.
+    const editing =
+      props.entry !== undefined && stored !== null
+        ? { save: props.onSubmit, patch: toPatch(shown, stored, workTypes) }
+        : null
+    if (editing !== null && Object.keys(editing.patch).length === 0) {
+      onCancel()
+      return
+    }
     setBusy(true)
     try {
-      await onSubmit(toInput(shown, workTypes))
+      if (editing !== null) await editing.save(editing.patch)
+      else if (props.entry === undefined) await props.onSubmit(toInput(shown, workTypes))
     } catch (error) {
-      const failure = failureOf(error, values.kind)
+      const failure = failureOf(
+        error,
+        values.kind,
+        editing === null ? undefined : { moved: editing.patch.on !== undefined },
+      )
       setErrors(failure.fields)
       setFormError(failure.form)
       setBusy(false)
@@ -199,7 +249,7 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
 
   return (
     <FormDialog
-      title={t.dialog.recordTitle}
+      title={entry === undefined ? t.dialog.recordTitle : t.dialog.editTitle}
       submitLabel={t.dialog.save}
       busyLabel={t.dialog.saving}
       cancelLabel={strings.common.cancel}
@@ -280,7 +330,7 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
           <SearchPicker<ProjectChoice>
             key="project"
             label={t.fields.project.label}
-            hint={t.fields.project.hint}
+            hint={targetHint('project')}
             required
             error={errors.entity}
             disabled={busy || quiet}
@@ -296,7 +346,7 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
           <SearchPicker<DealChoice>
             key="deal"
             label={t.fields.deal.label}
-            hint={t.fields.deal.hint}
+            hint={targetHint('deal')}
             required
             error={errors.entity}
             disabled={busy || quiet}
@@ -312,7 +362,7 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
           <SearchPicker<MeetingChoice>
             key="meeting"
             label={t.fields.meeting.label}
-            hint={t.fields.meeting.hint}
+            hint={targetHint('meeting')}
             required
             error={errors.entity}
             disabled={busy || quiet}
@@ -350,7 +400,7 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
                   </option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
-                      {category.name}
+                      {category.retired ? strings.entries.retired(category.name) : category.name}
                     </option>
                   ))}
                 </select>
@@ -383,7 +433,7 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
                     <option value="">{t.fields.workType.none}</option>
                     {workTypes.map((workType) => (
                       <option key={workType.id} value={workType.id}>
-                        {workType.name}
+                        {workType.retired ? strings.entries.retired(workType.name) : workType.name}
                       </option>
                     ))}
                   </select>
@@ -396,6 +446,9 @@ export default function EntryDialog({ lists, onReloadLists, onSubmit, onCancel }
               targetId={(values.kind === 'project' ? values.project?.id : values.deal?.id) ?? null}
               value={values.activityId}
               onChange={(activityId) => edit({ ...values, activityId }, 'activity')}
+              // The entry's own pointer belongs to the target it was saved on, so only while it is still there.
+              current={atStoredTarget ? (entry?.activity ?? null) : null}
+              locked={placeholderShown}
               error={errors.activity ?? null}
               disabled={busy}
             />

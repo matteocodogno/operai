@@ -22,6 +22,15 @@ const en = {
       : `Showing the latest ${count} activities. Older ones can't be chosen here.`,
   /** The hint and the polite status when the read failed (404, 503, network); the field is optional. */
   loadFailed: 'Activities could not be loaded. You can save without one.',
+  /**
+   * The hint of the "not visible" variant (design S2, AC-4.10): the entry's project or deal cannot be opened by
+   * its author, so its activities are not listed and the pointer is not editable until another target is picked.
+   */
+  locked: {
+    project:
+      "You can't open this project, so its activities aren't listed. The activity stays as it is unless you choose another project.",
+    deal: "You can't open this deal, so its activities aren't listed. The activity stays as it is unless you choose another deal.",
+  },
   /** The activity types activities-api knows, as a prefix of an option. */
   type: {
     note: 'Note',
@@ -50,6 +59,11 @@ const it: typeof en = {
       ? "Viene mostrata l'ultima attività. Quelle più vecchie non si possono scegliere qui."
       : `Vengono mostrate le ultime ${count} attività. Quelle più vecchie non si possono scegliere qui.`,
   loadFailed: 'Impossibile caricare le attività. Puoi salvare anche senza.',
+  locked: {
+    project:
+      "Non puoi aprire questo progetto, quindi le sue attività non sono elencate. L'attività resta com'è, a meno che tu non scelga un altro progetto.",
+    deal: "Non puoi aprire questa opportunità, quindi le sue attività non sono elencate. L'attività resta com'è, a meno che tu non scelga un'altra opportunità.",
+  },
   type: {
     note: 'Nota',
     call: 'Telefonata',

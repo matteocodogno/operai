@@ -12,8 +12,10 @@ import {
   formatDate,
 } from '@operai/ui'
 import DealFilterUnavailable from '../components/DealFilterUnavailable'
+import DeleteEntryDialog from '../components/DeleteEntryDialog'
 import EntryDayList from '../components/EntryDayList'
 import EntryDialog from '../components/EntryDialog'
+import { entryIsGone } from '../components/EntryDialogModel'
 import ErrorBanner from '../components/ErrorBanner'
 import HoursBanners from '../components/HoursBanners'
 import type { HoursBannersProps } from '../components/HoursBanners'
@@ -25,9 +27,9 @@ import SuccessBanner from '../components/SuccessBanner'
 import TotalsCard from '../components/TotalsCard'
 import type { TotalsCardHandle, TotalsView } from '../components/TotalsCard'
 import { isCode, statusOf } from '../lib/errors'
-import { createEntry, getTimeLists, getTotals, listEntries } from '../lib/hoursApi'
+import { createEntry, deleteEntry, getTimeLists, getTotals, listEntries, updateEntry } from '../lib/hoursApi'
 import type { EntryFilters } from '../lib/hoursApi'
-import type { EntriesPage, EntryInput, TimeEntryView, TotalsAnswer } from '../lib/hoursApi.types'
+import type { EntriesPage, EntryInput, EntryPatch, TimeEntryView, TotalsAnswer } from '../lib/hoursApi.types'
 import { hasHiddenName, unavailableSources } from '../lib/names'
 import { rangeOf } from '../lib/period'
 import type { DealChoice, ProjectChoice } from '../lib/searchers'
@@ -223,22 +225,86 @@ export default function MyHoursPage() {
 
   const filtered = isFiltered(state, { project, deal })
 
+  // What the person did here, said where they did it: a save, a delete, or "it was already gone". Each is a new
+  // banner (the `count` remounts it, so its 3 s timer starts over).
+  const [notice, setNotice] = useState<{ kind: 'saved' | 'deleted' | 'gone'; message: string; count: number } | null>(
+    null,
+  )
+  const say = (kind: 'saved' | 'deleted' | 'gone', message: string) =>
+    setNotice((previous) => ({ kind, message, count: (previous?.count ?? 0) + 1 }))
+
+  // Every write that changed what the list shows asks the three reads again with the same filters.
+  const readAgain = () => {
+    entries.reload()
+    days.reload()
+    totals.reload()
+  }
+
+  // Where focus goes once a write has taken the row it came from out of the page (the list is read again, so the
+  // button that opened the dialog is gone): the heading after a delete, Record hours after an edit (design F1–F3).
+  const heading = useRef<HTMLHeadingElement>(null)
+  const recordButton = useRef<HTMLButtonElement>(null)
+  const [focusRequest, setFocusRequest] = useState<{ on: 'heading' | 'record' } | null>(null)
+  useEffect(() => {
+    if (focusRequest === null) return
+    ;(focusRequest.on === 'heading' ? heading : recordButton).current?.focus()
+  }, [focusRequest])
+
   // Recording (T27). A save that worked closes the dialog (focus goes back to Record hours: the library gives
   // it to the button that opened the dialog), asks the three reads again with the same filters, and says so;
   // a save that was refused rejects into the dialog, which words it, and nothing here changes.
   const [recording, setRecording] = useState(false)
-  const [saved, setSaved] = useState<{ message: string; count: number } | null>(null)
+  const outsidePeriod = (day: string) => range !== null && (day < range.from || day > range.to)
+  const savedMessage = (day: string | undefined) =>
+    day !== undefined && outsidePeriod(day) ? strings.entry.savedOutsidePeriod(formatDate(day)) : strings.entry.saved
   const record = async (input: EntryInput) => {
     await createEntry(input)
-    const outside = range !== null && (input.day < range.from || input.day > range.to)
     setRecording(false)
-    setSaved((previous) => ({
-      message: outside ? strings.entry.savedOutsidePeriod(formatDate(input.day)) : strings.entry.saved,
-      count: (previous?.count ?? 0) + 1,
-    }))
-    entries.reload()
-    days.reload()
-    totals.reload()
+    say('saved', savedMessage(input.day))
+    readAgain()
+  }
+
+  // Editing (T28; design F2). The dialog sends only the members the person changed; a save that worked closes it,
+  // reads again and says so. When the entry itself is gone (`entryIsGone`: hours-api's 404 with no code, or any
+  // 404 on a save that kept the target) the dialog says so and stays, and the list is read again when it closes;
+  // a `not_found` after a move is the new target's, answered on the picker, and the list is not stale.
+  const [editing, setEditing] = useState<TimeEntryView | null>(null)
+  const listIsStale = useRef(false)
+  const edit = async (entry: TimeEntryView, patch: EntryPatch) => {
+    try {
+      await updateEntry(entry.id, patch)
+    } catch (error) {
+      if (entryIsGone(error, patch.on !== undefined)) listIsStale.current = true
+      throw error
+    }
+    listIsStale.current = false
+    setEditing(null)
+    say('saved', savedMessage(patch.day))
+    readAgain()
+    setFocusRequest({ on: 'record' })
+  }
+  const closeEdit = () => {
+    setEditing(null)
+    if (!listIsStale.current) return
+    listIsStale.current = false
+    readAgain()
+    setFocusRequest({ on: 'heading' })
+  }
+
+  // Deleting (T28; design F3). A 404 is "already gone": it is what the person wanted, so it closes, reads again
+  // and says so; any other failure rejects into the dialog, which stays open with the error.
+  const [deleting, setDeleting] = useState<TimeEntryView | null>(null)
+  const remove = async (entry: TimeEntryView) => {
+    try {
+      await deleteEntry(entry.id)
+      say('deleted', strings.entry.delete.deleted)
+    } catch (error) {
+      if (statusOf(error) !== 404) throw error
+      say('gone', strings.entry.delete.gone)
+    }
+    setDeleting(null)
+    readAgain()
+    setFocusRequest({ on: 'heading' })
   }
 
   return (
@@ -246,9 +312,12 @@ export default function MyHoursPage() {
       <PageHeader
         title={strings.myHours.heading}
         titleId="hours-my-heading"
+        headingRef={heading}
+        focusableHeading
         description={strings.myHours.description}
         actions={
           <Button
+            ref={recordButton}
             variant="primary"
             aria-haspopup="dialog"
             onClick={() => setRecording(true)}
@@ -259,14 +328,27 @@ export default function MyHoursPage() {
         }
       />
 
-      {saved !== null && (
-        <SuccessBanner
-          key={saved.count}
-          message={saved.message}
-          onDismiss={() => setSaved(null)}
-          testId="hours-entry-saved"
-        />
-      )}
+      {notice !== null &&
+        (notice.kind === 'gone' ? (
+          <Banner
+            key={notice.count}
+            tone="info"
+            compact
+            onDismiss={() => setNotice(null)}
+            dismissLabel={strings.common.dismiss}
+            dismissTestId="hours-entry-gone-dismiss"
+            data-testid="hours-entry-gone"
+          >
+            {notice.message}
+          </Banner>
+        ) : (
+          <SuccessBanner
+            key={notice.count}
+            message={notice.message}
+            onDismiss={() => setNotice(null)}
+            testId={`hours-entry-${notice.kind}`}
+          />
+        ))}
 
       <HoursBanners {...(blocked ? NO_BANNERS : banners)} />
 
@@ -332,7 +414,12 @@ export default function MyHoursPage() {
                       {strings.entries.dayTotalsError}
                     </Banner>
                   )}
-                  <EntryDayList entries={loadedEntries} dayTotals={dayTotals} />
+                  <EntryDayList
+                    entries={loadedEntries}
+                    dayTotals={dayTotals}
+                    onEdit={setEditing}
+                    onDelete={setDeleting}
+                  />
                   {(entries.hasMore || entries.more.length > 0 || entries.moreFailed) && (
                     <LoadMore
                       hasMore={entries.hasMore}
@@ -375,6 +462,20 @@ export default function MyHoursPage() {
           onSubmit={record}
           onCancel={() => setRecording(false)}
         />
+      )}
+
+      {editing !== null && (
+        <EntryDialog
+          entry={editing}
+          lists={listsView}
+          onReloadLists={lists.reload}
+          onSubmit={(patch) => edit(editing, patch)}
+          onCancel={closeEdit}
+        />
+      )}
+
+      {deleting !== null && (
+        <DeleteEntryDialog entry={deleting} onConfirm={() => remove(deleting)} onCancel={() => setDeleting(null)} />
       )}
     </section>
   )

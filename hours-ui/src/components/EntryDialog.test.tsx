@@ -56,7 +56,7 @@ const useApi = (overrides: Parameters<typeof fakeApi>[0] = {}) => {
   )
 }
 
-const renderDialog = (props: Partial<EntryDialogProps> = {}) =>
+const renderDialog = (props: Partial<Omit<EntryDialogProps, 'entry' | 'onSubmit'>> = {}) =>
   render(
     <EntryDialog
       lists={{ status: 'loaded', lists: ENTRY_LISTS }}

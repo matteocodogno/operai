@@ -21,8 +21,18 @@ export type ActivityFieldProps = {
   error?: string | null
   /** The dialog is saving: nothing can be picked and Try again is off. */
   disabled?: boolean
+  /**
+   * The "not visible" variant (design S2, AC-4.10): the author can no longer read the entry's project or deal, so
+   * the field is not editable while the target is unchanged. It reads nothing (the person could not read that
+   * target's activities anyway), shows only `current` — the entry's pointer — and says why. Drop it when another
+   * target is picked: the field then reads that target's activities as any other.
+   */
+  locked?: boolean
   testId?: string
 }
+
+/** The option value of a pointer the viewer may not read: a token, never its id. */
+const HIDDEN_POINTER = 'hidden-pointer'
 
 /** What a read came to, for the read it was made for (`key`): the page, or `null` when it failed. */
 type Answer = { key: string; page: ActivitiesPage | null }
@@ -46,14 +56,16 @@ export default function ActivityField({
   current = null,
   error = null,
   disabled = false,
+  locked = false,
   testId = 'hours-activity',
 }: ActivityFieldProps) {
   const [attempt, setAttempt] = useState(0)
   const [answer, setAnswer] = useState<Answer | null>(null)
   const selectRef = useRef<HTMLSelectElement>(null)
 
-  // One key per read: a new target, or Try again. An answer is shown only for the read it belongs to.
-  const key = targetId === null ? null : `${targetType}:${targetId}:${attempt}`
+  // One key per read: a new target, or Try again. An answer is shown only for the read it belongs to. A locked
+  // field makes no read at all.
+  const key = targetId === null || locked ? null : `${targetType}:${targetId}:${attempt}`
   useEffect(() => {
     if (targetId === null || key === null) return
     const controller = new AbortController()
@@ -69,29 +81,48 @@ export default function ActivityField({
   }, [key, targetType, targetId])
 
   const settled = answer !== null && answer.key === key ? answer : null
-  const phase = key === null ? 'idle' : settled === null ? 'loading' : settled.page === null ? 'failed' : 'loaded'
+  const phase = locked
+    ? 'locked'
+    : key === null
+      ? 'idle'
+      : settled === null
+        ? 'loading'
+        : settled.page === null
+          ? 'failed'
+          : 'loaded'
   const items = settled?.page?.items ?? []
 
-  // The entry's own activity comes first when the page does not hold it, so it is easy to find and keep.
+  // The entry's own activity comes first when the page does not hold it, so it is easy to find and keep. A
+  // locked field has no page: the pointer is all it shows.
+  // An option's `value` is its id — except for a pointer the viewer may not read, whose id is never drawn into
+  // the page (the UI shows no id for a record withheld from the viewer, AC-4.10): it gets an opaque token.
   const options = [
     ...(current !== null && phase !== 'idle' && !items.some((item) => item.id === current.id)
-      ? [{ id: current.id, label: currentLabel(current) }]
+      ? [
+          {
+            id: current.id,
+            value: current.visibility === 'hidden' ? HIDDEN_POINTER : current.id,
+            label: currentLabel(current),
+          },
+        ]
       : []),
-    ...items.map((item) => ({ id: item.id, label: optionLabel(item) })),
+    ...items.map((item) => ({ id: item.id, value: item.id, label: optionLabel(item) })),
   ]
   // What the select shows can only be an option it has; a value it cannot show reads as "No activity".
-  const shownValue = value !== null && options.some((option) => option.id === value) ? value : ''
+  const shownValue = options.find((option) => option.id === value)?.value ?? ''
 
   const hint =
-    phase === 'idle'
-      ? strings.activity.chooseFirst[targetType]
-      : phase === 'loading'
-        ? strings.activity.loading
-        : phase === 'failed'
-          ? strings.activity.loadFailed
-          : settled !== null && settled.page !== null && settled.page.total > items.length
-            ? strings.activity.latest(items.length)
-            : undefined
+    phase === 'locked'
+      ? strings.activity.locked[targetType]
+      : phase === 'idle'
+        ? strings.activity.chooseFirst[targetType]
+        : phase === 'loading'
+          ? strings.activity.loading
+          : phase === 'failed'
+            ? strings.activity.loadFailed
+            : settled !== null && settled.page !== null && settled.page.total > items.length
+              ? strings.activity.latest(items.length)
+              : undefined
   const usable = phase === 'loaded'
 
   return (
@@ -114,13 +145,13 @@ export default function ActivityField({
             className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
             value={shownValue}
             onChange={(event) => {
-              if (usable) onChange(event.target.value === '' ? null : event.target.value)
+              if (usable) onChange(options.find((option) => option.value === event.target.value)?.id ?? null)
             }}
             data-testid={`${testId}-select`}
           >
             <option value="">{phase === 'loading' ? strings.activity.loading : strings.activity.none}</option>
             {options.map((option) => (
-              <option key={option.id} value={option.id}>
+              <option key={option.id} value={option.value}>
                 {option.label}
               </option>
             ))}
