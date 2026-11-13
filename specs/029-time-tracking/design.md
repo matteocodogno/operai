@@ -15,6 +15,9 @@ screen or feature: the Note rule of the entry dialog when editing (ledger D50 an
 it; plan amendment 4, § Entries "A blank note") and the 01.01.2000 floor of the Day field and of the Custom
 period (plan amendment 4, § Entries "A day"). Each change says where it was made and why, in place (F1 step 4,
 F2 step 2, S1 Period, S2 Day, Note rule, Date rules, S4 filters, Accessibility S1 and S2, § AC coverage).
+Also 2026-11-13, text only, no screen change: D44 was decided by the security review (ids of a record the
+viewer cannot read are withheld from anyone but the entry's author); the two places that called it open now
+state the decision (S1 § Names the viewer cannot read, Accessibility S1).
 
 Surfaces: **three pages** — *My hours* and *Everyone's hours* in the new remote `hours-ui` (`/hours`),
 *Time lists* in `admin-ui` (`/time-lists`) — **three dialogs** (entry, delete confirmation, list-item form)
@@ -319,8 +322,11 @@ catalog words below are used on screen and in the export, so the two never disag
 
 The type `Badge` (or the "On" second line) is always shown, so the row still says what kind of work it was;
 the name is plain text, not a link (`href` is `null`), at the same size as a name. A `hidden` row is never
-distinguishable from another `hidden` row on screen (D44 leaves `on.id` in the API; the UI never uses it
-except for the author's own edit dialog).
+distinguishable from another `hidden` row on screen. **D44, decided 2026-11-13 by the security review**
+(`ledger.md` D44, `owasp-report.md` § 4, spec AC-4.10 as amended, plan § Views "Ids of what the viewer cannot
+read") **withholds the id in the API too**: on an entry that is not the viewer's own, `on.id` and
+`activity.id` are `null` unless the record is `visible`; the author keeps their own ids. The UI never uses an
+id except for the author's own edit dialog, which keeps working on own entries, so no screen changes.
 
 ### S2 Entry dialog — create and edit
 
@@ -650,7 +656,9 @@ non-holder. A not-found or denied state replaces the content and takes focus on 
 - A row's Edit and Delete `aria-label`s name the entry — "Edit 4 h on Project Alpha, 12.11.2026" — and for an
   entry whose target is not visible "Edit 4 h on a project not visible to you, 12.11.2026", so two hidden rows
   of one day are told apart by duration and position only; that is deliberate: the UI shows no id for a
-  hidden record (whether the API keeps it is left to review, D44).
+  hidden record, and since D44 (decided 2026-11-13 by the security review; `ledger.md` D44, `owasp-report.md`
+  § 4) the API sends none either for an entry that is not the viewer's own (`on.id` and `activity.id` are
+  `null` unless the record is `visible`; the author keeps their own).
 - Totals table: the merged rows are ordinary rows read in order, their first cell a plain sentence
   ("Projects not visible to you"); the table has a caption naming the grouping and `scope` headers; month names
   come from `formatMonth`, so they are read in the page language.
