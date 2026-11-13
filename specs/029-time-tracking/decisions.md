@@ -372,5 +372,16 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - assumption: any grant of `(time-entry, read-all)` counts; `conditions` not read (the catalog declares none) — where: `oversight.ts`
 - glossary candidate (not yet accepted): "oversight (hours)" — reading everyone's hours through `time-entry:read-all` with no write right
 
+## T38 · devops (docs) · 2026-11-13
+- scope: clauses added to the crm-api, meetings-api, activities-api and projects-api bullets in AGENTS.md (resolve `deal`, `ids`, meetings-api's first `/system/*` route) — why: they would otherwise contradict the code — where: AGENTS.md
+- scope: a "The `hours` catalog" table in auth/README.md beside the scope table — where: auth/README.md
+- default: AGENTS.md counts — "Nine tools" (table rows + notify-ui), "ten Bun services"; README's counted phrases made count-free ("Every backend", "every frontend") — where: AGENTS.md, README.md
+- reinterpretation: "Six are implemented; `meetings-api` is in progress (specs/021)" replaced by "`hours-api` is in progress (specs/029)"; the specs tree line reads "001–032; 015, 017 and 029 are in progress" (021 and 024 are done) — where: AGENTS.md
+- default: "Shipped today" gained Projects (was missing) and Hours — where: AGENTS.md
+- default: the hours-api bullet describes the final design (oversight, `owner_only`) — T19 is now integrated, so it holds — where: AGENTS.md
+- default: the Time tracking table carries `time entry`, `category`, `work type` plus `retired` and `see everyone's hours` (glossary candidates) — where: AGENTS.md
+- default: no Data residency bullet (Railway EU, no new processor); O3 sign-off as one sentence in the hours-api bullet — where: AGENTS.md
+- pre-existing doc gaps left untouched (follow-up chore): README lacks crm/meetings rows, ports 5180/8085, meetings in direnv/DB lists, refers to a missing `CLAUDE.md`; AGENTS.md service-client row omits `crm.deals.read`, `crm.contacts.read`, `estimai.estimates.read`, `projects.purchase-orders.read`; auth/README scope table omits `estimate-notices.send`, `host-notices.send`, `deal-link-notices.send`, `activities.write`; "all six frontends"; the ADR-0034 convention line predates ADR-0045/0058/0090; the `### Backend services` heading lists five; README projects-ui row says "contracts"
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
