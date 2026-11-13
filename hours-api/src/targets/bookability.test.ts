@@ -1,6 +1,6 @@
 /**
- * `assertBookable` — the decision of whether a caller may record hours on a project or a meeting
- * (specs/029 T15; plan § Sequences; ADR-0089; AC-2.2, AC-2.5, AC-2.10, AC-2.11), on its own, against the fake
+ * `assertBookable` — the decision of whether a caller may record hours on a project, a deal or a meeting
+ * (specs/029 T15, T16; plan § Sequences; ADR-0089; AC-2.2, AC-2.3, AC-2.5, AC-2.10, AC-2.11), on its own, against the fake
  * owners of T11 and the real clients. src/entries/bookability.test.ts drives the same decisions through the
  * routes; this one pins the module's contract: it answers by THROWING, on every outcome but "yes".
  *
@@ -11,7 +11,7 @@ import { PERSONAS, bearerOf, resetWorld } from "../test-support/world";
 import { startHosts } from "../test-support/hosts";
 import { ProblemError } from "../lib/problem";
 import { assertBookable, type BookableTarget, type Caller } from "./bookability";
-import { hostUnavailable, notOnProject, targetNotFound } from "./errors";
+import { hostUnavailable, notInvolvedInDeal, notOnProject, targetNotFound } from "./errors";
 
 const hosts = startHosts();
 afterAll(() => hosts.stop());
@@ -137,5 +137,84 @@ describe("assertBookable on a meeting (AC-2.5, AC-2.10, AC-2.11)", () => {
     expect(await answer(await aliceCaller(), onMeeting("m-oldest"))).toEqual(UNAVAILABLE);
     hosts.meetings.legacy = false;
     expect(await answer(await aliceCaller(), onMeeting("m-oldest"))).toBe("yes");
+  });
+});
+
+describe("assertBookable on a deal (AC-2.3, AC-2.10, AC-2.11)", () => {
+  const onDeal = (id: string): BookableTarget => ({ type: "deal", id });
+  const NOT_INVOLVED = said(notInvolvedInDeal());
+
+  it("says yes to the owner or technical contact crm-api names, and never asks activities-api for them", async () => {
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB, ALICE] });
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toBe("yes");
+    expect(hosts.calls.map((recorded) => recorded.route)).toEqual(["crm.resolve"]);
+  });
+
+  it("says yes to the assignee of one of the deal's tasks and to a participant of one of its activities", async () => {
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
+    hosts.activities.add({ id: "a-task", subject: "Prepare the offer", deal: "d1", assignee: ALICE });
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toBe("yes");
+
+    hosts.reset();
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
+    hosts.activities.add({ id: "a-call", subject: "Discovery call", type: "call", deal: "d1", participants: [ALICE] });
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toBe("yes");
+  });
+
+  it("decides by the caller's user id and asks with the caller's token: the two are not the same input", async () => {
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
+    const asAlice = await aliceCaller();
+
+    expect(await answer(asAlice, onDeal("d1"))).toEqual(NOT_INVOLVED);
+    // Same token, another person's id: the deal's people decide, not the token.
+    expect(await answer({ ...asAlice, userId: BOB }, onDeal("d1"))).toBe("yes");
+    for (const recorded of hosts.calls) expect(recorded.authorization).toBe(asAlice.authorization);
+  });
+
+  it("says 403 not_involved_in_deal to a reader who is nowhere in it, and nothing is remembered between calls", async () => {
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
+    hosts.activities.add({ id: "a1", subject: "Prepare the offer", deal: "d1", assignee: BOB });
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toEqual(NOT_INVOLVED);
+
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB, ALICE] }); // made the technical contact since
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toBe("yes");
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] }); // and taken off again
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toEqual(NOT_INVOLVED);
+  });
+
+  it("says one and the same 404 to a missing deal, one the caller cannot read and an id nobody holds", async () => {
+    hosts.crm.setDeal("d-secret", { label: "Secret", involved: [ALICE] });
+    hosts.crm.setReader(ALICE, false);
+    const unreadable = await answer(await aliceCaller(), onDeal("d-secret"));
+    hosts.crm.setReader(ALICE, true);
+    const missing = await answer(await aliceCaller(), onDeal("d-nobody"));
+
+    expect(unreadable).toEqual(NOT_FOUND);
+    expect(missing).toEqual(NOT_FOUND);
+    expect(NOT_INVOLVED.detail).not.toMatch(/d-secret|d-nobody/);
+  });
+
+  it("says 503 when crm-api does not answer — for the deal's own owner too — and never mistakes that for a no", async () => {
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [ALICE] });
+    for (const mode of [{ status: 500 }, { malformed: true }, { redirect: true }, { rawBody: "nope" }]) {
+      hosts.fail("crm.resolve", mode);
+      expect(await answer(await aliceCaller(), onDeal("d1"))).toEqual(UNAVAILABLE);
+    }
+    hosts.heal("crm.resolve");
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toBe("yes");
+  });
+
+  it("says 503, not 403, when the scan of the deal's activities cannot be made or cannot be trusted", async () => {
+    hosts.crm.setDeal("d1", { label: "Acme renewal", involved: [BOB] });
+    hosts.activities.add({ id: "a1", subject: "Prepare the offer", deal: "d1", assignee: ALICE });
+
+    hosts.fail("activities.list", { status: 500 });
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toEqual(UNAVAILABLE);
+    // An activity about another deal, naming the caller: an owner that ignored its filter.
+    const stray = { id: "a-stray", type: "task", subject: "Elsewhere", project: null, deal: { id: "d2" }, participants: [], task: { assignee: { id: ALICE } } };
+    hosts.fail("activities.list", { body: { items: [stray], total: 1, page: 1, pageSize: 100 } });
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toEqual(UNAVAILABLE);
+    hosts.heal("activities.list");
+    expect(await answer(await aliceCaller(), onDeal("d1"))).toBe("yes");
   });
 });

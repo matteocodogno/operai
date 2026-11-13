@@ -19,10 +19,11 @@
  * 4xx is always a version gap and never the caller's malformed input (plan R7).
  */
 
+import { listDealActivities } from "../clients/activities";
+import { resolveDeals } from "../clients/crm";
 import { listMeetingsByIds } from "../clients/meetings";
 import { resolveProjects } from "../clients/projects";
-import { ProblemError } from "../lib/problem";
-import { hostUnavailable, notOnProject, targetNotFound } from "./errors";
+import { hostUnavailable, notInvolvedInDeal, notOnProject, targetNotFound } from "./errors";
 
 /** What an entry is booked on, as an owner knows it. */
 export interface BookableTarget {
@@ -47,12 +48,7 @@ export async function assertBookable(caller: Caller, target: BookableTarget): Pr
     case "meeting":
       return assertOnMeeting(caller, target.id);
     case "deal":
-      // TODO(T16): until deals are checked a write on one is refused, never accepted unchecked.
-      throw new ProblemError({
-        status: 501,
-        code: "not_implemented",
-        detail: "Hours on a deal cannot be recorded yet: whether you may book on it is not checked here yet",
-      });
+      return assertInvolvedInDeal(caller, target.id);
   }
 }
 
@@ -88,4 +84,34 @@ async function assertOnMeeting({ authorization }: Caller, meetingId: string): Pr
   if (outcome.state === "unavailable") throw hostUnavailable();
   // The client keeps only a creator's or a participant's row.
   if (!outcome.items.has(meetingId)) throw targetNotFound();
+}
+
+/**
+ * A deal, in any stage (won and lost included, A13): the caller must be its owner or its technical contact —
+ * `involved` of crm-api's host resolve (src/clients/crm.ts) — or else the assignee or a participant of one of its
+ * activities, which only activities-api knows (src/clients/activities.ts). The second question is asked only
+ * when the first does not settle it: a person the CRM names costs no activities call (plan R2).
+ *
+ * The activities are scanned for at most 10 pages (R9); a person involved only through an activity past that
+ * bound is refused, as accepted in the plan. A scan that cannot account for every activity it read is the
+ * client's `unavailable` (an activity not about this deal, pages that do not add up to the owner's `total`):
+ * there, "absent" would mean "not involved", so a list that may be short must never answer it.
+ */
+async function assertInvolvedInDeal({ userId, authorization }: Caller, dealId: string): Promise<void> {
+  const outcome = await resolveDeals(authorization, [dealId]);
+  if (outcome.state === "unavailable") throw hostUnavailable();
+  // No `crm:access` reads nothing at all: as good as missing, and the same 404 (AC-2.10).
+  if (outcome.state === "not_reader") throw targetNotFound();
+
+  const deal = outcome.items.get(dealId);
+  if (deal === undefined) throw hostUnavailable();
+  if (deal.state === "missing") throw targetNotFound();
+  if (deal.involved.includes(userId)) return;
+
+  const scan = await listDealActivities(authorization, dealId);
+  if (scan.state === "unavailable") throw hostUnavailable();
+  if (scan.items.some((activity) => activity.assigneeId === userId || activity.participantIds.includes(userId))) return;
+  // R9's early check: how often the bound is what refuses someone. The line names no deal and no person.
+  if (scan.truncated) console.warn("[bookability] deal activity scan stopped at the 10-page bound (R9) and found nobody");
+  throw notInvolvedInDeal();
 }

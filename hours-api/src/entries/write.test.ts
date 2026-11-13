@@ -1001,56 +1001,6 @@ describe("PATCH /time-entries/{id}: moving an entry to no entity (AC-2.1, AC-3.5
   });
 });
 
-/**
- * TRANSITIONAL — T16 (deals, the activity pointer) replaces the refusals below with the owners' checks and
- * moves these tests to its own files (deals.test.ts, activityPointer.test.ts). Projects and meetings are T15's:
- * src/entries/bookability.test.ts. Until T16 a write on a deal, or one that points at an activity, is refused,
- * never accepted unchecked (fail closed, AC-2.11's posture).
- */
-describe("hours on a deal, and an activity pointer, until their owners are asked (T16)", () => {
-  it("a deal is refused with 501 not_implemented, nothing written and no owner called", async () => {
-    const res = await post(body({ on: { type: "deal", id: "d1" } }));
-    expect(res.status).toBe(501);
-    expect(res.json.code).toBe("not_implemented");
-    expect(await entryRows()).toHaveLength(0);
-    expect(hosts.calls).toHaveLength(0);
-  });
-
-  it("refuse a PATCH that moves an entry to a deal, leaving the entry", async () => {
-    const onProject = await makeProjectEntry("p1");
-    const onNone = await makeNoEntityEntry(SEED.categories.training);
-    for (const entry of [onProject, onNone]) {
-      const res = await patch(entry.id, { on: { type: "deal", id: "d1" } });
-      expect(res.status).toBe(501);
-    }
-    expect(await db.timeEntry.findUniqueOrThrow({ where: { id: onProject.id } })).toMatchObject({ target: "project", projectId: "p1", dealId: null });
-    expect(await db.timeEntry.findUniqueOrThrow({ where: { id: onNone.id } })).toMatchObject({ target: "none", dealId: null });
-    expect(hosts.calls).toHaveLength(0);
-  });
-
-  it("refuse a PATCH that gives a project or deal entry an activity it did not point at, leaving the entry", async () => {
-    const entry = await makeProjectEntry("p1", { activityId: "activity-1" });
-    const res = await patch(entry.id, { activityId: "activity-2" });
-    expect(res.status).toBe(501);
-    expect((await db.timeEntry.findUniqueOrThrow({ where: { id: entry.id } })).activityId).toBe("activity-1");
-    expect(hosts.calls).toHaveLength(0);
-  });
-
-  it("refuse a new project entry that points at an activity, after bookability said yes: nothing is written", async () => {
-    hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });
-    const res = await post(body({ on: { type: "project", id: "p1" }, activityId: "activity-1" }));
-    expect(res.status).toBe(501);
-    expect(await entryRows()).toHaveLength(0);
-  });
-
-  it("let the project's own answer come first: a caller who is not on it is told 403, not 501", async () => {
-    hosts.projects.setProject("p1", { label: "Apollo", assignees: [PERSONAS.bob.sub] });
-    const res = await post(body({ on: { type: "project", id: "p1" }, activityId: "activity-1" }));
-    expect(res.status).toBe(403);
-    expect(res.json.code).toBe("not_on_project");
-  });
-});
-
 describe("a blank note is no note (AC-1.7, AC-3.6; plan amendment 3)", () => {
   it("stores and returns null for an empty note, one of whitespace, and an absent or null one", async () => {
     for (const note of ["", " ", " \n\t", "  ", null, undefined]) {

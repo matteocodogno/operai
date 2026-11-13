@@ -17,9 +17,10 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { JwtVariables } from "../auth/jwt.middleware";
 import { db } from "../lib/db";
 import { invalidRequestHook } from "../lib/errors";
-import { ProblemError, notFound } from "../lib/problem";
+import { notFound } from "../lib/problem";
 import { ProblemSchema } from "../lists/errorDocs";
 import { IdSchema } from "../lists/idRule";
+import { assertActivityOf } from "../targets/activity";
 import { assertBookable, type Caller } from "../targets/bookability";
 import {
   activityNotAllowed,
@@ -56,16 +57,22 @@ const writeErrors = {
 } as const;
 
 /**
- * What the owners add to a `POST` and to a `PATCH` that moves the entry (plan § Errors; T15): whether the caller may
- * book there. `404` replaces the entry's own for these two routes: it also covers the target.
+ * What the owners add to a `POST` and to a `PATCH` that moves the entry or sends a new `activityId` (plan § Errors;
+ * T15, T16): whether the caller may book there, and whether the activity belongs to it. `404` replaces the entry's
+ * own for these two routes: it also covers the target.
  */
 const ownerErrors = {
-  403: problemDoc("`not_on_project`: the project is readable and the caller is neither its project manager nor on its team"),
+  403: problemDoc(
+    "`not_on_project`: the project is readable and the caller is neither its project manager nor on its team; " +
+      "`not_involved_in_deal`: the deal is readable and the caller is neither its owner, its technical contact, nor the assignee or a participant of one of its activities",
+  ),
   404: problemDoc(
-    "`not_found`: on a `PATCH`, no entry of yours has this id; on either, the project or meeting does not exist, the caller may not read it, " +
+    "`not_found`: on a `PATCH`, no entry of yours has this id; on either, the project, deal or meeting does not exist, the caller may not read it, " +
       "or is not its creator or a participant (a meeting) — one body for all of them",
   ),
-  503: problemDoc("`host_unavailable`: the tool that owns the project or meeting could not be asked, so nothing was saved"),
+  503: problemDoc(
+    "`host_unavailable`: the tool that owns the project, deal, meeting or activity could not be asked, or answered what is no answer, so nothing was saved",
+  ),
 } as const;
 
 const createEntryRoute = createRoute({
@@ -93,7 +100,8 @@ const updateEntryRoute = createRoute({
   summary: "Change one of your own entries, of any age: any subset of the members of a POST (any session)",
   description:
     "At least one member; one that is not sent keeps what is stored, and `on` is replaced whole. Whether the caller may book on the target is " +
-    "asked only when `on` names a target other than the stored one. `note_required` is checked when a note is sent or the entry is moved.",
+    "asked only when `on` names a target other than the stored one. An `activityId` is asked of activities-api only when it is new or carried " +
+    "to another target (`null` and an unchanged one never are). `note_required` is checked when a note is sent or the entry is moved.",
   request: {
     params: IdParams,
     body: { content: { "application/json": { schema: UpdateEntrySchema } }, required: true },
@@ -162,11 +170,9 @@ const targetColumns = (on: On) => ({
  * What a write still has to ask the OWNERS of the things an entry is on, once every local rule held:
  * bookability (AC-2.2, AC-2.3, AC-2.5) and the activity pointer (AC-2.7). Entries on no entity need neither.
  *
- * `askOwners` is the seam: bookability on a project and a meeting is src/targets/bookability.ts (T15). TODO(T16):
- * bookability on a deal (also in src/targets) and `activity`. Until then a write that needs those is REFUSED with
- * 501 — never accepted unchecked: a person could otherwise book on a deal they are not involved in. The tests
- * that pin the refusal are the block marked TRANSITIONAL in write.test.ts; T16 replaces them with its own
- * (deals.test.ts, activityPointer.test.ts).
+ * `askOwners` is the one place they are asked: bookability on a project, a deal and a meeting is
+ * src/targets/bookability.ts (T15, T16), the activity pointer src/targets/activity.ts (T16). Each throws the
+ * problem that says why on every outcome but "yes", so nothing here can forget to read an answer.
  */
 interface OwnerChecks {
   /** Set when the entry is created on, or moved to, a project, a deal or a meeting. */
@@ -182,12 +188,7 @@ async function askOwners(caller: Caller, checks: OwnerChecks): Promise<void> {
   // Bookability first, as the plan's sequences run it: an entry that may not be booked there is never asked
   // about the activity it would point at (a 403 or a 404 must not be hidden behind another answer).
   if (checks.bookable !== null) await assertBookable(caller, checks.bookable);
-  if (checks.activity === null) return;
-  throw new ProblemError({
-    status: 501,
-    code: "not_implemented",
-    detail: "An activity cannot be pointed at yet: whether it belongs to the project or the deal is not checked here yet",
-  });
+  if (checks.activity !== null) await assertActivityOf(caller, checks.activity);
 }
 
 // ─── The local rules ─────────────────────────────────────────────────────────
