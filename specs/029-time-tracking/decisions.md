@@ -268,4 +268,22 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: Record hours is the `PageHeader` primary; the deal-filter-unavailable state does not hide it; the Day input carries `min="2000-01-01"`; client rule order: required, real calendar day, 2000 floor, future day — where: `MyHoursPage.tsx`, `EntryDialogModel.ts`
 - scope: `isRealDay` is a private copy of `period.ts`'s round trip (`dayOf` not exported, `period.ts` outside `touch:`) — where: `EntryDialogModel.ts`
 - assumption: Italian copy chosen by the agent ("Registra ore", "Salva registrazione", "Su cosa hai lavorato", the refusal sentences) — where: `strings/entry.ts`
+- library follow-up (not done, see end of T27) — continued below.
+
+## T14 · backend-dev · 2026-11-13
+- reinterpretation: bodies accept all four `on` types, but a write that still needs an owner (create or move onto a project, deal or meeting; a new or carried activity pointer) answers 501 `not_implemented`, nothing written, no owner called, until T15/T16 fill `askOwners` — why: accepting such a target unchecked would let anyone book on any project (fail closed) — where: `entries.routes.ts` `askOwners`, TRANSITIONAL block in `write.test.ts`
+- reinterpretation: a `PATCH` is validated against the entry as it will be stored; a stored work type or activity is CARRIED across a move and must fit the new target (422 `work_type_not_allowed` / `activity_not_allowed`), never dropped silently; a client changing the kind of target must send `workTypeId: null` / `activityId: null` — why: plan silent on moves; silent clearing would lose data — where: `validateWrite`
+- assumption (amendment 4 asked for a choice): a `PATCH` re-sending the stored retired `workTypeId` with the target unchanged is accepted; a different retired one is 422 `work_type_retired` — why: consistent with D46 and AC-3.4 — where: `validateWrite`
+- default: `PATCH {}` is 400 `invalid_request` (`field: ""`) — where: `schemas.ts` `UpdateEntrySchema`
+- default: 422 bodies carry a `field` member next to `code` — why: design S2 lands codes on fields — where: `rules.ts` `refusal`
+- default: a `PATCH` looks the entry up (404) before any rule (422) — where: `entries.routes.ts`
+- default: 422 order — duration, day, note length, work type (no-list / not found / wrong list / retired), activity, category, `note_required`, then owners — where: `validateWrite`
+- default: an unchanged `activityId` is never re-asked of activities-api (D47); a new one, or one carried across a move, is — where: `OwnerChecks.activity`
+- default: the id rule's single home is `src/lists/idRule.ts`; `src/labels/idRule.ts` re-exports it as `satisfiesIdRule`, pinned by a test; the date rule's single home is `src/entries/rules.ts` (`isCalendarDay`, `FIRST_DAY`; `DaySchema` in `schemas.ts`) for T17/T18 — where: as named
+- default: the clock is a seam in `today.ts` (`__setClockForTests`) — where: `today.ts`
+- default: `minutes` must be a JSON number (else 400); a number that is not a whole half-hour (45.5, Infinity) is 422 `invalid_minutes` — where: `schemas.ts`
+- assumption: "404 byte-identical" is asserted with the requested id normalised out of `instance` (the shared `problem()` echoes the path) — where: `write.test.ts` `sameAnswer`
+- default: `DELETE` is `deleteMany({id, userId})`, `PATCH` is `update({where:{id,userId}})`, Prisma `P2025` mapped to the same 404; one test creates and drops a temporary trigger on `hours_test` to produce a real `P2025` — where: `entries.routes.ts`, `write.test.ts`
+
+## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
