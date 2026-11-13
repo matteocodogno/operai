@@ -10,6 +10,16 @@ approved: 2026-11-12
 > AC-3.3 wording, an export in decimal hours carrying the deal a meeting's hours count for, totals
 > semantics with `groupBy=day`, the person filter's source, the activity picker, and three
 > `@operai/ui` additions.
+>
+> Amended 2026-11-13 for drift found in implementation batch 1 — contract corrections, no AC,
+> endpoint or feature added: (1) § Sequences, the `assignees` reference is
+> `activity-host.routes.ts:120` (batch-1 review, ahead of T15); (2) § API contracts, activities-api
+> `GET /activities?ids=` as T6 built it — one page, never cut, its 422 cases, only owning hosts asked;
+> (3) meetings-api `GET /meetings?ids=` as T8 built it — ANDed with the other filters, ≤ 25 raw
+> members, its 422 cases, a NUL member absent; (4) § Entries, the **id rule** on every id an entry
+> body carries, so a malformed id is hours-api's own 400 and never an owner's 4xx answered as 503
+> (T6, T8); (5) a NUL refused as 400 in `note` and in a list `name` (T10). Test rows AC-1.7, 2.1, 2.5,
+> 2.7, 2.10 and 3.1 updated; § Errors, R7 and § Security note the consequences.
 
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/026);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
@@ -59,7 +69,8 @@ ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-ho
 
 **Record an entry on a deal** (`POST /time-entries`, `on: {type:"deal", id}`):
 1. hours-ui → hours-api with the user's JWT.
-2. Validate shape, duration, day (today in `Europe/Zurich`), note, category / work type (local).
+2. Validate shape (the id rule and a NUL-free note, § Entries), duration, day (today in
+   `Europe/Zurich`), note, category / work type (local).
 3. hours-api → crm-api `POST /activity-host/v1/resolve {entityType:"deal", ids:[id]}` with the
    caller's JWT. `reader:false` or `missing` → **404**; unreachable → **503**.
 4. Involved if the caller is in `item.involved`; otherwise hours-api → activities-api
@@ -71,7 +82,8 @@ ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-ho
 6. Insert; 201 with the view.
 
 **On a project**: step 3 is projects-api `POST /activity-host/v1/resolve {entityType:"project"}`;
-the caller must be in `assignees` (PM + team, `activity-host.routes.ts:118`) → else **403
+the caller must be in `assignees` (PM + team, `projects-api/src/activity-host/activity-host.routes.ts:120`;
+a project from a deal still awaiting its PM answers its team only) → else **403
 `not_on_project`**. `writable` (false when closed/cancelled) is **ignored**: entries are accepted
 in any state (A12). An activity pointer must be a task whose `project.id` is that project.
 
@@ -290,9 +302,10 @@ ask", which the export and the by-deal totals must keep apart).
 POST /time-entries
   body: {
     day: string, minutes: number,
-    on: { type: "project" | "deal" | "meeting", id: string } | { type: "none", categoryId: string },
-    workTypeId?: string | null, activityId?: string | null, note?: string | null
+    on: { type: "project" | "deal" | "meeting", id: Id } | { type: "none", categoryId: Id },
+    workTypeId?: Id | null, activityId?: Id | null, note?: string | null   // note: no NUL
   }                                    // strict: any other key (userId, start, end…) → 400
+  // Id = string: 1..64 characters, no NUL, no comma, no whitespace at either end (the id rule, below)
   201 TimeEntryView
 
 PATCH /time-entries/{id}               // owner only; any subset of POST's members; `on` replaced whole
@@ -314,6 +327,36 @@ GET /time-entries?whose=mine|all&from&to&userId&target&projectId&dealId&meetingI
   // userId only with whose=all; dealId includes entries on meetings linked to that deal
   200 { items: TimeEntryView[]; nextCursor: string | null; unavailable: Unavailable }
 ```
+
+**The id rule and a NUL-free note** (amended 2026-11-13; T6, T8, T10). `Id` — every id an entry body
+carries, on `POST` and `PATCH` alike: `on.id`, `on.categoryId`, `workTypeId`, `activityId` — is 1..64
+characters with no NUL (`\u0000`), no comma and no whitespace at either end (`id.trim() === id`).
+`note` refuses a NUL. A body outside either rule is 400 `invalid_request` naming the field (`on.id`,
+`activityId`, `note`, …), decided from the string before any owner or database call; a note's length
+stays 422 `note_too_long`. Each part closes a path to a wrong answer:
+- **1..64, no NUL** — the bound every owner puts on an id it receives (projects-api and crm-api
+  resolve, activities-api `ids` and `dealId`, meetings-api `ids`; 64 in all four). Sent anyway, the
+  owner answers 400 or 422, which hours-api's clients must read as `unavailable` (R7): a 503
+  `host_unavailable` for a request that is merely malformed, while AC-2.11's 503 means the owner could
+  not answer.
+- **No NUL** in an id hours-api looks up in its own tables (`categoryId`, `workTypeId`) or in `note`:
+  Postgres `text` cannot hold one, so it would reach the generic 500 (T10).
+- **No comma** — a meeting's `on.id` and `activityId` travel inside the comma-separated `ids` of
+  meetings-api and activities-api, which split after percent-decoding: `a,,b` holds an empty member
+  (422 at both), and `a,b,c,…` with more than 25 members — 64 characters hold up to 32 — exceeds
+  meetings-api's cap (422).
+- **No whitespace at either end** — meetings-api trims each member, so an id of spaces is an empty
+  member (422).
+
+Every other character is percent-encoded by the clients (`URLSearchParams`) and reaches the owner as
+sent. No owner id falls outside the rule (cuids, and UUID v4 for the activities crm-api creates), so the
+400 says nothing about whether a record exists. A **well-formed** id keeps its answer: one no owner knows
+is the same 404 `not_found` as one the caller cannot read (AC-2.10); an unknown `activityId` is 422
+`activity_not_allowed` (AC-2.7), an unknown `categoryId` / `workTypeId` 422 `category_not_found` /
+`work_type_not_found`. *Rejected:* the owners' bound alone (1..64, no NUL) — a comma or a blank meeting
+id would still come back as an owner's 422, so as a 503; a character class matching today's ids
+(`[A-Za-z0-9_-]`) — it ties hours-api to every owner's id generator, and a new id format would be
+refused by hours-api alone.
 
 ### Totals
 
@@ -393,7 +436,7 @@ its own credential (withheld, § Views).
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_request` | schema violation, unknown key, bad query (span, `userId` without `whose=all`, unknown `groupBy`) |
+| 400 | `invalid_request` | schema violation, unknown key, bad query (span, `userId` without `whose=all`, unknown `groupBy`); a body id outside the id rule, or a NUL in `note` (§ Entries) |
 | 422 | `invalid_minutes` | not 30..1440 in steps of 30 |
 | 422 | `future_day` | day after today in `Europe/Zurich` |
 | 422 | `note_too_long` / `note_required` | > 1000 characters / the category requires a note |
@@ -423,6 +466,8 @@ PATCH /time-categories/{id}  { name?: string; requiresNote?: boolean; retired?: 
 POST  /work-types            { list: "project" | "deal", name: string (1..80, trimmed) }      → 201 WorkTypeView
 PATCH /work-types/{id}       { name?: string; retired?: boolean }                            → 200 WorkTypeView
   // PATCH: at least one member; strict (any other key, `list` included → 400 invalid_request)
+  // name (POST and PATCH): trimmed at the ends, then 1..80 characters with no NUL (`\u0000`) — else
+  //   400 invalid_request, `field: "name"`; Postgres text cannot hold a NUL (T10, amended 2026-11-13)
   // time-list:manage, live: 403 time_list_manage_required, 503 authz_unavailable,
   // 409 name_taken, 404 not_found; no DELETE route is mounted (AC-3.2)
 ```
@@ -501,9 +546,23 @@ type ExportButtonProps = {
 ### activities-api (changed)
 
 ```
-GET /activities?ids=a,b,c          // ≤ 50; exactly-one-filter rule unchanged (ids is the fifth)
-  200 { items: Activity[]; total; page; pageSize }   // existing Activity view; unreadable/missing ids omitted
-  503 host_unavailable                               // as today
+GET /activities?ids=a,b,c          // the fifth "exactly one of" filter (companyId, contactId, dealId, projectId, ids)
+  // ids: ONE comma-separated parameter, ≤ 50 elements as sent (a duplicate counts toward 50 and
+  //   still yields one row); each element exact (never trimmed), 1..64 characters, no NUL
+  // 422 naming `field: "ids"`: an empty element (`a,,b`, `a,`, `,a`), an element over 64 characters,
+  //   a NUL, the parameter repeated (`ids=a&ids=b`), more than 50 elements
+  // `ids=` (empty) counts as absent, as an empty `companyId` always did (alone: the "exactly one" 422)
+  // `type` / `open` narrow as on every list; `page` / `pageSize` are ignored
+  // only the hosts owning at least one matching row are asked, each as the caller: a lookup of CRM
+  //   activities does not depend on projects-api
+  200 { items: Activity[]; total; page: 1; pageSize: 50 }   // existing Activity view, newest first
+      // ALWAYS ONE PAGE, `total` = the items returned: an omitted id means "does not exist, or the
+      // caller may not read it" (one outcome, nothing tells the two apart), never "cut off"
+  503 host_unavailable   // a host owning a matching row did not answer — never a shorter list, also
+                         // when another host said "not a reader"
+  // hours-api never sends it empty (no id, no call) and reads every answer as complete (no paging).
+  // Cost (T6): while one host is down, a guessed id it holds answers 503 where an unknown id answers
+  // 200 — existence, never content (§ Security).
 ```
 
 hours-ui also reads the existing `GET /activities?projectId=` / `?dealId=` from the browser for the
@@ -524,8 +583,16 @@ POST /activity-host/v1/resolve
 ### meetings-api (changed / new)
 
 ```
-GET /meetings?ids=a,b,c             // ≤ 25; selfScoped; only the caller's meetings (creator or participant)
-  200 { items: MeetingRow[]; total; page; pageSize }   // MeetingRow unchanged (role, title, startsAt, host)
+GET /meetings?ids=a,b,c             // selfScoped; narrows the caller's own meetings (creator or Operai participant)
+  // ids: ONE comma-separated parameter, ≤ 25 members as sent (a duplicate counts toward 25 and still
+  //   yields one row); each member trimmed, then 1..64 characters
+  // 422: an empty list (`ids=`, `ids=%20`) or member (`a,,b`, `a,`, `,a`), a member over 64
+  //   characters, more than 25 members, the parameter repeated (`ids=a&ids=b`) — never "no filter"
+  // a member holding a NUL names no meeting: absent, 200 (never sent to the database)
+  // ANDed with every other filter (q, role, status, hostApp); `total` counts the intersection
+  200 { items: MeetingRow[]; total; page; pageSize: 25 }   // MeetingRow unchanged (role, title, startsAt, host)
+      // newest first; a host-only reader's meeting, someone else's and an unknown id: absent alike (AC-2.10)
+      // `page` still applies: 25 ids fit page 1, so hours-api sends no `page` (and never an empty `ids`)
 
 GET /system/meetings/hosts?ids=a,b,c        // ≤ 100
 GET /system/meetings/hosts?dealId=<id>      // the meetings currently linked to that deal
@@ -559,21 +626,21 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-1.4 | integration | 6 h on an internal project + 6 h on a client project the same day → both 201; `groupBy=project` gives 6 h each, `groupBy=day` gives that day 12 h |
 | AC-1.5 | integration | owner `PATCH`es and `DELETE`s an entry dated 400 days ago → 200 / 204 |
 | AC-1.6 | integration | another user (admin included) `PATCH`/`DELETE` → 404; read-all holder → 403 `owner_only`; `POST` with `userId` → 400; row unchanged |
-| AC-1.7 | integration + DB | 1001 characters → 422 `note_too_long`; 1000 → 201; CHECK holds |
+| AC-1.7 | integration + DB | 1001 characters → 422 `note_too_long`; 1000 → 201; CHECK holds; a note holding `\u0000` → 400 `invalid_request` with `field: "note"` on `POST` and `PATCH`, nothing written or changed, never a 500 |
 | AC-1.8 | contract | strict schema: `start`/`end` keys → 400; OpenAPI view has no time-of-day member |
-| AC-2.1 | unit + DB | every target / category / work-type combination: allowed → 201, others → 400/422; CHECK rejects raw rows |
+| AC-2.1 | unit + integration + DB | every target / category / work-type combination: allowed → 201, others → 400/422; CHECK rejects raw rows; an `on.categoryId` or `workTypeId` holding a NUL or of 65 characters → 400 `invalid_request` naming it, never a 500 |
 | AC-2.2 | integration (fake projects) | caller in `assignees` → 201 in every state, `writable:false` ignored; readable but not in `assignees` → 403 `not_on_project`; `reader:false` → 404 |
 | AC-2.3 | integration (fake crm + activities) + crm-api integration | involved as owner, technical contact, task assignee, participant → 201; other CRM reader → 403 `not_involved_in_deal`; won and lost deals accepted. crm-api: resolve `deal` returns owner + technical, leaves out an override row's admin, `reader:false` without `crm:access` |
 | AC-2.4 | integration | entry created, caller then removed from `assignees`: still listed and counted under the project; `DELETE` → 204 |
-| AC-2.5 | integration (fake meetings) + meetings-api integration | creator or participant → 201; host-only reader (absent from `GET /meetings?ids=`) → 404. meetings-api: the `ids` filter returns only the caller's meetings |
+| AC-2.5 | integration (fake meetings) + meetings-api integration | creator or participant → 201; host-only reader (absent from `GET /meetings?ids=`) → 404. meetings-api: the `ids` filter returns only the caller's meetings, ANDed with `q` / `role` / `status` / `hostApp` (`total` = the intersection); 25 members → 200, 26 → 422 (26 copies of one id too); an empty list (`ids=`, `ids=%20`) or member, a 65-character member and `ids=a&ids=b` → 422; a NUL member → absent, 200; members trimmed; `pageSize` 25 |
 | AC-2.6 | integration + meetings-api integration | meeting entries grouped under deal A and listed with `on.deal = { state: "linked", id: A }`; fake system route relinks to B → totals and the item move to B. meetings-api: the system route answers `{id, host}` only; a user JWT, a wrong scope or a wrong sub → identical 401 |
-| AC-2.7 | integration + activities-api integration + component | activity of another project/deal → 422 `activity_not_allowed`; on `meeting`/`none` → 422; a task of the same project → 201. activities-api: `ids` filter returns readable activities only, omits missing and unreadable alike. hours-ui: the activity picker loads `GET /activities?projectId=` / `?dealId=` for the picked entity; a 404 or 503 shows its error state and Save stays enabled |
+| AC-2.7 | integration + activities-api integration + component | activity of another project/deal, or a well-formed id activities-api does not return → 422 `activity_not_allowed`; on `meeting`/`none` → 422; a task of the same project → 201; on `POST` and `PATCH`, an `activityId` outside the id rule (empty, 65 characters, a NUL, a comma, a space at either end) → 400 `invalid_request` with `field: "activityId"` and no activities-api call recorded. activities-api: `ids` filter returns readable activities only, omits missing and unreadable alike; 50 matches → one page `{page: 1, pageSize: 50, total: 50}`, also when `page` / `pageSize` are sent; 51 elements (51 copies of one id too), an empty element, a 65-character element, a NUL and `ids=a&ids=b` → 422 with `field: "ids"`; `ids=` counts as absent; a lookup of CRM ids alone does not ask projects-api; a host owning a matching row down → 503 `host_unavailable` with no `items`, also when the other host says "not a reader". hours-ui: the activity picker loads `GET /activities?projectId=` / `?dealId=` for the picked entity; a 404 or 503 shows its error state and Save stays enabled |
 | AC-2.8 | integration | two people, three days, one task → all 201, same `activity.id` in the list |
 | AC-2.9 | integration | fake activities-api stops returning the pointed id → entry still listed and counted, `activity: null`, export activity cell empty; owner then changes the note → 200 and the stored `activityId` is unchanged (D47); project hidden from the viewer → activity rendered hidden, not `null` |
 | AC-2.12 | integration (fake projects + crm + activities + meetings) | entry on a project, caller then removed from `assignees`: `PATCH {minutes, note, workTypeId, day}` → 200 and the fake host records **no** resolve call; same with the project now `reader:false` → 200; `PATCH {on: <same project>}` → 200, no call; `PATCH {on: <another project the caller is not on>}` → 403 `not_on_project`, row unchanged; `PATCH {activityId: <task of that project>}` with activities-api down → 503; deal (involvement lost) and meeting (no longer a participant) variants alike |
-| AC-2.10 | integration | missing vs unreadable project, deal, meeting → byte-identical 404 bodies |
+| AC-2.10 | integration | missing vs unreadable project, deal, meeting → byte-identical 404 bodies, a well-formed id no owner knows included; for each target type, an `on.id` outside the id rule — empty, 65 characters, a NUL, a comma (`a,,b`), spaces only or at either end — → 400 `invalid_request` with `field: "on.id"` and the fake hosts record no call (never 503, never the owner's 422); a well-formed `on.id` holding `&`, `#`, `+`, `%` or an inner space reaches the fake host exactly as sent and, unknown, is the same 404 |
 | AC-2.11 | integration | each source down / timeout / 500 during a write → 503 `host_unavailable`, no row written |
-| AC-3.1 | integration + component (admin-ui) | holder creates, renames, retires and **restores** a category and a work type in each list; after `PATCH { retired: false }` the item is back in `GET /time-lists` and a new entry with it → 201; retire and restore are idempotent (200, row unchanged); rename-and-restore to a taken name → 409 `name_taken`, row unchanged. admin-ui: an active row offers Rename + Retire, a retired row Rename + Restore, each sending one `PATCH` |
+| AC-3.1 | integration + component (admin-ui) | holder creates, renames, retires and **restores** a category and a work type in each list; after `PATCH { retired: false }` the item is back in `GET /time-lists` and a new entry with it → 201; retire and restore are idempotent (200, row unchanged); rename-and-restore to a taken name → 409 `name_taken`, row unchanged; a `name` holding `\u0000` → 400 `invalid_request` (`field: "name"`) on create and rename in each list, row unchanged, never a 500. admin-ui: an active row offers Rename + Retire, a retired row Rename + Restore, each sending one `PATCH` |
 | AC-3.2 | integration + DB | `DELETE /time-categories/{id}` and `/work-types/{id}` → 404, row present; raw delete of a used row blocked by `Restrict` |
 | AC-3.3 | integration + component (admin-ui) | a caller without `time-list:manage` — including one whose role has Admin access but not the permission — → 403 `time_list_manage_required` on create, rename, retire and restore, row unchanged; `auth` down → 503 `authz_unavailable`; a role holding `time-list:manage` without Admin access → the API accepts (hours-api's gate is the permission alone). admin-ui: no Time lists link and `PermissionDenied` on `/time-lists` without `time-list:manage` |
 | AC-3.4 | integration | retired item absent from `GET /time-lists`, present with `includeRetired`; new entry with it → 422 `*_retired`; old entry still shows it, `retired: true` |
@@ -602,7 +669,10 @@ All 44 ACs of the spec (41 + AC-4.10 + AC-4.11 + AC-2.12) have a row. Re-checked
 rows for AC-3.1, 3.3, 4.1, 4.4, 4.5, 4.6, 4.7, 4.9 and 4.10 were rewritten so each fails when the
 amended AC is violated (no restore; restore allowed without the permission; a day total from one page;
 an incomplete person list; groups that do not sum; a text duration or a missing deal in the file; a
-name or an id that leaks).
+name or an id that leaks). Re-checked after the 2026-11-13 amendment: the rows for AC-1.7, 2.1, 2.5,
+2.7, 2.10 and 3.1 gained the id-rule, NUL and owner-filter checks, each failing when a malformed id
+reaches an owner (a 503 or the owner's 422 instead of 400), a NUL reaches Postgres (a 500), or an
+`ids` answer is cut or paged.
 
 ## Risks
 
@@ -642,7 +712,9 @@ name or an id that leaks).
   `entityType:"deal"`, an old activities-api 422 to `ids` alone, and an old meetings-api ignores `ids`
   and returns the caller's latest page. hours-api's clients therefore treat **any unexpected 4xx** as
   `unavailable` (503 `host_unavailable` on a write) and **drop ids they did not ask for** (corrected
-  2026-11-13), so a wrong order degrades, never breaks.
+  2026-11-13), so a wrong order degrades, never breaks. That reading is right only because hours-api
+  never sends an id outside the id rule (§ Entries, amended 2026-11-13): an owner's 4xx is a version
+  gap, never the caller's malformed input.
 - **R9 Deal involvement beyond the scan bound.** The activities scan reads at most 10 pages (1000
   activities) of a deal; a person involved only through an activity past that bound is refused
   `not_involved_in_deal` (accepted 2026-11-13). *Early check:* none needed below 1000 activities per
@@ -678,6 +750,10 @@ name or an id that leaks).
 - Cross-service bookability checks run as the caller and fail closed; labels follow the viewer's
   own access (AC-4.10). hours-ui's pickers call projects-api, crm-api, meetings-api and
   activities-api from the browser as the person, on existing routes — no new origin, no CORS change.
+- activities-api `ids` asks only the hosts that own a matching row (T6, § API contracts): while one
+  host is down, a guessed id it holds answers 503 where an unknown id answers 200 — existence, never
+  content, to someone who guesses a cuid or UUID during an outage. Reviewer to accept it, or to ask
+  that every host be asked (a CRM lookup would then fail while projects-api is down).
 - The person filter reuses the totals route behind `time-entry:read-all`; the user directory's
   audience is not widened (ADR-0066).
 - The export file is built in the browser from data the viewer can already read; no server file.
