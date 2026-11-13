@@ -406,5 +406,16 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - env note: a mutation briefly deleted the seeded `tc-training` row from `hours_test`; restored with the migration's values
 - note for T37: an unauthenticated CORS preflight answers 204, allow-origin only for allowed origins — the only other credential-less answer, pinned by the matrix
 
+## T41 · backend-dev · 2026-11-13
+- default: `viewerId` is a required argument of `toView` and `viewEntries`, never defaulted — why: a forgotten call site fails `tsc` instead of handing out ids — where: `hours-api/src/entries/view.ts`
+- reinterpretation: `activity.id` follows the activity's own `visibility` (already derived from the target's and from activities-api's answer), so with a visible project and activities-api down another person's `activity.id` is `null`, the author's kept — why: "returned only when the record is visible", fail closed — where: `view.ts` `toView`
+- default: `unavailable` is withheld like `hidden` on another person's entry; the author's own keeps the id — where: `view.ts` `idFor`
+- default: the nullable id keeps the member (`string | null`, never absent); the schema test refuses a view without it — where: `view.ts`, `view.test.ts`
+- default: "own" is `row.userId === viewerId`, `viewerId` the route's verified `sub` (`c.get("userId")`), never parsed inside `view.ts` — where: `entries.routes.ts`, `list.routes.ts`
+- scope: edited `src/oversight/read.test.ts` (outside `touch:`): the holder test asserted the hidden project's id `p1` on Bob's entry, now `null` — the contract T41 changes — where: as named
+- scope: two sentences in the `GET /time-entries` OpenAPI description on when `id` is `null` — where: `list.routes.ts`
+- default: the "unreadable vs missing" view test compares both entries through the same viewer — where: `view.test.ts`
+- verified: the review's probe re-run against the branch — `on.id: null` on the hidden deal entry and all hidden meeting entries; the pivot returns `[]` / `{"totalMinutes":0,"groups":[]}` (copy at scratchpad `t41/d44.probe.worktree.test.ts`); 13 mutants killed
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
