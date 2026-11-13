@@ -361,5 +361,16 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - scope: `workbookCopyOf(catalog)` builds the file's words from the screen's catalogs — where: `lib/hoursWorkbook.ts`
 - library follow-up (not done): the status line under `ExportButton` grows the card header 36 → 52 px and shifts the heading ~8 px (`.card-header` is `align-items: center`)
 
+## T19 · backend-dev · 2026-11-13
+- scope: `src/targets/errors.ts` `hostUnavailable` gained an optional `detail` (outside `touch:`, backward compatible) — why: one 503 helper, but its fixed text "…nothing was saved" is false for a GET; `filters.ts`'s local copy removed — where: `src/targets/errors.ts`
+- scope: replaced the tests pinning the TRANSITIONAL 501 and updated the OpenAPI "documented statuses" assertions in `list.test.ts` (outside `touch:`) and `totals/request.test.ts` — where: as named
+- default: the oversight refusal cache is its own `Map`, not shared with `timeListManage.ts` — why: a refusal of one permission must not refuse the other (tested) — where: `src/oversight/oversight.ts`
+- default: cache key epoch is `c.get("permEpoch")` from the JWT middleware (as T12) — where: `oversight.ts`
+- default: shape and cursor 400s are decided before the oversight check (no `auth` call); then 403/503; then the `dealId` call; then the database — a non-holder never makes hours-api ask meetings-api anything — where: `list.routes.ts`, `totals.routes.ts`
+- default: a holder's `PATCH`/`DELETE` of a nonexistent id is 404 (not `owner_only`); `auth` failure, missing permission and missing entry are all 404; a database error stays 500 — where: `oversight.ts` `isHolderOfSomeoneElsesEntry`
+- default: `EntryScope` is a tagged union (`person` | `everyone`) passed to `entryWhere`; only the oversight check hands out `everyone` — why: an omitted `userId` can't silently mean everyone's rows — where: `scope.ts`, `filters.ts`
+- assumption: any grant of `(time-entry, read-all)` counts; `conditions` not read (the catalog declares none) — where: `oversight.ts`
+- glossary candidate (not yet accepted): "oversight (hours)" — reading everyone's hours through `time-entry:read-all` with no write right
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
