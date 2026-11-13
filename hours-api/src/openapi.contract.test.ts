@@ -20,9 +20,10 @@
  */
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
-import { PERSONAS, SEED, app, call, db, makeNoEntityEntry, resetWorld } from "./test-support/world";
+import { PERSONAS, SEED, app, call, db, makeDealEntry, makeNoEntityEntry, resetWorld } from "./test-support/world";
 import { startHosts } from "./test-support/hosts";
 import { __setClockForTests } from "./entries/today";
+import { __resetOversightCacheForTests } from "./oversight/oversight";
 
 const hosts = startHosts();
 afterAll(() => {
@@ -190,6 +191,68 @@ describe("TimeEntryView records a day and a duration only (AC-1.8)", () => {
     expect(refersToView(answer("POST /time-entries", "201"))).toBe(true);
     expect(refersToView(answer("PATCH /time-entries/:id", "200"))).toBe(true);
     expect(refersToView(answer("GET /time-entries", "200").properties.items)).toBe(true);
+  });
+});
+
+// ─── D44: the id of a record the viewer may not read ─────────────────────────
+
+describe("TimeEntryView withholds the id of a record its viewer may not read: those ids are `string | null` (D44, owasp-report.md F1)", () => {
+  const view = deref({ $ref: "#/components/schemas/TimeEntryView" });
+  const variants: Schema[] = view.properties.on.oneOf.map(deref);
+  const variant = (type: string): Schema => {
+    const found = variants.find((candidate) => candidate.properties.type.enum?.[0] === type);
+    if (!found) throw new Error(`the view's \`on\` has no ${type} variant`);
+    return found;
+  };
+
+  it("makes `on.id` nullable on a project, a deal and a meeting, and the member stays required", () => {
+    for (const type of ["project", "deal", "meeting"]) {
+      const on = variant(type);
+      expect({ type, id: on.properties.id.type, nullable: on.properties.id.nullable, required: on.required.includes("id") }).toEqual({
+        type,
+        id: "string",
+        nullable: true,
+        required: true,
+      });
+    }
+  });
+
+  it("makes `activity.id` nullable, the member required", () => {
+    const activity = deref(view.properties.activity);
+    expect({ type: activity.properties.id.type, nullable: activity.properties.id.nullable, required: activity.required.includes("id") }).toEqual({
+      type: "string",
+      nullable: true,
+      required: true,
+    });
+  });
+
+  it("leaves every other id as it was: the entry, the person, an entry's category and work type, and the deal a visible meeting counts for are never withheld", () => {
+    const notNullable = (schema: Schema) => expect(schema.nullable ?? false).toBe(false);
+    notNullable(view.properties.id);
+    notNullable(deref(view.properties.person).properties.id);
+    notNullable(variant("none").properties.category.properties.id);
+    // The work type is itself nullable (an entry may have none); the id inside it is not.
+    notNullable(deref(view.properties.workType).properties.id);
+    // The deal a meeting counts for already withholds its id by being another shape (`hidden` has none): the variant with an id keeps it required.
+    const linkedVisible = deref(variant("meeting").properties.deal).anyOf.map(deref).find((candidate: Schema) => candidate.properties.id !== undefined);
+    expect(linkedVisible).toBeDefined();
+    expect(linkedVisible.required).toContain("id");
+    notNullable(linkedVisible.properties.id);
+  });
+
+  it("is what a hidden deal's list answer carries on the wire: `on.id` is JSON null, not a missing member", async () => {
+    // A refusal an earlier file cached for this persona (30 s, per process) must not stand in for the grant below.
+    __resetOversightCacheForTests();
+    hosts.auth.grant(PERSONAS.holder.sub, "time-entry", "read-all");
+    hosts.crm.setDeal("deal-secret", { label: "Acquisition of ACME", involved: [PERSONAS.bob.sub] });
+    hosts.crm.setReader(PERSONAS.holder.sub, false);
+    await makeDealEntry("deal-secret", { userId: PERSONAS.bob.sub, day: "2026-11-05" });
+
+    const res = await call("GET", "/time-entries?from=2026-11-01&to=2026-11-30&whose=all", { as: "holder" });
+
+    expect(res.status).toBe(200);
+    expect(res.json.items[0].on).toEqual({ type: "deal", id: null, label: null, href: null, visibility: "hidden" });
+    expect("id" in res.json.items[0].on).toBe(true);
   });
 });
 

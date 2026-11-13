@@ -326,7 +326,7 @@ entriesRouter.openapi(createEntryRoute, async (c) => {
     },
     include: ENTRY_INCLUDE,
   });
-  const { items } = await viewEntries(authorization, [row]);
+  const { items } = await viewEntries(authorization, [row], userId);
   return c.json(items[0]!, 201);
 });
 
@@ -365,7 +365,7 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
       // Deleted (in another tab) between the lookup and this statement: it is simply no longer there.
       throw (error as { code?: unknown } | null)?.code === "P2025" ? entryNotFound() : error;
     });
-  const { items } = await viewEntries(authorization, [row]);
+  const { items } = await viewEntries(authorization, [row], userId);
   return c.json(items[0]!, 200);
 });
 

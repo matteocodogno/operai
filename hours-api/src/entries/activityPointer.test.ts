@@ -414,7 +414,7 @@ describe("a pointer that no longer resolves is never cleared (D47, AC-2.9, risk 
     expect(await rowOf(entry.id)).toMatchObject({ activityId: "t1" });
   });
 
-  it("shows the activity as hidden, not null, when the project itself is hidden from the viewer, and still keeps the id", async () => {
+  it("shows the activity as hidden, not null, when the project itself is hidden from the AUTHOR, and keeps the id: the pointer is theirs (D44)", async () => {
     hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });
     hosts.projects.setReader(ALICE, false);
     const entry = await makeProjectEntry("p1", { activityId: "t-gone" });
@@ -422,7 +422,25 @@ describe("a pointer that no longer resolves is never cleared (D47, AC-2.9, risk 
     const res = await patch(entry.id, { note: "After" });
 
     expect(res.status).toBe(200);
-    expect(res.json.activity).toMatchObject({ visibility: "hidden", subject: null });
+    expect(res.json.activity).toEqual({ id: "t-gone", subject: null, visibility: "hidden" });
+    // The author's own response names what they booked, whatever they may read (D44).
+    expect(res.json.on).toMatchObject({ type: "project", id: "p1", label: null, visibility: "hidden" });
+    expect(await rowOf(entry.id)).toMatchObject({ activityId: "t-gone" });
+  });
+
+  it("shows the same hidden activity to ANOTHER viewer without its id, and the stored pointer is untouched (D44)", async () => {
+    hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });
+    hosts.projects.setReader(PERSONAS.holder.sub, false);
+    hosts.auth.grant(PERSONAS.holder.sub, "time-entry", "read-all");
+    const entry = await makeProjectEntry("p1", { activityId: "t-gone", day: "2026-11-12" });
+
+    const res = await call("GET", "/time-entries?from=2026-11-01&to=2026-11-30&whose=all", { as: "holder" });
+
+    expect(res.status).toBe(200);
+    expect(res.json.items).toHaveLength(1);
+    expect(res.json.items[0].activity).toEqual({ id: null, subject: null, visibility: "hidden" });
+    expect(res.json.items[0].on).toMatchObject({ type: "project", id: null, label: null, visibility: "hidden" });
+    expect(res.text).not.toContain("t-gone");
     expect(await rowOf(entry.id)).toMatchObject({ activityId: "t-gone" });
   });
 });

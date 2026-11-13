@@ -106,7 +106,9 @@ const listEntriesRoute = createRoute({
     "The entries of `from..to`, both end days included, newest day first (`day desc, createdAt desc, id desc`), " +
     "a page at a time: `nextCursor` goes back as `cursor` until it is `null`. `whose=mine` (the default) is the caller's own, " +
     "needs only a session and never asks `auth`. `whose=all`, and `userId` (one person's, only with `whose=all`), need `time-entry:read-all`, " +
-    "asked live of `auth` as the caller: 403 without it, 503 when `auth` cannot say.",
+    "asked live of `auth` as the caller: 403 without it, 503 when `auth` cannot say. " +
+    "The `id` of the project, deal, meeting or activity an entry is on is returned only for the caller's own entries and for records the caller may read " +
+    "(`visibility: visible`); on anyone else's entry it is `null` while the record is hidden or its owner did not answer.",
   request: { query: ListQuerySchema },
   responses: {
     200: {
@@ -145,7 +147,8 @@ entryListRouter.openapi(listEntriesRoute, async (c) => {
   // Everything the request alone decides is decided by now, so nothing malformed ever costs a call to `auth`.
   // Whose entries are read is decided next (the oversight check for `whose=all`), then the `dealId` filter asks
   // meetings-api: a caller who may not read everyone's hours never makes hours-api ask it anything.
-  const scope = await readScope(filters, { sub: c.get("userId"), permEpoch: c.get("permEpoch"), authorization });
+  const userId = c.get("userId");
+  const scope = await readScope(filters, { sub: userId, permEpoch: c.get("permEpoch"), authorization });
   const where = await entryWhere(filters, scope);
   const rows = await db.timeEntry.findMany({
     where: position === null ? where : { AND: [where, after(position)] },
@@ -156,6 +159,6 @@ entryListRouter.openapi(listEntriesRoute, async (c) => {
   });
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
-  const { items, unavailable } = await viewEntries(authorization, page);
+  const { items, unavailable } = await viewEntries(authorization, page, userId);
   return c.json({ items, nextCursor: rows.length > limit && last !== undefined ? mintCursor(last) : null, unavailable }, 200);
 });

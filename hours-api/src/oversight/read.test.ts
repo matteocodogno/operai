@@ -143,8 +143,9 @@ describe("whose=all as a holder of time-entry:read-all (AC-4.3, AC-4.4)", () => 
     const res = await list(`${NOVEMBER}&whose=all`, "holder");
 
     expect(res.status).toBe(200);
+    // D44: the id of a record the holder may not read is withheld on someone else's entry; one they may read keeps it.
     expect(res.json.items.map((item: { on: unknown }) => item.on)).toEqual([
-      expect.objectContaining({ type: "project", id: "p1", label: null, visibility: "hidden" }),
+      expect.objectContaining({ type: "project", id: null, label: null, visibility: "hidden" }),
       expect.objectContaining({ type: "deal", id: "d1", label: "Deal one", visibility: "visible" }),
     ]);
     const holderToken = await bearerOf("holder");

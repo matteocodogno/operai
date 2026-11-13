@@ -41,7 +41,7 @@ beforeEach(async () => {
 /** Every entry in the database, oldest first, as `viewer` reads it. */
 async function viewAs(viewer: PersonaName = "alice") {
   const rows = await db.timeEntry.findMany({ include: ENTRY_INCLUDE, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
-  return viewEntries(await bearerOf(viewer), rows);
+  return viewEntries(await bearerOf(viewer), rows, PERSONAS[viewer].sub);
 }
 
 describe("an entry on no entity", () => {
@@ -175,11 +175,11 @@ describe("an entry on a project", () => {
     await makeProjectEntry("known");
     await makeProjectEntry("gone");
 
-    const unreadable = (await viewAs("bob")).items;
-    const missing = (await viewAs("alice")).items[1];
+    // Both through the same viewer, so that the two views can be compared as they are: bob is not the author (D44: no id).
+    const [unreadable, missing] = (await viewAs("bob")).items;
 
-    expect(unreadable[0]?.on).toEqual({ type: "project", id: "known", label: null, href: null, visibility: "hidden" });
-    expect(missing?.on).toEqual({ type: "project", id: "gone", label: null, href: null, visibility: "hidden" });
+    expect(unreadable?.on).toEqual({ type: "project", id: null, label: null, href: null, visibility: "hidden" });
+    expect(missing?.on).toEqual({ type: "project", id: null, label: null, href: null, visibility: "hidden" });
   });
 
   it("when projects-api does not answer the entry is still listed and counted, unavailable, and `projects` is named (AC-4.7)", async () => {
@@ -302,7 +302,8 @@ describe("an entry on a meeting", () => {
     for (const viewer of ["alice", "admin", "holder"] as const) {
       const { items, unavailable } = await viewAs(viewer);
       expect(unavailable).toEqual([]);
-      expect(items[0]).toMatchObject({ minutes: 120, on: { type: "meeting", id: "m1", label: null, href: null, visibility: "hidden" } });
+      // D44: the author keeps the id of the meeting they booked, whatever they may read; anyone else is given none.
+      expect(items[0]).toMatchObject({ minutes: 120, on: { type: "meeting", id: viewer === "alice" ? "m1" : null, label: null, href: null, visibility: "hidden" } });
       expect(JSON.stringify(items)).not.toContain("Board only");
     }
     // The people who did take part read it.
@@ -774,8 +775,100 @@ describe("the wire shape (plan § Views)", () => {
     const third = await makeProjectEntry("p1", { day: "2026-11-02" });
     const rows = await db.timeEntry.findMany({ include: ENTRY_INCLUDE, where: { id: { in: [first.id, second.id, third.id] } }, orderBy: { day: "desc" } });
 
-    const { items } = await viewEntries(await bearerOf("alice"), rows);
+    const { items } = await viewEntries(await bearerOf("alice"), rows, ALICE);
 
     expect(items.map((item) => item.id)).toEqual([first.id, second.id, third.id]);
+  });
+});
+
+describe("the id rule (D44, owasp-report.md F1): the id of a record the viewer may not read is the entry's author's alone", () => {
+  const BOB = PERSONAS.bob.sub;
+
+  /** What `bob` is told about every kind of record he may not read: the same records, booked by `alice` and by `bob`. */
+  async function hiddenFromBob() {
+    hosts.projects.setProject("p1", { label: "Apollo" });
+    hosts.projects.setReader(BOB, false);
+    hosts.crm.setDeal("d1", { label: "Acme renewal" });
+    hosts.crm.setReader(BOB, false);
+    hosts.activities.add({ id: "a-task", subject: "Wire the login", project: "p1" });
+    hosts.meetings.add({ id: "m1", title: "Board only", creator: ALICE, dealId: "d1" });
+    const theirs = [
+      await makeProjectEntry("p1", { userId: ALICE, activityId: "a-task", day: "2026-11-02" }),
+      await makeDealEntry("d1", { userId: ALICE, day: "2026-11-02" }),
+      await makeMeetingEntry("m1", { userId: ALICE, day: "2026-11-02" }),
+    ];
+    const mine = [
+      await makeProjectEntry("p1", { userId: BOB, activityId: "a-task", day: "2026-11-03" }),
+      await makeDealEntry("d1", { userId: BOB, day: "2026-11-03" }),
+      await makeMeetingEntry("m1", { userId: BOB, day: "2026-11-03" }),
+    ];
+    return { theirs, mine };
+  }
+
+  /** `[on.id, activity.id]` of each entry, `undefined` where the view has none. */
+  const idsOf = (items: Awaited<ReturnType<typeof viewAs>>["items"], entries: Array<{ id: string }>) =>
+    entries.map((entry) => {
+      const item = items.find((candidate) => candidate.id === entry.id);
+      return [item !== undefined && "id" in item.on ? item.on.id : undefined, item?.activity?.id];
+    });
+
+  it("is decided entry by entry, in one batch: the viewer's own keep every id, another person's on the same records keep none", async () => {
+    const { theirs, mine } = await hiddenFromBob();
+
+    const { items } = await viewAs("bob");
+
+    expect(idsOf(items, mine)).toEqual([["p1", "a-task"], ["d1", undefined], ["m1", undefined]]);
+    expect(idsOf(items, theirs)).toEqual([[null, null], [null, undefined], [null, undefined]]);
+    // Everything else about another person's entry is as it was: the type, the minutes, the person, the link a meeting has to a deal.
+    expect(items.find((item) => item.id === theirs[2]!.id)).toMatchObject({ minutes: 60, person: { id: ALICE }, on: { type: "meeting", deal: { state: "linked", visibility: "hidden" } } });
+    expect(items.find((item) => item.id === theirs[0]!.id)?.activity).toEqual({ id: null, subject: null, visibility: "hidden" });
+  });
+
+  it("never lets an id of a hidden record out of another person's entry, under any member of the view", async () => {
+    const { theirs } = await hiddenFromBob();
+    const rows = await db.timeEntry.findMany({ include: ENTRY_INCLUDE, where: { id: { in: theirs.map((entry) => entry.id) } } });
+
+    const { items } = await viewEntries(await bearerOf("bob"), rows, BOB);
+
+    const text = JSON.stringify(items);
+    for (const hidden of ["p1", "d1", "m1", "a-task"]) expect({ hidden, leaked: text.includes(`"${hidden}"`) }).toEqual({ hidden, leaked: false });
+  });
+
+  it("is keyed on the viewer it is given, not on whose Authorization read the owners: a viewer that is nobody's author is given no id at all", async () => {
+    const { theirs, mine } = await hiddenFromBob();
+    const rows = await db.timeEntry.findMany({ include: ENTRY_INCLUDE, where: { id: { in: [...theirs, ...mine].map((entry) => entry.id) } } });
+
+    const { items } = await viewEntries(await bearerOf("bob"), rows, "user-nobody");
+
+    expect(items).toHaveLength(6);
+    for (const item of items) {
+      expect({ type: item.on.type, id: "id" in item.on ? item.on.id : "n/a", activity: item.activity?.id ?? null }).toEqual({ type: item.on.type, id: null, activity: null });
+    }
+  });
+
+  it("is `string | null` on the wire for every id it may withhold, a member never absent: the schema refuses a view that left it out", () => {
+    const view = (on: unknown, activity: unknown) => ({
+      id: "e1",
+      day: "2026-11-02",
+      minutes: 60,
+      note: null,
+      person: { id: ALICE, name: "Alice", status: "active" },
+      on,
+      workType: null,
+      activity,
+      createdAt: "2026-11-02T08:00:00.000Z",
+      updatedAt: "2026-11-02T08:00:00.000Z",
+    });
+    const entity = (type: string, extra: object = {}) => ({ type, id: null, label: null, href: null, visibility: "hidden", ...extra });
+    const withoutId = (on: object) => ({ ...on, id: undefined });
+
+    for (const on of [entity("project"), entity("deal"), entity("meeting", { deal: { state: "none" } })]) {
+      expect(TimeEntryViewSchema.safeParse(view(on, null)).success).toBe(true);
+      expect(TimeEntryViewSchema.safeParse(view(withoutId(on), null)).success).toBe(false);
+    }
+    expect(TimeEntryViewSchema.safeParse(view(entity("project"), { id: null, subject: null, visibility: "hidden" })).success).toBe(true);
+    expect(TimeEntryViewSchema.safeParse(view(entity("project"), { subject: null, visibility: "hidden" })).success).toBe(false);
+    // Only the ids a viewer may be denied are nullable: a person is not a record the viewer is kept from.
+    expect(TimeEntryViewSchema.safeParse({ ...view(entity("project"), null), person: { id: null, name: null, status: "unknown" } }).success).toBe(false);
   });
 });
