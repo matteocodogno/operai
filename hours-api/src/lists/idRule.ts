@@ -10,9 +10,10 @@
  * request). No id any service holds falls outside the rule, so the 400 says nothing about whether a
  * record exists; a WELL-FORMED unknown id keeps the answer of an unknown one (404, 422, an empty list).
  *
- * Lives with the lists, the first routes to need it (T12). Every later route that takes an id —
- * entries (T14-T16), the list and totals filters (T17, T18), the oversight `userId` (T19) — imports it
- * from here, so body, path and query share one rule and one answer.
+ * Lives with the lists, the first routes to need it (T12), and is the ONE implementation (T14): every
+ * route that takes an id — entries (T14-T16), the list and totals filters (T17, T18), the oversight
+ * `userId` (T19) — imports it from here, so body, path and query share one rule and one answer, and the
+ * labels layer's `satisfiesIdRule` (src/labels/idRule.ts) is this same function under another name.
  */
 
 import { z } from "@hono/zod-openapi";
