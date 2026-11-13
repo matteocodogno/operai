@@ -15,6 +15,8 @@ import {
   legalEntityConfigProblems,
 } from "./manifest";
 import { parseEnvFile } from "./parse";
+// specs/029: the hours-api block at the end of this file pins the contract entries themselves too.
+import { CORS_REQUIREMENTS, INTERNAL_URL_VARS, ISSUER, PRODUCTION_REQUIRED_KEYS, SERVICE_CLIENT_LINKS } from "./manifest";
 
 const TOKEN = "x".repeat(40);
 const AUD = "operai-suite";
@@ -605,6 +607,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
       CRM_API_URL: "http://crm-api.railway.internal:8084",
       SERVICE_CLIENT_ID: "meetings-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_MEET,
+      SERVICE_AUDIENCE: SVC_AUD, // specs/029: /system/meetings/hosts, production-required
       MEETINGS_S3_ENDPOINT: "https://t3.storageapi.dev",
       MEETINGS_S3_REGION: "ams",
       MEETINGS_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
@@ -1804,5 +1807,271 @@ describe("env-doctor checker — accounting-api (specs/20261119-accounting)", ()
       expect("REFUND_FX_SOURCE" in vars).toBe(false);
       expect(vars.SERVICE_CLIENT_ID).toBe("refund-api");
     });
+  });
+});
+
+// specs/029-time-tracking (ADR-0088/0089/0090): hours-api, a new resource server that asks four owners
+// (projects-api, crm-api, activities-api, meetings-api) as the caller and reads one fact from meetings-api
+// as itself (`GET /system/meetings/hosts`, scope `meetings.hosts.read`), so meetings-api now verifies service
+// tokens and needs the service audience. The baseline is the suite with crm-api, projects-api, activities-api,
+// meetings-api and hours-api.
+describe("env-doctor checker — hours-api (specs/029)", () => {
+  const CLIENT_SECRET_HOURS = "h".repeat(40);
+  const CLIENT_SECRET_ACT = "a".repeat(40);
+  const CLIENT_SECRET_MEET = "t".repeat(40);
+  const HOURS_SCOPE = "meetings.hosts.read";
+  const OWNER_URLS = {
+    PROJECTS_API_URL: { target: "projects-api", port: "8086" },
+    CRM_API_URL: { target: "crm-api", port: "8084" },
+    ACTIVITIES_API_URL: { target: "activities-api", port: "8087" },
+    MEETINGS_API_URL: { target: "meetings-api", port: "8085" },
+  } as const;
+  /** Only the findings about one service (the baseline has several services sharing key names). */
+  const errsAbout = (f: Finding[], svc: string) => errs(f).filter((x) => x.scope === svc).map((x) => x.message).join(" | ");
+  const hoursRegistry = (hoursScope = HOURS_SCOPE) =>
+    JSON.stringify({
+      ...JSON.parse(projectsRegistry()),
+      "activities-api": { secret: CLIENT_SECRET_ACT, scope: "notifications.push emails.send" },
+      "meetings-api": { secret: CLIENT_SECRET_MEET, scope: "notifications.push host-notices.send" },
+      "hours-api": { secret: CLIENT_SECRET_HOURS, scope: hoursScope },
+    });
+
+  function hoursSuite(): SuiteEnv {
+    const s = projectsSuite(); // validSuite + crm-api + projects-api, in their specs/026-028 shape
+    s.auth!.SERVICE_CLIENTS = hoursRegistry();
+    s["activities-api"] = {
+      DATABASE_URL: "postgres://…/activities",
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      CRM_API_URL: "http://crm-api.railway.internal:8084",
+      PROJECTS_API_URL: "http://projects-api.railway.internal:8086",
+      NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
+      SERVICE_CLIENT_ID: "activities-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_ACT,
+      SERVICE_AUDIENCE: SVC_AUD,
+      PORT: "8087",
+    };
+    s["meetings-api"] = {
+      DATABASE_URL: "postgres://…/meetings",
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
+      CRM_API_URL: "http://crm-api.railway.internal:8084",
+      SERVICE_CLIENT_ID: "meetings-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_MEET,
+      SERVICE_AUDIENCE: SVC_AUD,
+      MEETINGS_S3_ENDPOINT: "https://t3.storageapi.dev",
+      MEETINGS_S3_REGION: "ams",
+      MEETINGS_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
+      MEETINGS_SPEECH_LOCATION: "eu",
+      MEETINGS_VERTEX_LOCATION: "eu",
+      MEETINGS_VERTEX_MODEL_ID: "claude-synthetic-model",
+      MEETINGS_GCP_PROJECT_ID: "synthetic-project",
+      MEETINGS_GCP_SERVICE_ACCOUNT_KEY: "eyJzeW50aGV0aWMta2V5LW5ldmVyLXByaW50ZWQi" + "Z".repeat(24),
+      MEETINGS_GCS_TRANSIENT_BUCKET: "synthetic-transient-bucket",
+      MEETINGS_AI_PROVIDER: "real",
+      PORT: "8085",
+    };
+    s["hours-api"] = {
+      DATABASE_URL: "postgres://…/hours",
+      ALLOWED_ORIGINS: `${SHELL},${ADMIN}`,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      PROJECTS_API_URL: "http://projects-api.railway.internal:8086",
+      CRM_API_URL: "http://crm-api.railway.internal:8084",
+      ACTIVITIES_API_URL: "http://activities-api.railway.internal:8087",
+      MEETINGS_API_URL: "http://meetings-api.railway.internal:8085",
+      SERVICE_CLIENT_ID: "hours-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_HOURS,
+      SERVICE_AUDIENCE: SVC_AUD,
+      PORT: "8088",
+    };
+    return s;
+  }
+
+  test("a fully-correct suite with hours-api and its owners passes with no errors or warnings", () => {
+    const f = checkSuite(hoursSuite(), PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("hours-api is a Railway backend, hours-ui a Vercel frontend with a production and a local origin", () => {
+    expect(BACKENDS).toContain("hours-api");
+    expect(SERVICES["hours-api"]).toEqual({ platform: "railway", kind: "backend" });
+    expect(SERVICES["hours-ui"]).toEqual({ platform: "vercel", kind: "frontend" });
+    expect(BACKENDS).not.toContain("hours-ui");
+    expect(ORIGINS.production!["hours-ui"]).toBe("https://hours.operai.welld.io");
+    expect(ORIGINS.local!["hours-ui"]).toBe("http://localhost:5184");
+  });
+
+  test("the contract entries: issuer, links, internal URLs, CORS, required keys, the one scope", () => {
+    expect(ISSUER.resourceServers).toContain("hours-api");
+    expect(CORS_REQUIREMENTS).toContainEqual({ backend: "hours-api", mustAllow: ["shell", "admin-ui"] });
+    expect(SERVICE_CLIENT_LINKS.find((l) => l.caller === "hours-api")?.requiredScopes).toEqual(["meetings.hosts.read"]);
+    for (const [name, { target }] of Object.entries(OWNER_URLS)) {
+      expect(INTERNAL_URL_VARS.some((u) => u.name === name && u.services.includes("hours-api") && u.target === target)).toBe(true);
+    }
+    for (const name of ["AUTH_JWKS_URL", "AUTH_BASE_URL"]) {
+      expect(INTERNAL_URL_VARS.some((u) => u.name === name && u.services.includes("hours-api") && u.target === "auth")).toBe(true);
+    }
+    // Everything hours-api's env.ts requires at start is required by the contract; NODE_ENV has a default.
+    expect([...REQUIRED_KEYS["hours-api"]!].sort()).toEqual(
+      [
+        "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE",
+        ...Object.keys(OWNER_URLS), "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", "SERVICE_AUDIENCE", "PORT",
+      ].sort(),
+    );
+    expect(PRODUCTION_REQUIRED_KEYS["meetings-api"]).toEqual(["SERVICE_AUDIENCE"]);
+  });
+
+  test("required keys: every variable hours-api's own env.ts requires, in production and locally", () => {
+    for (const key of REQUIRED_KEYS["hours-api"]!) {
+      for (const opts of [PROD, LOCAL]) {
+        const s = hoursSuite();
+        delete s["hours-api"]![key];
+        expect(errsAbout(checkSuite(s, opts), "hours-api")).toContain(`${key} is missing`);
+      }
+    }
+  });
+
+  test("SERVICE_AUDIENCE: missing on hours-api → error; missing on meetings-api → error in production only", () => {
+    const s = hoursSuite();
+    delete s["hours-api"]!.SERVICE_AUDIENCE;
+    expect(errsAbout(checkSuite(s, PROD), "hours-api")).toBe("SERVICE_AUDIENCE is missing");
+    const m = hoursSuite();
+    delete m["meetings-api"]!.SERVICE_AUDIENCE;
+    expect(errsAbout(checkSuite(m, PROD), "meetings-api")).toBe("SERVICE_AUDIENCE is missing");
+    // meetings-api's own env.ts keeps it optional so a local setup starts: the contract asks for it in production.
+    expect(errsAbout(checkSuite(m, LOCAL), "meetings-api")).not.toContain("SERVICE_AUDIENCE is missing");
+  });
+
+  test("SERVICE_AUDIENCE: hours-api or meetings-api drifting from auth's → error", () => {
+    for (const svc of ["hours-api", "meetings-api"]) {
+      const s = hoursSuite();
+      s[svc as keyof SuiteEnv]!.SERVICE_AUDIENCE = "a-different-service-audience";
+      expect(errText(checkSuite(s, PROD))).toContain("SERVICE_AUDIENCE is not identical");
+    }
+  });
+
+  test("SERVICE_AUDIENCE equal to AUTH_AUDIENCE on hours-api or meetings-api → error (both refuse to start)", () => {
+    for (const svc of ["hours-api", "meetings-api"]) {
+      const s = hoursSuite();
+      s[svc as keyof SuiteEnv]!.SERVICE_AUDIENCE = AUD;
+      expect(errText(checkSuite(s, PROD))).toContain(`${svc}.SERVICE_AUDIENCE must differ from ${svc}.AUTH_AUDIENCE`);
+    }
+    // The same `${{shared.X}}` reference written for both is equal too.
+    const s = hoursSuite();
+    s["hours-api"]!.AUTH_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    s["hours-api"]!.SERVICE_AUDIENCE = "${{shared.AUTH_AUDIENCE}}";
+    expect(errText(checkSuite(s, PROD))).toContain("hours-api.SERVICE_AUDIENCE must differ from hours-api.AUTH_AUDIENCE");
+  });
+
+  test("hours-api AUTH_AUDIENCE drift, AUTH_ISSUER mismatch, CORS without the shell → error", () => {
+    const s = hoursSuite();
+    s["hours-api"]!.AUTH_AUDIENCE = "different";
+    s["hours-api"]!.AUTH_ISSUER = "https://wrong.example.com";
+    s["hours-api"]!.ALLOWED_ORIGINS = ADMIN;
+    const t = errText(checkSuite(s, PROD));
+    expect(t).toContain("AUTH_AUDIENCE is not identical");
+    expect(t).toContain("hours-api.AUTH_ISSUER");
+    expect(t).toContain("hours-api.ALLOWED_ORIGINS is missing shell's origin");
+  });
+
+  test("hours-api CORS without admin-ui's origin → error (the Time lists page calls it directly)", () => {
+    const s = hoursSuite();
+    s["hours-api"]!.ALLOWED_ORIGINS = SHELL;
+    expect(errText(checkSuite(s, PROD))).toContain(`hours-api.ALLOWED_ORIGINS is missing admin-ui's origin ${ADMIN}`);
+    s["hours-api"]!.ALLOWED_ORIGINS = `${SHELL}/,${ADMIN}/`; // a trailing slash is normalised
+    expect(errsAbout(checkSuite(s, PROD), "hours-api")).toBe("");
+  });
+
+  test("hours-api AUTH_ISSUER must be a public https URL", () => {
+    const s = hoursSuite();
+    s["hours-api"]!.AUTH_ISSUER = "http://localhost:3001";
+    expect(errText(checkSuite(s, PROD))).toContain("AUTH_ISSUER must be a public https:// URL");
+  });
+
+  test("auth links: AUTH_JWKS_URL / AUTH_BASE_URL public, or on the wrong port → error", () => {
+    const s = hoursSuite();
+    s["hours-api"]!.AUTH_JWKS_URL = "https://auth.operai.welld.io/auth/jwks";
+    s["hours-api"]!.AUTH_BASE_URL = "http://auth.railway.internal:9999";
+    const t = errText(checkSuite(s, PROD));
+    expect(t).toContain("AUTH_JWKS_URL");
+    expect(t).toContain("AUTH_BASE_URL targets port 9999 but auth.PORT is 3001");
+  });
+
+  for (const [name, { target, port }] of Object.entries(OWNER_URLS)) {
+    test(`${name}: a public https URL → error, the wrong port → error, a Railway reference passes`, () => {
+      const s = hoursSuite();
+      s["hours-api"]![name] = `https://${target}.operai.welld.io`;
+      expect(errsAbout(checkSuite(s, PROD), "hours-api")).toContain(name);
+      s["hours-api"]![name] = `http://${target}.railway.internal:9999`;
+      expect(errsAbout(checkSuite(s, PROD), "hours-api")).toContain(`${name} targets port 9999 but ${target}.PORT is ${port}`);
+      s["hours-api"]![name] = `http://\${{${target}.RAILWAY_PRIVATE_DOMAIN}}:\${{${target}.PORT}}`;
+      expect(errsAbout(checkSuite(s, PROD), "hours-api")).toBe("");
+    });
+  }
+
+  test("service client: hours-api holds exactly meetings.hosts.read — a missing or an extra scope → error", () => {
+    const s = hoursSuite();
+    s.auth!.SERVICE_CLIENTS = hoursRegistry("notifications.push");
+    const missing = errText(checkSuite(s, PROD));
+    expect(missing).toContain('entry "hours-api" lacks the "meetings.hosts.read" scope');
+    expect(missing).toContain('entry "hours-api" holds the "notifications.push" scope, which hours-api does not need');
+    s.auth!.SERVICE_CLIENTS = hoursRegistry(`${HOURS_SCOPE} crm.deals.read`);
+    expect(errText(checkSuite(s, PROD))).toContain('holds the "crm.deals.read" scope, which hours-api does not need');
+    s.auth!.SERVICE_CLIENTS = hoursRegistry("");
+    expect(errText(checkSuite(s, PROD))).toContain('entry "hours-api" lacks the "meetings.hosts.read" scope');
+  });
+
+  test("service client: hours-api's id or secret differing from the registry, or no entry at all → error", () => {
+    const s = hoursSuite();
+    s["hours-api"]!.SERVICE_CLIENT_SECRET = "q".repeat(40);
+    const f = checkSuite(s, PROD);
+    expect(errText(f)).toContain("hours-api.SERVICE_CLIENT_SECRET does not match");
+    expect(JSON.stringify(f)).not.toContain(CLIENT_SECRET_HOURS);
+    expect(JSON.stringify(f)).not.toContain("q".repeat(40));
+    s["hours-api"]!.SERVICE_CLIENT_SECRET = CLIENT_SECRET_HOURS;
+    s["hours-api"]!.SERVICE_CLIENT_ID = "someone-else";
+    expect(errText(checkSuite(s, PROD))).toContain('no entry for client id "someone-else"');
+    const registryWithout = JSON.parse(hoursRegistry());
+    delete registryWithout["hours-api"];
+    s["hours-api"]!.SERVICE_CLIENT_ID = "hours-api";
+    s.auth!.SERVICE_CLIENTS = JSON.stringify(registryWithout);
+    expect(errText(checkSuite(s, PROD))).toContain('has no entry for client id "hours-api"');
+  });
+
+  test("service client: a secret shorter than 32 characters, on either side → error", () => {
+    const s = hoursSuite();
+    s["hours-api"]!.SERVICE_CLIENT_SECRET = "short";
+    expect(errsAbout(checkSuite(s, PROD), "hours-api")).toContain("SERVICE_CLIENT_SECRET is shorter than 32 characters");
+  });
+
+  test("the retired notify token on hours-api → error", () => {
+    const s = hoursSuite();
+    s["hours-api"]![["NOTIFY", "INTERNAL", "TOKEN"].join("_")] = "x";
+    expect(errText(checkSuite(s, PROD))).toContain("hours-api must not hold");
+  });
+
+  test("meetings-api's own service client is unchanged by the new audience (notifications.push + host-notices.send)", () => {
+    const s = hoursSuite();
+    expect(errs(checkSuite(s, PROD))).toEqual([]);
+    const registry = JSON.parse(hoursRegistry());
+    registry["meetings-api"].scope = "notifications.push host-notices.send meetings.hosts.read";
+    s.auth!.SERVICE_CLIENTS = JSON.stringify(registry);
+    expect(errText(checkSuite(s, PROD))).toContain('entry "meetings-api" holds the "meetings.hosts.read" scope, which meetings-api does not need');
+  });
+
+  test("hours-api's service-client secret is redacted", () => {
+    expect(isSecretVar("SERVICE_CLIENT_SECRET")).toBe(true);
+    expect(showValue("SERVICE_CLIENT_SECRET", CLIENT_SECRET_HOURS)).toStartWith("<redacted sha256:");
   });
 });
