@@ -4,8 +4,9 @@
  *
  * `totalsOf` takes the database's question (`where`, built by src/entries/filters.ts `entryWhere` from the request),
  * groups the matching entries in SQL, then names the groups through the labels layer (src/labels/) asking ONLY the
- * sources the grouping needs. Whose entries `where` selects is not decided here: the route builds it (the caller's own
- * until T19), so the same aggregation serves everyone's.
+ * sources the grouping needs. Whose entries `where` selects is not decided here: the route builds it from the scope
+ * the oversight check hands out (src/oversight/scope.ts: the caller's own, one person's, or everyone's), so the same
+ * aggregation serves all three.
  */
 
 import { db } from "../lib/db";

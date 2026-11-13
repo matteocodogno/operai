@@ -14,9 +14,9 @@ import type { JwtVariables } from "../auth/jwt.middleware";
 import { db } from "../lib/db";
 import { invalidRequestHook } from "../lib/errors";
 import type { Prisma } from "../lib/generated/prisma/client";
-import { ProblemError } from "../lib/problem";
 import { ProblemSchema } from "../lists/errorDocs";
 import { isWellFormedId } from "../lists/idRule";
+import { readScope } from "../oversight/scope";
 import { entryWhere, filterShape, invalidRequest, readFilters } from "./filters";
 import { isCalendarDay } from "./rules";
 import { ENTRY_INCLUDE, TimeEntryViewSchema, viewEntries } from "./view";
@@ -104,8 +104,9 @@ const listEntriesRoute = createRoute({
   summary: "The hours of a period (any session; whose=all needs time-entry:read-all)",
   description:
     "The entries of `from..to`, both end days included, newest day first (`day desc, createdAt desc, id desc`), " +
-    "a page at a time: `nextCursor` goes back as `cursor` until it is `null`. `whose=mine` (the default) is the caller's own. " +
-    "`whose=all` is answered 501 until the check of `time-entry:read-all` exists (specs/029 T19); nothing of anyone else's is returned meanwhile.",
+    "a page at a time: `nextCursor` goes back as `cursor` until it is `null`. `whose=mine` (the default) is the caller's own, " +
+    "needs only a session and never asks `auth`. `whose=all`, and `userId` (one person's, only with `whose=all`), need `time-entry:read-all`, " +
+    "asked live of `auth` as the caller: 403 without it, 503 when `auth` cannot say.",
   request: { query: ListQuerySchema },
   responses: {
     200: {
@@ -118,8 +119,10 @@ const listEntriesRoute = createRoute({
     },
     400: problemDoc("`invalid_request`: a bad or missing period, a filter outside its rule, a limit or a cursor that is not valid (`field` names it)"),
     401: problemDoc("No valid session"),
+    403: problemDoc("`read_all_required`: `whose=all` or a `userId` without `time-entry:read-all`"),
     503: problemDoc(
-      "`host_unavailable`: with a `dealId` filter, meetings-api could not say which meetings are linked to the deal. " +
+      "`authz_unavailable`: `whose=all` or a `userId`, and `auth` could not say whether the caller holds `time-entry:read-all` (never allowed, AC-5.4). " +
+        "`host_unavailable`: with a `dealId` filter, meetings-api could not say which meetings are linked to the deal. " +
         "Nothing partial is returned: a deal's hours are never shown low",
     ),
   },
@@ -130,12 +133,6 @@ export const entryListRouter = new OpenAPIHono<{ Variables: JwtVariables }>({ de
 entryListRouter.openapi(listEntriesRoute, async (c) => {
   const query = c.req.valid("query");
   const filters = readFilters(query);
-  // TRANSITIONAL (T19 replaces this with the oversight check): everyone's entries are not served at all until
-  // `time-entry:read-all` is checked live, so that no path can return another person's row without it. Decided
-  // after the request is validated and before any other service is asked.
-  if (filters.whose === "all") {
-    throw new ProblemError({ status: 501, code: "not_implemented", detail: "Everyone's hours cannot be read yet: the permission to see them is not checked here yet" });
-  }
   // After the period: a cursor's day is judged against `from..to`, which must hold first.
   let position: Position | null = null;
   if (query.cursor !== undefined) {
@@ -145,7 +142,11 @@ entryListRouter.openapi(listEntriesRoute, async (c) => {
   const limit = query.limit === undefined ? DEFAULT_LIMIT : Number(query.limit);
   const authorization = c.req.header("Authorization") ?? "";
 
-  const where = await entryWhere(filters, c.get("userId"));
+  // Everything the request alone decides is decided by now, so nothing malformed ever costs a call to `auth`.
+  // Whose entries are read is decided next (the oversight check for `whose=all`), then the `dealId` filter asks
+  // meetings-api: a caller who may not read everyone's hours never makes hours-api ask it anything.
+  const scope = await readScope(filters, { sub: c.get("userId"), permEpoch: c.get("permEpoch"), authorization });
+  const where = await entryWhere(filters, scope);
   const rows = await db.timeEntry.findMany({
     where: position === null ? where : { AND: [where, after(position)] },
     include: ENTRY_INCLUDE,

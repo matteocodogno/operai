@@ -140,7 +140,7 @@ describe("groupBy=person (AC-4.5, AC-4.8; plan § Totals)", () => {
   });
 });
 
-describe("groupBy=person over several people (what T19's `whose=all` selects; the aggregation does not decide whose)", () => {
+describe("groupBy=person over several people (what `whose=all` selects; the aggregation does not decide whose — that is src/oversight/read.test.ts)", () => {
   const EVERYONE = { day: { gte: new Date("2026-11-01T00:00:00Z"), lte: new Date("2026-11-30T00:00:00Z") } };
 
   it("orders by name as an English collator reads it (case and accents set aside), a person with no name last, ties by user id", async () => {
@@ -824,7 +824,7 @@ describe("the deal filter, and meetings-api not saying which meetings are linked
 });
 
 describe("the names follow the VIEWER, not the author of the entries (AC-4.10, ADR-0089 A1: the author included)", () => {
-  /** Everyone's entries: what T19's `whose=all` will hand the aggregation. The route decides whose; the labels are the viewer's. */
+  /** Everyone's entries: what `whose=all` hands the aggregation. The route decides whose (src/oversight); the labels are the viewer's. */
   const EVERYONE = { day: { gte: new Date("2026-11-01T00:00:00Z"), lte: new Date("2026-11-30T00:00:00Z") } };
 
   async function fixture() {

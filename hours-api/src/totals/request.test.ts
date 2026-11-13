@@ -91,7 +91,7 @@ describe("the contract the clients read", () => {
     expect(parameters.every((parameter) => parameter.in === "query")).toBe(true);
     expect(parameters.filter((parameter) => parameter.required === true).map((parameter) => parameter.name).sort()).toEqual(["from", "groupBy", "to"]);
     expect(parameters.find((parameter) => parameter.name === "groupBy")?.schema.enum).toEqual([...GROUPINGS]);
-    expect(Object.keys(operation.responses).sort()).toEqual(["200", "400", "401", "503"]);
+    expect(Object.keys(operation.responses).sort()).toEqual(["200", "400", "401", "403", "503"]);
     expect(JSON.stringify(operation.responses["200"])).toContain("#/components/schemas/TotalsGroup");
     const group = JSON.stringify(res.json.components.schemas.TotalsGroup);
     for (const kind of ["keyed", "none", "hidden", "unavailable", "deal-unknown"]) expect(group).toContain(`"${kind}"`);
@@ -252,7 +252,7 @@ describe("a filter outside its rule is a 400 naming it, and nobody is asked (AC-
   });
 });
 
-describe("whose and userId (AC-4.2; oversight is T19's)", () => {
+describe("whose and userId (AC-4.2; what whose=all and userId then DO is src/oversight/read.test.ts)", () => {
   it("refuses a userId without whose=all, naming it, even one's own and before any other check", async () => {
     expectInvalid(await totals(`groupBy=person&${NOVEMBER}&userId=${ALICE}`), "userId");
     expectInvalid(await totals(`groupBy=person&${NOVEMBER}&whose=mine&userId=${BOB}`), "userId");
@@ -266,15 +266,16 @@ describe("whose and userId (AC-4.2; oversight is T19's)", () => {
     expect(hosts.calls).toEqual([]);
   });
 
-  it("does not serve whose=all yet, as the list does not: nobody's rows but the caller's leave, and no other service is asked", async () => {
-    await makeNoEntityEntry(SEED.categories.training, { userId: BOB, day: "2026-11-05", minutes: 60 });
-
-    for (const query of [`groupBy=person&${NOVEMBER}&whose=all`, `groupBy=person&${NOVEMBER}&whose=all&userId=${BOB}`, `groupBy=day&${NOVEMBER}&whose=all&dealId=d1`]) {
-      const res = await totals(query);
-      expect(res.status).toBe(501);
-      expect(res.json).toMatchObject({ code: "not_implemented" });
-      expect(res.json).not.toHaveProperty("groups");
-      expect(res.json).not.toHaveProperty("totalMinutes");
+  it("refuses a malformed userId, period or filter with whose=all before auth is asked: the holder and the non-holder get the same 400, and no call is recorded", async () => {
+    for (const as of ["alice", "holder"] as const) {
+      for (const query of [
+        `groupBy=person&${NOVEMBER}&whose=all&userId=`,
+        `groupBy=person&${NOVEMBER}&whose=all&userId=${"x".repeat(65)}`,
+        `groupBy=person&from=2026-11-30&to=2026-11-01&whose=all`,
+        `groupBy=person&${NOVEMBER}&whose=all&dealId=a%2Cb`,
+      ]) {
+        expect((await totals(query, as)).status).toBe(400);
+      }
     }
     expect(hosts.calls).toEqual([]);
   });

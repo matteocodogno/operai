@@ -835,12 +835,12 @@ describe("the contract the clients read (plan § Entries)", () => {
     expect(parameters.every((parameter) => parameter.in === "query")).toBe(true);
     expect(parameters.filter((parameter) => parameter.required === true).map((parameter) => parameter.name).sort()).toEqual(["from", "to"]);
     expect(parameters.find((parameter) => parameter.name === "limit")?.schema).toMatchObject({ type: "integer", minimum: 1, maximum: 500 });
-    expect(Object.keys(operation.responses).sort()).toEqual(["200", "400", "401", "503"]);
+    expect(Object.keys(operation.responses).sort()).toEqual(["200", "400", "401", "403", "503"]);
     expect(JSON.stringify(operation.responses["200"])).toContain("TimeEntryView");
   });
 });
 
-describe("whose and userId (AC-4.2; oversight is T19's)", () => {
+describe("whose and userId (AC-4.2; what whose=all and userId then DO is src/oversight/read.test.ts)", () => {
   it("refuses a userId without whose=all, naming it, even one's own and before any other check", async () => {
     expectInvalid(await list(`${NOVEMBER}&userId=${ALICE}`), "userId");
     expectInvalid(await list(`${NOVEMBER}&whose=mine&userId=${BOB}`), "userId");
@@ -854,13 +854,18 @@ describe("whose and userId (AC-4.2; oversight is T19's)", () => {
     expect(hosts.calls).toEqual([]);
   });
 
-  it("does not serve whose=all yet: nobody's rows but their own leave, and no other service is asked", async () => {
-    await makeNoEntityEntry(SEED.categories.training, { userId: BOB, day: "2026-11-05" });
-
-    for (const query of [`${NOVEMBER}&whose=all`, `${NOVEMBER}&whose=all&userId=${BOB}`, `${NOVEMBER}&whose=all&dealId=d1`]) {
-      const res = await list(query);
-      expect(res.status).toBe(501);
-      expect(res.json).not.toHaveProperty("items");
+  it("refuses a malformed cursor, period or filter with whose=all before auth is asked: the holder and the non-holder get the same 400, and no call is recorded", async () => {
+    for (const as of ["alice", "holder"] as const) {
+      for (const query of [
+        `${NOVEMBER}&whose=all&userId=`,
+        `${NOVEMBER}&whose=all&userId=${"x".repeat(65)}`,
+        `${NOVEMBER}&whose=all&cursor=!!!`,
+        `${NOVEMBER}&whose=all&cursor=${VALID_CURSOR}&limit=0`,
+        `from=2026-11-30&to=2026-11-01&whose=all`,
+        `${NOVEMBER}&whose=all&dealId=a%2Cb`,
+      ]) {
+        expect((await list(query, as)).status).toBe(400);
+      }
     }
     expect(hosts.calls).toEqual([]);
   });

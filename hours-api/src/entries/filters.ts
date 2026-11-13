@@ -17,6 +17,8 @@ import { readMeetingsLinkedToDeal } from "../clients/meetings";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { ProblemError } from "../lib/problem";
 import { IdSchema, isWellFormedId } from "../lists/idRule";
+import type { EntryScope } from "../oversight/scope";
+import { hostUnavailable } from "../targets/errors";
 import { DaySchema } from "./schemas";
 
 // ─── The members ─────────────────────────────────────────────────────────────
@@ -91,12 +93,6 @@ export function readFilters(query: FilterQuery): EntryFilters {
 const dayOf = (day: string): Date => new Date(`${day}T00:00:00Z`);
 
 /**
- * 503 `host_unavailable`: the answer of any read that needs a fact only another service holds and cannot get
- * (plan § Errors). Nothing partial goes with it.
- */
-const hostUnavailable = (detail: string): ProblemError => new ProblemError({ status: 503, code: "host_unavailable", detail });
-
-/**
  * What "on this deal" means: the entries on the deal itself, plus the entries on the meetings linked to it NOW
  * (AC-2.6). The link is not stored on an entry, so a relinked meeting's hours move with it, and only meetings-api
  * can say which meetings those are (its system route, hours-api's own credential, ADR-0089).
@@ -116,13 +112,13 @@ async function dealCondition(dealId: string): Promise<Prisma.TimeEntryWhereInput
 }
 
 /**
- * The entries `filters` select among the CALLER's own (`whose=mine`; everyone's is behind the oversight check,
- * T19). Every filter narrows, so they combine with AND.
+ * The entries `filters` select among those `scope` names — the caller's own, one person's, or everyone's, which
+ * only the oversight check (src/oversight/scope.ts) hands out. Every filter narrows, so they combine with AND.
  */
-export async function entryWhere(filters: EntryFilters, sub: string): Promise<Prisma.TimeEntryWhereInput> {
+export async function entryWhere(filters: EntryFilters, scope: EntryScope): Promise<Prisma.TimeEntryWhereInput> {
   const forDeal = filters.dealId === undefined ? undefined : await dealCondition(filters.dealId);
   return {
-    userId: sub,
+    ...(scope.kind === "person" ? { userId: scope.userId } : {}),
     ...(forDeal !== undefined ? { AND: [forDeal] } : {}),
     day: { gte: dayOf(filters.from), lte: dayOf(filters.to) },
     ...(filters.target !== undefined ? { target: filters.target } : {}),

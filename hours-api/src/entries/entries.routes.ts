@@ -17,9 +17,11 @@ import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import type { JwtVariables } from "../auth/jwt.middleware";
 import { db } from "../lib/db";
 import { invalidRequestHook } from "../lib/errors";
-import { notFound } from "../lib/problem";
+import { notFound, type ProblemError } from "../lib/problem";
 import { ProblemSchema } from "../lists/errorDocs";
 import { IdSchema } from "../lists/idRule";
+import { ownerOnly } from "../oversight/errors";
+import { isHolderOfSomeoneElsesEntry, type Session } from "../oversight/oversight";
 import { assertActivityOf } from "../targets/activity";
 import { assertBookable, type Caller } from "../targets/bookability";
 import {
@@ -49,12 +51,27 @@ const writeErrors = {
       "a `day` that is not a real calendar day from 2000-01-01 (`field: \"day\"`), a NUL or a lone surrogate in `note` (`field: \"note\"`)",
   ),
   401: problemDoc("No valid session"),
-  404: problemDoc("`not_found`: no entry of yours has this id — one body for an entry that is someone else's and for one that does not exist"),
+  404: problemDoc(
+    "`not_found`: no entry of yours has this id — one body for an entry that is someone else's and for one that does not exist " +
+      "(a holder of `time-entry:read-all` is told `owner_only` for someone else's, a 403)",
+  ),
   422: problemDoc(
     "A rule broken, `field` names the member: `invalid_minutes`, `future_day`, `note_too_long`, `note_required`, `category_not_found`, " +
       "`category_retired`, `work_type_not_allowed`, `work_type_not_found`, `work_type_retired`, `activity_not_allowed`",
   ),
 } as const;
+
+const notBookable =
+  "`not_on_project`: the project is readable and the caller is neither its project manager nor on its team; " +
+  "`not_involved_in_deal`: the deal is readable and the caller is neither its owner, its technical contact, nor the assignee or a participant of one of its activities";
+
+/**
+ * A write to an entry that is not the caller's: 404, or — for a holder of `time-entry:read-all`, who can read it
+ * anyway — 403 `owner_only`. Reading everyone's hours never becomes a way to change them (AC-1.6).
+ */
+const notYours =
+  "`owner_only`: the entry is someone else's and the caller holds `time-entry:read-all`; the privilege is for looking, so nothing changes. " +
+  "Anyone else, and a holder when `auth` cannot say, is told `not_found`";
 
 /**
  * What the owners add to a `POST` and to a `PATCH` that moves the entry or sends a new `activityId` (plan § Errors;
@@ -62,10 +79,7 @@ const writeErrors = {
  * own for these two routes: it also covers the target.
  */
 const ownerErrors = {
-  403: problemDoc(
-    "`not_on_project`: the project is readable and the caller is neither its project manager nor on its team; " +
-      "`not_involved_in_deal`: the deal is readable and the caller is neither its owner, its technical contact, nor the assignee or a participant of one of its activities",
-  ),
+  403: problemDoc(notBookable),
   404: problemDoc(
     "`not_found`: on a `PATCH`, no entry of yours has this id; on either, the project, deal or meeting does not exist, the caller may not read it, " +
       "or is not its creator or a participant (a meeting) — one body for all of them",
@@ -110,6 +124,7 @@ const updateEntryRoute = createRoute({
     200: { description: "Changed", content: { "application/json": { schema: TimeEntryViewSchema } } },
     ...writeErrors,
     ...ownerErrors,
+    403: problemDoc(`${notBookable}; ${notYours}`),
   },
 });
 
@@ -119,13 +134,30 @@ const deleteEntryRoute = createRoute({
   tags: ["Entries"],
   summary: "Delete one of your own entries, of any age (any session)",
   request: { params: IdParams },
-  responses: { 204: { description: "Deleted" }, 400: writeErrors[400], 401: writeErrors[401], 404: writeErrors[404] },
+  responses: {
+    204: { description: "Deleted" },
+    400: writeErrors[400],
+    401: writeErrors[401],
+    403: problemDoc(notYours),
+    404: writeErrors[404],
+  },
 });
 
 export const entriesRouter = new OpenAPIHono<{ Variables: JwtVariables }>({ defaultHook: invalidRequestHook });
 
 /** One answer for "no such entry" and "not yours": nothing says which (AC-1.6). */
 const entryNotFound = () => notFound("No time entry of yours has this id");
+
+/**
+ * What a write to an entry that is not the caller's is answered, once the lookup of THEIR entry came back empty
+ * (AC-1.6): 403 `owner_only` for a holder of `time-entry:read-all` looking at a real entry of someone else's — they
+ * can read it, so the refusal tells them nothing new — and the one 404 for everyone else, and for a holder when
+ * `auth` cannot say (src/oversight/oversight.ts). It never says 404 where a holder could be told more, and never
+ * says "owner only" to anyone who could not read the entry.
+ */
+async function entryNotTheCallers(session: Session, id: string): Promise<ProblemError> {
+  return (await isHolderOfSomeoneElsesEntry(session, id)) ? ownerOnly() : entryNotFound();
+}
 
 // ─── What an entry is on ─────────────────────────────────────────────────────
 
@@ -304,10 +336,11 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
   const userId = c.get("userId");
   const authorization = c.req.header("Authorization") ?? "";
 
-  // The caller's own entry or "no such entry": nothing here tells them apart (AC-1.6). Looked up BEFORE any
-  // rule, so that a rule's answer (422) can never reveal that an entry exists.
+  // The caller's own entry, or not: for someone else's the answer is 404, "no such entry", that tells a stranger
+  // nothing (AC-1.6) — and 403 `owner_only` for a holder of `time-entry:read-all`, who can read it anyway. Looked up
+  // BEFORE any rule, so that a rule's answer (422) can never reveal that an entry exists.
   const stored = await db.timeEntry.findFirst({ where: { id, userId }, include: ENTRY_INCLUDE });
-  if (stored === null) throw entryNotFound();
+  if (stored === null) throw await entryNotTheCallers({ sub: userId, permEpoch: c.get("permEpoch"), authorization }, id);
 
   const movedTo = body.on !== undefined && !sameTarget(targetOf(stored), body.on) ? body.on : null;
   const owners = await validateWrite({ stored, body, target: movedTo ?? targetOf(stored), moved: movedTo !== null });
@@ -340,7 +373,10 @@ entriesRouter.openapi(deleteEntryRoute, async (c) => {
   const { id } = c.req.valid("param");
   // Scoped to the caller in the statement itself, so no other person's entry can be deleted by a race or a
   // forgotten check; deleting needs no bookability (AC-2.4): an author who left a project can still remove it.
-  const { count } = await db.timeEntry.deleteMany({ where: { id, userId: c.get("userId") } });
-  if (count === 0) throw entryNotFound();
+  const userId = c.get("userId");
+  const { count } = await db.timeEntry.deleteMany({ where: { id, userId } });
+  if (count === 0) {
+    throw await entryNotTheCallers({ sub: userId, permEpoch: c.get("permEpoch"), authorization: c.req.header("Authorization") ?? "" }, id);
+  }
   return c.body(null, 204);
 });

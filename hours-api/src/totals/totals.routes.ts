@@ -13,8 +13,8 @@ import type { JwtVariables } from "../auth/jwt.middleware";
 import { UnavailableSchema } from "../entries/list.routes";
 import { entryWhere, filterShape, readFilters } from "../entries/filters";
 import { invalidRequestHook } from "../lib/errors";
-import { ProblemError } from "../lib/problem";
 import { ProblemSchema } from "../lists/errorDocs";
+import { readScope } from "../oversight/scope";
 import { GROUPINGS } from "./groups";
 import { totalsOf } from "./totals";
 
@@ -55,7 +55,9 @@ const totalsRoute = createRoute({
   summary: "The hours of a period, grouped (any session; whose=all needs time-entry:read-all)",
   description:
     "The entries `GET /time-entries` lists for the same filters, added up by `groupBy`. Complete: every matching entry is in exactly one group " +
-    "and the groups' minutes add up to `totalMinutes`; never paged. `whose=all` is answered 501 until the check of `time-entry:read-all` exists (specs/029 T19).",
+    "and the groups' minutes add up to `totalMinutes`; never paged. `whose=mine` (the default) is the caller's own and never asks `auth`. " +
+    "`whose=all`, and `userId`, need `time-entry:read-all`, asked live of `auth` as the caller: 403 without it, 503 when `auth` cannot say. " +
+    "`groupBy=person` without `userId` lists every person with hours in the period (the person filter's options).",
   request: { query: TotalsQuerySchema },
   responses: {
     200: {
@@ -64,8 +66,10 @@ const totalsRoute = createRoute({
     },
     400: problemDoc("`invalid_request`: a bad or missing period or `groupBy`, a filter outside its rule, a member the route does not know (`field` names it)"),
     401: problemDoc("No valid session"),
+    403: problemDoc("`read_all_required`: `whose=all` or a `userId` without `time-entry:read-all`"),
     503: problemDoc(
-      "`host_unavailable`: with a `dealId` filter, meetings-api could not say which meetings are linked to the deal. " +
+      "`authz_unavailable`: `whose=all` or a `userId`, and `auth` could not say whether the caller holds `time-entry:read-all` (never allowed, AC-5.4). " +
+        "`host_unavailable`: with a `dealId` filter, meetings-api could not say which meetings are linked to the deal. " +
         "Nothing partial is returned: a deal's hours are never shown low",
     ),
   },
@@ -76,12 +80,10 @@ export const totalsRouter = new OpenAPIHono<{ Variables: JwtVariables }>({ defau
 totalsRouter.openapi(totalsRoute, async (c) => {
   const query = c.req.valid("query");
   const filters = readFilters(query);
-  // TRANSITIONAL (T19 replaces this with the oversight check, as it does the list's): everyone's entries are not
-  // served at all until `time-entry:read-all` is checked live, so that no path can return another person's hours
-  // without it. Decided after the request is validated and before any other service is asked.
-  if (filters.whose === "all") {
-    throw new ProblemError({ status: 501, code: "not_implemented", detail: "Everyone's hours cannot be read yet: the permission to see them is not checked here yet" });
-  }
-  const where = await entryWhere(filters, c.get("userId"));
-  return c.json(await totalsOf(query.groupBy, where, c.req.header("Authorization") ?? ""), 200);
+  const authorization = c.req.header("Authorization") ?? "";
+  // The same order as the list's: what the request alone decides first, then whose entries (the oversight check for
+  // `whose=all`), then the `dealId` filter's question to meetings-api, then the sums.
+  const scope = await readScope(filters, { sub: c.get("userId"), permEpoch: c.get("permEpoch"), authorization });
+  const where = await entryWhere(filters, scope);
+  return c.json(await totalsOf(query.groupBy, where, authorization), 200);
 });

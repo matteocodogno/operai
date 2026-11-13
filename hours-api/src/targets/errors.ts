@@ -31,6 +31,11 @@ export const notInvolvedInDeal = (): ProblemError =>
     detail: "Hours can only be recorded on a deal you own, are the technical contact of, or are the assignee or a participant of an activity of",
   });
 
-/** 503 `host_unavailable`: the tool that owns the target did not answer the check, so nothing was recorded (AC-2.11). */
-export const hostUnavailable = (): ProblemError =>
-  new ProblemError({ status: 503, code: "host_unavailable", detail: "The tool that owns this could not be asked whether you may record hours on it, so nothing was saved" });
+/**
+ * 503 `host_unavailable`: the tool that owns the target did not answer the check, so nothing was recorded (AC-2.11).
+ * Also the answer of a read that needs a fact only another service holds and cannot get (AC-4.11, plan § Errors):
+ * that one says what it could not say as `detail`, and nothing partial goes with it.
+ */
+export const hostUnavailable = (
+  detail = "The tool that owns this could not be asked whether you may record hours on it, so nothing was saved",
+): ProblemError => new ProblemError({ status: 503, code: "host_unavailable", detail });
