@@ -744,6 +744,87 @@ describe("Admin roles API (T8)", () => {
     },
   );
 
+  test(
+    "PUT /:id/rules accepts `time-entry:read-all` and `time-list:manage` unconditioned for a non-admin role, " +
+      "and its holder resolves both (specs/029 AC-5.2, AC-3.3, AC-4.3)",
+    async () => {
+      asAdmin();
+      const { rolesRouter } = await import("./roles.routes");
+      const { seedHoursCatalog } = await import("../authz/seed");
+      const { resolveEffectivePermissions } = await import("../authz/resolver");
+      const { Effect } = await import("effect");
+
+      await seedHoursCatalog();
+
+      const role = await makeRole("hours-viewer");
+      expect(role.isSystem).toBe(false);
+      expect(role.name).not.toBe("admin");
+
+      const res = await rolesRouter.request(`/admin/roles/${role.id}/rules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules: [
+            { resource: "time-entry", action: "read-all" },
+            { resource: "time-list", action: "manage" },
+          ],
+        }),
+      });
+      expect(res.status).toBe(200);
+
+      const rules = await db.permissionRule.findMany({
+        where: { roleId: role.id },
+        orderBy: { resource: "asc" },
+      });
+      expect(rules.map((r) => [r.resource, r.action, r.conditions])).toEqual([
+        ["time-entry", "read-all", null],
+        ["time-list", "manage", null],
+      ]);
+
+      const holder = await makeUser("hours-viewer-holder");
+      await db.userRole.create({ data: { userId: holder.id, roleId: role.id } });
+      const effective = await Effect.runPromise(resolveEffectivePermissions(holder.id));
+      for (const [resource, action] of [
+        ["time-entry", "read-all"],
+        ["time-list", "manage"],
+      ]) {
+        const grant = effective.find((p) => p.resource === resource && p.action === action);
+        expect(grant).toBeDefined();
+        expect(grant?.conditions).toBeNull();
+      }
+    },
+  );
+
+  test(
+    "PUT /:id/rules 422s a condition on `time-entry:read-all` — the permission is unconditioned (specs/029 AC-5.2)",
+    async () => {
+      asAdmin();
+      const { rolesRouter } = await import("./roles.routes");
+      const { seedHoursCatalog } = await import("../authz/seed");
+
+      await seedHoursCatalog();
+
+      const role = await makeRole("hours-conditioned");
+      const res = await rolesRouter.request(`/admin/roles/${role.id}/rules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rules: [
+            {
+              resource: "time-entry",
+              action: "read-all",
+              conditions: { attributes: [{ key: "entity", match: "user" }] },
+            },
+          ],
+        }),
+      });
+      expect(res.status).toBe(422);
+      const body = (await res.json()) as { detail: string };
+      expect(body.detail).toContain("entity");
+      expect(await db.permissionRule.findMany({ where: { roleId: role.id } })).toHaveLength(0);
+    },
+  );
+
   test("custom role assignable: creating a role, setting its rules, and assigning it to a user makes the resolver reflect it (AC-2.4)", async () => {
     asAdmin();
     const { rolesRouter } = await import("./roles.routes");

@@ -122,6 +122,13 @@
  *      `SUITE_APPS`, and is NOT in `ALL_APP_IDS` (that list feeds the per-app
  *      `access` grant this catalog does not have).
  *
+ *  14. {@link seedHoursCatalog} + {@link seedHoursGrants} (specs/029-time-
+ *      tracking — AC-5.2, AC-3.3, AC-4.3; ADR-0088) — register the time-tracking
+ *      catalog (`catalogs/hours.ts`: `time-entry:read-all`, `time-list:manage`,
+ *      NO `access` resource — the feature is ungated) and grant both to `admin`
+ *      only, unconditioned. `hours` is registered once, here, never through
+ *      `SUITE_APPS`, and is NOT in `ALL_APP_IDS` (it has no `access` to grant).
+ *
  * A further, per-user concern — assigning the baseline `employee` role (and
  * `admin` for the configured bootstrap email) to every newly created user —
  * is NOT part of this deploy-time seed: it happens once per user, in
@@ -137,6 +144,7 @@ import type { Prisma } from "../lib/generated/prisma/client";
 import { type AppCatalogInput, upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
 import { CRM_APP_ID, CRM_CATALOG } from "./catalogs/crm";
+import { HOURS_CATALOG } from "./catalogs/hours";
 import { INVENTORY_APP_ID, INVENTORY_CATALOG } from "./catalogs/inventory";
 import { ACCOUNTING_APP_ID, ACCOUNTING_CATALOG } from "./catalogs/accounting";
 import { ADMIN_APP_ID, ADMIN_CATALOG } from "./catalogs/admin";
@@ -307,6 +315,18 @@ export async function seedAccountingCatalog(): Promise<void> {
 }
 
 /**
+ * Registers the time-tracking catalog (specs/029 — AC-5.2): `time-entry:read-all`
+ * and `time-list:manage`, both unconditioned, and no `access` resource (the
+ * feature is ungated, AC-5.1). Idempotent (full-replace upsert keyed by
+ * `appId`). `hours` is registered ONLY here, never via `SUITE_APPS`, and is not
+ * in {@link ALL_APP_IDS}: that list exists to give `admin` an `access` rule per
+ * app, and `hours` has none.
+ */
+export async function seedHoursCatalog(): Promise<void> {
+  await upsertAppCatalog(HOURS_CATALOG);
+}
+
+/**
  * Every catalog a suite app declares itself (everything registered by a
  * `seed<App>Catalog` above; the access-only {@link SUITE_APPS} are separate).
  * `catalogs/uniqueResourceKeys.test.ts` checks no two of them share a resource
@@ -322,6 +342,7 @@ export const DECLARED_CATALOGS: readonly AppCatalogInput[] = [
   LETTERHEADS_CATALOG,
   ADMIN_CATALOG,
   ACCOUNTING_CATALOG,
+  HOURS_CATALOG,
 ];
 
 /**
@@ -900,6 +921,33 @@ export async function seedProjectsGrants(): Promise<void> {
 }
 
 /**
+ * Seeds the time-tracking role grants (specs/029 — AC-5.2, AC-3.3, AC-4.3;
+ * decision D21, ADR-0088):
+ *
+ *   - `admin` — `time-entry:read-all` (see everyone's hours) and
+ *     `time-list:manage` (the categories and work types), UNCONDITIONED.
+ *   - nothing else: not `employee` (every signed-in user records and sees their
+ *     own hours without any grant, AC-5.1), not `accounting`. An admin may give
+ *     either permission to another role through the roles GUI, where it is
+ *     accepted as an unconditioned rule.
+ *   - no `hours:access`: the catalog has no such resource, so neither this nor
+ *     {@link seedAdminRoleGrants} writes one.
+ *
+ * Idempotent and non-destructive, through {@link ensureGrant}, exactly like
+ * {@link seedEstimaiGrants}: it creates only what is absent, so a re-seed at
+ * every deploy neither duplicates a row nor undoes an admin's later edit.
+ */
+export async function seedHoursGrants(): Promise<void> {
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(adminRole.id, "time-entry", "read-all");
+  await ensureGrant(adminRole.id, "time-list", "manage");
+}
+
+/**
  * Grants the `admin` role `access` to every suite app (US-7). WITHOUT this the
  * seed leaves `admin` with zero permission rules, so even the bootstrap admin
  * resolves to `apps: []` and is stranded on the shell's `/no-access` screen —
@@ -1053,6 +1101,7 @@ export async function seed(): Promise<void> {
   await seedLetterheadsCatalog();
   await seedAdminCatalog();
   await seedAccountingCatalog();
+  await seedHoursCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
@@ -1066,6 +1115,7 @@ export async function seed(): Promise<void> {
   await seedLetterheadsGrants();
   await seedLegalEntityGrants();
   await seedAccountingGrants();
+  await seedHoursGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -1149,7 +1199,7 @@ if (import.meta.main) {
           "+ letterheads catalog + letterheads grants " +
           "+ admin catalog + legal-entity grants " +
           "+ accounting catalog + accounting grants " +
-          "+ bootstrap admin",
+          "+ hours catalog + hours grants + bootstrap admin",
       );
       process.exit(0);
     })

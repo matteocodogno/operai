@@ -40,6 +40,7 @@ import { ACCOUNTING_APP_ID } from "./catalogs/accounting";
 import { ADMIN_APP_ID } from "./catalogs/admin";
 import { CRM_APP_ID } from "./catalogs/crm";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
+import { HOURS_APP_ID } from "./catalogs/hours";
 import { INVENTORY_APP_ID } from "./catalogs/inventory";
 import { LETTERHEADS_APP_ID } from "./catalogs/letterheads";
 import { MEETINGS_APP_ID } from "./catalogs/meetings";
@@ -50,6 +51,7 @@ import {
   ACCOUNTING_ROLE_NAME,
   ALL_APP_IDS,
   assignBaselineRolesToNewUser,
+  DECLARED_CATALOGS,
   EMPLOYEE_ROLE_NAME,
   ensureBootstrapAdmin,
   INVENTORY_MANAGER_ROLE_NAME,
@@ -69,6 +71,8 @@ import {
   seedCrmGrants,
   seedEstimaiCatalog,
   seedEstimaiGrants,
+  seedHoursCatalog,
+  seedHoursGrants,
   seedInventoryCatalog,
   seedInventoryGrants,
   seedLegalEntityGrants,
@@ -1786,5 +1790,107 @@ describe("seedAccountingGrants (specs/20261119-accounting — T1, AC-3.3)", () =
       expect(entityGrantFor(accounting, ACCOUNTING_APP_ID, action, { entity: "CH" }, "IT")).toBeNull();
       expect(entityGrantFor(accounting, ACCOUNTING_APP_ID, action, { entity: null }, "CH")).toBeNull();
     }
+  });
+});
+
+// ─── specs/029-time-tracking ─────────────────────────────────────────────────
+
+describe("seedHoursCatalog (specs/029 — AC-5.2)", () => {
+  test("registers the hours catalog — time-entry:read-all and time-list:manage, both unconditioned, no access resource, idempotent", async () => {
+    await seedHoursCatalog();
+    await seedHoursCatalog();
+    const catalog = await getAppCatalog(HOURS_APP_ID);
+    const byResource = new Map(
+      catalog.resources.map((r) => [r.key, r.actions.map((a) => [a.key, a.supportedConditions])]),
+    );
+    expect([...byResource.keys()].sort()).toEqual(["time-entry", "time-list"]);
+    expect(byResource.get("time-entry")).toEqual([["read-all", []]]);
+    expect(byResource.get("time-list")).toEqual([["manage", []]]);
+    expect(catalog.resources.some((r) => r.actions.some((a) => a.key === "access"))).toBe(false);
+  });
+
+  test("hours is a declared catalog, but neither a SUITE_APPS entry nor in ALL_APP_IDS: it has no `access` for admin to be granted", () => {
+    expect(DECLARED_CATALOGS.map((c) => c.appId)).toContain(HOURS_APP_ID);
+    expect(SUITE_APPS.some((app) => app.appId === HOURS_APP_ID)).toBe(false);
+    expect(ALL_APP_IDS).not.toContain(HOURS_APP_ID);
+  });
+});
+
+describe("seedHoursGrants (specs/029 — AC-5.2, AC-3.3, AC-4.3)", () => {
+  const HOURS_RESOURCES = ["time-entry", "time-list", HOURS_APP_ID];
+
+  async function clearHoursGrants() {
+    await db.permissionRule.deleteMany({ where: { resource: { in: HOURS_RESOURCES } } });
+  }
+  beforeEach(clearHoursGrants);
+  afterAll(async () => {
+    await clearHoursGrants();
+    await seedHoursGrants();
+  });
+
+  /** Every rule on the hours catalog, with the name of the role that holds it, ordered for comparison. */
+  const hoursRules = async () => {
+    const rules = await db.permissionRule.findMany({
+      where: { resource: { in: HOURS_RESOURCES } },
+      include: { role: { select: { name: true } } },
+      orderBy: [{ resource: "asc" }, { action: "asc" }, { id: "asc" }],
+    });
+    return rules.map((r) => ({
+      id: r.id,
+      role: r.role.name,
+      grant: `${r.resource}:${r.action}`,
+      conditions: r.conditions,
+      updatedAt: r.updatedAt.getTime(),
+    }));
+  };
+
+  test("time-entry:read-all and time-list:manage are held by admin only, unconditioned", async () => {
+    await seedSystemRoles();
+    await seedHoursGrants();
+    const rules = await hoursRules();
+    expect(rules.map(({ role, grant, conditions }) => ({ role, grant, conditions }))).toEqual([
+      { role: ADMIN_ROLE_NAME, grant: "time-entry:read-all", conditions: null },
+      { role: ADMIN_ROLE_NAME, grant: "time-list:manage", conditions: null },
+    ]);
+  });
+
+  test("a re-run changes nothing: same rows, same ids, none rewritten", async () => {
+    await seedSystemRoles();
+    await seedHoursGrants();
+    const first = await hoursRules();
+    await seedHoursGrants();
+    await seedHoursGrants();
+    expect(await hoursRules()).toEqual(first);
+  });
+
+  test("a re-run keeps a grant an admin added through the roles GUI (it only creates what is absent)", async () => {
+    await seedSystemRoles();
+    await seedHoursGrants();
+    const custom = await db.role.create({ data: { name: `hours-custom-${RUN_ID}` } });
+    try {
+      await db.permissionRule.create({ data: { roleId: custom.id, resource: "time-entry", action: "read-all" } });
+      await seedHoursGrants();
+      const holders = (await hoursRules()).filter((r) => r.grant === "time-entry:read-all").map((r) => r.role);
+      expect(holders.sort()).toEqual([ADMIN_ROLE_NAME, custom.name].sort());
+    } finally {
+      await db.role.delete({ where: { id: custom.id } });
+    }
+  });
+
+  test("no other seeded role holds any of it — employee included — and no `hours:access` rule is ever written", async () => {
+    await seed();
+    const rules = await hoursRules();
+    expect(rules.map((r) => `${r.role} ${r.grant}`).sort()).toEqual([
+      `${ADMIN_ROLE_NAME} time-entry:read-all`,
+      `${ADMIN_ROLE_NAME} time-list:manage`,
+    ]);
+    expect(rules.some((r) => r.grant === `${HOURS_APP_ID}:access`)).toBe(false);
+  });
+
+  test("seed() registers the catalog and attaches the grants", async () => {
+    await seed();
+    const catalog = await getAppCatalog(HOURS_APP_ID);
+    expect(catalog.resources.map((r) => r.key).sort()).toEqual(["time-entry", "time-list"]);
+    expect((await hoursRules()).map((r) => r.grant)).toEqual(["time-entry:read-all", "time-list:manage"]);
   });
 });
