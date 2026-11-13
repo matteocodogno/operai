@@ -309,5 +309,20 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - hand-off: `filters.ts` exports `filterShape`, `readFilters`, `assertPeriod`, `spanDays`, `invalidRequest`, `entryWhere` (always `userId: sub`; T19 adds the everyone scope); `list.routes.ts` exports `UnavailableSchema`, `mintCursor`, `DEFAULT_LIMIT`, `MAX_LIMIT`
 - note for T37: `GET /time-entries?dealId=D` is a link oracle for a caller who knows a deal id (prescribed by D45/AC-2.6; `on.deal` still withholds id and name)
 
+## T28 · frontend-dev · 2026-11-13
+- default: Save with nothing changed closes the dialog and sends no request, no banner — why: `PATCH {}` is 400 and the spec is silent — where: `EntryDialog.tsx` `submit`
+- default: the PATCH is a diff of the form against the stored values — `on` only when another target was picked, `null` for what a move cleared (never omitted); a note-only edit on a retired work type sends exactly `{note}` — where: `EntryDialogModel.ts` `toPatch`
+- default: typing in an entity picker drops its value; a hidden target cannot be re-picked, and switching the radio away and back loses it (Cancel and reopen recovers it) — why: design "changing the radio clears the entity" — where: `EntryDialog.tsx`
+- reinterpretation: a 404 on an edit is the target's only when the save moved the entry AND the answer carries `not_found`; any other 404 is "entry gone" (list reloaded on close); a delete treats any 404 as already gone — shared `entryIsGone(error, moved)` — where: `EntryDialogModel.ts`, `MyHoursPage.tsx`
+- default: focus after a successful edit → Record hours (F2 "as F1"); after a delete or an entry-gone close → the page heading (`PageHeader focusableHeading`) — where: `MyHoursPage.tsx`
+- reinterpretation: the S3 body is "<duration> on <name or 'a project that is not visible to you'>, <date>. This can't be undone." in every variant (design shows the last sentence only for the visible case) — where: `DeleteEntryDialog.tsx`, `strings/entry.ts`
+- default: banners "Entry deleted." (`hours-entry-deleted`) and dismissible info "That entry no longer exists. The list has been refreshed." (`hours-entry-gone`); delete dialog test ids `hours-entry-delete-dialog-*` — where: `MyHoursPage.tsx`, `strings/entry.ts`
+- default: the entry's own retired category/work type is shown as "Name (retired)" and, when lists have not loaded, appended from the entry's view with `requiresNote: false` (the server decides); a retired work type is offered only for the entry's own list — where: `EntryDialogModel.ts` `offered*`
+- default: dialog props are a union (record vs edit); T27's test helper type narrowed — where: `EntryDialog.tsx`, `EntryDialog.test.tsx`
+- default: `ActivityField` gains `locked` for the "not visible" variant (nothing read, the field says why); a withheld pointer's `<option value>` is an opaque token, so its id never reaches the DOM — where: `ActivityField.tsx`
+- scope: T25's `MyHoursPage.entries.test.tsx` — "offers neither Edit nor Delete yet" replaced by its positive counterpart; two row selectors tightened — where: as named
+- default: `host_unavailable` on an edit uses design's wording ("could not check that you may record hours on this <target>") even when only a new activity was checked; the "outside the period" note after an edit only when the day changed — where: `strings/entry.ts`, `MyHoursPage.tsx`
+- assumption: Italian copy chosen by the agent ("Modifica registrazione", the delete dialog, "not visible" hints, entry-gone and locked-activity sentences) — where: `strings/entry.ts`, `strings/activity.ts`
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
