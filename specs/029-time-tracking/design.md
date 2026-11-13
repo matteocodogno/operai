@@ -10,7 +10,11 @@ Inputs read: `spec.md` (approved, 44 ACs, amended 2026-11-12: AC-3.1, 3.3, 4.6, 
 ADR-0088/0089/0090, `operai-ui/docs/{building-pages,design-system,decisions}.md`, `operai-ui/src/index.ts` and
 the page stories, and the precedents named below (read as code; no dev server was running, so nothing was
 inspected in a browser). Re-synced on 2026-11-12 with the amended spec and plan (D38–D45); the first draft's
-gaps 1–7 and 9 are closed by them (§ Gaps).
+gaps 1–7 and 9 are closed by them (§ Gaps). **Corrected 2026-11-13 for drift found in implementation** — no new
+screen or feature: the Note rule of the entry dialog when editing (ledger D50 and spec AC-3.6 as amended with
+it; plan amendment 4, § Entries "A blank note") and the 01.01.2000 floor of the Day field and of the Custom
+period (plan amendment 4, § Entries "A day"). Each change says where it was made and why, in place (F1 step 4,
+F2 step 2, S1 Period, S2 Day, Note rule, Date rules, S4 filters, Accessibility S1 and S2, § AC coverage).
 
 Surfaces: **three pages** — *My hours* and *Everyone's hours* in the new remote `hours-ui` (`/hours`),
 *Time lists* in `admin-ui` (`/time-lists`) — **three dialogs** (entry, delete confirmation, list-item form)
@@ -48,7 +52,9 @@ Entry point: **Record hours** (the one primary on My hours).
    `GET /meetings?q=`, the person's own meetings). The person picks one; for project and deal the
    optional **Work type** and **Activity** fields fill from the pick (S2; the activities are read by the
    browser from activities-api, not through hours-api).
-4. Other work: the person chooses a **Category**; a category that requires a note makes **Note** required.
+4. Other work: the person chooses a **Category**; a category that requires a note makes **Note** required —
+   when recording. A blank note (empty or only spaces) counts as no note. Editing applies the rule less often
+   (D50, 2026-11-13): F2 step 2 and S2 *Note — when it is required*.
 5. Save. Success exit: dialog closes, focus returns to **Record hours**, My hours reloads list and totals,
    a compact success banner confirms (and says so when the saved day is outside the period shown).
 6. Error exits (dialog stays open, every value kept): field errors for shape rules; the picker error for
@@ -70,7 +76,12 @@ AC-1.6).
    the Activity) changes only if the person picks another one.
 2. The request carries only the members the person changed (plan: `PATCH` takes any subset, `on` whole), so
    a note-only edit of an entry on a **retired** category is not refused (AC-3.4), and `on` is never sent
-   for an entry whose target the person did not touch.
+   for an entry whose target the person did not touch. **The note follows the same rule** (D50, plan
+   amendment 4, 2026-11-13): an untouched note is not sent and so is not checked. A minutes-only (or day-only)
+   edit of an entry recorded without a note, on a category since marked as requiring one, therefore saves
+   without asking for a note; a note typed and erased again is untouched and sends no `note`. The required-note
+   error comes only from a note changed to blank (clearing one on a category that requires it) or from moving
+   the entry to a category that requires one while it has no note. The exact test is in S2.
 3. Success exit as F1. Error exits as F1, plus: a change that keeps the target is never checked against
    the team or the deal (AC-2.12, D46), so an entry on a project the person has left, or on a target they
    can no longer read, saves its day, duration, note and work type normally; `not_on_project` /
@@ -222,8 +233,12 @@ Time worked on two things at once counts in full on each, so a day can add up to
 Key elements and rules
 
 - **Period** (`select`): This week, Last week, This month (default), Last month, This year, Custom range.
-  Custom shows two `DateInput`s From / To. Validation: To ≥ From; at most 366 days (the plan's span rule) —
-  field errors, no request while invalid.
+  Custom shows two `DateInput`s From / To. Validation: neither day before 01.01.2000 (floor added 2026-11-13,
+  plan amendment 4; copy in S2 *Date rules*, on the field concerned); To ≥ From; at most 366 days (the plan's
+  span rule) — field errors, no request while invalid. The floor is judged first: To ≥ From and the 366 days
+  are judged only between two days on or after it (the server measures a span on valid days only, plan
+  § Entries). A floor error shows once the person has left the field, as a missing date does, because a native
+  date field can report 0002, 0020, 0202 while a year is being typed; nothing is requested meanwhile.
 - **Project / Deal** filters use `SearchPicker` (NEW, see inventory). **Category** lists every category
   including retired ones (suffixed "(retired)"); **Work type** is one select with two `optgroup`s
   (project list, deal list) because the two lists repeat names ("Analysis") but have different ids. Both
@@ -317,14 +332,14 @@ The prop-driven form (initial values in, one `onSubmit` out) is reusable by spec
 
 | Field | Control | Required | Options / rule |
 |---|---|---|---|
-| Day | `DateInput` in `Field` | yes | default today; `max` today; after today → `future_day` text (AC-1.3) |
+| Day | `DateInput` in `Field` | yes | default today; `max` today; **`min` 2000-01-01** (added 2026-11-13, plan amendment 4: the floor hours-api applies to every `day`, so a mistyped year such as 0226 is refused here and never saved; `min` only greys days in the picker, the check is the error). Checked in this order, one error at a time: not a calendar day → "Choose a valid day."; before 01.01.2000 → the floor error; after today → `future_day` text (AC-1.3, unchanged). *Not a calendar day* = an impossible day (30.02.2026), a year of more than four digits, a half-typed date or an empty field. Copy: *Date rules* below |
 | Duration | native `<select>` in `Field` | yes | 48 options, 30 min … 24 h, labelled with `formatDuration(…, 'short')`; hint "In steps of 30 minutes, up to 24 hours." (AC-1.2, A9). Why not a number box: `type="number"` rejects the comma, a free text box needs a parser and invites "2:30"; a select cannot hold an invalid value and has typeahead |
 | What was it on | `RadioGroupField` (legend) | yes | Project · Deal · Meeting · Other work. **Nothing is preselected** when recording (no default guess, D18) |
 | Project / Deal / Meeting | `SearchPicker` in `Field` | yes | the label follows the radio; each carries its rule as `hint`: project "You can record hours on projects where you are the project manager or on the team."; deal "…on deals you own, are the technical contact of, or take part in through an activity."; meeting "…on meetings you created or take part in." (plan R5) |
 | Category | `select` | yes, Other work only | non-retired categories (+ the entry's own retired one when editing); none available → the field says "No categories are available. Ask whoever manages the time lists." and Save is blocked |
 | Work type | `select` | no, Project / Deal only | first option "No work type"; the projects list for a project, the deals list for a deal; non-retired (+ own retired) |
 | Activity | `select` + `Button ghost sm` "Try again" in its error state | no, Project / Deal only | see *Activity field* below |
-| Note | `textarea` in `Field` | only when the chosen category requires one (then `*` and the hint "This category needs a note.") | counter hint "n of 1000"; over 1000 → field error (AC-1.7); no `maxLength`, so a long paste is not silently cut |
+| Note | `textarea` in `Field` | only when the chosen category requires one **and this save would check it** (then `*`, `aria-required` and the hint "This category needs a note."): the test is *Note — when it is required*, below | counter hint "n of 1000"; over 1000 → field error (AC-1.7); no `maxLength`, so a long paste is not silently cut |
 
 Applicability matrix (a field that does not apply is not in the DOM)
 
@@ -333,10 +348,33 @@ Applicability matrix (a field that does not apply is not in the DOM)
 | Project | picker | — | projects list | activities of that project (tasks) | optional |
 | Deal | picker | — | deals list | activities of that deal | optional |
 | Meeting | picker | — | — | — | optional |
-| Other work | — | required | — | — | optional / required by the category |
+| Other work | — | required | — | — | optional / required by the category (editing: only as *Note — when it is required* says) |
 
 Changing the radio clears the entity, category, work type and activity (they no longer apply) and keeps Day,
 Duration and Note. Changing the entity clears the activity (it belongs to the old one).
+
+**Note — when it is required** (amended 2026-11-13: ledger D50, spec AC-3.6 as amended, plan amendment 4,
+§ Entries "A blank note"). One test decides the `*`, `aria-required`, the hint "This category needs a note.",
+the blur error and the Save block:
+
+> required = the chosen category requires a note ∧ (recording ∨ the category differs from the stored one, *none*
+> included ∨ the stored note is not blank)
+
+Save is blocked, with the field error, only when the note is required **and blank** (empty or only spaces: as no
+note). Recording: as F1 says. Editing:
+
+- a note-less entry that stays on a category since marked as requiring a note: Note is optional and unmarked;
+  a minutes-only or day-only edit saves without one and sends exactly the members that changed;
+- clearing the note of an entry whose category requires one: the required-note error, nothing sent;
+- moving a note-less entry to a category that requires one — another category, or Other work from a project,
+  deal or meeting: the required-note error, nothing sent (marker and hint appear with the choice; nothing is
+  announced or moved). Moving an entry that has a note saves;
+- a note typed and erased again is the stored value again: untouched, no `note` sent. A blank note and no note
+  count as the same, so spaces typed into an empty note change nothing, and choosing another category and then
+  the original back is no move.
+
+The server applies the same test (plan § Entries), so a `note_required` answer reaches this dialog only when
+something changed after it opened — the category's flag, or the entry itself in another tab.
 
 **Activity field.** Once a project or a deal is picked the **browser** reads its activities from activities-api
 as the person — `GET {getActivitiesApiBaseUrl()}/activities?projectId=<id>` or `?dealId=<id>` with
@@ -381,6 +419,22 @@ Picker states (`SearchPicker` `emptyState`, each also announced politely): while
 Validation: on blur of a touched field and on submit; a failed submit moves focus to the first invalid field
 (`focusFirstInvalid`). Required fields carry `*` + `aria-required` (suite convention, no "(optional)" text).
 
+**Date rules — copy** (added 2026-11-13, plan amendment 4). One floor, 2000-01-01, for the Day field and for the
+Custom period, held in one constant in `hours-ui/src/lib` beside `todayZurich`. The date inside each string is
+`formatDate` of that constant and a parameter of the string, never typed into a catalog. All four are field errors
+(`Field`'s `error`, `role="alert"`); nothing is sent while one shows. A real day after today is unchanged:
+`future_day` (AC-1.3).
+
+| Where | When | en | it |
+|---|---|---|---|
+| S2 Day | not a calendar day (an impossible day, a year of more than four digits, a half-typed date, an empty field) | Choose a valid day. | Scegli un giorno valido. |
+| S2 Day | before 01.01.2000 | The day cannot be before 01.01.2000. | Il giorno non può precedere il 01.01.2000. |
+| S1 and S4 Custom, From | before 01.01.2000 | The start date cannot be before 01.01.2000. | La data di inizio non può precedere il 01.01.2000. |
+| S1 and S4 Custom, To | before 01.01.2000 | The end date cannot be before 01.01.2000. | La data di fine non può precedere il 01.01.2000. |
+
+The three floor strings follow the Custom period's existing "The end date cannot be before the start date." /
+"La data di fine non può precedere quella di inizio.".
+
 Error surfaces (server code → where, what it says)
 
 | Code | Surface | Meaning for the person |
@@ -409,7 +463,8 @@ Purpose: read-only oversight of every person's hours (US-4, D9, D21).
 
 - Header: `PageHeader` "Everyone's hours", description "Read only. Hours can be changed only by the person
   who recorded them." (AC-1.6). No primary action; **Export** sits in the Entries card.
-- Filters card: S1's plus **Person** (`select`, "Everyone" first). Its options are the `person` groups of
+- Filters card: S1's (the Custom period and its 01.01.2000 floor included, 2026-11-13) plus **Person**
+  (`select`, "Everyone" first). Its options are the `person` groups of
   `GET /time-entries/totals?whose=all&groupBy=person` with the view's period, project, deal, category and
   work type and **without** `userId` — complete (never paged), `key` = the user id the filter then sends,
   `label` = the live name — so they list exactly the people who have hours under the other filters; no user
@@ -584,6 +639,10 @@ non-holder. A not-found or denied state replaces the content and takes focus on 
   match" for an empty list); the list's own count is not announced, because the list is paged; focus never
   moves. The `SearchPicker` follows `Combobox` rules (↓/↑, Home/End, Enter picks, Escape closes, Tab leaves
   without picking; focus stays in the input, `aria-activedescendant`).
+- **Custom period** (floor added 2026-11-13, plan amendment 4): From and To are `DateInput`s with a visible
+  label. A floor error, like the other range errors, is a `Field` error (`role="alert"`, `aria-invalid`,
+  `aria-describedby`) on the field concerned, shown once the field is left, so a screen reader is not told of it
+  for each digit of a year being typed; focus is never moved to it and nothing is requested while it shows.
 - Each day is a `section` labelled by its heading; its `ListRows` has `aria-label` "Entries on <date>". The
   duration in a row is visible as "2 h 30" and carries the spoken form ("2 hours, 30 minutes") for assistive
   technology; the day total, which is part of the heading's line, likewise. A day whose total has not arrived
@@ -629,6 +688,13 @@ non-holder. A not-found or denied state replaces the content and takes focus on 
 - Disabled fields that the person must learn about (Activity before an entity is chosen, lists not loaded) use
   `aria-disabled` + `aria-describedby` text rather than `disabled`, per the design-system rule.
 - Note counter is static hint text (not live); the over-limit error is on blur/submit.
+- **Day and Note rules** (2026-11-13, D50 / plan amendment 4) — Day's floor and not-a-date errors are ordinary
+  field errors (`aria-invalid`, `role="alert"`, `aria-describedby`, shown on blur and on submit, the first
+  invalid field focused); the `min` attribute is a picker aid, not the check. Note's `*`, `aria-required` and
+  its "This category needs a note." hint are present exactly when the note is required for this save (S2 *Note —
+  when it is required*), so a screen reader is never told a field is required that Save will accept empty; when
+  the person picks a category that requires a note, the marker appears with the choice and nothing is announced
+  or moved, as for the other fields that appear after a choice.
 
 **Delete confirmation (S3)** — `alertdialog`, focus on Cancel, Escape cancels, busy locks it; Confirm is
 `danger`.
@@ -679,7 +745,9 @@ UI present that no AC asks for (small, kept, say if you want it removed): the "o
 viewing" wording of the save banner; the "names not visible" note (plan R4's mitigation); the Person options
 read from `GET totals?groupBy=person` (AC-4.4 asks for the filter and no directory is available, ADR-0066);
 the **Clear the deal filter** button in the AC-4.11 banner (AC-4.11 asks only for "refused as unavailable");
-the activity field's **Try again** button; the success banners of Retire and Restore.
+the activity field's **Try again** button; the success banners of Retire and Restore; the 01.01.2000 floor of the
+Day field and of the Custom period, with its field errors (plan amendment 4, 2026-11-13: a product bound that
+hours-api applies to every day it receives, which no AC states — AC-1.3 is about the future only).
 
 **Not designed — scope creep, reported:** a week grid or timesheet, a timer, "save and add another", copy
 yesterday, drill-down from a totals row into a filter, the API's `meetingId` / `target` list filters (no
