@@ -6,6 +6,7 @@ import EntriesTable from '../components/EntriesTable'
 import ErrorBanner from '../components/ErrorBanner'
 import HoursBanners from '../components/HoursBanners'
 import type { HoursBannersProps } from '../components/HoursBanners'
+import HoursExport from '../components/HoursExport'
 import HoursFilters from '../components/HoursFilters'
 import type { ListsView } from '../components/HoursFilters'
 import { applyFilterPatch, clearFilterSearch, isFiltered, parseFilterSearch } from '../components/HoursFiltersState'
@@ -103,6 +104,9 @@ function Denied() {
  * - `503 authz_unavailable` on the entries or the totals (`auth` could not say whether the person may,
  *   AC-5.4) → one warning in place of Totals and Entries, saying one's own hours are not affected, with
  *   Retry and a link to My hours; the Filters card stays.
+ *
+ * The Export button (T30, `HoursExport`) is in the Entries card: every page of the same filters, `whose=all`
+ * and the Person included, as one XLSX. Read-only like the rest: it changes nothing.
  */
 export default function EveryoneHoursPage() {
   const { resolved, canReadAll } = useHoursAccess()
@@ -237,7 +241,17 @@ function EveryoneHoursView() {
   const reads = [entries.first, totals.state, people.state]
   const refused = reads.some((read) => failedWith(read, 'read_all_required'))
   const authzDown = !refused && [entries.first, totals.state].some((read) => failedWith(read, 'authz_unavailable'))
-  const blocked = !refused && !authzDown && deal !== null && reads.some((read) => failedWith(read, 'host_unavailable'))
+  // An export the deal-filter refusal stopped (T30) is the same state. It is remembered as the first page it was
+  // made over, so it is gone the moment the view reads again (Retry, any change of a filter) and can never block
+  // a later view.
+  const firstPage = entries.first.status === 'loaded' ? entries.first.data : null
+  const [exportRefusedFor, setExportRefusedFor] = useState<EntriesPage | null>(null)
+  const exportRefused = firstPage !== null && exportRefusedFor === firstPage
+  const blocked =
+    !refused &&
+    !authzDown &&
+    deal !== null &&
+    (reads.some((read) => failedWith(read, 'host_unavailable')) || exportRefused)
 
   const totalsCard = useRef<TotalsCardHandle>(null)
   const blocker = useRef<HTMLDivElement>(null)
@@ -263,6 +277,15 @@ function EveryoneHoursView() {
     if (replaced) blocker.current?.focus()
     else totalsCard.current?.focusHeading()
   }, [filterKey, reading, replaced])
+
+  // An export the refusal stopped: the Export button had focus and is gone with the Entries card, so the banner
+  // takes it (design F5). A person who has gone on to another control keeps theirs.
+  const exportBlocked = blocked && exportRefused
+  useEffect(() => {
+    if (!exportBlocked) return
+    const active = document.activeElement
+    if (active === null || active === document.body) blocker.current?.focus()
+  }, [exportBlocked])
 
   // The notes about names. They keep their last settled content while the next answers load, so the Filters
   // card below them does not jump under the pointer on every filter change; with no data (a banner in place
@@ -355,7 +378,19 @@ function EveryoneHoursView() {
             onRetry={totals.reload}
           />
 
-          <Card title={strings.entries.title} data-testid="hours-entries">
+          <Card
+            title={strings.entries.title}
+            action={
+              filters !== null && firstPage !== null && firstPage.items.length > 0 ? (
+                <HoursExport
+                  filters={filters}
+                  resetKey={filterKey}
+                  onDealFilterUnavailable={() => setExportRefusedFor(firstPage)}
+                />
+              ) : undefined
+            }
+            data-testid="hours-entries"
+          >
             {range === null ? (
               <p className="text-sm text-soft" data-testid="hours-entries-invalid">
                 {t.entries.invalidPeriod}

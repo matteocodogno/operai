@@ -19,6 +19,7 @@ import { entryIsGone } from '../components/EntryDialogModel'
 import ErrorBanner from '../components/ErrorBanner'
 import HoursBanners from '../components/HoursBanners'
 import type { HoursBannersProps } from '../components/HoursBanners'
+import HoursExport from '../components/HoursExport'
 import HoursFilters from '../components/HoursFilters'
 import type { ListsView } from '../components/HoursFilters'
 import { applyFilterPatch, clearFilterSearch, isFiltered, parseFilterSearch } from '../components/HoursFiltersState'
@@ -65,7 +66,8 @@ const dayTotalsOf = (answer: TotalsAnswer): ReadonlyMap<string, number> =>
 
 /**
  * My hours — `/hours`. The filters and the Totals card (T24), the entries by day with the server's day totals
- * and the banners (T25); the entry dialog (T27, T28) and the export (T30) join them.
+ * and the banners (T25); the entry dialog (T27, T28); the Export button of the Entries card (T30,
+ * `HoursExport`: every page of the same filters as one XLSX).
  *
  * Filters are the URL's search params (`period`, `from`, `to`, `category`, `workType`, `group`), read with
  * `useSearch` and written by a replacing navigation, the inventory-ui way; the picked project and deal live
@@ -84,7 +86,9 @@ const dayTotalsOf = (answer: TotalsAnswer): ReadonlyMap<string, number> =>
  * Meetings cannot say which meetings belong to the deal (AC-4.11): Totals and Entries are replaced by one
  * alert, and nothing is drawn until the link can be read. Retry re-asks all three reads; focus then goes to
  * the Totals heading if they worked and to the banner if they did not. A failed "Load more" is not that
- * state: the pages already shown were complete when read and stay, with the error below them (D48).
+ * state: the pages already shown were complete when read and stay, with the error below them (D48). The
+ * export's walk (T30) can meet the same refusal: it tells the page, which shows the same alert (the Export
+ * button is gone with the Entries card, so the alert takes focus) and nothing is downloaded.
  */
 export default function MyHoursPage() {
   const navigate = useNavigate()
@@ -157,9 +161,15 @@ export default function MyHoursPage() {
           ? { status: 'error', message: totalsFailure(totals.state.error) }
           : { status: 'loading' }
 
-  // AC-4.11: with a deal filter, a refused first page, totals or day totals is ONE state for the whole view.
+  // AC-4.11: with a deal filter, a refused first page, totals or day totals is ONE state for the whole view — and
+  // so is an export the same refusal stopped (T30). That one is remembered as the first page it was made over, so
+  // it is gone the moment the view reads again (Retry, any change of a filter) and can never block a later view.
+  const firstPage = entries.first.status === 'loaded' ? entries.first.data : null
+  const [exportRefusedFor, setExportRefusedFor] = useState<EntriesPage | null>(null)
+  const exportRefused = firstPage !== null && exportRefusedFor === firstPage
   const blocked =
-    deal !== null && (refusedDealRead(entries.first) || refusedDealRead(totals.state) || refusedDealRead(days.state))
+    deal !== null &&
+    (refusedDealRead(entries.first) || refusedDealRead(totals.state) || refusedDealRead(days.state) || exportRefused)
 
   const totalsCard = useRef<TotalsCardHandle>(null)
   const blocker = useRef<HTMLDivElement>(null)
@@ -184,6 +194,15 @@ export default function MyHoursPage() {
     if (blocked) blocker.current?.focus()
     else totalsCard.current?.focusHeading()
   }, [filterKey, reading, blocked])
+
+  // An export the refusal stopped: the Export button had focus and is gone with the Entries card, so the banner
+  // takes it (design F5). A person who has gone on to another control keeps theirs.
+  const exportBlocked = blocked && exportRefused
+  useEffect(() => {
+    if (!exportBlocked) return
+    const active = document.activeElement
+    if (active === null || active === document.body) blocker.current?.focus()
+  }, [exportBlocked])
 
   // The notes about names. They keep their last settled content while the next answers load, so the Filters
   // card below them does not jump under the pointer on every filter change; with no data (blocked) none.
@@ -379,7 +398,19 @@ export default function MyHoursPage() {
             onRetry={totals.reload}
           />
 
-          <Card title={strings.entries.title} data-testid="hours-entries">
+          <Card
+            title={strings.entries.title}
+            action={
+              filters !== null && firstPage !== null && firstPage.items.length > 0 ? (
+                <HoursExport
+                  filters={filters}
+                  resetKey={filterKey}
+                  onDealFilterUnavailable={() => setExportRefusedFor(firstPage)}
+                />
+              ) : undefined
+            }
+            data-testid="hours-entries"
+          >
             {range === null ? (
               <p className="text-sm text-soft" data-testid="hours-entries-invalid">
                 {strings.entries.invalidPeriod}
