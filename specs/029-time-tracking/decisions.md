@@ -383,5 +383,17 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - default: no Data residency bullet (Railway EU, no new processor); O3 sign-off as one sentence in the hours-api bullet — where: AGENTS.md
 - pre-existing doc gaps left untouched (follow-up chore): README lacks crm/meetings rows, ports 5180/8085, meetings in direnv/DB lists, refers to a missing `CLAUDE.md`; AGENTS.md service-client row omits `crm.deals.read`, `crm.contacts.read`, `estimai.estimates.read`, `projects.purchase-orders.read`; auth/README scope table omits `estimate-notices.send`, `host-notices.send`, `deal-link-notices.send`, `activities.write`; "all six frontends"; the ADR-0034 convention line predates ADR-0045/0058/0090; the `### Backend services` heading lists five; README projects-ui row says "contracts"
 
+## T39 · devops (runbook) · 2026-11-13
+- default: `check.sh`'s 401 probe on `/system/meetings/hosts` runs as a single `curl` at steps 0/3/4, the whole `infra/check.sh` only at step 5 — why: a lookup before the hours DNS exists is cached as "no such host" for 30 min — where: `infra/README.md`
+- reinterpretation: `env:doctor --live` is the gate; `--dir ./resolved` the offline alternative (T39 text had them the other way round) — why: `./resolved` writes resolved per-service files to disk — where: step 4
+- reinterpretation: the 401 probe is not proof that meetings-api's `SERVICE_AUDIENCE` is set (unset gives the same 401); the proofs are a variable-name check and a read-only "Deal filter" check on My hours — where: steps 3 and 5
+- default: provisioning split as `provision-tool.sh hours --port 8088 --no-ui` (step 4), then the full script with `--redeploy-shell --apply` (step 5) — why: `--no-api` does not set `VITE_HOURS_API_URL`; the two-pass run sets both shell variables, service first, frontends last — where: steps 4–5
+- default: the two shell variables are set only at step 5, after the hours DNS record exists — why: otherwise the merged shell would query a nonexistent host and cache NXDOMAIN — where: "Order of the release"
+- assumption: O3 (labour-law check) must be answered before the merge, or the owner explicitly chooses to merge with an entry that does not open; step 5 not run until it is — why: no per-user grant to withhold (AC-5.1); the menu entry ships with the merged shell — where: step 0
+- scope: R2's read-only SQL early check (most meetings linked to one deal, ~1000 threshold) added as a step 3 gate; one row added to the Vercel build-time variable table — where: `infra/README.md`
+- assumption: `shared.SERVICE_AUDIENCE` exists in production; checked by name at step 0 — where: step 0
+- default: production smoke tests — a record-and-delete employee entry, a read-only admin Time lists view, a read-only Deal-filter check, one booking per owner on things the tester already owns — where: step 5
+- rollback trap recorded: never roll `auth` back while its `SERVICE_CLIENTS` still names `meetings.hosts.read`; never delete hours-api or the `hours` DB to roll back — where: "Rollback"
+
 ## T27 (continued)
 - library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
