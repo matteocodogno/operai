@@ -20,6 +20,7 @@ import { invalidRequestHook } from "../lib/errors";
 import { ProblemError, notFound } from "../lib/problem";
 import { ProblemSchema } from "../lists/errorDocs";
 import { IdSchema } from "../lists/idRule";
+import { assertBookable, type Caller } from "../targets/bookability";
 import {
   activityNotAllowed,
   assertMinutes,
@@ -40,7 +41,7 @@ import { ENTRY_INCLUDE, TimeEntryViewSchema, viewEntries, type EntryRow } from "
 
 const problemDoc = (description: string) => ({ description, content: { "application/json": { schema: ProblemSchema } } });
 
-/** The answers of the write routes besides their success (plan § Errors); only those hours-api decides alone so far. */
+/** The answers of the write routes besides their success (plan § Errors) that hours-api decides alone. */
 const writeErrors = {
   400: problemDoc(
     "`invalid_request`: an unknown key (`userId`, `start`, `end`…), a member of the wrong shape, an id outside the id rule (`field` names it), " +
@@ -52,6 +53,19 @@ const writeErrors = {
     "A rule broken, `field` names the member: `invalid_minutes`, `future_day`, `note_too_long`, `note_required`, `category_not_found`, " +
       "`category_retired`, `work_type_not_allowed`, `work_type_not_found`, `work_type_retired`, `activity_not_allowed`",
   ),
+} as const;
+
+/**
+ * What the owners add to a `POST` and to a `PATCH` that moves the entry (plan § Errors; T15): whether the caller may
+ * book there. `404` replaces the entry's own for these two routes: it also covers the target.
+ */
+const ownerErrors = {
+  403: problemDoc("`not_on_project`: the project is readable and the caller is neither its project manager nor on its team"),
+  404: problemDoc(
+    "`not_found`: on a `PATCH`, no entry of yours has this id; on either, the project or meeting does not exist, the caller may not read it, " +
+      "or is not its creator or a participant (a meeting) — one body for all of them",
+  ),
+  503: problemDoc("`host_unavailable`: the tool that owns the project or meeting could not be asked, so nothing was saved"),
 } as const;
 
 const createEntryRoute = createRoute({
@@ -66,6 +80,7 @@ const createEntryRoute = createRoute({
   responses: {
     201: { description: "Recorded", content: { "application/json": { schema: TimeEntryViewSchema } } },
     ...writeErrors,
+    ...ownerErrors,
   },
 });
 
@@ -86,6 +101,7 @@ const updateEntryRoute = createRoute({
   responses: {
     200: { description: "Changed", content: { "application/json": { schema: TimeEntryViewSchema } } },
     ...writeErrors,
+    ...ownerErrors,
   },
 });
 
@@ -146,11 +162,11 @@ const targetColumns = (on: On) => ({
  * What a write still has to ask the OWNERS of the things an entry is on, once every local rule held:
  * bookability (AC-2.2, AC-2.3, AC-2.5) and the activity pointer (AC-2.7). Entries on no entity need neither.
  *
- * TODO(T15, T16): `askOwners` is the seam they fill in (T15 `bookable` for projects and meetings, T16 for deals
- * and `activity`). Until they do, a write that needs an owner is REFUSED with 501 — never accepted unchecked: a
- * person could otherwise book on a project they are not on. The tests that pin the refusal are the block marked
- * TRANSITIONAL in write.test.ts: T15 and T16 replace them with their own (bookability.test.ts, deals.test.ts,
- * activityPointer.test.ts).
+ * `askOwners` is the seam: bookability on a project and a meeting is src/targets/bookability.ts (T15). TODO(T16):
+ * bookability on a deal (also in src/targets) and `activity`. Until then a write that needs those is REFUSED with
+ * 501 — never accepted unchecked: a person could otherwise book on a deal they are not involved in. The tests
+ * that pin the refusal are the block marked TRANSITIONAL in write.test.ts; T16 replaces them with its own
+ * (deals.test.ts, activityPointer.test.ts).
  */
 interface OwnerChecks {
   /** Set when the entry is created on, or moved to, a project, a deal or a meeting. */
@@ -162,12 +178,15 @@ interface OwnerChecks {
   readonly activity: { readonly id: string; readonly target: { readonly type: "project" | "deal"; readonly id: string } } | null;
 }
 
-async function askOwners(_authorization: string, checks: OwnerChecks): Promise<void> {
-  if (checks.bookable === null && checks.activity === null) return;
+async function askOwners(caller: Caller, checks: OwnerChecks): Promise<void> {
+  // Bookability first, as the plan's sequences run it: an entry that may not be booked there is never asked
+  // about the activity it would point at (a 403 or a 404 must not be hidden behind another answer).
+  if (checks.bookable !== null) await assertBookable(caller, checks.bookable);
+  if (checks.activity === null) return;
   throw new ProblemError({
     status: 501,
     code: "not_implemented",
-    detail: "Hours on a project, a deal or a meeting cannot be recorded yet: whether you may book on them is not checked here yet",
+    detail: "An activity cannot be pointed at yet: whether it belongs to the project or the deal is not checked here yet",
   });
 }
 
@@ -259,11 +278,12 @@ async function validateWrite({ stored, body, target, moved }: Write): Promise<Ow
 entriesRouter.openapi(createEntryRoute, async (c) => {
   const body: CreateEntry = c.req.valid("json");
   const authorization = c.req.header("Authorization") ?? "";
+  const userId = c.get("userId");
   const owners = await validateWrite({ stored: null, body, target: body.on, moved: true });
-  await askOwners(authorization, owners);
+  await askOwners({ userId, authorization }, owners);
   const row = await db.timeEntry.create({
     data: {
-      userId: c.get("userId"),
+      userId,
       day: new Date(`${body.day}T00:00:00Z`),
       minutes: body.minutes,
       ...targetColumns(body.on),
@@ -290,7 +310,7 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
 
   const movedTo = body.on !== undefined && !sameTarget(targetOf(stored), body.on) ? body.on : null;
   const owners = await validateWrite({ stored, body, target: movedTo ?? targetOf(stored), moved: movedTo !== null });
-  await askOwners(authorization, owners);
+  await askOwners({ userId, authorization }, owners);
 
   // Last write wins for one person in two tabs (no If-Match: an entry has one writer, ADR-0088). The row is
   // addressed by id AND owner, so the statement itself can never touch another person's entry.

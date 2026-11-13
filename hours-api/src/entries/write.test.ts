@@ -1002,39 +1002,29 @@ describe("PATCH /time-entries/{id}: moving an entry to no entity (AC-2.1, AC-3.5
 });
 
 /**
- * TRANSITIONAL — T15 (projects, meetings) and T16 (deals, the activity pointer) replace the refusal below with
- * the owners' bookability checks and move this test to their own files. Until then a write on a project, a
- * deal or a meeting is refused, never accepted unchecked (fail closed, AC-2.11's posture).
+ * TRANSITIONAL — T16 (deals, the activity pointer) replaces the refusals below with the owners' checks and
+ * moves these tests to its own files (deals.test.ts, activityPointer.test.ts). Projects and meetings are T15's:
+ * src/entries/bookability.test.ts. Until T16 a write on a deal, or one that points at an activity, is refused,
+ * never accepted unchecked (fail closed, AC-2.11's posture).
  */
-describe("hours on a project, a deal or a meeting, until their owners are asked (T15, T16)", () => {
-  it("are refused with 501 not_implemented, nothing written and no owner called", async () => {
-    for (const on of [
-      { type: "project", id: "p1" },
-      { type: "deal", id: "d1" },
-      { type: "meeting", id: "m1" },
-    ]) {
-      const res = await post(body({ on }));
-      expect(res.status).toBe(501);
-      expect(res.json.code).toBe("not_implemented");
-    }
+describe("hours on a deal, and an activity pointer, until their owners are asked (T16)", () => {
+  it("a deal is refused with 501 not_implemented, nothing written and no owner called", async () => {
+    const res = await post(body({ on: { type: "deal", id: "d1" } }));
+    expect(res.status).toBe(501);
+    expect(res.json.code).toBe("not_implemented");
     expect(await entryRows()).toHaveLength(0);
     expect(hosts.calls).toHaveLength(0);
   });
 
-  it("refuse a PATCH that moves an entry to another project, deal or meeting, or to one from no entity, leaving the entry", async () => {
+  it("refuse a PATCH that moves an entry to a deal, leaving the entry", async () => {
     const onProject = await makeProjectEntry("p1");
     const onNone = await makeNoEntityEntry(SEED.categories.training);
-    for (const [entry, on] of [
-      [onProject, { type: "project", id: "p2" }],
-      [onProject, { type: "deal", id: "d1" }],
-      [onProject, { type: "meeting", id: "m1" }],
-      [onNone, { type: "project", id: "p1" }],
-    ] as const) {
-      const res = await patch(entry.id, { on });
+    for (const entry of [onProject, onNone]) {
+      const res = await patch(entry.id, { on: { type: "deal", id: "d1" } });
       expect(res.status).toBe(501);
     }
-    expect(await db.timeEntry.findUniqueOrThrow({ where: { id: onProject.id } })).toMatchObject({ target: "project", projectId: "p1" });
-    expect(await db.timeEntry.findUniqueOrThrow({ where: { id: onNone.id } })).toMatchObject({ target: "none", projectId: null });
+    expect(await db.timeEntry.findUniqueOrThrow({ where: { id: onProject.id } })).toMatchObject({ target: "project", projectId: "p1", dealId: null });
+    expect(await db.timeEntry.findUniqueOrThrow({ where: { id: onNone.id } })).toMatchObject({ target: "none", dealId: null });
     expect(hosts.calls).toHaveLength(0);
   });
 
@@ -1044,6 +1034,20 @@ describe("hours on a project, a deal or a meeting, until their owners are asked 
     expect(res.status).toBe(501);
     expect((await db.timeEntry.findUniqueOrThrow({ where: { id: entry.id } })).activityId).toBe("activity-1");
     expect(hosts.calls).toHaveLength(0);
+  });
+
+  it("refuse a new project entry that points at an activity, after bookability said yes: nothing is written", async () => {
+    hosts.projects.setProject("p1", { label: "Apollo", assignees: [ALICE] });
+    const res = await post(body({ on: { type: "project", id: "p1" }, activityId: "activity-1" }));
+    expect(res.status).toBe(501);
+    expect(await entryRows()).toHaveLength(0);
+  });
+
+  it("let the project's own answer come first: a caller who is not on it is told 403, not 501", async () => {
+    hosts.projects.setProject("p1", { label: "Apollo", assignees: [PERSONAS.bob.sub] });
+    const res = await post(body({ on: { type: "project", id: "p1" }, activityId: "activity-1" }));
+    expect(res.status).toBe(403);
+    expect(res.json.code).toBe("not_on_project");
   });
 });
 
