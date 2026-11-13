@@ -109,3 +109,39 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - assumption: Italian copy "Le ore di tutti" and "Sezioni delle ore" chosen by the agent (design gives only "Ore" and "Le mie ore") — where: `strings/common.ts`, `strings/everyone.ts`
 - default: the fake API answers a route only on its own service's origin; an unrouted request is a 404 Problem naming the request; owner row shapes are test-support-local copies, not compile-checked against the production types T24/T26 define — where: `test-support/fakeApi.ts`, `fakeSession.ts`
 - scope: no `.changeset/*` and no `lerna.json` entry — why: T34 owns both — where: none
+
+## T33 · devops · 2026-11-13
+- reinterpretation: "hours-api is in `ORIGINS`" read as hours-ui — why: `ORIGINS` holds frontend public origins; hours-ui went into `SERVICES` and `ORIGINS` (production `https://hours.operai.welld.io` assumed from `provision-tool.sh`, local `:5184` from the plan) — where: `tools/env-doctor/manifest.ts`
+- default: meetings-api's `SERVICE_AUDIENCE` is required through `PRODUCTION_REQUIRED_KEYS`, not `REQUIRED_KEYS` — why: meetings-api's `env.ts` keeps it optional on purpose; a local `--env local` run is therefore not flagged — where: `manifest.ts`
+- default: hours-api's keys are all in `REQUIRED_KEYS` (every environment) — why: its `env.ts` requires every variable at start — where: `manifest.ts`
+- scope: meetings-api added to the shared `SERVICE_AUDIENCE` list and to the `SERVICE_AUDIENCE` ≠ `AUTH_AUDIENCE` check — why: it verifies the same token; a drift would silently 401 hours-api — where: `manifest.ts`, `check.test.ts`
+- scope: hours-api added to the `NOTIFY_INTERNAL_TOKEN` forbidden-var entry — why: `retiredToken.test.ts` requires that entry to equal `BACKENDS` — where: `manifest.ts`
+- scope: edited `live.test.ts` (outside `touch:`, one expected-list line) — why: adding hours-api to `BACKENDS` breaks "loads every backend from the runner" otherwise — where: `tools/env-doctor/live.test.ts`
+- default: new internal-URL, public-URL and CORS entries added as new blocks; `SHARED_VARS` and `ISSUER.resourceServers` extended in place — why: R3 asks for additive edits, but `SHARED_VARS` compares services within one entry — where: `manifest.ts`
+- default: shared-variable name `HOURS_SERVICE_CLIENT_SECRET` (`<TOOL>_SERVICE_CLIENT_SECRET` pattern) — where: `hours-api.env`, `auth.env`
+- default: hours-api's production `ALLOWED_ORIGINS` = shell origin + admin-ui origin (refund-api's pattern); no `NOTIFY_INTERNAL_URL` — why: the Time lists page calls hours-api directly; hours-api sends no notification — where: `hours-api.env`
+- assumption: the Railway project variable `shared.SERVICE_AUDIENCE` already exists; only `HOURS_SERVICE_CLIENT_SECRET` is new (a person creates it) — where: `hours-api.env`, `meetings-api.env`
+
+## T34 · devops · 2026-11-13
+- scope: added the three CSP pins for hours-api and hours-ui (`connect-src` for the API, `script-src` and `connect-src` for the remote) to `infra/check.sh`, beyond the four probes the done-when names — why: every other tool has them, and they match what T23 asserts; they fail until the shell is redeployed, which is when the runbook runs the check — where: `infra/check.sh`.
+- default: the 401 probe on meetings-api `/system/meetings/hosts` uses the bare URL with no query — why: the route checks the credential before the query; matches the crm-api `/system/companies` probe — where: `infra/check.sh`.
+- default: hours-api and hours-ui changesets are `minor`, written at feature level — why: the other new packages carry pending `minor` changesets over 0.1.0 — where: `.changeset/hours-api.md`, `.changeset/hours-ui.md`.
+- assumption: `HOURS_REMOTE_URL` is the shell build's env name for the hours remote — why: follows `PROJECTS_REMOTE_URL`; T23 owns `shell/vite.config.ts` in parallel (verify at T23 integration) — where: `shell/playwright.config.ts`.
+- default: hours-api and hours-ui placed after activities-api and projects-ui in `lerna.json`, hours-ui last in `ui:check` — where: `lerna.json`, `mise.toml`.
+- default: `db:migrate` runs hours-api last, with no `set -e`, as the siblings do — why: without its direnv file the failure leaves the other nine databases migrated — where: `mise.toml`.
+
+## T11 · backend-dev · 2026-11-13
+- reinterpretation: "drop items whose id was not asked for" is kept with one addition — if an owner hands back an item nobody asked for AND an asked id is missing, the answer is `unavailable` (`filter_ignored`), not "absent"; applies to activities `ids`, meetings `ids` and the system route's `?ids=` — why: an owner that ignored the filter (a meetings-api before T8 returning the caller's latest page) proves nothing about what is absent; reading the rest as "not yours" would turn the creator's own older meeting into a false 404 — where: `owner.ts` `keepAsked`, `activities.ts`, `meetings.ts`.
+- reinterpretation: a system-route `?dealId=` answer drops items whose host is not exactly `{crm, deal, <dealId>}` instead of answering `unavailable` (plan amendment 2) — where: `meetings.ts` `readMeetingsLinkedToDeal`.
+- default: in the deal scan, an activity not about the deal, or pages that do not add up to the owner's `total`, make the whole answer `unavailable` — why: "absent" means "not involved" (a 403); a scan that cannot account for every activity must not pass for the whole list — where: `activities.ts` `listDealActivities`.
+- default: any one batch that does not answer, or answers `not_reader`, makes the whole call `unavailable` / `not_reader`; at most 4 batches in flight, no new batch after a stop — where: `owner.ts` `inBatches`.
+- default: only a clean 200 with a JSON body is an answer; every other status, a redirect, a timeout, a network error and a contract-breaking body are `unavailable` — why: task text and R7 — where: `owner.ts` `callOwner`.
+- default: an owner `href` that is not a suite path (`/…`, not `//`, no scheme, backslash or whitespace) makes the call `unavailable` — where: `owner.ts` `isSuitePath`.
+- default: an open project without `assignees`, an open deal without `involved`, or a resolve that leaves an asked id unanswered is `unavailable` — why: fail closed — where: `projects.ts`, `crm.ts`, `owner.ts`.
+- default: `listMeetingsByIds` keeps only rows with role `creator` or `participant`; a `host_reader` row is absent — why: plan "On a meeting" — where: `meetings.ts`.
+- default: the service-token client retries ONCE with a fresh token after a 401, then `unavailable`; a token that cannot be minted is `unavailable` and meetings-api is not called. Cost: a persistently refused credential makes two mints per read — where: `meetings.ts` `callAsService`.
+- assumption: the clients trust the id rule to be enforced upstream (T14–T16) and do not re-check it; query values are built with `URLSearchParams` — where: `owner.ts` header.
+- default: `ActivityFact` exposes flat ids (`projectId`, `dealId`, `assigneeId`, `participantIds`) plus `subject` and `type`; `MeetingFact` is `{id, title, role}`; `MeetingHost` is `{dealId|null}` — a host that is not exactly `crm`/`deal` (case or padding variants included) reads as no deal; a `crm`/`deal` host with an empty `entityId` reads as no deal; a host of the wrong shape fails its batch — where: `activities.ts`, `meetings.ts` `dealOf`.
+- scope: `src/clients/hosts.test.ts` and `contract.test.ts` pin the fake's strictness, recording and reset — where: `hours-api/src/clients/`.
+- default: `hosts.ts` imports `./world` for `onReset`; one fake instance per test file; `stop()` restores the env it found; `FailureMode` adds `withStatus` and `after` — where: `hours-api/src/test-support/hosts.ts`.
+- default: the fake meetings-api mirrors T9's route rules (trim, empty/blank members 422, raw caps 6500/128, NUL `dealId` → `[]`, id ascending, exact `{crm, deal, dealId}` match) — where: `hosts.ts`.
