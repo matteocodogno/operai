@@ -31,14 +31,21 @@ afterEach(() => {
 })
 
 /** The page, its strings and its fake API, all imported after the language is set. */
-const setup = async (lang: 'it' | 'en', path = '/hours') => {
+const setup = async (lang: 'it' | 'en', path = '/hours', overrides: Record<string, unknown> = {}) => {
   document.documentElement.setAttribute('lang', lang)
-  const { fakeApi, listsHandler } = await import('../test-support/fakeApi')
-  const { LISTS, totalsHandler } = await import('../test-support/fixtures/myHours')
+  const { dealItem, fakeApi, listsHandler, page } = await import('../test-support/fakeApi')
+  const { LISTS } = await import('../test-support/fixtures/myHours')
+  const { entriesHandler, totalsWithDays } = await import('../test-support/fixtures/entries')
   const { createAppRouter } = await import('../router')
   const { strings } = await import('../strings')
   apiFetch.mockImplementation(
-    fakeApi({ 'GET /time-lists': listsHandler(LISTS), 'GET /time-entries/totals': totalsHandler }),
+    fakeApi({
+      'GET /time-lists': listsHandler(LISTS),
+      'GET /time-entries': entriesHandler,
+      'GET /time-entries/totals': totalsWithDays,
+      'GET /deals': () => ({ status: 200, body: page([dealItem({ id: 'd1', title: 'Acme renewal' })]) }),
+      ...overrides,
+    }),
   )
   const history = createMemoryHistory({ initialEntries: [path] })
   render(<RouterProvider router={createAppRouter('/hours', undefined, history)} />)
@@ -58,7 +65,11 @@ describe('My hours in Italian', () => {
 
     expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Le mie ore')
     expect(screen.getByText(/conta per intero su ciascuna/)).not.toBeNull()
-    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual(['Filtri', 'Totali'])
+    expect(screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Filtri',
+      'Totali',
+      'Registrazioni',
+    ])
     expect(optionTexts('Periodo')).toEqual([
       'Questa settimana',
       'Settimana scorsa',
@@ -146,5 +157,70 @@ describe('the same names in English', () => {
     await setup('en')
     await vi.waitFor(() => expect(optionTexts('Category').length).toBeGreaterThan(1))
     expect(optionTexts('Category')).toEqual(['All categories', 'Formazione', 'Administration', 'Seminars (retired)'])
+  })
+})
+
+describe('the entries by day in Italian (AC-5.5, AC-3.8, AC-4.10)', () => {
+  it('writes the day heading, the day total, the types and the rows in Italian, and a typed list name verbatim', async () => {
+    await setup('it')
+    const day = await screen.findByTestId('hours-day-2026-11-12')
+
+    expect(within(day).getByRole('heading', { level: 4 }).textContent).toBe('12 novembre 2026')
+    const total = screen.getByTestId('hours-day-total-2026-11-12')
+    expect(within(total).getByText('Totale del giorno')).not.toBeNull()
+    expect(within(total).getByText('8 h 30')).not.toBeNull()
+    expect(within(total).getByText('8 ore e 30 minuti')).not.toBeNull()
+    expect(within(day).getAllByText('Progetto')).toHaveLength(2)
+    expect(within(day).getByText('Non visibile a te')).not.toBeNull()
+    expect(within(day).getByText('Attività: non visibile a te')).not.toBeNull()
+    expect(within(day).getByText('Attività: Write the offer')).not.toBeNull()
+    expect(screen.getByRole('list', { name: 'Registrazioni del 12 novembre 2026' })).not.toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Carica altre' }))
+    const kickoff = await screen.findByTestId('hours-entry-e-kickoff')
+    expect(within(kickoff).getByText('Riunione')).not.toBeNull()
+    expect(within(kickoff).getByText("Conta per l'opportunità Acme renewal")).not.toBeNull()
+    const training = screen.getByTestId('hours-entry-e-training')
+    expect(within(training).getByText('Altro lavoro')).not.toBeNull()
+    expect(within(training).getByText('Formazione')).not.toBeNull()
+    expect(within(screen.getByTestId('hours-entry-e-deal')).getByText('Legacy demo (archiviata)')).not.toBeNull()
+  })
+
+  it('says the banners, the empty state and the failed load in Italian, and none of the English', async () => {
+    const strings = await setup('it', '/hours', {
+      'GET /time-entries': () => ({
+        status: 200,
+        body: { items: [], nextCursor: null, unavailable: ['projects', 'meeting-deals'] },
+      }),
+    })
+    expect(await screen.findByText('Nessuna ora registrata in questo periodo')).not.toBeNull()
+    expect(screen.getByText('Registra le ore lavorate e compaiono qui, giorno per giorno.')).not.toBeNull()
+    expect(screen.getByTestId('hours-banner-unavailable').textContent).toBe(
+      "Le ore sono complete; questi nomi non sono stati caricati e risultano non disponibili: i nomi dei progetti, l'opportunità a cui contano le ore delle riunioni.",
+    )
+    expect(screen.getByRole('note', { name: 'Registrazioni senza nome visibile' })).not.toBeNull()
+    expect(strings.entries.title).toBe('Registrazioni')
+    expect(screen.queryByText('No hours recorded in this period')).toBeNull()
+    expect(screen.queryByText(/could not be loaded/)).toBeNull()
+  })
+
+  it('says the deal-filter-unavailable state in Italian', async () => {
+    await setup('it', '/hours', {
+      'GET /time-entries': (url: URL) =>
+        url.searchParams.has('dealId')
+          ? {
+              status: 503,
+              body: { type: 'about:blank', title: 'Problem 503', status: 503, code: 'host_unavailable' },
+            }
+          : { status: 200, body: { items: [], nextCursor: null, unavailable: [] } },
+    })
+    await screen.findByText('Nessuna ora registrata in questo periodo')
+    await userEvent.type(screen.getByRole('combobox', { name: 'Opportunità' }), 'a')
+    await userEvent.click(await screen.findByRole('option', { name: /Acme renewal/ }))
+
+    const alert = await screen.findByTestId('hours-deal-filter-unavailable')
+    expect(within(alert).getByText('Al momento non è possibile mostrare le ore di questa opportunità')).not.toBeNull()
+    expect(within(alert).getByRole('button', { name: 'Riprova' })).not.toBeNull()
+    expect(within(alert).getByRole('button', { name: 'Rimuovi il filtro opportunità' })).not.toBeNull()
   })
 })

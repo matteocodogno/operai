@@ -1,3 +1,5 @@
+import { useImperativeHandle, useRef } from 'react'
+import type { Ref } from 'react'
 import { Card, DataTable, Field, FactList, SkeletonRows, VisuallyHidden, formatDuration } from '@operai/ui'
 import type { TotalsAnswer } from '../lib/hoursApi.types'
 import { strings } from '../strings'
@@ -14,12 +16,22 @@ export type TotalsView =
   | { status: 'error'; message: string }
   | { status: 'loaded'; answer: TotalsAnswer }
 
+/** What the page can ask of the card. */
+export type TotalsCardHandle = {
+  /**
+   * Moves focus to the card's heading (design S1: after a retry of the deal-filter-unavailable state that
+   * worked, focus goes where the new totals are). The heading is focusable but never a tab stop.
+   */
+  focusHeading: () => void
+}
+
 export type TotalsCardProps = {
   view: TotalsView
   groupBy: GroupChoice
   onGroupByChange: (group: GroupChoice) => void
   /** Retry after a failed read. */
   onRetry: () => void
+  ref?: Ref<TotalsCardHandle>
 }
 
 /** Whole minutes as hours and minutes ("2 h 30", AC-4.9). */
@@ -50,74 +62,89 @@ const columns = (groupBy: GroupChoice) =>
  * States: loading (skeleton + a polite "Loading totals…"), loaded (the total, the table, or "Nothing to
  * total." for 0), a failed read (a warning with Retry inside the card: a failed totals call never blocks
  * the rest of the page) and a range that cannot be sent. The total is announced politely when it arrives;
- * focus is never moved.
+ * the card never moves focus by itself — the page can ask for it (`focusHeading`, T25).
  */
-export default function TotalsCard({ view, groupBy, onGroupByChange, onRetry }: TotalsCardProps) {
-  return (
-    <Card title={strings.totals.title} data-testid="hours-totals">
-      <VisuallyHidden live data-testid="hours-totals-live">
-        {announcement(view)}
-      </VisuallyHidden>
+export default function TotalsCard({ view, groupBy, onGroupByChange, onRetry, ref }: TotalsCardProps) {
+  const root = useRef<HTMLDivElement>(null)
 
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        {view.status === 'loaded' && (
-          <FactList
-            testId="hours-totals-total"
-            items={[{ id: 'total', term: strings.totals.total, value: short(view.answer.totalMinutes) }]}
+  // `Card` has no focusable heading yet, so the heading is found through the card's own `aria-labelledby`.
+  useImperativeHandle(ref, () => ({
+    focusHeading: () => {
+      const labelledBy = root.current?.querySelector('section')?.getAttribute('aria-labelledby')
+      const heading = labelledBy ? document.getElementById(labelledBy) : null
+      if (heading === null) return
+      heading.tabIndex = -1
+      heading.focus()
+    },
+  }))
+
+  return (
+    <div ref={root} className="contents">
+      <Card title={strings.totals.title} data-testid="hours-totals">
+        <VisuallyHidden live data-testid="hours-totals-live">
+          {announcement(view)}
+        </VisuallyHidden>
+
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          {view.status === 'loaded' && (
+            <FactList
+              testId="hours-totals-total"
+              items={[{ id: 'total', term: strings.totals.total, value: short(view.answer.totalMinutes) }]}
+            />
+          )}
+          <Field label={strings.totals.groupBy.label} className="ml-auto">
+            {(control) => (
+              <select
+                {...control}
+                value={groupBy}
+                onChange={(event) => {
+                  const choice = GROUP_CHOICES.find((candidate) => candidate === event.target.value)
+                  if (choice !== undefined) onGroupByChange(choice)
+                }}
+                data-testid="hours-totals-group"
+              >
+                {GROUP_CHOICES.map((choice) => (
+                  <option key={choice} value={choice}>
+                    {strings.totals.groupBy[choice]}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+        </div>
+
+        {view.status === 'loading' && <SkeletonRows rows={3} actions={0} testId="hours-totals-skeleton" />}
+
+        {view.status === 'invalid' && (
+          <p className="text-sm text-soft" data-testid="hours-totals-invalid">
+            {strings.totals.invalidPeriod}
+          </p>
+        )}
+
+        {view.status === 'error' && (
+          <ErrorBanner
+            title={strings.totals.error.title}
+            message={view.message}
+            onRetry={onRetry}
+            testId="hours-totals-error"
           />
         )}
-        <Field label={strings.totals.groupBy.label} className="ml-auto">
-          {(control) => (
-            <select
-              {...control}
-              value={groupBy}
-              onChange={(event) => {
-                const choice = GROUP_CHOICES.find((candidate) => candidate === event.target.value)
-                if (choice !== undefined) onGroupByChange(choice)
-              }}
-              data-testid="hours-totals-group"
-            >
-              {GROUP_CHOICES.map((choice) => (
-                <option key={choice} value={choice}>
-                  {strings.totals.groupBy[choice]}
-                </option>
-              ))}
-            </select>
-          )}
-        </Field>
-      </div>
 
-      {view.status === 'loading' && <SkeletonRows rows={3} actions={0} testId="hours-totals-skeleton" />}
-
-      {view.status === 'invalid' && (
-        <p className="text-sm text-soft" data-testid="hours-totals-invalid">
-          {strings.totals.invalidPeriod}
-        </p>
-      )}
-
-      {view.status === 'error' && (
-        <ErrorBanner
-          title={strings.totals.error.title}
-          message={view.message}
-          onRetry={onRetry}
-          testId="hours-totals-error"
-        />
-      )}
-
-      {view.status === 'loaded' &&
-        (view.answer.totalMinutes === 0 ? (
-          <p className="text-sm text-soft" data-testid="hours-totals-empty">
-            {strings.totals.empty}
-          </p>
-        ) : (
-          <DataTable
-            caption={strings.totals.caption[groupBy]}
-            columns={columns(groupBy)}
-            rows={totalsRows(groupBy, view.answer.groups)}
-            getRowKey={(row) => row.key}
-            testId="hours-totals-table"
-          />
-        ))}
-    </Card>
+        {view.status === 'loaded' &&
+          (view.answer.totalMinutes === 0 ? (
+            <p className="text-sm text-soft" data-testid="hours-totals-empty">
+              {strings.totals.empty}
+            </p>
+          ) : (
+            <DataTable
+              caption={strings.totals.caption[groupBy]}
+              columns={columns(groupBy)}
+              rows={totalsRows(groupBy, view.answer.groups)}
+              getRowKey={(row) => row.key}
+              testId="hours-totals-table"
+            />
+          ))}
+      </Card>
+    </div>
   )
 }

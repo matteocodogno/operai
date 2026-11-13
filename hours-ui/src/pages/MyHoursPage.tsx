@@ -1,19 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { PageHeader } from '@operai/ui'
+import { Banner, Button, Card, LoadMore, PageHeader, SkeletonRows, StatePanel, VisuallyHidden } from '@operai/ui'
+import DealFilterUnavailable from '../components/DealFilterUnavailable'
+import EntryDayList from '../components/EntryDayList'
+import ErrorBanner from '../components/ErrorBanner'
+import HoursBanners from '../components/HoursBanners'
+import type { HoursBannersProps } from '../components/HoursBanners'
 import HoursFilters from '../components/HoursFilters'
 import type { ListsView } from '../components/HoursFilters'
 import { applyFilterPatch, clearFilterSearch, isFiltered, parseFilterSearch } from '../components/HoursFiltersState'
 import type { FilterPatch } from '../components/HoursFiltersState'
 import TotalsCard from '../components/TotalsCard'
-import type { TotalsView } from '../components/TotalsCard'
-import { statusOf } from '../lib/errors'
+import type { TotalsCardHandle, TotalsView } from '../components/TotalsCard'
+import { isCode, statusOf } from '../lib/errors'
 import { getTimeLists, getTotals, listEntries } from '../lib/hoursApi'
 import type { EntryFilters } from '../lib/hoursApi'
+import type { EntriesPage, TimeEntryView, TotalsAnswer } from '../lib/hoursApi.types'
+import { hasHiddenName, unavailableSources } from '../lib/names'
 import { rangeOf } from '../lib/period'
 import type { DealChoice, ProjectChoice } from '../lib/searchers'
 import { todayZurich } from '../lib/todayZurich'
-import { useHoursQuery } from '../lib/useHoursQuery'
+import { useHoursPages, useHoursQuery } from '../lib/useHoursQuery'
+import type { HoursQueryState } from '../lib/useHoursQuery'
 import { strings } from '../strings'
 
 type Search = Record<string, unknown>
@@ -22,15 +30,34 @@ type Search = Record<string, unknown>
 const totalsFailure = (error: unknown): string =>
   statusOf(error) === null ? strings.common.networkError : strings.totals.error.body
 
+/** The words for a failed read of the entries, likewise. */
+const entriesFailure = (error: unknown): string =>
+  statusOf(error) === null ? strings.common.networkError : strings.entries.error.body
+
+const NO_BANNERS: HoursBannersProps = { sources: [], dealGroupingUnavailable: false, hiddenNames: false }
+
+const sameBanners = (a: HoursBannersProps, b: HoursBannersProps): boolean =>
+  a.sources.join() === b.sources.join() &&
+  a.dealGroupingUnavailable === b.dealGroupingUnavailable &&
+  a.hiddenNames === b.hiddenNames
+
+/** Meetings cannot say which meetings belong to the deal: the refusal AC-4.11 turns into one state. */
+const refusedDealRead = (state: HoursQueryState<unknown>): boolean =>
+  state.status === 'error' && isCode(state.error, 'host_unavailable')
+
+/** The `groupBy=day` answer as day → minutes: the figure beside each day's heading, never a client sum. */
+const dayTotalsOf = (answer: TotalsAnswer): ReadonlyMap<string, number> =>
+  new Map(answer.groups.flatMap((group) => (group.kind === 'keyed' ? [[group.key, group.minutes] as const] : [])))
+
 /**
- * My hours — `/hours`. T24 ships the filters and the Totals card; the entries by day (T25), the entry
- * dialog (T27, T28) and the export (T30) join them.
+ * My hours — `/hours`. The filters and the Totals card (T24), the entries by day with the server's day totals
+ * and the banners (T25); the entry dialog (T27, T28) and the export (T30) join them.
  *
  * Filters are the URL's search params (`period`, `from`, `to`, `category`, `workType`, `group`), read with
  * `useSearch` and written by a replacing navigation, the inventory-ui way; the picked project and deal live
  * in memory, because a pick needs its label and the URL carries none (so a deal filter is never present on
  * a first load). Every change of a filter asks again, with the same filters, for the entries (first page),
- * the totals for the chosen "Group by" and the day totals (`groupBy=day`, which T25 puts beside each day's
+ * the totals for the chosen "Group by" and the day totals (`groupBy=day`, the figure beside each day's
  * heading); a change of "Group by" alone asks only for the totals. An answer for filters that are no longer
  * the page's is discarded (`useHoursQuery`), and nothing is summed or sorted in the browser.
  *
@@ -38,6 +65,12 @@ const totalsFailure = (error: unknown): string =>
  * mangled link) is not sent, and while the lists are still loading a link that names one waits for them
  * rather than asking once without it. A Custom range that cannot be sent (To before From, over 366 days, a
  * missing date) asks nothing and the date fields say why.
+ *
+ * With a deal filter, a 503 `host_unavailable` on the first page, the totals or the day totals means
+ * Meetings cannot say which meetings belong to the deal (AC-4.11): Totals and Entries are replaced by one
+ * alert, and nothing is drawn until the link can be read. Retry re-asks all three reads; focus then goes to
+ * the Totals heading if they worked and to the banner if they did not. A failed "Load more" is not that
+ * state: the pages already shown were complete when read and stay, with the error below them (D48).
  */
 export default function MyHoursPage() {
   const navigate = useNavigate()
@@ -85,12 +118,21 @@ export default function MyHoursPage() {
         }
   const filterKey = JSON.stringify(filters)
 
-  // The three reads of a filter change. The entries and the day totals are drawn by T25.
-  useHoursQuery(filters && `entries:${filterKey}`, (signal) => listEntries(filters!, { signal }))
-  useHoursQuery(filters && `days:${filterKey}`, (signal) => getTotals('day', filters!, { signal }))
+  // The three reads of a filter change: the entries (a cursor-paged list), the day totals that label them,
+  // and the totals for the chosen "Group by".
+  const entries = useHoursPages<EntriesPage>(filters && `entries:${filterKey}`, (cursor, signal) =>
+    listEntries(filters!, { cursor, signal }),
+  )
+  const days = useHoursQuery(filters && `days:${filterKey}`, (signal) => getTotals('day', filters!, { signal }))
   const totals = useHoursQuery(filters && `totals:${state.group}:${filterKey}`, (signal) =>
     getTotals(state.group, filters!, { signal }),
   )
+
+  const loadedDays = days.state.status === 'loaded' ? days.state.data : null
+  const dayTotals = useMemo(() => (loadedDays ? dayTotalsOf(loadedDays) : null), [loadedDays])
+  const loadedEntries: TimeEntryView[] =
+    entries.first.status === 'loaded' ? [...entries.first.data.items, ...entries.more.flatMap((p) => p.items)] : []
+  const loadedTotals = totals.state.status === 'loaded' ? totals.state.data : null
 
   const totalsView: TotalsView =
     range === null
@@ -100,6 +142,49 @@ export default function MyHoursPage() {
         : totals.state.status === 'error'
           ? { status: 'error', message: totalsFailure(totals.state.error) }
           : { status: 'loading' }
+
+  // AC-4.11: with a deal filter, a refused first page, totals or day totals is ONE state for the whole view.
+  const blocked =
+    deal !== null && (refusedDealRead(entries.first) || refusedDealRead(totals.state) || refusedDealRead(days.state))
+
+  const totalsCard = useRef<TotalsCardHandle>(null)
+  const blocker = useRef<HTMLDivElement>(null)
+  const retryFor = useRef<string | null>(null)
+  const reading =
+    entries.first.status === 'loading' || days.state.status === 'loading' || totals.state.status === 'loading'
+
+  const retryAll = () => {
+    retryFor.current = filterKey
+    entries.reload()
+    days.reload()
+    totals.reload()
+  }
+
+  // After a Retry of the blocked state, once every read has settled: focus goes to the Totals heading when
+  // they worked and back to the banner when they did not (the Retry button that had focus is gone).
+  useEffect(() => {
+    if (retryFor.current === null || reading) return
+    const mine = retryFor.current === filterKey
+    retryFor.current = null
+    if (!mine) return
+    if (blocked) blocker.current?.focus()
+    else totalsCard.current?.focusHeading()
+  }, [filterKey, reading, blocked])
+
+  // The notes about names. They keep their last settled content while the next answers load, so the Filters
+  // card below them does not jump under the pointer on every filter change; with no data (blocked) none.
+  const live: HoursBannersProps = {
+    sources: unavailableSources(
+      entries.first.status === 'loaded' ? entries.first.data.unavailable : undefined,
+      ...entries.more.map((entriesPage) => entriesPage.unavailable),
+      loadedTotals?.unavailable,
+      loadedDays?.unavailable,
+    ),
+    dealGroupingUnavailable: state.group === 'deal' && (loadedTotals?.unavailable.includes('meeting-deals') ?? false),
+    hiddenNames: hasHiddenName(loadedEntries, loadedTotals),
+  }
+  const [banners, setBanners] = useState(live)
+  if (!reading && !sameBanners(banners, live)) setBanners(live)
 
   const writeSearch = (next: (previous: Search) => Search) => {
     void navigate({ search: next as never, replace: true })
@@ -119,6 +204,13 @@ export default function MyHoursPage() {
     setPickerKey((current) => current + 1)
   }
 
+  const clearDeal = () => {
+    setDeal(null)
+    document.querySelector<HTMLElement>('[data-testid="hours-filter-deal-input"]')?.focus()
+  }
+
+  const filtered = isFiltered(state, { project, deal })
+
   return (
     <section aria-labelledby="hours-my-heading" data-testid="hours-my-page" className="flex flex-col gap-4">
       <PageHeader
@@ -127,13 +219,15 @@ export default function MyHoursPage() {
         description={strings.myHours.description}
       />
 
+      <HoursBanners {...(blocked ? NO_BANNERS : banners)} />
+
       <HoursFilters
         state={state}
         rangeErrors={errors}
         project={project}
         deal={deal}
         lists={listsView}
-        filtered={isFiltered(state, { project, deal })}
+        filtered={filtered}
         pickerKey={pickerKey}
         onChange={change}
         onProjectChange={setProject}
@@ -142,12 +236,88 @@ export default function MyHoursPage() {
         onRetryLists={lists.reload}
       />
 
-      <TotalsCard
-        view={totalsView}
-        groupBy={state.group}
-        onGroupByChange={(group) => change({ group })}
-        onRetry={totals.reload}
-      />
+      {blocked ? (
+        <DealFilterUnavailable ref={blocker} onRetry={retryAll} onClear={clearDeal} />
+      ) : (
+        <>
+          <TotalsCard
+            ref={totalsCard}
+            view={totalsView}
+            groupBy={state.group}
+            onGroupByChange={(group) => change({ group })}
+            onRetry={totals.reload}
+          />
+
+          <Card title={strings.entries.title} data-testid="hours-entries">
+            {range === null ? (
+              <p className="text-sm text-soft" data-testid="hours-entries-invalid">
+                {strings.entries.invalidPeriod}
+              </p>
+            ) : entries.first.status === 'loaded' ? (
+              entries.first.data.items.length === 0 ? (
+                <StatePanel
+                  headingLevel={4}
+                  title={filtered ? strings.entries.emptyFiltered.title : strings.entries.empty.title}
+                  action={
+                    filtered ? (
+                      <Button variant="ghost" onClick={clear} data-testid="hours-entries-clear">
+                        {strings.filters.clear}
+                      </Button>
+                    ) : undefined
+                  }
+                  testId="hours-entries-empty"
+                >
+                  {filtered ? strings.entries.emptyFiltered.body : strings.entries.empty.body}
+                </StatePanel>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  {days.state.status === 'error' && (
+                    <Banner
+                      tone="warning"
+                      compact
+                      onRetry={days.reload}
+                      retryLabel={strings.common.retry}
+                      retryTestId="hours-day-totals-error-retry"
+                      data-testid="hours-day-totals-error"
+                    >
+                      {strings.entries.dayTotalsError}
+                    </Banner>
+                  )}
+                  <EntryDayList entries={loadedEntries} dayTotals={dayTotals} />
+                  {(entries.hasMore || entries.more.length > 0 || entries.moreFailed) && (
+                    <LoadMore
+                      hasMore={entries.hasMore}
+                      loading={entries.loadingMore}
+                      onLoadMore={entries.loadMore}
+                      label={strings.entries.loadMore}
+                      loadingLabel={strings.entries.loadingMore}
+                      announcement={
+                        entries.more.length > 0 && !entries.loadingMore && !entries.moreFailed
+                          ? strings.entries.loadedMore(entries.more.at(-1)!.items.length, loadedEntries.length)
+                          : ''
+                      }
+                      error={entries.moreFailed ? strings.entries.loadMoreError : null}
+                      testId="hours-entries-load-more"
+                    />
+                  )}
+                </div>
+              )
+            ) : entries.first.status === 'error' ? (
+              <ErrorBanner
+                title={strings.entries.error.title}
+                message={entriesFailure(entries.first.error)}
+                onRetry={entries.reload}
+                testId="hours-entries-error"
+              />
+            ) : (
+              <>
+                <VisuallyHidden live>{strings.entries.loading}</VisuallyHidden>
+                <SkeletonRows rows={4} testId="hours-entries-skeleton" />
+              </>
+            )}
+          </Card>
+        </>
+      )}
     </section>
   )
 }

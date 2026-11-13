@@ -5,12 +5,14 @@
  * "stale answers are discarded"). The three reads of a filter change (the entries, the chosen totals,
  * the day totals) and the lists each use it, so the rules are proven here once: a key change shows
  * loading at once, never the previous key's data; an answer for an older key is discarded however late
- * it arrives; a request that is no longer wanted is aborted; and `reload` asks again.
+ * it arrives; a request that is no longer wanted is aborted; and `reload` asks again. `useHoursPages` adds
+ * the later pages of a cursor-paged read (T25, D48): they are asked one at a time from the last page's
+ * cursor, a failed one keeps the pages already shown, and a new key or a reload forgets them.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { deferred } from '../test-support/fakeApi'
-import { useHoursQuery } from './useHoursQuery'
+import { useHoursPages, useHoursQuery } from './useHoursQuery'
 
 afterEach(() => cleanup())
 
@@ -170,5 +172,186 @@ describe('useHoursQuery', () => {
 
     await act(async () => second.resolve('new'))
     expect(result.current.state).toEqual({ status: 'loaded', data: 'new' })
+  })
+})
+
+type Page = { items: string[]; nextCursor: string | null }
+const page = (items: string[], nextCursor: string | null = null): Page => ({ items, nextCursor })
+
+describe('useHoursPages (D48)', () => {
+  /** A paged source that answers by cursor, and records the cursors it was asked for. */
+  const source = (pages: Record<string, Page>) => {
+    const asked: (string | undefined)[] = []
+    const fetchPage = vi.fn((cursor: string | undefined) => {
+      asked.push(cursor)
+      return Promise.resolve(pages[cursor ?? 'first']!)
+    })
+    return { asked, fetchPage }
+  }
+
+  it('is the first page of useHoursQuery, with nothing after it and hasMore from its cursor', async () => {
+    const { fetchPage } = source({ first: page(['a'], 'c2') })
+    const { result } = renderHook(() => useHoursPages('k', fetchPage))
+    expect(result.current.first).toEqual({ status: 'loading' })
+    expect(result.current.hasMore).toBe(false)
+
+    await act(async () => undefined)
+
+    expect(result.current.first).toEqual({ status: 'loaded', data: page(['a'], 'c2') })
+    expect(result.current.more).toEqual([])
+    expect(result.current.hasMore).toBe(true)
+    expect(fetchPage).toHaveBeenCalledWith(undefined, expect.any(AbortSignal))
+  })
+
+  it('loadMore asks for the cursor of the last page and appends the answer; no cursor left is hasMore false', async () => {
+    const { asked, fetchPage } = source({
+      first: page(['a'], 'c2'),
+      c2: page(['b'], 'c3'),
+      c3: page(['c']),
+    })
+    const { result } = renderHook(() => useHoursPages('k', fetchPage))
+    await act(async () => undefined)
+
+    act(() => result.current.loadMore())
+    expect(result.current.loadingMore).toBe(true)
+    await act(async () => undefined)
+    expect(result.current.more).toEqual([page(['b'], 'c3')])
+    expect(result.current.loadingMore).toBe(false)
+    expect(result.current.hasMore).toBe(true)
+
+    act(() => result.current.loadMore())
+    await act(async () => undefined)
+
+    expect(asked).toEqual([undefined, 'c2', 'c3'])
+    expect(result.current.more).toEqual([page(['b'], 'c3'), page(['c'])])
+    expect(result.current.hasMore).toBe(false)
+  })
+
+  it('a second loadMore while one is in flight, or with no cursor left, asks nothing', async () => {
+    const slow = deferred<Page>()
+    const fetchPage = vi.fn((cursor: string | undefined) =>
+      cursor === undefined ? Promise.resolve(page(['a'], 'c2')) : slow.promise,
+    )
+    const { result } = renderHook(() => useHoursPages('k', fetchPage))
+    await act(async () => undefined)
+
+    act(() => result.current.loadMore())
+    act(() => result.current.loadMore())
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+
+    await act(async () => slow.resolve(page(['b'])))
+    act(() => result.current.loadMore())
+    expect(fetchPage).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failed loadMore keeps the pages already shown, says so, and loadMore again retries the SAME cursor', async () => {
+    const failure = new Error('503')
+    const fetchPage = vi.fn<(cursor: string | undefined, signal: AbortSignal) => Promise<Page>>()
+    fetchPage
+      .mockResolvedValueOnce(page(['a'], 'c2'))
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce(page(['b']))
+    const { result } = renderHook(() => useHoursPages('k', fetchPage))
+    await act(async () => undefined)
+
+    act(() => result.current.loadMore())
+    await act(async () => undefined)
+
+    expect(result.current.moreFailed).toBe(true)
+    expect(result.current.loadingMore).toBe(false)
+    expect(result.current.first).toEqual({ status: 'loaded', data: page(['a'], 'c2') })
+    expect(result.current.hasMore).toBe(true)
+
+    act(() => result.current.loadMore())
+    expect(result.current.moreFailed).toBe(false)
+    expect(result.current.loadingMore).toBe(true)
+    await act(async () => undefined)
+
+    expect(fetchPage.mock.calls.map(([cursor]) => cursor)).toEqual([undefined, 'c2', 'c2'])
+    expect(result.current.more).toEqual([page(['b'])])
+  })
+
+  it('a new key forgets the later pages at once and aborts the one in flight; its late answer is dropped', async () => {
+    const slow = deferred<Page>()
+    const signals: AbortSignal[] = []
+    const fetchPage = vi.fn((cursor: string | undefined, signal: AbortSignal) => {
+      signals.push(signal)
+      if (cursor === 'c2') return slow.promise
+      return Promise.resolve(page(['a'], 'c2'))
+    })
+    const { result, rerender } = renderHook(({ key }) => useHoursPages(key, fetchPage), {
+      initialProps: { key: 'one' },
+    })
+    await act(async () => undefined)
+    act(() => result.current.loadMore())
+    expect(result.current.loadingMore).toBe(true)
+
+    rerender({ key: 'two' })
+
+    expect(signals[1]!.aborted).toBe(true)
+    expect(result.current.more).toEqual([])
+    expect(result.current.loadingMore).toBe(false)
+    expect(result.current.first).toEqual({ status: 'loading' })
+    await act(async () => undefined)
+    await act(async () => slow.resolve(page(['late'])))
+    expect(result.current.more).toEqual([])
+  })
+
+  it('a new key after a loaded extra page shows no extra page from the old key, even for one render', async () => {
+    const fetchPage = vi.fn((cursor: string | undefined) =>
+      Promise.resolve(cursor === undefined ? page(['a'], 'c2') : page(['b'])),
+    )
+    const { result, rerender } = renderHook(({ key }) => useHoursPages(key, fetchPage), {
+      initialProps: { key: 'one' },
+    })
+    await act(async () => undefined)
+    act(() => result.current.loadMore())
+    await act(async () => undefined)
+    expect(result.current.more).toHaveLength(1)
+
+    rerender({ key: 'two' })
+    expect(result.current.more).toEqual([])
+    expect(result.current.hasMore).toBe(false)
+
+    await act(async () => undefined)
+    expect(result.current.more).toEqual([])
+    expect(result.current.hasMore).toBe(true)
+  })
+
+  it('reload asks the first page again and forgets the later pages and a failed load', async () => {
+    const fetchPage = vi.fn<(cursor: string | undefined, signal: AbortSignal) => Promise<Page>>()
+    fetchPage
+      .mockResolvedValueOnce(page(['a'], 'c2'))
+      .mockRejectedValueOnce(new Error('503'))
+      .mockResolvedValueOnce(page(['a2'], 'c9'))
+    const { result } = renderHook(() => useHoursPages('k', fetchPage))
+    await act(async () => undefined)
+    act(() => result.current.loadMore())
+    await act(async () => undefined)
+    expect(result.current.moreFailed).toBe(true)
+
+    act(() => result.current.reload())
+    expect(result.current.first).toEqual({ status: 'loading' })
+    expect(result.current.moreFailed).toBe(false)
+    await act(async () => undefined)
+
+    expect(result.current.first).toEqual({ status: 'loaded', data: page(['a2'], 'c9') })
+    expect(result.current.more).toEqual([])
+    expect(result.current.hasMore).toBe(true)
+  })
+
+  it('aborts a load in flight when it unmounts', async () => {
+    const signals: AbortSignal[] = []
+    const fetchPage = vi.fn((cursor: string | undefined, signal: AbortSignal) => {
+      signals.push(signal)
+      return cursor === undefined ? Promise.resolve(page(['a'], 'c2')) : new Promise<Page>(() => undefined)
+    })
+    const { result, unmount } = renderHook(() => useHoursPages('k', fetchPage))
+    await act(async () => undefined)
+    act(() => result.current.loadMore())
+
+    unmount()
+
+    expect(signals[1]!.aborted).toBe(true)
   })
 })

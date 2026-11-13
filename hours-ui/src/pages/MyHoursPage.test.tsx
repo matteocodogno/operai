@@ -58,6 +58,9 @@ const totalsCalls = (groupBy?: string) =>
 const urlOf = (router: Awaited<ReturnType<typeof renderPage>>) =>
   Object.fromEntries(new URLSearchParams(router.state.location.searchStr))
 
+/** "Clear filters" of the Filters card: with the entries empty, the Entries card offers one too (T25). */
+const clearButton = () => within(screen.getByTestId('hours-filters')).queryByRole('button', { name: f.clear })
+
 const select = (name: string) => screen.getByRole('combobox', { name }) as HTMLSelectElement
 const choose = (name: string, value: string) => userEvent.selectOptions(select(name), value)
 
@@ -90,6 +93,7 @@ describe('the page', () => {
     expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
       f.title,
       t.title,
+      strings.entries.title,
     ])
   })
 })
@@ -382,7 +386,7 @@ describe('Clear filters', () => {
     useApi({ 'GET /projects': () => ({ status: 200, body: page([projectItem({ id: 'p1', name: 'Project Alpha' })]) }) })
     const router = await renderPage('/hours?group=month')
     await screen.findByRole('table', { name: t.caption.month })
-    expect(screen.queryByRole('button', { name: f.clear })).toBeNull()
+    expect(clearButton()).toBeNull()
 
     await choose(f.period.label, 'lastMonth')
     await userEvent.type(screen.getByRole('combobox', { name: f.project.label }), 'alp')
@@ -390,7 +394,7 @@ describe('Clear filters', () => {
     await userEvent.type(screen.getByRole('combobox', { name: f.deal.label }), 'half-typed')
     await waitFor(() => expect(lastReads().entries).toMatchObject({ from: '2026-10-01', projectId: 'p1' }))
 
-    await userEvent.click(screen.getByRole('button', { name: f.clear }))
+    await userEvent.click(clearButton()!)
 
     await waitFor(() => expect(entriesCalls().at(-1)!.query).toEqual(THIS_MONTH))
     expect(urlOf(router)).toEqual({ group: 'month' })
@@ -398,7 +402,7 @@ describe('Clear filters', () => {
     expect((screen.getByRole('combobox', { name: f.deal.label }) as HTMLInputElement).value).toBe('')
     expect(select(f.period.label).value).toBe('thisMonth')
     expect(select(t.groupBy.label).value).toBe('month')
-    expect(screen.queryByRole('button', { name: f.clear })).toBeNull()
+    expect(clearButton()).toBeNull()
   })
 })
 
@@ -492,7 +496,7 @@ describe('the Totals card in its states', () => {
     expect(alert.textContent).toContain(strings.common.networkError)
   })
 
-  it('under a deal filter a refused read is the same warning, never "0 min" or "Nothing to total." (T25 replaces it with the AC-4.11 state)', async () => {
+  it('under a deal filter a refused totals read is the one AC-4.11 alert, never "0 min" or "Nothing to total." (the state itself: MyHoursPage.entries.test.tsx)', async () => {
     useApi({
       'GET /deals': () => ({ status: 200, body: page([dealItem({ id: 'd1', title: 'Acme renewal' })]) }),
     })
@@ -509,8 +513,9 @@ describe('the Totals card in its states', () => {
     await userEvent.type(screen.getByRole('combobox', { name: f.deal.label }), 'a')
     await userEvent.click(await screen.findByRole('option', { name: /Acme renewal/ }))
 
-    const alert = await within(screen.getByTestId('hours-totals')).findByRole('alert')
-    expect(alert.textContent).toContain(t.error.title)
+    const alert = await screen.findByTestId('hours-deal-filter-unavailable')
+    expect(alert.textContent).toContain(strings.entries.dealFilterUnavailable.title)
+    expect(screen.queryByTestId('hours-totals')).toBeNull()
     expect(screen.queryByText('0 min')).toBeNull()
     expect(screen.queryByText(t.empty)).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()

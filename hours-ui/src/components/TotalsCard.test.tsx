@@ -6,8 +6,9 @@
  * server's total and groups, in the server's order and re-sorted by nothing, with each merged row once and
  * the design's words, months through `formatMonth` and durations through `formatDuration` `short`.
  */
+import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { formatDuration, formatMonth } from '@operai/ui'
 import { strings } from '../strings'
@@ -15,7 +16,7 @@ import type { TotalsAnswer, TotalsGroup } from '../lib/hoursApi.types'
 import { totalsAnswer } from '../test-support/fakeApi'
 import { CATEGORY_TOTALS, DEAL_TOTALS, MONTH_TOTALS, PROJECT_TOTALS } from '../test-support/fixtures/myHours'
 import TotalsCard from './TotalsCard'
-import type { TotalsCardProps } from './TotalsCard'
+import type { TotalsCardHandle, TotalsCardProps } from './TotalsCard'
 import type { GroupChoice } from './TotalsCardRows'
 
 afterEach(() => cleanup())
@@ -229,5 +230,27 @@ describe('announcements (design § Accessibility: "<total> in total", focus neve
     cleanup()
     renderCard({ view: { status: 'error', message: 'x' } })
     expect(announcement().textContent).toBe('')
+  })
+})
+
+describe('focus (design S1 "Deal filter unavailable": after a good retry focus moves to the Totals heading)', () => {
+  it('moves focus to its heading when the page asks, and the heading is not a tab stop', () => {
+    const ref = createRef<TotalsCardHandle>()
+    renderCard({ view: loaded(PROJECT_TOTALS), ref })
+    const heading = screen.getByRole('heading', { level: 3, name: t.title })
+    expect(document.activeElement).toBe(document.body)
+
+    act(() => ref.current!.focusHeading())
+
+    expect(document.activeElement).toBe(heading)
+    expect(heading.getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('never moves focus by itself: not on mount, not when the totals arrive', () => {
+    renderCard({ view: { status: 'loading' } })
+    expect(document.activeElement).toBe(document.body)
+    cleanup()
+    renderCard({ view: loaded(PROJECT_TOTALS) })
+    expect(document.activeElement).toBe(document.body)
   })
 })
