@@ -250,3 +250,22 @@ It is drift: amend the spec/plan and re-sync tasks — do not quietly edit the c
 - scope: the banner-state block (`NO_BANNERS`, `sameBanners`, `totalsFailure`) is duplicated from `MyHoursPage` (T27's file in this batch) — where: `EveryoneHoursPage.tsx`
 - known gap: a 403 or `authz_unavailable` on a later "Load more" page stays the generic "More entries could not be loaded" with a Retry that will fail again — where: `EveryoneHoursPage.tsx`
 - assumption: Italian copy chosen by the agent ("Le ore di tutti", "Utente sconosciuto (disattivato)", "Tutti", "Persona", "Giorno/Su/Dettagli", the denial/outage sentences, "La data non può essere precedente al 01.01.2000.") — note design's floor copy differs ("La data di inizio/fine non può precedere il 01.01.2000.") — where: `strings/*.ts`
+
+## T27 · frontend-dev · 2026-11-13
+- default: Duration and Category use a hidden, disabled placeholder option, so nothing is preselected and exactly 48 durations are offered — where: `EntryDialog.tsx`
+- reinterpretation: the dialog owns form state, client rules and the words for each refusal; the page owns the request (`onSubmit` resolves or rejects with the server's error; no state set after success) — why: design "initial values in, one submit out", reusable by specs/030 and 031 — where: `EntryDialog.tsx`, `MyHoursPage.tsx`
+- default: Save validates everything; Day and Note also on blur; a showing error is re-judged live for day, duration, kind, category and note, cleared on edit for entity, work type and activity — where: `EntryDialog.tsx`
+- default: the over-limit note error appears on blur or Save; the counter always shows "n of 1000" — where: `EntryDialog.tsx`
+- default: required-note error "Add a note: this category needs one" vs hint "This category needs a note" (never one text for both) — where: `strings/entry.ts`
+- default: optional members are omitted from the POST body, never `null`; a blank note is not sent; any other note sent exactly as typed — where: `EntryDialogModel.ts` `toInput`
+- default: a refusal code whose field is not in the dialog for the chosen kind becomes the generic alert; `host_unavailable` on other work is generic too — where: `EntryDialogModel.ts` `failureOf`
+- default: a retired or unavailable category/work type reads as "not chosen" and is not sent (derived from the lists) — where: `EntryDialog.tsx`
+- default: after a failed Save focus goes to the first invalid control; the pickers go quiet for one frame so focusing them does not open the list over their own error (found by rendering) — where: `EntryDialog.tsx` (`quiet`, `askFocus`)
+- default: Save disabled only for Other work with no non-retired category (design S2); every activity-field state keeps it enabled — where: `EntryDialog.tsx`
+- default: while the lists load or fail, category/work-type selects are `aria-disabled` with a hint and a Try again (`onReloadLists`, not in design); a category or work-type refusal also reloads the lists — where: `EntryDialog.tsx`
+- default: success banner `SuccessBanner` remounted per save: "Entry saved." or "Entry saved. 20.10.2026 is outside the period you are viewing." — where: `MyHoursPage.tsx`, `strings/entry.ts`
+- default: the meeting picker shows the title with `formatDate(startsAt)` as secondary label (`startsAt` may be null); `searchMeetings`/`MeetingChoice` beside the other searchers — where: `searchers.ts`, `EntryDialog.tsx`
+- default: Record hours is the `PageHeader` primary; the deal-filter-unavailable state does not hide it; the Day input carries `min="2000-01-01"`; client rule order: required, real calendar day, 2000 floor, future day — where: `MyHoursPage.tsx`, `EntryDialogModel.ts`
+- scope: `isRealDay` is a private copy of `period.ts`'s round trip (`dayOf` not exported, `period.ts` outside `touch:`) — where: `EntryDialogModel.ts`
+- assumption: Italian copy chosen by the agent ("Registra ore", "Salva registrazione", "Su cosa hai lavorato", the refusal sentences) — where: `strings/entry.ts`
+- library follow-ups (not done): `SearchPicker` builds its `Field` without `errorRole="alert"`, so a picker error is not an alert (design S2 says it is; it is linked by `aria-describedby`, the input is `aria-invalid` and focus moves to it); `SearchPicker` opens its list on any focus, programmatic included — worked around in the dialog.
