@@ -132,6 +132,42 @@ export const timeEntryView = (overrides: Partial<TimeEntryView> = {}): TimeEntry
   ...overrides,
 })
 
+/**
+ * The entry as hours-api answers it to anyone but its author (D44; plan § Views "Ids of what the viewer cannot
+ * read"): `on.id` (project, deal, meeting) and `activity.id` are `null` unless that record is `visible`; a
+ * record the viewer can read keeps its id, and so does everything else. The builders above describe the record
+ * as stored, so a fixture of another person's entry (Everyone's hours, the export) goes through here.
+ */
+export const seenByOthers = (entry: TimeEntryView): TimeEntryView => ({
+  ...entry,
+  on: entry.on.type !== 'none' && entry.on.visibility !== 'visible' ? { ...entry.on, id: null } : entry.on,
+  activity:
+    entry.activity !== null && entry.activity.visibility !== 'visible'
+      ? { ...entry.activity, id: null }
+      : entry.activity,
+})
+
+/**
+ * The entry with no id on its project, deal, meeting or activity, whatever their visibility: what a server that
+ * broke "the author keeps the ids" (D44) would send the author. For the tests of what the edit dialog does then.
+ */
+export const withoutIds = (entry: TimeEntryView): TimeEntryView => ({
+  ...entry,
+  on: entry.on.type === 'none' ? entry.on : { ...entry.on, id: null },
+  activity: entry.activity === null ? null : { ...entry.activity, id: null },
+})
+
+/**
+ * The entry with an id on every record, as hours-api sent them before D44: an id that is missing is made up
+ * (`withheld-…`), one that is there stays. For the tests that a screen reads no id: it must draw the same either way.
+ */
+export const withIds = (entry: TimeEntryView): TimeEntryView => ({
+  ...entry,
+  on: entry.on.type === 'none' ? entry.on : { ...entry.on, id: entry.on.id ?? `withheld-${entry.on.type}-${entry.id}` },
+  activity:
+    entry.activity === null ? null : { ...entry.activity, id: entry.activity.id ?? `withheld-activity-${entry.id}` },
+})
+
 export const entriesPage = (
   items: TimeEntryView[],
   { nextCursor = null, unavailable = [] }: { nextCursor?: string | null; unavailable?: Unavailable } = {},

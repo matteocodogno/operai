@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { strings } from '../strings'
 import type { TimeEntryView } from '../lib/hoursApi.types'
-import { meetingOn, otherWorkOn, projectOn, timeEntryView } from '../test-support/fakeApi'
+import { meetingOn, otherWorkOn, projectOn, timeEntryView, withIds } from '../test-support/fakeApi'
 import {
   ADA_DEAL,
   ADA_PROJECT,
@@ -87,6 +87,28 @@ describe('the table', () => {
   it('draws no row-level heading: it is a table of entries, not a list by day', () => {
     renderTable()
     expect(screen.queryAllByRole('heading')).toHaveLength(0)
+  })
+})
+
+describe('ids (D44): the table reads none', () => {
+  it('the entries are what hours-api answers a holder about other people: no id for a record they cannot read', () => {
+    expect(GRACE_HIDDEN.on).toMatchObject({ visibility: 'hidden', id: null })
+    expect(GRACE_HIDDEN.activity).toMatchObject({ visibility: 'hidden', id: null })
+    expect(ADA_DEAL.on).toMatchObject({ visibility: 'unavailable', id: null })
+    expect(ADA_DEAL.activity).toMatchObject({ visibility: 'unavailable', id: null })
+    // A record the holder can read keeps its id.
+    expect(ADA_PROJECT.on).toMatchObject({ id: 'p1' })
+    expect(ADA_PROJECT.activity).toMatchObject({ id: 'a1' })
+  })
+
+  it('draws the same table whether or not the ids were withheld: no cell, link or label depends on one', () => {
+    const withheld = renderTable(ALL)
+    const html = withheld.container.innerHTML
+    withheld.unmount()
+    const carried = renderTable(ALL.map(withIds))
+    expect(carried.container.innerHTML).toBe(html)
+    // ...and the rows really are the ones with something withheld, so the comparison is about them.
+    expect(html).toContain(n.hidden)
   })
 })
 

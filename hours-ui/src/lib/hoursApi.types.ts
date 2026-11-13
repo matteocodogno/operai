@@ -2,7 +2,8 @@
  * The wire shapes of hours-api (specs/029-time-tracking, plan § API contracts): the entry view, the
  * totals groups, the lists, and what a request carries. Dates are `YYYY-MM-DD`, durations are whole
  * minutes (30..1440, multiples of 30), ids are opaque text. No screen shows an id: the names a viewer
- * may not read arrive as `visibility: "hidden"` with no label (AC-4.10).
+ * may not read arrive as `visibility: "hidden"` with no label (AC-4.10), and, on an entry that is not the
+ * viewer's own, without the id of that record either (D44, next to `Named`).
  */
 
 export type Person = { id: string; name: string | null; status: 'active' | 'deleted' | 'unknown' }
@@ -21,7 +22,14 @@ export type MeetingDeal =
   | { state: 'none' }
   | { state: 'unknown' }
 
-type Named = { id: string; label: string | null; href: string | null; visibility: Visibility }
+/**
+ * A project, deal or meeting an entry is on. `id` is `null` on an entry that is not the viewer's own unless
+ * `visibility` is `visible` (D44, AC-4.10): a holder of everyone's hours must not learn the id of a record they
+ * cannot read, and a `dealId`/`projectId`/`meetingId` filter fed with it would tell them what it is linked to.
+ * The author's entries always carry it (My hours holds only those), and no screen reads it but their edit
+ * dialog (`EntryDialogModel.valuesOf`), which reads a `null` as nothing to re-pick.
+ */
+type Named = { id: string | null; label: string | null; href: string | null; visibility: Visibility }
 
 export type EntryOn =
   | ({ type: 'project' } & Named)
@@ -39,8 +47,11 @@ export type TimeEntryView = {
   person: Person
   on: EntryOn
   workType: { id: string; name: string; retired: boolean } | null
-  /** `null`: none, or deleted since (AC-2.9). `visibility: "hidden"` when the entry's project or deal is. */
-  activity: { id: string; subject: string | null; visibility: Visibility } | null
+  /**
+   * `null`: none, or deleted since (AC-2.9). `visibility: "hidden"` when the entry's project or deal is. `id` is
+   * `null` on an entry that is not the viewer's own unless the activity is `visible` (D44, as `Named`).
+   */
+  activity: { id: string | null; subject: string | null; visibility: Visibility } | null
   createdAt: string
   updatedAt: string
 }

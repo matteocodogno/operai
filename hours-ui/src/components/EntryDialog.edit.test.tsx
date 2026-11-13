@@ -19,7 +19,7 @@ vi.mock('shell/session', async () => (await import('../test-support/fakeSession'
 import { HoursApiError } from '../lib/errors'
 import type { EntryPatch, TimeEntryView } from '../lib/hoursApi.types'
 import { strings } from '../strings'
-import { fakeApi, requests } from '../test-support/fakeApi'
+import { fakeApi, requests, withoutIds } from '../test-support/fakeApi'
 import { activitiesAnswer, dealActivities, projectTasks } from '../test-support/fixtures/activity'
 import {
   DEAL_ROWS,
@@ -562,6 +562,68 @@ describe('the "not visible" variant (design S2; AC-4.10, D43, AC-2.12)', () => {
     await save()
     expect(await screen.findByText(e.errors.notInvolvedInDeal)).not.toBeNull()
     expect(describedBy(picker(f.deal.label))).toContain(e.errors.notInvolvedInDeal)
+  })
+})
+
+/**
+ * D44: hours-api sends the author the ids of their own entries and withholds them from everyone else, so the edit
+ * dialog (the only reader of an id) always has them. These are the entries of a server that broke that: the
+ * dialog must neither crash nor invent an id, and must never send one it does not hold.
+ */
+describe('an own entry the server sent without an id (D44: the author keeps theirs; the dialog invents none)', () => {
+  it.each([
+    ['project', EDIT_PROJECT, f.project, 'projectRequired'],
+    ['deal', EDIT_DEAL, f.deal, 'dealRequired'],
+    ['meeting', EDIT_MEETING, f.meeting, 'meetingRequired'],
+  ] as const)(
+    'a %s without an id opens on its kind with the target empty; Save asks for it and sends nothing',
+    async (_kind, entry, field, error) => {
+      renderEdit(withoutIds(entry))
+      expect(kind(f.on.options[entry.on.type]).checked).toBe(true)
+      expect(picker(field.label).value).toBe('')
+      expect(describedBy(picker(field.label))).toContain(field.hint)
+      expect(describedBy(picker(field.label))).not.toContain(field.hiddenHint)
+
+      await save()
+      expect(await screen.findByText(e.errors[error])).not.toBeNull()
+      expect(picker(field.label).getAttribute('aria-invalid')).toBe('true')
+      expect(onSubmit).not.toHaveBeenCalled()
+      expect(onCancel).not.toHaveBeenCalled()
+    },
+  )
+
+  it('choosing the target again is a move: `on` carries the id of the pick, and nothing else the dialog has no id for', async () => {
+    renderEdit(withoutIds(EDIT_PROJECT))
+    await pick(f.project.label, /Project Alpha/)
+    await activityReady()
+    await save()
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ on: { type: 'project', id: 'p1' } })
+  })
+
+  it('the rest of the entry is still editable once the target is chosen: a new note goes with it', async () => {
+    renderEdit(withoutIds(EDIT_PROJECT))
+    await pick(f.project.label, /Project Beta/)
+    await userEvent.type(noteField(), '!')
+    await save()
+    expect(onSubmit.mock.calls[0]![0]).toEqual({
+      on: { type: 'project', id: 'p2' },
+      note: 'Prepared the workshop!',
+    })
+  })
+
+  it('an activity whose id was not carried is not offered as the entry’s own: the field reads "No activity", and a note-only edit sends `{ note }`', async () => {
+    // The target keeps its id: only the pointer is bare, the case `keptActivity` narrows.
+    renderEdit({ ...EDIT_PROJECT, activity: withoutIds(EDIT_PROJECT).activity })
+    await activityReady()
+    const activity = select(strings.activity.label)
+    expect(selectedText(activity)).toBe(strings.activity.none)
+    // The entry's own subject would be on offer, bare, only as the pointer the dialog could not keep.
+    expect(optionTexts(activity)).not.toContain('Write the offer')
+
+    await userEvent.type(noteField(), '!')
+    await save()
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ note: 'Prepared the workshop!' })
   })
 })
 

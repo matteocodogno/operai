@@ -19,7 +19,10 @@ export const ALPHA: TimeEntryView = timeEntryView({
   activity: { id: 'a1', subject: 'Write the offer', visibility: 'visible' },
 })
 
-/** 2 h on a project the viewer may not read (AC-4.10): no label, no link, the activity withheld too. */
+/**
+ * 2 h on a project the viewer may not read (AC-4.10): no label, no link, the activity withheld too. It is the
+ * viewer's OWN entry (My hours lists nobody else's), so it keeps its ids, hidden or not (D44).
+ */
 export const HIDDEN_PROJECT: TimeEntryView = timeEntryView({
   id: 'e-hidden',
   day: '2026-11-12',

@@ -24,6 +24,7 @@ import {
   NOTE_LIMIT,
   emptyValues,
   failureOf,
+  keptActivity,
   noteLength,
   noteRequired,
   offeredCategories,
@@ -108,7 +109,10 @@ const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-60'
  * untouched note never. With nothing changed Save just closes (`PATCH {}` is a 400). The entry's own retired
  * category or work type stays on offer and is never read as unchosen. An entry whose project, deal or meeting
  * the author can no longer read opens the "not visible" variant: the target is the placeholder "Not visible to
- * you" and the Activity is not editable until another target is picked.
+ * you" and the Activity is not editable until another target is picked. The ids it works with are the author's
+ * own, and hours-api always sends the author theirs (D44); a view that lacks one is nothing to re-pick
+ * (`valuesOf`, `keptActivity`): the target opens empty and Save asks for it, the Activity shows no pointer it
+ * cannot name.
  *
  * Validation runs on Save (focus then goes to the first invalid field) and, for Day and the note, on leaving
  * the field; an error that is showing is judged again as the field is edited, so it goes the moment the
@@ -447,7 +451,7 @@ export default function EntryDialog(props: EntryDialogProps) {
               value={values.activityId}
               onChange={(activityId) => edit({ ...values, activityId }, 'activity')}
               // The entry's own pointer belongs to the target it was saved on, so only while it is still there.
-              current={atStoredTarget ? (entry?.activity ?? null) : null}
+              current={atStoredTarget && entry !== undefined ? keptActivity(entry.activity) : null}
               locked={placeholderShown}
               error={errors.activity ?? null}
               disabled={busy}

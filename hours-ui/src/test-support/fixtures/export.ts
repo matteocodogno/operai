@@ -18,6 +18,7 @@ import {
   meetingOn,
   otherWorkOn,
   projectOn,
+  seenByOthers,
   timeEntryView,
   totalsAnswer,
   ADA,
@@ -25,6 +26,14 @@ import {
   GONE,
 } from '../fakeApi'
 import type { EntriesPage, Person, TimeEntryView, TotalsAnswer } from '../../lib/hoursApi.types'
+
+/**
+ * An entry of the export: another person's, so it is what hours-api answers a holder about it (D44; plan § Views
+ * "Ids of what the viewer cannot read"): no id for a project, deal, meeting or activity the holder cannot read or
+ * whose owner did not answer. A record they can read keeps its id.
+ */
+const entryOf = (overrides: Parameters<typeof timeEntryView>[0]): TimeEntryView =>
+  seenByOthers(timeEntryView(overrides))
 
 /** An account `auth` could not resolve this time. */
 export const UNKNOWN_PERSON: Person = { id: 'u-who', name: null, status: 'unknown' }
@@ -43,7 +52,7 @@ const GLOBEX = {
 } as const
 
 /** 4 h on a project the viewer can read, with a work type, an activity and a two-line note. Counts for no deal. */
-export const ALPHA_DEV: TimeEntryView = timeEntryView({
+export const ALPHA_DEV: TimeEntryView = entryOf({
   id: 'e-alpha-dev',
   day: '2026-11-12',
   minutes: 240,
@@ -55,7 +64,7 @@ export const ALPHA_DEV: TimeEntryView = timeEntryView({
 })
 
 /** 2 h on a project the viewer may not read: no name, no link, the activity withheld too. Counts for no deal. */
-export const SECRET_PROJECT: TimeEntryView = timeEntryView({
+export const SECRET_PROJECT: TimeEntryView = entryOf({
   id: 'e-secret-project',
   day: '2026-11-12',
   minutes: 120,
@@ -66,7 +75,7 @@ export const SECRET_PROJECT: TimeEntryView = timeEntryView({
 })
 
 /** 1 h 30 on a deal the viewer can read. Counts for that deal. */
-export const ACME_DEMO: TimeEntryView = timeEntryView({
+export const ACME_DEMO: TimeEntryView = entryOf({
   id: 'e-acme-demo',
   day: '2026-11-11',
   minutes: 90,
@@ -77,7 +86,7 @@ export const ACME_DEMO: TimeEntryView = timeEntryView({
 })
 
 /** 2 h 30 on a meeting linked to the same deal: its hours count for Acme renewal too (AC-2.6). */
-export const KICKOFF_ACME: TimeEntryView = timeEntryView({
+export const KICKOFF_ACME: TimeEntryView = entryOf({
   id: 'e-kickoff',
   day: '2026-11-11',
   minutes: 150,
@@ -86,7 +95,7 @@ export const KICKOFF_ACME: TimeEntryView = timeEntryView({
 })
 
 /** 1 h on another deal the viewer can read. Counts for that deal. */
-export const GLOBEX_OFFER: TimeEntryView = timeEntryView({
+export const GLOBEX_OFFER: TimeEntryView = entryOf({
   id: 'e-globex-offer',
   day: '2026-11-10',
   minutes: 60,
@@ -96,7 +105,7 @@ export const GLOBEX_OFFER: TimeEntryView = timeEntryView({
 })
 
 /** 30 min on a deal the viewer may not read. Counts for a deal that is not visible. */
-export const SECRET_DEAL: TimeEntryView = timeEntryView({
+export const SECRET_DEAL: TimeEntryView = entryOf({
   id: 'e-secret-deal',
   day: '2026-11-10',
   minutes: 30,
@@ -107,7 +116,7 @@ export const SECRET_DEAL: TimeEntryView = timeEntryView({
 })
 
 /** 1 h 30 on a deal whose name CRM did not answer. Counts for a deal whose name is unavailable. */
-export const UNNAMED_DEAL: TimeEntryView = timeEntryView({
+export const UNNAMED_DEAL: TimeEntryView = entryOf({
   id: 'e-unnamed-deal',
   day: '2026-11-10',
   minutes: 90,
@@ -117,7 +126,7 @@ export const UNNAMED_DEAL: TimeEntryView = timeEntryView({
 })
 
 /** 1 h on a meeting linked to a deal the viewer may not read. */
-export const WEEKLY_HIDDEN_DEAL: TimeEntryView = timeEntryView({
+export const WEEKLY_HIDDEN_DEAL: TimeEntryView = entryOf({
   id: 'e-weekly-hidden',
   day: '2026-11-09',
   minutes: 60,
@@ -126,7 +135,7 @@ export const WEEKLY_HIDDEN_DEAL: TimeEntryView = timeEntryView({
 })
 
 /** 30 min on a meeting linked to a deal whose name CRM did not answer. */
-export const WEEKLY_UNAVAILABLE_DEAL: TimeEntryView = timeEntryView({
+export const WEEKLY_UNAVAILABLE_DEAL: TimeEntryView = entryOf({
   id: 'e-weekly-unavailable',
   day: '2026-11-09',
   minutes: 30,
@@ -135,7 +144,7 @@ export const WEEKLY_UNAVAILABLE_DEAL: TimeEntryView = timeEntryView({
 })
 
 /** 2 h 30 on a meeting whose deal could not be asked (the system route did not answer, AC-4.7). */
-export const RETRO_UNKNOWN_DEAL: TimeEntryView = timeEntryView({
+export const RETRO_UNKNOWN_DEAL: TimeEntryView = entryOf({
   id: 'e-retro',
   day: '2026-11-09',
   minutes: 150,
@@ -144,7 +153,7 @@ export const RETRO_UNKNOWN_DEAL: TimeEntryView = timeEntryView({
 })
 
 /** 30 min on a meeting linked to no deal. Counts for no deal. */
-export const ALL_HANDS: TimeEntryView = timeEntryView({
+export const ALL_HANDS: TimeEntryView = entryOf({
   id: 'e-all-hands',
   day: '2026-11-06',
   minutes: 30,
@@ -153,7 +162,7 @@ export const ALL_HANDS: TimeEntryView = timeEntryView({
 })
 
 /** The longest entry, 24 h, by a deactivated account (auth keeps no name for it), in a category typed in Italian. */
-export const TRAINING: TimeEntryView = timeEntryView({
+export const TRAINING: TimeEntryView = entryOf({
   id: 'e-training',
   day: '2026-11-06',
   minutes: 1440,
@@ -163,7 +172,7 @@ export const TRAINING: TimeEntryView = timeEntryView({
 })
 
 /** 1 h of other work by a person whose name could not be read. */
-export const ADMIN_WORK: TimeEntryView = timeEntryView({
+export const ADMIN_WORK: TimeEntryView = entryOf({
   id: 'e-admin',
   day: '2026-11-05',
   minutes: 60,
@@ -172,7 +181,7 @@ export const ADMIN_WORK: TimeEntryView = timeEntryView({
 })
 
 /** 30 min on a meeting the viewer may not read, linked to a deal they can: the deal is named, the meeting is not. */
-export const SECRET_MEETING_GLOBEX: TimeEntryView = timeEntryView({
+export const SECRET_MEETING_GLOBEX: TimeEntryView = entryOf({
   id: 'e-secret-meeting',
   day: '2026-11-05',
   minutes: 30,
@@ -181,7 +190,7 @@ export const SECRET_MEETING_GLOBEX: TimeEntryView = timeEntryView({
 })
 
 /** 1 h on a meeting whose title Meetings did not answer, linked to no deal. */
-export const UNNAMED_MEETING: TimeEntryView = timeEntryView({
+export const UNNAMED_MEETING: TimeEntryView = entryOf({
   id: 'e-unnamed-meeting',
   day: '2026-11-04',
   minutes: 60,
@@ -190,7 +199,7 @@ export const UNNAMED_MEETING: TimeEntryView = timeEntryView({
 })
 
 /** 30 min on a project whose name Projects did not answer, on a RETIRED work type kept on the entry (AC-3.4). */
-export const UNNAMED_PROJECT: TimeEntryView = timeEntryView({
+export const UNNAMED_PROJECT: TimeEntryView = entryOf({
   id: 'e-unnamed-project',
   day: '2026-11-04',
   minutes: 30,

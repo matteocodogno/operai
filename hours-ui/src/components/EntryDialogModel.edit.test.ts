@@ -19,16 +19,19 @@ import {
   EDIT_TRAINING,
   ENTRY_LISTS,
 } from '../test-support/fixtures/entry'
-import type { CategoryView, WorkTypeView } from '../lib/hoursApi.types'
+import type { CategoryView, TimeEntryView, WorkTypeView } from '../lib/hoursApi.types'
+import { withoutIds } from '../test-support/fakeApi'
 import { HoursApiError } from '../lib/errors'
 import {
   entryIsGone,
   failureOf,
+  keptActivity,
   noteRequired,
   offeredCategories,
   offeredWorkTypes,
   ownWorkTypeOf,
   ruleError,
+  sameTarget,
   toPatch,
   valuesOf,
 } from './EntryDialogModel'
@@ -81,6 +84,70 @@ describe('valuesOf: what an edit opens with', () => {
     const values = valuesOf(EDIT_HIDDEN_PROJECT)
     expect(values.project).toEqual({ id: 'p-secret', name: strings.names.hidden, companyName: null })
     expect(values.activityId).toBe('a-secret')
+  })
+})
+
+/**
+ * D44: hours-api sends the author the ids of their own entries (My hours lists nobody else's), so a `null` id
+ * here is a server that broke that. The dialog must not invent one: nothing is held to re-pick, and the person
+ * is asked to choose the target again, never sent on with a made-up id.
+ */
+describe('an id the view does not carry is nothing to re-pick (D44)', () => {
+  it('a project, a deal and a meeting without an id leave the target empty and keep the kind', () => {
+    const project = valuesOf(withoutIds(EDIT_PROJECT))
+    expect(project).toMatchObject({ kind: 'project', project: null, deal: null, meeting: null })
+    expect(valuesOf(withoutIds(EDIT_DEAL))).toMatchObject({ kind: 'deal', deal: null, project: null, meeting: null })
+    expect(valuesOf(withoutIds(EDIT_MEETING))).toMatchObject({
+      kind: 'meeting',
+      meeting: null,
+      project: null,
+      deal: null,
+    })
+  })
+
+  it('the rest of the entry is still what it opens with: day, duration, work type and note', () => {
+    expect(valuesOf(withoutIds(EDIT_PROJECT))).toMatchObject({
+      day: '2026-11-12',
+      minutes: '150',
+      workTypeId: 'wt-p-dev',
+      note: 'Prepared the workshop',
+    })
+  })
+
+  it('an activity without an id is no activity to keep', () => {
+    expect(valuesOf(withoutIds(EDIT_PROJECT)).activityId).toBeNull()
+  })
+
+  it('other work has no id to lose: its category is the hours-api list’s own', () => {
+    expect(valuesOf(withoutIds(EDIT_TRAINING))).toEqual(valuesOf(EDIT_TRAINING))
+  })
+
+  it('a stored target that holds nothing is never the same as a pick, and never the same as nothing', () => {
+    const stored = valuesOf(withoutIds(EDIT_PROJECT))
+    const picked = edited(stored, { project: { id: 'p1', name: 'Project Alpha', companyName: null } })
+    expect(sameTarget(picked, stored)).toBe(false)
+    expect(sameTarget(stored, stored)).toBe(false)
+  })
+
+  it('picking a project is a move, so `on` carries the picked id; nothing else is invented', () => {
+    const stored = valuesOf(withoutIds(EDIT_PROJECT))
+    const picked = edited(stored, { project: { id: 'p1', name: 'Project Alpha', companyName: null } })
+    expect(toPatch(picked, stored, PROJECT_TYPES)).toEqual({ on: { type: 'project', id: 'p1' } })
+  })
+
+  describe('keptActivity: the pointer the dialog hands to the Activity field', () => {
+    const own: TimeEntryView['activity'] = { id: 'a-offer', subject: 'Write the offer', visibility: 'visible' }
+
+    it('is the pointer as it is when the view carries its id, whatever its visibility', () => {
+      expect(keptActivity(own)).toEqual(own)
+      const hidden = { id: 'a-secret', subject: null, visibility: 'hidden' } as const
+      expect(keptActivity(hidden)).toEqual(hidden)
+    })
+
+    it('is nothing when there is no pointer, or its id was not carried', () => {
+      expect(keptActivity(null)).toBeNull()
+      expect(keptActivity({ ...own!, id: null })).toBeNull()
+    })
   })
 })
 

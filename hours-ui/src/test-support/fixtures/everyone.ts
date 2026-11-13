@@ -11,6 +11,7 @@ import {
   meetingOn,
   otherWorkOn,
   projectOn,
+  seenByOthers,
   timeEntryView,
   totalsAnswer,
   ADA,
@@ -22,6 +23,14 @@ import type { EntriesPage, Person, TimeEntryView, TotalsAnswer } from '../../lib
 import { totalsHandler } from './myHours'
 
 export { ADA, GRACE, GONE }
+
+/**
+ * An entry of Everyone's hours: another person's, so it is what hours-api answers a holder about it (D44; plan
+ * § Views "Ids of what the viewer cannot read"): no id for a project, deal, meeting or activity the holder cannot
+ * read or whose owner did not answer. A record they can read keeps its id.
+ */
+const entryOf = (overrides: Parameters<typeof timeEntryView>[0]): TimeEntryView =>
+  seenByOthers(timeEntryView(overrides))
 
 /** A person whose name `auth` could not resolve this time. */
 export const UNKNOWN: Person = { id: 'u-who', name: null, status: 'unknown' }
@@ -42,7 +51,7 @@ export const PERSON_TOTALS_RENAMED: TotalsAnswer = totalsAnswer(
 )
 
 /** 4 h by Ada on a project the viewer can read, with a work type and an activity. */
-export const ADA_PROJECT: TimeEntryView = timeEntryView({
+export const ADA_PROJECT: TimeEntryView = entryOf({
   id: 'e-ada-alpha',
   day: '2026-11-12',
   minutes: 240,
@@ -53,7 +62,7 @@ export const ADA_PROJECT: TimeEntryView = timeEntryView({
 })
 
 /** 2 h by Grace on a project the holder may not read (AC-4.10): no label, no link, the activity withheld too. */
-export const GRACE_HIDDEN: TimeEntryView = timeEntryView({
+export const GRACE_HIDDEN: TimeEntryView = entryOf({
   id: 'e-grace-hidden',
   day: '2026-11-12',
   minutes: 120,
@@ -65,7 +74,7 @@ export const GRACE_HIDDEN: TimeEntryView = timeEntryView({
 })
 
 /** 2 h 30 by a deactivated account on a meeting linked to a deal the holder can read (AC-2.6). */
-export const GONE_MEETING: TimeEntryView = timeEntryView({
+export const GONE_MEETING: TimeEntryView = entryOf({
   id: 'e-gone-kickoff',
   day: '2026-11-10',
   minutes: 150,
@@ -80,7 +89,7 @@ export const GONE_MEETING: TimeEntryView = timeEntryView({
 })
 
 /** 1 h of other work by a person whose name could not be read, in a category typed in Italian (AC-3.8). */
-export const UNKNOWN_TRAINING: TimeEntryView = timeEntryView({
+export const UNKNOWN_TRAINING: TimeEntryView = entryOf({
   id: 'e-who-training',
   day: '2026-11-10',
   minutes: 60,
@@ -90,7 +99,7 @@ export const UNKNOWN_TRAINING: TimeEntryView = timeEntryView({
 })
 
 /** 1 h 30 by Ada on a deal, on a RETIRED work type (AC-3.4), whose name did not come (AC-4.7). */
-export const ADA_DEAL: TimeEntryView = timeEntryView({
+export const ADA_DEAL: TimeEntryView = entryOf({
   id: 'e-ada-deal',
   day: '2026-11-09',
   minutes: 90,

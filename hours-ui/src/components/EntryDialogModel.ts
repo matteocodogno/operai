@@ -229,6 +229,8 @@ export const toInput = (values: EntryFormValues, workTypes: readonly WorkTypeVie
  * The project, deal or meeting is held as the choice a picker would have made, but its name is only ever the
  * one the viewer may read: the placeholder for a withheld or unanswered name (AC-4.10), never the server's
  * label for it. The ids are the entry's own: the author's edit dialog is the one place the UI uses them (D44).
+ * hours-api sends the author both ids, always, so a `null` one (a server that broke that) is nothing to
+ * re-pick: no choice is made up for it, the target is left empty and the person chooses it again.
  */
 export const valuesOf = (entry: TimeEntryView): EntryFormValues => {
   const base: EntryFormValues = {
@@ -241,6 +243,7 @@ export const valuesOf = (entry: TimeEntryView): EntryFormValues => {
   }
   const on = entry.on
   if (on.type === 'none') return { ...base, categoryId: on.category.id }
+  if (on.id === null) return base
   const name = rowName(on)?.text ?? strings.names.unavailable
   switch (on.type) {
     case 'project':
@@ -251,6 +254,15 @@ export const valuesOf = (entry: TimeEntryView): EntryFormValues => {
       return { ...base, meeting: { id: on.id, title: name, startsAt: null } }
   }
 }
+
+/**
+ * The edited entry's own activity as the Activity field can keep it: the pointer when the view carries its id,
+ * else nothing (D44; as `valuesOf`, a `null` id is nothing to re-pick). The id is what the field's option holds.
+ */
+export const keptActivity = (
+  activity: TimeEntryView['activity'],
+): (Omit<NonNullable<TimeEntryView['activity']>, 'id'> & { id: string }) | null =>
+  activity === null || activity.id === null ? null : { ...activity, id: activity.id }
 
 const takesDetails = (kind: EntryKind | null): boolean => kind === 'project' || kind === 'deal'
 
@@ -290,7 +302,9 @@ export const sameTarget = (values: EntryFormValues, stored: EntryFormValues): bo
   if (values.kind === null || values.kind !== stored.kind) return false
   if (values.kind === 'none') return values.categoryId === stored.categoryId
   const picked = pickedEntity(values)
-  return picked !== null && picked.id === pickedEntity(stored)?.id
+  const storedPicked = pickedEntity(stored)
+  // A stored target that holds nothing (its id was not carried) is never the one picked.
+  return picked !== null && storedPicked !== null && picked.id === storedPicked.id
 }
 
 /** The `on` of a request for values that passed `validate`. */

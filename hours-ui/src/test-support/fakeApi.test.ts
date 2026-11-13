@@ -18,9 +18,12 @@ import {
   projectItem,
   projectOn,
   requests,
+  seenByOthers,
   sequence,
   timeEntryView,
   totalsAnswer,
+  withIds,
+  withoutIds,
 } from './fakeApi'
 import type { TimeListsView } from '../lib/hoursApi.types'
 import { EMPLOYEE, ORIGINS, READ_ALL_HOLDER, shellSessionMock } from './fakeSession'
@@ -272,6 +275,77 @@ describe('fixtures', () => {
     expect(meetingOn('m1', 'Kick-off', { state: 'unknown' }).deal).toEqual({ state: 'unknown' })
     expect(otherWorkOn('Training')).toMatchObject({ type: 'none', category: { name: 'Training', retired: false } })
     expect(projectOn('p1', null, 'hidden')).toMatchObject({ label: null, href: null, visibility: 'hidden' })
+  })
+
+  describe('what hours-api answers about ids (D44, plan § Views "Ids of what the viewer cannot read")', () => {
+    const hiddenProject = timeEntryView({
+      on: projectOn('p-secret', 'Secret project', 'hidden'),
+      activity: { id: 'a-secret', subject: null, visibility: 'hidden' },
+    })
+
+    it('seenByOthers withholds the id of a project, deal or meeting the viewer cannot read, and of an activity they cannot read', () => {
+      const project = seenByOthers(hiddenProject)
+      expect(project.on).toMatchObject({ type: 'project', id: null, label: null, href: null, visibility: 'hidden' })
+      expect(project.activity).toEqual({ id: null, subject: null, visibility: 'hidden' })
+      expect(seenByOthers(timeEntryView({ on: dealOn('d-secret', null, 'hidden') })).on).toMatchObject({ id: null })
+      expect(seenByOthers(timeEntryView({ on: meetingOn('m-secret', null, undefined, 'hidden') })).on).toMatchObject({
+        type: 'meeting',
+        id: null,
+      })
+    })
+
+    it('an owner that did not answer withholds the id too: `unavailable` is not `visible`', () => {
+      const entry = seenByOthers(
+        timeEntryView({
+          on: projectOn('p1', null, 'unavailable'),
+          activity: { id: 'a1', subject: null, visibility: 'unavailable' },
+        }),
+      )
+      expect(entry.on).toMatchObject({ id: null, visibility: 'unavailable' })
+      expect(entry.activity).toMatchObject({ id: null, visibility: 'unavailable' })
+    })
+
+    it('a record the viewer can read keeps its id, and the activity follows its OWN visibility', () => {
+      const readable = timeEntryView({
+        on: projectOn('p1', 'Project Alpha'),
+        activity: { id: 'a1', subject: 'Write the offer', visibility: 'visible' },
+      })
+      expect(seenByOthers(readable)).toEqual(readable)
+      const hiddenActivity = seenByOthers({
+        ...readable,
+        activity: { id: 'a1', subject: null, visibility: 'hidden' },
+      })
+      expect(hiddenActivity.on).toMatchObject({ id: 'p1' })
+      expect(hiddenActivity.activity).toMatchObject({ id: null })
+    })
+
+    it('touches nothing else: the entry’s own id, the person, the category, the deal a meeting counts for, no activity', () => {
+      const none = timeEntryView({ on: otherWorkOn('Training'), activity: null })
+      expect(seenByOthers(none)).toEqual(none)
+      const linked = timeEntryView({
+        on: meetingOn('m1', null, { state: 'linked', visibility: 'hidden' }, 'hidden'),
+      })
+      expect(seenByOthers(linked)).toEqual({ ...linked, on: { ...linked.on, id: null } })
+      expect(seenByOthers(hiddenProject)).toMatchObject({ id: hiddenProject.id, person: ADA })
+    })
+
+    it('withoutIds takes every id away, even of a record that is readable, and withIds fills what is missing without touching what is there', () => {
+      const readable = timeEntryView({
+        on: projectOn('p1', 'Project Alpha'),
+        activity: { id: 'a1', subject: 'Write the offer', visibility: 'visible' },
+      })
+      const bare = withoutIds(readable)
+      expect(bare.on).toMatchObject({ id: null, label: 'Project Alpha', href: '/projects/p1' })
+      expect(bare.activity).toMatchObject({ id: null, subject: 'Write the offer' })
+      expect(withoutIds(timeEntryView({ on: otherWorkOn('Training'), activity: null }))).toMatchObject({
+        on: { type: 'none' },
+        activity: null,
+      })
+      const filled = withIds(seenByOthers(hiddenProject))
+      expect(filled.on).toMatchObject({ id: expect.any(String) })
+      expect(filled.activity).toMatchObject({ id: expect.any(String) })
+      expect(withIds(readable)).toEqual(readable)
+    })
   })
 
   it('totalsAnswer counts every group once: the sum is the total (plan § Totals)', () => {

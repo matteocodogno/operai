@@ -7,7 +7,7 @@
 import ExcelJS from 'exceljs'
 import { describe, expect, it } from 'vitest'
 import { en, it as italian } from '../strings'
-import { otherWorkOn, projectOn } from '../test-support/fakeApi'
+import { otherWorkOn, projectOn, withIds } from '../test-support/fakeApi'
 import {
   ACME_DEMO,
   ALL_HANDS,
@@ -324,7 +324,10 @@ describe('what the file never holds (AC-4.10)', () => {
   })
 
   it('holds no id of anything: not an entry, a person, a project, a deal, a meeting, an activity, a category or a work type', async () => {
-    const ids = EXPORT_ENTRIES.flatMap((entry) => [
+    // Every record carries an id here, the withheld ones included: what hours-api sent before D44, and what the
+    // author's own entries still carry. The file holds none of them.
+    const entries = EXPORT_ENTRIES.map(withIds)
+    const ids = entries.flatMap((entry) => [
       entry.id,
       entry.person.id,
       ...(entry.on.type === 'none' ? [entry.on.category.id] : [entry.on.id]),
@@ -334,9 +337,21 @@ describe('what the file never holds (AC-4.10)', () => {
       ...(entry.workType ? [entry.workType.id] : []),
       ...(entry.activity ? [entry.activity.id] : []),
     ])
+    expect(ids.every((id): id is string => typeof id === 'string')).toBe(true)
     expect(new Set(ids).size).toBeGreaterThan(30)
-    const text = await textOf(EXPORT_ENTRIES)
-    for (const id of ids) expect(text.filter((cell) => cell.includes(id))).toEqual([])
+    const text = await textOf(entries)
+    for (const id of ids as string[]) expect(text.filter((cell) => cell.includes(id))).toEqual([])
+  })
+
+  it('is the same file whether or not the server withheld the ids of what the viewer cannot read (D44)', async () => {
+    // The fixtures are what hours-api answers a holder about other people's entries: no id for a record that is
+    // not `visible`. The file never read an id, so withholding them changes no cell.
+    expect(SECRET_PROJECT.on).toMatchObject({ visibility: 'hidden', id: null })
+    expect(SECRET_PROJECT.activity).toMatchObject({ visibility: 'hidden', id: null })
+    expect(UNNAMED_PROJECT.activity).toMatchObject({ visibility: 'unavailable', id: null })
+    expect(SECRET_MEETING_GLOBEX.on).toMatchObject({ type: 'meeting', visibility: 'hidden', id: null })
+    expect(ALPHA_DEV.on).toMatchObject({ id: 'p1' })
+    expect(dataRows(await roundTrip(EXPORT_ENTRIES))).toEqual(dataRows(await roundTrip(EXPORT_ENTRIES.map(withIds))))
   })
 
   it('holds no link either: no cell is a hyperlink and none holds a path of the suite', async () => {

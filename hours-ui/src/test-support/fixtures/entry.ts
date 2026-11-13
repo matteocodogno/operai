@@ -74,7 +74,10 @@ export const EDIT_PROJECT: TimeEntryView = timeEntryView({
   activity: { id: 'a-offer', subject: 'Write the offer', visibility: 'visible' },
 })
 
-/** A project the person can no longer read (AC-4.10 applies to the author too, D43): no name, the activity withheld. */
+/**
+ * A project the person can no longer read (AC-4.10 applies to the author too, D43): no name, the activity withheld.
+ * The ids stay: the author keeps their own entries' ids, hidden or not (D44), and the edit dialog re-picks them.
+ */
 export const EDIT_HIDDEN_PROJECT: TimeEntryView = timeEntryView({
   id: 'e-hidden-project',
   day: '2026-11-10',
