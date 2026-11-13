@@ -81,7 +81,7 @@ function after({ day, createdAtMs, id }: Position): Prisma.TimeEntryWhereInput {
 const ListQuerySchema = z
   .object({
     ...filterShape,
-    cursor: z.string().optional().openapi({ description: "The `nextCursor` of the previous page, exactly as returned; anything else is 400 (`field: \"cursor\"`)" }),
+    cursor: z.string().optional().openapi({ maxLength: CURSOR_MAX_LENGTH, description: "The `nextCursor` of the previous page, exactly as returned; anything else is 400 (`field: \"cursor\"`)" }),
     limit: z
       .string()
       .refine(isLimit, { message: `must be a whole number from 1 to ${MAX_LIMIT}` })
