@@ -14,6 +14,7 @@ import { listsRouter } from "./lists/lists.routes";
 import { requestLogger } from "./lib/logger";
 import { problem } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
+import { totalsRouter } from "./totals/totals.routes";
 
 // Exported so the authorization matrix (src/matrix.test.ts, T20) can read the ASSEMBLED
 // app's own route table; Bun serves only the default export below.
@@ -71,6 +72,7 @@ app.use("*", jwtMiddleware);
 app.route("/", listsRouter);
 app.route("/", entriesRouter);
 app.route("/", entryListRouter);
+app.route("/", totalsRouter);
 
 // ─── Error answers (RFC 7807 Problem JSON) ───────────────────────────────────
 
