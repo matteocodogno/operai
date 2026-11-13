@@ -95,6 +95,37 @@ approved: 2026-11-12
 > build-order seam, gone at T16; (26) the AC-1.6 row: "byte-identical" 404 bodies once `instance`, which
 > echoes the requested path, is set aside (T14's `sameAnswer`). Test rows AC-1.5, 1.6, 2.1, 2.7, 2.12, 3.4
 > and 3.5 updated; § Data model, § Sequences, § Errors, § Lists, R11 and § Security note the consequences.
+>
+> Amended a sixth time 2026-11-13, before QE and the eval — the record of what T15–T20 and T27–T30 built
+> where the plan was wrong or silent; no AC, endpoint or feature added (decisions.md § T15–T20 and T27–T30,
+> with T11 and T13 where those rely on them;
+> `hours-api/src/targets/`, `src/oversight/`, `src/entries/{entries,list}.routes.ts`, `filters.ts`,
+> `src/totals/`; `hours-ui/src/lib/hoursWorkbook.ts`, `components/EntryDialogModel.ts`): (27) § Errors, § Entries
+> and § Lists, **three 404 bodies, not one**: an entry the caller cannot write and a list item no one has answer
+> 404 with **no `code`**, a target missing, unreadable or (a meeting) not the caller's answers 404 `code:
+> "not_found"` with one detail naming no kind and no id — each identical across the cases it covers (AC-1.6,
+> AC-2.10), and hours-ui tells the entry's from the target's on an edit (T28 `entryIsGone`); (28) § Errors and
+> R11: the 501 seam closed at **T19**'s close, not T16's — T17 and T18 answered a transitional 501 for
+> `whose=all`, which T19 replaced; `grep -rn not_implemented hours-api/src` prints nothing; (29) § Sequences
+> "Oversight", "List / totals" and § Components, as T19 built it: `auth` asked through T12's
+> `resolveClient.ts` (2 s, `redirect: "error"`, a strict body), one refusal memory shared by the list, the
+> totals and the write guard and separate from `time-list:manage`'s, the order of a read (400s, then the
+> oversight check, then the `dealId` call, then the database), `userId` only with `whose=all`, a holder's write
+> on a nonexistent id 404; (30) § Errors: `host_unavailable` on a read carries its own `detail` (T19), a 403,
+> 404 or 503 carries no `field`, and the list's and the totals' strict query; (31) § Totals as T18 built it:
+> `totalMinutes` the sum of the tallied groups, the strict query, ties by the English collator then the key, a
+> deactivated person `status: "deleted"` and no outage, two system-route calls for `groupBy=deal` with a
+> `dealId` filter, `unavailable` in the `Unavailable` type's order, and what a `dealId` filter adds; (32) § Entries,
+> the list as T17 built it: `limit` written plainly, `target` the entry's own target, a cursor's instant
+> zero-padded (13 digits span 1970–2286, not 2001–2286), linked meeting ids outside the id rule dropped; (33)
+> § API contracts "Reading the owners' list answers": the host resolve's reading (T11, as T15 and T16 rely on
+> it), and R9's log line (T16); (34) § Sequences: an activity under a target whose owner did not answer is
+> `unavailable` (T13), a project's activity pointer matched by `projectId` alone (T16); (35) § Export file as T30
+> built it: the Person cell (T29's `personName`, decisions.md T30), the Activity cell for `unavailable`, the
+> walk's stop on a repeated cursor and the file name; (36) § Security: the `dealId` filter as a link oracle (T17,
+> T18 notes for T37), the credential-less answers (T20), and `src/targets/` among the surfaces. § Entries "A
+> day" and "A change and a move" record T27, T29, T15 and T16. Test rows AC-1.6, 2.10, 4.2, 4.4, 4.5, 4.6 and
+> 5.3 updated.
 
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/026);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
@@ -129,7 +160,7 @@ ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-ho
 
 | Component | Change |
 |---|---|
-| `hours-api` (new) | Service skeleton copied from activities-api's shape: `src/index.ts` (CORS with `ALLOWED_ORIGINS`, request logger, 64 KiB body limit, routers, OpenAPI + Scalar mounted from `src/openapi/registry.ts` — public, like `/health` — RFC 7807 `onError`/`notFound`), `src/auth/jwt.middleware.ts` (RS256, issuer, `aud=AUTH_AUDIENCE`), `src/lib/{env,db,problem,errors,logger,identities,serviceToken}.ts` (`errors.ts`, T10: `invalidRequestHook`, which answers any schema violation — body, query, path parameter, malformed JSON — 400 `invalid_request` naming the field, plus `handleError` / `handleNotFound` for `onError` / `notFound`; kept outside the shared `problem` copy, whose own `validationHook` answers 422), `src/health`. Feature modules: `src/entries/` (CRUD + list), `src/totals/`, `src/lists/` (categories, work types), `src/targets/` (bookability checks), `src/labels/` (fail-soft names and meeting→deal links), `src/oversight/` (read-all, copied from estimai-api `src/estimates/oversight.ts` + `src/lib/authClient.ts`), `src/authz/` (live `time-list:manage`, T12: `timeListManage.ts`, adapted from projects-api `src/auth/authz.middleware.ts` but remembering only a refusal, and `resolveClient.ts`, adapted from projects-api's with a 2 s timeout and `redirect: "error"`; § Sequences, "Admin lists"). Clients (T11): `src/clients/owner.ts`, the one HTTP adapter they share — only a clean 200 with a JSON body is an answer, 2 s, `redirect: "error"`, batches of the owner's cap with at most four in flight, `keepAsked` (§ API contracts, "Reading the owners' list answers") — and `src/clients/{projects,crm,activities,meetings}.ts` (caller JWT, batched; meetings system call with a service JWT). Copied modules registered in `scripts/check-shared-copies.ts` where a group exists (R10). Test harness: `src/test-support/env.ts` (the `bun test` preload: a `_test` database, dead placeholder URLs for every other service), `testAuth.ts` (T10: mocks `jwt.middleware`, signs any token a test needs — another `aud` or issuer, an expired one), `world.ts` (T10: the assembled app, personas, direct inserts of an entry on every target, `onReset`) and `hosts.ts` (T11, activities-api pattern: one scriptable `Bun.serve` playing projects-api, crm-api, activities-api, meetings-api — its list and its system route — and `auth`'s `/authz/resolve`, `/authz/users/identities` and `/system/service-token`; a failure per route, `sever`, the pre-T6–T9 `legacy` owners of R7, every call recorded), and `src/matrix.test.ts`. Env (`src/lib/env.ts`): `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE` (≠ `AUTH_AUDIENCE`), `PORT=8088`, `NODE_ENV`. Files: `.env.example`, `.envrc` (written by a person — agents may not create it, T10 open item), `.gitignore`, `Dockerfile`, `bunfig.toml`, `package.json`, `prisma.config.ts`, `railway.json` (`preDeployCommand: bun run db:deploy`), `tsconfig.json`. |
+| `hours-api` (new) | Service skeleton copied from activities-api's shape: `src/index.ts` (CORS with `ALLOWED_ORIGINS`, request logger, 64 KiB body limit, routers, OpenAPI + Scalar mounted from `src/openapi/registry.ts` — public, like `/health` — RFC 7807 `onError`/`notFound`), `src/auth/jwt.middleware.ts` (RS256, issuer, `aud=AUTH_AUDIENCE`), `src/lib/{env,db,problem,errors,logger,identities,serviceToken}.ts` (`errors.ts`, T10: `invalidRequestHook`, which answers any schema violation — body, query, path parameter, malformed JSON — 400 `invalid_request` naming the field, plus `handleError` / `handleNotFound` for `onError` / `notFound`; kept outside the shared `problem` copy, whose own `validationHook` answers 422), `src/health`. Feature modules (as built; amended a sixth time 2026-11-13): `src/entries/` (`entries.routes.ts` the writes, `list.routes.ts` the list and its cursor, `filters.ts` the query the list and the totals share, `rules.ts` the local rules and the day rule, `schemas.ts`, `today.ts`, `view.ts`), `src/totals/` (`totals.routes.ts`, `totals.ts`, `groups.ts`), `src/lists/` (categories, work types; `idRule.ts`, the id rule's one home, which `src/labels/idRule.ts` re-exports), `src/targets/` (T15, T16: `bookability.ts`, `activity.ts` — the activity pointer — and `errors.ts`), `src/labels/` (fail-soft names and meeting→deal links), `src/oversight/` (read-all, T19: `oversight.ts`, adapted from estimai-api `src/estimates/oversight.ts` but asking `auth` through `src/authz/resolveClient.ts`, not estimai-api's `src/lib/authClient.ts`; `scope.ts`, whose `EntryScope` is one person's or everyone's, and only the oversight check hands out everyone's; `errors.ts`), `src/authz/` (live `time-list:manage`, T12: `timeListManage.ts`, adapted from projects-api `src/auth/authz.middleware.ts` but remembering only a refusal, and `resolveClient.ts`, adapted from projects-api's with a 2 s timeout and `redirect: "error"`; § Sequences, "Admin lists"). Clients (T11): `src/clients/owner.ts`, the one HTTP adapter they share — only a clean 200 with a JSON body is an answer, 2 s, `redirect: "error"`, batches of the owner's cap with at most four in flight, `keepAsked` (§ API contracts, "Reading the owners' list answers") — and `src/clients/{projects,crm,activities,meetings}.ts` (caller JWT, batched; meetings system call with a service JWT). Copied modules registered in `scripts/check-shared-copies.ts` where a group exists (R10). Test harness: `src/test-support/env.ts` (the `bun test` preload: a `_test` database, dead placeholder URLs for every other service), `testAuth.ts` (T10: mocks `jwt.middleware`, signs any token a test needs — another `aud` or issuer, an expired one), `world.ts` (T10: the assembled app, personas, direct inserts of an entry on every target, `onReset`) and `hosts.ts` (T11, activities-api pattern: one scriptable `Bun.serve` playing projects-api, crm-api, activities-api, meetings-api — its list and its system route — and `auth`'s `/authz/resolve`, `/authz/users/identities` and `/system/service-token`; a failure per route, `sever`, the pre-T6–T9 `legacy` owners of R7, every call recorded), `src/matrix.test.ts` and `src/openapi.contract.test.ts` (T20). Env (`src/lib/env.ts`): `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_JWKS_URL`, `AUTH_ISSUER`, `AUTH_AUDIENCE`, `AUTH_BASE_URL`, `PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE` (≠ `AUTH_AUDIENCE`), `PORT=8088`, `NODE_ENV`. Files: `.env.example`, `.envrc` (written by a person — agents may not create it, T10 open item), `.gitignore`, `Dockerfile`, `bunfig.toml`, `package.json`, `prisma.config.ts`, `railway.json` (`preDeployCommand: bun run db:deploy`), `tsconfig.json`. |
 | `activities-api` | `GET /activities` accepts `ids` (≤ 50, comma-separated) as a fifth "exactly one of" filter. Each id's host is resolved **as the caller**, exactly as today; unreadable or missing ids are omitted (identical); an unreachable host is the existing 503. No new table, no catalog. |
 | `crm-api` | `src/activity-host/resolve.routes.ts`: `entityType` becomes `"company" \| "deal"`. For `deal` each id is answered with label/href and `involved: [ownerUserId, technicalUserId?]`, the technical contact taken **as the deal view does** (`estimate?.technical` — an override row with `estimateId: ""` is not a technical contact, `deals.routes.ts:259`). Reader = `crm:access`, as for companies. |
 | `meetings-api` | (1) `GET /meetings` gains `ids` (≤ 25) — still the caller's own meetings only (creator or Operai participant, `list.routes.ts:81-86`), so one call is both the booking check and the label. (2) First `/system/*` route, `GET /system/meetings/hosts` (service JWT, `aud=SERVICE_AUDIENCE`, scope `meetings.hosts.read`, sub `system:hours-api` only, one identical 401), answering `{id, host}` and nothing else, `host` as the meeting stores it (the contract as T9 built it: § API contracts). Copies crm-api's `src/auth/systemAuth.middleware.ts` (verifies against the existing `AUTH_JWKS_URL`). Env: `SERVICE_AUDIENCE`, **optional** in meetings-api's `env.ts` (unset: every system call is the one 401, so a deploy that precedes the variable fails closed instead of stopping the service, T9) and **required** by env-doctor's production contract (T33). |
@@ -161,7 +192,8 @@ ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-ho
 the caller must be in `assignees` (PM + team, `projects-api/src/activity-host/activity-host.routes.ts:120`;
 a project from a deal still awaiting its PM answers its team only) → else **403
 `not_on_project`**. `writable` (false when closed/cancelled) is **ignored**: entries are accepted
-in any state (A12). An activity pointer must be a task whose `project.id` is that project.
+in any state (A12). An activity pointer must be an activity whose `project.id` is that project; a
+project's activities are tasks only, so no type is checked (T16, `src/targets/activity.ts`).
 
 **On a meeting**: meetings-api `GET /meetings?ids=<id>` with the caller's JWT (selfScoped, works
 through an `auth` outage). Absent → **404** (also covers a host-only reader, whom the list never
@@ -186,11 +218,18 @@ re-checking bookability on every change (the plan's first reading of A3) — an 
 then only delete an entry to correct it, losing the hours, while delete already needs no check.
 
 **List / totals** (`GET /time-entries`, `GET /time-entries/totals`):
-1. `whose=mine` (default): JWT only, scoped to `sub`. `whose=all`: oversight (below).
+1. `whose=mine` (default): JWT only, scoped to `sub`. `whose=all`: oversight (below). What the
+   request alone decides is decided first — its shape, the period, `userId` only with `whose=all`, then
+   the cursor — and a 400 calls nobody; then whose entries (the oversight check: 403, 503); then step 2;
+   then the database (amended a sixth time 2026-11-13, as T19 built it). So a caller refused `whose=all`
+   never makes hours-api ask meetings-api anything, and with `auth` down a `whose=all` read with a
+   `dealId` filter is 503 `authz_unavailable`, never `host_unavailable`.
 2. A `dealId` filter first asks `GET /system/meetings/hosts?dealId=` for the meetings currently
    linked to that deal, so their entries match too (AC-2.6); only answered items whose `host` is
-   exactly that CRM deal count. A filter outside the id rule never gets here: it is a 400 first
-   (§ Entries). When that route does not answer, the whole read is refused with 503
+   exactly that CRM deal count, and an answered meeting id outside the id rule is left out of the
+   query — an entry's meeting id passed the rule when it was written, so no entry is lost, and no NUL
+   reaches Postgres (T17, `filters.ts` `dealCondition`). A filter outside the id rule never gets here:
+   it is a 400 first (§ Entries). When that route does not answer, the whole read is refused with 503
    `host_unavailable` and nothing partial is returned (AC-4.11, D45; § Totals, "When the meeting →
    deal link is unavailable").
 3. Query entries (SQL; indexes `userId, day`, `projectId, day`, `dealId, day`, `meetingId`) in the order
@@ -211,19 +250,29 @@ then only delete an entry to correct it, losing the hours, while delete already 
 **A pointed activity that was deleted** (AC-2.9) is derived on read, not swept (ADR-0013): when
 the viewer can read the entry's project or deal and activities-api no longer returns the pointed
 id, the view shows `activity: null`; when the project or deal itself is hidden from the viewer the
-activity is shown as hidden too (AC-4.10). The stored id is **never cleared** — not on read, not on a
-later write (D47): activities-api omits an id the caller cannot read exactly like a deleted one, so
+activity is shown as hidden too (AC-4.10); when the project's or deal's owner did not answer, the activity
+is `{ id, subject: null, visibility: "unavailable" }` whatever activities-api said, and `activities` is named
+only when its own call failed (T13, `src/labels/resolve.ts`). The stored id is **never cleared** — not on
+read, not on a later write (D47): activities-api omits an id the caller cannot read exactly like a deleted one, so
 clearing it on a write would drop a live pointer for an author who merely lost read access, and a
 `PATCH` that keeps the target makes no bookability call (AC-2.12). A changed `activityId` is validated
 as in step 5, and so is one carried across a move (§ Entries, "A change and a move"). *Rejected:* reconcile
 on write (loses live pointers, needs an owner check on every keep-target `PATCH`); clearing only after the host confirms the author still reads the target (an extra call
 for a cosmetic cleanup). A dangling id costs one text column.
 
-**Oversight** (`whose=all`, a `userId` filter, any write on someone else's entry): hours-api asks
-`auth GET /authz/resolve` with the caller's JWT for `time-entry:read-all`. A refusal is cached by
-`(sub, perm_epoch)` for 30 s, a grant never (ADR-0075). `auth` unreachable → 503
-`authz_unavailable` on reads; on a write to someone else's entry the check only decides 403
-`owner_only` vs 404, and a failed check answers 404.
+**Oversight** (`whose=all` — a `userId` filter travels only with it, else 400 — and any write on
+someone else's entry; amended a sixth time 2026-11-13, as T19 built it, `src/oversight/`): hours-api asks
+`auth GET /authz/resolve` with the caller's JWT for `time-entry:read-all`, through T12's
+`src/authz/resolveClient.ts` (2 s, `redirect: "error"`, a body that is not a permission list is no answer);
+any grant of the pair counts (the catalog declares no conditions). A refusal is cached by
+`(sub, perm_epoch)` for 30 s, a grant never (ADR-0075), an outage as neither; that memory is shared by the
+list, the totals and the write guard, and is not `time-list:manage`'s — a refusal of one permission refuses
+nothing of the other. `auth` unreachable → 503 `authz_unavailable` on reads (before the `dealId` call, step 1
+above). On a write the check runs only once the lookup of the caller's own entry came back empty — a person's
+own writes never ask `auth` — and only decides 403 `owner_only` (a holder, and the entry exists) vs 404: a
+failed check, a missing permission and a nonexistent id are all the 404, while a database that cannot answer
+stays a 500. *Rejected:* estimai-api's `src/lib/authClient.ts`, the source this plan first named for the call
+(it waits 5 s and follows redirects, replaying the Bearer to another host).
 
 **Admin lists** (amended a fourth time 2026-11-13: as T12 built it, `src/authz/timeListManage.ts` and
 `resolveClient.ts`): `time-list:manage` is resolved live from `auth GET /authz/resolve`, with the caller's
@@ -462,7 +511,10 @@ GET /time-entries?whose=mine|all&from&to&userId&target&projectId&dealId&meetingI
                  &workTypeId&cursor&limit
   // from/to required, each a real calendar day from 2000-01-01 ("A day", below), else 400 naming it;
   //   span ≤ 366 days counting both end days, else 400 `field: "to"` ("The span", below); limit 1..500
-  //   (default 100); order day desc, createdAt desc, id desc
+  //   (default 100) written plainly — digits, no sign, exponent or leading zero; empty or repeated → 400
+  //   `field: "limit"` (T17); order day desc, createdAt desc, id desc; `nextCursor` null on the last page
+  // strict: a member the route does not name (`projectID=`, `groupBy=`) → 400 invalid_request, `field: ""`
+  // target: the entry's own target — a meeting entry is `meeting`, whatever deal it is linked to (T17)
   // cursor: a `nextCursor` as returned; anything else — sent empty or twice included — → 400
   //   invalid_request, `field: "cursor"` ("The cursor", below)
   // userId only with whose=all; dealId includes entries on meetings linked to that deal
@@ -512,8 +564,9 @@ period the person looks at; one floor for `day` and for `from`/`to` keeps every 
 the list accepts; and a floor can be lowered later without touching a stored row, while raising it would
 strand rows below it. hours-ui applies the same rule, so the 400 is reached only through a client bug:
 `lib/period.ts` `dayOf` already round-trips through `Date.UTC` (T24), and the Day field (`max` today) and
-the Custom period refuse a day before `2000-01-01` with a field error (`rangeErrors` gains the floor, which
-T24 built without). *Rejected:* `new Date(text)` validity alone (Bun rolls `2026-02-30` over to 2 March, and
+the Custom period refuse a day before `2000-01-01` with a field error (`rangeErrors` gained the floor at T29,
+`MIN_DAY`; the dialog's Day field carries `min="2000-01-01"` and checks the floor before the future day,
+T27). *Rejected:* `new Date(text)` validity alone (Bun rolls `2026-02-30` over to 2 March, and
 that day would be stored); zod's `z.string().date()` alone (it takes `0000-01-01`, the 500 above); the round
 trip with no floor, i.e. from `0100-01-01` (keeps mistyped years, and a floor added later would strand
 them); a 422 code of its own for a day before the floor (a code no screen shows, since the client refuses
@@ -562,7 +615,8 @@ sent. No owner id or user id falls outside the rule (cuids, UUID v4 for the acti
 better-auth's generated alphanumeric user ids), so the 400 says nothing about whether a record exists. A **well-formed** id keeps its answer: one no owner knows
 is the same 404 `not_found` as one the caller cannot read (AC-2.10); an unknown `activityId` is 422
 `activity_not_allowed` (AC-2.7), an unknown `categoryId` / `workTypeId` 422 `category_not_found` /
-`work_type_not_found`, an unknown path `{id}` 404 `not_found`, and a well-formed filter that matches
+`work_type_not_found`, an unknown path `{id}` the 404 of an entry or a list item that is not there (no
+`code`; § Errors, "Two 404 bodies"), and a well-formed filter that matches
 nothing an empty answer. *Rejected:* the owners' bound alone (1..64, no NUL) — a comma or a blank
 meeting id would still come back as an owner's 422, so as a 503; a character class matching today's ids
 (`[A-Za-z0-9_-]`) — it ties hours-api to every owner's id generator, and a new id format would be
@@ -598,8 +652,9 @@ migration is written, and migrations are never modified).
 
 **The cursor** (amended a third time 2026-11-13, for T17). `nextCursor` is
 `base64url("<day>|<createdAt>|<id>")` of the page's last item: `day` as `YYYY-MM-DD`, `createdAt` as 13
-decimal digits of epoch milliseconds (exact: the column is `TIMESTAMP(3)`; 13 digits span 2001–2286, so no
-instant Postgres refuses can be written), `id` the entry's id. The list's order is `day desc, createdAt
+decimal digits of epoch milliseconds, zero-padded (exact: the column is `TIMESTAMP(3)`; an instant before
+2001-09-09 has 12 digits, T17; 13 digits span 1970–2286, so no instant Postgres refuses can be written),
+`id` the entry's id. The list's order is `day desc, createdAt
 desc, id desc` — `id` last, so rows sharing a day and a `createdAt` (a direct insert, two saves in one
 millisecond) are still walked exactly once — and the next page starts strictly after the cursor's position
 in that order. A `cursor` is accepted only when hours-api could have minted it: at most 200 characters, only
@@ -691,8 +746,9 @@ each member the `PATCH` sends, else the stored one — for every rule, as D50 al
 silently lose what the person recorded — the loss D47 refuses for a pointer); clearing both on every move
 (loses a work type that still fits, project to project); refusing the stored retired work type when re-sent
 or carried as if it were chosen (a client that sends the whole form back could not save an entry that AC-3.4
-says keeps it). Moves onto a project or a deal answer 501 until T15 and T16 (§ Errors), so their tests pin
-the carried work type and activity there.
+says keeps it). T15 and T16 pinned the carried work type and activity through the owners' checks
+(`src/entries/{bookability,deals,activityPointer}.test.ts`), where T14's tests had stopped at its 501
+(§ Errors).
 
 ### Totals
 
@@ -716,17 +772,24 @@ type TotalsGroup =
 - **Complete.** Every entry that matches the filters is counted in exactly one group;
   `Σ groups[].minutes === totalMinutes`; `groups` is never paged or truncated. No zero-minute group
   (a month without entries is absent, not padded). Size is bounded by the span (≤ 366 days, ≤ 13
-  months), the list sizes, and the people / projects / deals with entries in it.
-- **Sources asked.** `unavailable` names only the sources this grouping and these filters needed:
-  `day`, `month` and `category` read no other service (a `dealId` filter adds `meeting-deals`);
-  `person` reads `identities`; `project` reads `projects`; `deal` reads `meeting-deals` and `crm`.
+  months), the list sizes, and the people / projects / deals with entries in it. `totalMinutes` is the
+  sum of the tallied groups, never a second aggregate, so both come from one read (T18, `groups.ts` `Tally`).
+- **The query** (amended a sixth time 2026-11-13, as T18 built it): the list's filters and rules
+  (`filters.ts`), strict — `cursor`, `limit` or any member the route does not name → 400
+  `invalid_request`, `field: ""`; `groupBy` required, one of the six, sent once, else 400
+  `field: "groupBy"`.
+- **Sources asked.** `unavailable` names only the sources this grouping needed, in the order of the
+  `Unavailable` type: `day`, `month` and `category` read no other service; `person` reads `identities`;
+  `project` reads `projects`; `deal` reads `meeting-deals` and `crm`. A `dealId` filter also asks the
+  system route's `?dealId=`, whatever the grouping; its failure is the whole read's 503 (below), never a
+  name in `unavailable`.
 
 | `groupBy` | `keyed` groups | `key` | `label` | other kinds | order of `groups` |
 |---|---|---|---|---|---|
-| `person` | one per person with matching entries | user id (usable as `userId`) | live name from `auth POST /authz/users/identities` (ADR-0039, AC-4.8), `status` likewise; `null` + `status: "unknown"` when not resolved (source `identities`) | — | `label` by `Intl.Collator("en", { sensitivity: "base" })`, `null` labels last, then `key` |
-| `project` | one per project the viewer can read | project id | the project's label as the viewer reads it | `hidden`, `unavailable`, `none` (deal, meeting and no-entity entries) | `minutes` desc, then `label`, then `key`; then `hidden`, `unavailable`, `none` |
+| `person` | one per person with matching entries | user id (usable as `userId`) | live name from `auth POST /authz/users/identities` (ADR-0039, AC-4.8), `status` likewise; `null` + `status: "unknown"` when not resolved (source `identities`); a deactivated account `null` + `status: "deleted"`, which is no outage and names no source (T18) | — | `label` by `Intl.Collator("en", { sensitivity: "base" })`, `null` labels last, then `key` |
+| `project` | one per project the viewer can read | project id | the project's label as the viewer reads it | `hidden`, `unavailable`, `none` (deal, meeting and no-entity entries) | `minutes` desc, then `label` (the same collator, `null` last), then `key`; then `hidden`, `unavailable`, `none` |
 | `deal` | one per deal the viewer can read: entries on the deal **plus** entries on meetings currently linked to it (AC-2.6) | deal id | the deal's label as the viewer reads it | `hidden` (also meetings linked to a deal id outside the id rule, § Views), `unavailable` (crm did not answer), `deal-unknown` (meeting entries; `meeting-deals` did not answer), `none` (project and no-entity entries; meetings linked to no deal, linked to a host that is not a CRM deal, or no longer existing) | as `project`; then `hidden`, `unavailable`, `deal-unknown`, `none` |
-| `category` | one per category used | category id | the name as typed (AC-3.8), `retired` | `none` (project, deal and meeting entries) | `minutes` desc, then `label`; then `none` |
+| `category` | one per category used | category id | the name as typed (AC-3.8), `retired` | `none` (project, deal and meeting entries) | `minutes` desc, then `label` (the same collator), then `key`; then `none` |
 | `month` | one per calendar month with entries | `YYYY-MM` of `day` | `null` — the UI formats the key with `formatMonth` | — | `key` desc (newest first, the list's order) |
 | `day` | one per day with entries | `YYYY-MM-DD` | `null` — the UI uses `formatDateLong` | — | `key` desc |
 
@@ -766,13 +829,18 @@ its own credential (withheld, § Views).
   *Rejected:* the partial answer above; counting every meeting entry of the period as a possible
   match (wrong totals). `groupBy=deal` without a `dealId` filter still degrades (bullet above): its
   `totalMinutes` stays right and the `deal-unknown` group says where the gap is.
+- `groupBy=deal` with a `dealId` filter asks the system route twice (amended a sixth time 2026-11-13;
+  T18, `totals.ts` `byDeal`): `?dealId=` for the filter, `?ids=` for the grouping. The first not
+  answering is the 503 above; the second not answering alone puts the matched meeting entries in
+  `deal-unknown`, names `meeting-deals` and keeps `totalMinutes` whole. A relink between the two calls
+  could count a matched meeting under its new deal — a window of milliseconds, accepted.
 - A list item on a meeting: `on.deal = { state: "unknown" }`.
 
 ### Errors (entries and totals)
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_request` | schema violation, unknown key, an empty `PATCH` body `{}` (`field: ""`, as for an unknown top-level key: a `PATCH` changes at least one member), bad query (a span over 366 days counting both end days, or `from` after `to` — `field: "to"`; `userId` without `whose=all`; unknown `groupBy`); a `day`, `from` or `to` that is not a real calendar day from 2000-01-01 (`field` names it; § Entries, "A day"); a body id, a filter id or a path `{id}` (`field: "id"`) outside the id rule; a NUL or a lone surrogate in `note`; a `cursor` hours-api did not mint (`field: "cursor"`) (§ Entries) |
+| 400 | `invalid_request` | schema violation, unknown key, an empty `PATCH` body `{}` (`field: ""`, as for an unknown top-level key: a `PATCH` changes at least one member), bad query (a span over 366 days counting both end days, or `from` after `to` — `field: "to"`; `userId` without `whose=all`, a holder's included — `field: "userId"`; unknown `groupBy`; a query member the route does not name — `field: ""`, `cursor` or `limit` on the totals included; a `limit` that is not 1..500 written plainly — `field: "limit"`); a `day`, `from` or `to` that is not a real calendar day from 2000-01-01 (`field` names it; § Entries, "A day"); a body id, a filter id or a path `{id}` (`field: "id"`) outside the id rule; a NUL or a lone surrogate in `note`; a `cursor` hours-api did not mint (`field: "cursor"`) (§ Entries) |
 | 422 | `invalid_minutes` | not 30..1440 in steps of 30 |
 | 422 | `future_day` | a real calendar day (§ Entries, "A day") after today in `Europe/Zurich` |
 | 422 | `note_too_long` / `note_required` | > 1000 code points (§ Entries, "Counting") / on a `POST`, or a `PATCH` that sends `note` or another target (D50): the category the entry will have requires a note and the note it will have is none — absent, `null` or blank (§ Entries, "A blank note"); a `PATCH` that sends neither is never refused for it |
@@ -783,10 +851,26 @@ its own credential (withheld, § Views).
 | 403 | `not_on_project` | project readable, caller not PM or team member |
 | 403 | `not_involved_in_deal` | deal readable, caller not owner, technical contact, assignee or participant |
 | 403 | `owner_only` | holder of `time-entry:read-all` writing someone else's entry |
-| 403 | `read_all_required` | `whose=all` or `userId` without the permission |
-| 404 | `not_found` | entry not the caller's (non-holder), target missing or not readable, meeting not the caller's — one identical body (for a well-formed id; one outside the id rule is the 400) |
-| 503 | `host_unavailable` | projects-api, crm-api, activities-api or meetings-api did not answer a write's check, or answered with a list that ignored its filter (§ API contracts, "Reading the owners' list answers"); or, on a read with a `dealId` filter (list, totals), meetings-api's `GET /system/meetings/hosts?dealId=` did not answer (AC-4.11, D45) |
+| 403 | `read_all_required` | `whose=all` — with or without `userId`, which travels only with it — without the permission (list and totals) |
+| 404 | — (no `code`) | `PATCH` / `DELETE`: no entry of the caller's has this id — someone else's (a non-holder, or a holder when `auth` cannot say) or none at all — one identical body (AC-1.6); also a list item no one has (§ Lists). For a well-formed id; one outside the id rule is the 400 |
+| 404 | `not_found` | `POST`, or a `PATCH` that moves the entry: the target is missing or not readable, or a meeting the caller is not the creator or a participant of — one identical body naming no kind of target and no id (AC-2.10) |
+| 503 | `host_unavailable` | projects-api, crm-api, activities-api or meetings-api did not answer a write's check, or answered with a list that ignored its filter (§ API contracts, "Reading the owners' list answers"); or, on a read with a `dealId` filter (list, totals), meetings-api's `GET /system/meetings/hosts?dealId=` did not answer (AC-4.11, D45). A write's `detail` says nothing was saved; a read's says what could not be said (T19, `src/targets/errors.ts` `hostUnavailable(detail?)`) |
 | 503 | `authz_unavailable` | `auth` did not answer an oversight read or a list write |
+
+**Two 404 bodies, one per question** (amended a sixth time 2026-11-13; decisions.md T14, T15, T28). An entry
+the caller cannot write answers `{ status: 404, detail }` with **no `code`** (`entries.routes.ts`
+`entryNotFound`), and so does a list item no one has (`lists.routes.ts` `itemNotFound`); a target the caller
+cannot book on answers 404 with `code: "not_found"` and one detail that names no kind of target and no id
+(`src/targets/errors.ts` `targetNotFound`). Each is identical across the cases it covers — someone else's entry
+and no entry at all; a missing, an unreadable and a not-yours project, deal or meeting, whatever the kind — so
+neither tells anyone what exists. They differ from each other because they answer different questions, and
+only the person's own request reaches the second (a `POST`, or a `PATCH` of their own entry that moves it), so
+telling them apart says nothing about another person's record. hours-ui relies on it: on an edit, a 404 is the
+target's only when the save moved the entry and the answer carries `not_found`, every other 404 says the entry
+is gone, and a delete reads any 404 as already gone (`components/EntryDialogModel.ts` `entryIsGone`); admin-ui
+reads a list item's 404 by its status (T32). *Rejected:* `code: "not_found"` on the entry's 404 as well, the one
+body this table first described — on a save that moved the entry, a vanished entry would read as "that project,
+deal or meeting is gone" (T15).
 
 **`field` on a 422** (amended a fifth time 2026-11-13; T14's `rules.ts` `refusal`). Every 422 carries `field`
 next to `code`, the member the rule lands on: `invalid_minutes` → `minutes`; `future_day` → `day`;
@@ -794,14 +878,16 @@ next to `code`, the member the rule lands on: `invalid_minutes` → `minutes`; `
 `work_type_*` → `workTypeId`; `activity_not_allowed` → `activityId`, whether hours-api decides it alone (a
 meeting or no entity) or from activities-api's answer (T16 reuses `rules.ts` `activityNotAllowed()`). A 400
 names its member too (T10's hook). hours-ui maps a refusal by `code` (T27 `failureOf`); `field` lets any
-other client land it without a table of its own. The detail names the rule, never the value sent.
+other client land it without a table of its own. The detail names the rule, never the value sent. A 403, 404 or
+503 carries no `field` (T15, T16): it is about the whole write, not one member.
 
 **Order of the answers** (amended a fifth time 2026-11-13, as T14 built it). A write is answered with the
 first failure in this order, and a refused write writes and changes nothing:
 1. the session (401) and the app-wide middleware;
 2. the shape of the request — body, path `{id}` — 400 `invalid_request` (§ Entries), decided from the request
    alone;
-3. `PATCH` and `DELETE` only: the entry is looked up for the caller — 404 `not_found`, or for a holder of
+3. `PATCH` and `DELETE` only: the entry is looked up for the caller — the entry's 404 (no `code`, above),
+   or for a holder of
    `time-entry:read-all` 403 `owner_only` (T19; § Sequences, "Oversight") — **before any rule**, so a 422
    never answers for someone else's entry;
 4. the local rules, 422, in this order: `invalid_minutes`; `future_day`; `note_too_long`; the work type —
@@ -821,9 +907,12 @@ T14). Until T15 and T16 fill `askOwners` (`entries.routes.ts`), a write that rea
 project, a deal or a meeting, a `PATCH` that moves an entry onto one, a new `activityId` or one carried across
 a move — is answered 501 `not_implemented`, nothing written and no owner called: accepting it unchecked would
 let anyone book on any project (fail closed, AC-2.11's posture). Entries on no entity and changes that keep
-the target and send no new `activityId` answer normally. T15 removes it for projects and meetings, T16 for
-deals and the activity pointer; after T16 no route answers 501 (R11). The OpenAPI does not document it and no
-client handles it (hours-ui shows the generic error).
+the target and send no new `activityId` answer normally. T15 removed it for projects and meetings, T16 for
+deals and the activity pointer. T17 and T18 used the same seam for `whose=all` on the list and the totals —
+answered after the 400s and before any `auth`, owner or database call — until T19 put the oversight check there
+(amended a sixth time 2026-11-13). Since T19 no route answers 501: `grep -rn not_implemented hours-api/src`
+prints nothing, and T20's matrix and contract test assert that no cell answers 501 and that the OpenAPI
+documents none (R11). No client handles it (hours-ui shows the generic error).
 
 ### Lists
 
@@ -848,7 +937,7 @@ PATCH /work-types/{id}       { name?: string; retired?: boolean }               
   //   its driver would store U+FFFD for a lone surrogate (T10; amended three times 2026-11-13;
   //   counting and surrogates: § Entries)
   // {id} of PATCH: the id rule (§ Entries), else 400 invalid_request, `field: "id"`; a well-formed
-  //   unknown id → 404 not_found
+  //   unknown id → 404 with no `code` (§ Errors, "Two 404 bodies"; admin-ui reads the status, T32)
   // time-list:manage, live, checked first (route middleware; only a refusal remembered, 30 s per
   //   (sub, perm_epoch); § Sequences, "Admin lists"): 403 time_list_manage_required,
   //   503 authz_unavailable; 409 name_taken; no DELETE route is mounted (AC-3.2): DELETE on either
@@ -874,19 +963,22 @@ Retire and restore — the same `PATCH` on both routes:
 
 `buildHoursWorkbook(items: TimeEntryView[], copy): Workbook` in `hours-ui/src/lib/hoursWorkbook.ts`:
 one sheet, one row per item in the list's order, from every page of `GET /time-entries` with the
-active filters (`limit=500` until `nextCursor` is `null`). Headers and placeholder words come from the
-strings catalog in the viewer's language. The file carries no ids.
+active filters (`limit=500` until `nextCursor` is `null`; a page that hands back a cursor already followed
+stops the walk with the button's failed alert, and there is no page cap, which would shorten the file
+silently — T30, `lib/exportPages.ts`). Headers and placeholder words come from the strings catalog in the
+viewer's language. The file carries no ids and is named `hours-<from>_<to>.xlsx`, from the period, never from
+a person (T30).
 
 | # | Column | Cell |
 |---|---|---|
 | 1 | Day | a date cell from `day` (`dd.mm.yyyy`) |
-| 2 | Person | `person.name`; `null` → the "Unknown user" word |
+| 2 | Person | the screen's name for the person (amended a sixth time 2026-11-13: T29's `personName`, which T30 reuses so the file never disagrees with the table it exports): `person.name`; `null` or blank → the "Unknown user" word; a deactivated account (`status: "deleted"`) adds the "(deactivated)" suffix — "Unknown user (deactivated)", since `auth` names no deleted account |
 | 3 | Hours | a **number**, `minutes / 60` (150 → 2.5; always a multiple of 0.5, exact), number format `0.0` — never a "2 h 30" string (D39; AC-4.9 is the screen) |
 | 4 | On | the type word: Project / Deal / Meeting / Other work |
 | 5 | Name | the project, deal or meeting `label`; `hidden` → "Not visible to you"; `unavailable` → "Name unavailable"; empty for other work |
 | 6 | Counts for deal | the deal the hours count for (D40): an entry on a deal → that deal; on a meeting → `on.deal` (`linked` + `visible` → its label, `hidden` → "Not visible to you", `unavailable` → "Name unavailable", `unknown` → "Unknown", `none` → empty); project and other work → empty |
 | 7 | Category or work type | the name as typed (AC-3.8) |
-| 8 | Activity | `activity.subject`; `hidden` → "Not visible to you"; none or deleted → empty |
+| 8 | Activity | `activity.subject`; `hidden` → "Not visible to you"; `unavailable` → "Name unavailable"; none or deleted → empty |
 | 9 | Note | the full note |
 
 Column 3 summed by column 6 equals the `groupBy=deal` groups for the same filters: a deal's label ↔
@@ -1039,6 +1131,13 @@ How `src/clients/` reads a list it asked by id or by deal, as T11 built it (`own
   up to that `total` make the whole scan `unavailable` (503 on the write): there, absent means "not
   involved" (403), so a scan that cannot account for every activity must not pass for the whole list. The
   10-page bound (R9) is the one accepted shortfall.
+- **By host resolve** — projects-api and crm-api `POST /activity-host/v1/resolve` (amended a sixth time
+  2026-11-13: T11's `owner.ts`, `projects.ts`, `crm.ts`, as T15 and T16 rely on them): `reader: false` alone
+  decides — `not_reader`, the target's 404 on a write and `hidden` on a read. Otherwise every asked id must be
+  answered `missing` or `open`, an open item must carry `assignees` (a project) or `involved` (a deal) — absent
+  is not "nobody" — and its `href` must be a suite path. An asked id left unanswered, an open item without that
+  list, an `href` outside the suite, or one batch that does not answer makes the whole call `unavailable`: 503
+  `host_unavailable` on a write, never a 404 or a 403, and `unavailable` on a read.
 
 ### auth (changed)
 
@@ -1064,7 +1163,7 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-1.3 | unit + integration | `todayIn("Europe/Zurich")` across the UTC midnight boundary; tomorrow and `9999-12-31` → 422 `future_day`; on `POST` and `PATCH`, a `day` that is not a real calendar day from 2000-01-01 — `2026-02-30`, `2025-02-29`, `2026-13-01`, `2026-00-10`, `2026-11-00`, `1999-12-31`, `0000-01-01`, `0050-01-01`, `2026-2-01`, `2026-11-13T00:00:00Z`, `""` — → 400 `invalid_request` with `field: "day"`, nothing written or changed, never a 500 and never a rolled-over day stored; `2000-01-01` and `2024-02-29` → 201 |
 | AC-1.4 | integration | 6 h on an internal project + 6 h on a client project the same day → both 201; `groupBy=project` gives 6 h each, `groupBy=day` gives that day 12 h |
 | AC-1.5 | integration | owner `PATCH`es and `DELETE`s an entry dated 400 days ago → 200 / 204, only the members sent changed; an empty `PATCH {}` → 400 `invalid_request` with `field: ""`, row unchanged |
-| AC-1.6 | integration | another user (admin included) `PATCH`/`DELETE` → 404, byte-identical to a well-formed id no entry has once `instance` — which echoes the requested path — is set aside; a `PATCH` breaking a rule (`minutes: 15`) on another user's entry → that 404, never the 422 (looked up before any rule); read-all holder → 403 `owner_only`, a rule-breaking body included; `POST` with `userId` → 400; row unchanged; a path `{id}` outside the id rule — 65 characters, `%00`, `a%2Cb`, `%20a`, `a%20` — → 400 `invalid_request` with `field: "id"` on `PATCH` and `DELETE`, alike for the owner, a read-all holder and a third user, no `auth` call recorded, never a 500 |
+| AC-1.6 | integration | another user (admin included) `PATCH`/`DELETE` → 404, byte-identical to a well-formed id no entry has once `instance` — which echoes the requested path — is set aside, and carrying no `code` (§ Errors, "Two 404 bodies"); a read-all holder's write on a nonexistent id, and a holder's write on someone else's entry while `auth` is down → that 404, never `owner_only`; a `PATCH` breaking a rule (`minutes: 15`) on another user's entry → that 404, never the 422 (looked up before any rule); read-all holder → 403 `owner_only`, a rule-breaking body included; `POST` with `userId` → 400; row unchanged; a path `{id}` outside the id rule — 65 characters, `%00`, `a%2Cb`, `%20a`, `a%20` — → 400 `invalid_request` with `field: "id"` on `PATCH` and `DELETE`, alike for the owner, a read-all holder and a third user, no `auth` call recorded, never a 500 |
 | AC-1.7 | integration + DB | 1001 characters → 422 `note_too_long`; 1000 → 201; CHECK holds; counted in code points: 1000 emoji (2000 UTF-16 units) → 201 and stored whole on `POST` and `PATCH`, 1001 emoji → 422 `note_too_long`; a note holding `\u0000` → 400 `invalid_request` with `field: "note"` on `POST` and `PATCH`, nothing written or changed, never a 500; a note holding a lone surrogate (`"\ud800"`, `"a\udc00b"`, a high surrogate last) → the same 400, nothing written or changed; `""` and `" \n\t"` → 201 with `note: null` stored and returned; `"  text "` → stored and returned exactly as sent; 1001 spaces → 422 `note_too_long` |
 | AC-1.8 | contract | strict schema: `start`/`end` keys → 400; OpenAPI view has no time-of-day member |
 | AC-2.1 | unit + integration + DB | every target / category / work-type combination: allowed → 201, others → 400/422; CHECK rejects raw rows; an `on.categoryId` or `workTypeId` holding a NUL or of 65 characters → 400 `invalid_request` naming it, never a 500; every 422 carries `field` next to `code` (§ Errors); a body breaking a local rule is refused before any owner call (the fake records none), and one breaking two gets the earlier in § Errors' order (`minutes: 45` with a retired category → `invalid_minutes`; a meeting `on` with a work type and an activity → `work_type_not_allowed`) |
@@ -1077,7 +1176,7 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-2.8 | integration | two people, three days, one task → all 201, same `activity.id` in the list |
 | AC-2.9 | integration | fake activities-api stops returning the pointed id → entry still listed and counted, `activity: null`, export activity cell empty; owner then changes the note → 200 and the stored `activityId` is unchanged (D47); project hidden from the viewer → activity rendered hidden, not `null` |
 | AC-2.12 | integration (fake projects + crm + activities + meetings) | entry on a project, caller then removed from `assignees`: `PATCH {minutes, note, workTypeId, day}` → 200 with **no bookability call**, proved by the save succeeding while projects-api is down (a bookability call would be 503) — never by counting the fake's resolve calls: the view the `PATCH` returns reads its labels as the viewer through the same `POST /activity-host/v1/resolve` (T13), which the fake cannot tell from a bookability call; same with the project answering `reader:false` → 200 (a bookability call would be 404); `PATCH {on: <same project>}` → 200 while projects-api is down; `PATCH {on: <another project the caller is not on>}` → 403 `not_on_project`, row unchanged; `PATCH {activityId: <task of that project>}` with activities-api down → 503; deal (involvement lost; crm-api and activities-api down) and meeting (no longer a participant; meetings-api and its system route down) variants alike |
-| AC-2.10 | integration | missing vs unreadable project, deal, meeting → byte-identical 404 bodies, a well-formed id no owner knows included; for each target type, an `on.id` outside the id rule — empty, 65 characters, a NUL, a comma (`a,,b`), spaces only or at either end — → 400 `invalid_request` with `field: "on.id"` and the fake hosts record no call (never 503, never the owner's 422); a well-formed `on.id` holding `&`, `#`, `+`, `%` or an inner space reaches the fake host exactly as sent and, unknown, is the same 404 |
+| AC-2.10 | integration | missing vs unreadable project, deal, meeting → byte-identical 404 bodies with `code: "not_found"`, a well-formed id no owner knows included, one body for a project and a meeting alike (no kind named); for each target type, an `on.id` outside the id rule — empty, 65 characters, a NUL, a comma (`a,,b`), spaces only or at either end — → 400 `invalid_request` with `field: "on.id"` and the fake hosts record no call (never 503, never the owner's 422); a well-formed `on.id` holding `&`, `#`, `+`, `%` or an inner space reaches the fake host exactly as sent and, unknown, is the same 404 |
 | AC-2.11 | integration | each source down / timeout / 500 during a write → 503 `host_unavailable`, no row written; likewise an owner answer that ignored its filter — meetings-api `ids` answering the caller's latest page without the asked meeting (the fake's `legacy`), activities-api `ids` answering another activity and not the asked one, a deal scan holding an activity not about that deal or pages that do not add up to `total` — → 503, never 404, 422 `activity_not_allowed` or 403 `not_involved_in_deal` |
 | AC-3.1 | integration + component (admin-ui) | holder creates, renames, retires and **restores** a category and a work type in each list; after `PATCH { retired: false }` the item is back in `GET /time-lists` and a new entry with it → 201; retire and restore are idempotent (200, row unchanged); rename-and-restore to a taken name → 409 `name_taken`, row unchanged; a `name` holding `\u0000` or a lone surrogate (`"\udc00"`) → 400 `invalid_request` (`field: "name"`) on create and rename in each list, row unchanged, never a 500; a name of 80 emoji after trimming → 201, 81 → 400 `field: "name"` (code points); `PATCH /time-categories/{id}` and `/work-types/{id}` with an `{id}` outside the id rule (65 characters, `%00`, `a%2Cb`, `%20a`) → 400 `invalid_request`, `field: "id"`, for a holder, never a 500, and 403 for a non-holder whatever the id; `GET /time-lists` returns each list in `createdAt asc, name asc, id asc` order — the A15 rows by name, an item added later after them, a retired row in its place with `includeRetired=true`. admin-ui: an active row offers Rename + Retire, a retired row Rename + Restore, each sending one `PATCH`; the name check counts code points (80 emoji pass, 81 do not) |
 | AC-3.2 | integration + DB | `DELETE /time-categories/{id}` and `/work-types/{id}` → 404, row present; raw delete of a used row blocked by `Restrict` |
@@ -1088,19 +1187,19 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-3.7 | migration | a fresh test database holds exactly the A15 rows |
 | AC-3.8 | component (hours-ui, admin-ui) | a name typed "Formazione" renders verbatim with `lang=en` and `lang=it` |
 | AC-4.1 | integration + component + e2e | integration: `groupBy=day` keys `YYYY-MM-DD`, newest first, each the sum of that day's matching entries; the list's cursor walks every matching row exactly once in `day desc, createdAt desc, id desc` — rows inserted with the same day and `createdAt` included — with `limit` 1, 2 and 500. component: My hours shows each day's total from `groupBy=day` — a day whose entries straddle two list pages shows its full total before Load more; no "incomplete" marker in the DOM; no notification call. e2e: two entries on one day → that day's total on `/hours` |
-| AC-4.2 | integration | `whose=all` or `userId` without the permission → 403 `read_all_required` (list and totals); `whose=mine` never returns another person's row |
+| AC-4.2 | integration | `whose=all`, with or without `userId`, without the permission → 403 `read_all_required` (list, and totals for every `groupBy`), with no system-route call recorded even beside a `dealId` filter; `userId` without `whose=all` → 400 `field: "userId"`, a holder's included, no `auth` call; `whose=mine` never returns another person's row |
 | AC-4.3 | integration | holder sees entries of `welld_ch` and `welld_it` users |
-| AC-4.4 | integration + component | each filter narrows items and totals alike; the period counts both end days, on list and totals: `from = to` (one day), `2026-01-01..2027-01-01` and the leap year `2028-01-01..2028-12-31` (366 days each) → 200, `2026-01-01..2027-01-02` (367) and `from` after `to` → 400 `invalid_request` with `field: "to"`; a `from` or `to` that is not a real calendar day from 2000-01-01 — `2026-02-30`, `1999-12-31`, `0000-01-01`, `2026-2-01`, empty, repeated — → 400 `invalid_request` naming it on list and totals, also beside a valid `cursor` (the period is named, not the cursor), no `auth`, owner or system-route call recorded, never a 500; `2000-01-01..2000-12-31` and `from = to = 9999-12-31` → 200; the person filter's options are the `groupBy=person` groups without `userId`: complete with more people than one list page holds, `key` = user id, `label` = live name, `null` + `identities` in `unavailable` when identities fail; each filter id (`userId` with `whose=all`, `projectId`, `dealId`, `meetingId`, `categoryId`, `workTypeId`) outside the id rule — empty (`projectId=`), 65 characters, `%00`, a comma, a space at either end, repeated — → 400 `invalid_request` naming it on list and totals, no `auth`, owner or system-route call recorded, never a 500; a `cursor` hours-api did not mint — empty, repeated, 201 characters, a character outside base64url, a non-canonical encoding, decoding to junk, to a NUL, to an impossible day (`2026-02-30`), to a day outside `from..to`, to an instant that is not 13 digits or to an id outside the id rule — → 400 `invalid_request` with `field: "cursor"`, never a 500, while the list's own `nextCursor` → 200. component: `hoursApi` omits a filter that is not set |
+| AC-4.4 | integration + component | each filter narrows items and totals alike; the period counts both end days, on list and totals: `from = to` (one day), `2026-01-01..2027-01-01` and the leap year `2028-01-01..2028-12-31` (366 days each) → 200, `2026-01-01..2027-01-02` (367) and `from` after `to` → 400 `invalid_request` with `field: "to"`; a `from` or `to` that is not a real calendar day from 2000-01-01 — `2026-02-30`, `1999-12-31`, `0000-01-01`, `2026-2-01`, empty, repeated — → 400 `invalid_request` naming it on list and totals, also beside a valid `cursor` (the period is named, not the cursor), no `auth`, owner or system-route call recorded, never a 500; `2000-01-01..2000-12-31` and `from = to = 9999-12-31` → 200; the person filter's options are the `groupBy=person` groups without `userId`: complete with more people than one list page holds, `key` = user id, `label` = live name, `null` + `identities` in `unavailable` when identities fail; each filter id (`userId` with `whose=all`, `projectId`, `dealId`, `meetingId`, `categoryId`, `workTypeId`) outside the id rule — empty (`projectId=`), 65 characters, `%00`, a comma, a space at either end, repeated — → 400 `invalid_request` naming it on list and totals, no `auth`, owner or system-route call recorded, never a 500; a `cursor` hours-api did not mint — empty, repeated, 201 characters, a character outside base64url, a non-canonical encoding, decoding to junk, to a NUL, to an impossible day (`2026-02-30`), to a day outside `from..to`, to an instant that is not 13 digits or to an id outside the id rule — → 400 `invalid_request` with `field: "cursor"`, never a 500, while the list's own `nextCursor` → 200; a query member the route does not name (`projectID=`, `groupBy` on the list, `cursor` or `limit` on the totals) → 400 `field: ""`. component: `hoursApi` omits a filter that is not set |
 | AC-4.11 | integration + component | `dealId` filter with `GET /system/meetings/hosts?dealId=` down / timeout / 500 → list and totals both 503 `host_unavailable`, no `items`/`groups` body; same filter with the route up → 200 including the meeting entries; no `dealId` filter with the route down → 200 (degrades as AC-4.5/4.7); a `dealId` outside the id rule → 400 `invalid_request` with `field: "dealId"` and no `GET /system/meetings/hosts` call recorded — never the 503. component: the filtered view shows its "try again" error state, not an empty or partial list; export with the deal filter fails with the same error |
-| AC-4.5 | integration + component | each `groupBy`: `key`, `label` and order as in § Totals; `Σ groups.minutes = totalMinutes` for every `groupBy` over one fixture; meeting entries under their current deal; one `none` group, which also holds a meeting linked to a host that is not a CRM deal; a meeting linked to a CRM deal id outside the id rule counts in `hidden`; two deals the viewer cannot read → one `hidden` group; system route down → meeting entries in `deal-unknown`, `meeting-deals` in `unavailable`, `totalMinutes` unchanged (no `dealId` filter). component: month groups labelled through `formatMonth` |
-| AC-4.6 | unit + component | `buildHoursWorkbook(items)`: rows = items in order; the nine columns of § Export file in order; Hours is a numeric cell `minutes / 60` (30 → 0.5, 150 → 2.5, 1440 → 24) with format `0.0`; Counts for deal holds the deal for a deal entry and for a meeting linked to one; over one fixture, Hours summed by Counts for deal = that fixture's `groupBy=deal` groups (placeholders ↔ `hidden` / `unavailable` / `deal-unknown`, empty ↔ `none`). component: export walks every page with the active filters; a page with `unavailable` → the ready status says names are missing |
+| AC-4.5 | integration + component | each `groupBy`: `key`, `label` and order as in § Totals; `Σ groups.minutes = totalMinutes` for every `groupBy` over one fixture; meeting entries under their current deal; one `none` group, which also holds a meeting linked to a host that is not a CRM deal; a meeting linked to a CRM deal id outside the id rule counts in `hidden`; two deals the viewer cannot read → one `hidden` group; system route down → meeting entries in `deal-unknown`, `meeting-deals` in `unavailable`, `totalMinutes` unchanged (no `dealId` filter), and the same when only the second of `groupBy=deal`'s two system-route calls under a `dealId` filter fails; a deactivated person → `label: null`, `status: "deleted"`, `identities` not named; equal minutes ordered by the English collator, then the key. component: month groups labelled through `formatMonth` |
+| AC-4.6 | unit + component | `buildHoursWorkbook(items)`: rows = items in order; the nine columns of § Export file in order; Hours is a numeric cell `minutes / 60` (30 → 0.5, 150 → 2.5, 1440 → 24) with format `0.0`; Counts for deal holds the deal for a deal entry and for a meeting linked to one; over one fixture, Hours summed by Counts for deal = that fixture's `groupBy=deal` groups (placeholders ↔ `hidden` / `unavailable` / `deal-unknown`, empty ↔ `none`). Person is the screen's `personName` ("Unknown user", "Unknown user (deactivated)"); Activity `unavailable` → "Name unavailable". component: export walks every page with the active filters, and stops with the failed alert on a repeated cursor; a page with `unavailable` → the ready status says names are missing |
 | AC-4.7 | integration | each source down → entries still listed and counted, `visibility: "unavailable"`, source in `unavailable`; system route down → meeting entries listed with `on.deal = { state: "unknown" }`, `meeting-deals` named; a by-ids answer that ignored its filter (an item nobody asked for, an asked id missing) → as that source down — `activity.visibility: "unavailable"`, not `activity: null`; the meeting `unavailable`, not `hidden`; `on.deal = { state: "unknown" }`, not `none` — and the source named |
 | AC-4.8 | integration | the identities stub renames a person between two calls → the second list and the `person` groups show the new name |
 | AC-4.9 | unit (operai-ui) + unit + component | `formatDuration` `short`: 150 min → "2 h 30", 120 → "2 h", 30 → "30 min", both locales; hours-ui rows, day totals and totals render through it; the workbook's Hours cell is a number, never the short string (D39) |
 | AC-4.10 | integration + unit | holder without `crm:access` lists a deal entry → `visibility: "hidden"`, `label: null`, `activity.subject: null`, minutes counted; a meeting entry linked to a deal the holder cannot read → `on.deal = { state: "linked", visibility: "hidden" }` with no `id`; `groupBy=deal` counts both in the one `hidden` group; the workbook writes the type and "Not visible to you" in Name, Counts for deal and Activity, never a name or an id |
 | AC-5.1 | e2e + shell unit | a user with only `employee` opens `/hours` (no access redirect) and records a `none` entry; `tools.test` asserts `/hours` is not a tool |
 | AC-5.2 | auth seed contract | catalog `hours` has exactly the two actions with `[]` conditions; admin is the only holder, unconditioned; a role rule `time-entry:read-all` is accepted by `roles.routes` |
-| AC-5.3 | matrix | every hours-api route is classified and answers 401 without a credential |
+| AC-5.3 | matrix | every hours-api route is classified and answers 401 without a credential; `/health`, `/openapi.json` and `/docs` answer anyone, and a CORS preflight answers 204 with no body, `Access-Control-Allow-Origin` only for an allowed origin (T20); no cell answers 501 (R11) |
 | AC-5.4 | integration | `auth` down: `whose=all` → 503 `authz_unavailable`; `whose=mine` → 200 |
 | AC-5.5 | component | `catalogGaps` parity and `noHardcodedStrings` in hours-ui, admin-ui, shell; the workbook's headers and placeholders come from the catalog |
 
@@ -1133,7 +1232,14 @@ type and activity, the kept retired work type and the proof of AC-2.12 by an own
 when an empty `PATCH` saves, a 422 answers for someone else's entry or follows an owner call, a move silently
 drops a work type or an activity (or keeps one that does not fit), an entry cannot be saved with the retired
 work type it already has (or takes a different retired one), or a change that keeps the target asks the owner
-whether its author may still book.
+whether its author may still book. Re-checked after the sixth 2026-11-13 amendment (all 44 ACs still have a row,
+compared id by id with spec.md): the rows for AC-1.6, 2.10, 4.2, 4.4, 4.5, 4.6 and 5.3 gained the two 404
+bodies, the oversight order, the strict query, the deactivated person, `groupBy=deal`'s second system-route call,
+the export's Person and Activity cells and its walk, and the credential-less answers, each failing when the
+entry's 404 carries `not_found` (hours-ui would read a vanished entry as a vanished target) or the target's
+names its kind, a holder is told `owner_only` about nothing, a non-holder makes hours-api ask meetings-api, a
+mistyped query member widens a read, a deactivated person is reported as an outage, a failed second call loses
+minutes, the file names a person otherwise than the table, or a credential-less request reaches a handler.
 
 ## Risks
 
@@ -1190,7 +1296,9 @@ whether its author may still book.
 - **R9 Deal involvement beyond the scan bound.** The activities scan reads at most 10 pages (1000
   activities) of a deal; a person involved only through an activity past that bound is refused
   `not_involved_in_deal` (accepted 2026-11-13). *Early check:* none needed below 1000 activities per
-  deal; revisit with R2's `involvedIn=me` filter.
+  deal; revisit with R2's `involvedIn=me` filter. A refusal the bound decides logs one line naming no deal
+  and no person (`[bookability] deal activity scan stopped at the 10-page bound (R9) and found nobody`, T16),
+  so how often it happens can be counted.
 - **R10 Copied modules not drift-checked.** `scripts/check-shared-copies.ts` has no group for estimai-
   api's oversight code or projects-api's authz code, and adding one needs markers inside those apps;
   hours-api registers only in the existing groups (accepted 2026-11-13). *Mitigation:* the copies cite
@@ -1204,9 +1312,12 @@ whether its author may still book.
   while T15 and T16 are open; left in place, the tool would record hours on no entity only, and a client
   would show a generic error. *Mitigation:* the refusal lives in one function (`askOwners`,
   `entries.routes.ts`) and is pinned by the block marked TRANSITIONAL in `write.test.ts`, which T15 and T16
-  replace with their own tests. *Early check:* at T16's close no `not_implemented` remains in
-  `hours-api/src` and the TRANSITIONAL block is gone; no cell of T20's matrix answers 501; the e2e (T36)
-  records on a project, a deal and a meeting through the real owners.
+  replace with their own tests. *Early check:* at T19's close — not T16's (amended a sixth time 2026-11-13:
+  T17 and T18 added transitional 501s for `whose=all` on the list and the totals, which T19 replaced) — no
+  `not_implemented` remains in `hours-api/src` (`grep -rn not_implemented hours-api/src` prints nothing) and
+  no TRANSITIONAL block remains; no cell of T20's matrix answers 501 and the OpenAPI documents none
+  (`openapi.contract.test.ts`). Still open: the e2e (T36) records on a project, a deal and a meeting through
+  the real owners.
 
 ## Security
 
@@ -1238,10 +1349,20 @@ whether its author may still book.
   that every host be asked (a CRM lookup would then fail while projects-api is down).
 - The person filter reuses the totals route behind `time-entry:read-all`; the user directory's
   audience is not widened (ADR-0066).
+- A `dealId` filter on the list or the totals counts the meeting entries linked to that deal, so a
+  person who knows the id of a deal they cannot read learns which of their own meetings with hours in the
+  period are linked to it — a holder, which of everyone's — never the deal's name (T17, T18 notes for T37). D45 and AC-2.6
+  prescribe the filter; it sits beside § Views' rule that `on.deal` withholds a hidden deal's id. Reviewer
+  to accept it, or to ask that the filter require the viewer to read the deal (one crm-api resolve before
+  the system route).
+- Without a credential every route answers 401 (default deny, `src/index.ts`) except `/health`,
+  `/openapi.json` and `/docs`, a CORS preflight (204, no body, `Access-Control-Allow-Origin` only for an
+  allowed origin) and a body over 64 KiB (413, refused before the session is read) — pinned by T20's
+  matrix, the 413 by `src/lib/app.test.ts`.
 - The export file is built in the browser from data the viewer can already read; no server file.
 
 Surfaces to review: every hours-api route (`src/entries/`, `src/totals/`, `src/lists/`,
-`src/oversight/`, `src/labels/`), crm-api resolve `deal`, activities-api `ids`, meetings-api `ids` and
+`src/oversight/`, `src/labels/`, `src/targets/`), crm-api resolve `deal`, activities-api `ids`, meetings-api `ids` and
 `GET /system/meetings/hosts`, the `hours-api` service client, hours-ui's export.
 
 ## ADR candidates
