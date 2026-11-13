@@ -76,6 +76,25 @@ approved: 2026-11-12
 > outage, over a 2 s call to `auth` with `redirect: "error"` — the "projects-api shape" the plan named
 > remembers grants too. Test rows AC-1.3, 3.1, 3.3, 3.6 and 4.4 updated; § Components, § Sequences, § Data
 > model, § Errors, § Lists and § Security note the consequences.
+>
+> Amended a fifth time 2026-11-13, after T14 — records of what T14 built where the plan was silent, and
+> corrections; no AC, endpoint or feature added (decisions.md § T14; `hours-api/src/entries/entries.routes.ts`
+> `validateWrite` and `askOwners`, `rules.ts` `refusal`, `schemas.ts` `UpdateEntrySchema`, `write.test.ts`):
+> (22) § Entries, "A change and a move": a `PATCH` is validated against the entry as it will be stored; a
+> stored `workTypeId` or `activityId` is carried across a move and must fit the new target (422
+> `work_type_not_allowed` / `activity_not_allowed`), never dropped silently, so a client that moves an entry
+> sends `null` for what it cleared; the work type an entry already has is never chosen anew — re-sent with the
+> target unchanged, or carried, a retired one stays, while a different retired one is 422 `work_type_retired`;
+> (23) § Errors: `PATCH {}` is 400 `invalid_request` with `field: ""`, every 422 carries `field` next to `code`,
+> and the order of the answers — shape (400), the entry looked up (404) before any rule, the local 422s in a
+> fixed order, then the owners; (24) the AC-2.12 test row, § Sequences "Change an entry", the `PATCH` comment
+> of § Entries and "A pointed activity that was deleted": a change that keeps the target makes no
+> **bookability** call — not "no owner call": the view it returns reads its labels as the viewer through the
+> same resolve (T13), which no fake can tell apart, so the proof is the save succeeding while the owner is
+> down; (25) § Errors and R11: the 501 `not_implemented` T14 answers for owner-dependent writes is a
+> build-order seam, gone at T16; (26) the AC-1.6 row: "byte-identical" 404 bodies once `instance`, which
+> echoes the requested path, is set aside (T14's `sameAnswer`). Test rows AC-1.5, 1.6, 2.1, 2.7, 2.12, 3.4
+> and 3.5 updated; § Data model, § Sequences, § Errors, § Lists, R11 and § Security note the consequences.
 
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/026);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
@@ -151,11 +170,18 @@ includes); an answer that ignored `ids` → **503**, never 404. No activity poin
 **On no entity**: no remote call; category required; a note when that category requires one
 (`note_required`, checked as D50 says: § Entries, "A blank note").
 
-**Change an entry** (`PATCH`): the steps above run only when `on` moves the entry to a different target
-(D46, AC-2.12). A change that keeps the target re-validates the local rules (step 2: duration, day, note,
-category / work type against the stored target type) — `note_required` only when the `PATCH` sends `note`
-(D50; § Entries, "A blank note") — and, for a new `activityId`, step 5 alone; it calls no owner otherwise.
-A change that moves the entry runs the new target's steps, `note_required` included. *Rejected:*
+**Change an entry** (`PATCH`; amended a fifth time 2026-11-13, as T14 built it): the entry is looked up
+for the caller first (404, before any rule; § Errors, "Order of the answers"), and the request is then
+validated against the entry **as it will be stored** — each member sent, else the stored one (§ Entries, "A
+change and a move"). The steps above run only when `on` moves the entry to a different target (D46,
+AC-2.12). A change that keeps the target re-validates the local rules (step 2: duration, day, note, category
+/ work type against the stored target) — `note_required` only when the `PATCH` sends `note` (D50; § Entries,
+"A blank note") — and, for a new `activityId`, step 5 alone; it makes **no bookability call** otherwise. The
+view it returns still reads its labels as the viewer, fail soft, like any read (T13; step 4 of "List /
+totals") — through the same resolve, so what proves that no bookability call was made is the save succeeding
+while the owner is down, never a count of the owner's calls (AC-2.12 test row). A change that moves the entry
+runs the new target's steps, `note_required` included, with the stored work type and activity carried to the
+new target unless the `PATCH` sends them (step 5 for a carried activity). *Rejected:*
 re-checking bookability on every change (the plan's first reading of A3) — an author who left a team could
 then only delete an entry to correct it, losing the hours, while delete already needs no check.
 
@@ -188,9 +214,9 @@ id, the view shows `activity: null`; when the project or deal itself is hidden f
 activity is shown as hidden too (AC-4.10). The stored id is **never cleared** — not on read, not on a
 later write (D47): activities-api omits an id the caller cannot read exactly like a deleted one, so
 clearing it on a write would drop a live pointer for an author who merely lost read access, and a
-`PATCH` that keeps the target makes no owner call at all (AC-2.12). A changed `activityId` is validated
-as in step 5. *Rejected:* reconcile on write (loses live pointers, needs an owner call on every keep-
-target `PATCH`); clearing only after the host confirms the author still reads the target (an extra call
+`PATCH` that keeps the target makes no bookability call (AC-2.12). A changed `activityId` is validated
+as in step 5, and so is one carried across a move (§ Entries, "A change and a move"). *Rejected:* reconcile
+on write (loses live pointers, needs an owner check on every keep-target `PATCH`); clearing only after the host confirms the author still reads the target (an extra call
 for a cosmetic cleanup). A dangling id costs one text column.
 
 **Oversight** (`whose=all`, a `userId` filter, any write on someone else's entry): hours-api asks
@@ -304,7 +330,8 @@ generated DDL:
   `wt-deal-demo`, `wt-deal-offer`; `createdBy = 'system:migration'`.
 
 Rules in code (not expressible as CHECK): the work type's list matches the target, the activity
-belongs to the same project/deal, no retired category or work type on create or change, a
+belongs to the same project/deal, no retired category or work type chosen on create or change (the one an
+entry already has is not chosen anew: § Entries, "A change and a move"), a
 category's `requiresNote` (when D50 checks it), no future day, a blank note stored as `null` (§ Entries,
 "A blank note"). A `day` is also a real calendar day from 2000-01-01 (§ Entries, "A day"), checked in code
 before the database is asked; that floor would fit a CHECK, but none is added: the init migration is
@@ -413,15 +440,18 @@ POST /time-entries
   // Id = string: 1..64 characters, no NUL, no comma, no whitespace at either end (the id rule, below)
   201 TimeEntryView
 
-PATCH /time-entries/{id}               // owner only; any subset of POST's members; `on` replaced whole
+PATCH /time-entries/{id}               // owner only; any subset of POST's members, at least one (`{}` → 400
+                                       // `invalid_request`, `field: ""`); `on` replaced whole; checked against
+                                       // the entry as it will be stored ("A change and a move", below)
   200 TimeEntryView                    // bookability (AC-2.2/2.3/2.5) is checked only when `on` is sent and
                                        // differs from the stored target; a PATCH that keeps the target
-                                       // (day, minutes, note, workTypeId) makes no owner call at all, so it
+                                       // (day, minutes, note, workTypeId) makes no bookability call, so it
                                        // succeeds on a project/deal the author left or cannot read (AC-2.12,
-                                       // D46). A new `activityId` is still checked (AC-2.7: 422
-                                       // `activity_not_allowed`, 503 when activities-api does not answer);
-                                       // `activityId: null` is never checked. `on` equal to the stored
-                                       // target counts as unchanged.
+                                       // D46) — the view it returns still reads labels as the viewer, fail
+                                       // soft. A new `activityId`, or a stored one carried across a move, is
+                                       // still checked (AC-2.7: 422 `activity_not_allowed`, 503 when
+                                       // activities-api does not answer); `activityId: null` is never
+                                       // checked. `on` equal to the stored target counts as unchanged.
 
 DELETE /time-entries/{id}              // owner only; no bookability check
   204
@@ -633,6 +663,37 @@ be stored, the reading this plan first wrote (amendment 3) — a minutes-only fi
 its category required a note would be refused until a note is typed; the user chose D50, the least
 invasive option, over it.
 
+**A change and a move** (amended a fifth time 2026-11-13: as T14 built it, `entries.routes.ts`
+`validateWrite`; decisions.md § T14). A `PATCH` is validated against the entry **as it will be stored** —
+each member the `PATCH` sends, else the stored one — for every rule, as D50 already does for `note_required`
+(above). A `PATCH` whose `on` names a target other than the stored one is a **move**.
+- **A move carries what the entry has.** The stored `workTypeId` and `activityId` stay on a moved entry unless
+  the `PATCH` sends them, and they must fit the new target, else 422 and nothing changes: the work type comes
+  from the new target's list — on a meeting or no entity, or from the other list, `work_type_not_allowed`;
+  the activity is asked again of activities-api for the new project or deal (step 5 of § Sequences; not one
+  of its own, `activity_not_allowed`), and carried onto a meeting or no entity it is `activity_not_allowed`
+  with no call. Neither is ever dropped silently. A client that moves an entry therefore sends
+  `workTypeId: null` / `activityId: null` for what it cleared — `null`, never an omitted member, which keeps
+  the stored one. hours-ui's dialog clears the activity whenever the project or deal changes
+  (`hours-ui/src/components/EntryDialog.tsx` `editEntity`), and its edit sends a cleared member as `null`
+  (T28).
+- **The work type an entry already has is not chosen anew** (AC-3.4: the entries that already have it keep
+  it). Re-sent with the target unchanged — a client that sends the whole form back — or carried across a
+  move to a target of the same list (project to project, deal to deal), a work type retired since stays:
+  200, shown with `retired: true`. A **different** retired work type is chosen, and refused 422
+  `work_type_retired`. An entry on no entity has its category as its target: an `on` naming the stored
+  category is no move and keeps it, retired or not; an `on` naming another category chooses it (422
+  `category_not_found` / `category_retired`).
+- A pointer that is neither new nor carried is never asked again (D47): an unchanged `activityId` re-sent with
+  the target unchanged is not checked.
+
+*Rejected:* dropping a carried work type or activity that no longer fits (a correction of the target would
+silently lose what the person recorded — the loss D47 refuses for a pointer); clearing both on every move
+(loses a work type that still fits, project to project); refusing the stored retired work type when re-sent
+or carried as if it were chosen (a client that sends the whole form back could not save an entry that AC-3.4
+says keeps it). Moves onto a project or a deal answer 501 until T15 and T16 (§ Errors), so their tests pin
+the carried work type and activity there.
+
 ### Totals
 
 ```
@@ -711,7 +772,7 @@ its own credential (withheld, § Views).
 
 | Status | `code` | When |
 |---|---|---|
-| 400 | `invalid_request` | schema violation, unknown key, bad query (a span over 366 days counting both end days, or `from` after `to` — `field: "to"`; `userId` without `whose=all`; unknown `groupBy`); a `day`, `from` or `to` that is not a real calendar day from 2000-01-01 (`field` names it; § Entries, "A day"); a body id, a filter id or a path `{id}` (`field: "id"`) outside the id rule; a NUL or a lone surrogate in `note`; a `cursor` hours-api did not mint (`field: "cursor"`) (§ Entries) |
+| 400 | `invalid_request` | schema violation, unknown key, an empty `PATCH` body `{}` (`field: ""`, as for an unknown top-level key: a `PATCH` changes at least one member), bad query (a span over 366 days counting both end days, or `from` after `to` — `field: "to"`; `userId` without `whose=all`; unknown `groupBy`); a `day`, `from` or `to` that is not a real calendar day from 2000-01-01 (`field` names it; § Entries, "A day"); a body id, a filter id or a path `{id}` (`field: "id"`) outside the id rule; a NUL or a lone surrogate in `note`; a `cursor` hours-api did not mint (`field: "cursor"`) (§ Entries) |
 | 422 | `invalid_minutes` | not 30..1440 in steps of 30 |
 | 422 | `future_day` | a real calendar day (§ Entries, "A day") after today in `Europe/Zurich` |
 | 422 | `note_too_long` / `note_required` | > 1000 code points (§ Entries, "Counting") / on a `POST`, or a `PATCH` that sends `note` or another target (D50): the category the entry will have requires a note and the note it will have is none — absent, `null` or blank (§ Entries, "A blank note"); a `PATCH` that sends neither is never refused for it |
@@ -726,6 +787,43 @@ its own credential (withheld, § Views).
 | 404 | `not_found` | entry not the caller's (non-holder), target missing or not readable, meeting not the caller's — one identical body (for a well-formed id; one outside the id rule is the 400) |
 | 503 | `host_unavailable` | projects-api, crm-api, activities-api or meetings-api did not answer a write's check, or answered with a list that ignored its filter (§ API contracts, "Reading the owners' list answers"); or, on a read with a `dealId` filter (list, totals), meetings-api's `GET /system/meetings/hosts?dealId=` did not answer (AC-4.11, D45) |
 | 503 | `authz_unavailable` | `auth` did not answer an oversight read or a list write |
+
+**`field` on a 422** (amended a fifth time 2026-11-13; T14's `rules.ts` `refusal`). Every 422 carries `field`
+next to `code`, the member the rule lands on: `invalid_minutes` → `minutes`; `future_day` → `day`;
+`note_too_long` and `note_required` → `note`; `category_not_found` / `category_retired` → `on.categoryId`;
+`work_type_*` → `workTypeId`; `activity_not_allowed` → `activityId`, whether hours-api decides it alone (a
+meeting or no entity) or from activities-api's answer (T16 reuses `rules.ts` `activityNotAllowed()`). A 400
+names its member too (T10's hook). hours-ui maps a refusal by `code` (T27 `failureOf`); `field` lets any
+other client land it without a table of its own. The detail names the rule, never the value sent.
+
+**Order of the answers** (amended a fifth time 2026-11-13, as T14 built it). A write is answered with the
+first failure in this order, and a refused write writes and changes nothing:
+1. the session (401) and the app-wide middleware;
+2. the shape of the request — body, path `{id}` — 400 `invalid_request` (§ Entries), decided from the request
+   alone;
+3. `PATCH` and `DELETE` only: the entry is looked up for the caller — 404 `not_found`, or for a holder of
+   `time-entry:read-all` 403 `owner_only` (T19; § Sequences, "Oversight") — **before any rule**, so a 422
+   never answers for someone else's entry;
+4. the local rules, 422, in this order: `invalid_minutes`; `future_day`; `note_too_long`; the work type —
+   `work_type_not_allowed` when the target takes none (no lookup), `work_type_not_found`,
+   `work_type_not_allowed` from the other list, `work_type_retired`; `activity_not_allowed` on a meeting or
+   no entity; the category — `category_not_found`, `category_retired`; `note_required`;
+5. the owners (§ Sequences): bookability — 404 `not_found`, 403 `not_on_project` / `not_involved_in_deal`,
+   503 `host_unavailable` — then the activity pointer — 422 `activity_not_allowed`, 503.
+
+So no owner is called for a write a local rule refuses, and a body that breaks two rules gets the earlier.
+*Rejected:* asking the owners before the local rules (an owner call, its latency and its outage for a write
+that is refused anyway — a 503 where a fixable 422 was due); the rules before the lookup (a 422 would tell a
+caller that an entry exists under an id that is not theirs, AC-1.6).
+
+**501 `not_implemented` is a build-order seam, not part of the contract** (amended a fifth time 2026-11-13;
+T14). Until T15 and T16 fill `askOwners` (`entries.routes.ts`), a write that reaches step 5 — a `POST` on a
+project, a deal or a meeting, a `PATCH` that moves an entry onto one, a new `activityId` or one carried across
+a move — is answered 501 `not_implemented`, nothing written and no owner called: accepting it unchecked would
+let anyone book on any project (fail closed, AC-2.11's posture). Entries on no entity and changes that keep
+the target and send no new `activityId` answer normally. T15 removes it for projects and meetings, T16 for
+deals and the activity pointer; after T16 no route answers 501 (R11). The OpenAPI does not document it and no
+client handles it (hours-ui shows the generic error).
 
 ### Lists
 
@@ -759,8 +857,9 @@ PATCH /work-types/{id}       { name?: string; retired?: boolean }               
 
 Retire and restore — the same `PATCH` on both routes:
 - `retired: true` sets `retiredAt = now()` (kept when already set): the item leaves
-  `GET /time-lists` without `includeRetired`, is refused on new and changed entries (`*_retired`), and
-  stays on — and is shown by — the entries that have it (AC-3.4).
+  `GET /time-lists` without `includeRetired`, is refused when chosen for a new entry or in a change
+  (`*_retired`), and stays on — and is shown by — the entries that have it, through their later changes
+  (AC-3.4; the one an entry already has is never chosen anew: § Entries, "A change and a move").
 - `retired: false` **restores** it (AC-3.1 as amended, D38): `retiredAt = null`, offered again in
   `GET /time-lists` and accepted on new and changed entries.
 - Both are idempotent (200, row unchanged) and neither touches an entry.
@@ -964,27 +1063,27 @@ and `ExportButton` in their `*.test.tsx`), referenced by the rows below where an
 | AC-1.2 | unit + integration + DB | 0, 15, 45, 1470 → 422 `invalid_minutes`; 30 and 1440 → 201; raw insert breaks `time_entry_minutes` |
 | AC-1.3 | unit + integration | `todayIn("Europe/Zurich")` across the UTC midnight boundary; tomorrow and `9999-12-31` → 422 `future_day`; on `POST` and `PATCH`, a `day` that is not a real calendar day from 2000-01-01 — `2026-02-30`, `2025-02-29`, `2026-13-01`, `2026-00-10`, `2026-11-00`, `1999-12-31`, `0000-01-01`, `0050-01-01`, `2026-2-01`, `2026-11-13T00:00:00Z`, `""` — → 400 `invalid_request` with `field: "day"`, nothing written or changed, never a 500 and never a rolled-over day stored; `2000-01-01` and `2024-02-29` → 201 |
 | AC-1.4 | integration | 6 h on an internal project + 6 h on a client project the same day → both 201; `groupBy=project` gives 6 h each, `groupBy=day` gives that day 12 h |
-| AC-1.5 | integration | owner `PATCH`es and `DELETE`s an entry dated 400 days ago → 200 / 204 |
-| AC-1.6 | integration | another user (admin included) `PATCH`/`DELETE` → 404, byte-identical to a well-formed id no entry has; read-all holder → 403 `owner_only`; `POST` with `userId` → 400; row unchanged; a path `{id}` outside the id rule — 65 characters, `%00`, `a%2Cb`, `%20a`, `a%20` — → 400 `invalid_request` with `field: "id"` on `PATCH` and `DELETE`, alike for the owner, a read-all holder and a third user, no `auth` call recorded, never a 500 |
+| AC-1.5 | integration | owner `PATCH`es and `DELETE`s an entry dated 400 days ago → 200 / 204, only the members sent changed; an empty `PATCH {}` → 400 `invalid_request` with `field: ""`, row unchanged |
+| AC-1.6 | integration | another user (admin included) `PATCH`/`DELETE` → 404, byte-identical to a well-formed id no entry has once `instance` — which echoes the requested path — is set aside; a `PATCH` breaking a rule (`minutes: 15`) on another user's entry → that 404, never the 422 (looked up before any rule); read-all holder → 403 `owner_only`, a rule-breaking body included; `POST` with `userId` → 400; row unchanged; a path `{id}` outside the id rule — 65 characters, `%00`, `a%2Cb`, `%20a`, `a%20` — → 400 `invalid_request` with `field: "id"` on `PATCH` and `DELETE`, alike for the owner, a read-all holder and a third user, no `auth` call recorded, never a 500 |
 | AC-1.7 | integration + DB | 1001 characters → 422 `note_too_long`; 1000 → 201; CHECK holds; counted in code points: 1000 emoji (2000 UTF-16 units) → 201 and stored whole on `POST` and `PATCH`, 1001 emoji → 422 `note_too_long`; a note holding `\u0000` → 400 `invalid_request` with `field: "note"` on `POST` and `PATCH`, nothing written or changed, never a 500; a note holding a lone surrogate (`"\ud800"`, `"a\udc00b"`, a high surrogate last) → the same 400, nothing written or changed; `""` and `" \n\t"` → 201 with `note: null` stored and returned; `"  text "` → stored and returned exactly as sent; 1001 spaces → 422 `note_too_long` |
 | AC-1.8 | contract | strict schema: `start`/`end` keys → 400; OpenAPI view has no time-of-day member |
-| AC-2.1 | unit + integration + DB | every target / category / work-type combination: allowed → 201, others → 400/422; CHECK rejects raw rows; an `on.categoryId` or `workTypeId` holding a NUL or of 65 characters → 400 `invalid_request` naming it, never a 500 |
+| AC-2.1 | unit + integration + DB | every target / category / work-type combination: allowed → 201, others → 400/422; CHECK rejects raw rows; an `on.categoryId` or `workTypeId` holding a NUL or of 65 characters → 400 `invalid_request` naming it, never a 500; every 422 carries `field` next to `code` (§ Errors); a body breaking a local rule is refused before any owner call (the fake records none), and one breaking two gets the earlier in § Errors' order (`minutes: 45` with a retired category → `invalid_minutes`; a meeting `on` with a work type and an activity → `work_type_not_allowed`) |
 | AC-2.2 | integration (fake projects) | caller in `assignees` → 201 in every state, `writable:false` ignored; readable but not in `assignees` → 403 `not_on_project`; `reader:false` → 404 |
 | AC-2.3 | integration (fake crm + activities) + crm-api integration | involved as owner, technical contact, task assignee, participant → 201; other CRM reader → 403 `not_involved_in_deal`; won and lost deals accepted. crm-api: resolve `deal` returns owner + technical, leaves out an override row's admin, `reader:false` without `crm:access` |
 | AC-2.4 | integration | entry created, caller then removed from `assignees`: still listed and counted under the project; `DELETE` → 204 |
 | AC-2.5 | integration (fake meetings) + meetings-api integration | creator or participant → 201; host-only reader (absent from `GET /meetings?ids=`) → 404. meetings-api: the `ids` filter returns only the caller's meetings, ANDed with `q` / `role` / `status` / `hostApp` (`total` = the intersection); 25 members → 200, 26 → 422 (26 copies of one id too); an empty list (`ids=`, `ids=%20`) or member, a 65-character member and `ids=a&ids=b` → 422; a NUL member → absent, 200; members trimmed; `pageSize` 25 |
 | AC-2.6 | integration + meetings-api integration | meeting entries grouped under deal A and listed with `on.deal = { state: "linked", id: A }`; fake system route relinks to B → totals and the item move to B; a meeting whose stored host is not a CRM deal (`{app: "testhost", entityType: "widget"}`) → `on.deal = { state: "none" }`, no crm-api resolve carries its `entityId`, `meeting-deals` not in `unavailable`, the batch's other meetings keep their deals; a `?dealId=` answer item whose host is not that deal is dropped; a meeting stored with host `crm` / `deal` and an `entityId` outside the id rule (65 characters, a NUL, a comma, a space at either end) → `on.deal = { state: "linked", visibility: "hidden" }` with no `id`, no crm-api resolve carries it, the page's deal entries and other meetings keep their visible labels and `crm` is not in `unavailable` (with crm-api down it stays `hidden` while the others are `unavailable`); an empty `entityId` → `{ state: "none" }`. meetings-api (as T9 built it): `{id, host}` only, `host` as stored (a non-CRM host included; `null` unlinked; whatever `hostVisible`); `?ids=` 100 → 200, 101 → 422, an empty list or member, a blank member, a 65-character member and a repeated parameter → 422, a NUL member absent; `?dealId=` lists exactly the meetings linked to that CRM deal (not another host's entity of the same id) and follows a relink, 130 linked → 130 (unpaged, uncapped), empty / blank / 65 characters / repeated → 422, a NUL → `[]`; neither or both filters → 422 `field: "ids"`; no token, a user JWT, a wrong scope / aud / issuer / key / sub, expired, malformed, and any token while `SERVICE_AUDIENCE` is unset → byte-identical 401, before the query is read |
-| AC-2.7 | integration + activities-api integration + component | activity of another project/deal, or a well-formed id activities-api does not return → 422 `activity_not_allowed`; on `meeting`/`none` → 422; a task of the same project → 201; on `POST` and `PATCH`, an `activityId` outside the id rule (empty, 65 characters, a NUL, a comma, a space at either end) → 400 `invalid_request` with `field: "activityId"` and no activities-api call recorded. activities-api: `ids` filter returns readable activities only, omits missing and unreadable alike; 50 matches → one page `{page: 1, pageSize: 50, total: 50}`, also when `page` / `pageSize` are sent; 51 elements (51 copies of one id too), an empty element, a 65-character element, a NUL and `ids=a&ids=b` → 422 with `field: "ids"`; `ids=` counts as absent; a lookup of CRM ids alone does not ask projects-api; a host owning a matching row down → 503 `host_unavailable` with no `items`, also when the other host says "not a reader". hours-ui: the activity picker loads `GET /activities?projectId=` / `?dealId=` for the picked entity; a 404 or 503 shows its error state and Save stays enabled |
+| AC-2.7 | integration + activities-api integration + component | activity of another project/deal, or a well-formed id activities-api does not return → 422 `activity_not_allowed`; on `meeting`/`none` → 422; a task of the same project → 201; on `POST` and `PATCH`, an `activityId` outside the id rule (empty, 65 characters, a NUL, a comma, a space at either end) → 400 `invalid_request` with `field: "activityId"` and no activities-api call recorded; a `PATCH` moving a project or deal entry to another project or deal the caller may book on carries its stored `activityId` and asks activities-api again for the new target — not one of its own → 422 `activity_not_allowed` with `field: "activityId"`, row unchanged, while the same move with `activityId: null` → 200; carried onto a meeting or no entity → 422 with no activities-api call; an unchanged `activityId` re-sent with the target unchanged → 200 while activities-api is down (never re-asked, D47). activities-api: `ids` filter returns readable activities only, omits missing and unreadable alike; 50 matches → one page `{page: 1, pageSize: 50, total: 50}`, also when `page` / `pageSize` are sent; 51 elements (51 copies of one id too), an empty element, a 65-character element, a NUL and `ids=a&ids=b` → 422 with `field: "ids"`; `ids=` counts as absent; a lookup of CRM ids alone does not ask projects-api; a host owning a matching row down → 503 `host_unavailable` with no `items`, also when the other host says "not a reader". hours-ui: the activity picker loads `GET /activities?projectId=` / `?dealId=` for the picked entity; a 404 or 503 shows its error state and Save stays enabled |
 | AC-2.8 | integration | two people, three days, one task → all 201, same `activity.id` in the list |
 | AC-2.9 | integration | fake activities-api stops returning the pointed id → entry still listed and counted, `activity: null`, export activity cell empty; owner then changes the note → 200 and the stored `activityId` is unchanged (D47); project hidden from the viewer → activity rendered hidden, not `null` |
-| AC-2.12 | integration (fake projects + crm + activities + meetings) | entry on a project, caller then removed from `assignees`: `PATCH {minutes, note, workTypeId, day}` → 200 and the fake host records **no** resolve call; same with the project now `reader:false` → 200; `PATCH {on: <same project>}` → 200, no call; `PATCH {on: <another project the caller is not on>}` → 403 `not_on_project`, row unchanged; `PATCH {activityId: <task of that project>}` with activities-api down → 503; deal (involvement lost) and meeting (no longer a participant) variants alike |
+| AC-2.12 | integration (fake projects + crm + activities + meetings) | entry on a project, caller then removed from `assignees`: `PATCH {minutes, note, workTypeId, day}` → 200 with **no bookability call**, proved by the save succeeding while projects-api is down (a bookability call would be 503) — never by counting the fake's resolve calls: the view the `PATCH` returns reads its labels as the viewer through the same `POST /activity-host/v1/resolve` (T13), which the fake cannot tell from a bookability call; same with the project answering `reader:false` → 200 (a bookability call would be 404); `PATCH {on: <same project>}` → 200 while projects-api is down; `PATCH {on: <another project the caller is not on>}` → 403 `not_on_project`, row unchanged; `PATCH {activityId: <task of that project>}` with activities-api down → 503; deal (involvement lost; crm-api and activities-api down) and meeting (no longer a participant; meetings-api and its system route down) variants alike |
 | AC-2.10 | integration | missing vs unreadable project, deal, meeting → byte-identical 404 bodies, a well-formed id no owner knows included; for each target type, an `on.id` outside the id rule — empty, 65 characters, a NUL, a comma (`a,,b`), spaces only or at either end — → 400 `invalid_request` with `field: "on.id"` and the fake hosts record no call (never 503, never the owner's 422); a well-formed `on.id` holding `&`, `#`, `+`, `%` or an inner space reaches the fake host exactly as sent and, unknown, is the same 404 |
 | AC-2.11 | integration | each source down / timeout / 500 during a write → 503 `host_unavailable`, no row written; likewise an owner answer that ignored its filter — meetings-api `ids` answering the caller's latest page without the asked meeting (the fake's `legacy`), activities-api `ids` answering another activity and not the asked one, a deal scan holding an activity not about that deal or pages that do not add up to `total` — → 503, never 404, 422 `activity_not_allowed` or 403 `not_involved_in_deal` |
 | AC-3.1 | integration + component (admin-ui) | holder creates, renames, retires and **restores** a category and a work type in each list; after `PATCH { retired: false }` the item is back in `GET /time-lists` and a new entry with it → 201; retire and restore are idempotent (200, row unchanged); rename-and-restore to a taken name → 409 `name_taken`, row unchanged; a `name` holding `\u0000` or a lone surrogate (`"\udc00"`) → 400 `invalid_request` (`field: "name"`) on create and rename in each list, row unchanged, never a 500; a name of 80 emoji after trimming → 201, 81 → 400 `field: "name"` (code points); `PATCH /time-categories/{id}` and `/work-types/{id}` with an `{id}` outside the id rule (65 characters, `%00`, `a%2Cb`, `%20a`) → 400 `invalid_request`, `field: "id"`, for a holder, never a 500, and 403 for a non-holder whatever the id; `GET /time-lists` returns each list in `createdAt asc, name asc, id asc` order — the A15 rows by name, an item added later after them, a retired row in its place with `includeRetired=true`. admin-ui: an active row offers Rename + Retire, a retired row Rename + Restore, each sending one `PATCH`; the name check counts code points (80 emoji pass, 81 do not) |
 | AC-3.2 | integration + DB | `DELETE /time-categories/{id}` and `/work-types/{id}` → 404, row present; raw delete of a used row blocked by `Restrict` |
 | AC-3.3 | integration + component (admin-ui) | a caller without `time-list:manage` — including one whose role has Admin access but not the permission — → 403 `time_list_manage_required` on create, rename, retire and restore, row unchanged; `auth` down, slower than 2 s, answering a redirect or a body that is not a permission list → 503 `authz_unavailable`, row unchanged; a refusal is remembered 30 s per `(sub, perm_epoch)` (the same person and epoch refused again with no `auth` call, a new epoch asked afresh) while a grant is asked on every write (a revocation refused on the very next write with the same token) and an outage is remembered as neither; a role holding `time-list:manage` without Admin access → the API accepts (hours-api's gate is the permission alone). admin-ui: no Time lists link and `PermissionDenied` on `/time-lists` without `time-list:manage` |
-| AC-3.4 | integration | retired item absent from `GET /time-lists`, present with `includeRetired`; new entry with it → 422 `*_retired`; old entry still shows it, `retired: true` |
-| AC-3.5 | integration | project entry with a deal work type → 422; meeting / none with a work type → 422; none without → 201 |
+| AC-3.4 | integration | retired item absent from `GET /time-lists`, present with `includeRetired`; new entry with it → 422 `*_retired`; old entry still shows it, `retired: true`, and its author changes its note, day and duration → 200; a `PATCH` re-sending the stored retired `workTypeId` with the target unchanged → 200, kept; a different retired work type → 422 `work_type_retired`, row unchanged; the stored retired work type carried across a move to another project the caller is on (a deal to another deal they are involved in) → 200, kept; a move to another category that is retired → 422 `category_retired` (§ Entries, "A change and a move") |
+| AC-3.5 | integration | project entry with a deal work type → 422; meeting / none with a work type → 422; none without → 201; a `PATCH` moving an entry that has a work type keeps it unless it sends `workTypeId` — to a meeting, to no entity or to the other kind of target → 422 `work_type_not_allowed` with `field: "workTypeId"`, row unchanged, and the same move with `workTypeId: null` → 200 when the new target is bookable; to a bookable target of the same kind → kept |
 | AC-3.6 | integration + component | `tc-other` without a note, with `null`, `""` or `"  "` → 422 `note_required`; with a note → 201; `PATCH { note: "" }` and `PATCH { note: null }` → 422 on a `tc-other` entry, row unchanged, and 200 with `note: null` on a Training entry; `PATCH { on: { type: "none", categoryId: "tc-other" } }` on an entry without a note → 422, and 200 when the same `PATCH` sends a note; D50 — an entry recorded without a note on a category then marked as requiring one (`PATCH /time-categories/{id} { requiresNote: true }`): `PATCH { minutes }` and `PATCH { day }` → 200, note still `null`; `PATCH { on: <its own category> }` → 200 (unchanged target, not checked); `PATCH { note: "" }`, `{ note: "  " }` or `{ note: null }` on it → 422 `note_required`, row unchanged; a non-blank note → 200. component (hours-ui): recording, a blank note on a category that requires one shows the required-note error and sends nothing; editing, a minutes-only change of such a note-less entry sends `{ minutes }` and saves, while clearing the note of an entry whose category requires one, or moving a note-less entry to such a category, shows the required-note error and sends nothing |
 | AC-3.7 | migration | a fresh test database holds exactly the A15 rows |
 | AC-3.8 | component (hours-ui, admin-ui) | a name typed "Formazione" renders verbatim with `lang=en` and `lang=it` |
@@ -1028,6 +1127,13 @@ field, the lists' order, refusal-only caching and D50, each failing when an impo
 stored rolled over or reaches Postgres (a 500), `9999-12-31` breaks a read, the span's 400 names `from` or
 no field, a revoked holder keeps writing on a remembered grant, or a minutes-only `PATCH` of an entry
 recorded before its category required a note is refused (or a blank note sent on such an entry accepted).
+Re-checked after the fifth 2026-11-13 amendment: the rows for AC-1.5, 1.6, 2.1, 2.7, 2.12, 3.4 and 3.5
+gained the empty `PATCH`, the lookup before the rules, `field` and the order of the 422s, the carried work
+type and activity, the kept retired work type and the proof of AC-2.12 by an owner that is down, each failing
+when an empty `PATCH` saves, a 422 answers for someone else's entry or follows an owner call, a move silently
+drops a work type or an activity (or keeps one that does not fit), an entry cannot be saved with the retired
+work type it already has (or takes a different retired one), or a change that keeps the target asks the owner
+whether its author may still book.
 
 ## Risks
 
@@ -1093,6 +1199,14 @@ recorded before its category required a note is refused (or a blank note sent on
   shaped by hours-ui while two `CompanyPicker` copies and `ExportYearButton` stay in their apps.
   *Mitigation:* the contracts above cover what the existing copies do (debounce, stale-answer discard,
   status reset); the migrations are listed as follow-up chores in tasks, not done here.
+- **R11 The 501 seam outlives its tasks** (amended a fifth time 2026-11-13). T14 answers 501
+  `not_implemented` for every write that needs an owner (§ Errors), so that nothing is booked unchecked
+  while T15 and T16 are open; left in place, the tool would record hours on no entity only, and a client
+  would show a generic error. *Mitigation:* the refusal lives in one function (`askOwners`,
+  `entries.routes.ts`) and is pinned by the block marked TRANSITIONAL in `write.test.ts`, which T15 and T16
+  replace with their own tests. *Early check:* at T16's close no `not_implemented` remains in
+  `hours-api/src` and the TRANSITIONAL block is gone; no cell of T20's matrix answers 501; the e2e (T36)
+  records on a project, a deal and a meeting through the real owners.
 
 ## Security
 
@@ -1102,7 +1216,7 @@ recorded before its category required a note is refused (or a blank note sent on
   permission; Italian and Swiss rules on monitoring workers (O3, accepted as risk).
 - A new resource server with a new authorization path (oversight) and an admin capability, both
   failing closed and neither remembering a grant (a revocation holds on the next request); IDOR surface on `PATCH/DELETE /time-entries/{id}` (scoped to `sub`, identical
-  404; a path `{id}` outside the id rule is 400 for every caller before any lookup — no stored id falls
+  404, given before any 422 rule so a rule never answers for someone else's entry; a path `{id}` outside the id rule is 400 for every caller before any lookup — no stored id falls
   outside the rule, so the 400 tells nothing about a record). The list's `cursor` is not signed: it only positions a read the caller may make anyway, and one hours-api did not mint is a 400 (§ Entries). Restore is a write under the same live `time-list:manage` check as retire.
 - A new service client and scope (`meetings.hosts.read`), and meetings-api's first `/system/*`
   route — it must answer only `{id, host}` (ADR-0058: no content to any role).
