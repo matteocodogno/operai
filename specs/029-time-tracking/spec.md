@@ -171,9 +171,13 @@ visible to whom it concerns and to no one else.
 - AC-4.10 Given any viewer — the entry's own author included — who cannot read an entry's project,
   deal or meeting, or the deal a meeting is linked to, then the entry is listed, counted and
   exported with its type, but without the name of that project, deal or meeting and without the
-  subject of the activity it points at (ADR-0058, ADR-0081 posture). *(Added 2026-11-12 during
-  planning, approved by the owner; widened from holders of see everyone's hours to every viewer
-  during design, D43.)*
+  subject of the activity it points at (ADR-0058, ADR-0081 posture). For anyone but the entry's
+  author, such an entry also carries no id of that project, deal or meeting and no id of the
+  activity it points at, and neither does an entry whose project, deal, meeting or activity could
+  not be read because the tool that owns it did not answer (AC-4.7); the author keeps the ids of
+  the project, deal or meeting the entry is on and of the activity it points at (D44). *(Added
+  2026-11-12 during planning, approved by the owner; widened from holders of see everyone's hours
+  to every viewer during design, D43.)* *(Amended 2026-11-13 after the security review, D44.)*
 - AC-4.11 Given a view filtered by a deal, when Meetings cannot say which meetings are linked to
   that deal, then the view is refused as unavailable and nothing partial is shown; pages already
   shown before a later page fails stay, with the error below them (D48); without a deal filter the
