@@ -16,6 +16,7 @@ import { summariesRouter } from "./summaries/summaries.routes";
 import { templatesRouter } from "./templates/templates.routes";
 import { conversationRouter } from "./conversation/conversation.routes";
 import { eraseRouter } from "./erase/erase.routes";
+import { systemHostsRouter } from "./system/hosts.routes";
 import { requestLogger } from "./lib/logger";
 import { handleProblemError, problem, validationHook } from "./lib/problem";
 import { setupOpenAPI } from "./openapi/registry";
@@ -67,6 +68,8 @@ app.route("/", summariesRouter);
 app.route("/", templatesRouter);
 app.route("/", conversationRouter);
 app.route("/", eraseRouter);
+// The only `/system/*` route: a scoped service credential, never a user JWT (specs/029 T9, ADR-0089).
+app.route("/", systemHostsRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────
 

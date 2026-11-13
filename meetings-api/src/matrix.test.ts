@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "bun:test";
 import { createKit } from "./test-support/routeKit";
-import { PERSONAS, PUBLIC_ROUTES, ROWS, SPECS, kindsOf, rowName, seedWorld, type Cell, type Persona, type RouteRow, type World } from "./test-support/matrixKit";
+import { PERSONAS, PUBLIC_ROUTES, ROWS, SPECS, SYSTEM_ROUTES, kindsOf, rowName, seedWorld, type Cell, type Persona, type RouteRow, type World } from "./test-support/matrixKit";
 
 const kit = await createKit();
 
@@ -36,12 +36,24 @@ const describeCell =(cell: Cell, row: RouteRow) => (cell === "ok" ? `${row.ok}` 
 describe("the matrix covers the real route table", () => {
   it("has a row for every route the app serves, and no row for one it does not", () => {
     const rowRoutes = new Set(ROWS.map((row) => row.route));
-    expect([...registered].filter((key) => !PUBLIC_ROUTES.has(key) && !rowRoutes.has(key))).toEqual([]);
+    expect([...registered].filter((key) => !PUBLIC_ROUTES.has(key) && !SYSTEM_ROUTES.has(key) && !rowRoutes.has(key))).toEqual([]);
     expect([...rowRoutes].filter((key) => !registered.has(key))).toEqual([]);
   });
 
   it("the routes served without a token are exactly the pinned public ones, and each is mounted", () => {
     for (const key of PUBLIC_ROUTES) expect(registered.has(key)).toBe(true);
+  });
+
+  it("every route under /system is a pinned system route, and a system route is neither public nor a persona route", () => {
+    expect([...registered].filter((key) => split(key)[1].startsWith("/system/") && !SYSTEM_ROUTES.has(key))).toEqual([]);
+    for (const key of SYSTEM_ROUTES) {
+      expect(registered.has(key), key).toBe(true);
+      expect(PUBLIC_ROUTES.has(key), key).toBe(false);
+      expect(
+        ROWS.some((row) => row.route === key),
+        key,
+      ).toBe(false);
+    }
   });
 
   it.each([...PUBLIC_ROUTES])("%s answers without a token", async (key) => {
@@ -98,5 +110,23 @@ describe("not visible = nonexistent (AC-5.3, AC-4.8)", () => {
 
   it("the matrix has strangers' cells to compare for the record routes", () => {
     expect(scoped.filter((row) => is404(row.cells.outsider)).length).toBeGreaterThan(20);
+  });
+});
+
+describe("system routes serve a service credential and no person (specs/029 T9, ADR-0044)", () => {
+  it.each([...SYSTEM_ROUTES])("%s: every persona's user token gets the anonymous caller's 401, byte for byte, even for a meeting it created or sits in", async (key) => {
+    const [method, path] = split(key);
+    const wrong: string[] = [];
+    let anonymousBody: string | undefined;
+    for (const persona of PERSONAS) {
+      const world = await seedWorld(kit, persona, ["ready"]);
+      const res = await kit.call(SPECS[persona].caller, method, `${path}?ids=${world.m.ready}`);
+      const body = (await res.text()).replaceAll(world.m.ready!, "MID");
+      if (persona === "anonymous") anonymousBody = body;
+      if (res.status !== 401) wrong.push(`${persona}: got ${res.status}, expected 401`);
+      if (anonymousBody !== undefined && body !== anonymousBody) wrong.push(`${persona}: body differs from the anonymous one`);
+    }
+    expect(wrong).toEqual([]);
+    expect(JSON.parse(anonymousBody!)).toMatchObject({ status: 401 });
   });
 });

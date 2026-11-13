@@ -332,6 +332,36 @@ describe("the notify group", () => {
   });
 });
 
+describe("SERVICE_AUDIENCE (specs/029 T9: the audience of the /system routes' service JWTs, ADR-0044)", () => {
+  it("is optional: unset, the /system routes answer 401 to everyone (fail closed) and the service still starts", async () => {
+    const r = parseEnv(dev());
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.env.SERVICE_AUDIENCE).toBeUndefined();
+    expect((await spawnEnv(prod())).code).toBe(0);
+  });
+
+  it("is read when set", () => {
+    const r = parseEnv({ ...dev(), SERVICE_AUDIENCE: "operai-system" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.env.SERVICE_AUDIENCE).toBe("operai-system");
+  });
+
+  it("must differ from AUTH_AUDIENCE, so a user JWT is never a service credential, and the refusal does not echo it", async () => {
+    const source = { ...prod(), SERVICE_AUDIENCE: "operai-suite" };
+    const { code, output } = await spawnEnv(source);
+    expect(code).toBe(1);
+    expect(output).toContain("SERVICE_AUDIENCE");
+    expect(output).not.toContain("operai-suite");
+    expect(parseEnv({ ...dev(), SERVICE_AUDIENCE: "operai-suite" }).ok).toBe(false);
+  });
+
+  it("is refused when set but empty", () => {
+    const r = parseEnv({ ...dev(), SERVICE_AUDIENCE: "" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(Object.keys(r.errors)).toContain("SERVICE_AUDIENCE");
+  });
+});
+
 describe("the worker switch", () => {
   it("accepts on, off and only; refuses anything else", () => {
     for (const v of ["on", "off", "only"]) expect(parseEnv({ ...dev(), MEETINGS_WORKER: v }).ok).toBe(true);

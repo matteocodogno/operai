@@ -43,6 +43,7 @@ More groups (plan.md § Environment). A misconfiguration exits 1 naming the vari
 | `NOTIFY_INTERNAL_URL`, `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET` | all or none; required in production. Client `meetings-api` needs scopes `notifications.push host-notices.send` |
 | `CRM_API_URL` | the CRM host; required in production (defaults to `http://localhost:8084` otherwise) |
 | `PROJECTS_API_URL` | the Projects host (a meeting linked to a project); unset in production leaves Projects out (defaults to `http://localhost:8086` otherwise) |
+| `SERVICE_AUDIENCE` | auth's `SERVICE_AUDIENCE`: the audience of the scoped service JWTs that `/system/*` accepts (specs/029, ADR-0044/0089). Must differ from `AUTH_AUDIENCE`. Optional on purpose, and **unset means every `/system/*` call answers 401** (fail closed), so set it wherever hours-api must read a meeting's deal; tools/env-doctor requires it in production |
 | `MEETINGS_AI_PROVIDER` | `real` (default, required in production) or `fake` (development and test only) |
 | `MEETINGS_SPEECH_LOCATION` | Cloud Speech-to-Text v2 location (Chirp 3); only `eu` is accepted (S1). The endpoint `https://eu-speech.googleapis.com` is derived, never configured |
 | `MEETINGS_VERTEX_LOCATION` | Claude on Vertex AI: `eu` (recommended), `europe-west1` or `europe-west4` (S2). `global`, `us` and anything else is refused. The base URL is derived (`aiplatform.eu.rep.googleapis.com` for `eu`) |
@@ -67,6 +68,16 @@ above with `??=`. `DATABASE_URL` defaults to `postgresql://postgres:postgres@loc
 where the compose Postgres has other credentials, export `DATABASE_URL` for a migrated `meetings_test`
 database first (`bun run db:deploy`). DB-backed tests: `src/schema.test.ts`, `src/jobs/runner.test.ts`,
 `src/health/health.test.ts`.
+
+## System routes (specs/029, ADR-0089)
+
+`GET /system/meetings/hosts` is the one route a **service**, not a person, calls: `?ids=a,b,c` (at most 100) answers
+each meeting's current host, `?dealId=<id>` the meetings currently linked to that CRM deal; exactly one of the two. The
+answer is `{ items: [{ id, host: { app, entityType, entityId } | null }] }` and nothing else: no title, participant,
+duration or content (ADR-0058). Its only credential is a scoped service JWT from `auth` (`aud` = `SERVICE_AUDIENCE`,
+scope `meetings.hosts.read`, `sub` `system:hours-api`); a user JWT, another scope, `sub` or audience, a missing token
+and an unset `SERVICE_AUDIENCE` all answer the same 401. An accepted call logs `caller=system:hours-api`, never the
+query. The guard is `src/auth/systemAuth.middleware.ts`, a shared copy kept identical by `mise run shared:check`.
 
 ## Logging (AC-4.10)
 
