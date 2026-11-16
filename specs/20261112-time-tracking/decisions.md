@@ -463,3 +463,13 @@ PR #9 (the hand-off) was squash-merged as 0d8b9df4; the 82 time-tracking commits
 - not done: the hours specs were run against `mise run dev` only, not `dev:preview`
 - R2 (plan): loopback, 296 entries in the quarter — POST on a deal p95 3–4 ms (owner), 6–10 ms (task assignee); month `whose=all` 7 ms; year `groupBy=deal` 5–6 ms; quarter export walk 10 ms; export click-to-file 128 ms (slowest of 3). Nothing near 800 ms
 - main loop: T36 checked (re-run 7/7); T35 left open — its done-when also asks the whole `pnpm e2e` green, which it is not on this machine (26 failed, 26 did not run, all outside hours; see tasks.md T35 status)
+
+## T44 · frontend-dev · 2026-11-16
+- reinterpretation: the Italian options are "Tutti, Progetto, Opportunità, Riunione, Altro lavoro", not the design note's "Deal, Meeting" — why: hours-ui's Italian says "Opportunità" and "Riunione" in the Deal filter, Group by, the type badges and the dialog; the design note was aligned afterwards by the main loop — where: `hours-ui/src/strings/filters.ts`
+- reinterpretation: the commit trailer names Claude Sonnet 5.5, the model that ran the agent, not the dispatch's line — where: ac7dedfd
+- default: the select sits after Period and its Custom From/To (Everyone's hours: Period, [From, To], Recorded on, Person, Project, Deal, Category, Work type) — where: `HoursFilters.tsx`
+- default: All is `''` in the filter state, like `categoryId` and `workTypeId`; `TargetFilter = EntryTargetType | ''` — where: `HoursFiltersState.ts`
+- default: a bad typed `?target=` stays in the URL, is read as All and is not sent, as the other filters' bad values — where: `parseFilterSearch`
+- assumption: the option words are duplicated in `strings/filters.ts` rather than imported from `strings/entries.ts`; the Italian test pins the two vocabularies together
+- scope: no change to `hours-ui/src/lib/*` or `test-support/*` (both in `touch:`): `hoursApi` already allow-lists `target` and the fakes echo query strings
+- verified (agent): rendered at 1280 and 360 px through the shell with the real hours-api (`?target=meeting` sent to list, day totals and totals; `?target=bogus` sends nothing); Everyone's hours and the Italian copy only in jsdom; 1308 → 1347 tests, four mutation checks failed as expected; at 360 px with the shell sidebar expanded the content area is ~135 px and clips every control (the shell's layout, not this task)

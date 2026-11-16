@@ -23,8 +23,9 @@ hours-ui as a third tab, **Settings** (`/hours/settings`), shown only with `time
 cards, dialogs, states, copy) is unchanged. Changed in place: Surfaces, F7 entry, S5 header and nav, components.
 
 **Amended 2026-11-16 (ledger D52, AC-4.4 as amended, task T44)**: the Filters card of S1 and S4 gains **Recorded on**
-(`select`: All (default), Project, Deal, Meeting, Other work; Italian "Registrato su": Tutti, Progetto, Deal,
-Meeting, Altro lavoro), placed first after Period; it is a filter like the others (URL search `target`, counted by
+(`select`: All (default), Project, Deal, Meeting, Other work; Italian "Registrato su": Tutti, Progetto,
+Opportunità, Riunione, Altro lavoro — hours-ui's Italian words for a deal and a meeting everywhere else), placed
+after Period (and its Custom From / To); it is a filter like the others (URL search `target`, counted by
 Clear filters, sent to the list, the totals, the day totals and the export). Changed in place: S1 sketch, Key
 elements, Keyboard path.
 
