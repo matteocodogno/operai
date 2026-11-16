@@ -473,3 +473,16 @@ PR #9 (the hand-off) was squash-merged as 0d8b9df4; the 82 time-tracking commits
 - assumption: the option words are duplicated in `strings/filters.ts` rather than imported from `strings/entries.ts`; the Italian test pins the two vocabularies together
 - scope: no change to `hours-ui/src/lib/*` or `test-support/*` (both in `touch:`): `hoursApi` already allow-lists `target` and the fakes echo query strings
 - verified (agent): rendered at 1280 and 360 px through the shell with the real hours-api (`?target=meeting` sent to list, day totals and totals; `?target=bogus` sends nothing); Everyone's hours and the Italian copy only in jsdom; 1308 → 1347 tests, four mutation checks failed as expected; at 360 px with the shell sidebar expanded the content area is ~135 px and clips every control (the shell's layout, not this task)
+
+## T45 · frontend-dev · 2026-11-16
+- scope: four page tests (`MyHoursPage.{record,edit,it,edit.it}.test.tsx`) and two e2e call sites (`shell/e2e/hours-owners.spec.ts`, `shell/e2e/helpers/hoursFixtures.ts`: `selectOption(minutes)` → `fill(minutes / 60)`) changed, outside `touch:` — why: they chose a Duration option that no longer exists; the main loop ran both hours e2e specs afterwards, 10/10 green
+- reinterpretation: a text breaking both rules (`0:15`, `10m`, `0,25`) answers the range message before the steps one — why: the design does not order them; the limit is the more useful thing to learn — where: `hours-ui/src/lib/duration.ts`
+- reinterpretation: hours-api's 422 `invalid_minutes` lands on Duration with the "Write a duration such as…" message — why: the code does not say which rule broke and with identical client rules it can only be a client bug — where: `EntryDialogModel.ts` `failureOf`
+- reinterpretation: empty, `-1` and `2:75` are unreadable (no sign, no minutes over 59 in the grammar) — where: `duration.ts`
+- reinterpretation: "saving unchanged sends the same minutes" tested as: all 48 pre-filled values read back to their minutes, and retyping the same duration in any spelling sends no `minutes` (PATCH sends only changed members, T28) — where: `EntryDialogModel.edit.test.ts`, `EntryDialog.edit.test.tsx`
+- default: decimal hours need digits before the separator (`.5`, `2,` unreadable); `2h30` takes exactly two minute digits; only `m` / `min` as minute units (not `2.5h`, `2h30m`, `2 hours`) — why: only the design's forms — where: `duration.ts`
+- default: an error shows and re-judges live only while it is showing, as Day and Note — where: `EntryDialog.tsx`
+- default: test helper `hours-ui/src/test-support/typeDuration.ts` (clear, then type) for ~60 call sites
+- default: the "= 2 h 30" read-out sits in the Field's hint (first line, `font-mono`, `aria-live="polite"`), so it is in `aria-describedby`; `Field` has no slot below the hint
+- main loop: `inputmode` is `text`, not the design's `decimal` — the agent noted that the decimal keypad has no colon and no letters, so `2:30` and `2h30` could not be typed on a phone; design row amended (the design's error, not the agent's)
+- verified (agent): rendered at 1280 and 360 px (focus on Day, `2,5` → "= 2 h 30", `2:15` + Tab → steps error with `aria-invalid`, no horizontal scroll); edit dialog and Italian in jsdom only; 1347 → 1504 tests; parser mutations failed as expected

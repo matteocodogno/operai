@@ -303,7 +303,7 @@ export default function EntryDialog(props: EntryDialogProps) {
               <input
                 {...control}
                 type="text"
-                inputMode="decimal"
+                inputMode="text"
                 autoComplete="off"
                 className="input-figure"
                 value={values.minutes}

@@ -716,11 +716,11 @@ describe('the note (AC-1.7, AC-3.6; plan § Entries "Counting a note", "A blank 
 const reads = () => screen.getByTestId('hours-entry-duration-reads')
 
 describe('the Duration is typed text, read as the person means it (AC-1.2; design S2 as amended, ledger D53)', () => {
-  it('is a text field with the decimal keypad and no autocomplete, not a list of 48 options', () => {
+  it('is a text field with the full keyboard (2:30 and 2h30 need the colon and letters) and no autocomplete, not a list of 48 options', () => {
     renderDialog()
     expect(durationField().tagName).toBe('INPUT')
     expect(durationField().getAttribute('type')).toBe('text')
-    expect(durationField().getAttribute('inputmode')).toBe('decimal')
+    expect(durationField().getAttribute('inputmode')).toBe('text')
     expect(durationField().getAttribute('autocomplete')).toBe('off')
     expect(screen.queryByRole('combobox', { name: f.duration.label })).toBeNull()
     expect(within(screen.getByRole('dialog')).queryAllByRole('option')).toHaveLength(0)
