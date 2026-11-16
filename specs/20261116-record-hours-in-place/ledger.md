@@ -41,3 +41,74 @@ Assumed (not load-bearing; strike any that is wrong):
 - A6 Meeting pages get no button: hours from meetings are specs/20261112-meeting-hours' suggestions (F8)
 Open (unresolved — each needs an owner):
 - (none)
+
+---
+
+## Decision ledger — week view in My hours (amendment grilled 2026-11-16)
+
+Target: specs/20261116-record-hours-in-place/spec.md (status: approved — consequences are proposed amendments).
+Placement (the user chose): the week view goes into this spec, not into specs/20261112-time-tracking (nearly
+closed) nor into another follow-up — "mettiamo nella spec 20261116-record-hours-in-place", 2026-11-16.
+
+Map: W1 purpose (see / record from a cell / type in the cell) → W2 cells that already hold hours → W3 recording
+on something not yet in the week → W4 what a row is → W5 where it sits in My hours and which view opens first.
+
+Decided (the user chose):
+- D7 Week view purpose (W1): see the week AND work from it — a cell opens the My hours entry dialog with that
+  day and the row's project, deal or category already set (D3's dialog), and the detail behind a cell can be
+  changed from the week too ("anche modificare il dettaglio") — user chose the recommended "see + record"
+  and added editing, over read-only and over typing hours into the cell (timesheet), 2026-11-16.
+  Consequence: AC-4.4 ("no page of this spec offers" edit or delete) must say "no page outside My hours",
+  since the week view is part of My hours
+- D8 A cell that already holds hours (W2): clicking it opens its detail — the entries of that day on that row,
+  each with Edit and Delete (the list's dialog and the list's delete confirmation) — and "Add hours", which
+  opens the entry dialog with that day and that row set; an empty cell opens the entry dialog directly — user
+  chose the recommended option over "detail with Edit only" and over "open the list filtered to the cell",
+  2026-11-16
+- D9 Something with no hours yet in the week (W3): the week shows a row only for what holds hours that week;
+  anything else is recorded with the page's Record hours button (the dialog with the target picker), and its
+  row appears once saved — user chose the recommended option over "Add row" and over showing last week's rows
+  empty, 2026-11-16
+- D10 A row (W4): one row per thing the hours are on — each project, each deal, each meeting, each category of
+  other work; work type, task and note are in the cell's detail; a meeting's hours stay on the meeting's row
+  even when it counts for a deal — user chose the recommended option over meetings inside their deal's row and
+  over one row for all other work, 2026-11-16
+- D11 Placement (W5): a List | Week switch inside My hours; My hours opens on the List as today; the address
+  names the view, so a bookmark can open the week; the week is filtered by the list's existing filters
+  ("stessi filtri già esistenti per la lista") — user chose the recommended option over opening on the week
+  and over remembering the last view, and added the filters, 2026-11-16
+Delegated (the user deferred to the recommendation):
+- (none yet)
+Found (read from the repo, not asked):
+- WF1 A week grid or timesheet is listed as "Not designed — scope creep, reported" in time tracking —
+  specs/20261112-time-tracking/design.md § Not designed
+- WF2 My hours today: Period select (This week, Last week, This month default, …), entries grouped by day with
+  a day total, a Totals card grouped by project, deal, category or month; weeks start on Monday —
+  specs/20261112-time-tracking/design.md S1
+- WF3 No figure on screen is computed in the browser; every total comes from hours-api's totals, which today
+  group by ONE dimension (person, project, deal, category, month or day) — design.md conventions, plan.md
+  § Totals. A grid of rows × days needs two at once: the plan decides how
+- WF4 D23 of time tracking: no completeness check — each day's total, no "incomplete" mark, no reminder (the
+  user chose it over marking partial days); D8: a day and a duration, never a time of day; D14: only the person
+  writes their own entries — specs/20261112-time-tracking/ledger.md
+- WF5 One day and one target can hold several entries (different work types, tasks, notes) —
+  specs/20261112-time-tracking AC-2.7, US-1
+Assumed (not load-bearing; strike any that is wrong):
+- WA1 Weeks run Monday to Sunday, all seven days shown (the rules allow recording on a weekend)
+- WA2 D23 holds in the week view: day and week totals, no "incomplete" mark, no 42-hour target shown
+- WA3 Every rule of My hours holds unchanged: names a person cannot read are not shown, the same refusals,
+  English and Italian
+- WA4 Own hours only: Everyone's hours gets no week view
+- WA5 The week replaces the Period filter (previous week, next week, this week; any past week); the other
+  filters (project, deal, category, work type) apply to the week, and switching view keeps them (D11)
+- WA6 Opened from a week cell, the entry dialog has the day and the row's project, deal, meeting or category set
+  but changeable — it is My hours' own dialog, so D3's "not changeable" (about other pages) does not apply
+- WA7 A day after today offers no recording (the future-day rule); its cell shows nothing to add
+- WA8 Rows ordered by kind (projects, deals, meetings, other work), then by name; a row whose name the person
+  cannot read is shown as in the list ("not visible to you"), its entries editable from the detail, with no
+  "Add hours" on it
+- WA9 After a save, an edit or a delete from the week, the cell, its row, its day and the week total show the
+  new figures
+- WA10 No export from the week: the list's export covers it
+Open (unresolved — each needs an owner):
+- (none)
