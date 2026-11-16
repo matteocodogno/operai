@@ -17,10 +17,15 @@
  *  4. The downloaded export, its Hours summed by Counts for deal, equals the Group by Deal rows on screen (AC-4.6).
  *  5. Everyone's hours as an admin, filtered to the deal: the meeting's hours are in the list, the totals and the
  *     export (AC-4.11 with the system route up).
- *  6. R2 early check (plan R2): the p95 of the heaviest calls is logged; above 800 ms is reported, never failed.
+ *  6. A person involved only through an activity of the deal (the assignee of one of its tasks) records on it
+ *     (AC-2.3): crm-api does not name them, activities-api does.
+ *  7. R2 early check (plan R2): over a recorded quarter (about 300 entries, 9 meetings linked to one deal) the p95 of
+ *     a POST on a deal (as owner, and as task assignee), a month of everyone, a year by deal and a quarter walked
+ *     and exported is logged; above 800 ms is reported, never failed.
  *
- * The people are per-run (`hrs-*@operai.test`); the entries and the meeting a journey makes are deleted at the
- * end. Companies, deals and projects cannot be deleted from here (the owners keep them, like the other specs).
+ * The people are per-run (`hrs-*@operai.test`, an admin included: auth rate-limits a person's name lookup per caller);
+ * the entries and the meetings a journey makes are deleted at the end. Companies, deals and projects cannot be
+ * deleted from here (the owners keep them, like the other specs).
  */
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
