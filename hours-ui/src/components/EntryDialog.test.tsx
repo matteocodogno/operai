@@ -22,6 +22,7 @@ import { strings } from '../strings'
 import { deferred, fakeApi, requests } from '../test-support/fakeApi'
 import type { FakeHandler } from '../test-support/fakeApi'
 import { ORIGINS } from '../test-support/fakeSession'
+import { typeDuration } from '../test-support/typeDuration'
 import { activitiesAnswer, dealActivities, projectTasks } from '../test-support/fixtures/activity'
 import {
   DEAL_ROWS,
@@ -85,7 +86,7 @@ afterEach(() => {
 // ─── What the person sees and touches ───────────────────────────────────────
 
 const dayField = () => screen.getByLabelText(new RegExp(`^${f.day}`)) as HTMLInputElement
-const durationField = () => screen.getByRole('combobox', { name: f.duration.label }) as HTMLSelectElement
+const durationField = () => screen.getByRole('textbox', { name: f.duration.label }) as HTMLInputElement
 const onGroup = () => screen.getByRole('radiogroup', { name: f.on.label })
 const kind = (name: string) => within(onGroup()).getByRole('radio', { name }) as HTMLInputElement
 const noteField = () => screen.getByRole('textbox', { name: new RegExp(`^${f.note.label}`) }) as HTMLTextAreaElement
@@ -119,23 +120,18 @@ describe('opening the dialog (AC-1.1, AC-1.2, AC-1.8, AC-2.1; design S2)', () =>
     expect(dayField().getAttribute('aria-required')).toBe('true')
   })
 
-  it('offers exactly 48 durations, 30 min to 24 h in steps of 30, and none is chosen for the person', () => {
+  it('opens with the Duration empty: nothing is chosen for the person, and it is required', () => {
     renderDialog()
-    const texts = optionTexts(durationField())
-    expect(texts).toHaveLength(48)
-    expect(texts.slice(0, 4)).toEqual(['30 min', '1 h', '1 h 30', '2 h'])
-    expect(texts.at(-2)).toBe('23 h 30')
-    expect(texts.at(-1)).toBe('24 h')
     expect(durationField().value).toBe('')
     expect(durationField().getAttribute('aria-required')).toBe('true')
-    expect(screen.getByText(f.duration.hint)).not.toBeNull()
+    expect(describedBy(durationField())).toContain(f.duration.hint)
   })
 
   it('has no start or end field: a day and a duration only', () => {
     renderDialog()
     expect(screen.queryByLabelText(/start|end|from|to\b/i)).toBeNull()
     expect(document.querySelectorAll('input[type="time"], input[type="datetime-local"]')).toHaveLength(0)
-    expect(dialogControls()).toEqual(['date', 'select', 'radio', 'radio', 'radio', 'radio', 'textarea'])
+    expect(dialogControls()).toEqual(['date', 'text', 'radio', 'radio', 'radio', 'radio', 'textarea'])
   })
 
   it('preselects nothing in "What was it on": four choices, none of them checked, and the field is required', () => {
@@ -230,7 +226,7 @@ describe('changing what it was on (design S2: "changing the radio clears …")',
     useApi({ 'GET /activities': () => activitiesAnswer(projectTasks) })
     renderDialog()
     fireEvent.change(dayField(), { target: { value: '2026-11-10' } })
-    await userEvent.selectOptions(durationField(), '90')
+    await typeDuration(durationField(), '1:30')
     await userEvent.type(noteField(), 'Prepared the workshop')
 
     await chooseKind(f.on.options.project)
@@ -254,7 +250,7 @@ describe('changing what it was on (design S2: "changing the radio clears …")',
 
     // And the three things that do not depend on it stayed.
     expect(dayField().value).toBe('2026-11-10')
-    expect(durationField().value).toBe('90')
+    expect(durationField().value).toBe('1:30')
     expect(noteField().value).toBe('Prepared the workshop')
   })
 
@@ -429,9 +425,9 @@ const describedBy = (control: HTMLElement) =>
 const save = () => userEvent.click(submitButton())
 
 /** A project entry filled as a person would, one field after the other. */
-const fillProjectEntry = async () => {
+const fillProjectEntry = async (duration = '2:30') => {
   fireEvent.change(dayField(), { target: { value: '2026-11-12' } })
-  await userEvent.selectOptions(durationField(), '150')
+  await typeDuration(durationField(), duration)
   await chooseKind(f.on.options.project)
   await pickProject()
   await userEvent.selectOptions(select(f.workType.label), 'Development')
@@ -447,10 +443,10 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
     await save()
 
     expect(onSubmit).not.toHaveBeenCalled()
-    expect(screen.getByText(e.errors.durationRequired)).not.toBeNull()
+    expect(screen.getByText(e.errors.durationUnreadable)).not.toBeNull()
     expect(screen.getByText(e.errors.onRequired)).not.toBeNull()
     expect(durationField().getAttribute('aria-invalid')).toBe('true')
-    expect(describedBy(durationField())).toContain(e.errors.durationRequired)
+    expect(describedBy(durationField())).toContain(e.errors.durationUnreadable)
     expect(onGroup().getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(durationField())
     // The day was filled in, so it is not blamed.
@@ -459,7 +455,7 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
 
   it('a project, deal or meeting that was not picked from the list is an error on its picker', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     for (const [label, picker, message] of [
       [f.on.options.project, f.project.label, e.errors.projectRequired],
       [f.on.options.deal, f.deal.label, e.errors.dealRequired],
@@ -478,7 +474,7 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
 
   it('focus moves to a picker that needs attention WITHOUT opening its list over the error that is under it', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.project)
     await save()
 
@@ -500,7 +496,7 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
   it('the same after a refusal on the picker: focused, list closed, the refusal readable', async () => {
     onSubmit.mockRejectedValueOnce(refusedWith(403, 'not_on_project'))
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.project)
     await pickProject()
     // The person was last in the note, so the picker has to be given focus (it keeps it, if it had it).
@@ -518,7 +514,7 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
 
   it('other work without a category is an error on the category', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await save()
     expect(screen.getByText(e.errors.categoryRequired)).not.toBeNull()
@@ -529,7 +525,7 @@ describe('the client rules (AC-1.2, AC-1.3, AC-1.7, AC-2.1, AC-3.6): nothing is 
 
   it('a day after today (Zurich) is refused, on leaving the field and on Save; an empty day is asked for', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
 
@@ -558,7 +554,7 @@ describe('the Day (plan § Entries "A day", amendment 4 of 2026-11-13)', () => {
   const FLOOR_TEXT = e.errors.dayTooEarly('01.01.2000')
 
   const readyForSave = async () => {
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
   }
@@ -622,7 +618,7 @@ describe('the note (AC-1.7, AC-3.6; plan § Entries "Counting a note", "A blank 
 
   it('counts code points, not UTF-16 units: 1000 emoji is "1000 of 1000" with no error, and is sent', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     fireEvent.change(noteField(), { target: { value: emoji(1000) } })
@@ -638,7 +634,7 @@ describe('the note (AC-1.7, AC-3.6; plan § Entries "Counting a note", "A blank 
 
   it('1001 code points is a field error, shown on leaving the field and on Save, and nothing is sent', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     fireEvent.change(noteField(), { target: { value: emoji(1001) } })
@@ -674,7 +670,7 @@ describe('the note (AC-1.7, AC-3.6; plan § Entries "Counting a note", "A blank 
 
   it('a note that is required and blank — empty, or only spaces — is the required-note error, and nothing is sent', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Other')
 
@@ -695,7 +691,7 @@ describe('the note (AC-1.7, AC-3.6; plan § Entries "Counting a note", "A blank 
 
   it('a note on a category that does not require one may be blank, and a blank one is not sent at all', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     fireEvent.change(noteField(), { target: { value: '   ' } })
@@ -706,12 +702,203 @@ describe('the note (AC-1.7, AC-3.6; plan § Entries "Counting a note", "A blank 
 
   it('a note is sent exactly as typed, not trimmed (AC-4.6)', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     fireEvent.change(noteField(), { target: { value: '  two  lines\nof text ' } })
     await save()
     expect(onSubmit.mock.calls[0]![0].note).toBe('  two  lines\nof text ')
+  })
+})
+
+// ─── The Duration is typed (T45, D53) ───────────────────────────────────────
+
+const reads = () => screen.getByTestId('hours-entry-duration-reads')
+
+describe('the Duration is typed text, read as the person means it (AC-1.2; design S2 as amended, ledger D53)', () => {
+  it('is a text field with the decimal keypad and no autocomplete, not a list of 48 options', () => {
+    renderDialog()
+    expect(durationField().tagName).toBe('INPUT')
+    expect(durationField().getAttribute('type')).toBe('text')
+    expect(durationField().getAttribute('inputmode')).toBe('decimal')
+    expect(durationField().getAttribute('autocomplete')).toBe('off')
+    expect(screen.queryByRole('combobox', { name: f.duration.label })).toBeNull()
+    expect(within(screen.getByRole('dialog')).queryAllByRole('option')).toHaveLength(0)
+  })
+
+  it('has no start or end: what it takes is how long, never when', () => {
+    renderDialog()
+    expect(screen.queryByLabelText(/start|end/i)).toBeNull()
+  })
+
+  describe('the read-out under the field', () => {
+    it('is a polite live region that is there, empty, before anything is typed', () => {
+      renderDialog()
+      expect(reads().getAttribute('aria-live')).toBe('polite')
+      expect(reads().textContent).toBe('')
+    })
+
+    it.each([
+      ['2:30', '= 2 h 30'],
+      ['2,5', '= 2 h 30'],
+      ['2.5', '= 2 h 30'],
+      ['2h30', '= 2 h 30'],
+      ['2 h 30', '= 2 h 30'],
+      ['90m', '= 1 h 30'],
+      ['90 min', '= 1 h 30'],
+      ['0:30', '= 30 min'],
+      ['8', '= 8 h'],
+      ['24:00', '= 24 h'],
+      [' 2:30 ', '= 2 h 30'],
+    ])('says how %j was read: "%s"', async (typed, shown) => {
+      renderDialog()
+      await typeDuration(durationField(), typed)
+      expect(reads().textContent).toBe(shown)
+    })
+
+    it.each(['2:15', '0', '24:30', '25', 'abc', '2:75', '-1', '2:', '2h3'])(
+      'is not shown while %j does not read as a valid duration',
+      async (typed) => {
+        renderDialog()
+        await typeDuration(durationField(), typed)
+        expect(reads().textContent).toBe('')
+      },
+    )
+
+    it('follows the value as it is edited, and goes when it is cleared', async () => {
+      renderDialog()
+      await typeDuration(durationField(), '1')
+      expect(reads().textContent).toBe('= 1 h')
+      await userEvent.type(durationField(), ',5')
+      expect(reads().textContent).toBe('= 1 h 30')
+      await userEvent.type(durationField(), '5')
+      expect(reads().textContent).toBe('')
+      await userEvent.clear(durationField())
+      expect(reads().textContent).toBe('')
+    })
+
+    it('is part of what describes the field, after the hint is still there', async () => {
+      renderDialog()
+      await typeDuration(durationField(), '2,5')
+      expect(describedBy(durationField())).toContain('= 2 h 30')
+      expect(describedBy(durationField())).toContain(f.duration.hint)
+    })
+  })
+
+  describe('the field error, shown as the other fields’ errors are', () => {
+    it.each([
+      ['2:15', e.errors.durationSteps],
+      ['2,25', e.errors.durationSteps],
+      ['0', e.errors.durationRange],
+      ['24:30', e.errors.durationRange],
+      ['25', e.errors.durationRange],
+      ['abc', e.errors.durationUnreadable],
+      ['2:75', e.errors.durationUnreadable],
+      ['-1', e.errors.durationUnreadable],
+    ])('on leaving the field with %j: "%s"', async (typed, message) => {
+      renderDialog()
+      await typeDuration(durationField(), typed)
+      // Still being typed: no error yet.
+      expect(screen.queryByText(message)).toBeNull()
+      expect(durationField().getAttribute('aria-invalid')).toBeNull()
+
+      await userEvent.tab()
+      expect(screen.getByText(message)).not.toBeNull()
+      expect(durationField().getAttribute('aria-invalid')).toBe('true')
+      expect(describedBy(durationField())).toContain(message)
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('leaving it empty is the same "write a duration" as on Save', async () => {
+      renderDialog()
+      await userEvent.click(durationField())
+      await userEvent.tab()
+      expect(screen.getByText(e.errors.durationUnreadable)).not.toBeNull()
+    })
+
+    it('goes the moment the value is right, and is judged again while it is showing', async () => {
+      renderDialog()
+      await typeDuration(durationField(), '2:15')
+      await userEvent.tab()
+      expect(screen.getByText(e.errors.durationSteps)).not.toBeNull()
+
+      // Edited into text that does not read: the error says so, then says steps again once it reads.
+      await userEvent.click(durationField())
+      await userEvent.type(durationField(), '{Backspace}')
+      expect(screen.getByText(e.errors.durationUnreadable)).not.toBeNull()
+      expect(screen.queryByText(e.errors.durationSteps)).toBeNull()
+      await userEvent.type(durationField(), '0')
+      expect(screen.getByText(e.errors.durationSteps)).not.toBeNull()
+      expect(screen.queryByText(e.errors.durationUnreadable)).toBeNull()
+
+      // Pasted over, longer than a day: the range, not the steps.
+      fireEvent.change(durationField(), { target: { value: '24:15' } })
+      expect(screen.getByText(e.errors.durationRange)).not.toBeNull()
+      expect(screen.queryByText(e.errors.durationSteps)).toBeNull()
+
+      await typeDuration(durationField(), '2:30')
+      expect(screen.queryByText(e.errors.durationRange)).toBeNull()
+      expect(durationField().getAttribute('aria-invalid')).toBeNull()
+      expect(reads().textContent).toBe('= 2 h 30')
+    })
+
+    it('an error that went comes back only on leaving the field, as the Day’s does', async () => {
+      renderDialog()
+      await typeDuration(durationField(), '2:15')
+      await userEvent.tab()
+      await typeDuration(durationField(), '2:30')
+      expect(durationField().getAttribute('aria-invalid')).toBeNull()
+
+      await typeDuration(durationField(), '25')
+      expect(screen.queryByText(e.errors.durationRange)).toBeNull()
+      await userEvent.tab()
+      expect(screen.getByText(e.errors.durationRange)).not.toBeNull()
+    })
+
+    it.each([
+      ['2:15', e.errors.durationSteps],
+      ['25', e.errors.durationRange],
+      ['abc', e.errors.durationUnreadable],
+      ['', e.errors.durationUnreadable],
+    ])('Save with %j sends nothing, shows "%s" and puts focus on the field', async (typed, message) => {
+      renderDialog()
+      await fillProjectEntry(typed)
+      await save()
+
+      expect(onSubmit).not.toHaveBeenCalled()
+      expect(screen.getAllByText(message)).toHaveLength(1)
+      expect(durationField().getAttribute('aria-invalid')).toBe('true')
+      expect(document.activeElement).toBe(durationField())
+      // Every other value is still there.
+      expect(dayField().value).toBe('2026-11-12')
+      expect(durationField().value).toBe(typed)
+      expect((screen.getByRole('combobox', { name: f.project.label }) as HTMLInputElement).value).toBe('Project Alpha')
+      expect(noteField().value).toBe('Prepared the workshop')
+    })
+  })
+
+  it.each([
+    ['2:30', 150],
+    ['0:30', 30],
+    ['2,5', 150],
+    ['2.5', 150],
+    ['8', 480],
+    ['2h30', 150],
+    ['2h 30', 150],
+    ['2 h 30', 150],
+    ['90m', 90],
+    ['90 min', 90],
+    ['24', 1440],
+    ['24:00', 1440],
+    ['  3:00  ', 180],
+  ])('Save sends %j as %i minutes', async (typed, minutes) => {
+    renderDialog()
+    await typeDuration(durationField(), typed)
+    await chooseKind(f.on.options.deal)
+    await pickDeal()
+    await save()
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ day: TODAY, minutes, on: { type: 'deal', id: 'd1' } })
   })
 })
 
@@ -737,7 +924,7 @@ describe('what is sent (plan § Entries: POST /time-entries)', () => {
 
   it('a deal entry with nothing optional sends no work type, activity or note', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '30')
+    await typeDuration(durationField(), '0:30')
     await chooseKind(f.on.options.deal)
     await pickDeal()
     await save()
@@ -746,7 +933,7 @@ describe('what is sent (plan § Entries: POST /time-entries)', () => {
 
   it('a meeting entry', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '1440')
+    await typeDuration(durationField(), '24:00')
     await chooseKind(f.on.options.meeting)
     await pickMeeting()
     await save()
@@ -755,7 +942,7 @@ describe('what is sent (plan § Entries: POST /time-entries)', () => {
 
   it('other work: its category', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '240')
+    await typeDuration(durationField(), '4:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     await save()
@@ -768,7 +955,7 @@ describe('what is sent (plan § Entries: POST /time-entries)', () => {
 
   it('never sends a work type or an activity after the choice moved to a meeting, or a category after a project', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     await chooseKind(f.on.options.project)
@@ -782,7 +969,7 @@ describe('what is sent (plan § Entries: POST /time-entries)', () => {
 
   it('has no way to send a person, a start or an end (AC-1.6, AC-1.8): the body holds only the plan’s members', async () => {
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     await save()
@@ -795,7 +982,7 @@ describe('saving (design S2: not dismissible while saving)', () => {
     const answer = deferred<void>()
     onSubmit.mockReturnValue(answer.promise)
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.project)
     await pickProject()
     await save()
@@ -841,7 +1028,7 @@ describe('what hours-api refuses (design S2 "Error surfaces"; AC-2.2, AC-2.3, AC
 
   const valuesSurvived = () => {
     expect(dayField().value).toBe('2026-11-12')
-    expect(durationField().value).toBe('150')
+    expect(durationField().value).toBe('2:30')
     expect(kind(f.on.options.project).checked).toBe(true)
     expect((screen.getByRole('combobox', { name: f.project.label }) as HTMLInputElement).value).toBe('Project Alpha')
     expect(select(f.workType.label).value).toBe('wt-p-dev')
@@ -862,7 +1049,7 @@ describe('what hours-api refuses (design S2 "Error surfaces"; AC-2.2, AC-2.3, AC
   it('not_involved_in_deal is on the deal picker', async () => {
     onSubmit.mockRejectedValueOnce(refusedWith(403, 'not_involved_in_deal'))
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.deal)
     await pickDeal()
     await save()
@@ -881,7 +1068,7 @@ describe('what hours-api refuses (design S2 "Error surfaces"; AC-2.2, AC-2.3, AC
     async (_name, radio, picker, message) => {
       onSubmit.mockRejectedValueOnce(refusedWith(404, 'not_found'))
       renderDialog()
-      await userEvent.selectOptions(durationField(), '60')
+      await typeDuration(durationField(), '1:00')
       await chooseKind(radio)
       await pick(picker, /Project Alpha|Acme renewal|Kick-off with Acme/)
       await save()
@@ -935,7 +1122,7 @@ describe('what hours-api refuses (design S2 "Error surfaces"; AC-2.2, AC-2.3, AC
   ] as const)('host_unavailable on a %s names it', async (radio, message) => {
     onSubmit.mockRejectedValueOnce(refusedWith(503, 'host_unavailable'))
     renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(radio)
     await (radio === f.on.options.deal ? pickDeal() : pickMeeting())
     await save()
@@ -943,7 +1130,7 @@ describe('what hours-api refuses (design S2 "Error surfaces"; AC-2.2, AC-2.3, AC
   })
 
   it.each([
-    ['invalid_minutes', 'minutes', e.errors.durationRequired],
+    ['invalid_minutes', 'minutes', e.errors.durationUnreadable],
     ['future_day', 'day', e.errors.dayFuture],
     ['note_too_long', 'note', e.errors.noteTooLong],
     ['note_required', 'note', e.errors.noteRequired],
@@ -970,7 +1157,7 @@ describe('what hours-api refuses (design S2 "Error surfaces"; AC-2.2, AC-2.3, AC
     async (code) => {
       onSubmit.mockRejectedValueOnce(refusedWith(422, code))
       renderDialog()
-      await userEvent.selectOptions(durationField(), '60')
+      await typeDuration(durationField(), '1:00')
       await chooseKind(f.on.options.none)
       await userEvent.selectOptions(select(f.category.label), 'Formazione')
       await save()
@@ -1022,7 +1209,7 @@ describe('the lists (AC-3.4, design S2 "Category", "Work type")', () => {
     expect(select(f.workType.label).getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText(f.workType.loading)).not.toBeNull()
     await pickProject()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
@@ -1049,7 +1236,7 @@ describe('the lists (AC-3.4, design S2 "Category", "Work type")', () => {
 
   it('a chosen category that is retired by a fresh read of the lists is no longer chosen', async () => {
     const view = renderDialog()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await chooseKind(f.on.options.none)
     await userEvent.selectOptions(select(f.category.label), 'Formazione')
     const retired = {

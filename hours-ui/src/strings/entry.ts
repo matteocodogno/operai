@@ -35,8 +35,8 @@ const en = {
     duration: {
       label: 'Duration',
       hint: 'In steps of 30 minutes, up to 24 hours.',
-      /** The first option while nothing is chosen: it is never offered as a choice. */
-      placeholder: 'Choose a duration',
+      /** Under the field while what is typed reads (D53): how it was understood, in the app's own short display. */
+      reads: (duration: string) => `= ${duration}`,
     },
     on: {
       label: 'What was it on',
@@ -137,7 +137,12 @@ const en = {
     dayTooEarly: (floor: string) => `The day cannot be before ${floor}.`,
     /** `future_day` (AC-1.3), the client rule and the server's refusal alike. */
     dayFuture: 'The day cannot be after today.',
-    durationRequired: 'Choose a duration.',
+    /** Nothing typed, or text that is no duration (AC-1.2; D53). Also where hours-api's `invalid_minutes` lands. */
+    durationUnreadable: 'Write a duration such as 2:30, 2,5 or 2h30.',
+    /** It reads, but is not whole half hours: never rounded for the person (AC-1.2). */
+    durationSteps: 'In steps of 30 minutes (for example 2:00 or 2:30).',
+    /** It reads, but is shorter than 30 minutes or longer than a day (AC-1.2). */
+    durationRange: 'Between 30 minutes and 24 hours.',
     onRequired: 'Choose what the hours were on.',
     projectRequired: 'Choose a project from the list.',
     dealRequired: 'Choose a deal from the list.',
@@ -201,7 +206,7 @@ const it: typeof en = {
     duration: {
       label: 'Durata',
       hint: 'A intervalli di 30 minuti, fino a 24 ore.',
-      placeholder: 'Scegli una durata',
+      reads: (duration: string) => `= ${duration}`,
     },
     on: {
       label: 'Su cosa hai lavorato',
@@ -294,7 +299,9 @@ const it: typeof en = {
     dayInvalid: 'Scegli un giorno che esista nel calendario.',
     dayTooEarly: (floor: string) => `Il giorno non può essere precedente al ${floor}.`,
     dayFuture: 'Il giorno non può essere successivo a oggi.',
-    durationRequired: 'Scegli una durata.',
+    durationUnreadable: 'Scrivi una durata come 2:30, 2,5 o 2h30.',
+    durationSteps: 'In passi di 30 minuti (per esempio 2:00 o 2:30).',
+    durationRange: 'Tra 30 minuti e 24 ore.',
     onRequired: 'Scegli su cosa hai lavorato.',
     projectRequired: "Scegli un progetto dall'elenco.",
     dealRequired: "Scegli un'opportunità dall'elenco.",

@@ -21,6 +21,7 @@ import {
 } from '../test-support/fixtures/entry'
 import type { CategoryView, TimeEntryView, WorkTypeView } from '../lib/hoursApi.types'
 import { withoutIds } from '../test-support/fakeApi'
+import { readDuration } from '../lib/duration'
 import { HoursApiError } from '../lib/errors'
 import {
   entryIsGone,
@@ -51,7 +52,7 @@ describe('valuesOf: what an edit opens with', () => {
   it('a project entry holds its day, duration, project, work type, activity and note', () => {
     expect(valuesOf(EDIT_PROJECT)).toEqual({
       day: '2026-11-12',
-      minutes: '150',
+      minutes: '2 h 30',
       kind: 'project',
       project: { id: 'p1', name: 'Project Alpha', companyName: null },
       deal: null,
@@ -108,10 +109,18 @@ describe('an id the view does not carry is nothing to re-pick (D44)', () => {
   it('the rest of the entry is still what it opens with: day, duration, work type and note', () => {
     expect(valuesOf(withoutIds(EDIT_PROJECT))).toMatchObject({
       day: '2026-11-12',
-      minutes: '150',
+      minutes: '2 h 30',
       workTypeId: 'wt-p-dev',
       note: 'Prepared the workshop',
     })
+  })
+
+  it('opens with the duration as the app shows it, and that reads back to the same minutes for every duration an entry can have (D53)', () => {
+    expect(valuesOf(EDIT_PROJECT).minutes).toBe('2 h 30')
+    for (let minutes = 30; minutes <= 1440; minutes += 30) {
+      const { minutes: opened } = valuesOf({ ...EDIT_PROJECT, minutes })
+      expect(readDuration(opened), opened).toEqual({ ok: true, minutes })
+    }
   })
 
   it('an activity without an id is no activity to keep', () => {
@@ -160,7 +169,15 @@ describe('toPatch: only the members the person changed (AC-1.5, AC-2.12, D46)', 
 
   it('a new day alone is `{ day }`, and a new duration alone is `{ minutes }`', () => {
     expect(toPatch(edited(stored, { day: '2026-11-10' }), stored, PROJECT_TYPES)).toEqual({ day: '2026-11-10' })
-    expect(toPatch(edited(stored, { minutes: '60' }), stored, PROJECT_TYPES)).toEqual({ minutes: 60 })
+    expect(toPatch(edited(stored, { minutes: '1:00' }), stored, PROJECT_TYPES)).toEqual({ minutes: 60 })
+  })
+
+  it('another way of writing the same duration is no change, and sends nothing (D53)', () => {
+    // The entry opens with "2 h 30"; the person types it as they like and means the same 150 minutes.
+    for (const same of ['2 h 30', '2:30', '2,5', '2.5', '2h30', '150m', ' 2:30 ']) {
+      expect(toPatch(edited(stored, { minutes: same }), stored, PROJECT_TYPES), same).toEqual({})
+    }
+    expect(toPatch(edited(stored, { minutes: '2:00' }), stored, PROJECT_TYPES)).toEqual({ minutes: 120 })
   })
 
   it('a new work type alone is `{ workTypeId }`, and "No work type" clears it with `null`', () => {
@@ -242,7 +259,7 @@ describe('toPatch: only the members the person changed (AC-1.5, AC-2.12, D46)', 
     // The work types the dialog offers for the project list: the live ones and the entry's own retired one.
     const offered = offeredWorkTypes(PROJECT_TYPES, ownWorkTypeOf(EDIT_RETIRED_WORK_TYPE))
     expect(toPatch(edited(stored, { note: 'Handed over' }), stored, offered)).toEqual({ note: 'Handed over' })
-    expect(toPatch(edited(stored, { minutes: '60' }), stored, offered)).toEqual({ minutes: 60 })
+    expect(toPatch(edited(stored, { minutes: '1:00' }), stored, offered)).toEqual({ minutes: 60 })
   })
 
   it('the same holds when the lists have not been read: the entry’s own work type is all there is, and it is not cleared', () => {
@@ -313,7 +330,7 @@ describe('toPatch: the note (plan § Entries "A blank note"; D50)', () => {
   })
 
   it('the untouched note is not sent whatever else changed', () => {
-    expect(toPatch(edited(withNote, { minutes: '60' }), withNote, PROJECT_TYPES)).toEqual({ minutes: 60 })
+    expect(toPatch(edited(withNote, { minutes: '1:00' }), withNote, PROJECT_TYPES)).toEqual({ minutes: 60 })
   })
 })
 
@@ -460,8 +477,8 @@ describe('noteRequired when editing (design S2 "Note — when it is required"; D
   it('a note-less entry that stays on a category since marked as requiring a note: optional', () => {
     const stored = valuesOf(EDIT_OTHER_NO_NOTE)
     expect(noteRequired(stored, contextFor(stored))).toBe(false)
-    expect(noteRequired(edited(stored, { minutes: '60' }), contextFor(stored))).toBe(false)
-    expect(ruleError('note', edited(stored, { minutes: '60' }), contextFor(stored))).toBeUndefined()
+    expect(noteRequired(edited(stored, { minutes: '1:00' }), contextFor(stored))).toBe(false)
+    expect(ruleError('note', edited(stored, { minutes: '1:00' }), contextFor(stored))).toBeUndefined()
   })
 
   it('an entry that has a note on such a category: required, so clearing it is the required-note error', () => {

@@ -92,7 +92,8 @@ async function openDialogOn(
   await page.getByTestId('hours-record').click()
   const dialog = page.getByRole('dialog', { name: 'Record hours' })
   await dialog.waitFor()
-  await dialog.getByTestId('hours-entry-duration').selectOption(String(minutes))
+  // The Duration is typed (T45, D53): decimal hours read as the person would write them, 90 minutes as 1.5.
+  await dialog.getByTestId('hours-entry-duration').fill(String(minutes / 60))
   await dialog.getByTestId(`hours-entry-on-${kind}`).check()
   // The picker searches the owner's own list as the person; the one record whose name holds the run id is picked.
   await dialog.getByTestId(`hours-entry-${kind}-input`).fill(target.text)

@@ -309,7 +309,8 @@ export async function recordOtherWork(
   await page.getByTestId('hours-record').click()
   const dialog = page.getByRole('dialog', { name: 'Record hours' })
   await dialog.waitFor()
-  await dialog.getByTestId('hours-entry-duration').selectOption(String(input.minutes))
+  // The Duration is typed (T45, D53): decimal hours read as the person would write them, 90 minutes as 1.5.
+  await dialog.getByTestId('hours-entry-duration').fill(String(input.minutes / 60))
   await dialog.getByTestId('hours-entry-on-none').check()
   await dialog.getByTestId('hours-entry-category').selectOption(input.categoryId)
   if (input.note !== undefined) await dialog.getByTestId('hours-entry-note').fill(input.note)

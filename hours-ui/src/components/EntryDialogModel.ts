@@ -4,7 +4,8 @@
  * a save sends and where each refusal of hours-api lands. A component file may export only components
  * (`react-refresh`), so this is its sibling.
  */
-import { formatDate } from '@operai/ui'
+import { formatDate, formatDuration } from '@operai/ui'
+import { readDuration } from '../lib/duration'
 import { codeOf, statusOf } from '../lib/errors'
 import type {
   CategoryView,
@@ -21,9 +22,6 @@ import { strings } from '../strings'
 /** The note's limit, in Unicode code points (AC-1.7; plan § Entries "Counting a note and a name"). */
 export const NOTE_LIMIT = 1000
 
-/** 30 min … 24 h in steps of 30 (AC-1.2): 48 durations, the only values the control can hold. */
-export const DURATION_MINUTES: readonly number[] = Array.from({ length: 48 }, (_, index) => (index + 1) * 30)
-
 /** What the hours were on (AC-2.1): a project, a deal or a meeting, or no entity at all. */
 export type EntryKind = 'project' | 'deal' | 'meeting' | 'none'
 
@@ -34,7 +32,10 @@ export type PickedKind = Exclude<EntryKind, 'none'>
 
 export type EntryFormValues = {
   day: string
-  /** The chosen duration in minutes as text, `''` until chosen. */
+  /**
+   * The duration as the person typed it, `''` until typed (D53). An edit opens with the app's own short display
+   * of the entry's (`2 h 30`), which reads back. What it means is `readDuration`'s, never a number parsed here.
+   */
   minutes: string
   /** `null` until chosen: nothing is preselected (D18). */
   kind: EntryKind | null
@@ -157,6 +158,23 @@ export const pickedEntity = (values: EntryFormValues): { id: string } | null =>
         ? values.meeting
         : null
 
+/** A number of minutes as the app shows a duration (`2 h 30`, `30 min`): what the field reads back and opens with. */
+export const durationText = (minutes: number): string => formatDuration(minutes * 60_000, { style: 'short' })
+
+/** The duration's error — what is wrong with the text, in the person's words — or `undefined` when it reads (AC-1.2). */
+const durationError = (text: string): string | undefined => {
+  const read = readDuration(text)
+  if (read.ok) return undefined
+  const t = strings.entry.errors
+  return read.problem === 'range' ? t.durationRange : read.problem === 'steps' ? t.durationSteps : t.durationUnreadable
+}
+
+/** The minutes the typed text means, or `null` when it does not read. */
+const readMinutes = (text: string): number | null => {
+  const read = readDuration(text)
+  return read.ok ? read.minutes : null
+}
+
 /** The error of one field for these values, or `undefined` when the field is fine. */
 export const ruleError = (field: FieldName, values: EntryFormValues, context: RuleContext): string | undefined => {
   const t = strings.entry.errors
@@ -168,7 +186,7 @@ export const ruleError = (field: FieldName, values: EntryFormValues, context: Ru
       if (values.day < EARLIEST_DAY) return t.dayTooEarly(formatDate(EARLIEST_DAY))
       return values.day > context.today ? t.dayFuture : undefined
     case 'minutes':
-      return DURATION_MINUTES.some((minutes) => String(minutes) === values.minutes) ? undefined : t.durationRequired
+      return durationError(values.minutes)
     case 'kind':
       return values.kind === null ? t.onRequired : undefined
     case 'entity':
@@ -212,9 +230,11 @@ export const toInput = (values: EntryFormValues, workTypes: readonly WorkTypeVie
   const takesDetails = values.kind === 'project' || values.kind === 'deal'
   const workTypeId =
     takesDetails && workTypes.some((workType) => workType.id === values.workTypeId) ? values.workTypeId : null
+  const minutes = readMinutes(values.minutes)
+  if (minutes === null) throw new Error('toInput: the duration does not read; `validate` comes first')
   return {
     day: values.day,
-    minutes: Number(values.minutes),
+    minutes,
     on,
     ...(workTypeId !== null ? { workTypeId } : {}),
     ...(takesDetails && values.activityId !== null ? { activityId: values.activityId } : {}),
@@ -235,7 +255,7 @@ export const toInput = (values: EntryFormValues, workTypes: readonly WorkTypeVie
 export const valuesOf = (entry: TimeEntryView): EntryFormValues => {
   const base: EntryFormValues = {
     ...emptyValues(entry.day),
-    minutes: String(entry.minutes),
+    minutes: durationText(entry.minutes),
     kind: entry.on.type,
     workTypeId: entry.workType?.id ?? '',
     activityId: entry.activity?.id ?? null,
@@ -340,7 +360,9 @@ export const toPatch = (
 ): EntryPatch => {
   const patch: EntryPatch = {}
   if (values.day !== stored.day) patch.day = values.day
-  if (values.minutes !== stored.minutes) patch.minutes = Number(values.minutes)
+  // The duration is typed text: what changed is what it means, not how it is written (`2,5` for the stored `2 h 30`).
+  const minutes = readMinutes(values.minutes)
+  if (minutes !== null && minutes !== readMinutes(stored.minutes)) patch.minutes = minutes
   if (!sameTarget(values, stored)) patch.on = onOf(values)
 
   const workTypeId =
@@ -390,7 +412,7 @@ export const failureOf = (error: unknown, kind: EntryKind | null, edit?: { moved
   if (edit !== undefined && entryIsGone(error, edit.moved)) return { fields: {}, form: t.entryGone, reloadLists: false }
   switch (codeOf(error)) {
     case 'invalid_minutes':
-      return on('minutes', t.durationRequired)
+      return on('minutes', t.durationUnreadable)
     case 'future_day':
       return on('day', t.dayFuture)
     case 'note_too_long':

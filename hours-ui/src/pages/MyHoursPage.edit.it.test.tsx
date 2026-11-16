@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { RouterProvider, createMemoryHistory } from '@tanstack/react-router'
+import { typeDuration } from '../test-support/typeDuration'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('shell/session', async () => (await import('../test-support/fakeSession')).shellSessionMock(apiFetch))
@@ -119,7 +120,7 @@ describe('Edit and Delete in Italian', () => {
     const { strings } = await setup({ 'PATCH /time-entries/:id': () => refusal(404, 'not_found') })
     await userEvent.click(screen.getByTestId('hours-entry-e-alpha-edit'))
     const dialog = screen.getByRole('dialog', { name: 'Modifica registrazione' })
-    await userEvent.selectOptions(within(dialog).getByRole('combobox', { name: 'Durata' }), '60')
+    await typeDuration(within(dialog).getByRole('textbox', { name: 'Durata' }), '1:00')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Salva registrazione' }))
     expect((await within(dialog).findByRole('alert')).textContent).toBe(strings.entry.errors.entryGone)
     expect(strings.entry.errors.entryGone).toContain('non si trova più')

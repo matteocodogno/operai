@@ -20,6 +20,7 @@ import { strings } from '../strings'
 import { deferred, entriesPage, fakeApi, listsHandler, requests, sequence } from '../test-support/fakeApi'
 import type { FakeHandler } from '../test-support/fakeApi'
 import { ALPHA, HIDDEN_PROJECT, KICKOFF, TRAINING, totalsWithDays } from '../test-support/fixtures/entries'
+import { typeDuration } from '../test-support/typeDuration'
 import { DEAL_ROWS, EDIT_RETIRED_CATEGORY, ENTRY_LISTS, PROJECT_ROWS, refusal } from '../test-support/fixtures/entry'
 import { TODAY_INSTANT } from '../test-support/fixtures/myHours'
 import { activitiesAnswer, projectTasks } from '../test-support/fixtures/activity'
@@ -83,8 +84,8 @@ const deleteCalls = () => requests(api, 'DELETE /time-entries/:id')
 
 const pressSave = () => userEvent.click(inEdit().getByRole('button', { name: e.dialog.save }))
 const confirmDelete = () => userEvent.click(inDelete().getByRole('button', { name: e.delete.confirm }))
-const chooseDuration = (value: string) =>
-  userEvent.selectOptions(inEdit().getByRole('combobox', { name: f.duration.label }), value)
+const durationField = () => inEdit().getByRole('textbox', { name: f.duration.label }) as HTMLInputElement
+const chooseDuration = (value: string) => typeDuration(durationField(), value)
 
 describe('Edit on a row (F2; AC-1.5)', () => {
   it('opens "Edit entry" filled from the row, reading nothing more of the entry itself', async () => {
@@ -94,7 +95,7 @@ describe('Edit on a row (F2; AC-1.5)', () => {
     await userEvent.click(editButton('e-alpha'))
 
     expect(editDialog()).not.toBeNull()
-    expect((inEdit().getByRole('combobox', { name: f.duration.label }) as HTMLSelectElement).value).toBe('240')
+    expect(durationField().value).toBe('4 h')
     expect((inEdit().getByRole('combobox', { name: f.project.label }) as HTMLInputElement).value).toBe('Project Alpha')
     expect((inEdit().getByRole('combobox', { name: f.workType.label }) as HTMLSelectElement).value).toBe('wt-p-dev')
     expect(document.activeElement).toBe(inEdit().getByLabelText(new RegExp(`^${f.day}`)))
@@ -122,7 +123,7 @@ describe('Edit on a row (F2; AC-1.5)', () => {
     const groupedBefore = totalsCalls('project').length
 
     await userEvent.click(editButton('e-alpha'))
-    await chooseDuration('60')
+    await chooseDuration('1:00')
     await pressSave()
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -146,7 +147,7 @@ describe('Edit on a row (F2; AC-1.5)', () => {
     useApi()
     await renderPage()
     await userEvent.click(editButton('e-alpha'))
-    await chooseDuration('60')
+    await chooseDuration('1:00')
     await pressSave()
     await waitFor(() => expect(patchCalls()).toHaveLength(1))
     const init = apiFetch.mock.calls.find(([, call]) => (call as RequestInit | undefined)?.method === 'PATCH')![1] as
@@ -163,7 +164,7 @@ describe('Edit on a row (F2; AC-1.5)', () => {
     })
     await renderPage()
     await userEvent.click(editButton('e-alpha'))
-    await chooseDuration('60')
+    await chooseDuration('1:00')
     await pressSave()
     await waitFor(() =>
       expect(
@@ -231,7 +232,7 @@ describe('Edit on a row (F2; AC-1.5)', () => {
     expect(inEdit().getByRole('combobox', { name: strings.activity.label }).getAttribute('aria-disabled')).toBe('true')
     expect(requests(api, 'GET /activities')).toHaveLength(0)
 
-    await chooseDuration('90')
+    await chooseDuration('1:30')
     await pressSave()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(patchCalls()[0]).toMatchObject({ path: '/time-entries/e-hidden', body: { minutes: 90 } })
@@ -328,7 +329,7 @@ describe('a refused edit changes nothing on the page', () => {
       await renderPage()
       const entriesBefore = entriesCalls().length
       await userEvent.click(editButton('e-alpha'))
-      await chooseDuration('60')
+      await chooseDuration('1:00')
       await pressSave()
 
       const alert = await inEdit().findByRole('alert')

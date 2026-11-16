@@ -8,9 +8,9 @@ import {
   SearchPicker,
   focusFirstInvalid,
   formatDate,
-  formatDuration,
 } from '@operai/ui'
 import type { ComboboxOption } from '@operai/ui'
+import { readDuration } from '../lib/duration'
 import type { EntryInput, EntryPatch, TimeEntryView, TimeListsView } from '../lib/hoursApi.types'
 import { searchDeals, searchMeetings, searchProjects } from '../lib/searchers'
 import type { DealChoice, MeetingChoice, ProjectChoice } from '../lib/searchers'
@@ -18,10 +18,10 @@ import { todayZurich } from '../lib/todayZurich'
 import { strings } from '../strings'
 import ActivityField from './ActivityField'
 import {
-  DURATION_MINUTES,
   EARLIEST_DAY,
   ENTRY_KINDS,
   NOTE_LIMIT,
+  durationText,
   emptyValues,
   failureOf,
   keptActivity,
@@ -78,8 +78,6 @@ const meetingOption = (meeting: MeetingChoice): ComboboxOption => ({
   secondaryLabel: meeting.startsAt === null ? undefined : formatDate(meeting.startsAt),
 })
 
-const durationLabel = (minutes: number) => formatDuration(minutes * 60_000, { style: 'short' })
-
 /** The fields whose error is judged again as the person edits them; an edit clears the error of every other. */
 const LIVE_FIELDS: readonly FieldName[] = ['day', 'minutes', 'kind', 'category', 'note']
 
@@ -94,9 +92,10 @@ const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-60'
 
 /**
  * EntryDialog — record hours (specs/20261112-time-tracking T27; design S2, F1; AC-1.1–1.3, 1.7, 1.8, 2.1–2.3, 2.5,
- * 2.7, 2.10, 2.11, 3.4–3.6). A `FormDialog` over My hours: Day (today, never after it), Duration (the 48 steps
- * of 30 minutes), What was it on (nothing chosen), then only the fields that apply to the choice — a project,
- * deal or meeting picker, or a category; the work type and activity for a project or a deal — and the note.
+ * 2.7, 2.10, 2.11, 3.4–3.6). A `FormDialog` over My hours: Day (today, never after it), Duration (typed and read
+ * by `lib/duration`: 30 minutes to 24 hours in steps of 30, shown back as "= 2 h 30"; T45, D53), What was it on
+ * (nothing chosen), then only the fields that apply to the choice — a project, deal or meeting picker, or a
+ * category; the work type and activity for a project or a deal — and the note.
  *
  * It is prop-driven: the lists in, one `onSubmit` out, no router and no knowledge of the page, so the project
  * and deal pages (specs/20261112-project-hours, specs/20261112-meeting-hours) can reuse it. The dialog owns the form, the client rules and the words for
@@ -114,8 +113,8 @@ const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-60'
  * (`valuesOf`, `keptActivity`): the target opens empty and Save asks for it, the Activity shows no pointer it
  * cannot name.
  *
- * Validation runs on Save (focus then goes to the first invalid field) and, for Day and the note, on leaving
- * the field; an error that is showing is judged again as the field is edited, so it goes the moment the
+ * Validation runs on Save (focus then goes to the first invalid field) and, for Day, Duration and the note, on
+ * leaving the field; an error that is showing is judged again as the field is edited, so it goes the moment the
  * value is right. A refusal from hours-api lands where design S2 puts it and every value stays.
  */
 export default function EntryDialog(props: EntryDialogProps) {
@@ -151,6 +150,7 @@ export default function EntryDialog(props: EntryDialogProps) {
   })
   const shown = effective(values)
   const needsNote = noteRequired(shown, context)
+  const duration = readDuration(values.minutes)
   const count = noteLength(values.note)
 
   // The "not visible" variant (design S2, AC-4.10, D43): the author can no longer read the project, deal or
@@ -286,28 +286,31 @@ export default function EntryDialog(props: EntryDialogProps) {
 
           <Field
             label={t.fields.duration.label}
-            hint={t.fields.duration.hint}
+            hint={
+              <>
+                {/* How the text was read, announced as it changes (D53). Always in the DOM, so the change is heard. */}
+                <span aria-live="polite" className="block font-mono" data-testid="hours-entry-duration-reads">
+                  {duration.ok ? t.fields.duration.reads(durationText(duration.minutes)) : ''}
+                </span>
+                {t.fields.duration.hint}
+              </>
+            }
             required
             error={errors.minutes}
             errorRole="alert"
           >
             {(control) => (
-              <select
+              <input
                 {...control}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                className="input-figure"
                 value={values.minutes}
                 onChange={(event) => edit({ ...values, minutes: event.target.value }, 'minutes')}
+                onBlur={() => onBlur('minutes')}
                 data-testid="hours-entry-duration"
-              >
-                {/* Shown while nothing is chosen and never offered as a choice. */}
-                <option value="" disabled hidden>
-                  {t.fields.duration.placeholder}
-                </option>
-                {DURATION_MINUTES.map((minutes) => (
-                  <option key={minutes} value={String(minutes)}>
-                    {durationLabel(minutes)}
-                  </option>
-                ))}
-              </select>
+              />
             )}
           </Field>
         </div>

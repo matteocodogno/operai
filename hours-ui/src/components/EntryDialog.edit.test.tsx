@@ -42,6 +42,7 @@ import {
   PROJECT_ROWS,
   TODAY,
 } from '../test-support/fixtures/entry'
+import { typeDuration } from '../test-support/typeDuration'
 import EntryDialog from './EntryDialog'
 import type { EntryDialogProps } from './EntryDialog'
 
@@ -95,7 +96,7 @@ afterEach(() => {
 // ─── What the person sees and touches ───────────────────────────────────────
 
 const dayField = () => screen.getByLabelText(new RegExp(`^${f.day}`)) as HTMLInputElement
-const durationField = () => screen.getByRole('combobox', { name: f.duration.label }) as HTMLSelectElement
+const durationField = () => screen.getByRole('textbox', { name: f.duration.label }) as HTMLInputElement
 const onGroup = () => screen.getByRole('radiogroup', { name: f.on.label })
 const kind = (name: string) => within(onGroup()).getByRole('radio', { name }) as HTMLInputElement
 const noteField = () => screen.getByRole('textbox', { name: new RegExp(`^${f.note.label}`) }) as HTMLTextAreaElement
@@ -140,7 +141,7 @@ describe('opening an edit (F2 step 1; AC-1.5)', () => {
 
   it('fills every value from the view: a project entry', async () => {
     renderEdit(EDIT_PROJECT)
-    expect(durationField().value).toBe('150')
+    expect(durationField().value).toBe('2 h 30')
     expect(kind(f.on.options.project).checked).toBe(true)
     expect(picker(f.project.label).value).toBe('Project Alpha')
     expect(select(f.workType.label).value).toBe('wt-p-dev')
@@ -159,7 +160,7 @@ describe('opening an edit (F2 step 1; AC-1.5)', () => {
     expect(kind(f.on.options.deal).checked).toBe(true)
     expect(picker(f.deal.label).value).toBe('Acme renewal')
     expect(select(f.workType.label).value).toBe('wt-d-demo')
-    expect(durationField().value).toBe('90')
+    expect(durationField().value).toBe('1 h 30')
     deal.unmount()
 
     const meeting = renderEdit(EDIT_MEETING)
@@ -197,9 +198,42 @@ describe('what an edit sends: only the members that changed (AC-2.12, D46)', () 
 
   it('a new duration alone is `{ minutes }`, and the target, work type, activity and note are not sent', async () => {
     renderEdit(EDIT_PROJECT)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
+  })
+
+  it('the duration opens as the app shows it, reads back to the same minutes, and says so under the field (D53)', () => {
+    renderEdit(EDIT_PROJECT)
+    expect(durationField().value).toBe('2 h 30')
+    expect(screen.getByTestId('hours-entry-duration-reads').textContent).toBe('= 2 h 30')
+    expect(durationField().getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('another way of writing the same duration is no change: nothing is sent, and a note alone is `{ note }` (D53)', async () => {
+    const same = renderEdit(EDIT_PROJECT)
+    await typeDuration(durationField(), '2,5')
+    await save()
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    same.unmount()
+
+    renderEdit(EDIT_PROJECT)
+    await typeDuration(durationField(), '2:30')
+    fireEvent.change(noteField(), { target: { value: 'Prepared the workshop and the demo' } })
+    await save()
+    expect(onSubmit.mock.calls[0]![0]).toEqual({ note: 'Prepared the workshop and the demo' })
+  })
+
+  it('a duration that does not read is a field error, and nothing is sent, as when recording', async () => {
+    renderEdit(EDIT_PROJECT)
+    await typeDuration(durationField(), '2:15')
+    await save()
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(durationField().getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByText(e.errors.durationSteps)).not.toBeNull()
+    expect(document.activeElement).toBe(durationField())
   })
 
   it('a note-only edit sends `{ note }` exactly as typed', async () => {
@@ -247,7 +281,7 @@ describe('what an edit sends: only the members that changed (AC-2.12, D46)', () 
     // Typing after a pick dropped the activity, as for any change of target; choosing it again keeps the entry
     // on the same project, so `on` is not sent.
     await userEvent.selectOptions(select(strings.activity.label), 'Task · Write the offer')
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
   })
@@ -306,7 +340,7 @@ describe('what an edit sends: only the members that changed (AC-2.12, D46)', () 
   it('changing several members sends exactly those', async () => {
     renderEdit(EDIT_PROJECT)
     fireEvent.change(dayField(), { target: { value: '2026-11-11' } })
-    await userEvent.selectOptions(durationField(), '240')
+    await typeDuration(durationField(), '4:00')
     fireEvent.change(noteField(), { target: { value: 'Rewritten' } })
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ day: '2026-11-11', minutes: 240, note: 'Rewritten' })
@@ -340,7 +374,7 @@ describe('a category or work type retired since (AC-3.4)', () => {
 
   it('a day or duration edit of it sends no category either', async () => {
     renderEdit(EDIT_RETIRED_CATEGORY)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
   })
@@ -361,7 +395,7 @@ describe('a category or work type retired since (AC-3.4)', () => {
   it('an entry on a retired work type keeps it, shown as retired, and a minutes-only edit does not send it', async () => {
     renderEdit(EDIT_RETIRED_WORK_TYPE)
     expect(selectedText(select(f.workType.label))).toBe('Legacy support (retired)')
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
   })
@@ -476,7 +510,7 @@ describe('the "not visible" variant (design S2; AC-4.10, D43, AC-2.12)', () => {
   it('Day, Duration, Work type and Note can still be changed, and the save sends exactly those', async () => {
     renderEdit(EDIT_HIDDEN_PROJECT)
     fireEvent.change(dayField(), { target: { value: '2026-11-09' } })
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await userEvent.selectOptions(select(f.workType.label), 'Analysis')
     await userEvent.type(noteField(), 'Handed over')
     await save()
@@ -633,7 +667,7 @@ describe('a 404 on a save (design F2 step 3, S2 "Error surfaces"; AC-2.10)', () 
   it('on a save that kept the target the entry, or what it is on, can no longer be found: the dialog’s alert', async () => {
     onSubmit.mockRejectedValue(gone())
     renderEdit(EDIT_PROJECT)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
 
     const alert = await screen.findByRole('alert')
@@ -642,14 +676,14 @@ describe('a 404 on a save (design F2 step 3, S2 "Error surfaces"; AC-2.10)', () 
     expect(screen.getByRole('dialog', { name: e.dialog.editTitle })).not.toBeNull()
     // No picker error: the target was not asked about, and the person is not told which of the two is gone.
     expect(picker(f.project.label).getAttribute('aria-invalid')).toBeNull()
-    expect(durationField().value).toBe('60')
+    expect(durationField().value).toBe('1:00')
     expect(onCancel).not.toHaveBeenCalled()
   })
 
   it('a 404 with NO code (the entry is not the person’s, or was deleted in another tab) is the same alert, after a save that kept the target', async () => {
     onSubmit.mockRejectedValue(new HoursApiError({ status: 404, title: 'Not found' }))
     renderEdit(EDIT_PROJECT)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect((await screen.findByRole('alert')).textContent).toBe(e.errors.entryGone)
     expect(picker(f.project.label).getAttribute('aria-invalid')).toBeNull()
@@ -702,7 +736,7 @@ describe('the note when editing (design S2 "Note — when it is required"; D50, 
 
   it('a minutes-only edit of it saves without a note and sends exactly `{ minutes }`', async () => {
     renderEdit(EDIT_OTHER_NO_NOTE)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(screen.queryByText(e.errors.noteRequired)).toBeNull()
     expect(onSubmit).toHaveBeenCalledTimes(1)
@@ -718,7 +752,7 @@ describe('the note when editing (design S2 "Note — when it is required"; D50, 
 
   it('a note typed and erased again is the stored value again: no `note` is sent, and the save goes through', async () => {
     renderEdit(EDIT_OTHER_NO_NOTE)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await userEvent.type(noteField(), 'oops')
     await userEvent.clear(noteField())
     await save()
@@ -728,7 +762,7 @@ describe('the note when editing (design S2 "Note — when it is required"; D50, 
 
   it('spaces typed into an empty note change nothing', async () => {
     renderEdit(EDIT_OTHER_NO_NOTE)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     fireEvent.change(noteField(), { target: { value: '   ' } })
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
@@ -760,7 +794,7 @@ describe('the note when editing (design S2 "Note — when it is required"; D50, 
 
   it('an entry that has its required note saves a duration edit without touching the note', async () => {
     renderEdit(EDIT_OTHER_WITH_NOTE)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
   })
@@ -815,7 +849,7 @@ describe('the note when editing (design S2 "Note — when it is required"; D50, 
     expect(noteField().getAttribute('aria-required')).toBeNull()
     await userEvent.selectOptions(select(f.category.label), 'Other')
     expect(noteField().getAttribute('aria-required')).toBeNull()
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(onSubmit.mock.calls[0]![0]).toEqual({ minutes: 60 })
   })
@@ -823,7 +857,7 @@ describe('the note when editing (design S2 "Note — when it is required"; D50, 
   it('a note_required the server still answers (the category changed under the person) lands on the note', async () => {
     onSubmit.mockRejectedValue(new HoursApiError({ status: 422, title: 'Unprocessable', rawCode: 'note_required' }))
     renderEdit(EDIT_OTHER_NO_NOTE)
-    await userEvent.selectOptions(durationField(), '60')
+    await typeDuration(durationField(), '1:00')
     await save()
     expect(await screen.findByText(e.errors.noteRequired)).not.toBeNull()
     expect(noteField().getAttribute('aria-invalid')).toBe('true')

@@ -22,6 +22,7 @@ import type { FakeHandler } from '../test-support/fakeApi'
 import { entriesHandler, totalsWithDays } from '../test-support/fixtures/entries'
 import { DEAL_ROWS, ENTRY_LISTS, PROJECT_ROWS, SAVED, refusal } from '../test-support/fixtures/entry'
 import { TODAY_INSTANT } from '../test-support/fixtures/myHours'
+import { typeDuration } from '../test-support/typeDuration'
 
 const e = strings.entry
 const f = e.fields
@@ -74,7 +75,7 @@ const openAndFill = async (day?: string) => {
   if (day !== undefined) {
     fireEvent.change(inDialog().getByLabelText(new RegExp(`^${f.day}`)), { target: { value: day } })
   }
-  await userEvent.selectOptions(inDialog().getByRole('combobox', { name: f.duration.label }), '90')
+  await typeDuration(inDialog().getByRole('textbox', { name: f.duration.label }), '1:30')
 }
 const pressSave = () => userEvent.click(inDialog().getByRole('button', { name: e.dialog.save }))
 
