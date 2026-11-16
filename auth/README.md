@@ -29,7 +29,7 @@ project manager"). Assigning it to people is a manual step (Admin tool). There i
 resource any more: "contract" is retired. The seed does **not** delete stale `contract:bexio`
 rules from an earlier local database; remove them by hand.
 
-### The `hours` catalog (specs/20261112-time-tracking; ADR 20261112-hours-api-time-entries-own-service-hours-catalog/0090)
+### The `hours` catalog (specs/20261112-time-tracking; ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-hours-ui-ungated-remote)
 
 | Capability | Condition | Held by | Needed for |
 |---|---|---|---|
@@ -42,8 +42,8 @@ consults neither permission for a person's own hours. Neither permission is in
 `DIRECTORY_GATE_PERMISSIONS` or `HOLDERS_GATE_PERMISSIONS` (ADR 20261104-user-directory-gate-meetings-access): hours-ui's person filter reads
 the `person` groups of hours-api's totals, not the user directory. Grant either to another role in
 the Admin tool and it applies at once: hours-api asks `GET /authz/resolve` live on the oversight path
-and on every list write. A role given `time-list:manage` also needs access to Admin to reach the
-screen (`/admin/time-lists`).
+and on every list write. A role given `time-list:manage` reaches the lists in Hours → Settings
+(`/hours/settings`, ungated like the rest of hours-ui), with no other grant.
 
 ## The holders listing: `GET /authz/users/holders` (ADR 20261105-handoff-take-and-purchase-order-receive-capabilities-auth-holders-listing-amends-0047, amends ADR 20261006-user-directory-endpoint-capability-gated)
 

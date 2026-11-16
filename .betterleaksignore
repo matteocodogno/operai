@@ -140,3 +140,12 @@ compose.yaml:generic-password:235
 # the QE report and the security review that quote it. After the squash only the security review's quote remains; path-scoped so a
 # rebase or amend does not invalidate it.
 specs/20261115-crm-offer-wizard/security-review.md:generic-credential-uri:74
+# tools/env-doctor/check.test.ts (specs/20261112-time-tracking T34): the meetings-api env of the SERVICE_AUDIENCE
+# requirement test reuses the synthetic MEETINGS_GCP_SERVICE_ACCOUNT_KEY of the file's other fixtures (base64 of
+# "synthetic-key-never-printed" + padding) — not a secret
+tools/env-doctor/check.test.ts:generic-api-key:1421
+# auth/src/system/serviceClients.meetingsHostsRead.test.ts (specs/20261112-time-tracking T2): the dummy client secret
+# of the hours-api service client the test mints a meetings.hosts.read token with — not a secret
+# (36 in the commit that added it, 37 in the file today)
+auth/src/system/serviceClients.meetingsHostsRead.test.ts:generic-api-key:36
+auth/src/system/serviceClients.meetingsHostsRead.test.ts:generic-api-key:37

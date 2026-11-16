@@ -88,8 +88,8 @@ run = "bun tools/env-doctor/index.ts"
 # letterhead-api (:8088), which letterheads-ui (:5182) reaches through the shell. VITE_ACCOUNTING_API_URL
 # (specs/20261119-accounting) is the same for accounting-api (:8089), which accounting-ui (:5183) reaches through the shell.
 #
-# specs/20261112-time-tracking: likewise VITE_HOURS_API_URL (hours-api, :8088) — the base URL hours-ui and admin-ui's Time
-# lists page call and the shell's trusted origin for the Bearer. Same default, same rule: set in `dev`,
+# specs/20261112-time-tracking: likewise VITE_HOURS_API_URL (hours-api, :8088) — the base URL hours-ui calls (its
+# Settings tab, the time lists, included) and the shell's trusted origin for the Bearer. Same default, same rule: set in `dev`,
 # `dev:web` and `dev:preview`, and before the shell's build in the last one.
 #
 # Run the WHOLE Operai suite locally (Module Federation, specs/20260709-suite-shell + specs/20260713-notification-center

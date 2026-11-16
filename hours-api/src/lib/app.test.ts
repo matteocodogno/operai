@@ -1,6 +1,6 @@
 /**
  * What the ASSEMBLED app does to every request before a route sees it (specs/20261112-time-tracking T10): CORS for the
- * origins that may call it from a browser (hours-ui and admin-ui run inside the shell), the 64 KiB
+ * origin that may call it from a browser (hours-ui runs inside the shell), the 64 KiB
  * body cap, and the request log that names the method and the path and nothing a person wrote.
  */
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";

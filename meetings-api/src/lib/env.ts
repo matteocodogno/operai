@@ -89,7 +89,7 @@ const envSchema = z
     SERVICE_CLIENT_ID: optionalString(),
     SERVICE_CLIENT_SECRET: z.string().min(32, "SERVICE_CLIENT_SECRET must be at least 32 characters").optional(),
 
-    // ─── System routes (specs/20261112-time-tracking T9, ADR 20261006-scoped-service-jwt-fourth-notify-caller/0089) ────────────────────────
+    // ─── System routes (specs/20261112-time-tracking T9, ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route) ────────────────────────
     // Audience of the scoped service JWTs the `/system/*` routes accept: auth's SERVICE_AUDIENCE, never
     // the user audience. Unset, every /system request is a 401 (fail closed); tools/env-doctor lists it as
     // required in production. Optional here on purpose: a missing value must close the route, not stop a

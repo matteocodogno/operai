@@ -201,8 +201,8 @@ export const getActivitiesApiBaseUrl = (): string => import.meta.env.VITE_ACTIVI
 
 /**
  * The hours-api base URL (`VITE_HOURS_API_URL`, specs/20261112-time-tracking), exposed for the
- * federated `hours` remote and for admin-ui's time-lists screen, which ship no `VITE_*` env of
- * their own. Lazily read, mirrors `getActivitiesApiBaseUrl()`.
+ * federated `hours` remote (its Settings tab holds the time lists), which ships no `VITE_*` env of
+ * its own. Lazily read, mirrors `getActivitiesApiBaseUrl()`.
  */
 export const getHoursApiBaseUrl = (): string => import.meta.env.VITE_HOURS_API_URL as string
 

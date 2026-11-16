@@ -187,7 +187,7 @@ const letterheadsApiUrl =
   process.env['VITE_LETTERHEADS_API_URL'] ??
   'http://localhost:8088'
 // hours-api base URL (specs/20261112-time-tracking, T34). Same reason as the ones above: the SHELL's build bakes it
-// into its trusted-origin allowlist (ADR 20260607-jwt-in-memory-never-web-storage) and exposes it to hours-ui and admin-ui's Time lists page
+// into its trusted-origin allowlist (ADR 20260607-jwt-in-memory-never-web-storage) and exposes it to hours-ui
 // (`getHoursApiBaseUrl`); without VITE_HOURS_API_URL they send no Bearer token to hours-api and every call 401s.
 const hoursApiUrl =
   process.env['E2E_HOURS_API_URL'] ?? process.env['VITE_HOURS_API_URL'] ?? 'http://localhost:8088'

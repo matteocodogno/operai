@@ -439,7 +439,7 @@ if [[ -n "$CSP" ]]; then
   if [[ -n "$CONNECT_SRC" ]] && echo "$CONNECT_SRC" | grep -q "$HOURS_API_URL"; then
     pass "  CSP connect-src includes $HOURS_API_URL (hours-api origin — specs/20261112-time-tracking)"
   else
-    fail "  CSP connect-src is MISSING $HOURS_API_URL — hours-ui's and admin-ui's Time lists API calls will be blocked (specs/20261112-time-tracking)"
+    fail "  CSP connect-src is MISSING $HOURS_API_URL — hours-ui's API calls (My hours, Everyone's hours, Settings) will be blocked (specs/20261112-time-tracking)"
   fi
   if [[ -n "$SCRIPT_SRC" ]] && echo "$SCRIPT_SRC" | grep -q "$HOURS_URL"; then
     pass "  CSP script-src includes $HOURS_URL (hours-ui remote — specs/20261112-time-tracking)"
