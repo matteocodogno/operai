@@ -5,7 +5,7 @@
  * the people a journey needs differ only in the roles they hold:
  *
  *   employee    `employee` only: no tool grant at all (AC-5.1); records and reads their own hours
- *   admin       the real `admin` role: `time-entry:read-all` (Everyone's hours) and `time-list:manage` (Settings)
+ *   admin       the real `admin` role (one per run): `time-entry:read-all` (Everyone's hours) and `time-list:manage` (Settings)
  *
  * Roles are changed through the REAL admin API (`PUT /admin/users/:id/roles`, which bumps `perm_epoch`), exactly
  * as meetingsFixtures and activitiesFixtures do, so hours-api's live `GET /authz/resolve` sees these people like
@@ -70,12 +70,21 @@ export const minutesOfShort = (text: string): number => {
 
 // ─── People ─────────────────────────────────────────────────────────────────
 
-let sharedAdmin: SeededSession | null = null
+const admins = new Map<string, SeededSession>()
 
-/** One admin session per worker process. A fixed e-mail: idempotent, and never removed by cleanupPeople. */
-export async function hoursAdmin(): Promise<SeededSession> {
-  sharedAdmin ??= await seedAdminSession('hrs-qe-admin@operai.test', 'Hours QE Admin')
-  return sharedAdmin
+/**
+ * An admin for THIS run (`hrs-admin-<runId>@operai.test`, removed by cleanupPeople with the other people of the run).
+ * Per run, not a fixed account: hours-api reads a person's name from auth live, and auth rate-limits that lookup per
+ * caller (120 per 10 minutes), so one account shared by every run exhausts the budget when specs are re-run in a
+ * dev loop and Everyone's hours then, correctly, shows names as unavailable. One session per run and process.
+ */
+export async function hoursAdmin(runId: string): Promise<SeededSession> {
+  let admin = admins.get(runId)
+  if (!admin) {
+    admin = await seedAdminSession(`hrs-admin-${runId}@operai.test`, `Hours QE Admin ${runId}`)
+    admins.set(runId, admin)
+  }
+  return admin
 }
 
 async function authAdminCall<T = Json>(
@@ -102,11 +111,11 @@ async function authAdminCall<T = Json>(
  * Replaces a user's direct roles by role NAME, through the real admin API. Only ever called for the dedicated
  * `hrs-*` personas this harness creates itself: anything else is refused.
  */
-async function setRoles(userId: string, roleNames: string[], email: string): Promise<void> {
+async function setRoles(userId: string, roleNames: string[], email: string, runId: string): Promise<void> {
   if (!/^hrs-[a-z-]+-[0-9-]+@operai\.test$/.test(email) || email === SHARED_SEED_EMAIL) {
     throw new Error(`[hoursFixtures] refusing to change roles of ${email}: not a dedicated hours persona`)
   }
-  const admin = await hoursAdmin()
+  const admin = await hoursAdmin(runId)
   const roles = await authAdminCall<{ items?: { id: string; name: string }[] } | { id: string; name: string }[]>(
     admin,
     'GET',
@@ -134,7 +143,7 @@ export async function seedHoursPerson(label: string, roles: string[], runId: str
   const name = `Hrs ${label} ${runId}`
   const email = `hrs-${label}-${runId}@operai.test`
   const first = await seedUserSession(email, name)
-  await setRoles(first.userId, roles, email)
+  await setRoles(first.userId, roles, email, runId)
   const session = await seedUserSession(email, name)
   return { ...session, name, roles }
 }

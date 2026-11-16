@@ -56,7 +56,7 @@ test.describe("specs/20261112-time-tracking T35: my hours, the time lists, every
   const madeCategories: string[] = []
 
   test.beforeAll(async () => {
-    admin = await hoursAdmin()
+    admin = await hoursAdmin(runId)
     employee = await seedHoursPerson('emp', ['employee'], runId)
     colleague = await seedHoursPerson('col', ['employee'], runId)
     categories = await pickCategories(admin)
