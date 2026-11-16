@@ -32,11 +32,6 @@ import { Banner } from '@operai/ui'
 import { strings } from '../strings'
 
 export type ErrorBannerProps = {
-  /**
-   * An optional bold first line (the banner's `title`), for a failure with a name the person
-   * should see first — "Authorization service unavailable" (ADR 20260716-refund-api-authorization-enforcing-resource-server, specs/20261112-time-tracking T31).
-   */
-  title?: string
   /** The error text to display (typically an RFC 7807 `detail`). */
   message: string
   /** Called when the user clicks "Retry". Omit to render without a Retry action. */
@@ -53,7 +48,6 @@ export type ErrorBannerProps = {
 }
 
 export default function ErrorBanner({
-  title,
   message,
   onRetry,
   retryLabel = strings.common.actions.retry,
@@ -63,8 +57,6 @@ export default function ErrorBanner({
   return (
     <Banner
       tone={tone}
-      title={title}
-      titleTestId="error-banner-title"
       data-testid="error-banner"
       onRetry={onRetry}
       retryLabel={retryLabel}

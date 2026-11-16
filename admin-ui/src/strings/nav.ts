@@ -7,8 +7,6 @@ export const en = {
   users: 'Users',
   legalEntities: 'Legal entities',
   audit: 'Audit',
-  /** The time tracking tool's admin configuration: categories and work types (specs/20261112-time-tracking). */
-  timeLists: 'Time lists',
   usersViewsLabel: 'Users section views',
   activeUsers: 'Active users',
   invitations: 'Invitations',
@@ -23,7 +21,6 @@ export const it: typeof en = {
   users: 'Utenti',
   legalEntities: 'Società del gruppo',
   audit: 'Audit',
-  timeLists: 'Elenchi ore',
   usersViewsLabel: 'Viste della sezione utenti',
   activeUsers: 'Utenti attivi',
   invitations: 'Inviti',

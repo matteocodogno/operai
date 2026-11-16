@@ -1,8 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Component tests for SectionNav (T14, specs/20260713-auth-roles-permissions/tasks.md;
- * T31, specs/20261112-time-tracking — the proactive `time-list:manage` gate).
+ * Component tests for SectionNav (T14, specs/20260713-auth-roles-permissions/tasks.md).
  * The capability-gated "Refund" entry moved to refund-ui's Settings tab on
  * 2026-11-13 (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment).
  *
@@ -13,39 +12,11 @@
  * active-match mechanism, so a mocked router would test nothing real).
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 import SectionNav from './SectionNav'
 import type { SectionNavProps } from './SectionNav'
-
-// ---------------------------------------------------------------------------
-// Module mock — `shell/session`'s usePermissions() (INC-32): SectionNav reads
-// the caller's effective permissions from the shell to decide whether the
-// "Time lists" entry appears. `beforeEach` defaults to the shell's
-// EMPTY_PERMISSIONS (no grants) so the structural tests see the four links;
-// the "Time lists" gate block below overrides it per test.
-// ---------------------------------------------------------------------------
-
-vi.mock('shell/session', async (importOriginal) => {
-  const original = await importOriginal<typeof import('shell/session')>()
-  return { ...original, usePermissions: vi.fn() }
-})
-
-const NO_GRANTS = { epoch: 0, apps: [], roles: [], departments: [], permissions: [] }
-
-const grant = (permissions: { resource: string; action: string; conditions?: unknown }[]) => ({
-  epoch: 1,
-  apps: ['admin'],
-  roles: ['admin'],
-  departments: [],
-  permissions,
-})
-
-beforeEach(async () => {
-  const session = await import('shell/session')
-  vi.mocked(session.usePermissions).mockReturnValue(NO_GRANTS)
-})
 
 afterEach(() => {
   cleanup()
@@ -182,68 +153,5 @@ describe('SectionNav active state (aria-current)', () => {
 
     expect(screen.getByRole('link', { name: 'Audit' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('link', { name: 'Roles' }).getAttribute('aria-current')).toBeNull()
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Time lists gate (T31, specs/20261112-time-tracking, AC-3.3): out of the DOM until the
-// permissions resolve and hold `time-list:manage`, never disabled.
-// ---------------------------------------------------------------------------
-
-describe('SectionNav "Time lists" gate (T31, specs/20261112-time-tracking)', () => {
-  const timeListManage = { resource: 'time-list', action: 'manage', conditions: null }
-
-  it('is out of the DOM while the permissions have not resolved (the shell’s empty result)', async () => {
-    await renderNavAt('/roles')
-
-    expect(screen.queryByRole('link', { name: 'Time lists' })).toBeNull()
-    expect(screen.getAllByRole('link')).toHaveLength(4)
-  })
-
-  it('is out of the DOM for a caller whose permissions do not include time-list:manage', async () => {
-    const session = await import('shell/session')
-    vi.mocked(session.usePermissions).mockReturnValue(
-      grant([
-        { resource: 'rate', action: 'read', conditions: null },
-        { resource: 'role', action: 'edit', conditions: null },
-        // Same action, another resource: not the permission this link needs.
-        { resource: 'time-entry', action: 'manage', conditions: null },
-        // Same resource, another action: seeing the lists is not managing them.
-        { resource: 'time-list', action: 'read', conditions: null },
-      ]),
-    )
-
-    await renderNavAt('/roles')
-
-    expect(screen.queryByRole('link', { name: 'Time lists' })).toBeNull()
-  })
-
-  it('is a real link to /time-lists once time-list:manage is held, with Audit still anchored last', async () => {
-    const session = await import('shell/session')
-    vi.mocked(session.usePermissions).mockReturnValue(grant([timeListManage]))
-
-    await renderNavAt('/roles')
-
-    const link = await screen.findByRole('link', { name: 'Time lists' })
-    expect(link.tagName).toBe('A')
-    expect(link.getAttribute('href')).toBe('/time-lists')
-    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
-      'Roles',
-      'Departments',
-      'Users',
-      'Time lists',
-      'Audit',
-    ])
-  })
-
-
-  it('marks "Time lists" active with aria-current="page" when on /time-lists', async () => {
-    const session = await import('shell/session')
-    vi.mocked(session.usePermissions).mockReturnValue(grant([timeListManage]))
-
-    await renderNavAt('/time-lists')
-
-    const link = await screen.findByRole('link', { name: 'Time lists' })
-    expect(link.getAttribute('aria-current')).toBe('page')
   })
 })

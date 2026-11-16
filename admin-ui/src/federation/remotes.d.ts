@@ -32,12 +32,6 @@ declare module 'shell/session' {
   export const apiFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   /** The auth service base URL (the shell's VITE_AUTH_URL) — remotes build /admin/* + /authz/* URLs against this. */
   export const getAuthBaseUrl: () => string
-  /**
-   * The hours-api base URL (the shell's VITE_HOURS_API_URL — T21/T31, specs/20261112-time-tracking).
-   * admin-ui's `timeListsApi.ts` builds `/time-lists`, `/time-categories` and `/work-types` request
-   * URLs against this, the way refund-ui's settings tab calls refund-api (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition, ADR 20261112-hours-ui-ungated-remote).
-   */
-  export const getHoursApiBaseUrl: () => string
   export const signOut: (...args: unknown[]) => Promise<unknown>
   export const clearJwtCache: () => void
 

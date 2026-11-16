@@ -11,11 +11,6 @@ export const en = {
     approved: 'Approved',
     rejected: 'Rejected',
   },
-  /** A time-list item: offered to people (`active`) or no longer offered (`retired`). */
-  timeListStatus: {
-    active: 'Active',
-    retired: 'Retired',
-  },
   system: 'System',
   systemTitle: "System roles can't be deleted",
   condition: {
@@ -39,10 +34,6 @@ export const it: typeof en = {
     pending: 'In attesa',
     approved: 'Approvata',
     rejected: 'Rifiutata',
-  },
-  timeListStatus: {
-    active: 'Attivo',
-    retired: 'Ritirato',
   },
   system: 'Di sistema',
   systemTitle: 'I ruoli di sistema non possono essere eliminati',
