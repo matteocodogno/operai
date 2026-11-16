@@ -131,13 +131,14 @@ run = "bun tools/env-doctor/index.ts"
 # until one is added (mirror crm-api/.envrc: DATABASE_URL, AUTH_*, MEETINGS_S3_*, provider
 # keys), so until then those variables must be in the calling shell.
 #
-# hours-api (specs/20261112-time-tracking) has no `.envrc` in the repo yet either: a person creates `hours-api/.envrc` (the
-# protected-file hook keeps agents from writing one; the variables, with how to fill each, are in
-# hours-api/.env.example) and runs `direnv allow hours-api`. Until then `direnv exec .` below loads nothing,
-# hours-api exits at start on its env validation (src/lib/env.ts, exit 1, naming each missing variable) and
-# the rest of the stack keeps running; nothing answers on :8088 until the file exists. It also needs
-# `SERVICE_AUDIENCE` in meetings-api's own environment and an `hours-api` entry (scope `meetings.hosts.read`)
-# in auth's `SERVICE_CLIENTS`: without them a meeting's deal reads as unavailable.
+# hours-api (specs/20261112-time-tracking) has no direnv file and needs none: a person copies
+# hours-api/.env.example to hours-api/.env (gitignored — secret values live only there, never in a committed
+# .envrc) and fills it; bun and prisma.config.ts load it, and `direnv exec .` below only adds the root env.
+# Until it exists hours-api exits at start on its env validation (src/lib/env.ts, exit 1, naming each missing
+# variable) and the rest of the stack keeps running; nothing answers on :8088. It also needs `SERVICE_AUDIENCE`
+# in meetings-api's own environment and an `hours-api` entry (scope `meetings.hosts.read`) in auth's
+# `SERVICE_CLIENTS`, its secret held where auth keeps the others (never a committed file): without them a
+# meeting's deal reads as unavailable.
 #
 # Frontend env: admin-ui ALSO has its own `.envrc` (VITE_GOOGLE_MAPS_API_KEY,
 # specs/20260803-employee-address / ADR 20260804-google-places-browser-direct-referrer-restricted-key) and so runs through `direnv exec .` too — note the
@@ -147,8 +148,8 @@ run = "bun tools/env-doctor/index.ts"
 #
 # Prereqs (once): direnv installed; each backend's .envrc allowed (`direnv allow
 # auth`, `direnv allow estimai-api`, `direnv allow notify-api`, `direnv allow
-# refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`,
-# `direnv allow hours-api`) plus
+# refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`;
+# hours-api has none, it reads hours-api/.env) plus
 # `direnv allow admin-ui`; 1Password CLI signed in;
 # ENABLE_TEST_AUTH=true for a seeded local session; and migrations applied via
 # `mise run db:migrate`.
@@ -288,9 +289,9 @@ exec cargo run -p letterhead-api
 # an empty migrations directory is a no-op, not an error, so this stays safe
 # to run today.
 #
-# hours-api (specs/20261112-time-tracking) comes last: its `DATABASE_URL` (the `hours` database) comes from hours-api/.envrc,
-# which a person creates (see the note above `dev`), or from an hours-api/.env; without either, its
-# `db:deploy` fails on the missing URL and the other nine databases are already migrated.
+# hours-api (specs/20261112-time-tracking) comes last: its `DATABASE_URL` (the `hours` database) comes from hours-api/.env,
+# which a person creates (see the note above `dev`); without it, its `db:deploy` fails on the missing URL and the
+# other nine databases are already migrated.
 [tasks."db:migrate"]
 description = "Apply DB migrations for auth + estimai-api + notify-api + refund-api + inventory-api + crm-api + meetings-api + projects-api + activities-api + accounting-api + letterhead-api + hours-api (needs backend env configured)"
 run = """

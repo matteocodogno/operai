@@ -900,15 +900,17 @@ admin-ui `5177`, inventory-ui `5178`, crm-ui `5179`, meetings-ui `5180`, project
 the `dev` tasks' `docker compose up`), and its own `.envrc` and `.env.example`.
 
 Prereqs (once): direnv installed and each `.envrc` allowed (`direnv allow auth`, likewise
-`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `accounting-api`, `hours-api`, `admin-ui`), 1Password CLI signed in, and
+`estimai-api`, `notify-api`, `refund-api`, `inventory-api`, `crm-api`, `meetings-api`, `projects-api`, `activities-api`, `accounting-api`, `admin-ui`; hours-api reads its `.env`), 1Password CLI signed in, and
 `ENABLE_TEST_AUTH=true` for a seeded local session. `mise run dev` invokes `direnv exec`
 explicitly — direnv's shell hook does not fire for a non-interactive mise task. Meetings runs against
 fake transcription/LLM providers locally (`MEETINGS_AI_PROVIDER=fake`, refused in production) until
-the Google Cloud project is provisioned (ADR 20261105-meetings-ai-providers-google-cloud-eu). `hours-api`'s `.envrc` is written by a person (the variables,
-with how to fill each, are in `hours-api/.env.example`); until it exists hours-api exits at start naming each missing
-variable and the rest of the stack keeps running. It also needs an `hours-api` entry (scope `meetings.hosts.read`)
-in `auth`'s `SERVICE_CLIENTS` and `SERVICE_AUDIENCE` in meetings-api's environment — without them a meeting's deal
-reads as unavailable and nothing else is affected.
+the Google Cloud project is provisioned (ADR 20261105-meetings-ai-providers-google-cloud-eu). `hours-api` has no direnv file: a
+person copies `hours-api/.env.example` to its gitignored `hours-api/.env` and fills it (bun and `prisma.config.ts` load
+it). **Secret values never go in a `.envrc`** — those are committed and hold only `op read` references — but in the
+uncommitted per-service `.env`. Until hours-api's `.env` exists hours-api exits at start naming each missing variable
+and the rest of the stack keeps running. It also needs an `hours-api` entry (scope `meetings.hosts.read`) in `auth`'s
+`SERVICE_CLIENTS`, its secret kept where auth keeps the others (never a committed file), and `SERVICE_AUDIENCE` in
+meetings-api's environment — without them a meeting's deal reads as unavailable and nothing else is affected.
 
 ### Database + object storage (shared)
 ```bash

@@ -38,7 +38,8 @@ One-time setup:
    own `.envrc`. `mise run dev` loads these with `direnv exec` (it runs non-interactively,
    so direnv's shell hook doesn't fire on its own). So: install **direnv**, run
    `direnv allow .`, `direnv allow auth`, `direnv allow estimai-api`, `direnv allow notify-api`,
-   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`, `direnv allow accounting-api`, `direnv allow hours-api` and `direnv allow admin-ui`, and set up
+   `direnv allow refund-api`, `direnv allow inventory-api`, `direnv allow crm-api`, `direnv allow projects-api`, `direnv allow activities-api`, `direnv allow accounting-api` and `direnv allow admin-ui` (hours-api has no direnv file: copy
+   `hours-api/.env.example` to its gitignored `.env`, where its secret values live), and set up
    the 1Password service account described in
    [1Password for local development](#1password-for-local-development). Every backend requires `AUTH_AUDIENCE` (the same suite-wide value, e.g. `operai-suite`) — the
    `aud` claim `auth` stamps and the resource servers verify (ADR 20260713-jwt-audience-claim-enforcement); a mismatch rejects
@@ -157,7 +158,7 @@ to the `OperAILocal` vault.
 3. Allow the files and check that none is missing a variable. Nothing should ask for Touch ID:
 
    ```bash
-   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api activities-api accounting-api hours-api admin-ui; do direnv allow "$d"; done
+   for d in . auth estimai-api notify-api refund-api inventory-api crm-api projects-api activities-api accounting-api admin-ui; do direnv allow "$d"; done
    OP_SERVICE_ACCOUNT_TOKEN="$(security find-generic-password -a "$USER" -s op-sa-operai-local -w)" \
      op item list --vault OperAILocal --format json | jq length   # the items the service account can see
    mise run env:doctor -- --env local
