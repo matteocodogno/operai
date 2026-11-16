@@ -41,7 +41,7 @@ import type { NotifyActivity, NotifyTarget } from "../lib/notificationCopy";
 import { ProblemError, unprocessable, validationHook } from "../lib/problem";
 import type { ActivityHost, HostApp } from "../hosts/registry";
 import { HostSession, type OpenEntity } from "./access";
-import { authorizationOf, ifStillThere, loadFor, type Caller } from "./load";
+import { authorizationOf, hostOf, ifStillThere, loadFor, type Caller } from "./load";
 import { MAX_BLOCKERS, announceUnblocked, assertBlockers, assertUnblocked, newBlockerRows, replaceBlockers } from "./blockers";
 import { changeRefused, completeRefused, createRefused, hostReadOnly, mayChange, mayComplete, mayCreate } from "./rules";
 import { staggered } from "./stagger";

@@ -252,7 +252,7 @@ describe("ids filter (specs/20261112-time-tracking AC-2.5, AC-2.10)", () => {
     expect(idsOf(body)).not.toContain(notAsked.id);
     expect(body).toMatchObject({ total: 2, page: 1, pageSize: 25 });
     // the very same row the unfiltered list gives, not a slimmer one
-    expect(Object.keys(body["items"][0]).sort()).toEqual(["creator", "format", "host", "id", "role", "startsAt", "status", "summaryCount", "title"]);
+    expect(Object.keys(body["items"][0]).sort()).toEqual(["creator", "folderId", "format", "host", "id", "role", "startsAt", "status", "summaryCount", "title"]);
     const unfiltered = await json(await list("alice"));
     for (const row of body["items"]) expect(row).toEqual(unfiltered["items"].find((i: { id: string }) => i.id === row.id));
     expect(body["items"].find((i: { id: string }) => i.id === mine.id)).toMatchObject({ role: "creator" });
