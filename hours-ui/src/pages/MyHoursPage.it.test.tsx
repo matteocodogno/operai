@@ -82,6 +82,14 @@ describe('My hours in Italian', () => {
     expect(screen.queryByText('Totals')).toBeNull()
   })
 
+  it('Recorded on is "Registrato su": Tutti, Progetto, Opportunità, Riunione, Altro lavoro — the words of the rows’ badges and of Group by (T44)', async () => {
+    await setup('it')
+    expect(optionTexts('Registrato su')).toEqual(['Tutti', 'Progetto', 'Opportunità', 'Riunione', 'Altro lavoro'])
+    expect(optionTexts('Raggruppa per')).toContain('Opportunità')
+    expect(screen.queryByRole('combobox', { name: 'Recorded on' })).toBeNull()
+    expect(screen.queryByText('Other work')).toBeNull()
+  })
+
   it('shows a name the administrator typed verbatim, and marks a retired one in Italian (AC-3.8, AC-3.4)', async () => {
     await setup('it')
     await screen.findByText('Progetti non visibili a te')

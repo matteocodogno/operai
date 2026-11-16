@@ -207,6 +207,32 @@ describe('the Export button on Everyone’s hours (AC-4.3, AC-4.6)', () => {
     ])
   })
 
+  it('exports the Recorded on the view applies (T44, D52), with the Person: every page of the walk carries target and whose=all', async () => {
+    serveApi()
+    await renderPage('/hours/all?person=u-ada&target=deal')
+    await screen.findByTestId('hours-entries-table')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: f.recordedOn.label }), 'Meeting')
+    await waitFor(() => expect(screenCalls().at(-1)!.query['target']).toBe('meeting'))
+    await screen.findByTestId('hours-entries-table')
+
+    await userEvent.click(exportButton())
+    await waitFor(() => expect(downloads).toHaveLength(1))
+
+    expect(walkCalls().map((request) => request.query['cursor'])).toEqual([undefined, 'cursor-2'])
+    for (const request of walkCalls()) {
+      expect(request.query).toMatchObject({ whose: 'all', userId: 'u-ada', target: 'meeting', limit: '500' })
+    }
+  })
+
+  it('with Recorded on at All the walk sends no target', async () => {
+    serveApi()
+    await renderPage()
+    await screen.findByTestId('hours-entries-table')
+    await userEvent.click(exportButton())
+    await waitFor(() => expect(downloads).toHaveLength(1))
+    for (const request of walkCalls()) expect(request.query).not.toHaveProperty('target')
+  })
+
   it('says the file is ready with names missing when a page could not ask a source (AC-4.7)', async () => {
     serveApi({
       'GET /time-entries': (url, init, params) =>

@@ -118,8 +118,8 @@ export default function EveryoneHoursPage() {
  * The view of a person who may ask (everything that reads is here, so nothing is read before the gate lets
  * it mount, and a withdrawn grant unmounts it, aborting what is in flight).
  *
- * Filters are the URL's search params (`period`, `from`, `to`, `person`, `category`, `workType`, `group`),
- * read with `useSearch` and written by a replacing navigation, as My hours does; the picked project and deal
+ * Filters are the URL's search params (`period`, `from`, `to`, `person`, `target` (Recorded on), `category`,
+ * `workType`, `group`), read with `useSearch` and written by a replacing navigation, as My hours does; the picked project and deal
  * live in memory. Every read carries `whose=all`. Three reads follow every change of a filter: the entries
  * (first page), the totals for the chosen "Group by", and the people — the `person` groups of the totals
  * under the OTHER filters, without `userId`, so the Person select lists everyone who has hours in the period
@@ -172,6 +172,7 @@ function EveryoneHoursView() {
           from: range.from,
           to: range.to,
           userId: state.personId || undefined,
+          target: state.target || undefined,
           projectId: project?.id,
           dealId: deal?.id,
           categoryId: state.categoryId || undefined,

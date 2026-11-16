@@ -302,6 +302,130 @@ describe('Totals by person, and the Person options (AC-4.4, AC-4.5, design gap 2
   })
 })
 
+describe('Recorded on, here too (AC-4.4, D52, T44)', () => {
+  const recordedOn = () => screen.getByRole('combobox', { name: f.recordedOn.label }) as HTMLSelectElement
+  const everyone = { whose: 'all', from: '2026-11-01', to: '2026-11-30' }
+
+  it('is in the Filters card after the Period and before the Person: All, Project, Deal, Meeting, Other work', async () => {
+    useApi()
+    await renderPage()
+    expect(optionTexts(recordedOn())).toEqual(['All', 'Project', 'Deal', 'Meeting', 'Other work'])
+    expect(recordedOn().value).toBe('')
+    const period = screen.getByRole('combobox', { name: f.period.label })
+    expect(period.compareDocumentPosition(recordedOn()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(recordedOn().compareDocumentPosition(personSelect()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('choosing one asks the entries, the chosen totals AND the people with target, and puts target in the address', async () => {
+    useApi()
+    const history = await renderPage()
+    await waitFor(() => expect(optionTexts(personSelect())).toHaveLength(5))
+
+    await userEvent.selectOptions(recordedOn(), 'Meeting')
+
+    await waitFor(() => expect(entriesCalls().at(-1)!.query).toEqual({ ...everyone, target: 'meeting' }))
+    // The chosen grouping (By person here) and the people the Person select lists are one read each, both narrowed.
+    const people = totalsCalls('person').filter((request) => request.query['target'] === 'meeting')
+    expect(people.length).toBeGreaterThan(0)
+    for (const request of people) {
+      expect(request.query).toEqual({ groupBy: 'person', ...everyone, target: 'meeting' })
+    }
+    expect(history.location.search).toContain('target=meeting')
+    expect(recordedOn().value).toBe('meeting')
+  })
+
+  it('a grouping other than Person is narrowed too, and the people are still asked under it, without a userId', async () => {
+    useApi()
+    await renderPage('/hours/all?group=deal&person=u-grace')
+    await waitFor(() => expect(optionTexts(personSelect()).length).toBeGreaterThan(2))
+
+    await userEvent.selectOptions(recordedOn(), 'Other work')
+
+    await waitFor(() => expect(totalsCalls('deal').at(-1)!.query['target']).toBe('none'))
+    expect(totalsCalls('deal').at(-1)!.query).toEqual({
+      groupBy: 'deal',
+      ...everyone,
+      userId: 'u-grace',
+      target: 'none',
+    })
+    expect(entriesCalls().at(-1)!.query).toEqual({ ...everyone, userId: 'u-grace', target: 'none' })
+    await waitFor(() =>
+      expect(
+        totalsCalls('person').filter((r) => r.query['target'] === 'none' && !('userId' in r.query)),
+      ).not.toHaveLength(0),
+    )
+  })
+
+  it('every kind is sent as hours-api’s word, and All sends none', async () => {
+    useApi()
+    await renderPage()
+    await waitFor(() => expect(optionTexts(personSelect()).length).toBeGreaterThan(2))
+    for (const [label, target] of [
+      ['Project', 'project'],
+      ['Deal', 'deal'],
+      ['Meeting', 'meeting'],
+      ['Other work', 'none'],
+    ] as const) {
+      await userEvent.selectOptions(recordedOn(), label)
+      await waitFor(() => expect(entriesCalls().at(-1)!.query['target']).toBe(target))
+    }
+    await userEvent.selectOptions(recordedOn(), 'All')
+    await waitFor(() => expect(entriesCalls().at(-1)!.query).toEqual(everyone))
+    expect(totalsCalls().at(-1)!.query).not.toHaveProperty('target')
+  })
+
+  it('a link with target= asks for it from the first request, on every read; one outside the four is ignored', async () => {
+    useApi()
+    await renderPage('/hours/all?target=deal')
+    await waitFor(() => expect(optionTexts(personSelect()).length).toBeGreaterThan(2))
+    for (const request of [...entriesCalls(), ...totalsCalls()]) expect(request.query).toMatchObject({ target: 'deal' })
+    expect(recordedOn().value).toBe('deal')
+    cleanup()
+
+    apiFetch.mockReset()
+    useApi()
+    await renderPage('/hours/all?target=other')
+    await waitFor(() => expect(optionTexts(personSelect()).length).toBeGreaterThan(2))
+    for (const request of [...entriesCalls(), ...totalsCalls()]) expect(request.query).not.toHaveProperty('target')
+    expect(recordedOn().value).toBe('')
+    expect(screen.queryByTestId('hours-filters-clear')).toBeNull()
+  })
+
+  it('Clear filters shows once it is set, and puts All back together with the person', async () => {
+    useApi()
+    const history = await renderPage('/hours/all?target=meeting&person=u-ada')
+    await waitFor(() => expect(screen.queryByTestId('hours-filters-clear')).not.toBeNull())
+
+    await userEvent.click(screen.getByTestId('hours-filters-clear'))
+
+    await waitFor(() => expect(entriesCalls().at(-1)!.query).toEqual(everyone))
+    expect(history.location.search).not.toContain('target')
+    expect(history.location.search).not.toContain('person')
+    expect(recordedOn().value).toBe('')
+    expect(screen.queryByTestId('hours-filters-clear')).toBeNull()
+  })
+
+  it('a combination nothing can match (Other work on a deal) is the ordinary "No entries match these filters" state; no filter is cleared for it', async () => {
+    useApi({
+      'GET /time-entries': (url, init, params) =>
+        url.searchParams.get('target') === 'none' && url.searchParams.has('dealId')
+          ? { status: 200, body: entriesPage([]) }
+          : entriesHandler(url, init, params),
+    })
+    await renderPage()
+    await pickDeal()
+    await waitFor(() => expect(entriesCalls().at(-1)!.query['dealId']).toBe('d1'))
+
+    await userEvent.selectOptions(recordedOn(), 'Other work')
+
+    const empty = await screen.findByTestId('hours-entries-empty')
+    expect(within(empty).getByText(e.emptyFiltered.title)).not.toBeNull()
+    expect(entriesCalls().at(-1)!.query).toMatchObject({ target: 'none', dealId: 'd1' })
+    expect((dealInput() as HTMLInputElement).value).toBe('Acme renewal')
+    expect(recordedOn().value).toBe('none')
+  })
+})
+
 describe('the entries: a flat, read-only table in the server’s order (AC-1.6, AC-4.3)', () => {
   it('is the Entries card with the table Day, Person, On, Details, Time, one row per entry, in the server’s order', async () => {
     useApi()

@@ -69,8 +69,8 @@ const dayTotalsOf = (answer: TotalsAnswer): ReadonlyMap<string, number> =>
  * and the banners (T25); the entry dialog (T27, T28); the Export button of the Entries card (T30,
  * `HoursExport`: every page of the same filters as one XLSX).
  *
- * Filters are the URL's search params (`period`, `from`, `to`, `category`, `workType`, `group`), read with
- * `useSearch` and written by a replacing navigation, the inventory-ui way; the picked project and deal live
+ * Filters are the URL's search params (`period`, `from`, `to`, `target` (Recorded on), `category`, `workType`,
+ * `group`), read with `useSearch` and written by a replacing navigation, the inventory-ui way; the picked project and deal live
  * in memory, because a pick needs its label and the URL carries none (so a deal filter is never present on
  * a first load). Every change of a filter asks again, with the same filters, for the entries (first page),
  * the totals for the chosen "Group by" and the day totals (`groupBy=day`, the figure beside each day's
@@ -129,6 +129,7 @@ export default function MyHoursPage() {
           whose: 'mine',
           from: range.from,
           to: range.to,
+          target: state.target || undefined,
           projectId: project?.id,
           dealId: deal?.id,
           categoryId: state.categoryId || undefined,

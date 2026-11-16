@@ -1,5 +1,5 @@
 /**
- * The Filters card of My hours (T24); Everyone's hours (T29) adds the Person filter's words here.
+ * The Filters card of My hours (T24); Everyone's hours (T29) adds the Person filter's words here; T44 adds Recorded on.
  * The names of categories and work types are never in this file: they are shown exactly as the
  * administrator typed them, in both languages (AC-3.8).
  */
@@ -25,6 +25,20 @@ const en = {
       lastMonth: 'Last month',
       thisYear: 'This year',
       custom: 'Custom range',
+    },
+  },
+  /**
+   * Recorded on (T44, AC-4.4): what an entry is on. "All" sends nothing; the other four are hours-api's `target`
+   * (project, deal, meeting, none). The words are the Entries rows' type badges (`entries.type`).
+   */
+  recordedOn: {
+    label: 'Recorded on',
+    options: {
+      all: 'All',
+      project: 'Project',
+      deal: 'Deal',
+      meeting: 'Meeting',
+      none: 'Other work',
     },
   },
   from: 'From',
@@ -97,6 +111,16 @@ const it: typeof en = {
       lastMonth: 'Mese scorso',
       thisYear: "Quest'anno",
       custom: 'Intervallo personalizzato',
+    },
+  },
+  recordedOn: {
+    label: 'Registrato su',
+    options: {
+      all: 'Tutti',
+      project: 'Progetto',
+      deal: 'Opportunità',
+      meeting: 'Riunione',
+      none: 'Altro lavoro',
     },
   },
   from: 'Dal',

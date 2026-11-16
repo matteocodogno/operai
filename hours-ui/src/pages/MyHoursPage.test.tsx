@@ -293,6 +293,121 @@ describe('the URL carries the filters (design § Frame of hours-ui)', () => {
   })
 })
 
+describe('Recorded on: what an entry is on, sent as hours-api’s `target` (AC-4.4, D52, T44)', () => {
+  const recordedOn = () => select(f.recordedOn.label)
+
+  it('offers All, Project, Deal, Meeting and Other work, All first and chosen, and sends no target for it', async () => {
+    useApi()
+    const router = await renderPage()
+    await screen.findByText('Project Beta')
+    expect(
+      within(recordedOn())
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['All', 'Project', 'Deal', 'Meeting', 'Other work'])
+    expect(recordedOn().value).toBe('')
+    for (const request of [...entriesCalls(), ...totalsCalls()]) expect(request.query).not.toHaveProperty('target')
+    expect(urlOf(router)).toEqual({})
+  })
+
+  it.each([
+    ['Project', 'project'],
+    ['Deal', 'deal'],
+    ['Meeting', 'meeting'],
+    ['Other work', 'none'],
+  ])(
+    'choosing %s puts target=%s in the URL and in the list, the chosen totals and the day totals — and nothing else changes',
+    async (label, target) => {
+      useApi()
+      const router = await renderPage()
+      await screen.findByText('Project Beta')
+
+      await choose(f.recordedOn.label, label)
+
+      await waitFor(() => expect(lastReads().entries).toMatchObject({ ...THIS_MONTH, target }))
+      expect(lastReads().totals).toEqual({ groupBy: 'project', ...THIS_MONTH, target })
+      expect(lastReads().days).toEqual({ groupBy: 'day', ...THIS_MONTH, target })
+      expect(entriesCalls().at(-1)!.query).toEqual({ ...THIS_MONTH, target })
+      expect(urlOf(router)).toEqual({ target })
+      expect(recordedOn().value).toBe(target)
+    },
+  )
+
+  it('a change of Group by keeps asking the chosen totals under the target', async () => {
+    useApi()
+    const router = await renderPage('/hours?target=deal')
+    await screen.findByText('Project Beta')
+
+    await choose(t.groupBy.label, 'month')
+
+    await screen.findByRole('table', { name: t.caption.month })
+    expect(totalsCalls('month').at(-1)!.query).toEqual({ groupBy: 'month', ...THIS_MONTH, target: 'deal' })
+    expect(urlOf(router)).toEqual({ target: 'deal', group: 'month' })
+  })
+
+  it('choosing All again drops it from the next asks and from the address, and leaves the other keys', async () => {
+    useApi()
+    const router = await renderPage('/hours?target=meeting&group=month')
+    await screen.findByRole('table', { name: t.caption.month })
+    expect(recordedOn().value).toBe('meeting')
+
+    await choose(f.recordedOn.label, 'All')
+
+    await waitFor(() => expect(entriesCalls().at(-1)!.query).toEqual(THIS_MONTH))
+    expect(totalsCalls('month').at(-1)!.query).toEqual({ groupBy: 'month', ...THIS_MONTH })
+    expect(totalsCalls('day').at(-1)!.query).toEqual({ groupBy: 'day', ...THIS_MONTH })
+    expect(urlOf(router)).toEqual({ group: 'month' })
+  })
+
+  it('a link with target= asks for it from the first request: never an unfiltered ask that the filtered one replaces', async () => {
+    useApi()
+    await renderPage('/hours?target=none')
+    await screen.findByText('Project Beta')
+    expect(entriesCalls().length).toBeGreaterThan(0)
+    for (const request of [...entriesCalls(), ...totalsCalls()]) expect(request.query).toMatchObject({ target: 'none' })
+    expect(recordedOn().value).toBe('none')
+  })
+
+  it('a typed ?target= outside the four is ignored as the other filters’ bad values are: All, nothing sent, no Clear filters', async () => {
+    useApi()
+    await renderPage('/hours?target=everything&category=nope')
+    await screen.findByText('Project Beta')
+    for (const request of [...entriesCalls(), ...totalsCalls()]) expect(request.query).not.toHaveProperty('target')
+    expect(recordedOn().value).toBe('')
+    expect(clearButton()).toBeNull()
+  })
+
+  it('combines with the other filters by AND: both are asked, neither hides or clears the other', async () => {
+    useApi({ 'GET /projects': () => ({ status: 200, body: page([projectItem({ id: 'p1', name: 'Project Alpha' })]) }) })
+    const router = await renderPage()
+    await screen.findByText('Project Beta')
+    await waitFor(() => expect(select(f.category.label).options.length).toBeGreaterThan(1))
+    await userEvent.type(screen.getByRole('combobox', { name: f.project.label }), 'alp')
+    await userEvent.click(await screen.findByRole('option', { name: /Project Alpha/ }))
+    await choose(f.category.label, 'tc-formazione')
+
+    await choose(f.recordedOn.label, 'Other work')
+
+    const all = { ...THIS_MONTH, projectId: 'p1', categoryId: 'tc-formazione', target: 'none' }
+    await waitFor(() => expect(lastReads().entries).toEqual(all))
+    expect(lastReads().totals).toEqual({ groupBy: 'project', ...all })
+    expect(lastReads().days).toEqual({ groupBy: 'day', ...all })
+    // Nothing the person chose is cleared or taken out of reach by the new choice.
+    expect((screen.getByRole('combobox', { name: f.project.label }) as HTMLInputElement).value).toBe('Project Alpha')
+    expect(select(f.category.label).value).toBe('tc-formazione')
+    expect(urlOf(router)).toEqual({ category: 'tc-formazione', target: 'none' })
+  })
+
+  it('the lists are not read again by choosing it', async () => {
+    useApi()
+    await renderPage()
+    await screen.findByText('Project Beta')
+    await choose(f.recordedOn.label, 'Meeting')
+    await choose(f.recordedOn.label, 'Deal')
+    expect(requests(api, 'GET /time-lists')).toHaveLength(1)
+  })
+})
+
 describe('every change re-asks the list, the chosen totals and the day totals with the same filters (AC-4.4)', () => {
   it('Category', async () => {
     useApi()
@@ -403,6 +518,34 @@ describe('Clear filters', () => {
     expect(select(f.period.label).value).toBe('thisMonth')
     expect(select(t.groupBy.label).value).toBe('month')
     expect(clearButton()).toBeNull()
+  })
+})
+
+describe('Clear filters and Recorded on (T44)', () => {
+  it('is offered once Recorded on is set, whichever kind, and only then; it puts All back and keeps Group by', async () => {
+    useApi()
+    const router = await renderPage('/hours?group=month')
+    await screen.findByRole('table', { name: t.caption.month })
+    expect(clearButton()).toBeNull()
+
+    await choose(f.recordedOn.label, 'Meeting')
+    await waitFor(() => expect(clearButton()).not.toBeNull())
+    await waitFor(() => expect(entriesCalls().at(-1)!.query).toMatchObject({ target: 'meeting' }))
+
+    await userEvent.click(clearButton()!)
+
+    await waitFor(() => expect(entriesCalls().at(-1)!.query).toEqual(THIS_MONTH))
+    expect(urlOf(router)).toEqual({ group: 'month' })
+    expect(select(f.recordedOn.label).value).toBe('')
+    expect(clearButton()).toBeNull()
+  })
+
+  it('choosing All by hand takes it away again: nothing differs from the defaults', async () => {
+    useApi()
+    await renderPage('/hours?target=deal')
+    await waitFor(() => expect(clearButton()).not.toBeNull())
+    await choose(f.recordedOn.label, 'All')
+    await waitFor(() => expect(clearButton()).toBeNull())
   })
 })
 

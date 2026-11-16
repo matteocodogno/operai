@@ -8,6 +8,7 @@ import { searchDeals, searchProjects } from '../lib/searchers'
 import type { DealChoice, ProjectChoice } from '../lib/searchers'
 import { strings } from '../strings'
 import ErrorBanner from './ErrorBanner'
+import { TARGETS } from './HoursFiltersState'
 import type { FilterPatch, HoursFilterState } from './HoursFiltersState'
 import PersonFilter from './PersonFilter'
 import type { PeopleView } from './PersonFilter'
@@ -53,8 +54,9 @@ const dealOption = (deal: DealChoice): ComboboxOption => ({
 })
 
 /**
- * HoursFilters — the Filters card of My hours and Everyone's hours (specs/20261112-time-tracking T24, T29; AC-4.4;
- * design S1 "Filters", S4): Period (with From and To under Custom range), Person (Everyone's hours only, when the
+ * HoursFilters — the Filters card of My hours and Everyone's hours (specs/20261112-time-tracking T24, T29, T44; AC-4.4;
+ * design S1 "Filters", S4): Period (with From and To under Custom range), Recorded on (All, Project, Deal, Meeting,
+ * Other work: what an entry is on, sent as `target`), Person (Everyone's hours only, when the
  * page gives `people`), Project and Deal (server-side searches, as the person), Category and Work type (both
  * from one read of the lists). Controlled and presentational: it renders the
  * state it is given and reports every change as a patch — it never fetches the lists or the hours, and the
@@ -183,6 +185,27 @@ export default function HoursFilters({
               </Field>
             </>
           )}
+
+          <Field label={t.recordedOn.label}>
+            {(control) => (
+              <select
+                {...control}
+                value={state.target}
+                onChange={(event) => {
+                  const target = TARGETS.find((candidate) => candidate === event.target.value)
+                  onChange({ target: target ?? '' })
+                }}
+                data-testid="hours-filter-target"
+              >
+                <option value="">{t.recordedOn.options.all}</option>
+                {TARGETS.map((target) => (
+                  <option key={target} value={target}>
+                    {t.recordedOn.options[target]}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
 
           {people !== undefined && (
             <PersonFilter value={state.personId} people={people} onChange={(personId) => onChange({ personId })} />

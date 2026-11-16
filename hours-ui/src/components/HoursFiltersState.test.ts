@@ -20,6 +20,7 @@ describe('parseFilterSearch', () => {
       from: '',
       to: '',
       personId: '',
+      target: '',
       categoryId: '',
       workTypeId: '',
       group: 'project',
@@ -42,10 +43,38 @@ describe('parseFilterSearch', () => {
       from: '2026-10-05',
       to: '2026-10-09',
       personId: '',
+      target: '',
       categoryId: 'tc-1',
       workTypeId: 'wt-1',
       group: 'month',
     })
+  })
+
+  it('reads Recorded on: each of the four kinds of target, and nothing else', () => {
+    for (const target of ['project', 'deal', 'meeting', 'none'] as const) {
+      expect(parseFilterSearch({ target }).target).toBe(target)
+      expect(parseFilterSearch({ target }, 'everyone').target).toBe(target)
+    }
+  })
+
+  it('a target outside the four is "all", as any other filter’s bad value is the default: it never reaches the API', () => {
+    for (const bad of [
+      '',
+      'all',
+      'Project',
+      'projects',
+      'other',
+      ' meeting',
+      'none,deal',
+      7,
+      null,
+      true,
+      ['deal'],
+      { a: 1 },
+    ]) {
+      expect(parseFilterSearch({ target: bad }).target).toBe('')
+      expect(parseFilterSearch({ target: bad }, 'everyone').target).toBe('')
+    }
   })
 
   it('an unknown period or group is the default, not an error', () => {
@@ -161,6 +190,24 @@ describe('applyFilterPatch: what the URL becomes when one filter changes', () =>
     expect(applyFilterPatch({ group: 'deal' }, { group: 'project' }, 'mine')).toEqual({})
   })
 
+  it('writes Recorded on, and leaves "all" out of the URL, keeping every other key', () => {
+    expect(applyFilterPatch({ group: 'month', category: 'tc-1' }, { target: 'meeting' })).toEqual({
+      group: 'month',
+      category: 'tc-1',
+      target: 'meeting',
+    })
+    expect(applyFilterPatch({ target: 'meeting', group: 'month' }, { target: 'none' })).toEqual({
+      group: 'month',
+      target: 'none',
+    })
+    expect(applyFilterPatch({ target: 'meeting', group: 'month' }, { target: '' })).toEqual({ group: 'month' })
+    expect(applyFilterPatch({ target: 'deal' }, { target: 'deal' }, 'everyone')).toEqual({ target: 'deal' })
+  })
+
+  it('a patch that does not name Recorded on leaves it as it is', () => {
+    expect(applyFilterPatch({ target: 'deal' }, { period: 'lastWeek' })).toEqual({ target: 'deal', period: 'lastWeek' })
+  })
+
   it('a date emptied in Custom is kept as empty, so the range reads as incomplete and nothing is sent', () => {
     expect(
       parseFilterSearch(applyFilterPatch({ period: 'custom', from: '2026-11-01', to: '2026-11-30' }, { from: '' })),
@@ -169,7 +216,7 @@ describe('applyFilterPatch: what the URL becomes when one filter changes', () =>
 })
 
 describe('clearFilterSearch (Clear filters)', () => {
-  it('drops period, dates, person, category and work type, and keeps Group by (a view choice, not a filter) and other keys', () => {
+  it('drops period, dates, person, Recorded on, category and work type, and keeps Group by (a view choice, not a filter) and other keys', () => {
     expect(
       clearFilterSearch({
         period: 'custom',
@@ -179,6 +226,7 @@ describe('clearFilterSearch (Clear filters)', () => {
         workType: 'wt-1',
         group: 'deal',
         person: 'u-1',
+        target: 'none',
         elsewhere: 'kept',
       }),
     ).toEqual({ group: 'deal', elsewhere: 'kept' })
@@ -195,6 +243,12 @@ describe('isFiltered (when "Clear filters" is offered)', () => {
 
   it('is true when the person differs (Everyone’s hours)', () => {
     expect(isFiltered({ ...DEFAULT_FILTERS, personId: 'u-ada' }, none)).toBe(true)
+  })
+
+  it('is true when Recorded on is anything but All, whichever kind', () => {
+    for (const target of ['project', 'deal', 'meeting', 'none'] as const) {
+      expect(isFiltered({ ...DEFAULT_FILTERS, target }, none)).toBe(true)
+    }
   })
 
   it('is true when the period, the category, the work type, the project or the deal differ', () => {

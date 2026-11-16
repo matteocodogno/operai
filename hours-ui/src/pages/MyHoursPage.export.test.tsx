@@ -210,6 +210,32 @@ describe('the Export button (AC-4.6)', () => {
     expect(walkCalls()[0]!.query['dealId']).toBe('d1')
   })
 
+  it('exports the Recorded on the view applies (T44, D52): every page of the walk carries target, the one now chosen and not a stale one', async () => {
+    serveApi()
+    await renderPage('/hours?target=meeting')
+    await screen.findByTestId('hours-day-list')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: f.recordedOn.label }), 'Other work')
+    await waitFor(() => expect(screenCalls().at(-1)!.query['target']).toBe('none'))
+    await screen.findByTestId('hours-day-list')
+
+    await userEvent.click(exportButton())
+    await waitFor(() => expect(downloads).toHaveLength(1))
+
+    expect(walkCalls().map((request) => request.query['cursor'])).toEqual([undefined, 'cursor-2'])
+    for (const request of walkCalls()) {
+      expect(request.query).toMatchObject({ whose: 'mine', target: 'none', limit: '500' })
+    }
+  })
+
+  it('with Recorded on at All the walk sends no target', async () => {
+    serveApi()
+    await renderPage()
+    await screen.findByTestId('hours-day-list')
+    await userEvent.click(exportButton())
+    await waitFor(() => expect(downloads).toHaveLength(1))
+    for (const request of walkCalls()) expect(request.query).not.toHaveProperty('target')
+  })
+
   it('shows the button’s own alert, and keeps the page as it is, when the export fails', async () => {
     serveApi({
       'GET /time-entries': (url, init, params) =>

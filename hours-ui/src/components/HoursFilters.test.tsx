@@ -316,6 +316,64 @@ describe('Person (Everyone’s hours, T29: AC-4.4)', () => {
   })
 })
 
+describe('Recorded on (AC-4.4, design S1, D52)', () => {
+  const recordedOn = () => screen.getByRole('combobox', { name: t.recordedOn.label }) as HTMLSelectElement
+  const follows = (first: HTMLElement, second: HTMLElement) =>
+    Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+
+  it('is a select offering All, Project, Deal, Meeting and Other work, All chosen by default', () => {
+    renderFilters()
+    expect(t.recordedOn.label).toBe('Recorded on')
+    expect(optionTexts(recordedOn())).toEqual(['All', 'Project', 'Deal', 'Meeting', 'Other work'])
+    expect(recordedOn().value).toBe('')
+  })
+
+  it('shows the kind the state holds', () => {
+    renderFilters({ state: { ...DEFAULT_FILTERS, target: 'meeting' } })
+    expect(recordedOn().value).toBe('meeting')
+  })
+
+  it('reports the kind chosen as a patch carrying the API’s word, and "" for All', async () => {
+    const { onChange } = renderFilters({ state: { ...DEFAULT_FILTERS, target: 'deal' } })
+    await userEvent.selectOptions(recordedOn(), 'Project')
+    expect(onChange).toHaveBeenLastCalledWith({ target: 'project' })
+    await userEvent.selectOptions(recordedOn(), 'Deal')
+    expect(onChange).toHaveBeenLastCalledWith({ target: 'deal' })
+    await userEvent.selectOptions(recordedOn(), 'Meeting')
+    expect(onChange).toHaveBeenLastCalledWith({ target: 'meeting' })
+    await userEvent.selectOptions(recordedOn(), 'Other work')
+    expect(onChange).toHaveBeenLastCalledWith({ target: 'none' })
+    await userEvent.selectOptions(recordedOn(), 'All')
+    expect(onChange).toHaveBeenLastCalledWith({ target: '' })
+  })
+
+  it('sits right after the Period, before the Project and Deal searches and the lists’ selects', () => {
+    renderFilters()
+    const period = screen.getByRole('combobox', { name: t.period.label })
+    expect(follows(period, recordedOn())).toBe(true)
+    for (const name of [t.project.label, t.deal.label, t.category.label, t.workType.label]) {
+      expect(follows(recordedOn(), screen.getByRole('combobox', { name }))).toBe(true)
+    }
+  })
+
+  it('under Custom range it follows From and To', () => {
+    renderFilters({ state: { ...DEFAULT_FILTERS, period: 'custom', from: '2026-11-01', to: '2026-11-30' } })
+    expect(follows(screen.getByLabelText(t.to), recordedOn())).toBe(true)
+  })
+
+  it('on Everyone’s hours it is before the Person select', () => {
+    renderFilters({ people: { status: 'loaded', options: [{ id: 'u-ada', label: 'Ada Lovelace' }] } })
+    expect(follows(recordedOn(), screen.getByRole('combobox', { name: t.person.label }))).toBe(true)
+  })
+
+  it('does not wait for the lists: it works while they load and when they fail', async () => {
+    const { onChange } = renderFilters({ lists: { status: 'loading' } })
+    expect(recordedOn().getAttribute('aria-disabled')).toBeNull()
+    await userEvent.selectOptions(recordedOn(), 'Meeting')
+    expect(onChange).toHaveBeenLastCalledWith({ target: 'meeting' })
+  })
+})
+
 describe('Clear filters', () => {
   it('is absent while nothing differs from the defaults', () => {
     renderFilters({ filtered: false })

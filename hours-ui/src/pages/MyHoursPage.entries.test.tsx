@@ -407,6 +407,34 @@ describe('the Entries card in its states', () => {
     expect(entriesCalls().at(-1)!.query).not.toHaveProperty('categoryId')
   })
 
+  it('a combination nothing can match (Other work on a deal, T44) is the same state: the filters stay as chosen, nothing is cleared for the person', async () => {
+    useApi({
+      'GET /time-entries': (url, init, params) =>
+        url.searchParams.get('target') === 'none' && url.searchParams.has('dealId')
+          ? { status: 200, body: entriesPage([]) }
+          : entriesHandler(url, init, params),
+    })
+    await renderPage()
+    await screen.findByTestId('hours-day-list')
+    await pickDeal()
+    await waitFor(() => expect(entriesCalls().at(-1)!.query['dealId']).toBe('d1'))
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: f.recordedOn.label }), 'Other work')
+
+    const card = screen.getByTestId('hours-entries')
+    expect(await within(card).findByText(e.emptyFiltered.title)).not.toBeNull()
+    expect(within(card).queryByText(e.empty.title)).toBeNull()
+    expect(entriesCalls().at(-1)!.query).toMatchObject({ target: 'none', dealId: 'd1' })
+    expect((dealInput() as HTMLInputElement).value).toBe('Acme renewal')
+    expect((screen.getByRole('combobox', { name: f.recordedOn.label }) as HTMLSelectElement).value).toBe('none')
+
+    // Clear filters is the way out, and it puts Recorded on back too.
+    await userEvent.click(within(card).getByRole('button', { name: f.clear }))
+    expect(await screen.findByTestId('hours-day-list')).not.toBeNull()
+    expect(entriesCalls().at(-1)!.query).not.toHaveProperty('target')
+    expect(entriesCalls().at(-1)!.query).not.toHaveProperty('dealId')
+  })
+
   it('a failed read is a warning with Retry; Retry asks again and shows the entries', async () => {
     useApi({ 'GET /time-entries': sequence(() => ({ status: 500, body: problem(500) }), entriesHandler) })
     await renderPage()

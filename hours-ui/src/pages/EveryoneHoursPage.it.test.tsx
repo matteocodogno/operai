@@ -102,6 +102,13 @@ describe('Everyone’s hours in Italian', () => {
     expect(within(totals).getByText('Ada Lovelace')).not.toBeNull()
   })
 
+  it('Recorded on is "Registrato su" here too, before the Person (T44)', async () => {
+    await setup('it')
+    await waitFor(() => expect(optionTexts('Persona').length).toBe(5))
+    expect(optionTexts('Registrato su')).toEqual(['Tutti', 'Progetto', 'Opportunità', 'Riunione', 'Altro lavoro'])
+    expect(screen.queryByRole('combobox', { name: 'Recorded on' })).toBeNull()
+  })
+
   it('the table has Italian columns, "Non visibile a te" for a name the holder may not read, and the note in Italian', async () => {
     await setup('it')
     const table = await screen.findByRole('table', { name: 'Registrazioni di tutti, dal giorno più recente' })
