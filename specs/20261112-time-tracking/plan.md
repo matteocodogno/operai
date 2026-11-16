@@ -169,6 +169,16 @@ approved: 2026-11-12
 > 415 Problem (`Unsupported Media Type`) before `invalidRequestHook` runs; malformed JSON and a missing body stay
 > 400 `invalid_request`. Every other shape and rule is unchanged; hours-api's 1812 tests pass on the new versions.
 
+> Amended an eleventh time 2026-11-16, by the user (ledger D52, spec AC-4.4 as amended): hours-ui gains a
+> **Recorded on** filter — All, Project, Deal, Meeting, Other work — on My hours and Everyone's hours, sent as the
+> list's existing `target` (`project` | `deal` | `meeting` | `none`) to `GET /time-entries`, to every
+> `GET /time-entries/totals` the view asks (the chosen grouping and the day totals) and to the export's walk, and
+> kept in the URL search like the other filters (`target=`). It combines with the others by AND, as they do: a
+> combination nothing can match (Other work with a project) is the "No entries match these filters" state, never a
+> client-side rule. `target=deal` is entries ON a deal; a meeting entry stays `meeting` whatever deal it counts for,
+> whereas the Deal filter includes the deal's meetings (AC-2.6) — unchanged. hours-api and its contract are
+> unchanged. Task T44.
+
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/20261103-projects-handoff);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
 (spec amendment AC-4.10), D36 (own service), D37 (own remote); design decisions D38–D41.

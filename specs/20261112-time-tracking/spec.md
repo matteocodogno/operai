@@ -152,8 +152,9 @@ visible to whom it concerns and to no one else.
 - AC-4.3 Given a holder of see everyone's hours, then they see every person's entries, from both
   entities (D21).
 - AC-4.4 Given the hours view, then it filters by period, person (for a holder of see everyone's
-  hours), project, deal, category and work type, and the list and its totals show only the
-  entries that match (D25).
+  hours), project, deal, category, work type and what an entry is recorded on (a project, a deal, a
+  meeting or other work), and the list and its totals show only the entries that match (D25; the
+  last filter amended 2026-11-16, D52).
 - AC-4.5 Given the hours view, then it shows totals grouped, at the viewer's choice, by person,
   project, deal, category or month; the hours of a meeting linked to a deal are counted under
   that deal (D25, A6).

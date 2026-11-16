@@ -22,6 +22,12 @@ state the decision (S1 § Names the viewer cannot read, Accessibility S1).
 hours-ui as a third tab, **Settings** (`/hours/settings`), shown only with `time-list:manage`; the page itself (S5:
 cards, dialogs, states, copy) is unchanged. Changed in place: Surfaces, F7 entry, S5 header and nav, components.
 
+**Amended 2026-11-16 (ledger D52, AC-4.4 as amended, task T44)**: the Filters card of S1 and S4 gains **Recorded on**
+(`select`: All (default), Project, Deal, Meeting, Other work; Italian "Registrato su": Tutti, Progetto, Deal,
+Meeting, Altro lavoro), placed first after Period; it is a filter like the others (URL search `target`, counted by
+Clear filters, sent to the list, the totals, the day totals and the export). Changed in place: S1 sketch, Key
+elements, Keyboard path.
+
 Surfaces: **three pages** — *My hours* and *Everyone's hours* in the new remote `hours-ui` (`/hours`),
 *Time lists* in `admin-ui` (`/time-lists`; **since D51 the Settings tab of `hours-ui`, `/hours/settings`**) — **three dialogs** (entry, delete confirmation, list-item form)
 and **one menu link** in the shell. Page types from `operai-ui/src/pages`: My hours = *Item list* + *Quick
@@ -215,8 +221,8 @@ Time worked on two things at once counts in full on each, so a day can add up to
 [ info banner: "Hours are complete; these names could not be loaded: …" ]            (only when unavailable[])
 [ info note: "Some of your entries are on a project, deal or meeting you can't open …" ]  (only when something is hidden)
 ┌ Filters ─────────────────────────────────────────────────────── [Clear filters] ┐
-│ Period ▾   (From / To when Custom)   Project ▸ type to search   Deal ▸ type…      │
-│ Category ▾                           Work type ▾ (Project work types / Deal work types) │
+│ Period ▾   (From / To when Custom)   Recorded on ▾ (All, Project, Deal, Meeting, Other work) │
+│ Project ▸ type to search   Deal ▸ type…   Category ▾   Work type ▾ (Project / Deal work types) │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ┌ Totals ──────────────────────────────────────────────────────────────────────────┐
 │ Total   84 h 30                                        Group by ▾ (Project…)      │
@@ -642,7 +648,7 @@ non-holder. A not-found or denied state replaces the content and takes focus on 
 (`StatePanel focusOnMount`).
 
 **My hours (S1)**
-- Keyboard path: header (Record hours) → Filters (Period, [From, To], Project, Deal, Category, Work type,
+- Keyboard path: header (Record hours) → Filters (Period, [From, To], Recorded on, Project, Deal, Category, Work type,
   Clear filters) → Totals (Group by, table region) → Entries (per row: name link where there is one, Edit,
   Delete; Export; Load more). Table scroll regions are keyboard-scrollable (`DataTable`).
 - Filters apply on change: when the totals arrive a polite live region reads "<total> in total" (or "No entries
