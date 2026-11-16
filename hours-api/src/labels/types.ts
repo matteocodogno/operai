@@ -1,5 +1,5 @@
 /**
- * The wire vocabulary of the labels layer (specs/029 plan § API contracts, "Views"): what a viewer is
+ * The wire vocabulary of the labels layer (specs/20261112-time-tracking plan § API contracts, "Views"): what a viewer is
  * told about a person, a project, a deal, a meeting or an activity, and which sources did not answer.
  * `src/entries/view.ts` composes these into a `TimeEntryView`; `src/totals/` (T18) groups by them.
  */
@@ -46,7 +46,7 @@ export interface ActivityLabel {
  * The deal a meeting entry's hours count for (AC-2.6, AC-4.5). Read live on every request, never stored
  * on the entry. A `linked` deal carries its id only with `visibility: "visible"`: the link was read with
  * hours-api's own credential, and a viewer who cannot read the deal must not learn which deal a meeting
- * is linked to (ADR-0058, ADR-0089).
+ * is linked to (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
  */
 export type MeetingDeal =
   | { readonly state: "linked"; readonly visibility: "visible"; readonly id: string; readonly label: string; readonly href: string }

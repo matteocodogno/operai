@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The inner router (specs/029-time-tracking T22): My hours at the root, Everyone's hours at `/all`
+ * The inner router (specs/20261112-time-tracking T22): My hours at the root, Everyone's hours at `/all`
  * and a not-found fallback, all under the shell's `/hours` basepath, with `HoursShell` as the root
  * layout. A memory history stands in for the browser's.
  */

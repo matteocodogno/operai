@@ -1,15 +1,15 @@
 /**
- * hoursApi — the one place hours-ui talks to hours-api (specs/029-time-tracking, plan § API
+ * hoursApi — the one place hours-ui talks to hours-api (specs/20261112-time-tracking, plan § API
  * contracts › Entries, Totals, Lists).
  *
- * Every call goes through `shell/session`'s `apiFetch` (ADR-0001/ADR-0006): it attaches the Bearer
+ * Every call goes through `shell/session`'s `apiFetch` (ADR 20260607-jwt-in-memory-never-web-storage/ADR 20260709-suite-frontend-module-federation): it attaches the Bearer
  * JWT to trusted origins only (hours-api's, since T21) and handles the 401 refresh-retry-redirect.
  * The origin is `getHoursApiBaseUrl()`, read at call time. A non-2xx answer is RFC 7807 Problem JSON
  * and becomes an `HoursApiError` with a typed `code` (`./errors`); a network failure is not an
  * answer, so `fetch`'s rejection propagates untouched.
  *
  * There is no `If-Match` anywhere: an entry has one writer, its person, so last write wins
- * (plan § Decisions, ADR-0088).
+ * (plan § Decisions, ADR 20261112-hours-api-time-entries-own-service-hours-catalog).
  *
  * The queries are built from an allow-list of the plan's names, so a stray property on a filters
  * object (a cursor, a limit, an unknown key) cannot reach the URL, and a filter that is unset or

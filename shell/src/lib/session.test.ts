@@ -544,7 +544,7 @@ describe('apiFetch', () => {
       expect(headers?.['Authorization']).toBeUndefined()
     })
 
-    // specs/029-time-tracking, T21: hours-api origin, set via VITE_HOURS_API_URL, is
+    // specs/20261112-time-tracking, T21: hours-api origin, set via VITE_HOURS_API_URL, is
     // trusted so hours-ui's and admin-ui's calls carry the Bearer JWT (AC-5.1, AC-3.1).
     it('sends Authorization header for a request to the hours-api origin (VITE_HOURS_API_URL)', async () => {
       vi.stubEnv('VITE_HOURS_API_URL', HOURS_API_URL)
@@ -1294,7 +1294,7 @@ describe('getActivitiesApiBaseUrl', () => {
   })
 })
 
-// getHoursApiBaseUrl (specs/029-time-tracking, T21) — mirrors getActivitiesApiBaseUrl():
+// getHoursApiBaseUrl (specs/20261112-time-tracking, T21) — mirrors getActivitiesApiBaseUrl():
 // lazily read, exposed so hours-ui and admin-ui (remotes with no VITE_* env of their own)
 // source the API origin from the shell.
 describe('getHoursApiBaseUrl', () => {

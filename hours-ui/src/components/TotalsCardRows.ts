@@ -1,5 +1,5 @@
 /**
- * The rows of the Totals table, from the server's groups (specs/029-time-tracking T24; plan § Totals,
+ * The rows of the Totals table, from the server's groups (specs/20261112-time-tracking T24; plan § Totals,
  * design S1 "Totals" and "Names the viewer cannot read").
  *
  * Pure: one row per group, IN THE ORDER THE SERVER SENT THEM — never sorted here, because the plan fixes

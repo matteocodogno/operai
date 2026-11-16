@@ -7,11 +7,11 @@ datasource db {
   provider = "postgresql"
 }
 
-// Data model of specs/029-time-tracking (plan.md § Data model, ADR-0088). A time entry is one
+// Data model of specs/20261112-time-tracking (plan.md § Data model, ADR 20261112-hours-api-time-entries-own-service-hours-catalog). A time entry is one
 // person's duration on one day, on exactly one of a project, a deal, a meeting or no entity. The
 // project, deal, meeting and activity ids are opaque ids in other services' databases (no foreign
 // key across services); the person is the opaque `auth` user id of the JWT `sub`, never client
-// input. Names are resolved live from the owners and from `auth` (ADR-0039), never stored here.
+// input. Names are resolved live from the owners and from `auth` (ADR 20260807-live-identity-resolution-by-id-fail-soft), never stored here.
 // Ids are text cuids, except the seeded list rows, which have the fixed ids of the plan.
 //
 // Raw SQL in the initial migration, the ENFORCEMENT and not a duplicate (Prisma cannot express

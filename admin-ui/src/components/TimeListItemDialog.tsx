@@ -43,7 +43,7 @@ const nameProblem = (value: string): string | null => {
 }
 
 /**
- * TimeListItemDialog — Add or Rename one category or work type (T32, specs/029-time-tracking,
+ * TimeListItemDialog — Add or Rename one category or work type (T32, specs/20261112-time-tracking,
  * design.md S5). A `FormDialog`: focus starts in Name, Enter submits, a failed request keeps it open
  * with every value, and while it saves it cannot be dismissed.
  *

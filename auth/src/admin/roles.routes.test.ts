@@ -746,7 +746,7 @@ describe("Admin roles API (T8)", () => {
 
   test(
     "PUT /:id/rules accepts `time-entry:read-all` and `time-list:manage` unconditioned for a non-admin role, " +
-      "and its holder resolves both (specs/029 AC-5.2, AC-3.3, AC-4.3)",
+      "and its holder resolves both (specs/20261112-time-tracking AC-5.2, AC-3.3, AC-4.3)",
     async () => {
       asAdmin();
       const { rolesRouter } = await import("./roles.routes");
@@ -796,7 +796,7 @@ describe("Admin roles API (T8)", () => {
   );
 
   test(
-    "PUT /:id/rules 422s a condition on `time-entry:read-all` — the permission is unconditioned (specs/029 AC-5.2)",
+    "PUT /:id/rules 422s a condition on `time-entry:read-all` — the permission is unconditioned (specs/20261112-time-tracking AC-5.2)",
     async () => {
       asAdmin();
       const { rolesRouter } = await import("./roles.routes");

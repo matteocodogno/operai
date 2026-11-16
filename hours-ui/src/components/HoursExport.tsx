@@ -23,7 +23,7 @@ export type HoursExportProps = {
 }
 
 /**
- * HoursExport — the Export button of My hours and Everyone's hours (specs/029-time-tracking T30; design F5;
+ * HoursExport — the Export button of My hours and Everyone's hours (specs/20261112-time-tracking T30; design F5;
  * AC-4.6, AC-4.7, AC-4.10, AC-4.11): `@operai/ui`'s `ExportButton` with the app's `build`.
  *
  * `build` runs on the click. It walks EVERY page of `GET /time-entries` with the view's filters (`exportPages`),

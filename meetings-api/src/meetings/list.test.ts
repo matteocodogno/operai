@@ -231,10 +231,10 @@ describe("host labels (AC-10.3, AC-11.5)", () => {
   });
 });
 
-// AC-2.5, AC-2.10 (specs/029 T8): `ids` is one more filter on the caller's OWN list. hours-api asks
+// AC-2.5, AC-2.10 (specs/20261112-time-tracking T8): `ids` is one more filter on the caller's OWN list. hours-api asks
 // "may this person record hours on this meeting?" with it (and reads the title with it), so a meeting the
 // caller may only read through its host, and one that does not exist, must come back the same: absent.
-describe("ids filter (specs/029 AC-2.5, AC-2.10)", () => {
+describe("ids filter (specs/20261112-time-tracking AC-2.5, AC-2.10)", () => {
   const ids = (...asked: string[]) => `?ids=${asked.join(",")}`;
   const idsOf = (body: Record<string, any>) => body["items"].map((i: { id: string }) => i.id).sort();
 

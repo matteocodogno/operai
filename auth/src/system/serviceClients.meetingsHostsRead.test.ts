@@ -1,7 +1,7 @@
 /**
  * The `meetings.hosts.read` service scope and the `hours-api` client end to end
- * through the token endpoint (specs/029-time-tracking, T2 — AC-2.6, AC-4.5,
- * AC-4.11; ADR-0089): a client parsed from `SERVICE_CLIENTS` with the scope gets
+ * through the token endpoint (specs/20261112-time-tracking, T2 — AC-2.6, AC-4.5,
+ * AC-4.11; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): a client parsed from `SERVICE_CLIENTS` with the scope gets
  * exactly it in its minted JWT, and an unknown scope never reaches a token
  * because the entry does not parse.
  *
@@ -69,7 +69,7 @@ const mint = (clientId: string) =>
     body: JSON.stringify({ clientId, clientSecret: SECRET }),
   });
 
-describe("meetings.hosts.read (specs/029 — AC-2.6, AC-4.5, AC-4.11)", () => {
+describe("meetings.hosts.read (specs/20261112-time-tracking — AC-2.6, AC-4.5, AC-4.11)", () => {
   test("a token minted for hours-api has sub system:hours-api, aud = SERVICE_AUDIENCE and scope exactly meetings.hosts.read", async () => {
     const res = await mint("hours-api");
     expect(res.status).toBe(200);
@@ -104,7 +104,7 @@ describe("meetings.hosts.read (specs/029 — AC-2.6, AC-4.5, AC-4.11)", () => {
   });
 });
 
-describe("auth/.env.example documents the hours-api client (specs/029 T2)", () => {
+describe("auth/.env.example documents the hours-api client (specs/20261112-time-tracking T2)", () => {
   /** The commented `# SERVICE_CLIENTS='{…}'` example line, parsed with the startup parser. */
   function exampleClients() {
     const text = readFileSync(new URL("../../.env.example", import.meta.url), "utf8");

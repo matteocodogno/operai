@@ -1,23 +1,23 @@
 ---
-id: 032
+id: 20261112
 slug: project-alerts
 status: approved
 rigor: production
 created: 2026-11-12
 approved: 2026-11-12
-depends-on: 026, 028, 030
+depends-on: 20261103-projects-handoff, 20261110-activities, 20261112-project-hours
 ---
 
 # Project alerts — tasks for the moments a project needs a decision
 
-Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/029, specs/030 and
-specs/031; this spec's decisions are D12 and D29–D33)
+Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-project-hours and
+specs/20261112-meeting-hours; this spec's decisions are D12 and D29–D33)
 
-> **Origin.** Split out of specs/030 on 2026-11-12 (ledger D34). specs/030 shows a project's hours
+> **Origin.** Split out of specs/20261112-project-hours on 2026-11-12 (ledger D34). specs/20261112-project-hours shows a project's hours
 > against what its terms sold; this spec turns the moments those figures — and the terms' dates —
 > call for a decision into tasks for the project manager, in the user's words "trigger che genera
-> un task" (D12). **It builds on specs/030 and on the project terms and purchase order of
-> specs/026 (PR #9).**
+> un task" (D12). **It builds on specs/20261112-project-hours and on the project terms and purchase order of
+> specs/20261103-projects-handoff (PR #9).**
 
 ## Problem
 
@@ -29,13 +29,13 @@ tells the person responsible that a decision is due.
 
 ## Domain language
 
-- **alert** — a project task (specs/028 US-3) that Operai creates when a project reaches one of the
+- **alert** — a project task (specs/20261110-activities US-3) that Operai creates when a project reaches one of the
   moments of US-1, assigned to the project's project manager (A27). _Avoid:_ warning, reminder,
   notification.
 - **moment** — one occasion an alert is raised for: one threshold in one package period, one end
   date, one deadline, one idle stretch (A28).
-- **consumption**, **man-day**, **package period** — as in specs/030; **terms**, **purchase
-  order**, **ops-manager**, **awaiting a project manager** — as in specs/026.
+- **consumption**, **man-day**, **package period** — as in specs/20261112-project-hours; **terms**, **purchase
+  order**, **ops-manager**, **awaiting a project manager** — as in specs/20261103-projects-handoff.
 
 ## User stories
 
@@ -57,7 +57,7 @@ do not have to watch the figures.
 - AC-1.5 Given a project that is not closed or cancelled, when its terms' end date, or a
   `fixed_price`'s deadline, has passed, then an alert is created (D32).
 - AC-1.6 Given a `fixed_price` project, when the hours recorded reach 80 % of its max effort (one
-  man-day = 8 hours, specs/030), then an alert is created; when they reach 100 %, another (D32,
+  man-day = 8 hours, specs/20261112-project-hours), then an alert is created; when they reach 100 %, another (D32,
   D27).
 - AC-1.7 Given a `t_and_m` project, then no alert of any kind is ever created for it (D33).
 - AC-1.8 Given a closed or cancelled project, then no alert is created for it (A30).
@@ -66,7 +66,7 @@ do not have to watch the figures.
 - AC-1.10 Given an alert, then it is a task on the project, assigned to its project manager — or
   to its purchase order's ops-manager while the project awaits a project manager — with a title
   that names the moment and the figures (A27).
-- AC-1.11 Given an alert, then it behaves like any project task (specs/028 US-3, US-6): it is
+- AC-1.11 Given an alert, then it behaves like any project task (specs/20261110-activities US-3, US-6): it is
   listed on the project and in the assignee's My tasks, the assignee is notified, and it is done
   when the assignee marks it done.
 - AC-1.12 Given a project made by hand with terms, then it gets the same alerts as a project with a
@@ -84,15 +84,15 @@ As anyone who receives an alert, I want to read it in my language, so that I und
 - **Configuring thresholds**: 80 %, 100 %, 15 days, 25 %, 10 days and 30 days are fixed
   (D29–D31).
 - **Alerts as anything other than a task**: no email or banner of their own; the task's own
-  notification (specs/028 US-6) is the only one (D12).
+  notification (specs/20261110-activities US-6) is the only one (D12).
 - **Alerts on deals**, or on projects without terms.
-- **Showing consumption** — that is specs/030.
+- **Showing consumption** — that is specs/20261112-project-hours.
 
 ## Constraints
 
 - Alerts are tasks — the user's words: "trigger che genera un task" (ledger D12). Several fire on a
   date rather than on a write (AC-1.2–1.5); the suite otherwise derives time-based state on read
-  and never sweeps it (ADR-0013, ADR-0062), so the plan must decide how these fire, likely with an
+  and never sweeps it (ADR 20260714-invitation-lifecycle-derived-expiry-state, ADR 20261104-durable-job-runner-work-queued-state-derived), so the plan must decide how these fire, likely with an
   ADR.
 
 ## Assumptions (strike any that is wrong)

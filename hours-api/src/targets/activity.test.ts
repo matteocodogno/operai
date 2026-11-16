@@ -1,6 +1,6 @@
 /**
  * `assertActivityOf` — the decision of whether an entry on a project or a deal may point at an activity
- * (specs/029 T16; plan § Sequences step 5, § Reading the owners' list answers; AC-2.7, AC-2.11; ADR-0089), on its
+ * (specs/20261112-time-tracking T16; plan § Sequences step 5, § Reading the owners' list answers; AC-2.7, AC-2.11; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route), on its
  * own, against the fake activities-api of T11 and the real client. src/entries/activityPointer.test.ts drives the
  * same decisions through the routes; this one pins the module's contract: it answers by THROWING, on every outcome
  * but "yes", and asks exactly one question.

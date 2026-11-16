@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Everyone's hours under `<html lang="it">` (specs/029-time-tracking T29, AC-5.5, AC-3.8, AC-4.8): the page, the
+ * Everyone's hours under `<html lang="it">` (specs/20261112-time-tracking T29, AC-5.5, AC-3.8, AC-4.8): the page, the
  * Person filter, the Totals by person, the table and the denial come from the Italian catalog and none of the
  * English one, and the names of people, projects and categories are shown as they were typed. Completeness of
  * the catalog is checked once for the whole app (strings.test.ts); this proves the page reads it.

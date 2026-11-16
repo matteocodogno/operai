@@ -1,7 +1,7 @@
 /**
  * May an entry on this project or deal point at this activity? Asked of activities-api, AS THE CALLER, when the
- * pointer is new on the entry or carried to another target (specs/029 T16; plan § Sequences step 5, "A change and a
- * move"; AC-2.7, AC-2.11; ledger D47; ADR-0089).
+ * pointer is new on the entry or carried to another target (specs/20261112-time-tracking T16; plan § Sequences step 5, "A change and a
+ * move"; AC-2.7, AC-2.11; ledger D47; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
  *
  * The pointer is the entry's own claim that its hours went into this task or this call, so it must be an activity
  * ABOUT the project or the deal the entry is on — a task of the project, an activity of the deal — and one the caller

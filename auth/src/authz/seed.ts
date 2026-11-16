@@ -122,8 +122,8 @@
  *      `SUITE_APPS`, and is NOT in `ALL_APP_IDS` (that list feeds the per-app
  *      `access` grant this catalog does not have).
  *
- *  14. {@link seedHoursCatalog} + {@link seedHoursGrants} (specs/029-time-
- *      tracking — AC-5.2, AC-3.3, AC-4.3; ADR-0088) — register the time-tracking
+ *  14. {@link seedHoursCatalog} + {@link seedHoursGrants} (specs/20261112-time-
+ *      tracking — AC-5.2, AC-3.3, AC-4.3; ADR 20261112-hours-api-time-entries-own-service-hours-catalog) — register the time-tracking
  *      catalog (`catalogs/hours.ts`: `time-entry:read-all`, `time-list:manage`,
  *      NO `access` resource — the feature is ungated) and grant both to `admin`
  *      only, unconditioned. `hours` is registered once, here, never through
@@ -315,7 +315,7 @@ export async function seedAccountingCatalog(): Promise<void> {
 }
 
 /**
- * Registers the time-tracking catalog (specs/029 — AC-5.2): `time-entry:read-all`
+ * Registers the time-tracking catalog (specs/20261112-time-tracking — AC-5.2): `time-entry:read-all`
  * and `time-list:manage`, both unconditioned, and no `access` resource (the
  * feature is ungated, AC-5.1). Idempotent (full-replace upsert keyed by
  * `appId`). `hours` is registered ONLY here, never via `SUITE_APPS`, and is not
@@ -921,8 +921,8 @@ export async function seedProjectsGrants(): Promise<void> {
 }
 
 /**
- * Seeds the time-tracking role grants (specs/029 — AC-5.2, AC-3.3, AC-4.3;
- * decision D21, ADR-0088):
+ * Seeds the time-tracking role grants (specs/20261112-time-tracking — AC-5.2, AC-3.3, AC-4.3;
+ * decision D21, ADR 20261112-hours-api-time-entries-own-service-hours-catalog):
  *
  *   - `admin` — `time-entry:read-all` (see everyone's hours) and
  *     `time-list:manage` (the categories and work types), UNCONDITIONED.

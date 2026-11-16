@@ -1,5 +1,5 @@
 /**
- * errors — what hours-api's refusals look like to a screen (specs/029-time-tracking, plan § API
+ * errors — what hours-api's refusals look like to a screen (specs/20261112-time-tracking, plan § API
  * contracts › Errors and § Lists).
  *
  * A non-2xx answer is RFC 7807 Problem JSON with a top-level `code`; `errorFromResponse` turns it

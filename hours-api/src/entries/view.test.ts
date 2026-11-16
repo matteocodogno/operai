@@ -1,6 +1,6 @@
 /**
- * The entry view and the labels behind it (specs/029 T13; plan § API contracts "Views", § Sequences "List
- * / totals" step 4, ADR-0089; AC-2.6, AC-2.9, AC-4.7, AC-4.8, AC-4.10).
+ * The entry view and the labels behind it (specs/20261112-time-tracking T13; plan § API contracts "Views", § Sequences "List
+ * / totals" step 4, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route; AC-2.6, AC-2.9, AC-4.7, AC-4.8, AC-4.10).
  *
  * Rows are inserted DIRECTLY (what a route would otherwise have to be driven for), then read through
  * `viewEntries` exactly as a route handler will, as a persona, against the fake hosts. What each owner

@@ -135,7 +135,7 @@ const projectsRemoteUrl = process.env['PROJECTS_REMOTE_URL'] ?? 'http://localhos
 // specs/20261116-letterhead-service: letterheads-ui, the Letterheads tool's federated remote. Same
 // pattern; dev default targets its own pinned port (5182).
 const letterheadsRemoteUrl = process.env['LETTERHEADS_REMOTE_URL'] ?? 'http://localhost:5182/remoteEntry.js'
-// specs/029-time-tracking: hours-ui, the Hours screens' federated remote (ADR-0090). Same
+// specs/20261112-time-tracking: hours-ui, the Hours screens' federated remote (ADR 20261112-hours-ui-ungated-remote). Same
 // pattern; dev default targets its own pinned port (5184). Its one entry, ./App, is mounted at
 // the UNGATED `/hours/$` (not a TOOLS entry).
 const hoursRemoteUrl = process.env['HOURS_REMOTE_URL'] ?? 'http://localhost:5184/remoteEntry.js'
@@ -390,8 +390,8 @@ export default defineConfig({
           entryGlobalName: 'accounting',
           shareScope: 'default',
         },
-        // specs/029-time-tracking: hours-ui. ./App is mounted at the UNGATED `/hours/$`
-        // (ADR-0090): every signed-in user records and reads their own hours.
+        // specs/20261112-time-tracking: hours-ui. ./App is mounted at the UNGATED `/hours/$`
+        // (ADR 20261112-hours-ui-ungated-remote): every signed-in user records and reads their own hours.
         hours: {
           type: 'module',
           name: 'hours',

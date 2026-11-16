@@ -15,7 +15,7 @@
  * `folder` narrows to one of the caller's OWN folders (ADR 20261113-personal-meeting-folders), or `none` for the meetings they filed nowhere;
  * a folder id that is not theirs simply matches nothing. Each row carries the caller's own `folderId`.
  *
- * `ids` (at most 25, specs/029 AC-2.5, AC-2.10) is one more filter, ANDed with the caller's own
+ * `ids` (at most 25, specs/20261112-time-tracking AC-2.5, AC-2.10) is one more filter, ANDed with the caller's own
  * set like the rest: hours-api asks it "which of these meetings may this person record hours on,
  * and what are they called". Only a meeting the caller created or was added to as an Operai
  * participant comes back; one they could open only through its host, someone else's, and an id
@@ -34,7 +34,7 @@ import { derivedStatus } from "./derived";
 import { ROW_SELECT, buildMeetingRows } from "./rows";
 import { DERIVED_STATUSES, MeetingRowSchema } from "./schemas";
 
-/** The most ids one `ids` filter names: a page, so the answer is always one page (specs/029 plan.md). */
+/** The most ids one `ids` filter names: a page, so the answer is always one page (specs/20261112-time-tracking plan.md). */
 const MAX_IDS = 25;
 const MAX_ID_LENGTH = 64;
 

@@ -1,5 +1,5 @@
 /**
- * What an edit opens with and what it sends (specs/029-time-tracking T28; plan § Entries "Change an entry",
+ * What an edit opens with and what it sends (specs/20261112-time-tracking T28; plan § Entries "Change an entry",
  * "A blank note", amendment 4 / D50; design F2, S2 "Note — when it is required"; AC-1.5, AC-2.12, AC-3.4,
  * AC-3.6). The dialog's own tests prove what the person sees; this pins the decisions on values a browser
  * control would never hand over.

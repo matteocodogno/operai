@@ -1,5 +1,5 @@
 /**
- * The wire shapes of hours-api (specs/029-time-tracking, plan § API contracts): the entry view, the
+ * The wire shapes of hours-api (specs/20261112-time-tracking, plan § API contracts): the entry view, the
  * totals groups, the lists, and what a request carries. Dates are `YYYY-MM-DD`, durations are whole
  * minutes (30..1440, multiples of 30), ids are opaque text. No screen shows an id: the names a viewer
  * may not read arrive as `visibility: "hidden"` with no label (AC-4.10), and, on an entry that is not the
@@ -14,7 +14,7 @@ export type Visibility = 'visible' | 'hidden' | 'unavailable'
 /**
  * The deal a meeting entry's hours count for (AC-2.6, AC-4.5), read live on every request and never
  * stored. The id and the name come only with `visible`: a viewer who cannot read the deal must not
- * learn which deal a meeting is linked to (ADR-0089 § 6).
+ * learn which deal a meeting is linked to (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route § 6).
  */
 export type MeetingDeal =
   | { state: 'linked'; visibility: 'visible'; id: string; label: string; href: string }

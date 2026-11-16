@@ -1,5 +1,5 @@
 /**
- * The Period filter's arithmetic (specs/029-time-tracking T24, AC-4.4; design S1 "Period"): the presets
+ * The Period filter's arithmetic (specs/20261112-time-tracking T24, AC-4.4; design S1 "Period"): the presets
  * as `from`/`to`, weeks starting on Monday, and the Custom range's two rules (To not before From, at
  * most 366 days). Dates are `YYYY-MM-DD` and the arithmetic is on calendar days, so no time zone or
  * daylight-saving change can move a boundary.

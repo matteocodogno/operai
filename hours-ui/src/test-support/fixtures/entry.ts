@@ -1,5 +1,5 @@
 /**
- * Fixtures of the entry dialog (specs/029-time-tracking T27): the lists it offers, what the three pickers find,
+ * Fixtures of the entry dialog (specs/20261112-time-tracking T27): the lists it offers, what the three pickers find,
  * the answers a save can come back with, and the long notes the limit is checked with. Typed with the wire
  * types, so a contract change fails the build. Built on `myHours`'s `LISTS` (a retired category, a retired
  * work type, the same name in both work-type lists) with one more category that REQUIRES a note (AC-3.6).

@@ -1,7 +1,7 @@
 /**
- * Whether the caller may book hours on a project or a meeting, and the change rule of AC-2.12 (specs/029 T15;
+ * Whether the caller may book hours on a project or a meeting, and the change rule of AC-2.12 (specs/20261112-time-tracking T15;
  * AC-1.4, AC-2.1, AC-2.2, AC-2.4, AC-2.5, AC-2.10, AC-2.11, AC-2.12; plan § Sequences, § Entries "The id rule",
- * § Reading the owners' list answers; ADR-0089), through the ASSEMBLED app, against the real database and the
+ * § Reading the owners' list answers; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route), through the ASSEMBLED app, against the real database and the
  * fake owners of T11.
  *
  * The owner answers, as the CALLER, whether the person may book: projects-api's host resolve (`assignees`),

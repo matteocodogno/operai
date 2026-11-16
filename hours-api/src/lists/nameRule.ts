@@ -1,5 +1,5 @@
 /**
- * The name of a category or a work type (specs/029 plan § Lists and § Entries, "Counting a note and a
+ * The name of a category or a work type (specs/20261112-time-tracking plan § Lists and § Entries, "Counting a note and a
  * name" and "A lone surrogate in a note or a name"; AC-3.1, AC-3.8).
  *
  * A name is a label an admin types, shown exactly as typed in both languages. It is TRIMMED at the

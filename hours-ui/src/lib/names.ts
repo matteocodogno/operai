@@ -1,5 +1,5 @@
 /**
- * names — what the screen says about a name it may or may not show (specs/029-time-tracking T25; AC-4.10,
+ * names — what the screen says about a name it may or may not show (specs/20261112-time-tracking T25; AC-4.10,
  * AC-4.7, AC-2.6, AC-2.9; design S1 "Names the viewer cannot read").
  *
  * One rule under every function: a name (a project, a deal, a meeting, an activity's subject) is shown only

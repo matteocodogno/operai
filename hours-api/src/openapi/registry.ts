@@ -11,11 +11,11 @@ export function setupOpenAPI(app: OpenAPIHono): void {
       version: "0.1.0",
       description:
         "Time entries (a person's hours on a day, on a project, a deal, a meeting or no entity), " +
-        "the categories and work types an admin manages, and the totals, specs/029-time-tracking. " +
+        "the categories and work types an admin manages, and the totals, specs/20261112-time-tracking. " +
         "Requires a valid RS256 Bearer JWT issued by the Operai auth service. Every user records and " +
         "reads their own hours; everyone's hours need `time-entry:read-all` and the lists need " +
-        "`time-list:manage`, both asked live of auth (ADR-0088). Whether a person may book on a " +
-        "project, a deal or a meeting is asked of its owner as the caller (ADR-0089).",
+        "`time-list:manage`, both asked live of auth (ADR 20261112-hours-api-time-entries-own-service-hours-catalog). Whether a person may book on a " +
+        "project, a deal or a meeting is asked of its owner as the caller (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).",
       contact: {
         name: "wellD",
         url: "https://welld.ch",

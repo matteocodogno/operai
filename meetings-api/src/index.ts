@@ -68,7 +68,7 @@ app.route("/", summariesRouter);
 app.route("/", templatesRouter);
 app.route("/", conversationRouter);
 app.route("/", eraseRouter);
-// The only `/system/*` route: a scoped service credential, never a user JWT (specs/029 T9, ADR-0089).
+// The only `/system/*` route: a scoped service credential, never a user JWT (specs/20261112-time-tracking T9, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
 app.route("/", systemHostsRouter);
 
 // ─── OpenAPI + Scalar UI ─────────────────────────────────────────────────────

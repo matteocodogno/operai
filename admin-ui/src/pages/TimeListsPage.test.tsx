@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Component tests for TimeListsPage — the admin screen for the categories and the two work-type
- * lists (T31, specs/029-time-tracking/tasks.md, refs AC-3.3, AC-5.5; design.md S5 "States of the
+ * lists (T31, specs/20261112-time-tracking/tasks.md, refs AC-3.3, AC-5.5; design.md S5 "States of the
  * page"). T31 is the page's frame and its states; the three cards are T32.
  *
  * hours-api's list routes are not built yet (T12), so the API client is faked at the module level

@@ -1,5 +1,5 @@
 /**
- * The id rule (specs/029 plan § Entries, "The id rule"; amended 2026-11-13): 1..64 UTF-16 code units,
+ * The id rule (specs/20261112-time-tracking plan § Entries, "The id rule"; amended 2026-11-13): 1..64 UTF-16 code units,
  * no NUL, no comma, no whitespace at either end. The labels layer applies it to the one id it did not
  * see pass at write time, a deal id read from meetings-api's system route (plan § Views, amendment 3).
  */

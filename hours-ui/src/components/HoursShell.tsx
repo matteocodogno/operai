@@ -5,13 +5,13 @@ import { strings } from '../strings'
 
 /**
  * HoursShell — hours-ui's root layout: the tool title (h1) and the routed page (ToolLayout `default`
- * width). No suite chrome and no auth guard: the shell owns both (ADR-0006), and mounts this remote
- * for every signed-in user, whatever their grants (AC-5.1, ADR-0090).
+ * width). No suite chrome and no auth guard: the shell owns both (ADR 20260709-suite-frontend-module-federation), and mounts this remote
+ * for every signed-in user, whatever their grants (AC-5.1, ADR 20261112-hours-ui-ungated-remote).
  *
  * The tabs exist only for a holder of `time-entry:read-all`: for everyone else there is just My
- * hours, so there is no TabNav at all (one tab is noise; the `MyDevices` precedent, ADR-0045). The
+ * hours, so there is no TabNav at all (one tab is noise; the `MyDevices` precedent, ADR 20261006-ungated-second-federated-entry-of-a-gated-remote). The
  * tab is out of the DOM — never disabled — while the permissions resolve and for a non-holder; it is a
- * UX convenience, and the server is the gate (ADR-0075), so `/all` typed by hand reaches the
+ * UX convenience, and the server is the gate (ADR 20261108-estimai-oversight-permission-amends-0036), so `/all` typed by hand reaches the
  * page, which the server then refuses.
  *
  * A tab is the PAGE, not the whole address: both pages keep their filters in the URL's search params

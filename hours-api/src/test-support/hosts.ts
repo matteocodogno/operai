@@ -1,5 +1,5 @@
 /**
- * Scriptable fake owners for hours-api tests (specs/029 T11; plan.md § Test strategy, the
+ * Scriptable fake owners for hours-api tests (specs/20261112-time-tracking T11; plan.md § Test strategy, the
  * activities-api `startTestHosts` pattern). ONE `Bun.serve` on port 0 that plays, over real HTTP and
  * through the same client code as production:
  *
@@ -129,7 +129,7 @@ export interface ScriptedMeeting {
   /** The CRM deal it is linked to (host `{crm, deal, dealId}`); null: none. */
   readonly dealId?: string | null;
   /**
-   * The host the meeting stores, three strings of ANY value (ADR-0059: a host is data; production has only
+   * The host the meeting stores, three strings of ANY value (ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data; production has only
    * `crm` / `deal`). Wins over `dealId`. null: none.
    */
   readonly host?: StoredHost | null;

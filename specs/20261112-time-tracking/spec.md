@@ -1,11 +1,11 @@
 ---
-id: 029
+id: 20261112
 slug: time-tracking
 status: in-progress
 rigor: production
 created: 2026-11-12
 approved: 2026-11-12
-depends-on: 017, 021, 025, 028
+depends-on: 20261101-crm, 20261104-meetings, 20261103-projects, 20261110-activities
 ---
 
 # Time tracking — the hours employees spend on company work
@@ -13,11 +13,11 @@ depends-on: 017, 021, 025, 028
 Decision ledger: `ledger.md`
 
 > **Origin.** Requested and grilled on 2026-11-12 (ledger D1–D26). Time tracking was left out
-> on purpose by specs/025 (D27), specs/027 and specs/028. The work is split in four specs
+> on purpose by specs/20261103-projects (D27), specs/20261103-project-collaboration and specs/20261110-activities. The work is split in four specs
 > (D11, D26, D34): **this one** records time entries and shows them to the people they concern;
-> **specs/030** compares a project's hours with what was sold and shows hours on the project and
-> deal pages (D22), after PR #9 (specs/026, project terms and purchase order) is merged;
-> **specs/031** suggests hours from the meetings a person took part in (D17); **specs/032** turns
+> **specs/20261112-project-hours** compares a project's hours with what was sold and shows hours on the project and
+> deal pages (D22), after PR #9 (specs/20261103-projects-handoff, project terms and purchase order) is merged;
+> **specs/20261112-meeting-hours** suggests hours from the meetings a person took part in (D17); **specs/20261112-project-alerts** turns
 > the moments that need a decision into tasks (D12).
 
 ## Problem
@@ -33,7 +33,7 @@ be backed by a timesheet, and the pre-sales effort spent on a deal is unknown.
 
 - **time entry** — one person's own declaration that they spent a duration, on one day, on one
   thing: a project, a deal, a meeting, or work that is not an entity in Operai. It is not an
-  activity (specs/028) but may point at one; one activity may have many time entries (D6).
+  activity (specs/20261110-activities) but may point at one; one activity may have many time entries (D6).
 - **category** — what a time entry on no entity is about (training, talk preparation,
   administration, …), chosen from a list an admin manages (D18).
 - **work type** — the kind of work an entry on a project or a deal was (development, analysis,
@@ -98,7 +98,7 @@ that is not in Operai, so that every hour I worked has a place.
 - AC-2.9 Given an activity that time entries point at, when it is deleted, then the entries stay
   on their project or deal, without the pointer (A22).
 - AC-2.10 Given a project, deal or meeting the person cannot read, then the answer is the same as
-  for one that does not exist (ADR-0005, ADR-0058, ADR-0081 posture).
+  for one that does not exist (ADR 20260703-jwt-resource-server-remote-jwks, ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261110-activities-service-access-delegated-to-host posture).
 - AC-2.11 Given the tool that owns a project, deal or meeting cannot confirm whether the person
   may record on it, when the entry is saved, then it is refused as unavailable and nothing
   changes (A21, fail closed).
@@ -165,13 +165,13 @@ visible to whom it concerns and to no one else.
   owning tool does not answer, then the entry is still listed and counted, with its name shown
   as unknown (A21).
 - AC-4.8 Given a person whose Operai name changes, then the hours view shows the new name on all
-  their entries (ADR-0039 posture).
+  their entries (ADR 20260807-live-identity-resolution-by-id-fail-soft posture).
 - AC-4.9 Given a duration on screen, then it is shown as hours and minutes (for example "2 h 30");
   the exported file uses decimal hours instead (AC-4.6, D39).
 - AC-4.10 Given any viewer — the entry's own author included — who cannot read an entry's project,
   deal or meeting, or the deal a meeting is linked to, then the entry is listed, counted and
   exported with its type, but without the name of that project, deal or meeting and without the
-  subject of the activity it points at (ADR-0058, ADR-0081 posture). For anyone but the entry's
+  subject of the activity it points at (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261110-activities-service-access-delegated-to-host posture). For anyone but the entry's
   author, such an entry also carries no id of that project, deal or meeting and no id of the
   activity it points at, and neither does an entry whose project, deal, meeting or activity could
   not be read because the tool that owns it did not answer (AC-4.7); the author keeps the ids of
@@ -194,7 +194,7 @@ recorded by everyone and read only by whom they concern.
   (D21).
 - AC-5.3 Given a request without a valid session, then it is refused.
 - AC-5.4 Given an `auth` outage, when a request needs see everyone's hours, then it is refused as
-  unavailable, never allowed (ADR-0014 posture).
+  unavailable, never allowed (ADR 20260716-refund-api-authorization-enforcing-resource-server posture).
 - AC-5.5 Given any new screen, then all its copy exists in English and Italian, and dates and
   durations use the library formatters.
 
@@ -207,12 +207,12 @@ recorded by everyone and read only by whom they concern.
 - **Recording, changing or deleting hours for someone else**, admins included (D14).
 - **Locking or approving hours** — open as O4 (D24).
 - **Comparing hours with what was sold** (hour packages, max effort, estimated man-days, T&M
-  positions) and the **hours on the project and deal pages** (D22): **specs/030**; the
-  **proactive alerts** of D12: **specs/032**.
-- **Hours suggested from meetings** (D17): **specs/031**. In this spec a meeting's hours are
+  positions) and the **hours on the project and deal pages** (D22): **specs/20261112-project-hours**; the
+  **proactive alerts** of D12: **specs/20261112-project-alerts**.
+- **Hours suggested from meetings** (D17): **specs/20261112-meeting-hours**. In this spec a meeting's hours are
   recorded by hand (AC-2.5).
 - **T&M positions or estimate activities on an entry** (D13).
-- **Money**: rates, costs, invoicing, anything sent to Bexio (specs/025 D14).
+- **Money**: rates, costs, invoicing, anything sent to Bexio (specs/20261103-projects D14).
 - **Charts and dashboards** (D25).
 - **Any automatic tracking** of what people do: every entry is declared by its person.
 
@@ -245,7 +245,7 @@ recorded by everyone and read only by whom they concern.
   with an unknown name.
 - A22 Deleting an activity removes the pointer, never the entries.
 
-(A4, A5 and A17–A19 belong to specs/031; A20 to specs/030.)
+(A4, A5 and A17–A19 belong to specs/20261112-meeting-hours; A20 to specs/20261112-project-hours.)
 
 ## Open questions
 
@@ -255,5 +255,5 @@ and chose not to address them here ("ignora punti aperti 3 e 4").
 - O3 Labour-law check before go-live: informing employees about the hours recorded and who reads
   them (IT: art. 4 L. 300/1970; CH: art. 26 OLL 3) — owner: management / HR.
 - O4 A lock or approval of recorded hours before they are used to bill T&M on a timesheet —
-  owner: product owner, at the latest with specs/030 or a billing export.
-- O1 and O2 (man-day ↔ hours, yearly package carry-over) are specs/030's.
+  owner: product owner, at the latest with specs/20261112-project-hours or a billing export.
+- O1 and O2 (man-day ↔ hours, yearly package carry-over) are specs/20261112-project-hours's.

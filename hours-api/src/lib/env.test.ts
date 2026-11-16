@@ -1,5 +1,5 @@
 /**
- * `parseEnv` and the start-up refusal (specs/029 T10): every variable of plan § Components is
+ * `parseEnv` and the start-up refusal (specs/20261112-time-tracking T10): every variable of plan § Components is
  * required, the service credential is a pair, the service audience differs from the user
  * audience, and no message ever carries a received value (secrets live in this environment).
  */
@@ -85,7 +85,7 @@ describe("parseEnv", () => {
     }
   });
 
-  it("refuses a SERVICE_AUDIENCE equal to AUTH_AUDIENCE (ADR-0044) and accepts a different one", () => {
+  it("refuses a SERVICE_AUDIENCE equal to AUTH_AUDIENCE (ADR 20261006-scoped-service-jwt-fourth-notify-caller) and accepts a different one", () => {
     const same = parseEnv({ ...BASE, SERVICE_AUDIENCE: BASE.AUTH_AUDIENCE });
     expect(same.ok).toBe(false);
     if (!same.ok) expect(Object.keys(same.errors)).toEqual(["SERVICE_AUDIENCE"]);

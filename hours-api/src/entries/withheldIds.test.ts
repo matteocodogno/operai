@@ -1,6 +1,6 @@
 /**
  * The ids of a record the viewer may not read are withheld from everyone but the entry's author
- * (specs/029 T41; AC-4.10, AC-4.2; ADR-0089 A1; owasp-report.md F1 and § "4. D44 decision").
+ * (specs/20261112-time-tracking T41; AC-4.10, AC-4.2; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1; owasp-report.md F1 and § "4. D44 decision").
  *
  * The composition that this closes: a holder of `time-entry:read-all` WITHOUT CRM access listed everyone's
  * entries, got the ids of hidden deals and meetings from the list itself, and fed them back as `dealId` /

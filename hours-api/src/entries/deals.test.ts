@@ -1,7 +1,7 @@
 /**
- * Whether the caller may book hours on a deal, and the change rule of AC-2.12 for a deal (specs/029 T16; AC-2.3,
+ * Whether the caller may book hours on a deal, and the change rule of AC-2.12 for a deal (specs/20261112-time-tracking T16; AC-2.3,
  * AC-2.4, AC-2.10, AC-2.11, AC-2.12; plan § Sequences "Record an entry on a deal", § Entries "The id rule",
- * § Reading the owners' list answers "The deal scan", R9; ADR-0089), through the ASSEMBLED app, against the real
+ * § Reading the owners' list answers "The deal scan", R9; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route), through the ASSEMBLED app, against the real
  * database and the fake owners of T11.
  *
  * Who is involved in a deal is asked of its owners, as the CALLER, at the moment of the write: crm-api says who

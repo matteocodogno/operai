@@ -5,7 +5,7 @@ import HoursShell from './components/HoursShell'
 import { createAppRouter, type AppRouter } from './router'
 
 // The exposed remote MUST NOT import its own index.css: the shell owns the one
-// Tailwind sheet of the suite (ADR-0006 addendum, ADR-0051). Only the
+// Tailwind sheet of the suite (ADR 20260709-suite-frontend-module-federation addendum, ADR 20261031-one-styling-dialect-token-utilities). Only the
 // standalone bootstrap (main.tsx) imports index.css.
 
 const BASEPATH = '/hours'
@@ -16,7 +16,7 @@ const BASEPATH = '/hours'
  * is not ours, and is the not-found panel) and render that match when the shell mounts the module
  * again. So the router is made when the module mounts and its history destroyed (listeners and
  * `pushState` patch included) when it unmounts. The same construction as projects-ui/src/App.tsx
- * (specs/026 AC-6.1/6.2, D52/D53), which every remote the shell mounts needs; see there for the
+ * (specs/20261103-projects-handoff AC-6.1/6.2, D52/D53), which every remote the shell mounts needs; see there for the
  * defects each step answers.
  *
  * It ignores the browser's address while that address is not the module's own: between the shell
@@ -87,7 +87,7 @@ function ownRouterMount() {
 
 /**
  * App — hours-ui's root, exposed via Module Federation as `./App` (vite.config.ts) and mounted by the
- * shell at its own UNGATED `/hours/*` route (specs/029-time-tracking, ADR-0090): every signed-in user
+ * shell at its own UNGATED `/hours/*` route (specs/20261112-time-tracking, ADR 20261112-hours-ui-ungated-remote): every signed-in user
  * reaches it, whatever their grants, so it is not a TOOLS entry and has no access check of its own.
  * An inner TanStack Router rebased to `/hours`, with `HoursShell` as its root layout; no auth guard
  * and no chrome (the shell owns both).

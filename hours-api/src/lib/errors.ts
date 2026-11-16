@@ -1,5 +1,5 @@
 /**
- * The error answers every hours-api route shares (specs/029 T10; plan § Errors). Next to the
+ * The error answers every hours-api route shares (specs/20261112-time-tracking T10; plan § Errors). Next to the
  * `problem` copy, not in it: `problem.ts` is a byte-identical copy of crm-api's (the suite's error
  * shape) and its own `validationHook` answers 422, while this API's contract is 400
  * `invalid_request` for any schema violation (a body with an unknown key, a bad query, a bad

@@ -1,5 +1,5 @@
 /**
- * EntryDialogModel — what the entry dialog holds and decides, apart from how it looks (specs/029-time-tracking
+ * EntryDialogModel — what the entry dialog holds and decides, apart from how it looks (specs/20261112-time-tracking
  * T27; design S2). The values the person types and picks, the durations on offer, the client rules, the body
  * a save sends and where each refusal of hours-api lands. A component file may export only components
  * (`react-refresh`), so this is its sibling.

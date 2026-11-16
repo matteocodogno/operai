@@ -1,5 +1,5 @@
 /**
- * Fixtures of the export (specs/029-time-tracking T30; plan § Export file; AC-4.6, AC-4.10). Typed with the
+ * Fixtures of the export (specs/20261112-time-tracking T30; plan § Export file; AC-4.6, AC-4.10). Typed with the
  * wire types, so a contract change fails the build.
  *
  * `EXPORT_ENTRIES` holds sixteen entries that between them meet every case the file has a cell for: each of

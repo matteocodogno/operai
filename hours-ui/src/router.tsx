@@ -5,14 +5,14 @@ import MyHoursPage from './pages/MyHoursPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 /**
- * hours-ui's inner router (specs/029-time-tracking, ADR-0090), basepath `/hours` — the shell mounts
+ * hours-ui's inner router (specs/20261112-time-tracking, ADR 20261112-hours-ui-ungated-remote), basepath `/hours` — the shell mounts
  * this remote at its own ungated `/hours/$` route (no `beforeLoad`, not a TOOLS entry):
  *
  *   /hours        My hours: the person's own entries, totals and the entry dialog (T24–T28, T30)
  *   /hours/all    Everyone's hours: read only, for holders of `time-entry:read-all` (T29)
  *
  * The routes below are relative to the basepath. Anything else is the not-found panel. No auth guard
- * and no chrome (ADR-0006). `Root` is the layout seam: App.tsx passes `HoursShell`; tests may
+ * and no chrome (ADR 20260709-suite-frontend-module-federation). `Root` is the layout seam: App.tsx passes `HoursShell`; tests may
  * render a page under a bare `<Outlet/>`. The optional `history` is for tests (a memory history);
  * production uses the browser's.
  */

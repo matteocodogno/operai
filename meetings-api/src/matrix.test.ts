@@ -113,7 +113,7 @@ describe("not visible = nonexistent (AC-5.3, AC-4.8)", () => {
   });
 });
 
-describe("system routes serve a service credential and no person (specs/029 T9, ADR-0044)", () => {
+describe("system routes serve a service credential and no person (specs/20261112-time-tracking T9, ADR 20261006-scoped-service-jwt-fourth-notify-caller)", () => {
   it.each([...SYSTEM_ROUTES])("%s: every persona's user token gets the anonymous caller's 401, byte for byte, even for a meeting it created or sits in", async (key) => {
     const [method, path] = split(key);
     const wrong: string[] = [];

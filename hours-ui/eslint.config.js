@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
-// The suite's one styling dialect: tokens via utilities, never var(--…) in TS (ADR-0051).
+// The suite's one styling dialect: tokens via utilities, never var(--…) in TS (ADR 20261031-one-styling-dialect-token-utilities).
 import { designTokenRules } from '../operai-ui/eslint/design-tokens.ts'
 
 export default defineConfig([

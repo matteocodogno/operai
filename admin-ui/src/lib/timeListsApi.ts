@@ -1,9 +1,9 @@
 /**
  * timeListsApi — typed API client for hours-api's time lists: the categories and the two work-type
- * lists (project, deal) people pick from when they record hours (T31, specs/029-time-tracking,
+ * lists (project, deal) people pick from when they record hours (T31, specs/20261112-time-tracking,
  * refs AC-3.3, AC-5.5; plan.md § Lists).
  *
- * Same conventions as `./ratesApi.ts` (ADR-0023): one function per operation, an `ApiError` built
+ * Same conventions as `./ratesApi.ts` (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition): one function per operation, an `ApiError` built
  * from RFC 7807 Problem JSON, and a base URL that comes from the SHELL — `getHoursApiBaseUrl()` from
  * `shell/session` — never from admin-ui's own env (a remote ships no `VITE_HOURS_API_URL`; reading
  * it yields `undefined` and every request collapses to a broken relative URL). `apiFetch` already

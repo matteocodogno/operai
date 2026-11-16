@@ -1,5 +1,5 @@
 /**
- * The id rule (specs/029 plan § Entries, "The id rule"; amended 2026-11-13): 1..64 UTF-16 code units,
+ * The id rule (specs/20261112-time-tracking plan § Entries, "The id rule"; amended 2026-11-13): 1..64 UTF-16 code units,
  * no NUL, no comma, no whitespace at either end.
  *
  * ONE implementation, in `src/lists/idRule.ts` (T12 wrote it first; T13 wrote a second copy here, and T14

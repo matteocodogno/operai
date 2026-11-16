@@ -1,14 +1,14 @@
 /**
- * The answers of a bookability check (specs/029 T15; plan § Errors; AC-2.2, AC-2.5, AC-2.10, AC-2.11).
+ * The answers of a bookability check (specs/20261112-time-tracking T15; plan § Errors; AC-2.2, AC-2.5, AC-2.10, AC-2.11).
  *
  * The three that matter to a person are the same whatever the target is, so they are made here once:
  *
  * - 404 `not_found` — the target does not exist, or the caller may not read it, or (a meeting) the caller is
  *   not one of its people. ONE body for all of them, naming no kind of target and no id, so the id space is no
- *   oracle for what other people may read (AC-2.10, ADR-0089 "existence and access").
+ *   oracle for what other people may read (AC-2.10, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route "existence and access").
  * - 403 `not_on_project` / `not_involved_in_deal` — the target is readable and the caller is not on it. The only
  *   answers that say more than "no", and only because the caller can read the project or the deal anyway
- *   (ADR-0052 posture).
+ *   (ADR 20261101-crm-tool-shape-and-authorization posture).
  * - 503 `host_unavailable` — the owner could not say, or said something that is not an answer (AC-2.11): the
  *   write fails CLOSED, nothing is recorded, and the person can try again.
  */

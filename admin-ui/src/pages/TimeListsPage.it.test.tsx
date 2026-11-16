@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * TimeListsPage under `<html lang="it">` (T31, specs/029-time-tracking, AC-5.5): every string of
+ * TimeListsPage under `<html lang="it">` (T31, specs/20261112-time-tracking, AC-5.5): every string of
  * the page's states comes from the Italian catalog, none from the English one, and the server's own
  * (English) problem text never reaches the screen. The catalog's completeness is checked once for
  * the whole app by strings.test.tsx (`catalogGaps`); this proves the page reads it.

@@ -1,5 +1,5 @@
 /**
- * Fixtures of the entries by day on My hours (specs/029-time-tracking T25). Typed with the wire types, so a
+ * Fixtures of the entries by day on My hours (specs/20261112-time-tracking T25). Typed with the wire types, so a
  * contract change fails the build. The two pages are cut so that one DAY (12 November) straddles them: its
  * full total (8 h 30, `ENTRY_DAY_TOTALS` below) must show before "Load more" although only two of its
  * three entries have arrived — the case the `groupBy=day` answer exists for (plan § Totals, AC-4.1).

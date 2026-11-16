@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Component tests for TimeListItemDialog — the Add / Rename form of a time-list item (T32,
- * specs/029-time-tracking/tasks.md, refs AC-3.1, AC-3.8; plan.md § Lists; design.md S5 "Add /
+ * specs/20261112-time-tracking/tasks.md, refs AC-3.1, AC-3.8; plan.md § Lists; design.md S5 "Add /
  * Rename"). The page owns the request; the dialog owns the form, its validation and the way a
  * failed request reads. Here `onSubmit` is the page's answer, faked.
  *

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * HoursBanners — what the view says about names it could not load or may not show (specs/029-time-tracking
+ * HoursBanners — what the view says about names it could not load or may not show (specs/20261112-time-tracking
  * T25; AC-4.7, AC-4.10; design S1 states table). Three notes, each only when it applies, none announced
  * more loudly than it deserves: a source that did not answer is a polite status, the deal-grouping warning
  * is polite too (never `alert`), and the "names not visible" note is a standing fact read in place

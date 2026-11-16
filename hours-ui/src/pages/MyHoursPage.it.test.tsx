@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * My hours under `<html lang="it">` (specs/029-time-tracking T24, AC-5.5, AC-3.8): the filters and the Totals
+ * My hours under `<html lang="it">` (specs/20261112-time-tracking T24, AC-5.5, AC-3.8): the filters and the Totals
  * card come from the Italian catalog and none of the English one, months are written in Italian, and a name
  * the administrator typed ("Formazione") is shown verbatim — in a language that is not the one it was typed
  * in, and in English too. Completeness of the catalog is checked once for the whole app (strings.test.ts);
@@ -225,7 +225,7 @@ describe('the entries by day in Italian (AC-5.5, AC-3.8, AC-4.10)', () => {
   })
 })
 
-describe('the entry dialog in Italian (AC-5.5, AC-3.8; specs/029 T27)', () => {
+describe('the entry dialog in Italian (AC-5.5, AC-3.8; specs/20261112-time-tracking T27)', () => {
   it('writes the action, the dialog, the choices and the first errors in Italian, and a typed category verbatim', async () => {
     await setup('it')
     await userEvent.click(screen.getByRole('button', { name: 'Registra ore' }))

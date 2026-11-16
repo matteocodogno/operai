@@ -35,7 +35,7 @@ afterEach(() => {
 
 /**
  * The Everyone's hours tab and page are a UX convenience for holders of `time-entry:read-all`
- * (design § HoursShell, ADR-0075): the server is the gate. The shell's `usePermissions()` has no
+ * (design § HoursShell, ADR 20261108-estimai-oversight-permission-amends-0036): the server is the gate. The shell's `usePermissions()` has no
  * "loaded" flag (an unresolved answer is its empty result), so "resolved" is read from the answer.
  */
 describe('hoursAccessOf', () => {

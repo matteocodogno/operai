@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Component tests for SectionNav (T14, specs/20260713-auth-roles-permissions/tasks.md;
- * T31, specs/029-time-tracking — the proactive `time-list:manage` gate).
+ * T31, specs/20261112-time-tracking — the proactive `time-list:manage` gate).
  * The capability-gated "Refund" entry moved to refund-ui's Settings tab on
  * 2026-11-13 (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment).
  *
@@ -186,11 +186,11 @@ describe('SectionNav active state (aria-current)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Time lists gate (T31, specs/029-time-tracking, AC-3.3): out of the DOM until the
+// Time lists gate (T31, specs/20261112-time-tracking, AC-3.3): out of the DOM until the
 // permissions resolve and hold `time-list:manage`, never disabled.
 // ---------------------------------------------------------------------------
 
-describe('SectionNav "Time lists" gate (T31, specs/029-time-tracking)', () => {
+describe('SectionNav "Time lists" gate (T31, specs/20261112-time-tracking)', () => {
   const timeListManage = { resource: 'time-list', action: 'manage', conditions: null }
 
   it('is out of the DOM while the permissions have not resolved (the shell’s empty result)', async () => {

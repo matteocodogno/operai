@@ -1,5 +1,5 @@
 /**
- * Display names of the people on entries (specs/029 T10; AC-4.8, ADR-0039): resolved LIVE from
+ * Display names of the people on entries (specs/20261112-time-tracking T10; AC-4.8, ADR 20260807-live-identity-resolution-by-id-fail-soft): resolved LIVE from
  * `auth POST /authz/users/identities` with the viewer's own Bearer, never stored and never cached
  * here, failing SOFT (`unknown`, the entries stay listed and counted, AC-4.7).
  */

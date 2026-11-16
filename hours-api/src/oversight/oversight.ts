@@ -1,8 +1,8 @@
 /**
- * Oversight — reading everyone's hours for a holder of `time-entry:read-all` (specs/029 T19; plan § Sequences
- * "Oversight"; AC-1.6, AC-4.2, AC-4.3, AC-5.2, AC-5.4; ADR-0075, ADR-0088).
+ * Oversight — reading everyone's hours for a holder of `time-entry:read-all` (specs/20261112-time-tracking T19; plan § Sequences
+ * "Oversight"; AC-1.6, AC-4.2, AC-4.3, AC-5.2, AC-5.4; ADR 20261108-estimai-oversight-permission-amends-0036, ADR 20261112-hours-api-time-entries-own-service-hours-catalog).
  *
- * Adapted from estimai-api/src/estimates/oversight.ts (no workspace: each resource server owns its copy, ADR-0003;
+ * Adapted from estimai-api/src/estimates/oversight.ts (no workspace: each resource server owns its copy, ADR 20260703-estimai-api-bun-hono-typescript;
  * not drift-checked, plan R10), with two differences: the `auth` call is T12's `fetchResolvedPermissions`
  * (src/authz/resolveClient.ts: 2 s timeout, `redirect: "error"`, a body read strictly) and not estimai-api's
  * `authClient.ts` (5 s, follows redirects, replaying the Bearer to another host), and the cache key's epoch is the
@@ -70,7 +70,7 @@ export async function holdsReadAll(session: Session): Promise<boolean> {
     const permissions = await fetchResolvedPermissions(session.authorization);
     holds = permissions.some((p) => p.resource === READ_ALL.resource && p.action === READ_ALL.action);
   } catch (err) {
-    // Fail CLOSED (ADR-0014 point 4). The error's NAME only: a fetch error's message can name auth's internal host.
+    // Fail CLOSED (ADR 20260716-refund-api-authorization-enforcing-resource-server point 4). The error's NAME only: a fetch error's message can name auth's internal host.
     console.error("[oversight] auth GET /authz/resolve failed — failing closed:", err instanceof Error ? err.name : typeof err);
     throw new OversightUnavailableError(err);
   }

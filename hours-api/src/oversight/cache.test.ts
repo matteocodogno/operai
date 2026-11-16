@@ -1,5 +1,5 @@
 /**
- * What the oversight check remembers (specs/029 T19; plan § Sequences "Oversight", AC-4.2, AC-5.4, ADR-0075): a REFUSAL is
+ * What the oversight check remembers (specs/20261112-time-tracking T19; plan § Sequences "Oversight", AC-4.2, AC-5.4, ADR 20261108-estimai-oversight-permission-amends-0036): a REFUSAL is
  * kept 30 s per `(sub, perm_epoch)`, so a person without `time-entry:read-all` does not cost `auth` a call per request;
  * a GRANT is never kept, so a revocation holds on the very next request even while the caller's token still carries the
  * old epoch; an outage is kept neither way. The same shape as `time-list:manage` (src/authz/timeListManage.ts, T12) —

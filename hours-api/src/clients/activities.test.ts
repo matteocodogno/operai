@@ -1,6 +1,6 @@
 /**
- * activities-api, asked as the caller (specs/029 T11; plan § API contracts "activities-api", § Sequences,
- * AC-2.3, AC-2.7, AC-2.9, AC-4.7, risks R6, R7, R9, ADR-0089; activities-api T6):
+ * activities-api, asked as the caller (specs/20261112-time-tracking T11; plan § API contracts "activities-api", § Sequences,
+ * AC-2.3, AC-2.7, AC-2.9, AC-4.7, risks R6, R7, R9, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route; activities-api T6):
  *
  *   GET /activities?ids=a,b,c     the activities of those ids the caller may read, ALWAYS one page (≤ 50)
  *   GET /activities?dealId=<id>   the activities about a deal, paged (the scan for "is the caller involved")

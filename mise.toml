@@ -131,7 +131,7 @@ run = "bun tools/env-doctor/index.ts"
 # until one is added (mirror crm-api/.envrc: DATABASE_URL, AUTH_*, MEETINGS_S3_*, provider
 # keys), so until then those variables must be in the calling shell.
 #
-# hours-api (specs/029) has no `.envrc` in the repo yet either: a person creates `hours-api/.envrc` (the
+# hours-api (specs/20261112-time-tracking) has no `.envrc` in the repo yet either: a person creates `hours-api/.envrc` (the
 # protected-file hook keeps agents from writing one; the variables, with how to fill each, are in
 # hours-api/.env.example) and runs `direnv allow hours-api`. Until then `direnv exec .` below loads nothing,
 # hours-api exits at start on its env validation (src/lib/env.ts, exit 1, naming each missing variable) and
@@ -288,7 +288,7 @@ exec cargo run -p letterhead-api
 # an empty migrations directory is a no-op, not an error, so this stays safe
 # to run today.
 #
-# hours-api (specs/029) comes last: its `DATABASE_URL` (the `hours` database) comes from hours-api/.envrc,
+# hours-api (specs/20261112-time-tracking) comes last: its `DATABASE_URL` (the `hours` database) comes from hours-api/.envrc,
 # which a person creates (see the note above `dev`), or from an hours-api/.env; without either, its
 # `db:deploy` fails on the missing URL and the other nine databases are already migrated.
 [tasks."db:migrate"]

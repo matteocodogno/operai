@@ -1,5 +1,5 @@
 /**
- * The labels layer (specs/029 T13; plan § Sequences "List / totals" step 4, § Views, ADR-0089;
+ * The labels layer (specs/20261112-time-tracking T13; plan § Sequences "List / totals" step 4, § Views, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route;
  * AC-2.6, AC-2.9, AC-4.7, AC-4.8, AC-4.10).
  *
  * The names next to an entry belong to other services, and what a name may be shown to depends on WHO
@@ -98,7 +98,7 @@ function entityLabel(outcome: ResolveOutcome<ResolvedEntity>, id: string): Entit
   return { visibility: "visible", label: item.label, href: item.href };
 }
 
-/** A meeting's page in the suite (`./MyMeetings`, ungated, ADR-0058). The id is one path segment whatever it holds. */
+/** A meeting's page in the suite (`./MyMeetings`, ungated, ADR 20261104-meetings-tool-shape-visibility-by-participation). The id is one path segment whatever it holds. */
 const meetingHref = (meetingId: string): string => `/my-meetings/m/${encodeURIComponent(meetingId)}`;
 
 /**

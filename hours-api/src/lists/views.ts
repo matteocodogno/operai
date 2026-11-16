@@ -1,5 +1,5 @@
 /**
- * What the list routes answer (specs/029 plan § Lists): a category and a work type as the screens
+ * What the list routes answer (specs/20261112-time-tracking plan § Lists): a category and a work type as the screens
  * read them. `retired` is a boolean on the wire; the row keeps the instant (`retiredAt`), which no
  * screen shows.
  */

@@ -1,6 +1,6 @@
 /**
  * `assertBookable` — the decision of whether a caller may record hours on a project, a deal or a meeting
- * (specs/029 T15, T16; plan § Sequences; ADR-0089; AC-2.2, AC-2.3, AC-2.5, AC-2.10, AC-2.11), on its own, against the fake
+ * (specs/20261112-time-tracking T15, T16; plan § Sequences; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route; AC-2.2, AC-2.3, AC-2.5, AC-2.10, AC-2.11), on its own, against the fake
  * owners of T11 and the real clients. src/entries/bookability.test.ts drives the same decisions through the
  * routes; this one pins the module's contract: it answers by THROWING, on every outcome but "yes".
  *

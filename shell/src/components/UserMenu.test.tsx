@@ -265,7 +265,7 @@ describe('UserMenu', () => {
     })
   })
 
-  describe('(i) "My hours" links to /hours (specs/029-time-tracking, AC-5.1, design S6, ADR-0090)', () => {
+  describe('(i) "My hours" links to /hours (specs/20261112-time-tracking, AC-5.1, design S6, ADR 20261112-hours-ui-ungated-remote)', () => {
     it('is a real link directly after "My meetings", visible to any signed-in user', async () => {
       await renderUserMenu({ user: { name: 'Alice Welld', email: null, image: null }, onSignOut: () => {} })
       openMenu('Alice Welld')

@@ -1,5 +1,5 @@
 /**
- * What "today" is (specs/029 T14; plan § Entries, AC-1.3): a day in `Europe/Zurich`, the business's own
+ * What "today" is (specs/20261112-time-tracking T14; plan § Entries, AC-1.3): a day in `Europe/Zurich`, the business's own
  * calendar, never UTC. At 23:30Z on 12 November the people recording hours are already on the 13th, so a
  * `day` of the 13th is today and not "after today" (`future_day`).
  *

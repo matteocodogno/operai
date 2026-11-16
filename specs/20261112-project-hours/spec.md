@@ -1,24 +1,24 @@
 ---
-id: 030
+id: 20261112
 slug: project-hours
 status: approved
 rigor: production
 created: 2026-11-12
 approved: 2026-11-12
-depends-on: 025, 026, 029
+depends-on: 20261103-projects, 20261103-projects-handoff, 20261112-time-tracking
 ---
 
 # Project hours — time worked against what was sold
 
-Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/029, specs/031 and
-specs/032; this spec's decisions are D10, D13, D22, D27 and D28)
+Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-meeting-hours and
+specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28)
 
-> **Origin.** Split out of specs/029 on 2026-11-12 (ledger D11, D26). specs/029 records time
+> **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D11, D26). specs/20261112-time-tracking records time
 > entries; this spec puts a project's hours next to what its terms sold — the hour package, the
 > max effort and estimated man-days of a fixed price, the positions of a time-and-material project
-> (specs/025 US-2, as amended by specs/026) — and shows a project's and a deal's hours on their
-> pages. It answers specs/025 O2 (D28). The alerts raised from these figures are **specs/032**
-> (D34). **It builds on the project terms and purchase order of specs/026 (PR #9): no work on it
+> (specs/20261103-projects US-2, as amended by specs/20261103-projects-handoff) — and shows a project's and a deal's hours on their
+> pages. It answers specs/20261103-projects O2 (D28). The alerts raised from these figures are **specs/20261112-project-alerts**
+> (D34). **It builds on the project terms and purchase order of specs/20261103-projects-handoff (PR #9): no work on it
 > starts before that PR is merged.**
 
 ## Problem
@@ -26,17 +26,17 @@ specs/032; this spec's decisions are D10, D13, D22, D27 and D28)
 A project's terms say how many hours a maintenance client bought and how much effort a fixed price
 may take, but nothing tells the project manager how much of it has been used. An hour package runs
 out, or expires half unused, and the first to notice is the client; a fixed price passes its max
-effort unnoticed. specs/029 now records the hours, but until they are set against the terms the
+effort unnoticed. specs/20261112-time-tracking now records the hours, but until they are set against the terms the
 record cannot answer how much is left.
 
 ## Domain language
 
-- **consumption** — the hours recorded on a project (specs/029), set against what its terms sold:
+- **consumption** — the hours recorded on a project (specs/20261112-time-tracking), set against what its terms sold:
   the hour package, or the max effort and estimated man-days, or the positions' planned man-days.
-- **man-day** — 8 hours, in every comparison (D27). Not the contractual day of specs/029.
-- **package period** — for a yearly hour package, each 12 months from its start date (specs/025
+- **man-day** — 8 hours, in every comparison (D27). Not the contractual day of specs/20261112-time-tracking.
+- **package period** — for a yearly hour package, each 12 months from its start date (specs/20261103-projects
   A7); for a capacity package, from its start date to its expiry, or open-ended without one.
-- **terms**, **purchase order**, **ops-manager** — as in specs/026.
+- **terms**, **purchase order**, **ops-manager** — as in specs/20261103-projects-handoff.
 
 ## User stories
 
@@ -60,7 +60,7 @@ it runs out.
 - AC-1.7 Given a project with no terms (`internal`, or made by hand without them), then its page
   shows only the total hours recorded.
 - AC-1.8 Given every holder of the project module's access, then they see these figures; none of
-  them shows an amount, a price or a rate (specs/025 AC-2.9, A32).
+  them shows an amount, a price or a rate (specs/20261103-projects AC-2.9, A32).
 
 ### US-2 Hours on the project and deal pages
 As a project manager or a deal owner, I want to see who spent the hours on my project or deal, so
@@ -69,12 +69,12 @@ that I know where the effort went.
 - AC-2.1 Given anyone who can read a project, then its page shows the total hours recorded on it,
   and per work type (D22).
 - AC-2.2 Given anyone who can read a deal, then its page shows the total hours recorded on it —
-  including the hours of meetings linked to it (specs/029 AC-2.6) — and per work type (D22).
+  including the hours of meetings linked to it (specs/20261112-time-tracking AC-2.6) — and per work type (D22).
 - AC-2.3 Given the project's project manager, then its page also shows the hours each person
   recorded on it (D22).
 - AC-2.4 Given the deal's owner, then its page also shows the hours each person recorded on it
   (D22).
-- AC-2.5 Given anyone else without see everyone's hours (specs/029), then neither page shows a
+- AC-2.5 Given anyone else without see everyone's hours (specs/20261112-time-tracking), then neither page shows a
   per-person figure (D22).
 - AC-2.6 Given hours cannot be loaded, then the project or deal page still loads and says that
   hours are unavailable (A20).
@@ -83,19 +83,19 @@ that I know where the effort went.
 As an admin, I want consumption to follow the project module's rules, so that nothing new is
 exposed.
 
-- AC-3.1 Given the figures of US-1 and US-2, then they use only the hours of specs/029 and the
-  terms of specs/026; nothing is entered by hand to feed them.
+- AC-3.1 Given the figures of US-1 and US-2, then they use only the hours of specs/20261112-time-tracking and the
+  terms of specs/20261103-projects-handoff; nothing is entered by hand to feed them.
 - AC-3.2 Given any new copy, then it exists in English and Italian, and dates, hours and man-days
   use the library formatters.
 
 ## Non-goals
 
 - **Alerts** raised from these figures — package thresholds, end dates, deadlines, idle hours,
-  effort overrun: **specs/032** (D34).
+  effort overrun: **specs/20261112-project-alerts** (D34).
 - **Per-position comparison** on time-and-material projects (D13).
 - **Carrying unused hours** of a yearly package into the next period (D28).
-- **Money**: no amount, price, rate or cost anywhere (specs/025 D14).
-- **Locking or approving hours** — specs/029 O4 still applies before hours are used to bill.
+- **Money**: no amount, price, rate or cost anywhere (specs/20261103-projects D14).
+- **Locking or approving hours** — specs/20261112-time-tracking O4 still applies before hours are used to bill.
 
 ## Constraints
 

@@ -1,5 +1,5 @@
 /**
- * meetings-api, two ways (specs/029 T11; plan § Sequences, § API contracts "meetings-api", ADR-0089,
+ * meetings-api, two ways (specs/20261112-time-tracking T11; plan § Sequences, § API contracts "meetings-api", ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route,
  * AC-2.5, AC-2.6, AC-2.10, AC-4.5, AC-4.7, AC-4.11, risk R7; meetings-api T8 and T9):
  *
  * AS THE CALLER — `listMeetingsByIds`   GET /meetings?ids=a,b,c   (≤ 25 ids)
@@ -17,7 +17,7 @@
  *   `aud` = SERVICE_AUDIENCE), cached by `serviceTokens`, dropped after a 401 and fetched fresh ONCE.
  *   NEVER the caller's token, and nothing here takes one. What it learns reaches a viewer only with the
  *   right to read the deal it names (labels, T13). It answers `{id, host}` and nothing else, where `host`
- *   is what the meeting stores: null, or three strings of any value (ADR-0059). Only exactly
+ *   is what the meeting stores: null, or three strings of any value (ADR 20261104-meeting-host-contract-resolve-and-notices). Only exactly
  *   crm / deal is a deal; any other host counts as no deal and never fails a batch (plan § Views).
  *
  * An unknown id is simply absent from the system answer (the meeting no longer exists). Absence means
@@ -94,7 +94,7 @@ export interface MeetingHost {
 export type MeetingHosts = Unavailable | { readonly state: "ok"; /** An id that is absent: the meeting no longer exists. */ readonly items: ReadonlyMap<string, MeetingHost> };
 export type LinkedMeetings = Unavailable | { readonly state: "ok"; readonly meetingIds: readonly string[] };
 
-// `host` is what the meeting stores: null, or THREE STRINGS, whatever they are (ADR-0059: a host is data,
+// `host` is what the meeting stores: null, or THREE STRINGS, whatever they are (ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data,
 // never a branch; T9 does not narrow it). So the shape accepts any strings and `dealOf` decides per item;
 // anything that is neither null nor an object of three strings is not the route's shape: `unavailable`.
 const wireSystemItem = z.object({
@@ -105,7 +105,7 @@ const systemBody = z.object({ items: z.array(wireSystemItem) });
 
 /**
  * The deal a stored host names: only exactly `app: "crm"`, `entityType: "deal"` is one. Any other host
- * (production has none, specs/021 AC-11.1) counts as NO deal, like `null`, and its `entityId` is never
+ * (production has none, specs/20261104-meetings AC-11.1) counts as NO deal, like `null`, and its `entityId` is never
  * taken for a deal id; nor is an empty one, which names nothing (and would be an id outside the id rule
  * on its way to crm-api).
  */

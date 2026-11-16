@@ -45,7 +45,7 @@ interface ImportMetaEnv {
    */
   readonly VITE_ACCOUNTING_API_URL?: string
   /**
-   * Public origin of hours-api (specs/029-time-tracking), e.g.
+   * Public origin of hours-api (specs/20261112-time-tracking), e.g.
    * `https://hours-api.operai.welld.io`. Optional, like VITE_ACTIVITIES_API_URL: unset →
    * not trusted, no Bearer JWT sent; hours-ui and admin-ui have no copy of their own (they ask the shell).
    */

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * EntryDayList — the entries of My hours, one section per day (specs/029-time-tracking T25; AC-4.1, AC-2.6,
+ * EntryDayList — the entries of My hours, one section per day (specs/20261112-time-tracking T25; AC-4.1, AC-2.6,
  * AC-2.9, AC-4.7, AC-4.9, AC-4.10; design S1 "Entries", "Names the viewer cannot read"). Presentational: it
  * is handed the entries in the server's order and the day totals the server stated, and it computes nothing —
  * a day whose total has not arrived has no figure, never a sum of the rows on screen.

@@ -126,7 +126,7 @@ import { strings } from './strings'
 //     no `RemoteMount`/loader here, just a plain `component`. Reached from
 //     the new "My profile" entry in `UserMenu` (T15), not the nav/sidebar.
 //
-// specs/029-time-tracking, T23 (AC-5.1, ADR-0090) adds:
+// specs/20261112-time-tracking, T23 (AC-5.1, ADR 20261112-hours-ui-ungated-remote) adds:
 //   - `/hours/$`: mounts the new `hours-ui` remote, a remote with NO gated half —
 //     every screen is a signed-in person's own hours, so it is structurally the
 //     `/my-meetings/$` shape (child of `shellRoute`, NO `beforeLoad`, NO
@@ -311,7 +311,7 @@ const loadProjectsApp = () => import('projects/App')
 const loadLetterheadsApp = () => import('letterheads/App')
 // specs/20261119-accounting: accounting-ui's gated tool entry (`/accounting/$`).
 const loadAccountingApp = () => import('accounting/App')
-// specs/029-time-tracking (ADR-0090): hours-ui's one entry, ungated (`/hours/$`).
+// specs/20261112-time-tracking (ADR 20261112-hours-ui-ungated-remote): hours-ui's one entry, ungated (`/hours/$`).
 const loadHoursApp = () => import('hours/App')
 
 // ---------------------------------------------------------------------------
@@ -516,10 +516,10 @@ const myMeetingsRoute = createRoute({
 })
 
 // ---------------------------------------------------------------------------
-// `/hours/$` — "Hours" (specs/029-time-tracking, T23, AC-5.1, AC-5.3, ADR-0090). The
+// `/hours/$` — "Hours" (specs/20261112-time-tracking, T23, AC-5.1, AC-5.3, ADR 20261112-hours-ui-ungated-remote). The
 // ONLY entry of the hours remote, and wholly ungated: recording and reading your own
 // hours is a person's own act, not a tool grant, so a caller with zero app grants must
-// reach it (ADR-0034's test; listing it in `TOOLS` behind an `hours:access` grant would
+// reach it (ADR 20260804-shell-identity-scoped-non-tool-screens-account-route's test; listing it in `TOOLS` behind an `hours:access` grant would
 // recreate the lockout). Splat route — the remote has an inner router (`/hours`,
 // `/hours/all`, not-found) — with the same three deliberate absences as `/my-meetings/$`:
 //   - NO `beforeLoad` app-access guard (the `_authed` session guard still applies, so no

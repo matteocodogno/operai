@@ -1793,9 +1793,9 @@ describe("seedAccountingGrants (specs/20261119-accounting — T1, AC-3.3)", () =
   });
 });
 
-// ─── specs/029-time-tracking ─────────────────────────────────────────────────
+// ─── specs/20261112-time-tracking ─────────────────────────────────────────────────
 
-describe("seedHoursCatalog (specs/029 — AC-5.2)", () => {
+describe("seedHoursCatalog (specs/20261112-time-tracking — AC-5.2)", () => {
   test("registers the hours catalog — time-entry:read-all and time-list:manage, both unconditioned, no access resource, idempotent", async () => {
     await seedHoursCatalog();
     await seedHoursCatalog();
@@ -1816,7 +1816,7 @@ describe("seedHoursCatalog (specs/029 — AC-5.2)", () => {
   });
 });
 
-describe("seedHoursGrants (specs/029 — AC-5.2, AC-3.3, AC-4.3)", () => {
+describe("seedHoursGrants (specs/20261112-time-tracking — AC-5.2, AC-3.3, AC-4.3)", () => {
   const HOURS_RESOURCES = ["time-entry", "time-list", HOURS_APP_ID];
 
   async function clearHoursGrants() {

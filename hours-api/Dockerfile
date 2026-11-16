@@ -40,7 +40,7 @@ USER bun
 
 EXPOSE 8088
 
-# DATA-RESIDENCY (specs/029-time-tracking): this image is deployed to Railway EU region
+# DATA-RESIDENCY (specs/20261112-time-tracking): this image is deployed to Railway EU region
 # only (europe-west4, see railway.json) — hours-api holds personal data about workers (which
 # day each person spent how long on which project, deal or meeting) and the ids of the people
 # (names are resolved live from auth, never stored). Request/response bodies are NEVER logged —

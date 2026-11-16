@@ -15,7 +15,7 @@ export type PersonFilterProps = {
 }
 
 /**
- * PersonFilter — the Person select of Everyone's hours (specs/029-time-tracking T29; AC-4.4, AC-4.8; design S4
+ * PersonFilter — the Person select of Everyone's hours (specs/20261112-time-tracking T29; AC-4.4, AC-4.8; design S4
  * "Filters card"). Its options are the people who have hours under the view's OTHER filters, so they are
  * exactly the people worth choosing and no user directory is needed; the page gives it the answer (it never
  * reads anything). "Everyone" is first, then the people in the order the server sent them (by name).

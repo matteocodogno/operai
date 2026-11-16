@@ -1,5 +1,5 @@
 /**
- * Fixtures of Everyone's hours (specs/029-time-tracking T29). Typed with the wire types, so a contract change
+ * Fixtures of Everyone's hours (specs/20261112-time-tracking T29). Typed with the wire types, so a contract change
  * fails the build. The person totals are in the order the SERVER sends them (plan § Totals: by name, an
  * unresolved name last, then by id) so that a client that re-sorted them would visibly change it, and they
  * hold the three kinds of person a holder meets: one with a name, one deactivated (auth keeps no name for it)

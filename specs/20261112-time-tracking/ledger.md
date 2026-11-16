@@ -1,13 +1,13 @@
 ---
 topic: Time tracking — the hours employees spend on company work (projects, pre-sales, meetings, unmapped work)
 grilled: 2026-11-12
-target: specs/029-time-tracking/spec.md
+target: specs/20261112-time-tracking/spec.md
 complete: true
 ---
 
 ## Decision ledger — time tracking
 
-Moved here from `.forge/grill/time-tracking.md` when specs/029 was written (2026-11-12).
+Moved here from `.forge/grill/time-tracking.md` when specs/20261112-time-tracking was written (2026-11-12).
 
 Decision map (parents first; re-drawn after D1, all branches closed):
 - B1 Coverage — D2, D3, D4, D5
@@ -16,17 +16,17 @@ Decision map (parents first; re-drawn after D1, all branches closed):
   - B1c Contractual hours per person — moot after D23
 - B2 Concept: time entry vs activity — D6, D7
 - B3 Comparison with what was sold — D10
-  - B3a Timing — D11 (specs/030)
+  - B3a Timing — D11 (specs/20261112-project-hours)
   - B3b Grain — D13
-  - B3c Man-day ↔ hours — O1 (specs/030)
-  - B3d Yearly package carry-over — O2 (specs/030)
+  - B3c Man-day ↔ hours — O1 (specs/20261112-project-hours)
+  - B3d Yearly package carry-over — O2 (specs/20261112-project-hours)
 - B4 Who books — D14; B4b where — D16
 - B5 Granularity — D8
 - B6 Hours from meetings — D17
 - B7 Corrections and locking — D24, O4
 - B8 Visibility — D9; B8a manager — D21; B8b project and deal pages — D22
 - B9 Global view and export — D25
-- B25 Amending specs/025 — D15 (nothing to amend)
+- B25 Amending specs/20261103-projects — D15 (nothing to amend)
 
 Decided (the user chose):
 - D1 Purpose: record the time employees spend on company work — development on projects, pre-sales, meetings and more; "consumo di ore" did not mean consumption against what was sold (that is B3) — user, 2026-11-12
@@ -38,12 +38,12 @@ Decided (the user chose):
 - D7 Some hours can be inferred rather than typed, e.g. taking part in a meeting — user, 2026-11-12 (how: D17)
 - D8 Granularity (B5): a time entry is a day and a duration, in steps of 30 minutes (the user amended the proposed 15), with no start or end time; a start–end time is a non-goal that a later spec may add as optional — user chose the recommended option after asking for pros and cons and how Harvest, Tempo, Productive, Toggl and Clockify do it, 2026-11-12 ("start simple, complicate in a later spec")
 - D9 Visibility (B8): a global hours view where an ordinary user sees only their own hours and an "admin" or a "manager" sees everyone's — user, 2026-11-12 (manager: D21)
-- D10 Projects: hours logged on a project's work must be compared with the estimates provided and with maintenance hours — user, 2026-11-12 (in specs/030, D11)
-- D11 Split (B3a): this spec (029) is time entries and the hours views, branched from main (projects, deals, meetings and activities already exist there — no overlap with feat/projects-handoff); a follow-up spec (030) compares hours with what was sold, after PR #9 is merged (terms/PO, ADR-0086). B3b is still decided here because it fixes what an entry carries from day one — user chose the recommended option after asking for a recap of both specs, 2026-11-12
-- D12 For specs/030 (not this spec), proactive alerts, in the user's words: "se il progetto ha due date; se maintenance → trigger che genera un task alla fine / vicinanza della fine del monte ore o se non abbiamo fatto ore; se c'è un ritardo" — user, 2026-11-12; details to be grilled in 030
+- D10 Projects: hours logged on a project's work must be compared with the estimates provided and with maintenance hours — user, 2026-11-12 (in specs/20261112-project-hours, D11)
+- D11 Split (B3a): this spec (029) is time entries and the hours views, branched from main (projects, deals, meetings and activities already exist there — no overlap with feat/projects-handoff); a follow-up spec (030) compares hours with what was sold, after PR #9 is merged (terms/PO, ADR 20261105-terms-and-purchase-order-two-optional-records-of-a-project-contract-retired). B3b is still decided here because it fixes what an entry carries from day one — user chose the recommended option after asking for a recap of both specs, 2026-11-12
+- D12 For specs/20261112-project-hours (not this spec), proactive alerts, in the user's words: "se il progetto ha due date; se maintenance → trigger che genera un task alla fine / vicinanza della fine del monte ore o se non abbiamo fatto ore; se c'è un ritardo" — user, 2026-11-12; details to be grilled in 030
 - D13 Grain (B3b): an entry on a project carries the project only (plus the optional activity pointer of D6, which gives per-task totals); no T&M position and no estimate activity — in 030 the comparison is on the project total, T&M against the total of its positions — user chose the recommended option, 2026-11-12
 - D14 Who books (B4): only the person creates, edits and deletes their own time entries; admins and managers read them (D9) but never change them; hours inferred from meetings are therefore suggestions each participant confirms (D17) — user chose the recommended option, 2026-11-12
-- D15 Nothing to amend in specs/025 or specs/026 — the earlier "amendare la spec 25 e rivederla" was a slip — user, 2026-11-12
+- D15 Nothing to amend in specs/20261103-projects or specs/20261103-projects-handoff — the earlier "amendare la spec 25 e rivederla" was a slip — user, 2026-11-12
 - D16 Where (B4b): on a project only its project manager and team members book; on a deal only the people involved in it — its owner, its technical contact, or the assignee or a participant of one of its activities — user chose this over the recommended "deal: anyone with CRM access", 2026-11-12
 - D17 Inferred hours (B6): only Meetings meetings suggest hours — each meeting that has a duration suggests, to its creator and to each Operai participant, an entry on the meeting's day with its duration rounded to 30 minutes, on the meeting (and so on its deal when linked); the person confirms, changes or dismisses it; CRM call/meeting activities (typed by hand, no duration) suggest nothing — user chose the recommended option after asking what "CRM call/meeting" meant, 2026-11-12
 - D18 Unmapped work (B1b, revised): an entry is either on an entity (a project, a deal or a meeting) or on no entity; an entry on no entity must have a category, chosen from a dropdown of categories an admin manages (create, rename, retire — never delete); an entry on an entity has no category, and grouping it as delivery / internal / pre-sales in reports is derived from the entity's type, never stored; in the hours view a person can record hours with no entity. The user first said "some categories must be derived from the entity", then "categories are only needed when no entity is associated" — the later, more specific statement is taken, and the user confirmed it at B1b-i. R&D and internal tools go on `internal` projects — user, 2026-11-12
@@ -54,9 +54,9 @@ Decided (the user chose):
 - D23 Completeness (B1a): no completeness check in v1 — the personal view shows each day's total, with no "incomplete" mark and no reminder — user chose this over the recommended "mark partial days", 2026-11-12; B1c is therefore moot
 - D24 Corrections (B7): a person edits and deletes their own entries at any time; no lock and no approval in v1 — user chose the recommended option, 2026-11-12
 - D25 Global view (B9): filters by period, person, project, deal, category and work type; totals grouped by person, project, deal, category and month; export to a file of exactly what the filters show; no charts in v1 — user chose the recommended option, 2026-11-12
-- D26 Further split (asked by the user after seeing the size, ~7 stories / ~38 ACs): specs/029 keeps time entries, categories and work types, the hours views with export, and access; the hours on the project and deal pages (D22) move to specs/030, because they touch projects-ui and the CRM deal page that PR #9 changes heavily and 030 already shows a project's hours; the hours suggested from meetings (D17, A4, A5, A17–A19) move to a new specs/031, the only part that touches Meetings. No decision changes, only which spec carries it — user chose the recommended option, 2026-11-12
+- D26 Further split (asked by the user after seeing the size, ~7 stories / ~38 ACs): specs/20261112-time-tracking keeps time entries, categories and work types, the hours views with export, and access; the hours on the project and deal pages (D22) move to specs/20261112-project-hours, because they touch projects-ui and the CRM deal page that PR #9 changes heavily and 030 already shows a project's hours; the hours suggested from meetings (D17, A4, A5, A17–A19) move to a new specs/20261112-meeting-hours, the only part that touches Meetings. No decision changes, only which spec carries it — user chose the recommended option, 2026-11-12
 
-Decided for specs/030 (batched interview while writing 030, 2026-11-12):
+Decided for specs/20261112-project-hours (batched interview while writing 030, 2026-11-12):
 - D27 O1 closed: in every comparison 1 man-day = 8 hours (EstimAI also divides by 8; the contractual day of D3 is not the day sold) — user chose the recommended option
 - D28 O2 closed: no carry-over — each 12-month period of a yearly hour package stands alone, unused hours are lost — user chose the recommended option
 - D29 Hour package alert: a task at 80 % and another at 100 % of the package's hours (the current period for a yearly package, until expiry for a capacity one), one per threshold and period, to the project manager (or the ops-manager while the project awaits one) — user chose the recommended option
@@ -64,7 +64,7 @@ Decided for specs/030 (batched interview while writing 030, 2026-11-12):
 - D31 Dates alert: when a project's terms have a start and an end date, a task 30 days before the end date — user chose the recommended option
 - D32 Delay alert: a task when the terms' end date or a fixed price's deadline has passed and the project is not closed or cancelled; plus effort tasks at 80 % and 100 % of a fixed price's max effort — user chose "date + effort overrun" over the recommended "date only"
 - D33 Time-and-material projects get no alerts of any kind — user, 2026-11-12 (narrows D32's option, which also named T&M positions)
-- D34 Split of specs/030 (the user asked whether alerts should be a spec of their own): specs/030 keeps consumption and the hours on the project and deal pages (read-only); the alerts (D12, D29–D33, A27–A31) move to a new specs/032, which depends on 030 and carries the decision on how date-based alerts fire — user chose the recommended option, 2026-11-12
+- D34 Split of specs/20261112-project-hours (the user asked whether alerts should be a spec of their own): specs/20261112-project-hours keeps consumption and the hours on the project and deal pages (read-only); the alerts (D12, D29–D33, A27–A31) move to a new specs/20261112-project-alerts, which depends on 030 and carries the decision on how date-based alerts fire — user chose the recommended option, 2026-11-12
 
 Decided during /wellforge:plan 029 (2026-11-12):
 - D35 Spec amendment AC-4.10: a holder of see everyone's hours who cannot read an entry's project, deal or meeting sees the entry's type, minutes and day but not the entity's name nor the activity's subject — user chose the recommended option over "always show names"
@@ -75,7 +75,7 @@ Decided during /wellforge:design 029 (2026-11-12, gaps raised by the designer):
 - D38 AC-3.1 gains restore: a retired category or work type can be brought back from the Time lists screen (the plan already allowed `retired: false`) — user chose the recommended option over "retire is final in the UI"
 - D39 The export's duration is one numeric column of decimal hours (2 h 30 = 2.5), so the file sums; AC-4.9's "2 h 30" applies to the screen only — user chose the recommended option over two columns (text + decimal)
 - D40 The export carries, for an entry on a meeting linked to a deal, that deal, so the file summed by deal matches the by-deal totals (AC-4.5); its name follows the viewer's access (AC-4.10) — user chose the recommended option over no extra column
-- D41 AC-3.3 is reworded to "a user without the permission to manage the lists"; the screen stays in admin-ui, so a role granted that permission also needs Admin access (the mileage-rate pattern, ADR-0023/0090) — user chose the recommended option over moving the screen to hours-ui; AC-3.1's "an admin" aligned to the same wording as a consequence
+- D41 AC-3.3 is reworded to "a user without the permission to manage the lists"; the screen stays in admin-ui, so a role granted that permission also needs Admin access (the mileage-rate pattern, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition, 20261112-hours-ui-ungated-remote) — user chose the recommended option over moving the screen to hours-ui; AC-3.1's "an admin" aligned to the same wording as a consequence
 - D42 The plan amended after design (totals semantics, `groupBy=day`, person filter from the totals, browser-side activity picker, 9-column export with one "Counts for deal" column instead of a "Deal (via meeting)" column, list restore, `formatMonth`/`SearchPicker`/`ExportButton` in `@operai/ui`) stays approved — user approved the amended plan
 - D43 AC-4.10 applies to every viewer, the entry's author included: a project, deal, meeting or meeting's deal the viewer cannot read shows no name — user chose the recommended option over "the author always sees names"
 - D44 Whether the id of a hidden project, deal or meeting is withheld along with its name (an oversight holder can otherwise tell two hidden entries are on the same record) is left to the owasp review — user chose "keep the id, decide at review" over the recommended "withhold the id too"; the plan keeps `on.id`/`activity.id` and flags it under Security
@@ -85,36 +85,36 @@ Decided during /wellforge:design 029 (2026-11-12, gaps raised by the designer):
 Decided during /wellforge:tasks 029 (2026-11-13, raised while deriving tasks):
 - D47 A pointed activity that no longer resolves is worked out on read only (`activity: null` while the project/deal is readable, hidden when it is hidden); the stored id is never cleared — user chose the recommended option over "clear it after an owner check"
 - D48 Under a deal filter, a failed "Load more" keeps the pages already shown, with the error and Retry below them; only a failing first page, totals or export replaces the view (AC-4.11 amended) — user chose this over replacing the whole view
-- D49 The list's `target` and `meetingId` filters stay in hours-api although no AC uses them (likely needed by specs/031) — user chose the recommended option over dropping them
+- D49 The list's `target` and `meetingId` filters stay in hours-api although no AC uses them (likely needed by specs/20261112-meeting-hours) — user chose the recommended option over dropping them
 
 Decided during /wellforge:orchestrate 029 (2026-11-13, raised by the third plan amendment):
 - D50 `note_required` (AC-3.6) is checked only when a `POST` records an entry, or a `PATCH` sends `note` or moves the entry (`on`) — a `PATCH` that touches neither (e.g. minutes only) on an entry recorded before its category was marked as requiring a note goes through; rejected: checking every save against the stored result (the literal reading the architect first wrote), which blocks a minutes-only fix until a note is typed — user chose the recommended, least invasive option
 
 Decided by the OWASP review (T37, 2026-11-13), as the user delegated D44 ("keep the id, decide at review"):
-- D44 (resolved) WITHHOLD — in a `TimeEntryView`, `on.id` (project, deal, meeting) and `activity.id` are returned only when the record is `visible` to the viewer or the entry is the viewer's own; otherwise `null`. Reason: finding F1 (Medium, A01) — a `time-entry:read-all` holder without CRM access could feed hidden ids back as `dealId`/`projectId`/`meetingId` filters and learn which hidden meetings are linked to which hidden deal, the disclosure ADR-0089 A1 forbids; no product cost (Everyone's hours and the export use no ids; the author keeps own ids for editing). Rejected: keeping the ids and adding a viewer crm read on every `dealId` filter (new call and refusal, does not close the `projectId`/`meetingId` pivots); nulling them for the author too (breaks the edit dialog for no gain). See `owasp-report.md`.
+- D44 (resolved) WITHHOLD — in a `TimeEntryView`, `on.id` (project, deal, meeting) and `activity.id` are returned only when the record is `visible` to the viewer or the entry is the viewer's own; otherwise `null`. Reason: finding F1 (Medium, A01) — a `time-entry:read-all` holder without CRM access could feed hidden ids back as `dealId`/`projectId`/`meetingId` filters and learn which hidden meetings are linked to which hidden deal, the disclosure ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1 forbids; no product cost (Everyone's hours and the export use no ids; the author keeps own ids for editing). Rejected: keeping the ids and adding a viewer crm read on every `dealId` filter (new call and refusal, does not close the `projectId`/`meetingId` pivots); nulling them for the author too (breaks the edit dialog for no gain). See `owasp-report.md`.
 
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 
 Found (read from the repo, not asked):
-- F1 Time tracking was deferred on purpose to its own spec — specs/025 D27 and Non-goals, specs/027 Non-goals, specs/028 Non-goals
-- F2 Activities live in activities-api (specs/028): pre-sales on a company (+ optional contact, deal; note/call/meeting/email/task), operational on a project (tasks only); author, assignee, ≤ 10 participants — activities-api/prisma/schema.prisma; participants were introduced as "the base for time tracking later" — specs/017 US-8
-- F3 A meeting linked to a deal is mirrored as a `meeting` activity on the deal — specs/028 AC-1.4, ADR-0059
-- F4 What was sold lives on a project's terms: hour package (capacity | yearly), fixed_price max effort + estimated man-days, t_and_m positions with planned man-days — specs/025 US-2; on main in `Contract`, on feat/projects-handoff (PR #9 open, 97 ahead / 0 behind main) in `ProjectTerms` + `PurchaseOrder` — ADR-0086
-- F5 specs/025 O2 (yearly package carry-over) is owned by "the time-tracking spec" — specs/025/spec.md Open questions
-- F6 No money in projects — specs/025 D14
-- F7 `internal` projects exist (R&D, internal tools) — specs/025 domain language
-- F8 A Meetings meeting has a start (`startsAt`), a duration only when it has audio (`durationMs`; none for a typed or pasted one), a creator and Operai participants — meetings-api/prisma/schema.prisma, specs/021
-- F9 A CRM call/meeting activity has the moment it occurred and participants, but no duration — specs/017 US-4, US-8
-- F10 The project team exists because "time tracking will need who may book on a project" — specs/025 ledger D15; the PM and team members are users with the project module's access, which employees do not hold by default — specs/025 AC-4.6
-- F11 Every CRM record (deals included) is readable by every `crm:access` holder — ADR-0052
+- F1 Time tracking was deferred on purpose to its own spec — specs/20261103-projects D27 and Non-goals, specs/20261103-project-collaboration Non-goals, specs/20261110-activities Non-goals
+- F2 Activities live in activities-api (specs/20261110-activities): pre-sales on a company (+ optional contact, deal; note/call/meeting/email/task), operational on a project (tasks only); author, assignee, ≤ 10 participants — activities-api/prisma/schema.prisma; participants were introduced as "the base for time tracking later" — specs/20261101-crm US-8
+- F3 A meeting linked to a deal is mirrored as a `meeting` activity on the deal — specs/20261110-activities AC-1.4, ADR 20261104-meeting-host-contract-resolve-and-notices
+- F4 What was sold lives on a project's terms: hour package (capacity | yearly), fixed_price max effort + estimated man-days, t_and_m positions with planned man-days — specs/20261103-projects US-2; on main in `Contract`, on feat/projects-handoff (PR #9 open, 97 ahead / 0 behind main) in `ProjectTerms` + `PurchaseOrder` — ADR 20261105-terms-and-purchase-order-two-optional-records-of-a-project-contract-retired
+- F5 specs/20261103-projects O2 (yearly package carry-over) is owned by "the time-tracking spec" — specs/20261103-projects/spec.md Open questions
+- F6 No money in projects — specs/20261103-projects D14
+- F7 `internal` projects exist (R&D, internal tools) — specs/20261103-projects domain language
+- F8 A Meetings meeting has a start (`startsAt`), a duration only when it has audio (`durationMs`; none for a typed or pasted one), a creator and Operai participants — meetings-api/prisma/schema.prisma, specs/20261104-meetings
+- F9 A CRM call/meeting activity has the moment it occurred and participants, but no duration — specs/20261101-crm US-4, US-8
+- F10 The project team exists because "time tracking will need who may book on a project" — specs/20261103-projects ledger D15; the PM and team members are users with the project module's access, which employees do not hold by default — specs/20261103-projects AC-4.6
+- F11 Every CRM record (deals included) is readable by every `crm:access` holder — ADR 20261101-crm-tool-shape-and-authorization
 - F12 Departments in `auth` have no head or manager — auth/prisma/schema.prisma
 - F13 "Proposal" is ProposAI's word (consulting proposals, AGENTS.md roadmap); the spec says "suggested entry" instead
 
 Assumed (not load-bearing; strike any that is wrong):
 - A1 Overlapping hours count in full on each thing they are booked on (10:00–12:00 on two projects gives each project 2 h) — follows from D4
 - A2 Every active Operai user (every employee) can record their own hours, whatever tools they can open — follows from D1, D2
-- A3 Being on the team or involved in the deal is checked when an entry is created or moved to a project or deal; entries already recorded stay, and stay correctable by their author, when the person leaves the team or stops being involved (the specs/028 AC-3.7 pattern; narrowed by D46)
+- A3 Being on the team or involved in the deal is checked when an entry is created or moved to a project or deal; entries already recorded stay, and stay correctable by their author, when the person leaves the team or stops being involved (the specs/20261110-activities AC-3.7 pattern; narrowed by D46)
 - A4 A meeting's duration is rounded to the nearest 30 minutes, never below 30; a meeting with no duration (typed or pasted) suggests nothing
 - A5 A suggested entry stays until the person confirms or dismisses it; it does not expire
 - A6 A meeting's creator and Operai participants may book on it; when the meeting is linked to a deal its hours also count for that deal, without D16's involvement check, and follow the meeting when it is relinked
@@ -131,11 +131,11 @@ Assumed (not load-bearing; strike any that is wrong):
 - A17 A person who already has an entry on a meeting is not offered a suggested entry for it
 - A18 A suggested entry disappears when its meeting is deleted or the person is removed from it before confirming; confirmed entries on a deleted meeting stay, shown without the meeting's title
 - A19 Only meetings that start on or after the release day suggest hours (no backlog of old meetings)
-- A20 A project or deal page still loads when hours cannot be loaded, and says so (the specs/028 AC-1.5 posture)
-- A21 When the tool that owns a project, deal or meeting cannot confirm the person may book on it, the write is refused and nothing changes (fail closed, ADR-0014/0081 posture); the person's own list still shows every entry, with an unknown name where it cannot be resolved
+- A20 A project or deal page still loads when hours cannot be loaded, and says so (the specs/20261110-activities AC-1.5 posture)
+- A21 When the tool that owns a project, deal or meeting cannot confirm the person may book on it, the write is refused and nothing changes (fail closed, ADR 20260716-refund-api-authorization-enforcing-resource-server, 20261110-activities-service-access-delegated-to-host posture); the person's own list still shows every entry, with an unknown name where it cannot be resolved
 - A22 When an activity an entry points at is deleted, the entry stays on its project or deal without the pointer
 
-Assumed while writing specs/031 and specs/030 (2026-11-12, not grilled — strike any that is wrong):
+Assumed while writing specs/20261112-meeting-hours and specs/20261112-project-hours (2026-11-12, not grilled — strike any that is wrong):
 - A23 (031) A suggested entry is visible only to its person
 - A24 (031) A suggestion follows its meeting's day, duration and participants until confirmed; a confirmed entry never changes with the meeting
 - A25 (031) When Meetings cannot be reached, the hours view loads and says suggestions are unavailable
@@ -150,7 +150,7 @@ Assumed while writing specs/031 and specs/030 (2026-11-12, not grilled — strik
 - A34 (030) Man-days are shown with one decimal
 
 Open (unresolved — each needs an owner):
-- O1 (specs/030) closed by D27
-- O2 (specs/030) closed by D28
+- O1 (specs/20261112-project-hours) closed by D27
+- O2 (specs/20261112-project-hours) closed by D28
 - O3 Labour-law check before go-live: informing employees about the hours recorded and who reads them (IT: art. 4 L. 300/1970; CH: art. 26 OLL 3) — owner: management / HR
-- O4 A lock or approval of recorded hours before they are used to bill T&M on a timesheet — owner: product owner, at the latest with specs/030 or a billing export
+- O4 A lock or approval of recorded hours before they are used to bill T&M on a timesheet — owner: product owner, at the latest with specs/20261112-project-hours or a billing export

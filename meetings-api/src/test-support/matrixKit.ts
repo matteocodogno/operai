@@ -691,7 +691,7 @@ export const ROWS: readonly RouteRow[] = [
 export const PUBLIC_ROUTES: ReadonlySet<string> = new Set(["GET /health", "GET /openapi.json", "GET /docs"]);
 
 /**
- * Served to a service credential and to no person (ADR-0044/0049, specs/029 T9): a scoped service JWT
+ * Served to a service credential and to no person (ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261013-all-notify-callers-scoped-credentials-shared-token-retired, specs/20261112-time-tracking T9): a scoped service JWT
  * (`aud` = SERVICE_AUDIENCE) is the ONLY way in, so no persona has a cell here and none can: every
  * user token, whatever it holds, is refused with the one 401 an anonymous caller gets. Pinned, so
  * another `/system` route cannot hide here without its credential tests.

@@ -1,5 +1,5 @@
 /**
- * What EVERY owner client shares (specs/029 T11; plan § Entries "the id rule", AC-2.10, AC-2.11,
+ * What EVERY owner client shares (specs/20261112-time-tracking T11; plan § Entries "the id rule", AC-2.10, AC-2.11,
  * AC-4.7, risk R7): the caller's own `Authorization` forwarded unchanged, a 2 s timeout, no
  * redirect followed, and one reading of anything but a clean 200: `unavailable`. Never "not found":
  * the entry writes fail closed on it (503, AC-2.11) and the views degrade (AC-4.7), and a client that

@@ -8,7 +8,7 @@ import type { MiddlewareHandler } from "hono";
  * `url.slice(url.indexOf("/", 8))`, which keeps everything after the origin —
  * INCLUDING the query string. That leaks live credentials into application
  * logs whenever a query param carries one (e.g. notify-api's ticket-authed
- * SSE stream, ADR-0008). crm-api has no query-string credential today, but
+ * SSE stream, ADR 20260713-sse-stream-auth-short-lived-ticket). crm-api has no query-string credential today, but
  * this module is copied from refund-api (same posture across every Operai
  * resource server): any future query-string-authenticated route is safe by
  * default. It also keeps request bodies (financial figures, who holds which

@@ -1,6 +1,6 @@
 /**
  * `GET /time-entries/totals` — the hours of a period grouped by person, project, deal, category, month or day
- * (specs/029 T18; plan § Totals; AC-1.4, AC-2.6, AC-4.1, AC-4.4, AC-4.5, AC-4.7, AC-4.8, AC-4.10, AC-4.11).
+ * (specs/20261112-time-tracking T18; plan § Totals; AC-1.4, AC-2.6, AC-4.1, AC-4.4, AC-4.5, AC-4.7, AC-4.8, AC-4.10, AC-4.11).
  *
  * The same question as the list's, answered as a sum: the same `whose`, filters and period (src/entries/filters.ts,
  * T17's, so a view's list and its totals can never disagree about which entries match), but never paged — the answer

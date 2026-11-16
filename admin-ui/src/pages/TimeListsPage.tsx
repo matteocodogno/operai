@@ -18,9 +18,9 @@ const t = strings.timeLists
 
 /**
  * TimeListsPage — the admin screen for the categories and the two work-type lists people pick from
- * when they record hours (specs/029-time-tracking/tasks.md: T31 the frame and its states, refs
+ * when they record hours (specs/20261112-time-tracking/tasks.md: T31 the frame and its states, refs
  * AC-3.3, AC-5.5; T32 the cards and what they do, refs AC-3.1, AC-3.2, AC-3.4, AC-3.7, AC-3.8;
- * design.md S5). The shape is the one of MileageRatesPage (ADR-0023): hours-api is called directly
+ * design.md S5). The shape is the one of MileageRatesPage (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition): hours-api is called directly
  * through `shell/session`, and the page is a state union.
  *
  * States, exactly one at a time:

@@ -1,6 +1,6 @@
 /**
- * projects-api's activity-host resolve, asked as the caller (specs/029 T11; plan § Sequences "On a
- * project", ADR-0089, AC-2.2, AC-2.10, AC-2.11, AC-4.10).
+ * projects-api's activity-host resolve, asked as the caller (specs/20261112-time-tracking T11; plan § Sequences "On a
+ * project", ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, AC-2.2, AC-2.10, AC-2.11, AC-4.10).
  *
  *   POST {PROJECTS_API_URL}/activity-host/v1/resolve  { entityType: "project", ids }  (≤ 25 ids)
  *

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * useHoursQuery — one read keyed by what it asks (specs/029-time-tracking T24, design F4 step 1:
+ * useHoursQuery — one read keyed by what it asks (specs/20261112-time-tracking T24, design F4 step 1:
  * "stale answers are discarded"). The three reads of a filter change (the entries, the chosen totals,
  * the day totals) and the lists each use it, so the rules are proven here once: a key change shows
  * loading at once, never the previous key's data; an answer for an older key is discarded however late

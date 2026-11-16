@@ -1,5 +1,5 @@
 /**
- * GET /system/meetings/hosts (specs/029-time-tracking T9 — AC-2.6, AC-4.5, AC-4.11; ADR-0089 § 6):
+ * GET /system/meetings/hosts (specs/20261112-time-tracking T9 — AC-2.6, AC-4.5, AC-4.11; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route § 6):
  * the host entity (today a CRM deal) each meeting is CURRENTLY linked to, read service-to-service.
  * hours-api counts the hours recorded on a meeting for the meeting's deal and must follow a relink,
  * so it asks here instead of storing the deal on the entry. This is meetings-api's first `/system/*`
@@ -11,11 +11,11 @@
  *   dealId   the meetings currently linked to that CRM deal (no paging: a row is an id and a link).
  *
  * Exactly one of the two (422 otherwise). The answer is `{ items: { id, host }[] }` and NOTHING else —
- * never a title, a participant, a duration or any content (ADR-0058: content opens by relationship to
+ * never a title, a participant, a duration or any content (ADR 20261104-meetings-tool-shape-visibility-by-participation: content opens by relationship to
  * the record, for no role and no service). The link is independent of the creator's `hostVisible`
  * choice, which only decides whether host readers may open the meeting.
  *
- * A host is data, never a branch (ADR-0059): `host` reports whatever the meeting stores. Only the
+ * A host is data, never a branch (ADR 20261104-meeting-host-contract-resolve-and-notices): `host` reports whatever the meeting stores. Only the
  * `dealId` filter names a host, because its contract is "the CRM deal".
  */
 
@@ -27,12 +27,12 @@ import type { Prisma } from "../lib/generated/prisma/client";
 import { commonErrors } from "../lib/http";
 import { validationHook } from "../lib/problem";
 
-/** The scope this route requires (`auth/src/system/serviceClients.ts`, specs/029 T2). */
+/** The scope this route requires (`auth/src/system/serviceClients.ts`, specs/20261112-time-tracking T2). */
 export const HOSTS_SCOPE = "meetings.hosts.read";
 
 /**
  * The one service principal this route serves. Holding `meetings.hosts.read` is not enough: a service
- * credential opens only the routes that list its `sub` (ADR-0080/0073 posture).
+ * credential opens only the routes that list its `sub` (ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential, 20261105-estimai-closes-the-estimate-crm-follows posture).
  */
 export const HOSTS_ALLOWED_SUBS = ["system:hours-api"] as const;
 

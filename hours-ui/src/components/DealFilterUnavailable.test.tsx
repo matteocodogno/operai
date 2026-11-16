@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * DealFilterUnavailable — the one banner that replaces Totals and Entries while Meetings cannot say which
- * meetings belong to the filtered deal (specs/029-time-tracking T25; AC-4.11; design S1 "Deal filter
+ * meetings belong to the filtered deal (specs/20261112-time-tracking T25; AC-4.11; design S1 "Deal filter
  * unavailable"). An alert announced where it appears; it never takes focus by itself (the person is in the
  * Filters card); its Retry and "Clear the deal filter" are real buttons; and it can be focused (`ref`,
  * `tabIndex={-1}`) by the page after a retry that failed, because the Retry button that had focus is gone.

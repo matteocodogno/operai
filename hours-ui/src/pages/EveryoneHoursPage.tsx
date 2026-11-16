@@ -72,7 +72,7 @@ const sameBanners = (a: HoursBannersProps, b: HoursBannersProps): boolean =>
 const failedWith = (state: HoursQueryState<unknown>, ...codes: HoursErrorCode[]): boolean =>
   state.status === 'error' && isCode(state.error, ...codes)
 
-/** Back to My hours, which does not depend on what failed here (ADR-0088): a text link, as the not-found panel has. */
+/** Back to My hours, which does not depend on what failed here (ADR 20261112-hours-api-time-entries-own-service-hours-catalog): a text link, as the not-found panel has. */
 function MyHoursLink({ label }: { label: string }) {
   return (
     <Link to="/" className="link">
@@ -88,7 +88,7 @@ function Denied() {
 }
 
 /**
- * Everyone's hours — `/hours/all` (specs/029-time-tracking T29; design F6, S4; ADR-0075, ADR-0090): the same
+ * Everyone's hours — `/hours/all` (specs/20261112-time-tracking T29; design F6, S4; ADR 20261108-estimai-oversight-permission-amends-0036, ADR 20261112-hours-ui-ungated-remote): the same
  * view as My hours over every person's entries — the filters plus Person, the Totals card (by person unless
  * the holder chooses otherwise) and the entries as a flat READ-ONLY table — for holders of
  * `time-entry:read-all`.

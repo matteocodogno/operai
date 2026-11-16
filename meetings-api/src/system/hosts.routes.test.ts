@@ -1,8 +1,8 @@
 /**
- * GET /system/meetings/hosts (specs/029-time-tracking T9 — AC-2.6, AC-4.5, AC-4.11; ADR-0089 § 6).
+ * GET /system/meetings/hosts (specs/20261112-time-tracking T9 — AC-2.6, AC-4.5, AC-4.11; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route § 6).
  * Which deal each meeting is linked to, read by hours-api with a scoped SERVICE credential
  * (`meetings.hosts.read`, `sub` `system:hours-api`) and answering `{ id, host }` and nothing else:
- * never a title, a participant, a duration or any content (ADR-0058: no role, and no service, reads
+ * never a title, a participant, a duration or any content (ADR 20261104-meetings-tool-shape-visibility-by-participation: no role, and no service, reads
  * a meeting's content through here).
  *
  * Real Postgres (`meetings_test`); the JWKS is an in-memory one injected into the middleware, so no

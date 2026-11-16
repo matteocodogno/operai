@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { REMOTE_VERSION } from '../version'
 
 /**
- * The federation contract the shell depends on (specs/029-time-tracking tasks.md T22/T23, plan §
- * Components, ADR-0030/0090): the remote is named `hours`, serves on the pinned port 5184, and exposes
+ * The federation contract the shell depends on (specs/20261112-time-tracking tasks.md T22/T23, plan §
+ * Components, ADR 20260803-suite-version-generated-file-federated-export, 20261112-hours-ui-ungated-remote): the remote is named `hours`, serves on the pinned port 5184, and exposes
  * exactly the two entries the shell imports, `./App` and `./version`. A rename here silently breaks
  * the shell at runtime (a dynamic import of a missing export), so the table is asserted against the
  * config source, and every exposed file must exist. The shell's own `remoteVersionSpecifiers` test
@@ -54,7 +54,7 @@ describe('vite.config.ts federation contract', () => {
   })
 })
 
-describe('src/version.ts (ADR-0030)', () => {
+describe('src/version.ts (ADR 20260803-suite-version-generated-file-federated-export)', () => {
   it('exports the remote’s own version, and "unknown" where the build did not define it', () => {
     expect(REMOTE_VERSION).toBe('unknown')
   })

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * PersonFilter — the Person select of Everyone's hours (specs/029-time-tracking T29; AC-4.4, AC-4.8; design S4
+ * PersonFilter — the Person select of Everyone's hours (specs/20261112-time-tracking T29; AC-4.4, AC-4.8; design S4
  * "Filters card"). Presentational: the page hands it the state of the read that gives it its options (the
  * `person` groups of the totals). "Everyone" first, the people in the order the server sent them, the current
  * choice always kept, and while the options load or when they failed the select stays reachable and says why

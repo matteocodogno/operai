@@ -51,7 +51,7 @@ import { strings } from '../strings'
 export type PermissionDeniedProps = {
   /**
    * Overrides the generic "You no longer have admin access." heading, for a screen reached by
-   * someone who DOES have admin access and lacks one permission (Time lists, specs/029 T31). Omit
+   * someone who DOES have admin access and lacks one permission (Time lists, specs/20261112-time-tracking T31). Omit
    * for the default.
    */
   title?: string

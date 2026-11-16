@@ -1,6 +1,6 @@
 /**
  * activitiesRead — the activities of one project or deal, read from activities-api AS THE PERSON
- * (specs/029-time-tracking, plan § Components `hours-ui` › Activity picker; design S2 § Activity field).
+ * (specs/20261112-time-tracking, plan § Components `hours-ui` › Activity picker; design S2 § Activity field).
  *
  * The browser asks activities-api itself, `GET {getActivitiesApiBaseUrl()}/activities?projectId=<id>` or
  * `?dealId=<id>` with `pageSize=100` (activities-api's `MAX_PAGE_SIZE`), through `shell/session`'s

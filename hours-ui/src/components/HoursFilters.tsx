@@ -53,7 +53,7 @@ const dealOption = (deal: DealChoice): ComboboxOption => ({
 })
 
 /**
- * HoursFilters — the Filters card of My hours and Everyone's hours (specs/029-time-tracking T24, T29; AC-4.4;
+ * HoursFilters — the Filters card of My hours and Everyone's hours (specs/20261112-time-tracking T24, T29; AC-4.4;
  * design S1 "Filters", S4): Period (with From and To under Custom range), Person (Everyone's hours only, when the
  * page gives `people`), Project and Deal (server-side searches, as the person), Category and Work type (both
  * from one read of the lists). Controlled and presentational: it renders the

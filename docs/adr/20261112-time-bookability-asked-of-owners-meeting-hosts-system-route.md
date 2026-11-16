@@ -1,26 +1,26 @@
-# 0089 — Whether a person may record hours on a project, deal or meeting is asked of the service that owns it, as the caller, at write time; a meeting's current deal link is read live from meetings-api's first `/system/*` route
+# 20261112 — Whether a person may record hours on a project, deal or meeting is asked of the service that owns it, as the caller, at write time; a meeting's current deal link is read live from meetings-api's first `/system/*` route
 
 **Date:** 2026-11-12  
-**Status:** Accepted (specs/029-time-tracking, plan.md § ADR candidates; decided by the owner at the planning gate, 2026-11-12); amended 2026-11-12 (see § Amendment 2026-11-12)  
-**Deciders:** wellD (owner of specs/029)  
+**Status:** Accepted (specs/20261112-time-tracking, plan.md § ADR candidates; decided by the owner at the planning gate, 2026-11-12); amended 2026-11-12 (see § Amendment 2026-11-12)  
+**Deciders:** wellD (owner of specs/20261112-time-tracking)  
 **Project:** Operai
 
 ---
 
 ## Context
 
-Time entries (specs/029) record hours on exactly one of: a project, a deal, a meeting, or no entity.
+Time entries (specs/20261112-time-tracking) record hours on exactly one of: a project, a deal, a meeting, or no entity.
 Each of the three is owned by another tool, and each has its own answer to "who may act on this":
-a project's project manager and team (projects-api, ADR-0079); a deal's owner, technical contact and
-the people involved in its activities (crm-api, ADR-0052, activities-api, ADR-0081); a meeting's
-creator and Operai participants (meetings-api, ADR-0058). The hours tool must not restate any of
+a project's project manager and team (projects-api, ADR 20261103-projects-tool-shape-and-authorization); a deal's owner, technical contact and
+the people involved in its activities (crm-api, ADR 20261101-crm-tool-shape-and-authorization, activities-api, ADR 20261110-activities-service-access-delegated-to-host); a meeting's
+creator and Operai participants (meetings-api, ADR 20261104-meetings-tool-shape-visibility-by-participation). The hours tool must not restate any of
 those rules, and must not hold a copy of who is involved, because a copy goes stale on reassignment,
 removal from a team or a relink.
 
 A meeting's hours count for the deal the meeting is linked to *now* (AC-2.6): when a meeting is
-relinked, its hours follow it. The link lives in meetings-api and reaches the CRM by notice (ADR-0059),
+relinked, its hours follow it. The link lives in meetings-api and reaches the CRM by notice (ADR 20261104-meeting-host-contract-resolve-and-notices),
 which is retried only manually. Labels on lists must also follow the viewer's own access, not the
-writer's (AC-4.10). Activities and meetings are readable only by relationship (ADR-0058, ADR-0081), so
+writer's (AC-4.10). Activities and meetings are readable only by relationship (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261110-activities-service-access-delegated-to-host), so
 an answer that describes the service's rights rather than the person's is a leak.
 
 ## Decision
@@ -30,14 +30,14 @@ the owning service, with the caller's own JWT forwarded, on every write**, and w
 answer or copy the involvement into `hours-api`. Failure is closed: unreachable is `503`, unreadable or
 missing is `404`, readable but not allowed is `403`.
 
-1. **Project.** projects-api's existing `POST /activity-host/v1/resolve` (ADR-0081) answers
+1. **Project.** projects-api's existing `POST /activity-host/v1/resolve` (ADR 20261110-activities-service-access-delegated-to-host) answers
    `assignees` (project manager and team). The caller must be in it. Its `writable` flag is ignored:
    entries are accepted in any project state.
 2. **Deal.** crm-api's `POST /activity-host/v1/resolve` learns `entityType: "deal"` and answers
    `involved: [ownerUserId, technicalUserId?]`, the technical contact as the deal view shows it (an
    estimate override row is not a technical contact). If the caller is not there, hours-api asks
    activities-api `GET /activities?dealId=` as the caller and looks for the caller as a task assignee
-   or participant. This second question is the same host-decided rule as ADR-0081, not a new contract.
+   or participant. This second question is the same host-decided rule as ADR 20261110-activities-service-access-delegated-to-host, not a new contract.
 3. **Activity pointer.** activities-api `GET /activities` gains an `ids` filter (≤ 50), still resolved
    as the caller. A pointed activity must belong to the same project or deal as the entry.
 4. **Meeting.** meetings-api `GET /meetings` gains `ids` (≤ 25). It lists only the caller's own meetings
@@ -47,9 +47,9 @@ missing is `404`, readable but not allowed is `403`.
    live from meetings-api's first `/system/*` route, `GET /system/meetings/hosts?ids=` and
    `?dealId=`. It sits behind a service JWT (`aud = SERVICE_AUDIENCE`, scope `meetings.hosts.read`,
    `sub` must be `system:hours-api`, every failure the same `401`). It answers `{ id, host }` and nothing
-   else: no title, participant, duration or content (ADR-0058). Reads fail soft and name the source as
+   else: no title, participant, duration or content (ADR 20261104-meetings-tool-shape-visibility-by-participation). Reads fail soft and name the source as
    unavailable. The scope is granted in production `SERVICE_CLIENTS` only after the new auth is live
-   (ADR-0076's rollout order).
+   (ADR 20261108-crm-pushes-deal-links-to-estimai's rollout order).
 6. **Labels follow the viewer.** An entity the viewer cannot read is shown as hidden: its type, no name,
    no activity subject (AC-4.10). A label lookup never grants a write.
 
@@ -90,7 +90,7 @@ Described above.
 
 **Pros:** each owner keeps its rule; a reassignment, removal, relink or revoked grant applies on the next
 write; the answer is the person's, not the service's; OPS and other users without `crm:access` never need
-it; the pattern reuses ADR-0059's resolve and ADR-0081's activity-host contract.
+it; the pattern reuses ADR 20261104-meeting-host-contract-resolve-and-notices's resolve and ADR 20261110-activities-service-access-delegated-to-host's activity-host contract.
 **Cons:** every entry write makes one to three owner calls and fails if any owner is down; list reads
 degrade per source; a new `/system/*` route and scope on meetings-api.
 
@@ -106,7 +106,7 @@ A mirror is a copy of the link, which is the failure shape above.
 
 ### Option D — Copy involvement into hours-api from crm-api and projects-api notices (rejected)
 **Pros:** no call on the write path.
-**Cons:** a copy of reassignment and removal that must be kept right by messages (ADR-0076's warning);
+**Cons:** a copy of reassignment and removal that must be kept right by messages (ADR 20261108-crm-pushes-deal-links-to-estimai's warning);
 a missed notice grants or refuses a write on a stale team.
 
 ### Option E — A new `/time-host/v1/resolve` contract parallel to the activity-host resolve (rejected)
@@ -117,7 +117,7 @@ a second consumer.
 
 ### Option F — Give `time-entry:read-all` holders access to meetings, or read meeting titles with a service call (rejected)
 **Pros:** oversight can label every meeting.
-**Cons:** visibility by relationship, never by role (ADR-0058). An oversight role must not widen what content
+**Cons:** visibility by relationship, never by role (ADR 20261104-meetings-tool-shape-visibility-by-participation). An oversight role must not widen what content
 it can see. Labels for other people's meetings stay hidden (AC-4.10).
 
 ## Consequences
@@ -151,14 +151,14 @@ it can see. Labels for other people's meetings stay hidden (AC-4.10).
   which is employee-related data. The link check reads only ids and host references from meetings-api;
   titles and content are read only by the viewer's own relationship.
 - **Data residency:** compliant. All calls stay on EU suite services (Railway EU).
-- **Audit trail:** not required by this ADR. Entry changes are recorded by hours-api's own rules (specs/029);
+- **Audit trail:** not required by this ADR. Entry changes are recorded by hours-api's own rules (specs/20261112-time-tracking);
   a decision to add an append-only trail belongs to that spec's review, not here.
 
 ## Amendment 2026-11-12 — labels follow the viewer for every fact read with the service's credential; the deal filter fails closed
 
 **Date:** 2026-11-12  
 **Amends:** § Decision 6 (labels follow the viewer) and § Decision 5 for the `dealId` read; adds amendment decisions A1 and A2 below.  
-**Source:** specs/029-time-tracking, decided by the owner at the design gate, 2026-11-12 (ledger D40, D43, D44, D45; spec AC-4.10, AC-4.11). For A2 the architect recommended the opposite; the owner's choice is recorded here.
+**Source:** specs/20261112-time-tracking, decided by the owner at the design gate, 2026-11-12 (ledger D40, D43, D44, D45; spec AC-4.10, AC-4.11). For A2 the architect recommended the opposite; the owner's choice is recorded here.
 
 ### A1 — A fact read with hours-api's own credential reaches a viewer only with the right to name it
 
@@ -195,7 +195,7 @@ hours use none.
 
 *Reason.* Before this decision a holder of `time-entry:read-all` without `crm:access` could take the ids of
 hidden records from the list and feed them back as `dealId`, `projectId` or `meetingId` filters. The OWASP
-review of 2026-11-13 reproduced it (finding F1, Medium, `specs/029-time-tracking/owasp-report.md` § F1): the
+review of 2026-11-13 reproduced it (finding F1, Medium, `specs/20261112-time-tracking/owasp-report.md` § F1): the
 list returned the id of a hidden deal and the ids of two hidden meetings, and the `dealId` filter then
 returned exactly the entries on those two meetings. The holder learned which hidden meetings are linked to
 which hidden deal. That is the disclosure A1 forbids, reached through ids rather than names. Withholding the
@@ -211,16 +211,16 @@ viewer can read) can still be used as a `dealId` filter. What it reveals is only
 linked to the deal you named", with no name or content.
 
 *Where it lands:* the plan's § Views contract (`id: string | null`) and spec AC-4.10. The decision and its
-rationale are recorded in `specs/029-time-tracking/ledger.md` (D44) and `owasp-report.md` § 4.
+rationale are recorded in `specs/20261112-time-tracking/ledger.md` (D44) and `owasp-report.md` § 4.
 
-**Constrains:** specs/030 (hours on project and deal pages) and any later consumer of hours totals must
+**Constrains:** specs/20261112-project-hours (hours on project and deal pages) and any later consumer of hours totals must
 take the same groups, must not name a project, deal or meeting the viewer cannot read, and must show the
 `deal-unknown` gap rather than drop it.
 
 This is the borrowed-authority form of § Failure shape read from the other end: a fact held with one
 service's right is shown under another person's right, and the answer is about the wrong right.
 
-### A2 — The deal filter fails closed (a deliberate departure from ADR-0080 for this one filter)
+### A2 — The deal filter fails closed (a deliberate departure from ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential for this one filter)
 
 A list or totals read that carries a `dealId` filter first asks meetings-api which meetings are linked to
 that deal (`GET /system/meetings/hosts?dealId=`, Decision 5). If that call does not answer, the whole read
@@ -231,7 +231,7 @@ Without a deal filter, reads still degrade as Decision 5 and § Totals say: `gro
 entries in the `deal-unknown` group, a list item carries `on.deal = { state: "unknown" }`, and
 `meeting-deals` is named in `unavailable`.
 
-This departs on purpose from ADR-0080's rule that a read degrades and a write that must confirm refuses.
+This departs on purpose from ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential's rule that a read degrades and a write that must confirm refuses.
 For this filter the reader is protected the other way round: a deal's figures shown low are worse than a
 short refusal, because the reader takes a partial total for the deal's total. The outage window is seconds
 to minutes (a redeploy of meetings-api's single replica, a crash, a network error). Nothing is stored, so

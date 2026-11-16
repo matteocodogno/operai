@@ -103,7 +103,7 @@ describe('resolveRuntimeRemotes', () => {
     ])
   })
 
-  it('resolves the hours remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/029-time-tracking)', async () => {
+  it('resolves the hours remote from window.__OPERAI_RUNTIME_CONFIG__ (specs/20261112-time-tracking)', async () => {
     window.__OPERAI_RUNTIME_CONFIG__ = { hours: 'https://hours.example.test/remoteEntry.js' }
 
     await expect(resolveRuntimeRemotes()).resolves.toEqual([

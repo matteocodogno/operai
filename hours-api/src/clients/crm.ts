@@ -1,6 +1,6 @@
 /**
- * crm-api's activity-host resolve for deals, asked as the caller (specs/029 T11; plan § Sequences
- * "Record an entry on a deal", ADR-0089, AC-2.3, AC-2.10, AC-2.11, AC-4.10; crm-api T7).
+ * crm-api's activity-host resolve for deals, asked as the caller (specs/20261112-time-tracking T11; plan § Sequences
+ * "Record an entry on a deal", ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, AC-2.3, AC-2.10, AC-2.11, AC-4.10; crm-api T7).
  *
  *   POST {CRM_API_URL}/activity-host/v1/resolve  { entityType: "deal", ids }  (≤ 25 ids, no `related`)
  *

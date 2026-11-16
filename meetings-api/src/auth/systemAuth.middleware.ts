@@ -1,7 +1,7 @@
 /**
  * systemAuth middleware — the only credential of meetings-api's `/system/*` routes
- * (specs/029 T9; ADR-0044/0049 mechanism, ADR-0089). A shared copy of
- * crm-api/src/auth/systemAuth.middleware.ts — the repo has no workspace (ADR-0003), so each
+ * (specs/20261112-time-tracking T9; ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261013-all-notify-callers-scoped-credentials-shared-token-retired mechanism, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). A shared copy of
+ * crm-api/src/auth/systemAuth.middleware.ts — the repo has no workspace (ADR 20260703-estimai-api-bun-hono-typescript), so each
  * resource server owns its copy and `scripts/check-shared-copies.ts` keeps the marked region
  * identical across them.
  *

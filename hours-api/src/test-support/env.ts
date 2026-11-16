@@ -19,7 +19,7 @@ export const TEST_ISSUER = "http://auth.test";
 /** Where the real JWT middleware fetches its keys; tests of it serve this URL from a stub. */
 export const TEST_JWKS_URL = "http://127.0.0.1:6/auth/jwks";
 export const TEST_AUDIENCE = "operai-suite";
-/** Auth's SERVICE_AUDIENCE: distinct from the user audience (ADR-0044). */
+/** Auth's SERVICE_AUDIENCE: distinct from the user audience (ADR 20261006-scoped-service-jwt-fourth-notify-caller). */
 export const TEST_SERVICE_AUDIENCE = "operai-services";
 export const TEST_KID = "operai-auth-rs256-v1-test";
 

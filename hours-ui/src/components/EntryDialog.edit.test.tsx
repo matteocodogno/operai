@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * EntryDialog, editing (specs/029-time-tracking T28; design F2, S2 "Edit entry" and "The 'not visible' variant",
+ * EntryDialog, editing (specs/20261112-time-tracking T28; design F2, S2 "Edit entry" and "The 'not visible' variant",
  * S2 "Note — when it is required", "Error surfaces"; AC-1.5, AC-2.4, AC-2.12, AC-3.4, AC-3.6, AC-4.10; plan § Entries
  * "Change an entry", "A blank note", D46, D50). The dialog owns the form, the client rules and the words for a
  * refusal; the page owns the request, so here `onSubmit` is a spy that resolves or rejects with the error hours-api

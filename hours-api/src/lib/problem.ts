@@ -1,6 +1,6 @@
 // shared-copy:begin problem
 /**
- * RFC 7807 Problem JSON for crm-api (specs/017-crm, plan.md § API contract).
+ * RFC 7807 Problem JSON for crm-api (specs/20261101-crm, plan.md § API contract).
  * Copied from inventory-api/src/lib/problem.ts.
  *
  * The extra members a problem carries (`code`, `companyId`, `currentVersion`,

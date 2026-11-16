@@ -1,5 +1,5 @@
 /**
- * crm-api's host resolve for `entityType: "deal"`, asked as the caller (specs/029 T11; plan § Sequences
+ * crm-api's host resolve for `entityType: "deal"`, asked as the caller (specs/20261112-time-tracking T11; plan § Sequences
  * "Record an entry on a deal", AC-2.3, AC-2.10, AC-2.11, AC-4.10, risk R7). The shared failure rules
  * are in `contract.test.ts`.
  */

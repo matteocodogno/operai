@@ -1,7 +1,7 @@
 /**
  * Reading everyone's hours: `GET /time-entries?whose=all` and `GET /time-entries/totals?whose=all`, and the
- * `userId` filter (specs/029 T19; AC-4.2, AC-4.3, AC-4.4, AC-5.2, AC-5.4; plan § Sequences "Oversight", § Totals
- * "Person filter", ADR-0075, ADR-0088), through the ASSEMBLED app, against the real database and the fake hosts
+ * `userId` filter (specs/20261112-time-tracking T19; AC-4.2, AC-4.3, AC-4.4, AC-5.2, AC-5.4; plan § Sequences "Oversight", § Totals
+ * "Person filter", ADR 20261108-estimai-oversight-permission-amends-0036, ADR 20261112-hours-api-time-entries-own-service-hours-catalog), through the ASSEMBLED app, against the real database and the fake hosts
  * of T11 (the fake `auth` answers `GET /authz/resolve` for each persona).
  *
  * `whose=all` and `userId` are the oversight path: the one place a read asks `auth` whether the caller holds
@@ -238,7 +238,7 @@ describe("the dealId filter under oversight (AC-2.6, AC-4.11)", () => {
   });
 });
 
-describe("an auth that cannot answer (AC-5.4, ADR-0014 posture)", () => {
+describe("an auth that cannot answer (AC-5.4, ADR 20260716-refund-api-authorization-enforcing-resource-server posture)", () => {
   const OUTAGES: Array<[string, () => void]> = [
     ["a 500", () => hosts.fail("auth.resolve", { status: 500 })],
     ["a 502", () => hosts.fail("auth.resolve", { status: 502 })],

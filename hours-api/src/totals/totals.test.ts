@@ -1,6 +1,6 @@
 /**
- * The totals, `GET /time-entries/totals?groupBy=person|project|deal|category|month|day` (specs/029 T18; AC-1.4, AC-2.6,
- * AC-4.1, AC-4.4, AC-4.5, AC-4.7, AC-4.8, AC-4.10, AC-4.11; plan § Totals, § Views, ADR-0089 amendment A1), through the
+ * The totals, `GET /time-entries/totals?groupBy=person|project|deal|category|month|day` (specs/20261112-time-tracking T18; AC-1.4, AC-2.6,
+ * AC-4.1, AC-4.4, AC-4.5, AC-4.7, AC-4.8, AC-4.10, AC-4.11; plan § Totals, § Views, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route amendment A1), through the
  * ASSEMBLED app, against the real database and the fake hosts of T11.
  *
  * Rows are inserted directly (what a route would otherwise have to be driven for). What each owner says is scripted per
@@ -295,7 +295,7 @@ describe("groupBy=project (AC-1.4, AC-4.5, AC-4.7, AC-4.10; plan § Totals)", ()
   });
 });
 
-describe("groupBy=deal (AC-2.6, AC-4.5, AC-4.7, AC-4.10; plan § Totals; ADR-0089 A1)", () => {
+describe("groupBy=deal (AC-2.6, AC-4.5, AC-4.7, AC-4.10; plan § Totals; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1)", () => {
   /**
    * Two deals the viewer reads (d1, d2) and two they do not (d3, d4: the owner holds nothing they may read under those ids);
    * meetings linked to d1, d2, d3, to none, to a host that is not a CRM deal, and one meetings-api no longer holds.
@@ -539,7 +539,7 @@ describe("groupBy=deal (AC-2.6, AC-4.5, AC-4.7, AC-4.10; plan § Totals; ADR-008
     expect(hosts.callsTo("meetings.system-hosts")).toHaveLength(2);
   });
 
-  it("names no deal the viewer cannot read: no id and no name of it anywhere in the answer, a meeting's link included (AC-4.10, ADR-0089 A1)", async () => {
+  it("names no deal the viewer cannot read: no id and no name of it anywhere in the answer, a meeting's link included (AC-4.10, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1)", async () => {
     await fixture();
 
     const res = await totals(`groupBy=deal&${NOVEMBER}`);
@@ -823,7 +823,7 @@ describe("the deal filter, and meetings-api not saying which meetings are linked
   });
 });
 
-describe("the names follow the VIEWER, not the author of the entries (AC-4.10, ADR-0089 A1: the author included)", () => {
+describe("the names follow the VIEWER, not the author of the entries (AC-4.10, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1: the author included)", () => {
   /** Everyone's entries: what `whose=all` hands the aggregation. The route decides whose (src/oversight); the labels are the viewer's. */
   const EVERYONE = { day: { gte: new Date("2026-11-01T00:00:00Z"), lte: new Date("2026-11-30T00:00:00Z") } };
 

@@ -1,5 +1,5 @@
 // Ambient module declarations for the shell modules hours-ui consumes as a
-// remote (specs/029-time-tracking, plan § Components `hours-ui`). Module Federation
+// remote (specs/20261112-time-tracking, plan § Components `hours-ui`). Module Federation
 // resolves `shell/session` and `shell/tokens.css` at runtime through a virtual
 // module tsc cannot see; the `dts` option is off in vite.config.ts so this remote
 // builds without a live shell. Keep in sync by hand with shell/src/lib/session.ts.
@@ -19,8 +19,8 @@ declare module 'shell/session' {
   export const getMeetingsApiBaseUrl: () => string
   export const getActivitiesApiBaseUrl: () => string
 
-  // Permission resolution (ADR-0007), used for UX gating only (the Everyone's hours tab):
-  // the server is the gate (ADR-0075).
+  // Permission resolution (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims), used for UX gating only (the Everyone's hours tab):
+  // the server is the gate (ADR 20261108-estimai-oversight-permission-amends-0036).
   export interface Permission {
     resource: string
     action: string

@@ -1,5 +1,5 @@
 /**
- * The pickers' searches (specs/029-time-tracking T24, T27; plan § Components `hours-ui` "Target pickers"):
+ * The pickers' searches (specs/20261112-time-tracking T24, T27; plan § Components `hours-ui` "Target pickers"):
  * projects-api `GET /projects?q=` and crm-api `GET /deals?q=` (the filters and the entry dialog) and
  * meetings-api `GET /meetings?q=` (the entry dialog), read as the person through `apiFetch`, with the answer
  * mapped to what `SearchPicker` takes — a 403 is `forbidden` (the person may not search that kind of

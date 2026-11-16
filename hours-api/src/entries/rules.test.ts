@@ -1,5 +1,5 @@
 /**
- * The local rules of an entry (specs/029 T14; plan § Entries): the day, the duration, the note, and the
+ * The local rules of an entry (specs/20261112-time-tracking T14; plan § Entries): the day, the duration, the note, and the
  * clock that says what today is. Pure: no database, no owner. The route that applies them is write.test.ts.
  */
 import { describe, expect, it } from "bun:test";

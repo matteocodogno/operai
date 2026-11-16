@@ -1,5 +1,5 @@
 /**
- * What a read of entries is asked for (specs/029 T17; plan § Entries "GET /time-entries", "The span", "A day", "The
+ * What a read of entries is asked for (specs/20261112-time-tracking T17; plan § Entries "GET /time-entries", "The span", "A day", "The
  * id rule"): the period, whose hours and the narrowing filters, shared by the list (`list.routes.ts`) and the totals
  * (`src/totals/`, T18), so both answer the same question the same way.
  *
@@ -95,7 +95,7 @@ const dayOf = (day: string): Date => new Date(`${day}T00:00:00Z`);
 /**
  * What "on this deal" means: the entries on the deal itself, plus the entries on the meetings linked to it NOW
  * (AC-2.6). The link is not stored on an entry, so a relinked meeting's hours move with it, and only meetings-api
- * can say which meetings those are (its system route, hours-api's own credential, ADR-0089).
+ * can say which meetings those are (its system route, hours-api's own credential, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
  *
  * When it cannot, the whole read is refused (AC-4.11, D45): a deal's figures are never shown low. The deal
  * filter is the one place this API prefers an error to a partial answer.

@@ -124,7 +124,7 @@ describe('router structure', () => {
     // C2) is a sibling of its list route under the same root, not nested —
     // exactly like estimai-ui's '/estimates' + '/estimates/$estimateId' pair.
     // Combined centrally as T18/T19/T20 each added their own detail route.
-    // '/time-lists' (T31, specs/029-time-tracking) is the same flat shape — a
+    // '/time-lists' (T31, specs/20261112-time-tracking) is the same flat shape — a
     // section route, sibling of the others.
     expect(childPaths).toEqual(
       [

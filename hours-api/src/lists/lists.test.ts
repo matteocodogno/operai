@@ -1,5 +1,5 @@
 /**
- * The categories and work types (specs/029 T12; AC-3.1 – AC-3.4, AC-3.7, AC-3.8): the lists everyone
+ * The categories and work types (specs/20261112-time-tracking T12; AC-3.1 – AC-3.4, AC-3.7, AC-3.8): the lists everyone
  * reads with a session, and the writes only a holder of `time-list:manage` may make, asked live of
  * `auth` (played by the fake hosts of T11).
  *

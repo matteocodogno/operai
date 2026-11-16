@@ -139,7 +139,7 @@ type DurationFormatCtor = new (
  * `clock` is for a timer, a segment time or a citation; `spoken` is for an
  * `aria-label` or a sentence. Spoken uses `Intl.DurationFormat` where the
  * browser has it and the same words from `Intl.NumberFormat` units otherwise.
- * `short` is for a list or a total of hours worked (specs/029): whole minutes, the
+ * `short` is for a list or a total of hours worked (specs/20261112-time-tracking): whole minutes, the
  * remainder dropped; the minutes after the hours are padded ("2 h 05") so they never
  * read as a decimal; hours are never capped and are grouped like any number in the
  * language. The same text in both languages, since "h" and "min" are one symbol in each.

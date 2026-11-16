@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Browser back across suite modules (the guarantee projects-ui added in specs/026 AC-6.1/6.2, D52/D53,
+ * Browser back across suite modules (the guarantee projects-ui added in specs/20261103-projects-handoff AC-6.1/6.2, D52/D53,
  * which every remote mounted by the shell needs). The shell mounts the remote at `/hours/*`; moving to
  * another module unmounts it and the browser's back button remounts it. Whatever address the browser
  * holds, the remote shows the page of THAT address, never the not-found panel for another module's

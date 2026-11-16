@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * The earliest day of a Custom period, in BOTH views (specs/029-time-tracking T29, plan amendment 4 of
+ * The earliest day of a Custom period, in BOTH views (specs/20261112-time-tracking T29, plan amendment 4 of
  * 2026-11-13, § Entries "A day"): a From or To before 01.01.2000 is a field error on that field and nothing is
  * asked, on My hours and on Everyone's hours alike — hours-api refuses such a day with a 400, which only a
  * client bug should ever reach. The rule lives in `lib/period.ts` and the Filters card, which both pages share;

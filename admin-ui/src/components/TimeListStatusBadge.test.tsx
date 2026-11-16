@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Component tests for TimeListStatusBadge (T32, specs/029-time-tracking, design.md S5): a time-list
+ * Component tests for TimeListStatusBadge (T32, specs/20261112-time-tracking, design.md S5): a time-list
  * item is Active or Retired, shown through the library `StatusBadge` — Active → the `active`
  * meaning, Retired → `voided` — with a text label and a decorative icon, so colour is never the
  * only signal.

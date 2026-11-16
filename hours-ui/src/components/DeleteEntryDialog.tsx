@@ -28,7 +28,7 @@ const named = (on: EntryOn): string => {
 }
 
 /**
- * DeleteEntryDialog — the confirmation before an entry is deleted (specs/029-time-tracking T28; design S3, F3;
+ * DeleteEntryDialog — the confirmation before an entry is deleted (specs/20261112-time-tracking T28; design S3, F3;
  * AC-1.5). A `ConfirmDialog tone="danger"`: focus on Cancel, "<duration> on <name>, <date>. This can't be
  * undone.", Confirm busy and the dialog locked while the request runs, and a failure shown inline with the
  * dialog open so Delete can be pressed again. Deleting needs no bookability check (plan), so it works for an

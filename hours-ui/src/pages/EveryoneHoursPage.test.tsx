@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * Everyone's hours — `/hours/all` (specs/029-time-tracking T29; AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.8,
- * AC-4.10, AC-4.11, AC-5.4, AC-1.6; design F6, S4, F8; ADR-0075, ADR-0090). Rendered through the inner
+ * Everyone's hours — `/hours/all` (specs/20261112-time-tracking T29; AC-4.2, AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.8,
+ * AC-4.10, AC-4.11, AC-5.4, AC-1.6; design F6, S4, F8; ADR 20261108-estimai-oversight-permission-amends-0036, ADR 20261112-hours-ui-ungated-remote). Rendered through the inner
  * router with `fakeApi` behind `apiFetch`, so a request assertion is about the query the real `hoursApi`
  * builds. The permissions are a store a test can change while the page is mounted, because the page must
  * wait for them, give up waiting, and follow a grant that arrives or goes.
@@ -122,7 +122,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('the gate: nothing is asked of a person who may not see everyone’s hours (AC-4.2, ADR-0075)', () => {
+describe('the gate: nothing is asked of a person who may not see everyone’s hours (AC-4.2, ADR 20261108-estimai-oversight-permission-amends-0036)', () => {
   it('while the permissions have not arrived it asks nothing and says it is loading, under its own header', async () => {
     useApi()
     await renderPage()
@@ -325,7 +325,7 @@ describe('an authorization outage: 503 authz_unavailable (AC-5.4)', () => {
   })
 })
 
-describe('every call carries whose=all (ADR-0075)', () => {
+describe('every call carries whose=all (ADR 20261108-estimai-oversight-permission-amends-0036)', () => {
   it('the entries, the totals and the people are all asked as everyone’s, and never as the person’s own', async () => {
     useApi()
     permissionsStore.set(READ_ALL_HOLDER)

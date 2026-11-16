@@ -1,5 +1,5 @@
 /**
- * The initial lists (specs/029 T10; AC-3.7, A15, AC-3.2): a NEW installation starts with exactly the
+ * The initial lists (specs/20261112-time-tracking T10; AC-3.7, A15, AC-3.2): a NEW installation starts with exactly the
  * categories and work types of the spec, under the fixed ids of plan § Data model.
  *
  * "A new installation" has to mean a database nobody has touched, and `hours_test` is shared with

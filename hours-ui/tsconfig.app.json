@@ -16,7 +16,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* @operai/ui is compiled from source (ADR-0050). The react paths make the
+    /* @operai/ui is compiled from source (ADR 20261031-shared-ui-library-consumed-as-source). The react paths make the
        library's files type-check against THIS project's React types: on Vercel
        operai-ui/node_modules does not exist. */
     "paths": {

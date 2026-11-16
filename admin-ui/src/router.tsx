@@ -201,12 +201,12 @@ export function createAppRouter(basepath?: string) {
   // at `/rates`; they moved to refund-ui's Settings tab (`/refund/settings`) on
   // 2026-11-13 (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment). The old path is left to the not-found page.
 
-  // Time lists (T31, specs/029-time-tracking, design.md S5) — the categories and the two work-type
+  // Time lists (T31, specs/20261112-time-tracking, design.md S5) — the categories and the two work-type
   // lists, served by hours-api. A flat sibling of the sections above, gated client-side by
   // SectionNav.tsx's proactive nav-entry hide (`time-list:manage`) and by the page's own
   // `PermissionDenied`, no route-level `beforeLoad` guard; the real enforcement is hours-api's live
   // `time-list:manage` check on every list write. The route is registered here, not in App.tsx
-  // (specs/029 R3: the shared App.tsx stays untouched).
+  // (specs/20261112-time-tracking R3: the shared App.tsx stays untouched).
   const timeListsRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/time-lists',

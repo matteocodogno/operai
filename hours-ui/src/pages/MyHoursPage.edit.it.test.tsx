@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Edit and Delete under `<html lang="it">` (specs/029-time-tracking T28, AC-5.5): the edit dialog, the "not
+ * Edit and Delete under `<html lang="it">` (specs/20261112-time-tracking T28, AC-5.5): the edit dialog, the "not
  * visible" variant, the delete confirmation and the words after a delete come from the Italian catalog and none
  * of the English one; a name the person or an administrator typed ("Formazione", "Project Alpha") stays verbatim.
  * Completeness of the catalog is checked once for the whole app (strings.test.ts); this proves the screens read it.

@@ -1,5 +1,5 @@
 ---
-spec: 029
+spec: 20261112
 status: draft
 ---
 
@@ -7,7 +7,7 @@ status: draft
 
 Inputs read: `spec.md` (approved, 44 ACs, amended 2026-11-12: AC-3.1, 3.3, 4.6, 4.9, 4.10, new 4.11; 2026-11-13: AC-2.2, 2.3, new 2.12),
 `plan.md` (approved, amended after the first design), `ledger.md` D1–D45, glossary § Time tracking,
-ADR-0088/0089/0090, `operai-ui/docs/{building-pages,design-system,decisions}.md`, `operai-ui/src/index.ts` and
+ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote, `operai-ui/docs/{building-pages,design-system,decisions}.md`, `operai-ui/src/index.ts` and
 the page stories, and the precedents named below (read as code; no dev server was running, so nothing was
 inspected in a browser). Re-synced on 2026-11-12 with the amended spec and plan (D38–D45); the first draft's
 gaps 1–7 and 9 are closed by them (§ Gaps). **Corrected 2026-11-13 for drift found in implementation** — no new
@@ -23,7 +23,7 @@ Surfaces: **three pages** — *My hours* and *Everyone's hours* in the new remot
 *Time lists* in `admin-ui` (`/time-lists`) — **three dialogs** (entry, delete confirmation, list-item form)
 and **one menu link** in the shell. Page types from `operai-ui/src/pages`: My hours = *Item list* + *Quick
 create in a dialog* + *Deletion flow*; Everyone's hours = *Item list* (read-only table); Time lists = three
-cards of *Item list* with *Quick create* (the admin-ui `MileageRatesPage` shape, ADR-0023).
+cards of *Item list* with *Quick create* (the admin-ui `MileageRatesPage` shape, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition).
 
 Conventions that hold on every screen (not repeated below): all copy is an `en` catalog plus a complete
 `it: typeof en` through `selectStrings`, sentence case, parity + hardcoded-copy tests (AC-5.5); durations
@@ -148,7 +148,7 @@ is downloaded and nothing partial is written.
 ### F6 Everyone's hours — US-4, US-5, AC-4.2–4.5, 4.7, 4.10, 4.11, 5.4, 1.6
 
 Entry: the **Everyone's hours** tab (shown only to a holder of `time-entry:read-all`; a UX convenience, the
-server is the gate — the estimai-ui `whose=all` rule, ADR-0075).
+server is the gate — the estimai-ui `whose=all` rule, ADR 20261108-estimai-oversight-permission-amends-0036).
 
 1. Same filters as F4 plus **Person**; same Totals and Entries, but the entries are a flat read-only table
    (no day totals, no row actions). The Person options are the `person` groups of
@@ -157,7 +157,7 @@ server is the gate — the estimai-ui `whose=all` rule, ADR-0075).
 2. Default *Group by* is **person**.
 3. Denial and outage: a non-holder who reaches `/hours/all` (typed URL, revoked grant) gets the
    permission-denied panel (`read_all_required`); `auth` down is `authz_unavailable` (AC-5.4) with a retry,
-   and a link back to My hours, which keeps working (ADR-0088).
+   and a link back to My hours, which keeps working (ADR 20261112-hours-api-time-entries-own-service-hours-catalog).
 4. A deal filter with Meetings unavailable is the same error state as F4 step 5 (AC-4.11); the Person options
    call carries the deal filter too, so it fails with the rest.
 
@@ -334,7 +334,7 @@ id except for the author's own edit dialog, which keeps working on own entries, 
 The fields are more than the library's "five at most" guideline for a dialog (up to seven are visible at
 once). Kept as a dialog on purpose: recording is the tool's highest-frequency act and a page per entry costs
 more than it saves; the extra fields are the optional work type / activity and the conditional entity field.
-The prop-driven form (initial values in, one `onSubmit` out) is reusable by specs/030 and 031.
+The prop-driven form (initial values in, one `onSubmit` out) is reusable by specs/20261112-project-hours and 031.
 
 | Field | Control | Required | Options / rule |
 |---|---|---|---|
@@ -576,7 +576,7 @@ One `<Link role="menuitem" className="menu-item">` "My hours" / "Le mie ore" aft
 
 ## Component inventory
 
-Library in use: **`@operai/ui`** (`operai-ui/`, ADR-0050/0051) with Tailwind token utilities; TanStack Router;
+Library in use: **`@operai/ui`** (`operai-ui/`, ADR 20261031-shared-ui-library-consumed-as-source, 20261031-one-styling-dialect-token-utilities) with Tailwind token utilities; TanStack Router;
 `shell/session` for `apiFetch`, `usePermissions`, `get*ApiBaseUrl`. Not Mantine.
 
 ### Reused (library or in-repo)
@@ -596,7 +596,7 @@ Library in use: **`@operai/ui`** (`operai-ui/`, ADR-0050/0051) with Tailwind tok
 | Menu link | shell `UserMenu.tsx` (`Menu` + router `Link`) |
 | Remote mount, route | `RemoteMount`, the `/my-meetings/$` route shape in `shell/src/router.tsx` |
 | Holder-only view | the estimai-ui rule (`EstimatesPage.tsx`, `EstimateFilters.tsx`): UX gate by permission, absent not disabled, server is the gate, stale answers discarded |
-| Admin list page | the admin-ui `MileageRatesPage.tsx` shape (ADR-0023): state union loading/loaded/error/forbidden, per-card empty |
+| Admin list page | the admin-ui `MileageRatesPage.tsx` shape (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition): state union loading/loaded/error/forbidden, per-card empty |
 | Recoverable list action | the CRM `TemplatesCard.tsx` shape: `ghost` `sm` row buttons, busy per row, a success notice, no confirmation for archive / restore |
 | Workbook | `exceljs` lazily imported inside `ExportButton`'s `build`, built from the list pages (the `inventory-ui` `yearWorkbook.ts` pattern, **not** copied code) |
 | Durations | `formatDuration` + its planned `style: 'short'` (an extension of an existing formatter, plan, with story + test) |
@@ -751,7 +751,7 @@ only through a server error, because the control cannot hold an invalid duration
 
 UI present that no AC asks for (small, kept, say if you want it removed): the "outside the period you are
 viewing" wording of the save banner; the "names not visible" note (plan R4's mitigation); the Person options
-read from `GET totals?groupBy=person` (AC-4.4 asks for the filter and no directory is available, ADR-0066);
+read from `GET totals?groupBy=person` (AC-4.4 asks for the filter and no directory is available, ADR 20261104-user-directory-gate-meetings-access);
 the **Clear the deal filter** button in the AC-4.11 banner (AC-4.11 asks only for "refused as unavailable");
 the activity field's **Try again** button; the success banners of Retire and Restore; the 01.01.2000 floor of the
 Day field and of the Custom period, with its field errors (plan amendment 4, 2026-11-13: a product bound that
@@ -763,7 +763,7 @@ AC-4.4 entry), charts (D25), any "incomplete day" cue or reminder (D23), an Undo
 (Restore on the row is the undo), bulk retire / restore, a "show retired" toggle (retired rows are always
 listed, after the active ones), a Group by Day option (day totals only label the entries).
 
-**Seams.** specs/030 (hours on project and deal pages) and specs/031 (suggested entries) must not need a
+**Seams.** specs/20261112-project-hours (hours on project and deal pages) and specs/20261112-meeting-hours (suggested entries) must not need a
 redesign of S2: keep `EntryDialog` prop-driven (initial values in, one submit out, no router coupling). 031's
 "Suggested" card would sit between Totals and Entries on S1 and would say "suggestions unavailable" when
 Meetings does not answer (A25); 030's per-project totals are a different page and reuse only `formatDuration`.

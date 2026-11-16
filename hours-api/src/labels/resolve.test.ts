@@ -1,5 +1,5 @@
 /**
- * The labels layer on its own (specs/029 T13; plan § Views "How `on.deal` is filled" and "A deal id read
+ * The labels layer on its own (specs/20261112-time-tracking T13; plan § Views "How `on.deal` is filled" and "A deal id read
  * from the system route passes the id rule", § Sequences "List / totals" step 4, § Reading the owners' list
  * answers; AC-2.6, AC-4.5, AC-4.7, AC-4.10). `src/entries/view.test.ts` reads the assembled entry view;
  * this file pins what `src/totals/` (T18) will group by and what the view cannot show by itself: which

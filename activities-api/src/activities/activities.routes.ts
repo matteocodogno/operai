@@ -11,7 +11,7 @@
  * the same 404 as an activity that does not exist (AC-8.3). No If-Match: a single author (or
  * manager) edits, so there is nobody to race (plan D-7).
  *
- * `GET /activities?ids=` (specs/029-time-tracking T6) is the one list that names activities rather
+ * `GET /activities?ids=` (specs/20261112-time-tracking T6) is the one list that names activities rather
  * than an entity: see `listByIds`.
  */
 
@@ -117,7 +117,7 @@ const ListActivitiesQuery = z.object({
   contactId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
   dealId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
   projectId: z.string().max(64).refine(noNul, NUL_MESSAGE).optional(),
-  // The fifth filter (specs/029 T6): up to MAX_IDS activity ids, comma-separated. The raw string is
+  // The fifth filter (specs/20261112-time-tracking T6): up to MAX_IDS activity ids, comma-separated. The raw string is
   // bounded first so a long one is a 422 before it is split; the elements are checked in `parseIds`.
   ids: z.string().max(MAX_IDS * (MAX_ID_LENGTH + 1)).optional(),
   // `type=task&open=true`: the open tasks a task may be blocked by (US-6 picker).
@@ -261,7 +261,7 @@ const announceParticipants = (c: Caller, session: HostSession, host: ActivityHos
         target: notifyTarget(session, host, row),
       });
 
-// ─── Listing by ids (specs/029 T6) ───────────────────────────────────────────
+// ─── Listing by ids (specs/20261112-time-tracking T6) ───────────────────────────────────────────
 
 /** The ids of `?ids=a,b,c`: each 1..64 characters with no NUL, at most MAX_IDS as sent (not as distinct). One given twice is still one row. */
 function parseIds(raw: string): string[] {
@@ -281,7 +281,7 @@ function parseIds(raw: string): string[] {
  * asks it of every entry that points at an activity, and reads an absent id as "deleted, or not
  * yours", AC-2.9 / D47). Three rules make that reading safe:
  *
- *   - Every host that owns some of the rows is asked about them, as the caller (ADR-0081). The
+ *   - Every host that owns some of the rows is asked about them, as the caller (ADR 20261110-activities-service-access-delegated-to-host). The
  *     host that says the caller is no reader, and the entity it no longer knows, are one outcome
  *     with an id that never existed: the activity is left out, with no status, field or count that
  *     tells the three apart (`total` counts what is returned, never what was left out).

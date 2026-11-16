@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Everyone's hours, the view of a holder (specs/029-time-tracking T29; AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.8,
+ * Everyone's hours, the view of a holder (specs/20261112-time-tracking T29; AC-4.3, AC-4.4, AC-4.5, AC-4.7, AC-4.8,
  * AC-4.10, AC-4.11, AC-1.6, D48; design F6, S4): the Person filter and its options, the Totals by person, the
  * read-only table, the banners about names and the deal filter's unavailable state. Who may ask, the denial
  * and the outage are in `EveryoneHoursPage.test.tsx`.

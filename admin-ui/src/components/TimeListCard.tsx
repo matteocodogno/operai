@@ -62,7 +62,7 @@ export type TimeListCardProps = {
 /**
  * TimeListCard — one list of the Time lists screen: its title and Add action, its table (Name, the
  * "Entries need a note" column of a category, Status, and the Rename and Retire / Restore row
- * actions) or its empty state, and a footnote (T32, specs/029-time-tracking, design.md S5).
+ * actions) or its empty state, and a footnote (T32, specs/20261112-time-tracking, design.md S5).
  * Presentational: the page owns the data, the requests and the dialogs.
  *
  * Retired rows are listed after the active ones. There is no Delete anywhere (AC-3.2): nothing is

@@ -1,6 +1,6 @@
 /**
- * A holder of `time-entry:read-all` writing someone else's entry (specs/029 T19; AC-1.6, AC-5.2, AC-5.4; plan § Sequences
- * "Oversight", § Errors "Order of the answers", ADR-0075, ADR-0088): the privilege is for LOOKING. Reading everyone's hours
+ * A holder of `time-entry:read-all` writing someone else's entry (specs/20261112-time-tracking T19; AC-1.6, AC-5.2, AC-5.4; plan § Sequences
+ * "Oversight", § Errors "Order of the answers", ADR 20261108-estimai-oversight-permission-amends-0036, ADR 20261112-hours-api-time-entries-own-service-hours-catalog): the privilege is for LOOKING. Reading everyone's hours
  * never becomes a way to change them, so the holder is told 403 `owner_only` — they can read the entry anyway — while
  * anyone else, and a holder when `auth` cannot say, is told what they are told for an entry that does not exist: 404.
  *

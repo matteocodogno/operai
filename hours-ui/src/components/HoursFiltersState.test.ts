@@ -1,5 +1,5 @@
 /**
- * The filters as URL search params (specs/029-time-tracking T24; design § Frame of `hours-ui`: "Filters
+ * The filters as URL search params (specs/20261112-time-tracking T24; design § Frame of `hours-ui`: "Filters
  * live in URL search params (`period`, `from`, `to`, `person`, `category`, `workType`, `group`)"). A
  * default is left out of the URL, anything unknown or malformed falls back to the default so garbage in a
  * pasted link never reaches the API, and writing one filter keeps every other key of the URL.

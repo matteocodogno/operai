@@ -1,5 +1,5 @@
 /**
- * What the list routes promise in the OpenAPI document (specs/029 T12; plan § Lists, AC-3.2): the
+ * What the list routes promise in the OpenAPI document (specs/20261112-time-tracking T12; plan § Lists, AC-3.2): the
  * five routes and no `delete`, the 80-character name documented as `maxLength: 80` (code points, which
  * is what JSON Schema counts), the id's bound, and the answers a client must handle.
  */

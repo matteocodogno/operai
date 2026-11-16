@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * Unit tests for src/lib/timeListsApi.ts — the typed client for hours-api's time lists: the
- * categories and the two work-type lists an admin manages (T31, specs/029-time-tracking/tasks.md,
+ * categories and the two work-type lists an admin manages (T31, specs/20261112-time-tracking/tasks.md,
  * refs AC-3.3, AC-5.5; plan.md § Lists).
  *
  * hours-api's list routes are not built yet (T12), so everything here runs against a faked
@@ -10,7 +10,7 @@
  *   • `shell/session`'s `apiFetch` and `getHoursApiBaseUrl` are replaced at the module level, so
  *     the tests control the raw Response and inspect exactly what was sent;
  *   • the base URL must come from the SHELL — a remote ships no `VITE_HOURS_API_URL` of its own
- *     (ADR-0023's call-path, ADR-0090);
+ *     (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition's call-path, ADR 20261112-hours-ui-ungated-remote);
  *   • the contract asserted is the one in plan.md § Lists, not the one that is convenient.
  */
 

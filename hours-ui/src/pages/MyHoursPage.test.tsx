@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * My hours, T24's part: the filters and the Totals card (specs/029-time-tracking; AC-4.4, AC-4.5, AC-4.9,
+ * My hours, T24's part: the filters and the Totals card (specs/20261112-time-tracking; AC-4.4, AC-4.5, AC-4.9,
  * AC-3.4, AC-3.8, AC-1.4; design S1, F4 steps 1–2). Rendered through the inner router with a memory history
  * and `fakeApi` behind `apiFetch`, so every assertion about a request is about the query string the real
  * `hoursApi` builds. The entries by day (T25) and the dialogs (T27, T28) are other tasks' tests.

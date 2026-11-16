@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * SearchPicker (specs/029, T4; AC-2.2, AC-2.3, AC-2.5, AC-4.4): the server-side search in a
+ * SearchPicker (specs/20261112-time-tracking, T4; AC-2.2, AC-2.3, AC-2.5, AC-4.4): the server-side search in a
  * `Field`-wrapped `Combobox`. The app's `search` is a hand-resolved promise per call, so a test
  * decides when each answer arrives, in which order, and whether it honours the abort signal.
  * Timers are fake: the debounce is part of the behaviour.

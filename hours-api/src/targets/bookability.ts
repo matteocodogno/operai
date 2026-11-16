@@ -1,6 +1,6 @@
 /**
  * May this person record hours on this? Asked of the tool that owns it, AS THE CALLER, at the moment of the
- * write (specs/029 T15; plan § Sequences; ADR-0089; AC-2.2, AC-2.5, AC-2.10, AC-2.11).
+ * write (specs/20261112-time-tracking T15; plan § Sequences; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route; AC-2.2, AC-2.5, AC-2.10, AC-2.11).
  *
  * hours-api holds no list of who is on a project or a meeting and never decides it: a person who left a team,
  * a project made unreadable to them, a meeting relinked — each applies on the next write, because the owner is
@@ -74,7 +74,7 @@ async function assertOnProject({ userId, authorization }: Caller, projectId: str
  * A meeting: the caller must be its creator or one of its Operai participants. meetings-api's own list
  * answers exactly that — it lists the caller's OWN meetings only, `ids` narrowing them — so a meeting that
  * is absent is one the caller took part in no way: unknown, someone else's, or readable only through its
- * host (a CRM deal's page), which is never a way to book (ADR-0058: visibility by relationship, never by
+ * host (a CRM deal's page), which is never a way to book (ADR 20261104-meetings-tool-shape-visibility-by-participation: visibility by relationship, never by
  * role). All three are the one 404; none is told apart. A list that ignored `ids` is the client's
  * `unavailable` (a meetings-api older than T8 answers the caller's latest page: that page's silence about
  * the asked meeting is no "no", plan R7).

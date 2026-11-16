@@ -1,6 +1,6 @@
 /**
- * Whose entries a read selects (specs/029 T19; plan § Sequences "Oversight", § Totals "Person filter"; AC-4.2, AC-4.3,
- * AC-5.4, ADR-0075).
+ * Whose entries a read selects (specs/20261112-time-tracking T19; plan § Sequences "Oversight", § Totals "Person filter"; AC-4.2, AC-4.3,
+ * AC-5.4, ADR 20261108-estimai-oversight-permission-amends-0036).
  *
  * `whose=mine` is the caller's own and asks nobody: a person's own hours need only a session (AC-5.1), and keep
  * working when `auth` is down. `whose=all` — and the `userId` filter, which is a question about everyone's — is the

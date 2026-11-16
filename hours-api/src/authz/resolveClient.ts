@@ -1,7 +1,7 @@
 /**
- * Thin HTTP client for `auth GET /authz/resolve` (specs/029 T12; ADR-0014 point 1, ADR-0088).
+ * Thin HTTP client for `auth GET /authz/resolve` (specs/20261112-time-tracking T12; ADR 20260716-refund-api-authorization-enforcing-resource-server point 1, ADR 20261112-hours-api-time-entries-own-service-hours-catalog).
  * Adapted from projects-api/src/authz/resolveClient.ts (no workspace: each resource server owns its
- * copy, ADR-0003; not drift-checked, plan R10).
+ * copy, ADR 20260703-estimai-api-bun-hono-typescript; not drift-checked, plan R10).
  *
  * It forwards the CALLER'S OWN Bearer header verbatim: no credential of hours-api's is involved, so
  * `auth` answers what THIS person holds. It answers one question for hours-api, "does the caller hold

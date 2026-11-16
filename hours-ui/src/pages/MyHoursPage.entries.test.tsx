@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * My hours, T25's part: the entries by day with the server's day totals, Load more, the source and
- * visibility banners, and the deal-filter-unavailable state (specs/029-time-tracking; AC-4.1, AC-2.6, AC-2.9,
+ * visibility banners, and the deal-filter-unavailable state (specs/20261112-time-tracking; AC-4.1, AC-2.6, AC-2.9,
  * AC-4.7, AC-4.8, AC-4.9, AC-4.10, AC-4.11, D48; design S1, F4). Rendered through the inner router with
  * `fakeApi` behind `apiFetch`, so a request assertion is about the query the real `hoursApi` builds. The
  * filters and the Totals card are T24's tests; the dialogs are T27's and T28's.

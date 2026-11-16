@@ -1,5 +1,5 @@
 /**
- * The name rule on its own (specs/029 plan § Lists, § Entries "Counting a note and a name" and "A lone
+ * The name rule on its own (specs/20261112-time-tracking plan § Lists, § Entries "Counting a note and a name" and "A lone
  * surrogate in a note or a name"; AC-3.1, AC-3.8). Routes prove it end to end (lists.test.ts); this
  * pins the edges of the function the way a later consumer would call it.
  */

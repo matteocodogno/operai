@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * EntriesTable — the flat, read-only table of Everyone's hours (specs/029-time-tracking T29; AC-1.6, AC-4.3,
+ * EntriesTable — the flat, read-only table of Everyone's hours (specs/20261112-time-tracking T29; AC-1.6, AC-4.3,
  * AC-4.7, AC-4.8, AC-4.9, AC-4.10, AC-2.6, AC-3.8; design S4 "Entries card"). Columns Day, Person, On,
  * Details and Time, in the server's order and never re-sorted, with the words for a name the viewer may not
  * read or that did not come, and nothing to write with: no Edit, no Delete, no row action of any kind.

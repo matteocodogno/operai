@@ -1,5 +1,5 @@
 /**
- * `readAllEntries` — the walk the export makes (specs/029-time-tracking T30; plan § Export file: "from every
+ * `readAllEntries` — the walk the export makes (specs/20261112-time-tracking T30; plan § Export file: "from every
  * page of `GET /time-entries` with the active filters, `limit=500` until `nextCursor` is `null`"; AC-4.6, A11,
  * AC-4.11). The request reaches the real `hoursApi` through the fake `apiFetch`, so an assertion about a query
  * is about what the contract fixes.

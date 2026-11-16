@@ -1,5 +1,5 @@
 /**
- * What a totals answer is made of (specs/029 T18; plan § Totals): the groups, how minutes are collected into them,
+ * What a totals answer is made of (specs/20261112-time-tracking T18; plan § Totals): the groups, how minutes are collected into them,
  * and the order they are listed in. Pure: no database, no other service.
  *
  * Every matching entry is counted in exactly ONE group, so `Σ groups[].minutes === totalMinutes` holds by

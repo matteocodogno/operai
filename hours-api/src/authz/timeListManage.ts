@@ -1,5 +1,5 @@
 /**
- * The live `time-list:manage` check (specs/029 T12; plan § Sequences "Admin lists", AC-3.3, ADR-0088).
+ * The live `time-list:manage` check (specs/20261112-time-tracking T12; plan § Sequences "Admin lists", AC-3.3, ADR 20261112-hours-api-time-entries-own-service-hours-catalog).
  * The shape of projects-api's `authzMiddleware`, narrowed to the one permission this service gates
  * a route on; the oversight permission of T19 has its own module (src/oversight).
  *
@@ -15,7 +15,7 @@ import { fetchResolvedPermissions } from "./resolveClient";
 
 export const TIME_LIST_MANAGE = { resource: "time-list", action: "manage" } as const;
 
-// Only a REFUSAL is remembered, per `(sub, perm_epoch)` for 30 s (ADR-0075): a grant bumps the epoch,
+// Only a REFUSAL is remembered, per `(sub, perm_epoch)` for 30 s (ADR 20261108-estimai-oversight-permission-amends-0036): a grant bumps the epoch,
 // so a new holder's next token is asked afresh and is not held back. A grant is never remembered, so
 // a revocation holds on the very next write even while the caller's token still carries the old
 // epoch (estimai-api's security review of 2026-11-09: a cached grant kept a revoked admin writing
@@ -45,7 +45,7 @@ export const timeListManage = createMiddleware<{ Variables: JwtVariables }>(asyn
     // `jwtMiddleware` already refused a request with no Bearer, so the header is there.
     permissions = await fetchResolvedPermissions(c.req.header("Authorization")!);
   } catch (err) {
-    // Fail CLOSED (ADR-0014 point 4): an outage is neither a grant nor a refusal. The error's NAME
+    // Fail CLOSED (ADR 20260716-refund-api-authorization-enforcing-resource-server point 4): an outage is neither a grant nor a refusal. The error's NAME
     // only: a fetch error's message can name auth's internal host.
     console.error("[authz] auth GET /authz/resolve failed — denying the list write (fail-closed):", err instanceof Error ? err.name : typeof err);
     return problem(

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * HoursExport — the Export button of both views (specs/029-time-tracking T30; design F5, S1, S4; AC-4.6, AC-4.7,
+ * HoursExport — the Export button of both views (specs/20261112-time-tracking T30; design F5, S1, S4; AC-4.6, AC-4.7,
  * AC-4.9, AC-4.10, AC-4.11). The real `ExportButton` of `@operai/ui`, the real walk (`exportPages`) and the real
  * builder run, with `fakeApi` behind `apiFetch`; only the browser seams a download crosses — `URL.createObjectURL`
  * and the anchor click — are faked and recorded, so the file a test inspects is the one the person would get.

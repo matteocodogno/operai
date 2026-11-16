@@ -34,7 +34,7 @@ import { strings } from '../strings'
 export type ErrorBannerProps = {
   /**
    * An optional bold first line (the banner's `title`), for a failure with a name the person
-   * should see first — "Authorization service unavailable" (ADR-0014, specs/029 T31).
+   * should see first — "Authorization service unavailable" (ADR 20260716-refund-api-authorization-enforcing-resource-server, specs/20261112-time-tracking T31).
    */
   title?: string
   /** The error text to display (typically an RFC 7807 `detail`). */

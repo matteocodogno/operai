@@ -1,6 +1,6 @@
 /**
- * The one HTTP adapter every owner client goes through (specs/029 T11; plan § API contracts,
- * ADR-0089, risk R7). projects-api, crm-api, activities-api and meetings-api each answer a question
+ * The one HTTP adapter every owner client goes through (specs/20261112-time-tracking T11; plan § API contracts,
+ * ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, risk R7). projects-api, crm-api, activities-api and meetings-api each answer a question
  * hours-api cannot answer itself — may this person book on this, what is it called, who else is on
  * it — and hours-api asks them AS THE CALLER, with the caller's own `Authorization` forwarded unchanged
  * (no new credential, the owner applies its own live authorization), except meetings-api's system

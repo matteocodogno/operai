@@ -1,5 +1,5 @@
 /**
- * The rules of the entry dialog's Day (specs/029-time-tracking T27; plan § Entries "A day", amendment 4 of
+ * The rules of the entry dialog's Day (specs/20261112-time-tracking T27; plan § Entries "A day", amendment 4 of
  * 2026-11-13; AC-1.3). The dialog's own tests prove the field shows the error; this pins the rule itself on
  * strings a browser's date field would never hand over, so the rule holds whatever fills `day`.
  */

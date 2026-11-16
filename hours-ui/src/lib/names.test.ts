@@ -1,5 +1,5 @@
 /**
- * names — what the screen says about a name it may or may not show (specs/029-time-tracking T25; AC-4.10,
+ * names — what the screen says about a name it may or may not show (specs/20261112-time-tracking T25; AC-4.10,
  * AC-4.7, AC-2.6, AC-2.9; design S1 "Names the viewer cannot read"). The rule under every case: a name is
  * shown only for `visibility: "visible"`, a placeholder from the catalog stands in otherwise, and the
  * placeholder never carries the server's label or an id — even when the server (wrongly) sent one.

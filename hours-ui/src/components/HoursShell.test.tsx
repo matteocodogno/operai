@@ -3,7 +3,7 @@
  *
  * HoursShell: the "Hours" frame, and the tabs that exist only for a holder of `time-entry:read-all`
  * (design § Frame of hours-ui; AC-5.1: the screens are ungated, the tab is a UX convenience and the
- * server is the gate, ADR-0075).
+ * server is the gate, ADR 20261108-estimai-oversight-permission-amends-0036).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
@@ -97,7 +97,7 @@ describe('HoursShell', () => {
   })
 })
 
-describe('the tabs (AC-5.1, ADR-0075)', () => {
+describe('the tabs (AC-5.1, ADR 20261108-estimai-oversight-permission-amends-0036)', () => {
   it('are out of the DOM while permissions have not resolved', async () => {
     renderAt('/hours', NOT_RESOLVED)
     await screen.findByTestId('hours-my-page')

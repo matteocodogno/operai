@@ -1,6 +1,6 @@
 /**
  * The `shell/session` module as every hours-ui test that talks to a service mocks it
- * (specs/029-time-tracking T22). `vi.mock` factories are hoisted above the imports, so a test
+ * (specs/20261112-time-tracking T22). `vi.mock` factories are hoisted above the imports, so a test
  * builds the module from the shared `apiFetch` mock through a dynamic import:
  *
  *   const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))

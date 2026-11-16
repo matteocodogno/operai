@@ -332,7 +332,7 @@ describe("the notify group", () => {
   });
 });
 
-describe("SERVICE_AUDIENCE (specs/029 T9: the audience of the /system routes' service JWTs, ADR-0044)", () => {
+describe("SERVICE_AUDIENCE (specs/20261112-time-tracking T9: the audience of the /system routes' service JWTs, ADR 20261006-scoped-service-jwt-fourth-notify-caller)", () => {
   it("is optional: unset, the /system routes answer 401 to everyone (fail closed) and the service still starts", async () => {
     const r = parseEnv(dev());
     expect(r.ok).toBe(true);

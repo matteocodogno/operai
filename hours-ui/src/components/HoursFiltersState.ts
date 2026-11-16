@@ -1,5 +1,5 @@
 /**
- * The filters of My hours and Everyone's hours as the URL's search params (specs/029-time-tracking T24, T29;
+ * The filters of My hours and Everyone's hours as the URL's search params (specs/20261112-time-tracking T24, T29;
  * design § Frame of `hours-ui`): `period`, `from`, `to`, `person` (Everyone's hours only), `category`,
  * `workType` and `group`. The picked project and deal are NOT here: a pick needs its label, and the URL
  * carries none, so they live in memory.

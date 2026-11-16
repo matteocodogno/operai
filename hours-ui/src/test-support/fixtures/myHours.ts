@@ -1,5 +1,5 @@
 /**
- * Fixtures of the My hours filters and totals (specs/029-time-tracking T24). Typed with the wire types,
+ * Fixtures of the My hours filters and totals (specs/20261112-time-tracking T24). Typed with the wire types,
  * so a contract change fails the build. The totals are in the order the SERVER sends them — chosen so
  * that a client that re-sorted them (by name, by minutes, by key) would visibly change it, which is what
  * the tests of "never re-sorted" lean on.

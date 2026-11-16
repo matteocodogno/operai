@@ -202,7 +202,7 @@
 - **Option line**: a cost line the client may tick; priced and numbered, never counted in a
   total or in the offer's price. _Avoid:_ optional line (confused with optional block).
 
-### Time tracking (specs/029)
+### Time tracking (specs/20261112-time-tracking)
 - **Time entry**: one person's own declaration that they spent a duration, on one day, on
   one thing — a project, a deal, a meeting, or no entity (then with a category). Not an
   activity, but may point at one. _Avoid:_ timesheet row, worklog, booking.
@@ -212,13 +212,13 @@
 - **Work type**: the optional kind of work of a time entry on a project or a deal, from one of
   two lists an admin manages (one for projects, one for deals). _Avoid:_ task type, service.
 - **Contractual day**: 8 h 24 min, from 42 hours a week, Monday to Friday. Nothing checks a
-  day against it in specs/029.
+  day against it in specs/20261112-time-tracking.
 - **Suggested entry**: a time entry Operai offers a person from a Meetings meeting they took
-  part in; it counts for nothing until the person confirms it (specs/031). _Avoid:_ proposal
+  part in; it counts for nothing until the person confirms it (specs/20261112-meeting-hours). _Avoid:_ proposal
   (ProposAI's word), draft entry.
 - **Consumption**: the hours recorded on a project set against what its terms sold — the hour
   package, the max effort and estimated man-days, or the positions' planned man-days
-  (specs/030). _Avoid:_ burn, usage.
+  (specs/20261112-project-hours). _Avoid:_ burn, usage.
 - **Man-day**: 8 hours, in every comparison with what was sold — not the **Contractual day**.
 - **Package period**: for a yearly hour package, each 12 months from its start date; for a
   capacity package, from its start date to its expiry. Unused hours never carry over.

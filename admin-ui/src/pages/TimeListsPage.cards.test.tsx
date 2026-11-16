@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Component tests for the three cards of TimeListsPage (T32, specs/029-time-tracking/tasks.md, refs
+ * Component tests for the three cards of TimeListsPage (T32, specs/20261112-time-tracking/tasks.md, refs
  * AC-3.1, AC-3.2, AC-3.4, AC-3.7, AC-3.8; plan.md § Lists; design.md S5). T31's own file covers the
  * page's frame and states; this one covers what the loaded page shows and does.
  *

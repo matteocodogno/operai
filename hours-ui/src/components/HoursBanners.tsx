@@ -18,7 +18,7 @@ export type HoursBannersProps = {
 
 /**
  * HoursBanners — the notes a view of hours carries about names it could not load or may not show
- * (specs/029-time-tracking T25; design S1 states "Source down" and "Names not visible"; AC-4.7, AC-4.10).
+ * (specs/20261112-time-tracking T25; design S1 states "Source down" and "Names not visible"; AC-4.7, AC-4.10).
  * Shared by My hours and Everyone's hours, each note only when it applies:
  *
  * - names missing (`info`, polite): hours are complete, these sources did not answer, so their names show as

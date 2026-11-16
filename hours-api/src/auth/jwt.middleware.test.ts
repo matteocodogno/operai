@@ -1,5 +1,5 @@
 /**
- * The REAL JWT middleware (ADR-0005/0010): RS256, issuer and audience pinned. Every other
+ * The REAL JWT middleware (ADR 20260703-jwt-resource-server-remote-jwks, 20260713-jwt-audience-claim-enforcement): RS256, issuer and audience pinned. Every other
  * test file runs behind the harness's mock of it, so this file imports the real module under
  * a distinct specifier (`?real`) and serves the fixture public key from a stubbed fetch.
  */
@@ -50,11 +50,11 @@ describe("jwtMiddleware (real)", () => {
     expect((await get("not-a-jwt")).status).toBe(401);
   });
 
-  it("refuses a validly signed token for another audience (ADR-0010)", async () => {
+  it("refuses a validly signed token for another audience (ADR 20260713-jwt-audience-claim-enforcement)", async () => {
     expect((await get(await harness.signToken({ sub: "user-1", email: "a@welld.test", audience: "another-service" }))).status).toBe(401);
   });
 
-  it("refuses a validly signed token carrying the SERVICE audience: a service credential is not a user (ADR-0044)", async () => {
+  it("refuses a validly signed token carrying the SERVICE audience: a service credential is not a user (ADR 20261006-scoped-service-jwt-fourth-notify-caller)", async () => {
     expect((await get(await harness.signToken({ sub: "system:hours-api", email: "svc@welld.test", audience: TEST_SERVICE_AUDIENCE }))).status).toBe(401);
   });
 

@@ -467,7 +467,7 @@ services:
   # ─── hours-api ──────────────────────────────────────────────────────────────
   # Bun + Hono resource server for time tracking: the hours people record on a project, a deal,
   # a meeting or other work, the categories and work types they pick from, and the oversight view
-  # for holders of `time-entry:read-all` (specs/029-time-tracking, ADR-0088/0089/0090). It owns no
+  # for holders of `time-entry:read-all` (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote). It owns no
   # access list of the records an entry points at: every "may this person book on ..." is asked of
   # the owner (projects-api, crm-api, activities-api, meetings-api) with the caller's own JWT and
   # fails closed on a write.

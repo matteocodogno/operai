@@ -188,7 +188,7 @@ describe('writes (plan § Entries)', () => {
     expect(lastRequest()).toMatchObject({ method: 'DELETE', path: '/time-entries/e1' })
   })
 
-  it('sends no If-Match: an entry has one writer, so last write wins (plan, ADR-0088)', async () => {
+  it('sends no If-Match: an entry has one writer, so last write wins (plan, ADR 20261112-hours-api-time-entries-own-service-hours-catalog)', async () => {
     apiFetch.mockResolvedValue(json({ id: 'e1' }))
     await updateEntry('e1', { minutes: 60 })
     expect(lastRequest().headers.has('If-Match')).toBe(false)

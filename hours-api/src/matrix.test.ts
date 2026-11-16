@@ -1,7 +1,7 @@
 /**
- * Authorization matrix over the ASSEMBLED app (specs/029-time-tracking T20; AC-5.3, AC-1.6, AC-1.8,
+ * Authorization matrix over the ASSEMBLED app (specs/20261112-time-tracking T20; AC-5.3, AC-1.6, AC-1.8,
  * AC-2.10, AC-3.2, AC-3.3, AC-4.2, AC-5.1, AC-5.2, AC-5.4; plan § API contracts, § Errors "Order of the
- * answers", ADR-0075, ADR-0088).
+ * answers", ADR 20261108-estimai-oversight-permission-amends-0036, ADR 20261112-hours-api-time-entries-own-service-hours-catalog).
  *
  * hours-api asks `auth` for two permissions and nothing else is decided by who the caller is: a session is
  * all a person needs to record and read their own hours (AC-5.1), `time-entry:read-all` lets them LOOK at
@@ -222,7 +222,7 @@ async function wrongCredentials(): Promise<Array<[string, string | null]>> {
     ["an empty Bearer", "Bearer "],
     ["a Bearer that is not a JWT", "Bearer not-a-jwt"],
     ["Basic credentials", "Basic dXNlcjpwYXNz"],
-    // The credential hours-api itself holds for meetings-api (ADR-0044): a service JWT, never a user session.
+    // The credential hours-api itself holds for meetings-api (ADR 20261006-scoped-service-jwt-fourth-notify-caller): a service JWT, never a user session.
     ["a service JWT (aud = SERVICE_AUDIENCE, sub = a system principal)", `Bearer ${await token({ sub: "system:hours-api", audience: TEST_SERVICE_AUDIENCE })}`],
     ["a PERSON's token with the SERVICE audience", `Bearer ${await token({ audience: TEST_SERVICE_AUDIENCE })}`],
     ["a token for another audience", `Bearer ${await token({ audience: "another-service" })}`],
@@ -775,7 +775,7 @@ describe("one permission is not the other, and a role's name grants nothing", ()
     expect((await call("POST", "/time-categories", { as: "admin", body: { name: "While granted" } })).status).toBe(201);
     hosts.reset();
     for (const [key, persona] of Object.entries(PERSONAS)) hosts.auth.setIdentity(persona.sub, { name: `Name of ${key}` });
-    // Same token, same `perm_epoch`: no grant is remembered, so the revocation holds immediately (ADR-0075).
+    // Same token, same `perm_epoch`: no grant is remembered, so the revocation holds immediately (ADR 20261108-estimai-oversight-permission-amends-0036).
     expect((await call("POST", "/time-categories", { as: "admin", body: { name: "After revoke" } })).json).toMatchObject({ code: "time_list_manage_required" });
   });
 });

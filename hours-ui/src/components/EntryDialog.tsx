@@ -93,13 +93,13 @@ const without = (errors: FieldErrors, field: FieldName): FieldErrors => {
 const INERT = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-60'
 
 /**
- * EntryDialog — record hours (specs/029-time-tracking T27; design S2, F1; AC-1.1–1.3, 1.7, 1.8, 2.1–2.3, 2.5,
+ * EntryDialog — record hours (specs/20261112-time-tracking T27; design S2, F1; AC-1.1–1.3, 1.7, 1.8, 2.1–2.3, 2.5,
  * 2.7, 2.10, 2.11, 3.4–3.6). A `FormDialog` over My hours: Day (today, never after it), Duration (the 48 steps
  * of 30 minutes), What was it on (nothing chosen), then only the fields that apply to the choice — a project,
  * deal or meeting picker, or a category; the work type and activity for a project or a deal — and the note.
  *
  * It is prop-driven: the lists in, one `onSubmit` out, no router and no knowledge of the page, so the project
- * and deal pages (specs/030, 031) can reuse it. The dialog owns the form, the client rules and the words for
+ * and deal pages (specs/20261112-project-hours, specs/20261112-meeting-hours) can reuse it. The dialog owns the form, the client rules and the words for
  * every refusal; the page owns the request.
  *
  * Editing (T28; design F2, S2 "Edit entry"; AC-1.5, AC-2.12, AC-3.4, AC-4.10; plan § Entries "Change an entry",

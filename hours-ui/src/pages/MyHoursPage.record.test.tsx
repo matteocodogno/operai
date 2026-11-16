@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * My hours, T27's part: "Record hours" opens the entry dialog, a save closes it, gives focus back, reloads the
- * entries and the totals and says so (specs/029-time-tracking; AC-1.1, AC-1.4, AC-2.2, AC-2.11; design F1, S1,
+ * entries and the totals and says so (specs/20261112-time-tracking; AC-1.1, AC-1.4, AC-2.2, AC-2.11; design F1, S1,
  * S2). Rendered through the inner router with `fakeApi` behind `apiFetch`, so the request is the one the real
  * `hoursApi` builds. The dialog's own rules, fields and refusals are `EntryDialog.test.tsx`; this is the page
  * around it: what it asks of the lists, what it does after a save and what it leaves alone after a refusal.

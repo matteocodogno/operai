@@ -62,7 +62,7 @@ describe('PermissionDenied', () => {
     expect(alert.textContent).toContain('You no longer have admin access.')
   })
 
-  // T31 (specs/029-time-tracking) — the Time lists screen is reached BY someone with admin access
+  // T31 (specs/20261112-time-tracking) — the Time lists screen is reached BY someone with admin access
   // who lacks one permission, so "You no longer have admin access." would be untrue there.
   it('renders a caller-provided title instead of the generic heading, still focused on mount', () => {
     render(<PermissionDenied title="You can't manage the time lists" message="Ask an administrator." />)

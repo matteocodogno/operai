@@ -1,5 +1,5 @@
 /**
- * How a person is named, and the Person filter's options from the totals (specs/029-time-tracking T29; AC-4.8,
+ * How a person is named, and the Person filter's options from the totals (specs/20261112-time-tracking T29; AC-4.8,
  * design S4 "Filters card"): "Unknown user" for a name that could not be read, "(deactivated)" for a closed
  * account, the server's order kept, and only the people the person grouping holds.
  */

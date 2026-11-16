@@ -1,6 +1,6 @@
 /**
- * activities-api, asked as the caller (specs/029 T11; plan § API contracts "activities-api", § Sequences,
- * ADR-0089, AC-2.3, AC-2.7, AC-2.8, AC-2.9, AC-4.7, risks R6, R7, R9; activities-api T6). Two questions:
+ * activities-api, asked as the caller (specs/20261112-time-tracking T11; plan § API contracts "activities-api", § Sequences,
+ * ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, AC-2.3, AC-2.7, AC-2.8, AC-2.9, AC-4.7, risks R6, R7, R9; activities-api T6). Two questions:
  *
  *   listActivitiesByIds   GET /activities?ids=a,b,c   (≤ 50 ids)
  *       Which of these activities exist and may the caller read, and what are they about? Serves the

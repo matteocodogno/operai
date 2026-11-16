@@ -1,6 +1,6 @@
 /**
- * meetings-api's system route, read with hours-api's OWN service credential (specs/029 T11; plan
- * § Sequences "List / totals", § API contracts "meetings-api", ADR-0089, AC-2.6, AC-4.5, AC-4.7,
+ * meetings-api's system route, read with hours-api's OWN service credential (specs/20261112-time-tracking T11; plan
+ * § Sequences "List / totals", § API contracts "meetings-api", ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, AC-2.6, AC-4.5, AC-4.7,
  * AC-4.11, risk R7; meetings-api T9):
  *
  *   GET /system/meetings/hosts?ids=a,b,c      (≤ 100)   the deal each meeting is linked to
@@ -63,9 +63,9 @@ describe("readMeetingHosts", () => {
     expect((await hostsOf(["m1"])).get("m1")).toEqual({ dealId: null });
   });
 
-  // ADR-0059: a host is data, never a branch. meetings-api stores and returns three strings, so this client
+  // ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data, never a branch. meetings-api stores and returns three strings, so this client
   // accepts any strings and decides per item: only exactly crm / deal is a deal. Any other host (production has
-  // none, specs/021 AC-11.1) is "no deal", like null: it must not fail the batch, which would make every
+  // none, specs/20261104-meetings AC-11.1) is "no deal", like null: it must not fail the batch, which would make every
   // meeting of a page read "unknown", and its entityId is never taken for a deal.
   describe("a host that is not a CRM deal (amended 2026-11-13)", () => {
     const row = (id: string, host: unknown) => ({ id, host });

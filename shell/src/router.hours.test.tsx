@@ -1,11 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * Tests for the ungated `/hours/$` route (specs/029-time-tracking, T23, AC-5.1, AC-5.3,
- * AC-5.5; ADR-0090; design.md F8 and S6).
+ * Tests for the ungated `/hours/$` route (specs/20261112-time-tracking, T23, AC-5.1, AC-5.3,
+ * AC-5.5; ADR 20261112-hours-ui-ungated-remote; design.md F8 and S6).
  *
  * `hours-ui` is a remote with NO gated half: every screen is for a signed-in person's own
- * hours, so a caller with zero app grants must reach it (ADR-0034's test). The route is a
+ * hours, so a caller with zero app grants must reach it (ADR 20260804-shell-identity-scoped-non-tool-screens-account-route's test). The route is a
  * child of `shellRoute` like `/my-meetings/$`, with no `beforeLoad`, no `recordLastTool` and
  * no `TOOLS` entry; the `_authed` session guard on its ancestors still applies.
  *
@@ -119,7 +119,7 @@ describe('/hours/$ — the ungated route (AC-5.1)', () => {
     expect(screen.queryByRole('link', { name: /hours/i })).toBeNull()
   })
 
-  it('has no app-access beforeLoad, unlike every tool route (ADR-0090)', async () => {
+  it('has no app-access beforeLoad, unlike every tool route (ADR 20261112-hours-ui-ungated-remote)', async () => {
     grantApps([])
     const { router } = await renderShellAt('/hours')
     await screen.findByTestId('hours-app')

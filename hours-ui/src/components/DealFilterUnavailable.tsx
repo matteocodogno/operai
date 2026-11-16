@@ -13,7 +13,7 @@ export type DealFilterUnavailableProps = {
 
 /**
  * DealFilterUnavailable — the ONE banner that replaces Totals and Entries while a deal filter is set and
- * Meetings cannot say which meetings are linked to that deal (specs/029-time-tracking T25; AC-4.11, D45;
+ * Meetings cannot say which meetings are linked to that deal (specs/20261112-time-tracking T25; AC-4.11, D45;
  * design S1 "Deal filter unavailable"; Everyone's hours, T29, shows it with the same words). A list or a
  * total drawn without those meetings would be incomplete and look complete, so nothing is drawn until the
  * link can be read — never the empty state, never "0 min", never rows left over from another filter.

@@ -1,10 +1,10 @@
 /**
- * Service-token client (specs/029-time-tracking T10, copied from crm-api; ADR-0044/0049).
+ * Service-token client (specs/20261112-time-tracking T10, copied from crm-api; ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261013-all-notify-callers-scoped-credentials-shared-token-retired).
  * Exchanges `SERVICE_CLIENT_ID`/`SERVICE_CLIENT_SECRET` for the 5-minute RS256 service JWT
  * `auth POST /system/service-token` mints (scope `meetings.hosts.read`, `sub`
  * `system:hours-api`, `aud=SERVICE_AUDIENCE`), and hands it to the meetings client
  * (`src/clients`, T11) as the Bearer credential for meetings-api's
- * `GET /system/meetings/hosts`, the one call hours-api makes as itself (ADR-0089).
+ * `GET /system/meetings/hosts`, the one call hours-api makes as itself (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
  *
  * - Cached in memory; refetched once the token is within 60 s of expiry.
  * - SINGLE-FLIGHT: concurrent callers share one in-flight exchange (a burst of

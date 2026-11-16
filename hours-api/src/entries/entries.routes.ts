@@ -1,5 +1,5 @@
 /**
- * Recording, changing and deleting an entry (specs/029 T14; plan § Entries, § Errors; AC-1.1 – AC-1.3,
+ * Recording, changing and deleting an entry (specs/20261112-time-tracking T14; plan § Entries, § Errors; AC-1.1 – AC-1.3,
  * AC-1.5 – AC-1.8, AC-2.1, AC-3.1, AC-3.4 – AC-3.6).
  *
  * Any session may record, change and delete ITS OWN entries — no tool grant, no `auth` call, no owner call for
@@ -346,7 +346,7 @@ entriesRouter.openapi(updateEntryRoute, async (c) => {
   const owners = await validateWrite({ stored, body, target: movedTo ?? targetOf(stored), moved: movedTo !== null });
   await askOwners({ userId, authorization }, owners);
 
-  // Last write wins for one person in two tabs (no If-Match: an entry has one writer, ADR-0088). The row is
+  // Last write wins for one person in two tabs (no If-Match: an entry has one writer, ADR 20261112-hours-api-time-entries-own-service-hours-catalog). The row is
   // addressed by id AND owner, so the statement itself can never touch another person's entry.
   const row = await db.timeEntry
     .update({

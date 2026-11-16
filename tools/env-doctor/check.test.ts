@@ -15,7 +15,7 @@ import {
   legalEntityConfigProblems,
 } from "./manifest";
 import { parseEnvFile } from "./parse";
-// specs/029: the hours-api block at the end of this file pins the contract entries themselves too.
+// specs/20261112-time-tracking: the hours-api block at the end of this file pins the contract entries themselves too.
 import { CORS_REQUIREMENTS, INTERNAL_URL_VARS, ISSUER, PRODUCTION_REQUIRED_KEYS, SERVICE_CLIENT_LINKS } from "./manifest";
 
 const TOKEN = "x".repeat(40);
@@ -607,7 +607,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
       CRM_API_URL: "http://crm-api.railway.internal:8084",
       SERVICE_CLIENT_ID: "meetings-api",
       SERVICE_CLIENT_SECRET: CLIENT_SECRET_MEET,
-      SERVICE_AUDIENCE: SVC_AUD, // specs/029: /system/meetings/hosts, production-required
+      SERVICE_AUDIENCE: SVC_AUD, // specs/20261112-time-tracking: /system/meetings/hosts, production-required
       MEETINGS_S3_ENDPOINT: "https://t3.storageapi.dev",
       MEETINGS_S3_REGION: "ams",
       MEETINGS_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
@@ -1810,12 +1810,12 @@ describe("env-doctor checker — accounting-api (specs/20261119-accounting)", ()
   });
 });
 
-// specs/029-time-tracking (ADR-0088/0089/0090): hours-api, a new resource server that asks four owners
+// specs/20261112-time-tracking (ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote): hours-api, a new resource server that asks four owners
 // (projects-api, crm-api, activities-api, meetings-api) as the caller and reads one fact from meetings-api
 // as itself (`GET /system/meetings/hosts`, scope `meetings.hosts.read`), so meetings-api now verifies service
 // tokens and needs the service audience. The baseline is the suite with crm-api, projects-api, activities-api,
 // meetings-api and hours-api.
-describe("env-doctor checker — hours-api (specs/029)", () => {
+describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () => {
   const CLIENT_SECRET_HOURS = "h".repeat(40);
   const CLIENT_SECRET_ACT = "a".repeat(40);
   const CLIENT_SECRET_MEET = "t".repeat(40);
@@ -1837,7 +1837,7 @@ describe("env-doctor checker — hours-api (specs/029)", () => {
     });
 
   function hoursSuite(): SuiteEnv {
-    const s = projectsSuite(); // validSuite + crm-api + projects-api, in their specs/026-028 shape
+    const s = projectsSuite(); // validSuite + crm-api + projects-api, in their specs/20261103-projects-handoff to 20261110-activities shape
     s.auth!.SERVICE_CLIENTS = hoursRegistry();
     s["activities-api"] = {
       DATABASE_URL: "postgres://…/activities",

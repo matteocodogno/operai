@@ -130,9 +130,9 @@ const envSchema = z
     const issue = (key: string, message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message });
     const production = val.NODE_ENV === "production";
 
-    // A user JWT must never be a service credential (ADR-0044). The message names no value.
+    // A user JWT must never be a service credential (ADR 20261006-scoped-service-jwt-fourth-notify-caller). The message names no value.
     if (val.SERVICE_AUDIENCE !== undefined && val.SERVICE_AUDIENCE === val.AUTH_AUDIENCE) {
-      issue("SERVICE_AUDIENCE", "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR-0044)");
+      issue("SERVICE_AUDIENCE", "SERVICE_AUDIENCE must differ from AUTH_AUDIENCE (ADR 20261006-scoped-service-jwt-fourth-notify-caller)");
     }
 
     // Bucket residency (AC-4.9), only meaningful once the five values are individually valid.

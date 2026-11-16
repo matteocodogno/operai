@@ -32,7 +32,7 @@
  * route. Shown to every signed-in user — no permission check here, by design (a
  * participant without `meetings:access` still reads the meetings they were added to).
  *
- * "My hours" (specs/029-time-tracking, AC-5.1, ADR-0090): a fourth real `<Link role="menuitem">`
+ * "My hours" (specs/20261112-time-tracking, AC-5.1, ADR 20261112-hours-ui-ungated-remote): a fourth real `<Link role="menuitem">`
  * after "My meetings", to the ungated `/hours` route. Shown to every signed-in user — no permission
  * check here, by design (recording your own hours is not a tool grant).
  *
@@ -65,7 +65,7 @@ type UserMenuProps = {
 // router's typed `to` only knows its `$` form; like Sidebar's `tool.to`, the
 // bare prefix is passed as a plain string so the link renders `/my-meetings`.
 const MY_MEETINGS_PATH: string = '/my-meetings'
-// Same for `/hours/$` (specs/029-time-tracking, ADR-0090): the remote has an inner router.
+// Same for `/hours/$` (specs/20261112-time-tracking, ADR 20261112-hours-ui-ungated-remote): the remote has an inner router.
 const MY_HOURS_PATH: string = '/hours'
 
 const defaultOnSignOut = (): void => {

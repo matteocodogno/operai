@@ -1,5 +1,5 @@
 /**
- * No hardcoded user-facing strings anywhere in `src/` (specs/029-time-tracking, AC-5.5;
+ * No hardcoded user-facing strings anywhere in `src/` (specs/20261112-time-tracking, AC-5.5;
  * ported from projects-ui). This scans EVERY component and page
  * under `src/` with the TypeScript parser, so a file added by a later task is
  * covered the moment it exists, with no list to remember to extend. It flags

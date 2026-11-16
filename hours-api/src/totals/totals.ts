@@ -1,5 +1,5 @@
 /**
- * The totals of a set of entries (specs/029 T18; plan § Totals, § Views, ADR-0089 amendment A1; AC-1.4, AC-2.6, AC-4.4,
+ * The totals of a set of entries (specs/20261112-time-tracking T18; plan § Totals, § Views, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route amendment A1; AC-1.4, AC-2.6, AC-4.4,
  * AC-4.5, AC-4.7, AC-4.8, AC-4.10).
  *
  * `totalsOf` takes the database's question (`where`, built by src/entries/filters.ts `entryWhere` from the request),
@@ -71,7 +71,7 @@ async function byProject(where: Prisma.TimeEntryWhereInput, authorization: strin
 /**
  * One group per deal the viewer can read: the entries on the deal PLUS the entries on the meetings linked to it NOW
  * (AC-2.6), so a relinked meeting's hours move with it (nothing about the deal is stored on an entry). A deal and a
- * meeting's deal pass through the same read of the viewer's access (AC-4.10, ADR-0089 A1): the link is read with
+ * meeting's deal pass through the same read of the viewer's access (AC-4.10, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1): the link is read with
  * hours-api's own credential, so it is named only to a viewer who may read the deal it names — never by id or by name
  * otherwise — and what they may not read is ONE `hidden` group, what crm-api did not answer ONE `unavailable` group.
  *

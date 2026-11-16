@@ -1,5 +1,5 @@
 /**
- * The fake owners themselves (specs/029 T11: `src/test-support/hosts.ts`). Every later hours-api task
+ * The fake owners themselves (specs/20261112-time-tracking T11: `src/test-support/hosts.ts`). Every later hours-api task
  * (T12-T20) scripts them and cannot extend them (tasks.md "shared files"), so what they promise is
  * pinned here: they refuse what the real owners refuse (a client that sent something the owner would
  * refuse must fail its test, not pass against a lenient fake), they record every request that reached

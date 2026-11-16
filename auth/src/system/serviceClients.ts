@@ -71,7 +71,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
  *   accounting-api verifies it, and also checks the `sub` against its own allowlist `SYSTEM_READERS`. Only
  *   `refund-api` holds it. It never allows a write: a consumer that must write to Accounting is a new scope.
  * - `meetings.hosts.read`: read which host record (today a CRM deal) each meeting is linked to,
- *   through meetings-api's `GET /system/meetings/hosts` (specs/029, ADR-0089). Only hours-api
+ *   through meetings-api's `GET /system/meetings/hosts` (specs/20261112-time-tracking, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Only hours-api
  *   holds it; meetings-api's sub allowlist names `system:hours-api`. It answers `{id, host}` and
  *   nothing else — no title, participant or duration.
  */
@@ -115,8 +115,8 @@ export const KNOWN_SERVICE_SCOPES = [
  *   service that scope writes to.
  * - `letterhead-api` (specs/20261117-legal-entities, AC-3.2): `legal-entities:read` only — it reads the issuer's
  *   details itself; it verifies `letterhead:render` but does not hold it, and sends no notices.
- * - `hours-api` (specs/029): `meetings.hosts.read` only — it asks meetings-api which deal a
- *   meeting is linked to (ADR-0089). Everything else it asks of the other services is asked as
+ * - `hours-api` (specs/20261112-time-tracking): `meetings.hosts.read` only — it asks meetings-api which deal a
+ *   meeting is linked to (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Everything else it asks of the other services is asked as
  *   the caller, with the user's JWT, so it holds no other scope and sends no notification.
  */
 export const DOCUMENTED_CLIENT_SCOPES = {

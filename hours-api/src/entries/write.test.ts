@@ -1,5 +1,5 @@
 /**
- * Recording, changing and deleting an entry (specs/029 T14; AC-1.1 – AC-1.3, AC-1.5 – AC-1.8, AC-2.1, AC-3.1,
+ * Recording, changing and deleting an entry (specs/20261112-time-tracking T14; AC-1.1 – AC-1.3, AC-1.5 – AC-1.8, AC-2.1, AC-3.1,
  * AC-3.4 – AC-3.6; plan § Entries and § Errors), through the ASSEMBLED app, against the real database and the
  * fake hosts of T11.
  *

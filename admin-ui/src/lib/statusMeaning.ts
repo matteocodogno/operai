@@ -21,7 +21,7 @@ export const ACCESS_REQUEST_STATUS_MEANING: Record<AccessRequestStatus, StatusMe
 }
 
 /**
- * A time-list item (category or work type, specs/029): in use, or retired — no longer offered for
+ * A time-list item (category or work type, specs/20261112-time-tracking): in use, or retired — no longer offered for
  * a new entry, kept by the entries that have it. Keyed by the wire's `retired` flag, so the map is
  * the one place that says Retired is `voided` ("no longer counts") and not a failure.
  */

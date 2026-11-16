@@ -1,5 +1,5 @@
 /* Test-only resolution stub for the `shell/tokens.css` federated module
- * (specs/003-suite-shell). Same rationale as shellSession.ts in this
+ * (specs/20260709-suite-shell). Same rationale as shellSession.ts in this
  * directory: Vite's import-analysis needs a real, resolvable module for the
  * `import 'shell/tokens.css'` side-effect import in App.tsx even though unit
  * tests never assert on the actual token values (that's a visual/e2e

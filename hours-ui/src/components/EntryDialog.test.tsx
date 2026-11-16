@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * EntryDialog, recording (specs/029-time-tracking T27; design S2, F1; AC-1.1, AC-1.2, AC-1.3, AC-1.7, AC-1.8,
+ * EntryDialog, recording (specs/20261112-time-tracking T27; design S2, F1; AC-1.1, AC-1.2, AC-1.3, AC-1.7, AC-1.8,
  * AC-2.1, AC-2.2, AC-2.3, AC-2.5, AC-2.7, AC-2.10, AC-2.11, AC-3.4, AC-3.5, AC-3.6). The dialog owns the form,
  * its client rules and the words for a refusal; the page owns the request, so here `onSubmit` is a spy that
  * resolves or rejects with the error hours-api would have answered. The three pickers and the activity field

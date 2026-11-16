@@ -1,4 +1,4 @@
-# 0090 — The hours screens are a new, wholly ungated federated remote `hours-ui` mounted at `/hours`, and the admin lists stay in admin-ui: extending ADR-0009, ADR-0034 and ADR-0045
+# 20261112 — The hours screens are a new, wholly ungated federated remote `hours-ui` mounted at `/hours`, and the admin lists stay in admin-ui: extending ADR 20260713-notification-center-standalone-service-shell-seam, ADR 20260804-shell-identity-scoped-non-tool-screens-account-route and ADR 20261006-ungated-second-federated-entry-of-a-gated-remote
 
 **Date:** 2026-11-12  
 **Status:** Accepted  
@@ -9,40 +9,40 @@
 
 ## Context
 
-`specs/029-time-tracking` US-4 and AC-5.1 require that any active Operai user, whatever tools they
+`specs/20261112-time-tracking` US-4 and AC-5.1 require that any active Operai user, whatever tools they
 can open, can record and see their own hours. Recording hours is a person's own act, not a tool
 grant, so the screens must be reachable by every signed-in employee, including one with zero app
 grants. The screens also carry tool business logic (entry dialog, target pickers, the global
 everyone's-hours view for holders of `time-entry:read-all`, export) over `hours-api`'s own data, so
-they cannot be a shell-native screen (ADR-0009). The two admin lists (categories, work types) are
+they cannot be a shell-native screen (ADR 20260713-notification-center-standalone-service-shell-seam). The two admin lists (categories, work types) are
 admin configuration gated by `time-list:manage`.
 
-ADR-0034 placed an every-signed-in-user screen in the shell; ADR-0045 added an ungated second entry
+ADR 20260804-shell-identity-scoped-non-tool-screens-account-route placed an every-signed-in-user screen in the shell; ADR 20261006-ungated-second-federated-entry-of-a-gated-remote added an ungated second entry
 to an otherwise gated remote. Hours has no gated half at all, so neither precedent fits exactly.
 
 ## Decision
 
 We will build the hours screens as a **new federated remote, `hours-ui`**, a clone of the shape of
-`notify-ui` (ADR-0009): it exposes `./App` (the whole hours screen, ungated) and `./version`
-(ADR-0030), and the shell mounts it on an **ungated splat route `/hours/$`**, a child of
+`notify-ui` (ADR 20260713-notification-center-standalone-service-shell-seam): it exposes `./App` (the whole hours screen, ungated) and `./version`
+(ADR 20260803-suite-version-generated-file-federated-export), and the shell mounts it on an **ungated splat route `/hours/$`**, a child of
 `shellRoute` with **no `beforeLoad` app-access guard**, absent from `TOOLS` and not nested under
 any gated tool's path. The shell owns the route and a "My hours" link in `UserMenu`; the
 remote owns the screen, its strings and its calls to `hours-api` through `shell/session`
 (`getHoursApiBaseUrl()`, `VITE_HOURS_API_URL`). The admin lists are a `/time-lists` page in
 **admin-ui**, shown in navigation only to holders of `time-list:manage`, calling `hours-api`
-directly through `apiFetch` (the ADR-0023 mileage-rate pattern).
+directly through `apiFetch` (the ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition mileage-rate pattern).
 
 1. **The rule, for a remote with no gated half.** A remote whose every screen is identity-scoped
-   or self-service (ADR-0034's test: every signed-in user must reach it regardless of grants) is
+   or self-service (ADR 20260804-shell-identity-scoped-non-tool-screens-account-route's test: every signed-in user must reach it regardless of grants) is
    mounted ungated at a shell-owned route. Its backing routes must not gate on a catalog permission
    for the self-service part; the one oversight part (everyone's hours) is gated by its own
-   permission, resolved live, as ADR-0075 shapes it.
+   permission, resolved live, as ADR 20261108-estimai-oversight-permission-amends-0036 shapes it.
 2. **Not a `TOOLS` entry.** Listing `hours` in `TOOLS` behind an `hours:access` grant would
-   contradict AC-5.1 and recreate the zero-grant lockout ADR-0034 exists to prevent.
+   contradict AC-5.1 and recreate the zero-grant lockout ADR 20260804-shell-identity-scoped-non-tool-screens-account-route exists to prevent.
 3. **Admin configuration stays in admin-ui.** Categories and work types are governed alongside
-   rates and settings (ADR-0023, ADR-0028); the list page is gated by `time-list:manage`, and a 403
+   rates and settings (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition, ADR 20260722-settings-catalog-permission-config-not-rate); the list page is gated by `time-list:manage`, and a 403
    renders the standard `PermissionDenied`.
-4. **Does not change ADR-0006 or ADR-0030.** Remote URLs resolve at runtime per environment, the
+4. **Does not change ADR 20260709-suite-frontend-module-federation or ADR 20260803-suite-version-generated-file-federated-export.** Remote URLs resolve at runtime per environment, the
    remote owns no auth guard and no chrome, and the About-modal version seam degrades silently when
    the export is absent.
 
@@ -75,8 +75,8 @@ Described above.
 
 **Pros:**
 - Meets AC-5.1 for every active user with no grant, and keeps the tool out of `TOOLS`
-- Tool logic and strings stay in a remote that owns the hours API contract (ADR-0009 boundary)
-- The admin lists sit with the other admin configuration and reuse the ADR-0023 calling pattern
+- Tool logic and strings stay in a remote that owns the hours API contract (ADR 20260713-notification-center-standalone-service-shell-seam boundary)
+- The admin lists sit with the other admin configuration and reuse the ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition calling pattern
 - Follows precedents that already exist in the suite (`/notify`, `/my-meetings`, `/devices`)
 
 **Cons:**
@@ -91,15 +91,15 @@ Described above.
 
 **Cons:**
 - Hours also concern deals, meetings and unmapped work, which are not Projects screens
-- Open PR #9 (specs/026) rewrites projects-ui heavily; the same files would conflict
+- Open PR #9 (specs/20261103-projects-handoff) rewrites projects-ui heavily; the same files would conflict
 
 ### Option C — A shell-native screen (rejected)
 
 **Pros:**
-- Literal ADR-0034 placement, no federation change
+- Literal ADR 20260804-shell-identity-scoped-non-tool-screens-account-route placement, no federation change
 
 **Cons:**
-- The entry dialog, pickers and export are tool business logic; ADR-0009 forbids that in the shell
+- The entry dialog, pickers and export are tool business logic; ADR 20260713-notification-center-standalone-service-shell-seam forbids that in the shell
 
 ### Option D — A `TOOLS` entry behind an `hours:access` permission (rejected)
 
@@ -143,13 +143,13 @@ Described above.
 
 - GDPR / data-protection impact: low to medium — time records identify what each employee worked on
   and when; the ungated route exposes only the caller's own entries, and the everyone-view stays
-  behind `time-entry:read-all` (ADR-0075 posture).
+  behind `time-entry:read-all` (ADR 20261108-estimai-oversight-permission-amends-0036 posture).
 - Data residency: unaffected — `hours-ui` is client-side and talks only to `hours-api` (EU region).
-- Audit trail: not required by this decision; the entry lifecycle is owned by specs/029.
+- Audit trail: not required by this decision; the entry lifecycle is owned by specs/20261112-time-tracking.
 
-This decision **extends** ADR-0034 (the every-signed-in-user test and the shell route shape) and
-ADR-0045 (the ungated entry shape, here without a gated half), **mirrors** ADR-0009's `/notify`
-placement for a remote, and **applies** ADR-0023's admin-ui calling pattern to the admin lists.
+This decision **extends** ADR 20260804-shell-identity-scoped-non-tool-screens-account-route (the every-signed-in-user test and the shell route shape) and
+ADR 20261006-ungated-second-federated-entry-of-a-gated-remote (the ungated entry shape, here without a gated half), **mirrors** ADR 20260713-notification-center-standalone-service-shell-seam's `/notify`
+placement for a remote, and **applies** ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition's admin-ui calling pattern to the admin lists.
 
 ---
 

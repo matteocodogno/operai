@@ -1,5 +1,5 @@
 /**
- * `GET /time-entries` — the hours of a period, newest day first, a page at a time (specs/029 T17; plan § Entries;
+ * `GET /time-entries` — the hours of a period, newest day first, a page at a time (specs/20261112-time-tracking T17; plan § Entries;
  * AC-1.1, AC-2.4, AC-2.6, AC-4.2, AC-4.4, AC-4.7, AC-4.11).
  *
  * Reading one's own hours needs only a session (AC-5.1): `whose=mine` is scoped to the JWT subject in the

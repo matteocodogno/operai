@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * HoursFilters — the Filters card of My hours (specs/029-time-tracking T24; AC-4.4, AC-3.4, AC-3.8; design S1
+ * HoursFilters — the Filters card of My hours (specs/20261112-time-tracking T24; AC-4.4, AC-3.4, AC-3.8; design S1
  * "Filters"). Controlled and presentational: it renders the state it is given and reports each change as a
  * patch; the page owns the URL, the lists and the requests.
  */

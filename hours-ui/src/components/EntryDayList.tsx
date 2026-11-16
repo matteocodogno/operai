@@ -141,7 +141,7 @@ const byDay = (entries: readonly TimeEntryView[]): { day: string; items: TimeEnt
 }
 
 /**
- * EntryDayList — the entries of My hours, one section per day (specs/029-time-tracking T25; design S1
+ * EntryDayList — the entries of My hours, one section per day (specs/20261112-time-tracking T25; design S1
  * "Entries"; AC-4.1). A day is a region named by its `h4` (`formatDateLong`) and carries the total the
  * server stated for it (`groupBy=day`), so a day whose entries straddle two pages shows its full total at
  * once; with no figure for it, it shows none. Nothing is computed here, and nothing marks a day as

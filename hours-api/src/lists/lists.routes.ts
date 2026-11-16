@@ -1,5 +1,5 @@
 /**
- * The categories and work types (specs/029 T12; plan § Lists; AC-3.1 – AC-3.4, AC-3.7, AC-3.8).
+ * The categories and work types (specs/20261112-time-tracking T12; plan § Lists; AC-3.1 – AC-3.4, AC-3.7, AC-3.8).
  *
  * Reading the lists needs only a session: every person picks from them. Writing — create, rename,
  * retire and restore — needs `time-list:manage`, asked live of `auth` before anything else on the

@@ -1,9 +1,9 @@
 /**
- * How a person is named, and the Person filter's options (specs/029-time-tracking T29; AC-4.8, AC-5.5; design
+ * How a person is named, and the Person filter's options (specs/20261112-time-tracking T29; AC-4.8, AC-5.5; design
  * S4 "Filters card"). Pure, and shared by the three places that list a person — the Person filter, the
  * Person column of the entries and the person totals — so one account is never named two ways.
  *
- * The name is whatever `auth` resolved at the time of the read (ADR-0039), so a person renamed since shows
+ * The name is whatever `auth` resolved at the time of the read (ADR 20260807-live-identity-resolution-by-id-fail-soft), so a person renamed since shows
  * under the new name everywhere at once; nothing here stores or caches one. `auth` keeps no name for a
  * deactivated account and answers none for one it cannot resolve: both are words from the catalog, and the
  * deactivated one says so, because its hours are still counted.

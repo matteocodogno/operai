@@ -255,9 +255,9 @@ describe("env-doctor resolver", () => {
     ).toContain('entry "crm-api" lacks the "projects.purchase-orders.read" scope');
   });
 
-  // specs/029 T33: the shipped templates carry the hours-api contract and meetings-api's service audience;
+  // specs/20261112-time-tracking T33: the shipped templates carry the hours-api contract and meetings-api's service audience;
   // losing a piece fails offline, before any deploy. The errors come back as "<scope>: <message>".
-  describe("the committed templates — hours-api and meetings-api's service audience (specs/029)", () => {
+  describe("the committed templates — hours-api and meetings-api's service audience (specs/20261112-time-tracking)", () => {
     type Suite = ReturnType<typeof loadTemplateSuite>["suite"];
     const errorsAfter = (mutate: (s: Suite) => void) => {
       const r = loadTemplateSuite("production");

@@ -1,11 +1,11 @@
 /**
- * The answers of the oversight path (specs/029 T19; plan § Errors; AC-1.6, AC-4.2, AC-5.4).
+ * The answers of the oversight path (specs/20261112-time-tracking T19; plan § Errors; AC-1.6, AC-4.2, AC-5.4).
  *
  * - 403 `read_all_required` — `whose=all` or a `userId` without `time-entry:read-all`.
- * - 503 `authz_unavailable` — `auth` could not say whether the caller holds it: the read fails CLOSED (ADR-0014 posture),
+ * - 503 `authz_unavailable` — `auth` could not say whether the caller holds it: the read fails CLOSED (ADR 20260716-refund-api-authorization-enforcing-resource-server posture),
  *   never open, and nothing of anyone else's is returned.
  * - 403 `owner_only` — a holder of the permission writing someone else's entry. Reading everyone's hours never becomes
- *   a way to change them (AC-1.6): the privilege is for looking (ADR-0075).
+ *   a way to change them (AC-1.6): the privilege is for looking (ADR 20261108-estimai-oversight-permission-amends-0036).
  */
 
 import { ProblemError } from "../lib/problem";

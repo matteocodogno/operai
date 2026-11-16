@@ -1,5 +1,5 @@
 /**
- * The rules the schema itself enforces (specs/029 T10): Prisma cannot express CHECKs or
+ * The rules the schema itself enforces (specs/20261112-time-tracking T10): Prisma cannot express CHECKs or
  * expression indexes, so the initial migration adds them by hand, and these tests prove at the
  * DATABASE that each one refuses what the model forbids. Each refusal is asserted by its
  * constraint's (or index's) NAME, so a row refused for some other reason (a missing column, a

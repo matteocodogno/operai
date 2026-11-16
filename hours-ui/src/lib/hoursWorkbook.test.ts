@@ -1,5 +1,5 @@
 /**
- * `buildHoursWorkbook` (specs/029-time-tracking T30; plan § Export file; AC-4.6, AC-4.9, AC-4.10; D39, D40).
+ * `buildHoursWorkbook` (specs/20261112-time-tracking T30; plan § Export file; AC-4.6, AC-4.9, AC-4.10; D39, D40).
  * Every assertion reads the workbook BACK from its serialised bytes, so what is checked is the file a person
  * opens, not the in-memory object (the inventory-ui `yearWorkbook.test.ts` way). The expected words are
  * written out here, not read from the catalog the builder reads, so a changed word fails a test.

@@ -270,8 +270,8 @@ describe('vercel.json CSP — accounting origins', () => {
   })
 })
 
-// specs/029-time-tracking (ADR-0090, T23): the shell's CSP lets the page load the Hours remote and reach
-// hours-api. Hostnames follow the suite's `<name>[-api].operai.welld.io` scheme, as assumed for specs/025
+// specs/20261112-time-tracking (ADR 20261112-hours-ui-ungated-remote, T23): the shell's CSP lets the page load the Hours remote and reach
+// hours-api. Hostnames follow the suite's `<name>[-api].operai.welld.io` scheme, as assumed for specs/20261103-projects
 // (`infra/provision-tool.sh hours` is what creates them, T33).
 describe('vercel.json CSP — hours origins', () => {
   const vercel = JSON.parse(readFileSync(path.resolve(__dirname, '../../vercel.json'), 'utf-8')) as {
@@ -307,7 +307,7 @@ describe('vercel.json CSP — hours origins', () => {
     expect(remotesDtsSource).toContain("declare module 'hours/version'")
   })
 
-  it("index.css scans hours-ui's source (@source), so the shell's one Tailwind sheet carries the remote's utilities (ADR-0006 addendum)", () => {
+  it("index.css scans hours-ui's source (@source), so the shell's one Tailwind sheet carries the remote's utilities (ADR 20260709-suite-frontend-module-federation addendum)", () => {
     const indexCss = readFileSync(path.resolve(__dirname, '../index.css'), 'utf-8')
     expect(indexCss).toContain('@source "../../hours-ui/src";')
   })

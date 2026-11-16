@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * ActivityField, the "not visible" variant (specs/029-time-tracking T28; design S2 "The 'not visible' variant",
+ * ActivityField, the "not visible" variant (specs/20261112-time-tracking T28; design S2 "The 'not visible' variant",
  * accessibility; AC-4.10, AC-2.12). An entry whose project or deal the author can no longer read opens with its
  * Activity NOT EDITABLE while the target is unchanged: the person cannot read that project's activities, so none
  * is listed and none is read; the field shows the entry's pointer ("Not visible to you", or "No activity") and says

@@ -1,5 +1,5 @@
 /**
- * searchers — what the Project, Deal and Meeting pickers search, as the person (specs/029-time-tracking
+ * searchers — what the Project, Deal and Meeting pickers search, as the person (specs/20261112-time-tracking
  * T24 for the filters, T27 for the entry dialog; plan § Components `hours-ui` "Target pickers").
  *
  * The browser asks the owning service directly, with the person's own JWT through `apiFetch`
@@ -29,7 +29,7 @@ const asText = (value: unknown): string | null => (typeof value === 'string' && 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 
-/** The company's name, which is `null` when the CRM could not give it (ADR-0080). */
+/** The company's name, which is `null` when the CRM could not give it (ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential). */
 const companyNameOf = (company: unknown): string | null => asText(asRecord(company)?.['name'])
 
 /** `?q=` for typed text; the list opening on an empty field asks with no `q`. */

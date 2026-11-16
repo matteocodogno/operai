@@ -1,5 +1,5 @@
 /**
- * The error answers every hours-api route shares (specs/029 T10; plan § Errors): RFC 7807 Problem
+ * The error answers every hours-api route shares (specs/20261112-time-tracking T10; plan § Errors): RFC 7807 Problem
  * JSON with a `code`, a schema violation of any kind is 400 `invalid_request` (not the 422 the
  * shared `problem` copy's own hook gives; the 422s of this API are the named rules), and an
  * unexpected fault answers a generic 500 without the database's statement or its parameters.

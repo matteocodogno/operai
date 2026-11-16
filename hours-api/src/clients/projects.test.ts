@@ -1,6 +1,6 @@
 /**
- * projects-api's host resolve, asked as the caller (specs/029 T11; plan § Sequences "On a project",
- * AC-2.2, AC-2.10, AC-2.11, ADR-0089). The caller's own header, the timeout, the redirect and the
+ * projects-api's host resolve, asked as the caller (specs/20261112-time-tracking T11; plan § Sequences "On a project",
+ * AC-2.2, AC-2.10, AC-2.11, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). The caller's own header, the timeout, the redirect and the
  * failures are in `contract.test.ts`; this file is what is particular to the projects answer.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";

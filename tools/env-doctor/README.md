@@ -156,13 +156,13 @@ Added with specs/20261006-hardware-inventory (service tokens, `inventory-api`):
 | `*_S3_ENDPOINT` host vs `*_S3_EU_ENDPOINT_HOSTS` (non-AWS) or an EU region (AWS), for `refund-api` and `inventory-api` | service refuses to start (data residency) |
 | `SERVICE_AUDIENCE` (auth, notify-api) and `SERVICE_CLIENTS` (auth) are required keys | `SERVICE_CLIENTS` is optional in `env.ts`, but unset silently leaves every caller without a credential |
 
-Added with specs/029-time-tracking (`hours-api`, ADR-0088/0089/0090; `hours-api` is a Railway backend, `hours-ui` a Vercel frontend with origin `https://hours.operai.welld.io`, local `:5184`):
+Added with specs/20261112-time-tracking (`hours-api`, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote; `hours-api` is a Railway backend, `hours-ui` a Vercel frontend with origin `https://hours.operai.welld.io`, local `:5184`):
 
 | Invariant | Bug it catches |
 |---|---|
 | `hours-api` requires every variable its own `src/lib/env.ts` requires at start: `DATABASE_URL`, `ALLOWED_ORIGINS`, `AUTH_ISSUER`, `AUTH_JWKS_URL`, `AUTH_BASE_URL`, `AUTH_AUDIENCE`, the four owner URLs (`PROJECTS_API_URL`, `CRM_API_URL`, `ACTIVITIES_API_URL`, `MEETINGS_API_URL`), `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`, `SERVICE_AUDIENCE`, `PORT` (nothing optional, so a missing one is a start failure, here a red ✗) | the service exiting at start on a deploy that never set one of them |
 | `hours-api` joins `AUTH_AUDIENCE` (identical across backends) and `AUTH_ISSUER` (== auth's `BETTER_AUTH_URL`, public `https://`) like every resource server; `AUTH_JWKS_URL`, `AUTH_BASE_URL` and the four owner URLs are `http://` + `*.railway.internal` (prod) + the **target's** `PORT` (auth 3001, projects-api 8086, crm-api 8084, activities-api 8087, meetings-api 8085) | a public or wrong-port owner URL (every booking answers 503 `host_unavailable`), a token `aud`/`iss` mismatch |
-| `hours-api` `ALLOWED_ORIGINS` ⊇ the shell's origin and **admin-ui's** (the Time lists page calls hours-api directly, ADR-0023 pattern) | CORS failure on My hours or on Admin → Time lists |
+| `hours-api` `ALLOWED_ORIGINS` ⊇ the shell's origin and **admin-ui's** (the Time lists page calls hours-api directly, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition pattern) | CORS failure on My hours or on Admin → Time lists |
 | `SERVICE_AUDIENCE` identical across `auth`, `notify-api`, `crm-api`, `estimai-api`, `projects-api`, `activities-api`, **`meetings-api` and `hours-api`**, and different from `AUTH_AUDIENCE` on `meetings-api` and `hours-api` (both exit at start on an equal pair). Required on `hours-api` in every environment; on `meetings-api` **in production only** (its `env.ts` keeps it optional on purpose: unset, `GET /system/meetings/hosts` answers 401 to everyone and a service that holds recordings still starts) | hours-api's service JWT rejected by meetings-api (every deal-filtered read refused 503, by-deal totals that cannot name a meeting's deal), or a user JWT accepted on a system route |
 | `hours-api`'s `SERVICE_CLIENT_ID` is a key of `auth`'s `SERVICE_CLIENTS`, the secrets match, and the entry holds **exactly** `meetings.hosts.read` — no `notifications.push` (it sends nothing), no scope of another owner (every other owner is asked as the caller with the forwarded JWT, never with a service credential) | the token endpoint answering 401 to hours-api, or a client holding a capability it does not need |
 | No `NOTIFY_INTERNAL_TOKEN` on `hours-api` (the retired-token rule covers every backend) | the retired shared token reappearing on a new service |
@@ -170,7 +170,7 @@ Added with specs/029-time-tracking (`hours-api`, ADR-0088/0089/0090; `hours-api`
 `hours-api` has no notify, storage or AI variable, so none is required or checked for it. The
 production order matters (plan R7, `infra/README.md` § Time tracking): add the `hours-api` entry to
 production `SERVICE_CLIENTS` only **after** the auth that knows `meetings.hosts.read` is live — an
-unknown scope stops auth (ADR-0076). The doctor checks the contract, not the order.
+unknown scope stops auth (ADR 20261108-crm-pushes-deal-links-to-estimai). The doctor checks the contract, not the order.
 
 What it cannot express: two *different* `${{shared.X}}` references (e.g. `SERVICE_AUDIENCE`
 vs `AUTH_AUDIENCE`) or a reference vs a literal cannot be compared offline — that is a

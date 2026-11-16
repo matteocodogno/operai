@@ -1,9 +1,9 @@
 /**
  * permissions — what hours-ui reads from the shell's permissions, for UX only (the server is the gate,
- * ADR-0075; specs/029-time-tracking design § Frame of `hours-ui`).
+ * ADR 20261108-estimai-oversight-permission-amends-0036; specs/20261112-time-tracking design § Frame of `hours-ui`).
  *
  * The one thing that varies per person is whether they hold `time-entry:read-all` — the `hours`
- * catalog has no `access` resource, because the screens are ungated (AC-5.1, ADR-0090) — and it decides
+ * catalog has no `access` resource, because the screens are ungated (AC-5.1, ADR 20261112-hours-ui-ungated-remote) — and it decides
  * whether the Everyone's hours tab exists. `/authz/me` lists every effective permission, so a
  * catalog without `access` is included.
  *

@@ -1,10 +1,10 @@
 /**
- * `GET /activities?ids=` (specs/029-time-tracking T6; AC-2.7, AC-2.9, AC-4.10; plan § API
+ * `GET /activities?ids=` (specs/20261112-time-tracking T6; AC-2.7, AC-2.9, AC-4.10; plan § API
  * contracts "activities-api (changed)").
  *
  * hours-api asks one question of activities-api: "which of these activities does THIS PERSON
  * still read, and what are they?". The answer is the existing `Activity` view, the host of every
- * id is asked as the caller (ADR-0081), and an id the caller cannot read, an id whose entity the
+ * id is asked as the caller (ADR 20261110-activities-service-access-delegated-to-host), and an id the caller cannot read, an id whose entity the
  * host no longer knows and an id that never existed are one and the same thing: omitted. hours-api
  * reads that omission as "deleted, or not yours" (AC-2.9, D47), so nothing here may tell the
  * three apart, and nothing may be left out silently for any other reason (a page cut, a host

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * My hours, T28's part: Edit and Delete on a row (specs/029-time-tracking; AC-1.5, AC-2.4, AC-2.12, AC-3.4, AC-4.10;
+ * My hours, T28's part: Edit and Delete on a row (specs/20261112-time-tracking; AC-1.5, AC-2.4, AC-2.12, AC-3.4, AC-4.10;
  * design F2, F3, S1, S2, S3). Rendered through the inner router with `fakeApi` behind `apiFetch`, so the request is
  * the one the real `hoursApi` builds. The dialog's own rules, fields and refusals are `EntryDialog.edit.test.tsx`;
  * this is the page around it: what a save or a delete asks of the server, what the page reads again, where focus
@@ -142,7 +142,7 @@ describe('Edit on a row (F2; AC-1.5)', () => {
     await waitFor(() => expect(document.activeElement).toBe(recordButton()))
   })
 
-  it('sends no If-Match: an entry has one writer, its person (ADR-0088)', async () => {
+  it('sends no If-Match: an entry has one writer, its person (ADR 20261112-hours-api-time-entries-own-service-hours-catalog)', async () => {
     useApi()
     await renderPage()
     await userEvent.click(editButton('e-alpha'))

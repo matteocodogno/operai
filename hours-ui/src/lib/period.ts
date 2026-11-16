@@ -1,6 +1,6 @@
 /**
  * period — the Period filter of My hours and Everyone's hours: the presets as `from`/`to`, and the
- * Custom range's rules (specs/029-time-tracking, AC-4.4; design S1 "Period").
+ * Custom range's rules (specs/20261112-time-tracking, AC-4.4; design S1 "Period").
  *
  * Everything is arithmetic on calendar days written `YYYY-MM-DD`, done in UTC on the date alone, so a
  * time zone or a daylight-saving change cannot move a boundary. "Today" is not read here: the caller

@@ -106,7 +106,7 @@ const columns = (): readonly DataTableColumn<TimeEntryView>[] => {
 }
 
 /**
- * EntriesTable — the entries of Everyone's hours as a flat, READ-ONLY table (specs/029-time-tracking T29;
+ * EntriesTable — the entries of Everyone's hours as a flat, READ-ONLY table (specs/20261112-time-tracking T29;
  * design S4 "Entries card"; AC-1.6, AC-4.3). Columns Day, Person, On, Details and Time, one row per entry in
  * the order the server gave (newest day first), and nothing is sorted, grouped or summed here: no day
  * headings or totals (those are My hours'), no Edit, no Delete, no row action — a holder reads everyone's

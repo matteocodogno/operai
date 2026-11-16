@@ -1,5 +1,5 @@
 /**
- * Service-token client (specs/029 T10; ADR-0044/0049, ADR-0089): the byte-identical provider the
+ * Service-token client (specs/20261112-time-tracking T10; ADR 20261006-scoped-service-jwt-fourth-notify-caller, 20261013-all-notify-callers-scoped-credentials-shared-token-retired, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): the byte-identical provider the
  * suite's services share, proved in this tree, and the one hours-api wires from its environment
  * (`SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET`) to read a meeting's current deal as itself.
  * `auth` is a stubbed `fetch`; time is an injected clock.

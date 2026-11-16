@@ -1,5 +1,5 @@
 /**
- * The OpenAPI document of the ASSEMBLED app is the contract clients read (specs/029-time-tracking T20; AC-1.8,
+ * The OpenAPI document of the ASSEMBLED app is the contract clients read (specs/20261112-time-tracking T20; AC-1.8,
  * AC-1.6, AC-3.2, AC-5.3; plan § API contracts, § Entries "The id rule", "Counting a note and a name", "The
  * cursor", § Errors "501 is a build-order seam, not part of the contract"). hours-ui, the e2e and the next
  * service to call hours-api are written against what `GET /openapi.json` says, so it is asserted here, not

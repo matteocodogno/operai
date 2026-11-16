@@ -1,5 +1,5 @@
 /**
- * The id rule on its own (specs/029 plan § Entries, "The id rule and a NUL-free note"). Every route
+ * The id rule on its own (specs/20261112-time-tracking plan § Entries, "The id rule and a NUL-free note"). Every route
  * that takes an id imports it (T12 onward), so its edges are pinned here once: what is refused, and
  * — as important — what is NOT, since a wrongly refused id is a record nobody can reach.
  */

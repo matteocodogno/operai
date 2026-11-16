@@ -1,5 +1,5 @@
 /**
- * useHoursQuery — one read of My hours / Everyone's hours, keyed by what it asks (specs/029-time-tracking
+ * useHoursQuery — one read of My hours / Everyone's hours, keyed by what it asks (specs/20261112-time-tracking
  * T24; design F4 step 1: "filters apply on change; stale answers are discarded").
  *
  * The caller names the read with a `key` (the filters, serialised) and gives `run`, which fetches with
@@ -84,7 +84,7 @@ type MorePages<P> = { base: P; pages: P[]; loading: boolean; failed: boolean }
 
 /**
  * useHoursPages — a cursor-paged read: the first page as `useHoursQuery` gives it, and the later pages
- * asked one at a time with `loadMore` (specs/029-time-tracking T25; design S1 "Paging", D48).
+ * asked one at a time with `loadMore` (specs/20261112-time-tracking T25; design S1 "Paging", D48).
  *
  * - `loadMore` asks for the cursor of the LAST page held; while one is in flight, or when the last page has
  *   no cursor, it asks nothing.

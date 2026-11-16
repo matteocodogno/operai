@@ -30,7 +30,7 @@ const en = {
     notifications: 'Notifications',
     myDevices: 'My devices',
     myMeetings: 'My meetings',
-    // specs/029-time-tracking: the Hours remote's name (the loading/error boundary, the About
+    // specs/20261112-time-tracking: the Hours remote's name (the loading/error boundary, the About
     // dialog) and its menu row. Not a sidebar tool: every signed-in user records their own hours.
     hours: 'Hours',
     myHours: 'My hours',

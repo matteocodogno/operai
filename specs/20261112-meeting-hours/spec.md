@@ -1,26 +1,26 @@
 ---
-id: 031
+id: 20261112
 slug: meeting-hours
 status: approved
 rigor: production
 created: 2026-11-12
 approved: 2026-11-12
-depends-on: 021, 029
+depends-on: 20261104-meetings, 20261112-time-tracking
 ---
 
 # Meeting hours — time entries suggested from the meetings a person took part in
 
-Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/029 and specs/030)
+Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/20261112-time-tracking and specs/20261112-project-hours)
 
-> **Origin.** Split out of specs/029 on 2026-11-12 (ledger D26). specs/029 lets a person record
+> **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D26). specs/20261112-time-tracking lets a person record
 > hours on a meeting by hand; this spec has Meetings offer those hours, already filled in, to the
-> people who took part (ledger D7, D17). Every rule of specs/029 about time entries holds for an
+> people who took part (ledger D7, D17). Every rule of specs/20261112-time-tracking about time entries holds for an
 > entry made from a suggestion.
 
 ## Problem
 
 A meeting recorded or uploaded in Meetings already knows when it happened, how long it lasted
-and which colleagues took part, yet each of them has to type the same hours again in specs/029's
+and which colleagues took part, yet each of them has to type the same hours again in specs/20261112-time-tracking's
 hours view — or forget to. Meetings are the most frequent and most often forgotten part of the
 working day, so the hours spent in them are the ones most likely to go missing.
 
@@ -28,9 +28,9 @@ working day, so the hours spent in them are the ones most likely to go missing.
 
 - **suggested entry** — a time entry Operai offers a person from a Meetings meeting they took
   part in, with the meeting's day and duration filled in. It counts for nothing until the person
-  confirms it, and then becomes their time entry (specs/029). _Avoid:_ proposal (ProposAI's
+  confirms it, and then becomes their time entry (specs/20261112-time-tracking). _Avoid:_ proposal (ProposAI's
   word), draft entry.
-- **meeting**, **creator**, **Operai participant** — as in specs/021.
+- **meeting**, **creator**, **Operai participant** — as in specs/20261104-meetings.
 
 ## User stories
 
@@ -55,14 +55,14 @@ As an employee, I want to accept a suggestion as it is, adjust it or throw it aw
 hours I declare are recorded.
 
 - AC-2.1 Given a suggested entry, when its person confirms it as offered, then it becomes their
-  time entry on the meeting and counts like any other (specs/029).
+  time entry on the meeting and counts like any other (specs/20261112-time-tracking).
 - AC-2.2 Given a suggested entry, when its person changes its day, duration or note and confirms
-  it, then it becomes a time entry with the changed values, under specs/029's rules (30-minute
+  it, then it becomes a time entry with the changed values, under specs/20261112-time-tracking's rules (30-minute
   steps, no future day, note length); a change those rules refuse saves nothing.
 - AC-2.3 Given a suggested entry, when its person dismisses it, then it disappears and is never
   offered to them again for that meeting (D17).
 - AC-2.4 Given a suggested entry not yet confirmed, then it counts in no total, filter result or
-  export (specs/029 A11), and it stays offered until confirmed or dismissed, without expiring (A5).
+  export (specs/20261112-time-tracking A11), and it stays offered until confirmed or dismissed, without expiring (A5).
 - AC-2.5 Given someone else's suggested entry, then nobody — admins and holders of see everyone's
   hours included — can see, confirm, change or dismiss it (D14, A23).
 
@@ -89,7 +89,7 @@ As a meeting participant, I want suggestions to reveal nothing new about meeting
 Meetings visibility rules still hold.
 
 - AC-4.1 Given a suggested entry, then it shows only the meeting's title, day and duration, which
-  its person can already read in Meetings; no transcript, summary or other content (ADR-0058
+  its person can already read in Meetings; no transcript, summary or other content (ADR 20261104-meetings-tool-shape-visibility-by-participation
   posture).
 - AC-4.2 Given Meetings cannot be reached, when a person opens their hours view, then it still
   loads with their time entries and says suggestions are unavailable (A25).
@@ -107,7 +107,7 @@ Meetings visibility rules still hold.
   itself (D14).
 - **Suggestions for meetings that started before the release** (A19).
 - **Notifications** about suggestions (A26).
-- **Start and end times** — specs/029 records a day and a duration only (D8).
+- **Start and end times** — specs/20261112-time-tracking records a day and a duration only (D8).
 
 ## Constraints
 

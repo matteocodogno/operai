@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * TotalsCard — the Totals card of My hours (specs/029-time-tracking T24; AC-4.5, AC-4.9, AC-3.8, AC-4.10;
+ * TotalsCard — the Totals card of My hours (specs/20261112-time-tracking T24; AC-4.5, AC-4.9, AC-3.8, AC-4.10;
  * design S1 "Totals"). Presentational: the page hands it the state of the totals read. It shows the
  * server's total and groups, in the server's order and re-sorted by nothing, with each merged row once and
  * the design's words, months through `formatMonth` and durations through `formatDuration` `short`.

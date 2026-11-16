@@ -501,7 +501,7 @@ letterheads-ui is **not** migrated in this change: it keeps its own copies, beca
 may still fix them in its QE/eval. **Follow-up (open):** once that spec is done, replace letterheads-ui's
 `ErrorSummary.tsx`, the table in `HistoryPanel.tsx` and the banner in `HistoryPanelVersion.tsx` with thin adapters
 over these three (binding its strings and its e2e test ids), and delete the copies.
-**D-67 — `SearchPicker` for a server-side search (2026-11-13, specs/029).** hours-ui is the
+**D-67 — `SearchPicker` for a server-side search (2026-11-13, specs/20261112-time-tracking).** hours-ui is the
 third app that picks a record out of a search the server answers, with five uses (project,
 deal and meeting in the entry dialog, project and deal in the filters); crm-ui and
 projects-ui each already carry a near-identical `CompanyPicker`. The library's `SearchPicker`
@@ -522,7 +522,7 @@ there (`Combobox` consumes it), where before it also closed the `Dialog` around 
 the dialog. The two `CompanyPicker`s are not migrated here; they move when their screens are
 next touched. Undo: an app keeps its own picker; nothing else depends on it.
 
-**D-68 — `ExportButton` for a download (2026-11-13, specs/029).** inventory-ui's
+**D-68 — `ExportButton` for a download (2026-11-13, specs/20261112-time-tracking).** inventory-ui's
 `ExportYearButton` is "Export XLSX" on the fiscal-year page; hours-ui needs the same control
 in two views, so by the library rule it moves in. The library's `ExportButton` is that
 button with the app-specific parts passed in: `build` returns the file (`data`, `fileName`,

@@ -1,5 +1,5 @@
 /**
- * What the entry write routes accept (specs/029 T14; plan § Entries). Every shape and format rule here is a
+ * What the entry write routes accept (specs/20261112-time-tracking T14; plan § Entries). Every shape and format rule here is a
  * 400 `invalid_request` naming the offending member (src/lib/errors.ts), decided from the request alone
  * before any lookup, `auth` or owner call. The rules that depend on the lists, on today or on what is stored
  * are 422s raised by the route with the functions of ./rules.

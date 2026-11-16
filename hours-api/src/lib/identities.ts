@@ -1,6 +1,6 @@
 /**
- * Display-identity resolution (specs/029 T10; adapted from activities-api `lib/identities.ts`,
- * ADR-0039): hours-api stores only opaque `auth` user ids, and the name next to an entry is
+ * Display-identity resolution (specs/20261112-time-tracking T10; adapted from activities-api `lib/identities.ts`,
+ * ADR 20260807-live-identity-resolution-by-id-fail-soft): hours-api stores only opaque `auth` user ids, and the name next to an entry is
  * resolved LIVE from `auth POST /authz/users/identities` on every read that shows one, so a person
  * whose name changes shows the new name on all their entries at once (AC-4.8).
  *
@@ -12,7 +12,7 @@
  * - Forwards the VIEWER's own Bearer header, so no new credential exists and `auth` rate-limits
  *   per person, not per service. A redirect would replay that Bearer to another host, so none is
  *   followed.
- * - A name is returned for an active person only (AC-10.5 of specs/013): a deleted or unknown
+ * - A name is returned for an active person only (AC-10.5 of specs/20260807-estimate-sharing): a deleted or unknown
  *   one must not carry an identity that implies otherwise.
  */
 

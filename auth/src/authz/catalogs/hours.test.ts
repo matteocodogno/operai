@@ -1,5 +1,5 @@
 /**
- * Structural checks of the `hours` catalog constant (specs/029-time-tracking —
+ * Structural checks of the `hours` catalog constant (specs/20261112-time-tracking —
  * AC-5.2, AC-3.3, AC-4.3; plan § auth). The registration path and the role
  * grants are covered by `../seed.test.ts`.
  */
@@ -9,7 +9,7 @@ import { DIRECTORY_GATE_PERMISSIONS } from "../directory.routes";
 import { HOLDERS_GATE_PERMISSIONS } from "../holders.routes";
 import { HOURS_APP_ID, HOURS_CATALOG } from "./hours";
 
-describe("HOURS_CATALOG (specs/029)", () => {
+describe("HOURS_CATALOG (specs/20261112-time-tracking)", () => {
   test("declares appId `hours`", () => {
     expect(HOURS_APP_ID).toBe("hours");
     expect(HOURS_CATALOG.appId).toBe("hours");
@@ -32,7 +32,7 @@ describe("HOURS_CATALOG (specs/029)", () => {
     expect(HOURS_CATALOG.resources.some((r) => r.actions.some((a) => a.key === "access"))).toBe(false);
   });
 
-  test("neither permission opens the user directory or the holders listing: their audience does not widen (plan § auth, ADR-0066)", () => {
+  test("neither permission opens the user directory or the holders listing: their audience does not widen (plan § auth, ADR 20261104-user-directory-gate-meetings-access)", () => {
     const hours = new Set(HOURS_CATALOG.resources.flatMap((r) => r.actions.map((a) => `${r.key}:${a.key}`)));
     for (const gate of [DIRECTORY_GATE_PERMISSIONS, HOLDERS_GATE_PERMISSIONS]) {
       expect(gate.filter((g) => hours.has(`${g.resource}:${g.action}`))).toEqual([]);

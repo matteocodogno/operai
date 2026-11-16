@@ -200,7 +200,7 @@ export const getAccountingApiBaseUrl = (): string => import.meta.env.VITE_ACCOUN
 export const getActivitiesApiBaseUrl = (): string => import.meta.env.VITE_ACTIVITIES_API_URL as string
 
 /**
- * The hours-api base URL (`VITE_HOURS_API_URL`, specs/029-time-tracking), exposed for the
+ * The hours-api base URL (`VITE_HOURS_API_URL`, specs/20261112-time-tracking), exposed for the
  * federated `hours` remote and for admin-ui's time-lists screen, which ship no `VITE_*` env of
  * their own. Lazily read, mirrors `getActivitiesApiBaseUrl()`.
  */
@@ -370,7 +370,7 @@ const getTrustedOrigins = (): Set<string> => {
     }
   }
 
-  // specs/029-time-tracking: hours-api origin, trusted only when configured (same shape).
+  // specs/20261112-time-tracking: hours-api origin, trusted only when configured (same shape).
   const hoursUrl = import.meta.env.VITE_HOURS_API_URL as string | undefined
   if (hoursUrl) {
     try {

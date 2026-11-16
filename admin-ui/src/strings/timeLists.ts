@@ -1,6 +1,6 @@
 /**
  * strings.timeLists — the Time lists screen: the categories and the two work-type lists people pick
- * from when they record hours (specs/029-time-tracking, design.md S5).
+ * from when they record hours (specs/20261112-time-tracking, design.md S5).
  *
  * The NAMES of the items (a category called "Formazione") are data, shown exactly as typed in both
  * languages (AC-3.8); they never pass through this catalog.
@@ -18,7 +18,7 @@ export const en = {
     title: "You can't manage the time lists",
     body: 'Managing the categories and work types needs a permission your role does not have.',
   },
-  /** `503 authz_unavailable` (ADR-0014): hours-api could not check the permission, nothing changed. */
+  /** `503 authz_unavailable` (ADR 20260716-refund-api-authorization-enforcing-resource-server): hours-api could not check the permission, nothing changed. */
   authzUnavailable: {
     title: 'Authorization service unavailable',
     body: 'Your permissions could not be checked just now. Try again in a moment.',

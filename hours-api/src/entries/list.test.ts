@@ -1,5 +1,5 @@
 /**
- * Listing one's own entries, `GET /time-entries?whose=mine` (specs/029 T17; AC-1.1, AC-2.4, AC-2.6, AC-4.2, AC-4.4,
+ * Listing one's own entries, `GET /time-entries?whose=mine` (specs/20261112-time-tracking T17; AC-1.1, AC-2.4, AC-2.6, AC-4.2, AC-4.4,
  * AC-4.7, AC-4.11; plan § Entries "The span", "A day", "The id rule", "The cursor", § Sequences "List / totals"),
  * through the ASSEMBLED app, against the real database and the fake hosts of T11.
  *

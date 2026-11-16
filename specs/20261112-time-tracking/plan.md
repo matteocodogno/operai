@@ -1,5 +1,5 @@
 ---
-spec: 029
+spec: 20261112
 status: approved
 approved: 2026-11-12
 ---
@@ -129,7 +129,7 @@ approved: 2026-11-12
 >
 > Amended a seventh time 2026-11-13, after the OWASP review (T37) — a decision on the wire contract, made by
 > the review as the user delegated it (ledger D44: "keep the id, decide at review"); no AC, endpoint or
-> feature added (`owasp-report.md` § F1 and § 4; ADR-0089 A1, "Decided 2026-11-13 (D44): WITHHOLD"): (37)
+> feature added (`owasp-report.md` § F1 and § 4; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1, "Decided 2026-11-13 (D44): WITHHOLD"): (37)
 > § Views, `on.id` (project, deal, meeting) and `activity.id` become `string | null` — returned only when the
 > record is `visible` to the viewer or the entry is the viewer's own, else `null` (finding F1: the ids of
 > hidden records, fed back as `dealId` / `projectId` / `meetingId` filters, told a read-all holder which hidden
@@ -139,13 +139,13 @@ approved: 2026-11-12
 > of an author's own ids; the four questions the section put to the reviewer answered (the A1 rule confirmed,
 > D44 withhold, F2 the `dealId` link oracle accepted, I2 activities-api's outage side channel accepted) and
 > the other accepted findings listed (F3–F7, I1, I3–I5); (39) § Sequences "List / totals" step 4 and "A
-> pointed activity that was deleted", § Decisions this plan makes and the ADR-0089 bullet of § ADR candidates
+> pointed activity that was deleted", § Decisions this plan makes and the ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route bullet of § ADR candidates
 > point at the rule. Test rows AC-4.2 (own versus other) and AC-4.10 (the withheld ids and the composition
 > test `src/entries/withheldIds.test.ts`) updated. The spec is unchanged: AC-4.10's added words "… and, for
 > anyone but its author, without its id" are the review's proposal, for the owner to approve. Built by T41
 > (hours-api) and T42 (hours-ui); the review stays REVIEW REQUIRED until T41 is built and re-checked.
 
-Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/026);
+Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/20261103-projects-handoff);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
 (spec amendment AC-4.10), D36 (own service), D37 (own remote); design decisions D38–D41.
 
@@ -154,9 +154,9 @@ the files both touch are listed under Risks (R3). Review decisions of 2026-11-12
 ### Shape in one paragraph
 
 Time entries are their own domain in a **new backend service, `hours-api`** (Bun + Hono + Prisma,
-port 8088, database `hours`, Railway EU) — ADR-0088. It owns entries, categories and work types
+port 8088, database `hours`, Railway EU) — ADR 20261112-hours-api-time-entries-own-service-hours-catalog. It owns entries, categories and work types
 and nothing else. Whether a person may book on a project, a deal or a meeting is asked **of the
-service that owns it, as the caller**, at write time, failing closed (ADR-0081 posture, ADR-0089):
+service that owns it, as the caller**, at write time, failing closed (ADR 20261110-activities-service-access-delegated-to-host posture, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route):
 projects-api's existing host resolve already answers the project manager and team (`assignees`);
 crm-api's host resolve learns the entity type `deal` and answers who is `involved` (owner,
 technical contact); activities-api's existing list answers whether the caller is the assignee or a
@@ -164,15 +164,15 @@ participant of one of the deal's activities, and — with a new `ids` filter —
 activity exists and belongs to the same project or deal; meetings-api's own list answers whether
 the caller is the meeting's creator or a participant. A meeting's **current deal** — needed to
 count its hours under that deal for any viewer (AC-2.6, AC-4.5) — is read live from meetings-api's
-first `/system/*` route, content-free, over hours-api's own service credential (ADR-0089).
+first `/system/*` route, content-free, over hours-api's own service credential (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
 Reading one's own hours needs only a JWT; reading everyone's is an **oversight path** resolved live
-from `auth` only on that path (ADR-0075 shape) behind a new `hours` catalog permission. The screens
-are a **new remote, `hours-ui`, mounted ungated at `/hours`** (ADR-0090); the two admin lists are a
-page in `admin-ui` calling hours-api directly (ADR-0023 pattern).
+from `auth` only on that path (ADR 20261108-estimai-oversight-permission-amends-0036 shape) behind a new `hours` catalog permission. The screens
+are a **new remote, `hours-ui`, mounted ungated at `/hours`** (ADR 20261112-hours-ui-ungated-remote); the two admin lists are a
+page in `admin-ui` calling hours-api directly (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition pattern).
 
-ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-hours-catalog.md`,
-`docs/adr/0089-time-bookability-asked-of-owners-meeting-hosts-system-route.md`,
-`docs/adr/0090-hours-ui-ungated-remote.md` (numbered after PR #9's 0084–0087).
+ADRs written for this plan: `docs/adr/20261112-hours-api-time-entries-own-service-hours-catalog.md`,
+`docs/adr/20261112-time-bookability-asked-of-owners-meeting-hosts-system-route.md`,
+`docs/adr/20261112-hours-ui-ungated-remote.md` (numbered after PR #9's 0084–0087).
 
 ### Components
 
@@ -182,10 +182,10 @@ ADRs written for this plan: `docs/adr/0088-hours-api-time-entries-own-service-ho
 | `activities-api` | `GET /activities` accepts `ids` (≤ 50, comma-separated) as a fifth "exactly one of" filter. Each id's host is resolved **as the caller**, exactly as today; unreadable or missing ids are omitted (identical); an unreachable host is the existing 503. No new table, no catalog. |
 | `crm-api` | `src/activity-host/resolve.routes.ts`: `entityType` becomes `"company" \| "deal"`. For `deal` each id is answered with label/href and `involved: [ownerUserId, technicalUserId?]`, the technical contact taken **as the deal view does** (`estimate?.technical` — an override row with `estimateId: ""` is not a technical contact, `deals.routes.ts:259`). Reader = `crm:access`, as for companies. |
 | `meetings-api` | (1) `GET /meetings` gains `ids` (≤ 25) — still the caller's own meetings only (creator or Operai participant, `list.routes.ts:81-86`), so one call is both the booking check and the label. (2) First `/system/*` route, `GET /system/meetings/hosts` (service JWT, `aud=SERVICE_AUDIENCE`, scope `meetings.hosts.read`, sub `system:hours-api` only, one identical 401), answering `{id, host}` and nothing else, `host` as the meeting stores it (the contract as T9 built it: § API contracts). Copies crm-api's `src/auth/systemAuth.middleware.ts` (verifies against the existing `AUTH_JWKS_URL`). Env: `SERVICE_AUDIENCE`, **optional** in meetings-api's `env.ts` (unset: every system call is the one 401, so a deploy that precedes the variable fails closed instead of stopping the service, T9) and **required** by env-doctor's production contract (T33). |
-| `auth` | New catalog `auth/src/authz/catalogs/hours.ts`, appId `hours`, **no `access` resource** (the feature is ungated, AC-5.1): `time-entry:read-all` and `time-list:manage`, both `supportedConditions: []`. `seed.ts`: `DECLARED_CATALOGS`, `seedHoursCatalog`, `seedHoursGrants` (admin only, unconditioned); **not** in `ALL_APP_IDS`. `uniqueResourceKeys.test.ts` appId list; `seed.test.ts` block. `system/serviceClients.ts`: `KNOWN_SERVICE_SCOPES += "meetings.hosts.read"`; documented client `hours-api` with that scope. Not added to `DIRECTORY_GATE_PERMISSIONS`: the person filter's options are the `person` groups of `GET /time-entries/totals` (§ Totals), so the user directory's audience is not widened (ADR-0066 untouched). |
-| `hours-ui` (new) | Federated remote, dev port **5184** (5182/5183 are the e2e preview defaults of meetings/projects in `shell/playwright.config.ts`), e2e preview 5185. Exposes `./App` (ungated, the whole hours screen) and `./version` (ADR-0030). Screens (`design.md`): My hours (period list grouped by day; **each day's total comes from `GET /time-entries/totals?groupBy=day`** with the list's filters, so a day whose entries straddle two cursor pages shows its full total at once — no client-side sum, no "so far"), the entry dialog (target picker, category / work type, activity, note), the global view for holders of `time-entry:read-all` (person filter, grouped totals, export). **Session imports** declared in `src/federation/remotes.d.ts` and the test stub: `apiFetch`, `usePermissions`, `getHoursApiBaseUrl` (T21, `shell/src/lib/session.ts:185`) and the existing `getProjectsApiBaseUrl`, `getCrmApiBaseUrl`, `getMeetingsApiBaseUrl`, `getActivitiesApiBaseUrl` (`shell/src/lib/session.ts:139-178`); those four origins are already trusted by `apiFetch` and already allow the shell origin (`tools/env-doctor/manifest.ts` `CORS_REQUIREMENTS`), so no backend CORS change. **Target pickers** (`SearchPicker`) search what the person can already search, as the caller — projects-api `GET /projects?q=`, crm-api `GET /deals?q=`, meetings-api `GET /meetings?q=` (the caller's own meetings); a 403 maps to the picker's `forbidden` state, a 503 or network failure to `unavailable`; the server decides bookability. **Activity picker**: once a project or deal is picked, the browser calls activities-api as the caller, `GET {getActivitiesApiBaseUrl()}/activities?projectId=<id>&pageSize=100` or `?dealId=<id>&pageSize=100` (`MAX_PAGE_SIZE` 100, activities-api's own order `occurredAt` desc; one page, a "latest N" hint when `total > items.length`; an edited entry's current activity stays an option from its view). A 404 (project or deal not readable through activities-api), 503 `host_unavailable` or a network failure is the picker's error state; the field is optional, so Save stays enabled, and the save is checked by hours-api's own rules (422 `activity_not_allowed`, 503 `host_unavailable`), never by what the picker showed. Rejected: listing activity options through hours-api (a second list contract for a read the person can already make, and hours-api would forward the same JWT anyway). **Person filter** options: the `person` groups of `GET /time-entries/totals?whose=all&groupBy=person` with the view's other filters and **without** `userId` (§ Totals). **Export**: `ExportButton` (`@operai/ui`) + `buildHoursWorkbook(items, copy)` in `src/lib/hoursWorkbook.ts`, `exceljs` lazy-loaded inside `build`, rows from every page of `GET /time-entries` (`limit=500`) with the active filters (inventory-ui `yearWorkbook.ts` pattern); duration as one numeric decimal-hours column and a "Counts for deal" column (§ Export file, D39, D40). `@operai/ui` throughout. |
+| `auth` | New catalog `auth/src/authz/catalogs/hours.ts`, appId `hours`, **no `access` resource** (the feature is ungated, AC-5.1): `time-entry:read-all` and `time-list:manage`, both `supportedConditions: []`. `seed.ts`: `DECLARED_CATALOGS`, `seedHoursCatalog`, `seedHoursGrants` (admin only, unconditioned); **not** in `ALL_APP_IDS`. `uniqueResourceKeys.test.ts` appId list; `seed.test.ts` block. `system/serviceClients.ts`: `KNOWN_SERVICE_SCOPES += "meetings.hosts.read"`; documented client `hours-api` with that scope. Not added to `DIRECTORY_GATE_PERMISSIONS`: the person filter's options are the `person` groups of `GET /time-entries/totals` (§ Totals), so the user directory's audience is not widened (ADR 20261104-user-directory-gate-meetings-access untouched). |
+| `hours-ui` (new) | Federated remote, dev port **5184** (5182/5183 are the e2e preview defaults of meetings/projects in `shell/playwright.config.ts`), e2e preview 5185. Exposes `./App` (ungated, the whole hours screen) and `./version` (ADR 20260803-suite-version-generated-file-federated-export). Screens (`design.md`): My hours (period list grouped by day; **each day's total comes from `GET /time-entries/totals?groupBy=day`** with the list's filters, so a day whose entries straddle two cursor pages shows its full total at once — no client-side sum, no "so far"), the entry dialog (target picker, category / work type, activity, note), the global view for holders of `time-entry:read-all` (person filter, grouped totals, export). **Session imports** declared in `src/federation/remotes.d.ts` and the test stub: `apiFetch`, `usePermissions`, `getHoursApiBaseUrl` (T21, `shell/src/lib/session.ts:185`) and the existing `getProjectsApiBaseUrl`, `getCrmApiBaseUrl`, `getMeetingsApiBaseUrl`, `getActivitiesApiBaseUrl` (`shell/src/lib/session.ts:139-178`); those four origins are already trusted by `apiFetch` and already allow the shell origin (`tools/env-doctor/manifest.ts` `CORS_REQUIREMENTS`), so no backend CORS change. **Target pickers** (`SearchPicker`) search what the person can already search, as the caller — projects-api `GET /projects?q=`, crm-api `GET /deals?q=`, meetings-api `GET /meetings?q=` (the caller's own meetings); a 403 maps to the picker's `forbidden` state, a 503 or network failure to `unavailable`; the server decides bookability. **Activity picker**: once a project or deal is picked, the browser calls activities-api as the caller, `GET {getActivitiesApiBaseUrl()}/activities?projectId=<id>&pageSize=100` or `?dealId=<id>&pageSize=100` (`MAX_PAGE_SIZE` 100, activities-api's own order `occurredAt` desc; one page, a "latest N" hint when `total > items.length`; an edited entry's current activity stays an option from its view). A 404 (project or deal not readable through activities-api), 503 `host_unavailable` or a network failure is the picker's error state; the field is optional, so Save stays enabled, and the save is checked by hours-api's own rules (422 `activity_not_allowed`, 503 `host_unavailable`), never by what the picker showed. Rejected: listing activity options through hours-api (a second list contract for a read the person can already make, and hours-api would forward the same JWT anyway). **Person filter** options: the `person` groups of `GET /time-entries/totals?whose=all&groupBy=person` with the view's other filters and **without** `userId` (§ Totals). **Export**: `ExportButton` (`@operai/ui`) + `buildHoursWorkbook(items, copy)` in `src/lib/hoursWorkbook.ts`, `exceljs` lazy-loaded inside `build`, rows from every page of `GET /time-entries` (`limit=500`) with the active filters (inventory-ui `yearWorkbook.ts` pattern); duration as one numeric decimal-hours column and a "Counts for deal" column (§ Export file, D39, D40). `@operai/ui` throughout. |
 | `shell` | `getHoursApiBaseUrl()` in `src/lib/session.ts` (`VITE_HOURS_API_URL`, trusted origin, `vite-env.d.ts`, `.env.example`). Ungated splat route `/hours/$` (child of `shellRoute`, no `beforeLoad`, the `/my-meetings` shape); **not** a `TOOLS` entry. UserMenu link "My hours". Runtime remote `hours` (`runtimeRemotes.ts`, `runtime-config.example.json`, `vite.config.ts`, `federation/remotes.d.ts`, stubs), About-modal version, `index.css @source`, Vercel CSP (`script-src`, `connect-src`), strings en/it. |
-| `admin-ui` | Page `/time-lists` (`design.md` S5): three cards — categories (name, requires note, status) and the two work-type lists. Row actions: **Rename**; **Retire** on an active row, **Restore** on a retired row (each one `PATCH … { retired }`, AC-3.1 as amended, D38). `src/lib/timeListsApi.ts` via `apiFetch` + `getHoursApiBaseUrl` (added to `federation/remotes.d.ts` and the stub). Nav entry shown only with `time-list:manage` (`SectionNav.tsx`, the `rate:read` pattern); a 403 renders `PermissionDenied`. admin-ui is the gated Admin tool (`shell/src/lib/tools.ts` entry `admin`), so reaching the page needs Admin access **and** `time-list:manage`, while hours-api's gate is `time-list:manage` alone: a role given the permission without Admin access can call the API but cannot reach the screen (AC-3.3 as amended, D41; the mileage-rate pattern, ADR-0023). |
+| `admin-ui` | Page `/time-lists` (`design.md` S5): three cards — categories (name, requires note, status) and the two work-type lists. Row actions: **Rename**; **Retire** on an active row, **Restore** on a retired row (each one `PATCH … { retired }`, AC-3.1 as amended, D38). `src/lib/timeListsApi.ts` via `apiFetch` + `getHoursApiBaseUrl` (added to `federation/remotes.d.ts` and the stub). Nav entry shown only with `time-list:manage` (`SectionNav.tsx`, the `rate:read` pattern); a 403 renders `PermissionDenied`. admin-ui is the gated Admin tool (`shell/src/lib/tools.ts` entry `admin`), so reaching the page needs Admin access **and** `time-list:manage`, while hours-api's gate is `time-list:manage` alone: a role given the permission without Admin access can call the API but cannot reach the screen (AC-3.3 as amended, D41; the mileage-rate pattern, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition). |
 | `@operai/ui` | Four additions, each with a story and a test, exported from `src/index.ts` with their prop types; changeset `@operai/ui` minor. (1) `formatDuration` gains `style: 'short'` → "2 h 30" / "2 h" / "30 min" (AC-4.9; the `DurationStyle` union in `src/lib/format.ts`; story in `src/foundations/Formatting.stories.tsx`, test in `src/lib/i18n-format.test.tsx`). (2) `formatMonth` (same files) for the by-month totals, whose keys are `YYYY-MM`: "November 2026" / "novembre 2026". (3) **`SearchPicker`** (`src/components/SearchPicker.{tsx,stories.tsx,test.tsx}`): a `Field`-wrapped `Combobox` for a **server-side** search — debounce, abort and discard of stale answers, picked never typed (typing after a pick clears it), `emptyState` for searching / no match / forbidden / unavailable, the result count announced. hours-ui is its third consumer after `crm-ui/src/components/CompanyPicker.tsx` and `projects-ui/src/components/CompanyPicker.tsx`, which migrate later (not in this spec). (4) **`ExportButton`** (`src/components/ExportButton.{tsx,stories.tsx,test.tsx}`): the download button of `inventory-ui/src/components/ExportYearButton.tsx` — `aria-busy` not `disabled`, a second click ignored, polite "preparing / ready" status, a failure alert, the object URL revoked — with hours-ui as the second consumer (AGENTS.md: a pattern a second app needs goes into the library); inventory-ui migrates later. Contract sketches in § API contracts. `docs/design-system.md` (§ Suggestions while typing) and `docs/decisions.md` (next free D-numbers) record the two components. Rejected: a local `ExportEntriesButton` in hours-ui (`design.md`'s fallback — a second copy of an app pattern, which AGENTS.md forbids); `PersonPicker` for the target pickers (it filters an already loaded list client-side). |
 | Infra / release | `infra/provision-tool.sh hours` (the standard api + ui pair: Railway service `hours-api`, database `hours`, Vercel project `hours-ui`, DNS), `infra/check.sh` (health + 401 probes), `infra/README.md` section; `compose.yaml` service; `mise.toml` (`dev`, `dev:web`, `dev:preview`, `db:migrate`); `tools/env-doctor/manifest.ts` (`SERVICES`, `ORIGINS`, `resourceServers`, `AUTH_*` links, `CORS_REQUIREMENTS` hours-api `mustAllow: ["shell", "admin-ui"]`, `REQUIRED_KEYS`, `INTERNAL_URL_VARS` for the four internal URLs, `SERVICE_CLIENT_LINKS` hours-api `["meetings.hosts.read"]`, meetings-api `SERVICE_AUDIENCE`) + `templates/production/hours-api.env` + its tests; `lerna.json` (`hours-api`, `hours-ui`); changesets (auth, hours-api, hours-ui, activities-api, crm-api, meetings-api, shell, admin-ui, operai-ui — the last one minor, for the four additions above); `AGENTS.md`, `README.md`. |
 
@@ -267,7 +267,7 @@ then only delete an entry to correct it, losing the hours, while delete already 
 5. Grouping by deal places a meeting's entries under its current deal (AC-2.6); a meeting whose
    link could not be read goes to the `deal-unknown` group.
 
-**A pointed activity that was deleted** (AC-2.9) is derived on read, not swept (ADR-0013): when
+**A pointed activity that was deleted** (AC-2.9) is derived on read, not swept (ADR 20260714-invitation-lifecycle-derived-expiry-state): when
 the viewer can read the entry's project or deal and activities-api no longer returns the pointed
 id, the view shows `activity: null`; when the project or deal itself is hidden from the viewer the
 activity is shown as hidden too (AC-4.10); when the project's or deal's owner did not answer, the activity
@@ -286,7 +286,7 @@ someone else's entry; amended a sixth time 2026-11-13, as T19 built it, `src/ove
 `auth GET /authz/resolve` with the caller's JWT for `time-entry:read-all`, through T12's
 `src/authz/resolveClient.ts` (2 s, `redirect: "error"`, a body that is not a permission list is no answer);
 any grant of the pair counts (the catalog declares no conditions). A refusal is cached by
-`(sub, perm_epoch)` for 30 s, a grant never (ADR-0075), an outage as neither; that memory is shared by the
+`(sub, perm_epoch)` for 30 s, a grant never (ADR 20261108-estimai-oversight-permission-amends-0036), an outage as neither; that memory is shared by the
 list, the totals and the write guard, and is not `time-list:manage`'s — a refusal of one permission refuses
 nothing of the other. `auth` unreachable → 503 `authz_unavailable` on reads (before the `dealId` call, step 1
 above). On a write the check runs only once the lookup of the caller's own entry came back empty — a person's
@@ -306,16 +306,16 @@ still carries the old epoch; an outage is remembered as neither. The call has a 
 timeout, a redirect, a network error or a body that is not a permission list → 503 `authz_unavailable`,
 nothing changed. Reading the lists needs only a JWT. *Rejected:* projects-api's `authzMiddleware` as it is,
 the shape this plan first named — it remembers a grant too, so a revoked holder could keep writing for up
-to 30 s (the gap estimai-api's security review of 2026-11-09 closed for ADR-0075's oversight), and its
+to 30 s (the gap estimai-api's security review of 2026-11-09 closed for ADR 20261108-estimai-oversight-permission-amends-0036's oversight), and its
 call waits 5 s and follows redirects.
 
 ### Decisions this plan makes (ADR candidates — see the end)
 
-- Own service `hours-api` (ADR-0088; the user's choice, D36).
-- Bookability asked as the caller of each owner, plus the meeting→deal link read live (ADR-0089).
-- hours-ui as its own ungated remote (ADR-0090; D37).
-- **No `If-Match` on time entries.** ADR-0038 protects records several people write; an entry has
-  one writer, its person. Two tabs of the same person: last write wins. Recorded in ADR-0088.
+- Own service `hours-api` (ADR 20261112-hours-api-time-entries-own-service-hours-catalog; the user's choice, D36).
+- Bookability asked as the caller of each owner, plus the meeting→deal link read live (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route).
+- hours-ui as its own ungated remote (ADR 20261112-hours-ui-ungated-remote; D37).
+- **No `If-Match` on time entries.** ADR 20260807-optimistic-concurrency-version-if-match-cas-amends-0004 protects records several people write; an entry has
+  one writer, its person. Two tabs of the same person: last write wins. Recorded in ADR 20261112-hours-api-time-entries-own-service-hours-catalog.
 - Retiring a category or work type is reversible: `PATCH … { retired: false }` restores it (AC-3.1
   as amended, D38); only deleting is forbidden (AC-3.2).
 - Category and work-type names are unique per list, case-insensitive, retired included (409).
@@ -326,7 +326,7 @@ call waits 5 s and follows redirects.
   only to a viewer who can read that deal (design gap 3, D40, § Views and § Totals).
 - **An id the viewer cannot read travels only on their own entries** (D44, decided by the OWASP review
   2026-11-13): `on.id` and `activity.id` are `null` on someone else's entry unless the record is `visible`
-  (§ Views, "Ids of what the viewer cannot read"; ADR-0089 A1).
+  (§ Views, "Ids of what the viewer cannot read"; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1).
 
 ## Data model
 
@@ -466,9 +466,9 @@ type Unavailable =
 go to `GET /system/meetings/hosts?ids=` (≤ 100 per call); each `host` with
 `{app:"crm", entityType:"deal"}` gives the deal id, which joins the page's deal ids in the **same**
 crm-api resolve `deal` batch, sent with the **viewer's** JWT. `host` is whatever the meeting stores,
-three strings (T9; ADR-0059: a host is data, never a branch), so hours-api's client accepts any strings
+three strings (T9; ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data, never a branch), so hours-api's client accepts any strings
 and decides per item: a `host` other than exactly `app: "crm"`, `entityType: "deal"` — another host,
-which production does not have (specs/021 AC-11.1) — counts as **no deal**, like `null`:
+which production does not have (specs/20261104-meetings AC-11.1) — counts as **no deal**, like `null`:
 `{ state: "none" }`, the `none` group of `groupBy=deal`, its `entityId` never sent to crm-api and never
 shown, `meeting-deals` not named in `unavailable`, and the batch's other meetings unaffected. Only an
 answer that is not the route's shape (not JSON, `items` or a `host` malformed) is `unavailable` (R7).
@@ -478,7 +478,7 @@ meeting (it says "could not ask" when meetings-api did answer). The deal's visib
 access to the **deal** (AC-4.10), independent of their access to the meeting: `reader:false` or
 `missing` → `hidden`; crm-api not answering → `unavailable` (source `crm`). The id is returned only
 with `visibility: "visible"`: the link was read with hours-api's own credential, and a viewer who
-cannot read the deal must not learn which deal a meeting is linked to (ADR-0058, ADR-0089). The
+cannot read the deal must not learn which deal a meeting is linked to (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). The
 system route not answering → `{ state: "unknown" }` and `meeting-deals` in `unavailable`; the entry is
 still listed and counted (AC-4.7). *Rejected:* a flat `meetingDeal` member on every view (null on
 three targets of four) and the earlier `deal: {…} | null` (cannot tell "no deal" from "could not
@@ -503,7 +503,7 @@ its hours out of the deal totals as if it were unlinked); sending it and reading
 answer when it was never asked).
 
 **Ids of what the viewer cannot read** (amended a seventh time 2026-11-13: ledger D44, decided by the OWASP
-review — `owasp-report.md` § F1 and § 4; ADR-0089 A1, "Decided 2026-11-13 (D44): WITHHOLD"). An entry's own
+review — `owasp-report.md` § F1 and § 4; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1, "Decided 2026-11-13 (D44): WITHHOLD"). An entry's own
 target and activity pointer are stored by hours-api when the author records the entry, not read with its
 service credential, so the rule above for `on.deal` did not reach their ids. It does now:
 - `on.id` — project, deal or meeting — is the stored id when `on.visibility` is `"visible"` **or** the entry
@@ -859,7 +859,7 @@ type TotalsGroup =
 
 | `groupBy` | `keyed` groups | `key` | `label` | other kinds | order of `groups` |
 |---|---|---|---|---|---|
-| `person` | one per person with matching entries | user id (usable as `userId`) | live name from `auth POST /authz/users/identities` (ADR-0039, AC-4.8), `status` likewise; `null` + `status: "unknown"` when not resolved (source `identities`); a deactivated account `null` + `status: "deleted"`, which is no outage and names no source (T18) | — | `label` by `Intl.Collator("en", { sensitivity: "base" })`, `null` labels last, then `key` |
+| `person` | one per person with matching entries | user id (usable as `userId`) | live name from `auth POST /authz/users/identities` (ADR 20260807-live-identity-resolution-by-id-fail-soft, AC-4.8), `status` likewise; `null` + `status: "unknown"` when not resolved (source `identities`); a deactivated account `null` + `status: "deleted"`, which is no outage and names no source (T18) | — | `label` by `Intl.Collator("en", { sensitivity: "base" })`, `null` labels last, then `key` |
 | `project` | one per project the viewer can read | project id | the project's label as the viewer reads it | `hidden`, `unavailable`, `none` (deal, meeting and no-entity entries) | `minutes` desc, then `label` (the same collator, `null` last), then `key`; then `hidden`, `unavailable`, `none` |
 | `deal` | one per deal the viewer can read: entries on the deal **plus** entries on meetings currently linked to it (AC-2.6) | deal id | the deal's label as the viewer reads it | `hidden` (also meetings linked to a deal id outside the id rule, § Views), `unavailable` (crm did not answer), `deal-unknown` (meeting entries; `meeting-deals` did not answer), `none` (project and no-entity entries; meetings linked to no deal, linked to a host that is not a CRM deal, or no longer existing) | as `project`; then `hidden`, `unavailable`, `deal-unknown`, `none` |
 | `category` | one per category used | category id | the name as typed (AC-3.8), `retired` | `none` (project, deal and meeting entries) | `minutes` desc, then `label` (the same collator), then `key`; then `none` |
@@ -878,7 +878,7 @@ its invariant); a client sum marked "so far" (wrong until the last page).
 `userId` — complete (never paged, so it lists people beyond the first list page), `key` = user id,
 `label` = live name, failing soft (`null`, `status: "unknown"`, `identities` named). It lists exactly
 the people with hours in the period. *Rejected:* adding `time-entry:read-all` to
-`DIRECTORY_GATE_PERMISSIONS` (a new audience for the user directory, the widening ADR-0066 warns of,
+`DIRECTORY_GATE_PERMISSIONS` (a new audience for the user directory, the widening ADR 20261104-user-directory-gate-meetings-access warns of,
 and it would list people who recorded nothing); a dedicated `GET /time-entries/people` (the same
 distinct-user query behind a second route).
 
@@ -898,7 +898,7 @@ its own credential (withheld, § Views).
   `meeting-deals` in `unavailable`: a deal's figures are never shown low, at the cost of the deal
   filter not working while meetings-api is unreachable (a redeploy of its single replica, a crash or
   a network error — seconds to minutes; the next read after it answers is complete, nothing is
-  stored). This departs on purpose from ADR-0080's "a read degrades" for this one filter.
+  stored). This departs on purpose from ADR 20261103-projects-api-reads-crm-companies-with-scoped-service-credential's "a read degrades" for this one filter.
   *Rejected:* the partial answer above; counting every meeting entry of the period as a possible
   match (wrong totals). `groupBy=deal` without a `dealId` filter still degrades (bullet above): its
   `totalMinutes` stays right and the `deal-unknown` group says where the gap is.
@@ -1164,8 +1164,8 @@ GET /system/meetings/hosts?dealId=<id>      // the meetings currently linked to 
   //   { app: "crm", entityType: "deal", entityId: dealId }. NOT paged and NOT capped: every linked
   //   meeting comes back (a capped answer would be AC-4.11's "answered low"; R2)
   200 { items: { id: string; host: { app: string; entityType: string; entityId: string } | null }[] }
-  // host: what the meeting stores, three strings (ADR-0059: a host is data, never a branch); today
-  //   only crm / deal exists (specs/021 AC-11.1), but the route does not narrow it. null = linked to
+  // host: what the meeting stores, three strings (ADR 20261104-meeting-host-contract-resolve-and-notices: a host is data, never a branch); today
+  //   only crm / deal exists (specs/20261104-meetings AC-11.1), but the route does not narrow it. null = linked to
   //   none. Independent of the creator's hostVisible choice. Order: id ascending
   // never a title, participant, duration or any content; an id that names no meeting is omitted
   // env: SERVICE_AUDIENCE is OPTIONAL in meetings-api's env.ts (unset → every call the one 401: a
@@ -1217,7 +1217,7 @@ How `src/clients/` reads a list it asked by id or by deal, as T11 built it (`own
 - Catalog `hours`: `time-entry` → `read-all`; `time-list` → `manage`; both
   `supportedConditions: []`, seeded to `admin` only.
 - Scope `meetings.hosts.read` in `KNOWN_SERVICE_SCOPES`; client `hours-api` in `SERVICE_CLIENTS`
-  with that scope — in production **only after the new auth is live** (ADR-0076: an unknown scope
+  with that scope — in production **only after the new auth is live** (ADR 20261108-crm-pushes-deal-links-to-estimai: an unknown scope
   stops auth).
 
 ## Test strategy
@@ -1408,7 +1408,7 @@ entry that the edit dialog needs.
   404, given before any 422 rule so a rule never answers for someone else's entry; a path `{id}` outside the id rule is 400 for every caller before any lookup — no stored id falls
   outside the rule, so the 400 tells nothing about a record). The list's `cursor` is not signed: it only positions a read the caller may make anyway, and one hours-api did not mint is a 400 (§ Entries). Restore is a write under the same live `time-list:manage` check as retire.
 - A new service client and scope (`meetings.hosts.read`), and meetings-api's first `/system/*`
-  route — it must answer only `{id, host}` (ADR-0058: no content to any role).
+  route — it must answer only `{id, host}` (ADR 20261104-meetings-tool-shape-visibility-by-participation: no content to any role).
 - What hours-api learns with its **own** credential (a meeting's deal) reaches a viewer only with
   their own right to read that deal: `on.deal` carries an id and a name only when `visible`; totals
   merge what the viewer cannot read; the export carries no ids. A stored host that is not a CRM deal,
@@ -1416,13 +1416,13 @@ entry that the edit dialog needs.
   the OWASP review on the direct channel (`owasp-report.md` § Answers 1: `labels/resolve.ts` `meetingDealOf`,
   `totals/totals.ts` `placeEntity` and `byDeal`); its one bypass, by composition, was F1 (next bullet).
 - **Ids of what the viewer cannot read — D44, decided by the OWASP review 2026-11-13: WITHHOLD** (ledger
-  D44, delegated by the user; ADR-0089 A1). `on.id` (project, deal, meeting) and `activity.id` are returned
+  D44, delegated by the user; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1). `on.id` (project, deal, meeting) and `activity.id` are returned
   only when the record is `visible` to the viewer or the entry is the viewer's own, else `null` (§ Views,
   "Ids of what the viewer cannot read"; T41, T42). *Reason* — finding F1 (Medium, A01; `owasp-report.md`
   § F1): with the ids kept, a holder of `time-entry:read-all` without `crm:access` (a custom controller role,
   R4's audience; the seeded admin has CRM access) read a hidden deal's id and two hidden meetings' ids from
   `GET /time-entries?whose=all`, fed the deal's id back as `dealId`, and got exactly the entries on those
-  two meetings: which hidden meetings are linked to which hidden deal, the disclosure ADR-0089 A1 forbids,
+  two meetings: which hidden meetings are linked to which hidden deal, the disclosure ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1 forbids,
   reached through ids instead of names; `projectId` and `meetingId` gave per-record totals that
   `groupBy=project|deal` merges into one `hidden` group by design. Withholding the ids closes the three
   pivots at once, at no product cost. *Rejected:* keeping the ids and asking crm-api as the viewer on every
@@ -1445,7 +1445,7 @@ entry that the edit dialog needs.
   triggers already shows in the response time without an outage. *Rejected:* asking every host (a CRM
   lookup would then fail while projects-api is down).
 - The person filter reuses the totals route behind `time-entry:read-all`; the user directory's
-  audience is not widened (ADR-0066).
+  audience is not widened (ADR 20261104-user-directory-gate-meetings-access).
 - A `dealId` filter on the list or the totals counts the meeting entries linked to that deal, so a
   person who knows the id of a deal they cannot read learns which of their own meetings with hours in the
   period are linked to it — a holder, which of everyone's — never the deal's name (T17, T18 notes for T37). D45 and AC-2.6
@@ -1464,13 +1464,13 @@ entry that the edit dialog needs.
 - The export file is built in the browser from data the viewer can already read; no server file.
 - **The review's other findings, accepted** (T37, 2026-11-13, `owasp-report.md`: 0 critical, 0 high, one
   medium — F1, above — and six low; none is a task of this spec):
-  - F3 (A09): oversight reads leave no record of who read — accepted by ADR-0088; the one line the review
+  - F3 (A09): oversight reads leave no record of who read — accepted by ADR 20261112-hours-api-time-entries-own-service-hours-catalog; the one line the review
     suggests when `holdsReadAll` grants (`[oversight] read-all granted sub=<sub> path=<path>`, no query, no
     body) belongs with O3's go-live sign-off.
   - F4 (A04): no rate limit or quota in hours-api, the suite's posture (only `auth` limits); a per-`sub`
     limiter on `POST` is the next step if R2's 800 ms p95 slips.
   - F5 (A04): "involved in a deal" is self-attestable — any `crm:access` holder may write activities on any
-    deal and any employee may create a meeting — as AC-2.3 defines it; specs/030 and specs/031 must not build
+    deal and any employee may create a meeting — as AC-2.3 defines it; specs/20261112-project-hours and specs/20261112-meeting-hours must not build
     billing or approval rules on it.
   - F6 (A03): hours-ui's `suitePath` (`src/lib/names.ts`) is weaker than the server's `isSuitePath`;
     unreachable today (the server refuses whitespace and control characters, and the meeting `href` is built
@@ -1493,15 +1493,15 @@ Surfaces to review: every hours-api route (`src/entries/`, `src/totals/`, `src/l
 
 ## ADR candidates
 
-- **ADR-0088** (`docs/adr/0088-hours-api-time-entries-own-service-hours-catalog.md`) — Time entries
+- **ADR 20261112-hours-api-time-entries-own-service-hours-catalog** (`docs/adr/20261112-hours-api-time-entries-own-service-hours-catalog.md`) — Time entries
   live in a new service, `hours-api`, with their own database; a new `hours` catalog with **no
-  access resource** carries `time-entry:read-all` (an ADR-0075 oversight path, the only `auth` call
+  access resource** carries `time-entry:read-all` (an ADR 20261108-estimai-oversight-permission-amends-0036 oversight path, the only `auth` call
   on reads) and `time-list:manage`; no `If-Match` on single-writer records. Rejected: inside
   activities-api (one service and one maintenance switch for two domains — the user's call, D36),
   inside projects-api or crm-api (a deal or a category has no project, a project no company deal),
   a gated `hours:access` (contradicts AC-5.1), `requireAdmin`-style list management (cannot be
-  granted, ADR-0075 option C).
-- **ADR-0089** (`docs/adr/0089-time-bookability-asked-of-owners-meeting-hosts-system-route.md`) —
+  granted, ADR 20261108-estimai-oversight-permission-amends-0036 option C).
+- **ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route** (`docs/adr/20261112-time-bookability-asked-of-owners-meeting-hosts-system-route.md`) —
   Whether a person may book is asked of each owner as the caller at write time (projects
   `assignees`, crm-api resolve `entityType: "deal"` with `involved`, activities-api's list incl. a
   new `ids` filter, meetings-api `GET /meetings?ids=`), failing closed; a meeting's current deal is
@@ -1511,19 +1511,19 @@ Surfaces to review: every hours-api route (`src/entries/`, `src/totals/`, `src/l
   relink), `GET /deals/{id}` per write (no batch, no labels), a new `/time-host/v1/resolve` contract
   next to the host resolve (two contracts for one question), giving read-all holders access to
   meetings.
-- **ADR-0089 amendment, § 6 "Labels follow the viewer"** (same file; new 2026-11-12) — A fact
+- **ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route amendment, § 6 "Labels follow the viewer"** (same file; new 2026-11-12) — A fact
   hours-api reads with its own credential (a meeting's current deal) reaches a viewer only together
   with that viewer's right to read the record it names: the id and the name, or neither; and every
   aggregate or export merges what the viewer cannot name into one group per reason (`hidden`,
   `unavailable`, `deal-unknown`). Rejected: one group per unreadable id (rows nobody can tell apart,
   an export that cannot match them without ids, and a service-credential fact handed to someone who
   cannot read it); returning the linked deal's id with a null name (tells the viewer which deal a
-  meeting they may not read is linked to). Constrains specs/030's hours on project and deal pages and
+  meeting they may not read is linked to). Constrains specs/20261112-project-hours's hours on project and deal pages and
   any later consumer of hours totals. A1 also records D44 (decided 2026-11-13 by the OWASP review: an
   entry's `on.id` / `activity.id` only when the record is `visible` or the entry is the viewer's own;
   rejected: a viewer crm read on every `dealId` filter, and `null` for the author too) — already written in
   the ADR (§ A1, "Decided 2026-11-13 (D44): WITHHOLD"); no new ADR.
-- **ADR-0090** (`docs/adr/0090-hours-ui-ungated-remote.md`) — Hours get their own remote, mounted
-  ungated at `/hours` and absent from `TOOLS` (the ADR-0009/0045 shape without a gated half).
+- **ADR 20261112-hours-ui-ungated-remote** (`docs/adr/20261112-hours-ui-ungated-remote.md`) — Hours get their own remote, mounted
+  ungated at `/hours` and absent from `TOOLS` (the ADR 20260713-notification-center-standalone-service-shell-seam, 20261006-ungated-second-federated-entry-of-a-gated-remote shape without a gated half).
   Rejected: an ungated entry in projects-ui (wrong domain; PR #9 rewrites projects-ui), a
-  shell-native screen (ADR-0009: no tool logic in the shell), a `TOOLS` entry behind `hours:access`.
+  shell-native screen (ADR 20260713-notification-center-standalone-service-shell-seam: no tool logic in the shell), a `TOOLS` entry behind `hours:access`.

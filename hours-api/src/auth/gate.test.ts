@@ -1,5 +1,5 @@
 /**
- * The credential gate of the ASSEMBLED app (specs/029 T10; AC-5.3, AC-5.1): `GET /health` and the
+ * The credential gate of the ASSEMBLED app (specs/20261112-time-tracking T10; AC-5.3, AC-5.1): `GET /health` and the
  * API documents answer anyone; every other path needs a valid session, and "every other path"
  * includes one nothing serves, so a route added later without its own check is still refused
  * (default-deny), and the answer does not tell a caller which paths exist. A session needs
@@ -77,7 +77,7 @@ describe("every other path, without a session (AC-5.3)", () => {
   });
 });
 
-describe("a token that is not a valid user session (AC-5.3, ADR-0010, ADR-0044)", () => {
+describe("a token that is not a valid user session (AC-5.3, ADR 20260713-jwt-audience-claim-enforcement, ADR 20261006-scoped-service-jwt-fourth-notify-caller)", () => {
   const refused = async (token: string) => (await call("GET", "/time-entries", { as: null, headers: { Authorization: `Bearer ${token}` } })).status;
 
   it("refuses a validly signed token whose audience is not AUTH_AUDIENCE", async () => {

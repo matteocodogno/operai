@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * ExportButton (specs/029, T5; AC-4.6): the download button of inventory-ui's ExportYearButton, as a
+ * ExportButton (specs/20261112-time-tracking, T5; AC-4.6): the download button of inventory-ui's ExportYearButton, as a
  * library component. The browser seams — `URL.createObjectURL` / `revokeObjectURL` and the anchor
  * click that starts a download — are faked and recorded; `build` is a hand-resolved promise, so a
  * test decides when the file is ready. Timers are fake: the URL is revoked after a delay.

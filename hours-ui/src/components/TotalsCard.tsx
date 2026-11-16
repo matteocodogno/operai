@@ -56,7 +56,7 @@ const columns = (groupBy: GroupChoice) =>
   ] as const
 
 /**
- * TotalsCard — the Totals card of My hours (specs/029-time-tracking T24; design S1 "Totals", AC-4.5): the
+ * TotalsCard — the Totals card of My hours (specs/20261112-time-tracking T24; design S1 "Totals", AC-4.5): the
  * total and the groups for the chosen "Group by", exactly as `GET /time-entries/totals` answered. Nothing
  * here is summed or sorted in the browser. The Group by select stays mounted in every state, so a keyboard
  * user who changes it keeps their place while the new grouping loads.

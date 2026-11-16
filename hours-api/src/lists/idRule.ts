@@ -1,5 +1,5 @@
 /**
- * The id rule (specs/029 plan § Entries, "The id rule and a NUL-free note", amended 2026-11-13).
+ * The id rule (specs/20261112-time-tracking plan § Entries, "The id rule and a NUL-free note", amended 2026-11-13).
  *
  * `Id` is every id hours-api receives, in a body, a path or a query: 1..64 characters, no NUL
  * (`\u0000`), no comma, no whitespace at either end. The characters count as UTF-16 code units

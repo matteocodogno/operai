@@ -1,7 +1,7 @@
 /**
- * The activity an entry on a project or a deal may point at (specs/029 T16; AC-2.7, AC-2.8, AC-2.9, AC-2.11,
+ * The activity an entry on a project or a deal may point at (specs/20261112-time-tracking T16; AC-2.7, AC-2.8, AC-2.9, AC-2.11,
  * AC-2.12; plan § Sequences step 5 and "A pointed activity that was deleted", § Entries "The id rule" and
- * "A change and a move", § Reading the owners' list answers, risk R6; ledger D47; ADR-0089), through the
+ * "A change and a move", § Reading the owners' list answers, risk R6; ledger D47; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route), through the
  * ASSEMBLED app, against the real database and the fake owners of T11.
  *
  * Whether an activity belongs to a project or a deal is asked of activities-api, AS THE CALLER, when the pointer is

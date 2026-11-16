@@ -1,5 +1,5 @@
 /**
- * meetings-api's own list, asked as the caller (specs/029 T11; plan § Sequences "On a meeting",
+ * meetings-api's own list, asked as the caller (specs/20261112-time-tracking T11; plan § Sequences "On a meeting",
  * § API contracts "meetings-api", AC-2.5, AC-2.10, AC-4.7, risk R7; meetings-api T8):
  *
  *   GET /meetings?ids=a,b,c    the caller's OWN meetings (creator or Operai participant) among those ids

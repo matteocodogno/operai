@@ -1,5 +1,5 @@
 /**
- * hoursWorkbook — the XLSX of the entries a view shows (specs/029-time-tracking T30; plan § Export file;
+ * hoursWorkbook — the XLSX of the entries a view shows (specs/20261112-time-tracking T30; plan § Export file;
  * design F5; AC-4.6, AC-4.9, AC-4.10; D39, D40), built in the browser with `exceljs` (the inventory-ui
  * `yearWorkbook.ts` pattern, not copied code). This module statically imports `exceljs`, so it is only ever
  * loaded through a dynamic `import()` from `HoursExport`'s `build` — the heavy dependency stays in a lazy
@@ -100,7 +100,7 @@ const nameCell = (on: EntryOn, copy: HoursWorkbookCopy): string | null =>
 /**
  * The deal a meeting's hours count for (AC-2.6): its name for a deal the viewer may read, a placeholder for one
  * they may not, one whose owner did not answer, or one that could not be asked; empty for a meeting linked to
- * none. The deal's visibility is the viewer's access to the DEAL, never to the meeting (ADR-0089): a hidden
+ * none. The deal's visibility is the viewer's access to the DEAL, never to the meeting (ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route): a hidden
  * meeting of a readable deal still names it. No id is ever read.
  */
 const meetingDealCell = (deal: MeetingDeal, copy: HoursWorkbookCopy): string | null => {

@@ -1,5 +1,5 @@
 /**
- * What `GET /time-entries/totals` accepts (specs/029 T18; AC-4.4; plan § Totals "same whose, filter and span rules as the
+ * What `GET /time-entries/totals` accepts (specs/20261112-time-tracking T18; AC-4.4; plan § Totals "same whose, filter and span rules as the
  * list; no cursor or limit", § Entries "The span", "A day", "The id rule", § Errors): the period, the filters, `groupBy`
  * and who is asking, through the ASSEMBLED app. Every refusal is a 400 `invalid_request` naming the member, decided from
  * the request alone, so NO other service is asked (`hosts.calls` stays empty) and nothing reaches the database as a 500.

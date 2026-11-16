@@ -222,7 +222,7 @@ describe('AboutModal', () => {
       expect(screen.getByRole('dialog', { name: `About ${APP_NAME}` })).not.toBeNull()
     })
 
-    // specs/029-time-tracking (T23, ADR-0030, AC-5.1): the Hours row. hours-ui is a remote that is not a
+    // specs/20261112-time-tracking (T23, ADR 20260803-suite-version-generated-file-federated-export, AC-5.1): the Hours row. hours-ui is a remote that is not a
     // TOOLS entry, so the dialog (which lists every remote the shell can mount) is the one place its
     // version shows.
     it('lists Hours among the real default sources', async () => {

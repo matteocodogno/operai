@@ -1,16 +1,16 @@
-# OWASP Top 10 review — specs/029-time-tracking (T37)
+# OWASP Top 10 review — specs/20261112-time-tracking (T37)
 
 Date 2026-11-13 · reviewer: owasp-reviewer · diff `8cc763d5..HEAD` on `feat/time-tracking` · stack: Bun + Hono + Prisma (hours-api and the touched backends), React (hours-ui, admin-ui, shell).
 
 ## Verdict: REVIEW REQUIRED
 
-- One Medium is open: F1, the composition of D44 (ids kept) with the `dealId` / `projectId` / `meetingId` filters. It defeats ADR-0089 A1 and is demonstrated.
+- One Medium is open: F1, the composition of D44 (ids kept) with the `dealId` / `projectId` / `meetingId` filters. It defeats ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1 and is demonstrated.
 - Trace mapping: `verdicts.security: "FAIL"` until the D44 withhold (below) is built and re-checked. The verdict then becomes PASS if the re-check finds nothing new at medium or above.
 - Everything else on the T37 surface list passes. The Low findings go to `security.notes[]` once the verdict is PASS.
 - Counts: 0 critical · 0 high · 1 medium · 6 low (plus 5 informational notes).
 
 ### How this was checked
-- I read plan.md, ADR-0088/0089/0090, spec.md, decisions.md and the diff of every surface named in T37. I also read `crm-api/src/activity-host/resolve.routes.ts`, `activities-api/src/activities/activities.routes.ts`, `meetings-api/src/{system,auth,meetings/list.routes.ts}`, the auth catalog, seed and service-client files, `hours-ui/src/lib/{hoursWorkbook,exportPages,names,searchers,activitiesRead}.ts`, the admin-ui time-lists code, and the shell session, router, CSP and runtime-remote files.
+- I read plan.md, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote, spec.md, decisions.md and the diff of every surface named in T37. I also read `crm-api/src/activity-host/resolve.routes.ts`, `activities-api/src/activities/activities.routes.ts`, `meetings-api/src/{system,auth,meetings/list.routes.ts}`, the auth catalog, seed and service-client files, `hours-ui/src/lib/{hoursWorkbook,exportPages,names,searchers,activitiesRead}.ts`, the admin-ui time-lists code, and the shell session, router, CSP and runtime-remote files.
 - hours-api `bun test` on `hours_test`: 1789 pass, 0 fail.
 - `bun scripts/check-shared-copies.ts`: 7 groups in sync, including `systemAuth`, `serviceToken`, `problem` and `logger`.
 - Scratch probe: `/private/tmp/claude-331608204/-Users-edoardo-paronzini-Work-Experiments-operai/e64faa20-c60e-4ef1-b693-704bd0bf97dc/scratchpad/d44.probe.test.ts` (not in the repo; run with `cd hours-api && bun test <that path>`). It reproduces F1.
@@ -23,13 +23,13 @@ Date 2026-11-13 · reviewer: owasp-reviewer · diff `8cc763d5..HEAD` on `feat/ti
 |---|---|---|---|---|
 | F1 | **Medium** | A01 | `hours-api/src/entries/view.ts:107,112,116,139`; pivot `src/entries/filters.ts:103-121` | The ids of hidden records are returned and are accepted back as filters, so a read-all holder without CRM access learns which hidden meetings are linked to which hidden deal. This is the alternative A1 rejected. |
 | F2 | Low | A01 | `src/entries/filters.ts:103` | `dealId` link oracle (question 2). Accepted. |
-| F3 | Low | A09 | `src/oversight/oversight.ts:62-84`, `src/lib/logger.ts` | Oversight reads leave no record of who read. Accepted by ADR-0088; cheap fix below. |
+| F3 | Low | A09 | `src/oversight/oversight.ts:62-84`, `src/lib/logger.ts` | Oversight reads leave no record of who read. Accepted by ADR 20261112-hours-api-time-entries-own-service-hours-catalog; cheap fix below. |
 | F4 | Low | A04 | `src/index.ts` | No rate limit or quota; owner-call amplification on writes and lists. |
-| F5 | Low | A04 | `src/targets/bookability.ts:103-116` | "Involved in a deal" is self-attestable by any CRM user. Not a defect, but specs/030 must know it. |
+| F5 | Low | A04 | `src/targets/bookability.ts:103-116` | "Involved in a deal" is self-attestable by any CRM user. Not a defect, but specs/20261112-project-hours must know it. |
 | F6 | Low | A03 | `hours-ui/src/lib/names.ts:21-22` | `suitePath` is weaker than the server's `isSuitePath`; unreachable today. |
 | F7 | Low | A06 | `hours-api` deps, `exceljs` | Audit results are identical to the siblings' and not exploitable here. |
 
-### F1 — MEDIUM — A01 Broken Access Control: ids of hidden records plus the filters defeat ADR-0089 A1
+### F1 — MEDIUM — A01 Broken Access Control: ids of hidden records plus the filters defeat ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1
 
 - **Where.** `view.ts` returns `on.id` for a project (107), deal (112) and meeting (116), and `activity.id` (139, via `labels/resolve.ts:192`), whatever `visibility` says. `filters.ts` (`dealCondition` 103, `entryWhere` 119) accepts those ids back as `dealId`, `meetingId` and `projectId`. `dealId` expands to the meetings currently linked to the deal, read with hours-api's own credential.
 - **Exploit** (holder of `time-entry:read-all` with no `crm:access`, e.g. a custom controller role, the R4 audience; the default admin has CRM access).
@@ -50,7 +50,7 @@ Date 2026-11-13 · reviewer: owasp-reviewer · diff `8cc763d5..HEAD` on `feat/ti
 - Not closing it fully: that needs a viewer-as-caller crm read of X on every deal-filtered read. That is a new dependency and a new refusal on top of D45's fail-closed 503, for a marginal gain.
 - Optional hardening: expand to linked meetings only if the viewer can read X.
 
-### F3 — LOW — A09: oversight reads are not attributable — accepted by ADR-0088
+### F3 — LOW — A09: oversight reads are not attributable — accepted by ADR 20261112-hours-api-time-entries-own-service-hours-catalog
 - The logger drops the query string by design and never logs the subject, so "who looked at everyone's hours, when" cannot be answered. For employee monitoring data with GDPR impact "high" in the ADR, a one-line fix is cheap: when `holdsReadAll` returns true (`oversight.ts:76-84`), `console.log("[oversight] read-all granted sub=<sub> path=<path>")`, with no query or body. A 401 log line also carries no source address; the Railway edge keeps it. Not required for PASS; it belongs with the O3 go-live sign-off.
 
 ### F4 — LOW — A04: no rate limiting or quota in hours-api
@@ -59,7 +59,7 @@ Date 2026-11-13 · reviewer: owasp-reviewer · diff `8cc763d5..HEAD` on `feat/ti
   - A 500-row list asks up to six owners in batches (4 in flight).
 - Authenticated employees only, bounded by their own data, and no cap on entries per day or per user. Accept; a per-`sub` limiter on `POST` is the next step if the 800 ms p95 of R2 slips.
 
-### F5 — LOW — A04 (design note for specs/030/031)
+### F5 — LOW — A04 (design note for specs/20261112-project-hours/031)
 - Bookability asks the owner as the caller, but "involved in a deal" includes being a task assignee or participant. Any `crm:access` holder may write activities on any deal (crm-api resolve returns `writable:true`), and any employee may create a meeting. So an entry on a deal or meeting proves nothing about involvement.
 - AC-2.3 defines it this way, so it is not a defect. Do not build billing or approval rules on it.
 
@@ -132,7 +132,7 @@ Date 2026-11-13 · reviewer: owasp-reviewer · diff `8cc763d5..HEAD` on `feat/ti
   - `entries/activityPointer.test.ts:417` ("still keeps the id") is split into own versus other.
   - New composition test from the probe: a holder without crm access cannot obtain a hidden deal id from the list.
 - Small [FE] companion: `hours-ui/src/lib/hoursApi.types.ts` (`Named.id` and `activity.id` become `string | null`), a guard in `EntryDialogModel.valuesOf` (own entries only; `null` is treated as not re-pickable), and fixtures plus `fakeApi`. No screen change in Everyone's hours or the export.
-- Docs: plan § Views (`id: string | null`), replace the § Security bullet on `on.id`/`activity.id`, close the "Open item (D44)" in ADR-0089 A1, and add to spec AC-4.10 "… and, for anyone but its author, without its id" (owner approves the spec text). Record D44 in `ledger.md`.
+- Docs: plan § Views (`id: string | null`), replace the § Security bullet on `on.id`/`activity.id`, close the "Open item (D44)" in ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1, and add to spec AC-4.10 "… and, for anyone but its author, without its id" (owner approves the spec text). Record D44 in `ledger.md`.
 
 ## Surface coverage
 
@@ -206,7 +206,7 @@ Step 2 and 3:
 - **Residual F2, confirmed accepted.** A holder who already knows `deal-secret` gets 200 with 3 entries (Bob's deal entry and the two linked-meeting entries). All three have `on.id: null`, and no hidden id or name is in the body. The response no longer yields anything that was not already known.
 - **Mixed visibility.**
   - The holder can read the deal but not the meetings: every meeting has `id: null`.
-  - `on.deal` is `{linked, visible, id: deal-secret, label, href}`, which is ADR-0089 A1 by design (the deal's visibility is the viewer's access to the deal), and the holder can read that deal already.
+  - `on.deal` is `{linked, visible, id: deal-secret, label, href}`, which is ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1 by design (the deal's visibility is the viewer's access to the deal), and the holder can read that deal already.
   - The holder never sees a meeting id.
 - **Participant case.** The holder is a participant of `mtg-alice` but cannot read its deal: the meeting id is kept (the holder can read the meeting) and `on.deal` is `{linked, hidden}` with no deal id.
 

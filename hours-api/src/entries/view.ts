@@ -1,5 +1,5 @@
 /**
- * One time entry as a viewer reads it (specs/029 T13; plan § API contracts "Views"; AC-2.6, AC-2.9, AC-4.7,
+ * One time entry as a viewer reads it (specs/20261112-time-tracking T13; plan § API contracts "Views"; AC-2.6, AC-2.9, AC-4.7,
  * AC-4.8, AC-4.10). The shape every route that returns an entry shares: `POST` / `PATCH /time-entries`
  * (one entry), `GET /time-entries` (a page), and the rows of the export.
  *
@@ -10,7 +10,7 @@
  * subject and, unless the entry is the viewer's own, its id (AC-4.10, D44); a source that did not answer
  * degrades only the part it covers and is named in `unavailable` (AC-4.7). The entry is always listed and counted.
  *
- * THE ID RULE (D44, owasp-report.md F1; ADR-0089 A1): the id of a project, deal or meeting, and of an activity,
+ * THE ID RULE (D44, owasp-report.md F1; ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1): the id of a project, deal or meeting, and of an activity,
  * travels only when the viewer may read the record (`visibility: "visible"`) or the entry is the viewer's own
  * (`row.userId === viewerId`: they booked it, they know what it is on). Otherwise it is `null`. A hidden id
  * handed out by a list is what the `dealId` / `meetingId` / `projectId` filters turn into a probe for which
@@ -41,7 +41,7 @@ const PersonSchema = z.object({ id: z.string(), name: z.string().nullable(), sta
  */
 const entityParts = { id: z.string().nullable(), label: z.string().nullable(), href: z.string().nullable(), visibility: VisibilitySchema };
 
-/** The deal a meeting's hours count for: its id only with `visibility: "visible"` (ADR-0058, ADR-0089). */
+/** The deal a meeting's hours count for: its id only with `visibility: "visible"` (ADR 20261104-meetings-tool-shape-visibility-by-participation, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). */
 export const MeetingDealSchema = z.union([
   z.object({ state: z.literal("linked"), visibility: z.literal("visible"), id: z.string(), label: z.string(), href: z.string() }).strict(),
   z.object({ state: z.literal("linked"), visibility: z.enum(["hidden", "unavailable"]) }).strict(),

@@ -22,7 +22,7 @@
  * A related id that is not found, or whose company is not among the asked ones, is omitted
  * (activities-api turns that into `contact_not_in_company` / `deal_not_in_company`).
  *
- * `entityType: "deal"` (specs/029 T7, AC-2.3): asked by hours-api, as the caller, to decide who may
+ * `entityType: "deal"` (specs/20261112-time-tracking T7, AC-2.3): asked by hours-api, as the caller, to decide who may
  * book time on a deal. Same grant and same silence for a non-reader (`reader:false`, no items, so
  * not even whether a deal exists leaks); a reader gets each deal `open` (any stage — won and lost
  * included, A13) or `missing`, with `involved`: the user ids of the deal's owner and, once an
@@ -30,7 +30,7 @@
  * involved"; the activities' half (assignees, participants) is asked of activities-api by hours-api.
  * `related` belongs to companies only: sent with a deal it is a 422. The answer is no wider than
  * `GET /deals/{id}`, which shows every `crm:access` holder the same owner and technical contact
- * (ADR-0052).
+ * (ADR 20261101-crm-tool-shape-and-authorization).
  */
 
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";

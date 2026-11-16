@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * My hours, T30's part: the Export button in the Entries card and what a refused export does to the page
- * (specs/029-time-tracking; AC-4.6, AC-4.10, AC-4.11; design F5, S1). Rendered through the inner router with
+ * (specs/20261112-time-tracking; AC-4.6, AC-4.10, AC-4.11; design F5, S1). Rendered through the inner router with
  * `fakeApi` behind `apiFetch`; the real `ExportButton`, walk and builder run, and only the browser seams a
  * download crosses are faked and recorded. The button's own states are `HoursExport.test.tsx`, the file's
  * cells `hoursWorkbook.test.ts`.

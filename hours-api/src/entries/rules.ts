@@ -1,5 +1,5 @@
 /**
- * The local rules of an entry (specs/029 T14; plan § Entries, § Errors): what hours-api decides from the
+ * The local rules of an entry (specs/20261112-time-tracking T14; plan § Entries, § Errors): what hours-api decides from the
  * request and its own tables alone, before any owner is asked. Pure — no database, no clock, no owner —
  * so the route, the list and the totals share ONE implementation of each (T17 and T18 import
  * `isCalendarDay` for `from` and `to`; plan amendment 4, 2026-11-13).

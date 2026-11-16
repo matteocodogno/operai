@@ -3239,11 +3239,11 @@ limits. Three steps, in this order:
   it is re-enabled.
 - Logs carry the device id and the push status only, never an endpoint, key, title or body.
 
-## Time tracking (specs/029-time-tracking, ADR-0088/0089/0090)
+## Time tracking (specs/20261112-time-tracking, ADR 20261112-hours-api-time-entries-own-service-hours-catalog, 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route, 20261112-hours-ui-ungated-remote)
 
 The hours people spend on company work are recorded in a new backend, `hours-api`, and read through a
 new remote, `hours-ui`. Everyone who can sign in records and reads their own hours: there is **no
-access grant** (AC-5.1, ADR-0090), so the shell's "My hours" menu entry is shown to every signed-in
+access grant** (AC-5.1, ADR 20261112-hours-ui-ungated-remote), so the shell's "My hours" menu entry is shown to every signed-in
 user. Two new `auth` permissions, both held by `admin` only, sit on top: `time-entry:read-all` (see
 everyone's hours) and `time-list:manage` (edit the categories and work types).
 
@@ -3264,7 +3264,7 @@ notification. The two hostnames are the assumed ones: `provision-tool.sh` derive
 name and `shell/vercel.json`'s CSP and `infra/check.sh` already carry them (override `HOURS_API_URL` /
 `HOURS_URL` for `check.sh` if the real domains differ).
 
-### `hours-api` service (Railway) — NEW (specs/029-time-tracking)
+### `hours-api` service (Railway) — NEW (specs/20261112-time-tracking)
 
 Authoritative list: `hours-api/src/lib/env.ts` (validated at startup, exits 1 on any miss: **every**
 variable below is required). Committed contract: `tools/env-doctor/templates/production/hours-api.env`.
@@ -3272,11 +3272,11 @@ variable below is required). Committed contract: `tools/env-doctor/templates/pro
 | Variable | Value | Secret |
 |---|---|---|
 | `DATABASE_URL` | `…/hours` — **its own logical DB** (`railway.json`'s `preDeployCommand` runs `bun run db:deploy`) | yes |
-| `ALLOWED_ORIGINS` | `https://operai.welld.io,https://admin.operai.welld.io` — the shell and admin-ui (its Time lists page calls the lists routes directly, ADR-0023 pattern); a `*` fails startup | no |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io,https://admin.operai.welld.io` — the shell and admin-ui (its Time lists page calls the lists routes directly, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition pattern); a `*` fails startup | no |
 | `AUTH_ISSUER` | `https://auth.operai.welld.io` — public claim, equal to auth's `BETTER_AUTH_URL` | no |
 | `AUTH_JWKS_URL` / `AUTH_BASE_URL` | internal, `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` / the same without the path — base for `GET /authz/resolve` (the two live permissions), `POST /authz/users/identities` (names, fail soft) and `POST /system/service-token` | no |
 | `AUTH_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` | no |
-| `PROJECTS_API_URL` / `CRM_API_URL` / `ACTIVITIES_API_URL` / `MEETINGS_API_URL` | internal, `http://${{<service>.RAILWAY_PRIVATE_DOMAIN}}:${{<service>.PORT}}` — the owners it asks "may this person book here" as the caller (forwarded JWT, 2 s, a write fails closed, ADR-0089). Unset, the service exits 1 | no |
+| `PROJECTS_API_URL` / `CRM_API_URL` / `ACTIVITIES_API_URL` / `MEETINGS_API_URL` | internal, `http://${{<service>.RAILWAY_PRIVATE_DOMAIN}}:${{<service>.PORT}}` — the owners it asks "may this person book here" as the caller (forwarded JWT, 2 s, a write fails closed, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route). Unset, the service exits 1 | no |
 | `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | `hours-api` / `${{shared.HOURS_SERVICE_CLIENT_SECRET}}` — at least 32 chars, byte-identical to its `SERVICE_CLIENTS` entry, whose scope is **exactly** `meetings.hosts.read` | secret: yes |
 | `SERVICE_AUDIENCE` | `${{shared.SERVICE_AUDIENCE}}` — the `aud` of the service JWT it shows meetings-api; must differ from `AUTH_AUDIENCE` (both refuse an equal pair at startup) | no |
 | `PORT` / `NODE_ENV` | `8088` / `production` | no |
@@ -3303,15 +3303,15 @@ round), and neither does `admin-ui`: it reads the hours-api origin from the shel
 
 ### Order of the release (plan R7)
 
-"The release" is the merge to `main` that carries specs/029. The merge needs no preparation beyond
+"The release" is the merge to `main` that carries specs/20261112-time-tracking. The merge needs no preparation beyond
 step 0, because nothing in it needs a variable to *start*: hours-api is not connected to GitHub until
 step 4, and meetings-api starts without `SERVICE_AUDIENCE`. What must be ordered are the manual
 steps below, and a push to `main` redeploys every connected Railway service in no fixed order
-(ADR-0049), so each step starts only when the gate of the one before it passed **and** the
+(ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired), so each step starts only when the gate of the one before it passed **and** the
 deployments it names are the live ones: `railway deployment list --service <svc>` shows the newest
 row `SUCCESS` with the release's commit. The order is **auth, then its client entry, then the
 owners, then hours-api, then the frontends**; a client entry added to production `auth` before the
-`auth` that knows its scope is live stops `auth` (an unknown scope refuses to start, ADR-0076).
+`auth` that knows its scope is live stops `auth` (an unknown scope refuses to start, ADR 20261108-crm-pushes-deal-links-to-estimai).
 
 **Step 0 - before the merge: preconditions (names only).**
 
@@ -3323,7 +3323,7 @@ railway variables --service auth --json | jq -r 'keys[]' | grep -qx SERVICE_AUDI
 - `SERVICE_AUDIENCE` must be `present` (auth's value is the reference `${{shared.SERVICE_AUDIENCE}}`, so the
   Shared Variable meetings-api and hours-api will reference exists). `MISSING`: stop, it is a service-token
   prerequisite (§ Notify credential rollout).
-- `projects-api`, `crm-api`, `activities-api` and `meetings-api` are live (specs/021, 025, 028). You hold
+- `projects-api`, `crm-api`, `activities-api` and `meetings-api` are live (specs/20261104-meetings, specs/20261103-projects, specs/20261110-activities). You hold
   logins for the `railway`, `vercel` and `cf` CLIs, plus `jq`, `dig` and `psql` (or a running Postgres
   container to borrow it from: the script creates the `hours` database with it).
 - **Management / HR have answered open point O3** (spec § Open questions: informing employees about the

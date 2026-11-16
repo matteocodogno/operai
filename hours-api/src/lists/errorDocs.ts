@@ -1,5 +1,5 @@
 /**
- * The error answers of the list WRITES, for the OpenAPI document (specs/029 T12; plan § Lists and
+ * The error answers of the list WRITES, for the OpenAPI document (specs/20261112-time-tracking T12; plan § Lists and
  * § Errors). Documentation only: the answers themselves come from the gate (src/authz) and from
  * `invalidRequestHook`, `ProblemError` and `handleError` in src/lib.
  */

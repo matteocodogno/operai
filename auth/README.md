@@ -88,7 +88,7 @@ Locally, `projects-api` needs `crm.companies.read crm.deals.read crm.contacts.re
 estimai.estimates.read notifications.push`, `crm-api` needs `notifications.push emails.send
 projects.purchase-orders.read` and `hours-api` needs `meetings.hosts.read` alone (see `.env.example` and
 `tools/env-doctor`). In production the `hours-api` client is added to `SERVICE_CLIENTS` only **after** the
-auth that knows the scope is live: an unknown scope refuses to start (ADR-0076).
+auth that knows the scope is live: an unknown scope refuses to start (ADR 20261108-crm-pushes-deal-links-to-estimai).
 
 ## Commands
 

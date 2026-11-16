@@ -1,6 +1,6 @@
 /**
- * What `time-list:manage` remembers (specs/029 T12; plan § Sequences "Admin lists", AC-3.3; the
- * ADR-0075 rule projects-api and estimai-api follow): a REFUSAL is kept 30 s per `(sub, perm_epoch)`,
+ * What `time-list:manage` remembers (specs/20261112-time-tracking T12; plan § Sequences "Admin lists", AC-3.3; the
+ * ADR 20261108-estimai-oversight-permission-amends-0036 rule projects-api and estimai-api follow): a REFUSAL is kept 30 s per `(sub, perm_epoch)`,
  * so a person without the permission does not cost `auth` a call per click; a GRANT is never kept,
  * so a revocation holds on the very next write even while the caller's token still carries the old
  * epoch; an outage is never kept either way.

@@ -1,5 +1,5 @@
 /**
- * How minutes are collected into groups and how the groups are ordered (specs/029 T18; plan § Totals, the table). Pure:
+ * How minutes are collected into groups and how the groups are ordered (specs/20261112-time-tracking T18; plan § Totals, the table). Pure:
  * no database, no other service. What the routes make of them is in ./totals.test.ts.
  */
 import { describe, expect, it } from "bun:test";

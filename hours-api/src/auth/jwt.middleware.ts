@@ -29,7 +29,7 @@ export type JwtVariables = {
    * The `perm_epoch` claim from the verified JWT (auth/src/auth/auth.config.ts
    * `definePayload`) — a monotonically-increasing staleness marker bumped
    * whenever an admin changes this user's roles/permissions/departments.
-   * The oversight and list-management checks (ADR-0075 shape) key their 30 s refusal cache
+   * The oversight and list-management checks (ADR 20261108-estimai-oversight-permission-amends-0036 shape) key their 30 s refusal cache
    * by `(sub, perm_epoch)`, so a grant change is seen at once. Defaults to 0 for a token that
    * (unexpectedly) omits the claim —
    * treated as "epoch unknown", never as a reason to reject the token here;
@@ -61,18 +61,18 @@ const unauthorized = (detail: string, path: string) =>
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
 /**
- * JWT resource-server middleware (ADR-0005, audience enforcement per ADR-0010).
+ * JWT resource-server middleware (ADR 20260703-jwt-resource-server-remote-jwks, audience enforcement per ADR 20260713-jwt-audience-claim-enforcement).
  *
  * This is the identity layer only — it proves WHO is calling, and that is all a person needs to
  * record and read their own hours (AC-5.1). WHAT else they may do is asked live: of `auth` for
  * `time-entry:read-all` and `time-list:manage` (src/oversight, src/authz), of the owners for
- * bookability (src/targets, ADR-0089), using the Authorization header this middleware has just
+ * bookability (src/targets, ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route), using the Authorization header this middleware has just
  * verified.
  *
  * 1. Reads Authorization: Bearer <jwt>. Missing / malformed → 401 Problem JSON.
  * 2. Verifies the RS256 signature against the auth service JWKS (cached remote fetch).
  *    Algorithm is pinned to RS256 — alg:none / HS256 confusion rejected.
- *    issuer is pinned to AUTH_ISSUER; audience is pinned to AUTH_AUDIENCE (ADR-0010) —
+ *    issuer is pinned to AUTH_ISSUER; audience is pinned to AUTH_AUDIENCE (ADR 20260713-jwt-audience-claim-enforcement) —
  *    a token missing the `aud` claim, or carrying a value other than AUTH_AUDIENCE, fails
  *    verification here.
  * 3. Any verification failure (expired, bad signature, wrong issuer/kid/alg/audience) → 401.
@@ -135,7 +135,7 @@ export const jwtMiddleware = createMiddleware<{
   }
 
   // 4. Set context variables for downstream route handlers.
-  //    perm_epoch (T6, ADR-0014): read straight off the already-verified
+  //    perm_epoch (T6, ADR 20260716-refund-api-authorization-enforcing-resource-server): read straight off the already-verified
   //    payload — no additional trust decision, just extraction. A
   //    non-numeric/missing claim degrades to 0 rather than failing
   //    verification (identity, not authorization, is this middleware's job).

@@ -5,7 +5,7 @@
  * `writable`, `may`) or `missing`, and the related contacts/deals OF THOSE COMPANIES only; anyone
  * else gets `reader:false` and nothing about any record. An `auth` outage is a 503 (fail closed).
  *
- * specs/029 T7 (AC-2.3, AC-2.10, AC-4.10; plan § API contracts, crm-api): the same route learns
+ * specs/20261112-time-tracking T7 (AC-2.3, AC-2.10, AC-4.10; plan § API contracts, crm-api): the same route learns
  * `entityType: "deal"`, answered with the people `involved` in the deal (its owner, plus the
  * technical contact as the deal view reads it) so hours-api can decide who may book time on it.
  */
@@ -141,7 +141,7 @@ describe("a caller who holds crm:access", () => {
   });
 });
 
-// ─── entityType: "deal" (specs/029 T7) ───────────────────────────────────────
+// ─── entityType: "deal" (specs/20261112-time-tracking T7) ───────────────────────────────────────
 
 const resolveDeals = (as: PersonaName | null, ids: string[], extra: Record<string, unknown> = {}) =>
   call("POST", URL, { as, body: { entityType: "deal", ids, ...extra } });
@@ -152,7 +152,7 @@ const makeOwnedDeal = async (overrides: Record<string, unknown> = {}) => {
   return makeDeal(company.id, { title: "Platform rebuild", ...overrides }, "salesCh");
 };
 
-describe("entityType: deal (specs/029 AC-2.3)", () => {
+describe("entityType: deal (specs/20261112-time-tracking AC-2.3)", () => {
   it("opens a deal with label, href, writable and may, `involved` being its owner when no estimate is linked", async () => {
     const deal = await makeOwnedDeal({ title: "Website relaunch" });
     const res = await resolveDeals("consultant", [deal.id]);
@@ -225,7 +225,7 @@ describe("entityType: deal (specs/029 AC-2.3)", () => {
     ]);
   });
 
-  it("opens a deal of another entity for any holder: reads are open and entity scope plays no part (ADR-0052)", async () => {
+  it("opens a deal of another entity for any holder: reads are open and entity scope plays no part (ADR 20261101-crm-tool-shape-and-authorization)", async () => {
     const company = await makeCompany({ entity: "welld_it" });
     const deal = await makeDeal(company.id, { entity: "welld_it" }, "admin");
     expect(PERSONAS.salesCh.entity).toBe("welld_ch");

@@ -1,5 +1,5 @@
 /**
- * Shared route-integration test harness (specs/029 T10), adapted from
+ * Shared route-integration test harness (specs/20261112-time-tracking T10), adapted from
  * activities-api/src/test-support/testAuth.ts.
  *
  * Mocks the one network-calling identity dependency every route sits behind —
