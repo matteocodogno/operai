@@ -28,6 +28,9 @@ Meeting, Altro lavoro), placed first after Period; it is a filter like the other
 Clear filters, sent to the list, the totals, the day totals and the export). Changed in place: S1 sketch, Key
 elements, Keyboard path.
 
+**Amended 2026-11-16 (ledger D53, task T45)**: the entry dialog's **Duration** is a text field, not a 48-option
+select (S2 field table, F1 step 2). Changed in place: S2 Duration row, F1 step 2.
+
 Surfaces: **three pages** — *My hours* and *Everyone's hours* in the new remote `hours-ui` (`/hours`),
 *Time lists* in `admin-ui` (`/time-lists`; **since D51 the Settings tab of `hours-ui`, `/hours/settings`**) — **three dialogs** (entry, delete confirmation, list-item form)
 and **one menu link** in the shell. Page types from `operai-ui/src/pages`: My hours = *Item list* + *Quick
@@ -57,7 +60,7 @@ under S2.
 Entry point: **Record hours** (the one primary on My hours).
 
 1. The `FormDialog` (S2) opens on the **Day** field, Day = today, nothing else chosen.
-2. The person chooses **Duration** (30 min … 24 h in 30-minute steps), then **What was it on**:
+2. The person types the **Duration** (30 min … 24 h in 30-minute steps, e.g. `2:30` or `2,5`; D53), then **What was it on**:
    Project, Deal, Meeting or Other work. The fields that apply to that choice appear (matrix in S2).
 3. Project / deal / meeting: the person types in the entity field; matches come from what the person
    can already search (projects-api `GET /projects?q=`, crm-api `GET /deals?q=`, meetings-api
@@ -349,7 +352,7 @@ The prop-driven form (initial values in, one `onSubmit` out) is reusable by spec
 | Field | Control | Required | Options / rule |
 |---|---|---|---|
 | Day | `DateInput` in `Field` | yes | default today; `max` today; **`min` 2000-01-01** (added 2026-11-13, plan amendment 4: the floor hours-api applies to every `day`, so a mistyped year such as 0226 is refused here and never saved; `min` only greys days in the picker, the check is the error). Checked in this order, one error at a time: not a calendar day → "Choose a valid day."; before 01.01.2000 → the floor error; after today → `future_day` text (AC-1.3, unchanged). *Not a calendar day* = an impossible day (30.02.2026), a year of more than four digits, a half-typed date or an empty field. Copy: *Date rules* below |
-| Duration | native `<select>` in `Field` | yes | 48 options, 30 min … 24 h, labelled with `formatDuration(…, 'short')`; hint "In steps of 30 minutes, up to 24 hours." (AC-1.2, A9). Why not a number box: `type="number"` rejects the comma, a free text box needs a parser and invites "2:30"; a select cannot hold an invalid value and has typeahead |
+| Duration | text `<input>` (`inputmode="decimal"`, `autocomplete="off"`) in `Field` (amended 2026-11-16, D53; was a 48-option select the user found unusable) | yes | Reads, trimmed and case-insensitive: `h:mm` (`2:30`, `0:30`), hours with a comma or a point (`2,5`, `2.5`, `8`), hours and minutes (`2h30`, `2h 30`, `2 h 30` — the app's own display, so an edited entry's value reads back), minutes alone (`90m`, `90 min`). Below the field, while the value reads: "= 2 h 30" (`formatDuration` short, live, `aria-live="polite"`). Field errors, shown as the other fields' (on leaving the field and on Save), never a rounding: unreadable "Write a duration such as 2:30, 2,5 or 2h30."; not whole half-hours "In steps of 30 minutes (for example 2:00 or 2:30)."; outside 30 min … 24 h "Between 30 minutes and 24 hours." Hint "In steps of 30 minutes, up to 24 hours." (AC-1.2, A9). Editing pre-fills `formatDuration(minutes, short)`. The parser is a pure function in `hours-ui/src/lib` with its own tests; hours-api stays the authority (422 `invalid_minutes`) |
 | What was it on | `RadioGroupField` (legend) | yes | Project · Deal · Meeting · Other work. **Nothing is preselected** when recording (no default guess, D18) |
 | Project / Deal / Meeting | `SearchPicker` in `Field` | yes | the label follows the radio; each carries its rule as `hint`: project "You can record hours on projects where you are the project manager or on the team."; deal "…on deals you own, are the technical contact of, or take part in through an activity."; meeting "…on meetings you created or take part in." (plan R5) |
 | Category | `select` | yes, Other work only | non-retired categories (+ the entry's own retired one when editing); none available → the field says "No categories are available. Ask whoever manages the time lists." and Save is blocked |
