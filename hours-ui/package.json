@@ -21,6 +21,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@module-federation/vite": "1.23.9",
+    "@operai/ui": "link:../operai-ui",
     "@tailwindcss/postcss": "^4.2.2",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

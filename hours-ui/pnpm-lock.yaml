@@ -30,6 +30,9 @@ importers:
       '@module-federation/vite':
         specifier: 1.23.9
         version: 1.23.9(typescript@5.9.3)(vite@8.3.8(@types/node@24.19.2)(jiti@2.7.0))
+      '@operai/ui':
+        specifier: link:../operai-ui
+        version: link:../operai-ui
       '@tailwindcss/postcss':
         specifier: ^4.2.2
         version: 4.3.5
