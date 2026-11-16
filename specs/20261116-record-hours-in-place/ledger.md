@@ -119,3 +119,7 @@ Assumed (not load-bearing; strike any that is wrong):
 - WA10 No export from the week: the list's export covers it
 Open (unresolved — each needs an owner):
 - (none)
+
+Later note (2026-11-16): specs/20261112-time-tracking added a **Recorded on** filter to My hours (its D52). D11's
+"stessi filtri già esistenti per la lista" includes it, so AC-5.21 names it — the user asked to align the spec
+and keep it approved.

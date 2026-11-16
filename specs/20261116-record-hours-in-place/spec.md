@@ -14,6 +14,8 @@ Decision ledger: `ledger.md`
 
 > Amended 2026-11-16, after a first approval the same day: the Week view of My hours (US-5, ledger D7–D11,
 > WA1–WA10, C1) and the wording of AC-4.3 and AC-4.4 that it touches. Re-approved by the user 2026-11-16.
+> Aligned 2026-11-16, kept approved by the user: AC-5.21 names the Recorded on filter that My hours gained
+> (specs/20261112-time-tracking AC-4.4 as amended, D52), since D11 asks for "the list's existing filters".
 
 ## Problem
 
@@ -143,8 +145,9 @@ that I see where the week went and record or correct a day from there without go
   week with My hours' Record hours, then a row for it appears (D9).
 - AC-5.20 Given an entry saved, changed or deleted from the Week view, then the cell, its row total, its
   day total and the week total show the new figures without reloading the page (WA9).
-- AC-5.21 Given a project, deal, category or work type filter set in My hours, when the Week view is shown,
-  then it holds only the entries the filters match (D11, WA5).
+- AC-5.21 Given a project, deal, category, work type or recorded-on filter set in My hours, when the Week
+  view is shown, then it holds only the entries the filters match (D11, WA5; recorded on since
+  specs/20261112-time-tracking D52).
 - AC-5.22 Given filters set in one view, when the person switches to the other, then the same filters are
   still set (D11, WA5).
 - AC-5.23 Given a row on a project, deal or meeting whose name the person cannot read, then the row is
@@ -204,8 +207,8 @@ Week view (ledger, week view section):
 - WA3 Every rule of My hours holds unchanged: the same refusals and messages, names a person cannot read
   not shown, English and Italian (AC-4.2, AC-4.6, AC-5.23).
 - WA4 Own hours only: Everyone's hours gets no Week view (Non-goals).
-- WA5 In the Week view the week takes the place of the Period filter; the other filters apply and are kept
-  when switching (AC-5.4, AC-5.5, AC-5.21, AC-5.22).
+- WA5 In the Week view the week takes the place of the Period filter; the other filters (Recorded on
+  included) apply and are kept when switching (AC-5.4, AC-5.5, AC-5.21, AC-5.22).
 - WA6 From a week cell the day and the row are set but changeable: it is My hours' own dialog, so D3's
   "not changeable" (about the other pages) does not apply (AC-5.13).
 - WA7 A day after today offers no recording (AC-5.14).
