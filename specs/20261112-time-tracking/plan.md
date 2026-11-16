@@ -161,6 +161,14 @@ approved: 2026-11-12
 > tab; § Test strategy AC-3.1, 3.3, 3.8 and 5.5 test in hours-ui instead of admin-ui; hours-api's
 > `ALLOWED_ORIGINS` loses the admin-ui origin. hours-api, its contract and every other AC are unchanged. Task T43.
 
+> Amended a tenth time 2026-11-16, after the second rebase onto main: main moved every backend to zod 4.6.7,
+> `@hono/zod-openapi` 1.6.3, `@scalar/hono-api-reference` 0.12.17 and hono 4.13.16 (`@hono/node-server` pinned to
+> 2.1.6) for GHSA-mrhx-c7xc-m3w5 and the hono advisories; hours-api takes the same pins, and its two validation
+> hooks (`problem.ts`, `errors.ts`) and the env error map read issue paths as property keys (main's fcdb4171). One
+> contract change, the library's and every backend's since: a body sent with a Content-Type other than JSON is a
+> 415 Problem (`Unsupported Media Type`) before `invalidRequestHook` runs; malformed JSON and a missing body stay
+> 400 `invalid_request`. Every other shape and rule is unchanged; hours-api's 1812 tests pass on the new versions.
+
 Branch `feat/time-tracking`, from `main` (ledger D11). Nothing here depends on PR #9 (specs/20261103-projects-handoff);
 the files both touch are listed under Risks (R3). Review decisions of 2026-11-12: ledger D35
 (spec amendment AC-4.10), D36 (own service), D37 (own remote); design decisions D38–D41.

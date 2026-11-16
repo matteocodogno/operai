@@ -834,7 +834,7 @@ describe("what a POST may carry", () => {
     });
   }
 
-  it("refuses malformed JSON, no body and a body that is not JSON with 400 invalid_request", async () => {
+  it("refuses malformed JSON and no body with 400 invalid_request, and a body sent as another media type with a 415 Problem (@hono/zod-openapi 1.x, as every backend since zod 4)", async () => {
     for (const path of ["/time-categories", "/work-types"]) {
       expect((await call("POST", path, { as: "manager", rawBody: '{"name": ' })).status).toBe(400);
       expect((await call("POST", path, { as: "manager" })).status).toBe(400);
@@ -843,7 +843,8 @@ describe("what a POST may carry", () => {
         headers: { Authorization: await bearerOf("manager"), "Content-Type": "text/plain" },
         body: '{"list":"deal","name":"Workshops"}',
       });
-      expect(text.status).toBe(400);
+      expect(text.status).toBe(415);
+      expect(await text.json()).toMatchObject({ status: 415, title: "Unsupported Media Type", instance: path });
     }
     expect(await db.timeCategory.count()).toBe(4);
     expect(await db.workType.count()).toBe(8);

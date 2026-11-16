@@ -148,7 +148,7 @@ export const unprocessable = (
 // ─── zod-openapi validation hook ─────────────────────────────────────────────
 
 interface ZodIssueLike {
-  readonly path: readonly (string | number)[];
+  readonly path: readonly PropertyKey[];
   readonly message: string;
 }
 
@@ -166,7 +166,7 @@ export const validationHook = (
 ): Response | undefined => {
   if (result.success) return undefined;
   const errors = result.error.issues.map((issue) => ({
-    field: issue.path.join("."),
+    field: issue.path.map(String).join("."),
     message: issue.message,
   }));
   return problem(

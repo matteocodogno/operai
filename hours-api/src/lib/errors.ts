@@ -11,7 +11,7 @@ import { env } from "./env";
 import { handleProblemError, problem } from "./problem";
 
 interface ZodIssueLike {
-  readonly path: readonly (string | number)[];
+  readonly path: readonly PropertyKey[];
   readonly message: string;
 }
 
@@ -27,7 +27,7 @@ export const invalidRequestHook = (
   c: Context,
 ): Response | undefined => {
   if (result.success) return undefined;
-  const errors = result.error.issues.map((issue) => ({ field: issue.path.join("."), message: issue.message }));
+  const errors = result.error.issues.map((issue) => ({ field: issue.path.map(String).join("."), message: issue.message }));
   return problem(
     {
       status: 400,

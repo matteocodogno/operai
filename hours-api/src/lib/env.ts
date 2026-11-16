@@ -70,7 +70,7 @@ export function parseEnv(source: Readonly<Record<string, string | undefined>>): 
   const errors: Record<string, string[]> = {};
   for (const issue of parsed.error.issues) {
     // Messages only — never a received value (secrets live in this environment).
-    (errors[issue.path.join(".") || "(env)"] ??= []).push(issue.message);
+    (errors[issue.path.map(String).join(".") || "(env)"] ??= []).push(issue.message);
   }
   return { ok: false, errors };
 }
