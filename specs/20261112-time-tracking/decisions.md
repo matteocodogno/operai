@@ -449,3 +449,17 @@ PR #9 (the hand-off) was squash-merged as 0d8b9df4; the 82 time-tracking commits
 - scope: the commits carry a `Claude Sonnet 5.5` co-author trailer, the model that ran the agent — where: 48cdf33f, c5afca3e
 - verified (agent, in a throwaway harness with a stubbed shell session): three cards at 1280 and 360 px, no page overflow at 360 px (tables scroll in their cards), focus to Restore after Retire, `PermissionDenied` focused for no permission, tab sets per permission; at 360 px with all three tabs "Settings" wraps to a second row of the library `TabNav` (not an overflow) — Italian not seen in a browser, covered by unit tests
 - main loop (same task): hours-api `ALLOWED_ORIGINS` is the shell's origin only (template, local example, env-doctor requirement and tests), runbook and AGENTS.md follow — commit 67e8cca4
+
+## T35, T36 · quality-engineer · 2026-11-16
+- assumption: `/hours/settings` for T35's "Hours → Settings" — the spec opens it from the tab and by address; both covered
+- reinterpretation: "records two Other work entries" read as the dialog's Other work option with real seeded categories (Training and Administration preferred, read from `GET /time-lists`), not the category literally named "Other", which requires a note — where: `shell/e2e/helpers/hoursFixtures.ts` (`pickCategories`)
+- scope: T35 also asserts the empty state, no tab bar for a non-holder, `PermissionDenied` on typed `/hours/all` and `/hours/settings`, and read-only rows (design.md, AC-3.3, AC-4.3)
+- scope: T36 adds, beyond done-when, the `not_involved_in_deal` refusal (AC-2.3), a task-assignee journey (AC-2.3, also R2's heaviest POST path) and the admin's deal-filtered view and export (AC-4.11 route up)
+- default: one admin per run (`hrs-admin-<runId>@operai.test`, removed by `cleanupPeople`) — why: auth limits `POST /authz/users/identities` to 120 per caller per 10 min and hours-api reads names through it; a shared admin made Everyone's hours show "names could not be loaded" on re-runs (af55c687); the same limit spreads the R2 dataset over 9 people
+- default: in-browser export "p95" is the slowest of 3 samples; API calls use nearest-rank p95 over 20 (10 for the export walk)
+- default: the R2 check seeds ~290 entries by 9 people and 8 meetings and deletes them; cleanup also in `afterAll`
+- default: cleanup leaves companies, deals and projects behind (no delete route from the e2e), like the other specs; entries and meetings are deleted, a category the journey made is retired
+- assumption: chromium headless shell installed with `pnpm exec playwright install chromium` (Playwright 1.61.1 needed build 1228)
+- not done: the hours specs were run against `mise run dev` only, not `dev:preview`
+- R2 (plan): loopback, 296 entries in the quarter — POST on a deal p95 3–4 ms (owner), 6–10 ms (task assignee); month `whose=all` 7 ms; year `groupBy=deal` 5–6 ms; quarter export walk 10 ms; export click-to-file 128 ms (slowest of 3). Nothing near 800 ms
+- main loop: T36 checked (re-run 7/7); T35 left open — its done-when also asks the whole `pnpm e2e` green, which it is not on this machine (26 failed, 26 did not run, all outside hours; see tasks.md T35 status)
