@@ -1,9 +1,10 @@
 ---
 id: 20261116
 slug: record-hours-in-place
-status: draft
+status: approved
 rigor: production
 created: 2026-11-16
+approved: 2026-11-16
 depends-on: 20261112-time-tracking
 ---
 
@@ -12,7 +13,7 @@ depends-on: 20261112-time-tracking
 Decision ledger: `ledger.md`
 
 > Amended 2026-11-16, after a first approval the same day: the Week view of My hours (US-5, ledger D7–D11,
-> WA1–WA10, C1) and the wording of AC-4.3 and AC-4.4 that it touches. Back to draft for re-approval.
+> WA1–WA10, C1) and the wording of AC-4.3 and AC-4.4 that it touches. Re-approved by the user 2026-11-16.
 
 ## Problem
 
