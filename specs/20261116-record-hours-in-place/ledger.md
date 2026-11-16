@@ -77,6 +77,8 @@ Decided (the user chose):
   names the view, so a bookmark can open the week; the week is filtered by the list's existing filters
   ("stessi filtri già esistenti per la lista") — user chose the recommended option over opening on the week
   and over remembering the last view, and added the filters, 2026-11-16
+Constraints (volunteered by the user, verbatim — for the plan and the design, not explored here):
+- C1 "in merito al layout, sfrutta tutta la dimensione della pagine come fatto in Estimai" (2026-11-16)
 Delegated (the user deferred to the recommendation):
 - (none yet)
 Found (read from the repo, not asked):
@@ -91,6 +93,11 @@ Found (read from the repo, not asked):
 - WF4 D23 of time tracking: no completeness check — each day's total, no "incomplete" mark, no reminder (the
   user chose it over marking partial days); D8: a day and a duration, never a time of day; D14: only the person
   writes their own entries — specs/20261112-time-tracking/ledger.md
+- WF6 The design system gives a tool page one of three widths through `ToolLayout`: narrow 40rem, default
+  80rem (every list and detail page; hours-ui today), wide = the full width with a 24px gutter (data-dense
+  workspaces, the CRM pipeline); EstimAI's estimate workspace uses the full width —
+  operai-ui/docs/design-system.md, hours-ui/src/components/HoursShell.tsx. C1 reads as the week view on the
+  full width; whether the List does too is the design's call
 - WF5 One day and one target can hold several entries (different work types, tasks, notes) —
   specs/20261112-time-tracking AC-2.7, US-1
 Assumed (not load-bearing; strike any that is wrong):
