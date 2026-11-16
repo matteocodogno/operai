@@ -10,7 +10,7 @@ depends-on: 20261103-projects-handoff, 20261110-activities, 20261112-project-hou
 
 # Project alerts — tasks for the moments a project needs a decision
 
-Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-project-hours and
+Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-project-hours and
 specs/20261112-meeting-hours; this spec's decisions are D12 and D29–D33)
 
 > **Origin.** Split out of specs/20261112-project-hours on 2026-11-12 (ledger D34). specs/20261112-project-hours shows a project's hours

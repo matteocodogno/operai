@@ -10,7 +10,7 @@ depends-on: 20261103-projects, 20261103-projects-handoff, 20261112-time-tracking
 
 # Project hours — time worked against what was sold
 
-Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-meeting-hours and
+Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking, specs/20261112-meeting-hours and
 specs/20261112-project-alerts; this spec's decisions are D10, D13, D22, D27 and D28)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D11, D26). specs/20261112-time-tracking records time

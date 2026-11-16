@@ -10,7 +10,7 @@ depends-on: 20261104-meetings, 20261112-time-tracking
 
 # Meeting hours — time entries suggested from the meetings a person took part in
 
-Decision ledger: `../029-time-tracking/ledger.md` (shared with specs/20261112-time-tracking and specs/20261112-project-hours)
+Decision ledger: `../20261112-time-tracking/ledger.md` (shared with specs/20261112-time-tracking and specs/20261112-project-hours)
 
 > **Origin.** Split out of specs/20261112-time-tracking on 2026-11-12 (ledger D26). specs/20261112-time-tracking lets a person record
 > hours on a meeting by hand; this spec has Meetings offer those hours, already filled in, to the
