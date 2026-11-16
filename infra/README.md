@@ -3271,7 +3271,7 @@ variable below is required). Committed contract: `tools/env-doctor/templates/pro
 
 | Variable | Value | Secret |
 |---|---|---|
-| `DATABASE_URL` | `…/hours` — **its own logical DB** (`railway.json`'s `preDeployCommand` runs `bun run db:deploy`) | yes |
+| `DATABASE_URL` | `…/hours` — **its own logical DB** (the service's `.railway/railway.ts` block runs `bun run db:deploy` as `preDeploy`) | yes |
 | `ALLOWED_ORIGINS` | `https://operai.welld.io,https://admin.operai.welld.io` — the shell and admin-ui (its Time lists page calls the lists routes directly, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition pattern); a `*` fails startup | no |
 | `AUTH_ISSUER` | `https://auth.operai.welld.io` — public claim, equal to auth's `BETTER_AUTH_URL` | no |
 | `AUTH_JWKS_URL` / `AUTH_BASE_URL` | internal, `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` / the same without the path — base for `GET /authz/resolve` (the two live permissions), `POST /authz/users/identities` (names, fail soft) and `POST /system/service-token` | no |
@@ -3282,10 +3282,11 @@ variable below is required). Committed contract: `tools/env-doctor/templates/pro
 | `PORT` / `NODE_ENV` | `8088` / `production` | no |
 
 It has no `NOTIFY_INTERNAL_URL`, no storage and no AI variable, so none is required. **Deploy notes.**
-`railway.json` carries no `numReplicas` pin and none is needed: hours-api keeps no limiter or store that
-depends on one instance (its one in-process memo remembers a refusal of `time-list:manage` for 30 s).
-`provision-tool.sh` nevertheless sets one replica in `europe-west4-drams3a` on every service it creates, so
-that is what runs until someone scales it. It logs method, path without the query string, status and
+Its block in `.railway/railway.ts` declares one replica in `europe-west4-drams3a`, like every service, and
+nothing needs that pin: hours-api keeps no limiter or store that depends on one instance (its one in-process
+memo remembers a refusal of `time-list:manage` for 30 s). hours-api has no `railway.json`: since ADR
+20261113-railway-infrastructure-as-code the service, its build, start, health check, pre-deploy, replicas and
+domain are declared only in `.railway/railway.ts`. It logs method, path without the query string, status and
 duration, never a body or a note, and there is no third-party processor.
 
 ### Variables set outside `hours-api`
@@ -3415,15 +3416,36 @@ to the deal in one unpaged answer (R2).
 
 **Step 4 - hours-api: provision, variables, first deploy.**
 A person runs it, the plan first (`.claude/skills/provision-tool/SKILL.md`; it needs the `railway`, `vercel`
-and `cf` CLIs and sets no secret). `--no-ui` keeps the Vercel half for step 5:
+and `cf` CLIs and sets no secret). `--no-ui` keeps the Vercel half for step 5. The Railway service and its
+domain are Railway IaC (ADR 20261113-railway-infrastructure-as-code): the plan prints the block to add, a
+person adds it to `.railway/railway.ts` **without** its `source`, adds `hoursApi` to `project(...).resources`,
+commits and pushes it, then applies. The block is the projects-api one with the name, root directory and port
+changed:
 
-```bash
-./infra/provision-tool.sh hours --port 8088 --no-ui           # plan, read only: read it, resolve every ✗ first
-./infra/provision-tool.sh hours --port 8088 --no-ui --apply   # service (empty, no source), database `hours`, domain + DNS, the template's variables
+```ts
+const hoursApi = service("hours-api", {
+  // source: github("matteocodogno/operai", { branch: "main", checkSuites: false, rootDirectory: "/hours-api" }),
+  build: { buildEnvironment: "V3", builder: "DOCKERFILE", dockerfilePath: "Dockerfile" },
+  start: "bun run src/index.ts",
+  healthcheck: "/health",
+  healthcheckTimeout: 30,
+  preDeploy: "bun run db:deploy",
+  replicas: { "europe-west4-drams3a": 1 },
+  deploy: { restartPolicyMaxRetries: 3 },
+  domains: [{ domain: "hours-api.operai.welld.io", port: 8088 }],
+});
 ```
 
-The plan lists the database, the service, its build settings, the 15 variables of the table above, the
-domain `hours-api.operai.welld.io` to port 8088 with its CNAME and TXT records, and the unconnected source.
+```bash
+./infra/provision-tool.sh hours --port 8088 --no-ui           # plan, read only: the IaC block to add; read it, resolve every ✗ first
+# add the block above (source commented out) and `hoursApi` to resources, commit, push
+./infra/provision-tool.sh hours --port 8088 --no-ui --apply   # database `hours`, `railway config apply` (service, domain), DNS, the template's variables
+```
+
+The plan lists the database, the declaration in `.railway/railway.ts` and its `railway config plan` diff
+(it must create `hours-api` and delete nothing: a plan that deletes anything is a stop), the 15 variables of
+the table above, the domain `hours-api.operai.welld.io` to port 8088 with its CNAME and TXT records, and the
+unconnected source.
 The script sets `SERVICE_CLIENT_SECRET` only as the reference to the Shared Variable of step 2. Then, before
 any build:
 
@@ -3445,6 +3467,8 @@ Open `SERVICE_CLIENT_SECRET` in the Variables tab and confirm the reference reso
 miss). The offline equivalent is `mise run env:doctor -- --env production --dir ./resolved` on one
 pre-resolved `<service>.env` per service; keep that directory out of the repo. The doctor must report no
 failure before the first build:
+
+Then uncomment the block's `source: github(...)` line, commit and push, and:
 
 ```bash
 ./infra/provision-tool.sh hours --port 8088 --no-ui --connect --apply   # connects the repo: the first build

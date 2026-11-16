@@ -1,7 +1,7 @@
 ---
 spec: 20261112
 generated: 2026-11-13
-synced: 2026-11-13
+synced: 2026-11-16
 ---
 
 # Tasks: Time tracking — the hours employees spend on company work
