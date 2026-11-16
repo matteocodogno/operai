@@ -43,7 +43,7 @@ const send = (method: string, body: unknown): RequestInit => ({
 })
 
 /**
- * Every route hours-ui's screens (and admin-ui's lists) reach, written out here and not read from the
+ * Every route hours-ui's screens (Settings included) reach, written out here and not read from the
  * fake: hours-api's ten routes of plan § API contracts and the four owner searches of plan § Components
  * `hours-ui`. A route the plan has and the fake lacks fails here.
  */

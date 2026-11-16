@@ -52,6 +52,11 @@ describe('ErrorBanner', () => {
     expect(screen.getByTestId('hours-banner').className).toContain('banner-danger')
   })
 
+  it('names its title with the test id too (`${testId}-title`), when it has one', () => {
+    render(<ErrorBanner title="Heading" message="x" testId="hours-load-error" />)
+    expect(screen.getByTestId('hours-load-error-title').textContent).toBe('Heading')
+  })
+
   it('takes a test id for its own banner, its Retry and its ×', () => {
     render(<ErrorBanner message="x" onRetry={() => undefined} onDismiss={() => undefined} testId="hours-load-error" />)
     expect(screen.getByTestId('hours-load-error')).not.toBeNull()

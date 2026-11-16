@@ -45,6 +45,7 @@ vi.mock('shell/session', async () => {
   }
 })
 
+import { apiFetch } from 'shell/session'
 import { createAppRouter } from '../router'
 import HoursShell from './HoursShell'
 
@@ -67,6 +68,25 @@ const HOLDER: Permissions = {
   ],
 }
 
+// Holds `time-list:manage` and not `time-entry:read-all`: an admin-like role granted only the lists (T43, D51).
+const LIST_MANAGER: Permissions = {
+  epoch: 6,
+  apps: [],
+  roles: ['list-manager'],
+  departments: [],
+  permissions: [{ resource: 'time-list', action: 'manage' }],
+}
+const HOLDER_OF_BOTH: Permissions = {
+  epoch: 7,
+  apps: ['admin'],
+  roles: ['admin'],
+  departments: [],
+  permissions: [
+    { resource: 'time-entry', action: 'read-all' },
+    { resource: 'time-list', action: 'manage' },
+  ],
+}
+
 const renderAt = (path: string, permissions: Permissions) => {
   permissionsStore.set(permissions)
   const history = createMemoryHistory({ initialEntries: [path] })
@@ -78,6 +98,7 @@ const tabs = () => screen.queryByRole('navigation', { name: strings.common.nav.l
 afterEach(() => {
   cleanup()
   permissionsStore.set(NOT_RESOLVED)
+  vi.mocked(apiFetch).mockReset()
 })
 
 describe('HoursShell', () => {
@@ -169,5 +190,90 @@ describe('the tabs (AC-5.1, ADR 20261108-estimai-oversight-permission-amends-003
     act(() => permissionsStore.set(EMPLOYEE))
 
     expect(tabs()).toBeNull()
+  })
+})
+
+describe('the Settings tab (T43, D51: the time lists moved here from admin-ui)', () => {
+  const linkNames = () =>
+    screen
+      .getAllByRole('link')
+      .filter((link) => tabs()!.contains(link))
+      .map((link) => link.textContent)
+
+  it('is out of the DOM while permissions have not resolved, never disabled', async () => {
+    renderAt('/hours', NOT_RESOLVED)
+    await screen.findByTestId('hours-my-page')
+    expect(tabs()).toBeNull()
+    expect(screen.queryByText(strings.common.nav.settings)).toBeNull()
+  })
+
+  it('is out of the DOM for a holder of time-entry:read-all who cannot manage the lists', async () => {
+    renderAt('/hours', HOLDER)
+    await screen.findByTestId('hours-my-page')
+    expect(linkNames()).toEqual([strings.common.nav.myHours, strings.common.nav.everyone])
+    expect(screen.queryByRole('link', { name: strings.common.nav.settings })).toBeNull()
+  })
+
+  it('is out of the DOM, and the tabs with it, for a person with neither permission', async () => {
+    renderAt('/hours', EMPLOYEE)
+    await screen.findByTestId('hours-my-page')
+    expect(tabs()).toBeNull()
+    expect(screen.queryByRole('link', { name: strings.common.nav.settings })).toBeNull()
+  })
+
+  it('is there with time-list:manage ALONE: the TabNav shows for a holder of either permission, without Everyone’s hours', async () => {
+    renderAt('/hours', LIST_MANAGER)
+    await screen.findByTestId('hours-my-page')
+    expect(tabs()).not.toBeNull()
+    expect(linkNames()).toEqual([strings.common.nav.myHours, strings.common.nav.settings])
+    expect(screen.queryByRole('link', { name: strings.common.nav.everyone })).toBeNull()
+    expect(screen.getByRole('link', { name: strings.common.nav.settings }).getAttribute('href')).toBe('/hours/settings')
+  })
+
+  it('comes after Everyone’s hours for a holder of both: My hours, Everyone’s hours, Settings', async () => {
+    renderAt('/hours', HOLDER_OF_BOTH)
+    await screen.findByTestId('hours-my-page')
+    expect(linkNames()).toEqual([strings.common.nav.myHours, strings.common.nav.everyone, strings.common.nav.settings])
+  })
+
+  it('is the current tab on /settings, and only it', async () => {
+    vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}))
+    renderAt('/hours/settings', HOLDER_OF_BOTH)
+    await screen.findByTestId('time-lists-page')
+    expect(screen.getByRole('link', { name: strings.common.nav.settings }).getAttribute('aria-current')).toBe('page')
+    expect(screen.getByRole('link', { name: strings.common.nav.myHours }).getAttribute('aria-current')).toBeNull()
+    expect(screen.getByRole('link', { name: strings.common.nav.everyone }).getAttribute('aria-current')).toBeNull()
+  })
+
+  it('appears once the permissions arrive, and goes when the grant is withdrawn, without remounting the page', async () => {
+    renderAt('/hours', NOT_RESOLVED)
+    const page = await screen.findByTestId('hours-my-page')
+    expect(tabs()).toBeNull()
+
+    act(() => permissionsStore.set(LIST_MANAGER))
+    expect(screen.getByRole('link', { name: strings.common.nav.settings })).not.toBeNull()
+    expect(screen.getByTestId('hours-my-page')).toBe(page)
+
+    act(() => permissionsStore.set(EMPLOYEE))
+    expect(tabs()).toBeNull()
+  })
+
+  it('a typed /hours/settings without the permission renders PermissionDenied and calls no list route', async () => {
+    renderAt('/hours/settings', EMPLOYEE)
+
+    expect(await screen.findByTestId('hours-permission-denied')).not.toBeNull()
+    expect(screen.getByTestId('hours-permission-denied-heading').textContent).toBe(strings.settings.forbidden.title)
+    // The frame stays: the tool title, and no tabs for a person who has nothing to switch to.
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Hours')
+    expect(tabs()).toBeNull()
+    expect(screen.queryByTestId('time-lists-loaded')).toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('Everyone’s hours alone does not open it either: seeing everyone’s hours is not managing the lists', async () => {
+    renderAt('/hours/settings', HOLDER)
+
+    expect(await screen.findByTestId('hours-permission-denied')).not.toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 })

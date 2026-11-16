@@ -18,7 +18,7 @@ import { strings } from '../strings'
 /**
  * Every `code` hours-api answers (plan § Errors, § Lists). One list, so a task that words a refusal
  * never edits this file to learn it. The two list-management codes (`time_list_manage_required`,
- * `name_taken`) belong to admin-ui's screens and are known here so the mapping is complete.
+ * `name_taken`) belong to the Settings tab's writes (`./timeListsApi`, T43).
  */
 export const HOURS_ERROR_CODES = [
   // 400

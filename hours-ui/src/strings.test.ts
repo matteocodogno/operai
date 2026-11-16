@@ -11,7 +11,19 @@ const STRINGS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'str
  * The areas of the screens, one file each under `src/strings/` (tasks.md T22: stubs here, so each
  * later task edits only its own area and no two parallel tasks meet in one file).
  */
-const AREAS = ['common', 'myHours', 'filters', 'totals', 'entries', 'names', 'activity', 'entry', 'everyone', 'export']
+const AREAS = [
+  'common',
+  'myHours',
+  'filters',
+  'totals',
+  'entries',
+  'names',
+  'activity',
+  'entry',
+  'everyone',
+  'export',
+  'settings',
+]
 
 // Every `strings/<namespace>.ts` module, loaded as written: each exports `<namespace> = { en, it }`
 // (`export` is a reserved word, so that one exports `exportStrings`).

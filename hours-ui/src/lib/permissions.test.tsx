@@ -41,7 +41,7 @@ afterEach(() => {
 describe('hoursAccessOf', () => {
   it('a holder of time-entry:read-all can read everyone’s hours', () => {
     const held = result({ epoch: 3, permissions: [{ resource: 'time-entry', action: 'read-all' }] })
-    expect(hoursAccessOf(held)).toEqual({ resolved: true, canReadAll: true })
+    expect(hoursAccessOf(held)).toEqual({ resolved: true, canReadAll: true, canManageLists: false })
   })
 
   it('nothing else grants it: not another action, not another resource', () => {
@@ -62,11 +62,11 @@ describe('hoursAccessOf', () => {
       apps: ['meetings'],
       permissions: [{ resource: 'meetings', action: 'access' }],
     })
-    expect(hoursAccessOf(employee)).toEqual({ resolved: true, canReadAll: false })
+    expect(hoursAccessOf(employee)).toEqual({ resolved: true, canReadAll: false, canManageLists: false })
   })
 
   it('the empty answer is not resolved, and holds nothing (it fails closed while it is unknown)', () => {
-    expect(hoursAccessOf(result())).toEqual({ resolved: false, canReadAll: false })
+    expect(hoursAccessOf(result())).toEqual({ resolved: false, canReadAll: false, canManageLists: false })
   })
 
   it.each([
@@ -80,13 +80,55 @@ describe('hoursAccessOf', () => {
   })
 })
 
+/**
+ * The Settings tab and page (the time lists, T43, D51) are the same kind of convenience for holders of
+ * `time-list:manage`: independent of `time-entry:read-all`, and the server is the gate on every write.
+ */
+describe('hoursAccessOf: managing the time lists', () => {
+  it('a holder of time-list:manage can manage the lists, and that alone', () => {
+    const held = result({ epoch: 3, permissions: [{ resource: 'time-list', action: 'manage' }] })
+    expect(hoursAccessOf(held)).toEqual({ resolved: true, canReadAll: false, canManageLists: true })
+  })
+
+  it('holding both permissions grants both, independently', () => {
+    const both = result({
+      epoch: 3,
+      permissions: [
+        { resource: 'time-entry', action: 'read-all' },
+        { resource: 'time-list', action: 'manage' },
+      ],
+    })
+    expect(hoursAccessOf(both)).toEqual({ resolved: true, canReadAll: true, canManageLists: true })
+  })
+
+  it('nothing else grants it: not another action, not another resource', () => {
+    for (const permission of [
+      { resource: 'time-list', action: 'read' },
+      { resource: 'time-entry', action: 'manage' },
+      { resource: 'time-entry', action: 'read-all' },
+      { resource: 'settings', action: 'manage' },
+      { resource: 'time-list', action: 'manage-all' },
+    ]) {
+      expect(hoursAccessOf(result({ epoch: 3, permissions: [permission] })).canManageLists).toBe(false)
+    }
+  })
+
+  it('an empty answer holds nothing: the tab stays out while the permissions resolve (fail closed)', () => {
+    expect(hoursAccessOf(result()).canManageLists).toBe(false)
+  })
+})
+
 describe('useHoursAccess', () => {
   it('follows the shell’s permissions as they resolve', () => {
     const view = renderHook(() => useHoursAccess())
-    expect(view.result.current).toEqual({ resolved: false, canReadAll: false })
+    expect(view.result.current).toEqual({ resolved: false, canReadAll: false, canManageLists: false })
 
     current.value = result({ epoch: 4, permissions: [{ resource: 'time-entry', action: 'read-all' }] })
     view.rerender()
-    expect(view.result.current).toEqual({ resolved: true, canReadAll: true })
+    expect(view.result.current).toEqual({ resolved: true, canReadAll: true, canManageLists: false })
+
+    current.value = result({ epoch: 5, permissions: [{ resource: 'time-list', action: 'manage' }] })
+    view.rerender()
+    expect(view.result.current).toEqual({ resolved: true, canReadAll: false, canManageLists: true })
   })
 })

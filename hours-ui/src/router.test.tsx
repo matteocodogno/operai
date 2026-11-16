@@ -1,8 +1,8 @@
 /**
  * @vitest-environment jsdom
  *
- * The inner router (specs/20261112-time-tracking T22): My hours at the root, Everyone's hours at `/all`
- * and a not-found fallback, all under the shell's `/hours` basepath, with `HoursShell` as the root
+ * The inner router (specs/20261112-time-tracking T22, T43): My hours at the root, Everyone's hours at `/all`,
+ * Settings (the time lists) at `/settings` and a not-found fallback, all under the shell's `/hours` basepath, with `HoursShell` as the root
  * layout. A memory history stands in for the browser's.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -41,6 +41,13 @@ describe('createAppRouter', () => {
     expect(screen.queryByTestId('hours-my-page')).toBeNull()
   })
 
+  it('serves the Settings page (the time lists) at /settings', async () => {
+    renderAt('/hours/settings')
+    expect(await screen.findByTestId('time-lists-page')).not.toBeNull()
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(strings.settings.heading)
+    expect(screen.queryByTestId('hours-my-page')).toBeNull()
+  })
+
   it('answers an unknown path with the not-found panel, focused, and a way back to My hours', async () => {
     renderAt('/hours/nope')
     const panel = await screen.findByTestId('hours-not-found')
@@ -52,10 +59,15 @@ describe('createAppRouter', () => {
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe(strings.common.title)
   })
 
-  it('does not take a path deeper than the two screens for one of them', async () => {
+  it('does not take a path deeper than the three screens for one of them', async () => {
     renderAt('/hours/all/extra')
     expect(await screen.findByTestId('hours-not-found')).not.toBeNull()
     expect(screen.queryByTestId('hours-everyone-page')).toBeNull()
+    cleanup()
+
+    renderAt('/hours/settings/extra')
+    expect(await screen.findByTestId('hours-not-found')).not.toBeNull()
+    expect(screen.queryByTestId('time-lists-page')).toBeNull()
   })
 
   it('without a root layout it renders a page under a bare outlet (the seam tests use)', async () => {

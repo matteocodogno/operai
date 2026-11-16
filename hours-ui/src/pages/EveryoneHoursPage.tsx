@@ -24,7 +24,7 @@ import type { EntryFilters } from '../lib/hoursApi'
 import type { EntriesPage, TimeEntryView } from '../lib/hoursApi.types'
 import { hasHiddenName, unavailableSources } from '../lib/names'
 import { rangeOf } from '../lib/period'
-import { useHoursAccess } from '../lib/permissions'
+import { useHoursAccess, useWaitedOut } from '../lib/permissions'
 import type { DealChoice, ProjectChoice } from '../lib/searchers'
 import { todayZurich } from '../lib/todayZurich'
 import { useHoursPages, useHoursQuery } from '../lib/useHoursQuery'
@@ -32,26 +32,6 @@ import type { HoursQueryState } from '../lib/useHoursQuery'
 import { strings } from '../strings'
 
 type Search = Record<string, unknown>
-
-/**
- * How long the page waits for the person's permissions before it stops waiting. `usePermissions()` has no
- * "loaded" flag, and an answer that is empty in every field (a person with no grants at all, or an
- * `/authz/me` that failed) cannot be told from one that has not come yet (`lib/permissions`), so a page that
- * waited on it alone would wait for ever. Past this, a person whose permissions did not say they may is
- * treated as one who may not: the denial, and nothing asked.
- */
-const PERMISSIONS_WAIT_MS = 3000
-
-/** True once `waiting` has held for `PERMISSIONS_WAIT_MS` without a break; it stays true after that. */
-const useWaitedOut = (waiting: boolean): boolean => {
-  const [waitedOut, setWaitedOut] = useState(false)
-  useEffect(() => {
-    if (!waiting) return
-    const timer = setTimeout(() => setWaitedOut(true), PERMISSIONS_WAIT_MS)
-    return () => clearTimeout(timer)
-  }, [waiting])
-  return waitedOut
-}
 
 /** The words for a failed totals read, in the person's language (never the server's English `detail`). */
 const totalsFailure = (error: unknown): string =>
@@ -98,7 +78,7 @@ function Denied() {
  * here exists only for a holder, but the address can be typed.
  *
  * - while the permissions have not arrived, nothing is asked: a loading line. It does not wait for ever
- *   (`PERMISSIONS_WAIT_MS`): permissions that never say the person may end in the denial;
+ *   (`PERMISSIONS_WAIT_MS` in `lib/permissions`): permissions that never say the person may end in the denial;
  * - a person whose permissions say they may not hold it, or any read refused `403 read_all_required` → the
  *   denial, with a link to My hours, in place of everything below the header;
  * - `503 authz_unavailable` on the entries or the totals (`auth` could not say whether the person may,

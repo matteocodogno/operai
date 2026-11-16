@@ -17,7 +17,7 @@ export type ErrorBannerProps = {
    * or decision the person must act on (red, INC-20).
    */
   tone?: 'warning' | 'danger'
-  /** Test id of the banner; its Retry is `${testId}-retry` and its × `${testId}-dismiss`. */
+  /** Test id of the banner; its title is `${testId}-title`, its Retry `${testId}-retry` and its × `${testId}-dismiss`. */
   testId?: string
 }
 
@@ -40,6 +40,7 @@ export default function ErrorBanner({
     <Banner
       tone={tone}
       title={title}
+      titleTestId={`${testId}-title`}
       data-testid={testId}
       onRetry={onRetry}
       retryLabel={retryLabel}

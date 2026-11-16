@@ -8,7 +8,7 @@
  *
  * It covers every route the plan has, so no later task edits this file to add one (tasks.md § Shared
  * files): hours-api's ten routes (§ API contracts: entries, totals, lists, and the category and work-type
- * writes admin-ui makes) and the four owner searches hours-ui makes as the person (§ Components `hours-ui`:
+ * writes the Settings tab makes, T43) and the four owner searches hours-ui makes as the person (§ Components `hours-ui`:
  * projects-api `GET /projects?q=`, crm-api `GET /deals?q=`, meetings-api `GET /meetings?q=` and
  * activities-api `GET /activities?projectId=|dealId=`). Every route has a default answer of the right shape
  * (an empty page, nothing counted, the seeded lists, an echo of what was written); a test overrides exactly
@@ -385,7 +385,7 @@ const ROUTES = {
   },
   'DELETE /time-entries/:id': { service: 'hours', handler: () => ({ status: 204 }) },
   'GET /time-entries/totals': { service: 'hours', handler: () => ({ status: 200, body: totalsAnswer([]) }) },
-  // hours-api, lists (plan § Lists): the reads, and the writes admin-ui makes
+  // hours-api, lists (plan § Lists): the reads, and the writes the Settings tab makes (T43)
   'GET /time-lists': { service: 'hours', handler: listsHandler(SEED_LISTS) },
   'POST /time-categories': {
     service: 'hours',

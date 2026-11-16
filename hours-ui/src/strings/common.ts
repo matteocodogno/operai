@@ -25,6 +25,7 @@ const en = {
     landmarkLabel: 'Hours sections',
     myHours: 'My hours',
     everyone: "Everyone's hours",
+    settings: 'Settings',
   },
   notFound: {
     heading: 'This page does not exist',
@@ -57,6 +58,7 @@ const it: typeof en = {
     landmarkLabel: 'Sezioni delle ore',
     myHours: 'Le mie ore',
     everyone: 'Le ore di tutti',
+    settings: 'Impostazioni',
   },
   notFound: {
     heading: 'Questa pagina non esiste',
