@@ -120,8 +120,10 @@ grouped consistently without a release.
 - AC-3.2 Given a category or a work type, then nobody, admins included, can delete it.
 - AC-3.3 Given a user without the permission to manage the lists, when they try to create, rename,
   retire or restore a category or a work type, then it is refused and nothing changes. The lists
-  are managed from the Admin tool, so a role granted that permission also needs access to Admin
-  to reach the screen. *(Wording amended 2026-11-12 during design, D41.)*
+  are managed from the hours screens, in a tab shown only to holders of that permission; the hours
+  screens are open to every signed-in user, so the permission alone is enough to reach it.
+  *(Wording amended 2026-11-12 during design, D41; amended 2026-11-16 after the rebase onto main,
+  D51: the lists moved from the Admin tool into the hours screens.)*
 - AC-3.4 Given a retired category or work type, then it is no longer offered for a new entry or a
   change, and the entries that already have it keep it and show it.
 - AC-3.5 Given an entry on a project, then its work type is optional and, when given, comes from

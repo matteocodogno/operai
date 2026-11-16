@@ -93,6 +93,10 @@ Decided during /wellforge:orchestrate 029 (2026-11-13, raised by the third plan 
 Decided by the OWASP review (T37, 2026-11-13), as the user delegated D44 ("keep the id, decide at review"):
 - D44 (resolved) WITHHOLD — in a `TimeEntryView`, `on.id` (project, deal, meeting) and `activity.id` are returned only when the record is `visible` to the viewer or the entry is the viewer's own; otherwise `null`. Reason: finding F1 (Medium, A01) — a `time-entry:read-all` holder without CRM access could feed hidden ids back as `dealId`/`projectId`/`meetingId` filters and learn which hidden meetings are linked to which hidden deal, the disclosure ADR 20261112-time-bookability-asked-of-owners-meeting-hosts-system-route A1 forbids; no product cost (Everyone's hours and the export use no ids; the author keeps own ids for editing). Rejected: keeping the ids and adding a viewer crm read on every `dealId` filter (new call and refusal, does not close the `projectId`/`meetingId` pivots); nulling them for the author too (breaks the edit dialog for no gain). See `owasp-report.md`.
 
+Decided after the rebase onto main (2026-11-16), when main had moved Refund's settings from admin-ui into refund-ui
+(ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment, 2026-11-13, the owner: "Dobbiamo spostare i settings dell'applicazione refund da admin all'app refund"):
+- D51 The time lists (categories and the two work-type lists) move from admin-ui into hours-ui, as a **Settings** tab at `/hours/settings` shown only to holders of `time-list:manage`; admin-ui keeps nothing of time tracking — user: "si, spostiamo ma aggiungi un altro task in questa spec" (T43). Supersedes the admin-ui placement of ADR 20261112-hours-ui-ungated-remote and the D41 wording of AC-3.3: the permission alone now reaches the screen, since the hours screens are ungated
+
 Delegated (the user deferred to the recommendation):
 - none — every decision above was chosen explicitly
 

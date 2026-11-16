@@ -18,9 +18,12 @@ F2 step 2, S1 Period, S2 Day, Note rule, Date rules, S4 filters, Accessibility S
 Also 2026-11-13, text only, no screen change: D44 was decided by the security review (ids of a record the
 viewer cannot read are withheld from anyone but the entry's author); the two places that called it open now
 state the decision (S1 § Names the viewer cannot read, Accessibility S1).
+**Amended 2026-11-16 (ledger D51, AC-3.3 as amended, task T43)**: the Time lists page moves from admin-ui into
+hours-ui as a third tab, **Settings** (`/hours/settings`), shown only with `time-list:manage`; the page itself (S5:
+cards, dialogs, states, copy) is unchanged. Changed in place: Surfaces, F7 entry, S5 header and nav, components.
 
 Surfaces: **three pages** — *My hours* and *Everyone's hours* in the new remote `hours-ui` (`/hours`),
-*Time lists* in `admin-ui` (`/time-lists`) — **three dialogs** (entry, delete confirmation, list-item form)
+*Time lists* in `admin-ui` (`/time-lists`; **since D51 the Settings tab of `hours-ui`, `/hours/settings`**) — **three dialogs** (entry, delete confirmation, list-item form)
 and **one menu link** in the shell. Page types from `operai-ui/src/pages`: My hours = *Item list* + *Quick
 create in a dialog* + *Deletion flow*; Everyone's hours = *Item list* (read-only table); Time lists = three
 cards of *Item list* with *Quick create* (the admin-ui `MileageRatesPage` shape, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition).
@@ -163,9 +166,10 @@ server is the gate — the estimai-ui `whose=all` rule, ADR 20261108-estimai-ove
 
 ### F7 Manage the lists — US-3, AC-3.1–3.4, 3.7, 3.8
 
-Entry: the **Time lists** tab of the Admin tool (visible only with `time-list:manage`, the `rate:read`
-pattern in `SectionNav.tsx`). Reaching it also needs access to the Admin tool (AC-3.3 as amended, D41): a
-role granted `time-list:manage` alone is stopped by Admin's own no-access screen, which already exists.
+Entry (amended 2026-11-16, D51): the **Settings** tab of the hours screens (`/hours/settings`), visible only
+with `time-list:manage`, like Everyone's hours with `time-entry:read-all`. The hours screens are ungated, so the
+permission alone reaches it (AC-3.3 as amended); without it the tab is absent and a typed `/hours/settings` shows
+hours-ui's `PermissionDenied`. *(Was: the Time lists tab of the Admin tool, which also needed Admin access, D41.)*
 
 1. One load fills three cards: Categories, Project work types, Deal work types (retired ones included).
 2. **Add** (per card) and **Rename** open a `FormDialog`; a category form also has "Entries in this category
@@ -497,12 +501,12 @@ States: *permissions resolving* → `SkeletonRows` + live "Loading…" (nothing 
 ("No hours have been recorded in this period" / "No entries match these filters" + Clear filters), *loading*,
 *source down*, *names not visible* and *deal filter unavailable* as in S1.
 
-### S5 Time lists — admin-ui `/time-lists`
+### S5 Time lists — hours-ui Settings `/hours/settings` (admin-ui `/time-lists` until D51)
 
 Purpose: create, rename, retire and restore categories and the two work-type lists (US-3).
 
 ```
-Admin  [Roles][Departments][Users][Refund*][Time lists*]                 [Audit]     * only with the permission
+Hours  [My hours][Everyone's hours*][Settings**]      * with time-entry:read-all   ** with time-list:manage
 Time lists   (h2)   "Categories and work types people pick from when they record hours."
 [ compact success banner / warning or danger banner ]
 ┌ Categories ────────────────────────── [Add category] ┐
@@ -515,10 +519,10 @@ Time lists   (h2)   "Categories and work types people pick from when they record
 ┌ Project work types ─── [Add work type] ┐   ┌ Deal work types ─── [Add work type] ┐
 ```
 
-- `SectionNav` gains the **Time lists** link (the `rate:read` pattern: out of the DOM until `usePermissions()`
-  resolves and holds `time-list:manage`, never disabled). A role with the permission but no Admin access
-  cannot reach the screen (AC-3.3 as amended); that is the Admin tool's existing no-access screen, nothing
-  new.
+- `HoursShell`'s `TabNav` gains **Settings** (out of the DOM until `usePermissions()` resolves and holds
+  `time-list:manage`, never disabled — the Everyone's hours pattern; the TabNav now shows when the caller holds
+  either permission). A typed `/hours/settings` without the permission renders hours-ui's `PermissionDenied`
+  and fetches nothing. *(Amended 2026-11-16, D51; was admin-ui's `SectionNav` link, behind Admin access too.)*
 - Each card: `Card` (title h3, `action` secondary `sm`) + `DataTable` (Name as `rowHeader`; categories also
   have the "Entries need a note" column; Status through `StatusBadge`: Active → `active`, Retired → `voided`,
   the label is text so colour is never the only signal; Actions). Retired rows are listed after active ones
@@ -583,7 +587,7 @@ Library in use: **`@operai/ui`** (`operai-ui/`, ADR 20261031-shared-ui-library-c
 
 | Element | Reuse |
 |---|---|
-| Tool frame, section nav | `ToolLayout` + `TabNav` (`operai-ui`); admin-ui `SectionNav.tsx` gains one link |
+| Tool frame, section nav | `ToolLayout` + `TabNav` (`operai-ui`); hours-ui `HoursShell` gains the Settings tab (D51; was one admin-ui `SectionNav.tsx` link) |
 | Page title, description, primary | `PageHeader` |
 | Filter bar, totals, entries, list cards | `Card` (with `action`), `FactList` |
 | Fields | `Field`, `RadioGroupField`, `DateInput`, native `select` / `textarea` (base look from `tokens.css`), `focusFirstInvalid` |
@@ -591,7 +595,7 @@ Library in use: **`@operai/ui`** (`operai-ui/`, ADR 20261031-shared-ui-library-c
 | Tables | `DataTable` (totals, everyone's entries, admin lists) |
 | Paging | `LoadMore` (cursor endpoint) |
 | Dialogs | `FormDialog` (entry, list item), `ConfirmDialog` (delete only — Retire no longer confirms) |
-| Feedback | `Banner` (success compact + `autoDismiss`, warning + Retry + `actions`, info), `StatePanel`, `SkeletonRows`, `VisuallyHidden`; admin-ui's `SuccessBanner`, `ErrorBanner` and `PermissionDenied` adapters for S5; the same three as thin hours-ui adapters |
+| Feedback | `Banner` (success compact + `autoDismiss`, warning + Retry + `actions`, info), `StatePanel`, `SkeletonRows`, `VisuallyHidden`; hours-ui's thin `SuccessBanner`, `ErrorBanner` and `PermissionDenied` adapters, S5 included since D51 (was admin-ui's for S5) |
 | Status | `StatusBadge` with the app's one map (`active` → `active`, `retired` → `voided`) |
 | Menu link | shell `UserMenu.tsx` (`Menu` + router `Link`) |
 | Remote mount, route | `RemoteMount`, the `/my-meetings/$` route shape in `shell/src/router.tsx` |
@@ -611,8 +615,8 @@ Library in use: **`@operai/ui`** (`operai-ui/`, ADR 20261031-shared-ui-library-c
 
 App-level compositions (new files in the app, built only from the entries above): hours-ui `HoursShell`,
 `MyHoursPage`, `EveryoneHoursPage`, `HoursFilters`, `TotalsCard`, `EntryDayList`, `EntriesTable`, `EntryDialog`,
-`ActivityField`, `DeleteEntryDialog`, `DealFilterUnavailable`, `buildHoursWorkbook`, `todayZurich`; admin-ui
-`TimeListsPage`, `TimeListCard`, `TimeListItemDialog`, `timeListsApi.ts`; shell route + menu link. They bind
+`ActivityField`, `DeleteEntryDialog`, `DealFilterUnavailable`, `buildHoursWorkbook`, `todayZurich`, and (admin-ui
+until D51) `TimeListsPage`, `TimeListCard`, `TimeListItemDialog`, `timeListsApi.ts`; shell route + menu link. They bind
 copy, test ids (`hours-…`, `time-lists-…`) and the app's status map; none restyles a library component.
 
 Ratio: **22 existing `@operai/ui` components** (plus its formatters and `Combobox` inside the new picker),

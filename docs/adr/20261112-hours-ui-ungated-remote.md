@@ -151,6 +151,26 @@ This decision **extends** ADR 20260804-shell-identity-scoped-non-tool-screens-ac
 ADR 20261006-ungated-second-federated-entry-of-a-gated-remote (the ungated entry shape, here without a gated half), **mirrors** ADR 20260713-notification-center-standalone-service-shell-seam's `/notify`
 placement for a remote, and **applies** ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition's admin-ui calling pattern to the admin lists.
 
+## Amendment — 2026-11-16: the admin lists move into hours-ui
+
+**Decided by:** the owner of specs/20261112-time-tracking (ledger D51), after the rebase onto main, where Refund's
+settings had moved from admin-ui into refund-ui on 2026-11-13 (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition
+amendment; "Dobbiamo spostare i settings dell'applicazione refund da admin all'app refund").
+
+- The categories and the two work-type lists are a **Settings** tab of hours-ui at `/hours/settings`, the refund-ui
+  shape: the tab shows only for holders of `time-list:manage`, read from the shell's cached permissions, failing
+  closed; a direct visit without it shows the remote's `PermissionDenied`; hours-api enforces the permission live
+  on every write, unchanged. admin-ui carries nothing of time tracking, and `/admin/time-lists` is admin-ui's
+  not-found page.
+- Option E's con no longer holds: admin configuration does not all live in admin-ui any more, and the owner's
+  direction is that a tool's settings live in that tool. Its other con stands and is accepted: hours-ui now has a
+  second permission-gated tab inside its ungated route, next to Everyone's hours (`time-entry:read-all`); both are
+  UX only, the server is the gate.
+- AC-3.3 is simpler for it: a role granted `time-list:manage` reaches the screen with that permission alone (the
+  hours screens are ungated), where admin-ui also needed `admin:access`.
+- Decision point 3 ("Admin configuration stays in admin-ui") and Option A's admin-ui half are superseded by this
+  amendment; everything else in this ADR stands.
+
 ---
 
 *This ADR was generated during a WellForge spec-driven session. Review and amend before committing.*
