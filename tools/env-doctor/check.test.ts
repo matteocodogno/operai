@@ -1880,7 +1880,7 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
     };
     s["hours-api"] = {
       DATABASE_URL: "postgres://…/hours",
-      ALLOWED_ORIGINS: `${SHELL},${ADMIN}`,
+      ALLOWED_ORIGINS: SHELL,
       AUTH_ISSUER: AUTH_URL,
       AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
       AUTH_BASE_URL: "http://auth.railway.internal:3001",
@@ -1914,7 +1914,7 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
 
   test("the contract entries: issuer, links, internal URLs, CORS, required keys, the one scope", () => {
     expect(ISSUER.resourceServers).toContain("hours-api");
-    expect(CORS_REQUIREMENTS).toContainEqual({ backend: "hours-api", mustAllow: ["shell", "admin-ui"] });
+    expect(CORS_REQUIREMENTS).toContainEqual({ backend: "hours-api", mustAllow: ["shell"] });
     expect(SERVICE_CLIENT_LINKS.find((l) => l.caller === "hours-api")?.requiredScopes).toEqual(["meetings.hosts.read"]);
     for (const [name, { target }] of Object.entries(OWNER_URLS)) {
       expect(INTERNAL_URL_VARS.some((u) => u.name === name && u.services.includes("hours-api") && u.target === target)).toBe(true);
@@ -1985,11 +1985,11 @@ describe("env-doctor checker — hours-api (specs/20261112-time-tracking)", () =
     expect(t).toContain("hours-api.ALLOWED_ORIGINS is missing shell's origin");
   });
 
-  test("hours-api CORS without admin-ui's origin → error (the Time lists page calls it directly)", () => {
+  test("hours-api CORS needs the shell's origin only (the time lists are hours-ui's Settings tab, D51)", () => {
     const s = hoursSuite();
     s["hours-api"]!.ALLOWED_ORIGINS = SHELL;
-    expect(errText(checkSuite(s, PROD))).toContain(`hours-api.ALLOWED_ORIGINS is missing admin-ui's origin ${ADMIN}`);
-    s["hours-api"]!.ALLOWED_ORIGINS = `${SHELL}/,${ADMIN}/`; // a trailing slash is normalised
+    expect(errsAbout(checkSuite(s, PROD), "hours-api")).toBe("");
+    s["hours-api"]!.ALLOWED_ORIGINS = `${SHELL}/`; // a trailing slash is normalised
     expect(errsAbout(checkSuite(s, PROD), "hours-api")).toBe("");
   });
 

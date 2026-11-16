@@ -3255,7 +3255,7 @@ everyone's hours) and `time-list:manage` (edit the categories and work types).
 | `activities-api` | Railway | `GET /activities?ids=` (code only) |
 | `crm-api` | Railway | the activity-host resolve answers `entityType: "deal"` (code only) |
 | `meetings-api` | Railway | `GET /meetings?ids=` and `GET /system/meetings/hosts` (code), plus the new variable `SERVICE_AUDIENCE` |
-| `shell`, `admin-ui` | Vercel | the "My hours" entry, the `/hours/$` route and two build-time variables (shell); the Time lists page (admin-ui) |
+| `shell` | Vercel | the "My hours" entry, the `/hours/$` route and two build-time variables. The time lists are hours-ui's Settings tab (`/hours/settings`, D51); `admin-ui` does not change in this release |
 
 No existing database changes: the one migration is hours-api's own first one, which creates and
 seeds `hours` (four categories, eight work types). `projects-api` and `notify-api` do not change:
@@ -3272,7 +3272,7 @@ variable below is required). Committed contract: `tools/env-doctor/templates/pro
 | Variable | Value | Secret |
 |---|---|---|
 | `DATABASE_URL` | `…/hours` — **its own logical DB** (the service's `.railway/railway.ts` block runs `bun run db:deploy` as `preDeploy`) | yes |
-| `ALLOWED_ORIGINS` | `https://operai.welld.io,https://admin.operai.welld.io` — the shell and admin-ui (its Time lists page calls the lists routes directly, ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition pattern); a `*` fails startup | no |
+| `ALLOWED_ORIGINS` | `https://operai.welld.io` — the shell's origin, where hours-ui (its Settings tab included) runs; a `*` fails startup | no |
 | `AUTH_ISSUER` | `https://auth.operai.welld.io` — public claim, equal to auth's `BETTER_AUTH_URL` | no |
 | `AUTH_JWKS_URL` / `AUTH_BASE_URL` | internal, `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` / the same without the path — base for `GET /authz/resolve` (the two live permissions), `POST /authz/users/identities` (names, fail soft) and `POST /system/service-token` | no |
 | `AUTH_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` | no |
@@ -3300,7 +3300,7 @@ duration, never a body or a note, and there is no third-party processor.
 | Vercel `shell` | `HOURS_REMOTE_URL`, `VITE_HOURS_API_URL` | § Frontend build-time vars | 5 |
 
 `crm-api`, `activities-api` and `projects-api` get no variable (hours-api asks them, not the other way
-round), and neither does `admin-ui`: it reads the hours-api origin from the shell's `shell/session`.
+round). hours-ui reads the hours-api origin from the shell's `shell/session`.
 
 ### Order of the release (plan R7)
 
@@ -3485,8 +3485,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://hours-api.operai.welld.io/time-
 
 A service that exits at startup names each missing or invalid variable (never a value) in its deploy log.
 
-**Step 5 - the frontends: hours-ui, shell, admin-ui.**
-Vercel already rebuilt `shell` and `admin-ui` with the merge; what the merge cannot do is create the `hours`
+**Step 5 - the frontends: hours-ui and shell.**
+Vercel already rebuilt `shell` with the merge (it carries the `@operai/ui` additions hours-ui consumes as the
+shell's singleton, so it is live before hours-ui's first deployment); what the merge cannot do is create the `hours`
 project or give the shell its two variables. Confirm O3 (step 0), then:
 
 ```bash
@@ -3510,7 +3511,7 @@ Then, with real accounts, deleting everything you record (a note such as "releas
 1. **An employee with no admin role** opens the user menu, My hours (no access redirect), records 30 minutes
    under Other work in the category Training, sees the day total, then deletes it. That proves the JWT
    (`iss`, `aud`, JWKS), CORS from the shell's origin, the CSP and the database.
-2. **An admin** opens Admin, Time lists: three cards, with the four seeded categories (Training, Talk
+2. **An admin** opens My hours, the Settings tab: three cards, with the four seeded categories (Training, Talk
    preparation, Administration, Other) and the project and deal work types, and no error. Change nothing.
 3. **An admin** on My hours, Filters, Deal: pick any deal. The list loads (or says nothing matches). The banner
    "Hours on this deal can't be shown right now" means meetings-api refused hours-api's credential: check
@@ -3535,10 +3536,10 @@ recorded or shown. Concretely, while the named step is still missing:
 
 | Missing | What happens |
 |---|---|
-| step 1 (catalog) | an admin has no Everyone's hours and no Time lists page; the API answers that admin 403 |
+| step 1 (catalog) | an admin has no Everyone's hours and no Settings tab; the API answers that admin 403 |
 | step 2 (client entry), or `SERVICE_AUDIENCE` on meetings-api | hours-api cannot read a meeting's deal: a read with a deal filter is 503 `host_unavailable` ("Hours on this deal can't be shown right now"), and Hours by deal counts meeting hours under "Meetings whose deal is unknown right now". Totals stay right |
 | crm-api / activities-api / meetings-api code (step 3) | a booking on a deal, a meeting, or with an activity is refused with 503 `host_unavailable` and nothing is saved; Other work and projects still work |
-| the frontends (step 5) | the shell the merge built already shows "My hours" to every signed-in user, built with no `HOURS_REMOTE_URL` (it points at `localhost:5184`, which the CSP blocks) and no `VITE_HOURS_API_URL`: the entry opens "Hours couldn't load. Check your connection and try again." and nothing else is affected. An admin may see the Time lists page error until the shell is redeployed |
+| the frontends (step 5) | the shell the merge built already shows "My hours" to every signed-in user, built with no `HOURS_REMOTE_URL` (it points at `localhost:5184`, which the CSP blocks) and no `VITE_HOURS_API_URL`: the entry opens "Hours couldn't load. Check your connection and try again." and nothing else is affected. |
 
 That is why the two shell variables are set only in step 5, after the DNS record exists: the shell would
 otherwise send users to `hours.operai.welld.io` before it resolves, and each of their resolvers would cache
@@ -3550,8 +3551,8 @@ waits, but until step 5 the entry is visible and does not open.
 hours-api holds people's time records from the first entry. **Never delete the service or the `hours`
 database to roll back**: take it out of reach and fix forward.
 
-- **Step 5 failed, or O3 turns out to be open:** redeploy the previous production deployment of `shell` (and
-  `admin-ui`) in Vercel. The entry and the Time lists page go; hours-api stays up and unreachable from the
+- **Step 5 failed, or O3 turns out to be open:** redeploy the previous production deployment of `shell` in
+  Vercel. The entry goes, and with it the Settings tab; hours-api stays up and unreachable from the
   browser. The `hours` project can stay. The next push to `main` rebuilds the shell with the entry again.
 - **Step 4:** before any entry exists, remove the service's active deployment in the Railway dashboard (the
   database and the variables stay), fix the cause and redeploy it. After entries exist, roll back step 5

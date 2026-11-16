@@ -419,10 +419,9 @@ export const CORS_REQUIREMENTS: ReadonlyArray<{ backend: ServiceName; mustAllow:
   { backend: "letterhead-api", mustAllow: ["shell"] },
   // accounting-ui is a remote reached through the shell (specs/20261119-accounting), so the browser Origin is the shell's.
   { backend: "accounting-api", mustAllow: ["shell"] },
-  // hours-ui is a remote reached through the shell (ADR 20260709-suite-frontend-module-federation, ADR 20261112-hours-ui-ungated-remote). admin-ui's Time lists page
-  // (categories and work types, ADR 20261112-hours-api-time-entries-own-service-hours-catalog) calls hours-api directly, as its rates screen calls
-  // refund-api (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition), so admin-ui's own origin is required as well.
-  { backend: "hours-api", mustAllow: ["shell", "admin-ui"] },
+  // hours-ui is a remote reached through the shell (ADR 20260709-suite-frontend-module-federation, ADR 20261112-hours-ui-ungated-remote),
+  // its Settings tab with the time lists included since specs/20261112-time-tracking D51 (they left admin-ui).
+  { backend: "hours-api", mustAllow: ["shell"] },
 ];
 
 /**

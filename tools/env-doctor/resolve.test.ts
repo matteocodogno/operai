@@ -296,12 +296,12 @@ describe("env-doctor resolver", () => {
       );
     });
 
-    test("hours-api's CORS missing the shell or admin-ui origin fails", () => {
+    test("hours-api's CORS missing the shell origin fails; the shell origin alone is enough (D51)", () => {
       expect(errorsAfter((s) => (s["hours-api"]!.ALLOWED_ORIGINS = "https://admin.operai.welld.io")).join(" | ")).toContain(
         "hours-api.ALLOWED_ORIGINS is missing shell's origin https://operai.welld.io",
       );
-      expect(errorsAfter((s) => (s["hours-api"]!.ALLOWED_ORIGINS = "https://operai.welld.io")).join(" | ")).toContain(
-        "hours-api.ALLOWED_ORIGINS is missing admin-ui's origin https://admin.operai.welld.io",
+      expect(errorsAfter((s) => (s["hours-api"]!.ALLOWED_ORIGINS = "https://operai.welld.io")).join(" | ")).not.toContain(
+        "hours-api.ALLOWED_ORIGINS",
       );
     });
 
