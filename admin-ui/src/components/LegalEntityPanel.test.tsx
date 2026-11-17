@@ -17,6 +17,7 @@ import {
   getManageable,
   getVersion,
   listLegalEntities,
+  listVersions,
   saveLegalEntity,
 } from '../lib/legalEntitiesApi'
 import type { LegalEntity, LegalEntityId, LegalEntityVersion } from '../lib/legalEntityModel'
@@ -28,6 +29,7 @@ vi.mock('../lib/legalEntitiesApi', async (importOriginal) => {
     getManageable: vi.fn(),
     listLegalEntities: vi.fn(),
     getVersion: vi.fn(),
+    listVersions: vi.fn(),
     saveLegalEntity: vi.fn(),
   }
 })
@@ -59,6 +61,8 @@ beforeEach(() => {
   vi.mocked(listLegalEntities).mockReset()
   vi.mocked(getVersion).mockReset()
   vi.mocked(saveLegalEntity).mockReset()
+  vi.mocked(listVersions).mockReset()
+  vi.mocked(listVersions).mockResolvedValue([])
   vi.mocked(getVersion).mockImplementation(async (entity, n) => ({ ...versionOf(entityFixture(entity)), version: n }))
 })
 

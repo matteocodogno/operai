@@ -14,8 +14,11 @@
  *     disabled control; a persistent info Banner says why (live="off": read in place, not announced on arrival).
  *   - Incomplete / Needs correction (S3): a persistent warning Banner listing what is missing and what is out of
  *     rule, in words, above the values.
- *   - History: T39 mounts `LegalEntityHistory` and `LegalEntityVersionView` at `HistoryBody`; `version` is the open
- *     version of the URL (`&version=n`) and `onVersionChange` pushes/clears it. A not-moved entity has nothing to list.
+ *   - History (T39): `LegalEntityHistory` at `HistoryBody` lists the versions and, with `version` (the URL's
+ *     `&version=n`), shows that version read-only (`LegalEntityVersionView`); `onVersionChange` pushes/clears it. A
+ *     not-moved entity has nothing to list. A restore made there ends here: the entity as read (`onEntityChange`),
+ *     the Details view, a compact "Version n created from version m" over it, and focus on the heading (h3), because
+ *     the row or button that had it is gone.
  *
  * What the host (LegalEntitiesPage) owns and this panel only calls: the URL (`onViewChange`, `onVersionChange`), the
  * drafts (`onDraftChange`), the entity as last read (`onEntityChange`, after a save or a restore) and the loss of the
@@ -28,7 +31,9 @@ import { Banner, StatePanel, Tabs, formatDateTime, tabPanelProps } from '@operai
 import { EntityReadOnlyBadge, EntityStatusBadge } from './LegalEntityPanelBadges'
 import LegalEntityFacts from './LegalEntityFacts'
 import LegalEntityForm from './LegalEntityForm'
+import LegalEntityHistory from './LegalEntityHistory'
 import { getVersion } from '../lib/legalEntitiesApi'
+import type { SaveResult } from '../lib/legalEntitiesApi'
 import { valueNameList } from '../lib/legalEntityMappings'
 import type { LegalEntity, LegalEntityDetails, LegalEntityField } from '../lib/legalEntityModel'
 import { strings } from '../strings'
@@ -142,16 +147,47 @@ function DetailsBody({ entity, canChange, draft, onDraftChange, onEntityChange, 
   )
 }
 
-/** T39 replaces this with `LegalEntityHistory` / `LegalEntityVersionView` (`version` and `onVersionChange`). */
-function HistoryBody({ entity }: Pick<LegalEntityPanelProps, 'entity' | 'version' | 'onVersionChange'>) {
+type HistoryBodyProps = Pick<
+  LegalEntityPanelProps,
+  'entity' | 'canChange' | 'version' | 'onVersionChange' | 'onViewChange' | 'onEntityChange'
+> & {
+  onLost: () => void
+  onRestored: (result: SaveResult, from: number) => void
+}
+
+/** The History view's body: the versions, or one of them (S5, S6); a restore opens its dialog from either (S7). */
+function HistoryBody({
+  entity,
+  canChange,
+  version,
+  onVersionChange,
+  onViewChange,
+  onEntityChange,
+  onLost,
+  onRestored,
+}: HistoryBodyProps) {
   if (entity.version === 0) {
     return <StatePanel title={t.history.empty} headingLevel={4} testId="admin-legal-entity-history-empty" />
   }
-  return <div data-testid="admin-legal-entity-history-slot" />
+  return (
+    <LegalEntityHistory
+      entity={entity}
+      canChange={canChange}
+      version={version}
+      onVersionChange={onVersionChange}
+      onOpenCurrent={() => onViewChange('details')}
+      onEntityChange={onEntityChange}
+      onLost={onLost}
+      onRestored={onRestored}
+    />
+  )
 }
 
+/** What a restore reports on Details: a new version, or "already these details" (nothing was created). */
+type RestoredNotice = { created: boolean; version: number; from: number }
+
 export default function LegalEntityPanel(props: LegalEntityPanelProps) {
-  const { entity, canChange, view, version, onViewChange, onVersionChange, onLost } = props
+  const { entity, canChange, view, version, onViewChange, onVersionChange, onEntityChange, onLost } = props
   const name = strings.common.entities[entity.entity]
   const versionLine = useVersionLine(entity)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -173,6 +209,32 @@ export default function LegalEntityPanel(props: LegalEntityPanelProps) {
       lostRef.current?.focus()
     }
   }, [showLost])
+
+  // A restore (T39) ends on Details: the notice says what was made, and focus goes to the heading once the view is there.
+  const [restored, setRestored] = useState<RestoredNotice | null>(null)
+  const focusHeadingOnDetails = useRef(false)
+  const handleRestored = useCallback(
+    (result: SaveResult, from: number) => {
+      onEntityChange(result.entity)
+      setRestored({ created: result.created, version: result.version, from })
+      focusHeadingOnDetails.current = true
+      onViewChange('details')
+    },
+    [onEntityChange, onViewChange],
+  )
+  useEffect(() => {
+    // After the dialog has closed and the History view has gone: the dialog gives focus back to its trigger first.
+    if (view === 'details' && focusHeadingOnDetails.current) {
+      focusHeadingOnDetails.current = false
+      headingRef.current?.focus()
+    }
+  }, [view])
+  // The notice belongs to Details: leaving it for History (or Back out of it) ends it.
+  const [viewSeen, setViewSeen] = useState(view)
+  if (viewSeen !== view) {
+    setViewSeen(view)
+    if (view !== 'details') setRestored(null)
+  }
 
   return (
     <div data-testid={`admin-legal-entity-panel-${entity.entity}`}>
@@ -206,6 +268,18 @@ export default function LegalEntityPanel(props: LegalEntityPanelProps) {
       <div {...tabPanelProps(`${VIEW_PREFIX}-${entity.entity}`, view)} className="pt-4">
         {view === 'details' ? (
           <div className="flex flex-col gap-4">
+            {restored !== null && (
+              <Banner
+                tone="success"
+                compact
+                autoDismiss
+                dismissible={false}
+                onDismiss={() => setRestored(null)}
+                data-testid="admin-legal-restored"
+              >
+                {restored.created ? t.restore.done(restored.version, restored.from) : t.noop(restored.version)}
+              </Banner>
+            )}
             {showLost && (
               <Banner
                 ref={lostRef}
@@ -240,7 +314,16 @@ export default function LegalEntityPanel(props: LegalEntityPanelProps) {
             )}
           </div>
         ) : (
-          <HistoryBody entity={entity} version={version} onVersionChange={onVersionChange} />
+          <HistoryBody
+            entity={entity}
+            canChange={canChange}
+            version={version}
+            onVersionChange={onVersionChange}
+            onViewChange={onViewChange}
+            onEntityChange={onEntityChange}
+            onLost={handleLost}
+            onRestored={handleRestored}
+          />
         )}
       </div>
     </div>
