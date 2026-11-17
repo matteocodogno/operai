@@ -511,3 +511,52 @@ current version, these change: …" line in the restore dialog.
 - [ ] Lift the three letterheads-ui patterns into `@operai/ui` now and migrate letterheads-ui later (recommended), or build admin-ui's own (R13 coordination), owner: planner. Not part of the owner's decisions above.
 - [ ] Plan amendments that this design assumes: DR-1 (`restorable`), DR-2 (hook and route use in crm-ui/letterheads-ui), DR-4 (⟦Label⟧ in text alternative), DR-5 (`entity_profile_missing` removed), DR-9 (`line` against the submitted array), DR-10 (`invalid` items with `line`/`limit`), DR-11 (single route and `?entity=` links), owner: architect.
 - [ ] DR-12 library change (wrapping tab list), owner: planner/frontend-dev.
+
+## TODO for the designer — amendment after the security review (2026-11-17, task T51)
+
+Source: spec US-9 (AC-9.1–AC-9.17, owner-approved 2026-11-17), plan "Amendment 2026-11-17 after security review"
+(G7, G9, G11, G13, G14). This supersedes "no confirmation step on an IBAN change" (Decisions, "Also decided here") and
+items 1 and 4 of "Scope creep found and not designed", which are now in scope. Keep each addition to the existing
+system (no new primitive, token or icon). Each item below lists the states and the copy keys (en + it) the designer
+must add to this file; key names are proposals the designer may rename, but the set must be complete.
+
+- [ ] **S12 Protected-change confirmation (save)** — `ConfirmDialog` (tone of the designer's choice; **no acknowledge
+  checkbox**: with a field the library does not focus Cancel, and AC-9.1 requires Cancel focused). Content: the entity
+  name; one row per changing protected detail (legal name, VAT number, IBAN; only those that change) with visible
+  "Old" and "New" labels; empty side = the word for "none"; legal name and VAT in full; IBAN in groups of four.
+  Actions: confirm (names the version it creates), cancel; the close control. States: **checking** (Save busy while
+  the page asks auth; no dialog yet) · **open** · **busy** (after Confirm) · then the dialog closes and the existing S2
+  states 4–9 apply · **check failed** (banner in S2's banner slot + Retry; nothing saved). Keys:
+  `protected.title(entity)`, `protected.intro`, `protected.old`, `protected.new`, `protected.none`,
+  `protected.confirm(n)`, `protected.cancel`, `protected.checking`, `protected.checkFailed.title`,
+  `protected.checkFailed.body`, plus the detail names (reuse `value.legalName` · `vat` · `iban`). Mockup: one
+  fragment, IBAN change and VAT emptied, en dark + it light.
+- [ ] **S7 Restore dialog additions (AC-9.4)** — below the existing change line, the same Old (current) / New
+  (version n) rows for each protected detail that differs; none → unchanged dialog. States: **loading the version's
+  details** · **details could not be read** (Confirm unavailable, reason, Retry). Keys: `restore.protectedIntro`,
+  `restore.loadingDetails`, `restore.detailsFailed`.
+- [ ] **Too many saves (F3, 429)** — S2 warning banner and S7 inline error, with the wait in minutes. Keys:
+  `saveFailed.tooMany(minutes)`, `restore.tooMany(minutes)`.
+- [ ] **S5 History paging (F3)** — the table shows 50 versions and a "Show older versions" button while more exist;
+  states **loading more** · **more failed** (+ Retry; rows kept); after loading, focus moves to the first new row's
+  Open. Keys: `history.more`, `history.loadingMore`, `history.moreFailed`.
+- [ ] **Notice copy (AC-9.11–9.13)** — the in-app notification (title ≤ 200, body ≤ 2000, plain text, en **and** it)
+  and the English email (`legal_entity_change`, subject + body + button). Must state: the entity; who and whether a
+  save or a restore (of version m); date, time and time zone (Europe/Zurich, with its abbreviation); the new version
+  number; the protected details changed, by name; for an IBAN change "Old IBAN: …1234" / "New IBAN: none" (labels;
+  "set" wording for a value of 8 characters or fewer); the names of the other details changed; the link to the
+  entity's history. **No value** other than the two IBAN tails anywhere (AC-9.12). Keys (auth catalog
+  `notices/copy.ts`): `notice.title(entity, details)`, `notice.byAction(actor, action, from?)`, `notice.when(date)`,
+  `notice.version(n)`, `notice.changed(list)`, `notice.ibanOld(tail)`, `notice.ibanNew(tail)`, `notice.none`,
+  `notice.set`, `notice.alsoChanged(list)`, `notice.open`; email: `subject`, `heading`, the same lines, `button`,
+  footer.
+- [ ] **FU-1** crm-ui `letterhead.overflow.body` / `bodyAskAdmin`: point at the Legal entities page (link wording for
+  managers, sentence for others), as `LegalEntityNotice`.
+- [ ] **FU-4** confirm or replace `toCorrect.title` ("These details need correction" / "Questi dati vanno corretti").
+- [ ] **FU-7** admin-ui strings: a "(Kept as moved from the CRM.)" suffix for every moved reason; the 5th-line hint of
+  a moved address; "Not filled in. Enter …"; the count phrase of `conflict.applied` and "applied, nothing to review";
+  the empty "(changed: )" case; `history.openLabel`, `history.restoreLabel`, `history.changedList(list)`,
+  `history.loading`, `history.failed`, `version.failed`.
+- [ ] **FU-9** the sample document's intro in the configurator preview (letterhead-api engine, it + en): the company
+  details are the registry's real ones; only the body is sample text.
+- [ ] Update "Coverage: ACs and surfaces" with AC-9.1–AC-9.6 → S12, S7; AC-9.11–9.13 → notice copy.

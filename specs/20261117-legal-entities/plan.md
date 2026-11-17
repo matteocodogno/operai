@@ -835,3 +835,471 @@ correction" satisfies AC-7.3's "marks it incomplete" is the owner's reading: spe
   marks it incomplete, or in need of correction when only AC-1.3/AC-1.4 refuse its values, until someone saves it
   complete and valid; AC-6.3 applies to it meanwhile". If the owner prefers the literal reading, the page shows
   "Incomplete" for both and only the badge wording changes (design S1).
+
+## Amendment 2026-11-17 after security review
+
+Source: `security-review.md` (T46: F1 medium, F2–F7 low), the spec's **US-9 (AC-9.1–AC-9.17)**, owner-approved
+2026-11-17 as the answer to F1, the owner's decision of the same day to **fix every low finding (F2–F7) in this
+feature**, the follow-ups FU-1–FU-10 of `tasks.md`, defect D1 (`62babb4e`), and the owner's decision that **push 1 is
+released together with push 2 at the end**. The plan stays `approved`: US-9 is an owner-approved spec change and the
+rest settles findings; nothing here changes an acceptance criterion. Where the body or the first amendment says
+otherwise, this block wins. Items are numbered G1…G16 so tasks can cite them.
+
+### G1 — US-9 in one picture
+
+```
+ admin-ui form ── Save ──► POST /legal-entities/{e}/versions/check ─► 200 { protectedChanges[] } (writes nothing)
+     │                         (same rules.ts, same authorisation as the save)
+     │  protectedChanges ≠ [] → ProtectedChangeDialog (Old / New, Cancel focused) ── Cancel → nothing sent
+     │  Confirm (or no protected change) ──────────────────────────────────────────────────────────┐
+     ▼                                                                                               ▼
+ restore dialog (lists protected Old/New from the two          POST …/versions  |  POST …/versions/{n}/restore
+ versions the page reads)                                                  │
+                                                     ┌─────────────────────┴───────────────────────────┐
+                                                     │ ONE transaction (withAudit, entity advisory lock) │
+                                                     │  insert legal_entity_version n                    │
+                                                     │  audit legal_entity.save|restore                   │
+                                                     │  protected change? → recipients NOW →              │
+                                                     │    insert legal_entity_notice rows (pending)       │
+                                                     │    (none at all → audit legal_entity.notice_no_recipients)
+                                                     └─────────────────────┬───────────────────────────┘
+                              after commit: kick ──► NoticeDispatcher (in auth; also a 15 s sweep, every replica)
+                                                     claim rows FOR UPDATE SKIP LOCKED (lease 60 s)
+                                                     │ in_app  → notify-api POST /system/notifications
+                                                     │           { recipientId, originApp:"admin", en + it, link, idempotencyKey }
+                                                     │           → notification centre (SSE) + web push (notify-api's own)
+                                                     │ email   → notify-api POST /system/emails
+                                                     │           { template:"legal_entity_change", recipientId | to, data, idempotencyKey }
+                                                     ▼
+                                       delivered | retry (+1, +3, +5, +10, +20, then every 30 min) | given up at 24 h
+                                       audit: notice_failed (first) · notice_delivered (after a failure) · notice_given_up
+```
+
+Why this shape (and what was rejected):
+
+1. **Durable duty: an outbox table written in the version's transaction** (AC-9.14 "the duty to send is kept
+   together with the version"). Rejected: the suite's usual fire-and-forget after commit
+   (`signup/notifyAdmins.ts`, ADR 20260716 §4, ADR 20261105): a restart between commit and send loses the notice, and
+   there is no retry. Rejected: a queue service (none exists in the suite; a new dependency for one notice).
+   Consequence, stated honestly: if auth cannot write the duty (its own database fails while computing recipients
+   or inserting the rows), the save fails as any database error would (500, nothing stored). That is not a
+   *delivery* failure, which AC-9.14 covers; it is the price of "kept together with the version". A notify-api
+   failure never reaches the save: no notify-api call happens inside the request.
+2. **Recipients are computed inside the transaction, only for a protected change** (AC-9.8 "at the moment the
+   version is stored"). Rejected: computing them at send time (a role removal between store and send would silence
+   a recipient — the very attack AC-9.10 guards against). Non-protected saves pay nothing.
+3. **Receiver-side idempotency in notify-api** (AC-9.14 "no recipient gets two notices on the same channel for the
+   same version, retries included"). A timeout after notify-api committed is ambiguous; only the receiver can make
+   the retry safe. Key = `legal-entity-notice:<outbox row id>` (no value in it), scoped per calling service. For
+   email the same key is passed to Resend as its `Idempotency-Key` (Resend keeps keys 24 h, the same window as the
+   retries). Rejected: accepting rare duplicates (contradicts AC-9.14); deduplicating in auth only (cannot see an
+   ambiguous outcome).
+4. **Two channels as two outbox rows, two notify-api calls** (AC-9.14 "a failure for one recipient or one channel
+   does not stop or delay the others"). Rejected: `/system/notifications` with `email: true` (ADR 20261105's shape):
+   one call carries both channels, so a failed email can only be retried by repeating the in-app call, and its
+   `skipped` hides the reason.
+5. **The email is a closed, typed template `legal_entity_change` in notify-api, bound to `system:auth`**, addressed
+   by `recipientId` for a person (notify-api resolves the address from auth, ADR 20261101 — auth still puts no
+   person's address in a request) and by `to` for the one outside mailbox (AC-9.10; it has no user id). The typed
+   `data` cannot carry a value beyond an IBAN's last 4 characters (`^[A-Z0-9]{4}$`), so AC-9.12 is enforced by the
+   receiver too. Rejected: a generic "caller-supplied text" email template (any `emails.send` holder could then mail
+   arbitrary text from wellD's domain — a phishing surface); auth sending persons' addresses (against ADR 20261101
+   and 20261105).
+6. **The in-app notice carries `en` and `it`** (`it` variant, ADR 20261104); the reader's language picks it
+   (AC-9.13). The email is English for everyone (AC-9.13). The copy of both lives with its sender: in-app texts in
+   auth's catalog `auth/src/legalEntities/notices/copy.ts` (en/it parity test), the email in notify-api's template;
+   the designer writes both (G13, design TODO).
+7. **The confirmation is admin-ui's, backed by a read-only server check** (AC-9.1 "as they would be stored",
+   AC-9.5 "IBAN typed with other spacing or case only" asks nothing). Plan decision 10 keeps the rules in auth only,
+   so the page does not mirror the normalisation: it asks auth. Rejected: a client copy of NFC/trim/IBAN
+   normalisation (two rule sets that can drift; a drift would ask for a spacing-only IBAN change, breaking AC-9.5, or
+   skip a real one); a `confirmation_required` refusal of the save itself (that is "a confirmation enforced by the
+   registry", a Non-goal — direct callers are covered by the notice only, OQ-13).
+8. **Origin `admin`, no new scope.** `system:auth` already holds `emails.send` and `notifications.push` and is bound
+   to origin `admin` (ADR 20261105). ADR 20261105's escalation trigger ("auth raising a second kind of notice")
+   fires: recorded as ADR candidate 5 (an amendment), not a silent widening.
+
+### G2 — Protected change, computed once
+
+`rules.ts` gains `PROTECTED_FIELDS = ["legalName","vatNumber","iban"]` and `protectedChanged(changedFields)`. A
+protected change is `changedFields ∩ PROTECTED_FIELDS ≠ ∅`, where `changedFields` is what the save already stores
+(after normalisation: NFC, trim, IBAN without whitespace and upper-cased), so "filling an empty value and emptying a
+filled one count; a different spacing or case of the same IBAN does not" holds by construction. A restore's
+`changedFields` is against the version it replaced (the spec's "version before it"). The import (`import.ts`,
+action `import`) never calls the notice code and the outbox has a CHECK that excludes it (G4): AC-9.16.
+
+### G3 — Recipients (AC-9.8–AC-9.10)
+
+Computed in the version's transaction, only for a protected change:
+
+- **managers of the entity**: active users (`deletedAt IS NULL`) holding a rule for `legal-entity:manage` through a
+  role or a department role (the candidate narrowing of `authz/holders.routes.ts`), confirmed per candidate by
+  `resolveEffectivePermissions` + `coveredEntities` ∋ entity (conditioned grants cover the holder's own entity only,
+  D6; a welld_it-only holder gets nothing for welld_ch);
+- **administrators**: `getEffectiveAdminUserIds` (the `admin` role directly or through a department, active users
+  only — the suite's definition, `admin/lastAdminGuard.ts`), whether or not they hold the permission;
+- **the actor** (AC-9.9), as a receipt;
+- de-duplicated by user id → per person one `in_app` row and one `email` row (`@@unique` makes a second impossible);
+- **the outside mailbox** `LEGAL_ENTITY_NOTICE_EMAIL` (auth env, optional, one address for both entities, AC-9.10):
+  when set at that moment, one `email` row with `recipient = "outside"`; when unset, no row and nothing else changes;
+- no person and no outside row → audit `legal_entity.notice_no_recipients` in the same transaction (AC-9.15; in
+  practice unreachable, since the actor is always a recipient, but required and tested with an injected empty set).
+
+Reading R-c (not drift): "administrator" = effective admin as above, the same set that receives access-request
+notices.
+
+### G4 — Data model
+
+**auth — Prisma migration `…_legal_entity_notices` (push 2, additive)**
+
+```prisma
+/// The duty to tell people about one protected change (specs/20261117-legal-entities US-9). One row per
+/// (version, recipient, channel), written in the transaction that stores the version. Tier 2 (status changes);
+/// it holds NO value of any detail (AC-9.12): content is rebuilt from the immutable versions at send time.
+model LegalEntityNotice {
+  id            String    @id @default(cuid())
+  entity        String
+  version       Int
+  recipient     String    // a user id, or "outside"
+  recipientKind String    // 'person' | 'outside'
+  channel       String    // 'in_app' | 'email'
+  status        String    @default("pending")   // 'pending' | 'delivered' | 'given_up'
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  leaseUntil    DateTime?
+  lastReason    String?   // closed set below
+  firstFailedAt DateTime?
+  deliveredAt   DateTime?
+  givenUpAt     DateTime?
+  createdAt     DateTime  @default(now())        // = the version's transaction time (Postgres now())
+
+  @@unique([entity, version, recipient, channel])
+  @@index([status, nextAttemptAt])
+  @@map("legal_entity_notice")
+}
+```
+
+Hand-appended SQL: FK `(entity, version)` → `legal_entity_version` (`ON DELETE RESTRICT`); CHECKs `recipientKind IN
+('person','outside')`, `channel IN ('in_app','email')`, `status IN ('pending','delivered','given_up')`,
+`(recipientKind = 'outside') = (recipient = 'outside')`, `recipientKind <> 'outside' OR channel = 'email'`, and a
+trigger-free guard that the referenced version is not an import: `legal_entity_notice_not_import` is enforced in
+code and by a test (a CHECK cannot see the other table; a trigger for it is not worth a second Tier 1 surface).
+`lastReason` closed set: `notify_unreachable` (network, timeout), `notify_refused` (4xx after the 401 retry),
+`notify_error` (5xx), `recipient_inactive`, `email_not_configured` (notify-api's email group or Resend unset),
+`outside_address_unset` (unset between store and send), `recipient_deleted` (deleted between store and send: given up
+at once, never sent — the spirit of AC-9.8), `expired` (never attempted within 24 h). No cleanup job: a few rows per
+protected change.
+
+New `audit_log` actions (Tier 2; `targetType: "legal_entity"`, `targetId: <entity>`, `actorUserId: null`):
+`legal_entity.notice_failed` (first failure of a row), `legal_entity.notice_delivered` (success of a row that had
+failed), `legal_entity.notice_given_up`, `legal_entity.notice_no_recipients`. `data: { version, recipient:
+"person"|"outside", userId?, channel, reason?, at }` — never a value, never the outside address.
+
+**notify-api — Prisma migration `…_system_idempotency` (push 1, additive)**
+
+- `Notification` += `callerSub String?`, `idempotencyKey String?`; partial unique index `(callerSub, idempotencyKey)
+  WHERE idempotencyKey IS NOT NULL`.
+- `EmailDelivery` += `callerSub String?`, `idempotencyKey String?`; index `(callerSub, idempotencyKey)` (several
+  failed attempts may share a key; at most one `sent`).
+
+**auth env** (`lib/env.ts`): `LEGAL_ENTITY_NOTICE_EMAIL` (optional, an email address; unset = no outside
+recipient), `LEGAL_ENTITY_WRITE_RATE_LIMIT` (default 10), `LEGAL_ENTITY_CHECK_RATE_LIMIT` (default 60),
+`LEGAL_ENTITY_RATE_WINDOW_MS` (default 600000) — the suite's `*_RATE_LIMIT` convention (G9).
+
+### G5 — API contracts (new and changed)
+
+**auth `POST /legal-entities/{entity}/versions/check`** (push 1; person; read-only; G1.7)
+
+Body: exactly the save's `{ baseVersion, details }`. Same order of refusals as the save (401, 403, 404, 403, 413,
+422 `invalid_request`, 422 `invalid_legal_entity`), then 409 `legal_entity_not_moved`, 409 `version_conflict` +
+`currentVersion` when `baseVersion` is not current, 429 `too_many_requests` (its own per-person limiter, G9). No
+lock, no transaction, no row, no audit row, `Cache-Control: no-store`.
+
+```jsonc
+// 200
+{ "baseVersion": 7, "outcome": "change",               // "same" when the save would be a no-op (AC-2.1)
+  "changedFields": ["iban", "contacts.en"],
+  "protectedChanges": [                                  // only legalName / vatNumber / iban, closed-set order
+    { "field": "iban", "before": "CH93 0076 2011 6238 5295 7", "after": "" }   // as stored; IBAN in print form; "" = empty
+  ] }
+```
+
+The values are those a manager can already read (AC-3.1); nothing the request sent is echoed in a refusal. A
+`POST …/versions` does **not** require a prior check (Non-goal, OQ-13); the notice covers direct callers.
+
+**auth `GET /legal-entities/{entity}/versions`** (push 1, F3): query `limit` (1–100, default 50) and `before` (a
+version number; items with `version < before`), newest first; answer gains `nextBefore: number | null`. Any other
+query member or a bad value → 422 `invalid_request` (after the 403s; nothing echoed). AC-2.2's "every version" is
+the union of the pages; the page asks for the next one (G11).
+
+**auth save, restore, check: 429** (F3): `too_many_requests` (the suite's `tooManyRequests` body, `Retry-After`),
+counted per user id after authorisation and before the body is read; save and restore share one window, the check
+has its own.
+
+**auth save, restore, check, history, version view, `manageable`: a deleted user** (F2) → 403 `forbidden` (the
+constant body); `manageable` answers `{ entities: [] }`; person reads `GET /legal-entities[/{entity}]` → 401.
+
+**notify-api `POST /system/notifications`** (push 1): optional `idempotencyKey` (1–200 chars,
+`^[A-Za-z0-9._:-]+$`). First call: 201 as today. A repeat with the same calling `sub` and key: **200** with the stored
+notification; nothing is published, pushed or mailed. A concurrent repeat losing the unique race reads the winner
+and answers 200.
+
+**notify-api `POST /system/emails`** (push 1): optional `idempotencyKey` (same rule); a repeat after a `sent` attempt
+→ 200 with the same `deliveryId`, nothing sent; after only `failed` attempts → a new attempt. Template
+**`legal_entity_change`**: bound to `system:auth` only (another caller → 403 `template_not_allowed`, nothing
+written); exactly one of `to` | `recipientId`, and `recipientId` is accepted **only** for this template (no other
+caller gains "mail any user by id"). With `recipientId`: inactive user → 200 `{ status: "skipped", reason:
+"recipient_inactive" }`; contact lookup failed → `{ status: "failed", reason: "contact_lookup_failed" }`; email group
+unset → `{ status: "skipped", reason: "not_configured" }`. Response `status` gains `skipped` and an optional closed
+`reason`.
+
+```jsonc
+// data of "legal_entity_change" (strict; every member required unless marked)
+{ "entity": "welld_ch",                                 // closed: welld_it | welld_ch
+  "action": "save", "restoredFrom": null,               // "restore" + the restored version number
+  "actorName": "Anna Rossi",                            // ≤ 200, controls/bidi stripped by the sender, escaped by the template
+  "storedAt": "2026-11-17T09:12:00.000Z",               // rendered in Europe/Zurich with its zone name (R-d)
+  "version": 8,
+  "protectedChanged": ["iban"],                          // ⊂ legalName | vatNumber | iban, ≥ 1, unique
+  "otherChanged": ["contacts.en"],                       // ⊂ address.it | address.en | contacts.it | contacts.en
+  "iban": { "old": { "state": "tail", "last4": "5957" }, "new": { "state": "none" } } }   // present iff "iban" changed;
+                                                         // state: none | set (≤ 8 chars) | tail (last4 ^[A-Z0-9]{4}$)
+```
+
+The link is built by notify-api from its `APP_BASE_URL` and the closed entity:
+`/admin/legal-entities?entity=<entity>&view=history` (E7). Resend receives `Idempotency-Key: <sub>:<key>`
+(SDK option if 6.17 has it, else the raw header; the task verifies which).
+
+**auth → notify-api, the in-app call**: `{ recipientId, originApp: "admin", severity: "warning", title, body,
+it: { title, body }, link: { href: "/admin/legal-entities?entity=<e>&view=history" }, idempotencyKey }` (no
+`email`). Titles ≤ 200, bodies ≤ 2000 (asserted for the longest case: three protected and four other names, a
+200-character actor name).
+
+### G6 — The dispatcher (auth, `auth/src/legalEntities/notices/dispatcher.ts`)
+
+- Started in `src/index.ts` when the server starts, never under `bun test` (`NODE_ENV === "test"`), timer `unref()`;
+  tests build it with an injected clock and notify client.
+- **Kick** after the save's transaction commits (`void dispatcher.kick()`; never awaited by the request, so the
+  answer is the same whatever notify-api does — AC-9.14). **Sweep** every 15 s on every replica: claim up to 25 due
+  rows (`status='pending' AND nextAttemptAt <= now() AND (leaseUntil IS NULL OR leaseUntil < now())`, `FOR UPDATE
+  SKIP LOCKED`, set `leaseUntil = now()+60 s`, `attempts += 1`). AC-9.7's 60 s: the kick hands over at once; a lost
+  kick is covered by the next sweep (≤ 15 s); a restart sweeps on start (AC-9.14 durability).
+- Each claimed row is sent on its own (concurrency 4, timeout 5 s per call, the 401-retry-once of `lib/notify.ts`).
+  Content is rebuilt from versions n and n−1 (immutable, so a retry sends the same text). Before sending to a person
+  the row's user is re-read: deleted → `given_up` `recipient_deleted`.
+- Outcome, written in one transaction with its audit row: delivered → `status='delivered'` (+ `notice_delivered`
+  when `firstFailedAt` is set); failure → first time `firstFailedAt` + `notice_failed`; if `now ≥ createdAt + 24 h`
+  → `given_up` + `notice_given_up`, else `nextAttemptAt = min(now + delay(attempts), createdAt + 24 h)` with delays
+  1, 3, 5, 10, 20 min, then 30 min (first retry within 5 minutes: AC-9.14). A pending row found past 24 h with no
+  attempt → `given_up` `expired` (+ `notice_failed` and `notice_given_up`).
+- A notify answer of `skipped` (inactive, not configured) is a failure with its reason (AC-9.14 "a recipient has no
+  usable email address") and is retried like any other, except `recipient_deleted`.
+- Logs: `legal_entity_notice_{delivered,failed,given_up}` with row id, entity, version, channel, reason; once per
+  sweep, `legal_entity_notice_overdue` with the count of rows pending for more than 5 minutes. Never a name, address
+  or value.
+
+### G7 — admin-ui: where the confirmation lives
+
+- **Save** (`LegalEntityForm`): Save → `checkSave()` (busy "Checking…") → 422/409/403/5xx/429 handled exactly as a
+  save's refusal (no dialog) → `protectedChanges = []` → `POST …/versions` as today (AC-9.5) → otherwise the new
+  **`ProtectedChangeDialog`** (built on `ConfirmDialog`, no acknowledge checkbox — with a field the library would not
+  focus Cancel; AC-9.1) → Cancel / Escape / close: nothing sent, values kept, focus back on Save (AC-9.2, 9.6) →
+  Confirm: `POST …/versions` with the same body; its answer takes the existing paths (saved, no-op, refused,
+  conflict, 403, failed); the dialog closes first. A confirmation is never remembered: every Save checks again
+  (AC-9.3). A failed check (network, 5xx, 404 during push skew) → "could not check" banner + Retry, nothing saved
+  (fail closed: without the check the page cannot know whether to ask).
+- **Restore** (`RestoreDialog`): on open it reads version n when the page does not hold it (loading state), and
+  lists, under "Old" (current) / "New" (version n), each protected detail that differs, from the two `LegalEntity`
+  answers (`ibanPrint` for the IBAN); none differ → the dialog is as before (AC-9.4). Version n cannot be read →
+  Confirm unavailable with the reason + Retry.
+- One presentational **`ProtectedChangeList`** renders the list in both dialogs: a `<dl>`/table per detail with the
+  visible labels "Old"/"New", the empty value as the word "None" (never blank), legal name and VAT in full, IBAN in
+  groups of four, `lang` not set on values (they are not prose).
+- **Reading R-b (not drift):** a save the rules refuse (422) is refused before any confirmation, as the check
+  answers 422 — the confirmation is for a change that could be stored; AC-9.3 covers refusals that happen after it
+  (a conflict or a lost grant in between).
+- design.md needs a small amendment (G13).
+
+### G8 — F2: a deleted person loses the registry at once (decided: fix as proposed, wider)
+
+One helper `activeUserProfile(userId)` in `auth/src/legalEntities/coverage.ts` returns `{ entity }` or null for a
+missing **or soft-deleted** user; used by the write `authorize`, the history/version guard, `manageable`, the check
+route, and the person reads (401). Recipients exclude deleted users (G3). `/authz/me` is not changed (outside this
+feature; its `apps` derivation would hide the Admin tool but the routes already refuse). Rejected: disabling
+better-auth's cookie cache (suite-wide session cost for one route group).
+
+### G9 — F3: throttle and paging (decided: fix as proposed)
+
+`createSlidingWindowRateLimiter` per process, keyed by user id: save + restore share `LEGAL_ENTITY_WRITE_RATE_LIMIT`
+(10) per `LEGAL_ENTITY_RATE_WINDOW_MS` (10 min); the check has `LEGAL_ENTITY_CHECK_RATE_LIMIT` (60). The limiter also
+bounds the notice volume an abused session can cause (10 protected changes × recipients per 10 minutes) and the
+save-then-restore flip-flop of F1. In-memory per replica (N replicas = N × the limit), as every auth limiter;
+accepted. compose sets a high limit only for the e2e stack. History paging as G5; admin-ui pages it (G11). Keep the
+16 KiB cap.
+
+### G10 — F4, F5, F6, F7 (decided)
+
+- **F4 (fix as proposed).** The "real transactions" group of `write.routes.test.ts` runs only when the host of
+  `DATABASE_URL` is `localhost`, `127.0.0.1`, `::1`, `host.docker.internal` or the compose service name (`postgres`),
+  and never for `*.railway.internal` / `*.rlwy.net`; otherwise it is skipped with one loud line. `testDb.ts`'s header
+  states the exception. Any new committed-transaction test (the dispatcher's, G6) uses the same guard.
+- **F5 (fix all three).** (1) devops: the runbook creates a `SELECT`-only role on `entity_profile`'s legal columns,
+  `updatedAt` and `updatedBy` in the `crm` database for the copy window, `CRM_DATABASE_URL` set by hand to it, the
+  role dropped afterwards (T18 uses it). (2) the import audit row's `source` gains `updatedBy` (a person id). (3) the
+  report prints each entity's IBAN tail by the same rule as a notice (`none` / `set` / `…1234`, one shared function
+  `ibanTail` in `auth/src/legalEntities/ibanTail.ts`), in the dry run and the apply; `infra/README.md` says so. Still
+  no other value.
+- **F6 (fix as proposed).** letterhead-api coalesces forced refreshes: at most one per second per process; a
+  mismatching pin with an entry fetched less than a second ago answers 409 `legal_entity_version_mismatch` at once,
+  without calling auth. A matching pin still costs nothing.
+- **F7 (decided: the page, not the row).** `AuditPage` derives the Before/After panes from `data.changes` when
+  `data.before`/`data.after` are absent (`{ field: before }` / `{ field: after }`, value names as stored keys); the
+  notice actions show their `data` as today's panes would (no values in them). Rejected: also writing `before`/
+  `after` into the audit row (duplicates every value in Tier 2 storage and touches the contended `write.routes.ts`).
+  The IBAN stays visible on this administrator-only page (as the review says).
+
+### G11 — admin-ui history paging (F3)
+
+`LegalEntityHistory` asks for the first page and shows "Show older versions" while `nextBefore` is not null
+(appends; focus stays on the button, then moves to the first new row's Open); loading and failure states
+(design TODO). The version view still reads one version; "The current version is m" is unchanged.
+
+### G12 — D1 (TrieRouter) and the new routes
+
+It matters only as a constraint: SmartRouter picks one router for the whole app, and any route RegExpRouter cannot
+take flips every route to TrieRouter. The two agree on valid patterns, so behaviour is the same; what bit D1 was an
+invalid pattern (`"/**"`). Rules for this amendment: new routes use `router.on(METHOD, exactPath, …)` (no `use` on a
+wildcard, no `"/**"`); the check route `POST /legal-entities/:entity/versions/check` shares no pattern with a GET
+guard (the `/versions/:n` guards are GET-only); `auth.mount.test.ts` gains a probe for it and `routerTable.test.ts`
+accepts exactly three POSTs. No performance concern at auth's route count.
+
+### G13 — design.md amendment (designer, small)
+
+Required, because design.md says "no confirmation step on an IBAN change" and lists it as scope creep. The designer
+adds (inline TODO in design.md, task T51): S12 the protected-change confirmation (states and copy keys), the S7
+restore additions, the S5 "Show older versions" states, the 429 state, the notice copy (in-app en/it, email en),
+and the copy owed by FU-1, FU-4, FU-7 and FU-9.
+
+### G14 — Follow-ups FU-1…FU-10
+
+| FU | Decision | Task |
+| --- | --- | --- |
+| FU-1 crm-ui overflow copy points at CRM Settings | fix (copy from T51; link for managers, sentence otherwise, as `LegalEntityNotice`) | T63 |
+| FU-2 classic `GenerateOfferDialog`/`OffersCard` show no link for `legal_entity_incomplete` | fix (render `LegalEntityNotice`) | T63 |
+| FU-3 `wrap` vs 320 px reflow | no code: verified in the widened T40 sweep at 320 px and by QE | T40, T45 |
+| FU-4 `toCorrect.title` copy invented | designer confirms or replaces | T51 (applied in T40) |
+| FU-5 configurator mark drawn by a runtime template patch | no code: ADR candidate 8 | — |
+| FU-6 `DOCUMENTED_CLIENT_SCOPES["crm-api"]` omits `letterhead:render` | fix | T53 |
+| FU-7 admin-ui string gaps | fix (owner: T40 widened, copy from T51) | T40 |
+| FU-8 2 failing tests in `LegalEntitiesPage.test.tsx` | fix (owner: T40 widened) | T40 |
+| FU-9 sample intro still says "(SAMPLE)" company data | fix (copy from T51) | T65 |
+| FU-10 letterheads-ui reads `getAuthBaseUrl` through a cast | fix (typing only) | T66 |
+
+### G15 — Release order (amends E10 and the table above)
+
+Owner decision 2026-11-17: **push 1 is no longer released early; both pushes go out at the end, in one release
+session**, still as two pushes because the copy (step 3) needs push-1 auth live and push-2 consumers need the copy:
+QE PASS (T45) and the security re-review (T70) first → **push 1** (T16: auth, `@operai/ui`, shell, **notify-api**)
+→ step 2 credentials (T17) → step 3 copy (T18) → step 4 → **push 2** (T48: crm-api, crm-ui, letterhead-api,
+letterheads-ui, admin-ui, **auth (US-9 notices)**) → step 5 smoke and 5b (T49) → **step 7 (new, T71)**: set
+`LEGAL_ENTITY_NOTICE_EMAIL` and confirm the notice path in production; only after it may `legal-entity:manage` be
+granted to anyone but the `admin` role (spec Constraint, OQ-12).
+
+| Goes in | Why |
+| --- | --- |
+| push 1: notify-api (idempotency, `legal_entity_change`, `recipientId`) | additive; must be live before auth sends the new template (else a 400, retried) |
+| push 1: auth F2, F3, F4, F5, FU-6 and the check route | hardening of push-1 routes; F5 changes the copy run at step 3; the check route must exist before push 2's admin-ui calls it |
+| push 2: auth notices (outbox, dispatcher) | the spec: the notice ships in the second push; independent of admin-ui's deploy order |
+| push 2: admin-ui confirmation, history paging, F7 | admin-ui is push 2 |
+| push 2: F6, FU-1, FU-2, FU-9, FU-10 | their services are push 2 |
+
+Between push 1 and push 2 (minutes, same session) a save by an administrator stores no notice; only administrators
+hold the grant then (seed), and the copy is not a protected change (AC-9.16). Push-2 skew: admin-ui needs only the
+push-1 check route; auth's notices need only push-1 notify-api; an old notify-api answering 400 to the new template
+is retried (G6), so no order breaks a notice. The push-1 branch is still cut by cherry-picking (T16 note): every
+push-1 task of this amendment precedes, in deps and on the branch, the push-2 tasks touching the same files.
+
+### Test strategy — US-9
+
+Levels as above, plus **N-int**: notify-api `bun test` against compose Postgres (fake Resend, fake contact lookup),
+and **A-int (clock)**: the dispatcher with an injected clock and a fake notify-api over HTTP.
+
+| AC | Level | What proves it |
+| --- | --- | --- |
+| AC-9.1 | A-int, V-ui, E2E | check route: `protectedChanges` against `baseVersion`, stored forms (NFC/trim, IBAN print form), only protected fields, `outcome`; dialog names the entity, lists only changing protected details with visible "Old"/"New" labels, "None" for an empty side, full legal name and VAT, grouped IBAN, Confirm and Cancel, Cancel focused on open; E2E: change the IBAN with spaces/lower case → the dialog shows both grouped |
+| AC-9.2 | V-ui, A-int, E2E | Cancel, Escape and the close control each: no `POST …/versions` (fetch spy), values unchanged, focus on Save; server side: a check alone writes no version, audit or notice row |
+| AC-9.3 | V-ui | Confirm → one POST with the same body; 409/403/5xx after Confirm → the existing conflict/lost/failed states and no dialog left open; Save again → check again → dialog again |
+| AC-9.4 | V-ui | restore with differing IBAN/VAT → list with Old = current, New = version n; no protected difference → no list (dialog as before); version n read on open when not held; read failure → no Confirm; Cancel → no restore call |
+| AC-9.5 | A-int, V-ui | address-only, contacts-only, IBAN spacing/case-only → `protectedChanges: []` → no dialog, POST sent directly |
+| AC-9.6 | V-ui, E2E | axe 0 on dialog (save and restore variants, en and it, dark and light); focus moves in and returns to Save / the row's Restore; content announced (`alertdialog` labelled and described); keyboard only; strings parity |
+| AC-9.7 | A-int (clock) | a direct `POST` (no check, no UI) changing the IBAN → rows in the version's transaction (a forced failure after the insert leaves no version, no audit, no notice row); kick hands over at once; a lost kick → handed over by the next sweep (≤ 15 s); restore with a protected change → rows too |
+| AC-9.8 | A-int | welld_ch-conditioned manager notified for welld_ch, not welld_it; unconditioned holder for both; an administrator via a department without the grant notified; a soft-deleted holder/admin not; a person who is admin + manager + actor → exactly one in_app and one email row; recipients fixed at store time (role removed afterwards → still sent) |
+| AC-9.9 | A-int | the actor has rows |
+| AC-9.10 | A-int | `LEGAL_ENTITY_NOTICE_EMAIL` set → one email row `outside`, no in_app; unset → none, other rows identical; unset between store and send → `given_up` `outside_address_unset` + audit |
+| AC-9.11 | A-unit, N-int | content builder per case: entity label, actor name as stored, save vs restore of version m, date/time/zone in Europe/Zurich (CET and CEST dates), version n, protected names, IBAN tails (empty → none; 8 chars → set; 9 chars → last 4), other names, history link; `legal_entity_change` renders the same facts in English with an absolute link |
+| AC-9.12 | A-int, N-int | sentinel legal name, VAT, IBAN (old and new), address and contacts lines: none appears in any request auth sends (in-app en/it, email data, key), in `legal_entity_notice` rows, in notice audit rows, in the dispatcher's log lines, nor in the stored notify-api notification or rendered email (only the two last-4 tails); notify-api refuses a `data` member outside the strict shape and a `last4` not matching `^[A-Z0-9]{4}$` |
+| AC-9.13 | A-int, N-int, E2E | per person one in-app call with `it` and one email call with `recipientId` (English); outside: email only; notify-api with an idempotent in-app call raises one push dispatch; E2E: the notice appears in the notification centre, Italian when the shell is Italian |
+| AC-9.14 | A-int (clock), N-int | notify-api down → save answers 201 exactly as with it up; one recipient's 500 does not delay another's call; first retry at +1 min, then the schedule, `given_up` at 24 h; a new dispatcher instance (restart) sends pending rows; a timeout after notify-api stored → retry → 200 idempotent → one notification; two dispatchers on one database → one call per row; email repeat after `sent` → nothing sent |
+| AC-9.15 | A-int | exactly one `notice_failed` per row whatever the retries, `notice_delivered` after a later success, `notice_given_up` at 24 h, `notice_no_recipients` with an injected empty recipient set; each with entity, version, person/outside, channel, reason, time; no value |
+| AC-9.16 | A-int | import apply (first and repeated) → 0 notice rows, 0 notify calls |
+| AC-9.17 | A-int, V-ui | address/contacts-only save, IBAN spacing-only, restore with equal protected details, no-op 200, 422, 409, 403, and a cancelled dialog → 0 notice rows and 0 notify calls |
+
+Test deltas for the fixes:
+
+| AC / finding | Added |
+| --- | --- |
+| AC-4.2 (F2) | a soft-deleted holder with a live session: save, restore, check, history, version view → 403; `manageable` → `[]`; person read → 401 |
+| AC-2.2 (F3) | history pages of 50, `before` cursor, `nextBefore` null on the last page, union = every version; bad `limit`/`before` → 422; admin-ui "Show older versions" |
+| AC-2.6/AC-1.5 (F3) | the 11th save/restore of a person within 10 minutes → 429 with `Retry-After`, nothing written; another person unaffected; admin-ui shows the 429 state |
+| F4 | the real-transaction group skips (and says so) for a `*.railway.internal` host; runs for `localhost` |
+| AC-7.2/AC-7.5 (F5) | the import audit `source.updatedBy`; the report shows `…1234`/`set`/`none` and never a full IBAN (marker scan) |
+| AC-5.5/AC-6.2 (F6) | 100 mismatching renders in one second → at most one registry call; the second within 1 s → 409 without a call |
+| AC-2.5 (F7) | `AuditPage` shows before/after of a `legal_entity.save` row from `data.changes` |
+
+**Coverage check:** 52 ACs (the 35 above + AC-9.1–9.17); every one has at least one row in the two tables.
+
+### Risks (added)
+
+| # | Risk | Mitigation / early check |
+| --- | --- | --- |
+| R15 | Duplicate notice after an ambiguous failure. | notify-api idempotency per caller + key; Resend `Idempotency-Key` (24 h). Residual: if the SDK cannot pass the key, a crash between Resend's accept and notify-api's record → one duplicate email; the task records which. |
+| R16 | The dispatcher stops (crash loop, a bug) and notices wait. | Sweep on start; `legal_entity_notice_overdue` log; every row ends `delivered` or `given_up` with an audit entry within 24 h. |
+| R17 | Recipients computed under the entity lock slow a protected save. | Candidates narrowed by the rule; a handful of users; A-int measures the save with 50 candidates. Only protected saves pay. |
+| R18 | Notice spam from an abused session. | F3 limiter (10 writes per 10 min per person). |
+| R19 | notify-api not configured for email in an environment (`APP_BASE_URL` group, Resend) → every email `skipped`. | Retried, then given up with audit entries (visible); env-doctor already requires the group in production; T71 checks it. |
+| R20 | Push text is English (notify-api's push sends the English title/body, specs/20261111 AC-2.5). | Reading R-a: AC-9.13's language clause is the notification centre's; the push carries the English text. If the owner wants Italian push, it is a change of the push channel (notify-api + service worker), not of this plan. |
+| R21 | `LEGAL_ENTITY_NOTICE_EMAIL` mistyped → the outside notice fails silently to the person. | Validated as an email at startup; failures audited; T71 has the owner confirm receipt of the first notice. |
+| R22 | Check route as an oracle or load. | Same authorisation as the save, own limiter, writes nothing, answers only what a manager may read. |
+
+### Security (amended)
+
+Still **YES**, and the re-review is scheduled (T70, `owasp-reviewer`, frontier tier: financial data, R1). Surfaces:
+
+- auth `POST /legal-entities/{entity}/versions/check` (authorisation order, no echo, limiter, no writes).
+- auth notice duty and dispatcher: recipients (fail closed on unrecognised conditions, deleted users), outbox rows
+  and audit rows free of values (AC-9.12), the 24 h retry and leases, logs, the self-minted token's scopes unchanged.
+- notify-api: idempotency keys scoped per calling `sub` (no cross-caller collision or replay oracle), the
+  `legal_entity_change` template bound to `system:auth`, `recipientId` addressing limited to that template, the
+  strict `data` shape (no free text but the escaped actor name), Resend key handling.
+- F2–F7 as fixed (G8–G10), and admin-ui's dialogs (no value in a URL or storage; drafts stay in memory).
+- Residual accepted by the owner (Non-goals): no step-up sign-in, no dual control, no delay, session length unchanged
+  (F1 items 2, 4, 5); a direct caller is not asked to confirm, only notified.
+
+### ADR candidates (added)
+
+5. **Notices of a protected change are a durable duty**: an outbox written in the version's transaction,
+   at-least-once dispatch with receiver idempotency, retries for 24 h, outcomes in the audit log. Amends ADR
+   20261105 (auth raises a second kind of notice under origin `admin`) and departs from ADR 20260716 §4
+   (best-effort, no retry) for this notice.
+6. **notify-api `/system/*` idempotency keys and per-template caller binding**, with `recipientId` addressing for a
+   bound template (amends ADR 20260714 and ADR 20261101).
+7. **A confirmation backed by a read-only server check**: admin-ui asks auth what a save would change; the registry
+   enforces no confirmation (spec Non-goal).
+8. **(FU-5)** How a letterhead layout draws the configurator's "missing" mark (runtime one-line template patch in
+   `layout/mod.rs`; a future layout 2 must provide it).
+
+### Spec drift
+
+None found. US-9 is buildable as written. Readings the owner may confirm (none changes an AC): R-a (push text
+English, R20), R-b (a rule refusal comes before the confirmation, G7), R-c (administrator = effective admin, G3),
+R-d (the notice's time zone is Europe/Zurich, stated with its abbreviation).
