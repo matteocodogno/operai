@@ -23,10 +23,11 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import type { User } from "better-auth";
 import { Effect } from "effect";
+import { createMiddleware } from "hono/factory";
 import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
 import { resolveEffectivePermissions } from "../authz/resolver";
 import { db } from "../lib/db";
-import { coveredEntities } from "./coverage";
+import { activeUserProfile, coveredEntities } from "./coverage";
 import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 import { currentVersions, type Reader } from "./repo";
 import { serializeAll, serializeEntity } from "./serialize";
@@ -157,6 +158,27 @@ const oneRoute = createRoute({
 });
 
 /**
+ * F2: a session that outlives its person's soft delete reads nothing - 401, the answer of no session, so a deleted
+ * person learns nothing either. `manageable` is exempt: it answers `{ entities: [] }` for such a person (the page
+ * fails closed on that), and it is about the caller only.
+ */
+const requireActivePerson = createMiddleware<{ Variables: { user: User | null } }>(async (c, next) => {
+  if (c.req.param("entity") !== "manageable" && (await activeUserProfile(c.get("user")!.id)) === null) {
+    return c.json(
+      {
+        type: "https://httpstatuses.com/401",
+        title: "Unauthorized",
+        status: 401,
+        detail: "A valid session or Bearer token is required",
+        instance: c.req.path,
+      },
+      401,
+    );
+  }
+  return next();
+});
+
+/**
  * @param client the client the registry is read through; `db` unless a test reads through its rolled-back
  *   transaction.
  */
@@ -170,7 +192,7 @@ export function createLegalEntityReadRouter(client: Reader = db) {
       c.header("Cache-Control", NO_STORE);
       await next();
     });
-    router.on("GET", path, sessionMiddleware, requireAuth);
+    router.on("GET", path, sessionMiddleware, requireAuth, requireActivePerson);
   }
 
   router.openapi(listRoute, async (c) => c.json(await readAll(client), 200));
@@ -179,10 +201,11 @@ export function createLegalEntityReadRouter(client: Reader = db) {
   router.openapi(manageableRoute, async (c) => {
     const userId = c.get("user")!.id;
     const [profile, permissions] = await Promise.all([
-      db.user.findUniqueOrThrow({ where: { id: userId }, select: { entity: true } }),
+      activeUserProfile(userId),
       Effect.runPromise(resolveEffectivePermissions(userId)),
     ]);
-    return c.json({ entities: coveredEntities(permissions, { entity: profile.entity }) }, 200);
+    // A deleted (or missing) person manages nothing (F2).
+    return c.json({ entities: profile === null ? [] : coveredEntities(permissions, { entity: profile.entity }) }, 200);
   });
 
   router.openapi(oneRoute, async (c) => {

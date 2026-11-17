@@ -2,16 +2,16 @@
  * The history of the legal-entity registry (specs/20261117-legal-entities, T7; AC-2.2, AC-2.3, AC-2.4, AC-4.3,
  * AC-7.2; amendment E1):
  *
- *   GET /legal-entities/{entity}/versions       every version, newest first, each with `restorable`
+ *   GET /legal-entities/{entity}/versions       a page of versions (`limit`, `before`, `nextBefore`; G5), newest first, each with `restorable`
  *   GET /legal-entities/{entity}/versions/{n}   all the details of version n plus how it came to be
  *
  * WHO: a signed-in person who may manage AT LEAST ONE entity (`legal-entity:manage`, through the same coverage
  * function as `/legal-entities/manageable`, fail closed). Either history may be read once one entity is covered: a
  * `welld_ch`-only manager reads `welld_it`'s history too (AC-4.3: the other entity is read-only to them; writing is
- * T8's `must cover {entity}`). Otherwise 403 `forbidden`.
+ * T8's `must cover {entity}`). Otherwise 403 `forbidden`. A soft-deleted person is refused whatever grants remain (F2).
  *
  * ORDER of refusals: 401 (no session) -> 403 (no covering grant) -> 404 (`unknown_legal_entity`, then
- * `version_not_found`). A person without a grant therefore learns nothing about which entities or versions exist.
+ * `version_not_found`) -> 422 `invalid_request` (the history's query only). A person without a grant therefore learns nothing about which entities or versions exist.
  * Every body is a constant: none carries the requested entity, version or path.
  *
  * `restorable` (E1) is computed on every read from `rules.ts` over the stored details: the very check the restore
@@ -29,7 +29,7 @@ import { Effect } from "effect";
 import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
 import { resolveEffectivePermissions } from "../authz/resolver";
 import { db } from "../lib/db";
-import { coveredEntities } from "./coverage";
+import { activeUserProfile, coveredEntities } from "./coverage";
 import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 import { isLegalEntity, NO_STORE, unknownLegalEntity } from "./read.routes";
 import { type HistoryRow, type Reader, versionOf, versionsOf } from "./repo";
@@ -55,6 +55,44 @@ export const VERSION_NOT_FOUND_BODY = Object.freeze({
 });
 
 const INT4_MAX = 2_147_483_647;
+
+/** Versions per page of the history unless `limit` says otherwise (G5, F3). */
+export const DEFAULT_HISTORY_LIMIT = 50;
+export const MAX_HISTORY_LIMIT = 100;
+
+/** The 422 of a query the history does not accept: constant, nothing of the request in it (not even a member name). */
+export const INVALID_QUERY_BODY = Object.freeze({
+  type: "https://httpstatuses.com/422",
+  title: "Unprocessable Entity",
+  status: 422,
+  code: "invalid_request",
+  detail: "The query is not in the expected shape",
+});
+
+/**
+ * `limit` (1-100, default 50) and `before` (a version number) of the history, or null when anything else is in the
+ * query: another member, a repeated member, an empty or non-canonical number. Only canonical decimal integers pass.
+ */
+export function parseHistoryQuery(url: string): { limit: number; before?: number } | null {
+  const params = new URL(url).searchParams;
+  const keys = new Set<string>();
+  for (const key of params.keys()) {
+    if (key !== "limit" && key !== "before") return null;
+    if (keys.has(key)) return null;
+    keys.add(key);
+  }
+  let limit = DEFAULT_HISTORY_LIMIT;
+  const rawLimit = params.get("limit");
+  if (rawLimit !== null) {
+    if (!/^[1-9][0-9]{0,2}$/.test(rawLimit)) return null;
+    limit = Number(rawLimit);
+    if (limit > MAX_HISTORY_LIMIT) return null;
+  }
+  const rawBefore = params.get("before");
+  if (rawBefore === null) return { limit };
+  const before = parseVersion(rawBefore);
+  return before === null ? null : { limit, before };
+}
 
 /**
  * The version a path segment names, or null. Only a canonical whole number >= 1 that fits the column (an int4)
@@ -164,16 +202,38 @@ const historyRoute = createRoute({
   path: "/legal-entities/{entity}/versions",
   tags: ["Legal entities"],
   summary: "Every version of an entity, newest first (any manager reads either entity)",
-  request: { params: z.object({ entity: z.string() }) },
+  request: {
+    params: z.object({ entity: z.string() }),
+    // Documented only: the handler reads the raw query itself (any other member or value is 422, never a 400 echo).
+    query: z.object({
+      // string | string[]: a repeated member must reach the handler's 422, not the validator's 400.
+      limit: z.union([z.string(), z.array(z.string())]).optional().describe("1-100, default 50"),
+      before: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe("A version number: only versions below it (the previous page's `nextBefore`)"),
+    }),
+  },
   responses: {
     200: {
-      content: { "application/json": { schema: z.object({ items: z.array(HistoryItemSchema) }) } },
-      description: "Every version, newest first",
+      content: {
+        "application/json": {
+          schema: z.object({
+            items: z.array(HistoryItemSchema),
+            nextBefore: z.number().int().nullable().describe("Pass as `before` for the next page; null on the last page"),
+          }),
+        },
+      },
+      description: "One page of versions, newest first",
     },
     ...refusals,
     404: {
       content: { "application/problem+json": { schema: ProblemSchema } },
       description: "`unknown_legal_entity`",
+    },
+    422: {
+      content: { "application/problem+json": { schema: ProblemSchema } },
+      description: "`invalid_request`: a `limit` or `before` out of range, or another query member",
     },
   },
 });
@@ -202,11 +262,11 @@ type Env = { Variables: { user: User | null } };
 const requireCoveredEntity: MiddlewareHandler<Env> = async (c, next) => {
   const userId = c.get("user")!.id;
   const [profile, permissions] = await Promise.all([
-    db.user.findUnique({ where: { id: userId }, select: { entity: true } }),
+    activeUserProfile(userId),
     Effect.runPromise(resolveEffectivePermissions(userId)),
   ]);
-  // No user row: nothing to evaluate a condition against, so only an unconditioned grant could cover (fail closed).
-  if (coveredEntities(permissions, { entity: profile?.entity ?? null }).length === 0) {
+  // A missing or soft-deleted person is refused whatever grants remain (F2); the session may outlive the delete.
+  if (profile === null || coveredEntities(permissions, { entity: profile.entity }).length === 0) {
     return c.body(JSON.stringify(FORBIDDEN_BODY), 403, {
       "Content-Type": "application/problem+json",
       "Cache-Control": NO_STORE,
@@ -235,8 +295,18 @@ export function createLegalEntityHistoryRouter(client: Reader = db) {
   router.openapi(historyRoute, async (c) => {
     const { entity } = c.req.valid("param");
     if (!isLegalEntity(entity)) return unknownLegalEntity(c) as never;
-    const rows = await versionsOf(entity, client);
-    return c.json({ items: rows.map(serializeHistoryItem) }, 200);
+    const page = parseHistoryQuery(c.req.url);
+    if (page === null) {
+      return c.body(JSON.stringify(INVALID_QUERY_BODY), 422, {
+        "Content-Type": "application/problem+json",
+        "Cache-Control": NO_STORE,
+      }) as never;
+    }
+    const rows = await versionsOf(entity, client, page);
+    // One row more than the page was read: its presence is "another page exists" (and is not part of this one).
+    const items = rows.slice(0, page.limit);
+    const nextBefore = rows.length > page.limit ? items[items.length - 1]!.version : null;
+    return c.json({ items: items.map(serializeHistoryItem), nextBefore }, 200);
   });
 
   router.openapi(versionRoute, async (c) => {

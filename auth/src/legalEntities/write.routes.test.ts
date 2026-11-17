@@ -30,12 +30,19 @@ mock.module("../auth/auth.config", () => ({
   auth: { api: { getSession: mock(async () => currentSession) } },
 }));
 
-const { createLegalEntityWriteRouter, MAX_WRITE_BODY_BYTES, INVALID_REQUEST_BODY, NOT_MOVED_BODY, REQUEST_TOO_LARGE_BODY } =
+const { createLegalEntityRateLimits, createLegalEntityWriteRouter: createThrottledWriteRouter, MAX_WRITE_BODY_BYTES, TOO_MANY_REQUESTS_BODY, INVALID_REQUEST_BODY, NOT_MOVED_BODY, REQUEST_TOO_LARGE_BODY } =
   await import("./write.routes");
 const { createLegalEntityHistoryRouter, FORBIDDEN_BODY, VERSION_NOT_FOUND_BODY } = await import("./history.routes");
 const { UNKNOWN_LEGAL_ENTITY_BODY } = await import("./read.routes");
 const { lockEntity, lockKey } = await import("./repo");
 type Audited = typeof withAudit;
+
+/**
+ * Most tests send far more than ten writes as one person: they get a router whose limits are out of the way. The
+ * throttle has its own group below, built on the env's real limits.
+ */
+const createLegalEntityWriteRouter = (options: Parameters<typeof createThrottledWriteRouter>[0] = {}) =>
+  createThrottledWriteRouter({ limits: createLegalEntityRateLimits({ writeLimit: 1_000_000, checkLimit: 1_000_000 }), ...options });
 
 const RUN_ID = crypto.randomUUID().slice(0, 8);
 const createdUserIds = new Set<string>();
@@ -923,6 +930,116 @@ describe("an unexpected failure", () => {
   });
 });
 
+describe("a deleted person (F2)", () => {
+  test("a soft-deleted holder with a live session is 403 forbidden on save and restore, nothing written", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      const before = await snapshot(tx);
+      const person = await admin("deleted-holder");
+      signedInAs(person); // the session outlives the delete: the mocked source still answers it
+      await db.user.update({ where: { id: person.id }, data: { deletedAt: new Date() } });
+      const router = writeRouter(tx);
+      const bodies = new Set<string>();
+      for (const res of [
+        await save(router, "welld_ch", { baseVersion: 4, details: details({ legalName: "Still Here SA" }) }),
+        await save(router, "welld_it", { baseVersion: 4, details: details() }),
+        await restore(router, "welld_ch", 2, { baseVersion: 4 }),
+        await save(router, "welld_de", { baseVersion: 4, details: details() }),
+      ]) {
+        expect(res.status).toBe(403);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        bodies.add(await res.text());
+      }
+      expect(Array.from(bodies)).toEqual([JSON.stringify(FORBIDDEN_BODY)]);
+      expect(await snapshot(tx)).toEqual(before);
+    });
+  });
+
+  test("a session whose user row is gone is refused the same way", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      signedInAs({ id: `no-such-user-${RUN_ID}`, email: "ghost@legalentities.test", name: "Ghost" });
+      const res = await save(writeRouter(tx), "welld_ch", { baseVersion: 4, details: details({ legalName: "Ghost SA" }) });
+      expect(res.status).toBe(403);
+    });
+  });
+});
+
+describe("the throttle (F3, plan G9)", () => {
+  const nameOf = (i: number) => `Throttled SA ${i}`;
+
+  test("the 11th save-or-restore of one person within the window is 429 too_many_requests with Retry-After, nothing written", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      const person = await admin("throttled");
+      const other = await admin("throttled-other");
+      signedInAs(person);
+      // The env's limits (10 per person): the router is built without a `limits` of its own.
+      const router = createThrottledWriteRouter({ audited: auditedIn(tx), client: tx });
+
+      // Save and restore share one window: five of each are ten.
+      for (let i = 0; i < 5; i++) {
+        const res = await save(router, "welld_ch", { baseVersion: 4 + i * 2, details: details({ legalName: nameOf(i) }) });
+        expect(res.status).toBe(201);
+        const back = await restore(router, "welld_ch", 2, { baseVersion: 5 + i * 2 });
+        expect(back.status).toBe(201);
+      }
+      const before = await snapshot(tx);
+      expect(before.versions.filter((v) => v.entity === "welld_ch")).toHaveLength(14);
+
+      // Counted before the body is read: not even valid JSON is needed to be refused.
+      for (const res of [
+        await save(router, "welld_ch", { baseVersion: 14, details: details({ legalName: "Eleventh SA" }) }),
+        await restore(router, "welld_ch", 2, { baseVersion: 14 }),
+        await save(router, "welld_ch", "not json at all"),
+      ]) {
+        expect(res.status).toBe(429);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        const retryAfter = Number(res.headers.get("retry-after"));
+        expect(Number.isInteger(retryAfter)).toBe(true);
+        expect(retryAfter).toBeGreaterThanOrEqual(1);
+        expect(retryAfter).toBeLessThanOrEqual(600);
+        expect(await res.text()).toBe(JSON.stringify(TOO_MANY_REQUESTS_BODY));
+      }
+      expect(await snapshot(tx)).toEqual(before);
+
+      // Another person is unaffected.
+      signedInAs(other);
+      const fine = await save(router, "welld_ch", { baseVersion: 14, details: details({ legalName: "Other Person SA" }) });
+      expect(fine.status).toBe(201);
+    });
+  });
+
+  test("a refusal that comes before it never spends the allowance: 401, 403, 404 are not counted", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      const router = createLegalEntityWriteRouter({ audited: auditedIn(tx), client: tx, limits: createLegalEntityRateLimits({ writeLimit: 2 }) });
+      const noGrant = await makeUser("throttle-no-grant", "welld_ch");
+      signedInAs(noGrant);
+      for (let i = 0; i < 5; i++) expect((await save(router, "welld_ch", { baseVersion: 4, details: details() })).status).toBe(403);
+      const manager = await chManager("throttle-ch");
+      signedInAs(manager);
+      for (let i = 0; i < 5; i++) expect((await save(router, "welld_it", { baseVersion: 4, details: details() })).status).toBe(403);
+      for (let i = 0; i < 5; i++) expect((await save(router, "welld_de", { baseVersion: 4, details: details() })).status).toBe(404);
+      // Still two to spend.
+      expect((await save(router, "welld_ch", { baseVersion: 4, details: details({ legalName: "Spent 1 SA" }) })).status).toBe(201);
+      expect((await save(router, "welld_ch", { baseVersion: 5, details: details({ legalName: "Spent 2 SA" }) })).status).toBe(201);
+      expect((await save(router, "welld_ch", { baseVersion: 6, details: details({ legalName: "Spent 3 SA" }) })).status).toBe(429);
+    });
+  });
+
+  test("the limits come from the env (10 and 60 per 10 minutes) and the window slides", () => {
+    const limits = createLegalEntityRateLimits();
+    for (let i = 0; i < 10; i++) expect(limits.write.consume("p", 1_000).allowed).toBe(true);
+    expect(limits.write.consume("p", 1_000).allowed).toBe(false);
+    expect(limits.write.consume("q", 1_000).allowed).toBe(true);
+    for (let i = 0; i < 60; i++) expect(limits.check.consume("p", 1_000).allowed).toBe(true);
+    expect(limits.check.consume("p", 1_000).allowed).toBe(false);
+    // The window is 600000 ms: the same person is admitted again once the first attempts age out.
+    expect(limits.write.consume("p", 1_000 + 600_000).allowed).toBe(true);
+  });
+});
+
 describe("the documentation", () => {
   test("the OpenAPI document describes both POST routes with their bodies and refusals", async () => {
     const doc = createLegalEntityWriteRouter().getOpenAPIDocument({ openapi: "3.0.0", info: { title: "t", version: "1" } });
@@ -930,7 +1047,7 @@ describe("the documentation", () => {
     for (const path of ["/legal-entities/{entity}/versions", "/legal-entities/{entity}/versions/{n}/restore"]) {
       const op = paths[path]?.["post"];
       expect(op?.requestBody).toBeDefined();
-      for (const status of ["200", "201", "401", "403", "404", "409", "413", "422"]) expect(op?.responses[status]).toBeDefined();
+      for (const status of ["200", "201", "401", "403", "404", "409", "413", "422", "429"]) expect(op?.responses[status]).toBeDefined();
     }
     expect(Object.keys(paths).every((p) => Object.keys(paths[p]!).every((m) => m === "post"))).toBe(true);
   });

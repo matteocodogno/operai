@@ -155,6 +155,14 @@ const envSchema = z.object({
   // assign dialog / filter, so 60 per 10 minutes is far above real use.
   DIRECTORY_RATE_LIMIT: z.coerce.number().int().positive().default(60),
   DIRECTORY_RATE_WINDOW_MS: z.coerce.number().int().positive().default(600000),
+  // ─── Legal-entity registry throttle (specs/20261117-legal-entities, T52; plan G9, security review F3) ────────────
+  // Counted per user id, after authorisation and before the body is read. Save and restore share
+  // LEGAL_ENTITY_WRITE_RATE_LIMIT; the dry-run check (T55) has its own LEGAL_ENTITY_CHECK_RATE_LIMIT. The window
+  // is one for both. In-memory per replica like every limiter here (N replicas = N x the limit); a compose e2e
+  // stack sets a high limit so its many saves are not throttled.
+  LEGAL_ENTITY_WRITE_RATE_LIMIT: z.coerce.number().int().positive().default(10),
+  LEGAL_ENTITY_CHECK_RATE_LIMIT: z.coerce.number().int().positive().default(60),
+  LEGAL_ENTITY_RATE_WINDOW_MS: z.coerce.number().int().min(1000).default(600000),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

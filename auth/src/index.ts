@@ -96,6 +96,10 @@ console.log(
     `users/contact ${env.USERS_CONTACT_SERVICE_LIMIT} per service, legal-entities ${LEGAL_ENTITIES_SERVICE_LIMIT} per service, ` +
     `invalid credentials ${env.SYSTEM_INVALID_CREDENTIAL_LIMIT} per source`,
 );
+console.log(
+  `[legal-entities] limits per ${env.LEGAL_ENTITY_RATE_WINDOW_MS} ms: save+restore ${env.LEGAL_ENTITY_WRITE_RATE_LIMIT} per person, ` +
+    `check ${env.LEGAL_ENTITY_CHECK_RATE_LIMIT} per person`,
+);
 app.route("/", createServiceTokenRouter({ signJwt: signServiceJwt, limits: systemLimits }));
 app.route("/", createUserContactRouter({ getJwks: jwksFromAuth(auth), limits: systemLimits }));
 // The service read API of the legal-entity registry (specs/20261117-legal-entities, T6): the same limits object (one

@@ -13,6 +13,7 @@
  */
 
 import { entityGrantFor, type EffectivePermission } from "../authz/resolver";
+import { db } from "../lib/db";
 import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 
 export const LEGAL_ENTITY_RESOURCE = "legal-entity";
@@ -35,4 +36,17 @@ export function adminAreaReachable(
   user: { readonly entity: string | null },
 ): boolean {
   return coveredEntities(permissions, user).length > 0;
+}
+
+/**
+ * The profile the registry evaluates a person's grants against, or null when there is no such person or the person
+ * is soft-deleted (F2, plan G8). A better-auth session outlives the soft delete (cookie cache, Bearer token), so
+ * every registry route that answers "who is this person" asks here instead of trusting the session alone: a
+ * deleted person is refused everywhere (403 on the management routes, `{ entities: [] }` on `manageable`, 401 on
+ * the person reads), whatever grants they still hold.
+ */
+export async function activeUserProfile(userId: string): Promise<{ entity: string | null } | null> {
+  const row = await db.user.findUnique({ where: { id: userId }, select: { entity: true, deletedAt: true } });
+  if (row === null || row.deletedAt !== null) return null;
+  return { entity: row.entity };
 }

@@ -261,8 +261,9 @@ describe("GET /legal-entities/{entity}/versions (AC-2.2, AC-7.2, E1)", () => {
       await seedChHistory(tx);
       signedInAs(await chManager("order"));
       const res = await get(tx, "/legal-entities/welld_ch/versions");
-      const body = (await res.json()) as { items: Array<Record<string, unknown>> };
-      expect(Object.keys(body)).toEqual(["items"]);
+      const body = (await res.json()) as { items: Array<Record<string, unknown>>; nextBefore: number | null };
+      expect(Object.keys(body)).toEqual(["items", "nextBefore"]);
+      expect(body.nextBefore).toBeNull();
       expect(body.items.map((i) => i.version)).toEqual([4, 3, 2, 1]);
       expect(Object.keys(body.items[0]!)).toEqual([
         "version",
@@ -371,7 +372,7 @@ describe("GET /legal-entities/{entity}/versions (AC-2.2, AC-7.2, E1)", () => {
       signedInAs(await chManager("empty"));
       const res = await get(tx, "/legal-entities/welld_it/versions");
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ items: [] });
+      expect(await res.json()).toEqual({ items: [], nextBefore: null });
     });
   });
 
@@ -397,6 +398,107 @@ describe("GET /legal-entities/{entity}/versions (AC-2.2, AC-7.2, E1)", () => {
         bodies.add(await res.text());
       }
       expect([...bodies]).toEqual([JSON.stringify(UNKNOWN_LEGAL_ENTITY_BODY)]);
+    });
+  });
+});
+
+describe("paging (F3, plan G5)", () => {
+  /** Versions 1..n of welld_ch: one import and n-1 saves, all with a valid shape. */
+  async function seedMany(tx: Tx, n: number) {
+    for (let v = 1; v <= n; v++) await seed(tx, { entity: "welld_ch", version: v, ...GOOD, changedFields: ["legalName"] });
+  }
+  type Page = { items: Array<{ version: number }>; nextBefore: number | null };
+  const page = async (tx: Tx, query = "") => {
+    const res = await get(tx, `/legal-entities/welld_ch/versions${query}`);
+    return { res, body: (await res.json()) as Page };
+  };
+
+  test("pages of 50, newest first, `before` is the cursor, `nextBefore` is null on the last page, the pages are every version", async () => {
+    await inRolledBackTx(async (tx) => {
+      await seedMany(tx, 120);
+      signedInAs(await chManager("paging"));
+      const seen: number[] = [];
+      const sizes: number[] = [];
+      let query = "";
+      for (let guard = 0; guard < 10; guard++) {
+        const { res, body } = await page(tx, query);
+        expect(res.status).toBe(200);
+        sizes.push(body.items.length);
+        seen.push(...body.items.map((i) => i.version));
+        if (body.nextBefore === null) break;
+        // The cursor is the oldest version of this page: the next page is everything below it.
+        expect(body.nextBefore).toBe(body.items[body.items.length - 1]!.version);
+        query = `?before=${body.nextBefore}`;
+      }
+      expect(sizes).toEqual([50, 50, 20]);
+      expect(seen).toEqual(Array.from({ length: 120 }, (_, i) => 120 - i));
+    });
+  });
+
+  test("`limit` sets the page; a full last page has no next one; exactly `limit` versions left is the last page", async () => {
+    await inRolledBackTx(async (tx) => {
+      await seedMany(tx, 10);
+      signedInAs(await chManager("limit"));
+      expect((await page(tx, "?limit=3")).body).toMatchObject({ nextBefore: 8, items: [{ version: 10 }, { version: 9 }, { version: 8 }] });
+      expect((await page(tx, "?limit=3&before=8")).body.nextBefore).toBe(5);
+      const last = (await page(tx, "?limit=3&before=2")).body;
+      expect(last.items.map((i) => i.version)).toEqual([1]);
+      expect(last.nextBefore).toBeNull();
+      const exact = (await page(tx, "?limit=10")).body;
+      expect(exact.items).toHaveLength(10);
+      expect(exact.nextBefore).toBeNull();
+      expect((await page(tx, "?limit=100")).body.items).toHaveLength(10);
+      expect((await page(tx, "?limit=1")).body.nextBefore).toBe(10);
+      // A cursor past the oldest version is an empty last page, not an error.
+      expect((await page(tx, "?before=1")).body).toEqual({ items: [], nextBefore: null });
+    });
+  });
+
+  test("a `limit` or `before` that is not accepted, or any other member, is 422 invalid_request after the 403s, nothing echoed", async () => {
+    await inRolledBackTx(async (tx) => {
+      await seedMany(tx, 3);
+      const bad = [
+        "?limit=0", "?limit=101", "?limit=abc", "?limit=", "?limit=-1", "?limit=1.5", "?limit=05", "?limit=1&limit=2",
+        "?before=abc", "?before=0", "?before=", "?before=99999999999999999999", "?before=1&before=2",
+        "?extra=1", "?limit=5&zzSecretMember=1", "?LIMIT=5",
+      ];
+      signedInAs(await chManager("bad-query"));
+      for (const query of bad) {
+        const res = await get(tx, `/legal-entities/welld_ch/versions${query}`);
+        expect(res.status).toBe(422);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        const text = await res.text();
+        expect(JSON.parse(text)).toMatchObject({ status: 422, code: "invalid_request" });
+        expect(text).not.toContain("zzSecret");
+        expect(text).not.toContain("abc");
+      }
+      // The 403 and the 404 come first: a person with no grant, or an unknown entity, is not told about the query.
+      signedInAs(await makeUser("bad-query-no-grant", "welld_ch"));
+      const forbidden = await get(tx, "/legal-entities/welld_ch/versions?limit=0");
+      expect(forbidden.status).toBe(403);
+      expect(await forbidden.text()).toBe(JSON.stringify(FORBIDDEN_BODY));
+      signedInAs(await chManager("bad-query-404"));
+      expect((await get(tx, "/legal-entities/welld_de/versions?limit=0")).status).toBe(404);
+    });
+  });
+});
+
+describe("a deleted person (F2)", () => {
+  test("a soft-deleted holder with a live session is 403 forbidden on the history and the version view", async () => {
+    await inRolledBackTx(async (tx) => {
+      await seedChHistory(tx);
+      const person = await chManager("deleted");
+      signedInAs(person);
+      expect((await get(tx, "/legal-entities/welld_ch/versions")).status).toBe(200);
+      await db.user.update({ where: { id: person.id }, data: { deletedAt: new Date() } });
+      const bodies = new Set<string>();
+      for (const path of ["/legal-entities/welld_ch/versions", "/legal-entities/welld_it/versions", "/legal-entities/welld_ch/versions/2", "/legal-entities/welld_de/versions"]) {
+        const res = await get(tx, path);
+        expect(res.status).toBe(403);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        bodies.add(await res.text());
+      }
+      expect([...bodies]).toEqual([JSON.stringify(FORBIDDEN_BODY)]);
     });
   });
 });

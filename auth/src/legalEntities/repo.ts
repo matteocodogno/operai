@@ -44,8 +44,22 @@ export interface HistoryRow extends VersionRow {
   createdByName: string | null;
 }
 
-/** Every version of one entity, newest first (AC-2.2): no page, no cap - a registry of two entities stays small. */
-export async function versionsOf(entity: string, client: Reader = db): Promise<HistoryRow[]> {
+/** The page of the history a request asks for (G5): at most `limit` versions, all of them below `before` when given. */
+export interface VersionsPage {
+  limit: number;
+  /** Only versions numbered below this one (the cursor of the previous page); absent = from the newest. */
+  before?: number;
+}
+
+/**
+ * One page of one entity's versions, newest first (AC-2.2: every version is the union of the pages). It reads ONE
+ * row more than `limit` so the caller can tell whether another page exists without a second query; the extra row
+ * is the caller's to drop. `COALESCE` as in `currentVersions`.
+ */
+export async function versionsOf(entity: string, client: Reader = db, page?: VersionsPage): Promise<HistoryRow[]> {
+  // A bounded page everywhere: no caller reads the whole table by omission (F3). `before` null = no cursor.
+  const limit = (page?.limit ?? 50) + 1;
+  const before = page?.before ?? null;
   return client.$queryRaw<HistoryRow[]>`
     SELECT
       "entity", "version", "legalName",
@@ -54,8 +68,9 @@ export async function versionsOf(entity: string, client: Reader = db): Promise<H
       "action", "restoredFrom", COALESCE("changedFields", ARRAY[]::text[]) AS "changedFields",
       "createdByUserId", "createdByName", "createdAt"
     FROM "legal_entity_version"
-    WHERE "entity" = ${entity}
-    ORDER BY "version" DESC`;
+    WHERE "entity" = ${entity} AND (${before}::int IS NULL OR "version" < ${before}::int)
+    ORDER BY "version" DESC
+    LIMIT ${limit}`;
 }
 
 /** Version `version` of `entity`, or null when it does not exist (`version` is an int4 the caller has bounded). */

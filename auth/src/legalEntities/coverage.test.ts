@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import type { EffectivePermission } from "../authz/resolver";
-import { adminAreaReachable, coveredEntities } from "./coverage";
+import { db } from "../lib/db";
+import { activeUserProfile, adminAreaReachable, coveredEntities } from "./coverage";
 
 const unconditioned: EffectivePermission = { resource: "legal-entity", action: "manage", conditions: null };
 const entityConditioned: EffectivePermission = {
@@ -67,5 +68,30 @@ describe("coveredEntities / adminAreaReachable", () => {
     expect(coveredEntities(perms, { entity: "welld_ch" })).toEqual([]);
     expect(adminAreaReachable(perms, { entity: "welld_ch" })).toBe(false);
     expect(adminAreaReachable([], { entity: "welld_ch" })).toBe(false);
+  });
+});
+
+describe("activeUserProfile (F2)", () => {
+  const RUN_ID = crypto.randomUUID().slice(0, 8);
+  const ids: string[] = [];
+  const make = async (label: string, entity: string | null, deletedAt: Date | null) => {
+    const user = await db.user.create({
+      data: { name: `T52 fixture ${label}`, email: `t52-le-cov-${label}-${RUN_ID}@legalentities.test`, entity, deletedAt },
+    });
+    ids.push(user.id);
+    return user;
+  };
+  afterAll(async () => {
+    await db.user.deleteMany({ where: { id: { in: ids } } });
+  });
+
+  test("an active person answers their entity; none is null", async () => {
+    expect(await activeUserProfile((await make("ch", "welld_ch", null)).id)).toEqual({ entity: "welld_ch" });
+    expect(await activeUserProfile((await make("none", null, null)).id)).toEqual({ entity: null });
+  });
+
+  test("a soft-deleted person, and an id that is no user, are null", async () => {
+    expect(await activeUserProfile((await make("deleted", "welld_ch", new Date())).id)).toBeNull();
+    expect(await activeUserProfile(`no-such-user-${RUN_ID}`)).toBeNull();
   });
 });

@@ -9,9 +9,12 @@
  * change a stored version (`routerTable.test.ts` reads the real router table). A save or a restore only ever
  * appends version current + 1.
  *
+ * A soft-deleted person is refused at the 403 step whatever grants remain (F2, `activeUserProfile`).
+ *
  * ORDER of refusals (nothing is written by any of them):
  *   401 no session -> 403 `forbidden` (no `legal-entity:manage` covering any entity) -> 404 `unknown_legal_entity`
- *   -> 403 (a grant that does not cover THIS entity: AC-4.2) -> 413 `request_too_large` (16 KiB, before any parse)
+ *   -> 403 (a grant that does not cover THIS entity: AC-4.2) -> 429 `too_many_requests` (per person, F3: save and
+ *   restore share one window, counted here and before the body is read) -> 413 `request_too_large` (16 KiB, before any parse)
  *   -> 422 `invalid_request` (not exactly the shape; nothing of the request is echoed) -> 422 `invalid_legal_entity`
  *   (every problem at once; for a restore the rules judge the stored version: D4) -> in the transaction, under the
  *   entity's advisory lock: 409 `legal_entity_not_moved` -> 409 `version_conflict` + `currentVersion` -> details
@@ -42,10 +45,12 @@ import { Effect } from "effect";
 import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
 import { withAudit } from "../authz/audit";
 import { resolveEffectivePermissions } from "../authz/resolver";
+import { env } from "../lib/env";
 import { db } from "../lib/db";
+import { createSlidingWindowRateLimiter, type RateLimiter } from "../lib/rateLimiter";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { readBodyCapped } from "../system/boundedBody";
-import { coveredEntities } from "./coverage";
+import { activeUserProfile, coveredEntities } from "./coverage";
 import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 import { FORBIDDEN_BODY, parseVersion, VERSION_NOT_FOUND_BODY } from "./history.routes";
 import { isLegalEntity, NO_STORE, unknownLegalEntity } from "./read.routes";
@@ -99,6 +104,49 @@ export const invalidLegalEntityBody = (list: readonly ReturnType<typeof problems
       ...(p.limit !== undefined ? { limit: p.limit } : {}),
     })),
   });
+
+/**
+ * 429 (F3, plan G9): constant, nothing of the request in it. `code` is `too_many_requests` (not the `/system`
+ * routes' `rate_limited`): the registry's own refusal, which admin-ui tells apart from a conflict.
+ */
+export const TOO_MANY_REQUESTS_BODY = problemBody(
+  429,
+  "Too Many Requests",
+  "too_many_requests",
+  "Too many requests. Try again later.",
+);
+
+export interface LegalEntityRateLimits {
+  /** Save and restore of one person share this limiter. */
+  write: RateLimiter;
+  /** The dry-run check (T55) has its own. */
+  check: RateLimiter;
+}
+
+/** The registry's limiters, per process, from the env unless a test passes its own numbers (plan G9). */
+export function createLegalEntityRateLimits(
+  config: { writeLimit?: number; checkLimit?: number; windowMs?: number } = {},
+): LegalEntityRateLimits {
+  const windowMs = config.windowMs ?? env.LEGAL_ENTITY_RATE_WINDOW_MS;
+  return {
+    write: createSlidingWindowRateLimiter({ limit: config.writeLimit ?? env.LEGAL_ENTITY_WRITE_RATE_LIMIT, windowMs }),
+    check: createSlidingWindowRateLimiter({ limit: config.checkLimit ?? env.LEGAL_ENTITY_CHECK_RATE_LIMIT, windowMs }),
+  };
+}
+
+/**
+ * Counts one attempt of `userId` in `limiter`: null when admitted, else the 429 (`Retry-After` in whole seconds, at
+ * least 1). A refused attempt is not recorded by the limiter, so retrying does not extend the refusal.
+ */
+export function throttle(limiter: RateLimiter, userId: string, c: Context): Response | null {
+  const result = limiter.consume(userId);
+  if (result.allowed) return null;
+  return c.body(JSON.stringify(TOO_MANY_REQUESTS_BODY), 429, {
+    "Content-Type": PROBLEM_JSON,
+    "Cache-Control": NO_STORE,
+    "Retry-After": String(Math.max(1, Math.ceil(result.retryAfterMs / 1000))),
+  });
+}
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -249,11 +297,11 @@ const respond = (c: Context<Env>, status: 200 | 201 | 403 | 404 | 409 | 413 | 42
 const authorize: MiddlewareHandler<Env> = async (c, next) => {
   const userId = c.get("user")!.id;
   const [profile, permissions] = await Promise.all([
-    db.user.findUnique({ where: { id: userId }, select: { entity: true } }),
+    activeUserProfile(userId),
     Effect.runPromise(resolveEffectivePermissions(userId)),
   ]);
-  // No user row: nothing to evaluate a condition against, so only an unconditioned grant could cover (fail closed).
-  const covered = coveredEntities(permissions, { entity: profile?.entity ?? null });
+  // A missing or soft-deleted person is refused whatever grants remain (F2); the session may outlive the delete.
+  const covered = profile === null ? [] : coveredEntities(permissions, { entity: profile.entity });
   if (covered.length === 0) return respond(c, 403, FORBIDDEN_BODY);
   coveredOf.set(c.req.raw, covered);
   return next();
@@ -308,9 +356,15 @@ export interface WriteRouterOptions {
   audited?: Audited;
   /** The client a restore reads the stored version it restores through; `db` unless a test reads through its rolled-back transaction. */
   client?: Reader;
+  /** The throttle (F3); the env's limits, a fresh pair per router, unless a test passes its own. */
+  limits?: LegalEntityRateLimits;
 }
 
-export function createLegalEntityWriteRouter({ audited = withAudit, client = db }: WriteRouterOptions = {}) {
+export function createLegalEntityWriteRouter({
+  audited = withAudit,
+  client = db,
+  limits = createLegalEntityRateLimits(),
+}: WriteRouterOptions = {}) {
   const router = new OpenAPIHono<Env>();
 
   // POST only, per exact path (never `/legal-entities/*`): the GETs of T5 and T7 carry their own authentication.
@@ -331,6 +385,9 @@ export function createLegalEntityWriteRouter({ audited = withAudit, client = db 
   router.on("POST", SAVE_PATH, noStore, sessionMiddleware, requireAuth, authorize, async (c) => {
     const target = entityOf(c);
     if ("response" in target) return target.response;
+    // F3: counted per person after the authorisation above and before the body is read.
+    const throttled = throttle(limits.write, c.get("user")!.id, c);
+    if (throttled !== null) return throttled;
     const body = await readBody(c, SaveBodySchema);
     if (!body.ok) return body.response;
     const { baseVersion, details } = body.value;
@@ -360,6 +417,8 @@ export function createLegalEntityWriteRouter({ audited = withAudit, client = db 
   router.on("POST", RESTORE_PATH, noStore, sessionMiddleware, requireAuth, authorize, async (c) => {
     const target = entityOf(c);
     if ("response" in target) return target.response;
+    const throttled = throttle(limits.write, c.get("user")!.id, c);
+    if (throttled !== null) return throttled;
     const body = await readBody(c, RestoreBodySchema);
     if (!body.ok) return body.response;
 
@@ -391,6 +450,7 @@ export function createLegalEntityWriteRouter({ audited = withAudit, client = db 
     403: { description: "`forbidden`: no `legal-entity:manage` covering the entity (nothing written)" },
     404: { description: "`unknown_legal_entity`, or (restore) `version_not_found`" },
     409: { description: "`version_conflict` (+ `currentVersion`) or `legal_entity_not_moved`" },
+    429: { description: "`too_many_requests` (+ `Retry-After`): save and restore share one per-person window" },
     413: { description: "`request_too_large`: body over 16 KiB" },
     422: {
       description:

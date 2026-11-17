@@ -312,6 +312,41 @@ describe("GET /legal-entities/manageable (AC-4.3, E2)", () => {
   });
 });
 
+describe("a deleted person (F2)", () => {
+  test("a soft-deleted holder with a live session: manageable is { entities: [] }, the person reads are 401", async () => {
+    await inRolledBackTx(async (tx) => {
+      await seed(tx, CH_V1);
+      const user = await makeUser("deleted-holder", "welld_ch");
+      await grantManage(user.id, null);
+      signedInAs(user);
+      expect(await (await get(tx, "/legal-entities/manageable")).json()).toEqual({ entities: ["welld_it", "welld_ch"] });
+      expect((await get(tx, "/legal-entities")).status).toBe(200);
+
+      await db.user.update({ where: { id: user.id }, data: { deletedAt: new Date() } });
+      const manageable = await get(tx, "/legal-entities/manageable");
+      expect(manageable.status).toBe(200);
+      expect(manageable.headers.get("cache-control")).toBe("no-store");
+      expect(await manageable.json()).toEqual({ entities: [] });
+      for (const path of ["/legal-entities", "/legal-entities/welld_ch", "/legal-entities/welld_it", "/legal-entities/welld_de"]) {
+        const res = await get(tx, path);
+        expect(res.status).toBe(401);
+        expect(res.headers.get("cache-control")).toBe("no-store");
+        expect(await res.text()).not.toContain("old name");
+      }
+    });
+  });
+
+  test("a session whose user row is gone reads nothing and manages nothing", async () => {
+    await inRolledBackTx(async (tx) => {
+      await seed(tx, CH_V1);
+      signedInAs({ id: `no-such-user-${RUN_ID}`, email: "ghost@legalentities.test", name: "Ghost" });
+      expect((await get(tx, "/legal-entities")).status).toBe(401);
+      expect((await get(tx, "/legal-entities/welld_ch")).status).toBe(401);
+      expect(await (await get(tx, "/legal-entities/manageable")).json()).toEqual({ entities: [] });
+    });
+  });
+});
+
 describe("the module only reads", () => {
   test("no route other than GET is declared by this router", () => {
     const methods = new Set(createLegalEntityReadRouter().routes.map((r) => r.method));
