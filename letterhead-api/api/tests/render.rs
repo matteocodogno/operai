@@ -3006,7 +3006,9 @@ mod issuer {
     }
 
     /// Plan decision 8: a pin that is not the version held makes the service read again, once. A pin the new read
-    /// agrees with renders; one it does not is a 409 with the version in use, and nothing is rendered.
+    /// agrees with renders; one it does not is a 409 with the version in use, and nothing is rendered. The read is
+    /// forced at most once per second per process (security review F6): a mismatch inside that second is the 409
+    /// at once, without a call.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn render_a_pin_that_differs_refreshes_once_and_a_pin_that_still_differs_is_409() {
         let Some(world) = world_with_letterheads().await else {
@@ -3031,7 +3033,9 @@ mod issuer {
         assert_eq!(reply.status, 200, "{}", reply.text());
         assert_eq!(world.auth.registry.reads(), 1);
 
-        // Somebody saved version 4 and the caller saw it: the pin is ahead of the held entry, one call brings it.
+        // Somebody saved version 4 and the caller saw it: the pin is ahead of the held entry, one call brings it
+        // (the entry is older than the second in which a mismatch is answered without a call).
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
         world.auth.registry.set("welld_it", "version", json!(4));
         world.auth.registry.set(
             "welld_it",
@@ -3054,7 +3058,8 @@ mod issuer {
         assert!(text_of(&reply).contains("NAME=Registry Italia Nuova S.r.l."));
         assert_eq!(world.auth.registry.reads(), 2);
 
-        // An older pin (the caller's own cache is behind): read again, still 4, so 409 with the version in use.
+        // An older pin (the caller's own cache is behind), inside the second of the forced read: the 409 at once
+        // with the version in use, no call.
         for route in ["/v1/render/pdf", "/v1/render/preview"] {
             pinned["legalEntityVersion"] = json!(3);
             let reply = post(&world.server, route, &token, &pinned).await;
@@ -3067,16 +3072,22 @@ mod issuer {
                 "{text}"
             );
         }
-        // Each of the two 409s read the registry once.
-        assert_eq!(world.auth.registry.reads(), 4);
+        assert_eq!(world.auth.registry.reads(), 2);
+
+        // A second later the same pin reads again, once, and is still the 409.
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+        assert_problem(&reply, 409, "legal_entity_version_mismatch");
+        assert_eq!(reply.json()["currentVersion"], 4);
+        assert_eq!(world.auth.registry.reads(), 3);
 
         // The refusal is in the log with the version, and it made no document (no pages).
-        let lines = world.server.request_lines(6).await;
+        let lines = world.server.request_lines(7).await;
         let refused: Vec<&String> = lines
             .iter()
             .filter(|l| l.contains("outcome=legal_entity_version_mismatch"))
             .collect();
-        assert_eq!(refused.len(), 2, "{lines:#?}");
+        assert_eq!(refused.len(), 3, "{lines:#?}");
         assert!(
             refused.iter().all(|l| l.contains("status=409")
                 && l.contains("pages=-")
@@ -3205,6 +3216,8 @@ mod issuer {
         )
         .await;
         assert_eq!(fits.status, 200, "{}", fits.text());
+        // The entry is older than the second in which a mismatching pin is answered without a call.
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
 
         let long = "Societa di Prova per la Verifica del Margine ".repeat(5);
         assert!(long.chars().count() >= 200);
@@ -3222,6 +3235,53 @@ mod issuer {
             assert!(!reply.body.starts_with(b"%PDF"));
             assert!(!reply.text().contains("Societa"), "{}", reply.text());
         }
+    }
+
+    /// Security review F6: a caller that sends a pin that is never the version in use cannot make every request a
+    /// call to `auth`. 100 renders with a mismatching pin inside one second are at most one registry call, each is
+    /// the 409 with `currentVersion`; after a second a mismatch reads again; a matching pin makes no call.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_a_mismatching_pin_is_one_registry_call_per_second_at_most() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        let mut pinned = v2("welld_it", "it");
+        pinned["legalEntityVersion"] = json!(99);
+
+        let started = Instant::now();
+        for _ in 0..100 {
+            let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+            assert_problem(&reply, 409, "legal_entity_version_mismatch");
+            assert_eq!(reply.json()["currentVersion"], 3);
+        }
+        let within = started.elapsed() < Duration::from_millis(900);
+        // The first request read the registry (no entry yet); nothing else did inside the second.
+        let reads = world.auth.registry.reads();
+        if within {
+            assert_eq!(reads, 1);
+        } else {
+            // A slow machine: the second passed, so one forced read per second is the bound.
+            let seconds = started.elapsed().as_secs() + 1;
+            assert!(reads as u64 <= 1 + seconds, "{reads} reads in {seconds} s");
+        }
+
+        // A matching pin makes no call.
+        pinned["legalEntityVersion"] = json!(3);
+        let before = world.auth.registry.reads();
+        let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        assert_eq!(world.auth.registry.reads(), before);
+
+        // After a second a mismatch refreshes again: a save of version 4 is seen by the pin 4.
+        tokio::time::sleep(Duration::from_millis(1_100)).await;
+        world.auth.registry.set("welld_it", "version", json!(4));
+        let before = world.auth.registry.reads();
+        pinned["legalEntityVersion"] = json!(4);
+        let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        assert_eq!(reply.header("legal-entity-version").as_deref(), Some("4"));
+        assert_eq!(world.auth.registry.reads(), before + 1);
     }
 
     /// The service reads the registry as its own client: with the scope `legal-entities:read` (the stub refuses a

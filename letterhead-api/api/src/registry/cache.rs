@@ -14,6 +14,12 @@
 //! `invalidate()` forgets the entry (the pin retry of decision 8): the next read goes to `auth`, and a refresh that
 //! was already in flight, sent before the invalidation, is neither joined nor cached (its own callers still get its
 //! answer; it is not newer than the one they asked for).
+//!
+//! `refresh_for_pin()` is the pin retry as the routes ask for it, and it is coalesced (security review F6): a
+//! caller that names a version other than the one held could otherwise make every request a call to `auth`. A forced
+//! refresh happens at most once per [`FORCED_REFRESH_EVERY`] per process, and not at all when the entry was sent
+//! less than that ago (it is as new as a forced refresh would make it); the others re-read what is held and answer
+//! with it.
 
 use std::fmt;
 use std::future::Future;
@@ -25,6 +31,9 @@ use letterhead_engine::content::Entity;
 use tokio::sync::watch;
 
 use super::{FRESH_FOR, LegalEntityDetails, REFRESH_TIMEOUT, USABLE_FOR};
+
+/// The pin retry reads `auth` at most once in this time, per process (security review F6).
+pub const FORCED_REFRESH_EVERY: Duration = Duration::from_secs(1);
 
 /// A monotonic clock: the time since some fixed origin. Ages and send times are differences of it. Never the wall
 /// clock, which can be set back.
@@ -168,6 +177,8 @@ struct State {
     next_flight: u64,
     /// Bumped by `invalidate()`: a refresh begun in an earlier epoch is not cached.
     epoch: u64,
+    /// When the last forced refresh (`refresh_for_pin`) was started, on the registry's clock.
+    last_forced: Option<Duration>,
 }
 
 struct Inner {
@@ -282,11 +293,38 @@ impl Registry {
 
     /// Forget the entry: the next read asks `auth` (the pin retry of decision 8). A refresh already in flight is
     /// neither joined by later reads nor cached.
+    #[allow(
+        dead_code,
+        reason = "the routes use refresh_for_pin(); tests/registry.rs compiles this file on its own and uses this"
+    )]
     pub fn invalidate(&self) {
         let mut state = self.inner.state();
         state.entry = None;
         state.flight = None;
         state.epoch += 1;
+    }
+
+    /// The pin retry, coalesced: forgets the entry (as [`Registry::invalidate`]) so that the next read asks `auth`,
+    /// unless a forced refresh was started less than [`FORCED_REFRESH_EVERY`] ago or the entry was sent less than
+    /// that ago. Returns whether it did. When it did not, the caller's next read is the held entry (no call) or the
+    /// refresh in flight (joined), and a pin that still differs is the caller's 409 at once.
+    pub fn refresh_for_pin(&self) -> bool {
+        let mut state = self.inner.state();
+        let now = (self.inner.clock)();
+        let recent = |at: Duration| now.saturating_sub(at) < FORCED_REFRESH_EVERY;
+        if state.last_forced.is_some_and(recent)
+            || state
+                .entry
+                .as_ref()
+                .is_some_and(|entry| recent(entry.sent_at))
+        {
+            return false;
+        }
+        state.last_forced = Some(now);
+        state.entry = None;
+        state.flight = None;
+        state.epoch += 1;
+        true
     }
 
     fn age(&self, entry: &Snapshot) -> Duration {

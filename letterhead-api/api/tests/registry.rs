@@ -708,6 +708,72 @@ async fn registry_a_refresh_in_flight_when_invalidate_is_called_is_neither_joine
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// refresh_for_pin(): the pin retry, coalesced (security review F6)
+
+#[tokio::test]
+async fn registry_a_forced_refresh_is_not_made_when_the_entry_was_sent_less_than_a_second_ago() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.source.save("welld_ch", None);
+    for _ in 0..100 {
+        assert!(!rig.registry.refresh_for_pin());
+        assert_eq!(
+            version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh),
+            3,
+            "the held entry answers"
+        );
+        rig.clock.advance(Duration::from_millis(9));
+    }
+    assert_eq!(rig.source.calls(), 1);
+}
+
+#[tokio::test]
+async fn registry_after_a_second_a_forced_refresh_reads_again_once_and_then_waits_a_second() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.clock.advance(Duration::from_millis(999));
+    assert!(!rig.registry.refresh_for_pin(), "999 ms");
+    rig.clock.advance(Duration::from_millis(1));
+    rig.source.save("welld_ch", None);
+    assert!(rig.registry.refresh_for_pin(), "1 s");
+    assert_eq!(
+        version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh),
+        4
+    );
+    assert_eq!(rig.source.calls(), 2);
+
+    // Within the second of the forced refresh: refused, whatever the entry says.
+    rig.source.save("welld_ch", None);
+    for _ in 0..100 {
+        assert!(!rig.registry.refresh_for_pin());
+        rig.registry.all().await.expect("read");
+    }
+    assert_eq!(rig.source.calls(), 2);
+    rig.clock.advance(SECOND);
+    assert!(rig.registry.refresh_for_pin());
+    assert_eq!(
+        version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh),
+        5
+    );
+    assert_eq!(rig.source.calls(), 3);
+}
+
+#[tokio::test]
+async fn registry_a_failed_forced_refresh_still_counts_for_the_second() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    rig.clock.advance(5 * SECOND);
+    rig.source.set(Mode::Fail(Failure::Network));
+    assert!(rig.registry.refresh_for_pin());
+    assert_eq!(rig.registry.all().await.err(), Some(Unavailable));
+    // `auth` is back, but the next forced refresh waits for its second; a plain read is the cache rule's own.
+    rig.source.set(Mode::Ok);
+    assert!(!rig.registry.refresh_for_pin());
+    rig.clock.advance(SECOND);
+    assert!(rig.registry.refresh_for_pin());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // The sent-time property (AC-3.3)
 
 /// A small deterministic generator, so a failure names its seed.

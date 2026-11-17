@@ -21,7 +21,7 @@
 //!    language, replace whatever `entityData` the request held (both content versions). 503
 //!    `legal_entities_unavailable` when they cannot be had within the cache rule; 409
 //!    `legal_entity_version_mismatch` when the request's `legalEntityVersion` pin is not the version in use after
-//!    one refresh. The answer says which version it printed (`legalEntityVersion` / `Legal-Entity-Version`).
+//!    one refresh (a refresh forced by a pin happens at most once per second per process). The answer says which version it printed (`legalEntityVersion` / `Legal-Entity-Version`).
 //! 6. **The letterhead version**: named (404 if it does not exist) or the active one (409 if none), and its
 //!    assets from the bucket. Never a fallback to another version, another entity or a plain page (AC-4.4).
 //! 7. **The worker**, which lays the document out and is killed at the deadline.
@@ -217,7 +217,8 @@ async fn serve(
 ///
 /// The cache gives the entity's details (fresh for 30 s, a stale entry for 60 s when `auth` fails, else
 /// `legal_entities_unavailable`). A pin that is not the version held is read as "the caller saw something else":
-/// the entry is dropped and read again, once. Still different: 409 `legal_entity_version_mismatch` with the version
+/// the entry is dropped and read again, once, but at most once per second per process (a caller cannot make every
+/// request a call to `auth`; inside that second the held entry answers). Still different: 409 `legal_entity_version_mismatch` with the version
 /// in use, and the caller (crm-api) rebuilds its content and retries once. A pin that matches costs no call.
 async fn issuer_details(
     app: &AppState,
@@ -232,7 +233,9 @@ async fn issuer_details(
     if let Some(pin) = content.legal_entity_version
         && i64::from(pin) != details.version
     {
-        app.registry.invalidate();
+        // At most one forced read per second per process (F6): inside that second, or when the entry is that
+        // young, nothing is dropped and the read below is the held entry (no call) or the refresh in flight.
+        app.registry.refresh_for_pin();
         details = app
             .registry
             .get(content.entity)
