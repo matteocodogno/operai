@@ -701,3 +701,6 @@ same files.
 - FU-9 (T23): the sample document's intro (`letterhead-api/engine/src/sample/mod.rs` ~L292, ~L330) still says the
   company's data are placeholders marked "(SAMPLE)" — false in the configurator preview now that it shows the
   registry's details (AC-5.4). Reword in it and en (engine-only, real documents unaffected).
+- FU-10 (T32): letterheads-ui reads the shell's `getAuthBaseUrl` through a cast; declare it in
+  `letterheads-ui/src/federation/remotes.d.ts` and export it from `src/federation/__stubs__/shellSession.ts`, then
+  drop the cast.
