@@ -43,7 +43,12 @@ export function setupOpenAPI(app: OpenAPIHono): void {
           "emails.send / notifications.push, aud=SERVICE_AUDIENCE — " +
           "NOT a user JWT; ADR 20261006-scoped-service-jwt-fourth-notify-caller, ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired). The retired X-Internal-Token " +
           "header is refused. A user JWT is refused here and the " +
-          "Notifications routes never accept a service JWT.",
+          "Notifications routes never accept a service JWT. Both routes take an optional `idempotencyKey` " +
+          "(1-200 of [A-Za-z0-9._:-], scoped to the calling service's `sub`): a repeat of a stored notification " +
+          "answers 200 with it, a repeat of a sent email answers 200 with the same deliveryId, and nothing new " +
+          "is sent (the email key also reaches Resend as `<sub>:<key>`, which keeps keys 24 hours). An email " +
+          "template may be bound to specific callers (403 `template_not_allowed`) and may be addressed by " +
+          "`recipientId` instead of `to` (exactly one of the two; only for a template that allows it).",
       },
     ],
   });

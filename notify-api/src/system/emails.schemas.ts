@@ -15,6 +15,7 @@
 
 import { z } from "zod";
 import { EMAIL_TEMPLATES } from "@/channels/email.channel";
+import { IdempotencyKeySchema } from "./notifications.schemas";
 
 export const SendEmailTemplateSchema = z.enum(EMAIL_TEMPLATES);
 
@@ -105,38 +106,76 @@ export const RefundDecisionRejectedDataSchema = z.object({
 
 const ToSchema = z.string().email("to must be a valid email address").max(320);
 
-export const SendEmailRequestSchema = z.discriminatedUnion("template", [
-  z.object({
-    to: ToSchema,
-    template: z.literal("invitation"),
-    data: SendEmailDataSchema,
-  }),
-  z.object({
-    to: ToSchema,
-    template: z.literal("invitation_resend"),
-    data: SendEmailDataSchema,
-  }),
-  z.object({
-    to: ToSchema,
-    template: z.literal("refund_batch_compiled"),
-    data: RefundBatchCompiledDataSchema,
-  }),
-  z.object({
-    to: ToSchema,
-    template: z.literal("refund_decision_approved"),
-    data: RefundDecisionApprovedDataSchema,
-  }),
-  z.object({
-    to: ToSchema,
-    template: z.literal("refund_decision_rejected"),
-    data: RefundDecisionRejectedDataSchema,
-  }),
-]);
+// specs/20261117-legal-entities T56 (AC-9.13, plan G5): a recipient is named either by a raw address (`to`, the
+// way every template has always been addressed) or, for a template that allows it, by an auth user id
+// (`recipientId`, notify-api resolves the address — ADR 20261101-notify-api-resolves-email-notice-address-from-auth).
+// Exactly one of the two, checked below for every template; WHICH templates accept `recipientId` is policy, not
+// shape, and lives with the route (emails.routes.ts, EMAIL_TEMPLATE_POLICY) so a template cannot widen it by
+// accident. The shared members of every variant:
+const RecipientIdSchema = z
+  .string()
+  .min(1, "recipientId must not be empty")
+  .max(200, "recipientId must be at most 200 characters");
+
+const envelope = {
+  to: ToSchema.optional(),
+  recipientId: RecipientIdSchema.optional(),
+  // Repeat protection (T56, AC-9.14): scoped by notify-api to the calling service.
+  idempotencyKey: IdempotencyKeySchema.optional(),
+};
+
+export const SendEmailRequestSchema = z
+  .discriminatedUnion("template", [
+    z.object({
+      ...envelope,
+      template: z.literal("invitation"),
+      data: SendEmailDataSchema,
+    }),
+    z.object({
+      ...envelope,
+      template: z.literal("invitation_resend"),
+      data: SendEmailDataSchema,
+    }),
+    z.object({
+      ...envelope,
+      template: z.literal("refund_batch_compiled"),
+      data: RefundBatchCompiledDataSchema,
+    }),
+    z.object({
+      ...envelope,
+      template: z.literal("refund_decision_approved"),
+      data: RefundDecisionApprovedDataSchema,
+    }),
+    z.object({
+      ...envelope,
+      template: z.literal("refund_decision_rejected"),
+      data: RefundDecisionRejectedDataSchema,
+    }),
+  ])
+  // `to` and `recipientId` together, or neither: 400 (the same body shape as any other schema failure).
+  .superRefine((value, ctx) => {
+    const hasTo = value.to !== undefined;
+    const hasRecipient = value.recipientId !== undefined;
+    if (hasTo === hasRecipient) {
+      ctx.addIssue({
+        code: "custom",
+        path: [hasTo ? "recipientId" : "to"],
+        message: hasTo
+          ? "send either to or recipientId, not both"
+          : "to or recipientId is required",
+      });
+    }
+  });
 
 export type SendEmailRequest = z.infer<typeof SendEmailRequestSchema>;
 
+// `skipped` and `reason` arrive with `recipientId` (T56): no address means no delivery row, so `deliveryId` is
+// absent then. For a `to` send the answer is what it has always been.
+export const EMAIL_SKIP_REASONS = ["recipient_inactive", "not_configured"] as const;
+export const EMAIL_FAIL_REASONS = ["contact_lookup_failed"] as const;
 export const SendEmailResponseSchema = z.object({
-  deliveryId: z.string(),
-  status: z.enum(["sent", "failed"]),
+  deliveryId: z.string().optional(),
+  status: z.enum(["sent", "failed", "skipped"]),
   error: z.string().optional(),
+  reason: z.enum([...EMAIL_SKIP_REASONS, ...EMAIL_FAIL_REASONS]).optional(),
 });

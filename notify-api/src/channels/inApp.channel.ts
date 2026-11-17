@@ -23,14 +23,50 @@ import { pushChannel } from "@/channels/push.channel";
 import { eventBus } from "@/notifications/eventBus";
 import {
   createNotification,
+  createNotificationOnce,
   type CreateNotificationInput,
+  type IdempotencyScope,
 } from "@/notifications/notifications.repo";
 import type { NotificationDto } from "@/notifications/notifications.schemas";
 import type { Channel } from "./channel";
 
 export type InAppSendInput = CreateNotificationInput;
 
-export const inAppChannel: Channel<InAppSendInput, NotificationDto> = {
+/** What `sendOnce` answers: the notification, and whether it was already there (a repeat — nothing was sent). */
+export type InAppSendOnceResult = { notification: NotificationDto; replayed: boolean };
+
+/**
+ * The tail of every first delivery, shared by `send` and `sendOnce`: publish to the recipient's open streams, then
+ * the best-effort web push.
+ */
+const deliver = (recipientId: string, created: NotificationDto): void => {
+  // Publish AFTER persistence succeeds — the DB is the source of truth
+  // (specs/20260713-notification-center plan.md Risk R3/R5); a dropped publish never loses the
+  // notification, only the live push.
+  eventBus.publish(recipientId, {
+    type: "notification",
+    data: created,
+  });
+
+  // Web push (specs/20261111-push-notifications, ADR 20261111-web-push-encrypted-payloads-not-fcm): a best-effort third delivery AFTER the row is stored
+  // and published. Deliberately not awaited, so a slow push service never delays the
+  // response, and shielded so that nothing it does can fail the request (AC-2.6).
+  // `pushChannel.dispatch` is looked up per call, so tests can replace it.
+  try {
+    void pushChannel.dispatch(recipientId, created).catch(() => {});
+  } catch {
+    // a synchronous failure of the push channel is as irrelevant as an async one
+  }
+};
+
+export const inAppChannel: Channel<InAppSendInput, NotificationDto> & {
+  /**
+   * `send` with receiver-side repeat protection (specs/20261117-legal-entities T56, AC-9.14): the first call for a
+   * (callerSub, idempotencyKey) pair stores, publishes and pushes; every later one — including the loser of a
+   * concurrent race — answers with the stored row and does none of those.
+   */
+  sendOnce(input: InAppSendInput, scope: IdempotencyScope): Promise<InAppSendOnceResult>;
+} = {
   send: async (input) => {
     const exit = await Effect.runPromiseExit(createNotification(input));
 
@@ -39,25 +75,19 @@ export const inAppChannel: Channel<InAppSendInput, NotificationDto> = {
     }
 
     const created = exit.value;
+    deliver(input.recipientId, created);
+    return created;
+  },
 
-    // Publish AFTER persistence succeeds — the DB is the source of truth
-    // (specs/20260713-notification-center plan.md Risk R3/R5); a dropped publish never loses the
-    // notification, only the live push.
-    eventBus.publish(input.recipientId, {
-      type: "notification",
-      data: created,
-    });
+  sendOnce: async (input, scope) => {
+    const exit = await Effect.runPromiseExit(createNotificationOnce(input, scope));
 
-    // Web push (specs/20261111-push-notifications, ADR 20261111-web-push-encrypted-payloads-not-fcm): a best-effort third delivery AFTER the row is stored
-    // and published. Deliberately not awaited, so a slow push service never delays the
-    // response, and shielded so that nothing it does can fail the request (AC-2.6).
-    // `pushChannel.dispatch` is looked up per call, so tests can replace it.
-    try {
-      void pushChannel.dispatch(input.recipientId, created).catch(() => {});
-    } catch {
-      // a synchronous failure of the push channel is as irrelevant as an async one
+    if (exit._tag === "Failure") {
+      throw new Error("Unexpected database failure creating notification");
     }
 
-    return created;
+    const { notification, created } = exit.value;
+    if (created) deliver(input.recipientId, notification);
+    return { notification, replayed: !created };
   },
 };

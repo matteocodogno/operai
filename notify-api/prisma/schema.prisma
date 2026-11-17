@@ -24,23 +24,30 @@ datasource db {
 // (notify-ui captures the unread set at open), not durable state.
 // No retention/expiry field (spec non-goal: no retention policy).
 model Notification {
-  id          String    @id @default(cuid())
-  recipientId String
-  title       String
-  body        String
+  id             String    @id @default(cuid())
+  recipientId    String
+  title          String
+  body           String
   // Optional Italian variant (specs/20261104-meetings, ADR 20261104-bilingual-system-notifications). Both set or both
   // null (the zod boundary requires the pair); the READER picks it from
   // <html lang>, English title/body stay the fallback.
-  titleIt     String?
-  bodyIt      String?
-  severity    String // "info" | "success" | "warning" | "error" (zod-enum at the boundary)
-  originApp   String // "estimai" | "refund" | "admin" | … (zod-enum at the boundary)
-  linkHref    String?
-  linkLabel   String?
-  toastWorthy Boolean   @default(false)
-  readAt      DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  titleIt        String?
+  bodyIt         String?
+  severity       String // "info" | "success" | "warning" | "error" (zod-enum at the boundary)
+  originApp      String // "estimai" | "refund" | "admin" | … (zod-enum at the boundary)
+  linkHref       String?
+  linkLabel      String?
+  toastWorthy    Boolean   @default(false)
+  readAt         DateTime?
+  // Repeat protection of POST /system/notifications (specs/20261117-legal-entities T56, AC-9.13/9.14, plan G4):
+  // the calling service's JWT `sub` and the key it sent. Both null for every other way a row is born. A
+  // partial UNIQUE index (callerSub, idempotencyKey) WHERE idempotencyKey IS NOT NULL — hand-written in the
+  // migration, Prisma cannot express a partial index — makes a repeat find the first row; a key is scoped to
+  // its caller, so another service's key never matches. The key carries no value (callers build it from ids).
+  callerSub      String?
+  idempotencyKey String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([recipientId, createdAt(sort: Desc)]) // list newest-first (AC-2.3)
   @@index([recipientId, readAt]) // unread-count / mark-all-read (AC-1.2, AC-3.1)
@@ -63,15 +70,22 @@ model Notification {
 // never the raw Resend/network error object (ADR 20260714-notify-api-email-channel-service-trust Risks: never log the
 // internal token or email content; this column follows the same posture).
 model EmailDelivery {
-  id         String   @id @default(cuid())
-  to         String
-  template   String // "invitation" | "invitation_resend" (closed set validated at the zod boundary)
-  status     String // "queued" | "sent" | "failed"
-  providerId String? // Resend message id, present only when status == "sent"
-  error      String? // short failure reason, present only when status == "failed"
-  createdAt  DateTime @default(now())
+  id             String   @id @default(cuid())
+  to             String
+  template       String // "invitation" | "invitation_resend" (closed set validated at the zod boundary)
+  status         String // "queued" | "sent" | "failed"
+  providerId     String? // Resend message id, present only when status == "sent"
+  error          String? // short failure reason, present only when status == "failed"
+  // Repeat protection of POST /system/emails (specs/20261117-legal-entities T56, plan G4): the calling service's
+  // `sub` and the key it sent, both null when no key was sent. Several `failed` attempts may share a key; a
+  // partial UNIQUE index on (callerSub, idempotencyKey) WHERE status = 'sent' (hand-written in the migration)
+  // allows at most one `sent` row per key, which is what a repeat finds and answers with.
+  callerSub      String?
+  idempotencyKey String?
+  createdAt      DateTime @default(now())
 
   @@index([to, createdAt(sort: Desc)]) // per-address delivery history, newest-first
+  @@index([callerSub, idempotencyKey]) // a repeat's lookup
   @@map("email_delivery")
 }
 

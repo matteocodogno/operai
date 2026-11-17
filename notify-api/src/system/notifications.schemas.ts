@@ -27,6 +27,18 @@ import {
   SeveritySchema,
 } from "@/notifications/notifications.schemas";
 
+/**
+ * Repeat protection for the two internal send routes (specs/20261117-legal-entities T56, AC-9.13/9.14, plan G5): the
+ * caller's own key for ONE logical send, scoped by notify-api to the calling service's `sub`. 1-200 characters of
+ * `[A-Za-z0-9._:-]`. It must carry no value — callers build it from ids (`legal-entity-notice:<row id>`). It is
+ * also passed to Resend (as `<sub>:<key>`), whose own limit is 256 characters.
+ */
+export const IdempotencyKeySchema = z
+  .string()
+  .min(1, "idempotencyKey must not be empty")
+  .max(200, "idempotencyKey must be at most 200 characters")
+  .regex(/^[A-Za-z0-9._:-]+$/, "idempotencyKey may only contain letters, digits and . _ : -");
+
 export const SystemNotificationRequestSchema = z.object({
   recipientId: z
     .string()
@@ -45,6 +57,9 @@ export const SystemNotificationRequestSchema = z.object({
   // email to the recipient, whose address notify-api resolves from `auth`.
   // The caller never supplies an address. Needs the `emails.send` scope too.
   email: z.boolean().optional(),
+  // specs/20261117-legal-entities T56: a repeat with the same calling `sub` and key answers 200 with the stored
+  // notification and publishes, pushes and mails nothing. Absent: every call stores a row, as before.
+  idempotencyKey: IdempotencyKeySchema.optional(),
 });
 
 export type SystemNotificationRequest = z.infer<typeof SystemNotificationRequestSchema>;

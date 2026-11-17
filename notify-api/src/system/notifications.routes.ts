@@ -41,13 +41,14 @@ import { inAppChannel } from "@/channels/inApp.channel";
 import { env } from "@/lib/env";
 import { zodIssuesHook } from "@/lib/zodHook";
 import { userContact, type UserContactClient } from "@/lib/userContact";
-import { ProblemSchema, problem } from "@/notifications/notifications.schemas";
+import { ProblemSchema, problem, type NotificationDto } from "@/notifications/notifications.schemas";
 import {
   createSystemAuthMiddleware,
   originAllowed,
   type SystemAuthVariables,
 } from "./systemAuth.middleware";
 import { renderEmailTemplate } from "./emailTemplates";
+import { NotificationSchema } from "@/notifications/notifications.schemas";
 import {
   SystemNotificationRequestSchema,
   SystemNotificationResponseSchema,
@@ -159,7 +160,9 @@ export const createSystemNotificationsRouter = (
       "including one other than the caller — the cross-user capability " +
       "ADR 20260713-notification-center-standalone-service-shell-seam reserved and this route activates. An optional `it: {title, body}` " +
       "carries an Italian rendering (ADR 20261104-bilingual-system-notifications): stored, returned by the list and " +
-      "the SSE payload, and chosen by the reader from its interface language.",
+      "the SSE payload, and chosen by the reader from its interface language. An optional `idempotencyKey` " +
+      "(1-200 of [A-Za-z0-9._:-], scoped to the calling service) makes a repeat safe: the first call answers " +
+      "201, a repeat with the same key answers 200 with the stored notification and sends nothing new.",
     request: {
       body: {
         required: true,
@@ -167,6 +170,12 @@ export const createSystemNotificationsRouter = (
       },
     },
     responses: {
+      200: {
+        content: { "application/json": { schema: NotificationSchema } },
+        description:
+          "A repeat: the request carried an `idempotencyKey` this calling service had already used. The " +
+          "notification stored by the first call is returned; nothing is published, pushed or mailed.",
+      },
       201: {
         content: { "application/json": { schema: SystemNotificationResponseSchema } },
         description: "Notification created for recipientId and published to its SSE streams. " +
@@ -231,7 +240,7 @@ export const createSystemNotificationsRouter = (
       );
     }
 
-    const created = await inAppChannel.send({
+    const input = {
       recipientId: body.recipientId,
       title: body.title,
       body: body.body,
@@ -240,7 +249,23 @@ export const createSystemNotificationsRouter = (
       link: body.link,
       it: body.it,
       toastWorthy: false,
-    });
+    };
+
+    // Repeat protection (specs/20261117-legal-entities T56, AC-9.14): a key scoped to the calling service. The
+    // origin and scope checks above ran first, so a repeat is held to the same rules as the first call. A repeat
+    // answers 200 with the stored row and does nothing else — no SSE event, no push, no email (so `email: true`
+    // on a repeat is never acted on, and `emailStatus` is absent).
+    let created: NotificationDto;
+    if (body.idempotencyKey !== undefined) {
+      const once = await inAppChannel.sendOnce(input, {
+        callerSub: c.get("serviceSub"),
+        idempotencyKey: body.idempotencyKey,
+      });
+      if (once.replayed) return c.json(once.notification, 200);
+      created = once.notification;
+    } else {
+      created = await inAppChannel.send(input);
+    }
 
     if (body.email !== true) return c.json(created, 201);
 

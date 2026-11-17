@@ -105,6 +105,51 @@ export const createNotification = (
     catch: (cause) => new DatabaseError({ message: "Failed to create notification", cause }),
   });
 
+// ─── create once (POST /system/notifications with an idempotency key) ─────────
+
+/** The repeat-protection pair of one system call: the calling service's JWT `sub` and the key it sent. */
+export type IdempotencyScope = { callerSub: string; idempotencyKey: string };
+
+/** True for Prisma's unique-constraint violation (P2002), however the driver wraps it. */
+export const isUniqueViolation = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  (cause as { code?: unknown }).code === "P2002";
+
+export type CreateOnceResult = {
+  notification: NotificationDto;
+  /** True when this call wrote the row; false when the key had been used (the stored row is returned). */
+  created: boolean;
+};
+
+/**
+ * Creates the notification unless one already exists for (callerSub, idempotencyKey) — AC-9.14's receiver-side
+ * repeat protection. The partial unique index is the arbiter: a lookup first (the common repeat), then the insert;
+ * when two calls race, the loser's insert violates the index and it reads the winner instead of failing. Rows of
+ * other callers never match (the pair is the scope), so a key cannot be used to read another service's row.
+ */
+export const createNotificationOnce = (
+  input: CreateNotificationInput,
+  scope: IdempotencyScope,
+): Effect.Effect<CreateOnceResult, DatabaseError> =>
+  Effect.tryPromise({
+    try: async () => {
+      const where = { callerSub: scope.callerSub, idempotencyKey: scope.idempotencyKey };
+      const existing = await db.notification.findFirst({ where });
+      if (existing) return { notification: toDto(existing), created: false };
+      try {
+        const row = await db.notification.create({ data: { ...toCreateData(input), ...where } });
+        return { notification: toDto(row), created: true };
+      } catch (cause) {
+        if (!isUniqueViolation(cause)) throw cause;
+        const winner = await db.notification.findFirst({ where });
+        if (!winner) throw cause;
+        return { notification: toDto(winner), created: false };
+      }
+    },
+    catch: (cause) => new DatabaseError({ message: "Failed to create notification", cause }),
+  });
+
 // ─── list (cursor pagination, newest-first) ──────────────────────────────────
 
 export type ListResult = {

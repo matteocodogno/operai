@@ -35,6 +35,13 @@ export type SendEmailInput = {
   to: string;
   subject: string;
   html: string;
+  /**
+   * Passed to Resend as its `Idempotency-Key` (specs/20261117-legal-entities T56, AC-9.14): a second send with the
+   * same key, within the 24 hours Resend remembers it, is answered with the first message's id and delivers
+   * nothing. The SDK (resend 6.17.2) takes it as `emails.send(payload, { idempotencyKey })` and sets the header
+   * itself, so no raw header is needed. Absent: no header, as before.
+   */
+  idempotencyKey?: string | undefined;
 };
 
 export type SendEmailResult =
@@ -59,12 +66,15 @@ export const sendEmail = async (
   }
 
   try {
-    const { data, error } = await getClient().emails.send({
-      from: env.RESEND_FROM,
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
-    });
+    const { data, error } = await getClient().emails.send(
+      {
+        from: env.RESEND_FROM,
+        to: input.to,
+        subject: input.subject,
+        html: input.html,
+      },
+      input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : undefined,
+    );
 
     if (error) {
       return { ok: false, error: error.message ?? "Resend API error" };

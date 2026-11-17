@@ -24,12 +24,15 @@
  * uncaught Error for app.onError to turn into a 500.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/resend";
+import type { IdempotencyScope } from "@/notifications/notifications.repo";
 import type { Channel } from "./channel";
 import {
+  DeliveryAlreadySent,
+  findSentDelivery,
   recordEmailDelivery,
   type RecordEmailDeliveryInput,
 } from "./emailDelivery.repo";
@@ -67,38 +70,76 @@ export type EmailSendInput = {
   template: EmailTemplate;
   subject: string;
   html: string;
+  /**
+   * Repeat protection (specs/20261117-legal-entities T56, AC-9.14), for the system caller that sent a key: a
+   * `sent` delivery already recorded for the pair is returned as it is and nothing is sent; after `failed`
+   * attempts alone the send is tried again. The pair is recorded on every attempt, and `<sub>:<key>` goes to
+   * Resend as its idempotency key (it keeps keys 24 hours).
+   */
+  idempotency?: IdempotencyScope | undefined;
 };
 
 export type EmailSendResult =
-  | { deliveryId: string; status: "sent" }
+  | { deliveryId: string; status: "sent"; replayed?: true }
   | { deliveryId: string; status: "failed"; error: string };
+
+/** Resend refuses keys over 256 characters; a longer pair (an unusually long `sub`) is hashed, not truncated. */
+const RESEND_KEY_MAX = 256;
+
+/** The key Resend receives: `<sub>:<key>` — scoped like notify-api's own, so two callers never share one. */
+export const resendIdempotencyKey = (scope: IdempotencyScope): string => {
+  const key = `${scope.callerSub}:${scope.idempotencyKey}`;
+  return key.length <= RESEND_KEY_MAX
+    ? key
+    : `sha256:${createHash("sha256").update(key).digest("hex")}`;
+};
 
 const persistDelivery = async (
   input: RecordEmailDeliveryInput,
-): Promise<{ id: string }> => {
+): Promise<{ id: string; replayed: boolean }> => {
   const exit = await Effect.runPromiseExit(recordEmailDelivery(input));
   if (exit._tag === "Failure") {
+    // A concurrent call with the same key recorded its `sent` first: that row is the answer.
+    const failure = exit.cause._tag === "Fail" ? exit.cause.error : undefined;
+    if (failure instanceof DeliveryAlreadySent) return { id: failure.delivery.id, replayed: true };
     throw new Error("Unexpected database failure recording email delivery");
   }
-  return exit.value;
+  return { id: exit.value.id, replayed: false };
 };
+
+const sentFor = (row: { id: string; replayed: boolean }): EmailSendResult =>
+  row.replayed
+    ? { deliveryId: row.id, status: "sent", replayed: true }
+    : { deliveryId: row.id, status: "sent" };
 
 export const emailChannel: Channel<EmailSendInput, EmailSendResult> = {
   send: async (input) => {
+    const scope = input.idempotency;
+
+    if (scope) {
+      const exit = await Effect.runPromiseExit(findSentDelivery(scope));
+      if (exit._tag === "Failure") {
+        throw new Error("Unexpected database failure looking up email delivery");
+      }
+      if (exit.value) return { deliveryId: exit.value.id, status: "sent", replayed: true };
+    }
+
     if (!env.EMAIL_ENABLED) {
       const row = await persistDelivery({
         to: input.to,
         template: input.template,
         status: "sent",
         providerId: `stub_${randomUUID()}`,
+        ...(scope ? { scope } : {}),
       });
-      return { deliveryId: row.id, status: "sent" };
+      return sentFor(row);
     }
 
     const result = await sendEmail({
       to: input.to,
       subject: input.subject,
       html: input.html,
+      ...(scope ? { idempotencyKey: resendIdempotencyKey(scope) } : {}),
     });
 
     if (result.ok) {
@@ -107,8 +148,9 @@ export const emailChannel: Channel<EmailSendInput, EmailSendResult> = {
         template: input.template,
         status: "sent",
         providerId: result.providerId,
+        ...(scope ? { scope } : {}),
       });
-      return { deliveryId: row.id, status: "sent" };
+      return sentFor(row);
     }
 
     const row = await persistDelivery({
@@ -116,6 +158,7 @@ export const emailChannel: Channel<EmailSendInput, EmailSendResult> = {
       template: input.template,
       status: "failed",
       error: result.error,
+      ...(scope ? { scope } : {}),
     });
     return { deliveryId: row.id, status: "failed", error: result.error };
   },
