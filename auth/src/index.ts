@@ -22,6 +22,7 @@ import { userAddressRouter } from "./admin/userAddress.routes";
 import { addressRouter } from "./profile/address.routes";
 import { legalEntityReadRouter } from "./legalEntities/read.routes";
 import { legalEntityHistoryRouter } from "./legalEntities/history.routes";
+import { legalEntityWriteRouter } from "./legalEntities/write.routes";
 import { createSystemLegalEntitiesRouter } from "./legalEntities/system.routes";
 import { healthRouter } from "./health/health.routes";
 import { inviteRouter } from "./invite/invite.routes";
@@ -36,7 +37,8 @@ import { createSystemRateLimits, LEGAL_ENTITIES_SERVICE_LIMIT } from "./system/s
 import { setNotifyTokenProvider } from "./lib/notify";
 import { setupOpenAPI } from "./openapi/registry";
 
-const app = new OpenAPIHono();
+// Exported so `legalEntities/routerTable.test.ts` can read the real route table (AC-2.7).
+export const app = new OpenAPIHono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
@@ -80,6 +82,9 @@ app.route("/", addressRouter);
 app.route("/", legalEntityReadRouter);
 // The history and the read-only version view (T7): GET only, each path with its own authentication and `no-store`.
 app.route("/", legalEntityHistoryRouter);
+// Save and restore (T8): POST only, per exact path, each with its own session, grant check and `no-store`. The registry
+// is append-only: there is no PUT, PATCH or DELETE under `/legal-entities` (`routerTable.test.ts` reads this table).
+app.route("/", legalEntityWriteRouter);
 app.route("/", invitationsRouter);
 app.route("/", accessRequestsRouter);
 app.route("/", inviteRouter);
