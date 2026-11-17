@@ -8,8 +8,9 @@ mod validate;
 
 pub use ingest::ingest_images;
 pub use model::{
-    Align, Block, CONTENT_VERSION, CellBlock, Entity, EntityData, Heading, Image, Language, List,
-    ListItem, Paragraph, RenderRequest, Run, Style, Table,
+    Align, Block, CONTENT_VERSION, CONTENT_VERSION_2, CellBlock, Entity, EntityData, Heading,
+    Image, Language, List, ListItem, Paragraph, RenderRequest, Run, SUPPORTED_CONTENT_VERSIONS,
+    Style, Table,
 };
 pub use validate::{
     Limit, LimitName, MAX_BLOCKS, MAX_PROBLEMS, MAX_TEXT_CHARS, Problem, Reason, Rejection,

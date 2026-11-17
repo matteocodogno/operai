@@ -126,6 +126,7 @@ pub fn request(entity: Entity, language: Language) -> RenderRequest {
         content_version: CONTENT_VERSION,
         entity,
         letterhead_version: None,
+        legal_entity_version: None,
         language,
         entity_data: entity_data(entity),
         blocks,

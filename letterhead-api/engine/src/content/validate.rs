@@ -19,8 +19,8 @@
 use serde_json::{Map, Value};
 
 use super::model::{
-    Align, Block, CONTENT_VERSION, CellBlock, Entity, EntityData, Heading, Image, Language, List,
-    ListItem, Paragraph, RenderRequest, Run, Style, Table,
+    Align, Block, CONTENT_VERSION_2, CellBlock, Entity, EntityData, Heading, Image, Language, List,
+    ListItem, Paragraph, RenderRequest, Run, SUPPORTED_CONTENT_VERSIONS, Style, Table,
 };
 
 /// AC-3.3: more blocks than this in one request is refused.
@@ -34,10 +34,22 @@ const MAX_COLUMN_WEIGHT: f64 = 1_000_000.0;
 const MAX_HEADING_LEVEL: u64 = 3;
 
 // The member names of the schema, in one place. The AC-9.2 test reads them: none may name a caller's domain.
+/// The members of a content version 1 request.
+pub(super) const ROOT_MEMBERS_V1: &[&str] = &[
+    "contentVersion",
+    "entity",
+    "letterheadVersion",
+    "language",
+    "entityData",
+    "blocks",
+];
+/// The members of a content version 2 request: version 1's and the pin of the issuer's details. A version 1
+/// request that carries `legalEntityVersion` is refused as an unknown member, like any other.
 pub(super) const ROOT_MEMBERS: &[&str] = &[
     "contentVersion",
     "entity",
     "letterheadVersion",
+    "legalEntityVersion",
     "language",
     "entityData",
     "blocks",
@@ -224,9 +236,14 @@ pub fn validate_request(root: &Value) -> Result<RenderRequest, Rejection> {
     };
 
     // The envelope. Each has its own code, so a caller can tell them from a malformed body.
-    if object.get("contentVersion").and_then(Value::as_u64) != Some(u64::from(CONTENT_VERSION)) {
+    let Some(content_version) = object
+        .get("contentVersion")
+        .and_then(Value::as_u64)
+        .and_then(|n| u32::try_from(n).ok())
+        .filter(|n| SUPPORTED_CONTENT_VERSIONS.contains(n))
+    else {
         return Err(Rejection::UnsupportedContentVersion);
-    }
+    };
     let Some(entity) = object
         .get("entity")
         .and_then(Value::as_str)
@@ -243,7 +260,7 @@ pub fn validate_request(root: &Value) -> Result<RenderRequest, Rejection> {
     };
 
     let mut walker = Walker::default();
-    let request = walker.request(object, entity, language);
+    let request = walker.request(object, content_version, entity, language);
     if let Some(limit) = walker.limit {
         return Err(Rejection::ContentTooLarge(limit));
     }
@@ -446,10 +463,16 @@ impl Walker {
     fn request(
         &mut self,
         object: &Map<String, Value>,
+        content_version: u32,
         entity: Entity,
         language: Language,
     ) -> RenderRequest {
-        self.check_members(object, None, ROOT_MEMBERS);
+        let v2 = content_version == CONTENT_VERSION_2;
+        self.check_members(
+            object,
+            None,
+            if v2 { ROOT_MEMBERS } else { ROOT_MEMBERS_V1 },
+        );
 
         let letterhead_version = match object.get("letterheadVersion") {
             None | Some(Value::Null) => None,
@@ -467,6 +490,25 @@ impl Walker {
                     }
                 }
             }
+        };
+
+        // Version 2 only. In version 1 the member is already an `unknown_member` of the root and is not read.
+        let legal_entity_version = match object.get("legalEntityVersion") {
+            Some(value) if v2 && !value.is_null() => {
+                let here = Path::key(None, "legalEntityVersion");
+                match value.as_i64() {
+                    Some(n) if (1..=i64::from(i32::MAX)).contains(&n) => Some(n as i32),
+                    _ if value.is_number() => {
+                        self.problem(Some(&here), Reason::OutOfRange);
+                        None
+                    }
+                    _ => {
+                        self.problem(Some(&here), Reason::WrongType);
+                        None
+                    }
+                }
+            }
+            _ => None,
         };
 
         let entity_data = match object.get("entityData") {
@@ -489,9 +531,10 @@ impl Walker {
         };
 
         RenderRequest {
-            content_version: CONTENT_VERSION,
+            content_version,
             entity,
             letterhead_version,
+            legal_entity_version,
             language,
             entity_data,
             blocks,

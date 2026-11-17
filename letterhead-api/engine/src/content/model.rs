@@ -11,9 +11,17 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The only content version this service speaks (AC-1.8). A future version is translated into the newest
-/// one before it reaches the layout code; this spec has one.
+/// Content version 1: the original shape, and the value the engine's own sample request carries.
 pub const CONTENT_VERSION: u32 = 1;
+
+/// Content version 2 (specs/20261117-legal-entities, AC-5.2): "the issuer's details are the service's". The
+/// body is version 1's plus an optional `legalEntityVersion` pin. The engine does not branch on the version
+/// when it lays a document out (the supervisor fills the issuer's details from the registry for both), so
+/// the engine's interface and its golden pages are unchanged.
+pub const CONTENT_VERSION_2: u32 = 2;
+
+/// The content versions this service accepts; any other is `unsupported_content_version`.
+pub const SUPPORTED_CONTENT_VERSIONS: [u32; 2] = [CONTENT_VERSION, CONTENT_VERSION_2];
 
 /// A legal entity that has a letterhead (AC-4.9).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -161,6 +169,11 @@ pub struct RenderRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub letterhead_version: Option<i32>,
     pub language: Language,
+    /// The version of the issuer's details the caller used (content version 2 only; `None` in version 1 and
+    /// when a version 2 caller sends no pin). Read by the service, never by the layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub legal_entity_version: Option<i32>,
+    /// Parsed for its structure in both versions and otherwise ignored by the service (AC-5.2).
     #[serde(default)]
     pub entity_data: EntityData,
     pub blocks: Vec<Block>,

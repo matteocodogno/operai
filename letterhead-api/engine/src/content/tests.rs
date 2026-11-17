@@ -268,11 +268,13 @@ mod envelope {
     #[test]
     fn an_unknown_or_missing_content_version_is_refused() {
         for version in [
-            json!(2),
+            json!(3),
             json!(0),
             json!(-1),
             json!("1"),
             json!(1.5),
+            json!(2.0),
+            json!(u64::from(u32::MAX) + 2),
             json!(null),
             json!(true),
         ] {
@@ -1334,6 +1336,135 @@ mod schema_names {
                 );
             }
         }
+    }
+}
+
+mod versions {
+    //! Content versions 1 and 2 (T19, AC-5.2; amendments D1, D7, E12).
+    use super::*;
+
+    fn v(version: u32) -> Value {
+        let mut value = request(json!([]));
+        value["contentVersion"] = json!(version);
+        value
+    }
+
+    fn entity_data() -> Value {
+        json!({ "legalName": "X", "addressLines": ["a", "b"], "vat": "v", "iban": "i", "contacts": "c" })
+    }
+
+    #[test]
+    fn versions_1_and_2_are_accepted_and_kept() {
+        assert_eq!(validate_request(&v(1)).expect("v1").content_version, 1);
+        assert_eq!(validate_request(&v(2)).expect("v2").content_version, 2);
+        assert_eq!(SUPPORTED_CONTENT_VERSIONS, [1, 2]);
+    }
+
+    #[test]
+    fn versions_0_and_3_are_unsupported() {
+        for version in [0, 3, 4, u32::MAX] {
+            assert_eq!(rejected(&v(version)), Rejection::UnsupportedContentVersion);
+        }
+    }
+
+    #[test]
+    fn the_pin_is_accepted_in_version_2_only() {
+        let mut value = v(2);
+        value["legalEntityVersion"] = json!(5);
+        let parsed = validate_request(&value).expect("v2 with pin");
+        assert_eq!(parsed.legal_entity_version, Some(5));
+        assert_eq!(
+            validate_request(&v(2)).expect("v2").legal_entity_version,
+            None
+        );
+
+        let mut value = v(1);
+        value["legalEntityVersion"] = json!(5);
+        assert_eq!(problems_of(&value), vec![at("", "unknown_member")]);
+        // a null pin is a member too: refused in version 1, absent in version 2
+        let mut value = v(1);
+        value["legalEntityVersion"] = json!(null);
+        assert_eq!(problems_of(&value), vec![at("", "unknown_member")]);
+        let mut value = v(2);
+        value["legalEntityVersion"] = json!(null);
+        assert_eq!(
+            validate_request(&value)
+                .expect("null pin")
+                .legal_entity_version,
+            None
+        );
+    }
+
+    #[test]
+    fn a_bad_pin_is_a_problem_at_its_path() {
+        for (pin, reason) in [
+            (json!(0), "out_of_range"),
+            (json!(-1), "out_of_range"),
+            (json!(1.5), "out_of_range"),
+            (json!(i64::from(i32::MAX) + 1), "out_of_range"),
+            (json!("5"), "wrong_type"),
+            (json!(true), "wrong_type"),
+            (json!([5]), "wrong_type"),
+        ] {
+            let mut value = v(2);
+            value["legalEntityVersion"] = pin;
+            assert_eq!(problems_of(&value), vec![at("/legalEntityVersion", reason)]);
+        }
+        let mut value = v(2);
+        value["legalEntityVersion"] = json!(i32::MAX);
+        assert_eq!(
+            validate_request(&value).expect("max").legal_entity_version,
+            Some(i32::MAX)
+        );
+    }
+
+    #[test]
+    fn entity_data_is_parsed_in_both_versions_with_or_without() {
+        for version in [1, 2] {
+            let mut value = v(version);
+            assert_eq!(
+                validate_request(&value).expect("without").entity_data,
+                EntityData::default()
+            );
+            value["entityData"] = entity_data();
+            let parsed = validate_request(&value).expect("with");
+            assert_eq!(parsed.entity_data.legal_name.as_deref(), Some("X"));
+            assert_eq!(parsed.entity_data.iban.as_deref(), Some("i"));
+
+            // v1's structural check is unchanged, and v2 applies the same one
+            let mut value = v(version);
+            value["entityData"] = json!({ "vat": 3, "extra": 1 });
+            assert_eq!(
+                problems_of(&value),
+                vec![
+                    at("/entityData", "unknown_member"),
+                    at("/entityData/vat", "wrong_type")
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn a_version_2_request_round_trips_with_its_pin() {
+        let mut value = v(2);
+        value["legalEntityVersion"] = json!(3);
+        let parsed = validate_request(&value).expect("valid");
+        let again = serde_json::to_value(&parsed).expect("serialise");
+        assert_eq!(again["contentVersion"], json!(2));
+        assert_eq!(again["legalEntityVersion"], json!(3));
+        let back: RenderRequest = serde_json::from_value(again).expect("deserialise");
+        assert_eq!(back, parsed);
+        // a request without a pin serialises without the member, so version 1 bytes are unchanged
+        let plain = serde_json::to_value(validate_request(&v(1)).expect("v1")).expect("ser");
+        assert!(plain.get("legalEntityVersion").is_none());
+    }
+
+    #[test]
+    fn a_refused_pin_echoes_nothing() {
+        let mut value = v(2);
+        value["legalEntityVersion"] = json!("ZQXquoted");
+        let text = format!("{:?}", rejected(&value));
+        assert!(!text.contains("ZQX"), "{text}");
     }
 }
 
