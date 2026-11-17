@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { PDFDocument, PDFArray, PDFRawStream, StandardFonts, decodePDFRawStream } from "pdf-lib";
 // The test world first: it sets the environment the other modules read when they load.
-import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, resetWorld, storedPdfAttachment } from "../test-support/world";
+import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, resetWorld, setRetiredLegalColumns, storedPdfAttachment } from "../test-support/world";
 import { resetLetterheadMemoForTests } from "../entity-profiles/letterheadUse";
 import { env } from "../lib/env";
 import { LETTERHEAD_TIMEOUT_MS, createLetterheadClient, letterhead } from "../lib/letterheadClient";
@@ -210,9 +210,8 @@ describe("with the switch on", () => {
   it("sends the draft as content version 1 with the entity profile as it is now, as the service, asking for the active version (AC-10.1, AC-10.10)", async () => {
     const s = await startDraft();
     // the profile changes after the draft was made: the render takes the values of its moment
-    const put = await call("PUT", "/entity-profiles/welld_ch", {
-      body: { legalName: "wellD SA (nuova)", addressLines: ["Via Nuova 9", "6900 Lugano"], vatNumber: "  ", iban: null, offerTermsEn: "x", offerTermsIt: "y" },
-    });
+    await setRetiredLegalColumns("welld_ch", { legalName: "wellD SA (nuova)", addressLines: ["Via Nuova 9", "6900 Lugano"], vatNumber: null, iban: null });
+    const put = await call("PUT", "/entity-profiles/welld_ch", { body: { offerTermsEn: "x", offerTermsIt: "y" } });
     expect(put.status).toBe(200);
     expect((await generate(s)).status).toBe(201);
 

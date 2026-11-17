@@ -9,7 +9,6 @@ import { requiredText, optionalText } from "./http";
  * entity profile's name, place of issue and terms, a company's name, a contact's names) answers 422 naming the field.
  */
 
-const PROFILE = { legalName: "wellD SA", addressLines: ["Via Example 1", "6900 Lugano"] };
 const NUL = "bad\u0000text";
 
 const refusedNaming = (res: { status: number; json: any }, field: string) => {
@@ -25,27 +24,31 @@ const refusedNaming = (res: { status: number; json: any }, field: string) => {
 
 describe("a NUL in an entity profile's free text is a 422 naming the field, never a 500", () => {
   beforeEach(resetWorld);
-  const put = (patch: Record<string, unknown>) => call("PUT", "/entity-profiles/welld_ch", { as: "admin", body: { ...PROFILE, ...patch } });
+  const put = (patch: Record<string, unknown>) => call("PUT", "/entity-profiles/welld_ch", { as: "admin", body: patch });
 
-  it("legalName, placeOfIssue, the optional terms, and a line of the address", async () => {
-    refusedNaming(await put({ legalName: NUL }), "legalName");
+  it("placeOfIssue and the optional terms", async () => {
     refusedNaming(await put({ placeOfIssue: NUL }), "placeOfIssue");
-    refusedNaming(await put({ vatNumber: NUL }), "vatNumber");
     refusedNaming(await put({ offerTermsEn: NUL }), "offerTermsEn");
-    refusedNaming(await put({ addressLines: ["Via Example 1", NUL] }), "addressLines.1");
+    refusedNaming(await put({ offerTermsIt: NUL }), "offerTermsIt");
   });
 
   it("nothing is written for a refused body, and a clean one is still saved", async () => {
-    await put({ legalName: NUL });
-    const stored = (await call("GET", "/entity-profiles")).json.items as { legalName: string | null }[];
-    expect(stored.some((p) => p.legalName?.includes("\u0000"))).toBe(false);
+    await put({ offerTermsEn: NUL });
+    const stored = (await call("GET", "/entity-profiles")).json.items as { offerTermsEn: string | null }[];
+    expect(stored.some((p) => p.offerTermsEn?.includes("\u0000"))).toBe(false);
     const ok = await put({ placeOfIssue: "Zug" });
     expect(ok.status).toBe(200);
     expect(ok.json.placeOfIssue).toBe("Zug");
   });
 
   it("a NUL only after the trim is still a NUL (whitespace around it does not hide it)", async () => {
-    refusedNaming(await put({ legalName: "  \u0000  " }), "legalName");
+    refusedNaming(await put({ placeOfIssue: "  \u0000  " }), "placeOfIssue");
+  });
+
+  it("a NUL in a legacy legal key is accepted and ignored: nothing of it is stored, so no insert can fail (AC-6.1)", async () => {
+    const res = await put({ legalName: NUL, addressLines: [NUL], vatNumber: NUL, iban: NUL, placeOfIssue: "Zug" });
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.json)).not.toContain("bad");
   });
 });
 

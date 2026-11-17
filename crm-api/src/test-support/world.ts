@@ -553,13 +553,28 @@ export const ENTITY_PROFILE = {
   offerTermsIt: "Pagamento a 30 giorni.",
 };
 
-/** Sets the entity's profile through the API (throws unless it lands). */
+/**
+ * Sets the entity's profile through the API (throws unless it lands). The API no longer stores the legal details
+ * (specs/20261117-legal-entities T29, AC-6.1), but the document paths read them from the columns until T26 moves them to the
+ * registry: the fixture writes the four retired columns directly, the way the copy script's source looked. T26 replaces
+ * this with the registry fake and removes the second step.
+ */
 export async function putEntityProfile(entity: "welld_ch" | "welld_it" = "welld_ch") {
-  const res = await call("PUT", `/entity-profiles/${entity}`, {
-    as: "admin",
-    body: { ...ENTITY_PROFILE, ...(entity === "welld_it" ? { legalName: "wellD Srl" } : {}) },
-  });
+  const { legalName, addressLines, vatNumber, iban, ...own } = ENTITY_PROFILE;
+  const res = await call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: own });
   if (res.status !== 200) throw new Error(`putEntityProfile: ${res.status} ${JSON.stringify(res.json)}`);
+  await db.entityProfile.update({
+    where: { entity },
+    data: { legalName: entity === "welld_it" ? "wellD Srl" : legalName, addressLines, vatNumber, iban },
+  });
+}
+
+/** Writes the retired legal columns of an existing profile, as an operator's SQL would (T26 moves the readers to the registry). */
+export async function setRetiredLegalColumns(
+  entity: "welld_ch" | "welld_it",
+  values: { legalName?: string; addressLines?: string[]; vatNumber?: string | null; iban?: string | null },
+) {
+  await db.entityProfile.update({ where: { entity }, data: values });
 }
 
 /**

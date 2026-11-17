@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { PDFDocument } from "pdf-lib";
-import { bucket, call, db, estimai, estimaiNotice, makeCompany, makeDeal, offerBody, resetWorld } from "../test-support/world";
+import { bucket, call, db, estimai, estimaiNotice, makeCompany, makeDeal, offerBody, resetWorld, setRetiredLegalColumns } from "../test-support/world";
 import { setStorageForTests } from "../lib/storage";
 import { deflatedRun, objStmBombPdf } from "../test-support/pdfBuild";
 
@@ -60,8 +60,13 @@ async function readyDeal(
   return { deal, company };
 }
 
-const putProfile = (entity: "welld_ch" | "welld_it" = "welld_ch") =>
-  call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: { ...PROFILE, ...(entity === "welld_it" ? { legalName: "wellD Srl" } : {}) } });
+/** The API keeps no legal details any more (T29); the document paths read the retired columns until T26, so they are set beside it. */
+const putProfile = async (entity: "welld_ch" | "welld_it" = "welld_ch") => {
+  const { legalName, addressLines, vatNumber, iban, ...own } = PROFILE;
+  const res = await call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: own });
+  await setRetiredLegalColumns(entity, { legalName: entity === "welld_it" ? "wellD Srl" : legalName, addressLines, vatNumber, iban });
+  return res;
+};
 const generate = (dealId: string, body: unknown, as: "salesCh" | "admin" = "admin") =>
   call("POST", `/deals/${dealId}/offers`, { as, body });
 /** specs/20261102-crm-offer-document US-7: a next revision needs the previous offer sent. */
@@ -697,7 +702,7 @@ describe("entity profiles", () => {
   it("are written by deal:manage over that entity only, with the place of issue", async () => {
     expect((await call("PUT", "/entity-profiles/welld_it", { as: "salesCh", body: PROFILE })).json.code).toBe("out_of_scope");
     const saved = await call("PUT", "/entity-profiles/welld_ch", { as: "salesCh", body: { ...PROFILE, placeOfIssue: " Lugano " } });
-    expect(saved.json).toMatchObject({ entity: "welld_ch", legalName: "wellD SA", placeOfIssue: "Lugano", letterhead: null });
+    expect(saved.json).toMatchObject({ entity: "welld_ch", placeOfIssue: "Lugano", letterhead: null });
     const list = await call("GET", "/entity-profiles", { as: "salesCh" });
     expect(list.json.items).toHaveLength(1);
   });

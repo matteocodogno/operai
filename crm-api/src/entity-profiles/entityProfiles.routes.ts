@@ -1,5 +1,5 @@
 /**
- * Letterhead, place of issue and standard terms of each wellD entity
+ * Letterhead, place of issue and standard terms of each wellD entity (the legal details live in the registry, AC-6.1)
  * (specs/20261101-crm-sales-flow O2; specs/20261102-crm-offer-document US-2).
  *
  *   GET  /entity-profiles                           deal:financials (the terms are commercial)
@@ -12,7 +12,7 @@
  * (specs/20261116-letterhead-service AC-10.11); the retirement script then deletes the stored files and the references.
  *
  * One row per entity, replaced whole on PUT (the letterhead columns are not part
- * of it: only the upload flow moves them). Not an audit record: the offers
+ * of it: only the upload flow moves them; the legacy legal columns neither). Not an audit record: the offers
  * snapshot what they printed, so changing the letterhead never rewrites one.
  *
  * The letterhead upload is two-phase like the deal attachments (ADR 20260716-eu-object-storage-refund-attachments
@@ -35,13 +35,10 @@ import { db } from "../lib/db";
 import { env } from "../lib/env";
 import {
   EntitySchema,
-  NO_NUL_TEXT,
   PersonRefSchema,
   commonErrors,
   pdfCheckErrors,
-  hasNoNul,
   optionalText,
-  requiredText,
   type HeaderSource,
 } from "../lib/http";
 import { loadPeople } from "../lib/people";
@@ -53,12 +50,20 @@ import { assertLetterheadUsable, rememberUsableLetterhead } from "./letterheadUs
 
 const json = (schema: z.ZodTypeAny) => ({ content: { "application/json": { schema } } });
 
+/**
+ * The issuer's legal details moved to the legal-entity registry in auth (specs/20261117-legal-entities AC-6.1): this body
+ * carries only the CRM's own values. During the switch push an old crm-ui still sends the four legacy keys, so they are
+ * ACCEPTED AND IGNORED, whatever they hold (nothing of them is stored, so a NUL or an oversized value reaches no insert); any
+ * other unknown key is refused as before (`.strict()`). The tolerance goes with the columns, in the contract step (plan, step 6).
+ */
+const legacyKey = z.unknown().optional().openapi({ deprecated: true, description: "Ignored: the legal details are kept in Legal entities" });
+
 const ProfileBodySchema = z
   .object({
-    legalName: requiredText(200),
-    addressLines: z.array(z.string().refine(hasNoNul, NO_NUL_TEXT).pipe(z.string().trim().min(1).max(200))).max(5),
-    vatNumber: optionalText(50),
-    iban: optionalText(50),
+    legalName: legacyKey,
+    addressLines: legacyKey,
+    vatNumber: legacyKey,
+    iban: legacyKey,
     offerTermsEn: optionalText(10_000),
     offerTermsIt: optionalText(10_000),
     placeOfIssue: optionalText(100),
@@ -67,10 +72,6 @@ const ProfileBodySchema = z
 
 const ProfileSchema = z.object({
   entity: EntitySchema,
-  legalName: z.string(),
-  addressLines: z.array(z.string()),
-  vatNumber: z.string().nullable(),
-  iban: z.string().nullable(),
   offerTermsEn: z.string().nullable(),
   offerTermsIt: z.string().nullable(),
   /** Printed beside the date of an offer; null means the default, "Lugano". */
@@ -221,10 +222,6 @@ async function toViews(c: HeaderSource, rows: readonly ProfileRow[]) {
   const { person } = await loadPeople(c, rows.map((row) => row.letterheadBy));
   return rows.map((row) => ({
     entity: row.entity,
-    legalName: row.legalName,
-    addressLines: row.addressLines,
-    vatNumber: row.vatNumber,
-    iban: row.iban,
     offerTermsEn: row.offerTermsEn,
     offerTermsIt: row.offerTermsIt,
     placeOfIssue: row.placeOfIssue,
@@ -253,11 +250,9 @@ entityProfilesRouter.openapi(putRoute, async (c) => {
   const { entity } = c.req.valid("param");
   const body = c.req.valid("json");
   assertInScope(dealScope(c), entity);
+  // The legacy legal keys are dropped here, never copied: an existing row keeps the values it has (the columns stay until
+  // step 6) and a new row takes the column defaults.
   const data = {
-    legalName: body.legalName,
-    addressLines: body.addressLines,
-    vatNumber: body.vatNumber ?? null,
-    iban: body.iban ?? null,
     offerTermsEn: body.offerTermsEn ?? null,
     offerTermsIt: body.offerTermsIt ?? null,
     placeOfIssue: body.placeOfIssue ?? null,

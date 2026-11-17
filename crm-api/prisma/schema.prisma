@@ -252,8 +252,10 @@ model DealAttachment {
 /// Letterhead and default offer terms of one wellD entity (specs/20261101-crm-sales-flow O2).
 model EntityProfile {
   entity       Entity   @id
-  legalName    String
-  addressLines String[]
+  /// RETIRED (specs/20261117-legal-entities, plan step 6 drops these four columns): the issuer's legal details are kept in
+  /// the registry in auth. Nothing reads or writes them but the one-time copy script; a row created by PUT takes the defaults.
+  legalName    String   @default("")
+  addressLines String[] @default([])
   vatNumber    String?
   iban         String?
   offerTermsEn String?

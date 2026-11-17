@@ -11,6 +11,7 @@ import {
   db,
   DRAFT_SOURCE,
   ENTITY_PROFILE,
+  setRetiredLegalColumns,
   makeDraftTemplate,
   readyDealWithProfiles,
   resetWorld,
@@ -139,8 +140,10 @@ describe("GET /entity-profiles/{entity}/letterhead (AC-11.7, AC-11.8, DD-54)", (
 
 describe("the issuer's text in a generated offer (AC-12.4)", () => {
   const stored = async (dealId: string) => JSON.stringify((await db.dealOffer.findMany({ where: { dealId }, orderBy: { number: "asc" } })).map((row) => row.snapshot));
-  const rename = (legalName: string) =>
-    call("PUT", "/entity-profiles/welld_ch", { body: { ...ENTITY_PROFILE, legalName, addressLines: ["Via Nuova 9"] } });
+  const rename = async (legalName: string) => {
+    await setRetiredLegalColumns("welld_ch", { legalName, addressLines: ["Via Nuova 9"] });
+    return call("PUT", "/entity-profiles/welld_ch", { body: { offerTermsEn: ENTITY_PROFILE.offerTermsEn, offerTermsIt: ENTITY_PROFILE.offerTermsIt } });
+  };
 
   it("prints the profile's name and address, keeps them in the snapshot when the profile changes, and prints the current ones on a revision", async () => {
     const s = await draftFor(ISSUER_SOURCE);
