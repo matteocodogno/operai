@@ -22,6 +22,7 @@ import { userAddressRouter } from "./admin/userAddress.routes";
 import { addressRouter } from "./profile/address.routes";
 import { legalEntityReadRouter } from "./legalEntities/read.routes";
 import { legalEntityHistoryRouter } from "./legalEntities/history.routes";
+import { legalEntityCheckRouter } from "./legalEntities/check.routes";
 import { legalEntityWriteRouter } from "./legalEntities/write.routes";
 import { createSystemLegalEntitiesRouter } from "./legalEntities/system.routes";
 import { healthRouter } from "./health/health.routes";
@@ -85,6 +86,8 @@ app.route("/", legalEntityHistoryRouter);
 // Save and restore (T8): POST only, per exact path, each with its own session, grant check and `no-store`. The registry
 // is append-only: there is no PUT, PATCH or DELETE under `/legal-entities` (`routerTable.test.ts` reads this table).
 app.route("/", legalEntityWriteRouter);
+// The dry run of a save (T55): POST only, its own exact path, read-only; shares the write router's limiter pair.
+app.route("/", legalEntityCheckRouter);
 app.route("/", invitationsRouter);
 app.route("/", accessRequestsRouter);
 app.route("/", inviteRouter);

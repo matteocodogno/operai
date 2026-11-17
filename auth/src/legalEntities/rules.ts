@@ -320,6 +320,22 @@ export function changedFields(prev: LegalDetails | null, next: LegalDetails): Fi
   return FIELDS.filter((f) => !sameValue(value(a, f), value(b, f)));
 }
 
+/**
+ * G2: the details whose change is shown to the person before it is saved and noticed to others after (AC-9.1,
+ * AC-9.8). In `FIELDS` order.
+ */
+export const PROTECTED_FIELDS = ["legalName", "vatNumber", "iban"] as const satisfies readonly Field[];
+export type ProtectedField = (typeof PROTECTED_FIELDS)[number];
+
+/**
+ * The protected fields among `changed` (what `changedFields` returned: after normalisation, so a different spacing or
+ * case of the same IBAN is not in it), in `PROTECTED_FIELDS` order. A protected change is a non-empty answer;
+ * filling an empty value and emptying a filled one count (they differ from "" after normalisation).
+ */
+export function protectedChanged(changed: readonly Field[]): ProtectedField[] {
+  return PROTECTED_FIELDS.filter((f) => changed.includes(f));
+}
+
 /** AC-2.1: equal after normalisation (IBAN spaces/case, trailing blanks, blank address lines, NFD vs NFC). */
 export function sameDetails(a: LegalDetails, b: LegalDetails): boolean {
   return changedFields(a, b).length === 0;

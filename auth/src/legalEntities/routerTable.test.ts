@@ -4,7 +4,7 @@
  * is `immutability.contract.test.ts`.)
  *
  *   (a) ROUTER TABLE - the real app's route table has no PUT, PATCH or DELETE (and no catch-all) under
- *       `/legal-entities` or `/system/legal-entities`, and its only POSTs are the save and the restore. A request with
+ *       `/legal-entities` or `/system/legal-entities`, and its only POSTs are the save, the restore and the read-only check (T55). A request with
  *       each of those verbs answers 404 for a signed-in administrator, so the 404 proves the route is absent and not
  *       masked by a 401 or a 403.
  *   (b) STATIC SCAN - `auth/src/**` (tests and the generated client excluded) holds no mutating Prisma call on
@@ -41,6 +41,7 @@ describe("AC-2.7 (a) - the router table", () => {
     expect(table).toContain("GET /legal-entities/:entity/versions");
     expect(table).toContain("POST /legal-entities/:entity/versions");
     expect(table).toContain("POST /legal-entities/:entity/versions/:n/restore");
+    expect(table).toContain("POST /legal-entities/:entity/versions/check");
     expect(table).toContain("GET /system/legal-entities");
   });
 
@@ -57,12 +58,13 @@ describe("AC-2.7 (a) - the router table", () => {
     expect(wildcards).toEqual([]);
   });
 
-  test("the only POSTs are the save and the restore", () => {
+  test("the only POSTs are the save, the restore and the check (exactly three, each its own exact path)", () => {
     // (Hono lists every handler of a route, middleware included: compare the distinct paths.)
     expect([...new Set(routes.filter((r) => r.method === "POST").map((r) => r.path))].sort()).toEqual([
       "/legal-entities/:entity/versions",
       "/legal-entities/:entity/versions/:n/restore",
-    ]);
+      "/legal-entities/:entity/versions/check",
+    ].sort());
   });
 
   test("PUT, PATCH and DELETE on every path of the registry answer 404 to a signed-in administrator", async () => {
@@ -73,6 +75,7 @@ describe("AC-2.7 (a) - the router table", () => {
       "/legal-entities/welld_ch/versions",
       "/legal-entities/welld_ch/versions/1",
       "/legal-entities/welld_ch/versions/1/restore",
+      "/legal-entities/welld_ch/versions/check",
       "/system/legal-entities",
       "/system/legal-entities/welld_ch",
     ];

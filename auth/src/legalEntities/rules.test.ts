@@ -10,7 +10,9 @@ import {
   missing,
   normalise,
   normaliseIban,
+  PROTECTED_FIELDS,
   problems,
+  protectedChanged,
   restorable,
   sameDetails,
 } from "./rules";
@@ -432,5 +434,47 @@ describe("AC-2.1 equivalence and changedFields", () => {
     });
     const once = normalise(messy);
     expect(normalise(once)).toEqual(once);
+  });
+});
+
+describe("G2 protectedChanged (AC-9.1, AC-9.5)", () => {
+  const base = details();
+  const protectedOf = (next: LegalDetails) => protectedChanged(changedFields(base, next));
+
+  test("the protected set is the legal name, the VAT number and the IBAN, in closed-set order", () => {
+    expect([...PROTECTED_FIELDS]).toEqual(["legalName", "vatNumber", "iban"]);
+  });
+  test("each protected field on its own, and all of them in closed-set order", () => {
+    expect(protectedOf(withName("Other SA"))).toEqual(["legalName"]);
+    expect(protectedOf(withVat("IT1"))).toEqual(["vatNumber"]);
+    expect(protectedOf(withIban(IT_IBAN))).toEqual(["iban"]);
+    expect(protectedOf(details({ iban: IT_IBAN, vatNumber: "IT1", legalName: "Z" }))).toEqual(["legalName", "vatNumber", "iban"]);
+  });
+  test("filling an empty IBAN and emptying a filled one are protected changes", () => {
+    expect(protectedChanged(changedFields(withIban(""), base))).toEqual(["iban"]);
+    expect(protectedOf(withIban(""))).toEqual(["iban"]);
+  });
+  test("only the other fields (addresses, contacts) are not protected", () => {
+    expect(protectedOf(details({ address: { it: ["x"], en: base.address.en } }))).toEqual([]);
+    expect(protectedOf(details({ address: { it: base.address.it, en: ["x"] } }))).toEqual([]);
+    expect(protectedOf(details({ contacts: { it: "x", en: "y" } }))).toEqual([]);
+    expect(protectedOf(details({ address: { it: ["x"], en: ["y"] }, contacts: { it: "q", en: "r" } }))).toEqual([]);
+  });
+  test("a mixed change lists the protected part only", () => {
+    expect(protectedOf(details({ iban: IT_IBAN, contacts: { it: "q", en: "r" } }))).toEqual(["iban"]);
+  });
+  test("a different spacing or case of the same IBAN, trailing blanks and NFD are not protected changes (AC-9.5)", () => {
+    expect(protectedOf(details({ iban: "ch93 0076 2011 6238 5295 7" }))).toEqual([]);
+    expect(protectedOf(details({ iban: " CH93\u00a00076 2011 6238\n5295 7 " }))).toEqual([]);
+    expect(protectedOf(details({ legalName: "wellD SA  ", vatNumber: " CHE-123.456.789 IVA\u3000" }))).toEqual([]);
+    const accented = details({ legalName: "Societ\u00e0 SA" });
+    expect(protectedChanged(changedFields(accented, details({ legalName: "Societa\u0300 SA" })))).toEqual([]);
+  });
+  test("no change, no protected change; the empty list of fields is the empty answer", () => {
+    expect(protectedOf(structuredClone(base))).toEqual([]);
+    expect(protectedChanged([])).toEqual([]);
+  });
+  test("the answer keeps the order of PROTECTED_FIELDS whatever the order of the input", () => {
+    expect(protectedChanged(["iban", "contacts.en", "legalName"])).toEqual(["legalName", "iban"]);
   });
 });

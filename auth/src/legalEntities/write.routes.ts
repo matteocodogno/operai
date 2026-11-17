@@ -86,7 +86,8 @@ export const NOT_MOVED_BODY = problemBody(
   "legal_entity_not_moved",
   "This legal entity has no version yet: its details have not been moved into the registry",
 );
-const INTERNAL_BODY = problemBody(500, "Internal Server Error", "internal_error", "An unexpected error occurred");
+/** 500: constant, nothing of the request or the registry in it. */
+export const INTERNAL_BODY = problemBody(500, "Internal Server Error", "internal_error", "An unexpected error occurred");
 
 /** The 409 of a stale `baseVersion` (AC-2.6): carries the version that is current. */
 export const versionConflictBody = (currentVersion: number) =>
@@ -266,7 +267,7 @@ async function write(audited: Audited, req: WriteRequest): Promise<Outcome> {
 }
 
 /** What is safe to log about an unexpected error: its class and a database code, never its message (it can carry a row). */
-function safeErrorText(error: unknown): string {
+export function safeErrorText(error: unknown): string {
   const parts: string[] = [];
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current != null && typeof current === "object"; depth++) {
@@ -282,19 +283,19 @@ function safeErrorText(error: unknown): string {
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
-type Env = { Variables: { user: User | null; session: Session | null } };
+export type Env = { Variables: { user: User | null; session: Session | null } };
 
 /** The entities the caller covers, from the authorisation step to the handler (keyed by the request, never shared). */
 const coveredOf = new WeakMap<Request, LegalEntity[]>();
 
-const respond = (c: Context<Env>, status: 200 | 201 | 403 | 404 | 409 | 413 | 422 | 500, body: object): Response =>
+export const respond = (c: Context<Env>, status: 200 | 201 | 403 | 404 | 409 | 413 | 422 | 500, body: object): Response =>
   c.body(JSON.stringify(body), status, {
     "Content-Type": status === 200 || status === 201 ? "application/json" : PROBLEM_JSON,
     "Cache-Control": NO_STORE,
   });
 
 /** The entities the caller's grants cover (empty -> 403: a person with no grant learns nothing). */
-const authorize: MiddlewareHandler<Env> = async (c, next) => {
+export const authorize: MiddlewareHandler<Env> = async (c, next) => {
   const userId = c.get("user")!.id;
   const [profile, permissions] = await Promise.all([
     activeUserProfile(userId),
@@ -307,8 +308,25 @@ const authorize: MiddlewareHandler<Env> = async (c, next) => {
   return next();
 };
 
+/** `no-store` first, so the 401 and 403 carry it too. */
+export const noStore: MiddlewareHandler<Env> = async (c, next) => {
+  c.header("Cache-Control", NO_STORE);
+  await next();
+};
+
+/**
+ * The entity of the path, or the refusal: 404 when it is not one, 403 when no grant covers it (AC-4.2). Runs after
+ * `authorize` (it reads what that step recorded for this request).
+ */
+export const entityOf = (c: Context<Env>): { entity: LegalEntity } | { response: Response } => {
+  const name = (c.req.param() as Record<string, string>)["entity"] ?? "";
+  if (!isLegalEntity(name)) return { response: unknownLegalEntity(c) };
+  if (!(coveredOf.get(c.req.raw) ?? []).includes(name)) return { response: respond(c, 403, FORBIDDEN_BODY) };
+  return { entity: name };
+};
+
 /** Reads the capped JSON body and checks it against `schema`: the parsed value, or the refusal to answer. */
-async function readBody<S extends z.ZodType>(c: Context<Env>, schema: S): Promise<{ ok: true; value: z.infer<S> } | { ok: false; response: Response }> {
+export async function readBody<S extends z.ZodType>(c: Context<Env>, schema: S): Promise<{ ok: true; value: z.infer<S> } | { ok: false; response: Response }> {
   const body = await readBodyCapped(c.req.raw, MAX_WRITE_BODY_BYTES);
   if (!body.ok) return { ok: false, response: respond(c, 413, REQUEST_TOO_LARGE_BODY) };
   // Only a body that says it is JSON is parsed (the CSRF posture above).
@@ -368,20 +386,6 @@ export function createLegalEntityWriteRouter({
   const router = new OpenAPIHono<Env>();
 
   // POST only, per exact path (never `/legal-entities/*`): the GETs of T5 and T7 carry their own authentication.
-  // `no-store` first, so the 401 and 403 carry it too.
-  const noStore: MiddlewareHandler<Env> = async (c, next) => {
-    c.header("Cache-Control", NO_STORE);
-    await next();
-  };
-
-  /** The entity of the path, or the refusal: 404 when it is not one, 403 when no grant covers it (AC-4.2). */
-  const entityOf = (c: Context<Env>): { entity: LegalEntity } | { response: Response } => {
-    const name = (c.req.param() as Record<string, string>)["entity"] ?? "";
-    if (!isLegalEntity(name)) return { response: unknownLegalEntity(c) };
-    if (!(coveredOf.get(c.req.raw) ?? []).includes(name)) return { response: respond(c, 403, FORBIDDEN_BODY) };
-    return { entity: name };
-  };
-
   router.on("POST", SAVE_PATH, noStore, sessionMiddleware, requireAuth, authorize, async (c) => {
     const target = entityOf(c);
     if ("response" in target) return target.response;
@@ -496,4 +500,10 @@ export function createLegalEntityWriteRouter({
   return router;
 }
 
-export const legalEntityWriteRouter = createLegalEntityWriteRouter();
+/**
+ * The ONE pair of limiters of the running app (plan G9): the write router below and the check router
+ * (`check.routes.ts`, T55) are both built on it, so a person's windows are counted once per process, not once per router.
+ */
+export const legalEntityRateLimits = createLegalEntityRateLimits();
+
+export const legalEntityWriteRouter = createLegalEntityWriteRouter({ limits: legalEntityRateLimits });

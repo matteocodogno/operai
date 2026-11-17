@@ -106,6 +106,7 @@ describe("the other route groups still answer through the assembled app (mount o
       ["GET", "/legal-entities/welld_ch/versions/1"],
       ["POST", "/legal-entities/welld_ch/versions"],
       ["POST", "/legal-entities/welld_ch/versions/1/restore"],
+      ["POST", "/legal-entities/welld_ch/versions/check"],
       ["GET", "/system/legal-entities"],
       ["GET", "/system/legal-entities/welld_ch"],
       ["POST", "/system/service-token"],
