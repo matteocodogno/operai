@@ -15,6 +15,12 @@ created: 2026-11-17
 > exists anywhere. The owner (wellD) decided on 2026-11-17 that these values belong to a registry of the whole
 > group, not to the CRM. Their answers are marked *(owner)*. Choices made while writing, which the owner has not
 > given, are marked *(owner, as proposed)* and each has an entry under Open questions.
+>
+> **Amendment of 2026-11-17 (US-9).** After the security review (security-review.md, finding F1) the owner decided
+> to mitigate the risk of an unnoticed change of the details that identify the issuer and receive payments with a
+> confirmation in admin-ui and a notification to the other people responsible. Those decisions, and the owner's
+> answers of the same day to the questions that followed, are marked *(owner, 2026-11-17)* or *(owner, 2026-11-17,
+> security review F1)*. Nothing in US-9 is left unconfirmed.
 
 ## Problem
 
@@ -34,6 +40,13 @@ trace of who made them or what they were before.
 - **Details**: the values of one legal entity listed in AC-1.1.
 - **Version**: the details of one legal entity as one save left them, numbered from 1 per entity.
 - **Consumer**: a tool that reads the details to put them on a document (the letterhead service, the CRM).
+- **Protected details** *(US-9, owner 2026-11-17)*: the legal name, the VAT number and the IBAN. The address and the
+  contacts line are not protected.
+- **Protected change** *(US-9)*: a save or a restore after which at least one protected detail, as it would be
+  stored (for the IBAN as AC-1.4 stores it: upper case, no spaces), differs from the same detail in the version
+  before it. Filling an empty value and emptying a filled one count; a different spacing or case of the same IBAN
+  does not. Version 1 made by the move of US-7 is not a protected change.
+- **Notice** *(US-9)*: the message that tells a person a protected change has been stored (AC-9.7 to AC-9.13).
 
 ## User stories
 
@@ -188,6 +201,113 @@ no document changes on the day of the release.
   to the first one, and everything is usable with the keyboard alone.
 - AC-8.2: Given the page, then all its words exist in Italian and English, following the person's language.
 
+### US-9: A change of the legal name, VAT number or IBAN is confirmed first and told to the others *(owner, 2026-11-17, security review F1)*
+
+As the owner, I want a change of a legal entity's legal name, VAT number or IBAN to be confirmed by the person
+making it and to be told to the other people responsible for that entity, so that a wrong or unauthorised change is
+stopped before it is stored, or noticed within minutes, and not after offers and contracts carrying it have been
+issued (AC-3.3: within 60 seconds every consumer prints it, and what a document printed is never rewritten,
+AC-6.4).
+
+**Acceptance criteria:**
+
+*The person confirms (admin-ui).*
+
+- AC-9.1: Given the form of a legal entity and a person who may manage it, when they save and the save is a
+  protected change compared with the version they are editing from, then before anything is stored the page shows
+  one confirmation that *(owner, 2026-11-17)*:
+  - names the legal entity;
+  - lists each protected detail that changes (and only those), each with its old value (that of the version they are
+    editing from) and its new value under separate visible labels ("Old", "New" in the person's language), so the
+    two cannot be mixed up;
+  - shows the legal name and the VAT number in full as they would be stored, and the IBAN in full in groups of four
+    characters as in AC-5.1 (for example CH93 0076 2011 6238 5295 7);
+  - shows an empty old or new value as the word for "none" in the person's language, not as a blank;
+  - offers two actions, confirm and cancel, and when it opens the keyboard focus is on cancel.
+- AC-9.2: Given the confirmation, when the person cancels it (the cancel action, or closing it with the Escape key
+  or its close control), then nothing is saved: no version, no audit log entry (AC-2.5), no notice; and the form
+  stays open with everything the person typed.
+- AC-9.3: Given the confirmation, when the person confirms, then the save proceeds as in US-1 and US-2 with the
+  values shown. If it is then refused (AC-1.2–1.4, AC-2.6), nothing is stored, no notice is sent, and the person is
+  told as those criteria say; saving again asks for the confirmation again.
+- AC-9.4: Given an older version, when a person who may manage the entity restores it (AC-2.4) and the restore is a
+  protected change, then the confirmation of the restore also lists each changing protected detail with its old
+  value (the current version's) and its new value (the restored version's) as in AC-9.1, and cancelling it restores
+  nothing as in AC-9.2; when no protected detail differs, the restore confirmation is as before and lists none.
+- AC-9.5: Given a save that is not a protected change (only the address or the contacts line changed, or the IBAN
+  typed with other spacing or case only), then the person is not asked for this confirmation, and the save is as in
+  US-1 and US-2.
+- AC-9.6: Given the confirmation, then it meets AC-8.1 (focus moves into it when it opens and returns to the
+  control that opened it when it closes, its content is announced, and it is usable with the keyboard alone) and
+  all its words exist in Italian and English (AC-8.2).
+
+*The others are told.*
+
+- AC-9.7: Given a protected change, when its version has been stored, then a notice is sent for that version,
+  handed over for sending within 60 seconds of the save when the suite's notification services are available
+  *(owner, 2026-11-17)*. The notice is sent whichever way the save was made, so also when it did not come through
+  the admin-ui confirmation (for example a direct call to the registry).
+- AC-9.8: Given a protected change on a legal entity, then the notice goes to *(owner, 2026-11-17, security review
+  F1)*:
+  - every other person who may manage that entity (who holds the permission of AC-4.1 covering it, whether limited
+    to that entity or not);
+  - every administrator, whether or not they also hold that permission.
+  The recipients are those who qualify at the moment the version is stored. A person who holds the permission only
+  for the other entity, and a person who has been deleted from the suite, get none. A person who qualifies in
+  several ways gets one notice per channel (AC-9.13).
+- AC-9.9: Given a protected change, then the person who made it also gets the notice, as a receipt
+  *(owner, 2026-11-17)*.
+- AC-9.10: Given a protected change, then one address outside the suite also gets the notice, by email only, so
+  that removing people from roles in the suite cannot silence it *(owner, 2026-11-17)*. It is a single mailbox for
+  both entities, set by configuration; when none is set, the notice goes to the others only and nothing else
+  changes.
+- AC-9.11: Given a notice, then it states *(owner, 2026-11-17)*:
+  - the legal entity;
+  - who made the change (the person's name, as the history shows it) and whether it was a save or a restore (and
+    of which version, for a restore);
+  - when, as date, time and time zone;
+  - the version number it created;
+  - which protected details changed, by name only;
+  - if the IBAN changed, the last 4 characters of the old IBAN and the last 4 characters of the new IBAN, each under
+    its own label; an empty one is stated as "none"; a value of 8 characters or fewer shows no character, only that
+    it is set;
+  - the names (not the values) of the other details changed in the same version;
+  - a link that opens the history of that entity on the Legal entities page, where the version can be restored
+    (AC-2.4). The link needs a sign-in like every other link of the suite; a person who may not see the history is
+    refused as usual (AC-4.2, AC-4.3).
+- AC-9.12: Given a notice, then no part of it (subject, title, text, link, preview line, push text) contains the
+  full IBAN, old or new, nor the old or new legal name or VAT number, nor any other detail's value; and no record
+  of a notice (AC-9.15) contains them either *(owner, 2026-11-17)*.
+- AC-9.13: Given a notice, then it is delivered on two channels *(owner, 2026-11-17)*: by email, in English for
+  every recipient including the address outside the suite; and in the suite's notification centre, in the language
+  of the person (AC-8.2), with a push notification for a person who has enabled push notifications. The address
+  outside the suite gets the email only.
+
+*A failure of the notice never touches the save.*
+
+- AC-9.14: Given a protected change whose version is stored, when a notice cannot be delivered on a channel (the
+  notification service is down or refuses, or a recipient has no usable email address), then *(owner, 2026-11-17)*:
+  - the save stays stored, is shown to the person as saved exactly as if all had gone well, and no error about the
+    notice is shown to them; the new details are used by consumers as AC-3.3 says, whether or not any notice has
+    been sent;
+  - a failure for one recipient or one channel does not stop or delay the others;
+  - the delivery is retried, first within 5 minutes and then repeatedly, until it succeeds or 24 hours have passed
+    since the version was stored, and is then given up;
+  - the duty to send is kept together with the version: if the suite stops or restarts right after the version is
+    stored, every notice not yet delivered is still sent and retried;
+  - no recipient gets two notices on the same channel for the same version, retries included ("delivered" meaning
+    accepted by the notification service, not read).
+- AC-9.15: Given a notice that fails on a channel, then it is visible to administrators in the administration audit
+  log, as an entry for the first failure of each recipient and channel (entity, version, whether the recipient is a
+  person or the outside address, the channel, the reason in a few words, when), another when that delivery later
+  succeeds, and another when it is given up *(owner, 2026-11-17)*. Given a protected change with no recipient at
+  all, then an entry says so.
+- AC-9.16: Given the move of AC-7.1 (version 1, attributed to the system), whether the first run or a repeated one
+  (AC-7.4), then no notice is sent and no confirmation is involved.
+- AC-9.17: Given a save or restore that is not a protected change (only the address or the contacts line changed,
+  the IBAN with other spacing or case only, a restore of a version whose protected details are the same), or that
+  changes nothing (AC-2.1), or that is refused, conflicting (AC-2.6) or cancelled, then no notice is sent.
+
 ## Non-goals
 
 - **Adding, renaming or removing a legal entity.** The registry holds the two entities that exist *(owner)*; every
@@ -199,6 +319,21 @@ no document changes on the day of the release.
 - **Changing documents already made.** Stored offers and their snapshots keep what they printed.
 - **The CRM's customer companies.** They are a different thing and are untouched.
 - **Translating the legal name, the VAT number or the IBAN.** They are one value each *(owner)*.
+- **A recent sign-in for changing a protected detail, a second person's approval (dual control) or a delay before
+  a change takes effect, and a shorter session for people who manage a legal entity.** Deliberately not done: owner
+  decision 2026-11-17. A change by one signed-in person still takes effect as AC-3.3 says, and the session length
+  is unchanged; the confirmation and the notice (US-9) are the chosen answer to security review F1.
+- **A confirmation enforced by the registry itself.** The confirmation of US-9 is a step of the admin-ui page
+  (owner decision 2026-11-17); a caller that goes to the registry directly is not asked, and only the notice
+  (AC-9.7) covers that case.
+- **A confirmation or a notice for the address or the contacts line.** Only the protected details trigger them
+  (owner decision 2026-11-17), so that the signal stays rare. The names of those details do appear in a notice
+  triggered by something else (AC-9.11).
+- **Values in a notice.** A notice says which protected details changed, never their values, except the last 4
+  characters of the IBAN (owner decision 2026-11-17); the values are in the confirmation, the history and the
+  audit log.
+- **Proof that a notice was read, or a way to block a change from the notice.** A notice is handed over for
+  sending; undoing a change is the restore of US-2, reached from the notice's link.
 
 ## Constraints
 
@@ -210,6 +345,10 @@ no document changes on the day of the release.
 - *(amendment D7, owner 2026-11-17)* It also supersedes specs/20261116-letterhead-service AC-1.8 for the issuer's
   details only: a request of an earlier content version renders after the upgrade with the registry's current
   details, not those it sent; everything else on its pages is unchanged.
+- *(owner, 2026-11-17, security review F1)* The confirmation of US-9 is in admin-ui.
+- *(owner, 2026-11-17)* The permission to manage legal entities is granted to anyone other than administrators only
+  after the notice of US-9 is in production (the release where it ships, the second push); until then only
+  administrators hold it, as the release runbook already says.
 
 ## Open questions
 
@@ -221,3 +360,21 @@ no document changes on the day of the release.
 - [x] OQ-5 *Resolved 2026-11-17 (owner): accepted as proposed.* — AC-5.2: details still sent by a tool are ignored, rather than refused. — owner: wellD
 - [x] OQ-6 *Resolved 2026-11-17 (owner): accepted as proposed.* — AC-5.5: a document is not made when the registry cannot be read, rather than printed with the last
   details known however old. — owner: wellD
+- [x] OQ-7 *Resolved 2026-11-17 (owner): yes, one outside address.* — AC-9.10: a notice to one address outside the suite: a single mailbox for both
+  entities, configurable; with none configured nothing else changes. The owner gives the address later; it is not
+  part of this spec. — owner: wellD
+- [x] OQ-8 *Resolved 2026-11-17 (owner): yes.* — AC-9.9: the person who made the change also gets the notice, as a receipt. — owner: wellD
+- [x] OQ-9 *Resolved 2026-11-17 (owner): yes, legal name and VAT number too.* — Scope of the notice: a change of the legal name or the VAT number triggers it
+  as well as the IBAN, with the same recipients and rules; the confirmation applies to the three protected details;
+  a notice names which changed, never their values (IBAN: last 4 characters only). Address and contacts line stay
+  out. — owner: wellD
+- [x] OQ-10 *Resolved 2026-11-17 (owner).* — AC-9.13, AC-9.11: channels are email (in English for everyone, the outside
+  address included; no default to Italian) and the suite's notification centre (in the person's language, with
+  push for those who enabled it); a value of 8 characters or fewer shows no character; the names of the other
+  changed details are listed. — owner: wellD
+- [x] OQ-11 *Resolved 2026-11-17 (owner): yes.* — AC-9.7, AC-9.14: handed over within 60 seconds, first retry within 5
+  minutes, given up after 24 hours, and the give-up is logged in the audit log (AC-9.15). — owner: wellD
+- [x] OQ-12 *Resolved 2026-11-17 (owner).* — Release order: the permission to manage legal entities is granted to anyone
+  other than administrators only after the notice is in production; recorded under Constraints. — owner: wellD
+- [x] OQ-13 *Resolved 2026-11-17 (owner): accepted.* — The confirmation is a control of the admin-ui page; a direct call to
+  the registry is covered by the notice only (Non-goals). — owner: wellD
