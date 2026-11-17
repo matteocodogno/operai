@@ -631,14 +631,14 @@ prose the `domains` line of `.railway/railway.ts`).
   before its T36, so its QE/eval stop testing AC-1.8's "same pages" for the issuer (and the D1-superseded ACs).
 - Code areas its QE/eval fixes may still touch (`letterhead-api/**`, `letterheads-ui/**`,
   `crm-api/src/offers/blocks.ts`, `crm-api/src/lib/letterheadClient.ts`, the CRM preview routes,
-  `crm-ui/src/components/offerWizard/*Service*`): our T19–T23, T26, T28, T31, T32 carry "gate: 20261116/T36".
+  `crm-ui/src/components/offerWizard/*Service*`): our T19–T23, T26, T28, T31, T32 overlap them (the gate on 20261116/T36 was lifted by the owner on 2026-11-17).
 - `.railway/railway.ts`: none of our tasks edits it; its T40's `domains` restore is unaffected.
 
 ## Parallel batches (effective graph)
 
 Computed mechanically on deps ∪ `touch:` overlap (globs with `*` not crossing `/`, `**` crossing it), earliest
-start, owner tasks included, ties broken by task number; within a batch no two tasks share an edge. Tasks with
-"gate: 20261116/T36" cannot start before that gate, whatever their batch number says.
+start, owner tasks included, ties broken by task number; within a batch no two tasks share an edge. The R13 gate
+was lifted on 2026-11-17, so the gated batches (G1–G8) follow on from B1–B10 by deps alone.
 
 | Batch | Tasks | Note |
 | --- | --- | --- |
