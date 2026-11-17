@@ -39,7 +39,7 @@ Reading the list:
 
 ## Push 1 — auth
 
-- [ ] T1: auth — the `legal_entity_version` table, its checks and immutability triggers, and the one list of entities — refs: AC-1.1, AC-2.7 — deps: none
+- [x] T1: auth — the `legal_entity_version` table, its checks and immutability triggers, and the one list of entities — refs: AC-1.1, AC-2.7 — deps: none
   - touch: `auth/prisma/schema.prisma`, `auth/prisma/migrations/*`, `auth/src/legalEntities/entities.ts`, `auth/src/legalEntities/immutability.contract.test.ts`, `auth/src/legalEntities/testDb.ts`, `auth/src/admin/users.routes.ts`
   - agent: backend-dev · push 1
   - Details:
@@ -54,7 +54,7 @@ Reading the list:
     with a creator, of an `import` at version 2, and of a `restore` without `restoredFrom` is refused; the whole
     auth suite (`bun test` in `auth/`) is green.
 
-- [ ] T2: auth — the rules of a save: normalisation, validation, IBAN, print form, changed fields, restorable (`rules.ts`) — refs: AC-1.2, AC-1.3, AC-1.4, AC-2.1, AC-2.4 — deps: none
+- [x] T2: auth — the rules of a save: normalisation, validation, IBAN, print form, changed fields, restorable (`rules.ts`) — refs: AC-1.2, AC-1.3, AC-1.4, AC-2.1, AC-2.4 — deps: none
   - touch: `auth/src/legalEntities/rules.ts`, `auth/src/legalEntities/rules.test.ts`
   - agent: backend-dev · push 1
   - Details:
@@ -73,7 +73,7 @@ Reading the list:
     no-op equivalences (IBAN spaces/case, trailing blanks, a blank address line, NFD vs NFC), and `restorable`
     false for an incomplete or out-of-rule version.
 
-- [ ] T3: auth — `ADMIN_CATALOG` with `legal-entity:manage` (entity condition), `admin` out of `SUITE_APPS`, the admin role's grant — refs: AC-4.1 — deps: none
+- [x] T3: auth — `ADMIN_CATALOG` with `legal-entity:manage` (entity condition), `admin` out of `SUITE_APPS`, the admin role's grant — refs: AC-4.1 — deps: none
   - touch: `auth/src/authz/catalogs/admin.ts`, `auth/src/authz/catalogs/admin.test.ts`, `auth/src/authz/seed.ts`, `auth/src/authz/seed.test.ts`, `auth/src/authz/catalogs/uniqueResourceKeys.test.ts`
   - agent: backend-dev · push 1
   - Details: plan decision 4 — resource `admin` (`access`) and `legal-entity` (`manage`,
@@ -84,7 +84,7 @@ Reading the list:
     registers `admin`, no role other than `admin` gets the grant; `uniqueResourceKeys` passes with `admin` in
     `DECLARED_CATALOGS`.
 
-- [ ] T4: auth — coverage of `legal-entity:manage` per entity, and `admin` derived into `/authz/me` `apps` — refs: AC-4.2, AC-4.3 — deps: T1, T3
+- [x] T4: auth — coverage of `legal-entity:manage` per entity, and `admin` derived into `/authz/me` `apps` — refs: AC-4.2, AC-4.3 — deps: T1, T3
   - touch: `auth/src/legalEntities/coverage.ts`, `auth/src/legalEntities/coverage.test.ts`, `auth/src/authz/authz.routes.ts`, `auth/src/authz/authz.routes.test.ts`
   - agent: backend-dev · push 1
   - Details: `coveredEntities(perms, user)` and `adminAreaReachable(perms, user)` over `entityGrantFor`
@@ -94,7 +94,7 @@ Reading the list:
     only welld_ch; user entity null + conditioned covers none; an unrecognised condition covers none (fail
     closed); route test — `apps` gains `admin` only with coverage ≥ 1, and is unchanged for every other caller.
 
-- [ ] T5: auth — the person read API: one serializer, `GET /legal-entities[/{entity}]`, `GET /legal-entities/manageable`, and the shared fixture — refs: AC-1.1, AC-3.1, AC-3.4, AC-4.3 — deps: T1, T2, T4
+- [x] T5: auth — the person read API: one serializer, `GET /legal-entities[/{entity}]`, `GET /legal-entities/manageable`, and the shared fixture — refs: AC-1.1, AC-3.1, AC-3.4, AC-4.3 — deps: T1, T2, T4
   - touch: `auth/src/legalEntities/serialize.ts`, `auth/src/legalEntities/serialize.test.ts`, `auth/src/legalEntities/repo.ts`, `auth/src/legalEntities/read.routes.ts`, `auth/src/legalEntities/read.routes.test.ts`, `auth/src/index.ts`, `specs/20261117-legal-entities/fixtures/legal-entities.json`
   - agent: backend-dev · push 1
   - Details: plan § API contracts "Details" with `invalid` items of E6; `version: 0` with empty values before the
@@ -106,7 +106,7 @@ Reading the list:
     do not contain the name; `manageable` → `["welld_ch"]` for a welld_ch-conditioned holder, `[]` without a
     grant; the serializer test asserts its output byte-equals the fixture for the fixture's rows.
 
-- [ ] T6: auth — the service read API: `GET /system/legal-entities[/{entity}]`, the scope `legal-entities:read`, the per-service limit — refs: AC-3.2, AC-3.4 — deps: T5
+- [x] T6: auth — the service read API: `GET /system/legal-entities[/{entity}]`, the scope `legal-entities:read`, the per-service limit — refs: AC-3.2, AC-3.4 — deps: T5
   - touch: `auth/src/legalEntities/system.routes.ts`, `auth/src/legalEntities/system.routes.test.ts`, `auth/src/system/serviceClients.ts`, `auth/src/system/serviceClients.test.ts`, `auth/src/system/systemRateLimits.ts`, `auth/src/system/systemRateLimits.test.ts`, `auth/src/system/systemCapacity.contract.test.ts`, `auth/src/index.ts`
   - agent: backend-dev · push 1
   - Details: in-process JWT verification as `userContact.routes.ts` (RS256, issuer, `aud = SERVICE_AUDIENCE`,
@@ -118,7 +118,7 @@ Reading the list:
     in a window → 429; `parseServiceClients` accepts the new scope and refuses an unknown one; capacity contract
     test green.
 
-- [ ] T7: auth — history and version view: `GET …/versions` (with `restorable`) and `GET …/versions/{n}` — refs: AC-2.2, AC-2.3, AC-2.4, AC-4.3, AC-7.2 — deps: T2, T5
+- [x] T7: auth — history and version view: `GET …/versions` (with `restorable`) and `GET …/versions/{n}` — refs: AC-2.2, AC-2.3, AC-2.4, AC-4.3, AC-7.2 — deps: T2, T5
   - touch: `auth/src/legalEntities/history.routes.ts`, `auth/src/legalEntities/history.routes.test.ts`, `auth/src/legalEntities/repo.ts`, `auth/src/index.ts`
   - agent: backend-dev · push 1
   - done when: route tests — 403 `forbidden` without a covering grant; a welld_ch-only manager reads both
@@ -126,7 +126,7 @@ Reading the list:
     `restorable` false for an incomplete/out-of-rule version and true otherwise (E1); `versions/{n}` returns all
     details of n plus `action`, `restoredFrom`, `createdBy`, `createdAt`; unknown n → 404 `version_not_found`.
 
-- [ ] T8: auth — save and restore: advisory lock, conflict, no-op, not moved, audit in the same transaction — refs: AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-4.2 — deps: T2, T4, T7
+- [x] T8: auth — save and restore: advisory lock, conflict, no-op, not moved, audit in the same transaction — refs: AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-4.2 — deps: T2, T4, T7
   - touch: `auth/src/legalEntities/write.routes.ts`, `auth/src/legalEntities/write.routes.test.ts`, `auth/src/legalEntities/routerTable.test.ts`, `auth/src/legalEntities/repo.ts`, `auth/src/index.ts`
   - agent: backend-dev · push 1
   - Details: plan sequences "Save" and "Restore"; strict schema with ≤ 16 lines per language (E5); 16 KiB bound;
@@ -140,7 +140,7 @@ Reading the list:
     the router table has no PUT/PATCH/DELETE under `/legal-entities`; the static scan finds no mutating call on
     `legalEntityVersion` in `auth/src`; `audit-immutability.contract.test.ts` still passes.
 
-- [ ] T9: auth — the import script (dry run, `--apply`), its report and stop rule, the MIG fixture set and `mise run legal-entities:import` — refs: AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 — deps: T1, T2
+- [x] T9: auth — the import script (dry run, `--apply`), its report and stop rule, the MIG fixture set and `mise run legal-entities:import` — refs: AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5 — deps: T1, T2
   - touch: `auth/scripts/import-crm-legal-details.ts`, `auth/src/legalEntities/import.ts`, `auth/src/legalEntities/import.test.ts`, `specs/20261117-legal-entities/fixtures/crm-entity-profiles.json`, `mise.toml`
   - agent: backend-dev · push 1
   - Details:
@@ -162,7 +162,7 @@ Reading the list:
 
 ## Push 1 — `@operai/ui` (shipped by the shell)
 
-- [ ] T10: `@operai/ui` — `Tabs` and `TabNav` can wrap (opt-in `wrap`) — refs: AC-8.1 — deps: none
+- [x] T10: `@operai/ui` — `Tabs` and `TabNav` can wrap (opt-in `wrap`) — refs: AC-8.1 — deps: none
   - touch: `operai-ui/src/components/Tabs.tsx`, `operai-ui/src/components/Tabs.stories.tsx`, `operai-ui/src/components/TabNav.tsx`, `operai-ui/src/components/TabNav.stories.tsx`, `operai-ui/src/components/components.test.tsx`
   - agent: frontend-dev · push 1
   - Details: plan E8 — one layout property behind `wrap`, default unchanged; stories with long labels carrying
@@ -170,7 +170,7 @@ Reading the list:
   - done when: component tests — with `wrap` the list wraps (no horizontal scroll container), without it the
     rendered markup is unchanged (snapshot of the existing stories); `mise run ui:check` green.
 
-- [ ] T11: `@operai/ui` — lift `ErrorSummary`, `VersionTable` and `VersionBanner` — refs: AC-2.2, AC-2.3, AC-8.1 — deps: none
+- [x] T11: `@operai/ui` — lift `ErrorSummary`, `VersionTable` and `VersionBanner` — refs: AC-2.2, AC-2.3, AC-8.1 — deps: none
   - touch: `operai-ui/src/components/ErrorSummary*`, `operai-ui/src/components/VersionTable*`, `operai-ui/src/components/VersionBanner*`, `operai-ui/src/index.ts`, `operai-ui/docs/design-system.md`, `operai-ui/docs/decisions.md`
   - agent: frontend-dev · push 1
   - Details: plan E9 and design.md's LIFT table — presentational, no app strings, no fetching; built from
@@ -183,7 +183,7 @@ Reading the list:
 
 ## Push 1 — configuration contract and release plumbing
 
-- [ ] T12: Config contract and runbook — env-doctor link and template for `letterhead-api`, crm-api's scope, `infra/README.md`, `auth/.env.example` — refs: AC-3.2, AC-7.4, AC-7.5 — deps: T6, T9
+- [x] T12: Config contract and runbook — env-doctor link and template for `letterhead-api`, crm-api's scope, `infra/README.md`, `auth/.env.example` — refs: AC-3.2, AC-7.4, AC-7.5 — deps: T6, T9
   - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/live.test.ts`, `tools/env-doctor/resolve.test.ts`, `tools/env-doctor/retiredToken.test.ts`, `tools/env-doctor/templates/production/letterhead-api.env`, `infra/README.md`, `auth/.env.example`, `auth/Dockerfile`
   - agent: devops · push 1
   - added 2026-11-17 (T9 report): auth's production image copies only `src` and `prisma`; copy
@@ -201,7 +201,7 @@ Reading the list:
     production fixture without the scope fails naming `letterhead-api` and `legal-entities:read`); the README
     runbook names every command of T17, T18, T48 and T49.
 
-- [ ] T13: Changesets for push 1 — auth (minor), `@operai/ui` (minor), shell (patch: ships the new library) — refs: AC-1.1, AC-3.1, AC-3.2, AC-4.1, AC-4.3, AC-8.1 — deps: T3, T4, T6, T8, T9, T10, T11, T12
+- [x] T13: Changesets for push 1 — auth (minor), `@operai/ui` (minor), shell (patch: ships the new library) — refs: AC-1.1, AC-3.1, AC-3.2, AC-4.1, AC-4.3, AC-8.1 — deps: T3, T4, T6, T8, T9, T10, T11, T12
   - touch: `.changeset/*`
   - agent: backend-dev · push 1
   - done when: `pnpm exec changeset status --verbose` lists auth, ui and shell with these bumps;
@@ -250,7 +250,7 @@ Reading the list:
 
 ## Push 2 — letterhead-api
 
-- [ ] T19: letterhead-api engine — content version 2, optional `legalEntityVersion`, `entityData` parsed in both versions — refs: AC-5.2 — deps: none
+- [x] T19: letterhead-api engine — content version 2, optional `legalEntityVersion`, `entityData` parsed in both versions — refs: AC-5.2 — deps: none
   - touch: `letterhead-api/engine/src/content/**`
   - agent: backend-dev (Rust) · push 2
   - done when: `cargo test -p letterhead-engine content::` — v1 and v2 accepted; 0 and 3 → `unsupported_content_version`;
@@ -258,7 +258,7 @@ Reading the list:
     with or without `entityData` accepted, v1's structural check unchanged; the golden corpus and pinning tests
     pass unchanged.
 
-- [ ] T20: letterhead-api engine — "mark missing" for the configurator preview: label in the missing look, segment kept, `⟦Label⟧` in the page text — refs: AC-5.3, AC-5.4 — deps: none
+- [x] T20: letterhead-api engine — "mark missing" for the configurator preview: label in the missing look, segment kept, `⟦Label⟧` in the page text — refs: AC-5.3, AC-5.4 — deps: none
   - touch: `letterhead-api/engine/src/resolve/**`, `letterhead-api/engine/src/layout/frame/**`, `letterhead-api/engine/src/layout/mod.rs`, `letterhead-api/engine/src/output/text.rs`, `letterhead-api/engine/src/render.rs`, `letterhead-api/engine/src/sample/**`
   - agent: backend-dev (Rust) · push 2
   - Details: plan E3 (closed labels, both languages); a render option that only the supervisor's preview job sets.
@@ -266,7 +266,7 @@ Reading the list:
     conditional segment stays, and the page text holds `⟦IBAN⟧`; without it, AC-5.3's behaviour (prints nothing,
     segment dropped, `missingPlaceholders` lists it); the full golden corpus is byte-identical.
 
-- [ ] T21: letterhead-api — service token client and the registry cache (fresh 30 s, usable 60 s, sent-time stamp), env `SERVICE_CLIENT_ID`/`SECRET` — refs: AC-1.5, AC-3.3, AC-5.5 — deps: T5, T6
+- [x] T21: letterhead-api — service token client and the registry cache (fresh 30 s, usable 60 s, sent-time stamp), env `SERVICE_CLIENT_ID`/`SECRET` — refs: AC-1.5, AC-3.3, AC-5.5 — deps: T5, T6
   - touch: `letterhead-api/api/src/registry/**`, `letterhead-api/api/src/env.rs`, `letterhead-api/api/src/main.rs`, `letterhead-api/api/Cargo.toml`, `letterhead-api/Cargo.lock`, `letterhead-api/api/tests/registry.rs`, `letterhead-api/README.md`, `compose.yaml`, `mise.toml`
   - agent: backend-dev (Rust) · push 2
   - Details: plan decision 7 and sequence "Consumer read" (single flight, 5 s timeout, no redirects, ≤ 64 KiB,
@@ -278,7 +278,7 @@ Reading the list:
     unavailable; property test: a document started at T+60.001 never uses an entry sent before T; the shared
     fixture parses; the secret appears in no log or `Debug` output; startup exits non-zero without either variable.
 
-- [ ] T22: letterhead-api — renders print the registry's issuer: v2, the version pin, 409 mismatch, 503 unavailable, `Legal-Entity-Version`, log fields — refs: AC-1.5, AC-5.1, AC-5.2, AC-5.3, AC-5.5 — deps: T19, T21
+- [x] T22: letterhead-api — renders print the registry's issuer: v2, the version pin, 409 mismatch, 503 unavailable, `Legal-Entity-Version`, log fields — refs: AC-1.5, AC-5.1, AC-5.2, AC-5.3, AC-5.5 — deps: T19, T21
   - touch: `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/src/log.rs`, `letterhead-api/api/tests/render.rs`, `letterhead-api/api/tests/render_db.rs`
   - agent: backend-dev (Rust) · push 2
   - done when: route tests with a fake auth — v2 per entity × language prints the registry's legal name,
@@ -289,7 +289,7 @@ Reading the list:
     worker job, no partial body; success answers carry `legalEntityVersion` / `Legal-Entity-Version`; a
     200-character legal name that overflows a footer → 422 `footer_overflow` (R9).
 
-- [ ] T23: letterhead-api — the configurator preview shows the registry's details (`mark missing`, `issuerDetails`, `legalEntityVersion`) — refs: AC-5.4 — deps: T20, T21
+- [x] T23: letterhead-api — the configurator preview shows the registry's details (`mark missing`, `issuerDetails`, `legalEntityVersion`) — refs: AC-5.4 — deps: T20, T21
   - touch: `letterhead-api/api/src/routes/preview.rs`, `letterhead-api/api/src/pool/job.rs`, `letterhead-api/api/src/pool/wire.rs`, `letterhead-api/api/src/worker.rs`, `letterhead-api/api/tests/preview.rs`
   - agent: backend-dev (Rust) · push 2
   - done when: route tests — the preview's page text holds the registry's details in the preview language and
@@ -299,7 +299,7 @@ Reading the list:
 
 ## Push 2 — crm-api
 
-- [ ] T24: crm-api — capture the issuer lines today's CRM prints for the MIG fixture profiles (golden, before the switch) — refs: AC-7.5 — deps: T9
+- [x] T24: crm-api — capture the issuer lines today's CRM prints for the MIG fixture profiles (golden, before the switch) — refs: AC-7.5 — deps: T9
   - touch: `crm-api/src/offers/issuerGolden.capture.test.ts`, `specs/20261117-legal-entities/fixtures/issuer-lines.golden.json`
   - agent: quality-engineer · push 2 (must be committed before T26 changes any code)
   - done when: the capture test, run on the pre-switch code, writes for every complete fixture profile the
@@ -308,14 +308,14 @@ Reading the list:
     `CAPTURE_ISSUER_GOLDEN=1` (skipped otherwise), so the switch tasks compare against the committed file, not a
     re-capture.
 
-- [ ] T25: crm-api — registry client with the cache rule, a fake for tests, and a contract test against real auth — refs: AC-1.5, AC-3.2, AC-3.3, AC-5.5 — deps: T5, T6
+- [x] T25: crm-api — registry client with the cache rule, a fake for tests, and a contract test against real auth — refs: AC-1.5, AC-3.2, AC-3.3, AC-5.5 — deps: T5, T6
   - touch: `crm-api/src/lib/legalEntities.ts`, `crm-api/src/lib/legalEntities.test.ts`, `crm-api/src/lib/legalEntities.contract.test.ts`, `crm-api/src/test-support/fakeRegistry.ts`
   - agent: backend-dev · push 2
   - Details: plan decision 7 over `serviceTokens`; fail closed without a client (E14); `invalidate()` for the pin retry.
   - done when: the same clock cases as T21 (29/31/59/61 s, the sent-time property test); the shared fixture parses;
     the contract test (compose auth) reads both entities with a `legal-entities:read` token and gets 401 without it.
 
-- [ ] T26: crm-api — the issuer comes from the registry: wizard context per language, the refusals of E4 on every document path, `entity_profile_missing` gone from them — refs: AC-5.5, AC-6.2, AC-6.3, AC-7.3 — deps: T24, T25
+- [x] T26: crm-api — the issuer comes from the registry: wizard context per language, the refusals of E4 on every document path, `entity_profile_missing` gone from them — refs: AC-5.5, AC-6.2, AC-6.3, AC-7.3 — deps: T24, T25
   - touch: `crm-api/src/offers/generation.ts`, `crm-api/src/offers/offers.routes.ts`, `crm-api/src/offer-drafts/context.ts`, `crm-api/src/offer-drafts/offerDrafts.routes.ts`, `crm-api/src/offer-templates/offerTemplates.routes.ts`, `crm-api/src/test-support/world.ts`, `crm-api/src/offer-drafts/*.test.ts`, `crm-api/src/offer-templates/**/*.test.ts`, `crm-api/src/offers/offers.test.ts`, `crm-api/src/offers/offers.wizardGuards.test.ts`
   - agent: backend-dev · push 2
   - Details: read the registry before the deal transaction; `WizardContext.issuerLegalName` and
@@ -327,7 +327,7 @@ Reading the list:
     (E13); no document route answers `entity_profile_missing`; a deal of an entity with no profile row generates;
     an English offer's body prints `address.en`.
 
-- [ ] T27: crm-api — the snapshot and the classic PDF print the registry's values; old offers untouched; the golden comparison — refs: AC-6.2, AC-6.4, AC-7.5 — deps: T26
+- [x] T27: crm-api — the snapshot and the classic PDF print the registry's values; old offers untouched; the golden comparison — refs: AC-6.2, AC-6.4, AC-7.5 — deps: T26
   - touch: `crm-api/src/offers/generation.ts`, `crm-api/src/offers/contract.ts`, `crm-api/src/offers/contractPdf.ts`, `crm-api/src/offers/pdf.ts`, `crm-api/src/offers/contractPdf*.test.ts`, `crm-api/src/offers/generation.wizardSnapshot.test.ts`, `crm-api/src/offers/parity.test.ts`, `crm-api/src/offers/issuerGolden.test.ts`, `crm-api/src/offers/snapshotsUnchanged.test.ts`
   - agent: backend-dev · push 2
   - done when: tests — snapshot `issuer` from the registry values plus `legalEntityVersion`; the classic PDF prints
@@ -336,7 +336,7 @@ Reading the list:
     grouping difference listed exactly where `ibanPrintChanged` says); offers stored before the change keep the
     same PDF hash and snapshot JSON after the change and after a registry save.
 
-- [ ] T28: crm-api — the service path sends content v2 without `entityData`, pins `legalEntityVersion` and retries once — refs: AC-5.2, AC-6.2, AC-7.5 — deps: T27, T22
+- [x] T28: crm-api — the service path sends content v2 without `entityData`, pins `legalEntityVersion` and retries once — refs: AC-5.2, AC-6.2, AC-7.5 — deps: T27, T22
   - touch: `crm-api/src/offers/blocks.ts`, `crm-api/src/offers/blocks.test.ts`, `crm-api/src/offers/contentSchema.ts`, `crm-api/src/lib/letterheadClient.ts`, `crm-api/src/lib/letterheadClient.test.ts`, `crm-api/src/offers/generation.ts`, `crm-api/src/offers/generation.letterhead.test.ts`, `crm-api/src/offers/offers.letterhead.test.ts`, `crm-api/src/offers/letterheadContract.test.ts`, `crm-api/src/offer-drafts/offerDrafts.routes.ts`, `crm-api/src/offer-drafts/offerDrafts.preview.test.ts`, `crm-api/src/offer-templates/offerTemplates.routes.ts`, `crm-api/src/offer-templates/offerTemplates.tryPreview.test.ts`
   - agent: backend-dev · push 2
   - done when: the client's request schema has no `entityData` and `contentVersion: 2` with the version used;
@@ -346,7 +346,7 @@ Reading the list:
     `layout_service_unavailable`; the contract test against a real letterhead-api (compose) renders v2;
     `issuerGolden.test.ts` passes for the service path.
 
-- [ ] T29: crm-api — entity settings keep only the CRM's own values; the legacy keys are accepted and ignored; the defaults migration — refs: AC-6.1 — deps: none
+- [x] T29: crm-api — entity settings keep only the CRM's own values; the legacy keys are accepted and ignored; the defaults migration — refs: AC-6.1 — deps: none
   - touch: `crm-api/src/entity-profiles/entityProfiles.routes.ts`, `crm-api/src/entity-profiles/entityProfiles.retired.test.ts`, `crm-api/src/entity-profiles/entityProfiles.settings.test.ts`, `crm-api/src/lib/nulText.test.ts`, `crm-api/prisma/schema.prisma`, `crm-api/prisma/migrations/*`
   - agent: backend-dev · push 2
   - done when: `GET /entity-profiles` has no `legalName`, `addressLines`, `vatNumber`, `iban`; `PUT` with only
@@ -356,7 +356,7 @@ Reading the list:
 
 ## Push 2 — crm-ui
 
-- [ ] T30: crm-ui — `useCanManageLegalEntity` and the Settings note in place of the four legal fields — refs: AC-6.1, AC-8.2 — deps: T5, T29
+- [x] T30: crm-ui — `useCanManageLegalEntity` and the Settings note in place of the four legal fields — refs: AC-6.1, AC-8.2 — deps: T5, T29
   - touch: `crm-ui/src/hooks/useCanManageLegalEntity.ts`, `crm-ui/src/hooks/useCanManageLegalEntity.test.tsx`, `crm-ui/src/components/LegalEntitySettingsNote.tsx`, `crm-ui/src/components/LegalEntitySettingsNote.test.tsx`, `crm-ui/src/components/EntityProfileForm.tsx`, `crm-ui/src/components/FormDialogs.refusal.test.tsx`, `crm-ui/src/pages/SettingsPage.tsx`, `crm-ui/src/pages/SettingsPage.service.test.tsx`, `crm-ui/src/lib/crmApi.ts`, `crm-ui/src/lib/types.ts`, `crm-ui/src/strings/settings.ts`
   - agent: frontend-dev · push 2
   - done when: Vitest — the form has no legal fields; the note links to `/admin/legal-entities?entity={entity}`
@@ -364,7 +364,7 @@ Reading the list:
     auth once per session; `settings.notSet` removed; axe 0 violations on the Settings page; strings parity and
     `noHardcodedStrings` green.
 
-- [ ] T31: crm-ui — `LegalEntityNotice`, the refusal codes of E4, and the issuer address in the document's language — refs: AC-5.5, AC-6.2, AC-6.3, AC-8.2 — deps: T30, T26
+- [x] T31: crm-ui — `LegalEntityNotice`, the refusal codes of E4, and the issuer address in the document's language — refs: AC-5.5, AC-6.2, AC-6.3, AC-8.2 — deps: T30, T26
   - touch: `crm-ui/src/components/offerWizard/LegalEntityNotice*`, `crm-ui/src/lib/offerErrors.ts`, `crm-ui/src/lib/errors.test.ts`, `crm-ui/src/components/offerWizard/useServicePreview.ts`, `crm-ui/src/components/offerWizard/useServicePreview.test.tsx`, `crm-ui/src/components/offerWizard/ServicePreview.tsx`, `crm-ui/src/components/offerWizard/ServicePreview*.test.tsx`, `crm-ui/src/components/offerWizard/DocumentPreview.tsx`, `crm-ui/src/components/offerWizard/DocumentPreview*.test.tsx`, `crm-ui/src/components/offerWizard/OfferWizard.tsx`, `crm-ui/src/pages/OfferWizardPage.tsx`, `crm-ui/src/pages/OfferWizardPage*.test.tsx`, `crm-ui/src/pages/DealSalesFlow.test.tsx`, `crm-ui/src/components/templateEditor/TryWizardView.tsx`, `crm-ui/src/components/templateEditor/TryWizardView.service.test.tsx`, `crm-ui/src/strings/offers.ts`, `crm-ui/src/strings/offerWizard.ts`, `crm-ui/src/lib/crmApi.ts`, `crm-ui/src/lib/types.ts`
   - agent: frontend-dev · push 2
   - done when: Vitest — generate/edit/revise refused 409 `legal_entity_incomplete` → danger notice naming the
@@ -376,7 +376,7 @@ Reading the list:
 
 ## Push 2 — letterheads-ui
 
-- [ ] T32: letterheads-ui — the preview says its details are the registry's, the legend of the missing look, the link, the unavailable state — refs: AC-5.4, AC-8.1, AC-8.2 — deps: T23, T5
+- [x] T32: letterheads-ui — the preview says its details are the registry's, the legend of the missing look, the link, the unavailable state — refs: AC-5.4, AC-8.1, AC-8.2 — deps: T23, T5
   - touch: `letterheads-ui/src/components/PreviewPane.tsx`, `letterheads-ui/src/components/PreviewPane.test.tsx`, `letterheads-ui/src/components/PreviewPaneRequest.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.test.tsx`, `letterheads-ui/src/strings/preview.ts`, `letterheads-ui/src/lib/types.ts`, `letterheads-ui/src/test-support/fakeApi.ts`, `letterheads-ui/src/pages/ConfiguratorPage.save.test.tsx`
   - agent: frontend-dev · push 2
   - done when: Vitest — the old "sample company data" sentence is gone; the source line with a link for a
@@ -385,12 +385,12 @@ Reading the list:
 
 ## Push 2 — admin-ui
 
-- [ ] T33: admin-ui — the Legal entities strings (en, it), the section label, the audit description (DR-8) — refs: AC-8.2 — deps: none
+- [x] T33: admin-ui — the Legal entities strings (en, it), the section label, the audit description (DR-8) — refs: AC-8.2 — deps: none
   - touch: `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/strings.ts`, `admin-ui/src/strings/nav.ts`, `admin-ui/src/strings/audit.ts`, `admin-ui/src/strings.test.tsx`
   - agent: frontend-dev · push 2
   - done when: every key of design.md "Copy keys" exists in en and it (`it: typeof en`); parity test green.
 
-- [ ] T34: admin-ui — registry API client and the pure mappings (status, problem sentence, value names, address problem target, merge on conflict) — refs: AC-1.2, AC-1.3, AC-2.6, AC-7.3 — deps: T33, T5
+- [x] T34: admin-ui — registry API client and the pure mappings (status, problem sentence, value names, address problem target, merge on conflict) — refs: AC-1.2, AC-1.3, AC-2.6, AC-7.3 — deps: T33, T5
   - touch: `admin-ui/src/lib/legalEntit*`
   - agent: frontend-dev · push 2
   - done when: unit tests — `legalEntityStatus` (Complete / Incomplete / Needs correction / Not moved yet, E13);
@@ -398,7 +398,7 @@ Reading the list:
     `problemSentence` per reason; `mergeOnConflict` (mine / theirs / both-changed flagged / address as one value);
     the client parses the shared fixture.
 
-- [ ] T35: admin-ui — sections by capability, the `/legal-entities` route with `entity`/`view`/`version`, index and hidden-section redirects — refs: AC-4.3 — deps: T34, T10
+- [x] T35: admin-ui — sections by capability, the `/legal-entities` route with `entity`/`view`/`version`, index and hidden-section redirects — refs: AC-4.3 — deps: T34, T10
   - touch: `admin-ui/src/router.tsx`, `admin-ui/src/router.test.tsx`, `admin-ui/src/components/SectionNav.tsx`, `admin-ui/src/components/SectionNav.test.tsx`, `admin-ui/src/components/AdminShell.tsx`, `admin-ui/src/App.test.tsx`, `admin-ui/src/pages/LegalEntitiesPage.tsx`
   - agent: frontend-dev · push 2
   - Details: plan decision 5 and E7; `LegalEntitiesPage.tsx` created here as the route's minimal host (T36 fills it).
@@ -407,7 +407,7 @@ Reading the list:
     resolves; `?entity=welld_de`, `?view=x`, `?version=abc` are replaced by defaults (value not rendered);
     `manageable` failing → Banner + Retry, no redirect; the section nav uses `wrap`.
 
-- [ ] T36: admin-ui — the page host: entity tabs with status marks, per-entity drafts, Details | History views, read-only panel, leave-the-page guard — refs: AC-1.1, AC-4.2, AC-4.3, AC-7.3, AC-8.1 — deps: T35
+- [x] T36: admin-ui — the page host: entity tabs with status marks, per-entity drafts, Details | History views, read-only panel, leave-the-page guard — refs: AC-1.1, AC-4.2, AC-4.3, AC-7.3, AC-8.1 — deps: T35
   - touch: `admin-ui/src/pages/LegalEntitiesPage*`, `admin-ui/src/components/LegalEntityPanel*`, `admin-ui/src/components/LegalEntityFacts*`, `admin-ui/src/lib/useEntityDrafts*`
   - agent: frontend-dev · push 2
   - Details: design S1, S4, S8 and the three-level keyboard model; tabs replace history entries; the guard only on
@@ -417,7 +417,7 @@ Reading the list:
     leaving with a draft prompts and names the entities; a non-covered entity renders values as facts, no input,
     the info Banner; axe 0 violations on S1 and S4 states.
 
-- [ ] T37: admin-ui — the entity form: address line inputs, save, error summary and focus, no-op, 403, failure, moved values marked — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-7.3, AC-8.1 — deps: T36, T11
+- [x] T37: admin-ui — the entity form: address line inputs, save, error summary and focus, no-op, 403, failure, moved values marked — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-7.3, AC-8.1 — deps: T36, T11
   - touch: `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/AddressLinesField*`, `admin-ui/src/components/LegalEntityPanel*`
   - agent: frontend-dev · push 2
   - done when: Vitest — four line inputs per language (one per stored line beyond four for a moved address),
@@ -426,14 +426,14 @@ Reading the list:
     the no-op note; 403 turns the panel read-only and drops the draft; 5xx keeps values and base; Save is
     `aria-disabled` with its reason; a moved entity's Banner and per-line marks (S3); axe 0 violations.
 
-- [ ] T38: admin-ui — two people editing: the conflict banner, reapply with "Use theirs", discard — refs: AC-2.6, AC-8.1 — deps: T37
+- [x] T38: admin-ui — two people editing: the conflict banner, reapply with "Use theirs", discard — refs: AC-2.6, AC-8.1 — deps: T37
   - touch: `admin-ui/src/components/ConflictBanner*`, `admin-ui/src/components/LegalEntityForm*`
   - agent: frontend-dev · push 2
   - done when: Vitest — a 409 keeps the typed values, reads the newer version and its author, shows both actions
     and disables Save; Reapply merges per value and flags both-changed values with "Use theirs", focus to the
     first flagged value; Discard loads version n; the other entity's draft is untouched; axe 0 violations.
 
-- [ ] T39: admin-ui — history, version view and restore (with the lifted `VersionTable`/`VersionBanner`) — refs: AC-2.2, AC-2.3, AC-2.4, AC-7.2, AC-8.1 — deps: T36, T11
+- [x] T39: admin-ui — history, version view and restore (with the lifted `VersionTable`/`VersionBanner`) — refs: AC-2.2, AC-2.3, AC-2.4, AC-7.2, AC-8.1 — deps: T36, T11
   - touch: `admin-ui/src/components/LegalEntityHistory*`, `admin-ui/src/components/LegalEntityVersionView*`, `admin-ui/src/components/RestoreDialog*`, `admin-ui/src/components/LegalEntityPanel*`
   - agent: frontend-dev · push 2
   - done when: Vitest — rows newest first with who ("System" for version 1), when and what changed; no Restore on
@@ -460,14 +460,14 @@ Reading the list:
 
 ## End-to-end
 
-- [ ] T41: e2e fixtures — test users with the grant and an entity attribute, the registry seeded by the import, CRM helpers moved off the legal fields — refs: AC-4.3, AC-6.2 — deps: T9, T29, T8
+- [x] T41: e2e fixtures — test users with the grant and an entity attribute, the registry seeded by the import, CRM helpers moved off the legal fields — refs: AC-4.3, AC-6.2 — deps: T9, T29, T8
   - touch: `shell/e2e/helpers/legalEntitiesFixtures.ts`, `shell/e2e/helpers/crmOfferFixtures.ts`, `shell/e2e/fixtures/crmOfferService.ts`, `shell/e2e/global-setup.ts`, `shell/playwright.config.ts`
   - agent: quality-engineer · push 2
   - done when: a smoke spec run shows the global setup leaves both entities at version ≥ 1 and complete
     (`legal-entities:import` then a registry save by the admin fixture), creates a welld_ch-conditioned manager and
     a no-grant user; `ensureEntityProfile` no longer sends legal keys; the issuer text helper reads the registry.
 
-- [ ] T42: e2e — the Legal entities page: reach by capability, edit, refusal, conflict, history and restore, keyboard only, axe — refs: AC-1.1, AC-2.3, AC-2.6, AC-3.1, AC-4.1, AC-4.2, AC-4.3, AC-8.1, AC-8.2 — deps: T41, T38, T39, T4
+- [x] T42: e2e — the Legal entities page: reach by capability, edit, refusal, conflict, history and restore, keyboard only, axe — refs: AC-1.1, AC-2.3, AC-2.6, AC-3.1, AC-4.1, AC-4.2, AC-4.3, AC-8.1, AC-8.2 — deps: T41, T38, T39, T4
   - touch: `shell/e2e/legal-entities*.spec.ts`
   - agent: quality-engineer · push 2
   - done when: Playwright green — the welld_ch manager sees Admin with only Legal entities, welld_ch editable and
@@ -512,7 +512,7 @@ Reading the list:
     auth without the check route → fail closed; new auth + old notify-api → retried); F2–F7 and FU-1–FU-10 confirmed
     closed or routed; the copy run (T54's tails) on the MIG fixture set.
 
-- [ ] T46: Security review, frontier tier (plan § Security) — refs: AC-2.7, AC-3.1, AC-3.2, AC-4.2, AC-5.2 — deps: T8, T9, T23, T28, T29, T39
+- [x] T46: Security review, frontier tier (plan § Security) — refs: AC-2.7, AC-3.1, AC-3.2, AC-4.2, AC-5.2 — deps: T8, T9, T23, T28, T29, T39
   - touch: `specs/20261117-legal-entities/security-review.md`
   - agent: owasp-reviewer (frontier tier: financial data, R1)
   - done when: the review covers every surface the plan lists (incl. the derived `apps` entry, the import script's
