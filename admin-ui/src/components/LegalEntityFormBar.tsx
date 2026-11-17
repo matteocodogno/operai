@@ -6,7 +6,7 @@
  * The status is words with an icon, not a live region: the outcomes of a save have their own banners (`notice`).
  */
 import { useId } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import { Button, Icon, VisuallyHidden } from '@operai/ui'
 import { saveBlockedReason } from './LegalEntityFormModel'
 import { strings } from '../strings'
@@ -23,9 +23,18 @@ export type LegalEntityFormBarProps = {
   conflict: boolean
   /** The outcome shown where the person is looking: saved, nothing changed, could not save. */
   notice?: ReactNode
+  /** The Save button, for the form to move focus to when a conflict has been settled and there is nothing to review. */
+  saveRef?: Ref<HTMLButtonElement>
 }
 
-export default function LegalEntityFormBar({ dirty, nextVersion, saving, conflict, notice }: LegalEntityFormBarProps) {
+export default function LegalEntityFormBar({
+  dirty,
+  nextVersion,
+  saving,
+  conflict,
+  notice,
+  saveRef,
+}: LegalEntityFormBarProps) {
   const reasonId = useId()
   const reason = saveBlockedReason(dirty, conflict)
   const blocked = reason !== null || saving
@@ -47,6 +56,7 @@ export default function LegalEntityFormBar({ dirty, nextVersion, saving, conflic
           )}
         </p>
         <Button
+          ref={saveRef}
           type="submit"
           variant="primary"
           busy={saving}

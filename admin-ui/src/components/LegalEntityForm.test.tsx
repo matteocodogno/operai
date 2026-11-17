@@ -14,14 +14,14 @@ import type { Mock } from 'vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LegalEntityForm from './LegalEntityForm'
-import { LegalEntityApiError, saveLegalEntity } from '../lib/legalEntitiesApi'
+import { LegalEntityApiError, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
 import type { SaveResult } from '../lib/legalEntitiesApi'
 import { entityFixture } from '../pages/LegalEntitiesPage.fixtures'
 import type { LegalEntity, LegalEntityDetails, LegalEntityProblem } from '../lib/legalEntityModel'
 
 vi.mock('../lib/legalEntitiesApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/legalEntitiesApi')>()
-  return { ...original, saveLegalEntity: vi.fn() }
+  return { ...original, saveLegalEntity: vi.fn(), getVersion: vi.fn() }
 })
 
 const save = vi.mocked(saveLegalEntity)
@@ -86,7 +86,10 @@ async function axeViolations(container: Element): Promise<string[]> {
   return results.violations.map((v) => `${v.id}: ${v.nodes[0]?.target.join(' ')} (${v.help})`)
 }
 
-beforeEach(() => save.mockReset())
+beforeEach(() => {
+  save.mockReset()
+  vi.mocked(getVersion).mockReset().mockRejectedValue(new TypeError('Failed to fetch'))
+})
 afterEach(cleanup)
 
 describe('the controls (S2, Q2=B)', () => {
@@ -468,7 +471,7 @@ describe('403, 409 and a failure (F6, grant lost, could not save)', () => {
     expect(screen.queryByTestId('admin-legal-summary')).toBeNull()
   })
 
-  it('keeps the typed values on a 409 and holds Save until the person chooses how to continue', async () => {
+  it('keeps the typed values on a 409 and holds Save until the person chooses how to continue (the choice itself: LegalEntityForm.conflict.test.tsx)', async () => {
     save.mockRejectedValueOnce(problemError(409, 'version_conflict', { currentVersion: 4 }))
     const { user } = open()
     await user.type(input(/^Legal name/), ' mine')

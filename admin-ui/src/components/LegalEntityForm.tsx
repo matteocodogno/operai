@@ -18,7 +18,14 @@
  *                         each control is `aria-invalid` and described by the same sentence, and focus goes to the
  *                         first refused control, down to the exact address line. The typed values stay.
  *   403                   `onLost()`: the panel turns read-only and drops the draft (the panel says so).
- *   409 version_conflict  the typed values stay and Save waits (T38 mounts the choice to reapply or discard here).
+ *   409 version_conflict  the typed values stay and Save waits. The newer version is read (`getVersion`, DR-3) and the
+ *                         `ConflictBanner` offers the two ways on (design S2, owner decision Q3=B, AC-2.6):
+ *                         "Reapply my changes" merges per value onto the newer version (`mergeOnConflict`): what only
+ *                         the person changed is kept, what only the other changed is taken, and a value both changed
+ *                         to different things keeps the person's and says what the other saved, with "Use theirs".
+ *                         Focus goes to the first such value (to Save when there is none) and Save then makes version
+ *                         n+1. "Discard my changes" drops the draft and shows version n. Either way only THIS entity's
+ *                         draft is touched; the page keeps one per entity.
  *   anything else         a warning with Retry; the values and the base version are kept.
  *
  * A save sends what the form holds when it is clicked, blank address lines included and in input order (E5: a
@@ -30,8 +37,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Banner, Card, ErrorSummary, Field, Icon } from '@operai/ui'
+import { Banner, Button, Card, ErrorSummary, Field, Icon } from '@operai/ui'
 import AddressLinesField from './AddressLinesField'
+import ConflictBanner from './ConflictBanner'
+import type { ConflictRead } from './ConflictBanner'
 import LegalEntityFormBar from './LegalEntityFormBar'
 import {
   addressInputCount,
@@ -48,14 +57,28 @@ import {
   submissionOf,
 } from './LegalEntityFormModel'
 import type { ControlKey } from './LegalEntityFormModel'
-import { LegalEntityApiError, saveLegalEntity } from '../lib/legalEntitiesApi'
-import { changedFieldsBetween, setFieldValue } from '../lib/legalEntityModel'
+import { LegalEntityApiError, getLegalEntity, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
+import { mergeOnConflict, takeTheirs } from '../lib/legalEntityMerge'
+import type { FlaggedValue } from '../lib/legalEntityMerge'
+import { valueNameList } from '../lib/legalEntityMappings'
+import {
+  changedFieldsBetween,
+  cleanText,
+  detailsOf,
+  getFieldValue,
+  isAddressField,
+  addressLanguage,
+  normalizeLines,
+  sameFieldValue,
+  setFieldValue,
+} from '../lib/legalEntityModel'
 import type {
   FieldValue,
   LegalEntity,
   LegalEntityDetails,
   LegalEntityField,
   LegalEntityProblem,
+  LegalEntityVersion,
 } from '../lib/legalEntityModel'
 import { strings } from '../strings'
 
@@ -79,6 +102,42 @@ type Outcome =
 
 /** A refused save: the problems still standing, the details that were submitted, and a counter for the focus. */
 type Refusal = { problems: LegalEntityProblem[]; submitted: LegalEntityDetails; seq: number }
+
+/**
+ * What "Reapply my changes" left to look at, for the version it was applied to: the values both people changed (the
+ * person's kept, the other's offered) and the values taken from the newer version because the person had not changed
+ * them. It is about version `version` only; once the entity moves on (a save, a newer read) it no longer shows.
+ */
+type Review = {
+  version: number
+  who: string
+  /** The newer version's values as the form shows them (IBAN in groups). */
+  theirs: LegalEntityDetails
+  flagged: FlaggedValue[]
+  taken: LegalEntityField[]
+}
+
+/** The entity answer inside a version answer. */
+const entityOf = (version: LegalEntityVersion): LegalEntity => ({
+  ...detailsOf(version),
+  entity: version.entity,
+  version: version.version,
+  updatedAt: version.updatedAt,
+  ibanPrint: version.ibanPrint,
+  complete: version.complete,
+  missing: [...version.missing],
+  invalid: [...version.invalid],
+})
+
+/** The control that takes focus for a value: its input, or the first line of an address. */
+const firstControlOf = (field: LegalEntityField): ControlKey =>
+  isAddressField(field) ? lineKey(addressLanguage(field), 0) : field
+
+/** A value in one line of a sentence: an address's lines joined, "Empty" for nothing. */
+const spoken = (value: FieldValue): string => {
+  const text = Array.isArray(value) ? normalizeLines(value).join(' / ') : cleanText(value)
+  return text === '' ? t.value.empty : text
+}
 
 const errorList = (sentences: readonly string[]): ReactNode =>
   sentences.length > 0 && (
@@ -106,15 +165,19 @@ export default function LegalEntityForm({
   const [saving, setSaving] = useState(false)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
   const [refusal, setRefusal] = useState<Refusal | null>(null)
-  const [conflict, setConflict] = useState(false)
+  const [conflict, setConflict] = useState<ConflictRead | null>(null)
+  const [review, setReview] = useState<Review | null>(null)
+  const [focusRequest, setFocusRequest] = useState<{ seq: number; target: string } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const saveRef = useRef<HTMLButtonElement>(null)
+  const reapplyRef = useRef<HTMLButtonElement>(null)
 
   // A newer read of the entity (a save, a restore, T38's reload) ends what was said about the version before it.
   const [versionSeen, setVersionSeen] = useState(entity.version)
   if (versionSeen !== entity.version) {
     setVersionSeen(entity.version)
     setRefusal(null)
-    setConflict(false)
+    setConflict(null)
   }
 
   // What a click reads: the form as it is NOW, not as it was when the callback was made.
@@ -132,10 +195,36 @@ export default function LegalEntityForm({
   }, [])
   const refusalSeq = useRef(0)
 
+  // The newer version, read for the banner and for Reapply. Stale answers (the entity moved on meanwhile) are dropped.
+  const conflictTarget = useRef<number | undefined>(undefined)
+  const readNewer = useCallback((currentVersion: number | undefined) => {
+    const { entity: read } = latest.current
+    conflictTarget.current = currentVersion
+    setConflict({ kind: 'loading' })
+    const request =
+      currentVersion !== undefined
+        ? getVersion(read.entity, currentVersion)
+        : getLegalEntity(read.entity).then((newest) => getVersion(read.entity, newest.version))
+    request.then(
+      (version) => {
+        if (!alive.current || latest.current.entity.version !== read.version) return
+        setConflict(
+          version.version > read.version
+            ? { kind: 'ready', version, changed: changedFieldsBetween(read, version) }
+            : { kind: 'failed' },
+        )
+      },
+      () => {
+        if (!alive.current || latest.current.entity.version !== read.version) return
+        setConflict({ kind: 'failed' })
+      },
+    )
+  }, [])
+
   const save = useCallback(() => {
     if (inFlight.current) return
     const current = latest.current
-    if (saveBlockedReason(current.dirty, current.conflict) !== null) return
+    if (saveBlockedReason(current.dirty, current.conflict !== null) !== null) return
     inFlight.current = true
     // What is sent is what the form holds now, its address lines as its inputs hold them (E5).
     const sent = submissionOf(current.shown)
@@ -167,7 +256,7 @@ export default function LegalEntityForm({
             return
           }
           if (error.status === 409 && error.code === 'version_conflict') {
-            setConflict(true)
+            readNewer(error.currentVersion)
             return
           }
           if (
@@ -184,7 +273,7 @@ export default function LegalEntityForm({
         setOutcome({ kind: 'failed' })
       },
     )
-  }, [])
+  }, [readNewer])
 
   // After a refusal: the summary is already on screen (it mounted with the refusal); focus goes to the first refused
   // control in page order, the exact address line included. Once per refusal, not again when a fix removes a problem.
@@ -195,6 +284,62 @@ export default function LegalEntityForm({
     const first = refusalItems(entity.entity, refusal.problems, refusal.submitted)[0]
     if (first !== undefined) formRef.current?.querySelector<HTMLElement>(`[id="${first.id}"]`)?.focus()
   }, [refusal, entity.entity])
+
+  // Focus the banner's primary action when the newer version has been read, once per conflict: Save has just refused,
+  // and the choice is above the fields (the person would otherwise tab back through all of them).
+  const readyVersion = conflict?.kind === 'ready' ? conflict.version.version : null
+  useEffect(() => {
+    if (readyVersion !== null) reapplyRef.current?.focus()
+  }, [readyVersion])
+
+  // A focus the handlers asked for after their change has rendered: a control id, or `save`.
+  const focusSeq = useRef(0)
+  useEffect(() => {
+    if (focusRequest === null || focusSeq.current === focusRequest.seq) return
+    focusSeq.current = focusRequest.seq
+    if (focusRequest.target === 'save') saveRef.current?.focus()
+    else formRef.current?.querySelector<HTMLElement>(`[id="${focusRequest.target}"]`)?.focus()
+  }, [focusRequest])
+  const requestFocus = (target: string) => setFocusRequest((previous) => ({ seq: (previous?.seq ?? 0) + 1, target }))
+
+  /** "Reapply my changes to version n": the merge puts the person's values on the newer version (AC-2.6). */
+  const reapply = () => {
+    const now = latest.current
+    if (now.conflict?.kind !== 'ready') return
+    const { version } = now.conflict
+    const theirs = formBase(entityOf(version))
+    const merged = mergeOnConflict({ base: formBase(now.entity), mine: now.shown, theirs })
+    const taken = (Object.keys(merged.outcomes) as LegalEntityField[]).filter(
+      (field) => merged.outcomes[field] === 'theirs',
+    )
+    setReview({
+      version: version.version,
+      who: version.createdBy?.name ?? t.history.system,
+      theirs,
+      flagged: merged.flagged,
+      taken,
+    })
+    now.onEntityChange(entityOf(version))
+    // Nothing of the person's left to save (they only changed what the other also changed to): no draft.
+    now.onDraftChange(changedFieldsBetween(merged.details, version).length > 0 ? merged.details : undefined)
+    const first = merged.flagged[0]
+    requestFocus(first === undefined ? 'save' : controlDomId(now.entity.entity, firstControlOf(first.field)))
+  }
+
+  /** "Discard my changes and load version n". */
+  const discard = () => {
+    const now = latest.current
+    if (now.conflict?.kind !== 'ready') return
+    setReview(null)
+    now.onEntityChange(entityOf(now.conflict.version))
+    now.onDraftChange(undefined)
+    requestFocus('save')
+  }
+
+  const takeFromTheirs = (flagged: FlaggedValue) => {
+    onDraftChange(takeTheirs(shown, flagged))
+    requestFocus(idOf(firstControlOf(flagged.field)))
+  }
 
   const focusControl = (id: string) => {
     formRef.current?.querySelector<HTMLElement>(`[id="${id}"]`)?.focus()
@@ -217,6 +362,44 @@ export default function LegalEntityForm({
   const errorsOf = (key: ControlKey): readonly string[] => refused.get(key) ?? moved.get(key) ?? []
   const idOf = (key: ControlKey) => controlDomId(entity.entity, key)
 
+  // What Reapply left to look at: flagged values still holding the person's own, and values taken from the other.
+  const reviewing = review !== null && review.version === entity.version ? review : null
+  const flaggedNow = (reviewing?.flagged ?? []).filter(
+    (item) => !sameFieldValue(item.field, getFieldValue(shown, item.field), item.theirs),
+  )
+  const flaggedFor = (field: LegalEntityField) => flaggedNow.find((item) => item.field === field)
+  const takenNow = (field: LegalEntityField) =>
+    reviewing !== null &&
+    reviewing.taken.includes(field) &&
+    sameFieldValue(field, getFieldValue(shown, field), getFieldValue(reviewing.theirs, field))
+
+  /** The sentence under a value Reapply touched: the other's value and "Use theirs", or where it was taken from. */
+  const reviewNote = (field: LegalEntityField): ReactNode => {
+    if (reviewing === null) return null
+    const flagged = flaggedFor(field)
+    if (flagged !== undefined) {
+      const noteId = `${idOf(firstControlOf(field))}-also`
+      return (
+        <>
+          <span id={noteId}>{t.conflict.alsoChanged(reviewing.version, reviewing.who, spoken(flagged.theirs))}</span>{' '}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-describedby={noteId}
+            onClick={() => takeFromTheirs(flagged)}
+            data-testid={`admin-legal-use-theirs-${field}`}
+          >
+            {t.conflict.useTheirs}
+          </Button>
+        </>
+      )
+    }
+    return takenNow(field) ? t.conflict.takenFromTheirs(reviewing.version) : null
+  }
+  const flagClass = (field: LegalEntityField) =>
+    flaggedFor(field) !== undefined ? 'border-l-[3px] border-org pl-3' : undefined
+
   const lineErrors = (language: 'it' | 'en') => {
     const errors = new Map<number, readonly string[]>()
     const count = addressInputCount(shown.address[language])
@@ -235,7 +418,14 @@ export default function LegalEntityForm({
     value: string,
     options: { required?: boolean; lang?: 'it' | 'en'; describedBy?: string } = {},
   ) => (
-    <Field id={idOf(field)} label={label} required={options.required} error={errorList(errorsOf(field))}>
+    <Field
+      id={idOf(field)}
+      label={label}
+      required={options.required}
+      hint={reviewNote(field)}
+      error={errorList(errorsOf(field))}
+      className={flagClass(field)}
+    >
       {(control) => (
         <input
           {...control}
@@ -285,11 +475,6 @@ export default function LegalEntityForm({
       >
         {t.saveFailed.body}
       </Banner>
-    ) : conflict ? (
-      // T38 replaces this with the conflict banner and its two actions.
-      <Banner tone="warning" title={t.conflict.title} data-testid="admin-legal-conflict">
-        {t.bar.reloadFirst}
-      </Banner>
     ) : null
 
   const contactsHintId = `${idOf('contacts')}-hint`
@@ -305,6 +490,25 @@ export default function LegalEntityForm({
       }}
       data-testid="admin-legal-form"
     >
+      {conflict !== null && (
+        <ConflictBanner
+          read={conflict}
+          onReapply={reapply}
+          onDiscard={discard}
+          onRetry={() => readNewer(conflictTarget.current)}
+          reapplyRef={reapplyRef}
+        />
+      )}
+      {reviewing !== null && flaggedNow.length > 0 && (
+        <Banner tone="success" data-testid="admin-legal-applied">
+          {t.conflict.applied(
+            reviewing.version,
+            valueNameList(flaggedNow.map((item) => item.field)),
+            entity.version + 1,
+          )}
+        </Banner>
+      )}
+
       {summary.length > 0 && (
         <ErrorSummary
           title={t.refused.title(summary.length)}
@@ -320,7 +524,23 @@ export default function LegalEntityForm({
           {text('legalName', t.value.legalName, shown.legalName, { required: true })}
           {text('vatNumber', t.value.vat, shown.vatNumber, { required: true })}
         </div>
-        <Field id={idOf('iban')} label={t.value.iban} hint={t.form.ibanHint} error={errorList(errorsOf('iban'))}>
+        <Field
+          id={idOf('iban')}
+          label={t.value.iban}
+          hint={
+            reviewNote('iban') === null ? (
+              t.form.ibanHint
+            ) : (
+              <>
+                {t.form.ibanHint}
+                <br />
+                {reviewNote('iban')}
+              </>
+            )
+          }
+          error={errorList(errorsOf('iban'))}
+          className={flagClass('iban')}
+        >
           {(control) => (
             <input
               {...control}
@@ -345,20 +565,28 @@ export default function LegalEntityForm({
 
       <Card title={t.form.group.address} headingLevel={4}>
         <div className="grid gap-6 md:grid-cols-2">
-          {(['it', 'en'] as const).map((language) => (
-            <AddressLinesField
-              key={language}
-              language={language}
-              legend={language === 'it' ? t.value.addressIt : t.value.addressEn}
-              lines={shown.address[language]}
-              errors={lineErrors(language)}
-              idFor={(index) => idOf(lineKey(language, index))}
-              onChange={(lines, index) =>
-                edit(language === 'it' ? 'address.it' : 'address.en', lines, lineKey(language, index))
-              }
-              testIdPrefix="admin-legal-address"
-            />
-          ))}
+          {(['it', 'en'] as const).map((language) => {
+            const field = language === 'it' ? 'address.it' : 'address.en'
+            const note = reviewNote(field)
+            return (
+              <div key={language} className={flagClass(field)}>
+                <AddressLinesField
+                  language={language}
+                  legend={language === 'it' ? t.value.addressIt : t.value.addressEn}
+                  lines={shown.address[language]}
+                  errors={lineErrors(language)}
+                  idFor={(index) => idOf(lineKey(language, index))}
+                  onChange={(lines, index) => edit(field, lines, lineKey(language, index))}
+                  testIdPrefix="admin-legal-address"
+                />
+                {note !== null && (
+                  <p className="field-hint mt-2" data-testid={`admin-legal-review-${field}`}>
+                    {note}
+                  </p>
+                )}
+              </div>
+            )
+          })}
         </div>
       </Card>
 
@@ -376,8 +604,9 @@ export default function LegalEntityForm({
         dirty={dirty}
         nextVersion={entity.version + 1}
         saving={saving}
-        conflict={conflict}
+        conflict={conflict !== null}
         notice={notice}
+        saveRef={saveRef}
       />
     </form>
   )
