@@ -6,7 +6,8 @@ import { Button } from './Button'
 import { Icon } from './Icon'
 import { useDialogBehavior } from './useDialogBehavior'
 
-export type DialogSize = 'sm' | 'md' | 'lg'
+/** `wide` is 32.5 rem (520 px): between `md` and `lg`, for a dialog that lists labelled values. */
+export type DialogSize = 'sm' | 'md' | 'lg' | 'wide'
 
 export type DialogProps = {
   /** The dialog's heading and accessible name. */
@@ -41,6 +42,14 @@ export type DialogProps = {
    * dialog that is mostly text, with no field to land on.
    */
   initialFocus?: 'auto' | 'title'
+  /**
+   * Opt-in. The dialog is capped at the viewport's height and its body scrolls while the header and the
+   * footer stay in view — so a long body never pushes the footer's buttons off a small screen. The
+   * children must be one column: a `.dialog-scroll-body` that scrolls, then the `.dialog-footer`
+   * (ConfirmDialog's `scrollBody` builds it). Without it the BACKDROP scrolls, as before. A scrolling
+   * body clips a popup that opens inside it, so use it for text and plain fields.
+   */
+  scrollBody?: boolean
   /** Overrides the backdrop's data-testid — for an app keeping the id its e2e suite already targets. */
   backdropTestId?: string
   children: ReactNode
@@ -69,6 +78,7 @@ export function Dialog({
   backdropTestId,
   dialogTestId,
   initialFocus = 'auto',
+  scrollBody = false,
   children,
 }: DialogProps) {
   const baseId = useId()
@@ -101,7 +111,7 @@ export function Dialog({
         aria-labelledby={titleId}
         aria-describedby={describedBy ?? (description ? descriptionId : undefined)}
         tabIndex={-1}
-        className={cx('dialog', size !== 'md' && `dialog-${size}`)}
+        className={cx('dialog', size !== 'md' && `dialog-${size}`, scrollBody && 'dialog-scroll')}
         data-testid={dialogTestId}
         onClick={(e) => e.stopPropagation()}
       >

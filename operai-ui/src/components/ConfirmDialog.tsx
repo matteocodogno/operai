@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Button } from './Button'
 import { Dialog } from './Dialog'
+import type { DialogSize } from './Dialog'
 
 export type ConfirmDialogProps = {
   title: ReactNode
@@ -22,6 +23,22 @@ export type ConfirmDialogProps = {
   acknowledgeLabel?: string
   /** Fields the act needs (a date, a reason), disabled as a group in flight; the first one takes focus. */
   fields?: ReactNode
+  /**
+   * Opt-in: Confirm is not available YET, for a reason the person can read — the details the question is about are
+   * still loading, or could not be read. Confirm becomes `aria-disabled` (not `disabled`: it stays a focus stop) and
+   * is described by this text, which is also its hidden description; a press, Enter in a field and a submit do
+   * nothing. Cancel, Escape and × work as usual (this is not `busy`). Unset (default): as before. While `busy`, Confirm
+   * is `disabled` and busy as always.
+   */
+  confirmDisabledReason?: string
+  /**
+   * Opt-in: the body scrolls between the header and the footer, which stay in view whatever the body's length and
+   * the screen's height (320 px wide, or short). The error stays above the footer, out of the scroll. Popups that
+   * open inside a field are clipped by the scrolling body: leave it off for a dialog with a combobox.
+   */
+  scrollBody?: boolean
+  /** Opt-in: the dialog's width. Default `sm` (24 rem), or `md` (28 rem) with `fields`. `wide` is 32.5 rem (520 px). */
+  size?: DialogSize
   busy: boolean
   /** Inline error from the failed request; null = none. The dialog stays open. */
   error: string | null
@@ -49,6 +66,9 @@ export function ConfirmDialog({
   tone = 'danger',
   acknowledgeLabel,
   fields,
+  confirmDisabledReason,
+  scrollBody = false,
+  size,
   busy,
   error,
   onConfirm,
@@ -63,12 +83,45 @@ export function ConfirmDialog({
   const [acknowledged, setAcknowledged] = useState(false)
 
   const hasFields = fields !== undefined && fields !== null
-  const canConfirm = !busy && (acknowledgeLabel === undefined || acknowledged)
+  const reason = confirmDisabledReason !== undefined && confirmDisabledReason !== '' ? confirmDisabledReason : undefined
+  // A reason makes Confirm aria-disabled (still focusable, so the reason can be read); busy and an
+  // unticked acknowledgement keep the native `disabled` they always had.
+  const reasonBlocks = reason !== undefined && !busy
+  const canConfirm = !busy && !reasonBlocks && (acknowledgeLabel === undefined || acknowledged)
+  const reasonId = `${baseId}-reason`
+
+  const content = (
+    <>
+      {/* A <div>, not a <p>, so the body can hold block content. */}
+      <div id={bodyId} className="dialog-body">
+        {children}
+      </div>
+      {hasFields && (
+        <fieldset disabled={busy} className="dialog-fields">
+          {fields}
+        </fieldset>
+      )}
+      {acknowledgeLabel !== undefined && (
+        <div className="dialog-acknowledge">
+          <input
+            id={checkboxId}
+            type="checkbox"
+            checked={acknowledged}
+            disabled={busy}
+            onChange={(event) => setAcknowledged(event.target.checked)}
+            data-testid={`${testIdPrefix}-checkbox`}
+          />
+          <label htmlFor={checkboxId}>{acknowledgeLabel}</label>
+        </div>
+      )}
+    </>
+  )
 
   return (
     <Dialog
       role="alertdialog"
-      size={hasFields ? 'md' : 'sm'}
+      size={size ?? (hasFields ? 'md' : 'sm')}
+      scrollBody={scrollBody}
       title={title}
       describedBy={bodyId}
       onClose={onCancel}
@@ -89,27 +142,12 @@ export function ConfirmDialog({
           if (canConfirm) onConfirm()
         }}
       >
-        {/* A <div>, not a <p>, so the body can hold block content. */}
-        <div id={bodyId} className="dialog-body">
-          {children}
-        </div>
-        {hasFields && (
-          <fieldset disabled={busy} className="dialog-fields">
-            {fields}
-          </fieldset>
-        )}
-        {acknowledgeLabel !== undefined && (
-          <div className="dialog-acknowledge">
-            <input
-              id={checkboxId}
-              type="checkbox"
-              checked={acknowledged}
-              disabled={busy}
-              onChange={(event) => setAcknowledged(event.target.checked)}
-              data-testid={`${testIdPrefix}-checkbox`}
-            />
-            <label htmlFor={checkboxId}>{acknowledgeLabel}</label>
+        {scrollBody ? (
+          <div className="dialog-scroll-body" tabIndex={0} data-testid={`${testIdPrefix}-scroll`}>
+            {content}
           </div>
+        ) : (
+          content
         )}
         {error && (
           <p role="alert" className="form-error dialog-body" data-testid={`${testIdPrefix}-error`}>
@@ -129,12 +167,19 @@ export function ConfirmDialog({
           <Button
             type="submit"
             variant={tone}
-            disabled={!canConfirm}
+            disabled={busy || (!reasonBlocks && !canConfirm)}
+            aria-disabled={reasonBlocks || undefined}
+            aria-describedby={reasonBlocks ? reasonId : undefined}
             busy={busy}
             data-testid={`${testIdPrefix}-confirm`}
           >
             {busy ? busyLabel : confirmLabel}
           </Button>
+          {reasonBlocks && (
+            <span id={reasonId} className="sr-only" data-testid={`${testIdPrefix}-confirm-reason`}>
+              {reason}
+            </span>
+          )}
         </div>
       </form>
     </Dialog>

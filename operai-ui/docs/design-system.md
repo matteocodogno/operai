@@ -236,7 +236,7 @@ Rules:
 
 | Component | Role | Use |
 |---|---|---|
-| `ConfirmDialog` | `alertdialog` | confirm one action; focus on Cancel; `tone` `danger` (default) or `primary`; `acknowledgeLabel` for an act that cannot be undone and moves money or closes books (Confirm stays disabled until the sentence is ticked); `fields` when the act needs input (a date, a reason) |
+| `ConfirmDialog` | `alertdialog` | confirm one action; focus on Cancel; `tone` `danger` (default) or `primary`; `acknowledgeLabel` for an act that cannot be undone and moves money or closes books (Confirm stays disabled until the sentence is ticked); `fields` when the act needs input (a date, a reason); opt-in `scrollBody` (a long body scrolls, the footer stays in view at 320 px), `confirmDisabledReason` (Confirm `aria-disabled` and described by the reason while it cannot be used yet, Cancel still works) and `size` (`wide` = 520 px) |
 | `FormDialog` | `dialog` | a short form; focus on the first field; Enter submits |
 | `NoticeDialog` | `alertdialog` | one acknowledgement, nothing to decide (a guardrail, a conflict) |
 | `Dialog` | either | the frame, for anything else — compose `.dialog-body`, `Field`, `Button`s and `.dialog-footer` |

@@ -213,3 +213,60 @@ export const LiveFailure: Story = {
   parameters: { controls: { disable: true } },
   render: () => <LiveDemo fail />,
 }
+
+const LONG_DETAILS = (
+  <>
+    <p className="m-0">These details are printed on every offer. Check the new values.</p>
+    <ul className="m-0 mt-3 flex list-none flex-col gap-3 p-0">
+      {[
+        ['Legal name', 'Welld Consulting and Engineering Services of Switzerland (Zurich branch) AG in liquidation'],
+        ['VAT number', 'CHE-123.456.789 MWST — registered 12 March 2019, replaces CHE-987.654.321 MWST'],
+        ['IBAN', 'CH93 0076 2011 6238 5295 7 → DE89 3704 0044 0532 0130 00'],
+      ].map(([label, value]) => (
+        <li key={label}>
+          <strong>{label}</strong>
+          <div>{value}</div>
+        </li>
+      ))}
+    </ul>
+  </>
+)
+
+/**
+ * Opt-in `scrollBody`: a long body scrolls between the header and the footer, so Confirm and Cancel are
+ * always in view. Shown on a 320 px phone viewport: the footer stays put while the three long details scroll. Without the prop the whole backdrop scrolls, as before.
+ */
+export const ScrollingBody: Story = {
+  name: 'Long body, footer always in view (scrollBody)',
+  args: {
+    tone: 'primary',
+    title: 'Save these changes to WellD CH?',
+    children: LONG_DETAILS,
+    confirmLabel: 'Save as version 4',
+    busyLabel: 'Saving…',
+    scrollBody: true,
+    size: 'wide',
+  },
+  // The 320 px phone of the viewport toolbar; the docs page frames it 480 px high.
+  globals: { viewport: { value: 'mobile1', isRotated: false } },
+  parameters: { docs: { story: { inline: false, iframeHeight: 480 } } },
+  render: (args) => <WithTrigger {...args} trigger="Save" />,
+}
+
+/**
+ * Opt-in `confirmDisabledReason`: Confirm is not available yet — here, the details the question is about are
+ * still loading. It is `aria-disabled` (still a focus stop) and described by the reason, which a screen reader
+ * reads; Cancel works. Not the same as `busy`, which also disables Cancel and blocks dismissing.
+ */
+export const ConfirmUnavailable: Story = {
+  name: 'Confirm unavailable, with its reason (confirmDisabledReason)',
+  args: {
+    tone: 'primary',
+    title: 'Restore version 3?',
+    children: 'Loading the details of version 3 so the changes can be shown first…',
+    confirmLabel: 'Restore version 3',
+    confirmDisabledReason: 'Loading the details of version 3…',
+    size: 'wide',
+  },
+  render: (args) => <WithTrigger {...args} trigger="Restore" />,
+}

@@ -896,6 +896,47 @@ select:not([multiple]):not([size]) {
     max-width: 40rem;
   }
 
+  .dialog-wide {
+    max-width: 32.5rem;
+  }
+
+  /* Opt-in (<Dialog scrollBody>): the dialog is capped at the viewport and is a column — the header and the footer
+   * keep their height, the body between them scrolls — so the footer's buttons are never below the fold.
+   * The backdrop's padding (16px each side) is subtracted; `dvh` follows a mobile browser's moving toolbar. */
+  .dialog-scroll {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
+  }
+
+  .dialog-scroll > .dialog-header,
+  .dialog-scroll > .dialog-description {
+    flex-shrink: 0;
+  }
+
+  .dialog-scroll > form {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .dialog-scroll-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    /* Room for a focus ring at the edge of a field, which overflow would clip. */
+    margin: 0 -4px;
+    padding: 0 4px;
+  }
+
+  .dialog-scroll .dialog-footer {
+    flex-shrink: 0;
+    padding-top: 4px;
+  }
+
   .dialog-header {
     display: flex;
     align-items: center;
