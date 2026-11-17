@@ -1,0 +1,124 @@
+/**
+ * Mount guard (D1, specs/20261117-legal-entities): goes through the ASSEMBLED app exported from `src/index.ts`, with the
+ * REAL better-auth handler, and asserts that every route group is reached. It exists because a router-level unit test
+ * cannot see this failure: Hono's SmartRouter picks RegExpRouter and falls back to TrieRouter for the WHOLE app as soon
+ * as any one route makes RegExpRouter throw (the legal-entities read router does), and the two routers read `"/**"`
+ * differently - the auth mount then answered 404 to every /auth/** path while its own tests still passed.
+ *
+ * "Reached" for a better-auth path means: not the app's own `notFound` problem document. (Better Auth answers 4xx of its
+ * own - 400, 401, 302 - which are all fine here; what is not fine is the app saying the path does not exist.)
+ */
+
+import { describe, expect, test } from "bun:test";
+import { auth } from "./auth.config";
+
+const { app } = await import("../index");
+
+const isAppNotFound = async (res: Response): Promise<boolean> => {
+  if (res.status !== 404) return false;
+  const body = (await res.clone().text()) ?? "";
+  return body.includes("httpstatuses.com/404") && body.includes("does not exist");
+};
+
+const send = (method: string, path: string): Promise<Response> =>
+  Promise.resolve(
+    app.request(path, {
+      method,
+      redirect: "manual",
+      ...(method === "GET" ? {} : { headers: { "content-type": "application/json" }, body: "{}" }),
+    }),
+  );
+
+describe("the auth mount, through the assembled app", () => {
+  test("/auth/ok answers 200", async () => {
+    const res = await send("GET", "/auth/ok");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  test("/auth/jwks answers 200 with a key set", async () => {
+    const res = await send("GET", "/auth/jwks");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(((await res.json()) as { keys: unknown[] }).keys)).toBe(true);
+  });
+
+  test("/auth/get-session answers 200 (no session) on GET; a POST reaches Better Auth (its 405), never the app's 404", async () => {
+    expect((await send("GET", "/auth/get-session")).status).toBe(200);
+    const post = await send("POST", "/auth/get-session");
+    expect(post.status).toBe(405);
+    expect(await isAppNotFound(post)).toBe(false);
+  });
+
+  test("/auth/token answers 401 without a session, never 404", async () => {
+    const res = await send("GET", "/auth/token");
+    expect(res.status).toBe(401);
+  });
+
+  test("a nested better-auth path is reached: POST /auth/sign-in/social (400 for an empty body, not 404)", async () => {
+    const res = await send("POST", "/auth/sign-in/social");
+    expect(res.status).toBe(400);
+  });
+
+  test("a nested better-auth path with a parameter is reached: GET /auth/callback/google", async () => {
+    const res = await send("GET", "/auth/callback/google");
+    expect(await isAppNotFound(res)).toBe(false);
+    expect([302, 400]).toContain(res.status);
+  });
+
+  test("an unknown path under /auth is Better Auth's 404, not the app's", async () => {
+    const res = await send("GET", "/auth/no/such/endpoint");
+    expect(res.status).toBe(404);
+    expect(await isAppNotFound(res)).toBe(false);
+  });
+
+  test("DELETE under /auth is delegated too (the mount lists GET, POST and DELETE)", async () => {
+    const res = await send("DELETE", "/auth/sign-out");
+    expect(await isAppNotFound(res)).toBe(false);
+  });
+
+  test("EVERY endpoint better-auth serves in this configuration is reached through the app", async () => {
+    const endpoints = Object.values(auth.api as Record<string, { path?: string; options?: { method?: string | string[] } }>)
+      .filter((e): e is { path: string; options?: { method?: string | string[] } } => typeof e.path === "string");
+    expect(endpoints.length).toBeGreaterThan(20); // sign-in/social, callback/:id, get-session, token, jwks, ok, ...
+
+    const unreached: string[] = [];
+    for (const e of endpoints) {
+      const method = [e.options?.method ?? "GET"].flat()[0] as string;
+      const path = `/auth${e.path.replace(/:\w+/g, "google")}`;
+      if (await isAppNotFound(await send(method, path))) unreached.push(`${method} ${path}`);
+    }
+    expect(unreached).toEqual([]);
+  });
+});
+
+describe("the other route groups still answer through the assembled app (mount order and router fallback)", () => {
+  test("legal-entities read routes answer 401 without a session, no-store, never 404", async () => {
+    for (const path of ["/legal-entities", "/legal-entities/manageable", "/legal-entities/welld_ch"]) {
+      const res = await send("GET", path);
+      expect(res.status).toBe(401);
+      expect(res.headers.get("cache-control")).toContain("no-store");
+    }
+  });
+
+  test("legal-entities history, write, system and the other groups are mounted (a status other than the app's 404)", async () => {
+    const probes: Array<[string, string]> = [
+      ["GET", "/legal-entities/welld_ch/versions"],
+      ["GET", "/legal-entities/welld_ch/versions/1"],
+      ["POST", "/legal-entities/welld_ch/versions"],
+      ["POST", "/legal-entities/welld_ch/versions/1/restore"],
+      ["GET", "/system/legal-entities"],
+      ["GET", "/system/legal-entities/welld_ch"],
+      ["POST", "/system/service-token"],
+      ["GET", "/authz/me"],
+      ["GET", "/admin/users"],
+      ["GET", "/admin/roles"],
+      ["GET", "/admin/departments"],
+      ["GET", "/health"],
+    ];
+    const unreached: string[] = [];
+    for (const [method, path] of probes) {
+      if (await isAppNotFound(await send(method, path))) unreached.push(`${method} ${path}`);
+    }
+    expect(unreached).toEqual([]);
+  });
+});
