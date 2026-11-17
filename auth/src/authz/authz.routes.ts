@@ -24,6 +24,12 @@
  *                      `access` action"; this is the shell's US-7
  *                      nav/route-guard convenience so it never has to know
  *                      about the generic permission shape).
+ *                      Plus `"admin"` (derived, not an `access` grant) when
+ *                      `legal-entity:manage` covers at least one entity for the
+ *                      caller (specs/20261117-legal-entities, ADR
+ *                      20261117-an-app-is-reachable-through-a-capability-it-administers...):
+ *                      it means "may enter the Admin tool", never "is an
+ *                      administrator" - the admin APIs keep `requireAdmin`.
  *   - `roles`       — the caller's DIRECTLY assigned role names
  *                      (`user_role` → `role.name`). Department-conferred
  *                      roles are NOT repeated here — their rules are already
@@ -45,9 +51,13 @@ import { Effect } from "effect";
 import type { User } from "better-auth";
 import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
 import { db } from "../lib/db";
+import { adminAreaReachable } from "../legalEntities/coverage";
 import { resolveEffectivePermissions } from "./resolver";
 
 const ACCESS_ACTION = "access";
+// The Admin tool's resource key: derived into `apps` for a holder of `legal-entity:manage` (ADR
+// 20261117-an-app-is-reachable-through-a-capability-it-administers...).
+const ADMIN_APP = "admin";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -96,7 +106,9 @@ const getMeRoute = createRoute({
     "Resolves the signed-in caller's effective permissions live — never " +
     "from the JWT (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims). `apps` is the subset of resources the caller " +
     "holds the `access` action on (AC-3.3). Absence of a (resource,action) " +
-    "pair means no access (default-deny, AC-4.4).",
+    "pair means no access (default-deny, AC-4.4). `admin` is also added when " +
+    "the caller holds `legal-entity:manage` covering at least one entity (it opens the Admin tool, " +
+    "not the administrator-only APIs).",
   responses: {
     200: {
       content: { "application/json": { schema: EffectivePermissionsSchema } },
@@ -128,6 +140,7 @@ authzRouter.openapi(getMeRoute, async (c) => {
       where: { id: userId },
       select: {
         permissionEpoch: true,
+        entity: true,
         userRoles: { select: { role: { select: { name: true } } } },
         userDepartments: {
           select: { department: { select: { name: true } } },
@@ -140,6 +153,13 @@ authzRouter.openapi(getMeRoute, async (c) => {
   const apps = permissions
     .filter((permission) => permission.action === ACCESS_ACTION)
     .map((permission) => permission.resource);
+
+  // Derived entry (specs/20261117-legal-entities, decision 5): a person who may manage at least one legal
+  // entity reaches the Admin tool without `admin:access`. Presentation only - the admin APIs keep
+  // `requireAdmin`. `/authz/resolve`, `/authz/app-access-check` and the directory filter do not derive it.
+  if (!apps.includes(ADMIN_APP) && adminAreaReachable(permissions, { entity: profile.entity })) {
+    apps.push(ADMIN_APP);
+  }
 
   // Re-shape into plain (non-readonly) objects — the resolver's
   // `EffectivePermission`/`RuleConditions` types are `readonly` by design

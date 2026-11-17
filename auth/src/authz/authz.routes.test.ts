@@ -52,11 +52,12 @@ function unique(): string {
   return crypto.randomUUID();
 }
 
-async function makeUser(label: string) {
+async function makeUser(label: string, entity: string | null = null) {
   const user = await db.user.create({
     data: {
       name: `T6 fixture — ${label}`,
       email: `t6-authz-me-${label}-${RUN_ID}-${unique()}@authzme.test`,
+      entity,
     },
   });
   createdUserIds.add(user.id);
@@ -288,5 +289,90 @@ describe("GET /authz/me (T6)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { epoch: number };
     expect(body.epoch).toBe(3);
+  });
+});
+
+// ─── The derived `admin` entry (T4, specs/20261117-legal-entities — AC-4.2, AC-4.3) ──
+
+describe("GET /authz/me — `admin` derived from legal-entity:manage (T4)", () => {
+  const ENTITY_CONDITION = { attributes: [{ key: "entity", match: "user" }] };
+
+  async function appsOf(user: { id: string; email: string; name: string }): Promise<string[]> {
+    currentSession = asSession(user);
+    const { authzRouter } = await import("./authz.routes");
+    const res = await authzRouter.request("/authz/me");
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { apps: string[] }).apps;
+  }
+
+  async function withGrant(label: string, entity: string | null, conditions?: Record<string, unknown>) {
+    const user = await makeUser(label, entity);
+    const role = await makeRole(label);
+    await addRule(role.id, "legal-entity", "manage", conditions);
+    await assignUserRole(user.id, role.id);
+    return user;
+  }
+
+  test("an unconditioned grant adds admin, with no admin:access and no user entity", async () => {
+    const user = await withGrant("le-uncond", null);
+    expect(await appsOf(user)).toEqual(["admin"]);
+  });
+
+  test("an entity-conditioned grant adds admin when the user has an entity", async () => {
+    const user = await withGrant("le-cond", "welld_ch", ENTITY_CONDITION);
+    expect(await appsOf(user)).toEqual(["admin"]);
+  });
+
+  test("an entity-conditioned grant with user entity null adds nothing", async () => {
+    const user = await withGrant("le-cond-null", null, ENTITY_CONDITION);
+    expect(await appsOf(user)).toEqual([]);
+  });
+
+  test("an entity-conditioned grant with an entity outside the registry's adds nothing", async () => {
+    const user = await withGrant("le-cond-foreign", "CH", ENTITY_CONDITION);
+    expect(await appsOf(user)).toEqual([]);
+  });
+
+  test("an unrecognised condition adds nothing (fail closed)", async () => {
+    const user = await withGrant("le-unknown", "welld_ch", { ownership: "own" });
+    expect(await appsOf(user)).toEqual([]);
+  });
+
+  test("admin appears once for an administrator who also holds the coverage", async () => {
+    const user = await withGrant("le-both", null);
+    const role = await makeRole("le-both-access");
+    await addRule(role.id, "admin", "access");
+    await assignUserRole(user.id, role.id);
+    expect(await appsOf(user)).toEqual(["admin"]);
+  });
+
+  test("other apps are unchanged and admin is added after them", async () => {
+    const user = await withGrant("le-others", null);
+    const role = await makeRole("le-others-access");
+    await addRule(role.id, "estimai", "access");
+    await assignUserRole(user.id, role.id);
+    expect(await appsOf(user)).toEqual(["estimai", "admin"]);
+  });
+
+  test("an administrator without the permission gets no change, and other grants do not derive admin", async () => {
+    const admin = await makeUser("le-admin-only");
+    const role = await makeRole("le-admin-only");
+    await addRule(role.id, "admin", "access");
+    await assignUserRole(admin.id, role.id);
+    expect(await appsOf(admin)).toEqual(["admin"]);
+
+    const other = await makeUser("le-other-perms", "welld_ch");
+    const otherRole = await makeRole("le-other-perms");
+    await addRule(otherRole.id, "legal-entity", "read");
+    await addRule(otherRole.id, "letterhead", "manage");
+    await assignUserRole(other.id, otherRole.id);
+    expect(await appsOf(other)).toEqual([]);
+  });
+
+  test("a revoked grant removes admin on the next call", async () => {
+    const user = await withGrant("le-revoke", null);
+    expect(await appsOf(user)).toEqual(["admin"]);
+    await db.userRole.deleteMany({ where: { userId: user.id } });
+    expect(await appsOf(user)).toEqual([]);
   });
 });
