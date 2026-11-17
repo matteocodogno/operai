@@ -163,12 +163,12 @@ sequence of pushes and steps, and each push is correct whatever order its servic
 
 | Step | What | Gate to go on |
 | --- | --- | --- |
-| **1. Expand** (push 1) | **auth only**: migration (table + trigger), `ADMIN_CATALOG` and seed, read/management/service routes, `legal-entities:read` in `KNOWN_SERVICE_SCOPES`, derived `apps`, import script. No consumer reads the registry; it answers `version: 0` for both entities. | auth `/health` reports the new version; `GET /legal-entities` → both `version: 0`. |
+| **1. Expand** (push 1) | **auth only** *(amended: + `operai-ui` and `shell`, E10)*: migration (table + trigger), `ADMIN_CATALOG` and seed, read/management/service routes, `legal-entities:read` in `KNOWN_SERVICE_SCOPES`, derived `apps`, import script. No consumer reads the registry; it answers `version: 0` for both entities. | auth `/health` reports the new version; `GET /legal-entities` → both `version: 0`. |
 | **2. Credentials** (env, no code) | auth `SERVICE_CLIENTS`: `crm-api` scope += `legal-entities:read`; new entry `letterhead-api` = `{secret, scope:"legal-entities:read"}`. letterhead-api: `SERVICE_CLIENT_ID=letterhead-api`, `SERVICE_CLIENT_SECRET` (old code ignores both). | `mise run env:doctor -- --env production --resolve` green. |
-| **3. Copy** (operator) | Announce: no edits to CRM entity settings until step 5 is live. Run `bun run scripts/import-crm-legal-details.ts` (dry run), then `--apply`, then the dry run again. `CRM_DATABASE_URL` and `DATABASE_URL` in the environment only (ADR 20261110 amendment L4). | Report: found 2, inserted 2 (or present 2), mismatched 0; the owner has read the flags (incomplete, invalid, IBAN print changed — D2, D3). |
-| **4. Pre-switch check** | Dry run again just before push 2. | present 2, mismatched 0: nobody edited the CRM legal fields since the copy. A mismatch is resolved by a registry save (API, an admin) before going on. |
-| **5. Switch** (push 2) | crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui together. Order-independent: v2 fails closed against an old letterhead-api; crm-api accepts and ignores the legacy legal keys from an old crm-ui; crm-ui reads `issuerAddress` and falls back to `issuerAddressLines` from an old crm-api; admin-ui only calls auth (already live). The freeze ends when crm-api is live. | Smoke per entity: preview an offer (classic and, where the switch is on, the service) and compare the issuer lines with the day before (AC-7.5). |
-| **6. Contract** (a later release) | crm-api migration drops `legalName`, `addressLines`, `vatNumber`, `iban` from `entity_profile`; remove the `issuerAddressLines` compatibility field and the legacy-key tolerance; the import script stays as history (it refuses to run once every entity has a version). | Step 5 has been live in production; listed in the CHANGELOG as the next step. |
+| **3. Copy** (operator) *(stop rule and report categories: E11)* | Announce: no edits to CRM entity settings until step 5 is live. Run `bun run scripts/import-crm-legal-details.ts` (dry run), then `--apply`, then the dry run again. `CRM_DATABASE_URL` and `DATABASE_URL` in the environment only (ADR 20261110 amendment L4). | Report: found 2, inserted 2 (or present 2), mismatched 0; the owner has read the flags (incomplete, invalid, IBAN print changed — D2, D3). |
+| **4. Pre-switch check** | Dry run again just before push 2 *(gate amended: E11)*. | present 2, mismatched 0: nobody edited the CRM legal fields since the copy. A mismatch is resolved by a registry save (API, an admin) before going on. |
+| **5. Switch** (push 2) *(+ post-switch dry run, E11)* | crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui together. Order-independent: v2 fails closed against an old letterhead-api; crm-api accepts and ignores the legacy legal keys from an old crm-ui; crm-ui reads `issuerAddress` and falls back to `issuerAddressLines` from an old crm-api; admin-ui only calls auth (already live). The freeze ends when crm-api is live. | Smoke per entity: preview an offer (classic and, where the switch is on, the service) and compare the issuer lines with the day before (AC-7.5). |
+| **6. Contract** (a later release) | crm-api migration drops `legalName`, `addressLines`, `vatNumber`, `iban` from `entity_profile`; remove the `issuerAddressLines` compatibility field and the legacy-key tolerance; the import script stays as history *(stop rule restated in E11: it exits once the CRM columns are gone)*. | Step 5 has been live in production; listed in the CHANGELOG as the next step. |
 
 Undo: before step 6, reverting push 2 brings back CRM-sourced issuers (columns intact). Registry saves made after
 step 5 are not in the CRM; the runbook says so.
@@ -234,7 +234,7 @@ cache (503 `legal_entities_unavailable` per decision 7) → `legalEntityVersion`
 `ibanPrint`) → worker unchanged → answer gains `legalEntityVersion` (preview JSON member; PDF header
 `Legal-Entity-Version`) → the one log line gains `legal_entity_version` and `entity_data_ignored`.
 
-**Configurator preview (letterhead-api).** As today, but the sample document's body is kept and its entity data is
+**Configurator preview (letterhead-api).** *(Text alternative of a missing value: E3.)* As today, but the sample document's body is kept and its entity data is
 replaced by the registry's in the preview language, rendered with `mark_missing`: an empty placeholder prints its
 label (closed set, both languages, in the engine) in the `missing` look, and a conditional segment around it is
 kept so the person sees it (AC-5.4). Registry unavailable (decision 7) → the preview still renders, every
@@ -350,7 +350,7 @@ answer below carries `Cache-Control: no-store`.
   "contacts": { "it": "Tel. +41 91 … · info@welld.ch", "en": "Phone +41 91 … · info@welld.ch" },
   "complete": true,                     // AC-1.2's required values all present
   "missing": [],                        // ⊂ ["legalName","address.it","address.en","vatNumber"]
-  "invalid": []                         // [{ field, reason }] — only a moved value can be here (D3)
+  "invalid": []                         // [{ field, line?, reason, limit? }] (E6) — only a moved value can be here (D3)
 }
 ```
 
@@ -360,13 +360,13 @@ answer below carries `Cache-Control: no-store`.
 | `GET /legal-entities/{entity}` | person | 200 `LegalEntity`; 404 `unknown_legal_entity`; 401 |
 | `GET /system/legal-entities` | service JWT, scope `legal-entities:read` | the same 200 body as the person route; one frozen 401; 429 (shared `tooManyRequests`) |
 | `GET /system/legal-entities/{entity}` | service JWT, same | same as the person route; 404 `unknown_legal_entity` |
-| `GET /legal-entities/manageable` | person | 200 `{ entities: ["welld_ch"] }` (`[]` for none) |
+| `GET /legal-entities/manageable` | person | 200 `{ entities: ["welld_ch"] }` (`[]` for none) — consumers and routing: E2 |
 
 ### Management (person; `legal-entity:manage` covering at least one entity, else 403 `forbidden`)
 
 | Route | Extra rule | Body → answer |
 | --- | --- | --- |
-| `GET /legal-entities/{entity}/versions` | any covered entity may read either history (AC-4.3: the other read-only) | `{ items: [{ version, action, restoredFrom, createdBy: {id, name} \| null, createdAt, changedFields }] }`, newest first, every version (AC-2.2) |
+| `GET /legal-entities/{entity}/versions` | any covered entity may read either history (AC-4.3: the other read-only); items gain `restorable` (E1) | `{ items: [{ version, action, restoredFrom, createdBy: {id, name} \| null, createdAt, changedFields }] }`, newest first, every version (AC-2.2) |
 | `GET /legal-entities/{entity}/versions/{n}` | same | `LegalEntity` of version n + `{ action, restoredFrom, createdBy, createdAt }` (AC-2.3); 404 `version_not_found` |
 | `POST /legal-entities/{entity}/versions` | must cover `{entity}` | `{ baseVersion, details: { legalName, address: {it, en}, vatNumber, iban, contacts: {it, en} } }` → 201 `{ version, created: true, entity: LegalEntity }` / 200 `{ version, created: false, … }` |
 | `POST /legal-entities/{entity}/versions/{n}/restore` | must cover `{entity}` | `{ baseVersion }` → as save; 404 `version_not_found` |
@@ -383,7 +383,7 @@ Refusals of the two POSTs:
 | 422 | `invalid_request` | not the shape above (missing/unknown member, wrong type); no name of an unknown member is echoed |
 | 422 | `invalid_legal_entity` + `problems: [{ field, line?, reason, limit? }]` | AC-1.2–1.4; every problem at once |
 
-`field` ∈ the closed set of `changedFields`; `line` (0-based) for an address line; `reason` ∈ `required`,
+`field` ∈ the closed set of `changedFields`; `line` (0-based, against the submitted array: E5) for an address line; `reason` ∈ `required`,
 `too_long`, `too_many_lines`, `line_break`, `control_character`, `iban_format`, `iban_check_digits`; `limit` for
 `too_long`/`too_many_lines`.
 
@@ -430,7 +430,7 @@ questions).
   accepted and ignored until step 6 (an old crm-ui during the switch push); anything else is still refused.
 - `GET /deals/{id}/offer-wizard/context`: gains `issuerAddress: { it: string[], en: string[] }`;
   `issuerLegalName` from the registry; `issuerAddressLines` (Italian) kept until step 6 for an old crm-ui.
-- Generation, edit/revise, legacy draft prefill, both preview routes and try-preview — new refusals replacing
+- *(Amended: `entity_profile_missing` is removed from every document path, E4.)* Generation, edit/revise, legacy draft prefill, both preview routes and try-preview — new refusals replacing
   409 `entity_profile_missing`:
 
 | Status | `code` | When |
@@ -598,3 +598,240 @@ Surfaces to review:
 4. **ADR-4 (or an addendum to ADR 20261110-activities-migration-write-pause):** the CRM's legal details move by
    expand → copy under an announced settings freeze → switch → contract, with the report as the witness and
    version 1 attributed to the system.
+
+## Amendment 2026-11-17 after design
+
+Source: `design.md` (owner decisions Q1=B one page with entity tabs, Q2=B four address line inputs per language,
+Q3=B reapply on conflict; designer's recommendations DR-1 to DR-12, adopted by the owner's non-objection), and
+the loose points the ADR writer flagged in the four `docs/adr/20261117-*` ADRs. The plan stays `approved`:
+these are owner-accepted design decisions and settlements of points the plan left loose. **No acceptance
+criterion changes.** Two findings would change wording of a spec (this one's AC-7.3, and AC-1.8 of
+specs/20261116-letterhead-service): they are listed as spec drift D7 and D8 at the end of this block and are
+not applied here. Where the body above says otherwise, this block wins; the body carries pointers (E1…E14).
+
+### E1 — Versions list: `restorable` per item (DR-1)
+
+`GET /legal-entities/{entity}/versions` items gain `restorable: boolean`: true when that version's details pass
+`rules.ts` **today** (complete and `invalid` empty), the same check the restore route applies (D4). Computed at
+read time (the rules can change; a stored flag would go stale), present on every item including the current one
+(the UI never offers restoring the current version, AC-2.4). The flag is the page's hint; the guard stays the
+422 `invalid_legal_entity` of the restore route.
+
+```jsonc
+{ "items": [ { "version": 3, "action": "save", "restoredFrom": null, "createdBy": { "id": "u_…", "name": "…" },
+               "createdAt": "…", "changedFields": ["iban"], "restorable": true },
+             { "version": 1, "action": "import", "restoredFrom": null, "createdBy": null,
+               "createdAt": "…", "changedFields": ["legalName", "address.it", "address.en"], "restorable": false } ] }
+```
+
+### E2 — `GET /legal-entities/manageable`: its consumers and its routing (DR-2)
+
+- Consumers: admin-ui (which sections and which entity tabs are editable), crm-ui (S9 Settings note, S10 refusal
+  notice) and letterheads-ui (S11 preview source line), each through its own `useCanManageLegalEntity(entity)`
+  (one copy per app: apps cannot share a hook through `shell/session`). The hook calls
+  `apiFetch(getAuthBaseUrl() + "/legal-entities/manageable")` once per session per app (module-level promise,
+  dropped on `onSignOut`), and **fails closed**: any error or a non-200 means "may not manage" (the sentence,
+  never the link). The browser never evaluates the `entity` condition (decision 5c).
+- Routing: `manageable` is a reserved path segment of the person router, registered **before**
+  `/legal-entities/{entity}`; it is not an entity name. `/system/legal-entities/manageable` does not exist and
+  answers the frozen 404 `unknown_legal_entity` of AC-3.4. The answer is about the caller only; it names no other
+  person.
+
+### E3 — The missing look has a text alternative (DR-4)
+
+The configurator preview's "mark missing" mode (sequence "Configurator preview") prints, for an empty
+placeholder, its label between `⟦` (U+27E6) and `⟧` (U+27E7): in the drawing, in the `missing` look, **and** in
+the page's `text` (the preview's text alternative, letterhead AC-8.6). The labels are a closed set in the engine:
+
+| Placeholder | it | en |
+| --- | --- | --- |
+| `legal_name` | Ragione sociale | Legal name |
+| `address` | Indirizzo | Address |
+| `vat` | Partita IVA | VAT number |
+| `iban` | IBAN | IBAN |
+| `contacts` | Riga contatti | Contacts line |
+
+Only the configurator preview route sets the mode. The render routes (`/v1/render/preview` and `/pdf`) never do,
+so a document never carries `⟦ ⟧` and letterhead AC-1.3 (preview text = PDF text for one request) is untouched.
+The engine's non-marking output stays byte-identical (golden corpus unchanged).
+
+### E4 — `entity_profile_missing` is removed from every document path (DR-5)
+
+- crm-api: generation, edit/revise, legacy draft prefill, both preview routes and try-preview never answer
+  `entity_profile_missing`. They answer 409 `legal_entity_incomplete` (`entity`, `missing[]`) when the registry
+  says `complete: false`, and 503 `legal_entities_unavailable` (`Retry-After: 5`) when it cannot be read within
+  decision 7's bounds. `requireIssuerName` and `entityDataOf`'s refusal go.
+- A missing CRM profile **row** no longer blocks an offer: the CRM's own values take their existing null meaning
+  (place of issue "Lugano", no standard terms, no classic letterhead: a plain page on the classic path).
+- The code survives only on the two classic letterhead upload routes (`POST /entity-profiles/{entity}/letterhead`
+  and `…/confirm`, already 410 with the switch on), where it still means "the profile row does not exist yet";
+  crm-ui's `templates.letterhead.errors.profileMissing` stays with it.
+- `GET /deals/{id}/offer-wizard/context` answers 200 whenever the registry is readable, also for an incomplete
+  entity (the values as they are; an autosave is never refused), and 503 `legal_entities_unavailable` when it is
+  not. Generation and the previews are where incompleteness refuses.
+- crm-ui: `offerFailure()` drops `entity_profile_missing` and maps `legal_entity_incomplete` and
+  `legal_entities_unavailable`; `useServicePreview`'s `profileMissing` kind becomes `legalEntityIncomplete`;
+  strings `settings.notSet` (removed), `offers.errors.profileMissing` and `offerWizard.preview.profileMissing`
+  (both occurrences, en and it; replaced by `offerWizard.legalEntity.*` and `LegalEntityNotice`).
+
+Updated crm-api refusal table (replaces the one under "crm-api (changed)"):
+
+| Status | `code` | Routes | When |
+| --- | --- | --- | --- |
+| 409 | `legal_entity_incomplete` + `entity` + `missing[]` | generate, edit/revise, legacy draft prefill, both previews, try-preview | registry `complete: false` (AC-6.3, AC-7.3) |
+| 503 | `legal_entities_unavailable`, `Retry-After: 5` | the above + wizard context | registry unreadable beyond 60 s (AC-5.5) |
+| 503 | `layout_service_unavailable` | service path | also letterhead-api's `legal_entities_unavailable` and a second `legal_entity_version_mismatch` |
+| 409 | `entity_profile_missing` | classic letterhead upload and confirm **only** | the CRM profile row does not exist |
+
+### E5 — `problems[].line` counts the submitted array (DR-9)
+
+`line` is the 0-based position **in the array the client submitted** for that language, before blank lines are
+removed. admin-ui sends its line inputs in order, blanks included (four, or one per stored line for a moved
+address longer than four, design S2). Reasons that carry `line`: `too_long`, `line_break`, `control_character` on
+an address line. Reasons that carry no `line`: `required` (no non-blank line in that language) and
+`too_many_lines` (more than four non-blank lines; `limit: 4`). The strict schema caps each submitted address
+array at 16 entries (more is 422 `invalid_request`), so `too_many_lines` covers 5 to 16 and the 16 KiB body
+bound is never the first to trip.
+
+### E6 — `invalid[]` items carry `line` and `limit` (DR-10)
+
+`LegalEntity.invalid` items are `{ field, line?, reason, limit? }`, produced by the same `rules.ts` with the same
+vocabulary as `problems`. On a read, `line` is the index in the **stored** array (stored arrays hold no blank
+line, so it is the line the page shows); `too_many_lines` has no `line` (the page marks the inputs beyond the
+fourth). `required` never appears in `invalid` (that is `missing`). The shared fixture
+`specs/20261117-legal-entities/fixtures/legal-entities.json` includes an entity with a moved 5-line address and a
+121-character line.
+
+### E7 — admin-ui route and the links into it (DR-11)
+
+One route in admin-ui's inner router, `/legal-entities` (shell URL `/admin/legal-entities`), with search params
+`entity ∈ {welld_it, welld_ch}`, `view ∈ {details, history}` and `version` (whole number ≥ 1, only with
+`view=history`). Any other value is replaced in the URL by the default (`replace`, never echoed): entity = the
+first one the person may manage, else `welld_it`; view = `details`; a bad `version` is dropped. A whole-number
+version that does not exist shows "This version does not exist" (the API's 404). An unknown entity is **not** a
+404 page: AC-3.4 is about the API, which is unchanged. crm-ui and letterheads-ui link with a plain
+`<a href="/admin/legal-entities?entity={entity}">`. The hidden-section redirect of decision 5 is unchanged; the
+index waits for `manageable` before redirecting a manager-only person.
+
+### E8 — `Tabs` and `TabNav` can wrap, opt-in (DR-12)
+
+`@operai/ui` `Tabs` and `TabNav` gain a `wrap` prop (the list wraps onto further rows instead of scrolling
+sideways); the default is unchanged. Chosen opt-in rather than a new default because `@operai/ui` is a singleton
+served by the live shell (ADR 20261114-operai-ui-shared-singleton-provided-by-the-shell, point 6): a default
+change reaches every remote at the next shell deploy, untested by them. The entity tabs and admin-ui's section nav
+use `wrap` (WCAG 1.4.10 reflow at 320 px, AC-8.1).
+
+### E9 — Decision: lift `ErrorSummary`, `VersionTable` and `VersionBanner` into `@operai/ui` now
+
+**Chosen:** build the three in `@operai/ui` from the letterheads-ui code (presentational APIs of design.md's
+LIFT table; each with a story and a test, no app strings, no fetching), use them in admin-ui now, and leave
+letterheads-ui on its own copies until a follow-up change, after specs/20261116-letterhead-service is done,
+replaces them with thin adapters. `RestoreDialog` is not lifted (it owns an API call; its confirmation is already
+`ConfirmDialog`).
+
+Why: the library rule ("a pattern used by two apps lives in the library — never copy a component from another
+app") is met for every new consumer from day one; the letterheads copies become a bounded, listed debt instead of
+a second fork growing inside admin-ui. Migrating letterheads-ui inside this spec was rejected: no AC asks for it,
+and it would edit `HistoryPanel*.tsx` and `ErrorSummary.tsx` while that spec's QE/eval (its T36) may still fix
+them (R13). admin-ui building its own was rejected: about 150 lines copied, against the library rule.
+Consequence: the follow-up is listed in tasks.md's notes and in the `@operai/ui` changeset; it is not a task of
+this spec (it serves none of its ACs).
+
+### E10 — Release order: the library ships in push 1
+
+`@operai/ui` reaches a remote through the **live shell** (ADR 20261114, point 6: "an added export is used by a
+remote only once a shell that has it is live"). Push 2 deploys Vercel projects in no order, so admin-ui (the only
+consumer of the three lifted components and of `wrap`) could go live before a shell that exports them and fail in
+`RemoteMount`. Therefore:
+
+- **Push 1 = auth + `operai-ui` + `shell`** (the library change is additive: three new exports, one opt-in prop;
+  no remote changes). Step 1's gate adds: `https://operai.welld.io/version.json` reports the push-1 version.
+- **Push 2** as before; admin-ui in it may rely on the push-1 shell. crm-ui and letterheads-ui use no new export.
+- Window note for the runbook: between pushes, a person granted `legal-entity:manage` would see the Admin tool
+  (derived `apps`) with the old admin-ui and no section of theirs. The seed grants only the `admin` role, which
+  already reaches admin-ui; managers are granted only after push 2.
+- The branch delivers two merges to `main`: the push-1 tasks first (tasks.md marks each task's push), the push-2
+  tasks after release steps 2–4.
+
+### E11 — The import script: stop rule, report categories, and a post-switch detector
+
+Settles the ADR writer's two flags (the stop rule stated loosely; the freeze window R4).
+
+- **No refusal while the CRM columns exist.** A dry run (default) may run at any time; `--apply` inserts version 1
+  only for entities with no version; an apply when both have a version inserts nothing, writes no audit row and
+  exits 0 (AC-7.4). The plan's "refuses to run once every entity has a version" is withdrawn: it contradicted the
+  dry runs of steps 3 and 4.
+- **It stops when the source is gone.** After step 6 drops the CRM columns, the script exits 2 with
+  `crm_legal_columns_absent` before reading any row. It never overwrites, never repairs, prints no value.
+- **Report categories** per entity: `inserted` · `present` (the CRM row, under the mapping, equals version 1) ·
+  `resolved` (it differs from version 1, but equals the **current** registry version on the values the CRM holds:
+  `legalName`, `address.it`, `vatNumber`, `iban` — someone carried the CRM edit into the registry) ·
+  `mismatched` (differs from both). Plus the flags `incomplete`, `invalid`, `ibanPrintChanged`. Comparing with
+  version 1 (not the current one) means later registry saves are not drift; the `resolved` category is needed
+  because the plan's step-4 remedy ("resolved by a registry save") could otherwise never turn the gate green.
+  `address.en` is not compared (the CRM has one language; an English address saved in the registry is not drift).
+- **Gate of steps 3–4:** both entities `inserted`/`present`/`resolved`, `mismatched` 0; the owner has read the
+  flags.
+- **R4 (freeze window), decided: keep the announcement and add a cheap detector.** New step **5b**: once push 2's
+  crm-api is live, run the dry run once more. From then on the CRM's PUT ignores the legal keys, so the columns
+  are final; any `mismatched` entity is an edit made between the pre-switch check and the switch, resolved by a
+  registry save. Cost: one command, no code; a code-enforced freeze (ADR 20261110's write-pause flag) stays
+  rejected for a source edited by two or three people (escalation trigger of the move ADR).
+
+### E12 — v1 requests: `entityData` ignored, confirmed
+
+Both content versions print the registry's issuer; `entityData` is parsed for structure only (AC-5.2, owner
+OQ-5), so a v1 request that was valid stays valid. The engine's interface is unchanged (the job still carries
+`EntityData`; the supervisor fills it from the registry), so letterhead's golden corpus and pinning tests stay
+byte-identical. Consequence outside this spec: specs/20261116-letterhead-service AC-1.8 promises that a request
+of a supported version "renders after the upgrade with the same pages"; for the issuer's details it no longer
+does (on release day the IBAN regroups, D2; after any registry save the name or address may differ). Reported
+as spec drift **D7**; not applied.
+
+### E13 — "Incomplete" and "Needs correction" (DR-6)
+
+The page marks a moved entity **Incomplete** when a required value is missing (blocks offers, AC-6.3) and
+**Needs correction** when it only holds values today's rules refuse (blocks nothing; prints as moved, AC-7.5).
+The plan's AC-7.3 test asserts both marks and that only the first makes crm-api refuse. Whether "Needs
+correction" satisfies AC-7.3's "marks it incomplete" is the owner's reading: spec drift **D8**; not applied.
+
+### E14 — Smaller precisions
+
+- crm-api's registry client uses the existing `SERVICE_CLIENT_ID`/`SECRET` pair; without it (no `serviceTokens`),
+  every registry read fails closed (503 `legal_entities_unavailable`) and one warning is logged at startup. No
+  change to crm-api's env contract (every environment with a letterhead/notify URL already has the pair).
+- The shared engine copies (`crm-api/src/offers/engine/**` ⇄ `crm-ui/src/lib/offerEngine/**`) are not changed:
+  crm-api fills `WizardContext.issuerAddressLines` with `address[language]`, and crm-ui does the same from the
+  context's new `issuerAddress`.
+- `.railway/railway.ts` needs no change: no new service, domain or bucket, and the project's variables are not
+  managed by it (`variables: { managed: false }`). The new variables are set in Railway (step 2) and checked by
+  env-doctor; `railway config plan` must still show no drift at each push.
+
+### Test strategy deltas
+
+| AC | Added to "What proves it" |
+| --- | --- |
+| AC-1.3 | `line` is the submitted position (blank line at 1, over-long line at 2 → `line: 2`); `required`/`too_many_lines` have no `line`; 17 lines → `invalid_request` (E5) |
+| AC-2.4 | versions list: moved incomplete or invalid v1 → `restorable: false`, a complete version → `true`; restore still 422 for it (E1) |
+| AC-4.3 | `/admin/legal-entities?entity=welld_ch&view=history` deep link; `?entity=welld_de` → default tab, value not echoed; manager-only lands on Legal entities (E7) |
+| AC-5.4 | the configurator preview's page `text` holds `⟦IBAN⟧` for an empty IBAN; a render route's text never holds `⟦` (E3) |
+| AC-6.1 | the Settings link is `/admin/legal-entities?entity={entity}`; `manageable` failing → the sentence, no link (E2, E7) |
+| AC-6.3 | no document route answers `entity_profile_missing`; a missing profile row still generates; the letterhead upload still answers it (E4) |
+| AC-7.3 | Incomplete vs Needs correction marks; only Incomplete refuses in crm-api (E13) |
+| AC-7.4 | apply on a fully moved registry: inserted 0, exit 0, no audit row; `resolved` after a registry save that carries a CRM edit; `crm_legal_columns_absent` once the columns are dropped (E11) |
+| AC-7.5 | the post-switch dry run (step 5b) reports `mismatched` 0 (E11) |
+| AC-8.1 | entity strip at 320 px wraps (no horizontal scroll), with `wrap` (E8) |
+
+### Spec drift found (reported, not applied)
+
+- **D7 — letterhead AC-1.8 vs this spec's AC-5.2.** specs/20261116 AC-1.8: "a request of a version the service
+  supported before an upgrade renders after the upgrade with the same pages". With AC-5.2 a v1 request's
+  `entityData` no longer decides the issuer, so its pages can change. *Proposed:* extend this spec's D1 constraint
+  with "…and AC-1.8's 'same pages' does not extend to the issuer's details, which are the registry's (AC-5.2)",
+  plus a note on AC-1.8 in the letterhead spec. Affects that spec's open QE/eval (its T36); nothing in this plan
+  changes either way.
+- **D8 — AC-7.3's word "incomplete".** The design separates Incomplete (missing a required value; AC-6.3 refuses)
+  from Needs correction (out-of-rule moved values; nothing refuses). *Proposed:* AC-7.3 "…the Legal entities page
+  marks it incomplete, or in need of correction when only AC-1.3/AC-1.4 refuse its values, until someone saves it
+  complete and valid; AC-6.3 applies to it meanwhile". If the owner prefers the literal reading, the page shows
+  "Incomplete" for both and only the badge wording changes (design S1).
