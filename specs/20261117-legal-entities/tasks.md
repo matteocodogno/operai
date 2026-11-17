@@ -500,7 +500,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75
+- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75, T76
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
@@ -759,6 +759,15 @@ same files.
     also run only when `committedTransactionsSkipReason(DATABASE_URL)` is null (`testDb.ts`).
   - done when: the group skips with the one-line reason on a non-local host and runs on localhost; auth suite green.
 
+- [ ] T76: letterhead-api — a pin forces a registry refresh only when it is newer than the held version, within a per-process budget (security re-review N2) — refs: AC-5.5, AC-6.2 — deps: T64
+  - touch: `letterhead-api/api/src/registry/**`, `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/tests/registry.rs`, `letterhead-api/api/tests/render.rs`
+  - agent: backend-dev (Rust) · push 2
+  - added by the orchestrator 2026-11-18 (security-review-2.md N2): F6's 1/s cap still allows 600 refreshes per
+    10 min against auth's 300 per service; a stream of mismatching pins could exhaust it and turn renders into 503.
+  - done when: a pin older than or equal to the held version gets the 409 with no registry call; a newer pin
+    refreshes at most once per second and at most a fixed budget per 10 minutes (well under auth's allowance, e.g.
+    100), beyond which it gets the 409 at once; tests prove both; fmt, clippy, api tests green.
+
 ## Follow-ups found during implementation (orchestrator, 2026-11-17)
 
 - FU-1 (T31): crm-ui `letterhead.overflow.body` / `bodyAskAdmin` still say "Shorten the value in CRM Settings"; the
@@ -1009,7 +1018,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     Italian), with the history link opening `view=history`; an address-only save shows no dialog and no notice;
     the restore dialog lists the protected differences; keyboard only; `axeViolations` 0 on the dialog.
 
-- [ ] T70: Security re-review, frontier tier — US-9 surfaces and the F2–F7 fixes (plan § Security amended) — refs: AC-9.12, AC-9.14, AC-4.2, AC-2.7 — deps: T52, T53, T54, T55, T56, T57, T58, T59, T60, T61, T62, T63, T64, T65, T66, T67
+- [x] T70: Security re-review, frontier tier — US-9 surfaces and the F2–F7 fixes (plan § Security amended) — refs: AC-9.12, AC-9.14, AC-4.2, AC-2.7 — deps: T52, T53, T54, T55, T56, T57, T58, T59, T60, T61, T62, T63, T64, T65, T66, T67
   - touch: `specs/20261117-legal-entities/security-review.md`
   - agent: owasp-reviewer (frontier tier: financial data, R1)
   - done when: a dated "Re-review" section in `security-review.md` covers every surface of the amended § Security
@@ -1091,3 +1100,7 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
   confirmation is busy; `@operai/ui` `ConfirmDialog` disables Confirm natively while `busy` (shared library
   behaviour for every dialog of the suite). Accepted as is: the busy state is short and announced, axe is clean;
   design.md S12 is read as "Confirm unavailable while busy". No library change.
+- Security re-review (T70, 2026-11-18): PASS WITH NOTES, 0 medium+. N2 → T76. N1 (actor's display name is
+  editable by its holder and appears in the notice) is an OWNER decision left open for the morning: options are
+  making the name read-only for registry managers, or adding the actor's email to the notice. N3–N7 info, see
+  security-review-2.md; N4 is checked at release step 7 (T71).
