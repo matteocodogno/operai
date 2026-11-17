@@ -849,7 +849,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     nothing written; every existing test unchanged and green; the migration is additive.
 
 - [ ] T57: notify-api — the `legal_entity_change` email template: English, strict typed data, bound to `system:auth`, addressed by `recipientId` or `to` — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T56, T51
-  - touch: `notify-api/src/system/emailTemplates.ts`, `notify-api/src/system/emailTemplates.test.ts`, `notify-api/src/system/emails.schemas.ts`, `notify-api/src/system/emails.routes.ts`, `notify-api/src/system/emails.routes.test.ts`, `notify-api/src/channels/email.channel.ts`
+  - touch: `notify-api/src/system/emailTemplates.ts`, `notify-api/src/system/emailTemplates.test.ts`, `notify-api/src/system/emails.schemas.ts`, `notify-api/src/system/emails.routes.ts`, `notify-api/src/system/emails.routes.test.ts`, `notify-api/src/channels/email.channel.ts`, `notify-api/src/system/emails.idempotency.test.ts` (added 2026-11-17: T56's "binds nothing yet" assertion must now expect the `legal_entity_change` entry)
   - agent: backend-dev · push 1
   - done when: template tests — renders T51's English copy with the entity label, the actor (escaped, controls and
     bidi stripped), save vs restore of version m, date, time and zone in Europe/Zurich for a CET and a CEST date, the
