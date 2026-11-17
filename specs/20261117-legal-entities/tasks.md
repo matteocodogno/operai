@@ -692,7 +692,9 @@ same files.
   every moved reason (not only `too_many_lines`); the 5th-line hint of a moved address; a dedicated "Not filled
   in. Enter …" sentence; a count phrase for `conflict.applied` and an "applied, nothing to review" sentence; the
   empty "(changed: )" case. Plus an `AddressLinesField` note slot so the conflict note is in the focused line's
-  `aria-describedby`. Candidate owner: T40 (a11y sweep) with the designer for the copy.
+  `aria-describedby`. T39 adds: `history.openLabel` / `history.restoreLabel` (visible "Open"/"Restore"),
+  `history.changedList(list)`, `history.loading`, `history.failed`, `version.failed`. Candidate owner: T40 (a11y
+  sweep) with the designer for the copy.
 - FU-8 (T37): `admin-ui/src/pages/LegalEntitiesPage.test.tsx` — 2 T36 tests wait for the facts view where the
   form now renders (fix: wait for `admin-legal-form`); the T37 agent's edit was refused by the permission
   classifier (outside its touch). Pending owner decision on assigning the file to T40.
