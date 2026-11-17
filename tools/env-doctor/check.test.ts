@@ -1,6 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { checkSuite, hasErrors, showValue, type Finding, type SuiteEnv } from "./check";
-import { BACKENDS, ORIGINS, SECRET_VARS, SERVICES, isSecretVar } from "./manifest";
+import {
+  BACKENDS,
+  LEGAL_ENTITY_NOTICE_EMAIL,
+  LEGAL_ENTITY_RATE_VARS,
+  LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX,
+  ORIGINS,
+  REQUIRED_KEYS,
+  SECRET_VARS,
+  SERVICES,
+  isSecretVar,
+  legalEntityConfigProblems,
+} from "./manifest";
+import { parseEnvFile } from "./parse";
 
 const TOKEN = "x".repeat(40);
 const AUD = "operai-suite";
@@ -1540,5 +1554,92 @@ describe("env-doctor checker — legal-entities:read (specs/20261117-legal-entit
 
   test("letterhead-api's client secret is redacted when surfaced", () => {
     expect(showValue("SERVICE_CLIENT_SECRET", CLIENT_SECRET_LH)).toStartWith("<redacted sha256:");
+  });
+});
+
+describe("env-doctor — legal-entity registry configuration (specs/20261117-legal-entities, T67)", () => {
+  const PROD_LIKE = { prodLike: true };
+  const LOCAL_LIKE = { prodLike: false };
+  const AUTH_TEMPLATE = readFileSync(resolve(import.meta.dir, "templates/production/auth.env"), "utf8");
+  /** The shipped template with one more line appended, parsed the way the doctor loads it. */
+  const templateWith = (...lines: string[]) => parseEnvFile(`${AUTH_TEMPLATE}\n${lines.join("\n")}\n`);
+
+  test("the shipped auth template sets none of them (optional, defaults apply) and carries no address", () => {
+    const t = parseEnvFile(AUTH_TEMPLATE);
+    for (const name of [LEGAL_ENTITY_NOTICE_EMAIL, ...Object.keys(LEGAL_ENTITY_RATE_VARS)]) expect(name in t).toBe(false);
+    expect(legalEntityConfigProblems(t, PROD_LIKE)).toEqual([]);
+    // documented by name in comments, so the runbook and the template cannot drift apart unnoticed
+    for (const name of [LEGAL_ENTITY_NOTICE_EMAIL, ...Object.keys(LEGAL_ENTITY_RATE_VARS)]) expect(AUTH_TEMPLATE).toContain(name);
+    // a template holds references, never values: no address-shaped text after the variable's name
+    expect(AUTH_TEMPLATE).not.toMatch(/LEGAL_ENTITY_NOTICE_EMAIL\s*=?\s*[^\s@=]+@/);
+  });
+
+  test("none of them is required: a suite without them passes, and the contract does not list them", () => {
+    for (const keys of Object.values(REQUIRED_KEYS)) {
+      for (const name of [LEGAL_ENTITY_NOTICE_EMAIL, ...Object.keys(LEGAL_ENTITY_RATE_VARS)]) expect(keys).not.toContain(name);
+    }
+    const f = checkSuite(validSuite(), PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("a production template that sets the write limit above 10 is refused, naming the variable and never the value", () => {
+    expect(LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX).toBe(10);
+    for (const bad of ["11", "1000", "99999999"]) {
+      const problems = legalEntityConfigProblems(templateWith(`LEGAL_ENTITY_WRITE_RATE_LIMIT=${bad}`), PROD_LIKE);
+      expect(problems.join(" | ")).toContain("LEGAL_ENTITY_WRITE_RATE_LIMIT must not exceed 10 in production");
+      expect(problems.join(" | ")).not.toContain(bad);
+    }
+    // 10 (the default) and anything below is fine; the same raise is allowed outside production (the e2e stack)
+    for (const ok of ["1", "5", "10"]) expect(legalEntityConfigProblems(templateWith(`LEGAL_ENTITY_WRITE_RATE_LIMIT=${ok}`), PROD_LIKE)).toEqual([]);
+    expect(legalEntityConfigProblems(templateWith("LEGAL_ENTITY_WRITE_RATE_LIMIT=1000"), LOCAL_LIKE)).toEqual([]);
+  });
+
+  test("auth/.env.example raises the write limit for local and e2e use only, and says so", () => {
+    const example = readFileSync(resolve(import.meta.dir, "../../auth/.env.example"), "utf8");
+    const vars = parseEnvFile(example);
+    expect(Number(vars.LEGAL_ENTITY_WRITE_RATE_LIMIT)).toBeGreaterThan(LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX);
+    expect(legalEntityConfigProblems(vars, LOCAL_LIKE)).toEqual([]);
+    expect(legalEntityConfigProblems(vars, PROD_LIKE).join(" | ")).toContain("LEGAL_ENTITY_WRITE_RATE_LIMIT must not exceed 10");
+    expect(example).toMatch(/LOCAL DEVELOPMENT AND THE E2E STACK ONLY/);
+    expect(example).toContain("NEVER copy this value");
+    expect(LEGAL_ENTITY_NOTICE_EMAIL in vars).toBe(false); // unset locally: no outside recipient
+    for (const name of [LEGAL_ENTITY_NOTICE_EMAIL, "LEGAL_ENTITY_CHECK_RATE_LIMIT", "LEGAL_ENTITY_RATE_WINDOW_MS"]) expect(example).toContain(name);
+  });
+
+  test("LEGAL_ENTITY_NOTICE_EMAIL: one email address when set; unset, empty or a reference is fine", () => {
+    const check = (v: string | undefined) => legalEntityConfigProblems({ [LEGAL_ENTITY_NOTICE_EMAIL]: v }, PROD_LIKE);
+    for (const ok of ["notices@welld.example", "a.b+legal@sub.domain.io", undefined, "", "${{shared.LEGAL_ENTITY_NOTICE_EMAIL}}", "${OP:Employee/item/field}"]) {
+      expect(check(ok)).toEqual([]);
+    }
+    for (const bad of ["not-an-email", "two@welld.example, other@welld.example", "a@b", "Name <a@welld.example>", "a b@welld.example", "@welld.example", "a@@welld.example", "mailto:a@welld.example;x"]) {
+      const p = check(bad);
+      expect(p.length).toBe(1);
+      expect(p[0]).toContain("LEGAL_ENTITY_NOTICE_EMAIL must be one email address");
+      expect(p[0]).not.toContain(bad); // the value is never echoed
+    }
+  });
+
+  test("the three rate variables: integers at or above their floor, and the window at least 1000 ms", () => {
+    const p = (name: string, v: string) => legalEntityConfigProblems({ [name]: v }, LOCAL_LIKE);
+    for (const [name, rule] of Object.entries(LEGAL_ENTITY_RATE_VARS)) {
+      expect(p(name, String(rule.default))).toEqual([]);
+      for (const bad of ["abc", "1.5", "-3", String(rule.min - 1), "1e3", "0x10"]) {
+        expect(p(name, bad).join(" | ")).toContain(`${name} must be an integer of at least ${rule.min}`);
+      }
+    }
+    expect(p("LEGAL_ENTITY_RATE_WINDOW_MS", "999").length).toBe(1);
+    expect(p("LEGAL_ENTITY_RATE_WINDOW_MS", "1000")).toEqual([]);
+    expect(p("LEGAL_ENTITY_CHECK_RATE_LIMIT", "0").length).toBe(1);
+  });
+
+  test("the defaults the doctor knows are the ones the plan fixes (G9) and auth's env.ts declares", () => {
+    expect(LEGAL_ENTITY_RATE_VARS.LEGAL_ENTITY_WRITE_RATE_LIMIT.default).toBe(10);
+    expect(LEGAL_ENTITY_RATE_VARS.LEGAL_ENTITY_CHECK_RATE_LIMIT.default).toBe(60);
+    expect(LEGAL_ENTITY_RATE_VARS.LEGAL_ENTITY_RATE_WINDOW_MS.default).toBe(600000);
+    const envTs = readFileSync(resolve(import.meta.dir, "../../auth/src/lib/env.ts"), "utf8");
+    expect(envTs).toMatch(/LEGAL_ENTITY_WRITE_RATE_LIMIT: z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.default\(10\)/);
+    expect(envTs).toMatch(/LEGAL_ENTITY_CHECK_RATE_LIMIT: z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.default\(60\)/);
+    expect(envTs).toMatch(/LEGAL_ENTITY_RATE_WINDOW_MS: z\.coerce\.number\(\)\.int\(\)\.min\(1000\)\.default\(600000\)/);
   });
 });

@@ -551,3 +551,56 @@ export const isRailwayRef = (v: string): boolean => v.includes("${{");
 export const isSecretRef = (v: string): boolean => v.startsWith("op://") || v.startsWith("${OP:");
 /** @deprecated use {@link isSecretRef} — kept as the narrower `op://`-only predicate. */
 export const isOpRef = (v: string): boolean => v.startsWith("op://");
+
+/**
+ * Legal-entity registry configuration on `auth` (specs/20261117-legal-entities, plan G4 and G9, security review F3 and F5; T67).
+ * Every name here is OPTIONAL: auth starts without any of them, so none is in REQUIRED_KEYS and none is pinned as a literal in
+ * `templates/production/auth.env` (a pinned literal would make `--live` report it MISSING from a deployed auth that relies on the
+ * default). The template carries them as comments; the rules below are what a value must satisfy when one is set.
+ *
+ * `legalEntityConfigProblems` is pure and names only: it never returns a value. The shipped template is checked against it in
+ * `check.test.ts`, which is what fails a template that raises the write limit above `LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX`.
+ * (`check.ts` does not call it yet: it is outside T67's files, so a deployed value is not inspected by `mise run env:doctor`.)
+ */
+export const LEGAL_ENTITY_NOTICE_EMAIL = "LEGAL_ENTITY_NOTICE_EMAIL";
+
+/** Security review F3: save and restore are throttled per person; production must not widen the default. */
+export const LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX = 10;
+
+export const LEGAL_ENTITY_RATE_VARS = {
+  LEGAL_ENTITY_WRITE_RATE_LIMIT: { default: 10, min: 1 },
+  LEGAL_ENTITY_CHECK_RATE_LIMIT: { default: 60, min: 1 },
+  /** The one window of both limiters, in milliseconds (auth's env.ts: at least 1000). */
+  LEGAL_ENTITY_RATE_WINDOW_MS: { default: 600000, min: 1000 },
+} as const;
+
+/** One address, local@domain.tld: no list, no display name, no whitespace. The same shape auth's env.ts validates at startup. */
+const SINGLE_EMAIL = /^[^\s@<>,;()[\]"']+@[^\s@<>,;()[\]"'@]+\.[^\s@<>,;()[\]"'@]+$/;
+
+/**
+ * What is wrong with the legal-entity variables of one auth environment, by name. Unset or empty = fine (the defaults apply, no
+ * outside recipient); a Railway or secret-store reference cannot be judged offline and is skipped.
+ */
+export function legalEntityConfigProblems(authEnv: Readonly<Record<string, string | undefined>>, opts: { prodLike: boolean }): string[] {
+  const out: string[] = [];
+  const concrete = (v: string | undefined): v is string => v !== undefined && v !== "" && !isRailwayRef(v) && !isSecretRef(v);
+  const email = authEnv[LEGAL_ENTITY_NOTICE_EMAIL];
+  if (concrete(email) && !SINGLE_EMAIL.test(email.trim())) {
+    out.push(`${LEGAL_ENTITY_NOTICE_EMAIL} must be one email address (auth refuses to start otherwise), or unset for no outside recipient`);
+  }
+  for (const [name, rule] of Object.entries(LEGAL_ENTITY_RATE_VARS)) {
+    const raw = authEnv[name];
+    if (!concrete(raw)) continue;
+    const n = Number(raw);
+    if (!/^\d+$/.test(raw.trim()) || !Number.isSafeInteger(n) || n < rule.min) {
+      out.push(`${name} must be an integer of at least ${rule.min} (auth refuses to start otherwise)`);
+    }
+  }
+  const write = authEnv.LEGAL_ENTITY_WRITE_RATE_LIMIT;
+  if (opts.prodLike && concrete(write) && /^\d+$/.test(write.trim()) && Number(write) > LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX) {
+    out.push(
+      `LEGAL_ENTITY_WRITE_RATE_LIMIT must not exceed ${LEGAL_ENTITY_WRITE_RATE_LIMIT_PRODUCTION_MAX} in production (security review F3: it bounds how fast one stolen session can rewrite the issuer's details); the high value is for the e2e stack only`,
+    );
+  }
+  return out;
+}

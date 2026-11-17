@@ -1,3 +1,8 @@
+# `auth` is deliberately NOT a service of this file: it runs on the host (`mise run dev`, or `bun run dev` in auth/) and takes its
+# settings from its own dotenv file, which is also what the e2e stack's auth uses. So the e2e-only raise of the legal-entity write
+# limit (LEGAL_ENTITY_WRITE_RATE_LIMIT, specs/20261117-legal-entities T67, security review F3) lives in auth/.env.example, not here;
+# nothing in this file can change a deployed environment's limit (production keeps the default, 10).
+
 services:
   postgres:
     image: docker.io/postgres:${POSTGRES_VERSION:-17}

@@ -2368,6 +2368,24 @@ the commands, but the production ones are run by the owner, with the production 
 environment only. Steps 1, 5 and 6 are releases (RELEASING.md); Steps 2
 to 4 and 5b are environment and operator steps with no code push.
 
+**Release order (plan G15, owner decision 2026-11-17).** Push 1 is **not** released early: both pushes go out at the
+end, in one release session, still as two pushes, because the copy (Step 3) needs the push-1 `auth` live and the
+push-2 consumers need the copy. The order, nothing skipped, nothing reordered:
+
+1. QE passes (T45) and the security re-review is closed (T70), before anything is pushed.
+2. **Push 1** (Step 1): `auth`, `@operai/ui`, shell and **`notify-api`** (the notice path needs its idempotency
+   migration and the `legal_entity_change` template live first; an old `notify-api` answers 400 to the new template
+   and `auth` would only retry it).
+3. Steps 2, 3 (**copy role first**, 3a) and 4.
+4. **Push 2** (Step 5): `crm-api`, `crm-ui`, `letterhead-api`, `letterheads-ui`, `admin-ui` and **`auth` again**
+   (the US-9 notices: outbox and dispatcher).
+5. Step 5 smoke and Step 5b (the post-switch dry run), then **drop the copy role** (3b).
+6. **Step 7** (set `LEGAL_ENTITY_NOTICE_EMAIL`, confirm a notice arrives), and **only after it** may anyone but the
+   `admin` role be granted `legal-entity:manage`.
+
+Between push 1 and push 2 (minutes, same session) a save by an administrator stores no notice: only the `admin`
+role holds the grant then (the seed), and the copy itself is never a protected change (AC-9.16).
+
 ### Variables (names; nothing here is a value)
 
 | Where | Variable | What it is |
@@ -2375,8 +2393,11 @@ to 4 and 5b are environment and operator steps with no code push.
 | Railway **Shared Variable** (project level) | `LETTERHEAD_SERVICE_CLIENT_SECRET` | **NEW.** The secret of the new `letterhead-api` service client: 32-256 random characters (`openssl rand -hex 32`, 64 characters), no 1Password item, never written to a file. Referenced from BOTH sides below, byte-identical by construction. |
 | `auth` | `SERVICE_CLIENTS` | **Two edits.** The `crm-api` entry's `scope` gains `legal-entities:read` (it keeps every scope it has, `letterhead:render` included). A new entry `"letterhead-api":{"secret":"${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}","scope":"legal-entities:read"}`: exactly that scope, nothing else. Shape of the whole variable: `tools/env-doctor/templates/production/auth.env`. |
 | `letterhead-api` | `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | **NEW.** `letterhead-api` / `${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}`. Code that does not read them yet ignores both, so they can be set before the switch. |
+| `auth` | `LEGAL_ENTITY_NOTICE_EMAIL` | **NEW, optional (AC-9.10, plan G4).** One email address **outside the suite** that also receives every protected-change notice (legal name, VAT number, IBAN), for both entities, whoever saved. Unset = no outside recipient, nothing else changes. A malformed value stops `auth` at startup (the new deployment then fails its `/health` check instead of replacing the running one). **Set by the owner at Step 7, in the dashboard only**, after push 2 is live: the template holds only a comment, never the address, and the address never goes in a file, a log or a chat. env-doctor's manifest holds the rule (`legalEntityConfigProblems`: one address, or unset) and its test checks the shipped template, but `mise run env:doctor` does not yet apply it to a deployed value: read the variable in the dashboard after setting it. |
+| `auth` | `LEGAL_ENTITY_WRITE_RATE_LIMIT`, `LEGAL_ENTITY_CHECK_RATE_LIMIT`, `LEGAL_ENTITY_RATE_WINDOW_MS` | **NEW, optional, leave unset in production** (security review F3, plan G9). Per person, per replica: saves and restores share the write limit (default **10**), the dry-run check has its own (default 60), one window for both (default 600000 ms). **Production must not set the write limit above 10**: env-doctor's test refuses a template that does, and a value that is not an integer stops `auth` at startup. The e2e stack raises the write limit in `auth/.env.example` (local only). |
+| `notify-api` | none | Push 1 carries its additive migration (idempotency columns), applied by its `preDeploy` like `auth`'s. Its email group must already be configured (`EMAIL_ENABLED=true`, sender and key: § Resend domain setup): without it every email notice is `skipped` and retried for 24 h, then given up. |
 | `crm-api` | none | Its registry client uses the `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` pair it already has (plan, E14); its env contract does not change. |
-| the operator's shell, for Step 3 only | `DATABASE_URL`, `CRM_DATABASE_URL` | The registry's database (`auth`'s own, already in the service's environment) and the CRM's database. **Environment only**, never arguments (a URL on a command line lands in `ps` and the shell history), never stored (ADR 20261110-activities-service-access-delegated-to-host, amendment L4). |
+| the operator's shell, for Steps 3, 4 and 5b only | `DATABASE_URL`, `CRM_DATABASE_URL` | The registry's database (`auth`'s own, already in the service's environment) and the CRM's database, **opened as the copy role of Step 3a** (`legal_copy_ro`, a `SELECT`-only role that exists only for the copy window), the URL assembled by hand in that one shell. **Environment only**, never arguments (a URL on a command line lands in `ps` and the shell history), never stored (ADR 20261110-activities-service-access-delegated-to-host, amendment L4). |
 
 The scope is `legal-entities:read` (colon form, like `letterhead:render`), **not** `companies:read`
 and not `crm.companies.read`, which is about the CRM's customers. `.railway/railway.ts` is **not**
@@ -2393,40 +2414,50 @@ changed by this feature (no new service, domain or bucket; the project's variabl
 - Announce **now**, for the whole window up to Step 5: *the CRM's entity settings (legal name, address, VAT number, IBAN) are not edited*.
   This is an announcement, not a code refusal; the pre-switch dry run (Step 4) is what catches a
   slip.
-- **Do not grant `legal-entity:manage` to anyone before push 2 is live.** Push 1 makes `auth` derive
-  the Admin tool into `apps` for a holder of that permission, while the old `admin-ui` has no section
-  for them. The seed grants it only to the `admin` role, who already reach `admin-ui`. Grant managers
-  after Step 5 (Step 5, last item).
+- QE has passed (T45) and the security re-review is closed (T70): this release is run once, at the end.
+- **Do not grant `legal-entity:manage` to anyone but the `admin` role until Step 7 is done.** Push 1 makes
+  `auth` derive the Admin tool into `apps` for a holder of that permission, while the old `admin-ui` has no
+  section for them (so not before push 2 is live); and a manager changing the IBAN must be one whose change is
+  announced to the administrators and to the outside mailbox, which is only true once Step 7 has confirmed a
+  notice. The seed grants it only to the `admin` role, who already reach `admin-ui`.
+- The owner has chosen the address for `LEGAL_ENTITY_NOTICE_EMAIL` (OQ-7), or has decided to leave it unset;
+  and has a throwaway password ready for the copy role (Step 3a: `openssl rand -hex 24`, never stored).
 
-### Step 1 - Expand (push 1): auth, `@operai/ui`, shell
+### Step 1 - Expand (push 1): auth, `@operai/ui`, shell, notify-api
 
 Push 1 is **not the branch head**: build it as a branch from `main` holding only the push-1 commits
-(auth, `operai-ui`, shell, docs and specs, their changesets), rebased in branch order (tasks.md, T16).
+(auth, `operai-ui`, shell, **notify-api**, docs and specs, their changesets), rebased in branch order (tasks.md, T16).
 `auth` gets the migration (table and trigger), the routes, the scope `legal-entities:read` among its
-known scopes, the derived `apps` entry and the import script; the library ships with the shell so a
-remote never loads before a shell that has its new exports. No consumer reads the registry yet.
+known scopes, the derived `apps` entry and the import script, and the hardening of those routes (a deleted
+person is refused, saves and restores are throttled, the history is paged, the dry-run `check` route that
+push-2's `admin-ui` calls); `notify-api` gets its additive idempotency migration, the `legal_entity_change`
+template and per-recipient delivery, which `auth`'s notices (push 2) need live first; the library ships with the
+shell so a remote never loads before a shell that has its new exports. No consumer reads the registry yet, and
+`auth` sends no notice yet (that is push 2).
 
 Release exactly as RELEASING.md says (before, release, after):
 
 ```bash
 mise run env:doctor && mise run shared:check && mise run react:skew && mise run ui:check
 railway config plan                      # no drift, nothing destructive
-pnpm exec changeset status --verbose     # auth (minor), @operai/ui (minor), shell (patch)
+pnpm exec changeset status --verbose     # auth (minor), notify-api (minor), @operai/ui (minor), shell (patch)
 mise run release:version                 # then commit, as RELEASING.md says
 mise run release:tag
-git push --follow-tags                   # deploys auth (preDeploy applies the migration), shell, and the rest that changed
+git push --follow-tags                   # deploys auth and notify-api (preDeploy applies each migration), shell, and the rest that changed
 ```
 
 Gate to go on (observed, not assumed):
 
 ```bash
 curl -s https://auth.operai.welld.io/health        # the new auth version; the migration ran in preDeploy
+curl -s https://notify-api.operai.welld.io/health  # the new notify-api version; its migration ran in preDeploy
 curl -s https://operai.welld.io/version.json       # {"version":"<push-1 version>"}: the library change is live
 railway config plan                                # still no drift
 ```
 
 and, signed in, `https://auth.operai.welld.io/legal-entities` answers **both** entities with
-`version: 0`.
+`version: 0`. Read `railway logs --service notify-api | head` for a migration error: an old `auth` never
+calls the new fields, but push 2's `auth` must find them.
 
 ### Step 2 - Credentials (environment only, no code)
 
@@ -2461,22 +2492,77 @@ mise run env:doctor -- --env production --live                           # green
 The script `auth/scripts/import-crm-legal-details.ts` is **in `auth`'s production image** (the
 Dockerfile copies it; nothing else of `scripts/`). Run it inside the running `auth` service, so its own
 `DATABASE_URL` is the target and the CRM's database is on the same private Postgres. The CRM's
-connection string is built from `auth`'s own by changing the database name, so no password is typed or pasted.
-It copies **nothing but version 1**, attributed to the system, with one `legal_entity.import` audit row per
-entity, under the entity's advisory lock; it never overwrites, repairs or prints a value.
+connection string is **not** `auth`'s own: since the security review (F5) it is the one of a role that can only
+read (Step 3a), assembled in that shell. It copies **nothing but version 1**, attributed to the system, with one `legal_entity.import` audit row per
+entity, under the entity's advisory lock; it never overwrites or repairs, and prints no value except each IBAN's last four characters (below).
 
-Announce the freeze first (Step 0), then:
+Announce the freeze first (Step 0). Then, in order: 3a the copy role, the three runs below, and (after Step 5b) 3b.
+
+#### 3a - The copy role (security review F5, item 1)
+
+The script opens the CRM session read only, but that is a session default any statement can override, and `auth`'s
+own database role can write to the CRM database on the shared Postgres. So "read only" would hold only because the
+script happens to issue `SELECT`s. For the copy window it runs as a role the database itself limits: `SELECT` on
+**seven columns of `entity_profile`** and nothing else, in the `crm` database. Those are the four legal columns
+(`legalName`, `addressLines`, `vatNumber`, `iban`), `updatedAt` and `updatedBy` (the import's audit row names who
+last edited the row) and **`entity`**, which the script filters on: Postgres needs the privilege on a column used
+in a `WHERE`, so without it the first read fails with `permission denied`. No other column (`offerTermsEn`,
+`letterheadKey`, …) and no other table is readable. The role is created before the first dry run and **dropped
+after Step 5b** is logged (Steps 4 and 5b read the CRM too); if the window is abandoned, drop it that day.
+
+```bash
+openssl rand -hex 24 | pbcopy      # on your machine: a throwaway password, hex only (it goes into a URL); the clipboard only, no file
+railway connect Postgres           # a psql session as the database administrator; Railway supplies the credentials
+```
+
+```sql
+CREATE ROLE legal_copy_ro LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 2;
+-- next line: paste the password at both prompts (not echoed, not in the history, sent hashed). Never `PASSWORD '...'`: the literal is logged
+\password legal_copy_ro
+ALTER ROLE legal_copy_ro SET default_transaction_read_only = on;
+\c crm
+GRANT CONNECT ON DATABASE crm TO legal_copy_ro;
+GRANT USAGE ON SCHEMA public TO legal_copy_ro;
+GRANT SELECT ("entity", "legalName", "addressLines", "vatNumber", "iban", "updatedAt", "updatedBy") ON TABLE "entity_profile" TO legal_copy_ro;
+```
+
+Prove the limit before relying on it (`SET ROLE` tests the role's privileges from the administrator's session; read
+the output, do not assume it):
+
+```sql
+SET ROLE legal_copy_ro;
+SELECT count(*) FROM entity_profile;                                 -- works
+SELECT "offerTermsEn" FROM entity_profile;                           -- ERROR: permission denied for table entity_profile
+SELECT "letterheadKey" FROM entity_profile;                          -- ERROR: permission denied
+UPDATE entity_profile SET "updatedBy" = "updatedBy" WHERE false;     -- ERROR: permission denied (checked even though no row matches)
+SELECT 1 FROM deal_offer LIMIT 1;                                    -- ERROR: permission denied for table deal_offer
+RESET ROLE;
+\q
+```
+
+All four errors, and the `count`, or stop: do not run the copy with a role that reads more. (Rehearsed on compose by
+QE, T45, with `docker compose exec postgres psql -U postgres` in place of `railway connect`.) Then, in the shell
+that will run the script, build the URL by hand from `auth`'s own host, with the password pasted at a prompt:
 
 ```bash
 railway ssh --service auth
 # inside (the image's shell, user bun, /app):
 cd /app
-export CRM_DATABASE_URL="${DATABASE_URL%/*}/crm"        # same server, database `crm` (if DATABASE_URL has a ?query, build it by hand)
+unset HISTFILE
+read -rsp 'copy role password: ' COPYPW; echo           # paste; not echoed. If this shell lacks `read -s`: stty -echo; read COPYPW; stty echo
+rest="${DATABASE_URL#*@}"                               # host:port/database of auth's own URL (if it has a ?query, build the host part by hand)
+export CRM_DATABASE_URL="postgresql://legal_copy_ro:${COPYPW}@${rest%/*}/crm"   # same server, database `crm`, the copy role
+unset COPYPW rest
 echo "${DATABASE_URL##*/} ${CRM_DATABASE_URL##*/}"      # database NAMES only: "auth crm"
+echo "${CRM_DATABASE_URL#*://}" | cut -d: -f1           # the role name only: "legal_copy_ro" (never the password)
 bun run scripts/import-crm-legal-details.ts             # 1. dry run: reads the CRM, writes nothing
 bun run scripts/import-crm-legal-details.ts --apply     # 2. version 1 of each entity that has none, with its audit row
 bun run scripts/import-crm-legal-details.ts             # 3. dry run again: the move is accounted for
 ```
+
+The role is the same for Steps 4 and 5b: stay in this shell, or rebuild the URL as above. **Do not** fall back to
+`auth`'s own connection string if the role fails (`permission denied`, `password authentication failed`): fix the
+role (3a) instead; the whole point is that the database refuses what the script should never do.
 
 `--json` prints the same report as JSON. Exit codes: **0** accounted for; **1** a `mismatched` or a
 failure (the report or `import failed: <code>` says which); **2** `crm_legal_columns_absent` (the CRM's
@@ -2506,6 +2592,25 @@ docker run --rm auth-import-check bun run scripts/import-crm-legal-details.ts --
 `present`, `resolved`, `mismatched`), one line of flags (`incomplete`, `invalid`, `ibanPrintChanged`),
 then a block per entity and the closing line `ACCOUNTED FOR` or `NOT ACCOUNTED FOR`. Per entity:
 
+Under each entity's category line the report prints **one IBAN line** (security review F5, item 3): `IBAN …1234`, `IBAN set`
+or `IBAN none`. It is the only part of an IBAN the report, the log or any notice ever shows, and it is what lets the
+owner check the copy against something other than the CRM itself:
+
+| Line | Meaning |
+|---|---|
+| `IBAN …1234` | the last four characters of the IBAN being copied, as the CRM holds it (spaces and case ignored) |
+| `IBAN set` | there is an IBAN but nothing is shown: it has 8 characters or fewer, or its last four are not letters and digits |
+| `IBAN none` | the CRM holds no IBAN for the entity |
+
+**How the owner reads it.** (1) On the **first dry run, before `--apply`**, compare each entity's four characters with the
+IBAN on the bank's own document (the account statement or the bank's letter), not with the CRM screen: `present`
+proves the copy equals the CRM, not that the CRM was right, and this is the only check against the bank. (2) The
+line must be **identical on every later run**: the second dry run, Step 4, Step 5b. A different tail means the CRM
+value was edited during the freeze: stop, find out who edited the CRM row, and settle it with a registry save before going on. The tail does not replace `mismatched`, which catches an
+edit anywhere in the number. (3) `IBAN set` cannot be checked this way: read that IBAN in full in the CRM Settings
+against the bank's document, by eye, and write "checked by eye" in the release log. (4) An `IBAN none` you did not
+expect: stop before `--apply` and find out why. The four characters may be copied into the release log with the counts.
+
 | Category | Meaning |
 |---|---|
 | `inserted` (dry run: `would_insert`) | no version existed; version 1 written (or would be) from the CRM row |
@@ -2530,11 +2635,11 @@ Run the same dry run once more from `auth`, immediately before cutting push 2:
 
 ```bash
 railway ssh --service auth
-cd /app && export CRM_DATABASE_URL="${DATABASE_URL%/*}/crm"
-bun run scripts/import-crm-legal-details.ts      # present/resolved 2, mismatched 0
+cd /app        # CRM_DATABASE_URL = the copy role's, built as in Step 3a (the role still exists until Step 5b is logged)
+bun run scripts/import-crm-legal-details.ts      # present/resolved 2, mismatched 0, the IBAN lines unchanged
 ```
 
-A `mismatched` entity means the CRM's legal fields were edited after the copy. **The switch does not
+A `mismatched` entity, or an IBAN line that differs from the copy's, means the CRM's legal fields were edited after the copy. **The switch does not
 happen.** An administrator resolves it with a registry save (the Legal entities page or its API, a new
 version carrying the edit); re-run until the entity reads `resolved`. The script never repairs it and
 the CRM columns are never edited back. Keep Step 4 and push 2 close together: an edit between them is
@@ -2542,10 +2647,12 @@ not detected until Step 5b.
 
 ### Step 5 - Switch (push 2), smoke, then Step 5b
 
-Push 2 is crm-api, crm-ui, letterhead-api, letterheads-ui and admin-ui together; it is correct in
+Push 2 is crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui and **auth** (the US-9 notices: the outbox
+table and the dispatcher; its migration runs in `auth`'s `preDeploy`) together; it is correct in
 whatever order they come up (content version 2 fails closed against an old `letterhead-api`; `crm-api`
 ignores the legacy legal keys from an old `crm-ui`; `crm-ui` falls back to `issuerAddressLines` from an old
-`crm-api`; `admin-ui` only calls `auth`, already live). Release as in Step 1 (`pnpm exec changeset status
+`crm-api`; `admin-ui` only calls `auth`, already live, and needs only push 1's `check` route; `auth`'s notices need only push 1's
+`notify-api`, and an old `notify-api` answering 400 is retried). Release as in Step 1 (`pnpm exec changeset status
 --verbose`, `mise run release:version`, commit, `mise run release:tag`, `git push --follow-tags`),
 with Step 4's dry run just before. After the push:
 
@@ -2553,6 +2660,7 @@ with Step 4's dry run just before. After the push:
 curl -s https://operai.welld.io/version.json                 # the new suite version, once the shell's Vercel deploy is live
 curl -s https://crm-api.operai.welld.io/health              # crm-api reports its new version: the freeze ends here
 curl -s https://letterhead-api.operai.welld.io/health       # letterhead-api reports its new version
+curl -s https://auth.operai.welld.io/health                  # auth reports the push-2 version; its notice table migration ran in preDeploy
 railway config plan                                          # still no drift
 ```
 
@@ -2565,12 +2673,63 @@ complete it on the Legal entities page.
 
 **Step 5b - the post-switch dry run.** From now on the CRM's `PUT` ignores the legal keys, so the columns are
 final. Run the dry run once more (commands of Step 4): `mismatched` 0. A mismatch is an edit made between
-Step 4's check and `crm-api` going live; resolve it with a registry save. Log the report.
+Step 4's check and `crm-api` going live; resolve it with a registry save. Log the report (counts, flags and the
+IBAN lines). **Then drop the copy role** (Step 3b); the copy window is over.
 
-**Last, grant the managers.** Now (not before) grant `legal-entity:manage` to the people who
-manage the details through the role editor, unconditioned for both entities or conditioned on the
-`entity` attribute for one (a Swiss accountant: `welld_ch` only). They then see only the Legal entities
-section of Admin.
+#### 3b - Drop the copy role (Step 3's last act, after Step 5b is logged)
+
+Leave the `railway ssh` shells first (`exit`), so no session holds the role, then:
+
+```bash
+railway connect Postgres
+```
+
+```sql
+\c crm
+DROP OWNED BY legal_copy_ro;                                  -- revokes its table, schema and database privileges
+DROP ROLE legal_copy_ro;
+SELECT count(*) FROM pg_roles WHERE rolname = 'legal_copy_ro';   -- 0
+```
+
+Write "copy role dropped" and the count in the release log. The password was a throwaway and is not kept anywhere.
+
+**Do not grant the managers yet:** Step 7 comes first.
+
+### Step 7 - Notices on, then managers (the end of the same release session)
+
+Added by the security-review amendment (T71, AC-9.8, AC-9.10); numbered 7 to keep the older steps' numbers, it runs
+**right after Step 5b**, before Step 6 (which is a later release). Precondition: push 2 is live and Step 5b is logged.
+Until this step is done only the `admin` role holds `legal-entity:manage`.
+
+1. **Decide the address** (the owner, OQ-7): one mailbox **outside the suite** that the owner reads, for both
+   entities. Deliberately leaving it unset is allowed (the notices then go to the people only): write which it is
+   in the release log.
+2. **Set `LEGAL_ENTITY_NOTICE_EMAIL`** on `auth` in the Railway dashboard (typed there only: never in a file, the
+   template, a log or a chat) and let `auth` redeploy. A mistyped address stops `auth` at startup (R21): the new
+   deployment fails its `/health` check instead of replacing the running one; read `railway logs --service auth`,
+   fix the variable, redeploy.
+3. **Check, with observed output:**
+
+```bash
+curl -s https://auth.operai.welld.io/health                                       # healthy on the new variable
+railway logs --service auth | grep -iE "dispatcher|legal_entity_notice" | head    # the dispatcher started; no legal_entity_notice_overdue
+mise run env:doctor -- --env production --live                                    # green for the values it checks
+```
+
+   and `notify-api` sends email (its email group configured; an unconfigured one makes every email notice
+   `skipped`, retried for 24 h, then `notice_given_up`).
+4. **Confirm a notice arrives.** The next protected change (legal name, VAT number or IBAN) made by an administrator
+   must produce, within about a minute, the in-app notice in the notification centre and the email for each
+   administrator, the actor included, and the email in the outside mailbox. The owner reads those and notes the date
+   in the release log (no address and no value in it). If no protected change is due soon, a deliberate one and its
+   restore (two notices, two history rows that stay) is the owner's call: the issuer's details print as the
+   changed value for up to a minute (consumers cache for at most 60 seconds), so do it when no document is being
+   issued, or record why none was triggered. If a notice does **not** arrive, read the entity's history and
+   `railway logs --service auth` (`legal_entity_notice_failed` names row, channel and reason, never a value),
+   fix, and do not go on: rows are retried for 24 hours.
+5. **Only then** grant `legal-entity:manage` to the people who manage the details through the role editor,
+   unconditioned for both entities or conditioned on the `entity` attribute for one (a Swiss accountant: `welld_ch`
+   only). They then see only the Legal entities section of Admin. Record the date from which managers may be granted.
 
 ### Step 6 - Contract (a later release, never with the switch)
 
@@ -2586,6 +2745,8 @@ as history.
 - **Before Step 3 applies:** nothing was copied. Push 1 is inert (the registry answers `version: 0`, no
   consumer reads it); to withdraw the credentials, remove the `letterhead-api` entry from
   `SERVICE_CLIENTS` (the new scope may stay on `crm-api`: `auth` still knows it).
+- **Any time before Step 5b is logged:** the copy role is the only extra thing created; if the window is abandoned,
+  drop it (Step 3b) that day.
 - **After Step 3, before push 2:** the CRM is still the source; registry version 1 exists and is unused. Nothing to
   undo; a re-run changes nothing.
 - **After push 2, before Step 6:** revert push 2 (redeploy the previous `crm-api`, `crm-ui`, `letterhead-api`,
@@ -2593,6 +2754,9 @@ as history.
   **Registry saves made after the switch are not in the CRM, and reverting loses them.** Before reverting, read
   the registry history of both entities (version, who, when, changed fields), and after the revert re-enter any
   change in the CRM's entity settings by hand; a document made after the revert prints the CRM's values.
+- **Step 7:** to stop the outside mailbox, unset `LEGAL_ENTITY_NOTICE_EMAIL` and redeploy `auth` (the people still get
+  their notices; a notice row already stored for the outside address ends `given_up` `outside_address_unset`). If the
+  notice path does not work, do not grant managers; revoke any grant already given until it does.
 - **After Step 6:** one-way; restore from the backup taken before it.
 
 ## Push notifications (specs/20261111-push-notifications, ADR 20261111-web-push-encrypted-payloads-not-fcm/0085)
