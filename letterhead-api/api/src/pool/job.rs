@@ -38,6 +38,9 @@ pub struct Job {
     version: LetterheadVersion,
     assets: Assets,
     output: Output,
+    /// The configurator preview's "mark missing" mode (plan E3). Only a [`Output::Preview`] may carry it: see
+    /// [`Job::marking_missing`].
+    mark_missing: bool,
     #[cfg(any(test, feature = "test-slow"))]
     test: Option<TestLayout>,
 }
@@ -56,9 +59,19 @@ impl Job {
             version,
             assets,
             output,
+            mark_missing: false,
             #[cfg(any(test, feature = "test-slow"))]
             test: None,
         }
+    }
+
+    /// The preview is drawn in the "mark missing" mode (plan E3, AC-5.4): an empty placeholder shows its label in
+    /// the missing look and in the page's text. Only the configurator's preview asks for it; a job made by
+    /// [`Job::new`] never has it, which is what every `/v1/render/*` job is. A job of any output but a preview
+    /// that has it is not encoded ([`Job::encode`] fails): a PDF never carries a mark.
+    pub fn marking_missing(mut self) -> Job {
+        self.mark_missing = true;
+        self
     }
 
     /// The fit check of `config` on `layout_version`, with the bytes of the assets it uses. The answer is
@@ -73,6 +86,7 @@ impl Job {
             },
             assets,
             output: Output::Fit,
+            mark_missing: false,
             #[cfg(any(test, feature = "test-slow"))]
             test: None,
         }
@@ -87,6 +101,9 @@ impl Job {
 
     /// The frame's parts: the header, then the assets it names, in the order it names them.
     pub fn encode(&self) -> Result<(Vec<u8>, Vec<&[u8]>), DecodeError> {
+        if self.mark_missing && !matches!(self.output, Output::Preview(_)) {
+            return Err(DecodeError);
+        }
         let mut ids: Vec<&str> = Vec::new();
         let mut bytes: Vec<&[u8]> = Vec::new();
         for id in self.version.config.asset_ids() {
@@ -114,6 +131,7 @@ impl Job {
                 },
             },
             asset_ids: ids,
+            mark_missing: self.mark_missing,
             #[cfg(any(test, feature = "test-slow"))]
             test: self.test.as_ref(),
         };
@@ -141,6 +159,9 @@ struct HeaderOut<'a> {
     version: VersionOut<'a>,
     output: WireOutput,
     asset_ids: Vec<&'a str>,
+    /// Written only when set, so the header of every other job is what it was before the mode existed.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    mark_missing: bool,
     #[cfg(any(test, feature = "test-slow"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     test: Option<&'a TestLayout>,
@@ -161,6 +182,8 @@ struct HeaderIn {
     version: VersionIn,
     output: WireOutput,
     asset_ids: Vec<String>,
+    #[serde(default)]
+    mark_missing: bool,
     #[cfg(any(test, feature = "test-slow"))]
     #[serde(default)]
     test: Option<TestLayout>,
@@ -189,6 +212,8 @@ pub struct Decoded {
     pub version: LetterheadVersion,
     pub assets: Assets,
     pub output: Output,
+    /// The preview's "mark missing" mode; only ever true for a [`Output::Preview`].
+    pub mark_missing: bool,
     #[cfg(any(test, feature = "test-slow"))]
     pub test: Option<TestLayout>,
 }
@@ -213,6 +238,10 @@ pub fn decode_job(mut parts: Vec<Vec<u8>>) -> Result<Decoded, DecodeError> {
     if matches!(header.output, WireOutput::Fit) != header.request.is_none() {
         return Err(DecodeError);
     }
+    // The mark is for the configurator's preview alone: a PDF or a fit check that has it is a fault, never drawn.
+    if header.mark_missing && !matches!(header.output, WireOutput::Preview { .. }) {
+        return Err(DecodeError);
+    }
     Ok(Decoded {
         request: header.request,
         version: LetterheadVersion {
@@ -229,6 +258,7 @@ pub fn decode_job(mut parts: Vec<Vec<u8>>) -> Result<Decoded, DecodeError> {
                 Output::Preview(PageSelection::Pages(pages))
             }
         },
+        mark_missing: header.mark_missing,
         #[cfg(any(test, feature = "test-slow"))]
         test: header.test,
     })

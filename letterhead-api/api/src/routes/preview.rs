@@ -24,23 +24,36 @@
 //!    with `problems: [{ path, reason, name?, language? }]`, the very body of a refused save** (G3), so that the
 //!    form maps both to its controls with one function. It is a refusal of the preview, not a failure of the
 //!    service: nothing was saved and nothing is.
-//! 4. a place in the worker pool (429 `busy`), the sample, and the render by a worker, killed at the deadline
+//! 4. the issuer's details from the registry (T23; AC-5.4, below), a place in the worker pool (429 `busy`), the
+//!    sample, and the render by a worker, killed at the deadline
 //!    (504). The preview is rendered by the same pool, with the same limits, as a document of a caller
 //!    (`pool.admit` + `permit.run`), never on a supervisor thread. A header or footer that does not fit its
 //!    margin with the sample's real values is the same 422 `invalid_letterhead`, at the frame. The fit check above
 //!    makes it rare (its values are 40 characters of words that wrap and the sample's are no longer), but a value
 //!    with no place to break can be wider than a narrow zone, and the render keeps its own refusal (AC-5.3).
 //!
+//! **The issuer's details** (T23; AC-5.4, plan "Configurator preview", amendment E3). The sample keeps its body
+//! text, and its entity data is the registry's for the entity, in the preview language, read through the cache of
+//! the render routes. The render is made in the "mark missing" mode: an empty value prints its label in the
+//! `missing` look, the conditional segment around it is kept, and the page's `text` holds `⟦Label⟧`. Only this
+//! route sets the mode, and it travels with the job (`Job::marking_missing`); no `/v1/render/*` job has it. When
+//! the registry cannot be read (a document would be a 503, AC-5.5; a preview is not a document) the preview is
+//! still made with every placeholder missing, `issuerDetails` is `"unavailable"` and `legalEntityVersion` is
+//! `null`. Real details may be longer than the fit check's 40 characters: the frame that cannot hold them is the
+//! same 422 `invalid_letterhead` at the frame (R9).
+//!
 //! **The answer** is the render preview's, 200 `application/json`:
-//! `{ letterheadVersion, pageCount, missingPlaceholders, unprintableCharacters, pages: [{ n, image, text }] }`.
+//! `{ letterheadVersion, issuerDetails, legalEntityVersion, pageCount, missingPlaceholders, unprintableCharacters,
+//! pages: [{ n, image, text }] }`.
 //! There is no letterhead version, because the configuration may not have been saved: **`letterheadVersion` is
 //! `null`** (the member is always there). The images are the 64-colour PNGs of the render preview and `text` is the
 //! page's text in reading order. `Cache-Control: no-store`, like every answer of the person routes.
 //!
-//! **No outbound call but one.** The sample is a pure function of the entity and the language; nothing is read
-//! from the CRM or from any other tool (AC-8.5). The one outbound call is `auth`'s `GET /authz/resolve`, made by
-//! the layer in front of this handler (cached 30 s). The service's own database and bucket are read only for the
-//! assets the configuration names, so a configuration without any makes no call to either.
+//! **Outbound calls.** The body of the sample is a pure function of the entity and the language; nothing is read
+//! from the CRM or from any other tool. The calls are `auth`'s: `GET /authz/resolve`, made by the layer in front
+//! of this handler (cached 30 s), and the registry's `GET /system/legal-entities` through the cache of the render
+//! routes (fresh 30 s). The service's own database and bucket are read only for the assets the configuration
+//! names, so a configuration without any makes no call to either.
 //!
 //! **Nothing is kept.** The configuration, the sample and the pages live in this function and are dropped when it
 //! returns; the log says nothing of the request. What an answer says is made by this crate (codes, JSON Pointers
@@ -67,7 +80,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use letterhead_engine::config::{LetterheadConfig, Problem, Reason, validate_config};
-use letterhead_engine::content::{Entity, Language, ingest_images};
+use letterhead_engine::content::{Entity, EntityData, Language, ingest_images};
 use letterhead_engine::layout::{Assets, CURRENT_LAYOUT, layout};
 use letterhead_engine::output::PageSelection;
 use letterhead_engine::render::{LetterheadVersion, PreviewPage};
@@ -80,6 +93,7 @@ use crate::authz::Authz;
 use crate::db::{AssetKind, AssetRow};
 use crate::pool::PoolError;
 use crate::pool::job::{Body as JobBody, Job, Meta, Output};
+use crate::registry;
 use crate::storage::StorageError;
 
 /// A preview body: a configuration is a few KiB.
@@ -163,6 +177,9 @@ pub async fn preview(
         return Err(invalid_letterhead_values(overflow));
     }
 
+    // AC-5.4: the issuer's details, the registry's, in the preview language; the sample keeps its body.
+    let issuer = issuer_for_preview(&app, entity, asked.language).await;
+
     // The sample, in the person's language, on this configuration, on the layout asked for.
     let job = sample_job(
         entity,
@@ -171,6 +188,7 @@ pub async fn preview(
         config,
         files,
         selection,
+        issuer.data,
     )?;
     // The person's own place: a service caller has a name of its own (`system:...`), so the two never share one.
     // Interactive: of two or more workers a preview may hold all but the one that is kept for PDFs (T48).
@@ -180,7 +198,7 @@ pub async fn preview(
         .map_err(pool_error)?;
     let rendered = permit.run(job).await.map_err(preview_error)?;
     match rendered.body {
-        JobBody::Preview(pages) => Ok(answer(&rendered.meta, &pages)),
+        JobBody::Preview(pages) => Ok(answer(&rendered.meta, &pages, issuer.version)),
         // The job asked for a preview: anything else is a fault of the pool.
         JobBody::Pdf(_) | JobBody::Fit(_) => Err(internal("render_failed")),
     }
@@ -279,8 +297,34 @@ fn pages_of_body(value: &Value) -> Option<PageSelection> {
     PageSelection::parse(&numbers?.join(","))
 }
 
-/// The job of a preview: the sample document of `entity` in `language`, laid out on `config` with the layout
-/// `layout_version` (G6). The letterhead version is [`UNSAVED`]: the configuration has none.
+/// The issuer's details a preview shows (AC-5.4, plan "Configurator preview").
+struct Issuer {
+    /// What the sample's placeholders are given: the registry's values in the preview language, or, when the
+    /// registry cannot be read, nothing at all (every placeholder is then drawn as missing).
+    data: EntityData,
+    /// The version of the details shown; `None` when they could not be had (`legalEntityVersion: null`).
+    version: Option<i64>,
+}
+
+/// The registry's details of `entity`, under the cache rule of the render routes (T21). A preview is not a
+/// document (AC-5.5 is about documents): when the details cannot be had, the preview is still made, with
+/// [`EntityData::default`], every placeholder marked, and the answer says so (`issuerDetails: "unavailable"`).
+async fn issuer_for_preview(app: &AppState, entity: Entity, language: Language) -> Issuer {
+    match app.registry.get(entity).await {
+        Ok(details) => Issuer {
+            data: registry::entity_data(&details, language),
+            version: Some(details.version),
+        },
+        Err(_) => Issuer {
+            data: EntityData::default(),
+            version: None,
+        },
+    }
+}
+
+/// The job of a preview: the sample document of `entity` in `language`, with the issuer's details `data`, laid
+/// out on `config` with the layout `layout_version` (G6), in the "mark missing" mode (plan E3). The letterhead
+/// version is [`UNSAVED`]: the configuration has none.
 fn sample_job(
     entity: Entity,
     language: Language,
@@ -288,8 +332,9 @@ fn sample_job(
     config: LetterheadConfig,
     files: Assets,
     selection: PageSelection,
+    data: EntityData,
 ) -> Result<Job, ApiError> {
-    let mut document = sample::request(entity, language);
+    let mut document = sample::request_with(entity, language, data);
     // What reaches a worker is what the asset rules made of the image blocks, as on the render routes.
     ingest_images(&mut document).map_err(|_| internal("render_failed"))?;
     Ok(Job::new(
@@ -301,7 +346,8 @@ fn sample_job(
         },
         files,
         Output::Preview(selection),
-    ))
+    )
+    .marking_missing())
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -365,8 +411,9 @@ fn asset_problems(config: &LetterheadConfig, found: &[AssetRow]) -> Vec<Problem>
 // The answer
 
 /// The render preview's answer, with `letterheadVersion: null`: the configuration has no version (it may be
-/// unsaved).
-fn answer(meta: &Meta, pages: &[PreviewPage]) -> Response {
+/// unsaved). It adds `issuerDetails` (`"current"`, or `"unavailable"` when the registry could not be read) and
+/// `legalEntityVersion` (the version shown, `null` when unavailable).
+fn answer(meta: &Meta, pages: &[PreviewPage], legal_entity_version: Option<i64>) -> Response {
     let pages: Vec<Value> = pages
         .iter()
         .map(|page| {
@@ -379,6 +426,8 @@ fn answer(meta: &Meta, pages: &[PreviewPage]) -> Response {
         .collect();
     let body = json!({
         "letterheadVersion": Value::Null,
+        "issuerDetails": if legal_entity_version.is_some() { "current" } else { "unavailable" },
+        "legalEntityVersion": legal_entity_version,
         "pageCount": meta.page_count,
         "missingPlaceholders": meta.missing_placeholders,
         "unprintableCharacters": meta.unprintable_characters,
@@ -683,6 +732,10 @@ mod tests {
                 letterhead_engine::config::default_config(),
                 Assets::new(),
                 PageSelection::Pages(vec![2]),
+                EntityData {
+                    legal_name: Some("Registry SA".to_owned()),
+                    ..EntityData::default()
+                },
             )
             .expect("a job")
         };
@@ -694,10 +747,9 @@ mod tests {
             assert_eq!(header["version"]["number"], 0, "no letterhead version");
             assert_eq!(header["request"]["language"], "en");
             assert_eq!(header["request"]["entity"], "welld_ch");
-            assert_eq!(
-                header["request"]["entityData"]["legalName"],
-                "Beispiel Schweiz AG (SAMPLE)"
-            );
+            // The registry's data, not the sample's: and the mark mode travels with the job.
+            assert_eq!(header["request"]["entityData"]["legalName"], "Registry SA");
+            assert_eq!(header["mark_missing"], true);
             assert_eq!(header["output"]["pages"], json!([2]));
             assert!(assets.is_empty());
         }
@@ -705,5 +757,86 @@ mod tests {
         let (header, _) = built.encode().expect("encoded");
         let header: Value = serde_json::from_slice(&header).expect("json");
         assert_eq!(header["request"]["language"], "it");
+    }
+
+    /// A job as the render routes make theirs (`Job::new`), whatever its output.
+    fn render_route_job(output: Output) -> Job {
+        Job::new(
+            sample::request(Entity::WelldIt, Language::It),
+            LetterheadVersion {
+                number: 1,
+                layout_version: 1,
+                config: letterhead_engine::config::default_config(),
+            },
+            Assets::new(),
+            output,
+        )
+    }
+
+    /// Plan E3: the "mark missing" mode is the configurator preview's alone. A job made as the render routes make
+    /// theirs has no such member on the wire, for a PDF or for a preview, and the worker reads it as not marking.
+    #[test]
+    fn a_render_routes_job_never_has_the_mark_on_the_wire() {
+        use crate::pool::job::decode_job;
+        for output in [Output::Pdf, Output::Preview(PageSelection::All)] {
+            let (bytes, _) = render_route_job(output).encode().expect("encoded");
+            let header: Value = serde_json::from_slice(&bytes).expect("json");
+            assert!(
+                header.get("mark_missing").is_none(),
+                "the header is what it was before the mode: {header}"
+            );
+            assert!(!decode_job(vec![bytes]).expect("decoded").mark_missing);
+        }
+    }
+
+    #[test]
+    fn the_mark_travels_with_the_previews_job_to_the_worker() {
+        use crate::pool::job::decode_job;
+        let job = sample_job(
+            Entity::WelldIt,
+            Language::En,
+            1,
+            letterhead_engine::config::default_config(),
+            Assets::new(),
+            PageSelection::All,
+            EntityData::default(),
+        )
+        .expect("a job");
+        let (bytes, _) = job.encode().expect("encoded");
+        let decoded = decode_job(vec![bytes]).expect("decoded");
+        assert!(decoded.mark_missing);
+        assert_eq!(decoded.output, Output::Preview(PageSelection::All));
+        assert_eq!(
+            decoded.request.expect("a request").entity_data,
+            EntityData::default(),
+            "the registry's values, here none: every placeholder missing"
+        );
+    }
+
+    /// A PDF, or a fit check, that asks for the mark is a fault on either side of the wire: a document never
+    /// carries `⟦ ⟧`.
+    #[test]
+    fn a_pdf_or_a_fit_check_with_the_mark_is_neither_encoded_nor_decoded() {
+        use crate::pool::job::decode_job;
+        assert!(
+            render_route_job(Output::Pdf)
+                .marking_missing()
+                .encode()
+                .is_err()
+        );
+        let fit = || {
+            Job::fit(
+                1,
+                letterhead_engine::config::default_config(),
+                Assets::new(),
+            )
+        };
+        assert!(fit().marking_missing().encode().is_err());
+        for job in [render_route_job(Output::Pdf), fit()] {
+            let (bytes, _) = job.encode().expect("encoded");
+            let mut header: Value = serde_json::from_slice(&bytes).expect("json");
+            header["mark_missing"] = json!(true);
+            assert!(decode_job(vec![header.to_string().into_bytes()]).is_err());
+        }
     }
 }

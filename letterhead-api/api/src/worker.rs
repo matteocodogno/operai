@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use letterhead_engine::layout::{LayoutError, check_fit, layout};
-use letterhead_engine::render::{RenderError, render};
+use letterhead_engine::render::{RenderError, RenderOptions, render_with};
 
 use crate::pool::job::{Decoded, Meta, Output, PageInfo, Refusal, Reply, decode_job};
 use crate::pool::wire::{read_frame, write_frame};
@@ -160,7 +160,10 @@ fn render_job(job: Decoded) -> (Reply, Vec<Vec<u8>>) {
     let Some(request) = job.request.as_ref() else {
         return (Reply::Failed, Vec::new());
     };
-    let rendered = match render(request, &job.version, &job.assets) {
+    let options = RenderOptions {
+        mark_missing: job.mark_missing,
+    };
+    let rendered = match render_with(request, &job.version, &job.assets, options) {
         Ok(rendered) => rendered,
         Err(error) => return (Reply::Refused(refusal(&error)), Vec::new()),
     };

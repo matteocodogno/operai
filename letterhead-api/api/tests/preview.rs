@@ -4,7 +4,8 @@
 //! Black-box tests of the real binary (`CARGO_BIN_EXE_letterhead-api`), as `write.rs` is: each test starts its own
 //! supervisor on a free port against a schema of its own in `LETTERHEAD_TEST_DATABASE_URL` and the MinIO bucket of
 //! `LETTERHEAD_TEST_S3_*` (see `render.rs` for the names and the defaults), with a fake `auth` in this process:
-//! a JWKS, and `GET /authz/resolve` from a table of people.
+//! a JWKS, `GET /authz/resolve` from a table of people, and (T23, AC-5.4) the registry of the legal entities, whose
+//! details the preview shows (`GET /system/legal-entities`, read once and kept for 30 s).
 //!
 //! **The fake transport.** The supervisor reaches four places, and only four: `auth` (its JWKS and
 //! `/authz/resolve`), the database and the bucket, each named by an environment variable. The test gives it a
@@ -376,8 +377,58 @@ enum Resolve {
     Garbage,
 }
 
+/// The registry of the legal entities, as the fake `auth` serves it (`GET /system/legal-entities`): what it holds
+/// can be changed, and it can be made to fail. The supervisor's cache reads it once and keeps it for 30 s, so a
+/// test changes it before its first request.
+struct RegistryStub {
+    items: Vec<Value>,
+    down: bool,
+}
+
+/// One entity as the registry answers it (the shape of `fixtures/legal-entities.json`).
+fn registry_item(entity: &str, version: i64, name: &str) -> Value {
+    let (it, en, vat, iban, contacts) = if entity == "welld_it" {
+        (
+            json!(["Via Roma 1", "20121 Milano"]),
+            json!(["Via Roma 1", "20121 Milan"]),
+            "IT01234567890",
+            "IT60 X054 2811 1010 0000 0123 457",
+            ("Tel. 02 000 0000", "Phone 02 000 0000"),
+        )
+    } else {
+        (
+            json!(["Via Cantonale 1", "6900 Lugano", "Svizzera"]),
+            json!(["Via Cantonale 1", "6900 Lugano", "Switzerland"]),
+            "CHE-123.456.789 IVA",
+            "CH93 0076 2011 6238 5295 7",
+            ("Tel. +41 91 000 00 00", "Phone +41 91 000 00 00"),
+        )
+    };
+    json!({
+        "entity": entity, "version": version, "updatedAt": "2026-11-17T09:00:00.000Z",
+        "legalName": name,
+        "address": { "it": it, "en": en },
+        "vatNumber": vat, "iban": iban.replace(' ', ""), "ibanPrint": iban,
+        "contacts": { "it": contacts.0, "en": contacts.1 },
+        "complete": true, "missing": [], "invalid": [],
+    })
+}
+
+impl RegistryStub {
+    fn new() -> RegistryStub {
+        RegistryStub {
+            items: vec![
+                registry_item("welld_it", 3, "Registry Italia S.r.l."),
+                registry_item("welld_ch", 5, "Registry Svizzera SA"),
+            ],
+            down: false,
+        }
+    }
+}
+
 struct AuthState {
     people: Vec<Persona>,
+    registry: Mutex<RegistryStub>,
     mode: Mutex<Resolve>,
     /// The `Authorization` header of every resolve call, in order.
     asked: Mutex<Vec<String>>,
@@ -419,6 +470,7 @@ impl FakeAuth {
         let key = Arc::new(TestKey::generate());
         let state = Arc::new(AuthState {
             people: people(),
+            registry: Mutex::new(RegistryStub::new()),
             mode: Mutex::new(Resolve::Normal),
             asked: Mutex::new(Vec::new()),
             seen: Mutex::new(Vec::new()),
@@ -426,6 +478,7 @@ impl FakeAuth {
         let for_seen = Arc::clone(&state);
         let for_jwks = Arc::clone(&key);
         let for_resolve = Arc::clone(&state);
+        let for_registry = Arc::clone(&state);
         let for_mint = Arc::clone(&key);
         let app = Router::new()
             // The one service render of these tests reads the registry as the service's own client (T22).
@@ -444,16 +497,18 @@ impl FakeAuth {
             )
             .route(
                 "/system/legal-entities",
-                get(|| async {
-                    let item = |entity: &str| {
-                        json!({ "entity": entity, "version": 1, "updatedAt": null,
-                            "legalName": "Registry S.r.l.",
-                            "address": { "it": ["Via Roma 1"], "en": ["Via Roma 1"] },
-                            "vatNumber": "IT01234567890", "iban": "", "ibanPrint": "",
-                            "contacts": { "it": "", "en": "" },
-                            "complete": true, "missing": [], "invalid": [] })
-                    };
-                    axum::Json(json!({ "items": [item("welld_it"), item("welld_ch")] }))
+                get(move || {
+                    let state = Arc::clone(&for_registry);
+                    async move {
+                        let registry = state.registry.lock().expect("lock");
+                        if registry.down {
+                            return (StatusCode::SERVICE_UNAVAILABLE, String::new());
+                        }
+                        (
+                            StatusCode::OK,
+                            json!({ "items": registry.items }).to_string(),
+                        )
+                    }
                 }),
             )
             .route(
@@ -559,6 +614,22 @@ impl FakeAuth {
 
     fn resolve(&self, mode: Resolve) {
         *self.state.mode.lock().expect("lock") = mode;
+    }
+
+    /// Changes one member of one entity of the registry (`legalName`, `vatNumber`, `version`, ...).
+    fn registry_set(&self, entity: &str, member: &str, value: Value) {
+        let mut registry = self.state.registry.lock().expect("lock");
+        let item = registry
+            .items
+            .iter_mut()
+            .find(|i| i["entity"] == entity)
+            .expect("an entity");
+        item[member] = value;
+    }
+
+    /// The registry cannot be read, or can again.
+    fn registry_down(&self, down: bool) {
+        self.state.registry.lock().expect("lock").down = down;
     }
 }
 
@@ -808,8 +879,17 @@ impl World {
     }
 
     async fn start_with(extra: &[(&'static str, &str)]) -> Option<World> {
+        World::start_registry(extra, |_| {}).await
+    }
+
+    /// `setup` shapes the registry of the fake `auth` before the supervisor reads it for the first time.
+    async fn start_registry(
+        extra: &[(&'static str, &str)],
+        setup: impl FnOnce(&FakeAuth),
+    ) -> Option<World> {
         let fixture = Fixture::new().await?;
         let auth = FakeAuth::start().await;
+        setup(&auth);
         let destination = |url: &str| {
             let parsed = url::Url::parse(url).expect("a URL");
             (
@@ -1083,45 +1163,270 @@ async fn preview_the_sample_has_at_least_three_pages_and_every_block_type_in_the
     }
 }
 
+/// A form whose footer is `text`, in a margin that holds several lines (real details are longer than the sample's).
+fn footer_form(text: &str) -> Value {
+    let mut form = config(text, None);
+    form["margins"]["bottom"] = json!(90);
+    form
+}
+
+/// A form whose footer prints all five placeholders, so that a page's text shows what each was given.
+fn issuer_form() -> Value {
+    footer_form("{legal_name} | {address} | VAT {vat} | IBAN {iban} | {contacts}")
+}
+
+/// A page's text with every run of white space (a line break among them) as one space.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[tokio::test]
-async fn preview_the_entity_data_of_the_sample_is_marked_and_is_no_real_company() {
+async fn preview_the_pages_hold_the_registrys_details_in_the_preview_language_and_the_samples_body()
+{
     let Some(world) = world().await else { return };
-    // The footer of the form prints the legal name and the address (the starting configuration's own).
-    let form = serde_json::to_value(default_config()).expect("json");
-    for (entity, name, address) in [
+    let form = issuer_form();
+    for (entity, version, name, vat, iban) in [
         (
             "welld_it",
-            "Esempio Italia S.r.l. (SAMPLE)",
-            "Via Esempio 1 (SAMPLE)",
+            3,
+            "Registry Italia S.r.l.",
+            "IT01234567890",
+            "IT60 X054 2811 1010 0000 0123 457",
         ),
         (
             "welld_ch",
-            "Beispiel Schweiz AG (SAMPLE)",
-            "Beispielstrasse 1 (SAMPLE)",
+            5,
+            "Registry Svizzera SA",
+            "CHE-123.456.789 IVA",
+            "CH93 0076 2011 6238 5295 7",
         ),
     ] {
-        let reply = preview_as(&world, entity, "u-access", &form, "en").await;
+        for language in ["it", "en"] {
+            let reply = preview_as(&world, entity, "u-access", &form, language).await;
+            assert_eq!(reply.status, 200, "{}", reply.text());
+            let body = reply.json();
+            assert_eq!(body["issuerDetails"], "current");
+            assert_eq!(body["legalEntityVersion"], version, "{entity}");
+            assert_eq!(
+                body["missingPlaceholders"],
+                json!([]),
+                "{entity} {language}"
+            );
+            // A long line wraps where it likes, inside a value too: the text is read as running text.
+            let texts: Vec<String> = reply.texts().iter().map(|t| flat(t)).collect();
+            let (here, other, contacts) = match (entity, language) {
+                ("welld_it", "it") => ("20121 Milano", "20121 Milan |", "Tel. 02 000 0000"),
+                ("welld_it", _) => ("20121 Milan |", "20121 Milano", "Phone 02 000 0000"),
+                (_, "it") => ("Svizzera", "Switzerland", "Tel. +41 91 000 00 00"),
+                _ => ("Switzerland", "Lugano, Svizzera", "Phone +41 91 000 00 00"),
+            };
+            for (n, text) in texts.iter().enumerate() {
+                for value in [name, vat, iban, here, contacts] {
+                    assert!(
+                        text.contains(value),
+                        "{entity} {language}: page {} lacks `{value}`: {text}",
+                        n + 1
+                    );
+                }
+                // The address of the other language is not printed, and nothing of the old sample's company is. (The
+                // sample's intro still says its data carry `(SAMPLE)`: see the report of T23.)
+                assert!(!text.contains(other), "{entity} {language}: `{other}`");
+                for stale in [
+                    "Esempio Italia",
+                    "Via Esempio",
+                    "Beispiel",
+                    "example.invalid",
+                    "\u{27E6}",
+                ] {
+                    assert!(!text.contains(stale), "{entity} {language}: `{stale}`");
+                }
+            }
+            // The body of the sample is the sample's own text, as before.
+            let all = texts.join("\n");
+            for word in words(language) {
+                assert!(all.contains(word), "{language}: `{word}` is on no page");
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn preview_an_empty_value_is_its_label_between_marks_in_the_text_and_its_segment_is_kept() {
+    let Some(world) = World::start_registry(&[], |auth| {
+        for member in ["iban", "ibanPrint", "vatNumber"] {
+            auth.registry_set("welld_it", member, json!(""));
+        }
+        auth.registry_set("welld_it", "contacts", json!({ "it": "", "en": "" }));
+    })
+    .await
+    else {
+        return;
+    };
+    // The segment in square brackets is dropped by a document when its value is empty, and kept here.
+    let form = footer_form("{legal_name} [VAT {vat}] [IBAN {iban}] [{contacts}]");
+    for (language, labels) in [
+        ("it", ["Partita IVA", "IBAN", "Riga contatti"]),
+        ("en", ["VAT number", "IBAN", "Contacts line"]),
+    ] {
+        let reply = preview_as(&world, "welld_it", "u-access", &form, language).await;
         assert_eq!(reply.status, 200, "{}", reply.text());
-        for (n, text) in reply.texts().iter().enumerate() {
+        let body = reply.json();
+        // The details are the registry's: that they were read is current, and the empty ones are listed.
+        assert_eq!(body["issuerDetails"], "current");
+        assert_eq!(body["legalEntityVersion"], 3);
+        assert_eq!(
+            body["missingPlaceholders"],
+            json!(["contacts", "iban", "vat"])
+        );
+        let [vat, iban, contacts] = labels;
+        for (n, text) in reply.texts().iter().map(|t| flat(t)).enumerate() {
+            assert!(text.contains("Registry Italia S.r.l."), "page {n}: {text}");
             assert!(
-                text.contains(name),
-                "{entity}: page {} lacks `{name}`: {text}",
+                text.contains(&format!("VAT \u{27E6}{vat}\u{27E7}"))
+                    || text.contains(&format!("\u{27E6}{vat}\u{27E7}")),
+                "{language} page {}: no mark for {vat}: {text}",
                 n + 1
             );
             assert!(
-                text.contains(address),
-                "{entity}: page {} lacks `{address}`",
+                text.contains(&format!("IBAN \u{27E6}{iban}\u{27E7}")),
+                "{language} page {}: {text}",
+                n + 1
+            );
+            assert!(
+                text.contains(&format!("\u{27E6}{contacts}\u{27E7}")),
+                "{language} page {}: {text}",
                 n + 1
             );
         }
-        assert_eq!(reply.json()["missingPlaceholders"], json!([]));
-        assert_eq!(reply.json()["unprintableCharacters"], 0);
-        let everything = reply.texts().join("\n").to_lowercase();
-        assert!(
-            !everything.contains("welld"),
-            "{entity} names a real company"
-        );
     }
+}
+
+#[tokio::test]
+async fn preview_a_registry_that_cannot_be_read_still_renders_with_every_placeholder_marked() {
+    let Some(world) = World::start_registry(&[], |auth| auth.registry_down(true)).await else {
+        return;
+    };
+    let form = issuer_form();
+    let reply = preview_as(&world, "welld_it", "u-access", &form, "en").await;
+    // A preview is not a document (AC-5.5 is about documents): no 503, a page with every value missing.
+    assert_eq!(reply.status, 200, "{}", reply.text());
+    assert!(reply.header("retry-after").is_none());
+    assert_no_store(&reply);
+    let body = reply.json();
+    assert_eq!(body["issuerDetails"], "unavailable");
+    assert_eq!(body["legalEntityVersion"], Value::Null);
+    assert_eq!(body["letterheadVersion"], Value::Null);
+    assert_eq!(
+        body["missingPlaceholders"],
+        json!(["address", "contacts", "iban", "legal_name", "vat"])
+    );
+    let texts = reply.texts();
+    for (n, text) in texts.iter().enumerate() {
+        for label in [
+            "Legal name",
+            "Address",
+            "VAT number",
+            "IBAN",
+            "Contacts line",
+        ] {
+            assert!(
+                text.contains(&format!("\u{27E6}{label}\u{27E7}")),
+                "page {}: no mark for {label}: {text}",
+                n + 1
+            );
+        }
+        for stale in [
+            "Registry",
+            "Esempio Italia",
+            "Via Esempio",
+            "example.invalid",
+        ] {
+            assert!(!text.contains(stale), "`{stale}` on page {}", n + 1);
+        }
+    }
+    // The body is the sample's, and the same in Italian.
+    assert!(texts.join("\n").contains(words("en")[0]));
+    let it = preview_as(&world, "welld_ch", "u-access", &form, "it").await;
+    assert_eq!(it.status, 200, "{}", it.text());
+    assert_eq!(it.json()["issuerDetails"], "unavailable");
+    assert!(it.texts()[0].contains("\u{27E6}Ragione sociale\u{27E7}"));
+    assert!(it.texts()[0].contains("\u{27E6}Riga contatti\u{27E7}"));
+}
+
+/// The mark is the configurator preview's alone: the same registry, the same form, saved, and a render of the
+/// service never has `⟦` in its text, and the missing placeholder is listed as it always was (E3, AC-5.3).
+#[tokio::test]
+async fn preview_the_render_routes_never_mark_what_the_configurator_marks() {
+    let Some(world) = World::start_registry(&[], |auth| {
+        auth.registry_set("welld_it", "ibanPrint", json!(""));
+        auth.registry_set("welld_it", "iban", json!(""));
+    })
+    .await
+    else {
+        return;
+    };
+    let form = footer_form("{legal_name} [IBAN {iban}]");
+    let configurator = preview_as(&world, "welld_it", "u-access", &form, "it").await;
+    assert_eq!(configurator.status, 200, "{}", configurator.text());
+    assert!(configurator.texts()[0].contains("IBAN \u{27E6}IBAN\u{27E7}"));
+
+    assert_eq!(
+        save_as(&world, "welld_it", "u-admin", 0, &form)
+            .await
+            .status,
+        201
+    );
+    let service = send(
+        http()
+            .post(world.server.url("/v1/render/preview"))
+            .header(
+                "authorization",
+                format!("Bearer {}", world.auth.service_token()),
+            )
+            .header("content-type", "application/json")
+            .body(
+                json!({ "contentVersion": 2, "entity": "welld_it", "language": "it",
+                        "blocks": [{ "type": "paragraph", "runs": [{ "text": "x" }] }] })
+                .to_string(),
+            ),
+    )
+    .await;
+    assert_eq!(service.status, 200, "{}", service.text());
+    assert_eq!(service.json()["missingPlaceholders"], json!(["iban"]));
+    assert_eq!(service.json()["legalEntityVersion"], 3);
+    for text in service.texts() {
+        assert!(text.contains("Registry Italia S.r.l."), "{text}");
+        assert!(
+            !text.contains('\u{27E6}') && !text.contains('\u{27E7}'),
+            "{text}"
+        );
+        assert!(!text.contains("IBAN"), "the segment is dropped: {text}");
+    }
+}
+
+/// R9: real details are longer than the fit check's 40 characters; the preview shows it as a render would.
+#[tokio::test]
+async fn preview_a_legal_name_that_does_not_fit_its_frame_is_refused_at_the_frame() {
+    let Some(world) = World::start_registry(&[], |auth| {
+        auth.registry_set("welld_it", "legalName", json!("N".repeat(200)));
+    })
+    .await
+    else {
+        return;
+    };
+    let form = config("{legal_name}", None);
+    let reply = preview_as(&world, "welld_it", "u-access", &form, "en").await;
+    assert_problem(&reply, 422, "invalid_letterhead");
+    assert_eq!(
+        problems(&reply),
+        [(
+            "/variants/default/footer".to_owned(),
+            "footer_overflow".to_owned()
+        )]
+    );
+    // The other entity's name is its own and fits.
+    let other = preview_as(&world, "welld_ch", "u-access", &form, "en").await;
+    assert_eq!(other.status, 200, "{}", other.text());
 }
 
 #[tokio::test]
@@ -1178,9 +1483,14 @@ async fn preview_the_answer_has_the_render_previews_shape_with_a_null_letterhead
         .map(String::as_str)
         .collect();
     service_keys.sort_unstable();
-    // The service's render also says which version of the issuer's details it printed (T22); the configurator's
-    // preview gets its own member for them with T23.
-    service_keys.retain(|key| *key != "legalEntityVersion");
+    // The configurator's preview has the render preview's members, `legalEntityVersion` among them (the version of
+    // the issuer's details it shows: the service's render printed the same ones), and one of its own: whether
+    // those details are the registry's current ones (T23).
+    assert_eq!(body["issuerDetails"], "current");
+    assert_eq!(body["legalEntityVersion"], 3);
+    assert_eq!(service["legalEntityVersion"], body["legalEntityVersion"]);
+    assert!(keys.contains(&"issuerDetails"));
+    keys.retain(|key| *key != "issuerDetails");
     assert_eq!(keys, service_keys);
     assert_eq!(service["letterheadVersion"], 1);
     let mut page_keys: Vec<&str> = body["pages"][0]
@@ -1622,8 +1932,11 @@ async fn preview_an_asset_whose_object_is_gone_is_a_fault_of_the_service_not_a_r
 async fn preview_makes_no_outbound_call_but_the_one_to_auth() {
     let Some(world) = world().await else { return };
     let form = config("Footer", None);
-    // Warm up: the JWKS is fetched and the person's permissions are cached by the first request.
+    // Warm up: the JWKS is fetched, the person's permissions are cached by the first request, and the registry's
+    // details are read once (they are kept for 30 s, for both entities).
     let warm = world.get("/v1/catalog", "u-access").await;
+    assert_eq!(warm.status, 200, "{}", warm.text());
+    let warm = preview_as(&world, "welld_it", "u-access", &form, "en").await;
     assert_eq!(warm.status, 200, "{}", warm.text());
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (database, bucket) = (world.taps.database.sent(), world.taps.bucket.sent());
