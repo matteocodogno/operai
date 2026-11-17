@@ -1225,7 +1225,7 @@ describe('Settings screen', () => {
     render(<RouterProvider router={createAppRouter(undefined, CrmShell)} />)
   }
 
-  it('saves the profile with the address split into lines', async () => {
+  it('saves the CRM’s own values only: the terms and the place of issue (AC-6.1)', async () => {
     let put: Record<string, unknown> | null = null
     await render_(MANAGER, {
       'GET /entity-profiles': () => ({ status: 200, body: { items: [] } }),
@@ -1235,63 +1235,51 @@ describe('Settings screen', () => {
           status: 200,
           body: {
             entity: 'welld_ch',
-            ...put,
-            vatNumber: null,
-            iban: null,
             offerTermsEn: null,
             offerTermsIt: null,
+            placeOfIssue: null,
+            ...put,
             updatedAt: '2026-11-01T09:00:00.000Z',
           },
         }
       },
     })
     const form = await screen.findByTestId('crm-settings-welld_ch')
-    fireEvent.change(within(form).getByLabelText(/Legal name/), { target: { value: 'wellD SA' } })
-    fireEvent.change(within(form).getByLabelText('Address'), { target: { value: 'Via Nassa 1\n\n6900 Lugano ' } })
+    expect(within(form).queryByLabelText(/Legal name|Address|VAT number|IBAN/)).toBeNull()
+    fireEvent.change(within(form).getByLabelText('Place of issue'), { target: { value: ' Zurich ' } })
     fireEvent.click(within(form).getByTestId('crm-settings-welld_ch-save'))
-    await waitFor(() =>
-      expect(put).toEqual({
-        legalName: 'wellD SA',
-        addressLines: ['Via Nassa 1', '6900 Lugano'],
-        vatNumber: null,
-        iban: null,
-        offerTermsEn: null,
-        offerTermsIt: null,
-        placeOfIssue: null,
-      }),
-    )
+    await waitFor(() => expect(put).toEqual({ offerTermsEn: null, offerTermsIt: null, placeOfIssue: 'Zurich' }))
     expect(await screen.findByText('wellD CH profile saved.')).not.toBeNull()
   })
 
   describe('a text the server refuses for a character that cannot be saved (QE F2)', () => {
-    const RAW = /NUL|addressLines|legalName|Not text|foo/
+    const RAW = /NUL|placeOfIssue|offerTermsEn|Not text|foo/
     const refuse = async (field: string) => {
       await render_(MANAGER, {
         'GET /entity-profiles': () => ({ status: 200, body: { items: [] } }),
         'PUT /entity-profiles/welld_ch': () => nulRefusalAnswer(field),
       })
       const form = await screen.findByTestId('crm-settings-welld_ch')
-      fireEvent.change(within(form).getByLabelText(/Legal name/), { target: { value: 'wellD SA' } })
-      fireEvent.change(within(form).getByLabelText('Address'), { target: { value: 'Via Nassa 1\nLugano' } })
+      fireEvent.change(within(form).getByLabelText('Place of issue'), { target: { value: 'Lugano' } })
       fireEvent.click(within(form).getByTestId('crm-settings-welld_ch-save'))
       return form
     }
 
-    it('puts the localized sentence at the address field and moves focus there, from the Save button', async () => {
-      const form = await refuse('addressLines.1')
-      const address = within(form).getByLabelText('Address')
-      await waitFor(() => expect(document.activeElement).toBe(address))
-      expect(address.getAttribute('aria-invalid')).toBe('true')
+    it('puts the localized sentence at the place-of-issue field and moves focus there, from the Save button', async () => {
+      const form = await refuse('placeOfIssue')
+      const place = within(form).getByLabelText('Place of issue')
+      await waitFor(() => expect(document.activeElement).toBe(place))
+      expect(place.getAttribute('aria-invalid')).toBe('true')
       expect(within(form).getByText('This text contains a character that cannot be saved.')).not.toBeNull()
       expect(within(form).queryByTestId('crm-settings-welld_ch-error')).toBeNull()
       expect(form.textContent).not.toMatch(RAW)
     })
 
-    it('names the legal name field for a refused legal name', async () => {
-      const form = await refuse('legalName')
-      const legal = within(form).getByLabelText(/Legal name/)
-      await waitFor(() => expect(document.activeElement).toBe(legal))
-      expect(legal.getAttribute('aria-invalid')).toBe('true')
+    it('names the standard-terms field for a refused text of the terms', async () => {
+      const form = await refuse('offerTermsEn')
+      const terms = within(form).getByLabelText('Standard terms (English)')
+      await waitFor(() => expect(document.activeElement).toBe(terms))
+      expect(terms.getAttribute('aria-invalid')).toBe('true')
       expect(form.textContent).not.toMatch(RAW)
     })
 

@@ -303,11 +303,8 @@ export async function postToBucket(upload: AttachmentUpload['upload'], file: Blo
 
 // ─── Entity profiles (settings) ─────────────────────────────────────────────
 
+/** What the CRM keeps of an entity: the legal details moved to the registry (specs/20261117-legal-entities T29, AC-6.1). */
 export type EntityProfileInput = {
-  legalName: string
-  addressLines: string[]
-  vatNumber?: string | null
-  iban?: string | null
   offerTermsEn?: string | null
   offerTermsIt?: string | null
   placeOfIssue?: string | null
@@ -316,6 +313,12 @@ export type EntityProfileInput = {
 export const listEntityProfiles = (init?: Init) => getJson<{ items: EntityProfile[] }>('/entity-profiles', init)
 export const saveEntityProfile = (entity: Entity, input: EntityProfileInput) =>
   sendJson<EntityProfile>(`/entity-profiles/${entity}`, 'PUT', input)
+
+// ─── auth: the legal entities the caller may manage (specs/20261117-legal-entities plan E2) ──────────────
+
+/** `GET /legal-entities/manageable` on `auth`: the entities the caller may edit; `[]` for none. UX only, the registry's own 403 is the gate. */
+export const listManageableLegalEntities = (init?: Init) =>
+  requestJson<{ entities: string[] }>(getAuthBaseUrl(), '/legal-entities/manageable', init)
 
 // ─── Letterhead: three calls, like a deal attachment (specs/20261102-crm-offer-document AC-2.5) ──────
 

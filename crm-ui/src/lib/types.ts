@@ -203,9 +203,17 @@ export type Attachment = {
 
 export type EntityProfile = {
   entity: Entity
+  /**
+   * The four legal details left crm-api's answer with specs/20261117-legal-entities T29: the registry holds them now (AC-6.1).
+   * Declared only until T31 retires its last reader (TryWizardView); nothing else reads them and a current server never sends them.
+   * @deprecated read the legal entity registry instead
+   */
   legalName: string
+  /** @deprecated see `legalName` */
   addressLines: string[]
+  /** @deprecated see `legalName` */
   vatNumber: string | null
+  /** @deprecated see `legalName` */
   iban: string | null
   offerTermsEn: string | null
   offerTermsIt: string | null
