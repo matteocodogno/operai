@@ -12,9 +12,15 @@
  * The language of the typed text is on each input (`lang`, which also drives spell checking), not on the legend or
  * labels, which are in the language of the page.
  *
+ * A **note** slot sits under the shared hint (FU-7): the conflict's "Also changed in version n by …", the moved
+ * address's "moved with n lines" hint, or both. It is listed in every line's `aria-describedby`, so the focused
+ * line reads it. What is not words to read (the "Use theirs" button) goes in `noteAction`, after the note and
+ * outside the description. `noteId` lets the caller point the action's own description at the note.
+ *
  * There is no add or remove control: the input count changes only when the entity is loaded or saved.
  */
 import { useId } from 'react'
+import type { ReactNode } from 'react'
 import { Field, Icon } from '@operai/ui'
 import { addressInputCount, padLines } from './LegalEntityFormModel'
 import { LIMITS, cleanText, codePointLength } from '../lib/legalEntityModel'
@@ -35,6 +41,12 @@ export type AddressLinesFieldProps = {
   /** Every line, padded to the number of inputs, with the typed one replaced; `index` is the input that changed. */
   onChange: (lines: string[], index: number) => void
   testIdPrefix: string
+  /** Words under the shared hint, described by every line. */
+  note?: ReactNode
+  /** The id of the note's element, when the caller needs to refer to it. */
+  noteId?: string
+  /** A control that goes with the note: shown after it, not part of the description. */
+  noteAction?: ReactNode
 }
 
 export default function AddressLinesField({
@@ -45,8 +57,14 @@ export default function AddressLinesField({
   idFor,
   onChange,
   testIdPrefix,
+  note,
+  noteId,
+  noteAction,
 }: AddressLinesFieldProps) {
   const hintId = useId()
+  const ownNoteId = useId()
+  const noteElementId = noteId ?? ownNoteId
+  const hasNote = note !== undefined && note !== null && note !== false
   const count = addressInputCount(lines)
   const padded = padLines(lines, count)
 
@@ -102,7 +120,7 @@ export default function AddressLinesField({
                   spellCheck
                   autoComplete="off"
                   aria-required={index === 0 ? true : undefined}
-                  aria-describedby={[control['aria-describedby'], hintId].filter(Boolean).join(' ')}
+                  aria-describedby={[control['aria-describedby'], hintId, hasNote ? noteElementId : undefined].filter(Boolean).join(' ')}
                   className="scroll-mb-28"
                   value={line}
                   onChange={(event) => {
@@ -120,6 +138,13 @@ export default function AddressLinesField({
       <p id={hintId} className="field-hint mt-2">
         {t.address.hint}
       </p>
+      {(hasNote || noteAction) && (
+        <p className="field-hint mt-1" data-testid={`${testIdPrefix}-${language}-note`}>
+          {hasNote && <span id={noteElementId}>{note}</span>}
+          {hasNote && noteAction ? ' ' : null}
+          {noteAction}
+        </p>
+      )}
     </fieldset>
   )
 }

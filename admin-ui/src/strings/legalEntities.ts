@@ -62,6 +62,8 @@ export const en = {
     line: (k: number) => `Line ${k}`,
     count: (n: number, limit: number) => `${n} / ${limit}`,
     hint: 'Up to 4 lines of 120 characters. An empty line is left out and the lines after it move up. Line 1 is required in both languages.',
+    movedHint: (n: number) =>
+      `This address was moved from the CRM with ${n} lines. Only 4 can be saved: join the extra lines to the ones above, or remove them.`,
   },
   bar: {
     dirty: 'Unsaved changes. Every tool uses a saved version within a minute.',
@@ -79,9 +81,11 @@ export const en = {
   },
   problem: {
     required: (v: string) => `Enter the ${v}.`,
+    notFilled: (v: string) => `Not filled in. Enter the ${v}.`,
+    moved: (sentence: string) => `${sentence} (Kept as moved from the CRM.)`,
     tooLong: (limit: number, n: number) => `Too long: at most ${limit} characters, you have ${n}.`,
     tooManyLines: (n: number) => `Too many lines: at most 4, you have ${n}.`,
-    tooManyLinesMoved: 'Too many lines: at most 4. Join it to a line above or remove it. (Kept as moved from the CRM.)',
+    tooManyLinesMoved: 'Too many lines: at most 4. Join it to a line above or remove it.',
     lineBreak: 'Use one line: remove the line break.',
     controlChar: 'Remove the special character (a tab or control character).',
     ibanFormat: 'An IBAN starts with two letters and two digits, then letters and digits only.',
@@ -93,10 +97,15 @@ export const en = {
     title: 'A newer version was saved',
     body: (who: string, n: number, when: string, values: string) =>
       `${who} saved version ${n} on ${when} (changed: ${values}) while you were editing. Your changes are still in this form but were not saved.`,
+    bodyNoList: (who: string, n: number, when: string) =>
+      `${who} saved version ${n} on ${when} while you were editing. Your changes are still in this form but were not saved.`,
     reapply: (n: number) => `Reapply my changes to version ${n}`,
     discard: (n: number) => `Discard my changes and load version ${n}`,
     applied: (n: number, flagged: string, next: number) =>
       `Your changes were applied to version ${n}. ${flagged} to review, then save as version ${next}.`,
+    flagged: (count: number) => (count === 1 ? '1 value' : `${count} values`),
+    appliedClean: (n: number, next: number) =>
+      `Your changes were applied to version ${n}. Nothing to review: save as version ${next}.`,
     alsoChanged: (n: number, who: string, theirs: string) =>
       `Also changed in version ${n} by ${who}: “${theirs}”. Yours is kept.`,
     useTheirs: 'Use theirs',
@@ -151,7 +160,7 @@ export const en = {
       `Missing: ${list}. Offers and contracts for ${entity} are refused until they are filled in and saved.`,
   },
   toCorrect: {
-    title: 'These details need correction',
+    title: 'Some values need correcting',
   },
   history: {
     caption: (entity: string) => `Versions of ${entity}`,
@@ -169,6 +178,11 @@ export const en = {
     moved: 'Moved from the CRM',
     open: (n: number) => `Open version ${n}`,
     restore: (n: number) => `Restore version ${n}`,
+    openLabel: 'Open',
+    restoreLabel: 'Restore',
+    changedList: (list: string) => `Changed: ${list}`,
+    loading: 'Loading the history…',
+    failed: 'The history could not be loaded',
     empty: 'No versions yet',
     more: 'Show older versions',
     loadingMore: 'Loading older versions…',
@@ -187,6 +201,7 @@ export const en = {
     blocked: (list: string, entity: string) =>
       `This version cannot be restored: ${list}. Restoring it would make ${entity} incomplete again.`,
     notFound: 'This version does not exist.',
+    failed: 'This version could not be loaded',
   },
   restore: {
     title: (n: number) => `Restore version ${n}?`,
@@ -273,6 +288,8 @@ export const it: typeof en = {
     line: (k: number) => `Riga ${k}`,
     count: (n: number, limit: number) => `${n} / ${limit}`,
     hint: 'Fino a 4 righe di 120 caratteri. Una riga vuota viene tralasciata e le righe dopo salgono. La Riga 1 è obbligatoria in entrambe le lingue.',
+    movedHint: (n: number) =>
+      `Questo indirizzo è stato portato dal CRM con ${n} righe. Se ne possono salvare solo 4: unisci le righe in più a quelle sopra, oppure eliminale.`,
   },
   bar: {
     dirty: 'Modifiche non salvate. Ogni strumento usa una versione salvata entro un minuto.',
@@ -294,9 +311,11 @@ export const it: typeof en = {
   },
   problem: {
     required: (v: string) => `Inserisci ${v}.`,
+    notFilled: (v: string) => `Non compilato. Inserisci ${v}.`,
+    moved: (sentence: string) => `${sentence} (Valore mantenuto com’era nel CRM.)`,
     tooLong: (limit: number, n: number) => `Troppo lungo: al massimo ${limit} caratteri, ne hai ${n}.`,
     tooManyLines: (n: number) => `Troppe righe: al massimo 4, ne hai ${n}.`,
-    tooManyLinesMoved: 'Troppe righe: al massimo 4. Uniscila a una riga sopra o eliminala. (Mantenuta com’era nel CRM.)',
+    tooManyLinesMoved: 'Troppe righe: al massimo 4. Uniscila a una riga sopra o eliminala.',
     lineBreak: 'Usa una sola riga: togli l’a capo.',
     controlChar: 'Togli il carattere speciale (una tabulazione o un carattere di controllo).',
     ibanFormat: 'Un IBAN inizia con due lettere e due cifre, poi solo lettere e cifre.',
@@ -308,10 +327,15 @@ export const it: typeof en = {
     title: 'È stata salvata una versione più recente',
     body: (who: string, n: number, when: string, values: string) =>
       `${who} ha salvato la versione ${n} il ${when} (cambiato: ${values}) mentre modificavi. Le tue modifiche sono ancora in questo modulo ma non sono state salvate.`,
+    bodyNoList: (who: string, n: number, when: string) =>
+      `${who} ha salvato la versione ${n} il ${when} mentre modificavi. Le tue modifiche sono ancora in questo modulo ma non sono state salvate.`,
     reapply: (n: number) => `Riapplica le mie modifiche alla versione ${n}`,
     discard: (n: number) => `Scarta le mie modifiche e carica la versione ${n}`,
     applied: (n: number, flagged: string, next: number) =>
       `Le tue modifiche sono state applicate alla versione ${n}. ${flagged} da controllare, poi salva come versione ${next}.`,
+    flagged: (count: number) => (count === 1 ? '1 valore' : `${count} valori`),
+    appliedClean: (n: number, next: number) =>
+      `Le tue modifiche sono state applicate alla versione ${n}. Non c’è nulla da controllare: salva come versione ${next}.`,
     alsoChanged: (n: number, who: string, theirs: string) =>
       `Cambiato anche nella versione ${n} da ${who}: «${theirs}». Il tuo valore è mantenuto.`,
     useTheirs: 'Usa il suo',
@@ -367,7 +391,7 @@ export const it: typeof en = {
       `Mancano: ${list}. Le offerte e i contratti di ${entity} sono rifiutati finché non sono compilati e salvati.`,
   },
   toCorrect: {
-    title: 'Questi dati vanno corretti',
+    title: 'Alcuni valori vanno corretti',
   },
   history: {
     caption: (entity: string) => `Versioni di ${entity}`,
@@ -385,6 +409,11 @@ export const it: typeof en = {
     moved: 'Portata dal CRM',
     open: (n: number) => `Apri la versione ${n}`,
     restore: (n: number) => `Ripristina la versione ${n}`,
+    openLabel: 'Apri',
+    restoreLabel: 'Ripristina',
+    changedList: (list: string) => `Cambiato: ${list}`,
+    loading: 'Caricamento della cronologia…',
+    failed: 'Non è stato possibile caricare la cronologia',
     empty: 'Nessuna versione',
     more: 'Mostra le versioni meno recenti',
     loadingMore: 'Caricamento delle versioni meno recenti…',
@@ -403,6 +432,7 @@ export const it: typeof en = {
     blocked: (list: string, entity: string) =>
       `Questa versione non può essere ripristinata: ${list}. Ripristinarla renderebbe di nuovo incompleta ${entity}.`,
     notFound: 'Questa versione non esiste.',
+    failed: 'Non è stato possibile caricare questa versione',
   },
   restore: {
     title: (n: number) => `Ripristinare la versione ${n}?`,

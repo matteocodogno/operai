@@ -7,7 +7,8 @@
  * (primary) and **Discard my changes and load version n**. The typed values are still in the form; Save waits.
  *
  * While the newer version is being read the banner says so and offers nothing; if it cannot be read it says that
- * and offers Retry (the person's values and Save's wait are unchanged). The wording is all in `strings`.
+ * and offers Retry (the person's values and Save's wait are unchanged). When the newer version's changes cannot be
+ * named (`changed` is empty) the body has no "(changed: )" list. The wording is all in `strings`.
  */
 import type { Ref } from 'react'
 import { Banner, Button, formatDateTime } from '@operai/ui'
@@ -46,6 +47,8 @@ export default function ConflictBanner({ read, onReapply, onDiscard, onRetry, re
   }
 
   const { version, changed } = read
+  const who = version.createdBy?.name ?? t.history.system
+  const when = formatDateTime(version.createdAt)
   return (
     <Banner
       tone="warning"
@@ -69,12 +72,9 @@ export default function ConflictBanner({ read, onReapply, onDiscard, onRetry, re
       }
       data-testid="admin-legal-conflict"
     >
-      {t.conflict.body(
-        version.createdBy?.name ?? t.history.system,
-        version.version,
-        formatDateTime(version.createdAt),
-        valueNameList(changed),
-      )}
+      {changed.length === 0
+        ? t.conflict.bodyNoList(who, version.version, when)
+        : t.conflict.body(who, version.version, when, valueNameList(changed))}
     </Banner>
   )
 }

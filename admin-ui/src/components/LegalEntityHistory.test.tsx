@@ -151,7 +151,7 @@ describe('the versions (S5, AC-2.2, AC-7.2)', () => {
     expect(rowOf(4).querySelector('time')?.getAttribute('datetime')).toBe('2026-11-14T10:12:00.000Z')
     expect(within(rowOf(4)).getAllByRole('cell')[2]?.textContent).toBe('Address (English)')
     expect(within(rowOf(3)).getAllByRole('cell')[2]?.textContent).toBe(
-      'Same details as version 1IBAN, Contacts line (Italian)',
+      'Same details as version 1Changed: IBAN, Contacts line (Italian)',
     )
     expect(within(rowOf(2)).getAllByRole('cell')[2]?.textContent).toBe('VAT number')
     expect(within(rowOf(1)).getAllByRole('cell')[2]?.textContent).toBe('Moved from the CRM')
@@ -165,6 +165,20 @@ describe('the versions (S5, AC-2.2, AC-7.2)', () => {
     expect(within(rowOf(4)).queryByRole('button', { name: /^Restore/ })).toBeNull()
     for (const n of [4, 3, 2, 1]) expect(within(rowOf(n)).getByRole('button', { name: `Open version ${n}` })).toBeTruthy()
     for (const n of [3, 2, 1]) expect(within(rowOf(n)).getByRole('button', { name: `Restore version ${n}` })).toBeTruthy()
+  })
+
+  it('shows the words "Open" and "Restore" on the row buttons (their names start with them, WCAG 2.5.3)', async () => {
+    renderPage(PATH)
+    await screen.findByTestId('admin-legal-history-table')
+
+    for (const n of [4, 3, 2, 1]) {
+      const open = within(rowOf(n)).getByRole('button', { name: `Open version ${n}` })
+      expect(open.textContent).toBe('Open')
+    }
+    for (const n of [3, 2, 1]) {
+      const restore = within(rowOf(n)).getByRole('button', { name: `Restore version ${n}` })
+      expect(restore.textContent).toBe('Restore')
+    }
   })
 
   it('keeps a version the registry says is not restorable: Restore is aria-disabled, focusable and described', async () => {
@@ -208,7 +222,8 @@ describe('the versions (S5, AC-2.2, AC-7.2)', () => {
     renderPage(PATH)
     const user = userEvent.setup()
 
-    expect(await screen.findByText('Loading…')).toBeTruthy()
+    expect(await screen.findByText('Loading the history…')).toBeTruthy()
+    expect(screen.getByText('Loading the history…').getAttribute('aria-live')).toBe('polite')
     expect(screen.getByTestId('skeleton-list-rows')).toBeTruthy()
     settle(page(LIST))
     await screen.findByTestId('admin-legal-history-table')
@@ -217,7 +232,7 @@ describe('the versions (S5, AC-2.2, AC-7.2)', () => {
     await user.click(screen.getByRole('tab', { name: 'Details' }))
     vi.mocked(listVersions).mockRejectedValueOnce(new Error('down'))
     await user.click(screen.getByRole('tab', { name: 'History' }))
-    expect(await screen.findByTestId('error-banner')).toBeTruthy()
+    expect((await screen.findByTestId('error-banner')).textContent).toContain('The history could not be loaded')
     expect(screen.queryByTestId('admin-legal-history-table')).toBeNull()
 
     await user.click(screen.getByTestId('error-banner-retry'))
@@ -243,7 +258,7 @@ describe('the versions (S5, AC-2.2, AC-7.2)', () => {
     await user.click(await screen.findByTestId('admin-legal-restore-confirm'))
     await screen.findByText(/A newer version was saved meanwhile/)
 
-    await waitFor(() => expect(screen.getByTestId('error-banner')).toBeTruthy())
+    await waitFor(() => expect(screen.getByTestId('error-banner').textContent).toContain('The history could not be loaded'))
     expect(screen.getByTestId('admin-legal-history-table')).toBeTruthy()
   })
 })
@@ -358,6 +373,7 @@ describe('a version (S6, AC-2.3)', () => {
     renderPage('/legal-entities?entity=welld_ch&view=history&version=3')
     const user = userEvent.setup()
 
+    expect((await screen.findByTestId('error-banner')).textContent).toContain('This version could not be loaded')
     await user.click(await screen.findByTestId('error-banner-retry'))
     expect(await screen.findByTestId('admin-legal-version-banner')).toBeTruthy()
   })
@@ -560,7 +576,7 @@ describe('the restore dialog (S7, AC-2.4)', () => {
     expect(restoreVersion).toHaveBeenCalledTimes(2)
   })
 
-  it('cannot be confirmed when what it must show cannot be read: the dialog says so with Retry and has no Confirm', async () => {
+  it('cannot be confirmed when what it must show cannot be read: the dialog says so with Retry', async () => {
     vi.mocked(getVersion).mockImplementation(async (_entity, n) => {
       if (n === 1) throw new Error('down')
       return versionAnswer(n)
@@ -573,7 +589,11 @@ describe('the restore dialog (S7, AC-2.4)', () => {
     expect((await screen.findByTestId('admin-legal-restore-details-failed')).textContent).toContain(
       'The details of version 1 could not be read, so the restore cannot be checked.',
     )
-    expect(screen.queryByTestId('admin-legal-restore-confirm')).toBeNull()
+    // Confirm stays, aria-disabled and described by the reason (T73: not absent).
+    const confirmButton = screen.getByTestId('admin-legal-restore-confirm')
+    expect(confirmButton.getAttribute('aria-disabled')).toBe('true')
+    const reason = document.getElementById(confirmButton.getAttribute('aria-describedby') ?? '')
+    expect(reason?.textContent).toContain('could not be read')
     expect(restoreVersion).not.toHaveBeenCalled()
   })
 })

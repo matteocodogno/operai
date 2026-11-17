@@ -31,7 +31,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Button, StatePanel, VersionTable, VisuallyHidden } from '@operai/ui'
 import type { VersionTableLabels, VersionTableRow } from '@operai/ui'
 import ErrorBanner from './ErrorBanner'
-import { appendPage, latestVersion, newestFirst, sharedWords } from './LegalEntityHistoryModel'
+import { appendPage, latestVersion, newestFirst } from './LegalEntityHistoryModel'
 import LegalEntityVersionView from './LegalEntityVersionView'
 import RestoreDialog from './RestoreDialog'
 import SkeletonListRows from './SkeletonListRows'
@@ -72,8 +72,8 @@ const tableLabels: VersionTableLabels = {
   actions: t.history.actions,
   current: t.history.current,
   restoredFrom: t.history.restoredFrom,
-  open: sharedWords(t.history.open),
-  restore: sharedWords(t.history.restore),
+  open: t.history.openLabel,
+  restore: t.history.restoreLabel,
   openName: t.history.open,
   restoreName: t.history.restore,
 }
@@ -86,7 +86,7 @@ function changedCell(item: VersionListItem) {
     return (
       <>
         {t.history.sameAs(item.restoredFrom)}
-        {values !== null && <span className="block text-xs text-soft">{values}</span>}
+        {values !== null && <span className="block text-xs text-soft">{t.history.changedList(values)}</span>}
       </>
     )
   }
@@ -292,7 +292,11 @@ export default function LegalEntityHistory({
       />
     )
   } else if (rows === null) {
-    body = list.failed ? <ErrorBanner message={t.load.failed} onRetry={list.reload} /> : <SkeletonListRows rows={3} />
+    body = list.failed ? (
+      <ErrorBanner message={t.history.failed} onRetry={list.reload} />
+    ) : (
+      <SkeletonListRows rows={3} label={t.history.loading} />
+    )
   } else if (rows.length === 0) {
     body = <StatePanel title={t.history.empty} headingLevel={4} testId="admin-legal-entity-history-empty" />
   } else {
@@ -301,7 +305,7 @@ export default function LegalEntityHistory({
     const paged = list.nextBefore !== null || list.pages > 1
     body = (
       <div className="flex flex-col gap-3">
-        {list.failed && <ErrorBanner message={t.load.failed} onRetry={list.reload} />}
+        {list.failed && <ErrorBanner message={t.history.failed} onRetry={list.reload} />}
         <VersionTable
           caption={t.history.caption(name)}
           rows={tableRows}

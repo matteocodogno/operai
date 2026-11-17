@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appendPage, blockingFields, latestVersion, newestFirst, refusedFields, restoreChanges, sharedWords } from './LegalEntityHistoryModel'
+import { appendPage, blockingFields, latestVersion, newestFirst, refusedFields, restoreChanges } from './LegalEntityHistoryModel'
 import { emptyDetails, setFieldValue } from '../lib/legalEntityModel'
 import type { VersionListItem } from '../lib/legalEntityModel'
 import { strings } from '../strings'
@@ -89,13 +89,14 @@ describe('what a restore changes', () => {
 })
 
 describe('the words of a row button', () => {
-  it('are what its name has in common across rows, and always inside the name', () => {
-    const t = strings.legalEntities.history
-    expect(sharedWords(t.open)).toBe('Open version')
-    expect(sharedWords(t.restore)).toBe('Restore version')
-    for (const name of [t.open, t.restore]) expect(name(12)).toContain(sharedWords(name))
-    expect(sharedWords(italian.history.open)).toBe('Apri la versione')
-    expect(sharedWords(italian.history.restore)).toBe('Ripristina la versione')
+  it('are the start of the button name, in both languages (WCAG 2.5.3, label in name)', () => {
+    for (const lang of [strings.legalEntities, italian]) {
+      const t = lang.history
+      expect(t.open(12).startsWith(t.openLabel)).toBe(true)
+      expect(t.restore(12).startsWith(t.restoreLabel)).toBe(true)
+    }
+    expect(strings.legalEntities.history.openLabel).toBe('Open')
+    expect(italian.history.restoreLabel).toBe('Ripristina')
   })
 })
 

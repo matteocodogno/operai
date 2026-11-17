@@ -11,6 +11,7 @@ import type { LegalEntity, LegalEntityDetails, LegalEntityProblem } from './lega
 import {
   addressProblemTarget,
   legalEntityStatus,
+  notFilledSentence,
   problemSentence,
   problemSummary,
   problemsInPageOrder,
@@ -260,8 +261,42 @@ describe('problemSentence (design S2: by reason, never by the server’s wording
     const p = { field: 'address.it', reason: 'too_many_lines', limit: 4 } as const
     expect(problemSentence(p, ctx(v), EN)).toBe('Too many lines: at most 4, you have 5.')
     expect(problemSentence(p, ctx(v), IT)).toBe('Troppe righe: al massimo 4, ne hai 5.')
-    expect(problemSentence(p, ctx(v, true), EN)).toBe(EN.problem.tooManyLinesMoved)
-    expect(problemSentence(p, ctx(v, true), IT)).toBe(IT.problem.tooManyLinesMoved)
+    expect(problemSentence(p, ctx(v, true), EN)).toBe(EN.problem.moved(EN.problem.tooManyLinesMoved))
+    expect(problemSentence(p, ctx(v, true), IT)).toBe(IT.problem.moved(IT.problem.tooManyLinesMoved))
+    expect(problemSentence(p, ctx(v, true), EN)).toBe(
+      'Too many lines: at most 4. Join it to a line above or remove it. (Kept as moved from the CRM.)',
+    )
+    expect(problemSentence(p, ctx(v, true), IT)).toBe(
+      'Troppe righe: al massimo 4. Uniscila a una riga sopra o eliminala. (Valore mantenuto com’era nel CRM.)',
+    )
+  })
+
+  it('a value kept as moved ends "(Kept as moved from the CRM.)" for every reason, a refused save never does (FU-7)', () => {
+    const v = details()
+    const reasons = [
+      { field: 'legalName', reason: 'too_long', limit: 200 },
+      { field: 'legalName', reason: 'line_break' },
+      { field: 'address.it', line: 1, reason: 'control_character' },
+      { field: 'iban', reason: 'iban_format' },
+      { field: 'iban', reason: 'iban_check_digits' },
+    ] as const
+    for (const p of reasons) {
+      for (const catalog of [EN, IT]) {
+        const plain = problemSentence(p, ctx(v), catalog)
+        expect(problemSentence(p, ctx(v, true), catalog)).toBe(catalog.problem.moved(plain))
+        expect(plain).not.toContain(catalog === EN ? 'Kept as moved' : 'mantenuto')
+      }
+    }
+    expect(problemSentence({ field: 'iban', reason: 'iban_check_digits' }, ctx(v, true), EN)).toBe(
+      'The check digits do not match. Check it for a typing mistake. (Kept as moved from the CRM.)',
+    )
+  })
+
+  it('notFilledSentence: "Not filled in. Enter the {value}." in both languages, an address by its group', () => {
+    expect(notFilledSentence('vatNumber', EN)).toBe('Not filled in. Enter the VAT number.')
+    expect(notFilledSentence('legalName', EN)).toBe('Not filled in. Enter the legal name.')
+    expect(notFilledSentence('address.it', EN)).toBe('Not filled in. Enter the address.')
+    expect(notFilledSentence('vatNumber', IT)).toBe('Non compilato. Inserisci partita IVA.')
   })
 
   it('line_break, control_character, iban_format, iban_check_digits: the fixed sentences, both languages', () => {
@@ -299,10 +334,10 @@ describe('problemSentence (design S2: by reason, never by the server’s wording
     const realLength = Array.from(FIXTURE_IT.address.it[2] as string).length
     expect(realLength).toBeGreaterThan(120)
     expect(problemSentence(tooLong, ctx(FIXTURE_IT, true), EN)).toBe(
-      `Too long: at most 120 characters, you have ${realLength}.`,
+      EN.problem.moved(`Too long: at most 120 characters, you have ${realLength}.`),
     )
-    expect(problemSentence(tooMany, ctx(FIXTURE_IT, true), EN)).toBe(EN.problem.tooManyLinesMoved)
-    expect(problemSentence(ibanCheck, ctx(FIXTURE_IT, true), EN)).toBe(EN.problem.ibanCheck)
+    expect(problemSentence(tooMany, ctx(FIXTURE_IT, true), EN)).toBe(EN.problem.moved(EN.problem.tooManyLinesMoved))
+    expect(problemSentence(ibanCheck, ctx(FIXTURE_IT, true), EN)).toBe(EN.problem.moved(EN.problem.ibanCheck))
   })
 })
 

@@ -56,6 +56,33 @@ describe('AddressLinesField', () => {
     for (const el of inputs) expect(el.getAttribute('aria-describedby')?.split(' ')).toContain(hint.id)
   })
 
+  it('has a note slot under the hint, described by every input, with its action outside the description (FU-7)', () => {
+    show({
+      lines: ['1', '2', '3', '4', '5'],
+      note: 'A note for the person.',
+      noteId: 'the-note',
+      noteAction: <button type="button">Do it</button>,
+    })
+    const note = document.getElementById('the-note') as HTMLElement
+    expect(note.textContent).toBe('A note for the person.')
+    const hint = screen.getByText(/^Up to 4 lines of 120 characters/)
+    // Under the shared hint, in this order.
+    expect(hint.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    for (const el of screen.getAllByRole('textbox')) {
+      expect(el.getAttribute('aria-describedby')?.split(' ')).toEqual(expect.arrayContaining([hint.id, 'the-note']))
+    }
+    expect(note.contains(screen.getByRole('button', { name: 'Do it' }))).toBe(false)
+  })
+
+  it('has no note element and no extra description without a note', () => {
+    show()
+    expect(screen.queryByTestId('t-it-note')).toBeNull()
+    const hint = screen.getByText(/^Up to 4 lines of 120 characters/)
+    for (const el of screen.getAllByRole('textbox')) {
+      expect(el.getAttribute('aria-describedby')).toBe(hint.id)
+    }
+  })
+
   it('counts each line aria-hidden, trimmed and in code points', () => {
     show({ lines: ['  Via 1  ', '😀😀'] })
     const counts = [...document.querySelectorAll('[aria-hidden="true"].tabular-nums')].map((el) => el.textContent)

@@ -41,20 +41,6 @@ export const restoreChanges = (target: LegalEntityDetails, current: LegalEntityD
   inPageOrder(changedFieldsBetween(target, current))
 
 /**
- * The words a row button shares with its accessible name: "Open version" of "Open version 3". The strings carry the
- * names ("Open version n", "Restore version n") but not the bare visible words of the buttons, so the visible text
- * is what every row's name has in common. It is also always contained in the name (WCAG 2.5.3, label in name),
- * in both languages. When the strings gain `history.openLabel` / `history.restoreLabel`, use them instead.
- */
-export const sharedWords = (name: (n: number) => string): string => {
-  const a = name(1)
-  const b = name(2)
-  let end = 0
-  while (end < a.length && end < b.length && a[end] === b[end]) end += 1
-  return a.slice(0, end).trim()
-}
-
-/**
  * The versions shown plus the next page, each version once (a version number is the row's key). `added` is the
  * rows the page brought that were not shown yet, in the order they came; the page never replaces a shown row.
  */

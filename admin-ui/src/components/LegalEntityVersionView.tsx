@@ -97,7 +97,7 @@ export default function LegalEntityVersionView({
   if (answer.status === 'failed') {
     return (
       <div className="flex flex-col items-start gap-3">
-        <ErrorBanner message={t.load.failed} onRetry={() => setAttempt((n) => n + 1)} />
+        <ErrorBanner message={t.version.failed} onRetry={() => setAttempt((n) => n + 1)} />
         {back}
       </div>
     )

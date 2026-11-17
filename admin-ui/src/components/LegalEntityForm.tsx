@@ -85,8 +85,8 @@ import {
 import type { ProtectedChange } from '../lib/legalEntitiesApi'
 import { mergeOnConflict, takeTheirs } from '../lib/legalEntityMerge'
 import type { FlaggedValue } from '../lib/legalEntityMerge'
-import { valueNameList } from '../lib/legalEntityMappings'
 import {
+  LIMITS,
   changedFieldsBetween,
   cleanText,
   detailsOf,
@@ -494,29 +494,42 @@ export default function LegalEntityForm({
     reviewing.taken.includes(field) &&
     sameFieldValue(field, getFieldValue(shown, field), getFieldValue(reviewing.theirs, field))
 
-  /** The sentence under a value Reapply touched: the other's value and "Use theirs", or where it was taken from. */
-  const reviewNote = (field: LegalEntityField): ReactNode => {
+  /** The words under a value Reapply touched: what the other changed it to, or where it was taken from. */
+  const reviewText = (field: LegalEntityField): string | null => {
     if (reviewing === null) return null
     const flagged = flaggedFor(field)
-    if (flagged !== undefined) {
-      const noteId = `${idOf(firstControlOf(field))}-also`
-      return (
-        <>
-          <span id={noteId}>{t.conflict.alsoChanged(reviewing.version, reviewing.who, spoken(flagged.theirs))}</span>{' '}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-describedby={noteId}
-            onClick={() => takeFromTheirs(flagged)}
-            data-testid={`admin-legal-use-theirs-${field}`}
-          >
-            {t.conflict.useTheirs}
-          </Button>
-        </>
-      )
-    }
+    if (flagged !== undefined) return t.conflict.alsoChanged(reviewing.version, reviewing.who, spoken(flagged.theirs))
     return takenNow(field) ? t.conflict.takenFromTheirs(reviewing.version) : null
+  }
+  /** The id of the words above, which "Use theirs" is described by. */
+  const reviewTextId = (field: LegalEntityField) => `${idOf(firstControlOf(field))}-also`
+  const reviewAction = (field: LegalEntityField): ReactNode => {
+    const flagged = flaggedFor(field)
+    if (flagged === undefined) return null
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-describedby={reviewTextId(field)}
+        onClick={() => takeFromTheirs(flagged)}
+        data-testid={`admin-legal-use-theirs-${field}`}
+      >
+        {t.conflict.useTheirs}
+      </Button>
+    )
+  }
+  /** The sentence under a text value Reapply touched: the other's value and "Use theirs", or where it was taken from. */
+  const reviewNote = (field: LegalEntityField): ReactNode => {
+    const words = reviewText(field)
+    if (words === null) return null
+    const action = reviewAction(field)
+    if (action === null) return words
+    return (
+      <>
+        <span id={reviewTextId(field)}>{words}</span> {action}
+      </>
+    )
   }
   const flagClass = (field: LegalEntityField) =>
     flaggedFor(field) !== undefined ? 'border-l-[3px] border-org pl-3' : undefined
@@ -640,13 +653,11 @@ export default function LegalEntityForm({
           reapplyRef={reapplyRef}
         />
       )}
-      {reviewing !== null && flaggedNow.length > 0 && (
+      {reviewing !== null && (flaggedNow.length > 0 || (reviewing.flagged.length === 0 && dirty)) && (
         <Banner tone="success" data-testid="admin-legal-applied">
-          {t.conflict.applied(
-            reviewing.version,
-            valueNameList(flaggedNow.map((item) => item.field)),
-            entity.version + 1,
-          )}
+          {flaggedNow.length > 0
+            ? t.conflict.applied(reviewing.version, t.conflict.flagged(flaggedNow.length), entity.version + 1)
+            : t.conflict.appliedClean(reviewing.version, entity.version + 1)}
         </Banner>
       )}
 
@@ -708,7 +719,17 @@ export default function LegalEntityForm({
         <div className="grid gap-6 md:grid-cols-2">
           {(['it', 'en'] as const).map((language) => {
             const field = language === 'it' ? 'address.it' : 'address.en'
-            const note = reviewNote(field)
+            const stored = detailsOf(entity).address[language]
+            const movedHint = stored.length > LIMITS.addressLines ? t.address.movedHint(stored.length) : null
+            const words = reviewText(field)
+            const note =
+              movedHint !== null && words !== null ? (
+                <>
+                  {movedHint} {words}
+                </>
+              ) : (
+                (movedHint ?? words)
+              )
             return (
               <div key={language} className={flagClass(field)}>
                 <AddressLinesField
@@ -719,12 +740,10 @@ export default function LegalEntityForm({
                   idFor={(index) => idOf(lineKey(language, index))}
                   onChange={(lines, index) => edit(field, lines, lineKey(language, index))}
                   testIdPrefix="admin-legal-address"
+                  note={note}
+                  noteId={words !== null ? reviewTextId(field) : undefined}
+                  noteAction={reviewAction(field)}
                 />
-                {note !== null && (
-                  <p className="field-hint mt-2" data-testid={`admin-legal-review-${field}`}>
-                    {note}
-                  </p>
-                )}
               </div>
             )
           })}

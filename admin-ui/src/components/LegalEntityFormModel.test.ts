@@ -180,11 +180,15 @@ describe('values kept as moved (S3, F11)', () => {
   it('marks what is missing, what is too long on its own line, the fifth line and the IBAN, each on its control', () => {
     const marks = movedMarks(moved, formBase(moved))
     expect(marks.get('vatNumber')).toEqual(['Not filled in. Enter the VAT number.'])
-    expect(marks.get('address.it.1')).toEqual(['Too long: at most 120 characters, you have 121.'])
+    expect(marks.get('address.it.1')).toEqual([
+      'Too long: at most 120 characters, you have 121. (Kept as moved from the CRM.)',
+    ])
     expect(marks.get('address.it.4')).toEqual([
       'Too many lines: at most 4. Join it to a line above or remove it. (Kept as moved from the CRM.)',
     ])
-    expect(marks.get('iban')).toEqual(['The check digits do not match. Check it for a typing mistake.'])
+    expect(marks.get('iban')).toEqual([
+      'The check digits do not match. Check it for a typing mistake. (Kept as moved from the CRM.)',
+    ])
     expect(marks.has('address.it.0')).toBe(false)
     expect(marks.has('address.it.3')).toBe(false)
   })

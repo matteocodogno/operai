@@ -187,7 +187,8 @@ describe('the panel header and the views (S2, S4)', () => {
 
     await screen.findByRole('heading', { level: 3, name: 'WellD Italia' })
     expect(screen.queryByTestId('admin-legal-entity-version-line')).toBeNull()
-    expect(screen.getByTestId('admin-legal-entity-facts')).toBeTruthy()
+    // A manager's Details is the form (T36 showed the facts before T37 replaced them).
+    expect(await screen.findByTestId('admin-legal-form')).toBeTruthy()
   })
 
   it('has the Details and History views, named for the entity', async () => {
@@ -334,7 +335,7 @@ describe('incomplete, needs correction and not moved yet (S3)', () => {
     renderPage('/legal-entities')
 
     const banner = await screen.findByTestId('admin-legal-entity-to-correct')
-    expect(banner.textContent).toContain('These details need correction')
+    expect(banner.textContent).toContain('Some values need correcting')
     expect(banner.textContent).toContain('To correct before the next save: Legal name.')
     expect(screen.queryByTestId('admin-legal-entity-incomplete')).toBeNull()
   })
@@ -343,7 +344,7 @@ describe('incomplete, needs correction and not moved yet (S3)', () => {
     answer(entityFixture('welld_it'), entityFixture('welld_ch'), ['welld_it'])
     renderPage('/legal-entities')
 
-    await screen.findByTestId('admin-legal-entity-facts')
+    await screen.findByTestId('admin-legal-form')
     expect(screen.queryByTestId('admin-legal-entity-incomplete')).toBeNull()
     expect(screen.queryByTestId('admin-legal-entity-to-correct')).toBeNull()
   })

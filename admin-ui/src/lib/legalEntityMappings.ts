@@ -200,39 +200,52 @@ const lengthOfValue = (problem: LegalEntityProblem, values: LegalEntityDetails):
 const nonBlankLines = (problem: LegalEntityProblem, values: LegalEntityDetails): number =>
   isAddressField(problem.field) ? normalizeLines(values.address[addressLanguage(problem.field)]).length : 0
 
+/** The value as a sentence names it after "Enter": an address by its group, the language is in the legend. */
+const requiredWord = (problem: LegalEntityProblem, s: Catalog): string =>
+  inSentence(isAddressField(problem.field) ? s.form.group.address : valueName(problem.field, s))
+
 /**
  * The sentence for a problem, the same under its control and in the error summary. Chosen by `reason`. A reason
  * this build does not know is shown as received (the parser refuses such an answer first, so this is a backstop).
+ * A problem read from a moved value (`context.moved`) ends "(Kept as moved from the CRM.)" whatever its reason
+ * (FU-7); the refusal of a save never does.
  */
 export const problemSentence = (
   problem: LegalEntityProblem,
   context: ProblemContext,
   s: Catalog = strings.legalEntities,
 ): string => {
-  switch (problem.reason) {
-    case 'required':
-      // An address is named by its group ("address"), the language is already in the control's legend.
-      return s.problem.required(
-        inSentence(isAddressField(problem.field) ? s.form.group.address : valueName(problem.field, s)),
-      )
-    case 'too_long':
-      return s.problem.tooLong(limitOf(problem), lengthOfValue(problem, context.values))
-    case 'too_many_lines':
-      return context.moved
-        ? s.problem.tooManyLinesMoved
-        : s.problem.tooManyLines(nonBlankLines(problem, context.values))
-    case 'line_break':
-      return s.problem.lineBreak
-    case 'control_character':
-      return s.problem.controlChar
-    case 'iban_format':
-      return s.problem.ibanFormat
-    case 'iban_check_digits':
-      return s.problem.ibanCheck
-    default:
-      return String(problem.reason)
-  }
+  const plain = ((): string => {
+    switch (problem.reason) {
+      case 'required':
+        return s.problem.required(requiredWord(problem, s))
+      case 'too_long':
+        return s.problem.tooLong(limitOf(problem), lengthOfValue(problem, context.values))
+      case 'too_many_lines':
+        return context.moved
+          ? s.problem.tooManyLinesMoved
+          : s.problem.tooManyLines(nonBlankLines(problem, context.values))
+      case 'line_break':
+        return s.problem.lineBreak
+      case 'control_character':
+        return s.problem.controlChar
+      case 'iban_format':
+        return s.problem.ibanFormat
+      case 'iban_check_digits':
+        return s.problem.ibanCheck
+      default:
+        return String(problem.reason)
+    }
+  })()
+  return context.moved ? s.problem.moved(plain) : plain
 }
+
+/**
+ * The static marker of a required value that is missing on a moved entity: "Not filled in. Enter the VAT number."
+ * (a refusal after a save keeps `problem.required`).
+ */
+export const notFilledSentence = (field: LegalEntityField, s: Catalog = strings.legalEntities): string =>
+  s.problem.notFilled(requiredWord({ field, reason: 'required' }, s))
 
 /**
  * The text of a problem's button in the error summary: "Line 3 of the Italian address: Too long: …" for an address

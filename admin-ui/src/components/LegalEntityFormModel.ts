@@ -7,13 +7,12 @@
  * lines, trims for comparison, and maps the registry's own answers (`problems[]` of a refusal, `invalid[]` and
  * `missing[]` of a read) onto the controls they land on.
  */
-import { addressProblemTarget, problemSentence, problemSummary, problemsInPageOrder } from '../lib/legalEntityMappings'
+import { addressProblemTarget, notFilledSentence, problemSentence, problemSummary, problemsInPageOrder } from '../lib/legalEntityMappings'
 import {
   LIMITS,
   addressLanguage,
   cleanText,
   detailsOf,
-  emptyDetails,
   getFieldValue,
   isAddressField,
   normalizeIban,
@@ -146,13 +145,6 @@ export const problemsAfterEdit = (
 // Values the registry holds as moved (S3, F11)
 // ---------------------------------------------------------------------------
 
-/**
- * "Not filled in. Enter the VAT number." — the static sentence of a required value that is still empty. Built from
- * the two catalog sentences the page already has; Italian reads the same way.
- */
-const notFilledSentence = (problem: LegalEntityProblem): string =>
-  `${strings.legalEntities.value.notFilled}. ${problemSentence(problem, { values: emptyDetails() })}`
-
 const isBlank = (text: string): boolean => cleanText(text) === ''
 
 const addressLines = (details: LegalEntityDetails, field: AddressField): readonly string[] =>
@@ -176,13 +168,12 @@ export const movedMarks = (entity: LegalEntity, shown: LegalEntityDetails): Map<
   const shownCounts = inputCountsOf(shown)
 
   for (const field of entity.missing) {
-    const problem: LegalEntityProblem = { field, reason: 'required' }
     if (isAddressField(field)) {
       if (addressLines(shown, field).every(isBlank)) {
-        add(lineKey(addressLanguage(field), 0), notFilledSentence(problem))
+        add(lineKey(addressLanguage(field), 0), notFilledSentence(field))
       }
     } else if (isBlank(getFieldValue(shown, field) as string)) {
-      add(field, notFilledSentence(problem))
+      add(field, notFilledSentence(field))
     }
   }
 

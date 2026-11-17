@@ -155,6 +155,17 @@ describe('a 409: the banner (AC-2.6)', () => {
     expect(save).toHaveBeenCalledTimes(1)
   })
 
+  it('says so without an empty "(changed: )" when the newer version\'s changed values cannot be named', async () => {
+    readVersion.mockResolvedValue(newer())
+    const { user } = open()
+    await editAndConflict(user)
+    const text = screen.getByTestId('admin-legal-conflict').textContent ?? ''
+    expect(text).toContain('Marco Bianchi saved version 4 on ')
+    expect(text).toContain('while you were editing. Your changes are still in this form but were not saved.')
+    expect(text).not.toContain('changed:')
+    expect(text).not.toContain('()')
+  })
+
   it('names the system for a version nobody saved', async () => {
     readVersion.mockResolvedValue({ ...newer(), createdBy: null })
     const { user } = open()
@@ -215,9 +226,9 @@ describe('Reapply my changes (Q3=B)', () => {
     expect(input('IBAN').value).toBe('CH93 0076 2011 6238 5295 7')
     expect(line('English', 1).value).toBe('Via Esempio 12 bis')
     expect(screen.getByTestId('admin-legal-applied').textContent).toBe(
-      'Your changes were applied to version 4. Address (English) to review, then save as version 5.',
+      'Your changes were applied to version 4. 1 value to review, then save as version 5.',
     )
-    expect(screen.getByTestId('admin-legal-review-address.en').textContent).toBe(
+    expect(screen.getByTestId('admin-legal-address-en-note').textContent).toBe(
       'Also changed in version 4 by Marco Bianchi: “Via Esempio 14 / 6900 Lugano / Italy”. Yours is kept. Use theirs',
     )
     // The IBAN came from version 4 because I had not changed it, and says so.
@@ -225,6 +236,36 @@ describe('Reapply my changes (Q3=B)', () => {
     expect(document.getElementById(`${input('IBAN').id}-hint`)?.textContent).toContain(
       'Taken from version 4 (you had not changed it).',
     )
+  })
+
+  it('puts the "Also changed" note in the description of every line of the flagged address (note slot)', async () => {
+    await reapplied()
+    const note = screen.getByTestId('admin-legal-address-en-note')
+    const words = note.querySelector('span') as HTMLElement
+    expect(words.textContent).toBe('Also changed in version 4 by Marco Bianchi: “Via Esempio 14 / 6900 Lugano / Italy”. Yours is kept.')
+    for (let n = 1; n <= 4; n += 1) {
+      expect(line('English', n).getAttribute('aria-describedby')?.split(' ')).toContain(words.id)
+    }
+    // The other language has no note, so its lines point at the hint only.
+    expect(line('Italian', 1).getAttribute('aria-describedby')?.split(' ')).not.toContain(words.id)
+    // "Use theirs" is not part of the description, and is described by the words.
+    const useTheirs = screen.getByTestId('admin-legal-use-theirs-address.en')
+    expect(words.contains(useTheirs)).toBe(false)
+    expect(useTheirs.getAttribute('aria-describedby')).toBe(words.id)
+  })
+
+  it('says "Nothing to review" when nothing is flagged but there is something to save', async () => {
+    readVersion.mockResolvedValue(newer({ iban: 'CH9300762011623852957', ibanPrint: 'CH93 0076 2011 6238 5295 7' }))
+    const { user } = open()
+    save.mockRejectedValueOnce(conflict409(4))
+    await user.type(input(/^VAT number/), ' 9')
+    await user.click(saveButton())
+    await user.click(await screen.findByTestId('admin-legal-reapply'))
+
+    expect(screen.getByTestId('admin-legal-applied').textContent).toBe(
+      'Your changes were applied to version 4. Nothing to review: save as version 5.',
+    )
+    expect(saveButton().getAttribute('aria-disabled')).toBeNull()
   })
 
   it('moves focus to the first flagged value, and Save is then version n+1 with the merged values', async () => {

@@ -578,13 +578,28 @@ describe('an entity moved incomplete or out of limits (S3, F11, AC-7.3, D3)', ()
     expect(within(screen.getByRole('group', { name: /^Address \(English\)/ })).getAllByRole('textbox')).toHaveLength(4)
   })
 
+  it('says in the hint, described by every line, that the address was moved with more than four lines (FU-7)', () => {
+    open(moved())
+    const note = screen.getByTestId('admin-legal-address-it-note')
+    expect(note.textContent).toBe(
+      'This address was moved from the CRM with 5 lines. Only 4 can be saved: join the extra lines to the ones above, or remove them.',
+    )
+    const noteId = note.querySelector('span')?.id ?? ''
+    expect(noteId).not.toBe('')
+    for (let n = 1; n <= 5; n += 1) {
+      expect(line('Italian', n).getAttribute('aria-describedby')?.split(' ')).toContain(noteId)
+    }
+    // The English address has two stored lines: no hint.
+    expect(screen.queryByTestId('admin-legal-address-en-note')).toBeNull()
+  })
+
   it('shows a moved line over 120 with its real count and its own sentence on its own input', () => {
     open(moved())
     expect(line('English', 2).getAttribute('aria-invalid')).toBe('true')
     expect(within(line('English', 2).closest('.field') as HTMLElement).getByText('121 / 120')).toBeTruthy()
     expect(
       within(line('English', 2).closest('.field') as HTMLElement).getByText(
-        'Too long: at most 120 characters, you have 121.',
+        'Too long: at most 120 characters, you have 121. (Kept as moved from the CRM.)',
       ),
     ).toBeTruthy()
   })
