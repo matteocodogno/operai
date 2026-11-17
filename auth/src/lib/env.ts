@@ -163,6 +163,16 @@ const envSchema = z.object({
   LEGAL_ENTITY_WRITE_RATE_LIMIT: z.coerce.number().int().positive().default(10),
   LEGAL_ENTITY_CHECK_RATE_LIMIT: z.coerce.number().int().positive().default(60),
   LEGAL_ENTITY_RATE_WINDOW_MS: z.coerce.number().int().min(1000).default(600000),
+  // ─── Legal-entity notice, outside mailbox (specs/20261117-legal-entities, T58; US-9 AC-9.10; plan G3/G4) ────────
+  // One address outside the suite that gets the notice of a protected change by email only (both entities), so that
+  // removing people from roles cannot silence it. Optional: unset (or blank, as `VAR=` leaves it) = no outside
+  // recipient and nothing else changes. Read when the version is stored (is there an outside row?) and again when the
+  // notice is sent; the address itself is never written to the database or the audit log. A malformed value stops
+  // startup naming the variable, never the value.
+  LEGAL_ENTITY_NOTICE_EMAIL: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().trim().email("LEGAL_ENTITY_NOTICE_EMAIL must be a valid email address").optional(),
+  ),
   PORT: z.coerce.number().int().positive().default(3001),
   NODE_ENV: z
     .enum(["development", "production", "test"])

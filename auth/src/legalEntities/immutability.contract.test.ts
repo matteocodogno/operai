@@ -73,13 +73,18 @@ describe("AC-2.7 — the triggers refuse changing or removing a version", () => 
   test("a raw TRUNCATE raises legal_entity_version_immutable (row triggers do not fire on TRUNCATE)", async () => {
     await inRolledBackTx(async (tx) => {
       expect(await attempt(tx, insertSql(validImportRow("welld_it")))).toBeNull();
+      // T58: `legal_entity_notice` references the table (FK), so Postgres itself refuses a TRUNCATE without CASCADE
+      // (before any trigger fires: a second guard); `CASCADE` is the form that reaches the statement trigger.
       expect(await attempt(tx, `TRUNCATE legal_entity_version`)).toContain(
+        "cannot truncate a table referenced in a foreign key constraint",
+      );
+      expect(await attempt(tx, `TRUNCATE legal_entity_version CASCADE`)).toContain(
         IMMUTABLE,
       );
       expect(
         await attempt(
           tx,
-          `TRUNCATE TABLE ONLY legal_entity_version RESTART IDENTITY`,
+          `TRUNCATE TABLE ONLY legal_entity_version RESTART IDENTITY CASCADE`,
         ),
       ).toContain(IMMUTABLE);
       expect(await tx.legalEntityVersion.count()).toBe(1);
@@ -88,7 +93,8 @@ describe("AC-2.7 — the triggers refuse changing or removing a version", () => 
 
   test("TRUNCATE raises even on an empty table (statement trigger, not row trigger)", async () => {
     await inRolledBackTx(async (tx) => {
-      expect(await attempt(tx, `TRUNCATE legal_entity_version`)).toContain(
+      // With CASCADE (see above): the statement trigger refuses it although there is no row to fire a row trigger on.
+      expect(await attempt(tx, `TRUNCATE legal_entity_version CASCADE`)).toContain(
         IMMUTABLE,
       );
     });

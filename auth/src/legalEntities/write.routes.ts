@@ -43,7 +43,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import type { Session, User } from "better-auth";
 import { Effect } from "effect";
 import { requireAuth, sessionMiddleware } from "../auth/auth.middleware";
-import { withAudit } from "../authz/audit";
+import { type AuditEntryInput, withAudit } from "../authz/audit";
 import { resolveEffectivePermissions } from "../authz/resolver";
 import { env } from "../lib/env";
 import { db } from "../lib/db";
@@ -55,7 +55,8 @@ import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 import { FORBIDDEN_BODY, parseVersion, VERSION_NOT_FOUND_BODY } from "./history.routes";
 import { isLegalEntity, NO_STORE, unknownLegalEntity } from "./read.routes";
 import { appendVersion, type HistoryRow, latestVersion, lockEntity, type Reader, versionOf } from "./repo";
-import { changedFields, type Field, type LegalDetails, normalise, problems, restorable } from "./rules";
+import { hasNoRecipient, type NoticeDutyOptions, noRecipientsEntry, recordNoticeDuty } from "./notices/duty";
+import { changedFields, type Field, type LegalDetails, normalise, problems, protectedChanged, restorable } from "./rules";
 import { detailsOf, serializeEntity } from "./serialize";
 
 /** Body bound of the two POSTs (plan: 16 KiB). */
@@ -183,7 +184,7 @@ class Refusal extends Error {
 }
 
 type Outcome =
-  | { kind: "created"; row: HistoryRow; before: LegalDetails; changed: Field[] }
+  | { kind: "created"; row: HistoryRow; before: LegalDetails; changed: Field[]; noRecipients: boolean }
   | { kind: "same"; row: HistoryRow };
 
 interface WriteRequest {
@@ -216,7 +217,12 @@ function auditValue(d: LegalDetails, f: Field): string | string[] {
   }
 }
 
-async function write(audited: Audited, req: WriteRequest): Promise<Outcome> {
+/** What the notice duty needs from the router (T58): the recipients (injectable) and the outside mailbox, read per save. */
+interface NoticeDeps extends NoticeDutyOptions {
+  outsideMailbox: () => boolean;
+}
+
+async function write(audited: Audited, req: WriteRequest, notices: NoticeDeps): Promise<Outcome> {
   return audited<Outcome>({
     affectedUserIds: [],
     mutate: async (tx) => {
@@ -239,7 +245,26 @@ async function write(audited: Audited, req: WriteRequest): Promise<Outcome> {
         createdByUserId: req.actor.id,
         createdByName: req.actor.name,
       });
-      return { kind: "created", row, before, changed };
+
+      // A protected change is a duty to tell people (US-9): the rows are written here, in the version's transaction,
+      // with the recipients as they are NOW (AC-9.8). Nothing is sent from the request; an import never gets here.
+      let noRecipients = false;
+      if (protectedChanged(changed).length > 0) {
+        const duty = await recordNoticeDuty(
+          tx,
+          {
+            entity: req.entity,
+            version: row.version,
+            action: req.action,
+            actorUserId: req.actor.id,
+            storedAt: row.createdAt,
+            outsideMailbox: notices.outsideMailbox(),
+          },
+          notices,
+        );
+        noRecipients = hasNoRecipient(duty);
+      }
+      return { kind: "created", row, before, changed, noRecipients };
     },
     // A no-op writes no audit row (AC-2.1): an empty list is "nothing to record".
     entry: (result) => {
@@ -247,7 +272,7 @@ async function write(audited: Audited, req: WriteRequest): Promise<Outcome> {
       const after = detailsOf(result.row);
       const changes: Record<string, { before: string | string[]; after: string | string[] }> = {};
       for (const f of result.changed) changes[f] = { before: auditValue(result.before, f), after: auditValue(after, f) };
-      return {
+      const saved: AuditEntryInput = {
         actorUserId: req.actor.id,
         action: `legal_entity.${req.action}`,
         targetType: "legal_entity",
@@ -262,6 +287,8 @@ async function write(audited: Audited, req: WriteRequest): Promise<Outcome> {
           changes,
         } satisfies Prisma.InputJsonObject,
       };
+      // A protected change nobody could be told about says so in the audit log (AC-9.15), in the same transaction.
+      return result.noRecipients ? [saved, noRecipientsEntry({ entity: req.entity, version: result.row.version })] : saved;
     },
   });
 }
@@ -345,10 +372,10 @@ export async function readBody<S extends z.ZodType>(c: Context<Env>, schema: S):
 }
 
 /** Runs the write and maps its refusals; the success answer is `{ version, created, entity }` (201 or 200). */
-async function answer(c: Context<Env>, audited: Audited, req: WriteRequest): Promise<Response> {
+async function answer(c: Context<Env>, audited: Audited, req: WriteRequest, notices: NoticeDeps): Promise<Response> {
   let outcome: Outcome;
   try {
-    outcome = await write(audited, req);
+    outcome = await write(audited, req, notices);
   } catch (error) {
     if (error instanceof Refusal) {
       return error.kind === "not_moved"
@@ -376,14 +403,21 @@ export interface WriteRouterOptions {
   client?: Reader;
   /** The throttle (F3); the env's limits, a fresh pair per router, unless a test passes its own. */
   limits?: LegalEntityRateLimits;
+  /** The notice duty (T58): the recipients (`resolveRecipients`) and the outside mailbox (the env's) unless a test injects. */
+  notices?: NoticeDutyOptions & { outsideMailbox?: () => boolean };
 }
 
 export function createLegalEntityWriteRouter({
   audited = withAudit,
   client = db,
   limits = createLegalEntityRateLimits(),
+  notices = {},
 }: WriteRouterOptions = {}) {
   const router = new OpenAPIHono<Env>();
+  const duty: NoticeDeps = {
+    ...(notices.recipients !== undefined ? { recipients: notices.recipients } : {}),
+    outsideMailbox: notices.outsideMailbox ?? (() => env.LEGAL_ENTITY_NOTICE_EMAIL !== undefined),
+  };
 
   // POST only, per exact path (never `/legal-entities/*`): the GETs of T5 and T7 carry their own authentication.
   router.on("POST", SAVE_PATH, noStore, sessionMiddleware, requireAuth, authorize, async (c) => {
@@ -415,7 +449,7 @@ export function createLegalEntityWriteRouter({
       details: normalise(submitted),
       action: "save",
       restoredFrom: null,
-    });
+    }, duty);
   });
 
   router.on("POST", RESTORE_PATH, noStore, sessionMiddleware, requireAuth, authorize, async (c) => {
@@ -444,7 +478,7 @@ export function createLegalEntityWriteRouter({
       details: normalise(stored),
       action: "restore",
       restoredFrom: n,
-    });
+    }, duty);
   });
 
   // Documentation only: the handlers above read the body themselves (the 16 KiB bound comes before any parse).

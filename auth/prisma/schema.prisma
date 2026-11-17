@@ -400,6 +400,39 @@ model LegalEntityVersion {
   createdByName   String? // the person's name at the save; null for the system
   createdAt       DateTime @default(now())
 
+  notices LegalEntityNotice[]
+
   @@id([entity, version])
   @@map("legal_entity_version")
+}
+
+/// The duty to tell people about one protected change (specs/20261117-legal-entities US-9, plan G4). One row per
+/// (version, recipient, channel), written in the transaction that stores the version (T58); the dispatcher (T59)
+/// sends and updates the status columns. Tier 2 like `audit_log` (ADR 20260804-two-tier-audit-assurance-auth-audit-log-application-level):
+/// rows change status, so there is no immutability trigger; the version it refers to is Tier 1 and cannot go while a
+/// notice names it (FK RESTRICT). It holds NO value of any detail (AC-9.12): content is rebuilt from the immutable
+/// versions at send time, and the outside address is never stored (read from the environment at send time).
+/// CHECK constraints live in the migration SQL.
+model LegalEntityNotice {
+  id            String    @id @default(cuid())
+  entity        String
+  version       Int
+  recipient     String // a user id (plain column, like createdByUserId), or "outside"
+  recipientKind String // CHECK in ('person','outside'); (kind = 'outside') = (recipient = 'outside')
+  channel       String // CHECK in ('in_app','email'); an outside recipient is email only
+  status        String    @default("pending") // CHECK in ('pending','delivered','given_up')
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now())
+  leaseUntil    DateTime?
+  lastReason    String? // closed set, plan G4 (notify_unreachable, notify_refused, ...)
+  firstFailedAt DateTime?
+  deliveredAt   DateTime?
+  givenUpAt     DateTime?
+  createdAt     DateTime  @default(now()) // = the version's createdAt (the transaction time), set by the writer
+
+  legalEntityVersion LegalEntityVersion @relation(fields: [entity, version], references: [entity, version], onDelete: Restrict)
+
+  @@unique([entity, version, recipient, channel])
+  @@index([status, nextAttemptAt])
+  @@map("legal_entity_notice")
 }
