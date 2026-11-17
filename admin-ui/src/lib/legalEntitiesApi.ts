@@ -178,8 +178,21 @@ const parseVersionMeta = (raw: Json, path: string) => ({
   createdAt: text(raw.createdAt, `${path}.createdAt`),
 })
 
-export const parseVersionList = (value: unknown): VersionListItem[] =>
-  list(record(value, 'list').items, 'items').map((item, index) => {
+/** One page of the history: the versions asked for, newest first, and the cursor of the next page. */
+export type VersionPage = {
+  items: VersionListItem[]
+  /** Pass it as `before` to read the next (older) page; `null` on the last page. */
+  nextBefore: number | null
+}
+
+/**
+ * A page of the versions list. `nextBefore` is part of the contract: a body without it is refused rather than
+ * read as "no more" (that would hide older versions). A cursor that would not move on (not below the oldest
+ * version of the page, or any cursor on an empty page) is refused too, so a faulty answer cannot loop the page.
+ */
+export const parseVersionPage = (value: unknown): VersionPage => {
+  const body = record(value, 'list')
+  const items = list(body.items, 'items').map((item, index) => {
     const path = `items[${index}]`
     const raw = record(item, path)
     return {
@@ -189,6 +202,15 @@ export const parseVersionList = (value: unknown): VersionListItem[] =>
       restorable: bool(raw.restorable, `${path}.restorable`),
     }
   })
+  const nextBefore = body.nextBefore === null ? null : integer(body.nextBefore, 'nextBefore')
+  if (nextBefore !== null) {
+    const oldest = items.length === 0 ? 0 : Math.min(...items.map((item) => item.version))
+    if (nextBefore < 1 || nextBefore > oldest) {
+      fail('nextBefore')
+    }
+  }
+  return { items, nextBefore }
+}
 
 export const parseLegalEntityVersion = (value: unknown): LegalEntityVersion => {
   const raw = record(value, 'version')
@@ -354,9 +376,25 @@ export const listLegalEntities = async (): Promise<LegalEntity[]> =>
 export const getLegalEntity = async (entity: LegalEntityId): Promise<LegalEntity> =>
   parseLegalEntity(await getJson(entityPath(entity)))
 
-/** GET /legal-entities/{entity}/versions: every version, newest first (AC-2.2). 403 without a covered entity. */
-export const listVersions = async (entity: LegalEntityId): Promise<VersionListItem[]> =>
-  parseVersionList(await getJson(`${entityPath(entity)}/versions`))
+/** What a page of the history may ask for (auth: `limit` 1–100, default 50; `before`: items with `version < before`). */
+export type VersionPageQuery = { limit?: number; before?: number }
+
+/**
+ * GET /legal-entities/{entity}/versions: one page of the history, newest first (AC-2.2); the pages together are
+ * every version. 403 without a covered entity, 422 for a bad query (never sent: a bad value throws `RangeError`).
+ */
+export const listVersions = async (entity: LegalEntityId, query: VersionPageQuery = {}): Promise<VersionPage> => {
+  const params = new URLSearchParams()
+  if (query.limit !== undefined) {
+    if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 100) {
+      throw new RangeError('A page holds 1 to 100 versions')
+    }
+    params.set('limit', String(query.limit))
+  }
+  if (query.before !== undefined) params.set('before', String(versionNumber(query.before)))
+  const search = params.toString()
+  return parseVersionPage(await getJson(`${entityPath(entity)}/versions${search === '' ? '' : `?${search}`}`))
+}
 
 /** GET /legal-entities/{entity}/versions/{n} (AC-2.3). 404 `version_not_found`. */
 export const getVersion = async (entity: LegalEntityId, n: number): Promise<LegalEntityVersion> =>

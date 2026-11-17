@@ -210,7 +210,7 @@ describe('getManageable (E2)', () => {
 })
 
 describe('versions (E1)', () => {
-  it('lists every version newest first with `restorable`, who and what changed', async () => {
+  it('lists a page of versions newest first with `restorable`, who and what changed', async () => {
     const items = [
       {
         version: 3,
@@ -231,9 +231,63 @@ describe('versions (E1)', () => {
         restorable: false,
       },
     ]
-    mockFetch.mockResolvedValue(json({ items }))
-    expect(await listVersions('welld_ch')).toEqual(items)
+    mockFetch.mockResolvedValue(json({ items, nextBefore: null }))
+    expect(await listVersions('welld_ch')).toEqual({ items, nextBefore: null })
     expect(lastCall().url).toBe(`${AUTH}/legal-entities/welld_ch/versions`)
+  })
+
+  it('asks for a page with `limit` and `before`, and returns the cursor of the next one', async () => {
+    const items = [3, 2].map((version) => ({
+      version,
+      action: 'save',
+      restoredFrom: null,
+      createdBy: null,
+      createdAt: '2026-11-17T10:12:00.000Z',
+      changedFields: [],
+      restorable: true,
+    }))
+    mockFetch.mockResolvedValue(json({ items, nextBefore: 2 }))
+    const page = await listVersions('welld_ch', { limit: 50, before: 4 })
+    expect(lastCall().url).toBe(`${AUTH}/legal-entities/welld_ch/versions?limit=50&before=4`)
+    expect(page.nextBefore).toBe(2)
+    expect(page.items.map((item) => item.version)).toEqual([3, 2])
+  })
+
+  it.each([{ limit: 0 }, { limit: 101 }, { limit: 1.5 }, { limit: Number.NaN }, { before: 0 }, { before: -3 }, { before: 2.5 }])(
+    'never calls the API for the query %j (the server would answer 422)',
+    async (query) => {
+      await expect(listVersions('welld_it', query)).rejects.toBeInstanceOf(RangeError)
+      expect(mockFetch).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ['is missing', undefined],
+    ['is a string', '2'],
+    ['is zero', 0],
+    ['is above the oldest version of the page', 4],
+  ])('a `nextBefore` that %s is a contract failure (it would hide or repeat versions)', async (_name, nextBefore) => {
+    const item = {
+      version: 3,
+      action: 'save',
+      restoredFrom: null,
+      createdBy: null,
+      createdAt: 'x',
+      changedFields: [],
+      restorable: true,
+    }
+    mockFetch.mockResolvedValue(json({ items: [item], ...(nextBefore === undefined ? {} : { nextBefore }) }))
+    await expect(listVersions('welld_it')).rejects.toBeInstanceOf(LegalEntityContractError)
+  })
+
+  it('a cursor on an empty page is a contract failure', async () => {
+    mockFetch.mockResolvedValue(json({ items: [], nextBefore: 1 }))
+    await expect(listVersions('welld_it')).rejects.toBeInstanceOf(LegalEntityContractError)
+  })
+
+  it('a bad query answered 422 is an API error, not a page', async () => {
+    mockFetch.mockResolvedValue(problemJson(422, { code: 'invalid_request' }))
+    await expect(listVersions('welld_it', { before: 5 })).rejects.toMatchObject({ status: 422 })
   })
 
   it('a version item without `restorable` is a contract failure (the history disables Restore by it)', async () => {
@@ -242,6 +296,7 @@ describe('versions (E1)', () => {
         items: [
           { version: 1, action: 'import', restoredFrom: null, createdBy: null, createdAt: 'x', changedFields: [] },
         ],
+        nextBefore: null,
       }),
     )
     await expect(listVersions('welld_it')).rejects.toBeInstanceOf(LegalEntityContractError)

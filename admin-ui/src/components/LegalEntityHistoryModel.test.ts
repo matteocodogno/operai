@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { blockingFields, latestVersion, newestFirst, refusedFields, restoreChanges, sharedWords } from './LegalEntityHistoryModel'
+import { appendPage, blockingFields, latestVersion, newestFirst, refusedFields, restoreChanges, sharedWords } from './LegalEntityHistoryModel'
 import { emptyDetails, setFieldValue } from '../lib/legalEntityModel'
 import type { VersionListItem } from '../lib/legalEntityModel'
 import { strings } from '../strings'
@@ -25,6 +25,20 @@ describe('the versions', () => {
   it('have the highest as the one in effect, and none for an empty list', () => {
     expect(latestVersion([item(1), item(4), item(2)])).toBe(4)
     expect(latestVersion([])).toBeUndefined()
+  })
+})
+
+describe('appending a page', () => {
+  it('keeps what is shown, adds the new versions once each, and reports them in the order they came', () => {
+    const shown = [item(5), item(4)]
+    const next = appendPage(shown, [item(4), item(3), item(3), item(2)])
+    expect(next.items.map((v) => v.version)).toEqual([5, 4, 3, 2])
+    expect(next.added.map((v) => v.version)).toEqual([3, 2])
+    expect(shown.map((v) => v.version)).toEqual([5, 4])
+  })
+
+  it('adds nothing for a page of versions already shown', () => {
+    expect(appendPage([item(2), item(1)], [item(1)]).added).toEqual([])
   })
 })
 
@@ -82,5 +96,41 @@ describe('the words of a row button', () => {
     for (const name of [t.open, t.restore]) expect(name(12)).toContain(sharedWords(name))
     expect(sharedWords(italian.history.open)).toBe('Apri la versione')
     expect(sharedWords(italian.history.restore)).toBe('Ripristina la versione')
+  })
+})
+
+describe('the paging copy', () => {
+  const pagingStrings = (lang: typeof italian) => [
+    lang.history.more,
+    lang.history.loadingMore,
+    lang.history.moreFailed,
+    lang.history.moreLoaded(1),
+    lang.history.moreLoaded(50),
+    lang.history.showing(50),
+    lang.history.showingAll(130),
+  ]
+
+  it('says the designed sentences in English', () => {
+    expect(pagingStrings(strings.legalEntities)).toEqual([
+      'Show older versions',
+      'Loading older versions…',
+      'Older versions could not be loaded. The versions above are still shown.',
+      '1 older version loaded.',
+      '50 older versions loaded.',
+      'Showing the 50 newest versions.',
+      'Showing all 130 versions.',
+    ])
+  })
+
+  it('says them in Italian, singular and plural', () => {
+    expect(pagingStrings(italian)).toEqual([
+      'Mostra le versioni meno recenti',
+      'Caricamento delle versioni meno recenti…',
+      'Non è stato possibile caricare le versioni meno recenti. Quelle qui sopra restano visibili.',
+      '1 versione meno recente caricata.',
+      '50 versioni meno recenti caricate.',
+      'Sono mostrate le 50 versioni più recenti.',
+      'Sono mostrate tutte le 130 versioni.',
+    ])
   })
 })

@@ -53,3 +53,20 @@ export const sharedWords = (name: (n: number) => string): string => {
   while (end < a.length && end < b.length && a[end] === b[end]) end += 1
   return a.slice(0, end).trim()
 }
+
+/**
+ * The versions shown plus the next page, each version once (a version number is the row's key). `added` is the
+ * rows the page brought that were not shown yet, in the order they came; the page never replaces a shown row.
+ */
+export const appendPage = (
+  shown: readonly VersionListItem[],
+  page: readonly VersionListItem[],
+): { items: VersionListItem[]; added: VersionListItem[] } => {
+  const seen = new Set(shown.map((item) => item.version))
+  const added = page.filter((item) => {
+    if (seen.has(item.version)) return false
+    seen.add(item.version)
+    return true
+  })
+  return { items: [...shown, ...added], added }
+}

@@ -19,12 +19,19 @@
  * may be gone. A 409 reloads this list and the entity (`onEntityChange`) so the next Confirm has the new base.
  *
  * The list is read when the view opens and again on a 409 or Retry; it is not polled (a registry of two entities).
+ *
+ * Paging (T61, design S5, plan G11; AC-2.2, AC-8.1, AC-8.2): the table shows the newest 50 versions. While the
+ * answer carries `nextBefore`, a sentence and "Show older versions" follow it; pressing it appends the next page
+ * (nothing shown is replaced). Loading keeps the button, `aria-disabled` and busy, with the focus on it. Loaded
+ * announces politely and moves focus to the first new row's Open. A failure keeps the rows and replaces the button
+ * with a warning and Retry, which takes the focus. The pages read are kept while this view is mounted (opening a
+ * version and coming back finds them); a reload (409, Retry of the first page) starts again from the first page.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { StatePanel, VersionTable } from '@operai/ui'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Button, StatePanel, VersionTable, VisuallyHidden } from '@operai/ui'
 import type { VersionTableLabels, VersionTableRow } from '@operai/ui'
 import ErrorBanner from './ErrorBanner'
-import { latestVersion, newestFirst, sharedWords } from './LegalEntityHistoryModel'
+import { appendPage, latestVersion, newestFirst, sharedWords } from './LegalEntityHistoryModel'
 import LegalEntityVersionView from './LegalEntityVersionView'
 import RestoreDialog from './RestoreDialog'
 import SkeletonListRows from './SkeletonListRows'
@@ -54,6 +61,8 @@ export type LegalEntityHistoryProps = {
 }
 
 const ROW_PREFIX = 'admin-legal-version-row'
+const TABLE_ID = 'admin-legal-history-table'
+const PAGING_ID = 'admin-legal-history-paging'
 
 const tableLabels: VersionTableLabels = {
   version: t.history.version,
@@ -84,22 +93,43 @@ function changedCell(item: VersionListItem) {
   return values ?? strings.common.emptyValue
 }
 
-type ListState = { id: string; items: VersionListItem[] | null; failed: boolean }
+/** The versions asked for at a time: the newest 50 first, then 50 older ones each time. */
+const PAGE_SIZE = 50
 
-/** The versions of an entity. A reload that fails keeps the rows read before (`items`, with `failed`). */
+type ListState = {
+  id: string
+  items: VersionListItem[] | null
+  nextBefore: number | null
+  /** Pages read since the first one; more than one makes "Showing all n versions" true on the last page. */
+  pages: number
+  failed: boolean
+}
+type MoreState = { id: string; status: 'loading' | 'failed' }
+/** The last page that arrived: `firstNew` is the version of its first (newest) row, `seq` tells one from the next. */
+type Arrived = { id: string; seq: number; firstNew: number; count: number }
+
+/**
+ * The versions of an entity, a page at a time. The first page is read with the entity (and again on `reload`; a
+ * reload that fails keeps the rows read before, with `failed`). `loadMore` appends the page before the oldest shown.
+ * What belongs to one read (`more`, `arrived`) is keyed by its id, so a reload drops it without an effect.
+ */
 function useVersionList(entity: LegalEntity['entity']) {
   const [attempt, setAttempt] = useState(0)
   const readId = `${entity}:${attempt}`
   const [state, setState] = useState<ListState | null>(null)
+  const [more, setMore] = useState<MoreState | null>(null)
+  const [arrived, setArrived] = useState<Arrived | null>(null)
+  const seq = useRef(0)
+  const loadingMore = useRef(false)
 
   useEffect(() => {
     let current = true
-    listVersions(entity).then(
-      (items) => {
-        if (current) setState({ id: readId, items, failed: false })
+    listVersions(entity, { limit: PAGE_SIZE }).then(
+      (page) => {
+        if (current) setState({ id: readId, items: page.items, nextBefore: page.nextBefore, pages: 1, failed: false })
       },
       () => {
-        if (current) setState((previous) => ({ id: readId, items: previous?.items ?? null, failed: true }))
+        if (current) setState((previous) => ({ ...(previous ?? EMPTY), id: readId, failed: true }))
       },
     )
     return () => {
@@ -107,14 +137,59 @@ function useVersionList(entity: LegalEntity['entity']) {
     }
   }, [entity, readId])
 
+  const loadMore = useCallback(() => {
+    if (state === null || state.id !== readId || state.items === null || state.nextBefore === null) return
+    if (loadingMore.current) return
+    loadingMore.current = true
+    const { items, nextBefore } = state
+    setMore({ id: readId, status: 'loading' })
+    listVersions(entity, { limit: PAGE_SIZE, before: nextBefore }).then(
+      (page) => {
+        loadingMore.current = false
+        const next = appendPage(items, page.items)
+        // A page that adds nothing new while it says more remain would repeat: treat it as a failure.
+        if (next.added.length === 0 && page.nextBefore !== null) {
+          setMore((previous) => (previous?.id === readId ? { id: readId, status: 'failed' } : previous))
+          return
+        }
+        setState((previous) =>
+          previous !== null && previous.id === readId
+            ? { ...previous, items: next.items, nextBefore: page.nextBefore, pages: previous.pages + 1 }
+            : previous,
+        )
+        setMore((previous) => (previous?.id === readId ? null : previous))
+        if (next.added.length > 0) {
+          seq.current += 1
+          setArrived({
+            id: readId,
+            seq: seq.current,
+            firstNew: Math.max(...next.added.map((item) => item.version)),
+            count: next.added.length,
+          })
+        }
+      },
+      () => {
+        loadingMore.current = false
+        setMore((previous) => (previous?.id === readId ? { id: readId, status: 'failed' } : previous))
+      },
+    )
+  }, [entity, readId, state])
+
   const reload = useCallback(() => setAttempt((n) => n + 1), [])
   return {
     items: state?.items ?? null,
+    nextBefore: state?.nextBefore ?? null,
+    pages: state?.pages ?? 0,
     failed: state?.id === readId && state.failed,
     loading: state?.id !== readId,
+    moreStatus: more?.id === readId ? more.status : null,
+    arrived: arrived?.id === readId ? arrived : null,
+    loadMore,
     reload,
   }
 }
+
+const EMPTY: Omit<ListState, 'id' | 'failed'> = { items: null, nextBefore: null, pages: 0 }
 
 type Restoring = { version: number; target?: LegalEntityVersion }
 
@@ -130,6 +205,7 @@ export default function LegalEntityHistory({
 }: LegalEntityHistoryProps) {
   const name = strings.common.entities[entity.entity]
   const list = useVersionList(entity.entity)
+  const sentenceId = useId()
   const rows = list.items === null ? null : newestFirst(list.items)
   // The version in effect: the list's highest once it is read (a save elsewhere shows up here), else the page's.
   const currentVersion = (list.items !== null ? latestVersion(list.items) : undefined) ?? entity.version
@@ -147,8 +223,34 @@ export default function LegalEntityHistory({
     if (rows === null || lastOpened.current === undefined) return
     const opened = lastOpened.current
     lastOpened.current = undefined
-    root.current?.querySelector<HTMLElement>(`[data-testid="${ROW_PREFIX}-${opened}-open"]`)?.focus()
+    // The row's Open; a version that is not among the pages read (a link to an old one) has no row: the table.
+    const target =
+      root.current?.querySelector<HTMLElement>(`[data-testid="${ROW_PREFIX}-${opened}-open"]`) ??
+      root.current?.querySelector<HTMLElement>(`[data-testid="${TABLE_ID}"]`)?.closest<HTMLElement>('[role="region"]')
+    target?.focus()
   }, [version, rows])
+
+  // A page arrived: focus moves to the Open of its first row (the button that had it may be gone).
+  const arrivedSeq = list.arrived?.seq
+  useEffect(() => {
+    if (list.arrived === null) return
+    root.current?.querySelector<HTMLElement>(`[data-testid="${ROW_PREFIX}-${list.arrived.firstNew}-open"]`)?.focus()
+    // Only a new page moves focus, not a re-render that still holds the same one.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrivedSeq])
+
+  // The page failed: focus moves to Retry. A retry that starts puts focus on the loading button (Retry is gone).
+  const moreButton = useRef<HTMLButtonElement>(null)
+  const retrying = useRef(false)
+  const moreStatus = list.moreStatus
+  useEffect(() => {
+    if (moreStatus === 'failed') {
+      root.current?.querySelector<HTMLElement>(`[data-testid="${PAGING_ID}"] [data-testid="error-banner-retry"]`)?.focus()
+    } else if (moreStatus === 'loading' && retrying.current) {
+      moreButton.current?.focus()
+    }
+    if (moreStatus !== 'failed') retrying.current = false
+  }, [moreStatus])
 
   const open = (n: number) => {
     if (n === currentVersion) onOpenCurrent()
@@ -194,6 +296,9 @@ export default function LegalEntityHistory({
   } else if (rows.length === 0) {
     body = <StatePanel title={t.history.empty} headingLevel={4} testId="admin-legal-entity-history-empty" />
   } else {
+    const shown = rows.length
+    // One page (the whole history fits in it): no sentence and no button, as before paging.
+    const paged = list.nextBefore !== null || list.pages > 1
     body = (
       <div className="flex flex-col gap-3">
         {list.failed && <ErrorBanner message={t.load.failed} onRetry={list.reload} />}
@@ -204,9 +309,43 @@ export default function LegalEntityHistory({
           canRestore={canChange}
           onOpen={open}
           onRestore={(n) => restore(n)}
-          testId="admin-legal-history-table"
+          testId={TABLE_ID}
           rowTestIdPrefix={ROW_PREFIX}
         />
+        <div className="flex flex-col items-start gap-2" data-testid={PAGING_ID}>
+          {paged && (
+            <p id={sentenceId} className="text-sm text-soft" data-testid="admin-legal-history-showing">
+              {list.nextBefore !== null ? t.history.showing(shown) : t.history.showingAll(shown)}
+            </p>
+          )}
+          {list.nextBefore !== null && moreStatus !== 'failed' && (
+            <Button
+              ref={moreButton}
+              variant="secondary"
+              busy={moreStatus === 'loading'}
+              aria-disabled={moreStatus === 'loading' || undefined}
+              aria-describedby={sentenceId}
+              data-testid="admin-legal-history-more"
+              onClick={() => {
+                if (moreStatus !== 'loading') list.loadMore()
+              }}
+            >
+              {moreStatus === 'loading' ? t.history.loadingMore : t.history.more}
+            </Button>
+          )}
+          {list.nextBefore !== null && moreStatus === 'failed' && (
+            <ErrorBanner
+              message={t.history.moreFailed}
+              onRetry={() => {
+                retrying.current = true
+                list.loadMore()
+              }}
+            />
+          )}
+          <VisuallyHidden live role="status" data-testid="admin-legal-history-status">
+            {list.arrived !== null ? t.history.moreLoaded(list.arrived.count) : ''}
+          </VisuallyHidden>
+        </div>
       </div>
     )
   }

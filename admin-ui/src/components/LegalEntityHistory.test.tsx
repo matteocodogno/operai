@@ -22,6 +22,7 @@ import {
   listVersions,
   restoreVersion,
 } from '../lib/legalEntitiesApi'
+import type { VersionPage } from '../lib/legalEntitiesApi'
 import type { LegalEntity, LegalEntityId, LegalEntityVersion, VersionListItem } from '../lib/legalEntityModel'
 
 vi.mock('../lib/legalEntitiesApi', async (importOriginal) => {
@@ -51,6 +52,9 @@ const listItem = (over: Partial<VersionListItem> & Pick<VersionListItem, 'versio
   restorable: true,
   ...over,
 })
+
+/** An answer of the versions list; the last page by default. */
+const page = (items: VersionListItem[], nextBefore: number | null = null): VersionPage => ({ items, nextBefore })
 
 const LIST: VersionListItem[] = [
   listItem({ version: 4, changedFields: ['address.en'] }),
@@ -116,7 +120,7 @@ beforeEach(() => {
   for (const fn of [getManageable, listLegalEntities, getLegalEntity, listVersions, getVersion, restoreVersion]) {
     vi.mocked(fn).mockReset()
   }
-  vi.mocked(listVersions).mockResolvedValue(LIST)
+  vi.mocked(listVersions).mockResolvedValue(page(LIST))
   vi.mocked(getVersion).mockImplementation(async (_entity, n) => versionAnswer(n))
   answer()
 })
@@ -126,7 +130,7 @@ afterEach(cleanup)
 describe('the versions (S5, AC-2.2, AC-7.2)', () => {
   it('lists every version newest first with who, when and what changed', async () => {
     // The API answers newest first; the table must not depend on it.
-    vi.mocked(listVersions).mockResolvedValue([...LIST].reverse())
+    vi.mocked(listVersions).mockResolvedValue(page([...LIST].reverse()))
     const view = renderPage(PATH)
 
     const table = await screen.findByTestId('admin-legal-history-table')
@@ -193,20 +197,20 @@ describe('the versions (S5, AC-2.2, AC-7.2)', () => {
   })
 
   it('says "No versions yet" for an empty list', async () => {
-    vi.mocked(listVersions).mockResolvedValue([])
+    vi.mocked(listVersions).mockResolvedValue(page([]))
     renderPage(PATH)
     expect(await screen.findByTestId('admin-legal-entity-history-empty')).toBeTruthy()
   })
 
   it('announces the load, and says when the list could not be read, with Retry', async () => {
-    let settle!: (items: VersionListItem[]) => void
+    let settle!: (answer: VersionPage) => void
     vi.mocked(listVersions).mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
     renderPage(PATH)
     const user = userEvent.setup()
 
     expect(await screen.findByText('Loading…')).toBeTruthy()
     expect(screen.getByTestId('skeleton-list-rows')).toBeTruthy()
-    settle(LIST)
+    settle(page(LIST))
     await screen.findByTestId('admin-legal-history-table')
 
     // Coming back to History reads the list again; this time it fails.
@@ -507,7 +511,7 @@ describe('the restore dialog (S7, AC-2.4)', () => {
     vi.mocked(getVersion).mockImplementation(async (_entity, n) => (n === 5 ? { ...versionAnswer(4), ...reloaded } : versionAnswer(n)))
     renderPage(PATH)
     const { user, dialog } = await openRestoreOfVersion1()
-    vi.mocked(listVersions).mockResolvedValue([newer, ...LIST])
+    vi.mocked(listVersions).mockResolvedValue(page([newer, ...LIST]))
     await user.click(confirm())
 
     expect((await within(dialog).findByRole('alert')).textContent).toBe(

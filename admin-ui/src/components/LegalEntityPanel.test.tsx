@@ -67,7 +67,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ baseVersion: 3, outcome: 'change', changedFields: [], protectedChanges: [] })
   vi.mocked(listVersions).mockReset()
-  vi.mocked(listVersions).mockResolvedValue([])
+  vi.mocked(listVersions).mockResolvedValue({ items: [], nextBefore: null })
   vi.mocked(getVersion).mockImplementation(async (entity, n) => ({ ...versionOf(entityFixture(entity)), version: n }))
 })
 
