@@ -68,8 +68,14 @@ export type EmailTemplatePolicy = {
   readonly allowRecipientId?: boolean;
 };
 
-/** Production table. `legal_entity_change` (bound to `system:auth`, `recipientId` allowed) is added with the template (T57). */
-export const EMAIL_TEMPLATE_POLICY: Readonly<Record<string, EmailTemplatePolicy>> = {};
+/**
+ * Production table. `legal_entity_change` (specs/20261117-legal-entities T57, AC-9.13, plan G5) is the one entry:
+ * only auth sends it, and it is the only template that may be addressed by a user id (the outside mailbox is
+ * addressed by `to`). Any other caller -> 403 `template_not_allowed`; `recipientId` on any other template -> 400.
+ */
+export const EMAIL_TEMPLATE_POLICY: Readonly<Record<string, EmailTemplatePolicy>> = {
+  legal_entity_change: { callers: ["system:auth"], allowRecipientId: true },
+};
 
 /** What the route needs beyond the channel; injected in tests, production reads the env. */
 export type SystemEmailsDeps = {
@@ -132,7 +138,9 @@ export const createSystemEmailsRouter = (
       'a soft failure surfaced as {"status":"failed"}, never a 5xx. An optional `idempotencyKey` (scoped to the ' +
       "calling service) makes a repeat safe: after a `sent` attempt the repeat answers 200 with the same " +
       "`deliveryId` and sends nothing. A template may be bound to specific callers (403 `template_not_allowed`) and " +
-      "may be addressed by `recipientId` (an auth user id) instead of `to` — exactly one of the two.",
+      "may be addressed by `recipientId` (an auth user id) instead of `to` — exactly one of the two. " +
+      "`legal_entity_change` is bound to `system:auth`, takes a closed typed `data` (no value beyond an IBAN's last 4 " +
+      "characters) and is the only template that accepts `recipientId`.",
     request: {
       body: {
         required: true,
@@ -145,7 +153,8 @@ export const createSystemEmailsRouter = (
         description:
           "Send attempted — status reflects the outcome (sent or failed); a repeat of a sent key answers `sent` " +
           "with the first attempt's deliveryId. With `recipientId`: `skipped` (recipient_inactive, not_configured) " +
-          "or `failed` (contact_lookup_failed), with no deliveryId.",
+          "or `failed` (contact_lookup_failed), with no deliveryId. `legal_entity_change` is `skipped` / " +
+          "`not_configured` when notify-api has no APP_BASE_URL.",
       },
       400: {
         content: { "application/json": { schema: EmailProblemSchema } },
@@ -227,7 +236,13 @@ export const createSystemEmailsRouter = (
     // The schema guarantees exactly one of `to` / `recipientId`; both paths above leave an address in `to`.
     if (to === undefined) throw new Error("email address was not resolved");
 
-    const { subject, html } = renderEmailTemplate(body);
+    // `legal_entity_change` carries a link built from notify-api's own APP_BASE_URL: without it there is nothing to
+    // send, whoever the recipient (the `recipientId` path above already answered the same way).
+    if (body.template === "legal_entity_change" && deps.appBaseUrl === undefined) {
+      return c.json({ status: "skipped" as const, reason: "not_configured" as const }, 200);
+    }
+
+    const { subject, html } = renderEmailTemplate(body, { appBaseUrl: deps.appBaseUrl });
 
     const result = await emailChannel.send({
       to,

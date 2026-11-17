@@ -102,6 +102,29 @@ export type NotificationNoticeTemplateData = {
   href?: string | undefined;
 };
 
+/**
+ * `legal_entity_change` (specs/20261117-legal-entities T57, AC-9.11-9.13, design.md N1; plan "Amendment 2026-11-17
+ * after security review" G5). The shape is the zod `data` (emails.schemas.ts) and is closed: the only values it can
+ * carry are an entity, an action, two version numbers, an actor's name, a timestamp, names from two closed sets and
+ * an IBAN token whose longest member is four characters.
+ */
+export type LegalEntityIbanToken =
+  | { state: "none" }
+  | { state: "set" }
+  | { state: "tail"; last4: string };
+
+export type LegalEntityChangeTemplateData = {
+  entity: "welld_it" | "welld_ch";
+  action: "save" | "restore";
+  restoredFrom: number | null;
+  actorName: string;
+  storedAt: string; // ISO 8601 — validated at the zod boundary
+  version: number;
+  protectedChanged: readonly ("legalName" | "vatNumber" | "iban")[];
+  otherChanged: readonly ("address.it" | "address.en" | "contacts.it" | "contacts.en")[];
+  iban?: { old: LegalEntityIbanToken; new: LegalEntityIbanToken } | undefined;
+};
+
 export type RenderedEmail = { subject: string; html: string };
 
 export type EmailTemplateName =
@@ -110,7 +133,8 @@ export type EmailTemplateName =
   | "refund_batch_compiled"
   | "refund_decision_approved"
   | "refund_decision_rejected"
-  | "notification_notice";
+  | "notification_notice"
+  | "legal_entity_change";
 
 /**
  * An ISO datetime in the suite's format, `dd.mm.yyyy HH:mm UTC` (the server knows no reader time zone, so it says
@@ -364,6 +388,122 @@ const renderNotificationNotice = (
   return { subject, html };
 };
 
+// ─── legal_entity_change (T57) ───────────────────────────────────────────────
+
+const LEGAL_ENTITY_LABELS = { welld_it: "WellD IT", welld_ch: "WellD CH" } as const;
+const PROTECTED_LABELS = { legalName: "legal name", vatNumber: "VAT number", iban: "IBAN" } as const;
+const OTHER_LABELS = {
+  "address.it": "address (Italian)",
+  "address.en": "address (English)",
+  "contacts.it": "contacts line (Italian)",
+  "contacts.en": "contacts line (English)",
+} as const;
+// The closed orders a notice lists names in (design.md N1), whatever order the caller sent them in.
+const PROTECTED_ORDER = ["legalName", "vatNumber", "iban"] as const;
+const OTHER_ORDER = ["address.it", "address.en", "contacts.it", "contacts.en"] as const;
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+const NOTICE_TIME_ZONE = "Europe/Zurich";
+const zurichParts = new Intl.DateTimeFormat("en-GB", {
+  timeZone: NOTICE_TIME_ZONE,
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+  hourCycle: "h23",
+});
+
+/**
+ * `17 November 2026, 10:12 CET (Europe/Zurich)` (design.md N1, DR-15): the stored instant in Europe/Zurich, day
+ * without a leading zero, 24-hour time without seconds. The abbreviation is derived from the zone's offset on that
+ * instant — CET at +01:00, CEST at +02:00 — never from `Intl`'s short name, which is "GMT+1" in many locales.
+ */
+export const formatNoticeWhen = (iso: string): string => {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return iso;
+  const parts = zurichParts.formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((p) => p.type === type)?.value);
+  const [year, month, day, hour, minute, second] = [
+    part("year"), part("month"), part("day"), part("hour"), part("minute"), part("second"),
+  ] as [number, number, number, number, number, number];
+  // The wall clock read as if it were UTC, minus the true instant (cut to the whole second), is the zone's offset.
+  const offsetMinutes = Math.round(
+    (Date.UTC(year, month - 1, day, hour, minute, second) - Math.floor(instant.getTime() / 1000) * 1000) / 60000,
+  );
+  const abbreviation =
+    offsetMinutes === 60 ? "CET" : offsetMinutes === 120 ? "CEST" : `UTC${offsetMinutes >= 0 ? "+" : "-"}${Math.abs(offsetMinutes / 60)}`;
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return `${day} ${MONTHS[month - 1]} ${year}, ${time} ${abbreviation} (${NOTICE_TIME_ZONE})`;
+};
+
+/** Controls (Cc), format characters (Cf: bidi marks, embeddings, isolates, zero-width) and the line/paragraph separators. */
+const stripControlsAndBidi = (value: string): string =>
+  value.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, "").trim();
+
+/** `a`, `a and b`, `a, b and c`. */
+const joinNames = (names: readonly string[]): string =>
+  names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+const ibanTokenText = (token: LegalEntityIbanToken): string =>
+  token.state === "none" ? "none" : token.state === "set" ? "set (not shown)" : `…${token.last4}`;
+
+const renderLegalEntityChange = (
+  data: LegalEntityChangeTemplateData,
+  appBaseUrl: string,
+): RenderedEmail => {
+  const entity = LEGAL_ENTITY_LABELS[data.entity];
+  const protectedNames = PROTECTED_ORDER.filter((n) => data.protectedChanged.includes(n)).map((n) => PROTECTED_LABELS[n]);
+  const otherNames = OTHER_ORDER.filter((n) => data.otherChanged.includes(n)).map((n) => OTHER_LABELS[n]);
+  const details = joinNames(protectedNames);
+  // Closed values only: the subject can never hold a line break or a value (design.md N1, `email.subject`).
+  const subject = `Legal details of ${entity} changed: ${details}`;
+
+  const actor = escapeHtml(stripControlsAndBidi(data.actorName) || "an unnamed user");
+  const byAction =
+    data.action === "restore" && data.restoredFrom !== null
+      ? `Version ${data.restoredFrom} restored by ${actor}.`
+      : `Change saved by ${actor}.`;
+
+  // Every line is a whole sentence ending in a full stop. Values already escaped or closed; the IBAN token holds
+  // `…` and four characters of [A-Z0-9] (zod) and is escaped regardless.
+  const lines = [
+    byAction,
+    `When: ${escapeHtml(formatNoticeWhen(data.storedAt))}.`,
+    `New version: ${data.version}.`,
+    `Details changed: ${details}.`,
+  ];
+  if (data.iban !== undefined && data.protectedChanged.includes("iban")) {
+    lines.push(`Old IBAN: ${escapeHtml(ibanTokenText(data.iban.old))}.`);
+    lines.push(`New IBAN: ${escapeHtml(ibanTokenText(data.iban.new))}.`);
+  }
+  if (otherNames.length > 0) lines.push(`Also changed: ${joinNames(otherNames)}.`);
+
+  const url = escapeHtml(
+    `${appBaseUrl.replace(/\/+$/, "")}/admin/legal-entities?entity=${data.entity}&view=history`,
+  );
+
+  const html = [
+    '<div lang="en" style="font-family: sans-serif; line-height: 1.6; color: #1a1a1a;">',
+    `<p><strong>The legal details of ${entity} were changed</strong></p>`,
+    `<p>${lines.join("<br>\n")}</p>`,
+    "<p>This message names the details that changed. It does not show their values, except the last four characters of an IBAN.</p>",
+    "<p>If you did not expect this change, open the history and restore the previous version if it is wrong. Then tell an administrator.</p>",
+    `<p><a href="${url}" style="display: inline-block; padding: 8px 16px; background: #1a1a1a; color: #ffffff; text-decoration: none; border-radius: 4px;">Open the history of ${entity}</a></p>`,
+    "<p>The link asks you to sign in. Only people who may see this history can open it.</p>",
+    '<p style="color: #666666; font-size: 12px;">Sent by Operai Admin. You receive this notice because you may manage this legal entity, you are an administrator, you made the change, or this mailbox is set to receive these notices.</p>',
+    "</div>",
+  ].join("\n");
+
+  return { subject, html };
+};
+
 /**
  * A single correlated `{template, data}` pair per template — deliberately
  * ONE parameter (not two) so a discriminated-union caller (emails.routes.ts
@@ -379,10 +519,23 @@ export type EmailTemplateRequest =
   | { template: "refund_batch_compiled"; data: RefundBatchCompiledTemplateData }
   | { template: "refund_decision_approved"; data: RefundDecisionApprovedTemplateData }
   | { template: "refund_decision_rejected"; data: RefundDecisionRejectedTemplateData }
-  | { template: "notification_notice"; data: NotificationNoticeTemplateData };
+  | { template: "notification_notice"; data: NotificationNoticeTemplateData }
+  | { template: "legal_entity_change"; data: LegalEntityChangeTemplateData };
 
-export const renderEmailTemplate = (request: EmailTemplateRequest): RenderedEmail => {
+/** What a render may need beyond the request itself. */
+export type RenderContext = {
+  /** notify-api's own APP_BASE_URL: the link of `legal_entity_change` is built from it, never from the caller. */
+  appBaseUrl?: string | undefined;
+};
+
+export const renderEmailTemplate = (
+  request: EmailTemplateRequest,
+  context: RenderContext = {},
+): RenderedEmail => {
   switch (request.template) {
+    case "legal_entity_change":
+      if (context.appBaseUrl === undefined) throw new Error("legal_entity_change needs APP_BASE_URL");
+      return renderLegalEntityChange(request.data, context.appBaseUrl);
     case "refund_batch_compiled":
       return renderRefundBatchCompiled(request.data);
     case "refund_decision_approved":

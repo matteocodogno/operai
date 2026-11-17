@@ -104,6 +104,58 @@ export const RefundDecisionRejectedDataSchema = z.object({
   // is to make the decision impossible to miss and link to the detail.
 });
 
+// specs/20261117-legal-entities T57 (AC-9.11, AC-9.12; plan "Amendment 2026-11-17 after security review" G5) —
+// `legal_entity_change`'s `data`. STRICT and CLOSED: every member is an enum, a number, a timestamp, one bounded
+// name (the actor's) or an IBAN token whose only free-form member is four characters. There is no member that can
+// hold a legal name, a VAT number, an address, a contacts line or more than the last 4 characters of an IBAN, so
+// AC-9.12 is enforced by the receiver as well as by the sender. An extra member is a 400 (`strictObject`).
+export const LEGAL_ENTITIES = ["welld_it", "welld_ch"] as const;
+/** Closed order = the order the notice lists them in. */
+export const LEGAL_ENTITY_PROTECTED_NAMES = ["legalName", "vatNumber", "iban"] as const;
+export const LEGAL_ENTITY_OTHER_NAMES = ["address.it", "address.en", "contacts.it", "contacts.en"] as const;
+
+const IbanTokenSchema = z.discriminatedUnion("state", [
+  z.strictObject({ state: z.literal("none") }),
+  z.strictObject({ state: z.literal("set") }),
+  z.strictObject({
+    state: z.literal("tail"),
+    last4: z.string().regex(/^[A-Z0-9]{4}$/, "data.iban last4 must be 4 characters, A-Z or 0-9"),
+  }),
+]);
+
+const isUnique = (names: readonly string[]): boolean => new Set(names).size === names.length;
+
+export const LegalEntityChangeDataSchema = z
+  .strictObject({
+    entity: z.enum(LEGAL_ENTITIES),
+    action: z.enum(["save", "restore"]),
+    // The version a restore copied from; null for a save.
+    restoredFrom: z.number().int().min(1).max(2147483647).nullable(),
+    // The sender strips controls and bidi characters; the template does it again and escapes (emailTemplates.ts).
+    actorName: z.string().min(1, "data.actorName is required").max(200),
+    storedAt: z.string().datetime({ offset: true, message: "data.storedAt must be ISO 8601" }),
+    version: z.number().int().min(1).max(2147483647),
+    protectedChanged: z.array(z.enum(LEGAL_ENTITY_PROTECTED_NAMES)).min(1).max(3).refine(isUnique, "names must be unique"),
+    otherChanged: z.array(z.enum(LEGAL_ENTITY_OTHER_NAMES)).max(4).refine(isUnique, "names must be unique"),
+    iban: z.strictObject({ old: IbanTokenSchema, new: IbanTokenSchema }).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.action === "restore" && data.restoredFrom === null) {
+      ctx.addIssue({ code: "custom", path: ["restoredFrom"], message: "a restore names the version it restored" });
+    }
+    if (data.action === "save" && data.restoredFrom !== null) {
+      ctx.addIssue({ code: "custom", path: ["restoredFrom"], message: "a save has no restoredFrom" });
+    }
+    // `iban` is present if and only if the IBAN changed: its tails are the only values a notice may carry.
+    const ibanChanged = data.protectedChanged.includes("iban");
+    if (ibanChanged && data.iban === undefined) {
+      ctx.addIssue({ code: "custom", path: ["iban"], message: "data.iban is required when iban changed" });
+    }
+    if (!ibanChanged && data.iban !== undefined) {
+      ctx.addIssue({ code: "custom", path: ["iban"], message: "data.iban is only accepted when iban changed" });
+    }
+  });
+
 const ToSchema = z.string().email("to must be a valid email address").max(320);
 
 // specs/20261117-legal-entities T56 (AC-9.13, plan G5): a recipient is named either by a raw address (`to`, the
@@ -150,6 +202,11 @@ export const SendEmailRequestSchema = z
       ...envelope,
       template: z.literal("refund_decision_rejected"),
       data: RefundDecisionRejectedDataSchema,
+    }),
+    z.object({
+      ...envelope,
+      template: z.literal("legal_entity_change"),
+      data: LegalEntityChangeDataSchema,
     }),
   ])
   // `to` and `recipientId` together, or neither: 400 (the same body shape as any other schema failure).

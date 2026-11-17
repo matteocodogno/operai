@@ -62,6 +62,10 @@ export const EMAIL_TEMPLATES = [
   // SendEmailRequestSchema: /system/emails takes the address from the
   // caller, this template's address comes only from `auth`.
   "notification_notice",
+  // specs/20261117-legal-entities T57 (AC-9.11-9.13) — the notice of a protected change to a legal entity. A closed,
+  // typed `data` (emails.schemas.ts) that can carry no value beyond an IBAN's last 4 characters; bound to
+  // `system:auth` (emails.routes.ts, EMAIL_TEMPLATE_POLICY).
+  "legal_entity_change",
 ] as const;
 export type EmailTemplate = (typeof EMAIL_TEMPLATES)[number];
 

@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { renderEmailTemplate } from "./emailTemplates";
+import { formatNoticeWhen, renderEmailTemplate } from "./emailTemplates";
 
 describe("renderEmailTemplate — refund_batch_compiled (T7, ADR 20260719-refund-batch-signed-link-email-delivery)", () => {
   const baseData = {
@@ -315,5 +315,163 @@ describe("renderEmailTemplate — notification_notice (specs/20261101-crm-notifi
       data: { ...data, originApp: "nope" },
     });
     expect(html).toContain("Sent by Operai<");
+  });
+});
+
+// Bidi override (RLO) + isolate (LRI): the characters a spoofed actor name would use.
+const CTL = String.fromCodePoint(0x202e, 0x2066);
+
+describe("renderEmailTemplate — legal_entity_change (specs/20261117-legal-entities T57, AC-9.11-9.13, design.md N1)", () => {
+  const BASE_URL = "https://operai.example.test";
+  const winter = {
+    entity: "welld_ch" as const,
+    action: "save" as const,
+    restoredFrom: null,
+    actorName: "Anna Rossi",
+    storedAt: "2026-11-17T09:12:00.000Z",
+    version: 8,
+    protectedChanged: ["iban" as const],
+    otherChanged: ["contacts.en" as const],
+    iban: { old: { state: "tail" as const, last4: "5957" }, new: { state: "none" as const } },
+  };
+  const render = (overrides: Record<string, unknown> = {}, baseUrl: string = BASE_URL) =>
+    renderEmailTemplate(
+      { template: "legal_entity_change", data: { ...winter, ...overrides } },
+      { appBaseUrl: baseUrl },
+    );
+
+  it("renders the design's worked example: subject, heading, one row of lines, note, button and footer", () => {
+    const { subject, html } = render();
+    expect(subject).toBe("Legal details of WellD CH changed: IBAN");
+    expect(html).toContain('<div lang="en"');
+    expect(html).toContain("<p><strong>The legal details of WellD CH were changed</strong></p>");
+    expect(html).toContain(
+      [
+        "<p>Change saved by Anna Rossi.",
+        "When: 17 November 2026, 10:12 CET (Europe/Zurich).",
+        "New version: 8.",
+        "Details changed: IBAN.",
+        "Old IBAN: …5957.",
+        "New IBAN: none.",
+        "Also changed: contacts line (English).</p>",
+      ].join("<br>\n"),
+    );
+    expect(html).toContain(
+      "<p>This message names the details that changed. It does not show their values, except the last four characters of an IBAN.</p>",
+    );
+    expect(html).toContain(
+      "<p>If you did not expect this change, open the history and restore the previous version if it is wrong. Then tell an administrator.</p>",
+    );
+    expect(html).toContain(">Open the history of WellD CH</a>");
+    expect(html).toContain("<p>The link asks you to sign in. Only people who may see this history can open it.</p>");
+    expect(html).toContain(
+      "Sent by Operai Admin. You receive this notice because you may manage this legal entity, you are an administrator, you made the change, or this mailbox is set to receive these notices.",
+    );
+  });
+
+  it("links to the absolute history of the entity, built from APP_BASE_URL (a trailing slash tolerated, & escaped)", () => {
+    expect(render().html).toContain(
+      'href="https://operai.example.test/admin/legal-entities?entity=welld_ch&amp;view=history"',
+    );
+    expect(render({ entity: "welld_it" }, "https://operai.example.test//").html).toContain(
+      'href="https://operai.example.test/admin/legal-entities?entity=welld_it&amp;view=history"',
+    );
+    expect(render({ entity: "welld_it" }).subject).toBe("Legal details of WellD IT changed: IBAN");
+  });
+
+  it("a restore in a summer date reads 'Version m restored by …' and CEST", () => {
+    const { html } = render({ action: "restore", restoredFrom: 5, storedAt: "2026-07-01T09:12:00Z" });
+    expect(html).toContain("Version 5 restored by Anna Rossi.");
+    expect(html).not.toContain("Change saved by");
+    expect(html).toContain("When: 1 July 2026, 11:12 CEST (Europe/Zurich).");
+  });
+
+  it("the zone abbreviation follows the offset on the date, also across both clock changes and at midnight", () => {
+    const when = (iso: string) => formatNoticeWhen(iso);
+    expect(when("2026-03-29T00:59:00Z")).toBe("29 March 2026, 01:59 CET (Europe/Zurich)");
+    expect(when("2026-03-29T01:00:00Z")).toBe("29 March 2026, 03:00 CEST (Europe/Zurich)");
+    expect(when("2026-10-25T00:59:00Z")).toBe("25 October 2026, 02:59 CEST (Europe/Zurich)");
+    expect(when("2026-10-25T01:00:00Z")).toBe("25 October 2026, 02:00 CET (Europe/Zurich)");
+    expect(when("2026-12-31T23:30:00Z")).toBe("1 January 2027, 00:30 CET (Europe/Zurich)");
+    expect(when("2026-12-31T23:30:00-01:00")).toBe("1 January 2027, 01:30 CET (Europe/Zurich)");
+    expect(when("2026-11-17T09:12:59Z")).toBe("17 November 2026, 10:12 CET (Europe/Zurich)");
+  });
+
+  it("IBAN tokens: none, set (no character) and a tail; the lines are left out unless the IBAN changed", () => {
+    const set = render({ iban: { old: { state: "set" }, new: { state: "tail", last4: "A1B2" } } }).html;
+    expect(set).toContain("Old IBAN: set (not shown).");
+    expect(set).toContain("New IBAN: …A1B2.");
+    const none = render({ iban: { old: { state: "none" }, new: { state: "set" } } }).html;
+    expect(none).toContain("Old IBAN: none.");
+    expect(none).toContain("New IBAN: set (not shown).");
+    const noIban = render({ protectedChanged: ["legalName", "vatNumber"], iban: undefined }).html;
+    expect(noIban).not.toContain("IBAN:");
+    expect(noIban).toContain("Details changed: legal name and VAT number.");
+  });
+
+  it("lists names in the closed order whatever order they arrive in: 'a, b and c'; no 'Also changed' line when none", () => {
+    const { subject, html } = render({
+      protectedChanged: ["iban", "legalName", "vatNumber"],
+      otherChanged: ["contacts.it", "address.it", "address.en", "contacts.en"],
+    });
+    expect(subject).toBe("Legal details of WellD CH changed: legal name, VAT number and IBAN");
+    expect(html).toContain("Details changed: legal name, VAT number and IBAN.");
+    expect(html).toContain(
+      "Also changed: address (Italian), address (English), contacts line (Italian) and contacts line (English).",
+    );
+    expect(render({ otherChanged: [] }).html).not.toContain("Also changed");
+  });
+
+  it("every line is a whole sentence ending in a full stop", () => {
+    const { html } = render({ otherChanged: ["address.it", "contacts.en"] });
+    const paragraph = /<p>(Change saved by[\s\S]*?)<\/p>/.exec(html)![1]!;
+    const sentences = paragraph.split("<br>\n");
+    expect(sentences).toHaveLength(7);
+    for (const line of sentences) {
+      expect(line).toMatch(/^[A-Z].*\.$/);
+    }
+  });
+
+  it("escapes the actor and strips controls and bidi characters; the subject never holds the actor", () => {
+    const { subject, html } = render({
+      actorName: `<script>alert(1)</script>${CTL}A${String.fromCodePoint(0x200b)}nna\r\n\t${String.fromCodePoint(0)} "R"&${String.fromCodePoint(0x2028)}`,
+    });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("Change saved by &lt;script&gt;alert(1)&lt;/script&gt;Anna &quot;R&quot;&amp;.");
+    expect([...html].filter((ch) => /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(ch) && ch !== "\n")).toEqual([]);
+    expect(subject).not.toContain("Anna");
+    expect(subject).not.toMatch(/[\r\n]/);
+  });
+
+  it("an actor name that is nothing but controls still reads as a sentence", () => {
+    expect(render({ actorName: `${String.fromCodePoint(0x202e)}${String.fromCodePoint(0)}` }).html).toContain("Change saved by an unnamed user.");
+  });
+
+  it("refuses to render without APP_BASE_URL (the route answers `not_configured` before)", () => {
+    expect(() => renderEmailTemplate({ template: "legal_entity_change", data: winter })).toThrow();
+  });
+
+  it("carries no value but the two IBAN tails: no full IBAN, name, VAT number or address, even from a fat sender", () => {
+    const FULL_OLD = "CH9300762011623852957";
+    const FULL_NEW = "DE89370400440532013000";
+    const values = [FULL_OLD, FULL_NEW, "Acme Treuhand AG", "CHE-123.456.789", "Bahnhofstrasse 1", "info@acme.example"];
+    const fat = {
+      ...winter,
+      protectedChanged: ["legalName", "vatNumber", "iban"],
+      otherChanged: ["address.it", "contacts.en"],
+      iban: { old: { state: "tail", last4: FULL_OLD.slice(-4) }, new: { state: "tail", last4: FULL_NEW.slice(-4) } },
+      // What a careless sender might add; the template has no slot for any of it.
+      oldLegalName: values[2], newVatNumber: values[3], address: values[4], contacts: values[5], oldIban: FULL_OLD, newIban: FULL_NEW,
+    };
+    const { subject, html } = renderEmailTemplate(
+      { template: "legal_entity_change", data: fat as never },
+      { appBaseUrl: BASE_URL },
+    );
+    for (const v of values) {
+      expect(subject).not.toContain(v);
+      expect(html).not.toContain(v);
+    }
+    expect(html).toContain("Old IBAN: …2957.");
+    expect(html).toContain("New IBAN: …3000.");
   });
 });

@@ -686,3 +686,263 @@ describe("POST /system/emails — refund decision templates", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ─── legal_entity_change (specs/20261117-legal-entities T57, AC-9.11-9.13) ──────────────────────────────────
+// The PRODUCTION policy table is in force here (no `policy` injected): `system:auth` only, `recipientId` allowed.
+
+const AUTH_SUB = "system:auth";
+const tokenFor = (sub: string) =>
+  new SignJWT({ scope: "emails.send" })
+    .setProtectedHeader({ alg: "RS256", kid: KID })
+    .setIssuedAt()
+    .setIssuer(env.AUTH_ISSUER)
+    .setAudience(SERVICE_AUD)
+    .setSubject(sub)
+    .setExpirationTime("5m")
+    .sign(keyPair.privateKey);
+
+type Lookup = { status: "found"; email: string; name: string } | { status: "inactive" } | { status: "failed" };
+let lookups: string[] = [];
+let lookupResult: Lookup = {
+  status: "found",
+  email: `${TEST_ADDRESS_PREFIX}-legal-person@example.com`,
+  name: "Person",
+};
+let sentMails: { to: string; subject: string; html: string }[] = [];
+
+const buildLegalApp = (overrides: { contacts?: null; appBaseUrl?: string | undefined } = {}) => {
+  const app = new Hono();
+  app.route(
+    "/",
+    createSystemEmailsRouter(
+      createSystemAuthMiddleware({ scope: "emails.send", jwks: localJwks, audience: SERVICE_AUD }),
+      {
+        contacts:
+          "contacts" in overrides
+            ? null
+            : {
+                lookup: async (id) => {
+                  lookups.push(id);
+                  return lookupResult;
+                },
+              },
+        appBaseUrl: "appBaseUrl" in overrides ? overrides.appBaseUrl : "https://operai.example.test",
+      },
+    ),
+  );
+  return app;
+};
+
+const postAs = async (app: Hono, body: Record<string, unknown>, sub: string = AUTH_SUB) =>
+  app.request("/system/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await tokenFor(sub)}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+const LEGAL_DATA = {
+  entity: "welld_ch",
+  action: "save",
+  restoredFrom: null,
+  actorName: "Anna Rossi",
+  storedAt: "2026-11-17T09:12:00.000Z",
+  version: 8,
+  protectedChanged: ["iban"],
+  otherChanged: ["contacts.en"],
+  iban: { old: { state: "tail", last4: "5957" }, new: { state: "none" } },
+};
+const legalBody = (overrides: Record<string, unknown> = {}) => ({
+  to: `${TEST_ADDRESS_PREFIX}-legal-outside@example.com`,
+  template: "legal_entity_change",
+  data: LEGAL_DATA,
+  ...overrides,
+});
+const legalById = (overrides: Record<string, unknown> = {}) => {
+  const { to: _to, ...rest } = legalBody();
+  return { ...rest, recipientId: "user_1", ...overrides };
+};
+const withData = (data: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+  legalBody({ data: { ...LEGAL_DATA, ...data }, ...extra });
+const legalRows = () =>
+  testDb.emailDelivery.findMany({ where: { to: { contains: TEST_ADDRESS_PREFIX } }, orderBy: { createdAt: "asc" } });
+
+describe("POST /system/emails — legal_entity_change", () => {
+  const priorImpl = sendEmailImpl;
+  afterEach(() => {
+    lookups = [];
+    sentMails = [];
+    lookupResult = { status: "found", email: `${TEST_ADDRESS_PREFIX}-legal-person@example.com`, name: "Person" };
+    sendEmailImpl = priorImpl;
+  });
+
+  const capture = () => {
+    env.EMAIL_ENABLED = true; // the real channel path, with `@/lib/resend` mocked: the test sees what would be sent
+    sendEmailImpl = async (input) => {
+      sentMails.push(input);
+      return { ok: true, providerId: "re_fake" };
+    };
+  };
+
+  it("system:auth sends it to a raw address: 200 sent, one row under the template name, English subject and absolute link", async () => {
+    capture();
+    const res = await postAs(buildLegalApp(), legalBody());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deliveryId: string; status: string };
+    expect(body.status).toBe("sent");
+    const rows = await legalRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.template).toBe("legal_entity_change");
+    expect(rows[0]?.id).toBe(body.deliveryId);
+    expect(sentMails).toHaveLength(1);
+    expect(sentMails[0]?.subject).toBe("Legal details of WellD CH changed: IBAN");
+    expect(sentMails[0]?.html).toContain(
+      'href="https://operai.example.test/admin/legal-entities?entity=welld_ch&amp;view=history"',
+    );
+    expect(lookups).toEqual([]);
+  });
+
+  it("system:crm-api (and any other caller) -> 403 template_not_allowed, nothing written, nothing sent", async () => {
+    capture();
+    for (const sub of ["system:crm-api", "system:refund-api"]) {
+      const res = await postAs(buildLegalApp(), legalBody(), sub);
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { code: string }).code).toBe("template_not_allowed");
+    }
+    expect(await legalRows()).toHaveLength(0);
+    expect(sentMails).toHaveLength(0);
+  });
+
+  it("recipientId: the address comes from the lookup; the user id is not in the mail or the row", async () => {
+    capture();
+    const res = await postAs(buildLegalApp(), legalById());
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("sent");
+    expect(lookups).toEqual(["user_1"]);
+    expect(sentMails[0]?.to).toBe(`${TEST_ADDRESS_PREFIX}-legal-person@example.com`);
+    expect(sentMails[0]?.html).not.toContain("user_1");
+  });
+
+  it("recipientId inactive -> 200 skipped recipient_inactive, no row, no send", async () => {
+    capture();
+    lookupResult = { status: "inactive" };
+    const res = await postAs(buildLegalApp(), legalById());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "skipped", reason: "recipient_inactive" });
+    expect(await legalRows()).toHaveLength(0);
+    expect(sentMails).toHaveLength(0);
+  });
+
+  it("recipientId lookup failure -> 200 failed contact_lookup_failed, no row, no send", async () => {
+    capture();
+    lookupResult = { status: "failed" };
+    const res = await postAs(buildLegalApp(), legalById());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "failed", reason: "contact_lookup_failed" });
+    expect(await legalRows()).toHaveLength(0);
+    expect(sentMails).toHaveLength(0);
+  });
+
+  it("recipientId with the email-notice group unset -> 200 skipped not_configured, no lookup, no row", async () => {
+    capture();
+    const res = await postAs(buildLegalApp({ contacts: null }), legalById());
+    expect(await res.json()).toEqual({ status: "skipped", reason: "not_configured" });
+    const noBase = await postAs(buildLegalApp({ appBaseUrl: undefined }), legalById());
+    expect(await noBase.json()).toEqual({ status: "skipped", reason: "not_configured" });
+    expect(lookups).toEqual([]);
+    expect(await legalRows()).toHaveLength(0);
+  });
+
+  it("a raw address with no APP_BASE_URL has no link to send: skipped not_configured, nothing written", async () => {
+    capture();
+    const res = await postAs(buildLegalApp({ appBaseUrl: undefined }), legalBody());
+    expect(await res.json()).toEqual({ status: "skipped", reason: "not_configured" });
+    expect(await legalRows()).toHaveLength(0);
+    expect(sentMails).toHaveLength(0);
+  });
+
+  it("`recipientId` stays this template's alone: another template with it -> 400", async () => {
+    const { to: _to, ...rest } = validBody();
+    const res = await postAs(buildLegalApp(), { ...rest, recipientId: "user_1" }, AUTH_SUB);
+    expect(res.status).toBe(400);
+    expect(lookups).toEqual([]);
+  });
+
+  describe("strict data -> 400, nothing written or sent", () => {
+    const rejected = async (body: Record<string, unknown>) => {
+      capture();
+      const res = await postAs(buildLegalApp(), body);
+      expect(res.status).toBe(400);
+      expect(await legalRows()).toHaveLength(0);
+      expect(sentMails).toHaveLength(0);
+    };
+
+    it("an extra member in data", () => rejected(withData({ oldLegalName: "Acme AG" })));
+    it("an extra member inside an IBAN token", () =>
+      rejected(withData({ iban: { old: { state: "tail", last4: "5957", full: "CH9300762011623852957" }, new: { state: "none" } } })));
+    it("an extra member inside the iban object", () =>
+      rejected(withData({ iban: { old: { state: "none" }, new: { state: "none" }, full: "CH93" } })));
+    it("a last4 that is a whole IBAN", () =>
+      rejected(withData({ iban: { old: { state: "tail", last4: "CH9300762011623852957" }, new: { state: "none" } } })));
+    it("a last4 of 3 or 5 characters, lower case or with a space", async () => {
+      for (const last4 of ["595", "59570", "ab12", "59 7", "59-7", ""]) {
+        await rejected(withData({ iban: { old: { state: "tail", last4 }, new: { state: "none" } } }));
+      }
+    });
+    it("a `set` token carrying characters", () =>
+      rejected(withData({ iban: { old: { state: "set", last4: "5957" }, new: { state: "none" } } })));
+    it("an unknown IBAN state", () => rejected(withData({ iban: { old: { state: "full" }, new: { state: "none" } } })));
+    it("iban present without \"iban\" in protectedChanged", () =>
+      rejected(withData({ protectedChanged: ["legalName"] })));
+    it("\"iban\" in protectedChanged without iban", () => rejected(withData({ iban: undefined })));
+    it("an empty or unknown protectedChanged, a duplicate name", async () => {
+      await rejected(withData({ protectedChanged: [], iban: undefined }));
+      await rejected(withData({ protectedChanged: ["iban", "swift"] }));
+      await rejected(withData({ protectedChanged: ["iban", "iban"] }));
+      await rejected(withData({ otherChanged: ["contacts.en", "contacts.en"] }));
+      await rejected(withData({ otherChanged: ["notes"] }));
+    });
+    it("an unknown entity, action or a non-ISO storedAt", async () => {
+      await rejected(withData({ entity: "welld_de" }));
+      await rejected(withData({ action: "delete" }));
+      await rejected(withData({ storedAt: "17 November 2026" }));
+    });
+    it("a restore without restoredFrom, a save with one", async () => {
+      await rejected(withData({ action: "restore", restoredFrom: null }));
+      await rejected(withData({ action: "save", restoredFrom: 3 }));
+    });
+    it("a missing member and a bad version or actor", async () => {
+      const { version: _v, ...noVersion } = LEGAL_DATA;
+      await rejected(legalBody({ data: noVersion }));
+      await rejected(withData({ version: 0 }));
+      await rejected(withData({ version: 1.5 }));
+      await rejected(withData({ actorName: "" }));
+      await rejected(withData({ actorName: "a".repeat(201) }));
+    });
+    it("another template's data", () => rejected(legalBody({ data: { inviteUrl: "https://x.test", inviterName: "A", expiresAt: "2026-07-16T10:00:00Z" } })));
+  });
+
+  it("the full IBAN, name and VAT number in an otherwise valid request can never be echoed: they are refused, not rendered", async () => {
+    capture();
+    const res = await postAs(
+      buildLegalApp(),
+      withData({ legalName: "Acme Treuhand AG", vatNumber: "CHE-123.456.789", fullIban: "CH9300762011623852957" }),
+    );
+    expect(res.status).toBe(400);
+    expect(sentMails).toHaveLength(0);
+  });
+
+  it("a restore of version m sends 'Version m restored by …' and a retried key sends once", async () => {
+    capture();
+    const body = withData(
+      { action: "restore", restoredFrom: 5, storedAt: "2026-07-01T09:12:00Z" },
+      { idempotencyKey: "legal-entity-notice:row_t57" },
+    );
+    const first = await postAs(buildLegalApp(), body);
+    const second = await postAs(buildLegalApp(), body);
+    expect(((await first.json()) as { status: string }).status).toBe("sent");
+    expect(((await second.json()) as { status: string }).status).toBe("sent");
+    expect(sentMails).toHaveLength(1);
+    expect(sentMails[0]?.html).toContain("Version 5 restored by Anna Rossi.");
+    expect(sentMails[0]?.html).toContain("1 July 2026, 11:12 CEST (Europe/Zurich)");
+  });
+});
