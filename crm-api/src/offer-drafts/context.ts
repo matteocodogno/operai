@@ -13,7 +13,8 @@ import { getEstimate, type EstimateDocument } from "../lib/estimai";
 import type { OfferLanguage } from "../offers/contract";
 import { clientLinesOf } from "../offers/draft";
 import type { WizardContext } from "../offers/engine/answers";
-import { estimateLinkOf, isoDate, loadDealInScope, loadProfile, offerOrigin, latestOffer, type StoredSnapshot } from "../offers/generation";
+import { estimateLinkOf, isoDate, loadDealInScope, loadIssuer, loadProfile, offerOrigin, latestOffer, type StoredSnapshot } from "../offers/generation";
+import type { LegalEntityDetails } from "../lib/legalEntities";
 import { scopeLabels } from "../offers/pdf";
 import { buildScope, releaseManDays, roundHalfUp, totalManDays, type Scope } from "../offers/scope";
 import { buildTimeline, timelineTable } from "../offers/timeline";
@@ -46,7 +47,10 @@ export function estimateFacts(estimate: EstimateDocument | null, language: Offer
 /** Everything read about the deal, once: the pieces a context, a draft and a generation are built from. */
 export interface WizardInputs {
   readonly deal: Awaited<ReturnType<typeof loadDealInScope>>["deal"];
+  /** The CRM's own row of the entity (terms, place of issue, classic letterhead); null while it does not exist (E4). */
   readonly profile: Awaited<ReturnType<typeof loadProfile>>;
+  /** The issuer's legal details, from the registry (the legal name and the address in each language). */
+  readonly issuer: LegalEntityDetails;
   readonly estimateState: EstimateState;
   readonly estimate: EstimateDocument | null;
   readonly contacts: { id: string; name: string }[];
@@ -58,6 +62,12 @@ export interface LoadOptions {
   readonly requireEstimate: boolean;
   /** A contact archived since an offer chose it still prints (018 never filtered them); the picker does not offer it. */
   readonly archivedContacts: boolean;
+  /**
+   * `true`: details the registry judges incomplete are 409 `legal_entity_incomplete` (generation, the previews). `false`: the
+   * values as they are (the context, a draft being started or switched: an autosave is never refused, E4). Either way an
+   * unreadable registry is 503 `legal_entities_unavailable`.
+   */
+  readonly requireCompleteIssuer: boolean;
 }
 
 export async function loadWizardInputs(
@@ -76,6 +86,7 @@ export async function loadWizardInputs(
   } else {
     estimateState = deal.estimate?.overrideAt ? "override" : "missing";
   }
+  const issuer = await loadIssuer(deal.entity, { requireComplete: options.requireCompleteIssuer });
   const profile = await loadProfile(deal.entity);
   const estimate = link ? await getEstimate(c, link.estimateId) : null;
   const contactRows = await db.contact.findMany({
@@ -89,6 +100,7 @@ export async function loadWizardInputs(
   return {
     deal,
     profile,
+    issuer,
     estimateState,
     estimate,
     contacts: contactRows.map((contact) => ({ id: contact.id, name: `${contact.firstName} ${contact.lastName}`.trim() })),
@@ -111,9 +123,9 @@ export function wizardContextOf(inputs: WizardInputs, language: OfferLanguage, t
     dealTitle: deal.title,
     currency: deal.currency,
     dealAmountCents: deal.amountCents === null ? null : Number(deal.amountCents),
-    issuerLegalName: profile.legalName,
-    issuerAddressLines: profile.addressLines,
-    placeOfIssue: profile.placeOfIssue ?? DEFAULT_PLACE,
+    issuerLegalName: inputs.issuer.legalName,
+    issuerAddressLines: inputs.issuer.address[language],
+    placeOfIssue: profile?.placeOfIssue ?? DEFAULT_PLACE,
     clientLines: clientLinesBoth(inputs),
     contacts: inputs.contacts,
     attachments: inputs.attachments,
@@ -126,7 +138,7 @@ const annexOf = (estimate: EstimateDocument, language: OfferLanguage, aiAssisted
 
 /** The body of `GET /deals/{id}/offer-wizard/context`: no language (the browser takes the template's), the server's day. */
 export async function contextResponse(inputs: WizardInputs, today: string) {
-  const { deal, profile, estimate } = inputs;
+  const { deal, profile, issuer, estimate } = inputs;
   // The route is read before a template is chosen (DD-41), so the two labels that depend on the language are Italian here.
   const facts = estimateFacts(estimate, "it");
   const latest = await latestOffer(db, deal.id);
@@ -135,11 +147,15 @@ export async function contextResponse(inputs: WizardInputs, today: string) {
     dealTitle: deal.title,
     currency: deal.currency,
     dealAmountCents: deal.amountCents === null ? null : Number(deal.amountCents),
-    issuerLegalName: profile.legalName,
-    // The address as saved and whether there is a letterhead (DD-54, DD-57); never the key or a link: the browser asks the profile's link route.
-    issuerAddressLines: profile.addressLines,
-    letterhead: profile.letterheadKey !== null,
-    placeOfIssue: profile.placeOfIssue ?? DEFAULT_PLACE,
+    // The registry's values as they are, also for an incomplete entity (an autosave is never refused; generation and the previews are where
+    // incompleteness refuses, E4): the legal name and the address in each language.
+    issuerLegalName: issuer.legalName,
+    issuerAddress: { it: [...issuer.address.it], en: [...issuer.address.en] },
+    // The Italian address, kept for an old crm-ui until step 6.
+    issuerAddressLines: [...issuer.address.it],
+    // Whether there is a classic letterhead (DD-54, DD-57); never the key or a link: the browser asks the profile's link route.
+    letterhead: profile?.letterheadKey != null,
+    placeOfIssue: profile?.placeOfIssue ?? DEFAULT_PLACE,
     clientLines: clientLinesBoth(inputs),
     contacts: inputs.contacts,
     attachments: inputs.attachments,

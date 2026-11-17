@@ -44,7 +44,9 @@ import {
   renderOffer,
   renderOfferThroughService,
   renderedOf,
-  requireIssuerName,
+  legalEntitiesRetryAfter,
+  issuerValuesOf,
+  letterheadProfileOf,
   wizardSnapshotOf,
   type OfferRow,
   type StoredSnapshot,
@@ -55,7 +57,7 @@ import { parseTemplate } from "../offers/engine/syntax";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { isDeepStrictEqual } from "node:util";
 import { draftToBlocks } from "../offers/blocks";
-import { PreviewQuerySchema, PreviewResponseSchema, previewThroughService, profileOf, requireLetterheadService } from "../offers/contentSchema";
+import { PreviewQuerySchema, PreviewResponseSchema, previewThroughService, requireLetterheadService } from "../offers/contentSchema";
 import { AnswersSchema, PutDraftSchema, PutTargetSchema, TemplateIdSchema, jsonPath, parseStoredAnswers } from "./answersSchema";
 import { contextResponse, loadWizardInputs, serverToday, wizardContextOf } from "./context";
 
@@ -186,12 +188,13 @@ async function viewOf(c: HeaderSource, row: DraftRow) {
 
 /**
  * The members the issuer's block adds to the context (DD-54, DD-57, DD-61); the rest is documented in the route's
- * description and passes through. `issuerLegalName` is as saved: a blank one is the browser's reason to block Generate.
+ * description and passes through. `issuerLegalName` is the registry's, as it is: a blank one is the browser's reason to block Generate. `issuerAddress` holds both languages.
  */
 const ContextSchema = z
   .object({
     issuerLegalName: z.string(),
-    issuerAddressLines: z.array(z.string()),
+    issuerAddress: z.object({ it: z.array(z.string()), en: z.array(z.string()) }).describe("The issuer's address lines in each language, from the legal entities registry"),
+    issuerAddressLines: z.array(z.string()).describe("The Italian address lines, kept for an old browser"),
     letterhead: z.boolean().describe("The entity profile has a letterhead; the bytes come through GET /entity-profiles/{entity}/letterhead"),
   })
   .passthrough();
@@ -202,11 +205,16 @@ const contextRoute = createRoute({
   tags: ["Offer wizard"],
   summary: "What the wizard knows about the deal (deal:manage in scope + deal:financials)",
   description:
-    "The issuer's legal name and address lines as saved, whether it has a letterhead (never a link), the client block per language, contacts, place of issue, stored PDFs, the estimate's figures and the server's UTC day (`today`). " +
+    "The issuer's legal name and address lines (`issuerAddress`: Italian and English; `issuerAddressLines`: the Italian, for an old browser) as the legal entities registry holds them, also when it is incomplete (the answer is 200: an autosave is never refused; generation and the previews refuse), whether it has a letterhead (never a link), the client block per language, contacts, place of issue, stored PDFs, the estimate's figures and the server's UTC day (`today`). " +
     "It has no `language`: the browser takes the template's (DD-41). `Cache-Control: no-store`.",
-  middleware: generating,
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: { params: IdParams },
-  responses: { 200: { description: "The context", ...json(ContextSchema) }, 404: { description: "Deal not found" }, ...commonErrors },
+  responses: {
+    200: { description: "The context", ...json(ContextSchema) },
+    404: { description: "Deal not found" },
+    ...commonErrors,
+    503: { description: "legal_entities_unavailable (Retry-After: 5), or the authorization service is unavailable" },
+  },
 });
 
 const getRoute = createRoute({
@@ -243,7 +251,7 @@ const createRouteDef = createRoute({
   path: "/deals/{id}/offer-draft",
   tags: ["Offer wizard"],
   summary: "Start the deal's offer draft (If-None-Match: * required)",
-  middleware: generating,
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: { params: IdParams, body: { content: { "application/json": { schema: CreateDraftSchema } }, required: true } },
   responses: {
     ...commonErrors,
@@ -262,7 +270,7 @@ const noStore = (c: { header(name: string, value: string): void }) => c.header("
 offerDraftsRouter.openapi(contextRoute, async (c) => {
   const { id } = c.req.valid("param");
   const { deal } = await loadDealInScope(id, dealScope(c));
-  const inputs = await loadWizardInputs(c, deal, { requireEstimate: false, archivedContacts: false });
+  const inputs = await loadWizardInputs(c, deal, { requireEstimate: false, archivedContacts: false, requireCompleteIssuer: false });
   noStore(c);
   return c.json(await contextResponse(inputs, serverToday()), 200);
 });
@@ -380,7 +388,8 @@ offerDraftsRouter.openapi(createRouteDef, async (c) => {
   }
   const template = await loadWizardTemplate(templateId, deal.entity);
 
-  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: false });
+  // The values as they are: a draft is started (and autosaved) for an incomplete issuer too; generation and the previews refuse (E4).
+  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: false, requireCompleteIssuer: false });
   const { ast } = parseTemplate(template.source);
   const context = wizardContextOf(inputs, template.language, serverToday());
   let answers: WizardAnswers;
@@ -507,7 +516,7 @@ const switchRoute = createRoute({
   description:
     "The client lines, contacts, place and date stay (AC-6.5); everything else starts again from the new template. " +
     "Choosing the draft's own template changes nothing.",
-  middleware: generating,
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: {
     params: IdParams,
     body: { content: { "application/json": { schema: z.object({ templateId: TemplateIdSchema }).strict() } }, required: true },
@@ -589,17 +598,17 @@ const previewRoute = createRoute({
     "checked as a save would check it (422 `answers_invalid`). It needs the deal's draft (404 `draft_not_found`) for its template and target, but changes nothing: " +
     "no version moves and no `If-Match` is read. The answer is the service's preview unchanged plus `missingFields`; `?pages=1,2` asks for those pages only. " +
     "409 `letterhead_not_configured` (the entity has no active letterhead), 409 `letterhead_overflow` with `frame` (a profile value too long for the header or the footer), " +
-    "409 `entity_profile_missing`, and 503 `layout_service_unavailable` for a service that is unreachable, answers an error, is busy or times out. `Cache-Control: no-store`.",
-  middleware: [...generating, requireLetterheadService],
+    "409 `legal_entity_incomplete` (`entity`, `missing[]`), and 503 `legal_entities_unavailable` (with `Retry-After: 5`) or `layout_service_unavailable` for a service that is unreachable, answers an error, is busy or times out. `Cache-Control: no-store`.",
+  middleware: [...generating, legalEntitiesRetryAfter, requireLetterheadService],
   request: { params: IdParams, query: PreviewQuerySchema, body: { content: { "application/json": { schema: PutDraftSchema } }, required: true } },
   responses: {
     ...commonErrors,
     200: { description: "The pages", ...json(PreviewResponseSchema) },
     404: { description: "Deal or draft not found; or the switch is off" },
-    409: { description: "letterhead_not_configured / letterhead_overflow / entity_profile_missing / estimate_not_ready / template_format_mismatch" },
+    409: { description: "letterhead_not_configured / letterhead_overflow / legal_entity_incomplete / estimate_not_ready / template_format_mismatch" },
     413: { description: "Request body is too large" },
     422: { description: "answers_invalid" },
-    503: { description: "layout_service_unavailable" },
+    503: { description: "layout_service_unavailable / legal_entities_unavailable (Retry-After: 5)" },
   },
 });
 
@@ -618,7 +627,7 @@ offerDraftsRouter.openapi(
     if (template.entity !== deal.entity) throw notFound("Template not found");
 
     // Everything below is what generation reads, from the same places, so the pages are the PDF's (AC-10.3).
-    const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true });
+    const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true, requireCompleteIssuer: true });
     const { ast } = parseTemplate(template.source!);
     const context = wizardContextOf(inputs, template.language, serverToday());
     const first = resolveOffer(ast, answers, context);
@@ -627,7 +636,7 @@ offerDraftsRouter.openapi(
     const target = targetOf(row);
     const blocks = draftToBlocks(
       { entity: deal.entity, ast, answers, context, annex, reference: target.kind === "edit" ? target.reference : null },
-      profileOf(inputs.profile),
+      letterheadProfileOf(inputs.issuer, template.language, inputs.profile?.placeOfIssue ?? null),
     );
     noStore(c);
     return c.json(await previewThroughService(blocks, pages), 200);
@@ -673,7 +682,7 @@ offerDraftsRouter.openapi(switchRoute, async (c) => {
     c.header("ETag", etag(row.version));
     return c.json(await viewOf(c, row), 200);
   }
-  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: false });
+  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: false, requireCompleteIssuer: false });
   const { ast } = parseTemplate(template.source);
   const answers = switchTemplate(ast, kept, wizardContextOf(inputs, template.language, serverToday()));
   assertAnswersFit(ast, answers);
@@ -705,7 +714,7 @@ const generateRouteDef = createRoute({
     "With `LETTERHEAD_SERVICE_ENABLED=true` the pages are the layout service's (the deal PDFs follow them, unnumbered) and the offer records the letterhead version it was drawn with; " +
     "a service that is unreachable, answers an error, is busy or times out is 503 `layout_service_unavailable`, an entity with no active letterhead is 409 `letterhead_not_configured`, " +
     "and a profile value too long for the header or the footer is 409 `letterhead_overflow` with `frame`: in each case no offer, no number, no PDF, and the draft is kept (AC-10.6).",
-  middleware: generating,
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: { params: IdParams },
   responses: {
     ...commonErrors,
@@ -716,6 +725,7 @@ const generateRouteDef = createRoute({
     409: {
       description:
         "version_conflict / template_changed / template_archived / estimate_not_ready / offer_not_sent / offer_sent / offer_not_latest / offer_changed / " +
+        "legal_entity_incomplete (`entity`, `missing[]`: the registry says the issuer is incomplete; no number is used, the draft is kept) / " +
         "letterhead_unusable (the stored letterhead of the deal's entity fails the check: `entity`, `reason`; nothing is rendered or written, the draft is kept; upload the letterhead again; switch off only) / " +
         "letterhead_not_configured (switch on: the entity has no active letterhead; `entity`) / letterhead_overflow (switch on: `frame`, `entity`)",
     },
@@ -723,6 +733,7 @@ const generateRouteDef = createRoute({
     428: { description: "precondition_required" },
     503: {
       description:
+        "legal_entities_unavailable (the registry of the issuer's details cannot be read; `Retry-After: 5`), " +
         "layout_service_unavailable (switch on: the layout service is unreachable, answers an error, is busy or timed out; nothing was written, try again), " +
         "or the PDF check / authorization service answers described for `pdfCheckErrors`: `pdf_check_busy`, `pdf_check_unavailable`",
       content: pdfCheckErrors[503].content,
@@ -768,9 +779,9 @@ offerDraftsRouter.openapi(generateRouteDef, async (c) => {
   }
 
   const issued = new Date();
-  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true });
-  // A blank legal name is refused like an absent profile, before any resolve or byte read (AC-12.7, DD-61).
-  requireIssuerName(inputs.profile, deal.entity);
+  // The registry is read here, before the transaction and any resolve or byte read: incomplete details are 409 `legal_entity_incomplete`
+  // (a blank legal name too, AC-12.7, DD-61), an unreadable registry 503 `legal_entities_unavailable`; no number is taken either way.
+  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true, requireCompleteIssuer: true });
   const context = wizardContextOf(inputs, template.language, isoDate(issued));
   const { ast } = parseTemplate(template.source);
 
@@ -790,7 +801,8 @@ offerDraftsRouter.openapi(generateRouteDef, async (c) => {
   const viaService = env.LETTERHEAD_SERVICE_ENABLED;
   // A stored letterhead is used only once checked in this process: 409 `letterhead_unusable` before any render (DD-76).
   // With the switch on nothing reads the uploaded letterhead (AC-10.11), so it is neither read nor checked.
-  const letterhead = !viaService && inputs.profile.letterheadKey ? await usableLetterhead(storage, inputs.profile.entity, inputs.profile.letterheadKey) : null;
+  // No profile row: no letterhead, a plain page (E4).
+  const letterhead = !viaService && inputs.profile?.letterheadKey ? await usableLetterhead(storage, deal.entity, inputs.profile.letterheadKey) : null;
   const { person } = await loadPeople(c, [userId]);
   const annex = first.effortAnnex && inputs.estimate ? buildScope(inputs.estimate, { aiAssisted: first.aiAssisted, ...scopeLabels(template.language) }) : null;
 
@@ -803,7 +815,7 @@ offerDraftsRouter.openapi(generateRouteDef, async (c) => {
       resolved: resolveOffer(ast, answers, context, { reference }),
       reference,
       currency: deal.currency,
-      profile: inputs.profile,
+      profile: issuerValuesOf(inputs.issuer, template.language),
       annex,
       attachments: refs,
       preparedBy: person(userId).name,
@@ -812,7 +824,10 @@ offerDraftsRouter.openapi(generateRouteDef, async (c) => {
     ? (snapshot: ContractSnapshot) =>
         renderOfferThroughService(
           // The preview's own conversion (AC-10.3), with the reference the offer takes and the profile as it is now (AC-10.10).
-          draftToBlocks({ entity: deal.entity, ast, answers, context, annex, reference: snapshot.reference }, profileOf(inputs.profile)).content,
+          draftToBlocks(
+            { entity: deal.entity, ast, answers, context, annex, reference: snapshot.reference },
+            letterheadProfileOf(inputs.issuer, template.language, inputs.profile?.placeOfIssue ?? null),
+          ).content,
           { fileNames: refs.map((ref) => ref.fileName), bytes },
         )
     : (snapshot: ContractSnapshot) => renderOffer(snapshot, { letterhead, attachmentBytes: bytes });

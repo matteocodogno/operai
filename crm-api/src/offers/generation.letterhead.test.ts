@@ -12,7 +12,8 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { PDFDocument, PDFArray, PDFRawStream, StandardFonts, decodePDFRawStream } from "pdf-lib";
 // The test world first: it sets the environment the other modules read when they load.
-import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, resetWorld, setRetiredLegalColumns, storedPdfAttachment } from "../test-support/world";
+import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, resetWorld, registry, storedPdfAttachment } from "../test-support/world";
+import { completeEntity, incompleteEntity } from "../test-support/fakeRegistry";
 import { resetLetterheadMemoForTests } from "../entity-profiles/letterheadUse";
 import { env } from "../lib/env";
 import { LETTERHEAD_TIMEOUT_MS, createLetterheadClient, letterhead } from "../lib/letterheadClient";
@@ -210,7 +211,16 @@ describe("with the switch on", () => {
   it("sends the draft as content version 1 with the entity profile as it is now, as the service, asking for the active version (AC-10.1, AC-10.10)", async () => {
     const s = await startDraft();
     // the profile changes after the draft was made: the render takes the values of its moment
-    await setRetiredLegalColumns("welld_ch", { legalName: "wellD SA (nuova)", addressLines: ["Via Nuova 9", "6900 Lugano"], vatNumber: null, iban: null });
+    // The registry's values at the moment of the call (the CRM's own columns are not read any more, T26): no VAT, no IBAN.
+    registry.set(
+      completeEntity("welld_ch", {
+        legalName: "wellD SA (nuova)",
+        address: { it: ["Via Nuova 9", "6900 Lugano"], en: ["Via Nuova 9", "6900 Lugano"] },
+        vatNumber: "",
+        iban: "",
+        ibanPrint: "",
+      }),
+    );
     const put = await call("PUT", "/entity-profiles/welld_ch", { body: { offerTermsEn: "x", offerTermsIt: "y" } });
     expect(put.status).toBe(200);
     expect((await generate(s)).status).toBe(201);
@@ -309,12 +319,12 @@ describe("with the switch on", () => {
     expect(bucket.reads).toContain(key);
   });
 
-  it("refuses a blank legal name before the service is asked (AC-10.10, AC-12.7)", async () => {
+  it("refuses an incomplete issuer before the service is asked (AC-10.10, AC-12.7)", async () => {
     const s = await startDraft();
-    await db.entityProfile.update({ where: { entity: "welld_ch" }, data: { legalName: "  " } });
+    registry.set(incompleteEntity("welld_ch", ["legalName"], { legalName: "" }));
     const res = await generate(s);
     expect(res.status).toBe(409);
-    expect(res.json.code).toBe("entity_profile_missing");
+    expect(res.json).toMatchObject({ code: "legal_entity_incomplete", entity: "welld_ch", missing: ["legalName"] });
     expect(fake.calls).toHaveLength(0);
     expect(await offers(s.dealId)).toHaveLength(0);
   });

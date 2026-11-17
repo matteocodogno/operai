@@ -13,7 +13,8 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { join } from "node:path";
 // The test world first: it sets the environment the other modules read when they load.
-import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, resetWorld, DRAFT_SOURCE, type PersonaName } from "../test-support/world";
+import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, registry, resetWorld, DRAFT_SOURCE, type PersonaName } from "../test-support/world";
+import { incompleteEntity } from "../test-support/fakeRegistry";
 import { env } from "../lib/env";
 import { Hono } from "hono";
 import { ProblemError } from "../lib/problem";
@@ -304,14 +305,32 @@ describe("POST /deals/{id}/offer-draft/preview", () => {
     expect(wire).not.toContain("NNNN/AAAA");
   });
 
-  it("is 409 entity_profile_missing for a blank legal name or no profile, as generation is, without calling the service (AC-10.10)", async () => {
+  it("is 409 legal_entity_incomplete naming what is missing, as generation is, without calling the service (AC-6.3, AC-10.10)", async () => {
     const s = await startDraft();
-    await db.entityProfile.update({ where: { entity: "welld_ch" }, data: { legalName: "  " } });
+    registry.set(incompleteEntity("welld_ch", ["legalName"], { legalName: "  " }));
     const blank = await preview(s, bodyOf(s));
-    expect([blank.status, blank.json.code, blank.json.entity]).toEqual([409, "entity_profile_missing", "welld_ch"]);
+    expect([blank.status, blank.json.code, blank.json.entity, blank.json.missing]).toEqual([409, "legal_entity_incomplete", "welld_ch", ["legalName"]]);
+    registry.set(incompleteEntity("welld_ch", ["vatNumber", "address.en"]));
+    const partial = await preview(s, bodyOf(s));
+    expect([partial.status, partial.json.code, partial.json.missing]).toEqual([409, "legal_entity_incomplete", ["vatNumber", "address.en"]]);
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("never answers entity_profile_missing: a missing profile row is drawn with place Lugano (E4)", async () => {
+    const s = await startDraft();
     await db.entityProfile.delete({ where: { entity: "welld_ch" } });
-    const absent = await preview(s, bodyOf(s));
-    expect([absent.status, absent.json.code]).toEqual([409, "entity_profile_missing"]);
+    const res = await preview(s, bodyOf(s));
+    expect(res.status).toBe(200);
+    expect(fake.calls).toHaveLength(1);
+  });
+
+  it("is 503 legal_entities_unavailable with Retry-After: 5 when the registry cannot be read, without calling the service", async () => {
+    const s = await startDraft();
+    registry.unavailable();
+    const res = await preview(s, bodyOf(s));
+    expect(res.status).toBe(503);
+    expect(res.json.code).toBe("legal_entities_unavailable");
+    expect(res.headers.get("Retry-After")).toBe("5");
     expect(fake.calls).toEqual([]);
   });
 

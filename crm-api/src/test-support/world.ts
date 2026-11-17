@@ -20,6 +20,8 @@ const { __resetAuthzCacheForTests } = await import("../auth/authz.middleware");
 const { __resetIdentityCacheForTests } = await import("../lib/identities");
 const { setStorageForTests } = await import("../lib/storage");
 type Storage = import("../lib/storage").Storage;
+const { legalEntities } = await import("../lib/legalEntities");
+const { fakeRegistryClient, completeEntity } = await import("./fakeRegistry");
 
 export { app, db };
 
@@ -371,6 +373,7 @@ export const memoryStorage: Storage = {
 };
 
 export async function resetWorld(): Promise<void> {
+  resetRegistry();
   estimaiVersions.clear();
   activitiesApi.reset();
   await db.$executeRawUnsafe(
@@ -553,23 +556,54 @@ export const ENTITY_PROFILE = {
   offerTermsIt: "Pagamento a 30 giorni.",
 };
 
+// ─── The legal entities registry (specs/20261117-legal-entities T26) ──────────────────────────────────────
+
 /**
- * Sets the entity's profile through the API (throws unless it lands). The API no longer stores the legal details
- * (specs/20261117-legal-entities T29, AC-6.1), but the document paths read them from the columns until T26 moves them to the
- * registry: the fixture writes the four retired columns directly, the way the copy script's source looked. T26 replaces
- * this with the registry fake and removes the second step.
+ * The legal entities registry as the document paths see it: the fake client of `fakeRegistry.ts`, standing in for the wired
+ * `legalEntities` of crm-api in every test that imports this world (the issuer's legal name, address, VAT number and IBAN come
+ * from it, never from the CRM's columns). `resetWorld()` puts both entities back to the complete defaults of `ENTITY_PROFILE`
+ * (`wellD SA` / `wellD Srl`); a test changes one with `registry.set(...)` (`incompleteEntity`, `completeEntity`) or turns the
+ * registry off with `registry.unavailable()`.
  */
-export async function putEntityProfile(entity: "welld_ch" | "welld_it" = "welld_ch") {
-  const { legalName, addressLines, vatNumber, iban, ...own } = ENTITY_PROFILE;
-  const res = await call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: own });
-  if (res.status !== 200) throw new Error(`putEntityProfile: ${res.status} ${JSON.stringify(res.json)}`);
-  await db.entityProfile.update({
-    where: { entity },
-    data: { legalName: entity === "welld_it" ? "wellD Srl" : legalName, addressLines, vatNumber, iban },
+export const registry = fakeRegistryClient();
+spyOn(legalEntities, "all").mockImplementation(() => registry.all());
+spyOn(legalEntities, "get").mockImplementation((entity) => registry.get(entity));
+spyOn(legalEntities, "invalidate").mockImplementation(() => registry.invalidate());
+
+/** The complete details the world's issuers have by default: `ENTITY_PROFILE`'s values (the address is the same in both languages). */
+export function worldIssuer(entity: "welld_ch" | "welld_it") {
+  return completeEntity(entity, {
+    legalName: entity === "welld_it" ? "wellD Srl" : ENTITY_PROFILE.legalName,
+    address: { it: [...ENTITY_PROFILE.addressLines], en: [...ENTITY_PROFILE.addressLines] },
+    vatNumber: ENTITY_PROFILE.vatNumber,
+    iban: ENTITY_PROFILE.iban.replace(/\s/g, ""),
+    ibanPrint: ENTITY_PROFILE.iban,
+    contacts: { it: "", en: "" },
+    complete: true,
+    missing: [],
+    invalid: [],
   });
 }
 
-/** Writes the retired legal columns of an existing profile, as an operator's SQL would (T26 moves the readers to the registry). */
+function resetRegistry(): void {
+  registry.unavailable(false);
+  registry.set(worldIssuer("welld_ch"));
+  registry.set(worldIssuer("welld_it"));
+}
+resetRegistry();
+
+
+/**
+ * Sets the entity's own profile through the API (terms and place of issue; throws unless it lands). The legal details are the
+ * registry's, not the profile's (specs/20261117-legal-entities T29, T26): `registry` holds them (`worldIssuer`).
+ */
+export async function putEntityProfile(entity: "welld_ch" | "welld_it" = "welld_ch") {
+  const { legalName: _l, addressLines: _a, vatNumber: _v, iban: _i, ...own } = ENTITY_PROFILE;
+  const res = await call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: own });
+  if (res.status !== 200) throw new Error(`putEntityProfile: ${res.status} ${JSON.stringify(res.json)}`);
+}
+
+/** Writes the retired legal columns of an existing profile, as an operator's SQL would: no document path reads them any more (T26). */
 export async function setRetiredLegalColumns(
   entity: "welld_ch" | "welld_it",
   values: { legalName?: string; addressLines?: string[]; vatNumber?: string | null; iban?: string | null },

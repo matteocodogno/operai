@@ -60,6 +60,8 @@ import {
   isContract,
   latestOffer,
   assertLegacyTemplate,
+  legalEntitiesRetryAfter,
+  letterheadProfileOf,
   loadContext,
   notSent,
   offerOrigin,
@@ -75,7 +77,6 @@ import {
   type StoredSnapshot,
 } from "./generation";
 import { snapshotToBlocks } from "./blocks";
-import { profileOf } from "./contentSchema";
 import { legacyContent } from "./legacyContent";
 import { CostColumnsSchema, GenerateOfferSchema, OfferSchema, SectionSchema } from "./offerSchemas";
 import { roundHalfUp, totalManDays } from "./scope";
@@ -181,14 +182,15 @@ const draftRoute = createRoute({
   description:
     "Resolves the template's placeholders against the deal, the company and the ready estimate. " +
     "404 when the template does not exist or belongs to another entity, 409 `template_archived`, " +
-    "409 `estimate_not_ready`, 409 `entity_profile_missing`.",
-  middleware: generating,
+    "409 `estimate_not_ready`, 409 `legal_entity_incomplete` (the registry's details of the entity are incomplete), 503 `legal_entities_unavailable` with `Retry-After: 5`.",
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: { params: IdParams, query: DraftQuery },
   responses: {
     200: { description: "The prefill", ...json(DraftSchema) },
     404: { description: "Deal or template not found" },
-    409: { description: "estimate_not_ready / entity_profile_missing / template_archived / template_format_mismatch" },
+    409: { description: "estimate_not_ready / legal_entity_incomplete / template_archived / template_format_mismatch" },
     ...commonErrors,
+    503: { description: "legal_entities_unavailable (Retry-After: 5), or the authorization service is unavailable" },
   },
 });
 
@@ -200,10 +202,13 @@ const draftRoute = createRoute({
 function rendererOf(prepared: Prepared): (snapshot: ContractSnapshot) => Promise<Rendered> {
   if (!env.LETTERHEAD_SERVICE_ENABLED) return (snapshot) => renderOffer(snapshot, prepared);
   return (snapshot) =>
-    renderOfferThroughService(snapshotToBlocks(snapshot, profileOf(prepared.profile), prepared.deal.entity), {
-      fileNames: prepared.attachments.map((attachment) => attachment.fileName),
-      bytes: prepared.attachmentBytes,
-    });
+    renderOfferThroughService(
+      snapshotToBlocks(snapshot, letterheadProfileOf(prepared.issuer, snapshot.language, prepared.profile?.placeOfIssue ?? null), prepared.deal.entity),
+      {
+        fileNames: prepared.attachments.map((attachment) => attachment.fileName),
+        bytes: prepared.attachmentBytes,
+      },
+    );
 }
 
 const generateRoute = createRoute({
@@ -211,7 +216,7 @@ const generateRoute = createRoute({
   path: "/deals/{id}/offers",
   tags: ["Offers"],
   summary: "Generate the next offer version (deal:manage in scope + deal:financials)",
-  middleware: generating,
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: { params: IdParams, body: { content: { "application/json": { schema: GenerateOfferSchema } }, required: true } },
   responses: {
     ...commonErrors,
@@ -220,11 +225,11 @@ const generateRoute = createRoute({
     404: { description: "Not found" },
     503: {
       ...pdfCheckErrors[503],
-      description: `${pdfCheckErrors[503].description} With the switch on, also \`layout_service_unavailable\` (the layout service cannot be reached or is busy: no offer, no number, no PDF; try again).`,
+      description: `${pdfCheckErrors[503].description} With the switch on, also \`layout_service_unavailable\` (the layout service cannot be reached or is busy: no offer, no number, no PDF; try again), and \`legal_entities_unavailable\` (the registry of the issuer's details cannot be read; \`Retry-After: 5\`).`,
     },
     409: {
       description:
-        "estimate_not_ready / entity_profile_missing / template_archived / template_format_mismatch / " +
+        "estimate_not_ready / legal_entity_incomplete (`entity`, `missing[]`: the registry says the issuer is incomplete; no number is used) / template_archived / template_format_mismatch / " +
         "letterhead_unusable (switch off only: the stored letterhead of the deal's entity fails the check: `entity`, `reason`; nothing is rendered or written; upload the letterhead again) / " +
         "letterhead_not_configured (switch on: the entity has no active letterhead in the service) / letterhead_overflow (switch on: `frame`, `entity`); nothing is stored, no number is consumed",
     },
@@ -276,7 +281,7 @@ const editRoute = createRoute({
   path: "/deals/{id}/offers/{offerId}",
   tags: ["Offers"],
   summary: "Edit an offer that has not been sent: same reference, new PDF (If-Match required)",
-  middleware: generating,
+  middleware: [...generating, legalEntitiesRetryAfter],
   request: { params: OfferParams, body: { content: { "application/json": { schema: GenerateOfferSchema } }, required: true } },
   responses: {
     ...commonErrors,
@@ -285,13 +290,13 @@ const editRoute = createRoute({
     404: { description: "Not found" },
     409: {
       description:
-        "offer_sent / offer_not_latest / offer_legacy / offer_wizard / version_conflict / template_archived / " +
+        "offer_sent / offer_not_latest / offer_legacy / offer_wizard / version_conflict / template_archived / legal_entity_incomplete (`entity`, `missing[]`) / " +
         "letterhead_not_configured / letterhead_overflow (switch on: nothing is stored, the offer is as it was)",
     },
     428: { description: "precondition_required" },
     503: {
       ...pdfCheckErrors[503],
-      description: `${pdfCheckErrors[503].description} With the switch on, also \`layout_service_unavailable\` (the layout service cannot be reached or is busy: the offer is as it was; try again).`,
+      description: `${pdfCheckErrors[503].description} With the switch on, also \`layout_service_unavailable\` (the layout service cannot be reached or is busy: the offer is as it was; try again), and \`legal_entities_unavailable\` (the registry of the issuer's details cannot be read; \`Retry-After: 5\`).`,
     },
   },
 });
@@ -336,14 +341,14 @@ offersRouter.openapi(listRoute, async (c) => {
 offersRouter.openapi(draftRoute, async (c) => {
   const { id } = c.req.valid("param");
   const { templateId, aiAssisted } = c.req.valid("query");
-  const { deal, link, profile, template } = await loadContext(id, templateId, dealScope(c));
+  const { deal, link, issuer, template } = await loadContext(id, templateId, dealScope(c));
   assertLegacyTemplate(template);
   const estimate = link ? await getEstimate(c, link.estimateId) : NO_ESTIMATE;
   const built = buildDraft({
     template: templateContentOf(template),
     deal: { title: deal.title, amountCents: deal.amountCents === null ? null : Number(deal.amountCents), currency: deal.currency },
     company: deal.company,
-    issuerLegalName: profile.legalName,
+    issuerLegalName: issuer.legalName,
     estimate,
     aiAssisted: aiAssisted === "true",
     validityDays: DEFAULT_VALIDITY_DAYS,

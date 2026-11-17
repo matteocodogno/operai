@@ -18,15 +18,22 @@ import { assertInScope } from "../deals/deals.routes";
 import { usableLetterhead } from "../entity-profiles/letterheadUse";
 import { PDFDocument } from "pdf-lib";
 import { boundPdfIsolated } from "../entity-profiles/isolatedPdfCheck";
+import type { MiddlewareHandler } from "hono";
 import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { getEstimate, type EstimateDocument } from "../lib/estimai";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { LAYOUT_SERVICE_UNAVAILABLE, LETTERHEAD_TIMEOUT_MS, letterhead } from "../lib/letterheadClient";
+import {
+  LEGAL_ENTITIES_RETRY_AFTER_SECONDS,
+  LEGAL_ENTITIES_UNAVAILABLE,
+  legalEntities,
+  type LegalEntityDetails,
+} from "../lib/legalEntities";
 import { loadPeople } from "../lib/people";
 import { ProblemError, conflict, notFound, unprocessable } from "../lib/problem";
 import { MAX_OFFER_ATTACHMENT_BYTES, requireStorage, type Storage } from "../lib/storage";
-import { entityDataOf, type LetterheadContent } from "./blocks";
+import type { LetterheadContent, LetterheadProfile } from "./blocks";
 import { overflowOf } from "./contentSchema";
 import { computeCosts } from "./costs";
 import type { WizardAnswers } from "./engine/answers";
@@ -57,6 +64,7 @@ export function assertLegacyTemplate(template: { readonly id: string; readonly f
 }
 
 const DEFAULT_PLACE = "Lugano";
+type Entity = "welld_ch" | "welld_it";
 
 export const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -73,14 +81,16 @@ export const offerReference = (dealId: string, number: number, issued: Date) =>
 
 
 /**
- * Everything draft and generate share: the deal, its scope, the ready estimate,
- * the entity profile and an active template of the deal's entity. A deal whose
- * estimate gate an admin overrode (specs/20261101-crm-sales-flow AC-3.7) has an offer without an
- * estimate: `link` is then null and the scope, man-days and timeline are empty.
+ * Everything draft and generate share: the deal, its scope, the ready estimate, the issuer (the registry's values, which
+ * must be complete) and an active template of the deal's entity. A deal whose estimate gate an admin overrode
+ * (specs/20261101-crm-sales-flow AC-3.7) has an offer without an estimate: `link` is then null and the scope, man-days and
+ * timeline are empty. `profile` is the CRM's own row of the entity (terms, place of issue, classic letterhead): it may not
+ * exist, and an offer is made without it (E4).
  */
 export async function loadContext(dealId: string, templateId: string, scope: ReturnType<typeof dealScope>) {
   const { deal } = await loadDealInScope(dealId, scope);
   const link = estimateLinkOf(deal);
+  const issuer = await loadIssuer(deal.entity, { requireComplete: true });
   const profile = await loadProfile(deal.entity);
   const template = await db.offerTemplate.findUnique({ where: { id: templateId } });
   // Another entity's template is "not found", like a missing one: no existence leak across entities.
@@ -88,7 +98,7 @@ export async function loadContext(dealId: string, templateId: string, scope: Ret
   if (template.archivedAt) {
     throw conflict("template_archived", "This template is archived; choose an active one", { templateId });
   }
-  return { deal, link, profile, template };
+  return { deal, link, issuer, profile, template };
 }
 
 /** The deal with its company and estimate link; 404 when it does not exist, 403 `out_of_scope` outside the caller's entities. */
@@ -112,28 +122,77 @@ export function estimateLinkOf<T extends { estimateId: string; state: string; ov
   return link;
 }
 
-/** The entity's letterhead data; 409 `entity_profile_missing` without it. */
-export async function loadProfile(entity: "welld_ch" | "welld_it") {
-  const profile = await db.entityProfile.findUnique({ where: { entity } });
-  if (!profile) {
-    throw new ProblemError({
-      status: 409,
-      code: "entity_profile_missing",
-      detail: "Set the entity's letterhead in CRM settings before generating an offer",
-      extras: { entity },
-    });
-  }
-  return profile;
+/**
+ * The CRM's own row of the entity (offer terms, place of issue, the classic letterhead), or null when it does not exist yet.
+ * A missing row is not a refusal any more (E4): the place of issue is "Lugano", there are no standard terms and no classic
+ * letterhead (a plain page). Only the two classic letterhead upload routes still answer `entity_profile_missing`.
+ */
+export async function loadProfile(entity: Entity) {
+  return db.entityProfile.findUnique({ where: { entity } });
+}
+
+// ─── The issuer: the registry's values (specs/20261117-legal-entities T26; AC-5.5, AC-6.2, AC-6.3, AC-7.3) ──────────────
+
+export const LEGAL_ENTITY_INCOMPLETE = "legal_entity_incomplete";
+
+/**
+ * The entity's legal details from the registry, under its cache rule (503 `legal_entities_unavailable` when they cannot be
+ * read within it). With `requireComplete`, details the registry judges incomplete (`complete: false`, a blank legal name too)
+ * are 409 `legal_entity_incomplete` naming `entity` and `missing[]`; details that are complete but hold a value today's rules
+ * refuse (`invalid`, "Needs correction") are used as they are (E13). Read BEFORE the offer's transaction opens, so a refusal
+ * consumes no number.
+ */
+export async function loadIssuer(entity: Entity, options: { readonly requireComplete: boolean }): Promise<LegalEntityDetails> {
+  const details = await legalEntities.get(entity);
+  if (options.requireComplete) requireCompleteIssuer(details);
+  return details;
+}
+
+/** 409 `legal_entity_incomplete` unless the registry says the entity is complete (and has a legal name to print). */
+export function requireCompleteIssuer(details: LegalEntityDetails): void {
+  const blankName = details.legalName.trim() === "";
+  if (details.complete && !blankName) return;
+  const missing = details.missing.length > 0 ? [...details.missing] : blankName ? ["legalName"] : [];
+  throw new ProblemError({
+    status: 409,
+    code: LEGAL_ENTITY_INCOMPLETE,
+    detail: "The issuer's legal details are incomplete: complete them in the legal entities settings before making an offer",
+    extras: { entity: details.entity, missing },
+  });
 }
 
 /**
- * A profile whose legal name is blank after trim is refused like an absent one (409 `entity_profile_missing`): the
- * engine prints "" for it (DD-57) and an offer must never go out without its issuer (AC-12.7, DD-61). Only generate
- * calls it: the context route must answer and an autosave is never refused.
+ * Adds `Retry-After: 5` to a 503 `legal_entities_unavailable` the handler threw: `ProblemError` carries no headers, so each
+ * route that can answer it has this in its middleware.
  */
-export function requireIssuerName(profile: { readonly legalName: string }, entity: "welld_ch" | "welld_it"): void {
-  // The one refusal: `entityDataOf` (the service's content) throws it for the same blank name, so the two cannot say different things.
-  entityDataOf({ legalName: profile.legalName, addressLines: [], vatNumber: null, iban: null }, entity);
+export const legalEntitiesRetryAfter: MiddlewareHandler = async (c, next) => {
+  await next();
+  const error = c.error;
+  if (error instanceof ProblemError && error.code === LEGAL_ENTITIES_UNAVAILABLE) {
+    c.res.headers.set("Retry-After", String(LEGAL_ENTITIES_RETRY_AFTER_SECONDS));
+  }
+};
+
+/** What an offer prints of the issuer, in the offer's language: the legal name, `address[language]`, the VAT number and the IBAN as printed. */
+export interface IssuerValues {
+  readonly legalName: string;
+  readonly addressLines: readonly string[];
+  readonly vatNumber: string | null;
+  readonly iban: string | null;
+}
+
+export function issuerValuesOf(details: LegalEntityDetails, language: OfferLanguage): IssuerValues {
+  return {
+    legalName: details.legalName,
+    addressLines: details.address[language],
+    vatNumber: details.vatNumber === "" ? null : details.vatNumber,
+    iban: details.ibanPrint === "" ? null : details.ibanPrint,
+  };
+}
+
+/** The issuer as the layout service's content takes it (`entityData`), with the CRM's place of issue where the row has one. */
+export function letterheadProfileOf(details: LegalEntityDetails, language: OfferLanguage, placeOfIssue: string | null = null): LetterheadProfile {
+  return { ...issuerValuesOf(details, language), placeOfIssue };
 }
 
 const isUnreadable = (error: unknown): error is Error & { fileName?: string } =>
@@ -207,7 +266,7 @@ export async function prepareOffer(
   dealId: string,
   body: GenerateBody,
 ) {
-  const { deal, link, profile, template } = await loadContext(dealId, body.templateId, scope);
+  const { deal, link, issuer, profile, template } = await loadContext(dealId, body.templateId, scope);
   assertLegacyTemplate(template);
   const language: OfferLanguage = template.language;
 
@@ -233,14 +292,16 @@ export async function prepareOffer(
   // A stored letterhead is used only once checked in this process: 409 `letterhead_unusable` before any render (DD-76).
   // With the switch on nothing reads the uploaded letterhead (AC-10.11): it is neither read nor checked, so that answer cannot
   // be given even in the window before the retirement script has deleted the object (specs/20261116-letterhead-service T30).
+  // No profile row: no letterhead, a plain page (E4).
   const letterhead =
-    !env.LETTERHEAD_SERVICE_ENABLED && profile.letterheadKey ? await usableLetterhead(storage, profile.entity, profile.letterheadKey) : null;
+    !env.LETTERHEAD_SERVICE_ENABLED && profile?.letterheadKey ? await usableLetterhead(storage, deal.entity, profile.letterheadKey) : null;
   const estimate: EstimateDocument | null = link ? await getEstimate(c, link.estimateId) : null;
   const userId = c.get("userId");
   const { person } = await loadPeople(c, [userId]);
   const annex = body.annex && estimate ? buildScope(estimate, { aiAssisted: body.aiAssisted, ...scopeLabels(language) }) : null;
   return {
     deal,
+    issuer,
     profile,
     template,
     language,
@@ -267,13 +328,8 @@ export function snapshotOf(prepared: Prepared, body: GenerateBody, reference: st
     issuedOn: isoDate(issued),
     validUntil: isoDate(new Date(issued.getTime() + body.validityDays * 86_400_000)),
     validityDays: body.validityDays,
-    place: profile.placeOfIssue ?? DEFAULT_PLACE,
-    issuer: {
-      legalName: profile.legalName,
-      addressLines: profile.addressLines,
-      vatNumber: profile.vatNumber,
-      iban: profile.iban,
-    },
+    place: profile?.placeOfIssue ?? DEFAULT_PLACE,
+    issuer: { ...issuerValuesOf(prepared.issuer, prepared.language) },
     salutation: body.salutation,
     clientLines: body.clientLines,
     contacts: prepared.contacts,
@@ -299,7 +355,8 @@ export interface WizardSnapshotInput {
   readonly resolved: ResolvedOffer;
   readonly reference: string;
   readonly currency: "CHF" | "EUR";
-  readonly profile: { readonly legalName: string; readonly addressLines: readonly string[]; readonly vatNumber: string | null; readonly iban: string | null };
+  /** The issuer's values as the offer prints them (`issuerValuesOf` of the registry's details, in the offer's language). */
+  readonly profile: IssuerValues;
   /** The effort detail, or null when the offer has none (the template's, or no estimate). */
   readonly annex: Scope | null;
   readonly attachments: readonly OfferAttachmentRef[];

@@ -10,7 +10,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 // The test world first: it sets the environment the other modules read when they load.
-import { DRAFT_SOURCE, PERSONAS, WIZARD_SOURCE, call, db, makeWizardTemplate, putEntityProfile, resetWorld, type PersonaName } from "../test-support/world";
+import { DRAFT_SOURCE, PERSONAS, WIZARD_SOURCE, call, db, makeWizardTemplate, putEntityProfile, registry, resetWorld, worldIssuer, type PersonaName } from "../test-support/world";
+import { incompleteEntity } from "../test-support/fakeRegistry";
 import { env } from "../lib/env";
 import { MAX_PREVIEWS_IN_FLIGHT_PER_PERSON, previewCap } from "../offers/contentSchema";
 import { createLetterheadClient, letterhead } from "../lib/letterheadClient";
@@ -297,15 +298,30 @@ describe("POST /offer-templates/{id}/try-preview", () => {
     expect(fake.calls).toEqual([]);
   });
 
-  it("is 409 entity_profile_missing for a blank legal name or no profile, without calling the service", async () => {
+  it("is 409 legal_entity_incomplete naming what is missing, without calling the service (AC-6.3)", async () => {
     const t = await template();
-    await db.entityProfile.update({ where: { entity: "welld_ch" }, data: { legalName: " " } });
+    registry.set(incompleteEntity("welld_ch", ["legalName"], { legalName: " " }));
     const blank = await tryPreview(t, tryBody(t));
-    expect([blank.status, blank.json.code, blank.json.entity]).toEqual([409, "entity_profile_missing", "welld_ch"]);
-    await db.entityProfile.delete({ where: { entity: "welld_ch" } });
-    const absent = await tryPreview(t, tryBody(t));
-    expect([absent.status, absent.json.code]).toEqual([409, "entity_profile_missing"]);
+    expect([blank.status, blank.json.code, blank.json.entity, blank.json.missing]).toEqual([409, "legal_entity_incomplete", "welld_ch", ["legalName"]]);
     expect(fake.calls).toEqual([]);
+  });
+
+  it("is 503 legal_entities_unavailable with Retry-After: 5 when the registry cannot be read, without calling the service", async () => {
+    const t = await template();
+    registry.unavailable();
+    const res = await tryPreview(t, tryBody(t));
+    expect(res.status).toBe(503);
+    expect(res.json.code).toBe("legal_entities_unavailable");
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(fake.calls).toEqual([]);
+  });
+
+  it("never answers entity_profile_missing: a missing profile row is drawn (E4)", async () => {
+    const t = await template();
+    await db.entityProfile.delete({ where: { entity: "welld_ch" } });
+    const res = await tryPreview(t, tryBody(t));
+    expect(res.status).toBe(200);
+    expect(fake.calls).toHaveLength(1);
   });
 
   describe("when the service cannot draw the pages (the draft route's answers, AC-10.7, AC-10.8)", () => {
@@ -611,14 +627,19 @@ describe("POST /offer-templates/try-preview, a template that was never saved (T5
     expect(fake.calls).toEqual([]);
   });
 
-  it("is 409 entity_profile_missing for a blank legal name or no profile, without calling the service", async () => {
+  it("is 409 legal_entity_incomplete, or 503 legal_entities_unavailable with Retry-After: 5, without calling the service; a missing profile row is no refusal (E4)", async () => {
     await putEntityProfile("welld_ch");
-    await db.entityProfile.update({ where: { entity: "welld_ch" }, data: { legalName: " " } });
+    registry.set(incompleteEntity("welld_ch", ["legalName"], { legalName: " " }));
     const blank = await tryUnsaved(unsavedBody());
-    expect([blank.status, blank.json.code, blank.json.entity]).toEqual([409, "entity_profile_missing", "welld_ch"]);
-    await db.entityProfile.delete({ where: { entity: "welld_ch" } });
-    expect((await tryUnsaved(unsavedBody())).json.code).toBe("entity_profile_missing");
+    expect([blank.status, blank.json.code, blank.json.entity, blank.json.missing]).toEqual([409, "legal_entity_incomplete", "welld_ch", ["legalName"]]);
+    registry.unavailable();
+    const down = await tryUnsaved(unsavedBody());
+    expect([down.status, down.json.code, down.headers.get("Retry-After")]).toEqual([503, "legal_entities_unavailable", "5"]);
     expect(fake.calls).toEqual([]);
+    registry.unavailable(false);
+    registry.set(worldIssuer("welld_ch"));
+    await db.entityProfile.delete({ where: { entity: "welld_ch" } });
+    expect((await tryUnsaved(unsavedBody())).status).toBe(200);
   });
 
   it("answers the service's failures as the saved route does: 503, 409 letterhead_not_configured, 409 letterhead_overflow with the frame", async () => {

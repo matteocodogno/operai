@@ -56,8 +56,8 @@ import type { OfferTemplateContent } from "../offers/contract";
 import { checkAnswers, type WizardAnswers } from "../offers/engine/answers";
 import { parseTemplate } from "../offers/engine/syntax";
 import { templateToBlocks } from "../offers/blocks";
-import { PreviewQuerySchema, PreviewResponseSchema, previewThroughService, profileOf, requireLetterheadService } from "../offers/contentSchema";
-import { loadProfile } from "../offers/generation";
+import { PreviewQuerySchema, PreviewResponseSchema, previewThroughService, requireLetterheadService } from "../offers/contentSchema";
+import { legalEntitiesRetryAfter, letterheadProfileOf, loadIssuer, loadProfile } from "../offers/generation";
 import { AnswersSchema } from "../offer-drafts/answersSchema";
 import { legacyContent } from "../offers/legacyContent";
 import { DEFAULT_TEMPLATES_EN } from "../offers/defaultTemplates.en";
@@ -508,10 +508,10 @@ const TRY_PREVIEW_DESCRIPTION =
   "(a person who may only read the template previews it too; template reads carry no entity scope, so neither does this). The body is `{ content, answers?, entity, language }`: `content` is the template PUT's " +
   "body, `answers` the editor's sample answers (absent: the template's own samples), `entity` and `language` the template's and the text's. A text with errors is 422 " +
   "`template_invalid`; answers are checked as a draft's are, except that a value outside its field's options is not refused, because the text moves under the answers " +
-  "while it is being typed. The made-up deal and the sample answers are made by the same conversion as an offer's draft, with the entity profile's issuer values; " +
+  "while it is being typed. The made-up deal and the sample answers are made by the same conversion as an offer's draft, with the issuer values of the legal entities registry; " +
   "nothing is saved and no version moves. The answer and the errors are those of `POST /deals/{id}/offer-draft/preview`: the service's preview plus `missingFields`; " +
-  "409 `letterhead_not_configured`, 409 `letterhead_overflow` with `frame`, 409 `entity_profile_missing`, 422 `section_too_long`, 429 `preview_busy` (at most 2 previews " +
-  "in flight per person, across both preview routes), 503 `layout_service_unavailable`. `Cache-Control: no-store`.";
+  "409 `letterhead_not_configured`, 409 `letterhead_overflow` with `frame`, 409 `legal_entity_incomplete` (`entity`, `missing[]`), 422 `section_too_long`, 429 `preview_busy` (at most 2 previews " +
+  "in flight per person, across both preview routes), 503 `layout_service_unavailable` or `legal_entities_unavailable` (with `Retry-After: 5`). `Cache-Control: no-store`.";
 
 const tryPreviewRoute = createRoute({
   method: "post",
@@ -521,7 +521,7 @@ const tryPreviewRoute = createRoute({
   description:
     `${TRY_PREVIEW_DESCRIPTION} Here \`entity\` and \`language\` must be the stored template's own (422 when they differ: the pages are drawn on the template's own ` +
     "entity's letterhead), and only a wizard template can be tried (409 `template_format_mismatch`); an unknown id is 404.",
-  middleware: [...reading, requireLetterheadService],
+  middleware: [...reading, legalEntitiesRetryAfter, requireLetterheadService],
   request: {
     params: IdParams,
     query: PreviewQuerySchema,
@@ -531,10 +531,10 @@ const tryPreviewRoute = createRoute({
     ...commonErrors,
     200: { description: "The pages", ...json(PreviewResponseSchema) },
     404: { description: "Template not found; or the switch is off" },
-    409: { description: "letterhead_not_configured / letterhead_overflow / entity_profile_missing / template_format_mismatch" },
+    409: { description: "letterhead_not_configured / letterhead_overflow / legal_entity_incomplete / template_format_mismatch" },
     422: { description: "Invalid body, entity or language not the template's, template_invalid, answers_invalid, or section_too_long" },
     429: { description: "preview_busy" },
-    503: { description: "layout_service_unavailable" },
+    503: { description: "layout_service_unavailable / legal_entities_unavailable (Retry-After: 5)" },
   },
 });
 
@@ -547,7 +547,7 @@ const tryPreviewUnsavedRoute = createRoute({
   description:
     `${TRY_PREVIEW_DESCRIPTION} The body is validated as a template create's is (\`name\`, \`language\`, \`description\`, \`uses\`, \`source\`: 422 with the same ` +
     "codes), and `entity` is the entity the template will be created for; a name that another template holds is not refused here, only a save refuses it.",
-  middleware: [...reading, requireLetterheadService],
+  middleware: [...reading, legalEntitiesRetryAfter, requireLetterheadService],
   request: {
     query: PreviewQuerySchema,
     body: { content: { "application/json": { schema: z.object({}).passthrough() } }, required: true },
@@ -556,10 +556,10 @@ const tryPreviewUnsavedRoute = createRoute({
     ...commonErrors,
     200: { description: "The pages", ...json(PreviewResponseSchema) },
     404: { description: "The switch is off" },
-    409: { description: "letterhead_not_configured / letterhead_overflow / entity_profile_missing" },
+    409: { description: "letterhead_not_configured / letterhead_overflow / legal_entity_incomplete" },
     422: { description: "Invalid body, language not the text's, template_invalid, answers_invalid, or section_too_long" },
     429: { description: "preview_busy" },
-    503: { description: "layout_service_unavailable" },
+    503: { description: "layout_service_unavailable / legal_entities_unavailable (Retry-After: 5)" },
   },
 });
 
@@ -773,8 +773,14 @@ async function tryPreviewOf(
       });
     }
   }
+  // The issuer is the registry's (409 `legal_entity_incomplete` when it is incomplete, 503 `legal_entities_unavailable` when unreadable);
+  // the CRM's own row only gives the place of issue and may not exist (E4).
+  const issuer = await loadIssuer(entity, { requireComplete: true });
   const profile = await loadProfile(entity);
-  const blocks = templateToBlocks({ entity, ast, language: body.language, ...(answers ? { answers } : {}) }, profileOf(profile));
+  const blocks = templateToBlocks(
+    { entity, ast, language: body.language, ...(answers ? { answers } : {}) },
+    letterheadProfileOf(issuer, body.language, profile?.placeOfIssue ?? null),
+  );
   c.header("Cache-Control", "no-store");
   return previewThroughService(blocks, pages);
 }

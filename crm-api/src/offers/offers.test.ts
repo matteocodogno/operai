@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { PDFDocument } from "pdf-lib";
-import { bucket, call, db, estimai, estimaiNotice, makeCompany, makeDeal, offerBody, resetWorld, setRetiredLegalColumns } from "../test-support/world";
+import { bucket, call, db, estimai, estimaiNotice, makeCompany, makeDeal, offerBody, registry, resetWorld, worldIssuer } from "../test-support/world";
+import { completeEntity, incompleteEntity } from "../test-support/fakeRegistry";
 import { setStorageForTests } from "../lib/storage";
 import { deflatedRun, objStmBombPdf } from "../test-support/pdfBuild";
 
@@ -60,12 +61,13 @@ async function readyDeal(
   return { deal, company };
 }
 
-/** The API keeps no legal details any more (T29); the document paths read the retired columns until T26, so they are set beside it. */
+/**
+ * The CRM's own values of an entity (terms; the API keeps no legal details, T29). The issuer's legal details are the registry's:
+ * the world's fake holds them (`wellD SA` / `wellD Srl`, complete) and a test changes them with `registry.set`.
+ */
 const putProfile = async (entity: "welld_ch" | "welld_it" = "welld_ch") => {
-  const { legalName, addressLines, vatNumber, iban, ...own } = PROFILE;
-  const res = await call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: own });
-  await setRetiredLegalColumns(entity, { legalName: entity === "welld_it" ? "wellD Srl" : legalName, addressLines, vatNumber, iban });
-  return res;
+  const { legalName: _l, addressLines: _a, vatNumber: _v, iban: _i, ...own } = PROFILE;
+  return call("PUT", `/entity-profiles/${entity}`, { as: "admin", body: own });
 };
 const generate = (dealId: string, body: unknown, as: "salesCh" | "admin" = "admin") =>
   call("POST", `/deals/${dealId}/offers`, { as, body });
@@ -100,7 +102,7 @@ async function storeAttachment(dealId: string, over: Partial<{ fileName: string;
 describe("offer draft (specs/20261102-crm-offer-document AC-3.1)", () => {
   beforeEach(resetWorld);
 
-  it("needs a ready estimate, the entity profile and an active template of the deal's entity", async () => {
+  it("needs a ready estimate, a complete issuer and an active template of the deal's entity; a missing profile row is no refusal (E4)", async () => {
     const company = await makeCompany();
     const bare = await makeDeal(company.id, {}, "admin");
     const list = await call("GET", "/offer-templates?entity=welld_ch", { as: "admin" });
@@ -108,9 +110,18 @@ describe("offer draft (specs/20261102-crm-offer-document AC-3.1)", () => {
     expect((await call("GET", `/deals/${bare.id}/offers/draft?templateId=${template.id}`)).json.code).toBe("estimate_not_ready");
 
     const { deal } = await readyDeal();
+    // The registry says the entity is incomplete: refused, naming what is missing (AC-6.3).
+    registry.set(incompleteEntity("welld_ch", ["vatNumber", "address.en"]));
     expect((await call("GET", `/deals/${deal.id}/offers/draft?templateId=${template.id}`)).json).toMatchObject({
-      code: "entity_profile_missing",
+      code: "legal_entity_incomplete",
+      entity: "welld_ch",
+      missing: ["vatNumber", "address.en"],
     });
+    registry.set(worldIssuer("welld_ch"));
+    // No profile row at all: the prefill is made, with the registry's legal name (E4).
+    const noRow = await call("GET", `/deals/${deal.id}/offers/draft?templateId=${template.id}`);
+    expect(noRow.status).toBe(200);
+    expect(noRow.json.code).toBeUndefined();
     await putProfile();
     expect((await call("GET", `/deals/${deal.id}/offers/draft?templateId=${template.id}`)).status).toBe(200);
     expect((await call("GET", `/deals/${deal.id}/offers/draft?templateId=nope`)).status).toBe(404);
@@ -849,5 +860,96 @@ describe("offer numbering setting (specs/20261102-crm-offer-document US-8)", () 
     expect((await setSeq(10_000)).status).toBe(422);
     expect((await seq("welld_ch", "consultant")).status).toBe(403);
     expect((await setSeq(5, YEAR, "welld_it", "salesCh")).json.code).toBe("out_of_scope");
+  });
+});
+
+describe("the classic offer's issuer is the registry's (specs/20261117-legal-entities T26; AC-5.5, AC-6.2, AC-6.3, AC-7.3; plan E4)", () => {
+  beforeEach(resetWorld);
+
+  const sequences = () => db.offerSequence.count();
+
+  it("generate, edit and revise refuse an incomplete entity with 409 legal_entity_incomplete naming `missing`, and use no number", async () => {
+    const { deal } = await readyDeal();
+    await putProfile();
+    const good = await body(deal.id);
+    const created = await generate(deal.id, good);
+    expect(created.status).toBe(201);
+    const used = await sequences();
+    expect(used).toBe(1);
+
+    const stored = await db.dealOffer.findUniqueOrThrow({ where: { id: created.json.id } });
+    const other = await readyDeal({ title: "Other" });
+    const otherBody = await body(other.deal.id);
+    registry.set(incompleteEntity("welld_ch", ["vatNumber", "address.en"]));
+    const edit = await call("PUT", `/deals/${deal.id}/offers/${created.json.id}`, { body: good, ifMatch: 1 });
+    expect([edit.status, edit.json.code, edit.json.entity, edit.json.missing]).toEqual([409, "legal_entity_incomplete", "welld_ch", ["vatNumber", "address.en"]]);
+
+    await markSent(deal.id, created.json.id);
+    const revise = await generate(deal.id, good);
+    expect([revise.status, revise.json.code, revise.json.missing]).toEqual([409, "legal_entity_incomplete", ["vatNumber", "address.en"]]);
+    expect(await db.dealOffer.count({ where: { dealId: deal.id } })).toBe(1);
+    expect((await db.dealOffer.findUniqueOrThrow({ where: { id: created.json.id } })).objectKey).toBe(stored.objectKey);
+    expect(bucket.objects.has(stored.objectKey)).toBe(true);
+
+    // the first offer of another deal: nothing consumed either
+    const refused = await generate(other.deal.id, otherBody);
+    expect([refused.status, refused.json.code]).toEqual([409, "legal_entity_incomplete"]);
+    expect(await sequences()).toBe(used);
+    expect(JSON.stringify([edit.json, revise.json, refused.json])).not.toContain("entity_profile_missing");
+  });
+
+  it("answers 503 legal_entities_unavailable with Retry-After: 5 when the registry cannot be read, and uses no number", async () => {
+    const { deal } = await readyDeal();
+    await putProfile();
+    const good = await body(deal.id);
+    registry.unavailable();
+    const res = await generate(deal.id, good);
+    expect(res.status).toBe(503);
+    expect(res.json.code).toBe("legal_entities_unavailable");
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(await sequences()).toBe(0);
+    expect(await db.dealOffer.count()).toBe(0);
+    expect(bucket.deleted).toEqual([]);
+    expect([...bucket.objects.keys()].filter((key) => key.startsWith("offers/"))).toEqual([]);
+  });
+
+  it("a complete entity that holds values the rules refuse generates (Needs correction blocks nothing, E13)", async () => {
+    const { deal } = await readyDeal();
+    await putProfile();
+    registry.set(completeEntity("welld_ch", { invalid: [{ field: "iban", reason: "iban_check_digits" }] }));
+    expect((await generate(deal.id, await body(deal.id))).status).toBe(201);
+  });
+
+  it("an entity with no profile row generates: place Lugano, no letterhead, the registry's name and address in the snapshot (E4)", async () => {
+    const { deal } = await readyDeal();
+    expect(await db.entityProfile.count()).toBe(0);
+    const res = await generate(deal.id, await body(deal.id));
+    expect(res.status).toBe(201);
+    const row = await db.dealOffer.findFirstOrThrow({ where: { dealId: deal.id } });
+    expect(row.snapshot).toMatchObject({
+      place: "Lugano",
+      issuer: { legalName: "wellD SA", addressLines: ["Via Example 1", "6900 Lugano"], vatNumber: "CHE-123.456.789 MWST", iban: "CH00 0000 0000 0000 0000 0" },
+    });
+  });
+
+  it("an English offer takes address.en and an Italian one address.it; the IBAN is the registry's print form", async () => {
+    registry.set(
+      completeEntity("welld_ch", {
+        address: { it: ["Via Cantonale 1", "6900 Lugano", "Svizzera"], en: ["Via Cantonale 1", "6900 Lugano", "Switzerland"] },
+        iban: "CH9300762011623852957",
+        ibanPrint: "CH93 0076 2011 6238 5295 7",
+      }),
+    );
+    const { deal } = await readyDeal();
+    await putProfile();
+    const en = await generate(deal.id, await body(deal.id, "Training"));
+    expect(en.status).toBe(201);
+    await markSent(deal.id, en.json.id);
+    const it = await generate(deal.id, await body(deal.id, "Formazione"));
+    expect(it.status).toBe(201);
+    const rows = await db.dealOffer.findMany({ where: { dealId: deal.id }, orderBy: { number: "asc" } });
+    expect(rows.map((row) => (row.snapshot as { language: string }).language)).toEqual(["en", "it"]);
+    expect(rows[0]!.snapshot).toMatchObject({ issuer: { addressLines: ["Via Cantonale 1", "6900 Lugano", "Switzerland"], iban: "CH93 0076 2011 6238 5295 7" } });
+    expect(rows[1]!.snapshot).toMatchObject({ issuer: { addressLines: ["Via Cantonale 1", "6900 Lugano", "Svizzera"] } });
   });
 });
