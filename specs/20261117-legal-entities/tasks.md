@@ -213,6 +213,10 @@ Reading the list:
 - [ ] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
+  - note (T29 report, 2026-11-17): the feature branch interleaves push-2 commits (crm-api T29 onwards) with push-1
+    ones, so push 1 is NOT the branch head. Build it as a branch from `main` holding only the push-1 commits (auth,
+    operai-ui, shell, docs/specs, their changesets), rebased in branch order; T29 must ship with T26 in push 2, or
+    the CRM settings stop saving the legal fields while documents still read them.
   - done when: auth `/health` reports the new version; signed in, `GET /legal-entities` answers both entities
     with `version: 0`; `https://operai.welld.io/version.json` reports the push-1 version (the library change is
     live, E10); `railway config plan` shows no drift; logged in the release log.
