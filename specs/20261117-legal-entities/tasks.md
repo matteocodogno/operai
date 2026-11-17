@@ -7,6 +7,9 @@ generated: 2026-11-17
 
 Derived from `spec.md` (approved, D1–D6), `plan.md` (approved, with "Amendment 2026-11-17 after design" E1–E14)
 and `design.md` (draft; owner decisions Q1=B, Q2=B, Q3=B; DR-1–DR-12 adopted).
+Re-synced 2026-11-17 with spec US-9 (AC-9.1–AC-9.17), `plan.md` "Amendment 2026-11-17 after security review"
+(G1–G16: US-9, F2–F7, FU-1–FU-10, the release at the end) and `security-review.md` (T46): new tasks T51–T71 at the
+end of this file; T16, T40, T43, T44, T45, T47, T48 and T50 amended in place.
 
 Reading the list:
 
@@ -15,6 +18,10 @@ Reading the list:
   tasks are merged to `main` first, on their own (T16); push-2 commits are merged only after release steps 2–4
   (T17, T18, T48). If commits interleave on the branch, the push-1 merge is cut by cherry-picking the push-1
   tasks' commits onto a release branch; no push-2 task is a dependency of a push-1 task (checked below).
+- **Release at the end (owner, 2026-11-17; plan G15).** Push 1 is no longer released early: both pushes go out at the
+  end, in one release session — QE (T45) and the security re-review (T70), then T16 (push 1, now with notify-api) →
+  T17 → T18 → T48 (push 2, now with auth's US-9 notices) → T49 → T71 (notice path confirmed; only then may managers
+  other than the `admin` role be granted). The push-1 cut by cherry-picking is unchanged.
 - **Library rule for push 2 (plan E10).** Only admin-ui may use what push 1 adds to `@operai/ui` (`wrap`,
   `ErrorSummary`, `VersionTable`, `VersionBanner`), because it ships after a shell that has them is live. crm-ui
   and letterheads-ui tasks (T30–T32) use existing exports only.
@@ -213,16 +220,20 @@ Reading the list:
   - agent: owner
   - done when: the release log says, per entity, "IBAN print unchanged / changes" (no IBAN written in it).
 
-- [ ] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15
+- [ ] T16: **[OWNER]** Release push 1 (expand): merge the push-1 tasks to `main`, cut the release, push — refs: AC-1.1, AC-3.1, AC-4.1 — deps: T13, T15, T45, T69, T70
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
   - note (T29 report, 2026-11-17): the feature branch interleaves push-2 commits (crm-api T29 onwards) with push-1
     ones, so push 1 is NOT the branch head. Build it as a branch from `main` holding only the push-1 commits (auth,
     operai-ui, shell, docs/specs, their changesets), rebased in branch order; T29 must ship with T26 in push 2, or
     the CRM settings stop saving the legal fields while documents still read them.
+  - note (owner, 2026-11-17; plan G15): push 1 is released at the end, in the same session as push 2, after QE
+    (T45) and the security re-review (T70). It now also carries notify-api (T56, T57) and the push-1 auth fixes and
+    check route (T52–T55); its changesets are T13's and T69's. Push-2 commits of this amendment (T58–T66) stay out.
   - done when: auth `/health` reports the new version; signed in, `GET /legal-entities` answers both entities
-    with `version: 0`; `https://operai.welld.io/version.json` reports the push-1 version (the library change is
-    live, E10); `railway config plan` shows no drift; logged in the release log.
+    with `version: 0`; notify-api `/health` reports its new version; `https://operai.welld.io/version.json` reports
+    the push-1 version (the library change is live, E10); `railway config plan` shows no drift; logged in the
+    release log.
 
 - [ ] T17: **[OWNER]** Release step 2 — credentials: auth `SERVICE_CLIENTS` (crm-api scope += `legal-entities:read`; new `letterhead-api` entry), the shared secret, letterhead-api `SERVICE_CLIENT_ID`/`SECRET` — refs: AC-3.2 — deps: T16, T12
   - touch: `specs/20261117-legal-entities/release-log.md`
@@ -431,11 +442,21 @@ Reading the list:
     values that change, handles 422/409/403/5xx as design S7; success focuses the entity heading; read-only
     entity shows Open only; axe 0 violations.
 
-- [ ] T40: admin-ui — the accessibility sweep of design.md's list (every screen state, dark and light, Italian once) — refs: AC-8.1, AC-8.2 — deps: T37, T38, T39
-  - touch: `admin-ui/src/pages/LegalEntitiesPage.a11y.test.tsx`
-  - agent: quality-engineer · push 2
-  - done when: axe (WCAG 2.1 A/AA) reports 0 violations on S1–S8 in every listed state; the page in Italian has
-    `lang="it"` and no English key; every control has a visible label; `noHardcodedStrings` green.
+- [ ] T40: admin-ui — FU-7 string gaps and FU-8's failing tests fixed, then the accessibility sweep of design.md's list (every screen state incl. S12 and the S5/S7 additions, dark and light, Italian once, 320 px) — refs: AC-8.1, AC-8.2, AC-9.6 — deps: T37, T38, T39, T51, T60, T61
+  - touch: `admin-ui/src/pages/LegalEntitiesPage.a11y.test.tsx`, `admin-ui/src/pages/LegalEntitiesPage.test.tsx`, `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/strings.test.tsx`, `admin-ui/src/lib/legalEntityMappings*`, `admin-ui/src/components/AddressLinesField*`, `admin-ui/src/components/ConflictBanner*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/LegalEntityHistory*`, `admin-ui/src/components/LegalEntityVersionView*`
+  - agent: frontend-dev for FU-7/FU-8 (copy from T51), then quality-engineer for the sweep · push 2
+  - widened 2026-11-17 (owner): it now also fixes FU-7 (admin-ui string gaps, with the designer's copy from T51)
+    and FU-8 (the 2 failing tests of `LegalEntitiesPage.test.tsx`), and checks FU-3 (320 px) on the real page.
+    It runs after T60 and T61 so the sweep covers the new dialog and paging states.
+  - done when: FU-8 — `LegalEntitiesPage.test.tsx` passes (the two T36 tests wait for `admin-legal-form`); FU-7 —
+    every string of design.md's T51 "FU-7" item exists in en and it and is used by its component (the moved-value
+    suffix for every moved reason, the 5th-line hint, "Not filled in. Enter …", the `conflict.applied` count phrase
+    and the nothing-to-review sentence, no empty "(changed: )", `history.openLabel`/`restoreLabel`/`changedList`/
+    `loading`/`failed`, `version.failed`), and `AddressLinesField` has a note slot so the conflict note is in the
+    focused line's `aria-describedby`; FU-4's title as T51 decided; axe (WCAG 2.1 A/AA) reports 0 violations on
+    S1–S8 and S12 in every listed state, dark and light; at 320 px the entity strip and the section nav wrap with no
+    horizontal scroll (FU-3); the page in Italian has `lang="it"` and no English key; every control has a visible
+    label; `noHardcodedStrings`, strings parity and the whole admin-ui suite green.
 
 ## End-to-end
 
@@ -455,30 +476,41 @@ Reading the list:
     two sessions → conflict → reapply; the design's keyboard-only path end to end; Italian once; `axeViolations`
     0 on each screen.
 
-- [ ] T43: e2e — CRM and the configurator use the registry: Settings note, refusal of an incomplete entity, issuer in classic and service offers, preview with real details — refs: AC-5.4, AC-6.1, AC-6.2, AC-6.3 — deps: T41, T28, T30, T31, T32, T23
+- [ ] T43: e2e — CRM and the configurator use the registry: Settings note, refusal of an incomplete entity, issuer in classic and service offers, preview with real details — refs: AC-5.4, AC-6.1, AC-6.2, AC-6.3 — deps: T41, T28, T30, T31, T32, T23, T63, T64, T65, T66
   - touch: `shell/e2e/crm-legal-entities.spec.ts`, `shell/e2e/crm-offer-wizard.spec.ts`, `shell/e2e/crm-offer-wizard-pages.spec.ts`, `shell/e2e/crm-offer-wizard-revise.spec.ts`, `shell/e2e/letterheads.spec.ts`, `shell/e2e/fixtures/letterheads.ts`
   - agent: quality-engineer · push 2
   - done when: Playwright green — Settings shows the note (link for the manager, sentence for a `deal:financials`
     holder); after a registry save the next classic and service offer print the new legal name, the English
     address for an English offer and the grouped IBAN; an entity saved incomplete via the API is refused with the
     notice; the configurator preview shows the registry's values and `⟦Label⟧` for an empty contacts line.
+    Added 2026-11-17: the classic Generate dialog shows the notice with the link for a manager (FU-2); an
+    overflowing legal name's notice points at Legal entities (FU-1); the sample intro no longer calls the company
+    details samples (FU-9).
 
 ## Push 2 — release plumbing
 
-- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2 — deps: T13, T16, T23, T28, T29, T31, T32, T40
+- [ ] T44: Changesets for push 2 — crm-api, crm-ui, letterhead-api, letterheads-ui, admin-ui (minor each) and auth (minor: US-9 notices), naming release step 6 as the next step — refs: AC-4.3, AC-5.1, AC-5.4, AC-6.1, AC-6.2, AC-9.7 — deps: T13, T16, T23, T28, T29, T31, T32, T40, T58, T59, T60, T61, T62, T63, T64, T65, T66
   - touch: `.changeset/*`
   - agent: backend-dev · push 2
-  - done when: `changeset status --verbose` lists the five packages; `check-changeset.mjs` exits 0 for the push-2
-    commits; the crm-api changeset says the CRM columns are dropped in the next release (step 6).
+  - note (2026-11-17): T16 now runs at the end (G15), so this task follows it in the same release session; the dep on
+    T16 stays (push-2 changesets must not be consumed by the push-1 cut).
+  - done when: `changeset status --verbose` lists the six packages; `check-changeset.mjs` exits 0 for the push-2
+    commits; the crm-api changeset says the CRM columns are dropped in the next release (step 6); the auth changeset
+    names `LEGAL_ENTITY_NOTICE_EMAIL` and release step 7 (T71).
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2 — deps: T40, T42, T43
+- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
     including a `mismatched` → `resolved` run and the post-switch dry run), checks the skew pairings of R5 (old
     letterhead-api + new crm-api; old crm-ui + new crm-api; new crm-ui + old crm-api), and gives PASS.
+    Added 2026-11-17: the US-9 notice rehearsed on compose (notify-api stopped during a protected save, then
+    started: save unaffected, retries, `notice_failed` then `notice_delivered`, one notice per recipient and channel,
+    the notification centre in it and en, no value in any notice or record); the skew pairings of G15 (new admin-ui +
+    auth without the check route → fail closed; new auth + old notify-api → retried); F2–F7 and FU-1–FU-10 confirmed
+    closed or routed; the copy run (T54's tails) on the MIG fixture set.
 
 - [ ] T46: Security review, frontier tier (plan § Security) — refs: AC-2.7, AC-3.1, AC-3.2, AC-4.2, AC-5.2 — deps: T8, T9, T23, T28, T29, T39
   - touch: `specs/20261117-legal-entities/security-review.md`
@@ -486,18 +518,21 @@ Reading the list:
   - done when: the review covers every surface the plan lists (incl. the derived `apps` entry, the import script's
     credentials, letterhead-api's token client and `entityData` discarded) and has no open high or critical finding.
 
-- [ ] T47: Eval — LM-judge verdict on the feature — refs: AC-1.1, AC-2.4, AC-3.3, AC-4.3, AC-5.4, AC-6.3, AC-7.5, AC-8.1 — deps: T45, T46
+- [ ] T47: Eval — LM-judge verdict on the feature — refs: AC-1.1, AC-2.4, AC-3.3, AC-4.3, AC-5.4, AC-6.3, AC-7.5, AC-8.1, AC-9.1, AC-9.7, AC-9.12, AC-9.14 — deps: T45, T46, T70
   - touch: `specs/20261117-legal-entities/eval-report.md`
   - agent: evaluator
   - done when: `eval-report.md` is fresh and passing (`/wellforge:eval 20261117-legal-entities`).
 
 ## Owner steps: the switch
 
-- [ ] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14
+- [ ] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14, T70
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
+  - note (2026-11-17, G15): push 2 now also carries auth (the US-9 notice duty and dispatcher, T58/T59, and its
+    additive migration); it follows T16–T18 in the same release session.
   - done when: the dry run just before the push reports `mismatched` 0; after the push every changed service
-    reports its new version and crm-api is live; logged.
+    (auth included) reports its new version and crm-api is live; auth logs that the notice dispatcher started;
+    logged.
 
 - [ ] T49: **[OWNER]** Release step 5 smoke and step 5b — compare issuer lines per entity with the day before; the post-switch dry run — refs: AC-3.3, AC-7.4, AC-7.5 — deps: T48
   - touch: `specs/20261117-legal-entities/release-log.md`
@@ -508,12 +543,12 @@ Reading the list:
 
 ## Closing
 
-- [ ] T50: All gates green; QE, security review and eval pass; spec status → done via `/wellforge:done` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2 — deps: T14, T47, T49
+- [ ] T50: All gates green; QE, security review and eval pass; spec status → done via `/wellforge:done` — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T14, T47, T49, T70, T71
   - touch: `specs/20261117-legal-entities/spec.md`
   - agent: orchestrator
   - done when: `/wellforge:done 20261117-legal-entities` accepts: every task checked, QE PASS, no open high in the
-    security review, a fresh passing eval report, changesets present for auth, ui, shell, crm-api, crm-ui,
-    letterhead-api, letterheads-ui and admin-ui.
+    security review or its re-review (T70), a fresh passing eval report, changesets present for auth, ui, shell,
+    notify-api, crm-api, crm-ui, letterhead-api, letterheads-ui and admin-ui.
 
 ## AC coverage
 
@@ -526,39 +561,56 @@ Implementing and verifying tasks per AC. Nominal references are left out of the 
 | AC-1.2 | T2, T8, T34, T37 |
 | AC-1.3 | T2, T8, T34, T37 |
 | AC-1.4 | T2, T8, T37 |
-| AC-1.5 | T8, T21, T22, T25, T37 |
+| AC-1.5 | T8, T21, T22, T25, T37, T52 |
 | AC-2.1 | T2, T8, T37 |
-| AC-2.2 | T7, T11, T39 |
+| AC-2.2 | T7, T11, T39, T51, T52, T61 |
 | AC-2.3 | T7, T11, T39, T42 |
 | AC-2.4 | T2, T7, T8, T39 |
-| AC-2.5 | T8 |
+| AC-2.5 | T8, T62 |
 | AC-2.6 | T8, T34, T38, T42 |
-| AC-2.7 | T1, T8, T46 |
-| AC-3.1 | T5, T42, T46 |
-| AC-3.2 | T6, T12, T17, T25, T46 |
+| AC-2.7 | T1, T8, T46, T53 |
+| AC-3.1 | T5, T42, T46, T52 |
+| AC-3.2 | T6, T12, T17, T25, T46, T53 |
 | AC-3.3 | T21, T25, T49 |
 | AC-3.4 | T5, T6 |
 | AC-4.1 | T3, T42 |
-| AC-4.2 | T4, T8, T36, T42, T46 |
-| AC-4.3 | T4, T5, T7, T35, T36, T41, T42 |
+| AC-4.2 | T4, T8, T36, T42, T46, T52 |
+| AC-4.3 | T4, T5, T7, T35, T36, T41, T42, T52 |
 | AC-5.1 | T22 |
 | AC-5.2 | T19, T22, T28, T46 |
 | AC-5.3 | T20, T22 |
-| AC-5.4 | T20, T23, T32, T43 |
-| AC-5.5 | T21, T22, T25, T26, T31 |
+| AC-5.4 | T20, T23, T32, T43, T65, T66 |
+| AC-5.5 | T21, T22, T25, T26, T31, T64 |
 | AC-6.1 | T29, T30, T43 |
-| AC-6.2 | T26, T27, T28, T31, T41, T43 |
-| AC-6.3 | T26, T31, T43 |
+| AC-6.2 | T26, T27, T28, T31, T41, T43, T64 |
+| AC-6.3 | T26, T31, T43, T63 |
 | AC-6.4 | T27 |
-| AC-7.1 | T9, T18 |
-| AC-7.2 | T7, T9, T18, T39 |
+| AC-7.1 | T9, T18, T67 |
+| AC-7.2 | T7, T9, T18, T39, T54 |
 | AC-7.3 | T9, T18, T26, T34, T36, T37 |
-| AC-7.4 | T9, T12, T18, T48, T49 |
-| AC-7.5 | T9, T12, T15, T18, T24, T27, T28, T49 |
-| AC-8.1 | T10, T11, T32, T36, T37, T38, T39, T40, T42 |
-| AC-8.2 | T30, T31, T32, T33, T40, T42 |
+| AC-7.4 | T9, T12, T18, T48, T49, T67 |
+| AC-7.5 | T9, T12, T15, T18, T24, T27, T28, T49, T54 |
+| AC-8.1 | T10, T11, T32, T36, T37, T38, T39, T40, T42, T60, T61, T62, T63 |
+| AC-8.2 | T30, T31, T32, T33, T40, T42, T51, T60, T61, T63 |
+| AC-9.1 | T51, T55, T60, T68 |
+| AC-9.2 | T51, T60, T68 |
+| AC-9.3 | T60, T68 |
+| AC-9.4 | T51, T60 |
+| AC-9.5 | T55, T60, T68 |
+| AC-9.6 | T40, T51, T60, T68 |
+| AC-9.7 | T58, T59, T68 |
+| AC-9.8 | T58, T71 |
+| AC-9.9 | T58, T59 |
+| AC-9.10 | T58, T59, T67, T71 |
+| AC-9.11 | T51, T54, T57, T59 |
+| AC-9.12 | T51, T57, T59, T70 |
+| AC-9.13 | T56, T57, T59, T68 |
+| AC-9.14 | T56, T58, T59, T70 |
+| AC-9.15 | T58, T59, T62 |
+| AC-9.16 | T58 |
+| AC-9.17 | T55, T58, T60, T68 |
 
-All 35 ACs have at least one implementing task. Every task references at least one AC. Tasks whose refs are
+All 52 ACs (35 + AC-9.1–AC-9.17, re-synced 2026-11-17) have at least one implementing task. Every task references at least one AC. Tasks whose refs are
 nominal rather than implementing — flagged so nobody reads them as coverage: T13 and T44 (changesets), T14
 (drift decision), T16 and T48 (release pushes; T48's pre-switch dry run does verify AC-7.4), T46 and T47
 (review, eval). Scope added
@@ -704,3 +756,290 @@ same files.
 - FU-10 (T32): letterheads-ui reads the shell's `getAuthBaseUrl` through a cast; declare it in
   `letterheads-ui/src/federation/remotes.d.ts` and export it from `src/federation/__stubs__/shellSession.ts`, then
   drop the cast.
+
+## Re-sync 2026-11-17 — after the security review (US-9, F2–F7, follow-ups)
+
+Source: spec US-9 (AC-9.1–AC-9.17), plan "Amendment 2026-11-17 after security review" (G1–G16), `design.md`'s
+designer TODO, `security-review.md` (T46). Push marks as above; **push 1 now ships at the end** (G15), so a push-1
+task here only has to precede T16. No new push-1 task depends on a push-2 task.
+
+### Design
+
+- [ ] T51: design — the amendment after the security review: S12 protected-change confirmation, S7 restore additions, the 429 and history-paging states, the notice copy (in-app en/it, email en), and the copy owed by FU-1, FU-4, FU-7, FU-9 — refs: AC-9.1, AC-9.2, AC-9.4, AC-9.6, AC-9.11, AC-9.12, AC-9.13, AC-2.2, AC-8.2 — deps: none
+  - touch: `specs/20261117-legal-entities/design.md`, `.forge/design/20261117-legal-entities/content/*` (git-ignored mockups)
+  - agent: designer (the owner reviews the copy)
+  - done when: every item of design.md's "TODO for the designer — amendment after the security review" is ticked
+    and replaced by its section (states listed; en + it keys with their text; the English email's subject, body and
+    button); "Also decided here" and "Scope creep" no longer say there is no confirmation; S12 has no acknowledge
+    checkbox and Cancel is the initial focus; the notice copy holds no slot for any detail value except the two IBAN
+    tails, and the longest case (three protected and four other names, a 200-character actor name) is stated to fit
+    a 200-character title and a 2000-character body.
+
+### Push 1 — auth (hardening, the check route, the copy)
+
+- [ ] T52: auth — a deleted person is refused everywhere in the registry (F2); save and restore throttled per person, the history paged (F3) — refs: AC-2.2, AC-3.1, AC-4.2, AC-4.3, AC-1.5 — deps: none
+  - touch: `auth/src/legalEntities/coverage.ts`, `auth/src/legalEntities/coverage.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/legalEntities/write.routes.test.ts`, `auth/src/legalEntities/history.routes.ts`, `auth/src/legalEntities/history.routes.test.ts`, `auth/src/legalEntities/read.routes.ts`, `auth/src/legalEntities/read.routes.test.ts`, `auth/src/legalEntities/repo.ts`, `auth/src/lib/env.ts`, `auth/src/index.ts`
+  - agent: backend-dev · push 1
+  - Details: plan G8 (`activeUserProfile` in `coverage.ts`, used by write `authorize`, the history/version guard,
+    `manageable` and the person reads), G9 (`LEGAL_ENTITY_WRITE_RATE_LIMIT` 10, `LEGAL_ENTITY_CHECK_RATE_LIMIT` 60 —
+    read here, used by T55 —, `LEGAL_ENTITY_RATE_WINDOW_MS` 600000; counted per user id after authorisation, before the
+    body), G5 (history `limit`/`before`/`nextBefore`); `index.ts` logs the limits like the `/system` ones.
+  - done when: route tests — a soft-deleted holder with a live (mocked) session → 403 `forbidden` on save, restore,
+    history and version view, `manageable` → `{ entities: [] }`, `GET /legal-entities[/{entity}]` → 401; the 11th
+    save-or-restore of one person within the window → 429 `too_many_requests` with `Retry-After` and nothing
+    written, another person unaffected, limits taken from env; history pages of 50 newest first, `before` cursor,
+    `nextBefore` null on the last page, the union of the pages = every version, `limit` 0/101/abc and `before` abc →
+    422 `invalid_request` after the 403s with nothing echoed; `auth.mount.test.ts` and the whole auth suite green.
+
+- [ ] T53: auth — the committed-transaction test group runs only against a local database (F4); `DOCUMENTED_CLIENT_SCOPES["crm-api"]` lists `letterhead:render` (FU-6) — refs: AC-2.7, AC-3.2 — deps: T52
+  - touch: `auth/src/legalEntities/write.routes.test.ts`, `auth/src/legalEntities/testDb.ts`, `auth/src/system/serviceClients.ts`, `auth/src/system/serviceClients.test.ts`
+  - agent: backend-dev · push 1
+  - Details: plan G10 F4; the host guard is a function in `testDb.ts` so T59's committed-transaction tests reuse it.
+  - done when: unit test of the guard — `localhost`, `127.0.0.1`, `::1`, `host.docker.internal`, `postgres` → run;
+    `x.railway.internal`, `x.proxy.rlwy.net` and any other host → the group is skipped with one line that names the
+    reason and not the URL; the group still runs on compose; `testDb.ts`'s header names the exception;
+    `DOCUMENTED_CLIENT_SCOPES["crm-api"]` includes `letterhead:render` and its test asserts it; auth suite green.
+
+- [ ] T54: auth — the copy names who last edited the CRM row and shows each IBAN's tail; one `ibanTail` rule shared with the notices (F5 items 2 and 3) — refs: AC-7.2, AC-7.5, AC-9.11 — deps: none
+  - touch: `auth/src/legalEntities/ibanTail.ts`, `auth/src/legalEntities/ibanTail.test.ts`, `auth/src/legalEntities/import.ts`, `auth/src/legalEntities/import.test.ts`, `auth/scripts/import-crm-legal-details.ts`
+  - agent: backend-dev · push 1
+  - done when: `ibanTail` unit tests — "" → `none`; 8 characters → `set`; 9 → the last 4; a 34-character IBAN → the
+    last 4; the import audit row's `source` carries `updatedBy` (a person id) and nothing else new; the report of
+    the dry run and of the apply prints per entity `IBAN …1234` / `IBAN set` / `IBAN none`; the marker scan finds no
+    full IBAN, legal name, VAT or address line of the fixtures in stdout; the rest of `import.test.ts` green.
+
+- [ ] T55: auth — `POST /legal-entities/{entity}/versions/check`: what a save would change, protected details listed, nothing written — refs: AC-9.1, AC-9.5, AC-9.17 — deps: T52
+  - touch: `auth/src/legalEntities/check.routes.ts`, `auth/src/legalEntities/check.routes.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/legalEntities/rules.ts`, `auth/src/legalEntities/rules.test.ts`, `auth/src/legalEntities/routerTable.test.ts`, `auth/src/auth/auth.mount.test.ts`, `auth/src/index.ts`
+  - agent: backend-dev · push 1
+  - Details: plan G1.7, G2 (`PROTECTED_FIELDS`, `protectedChanged` in `rules.ts`), G5 (contract), G12 (router
+    rules); `authorize`, `readBody` and the refusal bodies are exported from `write.routes.ts`, not copied; its own
+    limiter (T52's env).
+  - done when: route tests — the refusal order of the save (401, 403, 404, 403, 413, 422 `invalid_request`, 422
+    `invalid_legal_entity`, 409 `legal_entity_not_moved`, 409 `version_conflict` + `currentVersion`, 429); 200 with
+    `outcome`, `changedFields` and `protectedChanges` against `baseVersion` in stored form (NFC/trim; the IBAN in
+    print form; "" for empty); IBAN spacing/case-only, address-only and contacts-only → `protectedChanges: []`; a
+    no-op → `outcome: "same"`; no version or audit row written and no advisory lock taken; a deleted user → 403;
+    `routerTable.test.ts` accepts exactly three POSTs under `/legal-entities`; `auth.mount.test.ts` reaches the route;
+    `rules.test.ts` covers `protectedChanged`; auth suite green.
+
+### Push 1 — notify-api
+
+- [ ] T56: notify-api — idempotency keys on `/system/notifications` and `/system/emails`; per-template caller binding; `recipientId` addressing for a bound template; Resend `Idempotency-Key` — refs: AC-9.13, AC-9.14 — deps: none
+  - touch: `notify-api/prisma/schema.prisma`, `notify-api/prisma/migrations/*`, `notify-api/src/system/notifications.*`, `notify-api/src/system/emails.*`, `notify-api/src/system/systemAuth.middleware*`, `notify-api/src/channels/email.channel*`, `notify-api/src/channels/emailDelivery.repo.ts`, `notify-api/src/channels/inApp.channel.ts`, `notify-api/src/notifications/notifications.repo*`, `notify-api/src/lib/resend.ts`, `notify-api/src/openapi/registry.ts`
+  - agent: backend-dev · push 1
+  - Details: plan G1.3–G1.5, G4 (notify-api migration: `callerSub`, `idempotencyKey`, partial unique index on
+    `Notification`), G5 (contracts). The template `legal_entity_change` and its binding entry are T57; here the
+    binding and `recipientId` mechanisms are tested with an injected template table.
+  - done when: N-int — a repeated in-app call (same `sub` and key) → 200 with the stored row, no second SSE event,
+    no push dispatch, no email; another `sub` with the same key → a new row; two concurrent calls → one row; a
+    repeated email after `sent` → 200 with the same `deliveryId` and the fake Resend called once; after `failed` →
+    called again; Resend receives `<sub>:<key>` as its idempotency key (or the task records that SDK 6.17.2 cannot
+    pass it and how the raw header is sent instead); `to` and `recipientId` together or neither → 400; `recipientId`
+    for a template that does not allow it → 400; a template bound to another caller → 403 `template_not_allowed`,
+    nothing written; every existing test unchanged and green; the migration is additive.
+
+- [ ] T57: notify-api — the `legal_entity_change` email template: English, strict typed data, bound to `system:auth`, addressed by `recipientId` or `to` — refs: AC-9.11, AC-9.12, AC-9.13 — deps: T56, T51
+  - touch: `notify-api/src/system/emailTemplates.ts`, `notify-api/src/system/emailTemplates.test.ts`, `notify-api/src/system/emails.schemas.ts`, `notify-api/src/system/emails.routes.ts`, `notify-api/src/system/emails.routes.test.ts`, `notify-api/src/channels/email.channel.ts`
+  - agent: backend-dev · push 1
+  - done when: template tests — renders T51's English copy with the entity label, the actor (escaped, controls and
+    bidi stripped), save vs restore of version m, date, time and zone in Europe/Zurich for a CET and a CEST date, the
+    version, the protected names, the IBAN Old/New tails (`none` / `set` / last 4), the other names and the absolute
+    history link from `APP_BASE_URL` (`/admin/legal-entities?entity=<e>&view=history`); strict data — an extra member,
+    a `last4` not matching `^[A-Z0-9]{4}$`, `iban` present without `"iban"` in `protectedChanged` → 400;
+    `system:auth` may send it, `system:crm-api` → 403; with `recipientId`: inactive → `skipped`
+    `recipient_inactive`, lookup failure → `failed` `contact_lookup_failed`, email group unset → `skipped`
+    `not_configured`; no fixture value but the two tails appears in the subject or the HTML.
+
+### Push 1 — configuration and runbook
+
+- [ ] T67: Config contract and runbook — the copy role for the copy window (F5 item 1), `LEGAL_ENTITY_NOTICE_EMAIL` and the registry rate limits in env-doctor and `.env.example`, the release at the end (G15) with step 7, e2e limits in compose — refs: AC-7.1, AC-7.4, AC-9.10 — deps: T52, T54
+  - touch: `infra/README.md`, `tools/env-doctor/manifest.ts`, `tools/env-doctor/templates/production/auth.env`, `tools/env-doctor/check.test.ts`, `auth/.env.example`, `compose.yaml`
+  - agent: devops · push 1 (docs and config only; the names are fixed by plan G4, so it needs no push-2 task)
+  - done when: the runbook's step 3 creates a `SELECT`-only role on `entity_profile`'s legal columns, `updatedAt`
+    and `updatedBy` in the `crm` database, sets `CRM_DATABASE_URL` to it by hand and drops it afterwards, and says the
+    report shows IBAN tails (T54); the release section reads push 1 → steps 2–4 → push 2 → 5/5b → step 7 (set
+    `LEGAL_ENTITY_NOTICE_EMAIL`, confirm a notice, only then grant managers), with notify-api in push 1 and auth in
+    both pushes; env-doctor knows `LEGAL_ENTITY_NOTICE_EMAIL` (optional, must be an email when set) and the three
+    rate-limit variables (optional; production must not set the write limit above 10 — a test fails a template that
+    does); compose raises the write limit for the e2e stack only; `mise run env:doctor` passes locally.
+
+- [ ] T69: Changesets for the push-1 additions — notify-api (minor), auth (patch: F2–F5, FU-6, the check route) — refs: AC-9.13, AC-9.14, AC-4.2, AC-2.2 — deps: T52, T53, T54, T55, T56, T57
+  - touch: `.changeset/*`
+  - agent: backend-dev · push 1
+  - done when: `pnpm exec changeset status --verbose` lists notify-api and auth with these bumps beside T13's;
+    `node scripts/check-changeset.mjs --base=origin/main --head=HEAD` exits 0 for the push-1 commits; neither text
+    names a push-2 change.
+
+### Push 2 — auth (US-9 notices)
+
+- [ ] T58: auth — the notice duty: the `legal_entity_notice` table, recipients at the moment of storing, rows in the version's transaction, the no-recipient audit entry — refs: AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T52, T55
+  - touch: `auth/prisma/schema.prisma`, `auth/prisma/migrations/*`, `auth/src/legalEntities/notices/recipients.ts`, `auth/src/legalEntities/notices/recipients.test.ts`, `auth/src/legalEntities/notices/duty.ts`, `auth/src/legalEntities/notices/duty.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/lib/env.ts`
+  - agent: backend-dev · push 2
+  - Details: plan G1.1, G1.2, G2, G3, G4 (model, CHECKs, FK); `LEGAL_ENTITY_NOTICE_EMAIL` in `lib/env.ts` (optional,
+    validated as an email). Rows are written and nothing is sent: the dispatcher is T59.
+  - done when: A-int — a direct save changing the IBAN → per recipient of G3 one `in_app` and one `email` row, plus
+    one `outside` email row when configured, in the version's transaction (a forced failure after the insert leaves
+    no version, audit or notice row); the recipient cases of the plan's AC-9.8–9.10 rows pass (welld_ch-conditioned
+    manager for welld_ch only; unconditioned holder; an administrator through a department without the grant; a
+    soft-deleted holder or admin excluded; one row per channel for a person who is admin, manager and actor; the
+    actor included; outside set/unset); a restore that is a protected change → rows; no row for the AC-9.17 cases
+    (address/contacts-only, IBAN spacing/case-only, a restore with equal protected details, no-op, 422, 409, 403) nor
+    for the import's first and repeated apply (AC-9.16); an injected empty recipient set →
+    `legal_entity.notice_no_recipients`; no row or audit entry holds a sentinel value (AC-9.12); the CHECKs refuse an
+    `outside` in-app row and an unknown status; auth suite green.
+
+- [ ] T59: auth — the notice dispatcher: kick and sweep, leases, retries for 24 h, idempotency keys, the content (in-app en/it, email data), outcomes in the audit log, started with the server — refs: AC-9.7, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15 — deps: T58, T56, T57, T54, T53, T51
+  - touch: `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`, `auth/src/legalEntities/notices/content.ts`, `auth/src/legalEntities/notices/content.test.ts`, `auth/src/legalEntities/notices/copy.ts`, `auth/src/legalEntities/notices/copy.test.ts`, `auth/src/lib/notify.ts`, `auth/src/lib/notify.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/index.ts`
+  - agent: backend-dev · push 2
+  - Details: plan G6 (schedule, reasons, leases, logs), G5 (both notify calls, `severity: "warning"`), G1.6 (copy of
+    T51 in `copy.ts`, en/it), `ibanTail` (T54), the host guard of T53 for committed-transaction tests.
+    `write.routes.ts` only gains the post-commit `kick`; `index.ts` starts the dispatcher unless `NODE_ENV=test`.
+  - done when: A-int with an injected clock and a fake notify-api over HTTP — the plan's AC-9.7, 9.10, 9.11, 9.12,
+    9.13, 9.14 and 9.15 rows pass: the kick hands over at once and a lost kick within one sweep; notify-api down →
+    the save's answer byte-identical to the up case; one recipient's failure does not delay another's call; first
+    retry at +1 min, the schedule, `given_up` at 24 h; a new dispatcher instance sends pending rows; a timeout after
+    notify-api stored, then an idempotent 200 → one notification; two dispatchers on one database → one call per row;
+    a recipient deleted after storing → `given_up` `recipient_deleted`, nothing sent; `skipped` retried; exactly one
+    `notice_failed` per row, then `notice_delivered` or `notice_given_up`; content unit tests (tail boundaries, CET
+    and CEST, save vs restore, the longest case within 200/2000, en/it parity); the sentinel scan over every request
+    body, row, audit entry and log line; not started under `bun test`; auth suite green.
+
+### Push 2 — admin-ui
+
+- [ ] T60: admin-ui — the protected-change confirmation on save (S12) and in the restore dialog (S7), and the 429 state — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.17, AC-8.1, AC-8.2 — deps: T51, T55
+  - touch: `admin-ui/src/components/ProtectedChange*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/RestoreDialog*`, `admin-ui/src/lib/legalEntitiesApi*`, `admin-ui/src/strings/legalEntities.ts`
+  - agent: frontend-dev · push 2
+  - Details: plan G7; design S12 and the S7 additions (T51); `ProtectedChangeDialog` and `ProtectedChangeList` on the
+    library's `ConfirmDialog` (no acknowledge checkbox); Save → check → dialog → save.
+  - done when: Vitest — the plan's AC-9.1–9.6 and AC-9.17 (UI) rows: the entity named, only the changing protected
+    details, "Old"/"New" labels, "None" for an empty side, the grouped IBAN, Cancel focused; Cancel, Escape and the
+    close control → no save request, values kept, focus back on Save; Confirm → one save request with the same body,
+    its outcomes take the existing states, the next Save checks again; a check answering 422/409/403/5xx → the
+    existing states, no dialog; a failed check → banner + Retry, nothing saved; the restore dialog lists Old
+    (current) / New (version n), reads version n when the page does not hold it, no Confirm when it cannot; address-
+    only and IBAN spacing-only saves → no dialog; 429 → T51's banner; axe 0 violations on every dialog state in en
+    and it, dark and light; strings parity and `noHardcodedStrings` green.
+
+- [ ] T61: admin-ui — the history in pages: "Show older versions" with its loading and failure states (F3) — refs: AC-2.2, AC-8.1, AC-8.2 — deps: T52, T51, T60
+  - touch: `admin-ui/src/components/LegalEntityHistory*`, `admin-ui/src/lib/legalEntitiesApi*`, `admin-ui/src/strings/legalEntities.ts`
+  - agent: frontend-dev · push 2
+  - done when: Vitest — the first page of 50; the button while `nextBefore` is not null; appending keeps the rows
+    and moves focus to the first new row's Open; the last page hides the button; a failure keeps the rows and
+    offers Retry; Open and Restore work on appended rows; axe 0 violations; parity green.
+
+- [ ] T62: admin-ui — the Audit page shows before and after of a legal entity change from `data.changes` (F7) — refs: AC-2.5, AC-9.15 — deps: none
+  - touch: `admin-ui/src/pages/AuditPage.tsx`, `admin-ui/src/pages/AuditPage.test.tsx`
+  - agent: frontend-dev · push 2
+  - done when: Vitest — a `legal_entity.save` row with `data.changes` shows each changed field's before and after
+    in the two panes; a row with `data.before`/`data.after` renders as today (existing tests unchanged); a
+    `legal_entity.notice_failed` row shows its summary and invents no before/after; axe 0 violations.
+
+### Push 2 — crm-ui, letterhead-api, letterheads-ui (follow-ups and F6)
+
+- [ ] T63: crm-ui — the overflow notice points at Legal entities (FU-1); the classic Generate dialog and the offers card show `LegalEntityNotice` for an incomplete entity (FU-2) — refs: AC-6.3, AC-8.1, AC-8.2 — deps: T51
+  - touch: `crm-ui/src/strings/offerWizard.ts`, `crm-ui/src/components/offerWizard/LetterheadNotice*`, `crm-ui/src/components/offerWizard/LegalEntityNotice*`, `crm-ui/src/components/GenerateOfferDialog*`, `crm-ui/src/components/OffersCard*`, `crm-ui/src/components/offerWizard/ServicePreview*.test.tsx`, `crm-ui/src/pages/OfferWizardPage.generate.service.test.tsx`
+  - agent: frontend-dev · push 2
+  - done when: Vitest — `letterhead.overflow.body`/`bodyAskAdmin` say T51's copy (Legal entities, link for a
+    manager of that entity, sentence otherwise; en and it); a `legal_entity_incomplete` refusal in the classic
+    Generate dialog and on the offers card shows `LegalEntityNotice` with the link for a manager and the sentence
+    otherwise; axe 0 violations; strings parity and `noHardcodedStrings` green.
+
+- [ ] T64: letterhead-api — forced refreshes coalesced: at most one per second per process; a mismatching pin answered 409 at once inside that second (F6) — refs: AC-5.5, AC-6.2 — deps: none
+  - touch: `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/src/registry/cache.rs`, `letterhead-api/api/tests/render.rs`, `letterhead-api/api/tests/registry.rs`
+  - agent: backend-dev (Rust) · push 2
+  - done when: `cargo test -p letterhead-api` — 100 renders with a mismatching pin within one second → at most one
+    registry call; a second mismatch within 1 s of a fetch → 409 `legal_entity_version_mismatch` + `currentVersion`
+    without a call; after 1 s a mismatch refreshes again; a matching pin makes no call; the existing cache and render
+    tests green.
+
+- [ ] T65: letterhead-api engine — the configurator sample's intro says the company details are the registry's real ones (FU-9) — refs: AC-5.4 — deps: T51
+  - touch: `letterhead-api/engine/src/sample/**`, `letterhead-api/api/tests/preview.rs`
+  - agent: backend-dev (Rust) · push 2
+  - done when: the it and en intros carry T51's copy and no longer say the company data are placeholders marked
+    "(SAMPLE)"; a preview test asserts the new sentence in both languages; the render golden corpus and pinning
+    tests are byte-identical (real documents unaffected).
+
+- [ ] T66: letterheads-ui — `getAuthBaseUrl` declared in the federation types and exported by the shell stub; the cast dropped (FU-10) — refs: AC-5.4 — deps: none
+  - touch: `letterheads-ui/src/federation/remotes.d.ts`, `letterheads-ui/src/federation/__stubs__/shellSession.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.test.tsx`
+  - agent: frontend-dev · push 2
+  - done when: no cast to reach `getAuthBaseUrl`; `tsc --noEmit` and the letterheads-ui suite green; the hook still
+    fails closed when the export is missing at run time (test).
+
+### End-to-end, review, owner
+
+- [ ] T68: e2e — protected details: confirm and cancel on save, the restore dialog's list, no dialog for an address-only change, the notice in the notification centre (it and en) — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.5, AC-9.6, AC-9.7, AC-9.13, AC-9.17 — deps: T41, T57, T59, T60, T67
+  - touch: `shell/e2e/protected-legal-details.spec.ts`, `shell/e2e/helpers/legalEntitiesFixtures.ts`
+  - agent: quality-engineer · push 2
+  - done when: Playwright green — an admin changes the IBAN typed with spaces and lower case: the dialog shows Old
+    and New grouped, Cancel is focused; Escape → nothing saved (the history unchanged); Confirm → saved, and within
+    60 s the welld_ch manager and the actor see the notice in the notification centre (Italian when the shell is
+    Italian), with the history link opening `view=history`; an address-only save shows no dialog and no notice;
+    the restore dialog lists the protected differences; keyboard only; `axeViolations` 0 on the dialog.
+
+- [ ] T70: Security re-review, frontier tier — US-9 surfaces and the F2–F7 fixes (plan § Security amended) — refs: AC-9.12, AC-9.14, AC-4.2, AC-2.7 — deps: T52, T53, T54, T55, T56, T57, T58, T59, T60, T61, T62, T63, T64, T65, T66, T67
+  - touch: `specs/20261117-legal-entities/security-review.md`
+  - agent: owasp-reviewer (frontier tier: financial data, R1)
+  - done when: a dated "Re-review" section in `security-review.md` covers every surface of the amended § Security
+    (check route, notice duty and dispatcher, notify-api idempotency and template binding, `recipientId` scope,
+    AC-9.12 on every record) and marks F2–F7 each fixed or not, with no open high or critical finding.
+
+- [ ] T71: **[OWNER]** Release step 7 — set `LEGAL_ENTITY_NOTICE_EMAIL` (the address the owner gives, OQ-7), confirm the notice path in production, and only then allow `legal-entity:manage` for anyone but the `admin` role — refs: AC-9.8, AC-9.10 — deps: T49, T70
+  - touch: `specs/20261117-legal-entities/release-log.md`
+  - agent: owner (devops may prepare the commands)
+  - done when: the release log says the variable is set (or deliberately unset), env-doctor production green, auth
+    logs the dispatcher started with no `legal_entity_notice_overdue`, notify-api's email group is configured, the
+    owner has received the outside mailbox's first notice or recorded why none was triggered, and the date from
+    which managers may be granted (no address and no value in the log).
+
+### Follow-ups FU-1…FU-10 — dispositions (plan G14)
+
+FU-1 → T63 · FU-2 → T63 · FU-3 → T40 (320 px check) and T45 · FU-4 → T51 (copy), applied in T40 · FU-5 → no code,
+ADR candidate 8 of the plan · FU-6 → T53 · FU-7 → T40 (widened) with T51's copy · FU-8 → T40 (widened) · FU-9 → T65 ·
+FU-10 → T66.
+
+### Coverage check (re-sync)
+
+Every AC-9.x has at least one implementing task (table "AC coverage" above, rows AC-9.1–AC-9.17): AC-9.1 T55 T60 ·
+9.2 T60 · 9.3 T60 · 9.4 T60 · 9.5 T55 T60 · 9.6 T60 T40 · 9.7 T58 T59 · 9.8 T58 · 9.9 T58 T59 · 9.10 T58 T59 ·
+9.11 T54 T57 T59 · 9.12 T57 T59 · 9.13 T56 T57 T59 · 9.14 T56 T58 T59 · 9.15 T58 T59 · 9.16 T58 · 9.17 T55 T58 T60;
+verified by T68 (e2e), T45 (QE), T70 (review). All 52 ACs covered; every new task refs at least one AC. Nominal refs
+(not coverage): T69 (changesets), T70 (review), T71 (owner step).
+
+### Overlap check (new tasks; deps ∪ `touch:`)
+
+Ordered by an explicit dep:
+
+- `auth/src/legalEntities/write.routes.ts` — T52, T55, T58, T59: T52 → T55 → T58 → T59 (one file, four reviewable
+  steps; push-1 edits first so the push-1 cut cherry-picks cleanly).
+- `auth/src/index.ts` — T52, T55, T59: T52 → T55 → T58 → T59.
+- `auth/src/lib/env.ts` — T52, T58: T52 → T58.
+- `auth/src/legalEntities/write.routes.test.ts` — T52, T53: T52 → T53. (T55, T58, T59 test in their own files.)
+- `auth/src/legalEntities/testDb.ts` — T53 writes the host guard, T59 uses it: T53 → T59.
+- `notify-api/src/system/emails.*`, `notify-api/src/channels/email.channel*` — T56, T57: T56 → T57.
+- `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/lib/legalEntitiesApi*` — T60, T61 (and the widened T40):
+  T60 → T61 → T40. `admin-ui/src/components/LegalEntityForm*` — T60, T40: T60 → T40.
+  `admin-ui/src/components/LegalEntityHistory*` — T61, T40: T61 → T40.
+- `.changeset/*` — T69, and the open T44, T16, T48: T69 → T16 → T44 → T48.
+- `specs/20261117-legal-entities/release-log.md` — T71 and the open owner tasks: T49 → T71.
+- `compose.yaml`, `infra/README.md`, `auth/.env.example` — T67 only among open tasks (T12, T21 done).
+
+No overlap: `auth/prisma/*` (T58 only), `notify-api/prisma/*` (T56 only), `auth/src/legalEntities/import.ts` (T54
+only), `rules.ts`, `routerTable.test.ts`, `auth.mount.test.ts` (T55 only), `lib/notify.ts` (T59 only),
+`AuditPage*` (T62 only), crm-ui (T63 only), letterhead-api (T64 `api/src/routes/render.rs`, `api/src/registry/cache.rs`
+vs T65 `engine/src/sample/**`, `api/tests/preview.rs`), letterheads-ui (T66 only), `security-review.md` (T70 only),
+`design.md` (T51 only).
+
+Push boundary: push-1 tasks T52–T57, T67, T69 depend only on push-1 tasks and on T51 (docs).
+
+### Parallel batches (new tasks)
+
+| Batch | Tasks | Note |
+| --- | --- | --- |
+| N1 | T51, T52, T54, T56, T62, T64, T66 | T51 (copy) gates T57, T59, T60, T63, T65 |
+| N2 | T53, T55, T57, T63, T65, T67 | |
+| N3 | T58, T60, T69 | |
+| N4 | T59, T61 | |
+| N5 | T68, T70 | the widened T40 runs here too (after T61) |
+
+Then the existing tail: T43 (after T63–T66) → T45 → T47 and T16 → T17 → T18 → T44 → T48 → T49 → T71 → T50.
+Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T44 → T48 → T49 → T71 → T50.
