@@ -6,9 +6,10 @@
  * line "Version n · saved by X · date"), the view tabs (Details | History, tablist "Views of {entity}"), then the
  * banner slot and the body of the selected view.
  *
- *   - Details of an entity the person may change: the FORM (T37 mounts `LegalEntityForm` at `DetailsBody`). Until it
- *     does the values are shown as facts. The form is a controlled view of the page's per-entity draft
- *     (`draft` / `onDraftChange`), so what is typed survives a switch of entity, of view or of version.
+ *   - Details of an entity the person may change: the FORM (`LegalEntityForm`, T37, mounted at `DetailsBody`). It is
+ *     a controlled view of the page's per-entity draft (`draft` / `onDraftChange`), so what is typed survives a
+ *     switch of entity, of view or of version. A 403 on its save is `onLost()` of the host AND, here, the danger
+ *     Banner "You can no longer change {entity}" (focused, assertive) above the read-only note it turns into.
  *   - Details of an entity the person may NOT change (S4), and of one not moved yet: values as facts, no input, no
  *     disabled control; a persistent info Banner says why (live="off": read in place, not announced on arrival).
  *   - Incomplete / Needs correction (S3): a persistent warning Banner listing what is missing and what is out of
@@ -22,10 +23,11 @@
  *
  * Heading outline: the page's h2, this panel's h3, the cards' h4.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Banner, StatePanel, Tabs, formatDateTime, tabPanelProps } from '@operai/ui'
 import { EntityReadOnlyBadge, EntityStatusBadge } from './LegalEntityPanelBadges'
 import LegalEntityFacts from './LegalEntityFacts'
+import LegalEntityForm from './LegalEntityForm'
 import { getVersion } from '../lib/legalEntitiesApi'
 import { valueNameList } from '../lib/legalEntityMappings'
 import type { LegalEntity, LegalEntityDetails, LegalEntityField } from '../lib/legalEntityModel'
@@ -112,13 +114,24 @@ function StatusBanner({ entity, name }: { entity: LegalEntity; name: string }) {
   return null
 }
 
-type DetailsBodyProps = Pick<LegalEntityPanelProps, 'entity' | 'canChange'>
+type DetailsBodyProps = Pick<
+  LegalEntityPanelProps,
+  'entity' | 'canChange' | 'draft' | 'onDraftChange' | 'onEntityChange' | 'onLost'
+>
 
-/**
- * The Details view's body. T37 replaces the `canChange` branch with `LegalEntityForm` (props: the entity, `draft`,
- * `onDraftChange`, `onEntityChange`, `onLost`); the facts stay for everything that is not a form (S4).
- */
-function DetailsBody({ entity }: DetailsBodyProps) {
+/** The Details view's body: the form for an entity the person may change, the facts for everything else (S4). */
+function DetailsBody({ entity, canChange, draft, onDraftChange, onEntityChange, onLost }: DetailsBodyProps) {
+  if (canChange) {
+    return (
+      <LegalEntityForm
+        entity={entity}
+        draft={draft}
+        onDraftChange={onDraftChange}
+        onEntityChange={onEntityChange}
+        onLost={onLost}
+      />
+    )
+  }
   return (
     <LegalEntityFacts
       details={entity}
@@ -138,10 +151,28 @@ function HistoryBody({ entity }: Pick<LegalEntityPanelProps, 'entity' | 'version
 }
 
 export default function LegalEntityPanel(props: LegalEntityPanelProps) {
-  const { entity, canChange, view, version, onViewChange, onVersionChange } = props
+  const { entity, canChange, view, version, onViewChange, onVersionChange, onLost } = props
   const name = strings.common.entities[entity.entity]
   const versionLine = useVersionLine(entity)
   const headingRef = useRef<HTMLHeadingElement>(null)
+
+  // A 403 on a save: the host turns the entity read-only and drops its draft; this panel says why, once, and takes
+  // focus there (the form, and the Save button that had it, is gone).
+  const [lostNotice, setLostNotice] = useState(false)
+  const lostRef = useRef<HTMLDivElement>(null)
+  const handleLost = useCallback(() => {
+    setLostNotice(true)
+    onLost()
+  }, [onLost])
+  const showLost = lostNotice && !canChange && view === 'details'
+  const lostFocused = useRef(false)
+  useEffect(() => {
+    // Once: coming back to Details after a look at History must not pull focus off the tab.
+    if (showLost && !lostFocused.current) {
+      lostFocused.current = true
+      lostRef.current?.focus()
+    }
+  }, [showLost])
 
   return (
     <div data-testid={`admin-legal-entity-panel-${entity.entity}`}>
@@ -175,6 +206,17 @@ export default function LegalEntityPanel(props: LegalEntityPanelProps) {
       <div {...tabPanelProps(`${VIEW_PREFIX}-${entity.entity}`, view)} className="pt-4">
         {view === 'details' ? (
           <div className="flex flex-col gap-4">
+            {showLost && (
+              <Banner
+                ref={lostRef}
+                tabIndex={-1}
+                tone="danger"
+                title={t.lost.title(name)}
+                data-testid="admin-legal-entity-lost"
+              >
+                {t.lost.body}
+              </Banner>
+            )}
             {!canChange && entity.version > 0 && (
               <Banner tone="info" live="off" data-testid="admin-legal-entity-readonly-note">
                 {t.readOnly.note(name)}
@@ -186,7 +228,16 @@ export default function LegalEntityPanel(props: LegalEntityPanelProps) {
               </Banner>
             )}
             <StatusBanner entity={entity} name={name} />
-            {entity.version > 0 && <DetailsBody entity={entity} canChange={canChange} />}
+            {entity.version > 0 && (
+              <DetailsBody
+                entity={entity}
+                canChange={canChange}
+                draft={props.draft}
+                onDraftChange={props.onDraftChange}
+                onEntityChange={props.onEntityChange}
+                onLost={handleLost}
+              />
+            )}
           </div>
         ) : (
           <HistoryBody entity={entity} version={version} onVersionChange={onVersionChange} />
