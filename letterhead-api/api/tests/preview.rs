@@ -426,7 +426,36 @@ impl FakeAuth {
         let for_seen = Arc::clone(&state);
         let for_jwks = Arc::clone(&key);
         let for_resolve = Arc::clone(&state);
+        let for_mint = Arc::clone(&key);
         let app = Router::new()
+            // The one service render of these tests reads the registry as the service's own client (T22).
+            .route(
+                "/system/service-token",
+                axum::routing::post(move || {
+                    let key = Arc::clone(&for_mint);
+                    async move {
+                        let token = key.token(&json!({
+                            "iss": ISSUER, "sub": "system:letterhead-api", "aud": SERVICE_AUDIENCE,
+                            "scope": "legal-entities:read", "iat": now(), "exp": now() + 300,
+                            "jti": Uuid::new_v4().to_string() }));
+                        axum::Json(json!({ "token": token, "expiresInSeconds": 300 }))
+                    }
+                }),
+            )
+            .route(
+                "/system/legal-entities",
+                get(|| async {
+                    let item = |entity: &str| {
+                        json!({ "entity": entity, "version": 1, "updatedAt": null,
+                            "legalName": "Registry S.r.l.",
+                            "address": { "it": ["Via Roma 1"], "en": ["Via Roma 1"] },
+                            "vatNumber": "IT01234567890", "iban": "", "ibanPrint": "",
+                            "contacts": { "it": "", "en": "" },
+                            "complete": true, "missing": [], "invalid": [] })
+                    };
+                    axum::Json(json!({ "items": [item("welld_it"), item("welld_ch")] }))
+                }),
+            )
             .route(
                 "/auth/jwks",
                 get(move || {
@@ -1149,6 +1178,9 @@ async fn preview_the_answer_has_the_render_previews_shape_with_a_null_letterhead
         .map(String::as_str)
         .collect();
     service_keys.sort_unstable();
+    // The service's render also says which version of the issuer's details it printed (T22); the configurator's
+    // preview gets its own member for them with T23.
+    service_keys.retain(|key| *key != "legalEntityVersion");
     assert_eq!(keys, service_keys);
     assert_eq!(service["letterheadVersion"], 1);
     let mut page_keys: Vec<&str> = body["pages"][0]

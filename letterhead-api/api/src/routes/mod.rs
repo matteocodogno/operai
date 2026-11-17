@@ -39,6 +39,7 @@ use crate::authz::{self, resolve::AuthzClient};
 use crate::db::Repo;
 use crate::log::{self, Facts, Route};
 use crate::pool::Pool;
+use crate::registry::Registry;
 use crate::storage::Storage;
 
 /// What the routes use. Cheap to clone: clones share the connections, the workers and the cache.
@@ -47,6 +48,8 @@ pub struct AppState {
     pub repo: Repo,
     pub pool: Pool,
     pub storage: Arc<Storage>,
+    /// The legal entities registry (T21): the issuer's details the documents print, under the cache rule.
+    pub registry: Registry,
 }
 
 /// The service routes, with their authentication, the `no-store` header and the log line.

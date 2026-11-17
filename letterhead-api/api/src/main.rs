@@ -26,12 +26,6 @@ mod log;
     reason = "parts of the pool are for the worker mode and the tests; the routes use admit, run and shutdown"
 )]
 mod pool;
-// The registry's reads (`entity_data`, `get`, `invalidate`) are for the render and preview routes (T22, T23): until
-// they take them, only the wiring below is used.
-#[expect(
-    dead_code,
-    reason = "T21 builds the client of the legal entities registry; the routes that read it come with T22 and T23"
-)]
 mod registry;
 mod routes;
 mod storage;
@@ -151,13 +145,14 @@ async fn run(config: Config) -> Result<(), String> {
     let authorization = AuthzClient::new(&config.auth.base_url)
         .map_err(|_| "cannot build the HTTP client of the permission service".to_owned())?;
     // The registry of the legal entities (T21): the service token and the cache live here, in the supervisor, which
-    // is the only process that has the secret. T22 and T23 hand it to the routes.
-    let _registry = build_registry(&config)
+    // is the only process that has the secret. The routes read it through `AppState`.
+    let registry = build_registry(&config)
         .map_err(|_| "cannot build the HTTP client of the legal entities registry".to_owned())?;
     let state = AppState {
         repo,
         pool: pool.clone(),
         storage: Arc::new(storage::Storage::new(&config.s3)),
+        registry,
     };
 
     let addr = SocketAddr::new(config.bind_ip, config.port);

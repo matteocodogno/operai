@@ -105,6 +105,10 @@ impl Snapshot {
         Snapshot { entities, sent_at }
     }
 
+    #[allow(
+        dead_code,
+        reason = "read by tests/registry.rs, which compiles this file on its own; the routes ask for one entity"
+    )]
     pub fn entities(&self) -> &[Arc<LegalEntityDetails>] {
         &self.entities
     }

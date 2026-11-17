@@ -3,7 +3,12 @@
 //! ```text
 //! render route=preview caller=system:crm-api entity=welld_it outcome=ok status=200 pages=4 ms=118
 //! render route=pdf caller=- entity=- outcome=unauthorized status=401 pages=- ms=0 cause=expired
+//! render route=pdf caller=system:crm-api entity=welld_it outcome=ok status=200 pages=1 ms=96 legal_entity_version=3 entity_data_ignored=false
 //! ```
+//!
+//! After `ms` come the optional `cause`, then, once the registry was read for the document, `legal_entity_version`
+//! (a number) and `entity_data_ignored` (`true` or `false`). Both are numbers and words of this crate, never a value
+//! of the request or of the registry.
 //!
 //! It holds the verified caller, the entity, the outcome code, the page count and the duration, and nothing of
 //! the content or of the entity data: every field is either a number, a member of a closed list written in this
@@ -30,6 +35,12 @@ pub struct Facts {
     pub outcome: Option<&'static str>,
     /// Why, in a closed vocabulary, for the outcomes where an operator needs it (`unauthorized`).
     pub cause: Option<&'static str>,
+    /// The version of the issuer's details the document was made from (or that a pin was held against), once the
+    /// registry has been read (AC-5.2, plan "Render"). A number: nothing of the details themselves.
+    pub legal_entity_version: Option<i64>,
+    /// Whether the request carried an `entityData` that was thrown away (AC-5.2): `Some(true)` when it held a
+    /// member, `Some(false)` when it held none; `None` before the request was read.
+    pub entity_data_ignored: Option<bool>,
 }
 
 /// The route a line is about: the fixed names of the service routes.
@@ -103,6 +114,12 @@ pub fn format_line(route: Route, facts: &Facts, status: u16, elapsed: Duration) 
         line.push_str(" cause=");
         line.push_str(cause);
     }
+    if let Some(version) = facts.legal_entity_version {
+        line.push_str(&format!(" legal_entity_version={version}"));
+    }
+    if let Some(ignored) = facts.entity_data_ignored {
+        line.push_str(&format!(" entity_data_ignored={ignored}"));
+    }
     line
 }
 
@@ -121,7 +138,7 @@ mod tests {
             entity: Some("welld_it"),
             pages: Some(4),
             outcome: Some("ok"),
-            cause: None,
+            ..Facts::default()
         }
     }
 
@@ -132,6 +149,29 @@ mod tests {
             line,
             "render route=preview caller=system:crm-api entity=welld_it outcome=ok status=200 pages=4 ms=118"
         );
+    }
+
+    #[test]
+    fn the_registry_version_and_the_ignored_entity_data_follow_the_duration() {
+        let facts = Facts {
+            legal_entity_version: Some(7),
+            entity_data_ignored: Some(true),
+            ..facts()
+        };
+        let line = format_line(Route::Pdf, &facts, 200, Duration::from_millis(5));
+        assert!(
+            line.ends_with(" ms=5 legal_entity_version=7 entity_data_ignored=true"),
+            "{line}"
+        );
+        let refused = Facts {
+            cause: Some("x"),
+            outcome: Some("legal_entity_version_mismatch"),
+            legal_entity_version: Some(8),
+            ..Facts::default()
+        };
+        let line = format_line(Route::Pdf, &refused, 409, Duration::ZERO);
+        assert!(line.ends_with(" cause=x legal_entity_version=8"), "{line}");
+        assert!(!line.contains("entity_data_ignored"), "{line}");
     }
 
     #[test]

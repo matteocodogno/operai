@@ -17,13 +17,19 @@
 //! 4. **The content**, on a blocking thread (parsing 20 MiB is not work for the async threads): validation
 //!    (422), then the asset rules over every image block (422 at `/blocks/<i>/data`). Only the rebuilt bytes of
 //!    an SVG go on.
-//! 5. **The letterhead version**: named (404 if it does not exist) or the active one (409 if none), and its
+//! 5. **The issuer's details** (T22; AC-5.1 to 5.3, 5.5): the registry's values for the entity, in the request's
+//!    language, replace whatever `entityData` the request held (both content versions). 503
+//!    `legal_entities_unavailable` when they cannot be had within the cache rule; 409
+//!    `legal_entity_version_mismatch` when the request's `legalEntityVersion` pin is not the version in use after
+//!    one refresh. The answer says which version it printed (`legalEntityVersion` / `Legal-Entity-Version`).
+//! 6. **The letterhead version**: named (404 if it does not exist) or the active one (409 if none), and its
 //!    assets from the bucket. Never a fallback to another version, another entity or a plain page (AC-4.4).
-//! 6. **The worker**, which lays the document out and is killed at the deadline.
+//! 7. **The worker**, which lays the document out and is killed at the deadline.
 //!
 //! Nothing of the document is kept: the body, the request and the result live in this function and are dropped
 //! when it returns (AC-3.7). The log line has no content in it (see `log.rs`), and no answer repeats any.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
@@ -39,7 +45,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use letterhead_engine::config::LetterheadConfig;
-use letterhead_engine::content::{Entity, Rejection, RenderRequest, ingest_images, parse_request};
+use letterhead_engine::content::{
+    Entity, EntityData, Rejection, RenderRequest, ingest_images, parse_request,
+};
 use letterhead_engine::layout::Assets;
 use letterhead_engine::output::PageSelection;
 use letterhead_engine::render::{LetterheadVersion, MAX_PAGES, PreviewPage};
@@ -50,6 +58,7 @@ use crate::db::VersionRow;
 use crate::log::Facts;
 use crate::pool::job::{Body as JobBody, Job, JobOutput, Meta, Output, Refusal};
 use crate::pool::{Permit, PoolError};
+use crate::registry::{self, LEGAL_ENTITIES_UNAVAILABLE, LegalEntityDetails, RETRY_AFTER_SECONDS};
 use crate::storage::StorageError;
 
 /// AC-3.3: a request body larger than this is refused with 413.
@@ -184,13 +193,67 @@ async fn serve(
         .map_err(rejection_error)?;
     facts.entity = Some(content.entity.as_str());
 
-    // 5. The version and its assets.
+    // The `entityData` of the request is parsed for its shape and then thrown away, in both content versions
+    // (AC-5.2): a caller does not choose the issuer a document prints.
+    facts.entity_data_ignored = Some(content.entity_data != EntityData::default());
+
+    // 5. The issuer's details, from the registry under the cache rule: 503 when they cannot be had, 409 when the
+    // caller's pin is not the version in use. Before the letterhead's assets are read and before any worker job.
+    let mut content = content;
+    let issuer = issuer_details(app, &content, facts).await?;
+    content.entity_data = registry::entity_data(&issuer, content.language);
+
+    // 6. The version and its assets.
     let (version, assets) = load_version(app, &content).await?;
 
-    // 6. The worker.
+    // 7. The worker.
     let rendered = run(permit, Job::new(content, version, assets, output.clone())).await?;
     facts.pages = Some(rendered.meta.page_count);
-    Ok(answer(rendered))
+    Ok(answer(rendered, issuer.version))
+}
+
+/// The issuer's details a document of `content` prints, and the check of its `legalEntityVersion` pin (plan decision
+/// 8: one document, one version of the details).
+///
+/// The cache gives the entity's details (fresh for 30 s, a stale entry for 60 s when `auth` fails, else
+/// `legal_entities_unavailable`). A pin that is not the version held is read as "the caller saw something else":
+/// the entry is dropped and read again, once. Still different: 409 `legal_entity_version_mismatch` with the version
+/// in use, and the caller (crm-api) rebuilds its content and retries once. A pin that matches costs no call.
+async fn issuer_details(
+    app: &AppState,
+    content: &RenderRequest,
+    facts: &mut Facts,
+) -> Result<Arc<LegalEntityDetails>, ApiError> {
+    let mut details = app
+        .registry
+        .get(content.entity)
+        .await
+        .map_err(|_| registry_unavailable())?;
+    if let Some(pin) = content.legal_entity_version
+        && i64::from(pin) != details.version
+    {
+        app.registry.invalidate();
+        details = app
+            .registry
+            .get(content.entity)
+            .await
+            .map_err(|_| registry_unavailable())?;
+        if i64::from(pin) != details.version {
+            facts.legal_entity_version = Some(details.version);
+            return Err(
+                ApiError::new(StatusCode::CONFLICT, "legal_entity_version_mismatch")
+                    .with("currentVersion", json!(details.version)),
+            );
+        }
+    }
+    facts.legal_entity_version = Some(details.version);
+    Ok(details)
+}
+
+/// 503 `legal_entities_unavailable` with `Retry-After: 5` (AC-5.5): no document is made from details older than 60 s.
+fn registry_unavailable() -> ApiError {
+    ApiError::new(StatusCode::SERVICE_UNAVAILABLE, LEGAL_ENTITIES_UNAVAILABLE)
+        .retry_after(RETRY_AFTER_SECONDS)
 }
 
 /// What the supervisor does with the bytes of a request before it takes a worker.
@@ -346,26 +409,27 @@ fn pages_of(uri: &Uri) -> Result<PageSelection, ApiError> {
 // ---------------------------------------------------------------------------------------------------------------
 // The answers
 
-fn answer(rendered: JobOutput) -> Response {
+fn answer(rendered: JobOutput, legal_entity_version: i64) -> Response {
     let JobOutput { meta, body } = rendered;
     match body {
-        JobBody::Pdf(pdf) => pdf_response(&meta, pdf),
-        JobBody::Preview(pages) => preview_response(&meta, &pages),
+        JobBody::Pdf(pdf) => pdf_response(&meta, legal_entity_version, pdf),
+        JobBody::Preview(pages) => preview_response(&meta, legal_entity_version, &pages),
         // A document job never answers with a fit check's problems: a fault of the pool.
         JobBody::Fit(_) => ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "render_failed")
             .respond(Facts::default()),
     }
 }
 
-fn pdf_response(meta: &Meta, pdf: Vec<u8>) -> Response {
+fn pdf_response(meta: &Meta, legal_entity_version: i64, pdf: Vec<u8>) -> Response {
     let mut response = (StatusCode::OK, pdf).into_response();
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/pdf"),
     );
-    let numbers: [(&'static str, String); 3] = [
+    let numbers: [(&'static str, String); 4] = [
         ("letterhead-version", meta.letterhead_version.to_string()),
+        ("legal-entity-version", legal_entity_version.to_string()),
         ("page-count", meta.page_count.to_string()),
         (
             "unprintable-characters",
@@ -384,7 +448,7 @@ fn pdf_response(meta: &Meta, pdf: Vec<u8>) -> Response {
     response
 }
 
-fn preview_response(meta: &Meta, pages: &[PreviewPage]) -> Response {
+fn preview_response(meta: &Meta, legal_entity_version: i64, pages: &[PreviewPage]) -> Response {
     let pages: Vec<Value> = pages
         .iter()
         .map(|page| {
@@ -397,6 +461,7 @@ fn preview_response(meta: &Meta, pages: &[PreviewPage]) -> Response {
         .collect();
     let body = json!({
         "letterheadVersion": meta.letterhead_version,
+        "legalEntityVersion": legal_entity_version,
         "pageCount": meta.page_count,
         "missingPlaceholders": meta.missing_placeholders,
         "unprintableCharacters": meta.unprintable_characters,

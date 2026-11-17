@@ -23,6 +23,7 @@ mod db;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -335,10 +336,101 @@ fn service_claims(sub: &str, scope: &str) -> Value {
             "iat": now(), "exp": now() + 300, "jti": Uuid::new_v4().to_string() })
 }
 
+/// The secret of this service's own client at the fake `auth` (the registry is read with it).
+const SERVICE_CLIENT_SECRET: &str = "test-client-secret-0123456789abcdefgh";
+
+/// The registry of the legal entities, as the fake `auth` serves it: `GET /system/legal-entities` for a service
+/// token that holds `legal-entities:read`. What it holds can be changed, and it can be made to fail.
+struct RegistryStub {
+    items: Mutex<Vec<Value>>,
+    down: AtomicBool,
+    /// How many times the registry was read (the token exchange is not counted).
+    reads: AtomicUsize,
+    /// How many tokens were minted for this service's own client.
+    exchanges: AtomicUsize,
+}
+
+/// One entity as the registry answers it (the shape of `fixtures/legal-entities.json`).
+fn registry_item(entity: &str, version: i64, name: &str) -> Value {
+    let (it, en, vat, iban, contacts) = if entity == "welld_it" {
+        (
+            json!(["Via Roma 1", "20121 Milano"]),
+            json!(["Via Roma 1", "20121 Milan"]),
+            "IT01234567890",
+            "IT60 X054 2811 1010 0000 0123 457",
+            ("Tel. 02 000 0000", "Phone 02 000 0000"),
+        )
+    } else {
+        (
+            json!(["Via Cantonale 1", "6900 Lugano", "Svizzera"]),
+            json!(["Via Cantonale 1", "6900 Lugano", "Switzerland"]),
+            "CHE-123.456.789 IVA",
+            "CH93 0076 2011 6238 5295 7",
+            ("Tel. +41 91 000 00 00", "Phone +41 91 000 00 00"),
+        )
+    };
+    json!({
+        "entity": entity, "version": version, "updatedAt": "2026-11-17T09:00:00.000Z",
+        "legalName": name,
+        "address": { "it": it, "en": en },
+        "vatNumber": vat, "iban": iban.replace(' ', ""), "ibanPrint": iban,
+        "contacts": { "it": contacts.0, "en": contacts.1 },
+        "complete": true, "missing": [], "invalid": [],
+    })
+}
+
+fn registry_items() -> Vec<Value> {
+    vec![
+        registry_item("welld_it", 3, "Registry Italia S.r.l."),
+        registry_item("welld_ch", 5, "Registry Svizzera SA"),
+    ]
+}
+
+impl RegistryStub {
+    fn new() -> RegistryStub {
+        RegistryStub {
+            items: Mutex::new(registry_items()),
+            down: AtomicBool::new(false),
+            reads: AtomicUsize::new(0),
+            exchanges: AtomicUsize::new(0),
+        }
+    }
+
+    /// Changes one member of one entity (`legalName`, `vatNumber`, `version`, ...).
+    fn set(&self, entity: &str, member: &str, value: Value) {
+        let mut items = self.items.lock().expect("lock");
+        let item = items
+            .iter_mut()
+            .find(|i| i["entity"] == entity)
+            .expect("an entity");
+        item[member] = value;
+    }
+
+    fn down(&self, down: bool) {
+        self.down.store(down, Ordering::SeqCst);
+    }
+
+    fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+}
+
+/// The scope claim of a bearer, read without checking it (the stub trusts what it is sent).
+fn scope_of(bearer: &str) -> String {
+    bearer
+        .strip_prefix("Bearer ")
+        .and_then(|token| token.split('.').nth(1))
+        .and_then(|part| URL_SAFE_NO_PAD.decode(part).ok())
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|claims| claims["scope"].as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
 struct FakeAuth {
     jwks_url: String,
     base: String,
     key: Arc<TestKey>,
+    registry: Arc<RegistryStub>,
 }
 
 impl FakeAuth {
@@ -348,7 +440,36 @@ impl FakeAuth {
         let key = Arc::new(TestKey::generate());
         let clients = Arc::new(clients);
         let (for_jwks, for_token, for_clients) = (Arc::clone(&key), Arc::clone(&key), clients);
+        let registry = Arc::new(RegistryStub::new());
+        let (for_registry, for_exchange) = (Arc::clone(&registry), Arc::clone(&registry));
         let app = Router::new()
+            .route(
+                "/system/legal-entities",
+                get(move |headers: axum::http::HeaderMap| {
+                    let registry = Arc::clone(&for_registry);
+                    async move {
+                        let bearer = headers
+                            .get("authorization")
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or_default();
+                        if !scope_of(bearer)
+                            .split(' ')
+                            .any(|scope| scope == "legal-entities:read")
+                        {
+                            return (axum::http::StatusCode::FORBIDDEN, String::new());
+                        }
+                        registry.reads.fetch_add(1, Ordering::SeqCst);
+                        if registry.down.load(Ordering::SeqCst) {
+                            return (axum::http::StatusCode::SERVICE_UNAVAILABLE, String::new());
+                        }
+                        let items = registry.items.lock().expect("lock").clone();
+                        (
+                            axum::http::StatusCode::OK,
+                            json!({ "items": items }).to_string(),
+                        )
+                    }
+                }),
+            )
             .route(
                 "/auth/jwks",
                 get(move || {
@@ -360,6 +481,7 @@ impl FakeAuth {
                 "/system/service-token",
                 post(move |body: axum::body::Bytes| {
                     let (key, clients) = (Arc::clone(&for_token), Arc::clone(&for_clients));
+                    let registry = Arc::clone(&for_exchange);
                     async move {
                         let asked: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
                         let found = clients.iter().find(|c| {
@@ -368,6 +490,9 @@ impl FakeAuth {
                         match found {
                             None => (axum::http::StatusCode::UNAUTHORIZED, String::new()),
                             Some(client) => {
+                                if client.id == "letterhead-api" {
+                                    registry.exchanges.fetch_add(1, Ordering::SeqCst);
+                                }
                                 let claims = service_claims(
                                     &format!("system:{}", client.id),
                                     &client.scopes.join(" "),
@@ -391,6 +516,7 @@ impl FakeAuth {
             jwks_url: format!("http://127.0.0.1:{port}/auth/jwks"),
             base: format!("http://127.0.0.1:{port}"),
             key,
+            registry,
         }
     }
 
@@ -423,6 +549,12 @@ fn clients() -> Vec<Client> {
             secret: "crm-secret",
             scopes: &["letterhead:render"],
         },
+        // This service's own client: the registry of the legal entities is read with it.
+        Client {
+            id: "letterhead-api",
+            secret: SERVICE_CLIENT_SECRET,
+            scopes: &["legal-entities:read"],
+        },
         Client {
             id: "no-scope",
             secret: "s1",
@@ -454,6 +586,8 @@ struct Settings {
     worker_rss_mb: Option<u64>,
     schema_url: String,
     jwks_url: String,
+    /// `AUTH_BASE_URL`: where the token and the registry are read.
+    auth_base: String,
     s3_endpoint: String,
 }
 
@@ -490,16 +624,14 @@ fn server_env(env: &TestEnv, settings: &Settings, port: u16) -> Vec<(&'static st
         ("PORT", port.to_string()),
         ("DATABASE_URL", settings.schema_url.clone()),
         ("AUTH_ISSUER", ISSUER.to_owned()),
-        // Never called by the service routes; a loopback address because a public `http` URL stops the start (T48, F4).
-        ("AUTH_BASE_URL", "http://127.0.0.1:9".to_owned()),
+        // The fake `auth`: the service token of this service's own client and the registry (a loopback address, because
+        // a public `http` URL stops the start, T48 F4).
+        ("AUTH_BASE_URL", settings.auth_base.clone()),
         ("AUTH_JWKS_URL", settings.jwks_url.clone()),
         ("AUTH_AUDIENCE", PERSON_AUDIENCE.to_owned()),
         ("SERVICE_AUDIENCE", SERVICE_AUDIENCE.to_owned()),
         ("SERVICE_CLIENT_ID", "letterhead-api".to_owned()),
-        (
-            "SERVICE_CLIENT_SECRET",
-            "test-client-secret-0123456789abcdefgh".to_owned(),
-        ),
+        ("SERVICE_CLIENT_SECRET", SERVICE_CLIENT_SECRET.to_owned()),
         ("ALLOWED_ORIGINS", "http://localhost:5173".to_owned()),
         ("LETTERHEAD_S3_ENDPOINT", settings.s3_endpoint.clone()),
         ("LETTERHEAD_S3_REGION", "us-east-1".to_owned()),
@@ -645,6 +777,7 @@ impl World {
                 worker_rss_mb,
                 schema_url: fixture.schema_url.clone(),
                 jwks_url: auth.jwks_url.clone(),
+                auth_base: auth.base.clone(),
                 s3_endpoint: fixture.env.s3_endpoint.clone(),
             },
         )
@@ -1229,40 +1362,45 @@ mod answers {
         assert_eq!(pdf.header("page-count").as_deref(), Some("3"));
     }
 
+    /// A placeholder that the registry holds nothing for is listed as missing, whatever the request's `entityData`
+    /// says (AC-5.3, AC-5.2): the caller cannot fill what the registry left empty.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn render_missing_placeholders_are_listed_and_a_request_without_entity_data_renders() {
+    async fn render_missing_placeholders_are_the_registrys_empty_values_whatever_entity_data_says()
+    {
         let Some(world) = World::start().await else {
             return;
         };
-        // The default footer uses {legal_name} and {address}.
+        // The default footer uses {legal_name} and {address}; this one also uses {vat}.
         let mut footer = serde_json::to_value(default_config()).expect("json");
         footer["variants"]["default"]["footer"]["left"][0]["text"] =
             json!({ "it": "{legal_name} - {vat}", "en": "{legal_name} - {vat}" });
         world.fixture.save(Entity::WelldIt, footer, &[]).await;
         let token = world.caller().await;
 
-        let bare = post(&world.server, "/v1/render/preview", &token, &small()).await;
-        assert_eq!(bare.status, 200, "{}", bare.text());
-        let missing = bare.json()["missingPlaceholders"].clone();
-        assert!(
-            missing
-                .as_array()
-                .expect("list")
-                .iter()
-                .any(|m| m == "legal_name"),
-            "{missing}"
-        );
-        assert!(
-            missing.as_array().expect("list").iter().any(|m| m == "vat"),
-            "{missing}"
-        );
-
+        // Not moved yet (version 0, empty values; set before the service first reads the registry): both are
+        // missing, and a caller's values do not fill them.
+        for (member, value) in [
+            ("version", json!(0)),
+            ("legalName", json!("")),
+            ("vatNumber", json!("")),
+        ] {
+            world.auth.registry.set("welld_it", member, value);
+        }
         let mut given = small();
         given["entityData"] =
             json!({ "legalName": "WellD S.r.l.", "vat": "IT123", "addressLines": ["Via X 1"] });
         let reply = post(&world.server, "/v1/render/pdf", &token, &given).await;
-        assert_eq!(reply.status, 200);
-        assert_eq!(reply.header("missing-placeholders").as_deref(), Some(""));
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        assert_eq!(
+            reply.header("missing-placeholders").as_deref(),
+            Some("legal_name,vat")
+        );
+        assert_eq!(reply.header("legal-entity-version").as_deref(), Some("0"));
+        let bare = post(&world.server, "/v1/render/preview", &token, &small()).await;
+        assert_eq!(
+            bare.json()["missingPlaceholders"],
+            json!(["legal_name", "vat"])
+        );
     }
 }
 
@@ -1790,7 +1928,11 @@ mod refusals {
         let token = world.caller().await;
         let cases = [
             (
-                json!({ "contentVersion": 2, "entity": "welld_it", "language": "en", "blocks": [] }),
+                json!({ "contentVersion": 3, "entity": "welld_it", "language": "en", "blocks": [] }),
+                "unsupported_content_version",
+            ),
+            (
+                json!({ "contentVersion": 0, "entity": "welld_it", "language": "en", "blocks": [] }),
                 "unsupported_content_version",
             ),
             (
@@ -2159,6 +2301,7 @@ mod assets {
                 worker_rss_mb: None,
                 schema_url: fixture.schema_url.clone(),
                 jwks_url: auth.jwks_url.clone(),
+                auth_base: auth.base.clone(),
                 s3_endpoint: dead,
             },
         )
@@ -2630,5 +2773,474 @@ mod log {
         for line in out.iter().filter(|l| l.starts_with("render ")) {
             assert!(!line.contains('{') && !line.contains('"'), "{line}");
         }
+    }
+}
+
+// ===============================================================================================================
+// T22: the issuer's details are the registry's (AC-1.5, AC-5.1, AC-5.2, AC-5.3, AC-5.5; plan decisions 7 and 8, E12)
+
+mod issuer {
+    use super::*;
+
+    /// A footer that prints every detail of the issuer, one line each (all placeholders, both languages).
+    fn issuer_config() -> Value {
+        let line = |text: &str| json!({ "text": { "it": text, "en": text }, "size": 8.0, "bold": false, "color": "595c69" });
+        let mut config = serde_json::to_value(default_config()).expect("json");
+        config["variants"]["default"]["footer"]["left"] = json!([
+            line("NAME={legal_name}"),
+            line("ADDR={address}"),
+            line("VAT={vat}"),
+            line("IBAN={iban}"),
+            line("CONTACTS={contacts}"),
+        ]);
+        // Five lines do not fit the default margin of 25 mm.
+        config["margins"]["bottom"] = json!(45.0);
+        config
+    }
+
+    async fn world_with_letterheads() -> Option<World> {
+        let world = World::start().await?;
+        for entity in [Entity::WelldIt, Entity::WelldCh] {
+            world.fixture.save(entity, issuer_config(), &[]).await;
+        }
+        Some(world)
+    }
+
+    fn v2(entity: &str, language: &str) -> Value {
+        json!({ "contentVersion": 2, "entity": entity, "language": language,
+                "blocks": [paragraph("Body")] })
+    }
+
+    fn text_of(reply: &Reply) -> String {
+        page_texts(reply).join("\n")
+    }
+
+    /// AC-5.1: v2, each entity and each language: the registry's legal name, `address[language]` joined with ", ",
+    /// the VAT number, `ibanPrint` and `contacts[language]`; the Italian and the English address differ in print.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_v2_prints_the_registrys_details_for_each_entity_and_language() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        let expected = [
+            (
+                "welld_it",
+                "it",
+                3,
+                [
+                    "NAME=Registry Italia S.r.l.",
+                    "ADDR=Via Roma 1, 20121 Milano",
+                    "VAT=IT01234567890",
+                    "IBAN=IT60 X054 2811 1010 0000 0123 457",
+                    "CONTACTS=Tel. 02 000 0000",
+                ],
+            ),
+            (
+                "welld_it",
+                "en",
+                3,
+                [
+                    "NAME=Registry Italia S.r.l.",
+                    "ADDR=Via Roma 1, 20121 Milan",
+                    "VAT=IT01234567890",
+                    "IBAN=IT60 X054 2811 1010 0000 0123 457",
+                    "CONTACTS=Phone 02 000 0000",
+                ],
+            ),
+            (
+                "welld_ch",
+                "it",
+                5,
+                [
+                    "NAME=Registry Svizzera SA",
+                    "ADDR=Via Cantonale 1, 6900 Lugano, Svizzera",
+                    "VAT=CHE-123.456.789 IVA",
+                    "IBAN=CH93 0076 2011 6238 5295 7",
+                    "CONTACTS=Tel. +41 91 000 00 00",
+                ],
+            ),
+            (
+                "welld_ch",
+                "en",
+                5,
+                [
+                    "NAME=Registry Svizzera SA",
+                    "ADDR=Via Cantonale 1, 6900 Lugano, Switzerland",
+                    "VAT=CHE-123.456.789 IVA",
+                    "IBAN=CH93 0076 2011 6238 5295 7",
+                    "CONTACTS=Phone +41 91 000 00 00",
+                ],
+            ),
+        ];
+        for (entity, language, version, lines) in expected {
+            let document = v2(entity, language);
+            let preview = post(&world.server, "/v1/render/preview", &token, &document).await;
+            assert_eq!(
+                preview.status,
+                200,
+                "{entity} {language}: {}",
+                preview.text()
+            );
+            let text = text_of(&preview);
+            for line in lines {
+                assert!(
+                    text.contains(line),
+                    "{entity} {language}: {line:?} not in {text:?}"
+                );
+            }
+            assert_eq!(preview.json()["missingPlaceholders"], json!([]));
+            assert_eq!(preview.json()["legalEntityVersion"], version);
+
+            let pdf = post(&world.server, "/v1/render/pdf", &token, &document).await;
+            assert_eq!(pdf.status, 200, "{entity} {language}: {}", pdf.text());
+            assert_eq!(
+                pdf.header("legal-entity-version"),
+                Some(version.to_string()),
+                "the PDF says which version of the details it printed"
+            );
+            assert_eq!(pdf.header("missing-placeholders").as_deref(), Some(""));
+        }
+        // Eight documents, two entities: the registry was read once (a fresh entry is used without a call) with
+        // one token of the service's own client.
+        assert_eq!(world.auth.registry.reads(), 1);
+        assert_eq!(world.auth.registry.exchanges.load(Ordering::SeqCst), 1);
+    }
+
+    /// AC-5.2 (E12): `entityData` is parsed and thrown away, in both content versions. The log says so.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_entity_data_of_the_request_is_ignored_in_v1_and_v2_and_the_log_says_so() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        let evil = json!({ "legalName": "EVIL SA", "addressLines": ["EVIL street 1"], "vat": "EVIL-VAT",
+                           "iban": "EVIL-IBAN", "contacts": "EVIL contacts" });
+        let mut v1 = request("welld_it", json!([paragraph("Body")]));
+        v1["entityData"] = evil.clone();
+        let mut second = v2("welld_it", "en");
+        second["entityData"] = evil;
+        let plain = v2("welld_it", "en");
+        for (name, document) in [("v1", v1), ("v2", second)] {
+            for route in ["/v1/render/preview", "/v1/render/pdf"] {
+                let reply = post(&world.server, route, &token, &document).await;
+                assert_eq!(reply.status, 200, "{name} {route}: {}", reply.text());
+                if route.ends_with("preview") {
+                    let text = text_of(&reply);
+                    assert!(
+                        text.contains("NAME=Registry Italia S.r.l."),
+                        "{name}: {text}"
+                    );
+                    assert!(!text.contains("EVIL"), "{name}: {text}");
+                } else {
+                    assert_eq!(reply.header("missing-placeholders").as_deref(), Some(""));
+                    assert!(
+                        !String::from_utf8_lossy(&reply.body).contains("EVIL"),
+                        "{name}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            post(&world.server, "/v1/render/pdf", &token, &plain)
+                .await
+                .status,
+            200
+        );
+        let lines = world.server.request_lines(5).await;
+        let ignored = lines
+            .iter()
+            .filter(|l| l.ends_with("legal_entity_version=3 entity_data_ignored=true"))
+            .count();
+        let kept = lines
+            .iter()
+            .filter(|l| l.ends_with("legal_entity_version=3 entity_data_ignored=false"))
+            .count();
+        assert_eq!((ignored, kept), (4, 1), "{lines:#?}");
+    }
+
+    /// AC-5.3: an empty value is a missing one (the registry's `""` and `[]`), for the IBAN and the contacts and for
+    /// the rest: nothing else is put in its place, and the answer lists it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_an_empty_iban_or_contacts_is_missing_and_prints_nothing() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        world.auth.registry.set("welld_it", "ibanPrint", json!(""));
+        world.auth.registry.set("welld_it", "iban", json!(""));
+        world
+            .auth
+            .registry
+            .set("welld_it", "contacts", json!({ "it": "", "en": "" }));
+        world
+            .auth
+            .registry
+            .set("welld_it", "address", json!({ "it": [], "en": [] }));
+        let token = world.caller().await;
+        let document = v2("welld_it", "it");
+        let preview = post(&world.server, "/v1/render/preview", &token, &document).await;
+        assert_eq!(preview.status, 200, "{}", preview.text());
+        assert_eq!(
+            preview.json()["missingPlaceholders"],
+            json!(["address", "contacts", "iban"])
+        );
+        let text = text_of(&preview);
+        assert!(text.contains("NAME=Registry Italia S.r.l."), "{text}");
+        assert!(text.contains("VAT=IT01234567890"), "{text}");
+        assert!(!text.contains('⟦'), "no mark on a render: {text}");
+        let pdf = post(&world.server, "/v1/render/pdf", &token, &document).await;
+        assert_eq!(pdf.status, 200, "{}", pdf.text());
+        assert_eq!(
+            pdf.header("missing-placeholders").as_deref(),
+            Some("address,contacts,iban")
+        );
+        // The other entity is untouched.
+        let other = post(
+            &world.server,
+            "/v1/render/pdf",
+            &token,
+            &v2("welld_ch", "it"),
+        )
+        .await;
+        assert_eq!(other.header("missing-placeholders").as_deref(), Some(""));
+    }
+
+    /// Plan decision 8: a pin that is not the version held makes the service read again, once. A pin the new read
+    /// agrees with renders; one it does not is a 409 with the version in use, and nothing is rendered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_a_pin_that_differs_refreshes_once_and_a_pin_that_still_differs_is_409() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        // Version 3 is read and held.
+        let first = post(
+            &world.server,
+            "/v1/render/preview",
+            &token,
+            &v2("welld_it", "it"),
+        )
+        .await;
+        assert_eq!(first.json()["legalEntityVersion"], 3);
+        assert_eq!(world.auth.registry.reads(), 1);
+
+        // The pin that is held costs no call.
+        let mut pinned = v2("welld_it", "it");
+        pinned["legalEntityVersion"] = json!(3);
+        let reply = post(&world.server, "/v1/render/preview", &token, &pinned).await;
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        assert_eq!(world.auth.registry.reads(), 1);
+
+        // Somebody saved version 4 and the caller saw it: the pin is ahead of the held entry, one call brings it.
+        world.auth.registry.set("welld_it", "version", json!(4));
+        world.auth.registry.set(
+            "welld_it",
+            "legalName",
+            json!("Registry Italia Nuova S.r.l."),
+        );
+        pinned["legalEntityVersion"] = json!(4);
+        let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        assert_eq!(reply.header("legal-entity-version").as_deref(), Some("4"));
+        assert_eq!(world.auth.registry.reads(), 2);
+        // ... and it is held now: no pin, no call, the new version.
+        let reply = post(
+            &world.server,
+            "/v1/render/preview",
+            &token,
+            &v2("welld_it", "it"),
+        )
+        .await;
+        assert!(text_of(&reply).contains("NAME=Registry Italia Nuova S.r.l."));
+        assert_eq!(world.auth.registry.reads(), 2);
+
+        // An older pin (the caller's own cache is behind): read again, still 4, so 409 with the version in use.
+        for route in ["/v1/render/pdf", "/v1/render/preview"] {
+            pinned["legalEntityVersion"] = json!(3);
+            let reply = post(&world.server, route, &token, &pinned).await;
+            assert_problem(&reply, 409, "legal_entity_version_mismatch");
+            assert_eq!(reply.json()["currentVersion"], 4);
+            assert!(!reply.body.starts_with(b"%PDF"));
+            let text = reply.text();
+            assert!(
+                !text.contains("Nuova") && !text.contains("IT0123"),
+                "{text}"
+            );
+        }
+        // Each of the two 409s read the registry once.
+        assert_eq!(world.auth.registry.reads(), 4);
+
+        // The refusal is in the log with the version, and it made no document (no pages).
+        let lines = world.server.request_lines(6).await;
+        let refused: Vec<&String> = lines
+            .iter()
+            .filter(|l| l.contains("outcome=legal_entity_version_mismatch"))
+            .collect();
+        assert_eq!(refused.len(), 2, "{lines:#?}");
+        assert!(
+            refused.iter().all(|l| l.contains("status=409")
+                && l.contains("pages=-")
+                && l.contains("legal_entity_version=4")),
+            "{refused:?}"
+        );
+
+        // `legalEntityVersion` is a member of content version 2 only.
+        let mut v1 = request("welld_it", json!([paragraph("Body")]));
+        v1["legalEntityVersion"] = json!(4);
+        let reply = post(&world.server, "/v1/render/pdf", &token, &v1).await;
+        assert_problem(&reply, 422, "invalid_content");
+    }
+
+    /// AC-5.5: the registry cannot be read and there is no entry: 503 `legal_entities_unavailable` with
+    /// `Retry-After: 5`, no document, no body of one, and the worker is never asked (the letterhead's own refusals
+    /// come after).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_registry_down_and_no_entry_is_503_with_retry_after_and_no_document() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        world.auth.registry.down(true);
+        let token = world.caller().await;
+        for route in ["/v1/render/pdf", "/v1/render/preview"] {
+            let reply = post(&world.server, route, &token, &v2("welld_it", "it")).await;
+            assert_problem(&reply, 503, "legal_entities_unavailable");
+            assert_eq!(reply.header("retry-after").as_deref(), Some("5"));
+            assert!(!reply.body.starts_with(b"%PDF"));
+            assert!(reply.json().get("pages").is_none());
+        }
+        // It is checked before the letterhead: an entity with none configured is the same 503, not a 409.
+        world
+            .fixture
+            .save(Entity::WelldIt, issuer_config(), &[])
+            .await;
+        let lines = world.server.request_lines(2).await;
+        assert!(
+            lines
+                .iter()
+                .all(|l| l.contains("outcome=legal_entities_unavailable")
+                    && l.contains("status=503")
+                    && l.contains("pages=-")),
+            "{lines:#?}"
+        );
+
+        // `auth` comes back: the next request is served (nothing is remembered of the failure).
+        world.auth.registry.down(false);
+        let reply = post(
+            &world.server,
+            "/v1/render/pdf",
+            &token,
+            &v2("welld_it", "it"),
+        )
+        .await;
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        // The service did not log a detail of the registry: only closed words and numbers.
+        let (out, err) = world.server.stop();
+        for line in out.iter().chain(err.iter()) {
+            assert!(!line.contains("Registry"), "{line}");
+            assert!(!line.contains(SERVICE_CLIENT_SECRET), "{line}");
+        }
+        assert!(
+            out.iter()
+                .any(|l| l.starts_with("registry event=legal_entities_unavailable")),
+            "{out:#?}"
+        );
+    }
+
+    /// AC-5.5 on the real clock: an entry that was read is used while `auth` is down until it is 60 s old, and not
+    /// after. (The boundaries 29, 31, 59 and 61 s are `tests/registry.rs`; this is the route's answer to them.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_an_entry_older_than_60_seconds_is_not_used_when_auth_is_down() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        let document = v2("welld_it", "it");
+        let first = post(&world.server, "/v1/render/pdf", &token, &document).await;
+        assert_eq!(first.status, 200, "{}", first.text());
+        let read = Instant::now();
+        world.auth.registry.down(true);
+
+        // Past the 30 s that a fresh entry is used for: a refresh is tried, fails, and the entry (31 s) is used.
+        tokio::time::sleep(Duration::from_secs(32)).await;
+        let stale = post(&world.server, "/v1/render/pdf", &token, &document).await;
+        assert_eq!(stale.status, 200, "an entry of 32 s: {}", stale.text());
+        assert_eq!(stale.header("legal-entity-version").as_deref(), Some("3"));
+        assert!(world.auth.registry.reads() >= 2, "a refresh was tried");
+
+        // Past 60 s: no document from details that old.
+        tokio::time::sleep(Duration::from_secs(62).saturating_sub(read.elapsed())).await;
+        for route in ["/v1/render/pdf", "/v1/render/preview"] {
+            let reply = post(&world.server, route, &token, &document).await;
+            assert_problem(&reply, 503, "legal_entities_unavailable");
+            assert_eq!(reply.header("retry-after").as_deref(), Some("5"));
+            assert!(!reply.body.starts_with(b"%PDF"));
+        }
+        let (out, _) = world.server.stop();
+        assert!(
+            out.iter()
+                .any(|l| l.starts_with("registry event=registry_stale_used")),
+            "{out:#?}"
+        );
+    }
+
+    /// R9: real details are longer than the sample's: a 200-character legal name that does not fit the footer is
+    /// 422 `footer_overflow` on both routes (the CRM maps it to `letterhead_overflow`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_a_legal_name_that_overflows_the_footer_is_422_footer_overflow() {
+        let Some(world) = World::start().await else {
+            return;
+        };
+        let mut config = issuer_config();
+        // A large name: 200 characters wrap over several lines of it, and the margin is the 45 mm of the others.
+        config["variants"]["default"]["footer"]["left"][0]["size"] = json!(12.0);
+        world.fixture.save(Entity::WelldIt, config, &[]).await;
+        let token = world.caller().await;
+
+        // The sample-sized name fits.
+        let fits = post(
+            &world.server,
+            "/v1/render/pdf",
+            &token,
+            &v2("welld_it", "it"),
+        )
+        .await;
+        assert_eq!(fits.status, 200, "{}", fits.text());
+
+        let long = "Societa di Prova per la Verifica del Margine ".repeat(5);
+        assert!(long.chars().count() >= 200);
+        world
+            .auth
+            .registry
+            .set("welld_it", "legalName", json!(long));
+        world.auth.registry.set("welld_it", "version", json!(4));
+        let mut document = v2("welld_it", "it");
+        // The pin makes the service read the new name now rather than in 30 s.
+        document["legalEntityVersion"] = json!(4);
+        for route in ["/v1/render/pdf", "/v1/render/preview"] {
+            let reply = post(&world.server, route, &token, &document).await;
+            assert_problem(&reply, 422, "footer_overflow");
+            assert!(!reply.body.starts_with(b"%PDF"));
+            assert!(!reply.text().contains("Societa"), "{}", reply.text());
+        }
+    }
+
+    /// The service reads the registry as its own client: with the scope `legal-entities:read` (the stub refuses a
+    /// token without it) and never with the caller's token.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn render_the_registry_is_read_with_the_services_own_token() {
+        let Some(world) = world_with_letterheads().await else {
+            return;
+        };
+        let token = world.caller().await;
+        let reply = post(
+            &world.server,
+            "/v1/render/pdf",
+            &token,
+            &v2("welld_ch", "en"),
+        )
+        .await;
+        assert_eq!(reply.status, 200, "{}", reply.text());
+        assert_eq!(world.auth.registry.exchanges.load(Ordering::SeqCst), 1);
+        assert_eq!(world.auth.registry.reads(), 1);
     }
 }

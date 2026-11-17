@@ -852,21 +852,47 @@ impl FakeAuth {
                     }
                 }),
             )
-            // What a caller does with its client credentials (used by `scripts/residue-check.sh`).
+            // What a caller does with its client credentials (used by `scripts/residue-check.sh`), and what the
+            // service itself does to read the registry (T22).
             .route(
                 "/system/service-token",
                 routing::post(move |body: axum::body::Bytes| {
                     let key = Arc::clone(&for_mint);
                     async move {
                         let asked: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
-                        if asked["clientId"] != "residue-check" || asked["clientSecret"] != "residue-secret" {
+                        let claims = if asked["clientId"] == "residue-check" && asked["clientSecret"] == "residue-secret" {
+                            service_claims("system:residue-check", 3600)
+                        } else if asked["clientId"] == "letterhead-api"
+                            && asked["clientSecret"] == "test-client-secret-0123456789abcdefgh"
+                        {
+                            let mut claims = service_claims("system:letterhead-api", 3600);
+                            claims["scope"] = json!("legal-entities:read");
+                            claims
+                        } else {
                             return StatusCode::UNAUTHORIZED.into_response();
-                        }
-                        axum::Json(json!({
-                            "token": key.token(&service_claims("system:residue-check", 3600)),
-                            "expiresInSeconds": 3600 }))
-                        .into_response()
+                        };
+                        axum::Json(json!({ "token": key.token(&claims), "expiresInSeconds": 3600 }))
+                            .into_response()
                     }
+                }),
+            )
+            // The registry of the legal entities (T22). `welld_ch` has a legal name that no frame holds, so that a
+            // document of it is refused by the worker (`header_overflow`) whatever its `entityData` says.
+            .route(
+                "/system/legal-entities",
+                routing::get(|| async {
+                    let item = |entity: &str, name: String| {
+                        json!({ "entity": entity, "version": 1, "updatedAt": null, "legalName": name,
+                            "address": { "it": ["Via Roma 1"], "en": ["Via Roma 1"] },
+                            "vatNumber": "IT01234567890", "iban": "IT60X0542811101000000123457",
+                            "ibanPrint": "IT60 X054 2811 1010 0000 0123 457",
+                            "contacts": { "it": "", "en": "" },
+                            "complete": true, "missing": [], "invalid": [] })
+                    };
+                    axum::Json(json!({ "items": [
+                        item("welld_it", "Registry Italia S.r.l.".to_owned()),
+                        item("welld_ch", "Aaaa bbbb ".repeat(400)),
+                    ] }))
                 }),
             );
         let listener = tokio::net::TcpListener::bind(bind).await.expect("bind");
@@ -1327,13 +1353,30 @@ fn is_render_line(line: &str) -> bool {
         word.strip_prefix(&format!("{name}="))
             .is_some_and(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()))
     };
+    // After `ms`: an optional `cause=`, then (T22) the optional `legal_entity_version=<n>` and
+    // `entity_data_ignored=true|false`, in that order, numbers and two words of ours.
+    let mut rest = words[8..].iter().peekable();
+    if rest.peek().is_some_and(|word| word.starts_with("cause=")) {
+        rest.next();
+    }
+    if rest
+        .peek()
+        .is_some_and(|word| numeric(word, "legal_entity_version"))
+    {
+        rest.next();
+    }
+    if rest.peek().is_some_and(|word| {
+        matches!(
+            **word,
+            "entity_data_ignored=true" | "entity_data_ignored=false"
+        )
+    }) {
+        rest.next();
+    }
     numeric(words[5], "status")
         && (words[6] == "pages=-" || numeric(words[6], "pages"))
         && numeric(words[7], "ms")
-        && match words.get(8) {
-            None => words.len() == 8,
-            Some(cause) => words.len() == 9 && cause.starts_with("cause="),
-        }
+        && rest.next().is_none()
 }
 
 /// A line the service may print: a render line, the one at start, and the two fixed messages of the
@@ -1385,7 +1428,7 @@ async fn residue_nothing_of_a_document_is_kept_anywhere() {
     };
     let refused_contentversion = {
         let mut doc = document("welld_it", &mut marks, "refused-contentversion");
-        doc["contentVersion"] = json!(2);
+        doc["contentVersion"] = json!(3);
         doc
     };
     let refused_image = {
