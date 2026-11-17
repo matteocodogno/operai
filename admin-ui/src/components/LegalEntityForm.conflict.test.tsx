@@ -13,13 +13,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LegalEntityForm from './LegalEntityForm'
-import { LegalEntityApiError, getLegalEntity, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
+import {
+  LegalEntityApiError,
+  checkLegalEntity,
+  getLegalEntity,
+  getVersion,
+  saveLegalEntity,
+} from '../lib/legalEntitiesApi'
 import { entityFixture } from '../pages/LegalEntitiesPage.fixtures'
 import type { LegalEntity, LegalEntityDetails, LegalEntityId, LegalEntityVersion } from '../lib/legalEntityModel'
 
 vi.mock('../lib/legalEntitiesApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/legalEntitiesApi')>()
-  return { ...original, saveLegalEntity: vi.fn(), getVersion: vi.fn(), getLegalEntity: vi.fn() }
+  return { ...original, saveLegalEntity: vi.fn(), checkLegalEntity: vi.fn(), getVersion: vi.fn(), getLegalEntity: vi.fn() }
 })
 
 const save = vi.mocked(saveLegalEntity)
@@ -110,6 +116,10 @@ async function editAndConflict(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
   save.mockReset()
+  // The check (T60) finds nothing protected to confirm here: these tests are about what a save's answers do.
+  vi.mocked(checkLegalEntity)
+    .mockReset()
+    .mockResolvedValue({ baseVersion: 3, outcome: 'change', changedFields: [], protectedChanges: [] })
   readVersion.mockReset()
   readEntity.mockReset()
 })

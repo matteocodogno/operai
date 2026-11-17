@@ -14,14 +14,14 @@ import type { Mock } from 'vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import LegalEntityForm from './LegalEntityForm'
-import { LegalEntityApiError, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
+import { LegalEntityApiError, checkLegalEntity, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
 import type { SaveResult } from '../lib/legalEntitiesApi'
 import { entityFixture } from '../pages/LegalEntitiesPage.fixtures'
 import type { LegalEntity, LegalEntityDetails, LegalEntityProblem } from '../lib/legalEntityModel'
 
 vi.mock('../lib/legalEntitiesApi', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/legalEntitiesApi')>()
-  return { ...original, saveLegalEntity: vi.fn(), getVersion: vi.fn() }
+  return { ...original, saveLegalEntity: vi.fn(), checkLegalEntity: vi.fn(), getVersion: vi.fn() }
 })
 
 const save = vi.mocked(saveLegalEntity)
@@ -88,6 +88,10 @@ async function axeViolations(container: Element): Promise<string[]> {
 
 beforeEach(() => {
   save.mockReset()
+  // The check (T60) finds nothing protected to confirm here: these tests are about what a save's answers do.
+  vi.mocked(checkLegalEntity)
+    .mockReset()
+    .mockResolvedValue({ baseVersion: 3, outcome: 'change', changedFields: [], protectedChanges: [] })
   vi.mocked(getVersion).mockReset().mockRejectedValue(new TypeError('Failed to fetch'))
 })
 afterEach(cleanup)

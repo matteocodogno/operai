@@ -17,6 +17,7 @@ import { ApiError } from './adminApi'
 import {
   LegalEntityApiError,
   LegalEntityContractError,
+  checkLegalEntity,
   getLegalEntity,
   getManageable,
   getVersion,
@@ -420,5 +421,151 @@ describe('restoreVersion (AC-2.4)', () => {
       status: 422,
       problems: [{ field: 'vatNumber', reason: 'required' }],
     })
+  })
+})
+
+describe('checkLegalEntity (AC-9.1, plan G1.7)', () => {
+  const details: LegalEntityDetails = {
+    legalName: 'wellD SA',
+    address: { it: ['Via Roma 1'], en: ['Via Roma 1'] },
+    vatNumber: 'IT01234567890',
+    iban: 'IT60X0542811101000000123457',
+    contacts: { it: '', en: '' },
+  }
+  const answer = {
+    baseVersion: 3,
+    outcome: 'change',
+    changedFields: ['iban', 'contacts.en'],
+    protectedChanges: [{ field: 'iban', before: 'IT60 X054 2811 1010 0000 0123 456', after: '' }],
+  }
+
+  it('POSTs the very body of a save to the check route, blank lines kept in order, and sends only the five members', async () => {
+    mockFetch.mockResolvedValue(json(answer))
+    const withBlanks: LegalEntityDetails = { ...details, address: { it: ['A', '', 'C'], en: ['A'] } }
+    await checkLegalEntity('welld_ch', { baseVersion: 3, details: { ...withBlanks, extra: 'no' } as LegalEntityDetails })
+    const { url, init } = lastCall()
+    expect(url).toBe(`${AUTH}/legal-entities/welld_ch/versions/check`)
+    expect(init.method).toBe('POST')
+
+    mockFetch.mockResolvedValue(json({ version: 4, created: true, entity: FIXTURE_CH }, 201))
+    await saveLegalEntity('welld_ch', { baseVersion: 3, details: withBlanks })
+    expect(JSON.parse(init.body as string)).toEqual(JSON.parse(lastCall().init.body as string))
+  })
+
+  it('parses the answer: the version, the outcome, the changed fields and each protected change as stored ("" = empty)', async () => {
+    mockFetch.mockResolvedValue(json(answer))
+    expect(await checkLegalEntity('welld_ch', { baseVersion: 3, details })).toEqual({
+      baseVersion: 3,
+      outcome: 'change',
+      changedFields: ['iban', 'contacts.en'],
+      protectedChanges: [{ field: 'iban', before: 'IT60 X054 2811 1010 0000 0123 456', after: '' }],
+    })
+  })
+
+  it('an empty protectedChanges and outcome "same" are answers (no confirmation to ask)', async () => {
+    mockFetch.mockResolvedValue(json({ baseVersion: 3, outcome: 'same', changedFields: [], protectedChanges: [] }))
+    expect(await checkLegalEntity('welld_it', { baseVersion: 3, details })).toMatchObject({
+      outcome: 'same',
+      protectedChanges: [],
+    })
+  })
+
+  it('keeps the closed order (legal name, VAT number, IBAN) whatever order it arrives in', async () => {
+    mockFetch.mockResolvedValue(
+      json({
+        ...answer,
+        protectedChanges: [
+          { field: 'iban', before: '', after: 'CH93 0076 2011 6238 5295 7' },
+          { field: 'legalName', before: 'a', after: 'b' },
+          { field: 'vatNumber', before: '', after: 'x' },
+        ],
+      }),
+    )
+    const check = await checkLegalEntity('welld_ch', { baseVersion: 3, details })
+    expect(check.protectedChanges.map((change) => change.field)).toEqual(['legalName', 'vatNumber', 'iban'])
+  })
+
+  it.each([
+    ['an unknown protected field (a skipped entry would be a protected change saved unseen)', { ...answer, protectedChanges: [{ field: 'contacts.it', before: '', after: 'x' }] }],
+    ['a missing before', { ...answer, protectedChanges: [{ field: 'iban', after: '' }] }],
+    ['a missing protectedChanges', { baseVersion: 3, outcome: 'change', changedFields: [] }],
+    ['an unknown outcome', { ...answer, outcome: 'maybe' }],
+  ])('%s is a contract failure (the page then says it could not check)', async (_name, body) => {
+    mockFetch.mockResolvedValue(json(body))
+    await expect(checkLegalEntity('welld_ch', { baseVersion: 3, details })).rejects.toBeInstanceOf(
+      LegalEntityContractError,
+    )
+  })
+
+  it('refusals are a save’s: 422 with its problems, 409 with the current version, 403', async () => {
+    mockFetch.mockResolvedValueOnce(
+      problemJson(422, { code: 'invalid_legal_entity', problems: [{ field: 'iban', reason: 'iban_format' }] }),
+    )
+    await expect(checkLegalEntity('welld_ch', { baseVersion: 3, details })).rejects.toMatchObject({
+      status: 422,
+      problems: [{ field: 'iban', reason: 'iban_format' }],
+    })
+    mockFetch.mockResolvedValueOnce(problemJson(409, { code: 'version_conflict', currentVersion: 5 }))
+    await expect(checkLegalEntity('welld_ch', { baseVersion: 3, details })).rejects.toMatchObject({
+      status: 409,
+      currentVersion: 5,
+    })
+    mockFetch.mockResolvedValueOnce(problemJson(403, { code: 'forbidden' }))
+    await expect(checkLegalEntity('welld_ch', { baseVersion: 3, details })).rejects.toMatchObject({ status: 403 })
+  })
+})
+
+describe('429 too_many_requests and Retry-After (F3)', () => {
+  const details: LegalEntityDetails = {
+    legalName: 'wellD SA',
+    address: { it: ['Via Roma 1'], en: ['Via Roma 1'] },
+    vatNumber: 'IT01234567890',
+    iban: 'IT60X0542811101000000123457',
+    contacts: { it: '', en: '' },
+  }
+  const tooMany = (retryAfter?: string): Response =>
+    new Response(JSON.stringify({ type: 'about:blank', title: 'Too many', status: 429, code: 'too_many_requests' }), {
+      status: 429,
+      headers: {
+        'Content-Type': 'application/problem+json',
+        ...(retryAfter === undefined ? {} : { 'Retry-After': retryAfter }),
+      },
+    })
+
+  it.each([
+    ['150', 150],
+    [' 60 ', 60],
+    ['0', 0],
+  ])('reads Retry-After "%s" as %s seconds on a save, a restore and a check', async (header, seconds) => {
+    for (const call of [
+      () => saveLegalEntity('welld_ch', { baseVersion: 3, details }),
+      () => restoreVersion('welld_ch', 2, 4),
+      () => checkLegalEntity('welld_ch', { baseVersion: 3, details }),
+    ]) {
+      mockFetch.mockResolvedValueOnce(tooMany(header))
+      const error = (await call().catch((e: unknown) => e)) as LegalEntityApiError
+      expect(error).toBeInstanceOf(LegalEntityApiError)
+      expect(error.status).toBe(429)
+      expect(error.code).toBe('too_many_requests')
+      expect(error.retryAfterSeconds).toBe(seconds)
+    }
+  })
+
+  it.each([undefined, 'Wed, 21 Oct 2026 07:28:00 GMT', '1.5', '-3', 'soon', ''])(
+    'a Retry-After of %s is unknown, never a number the server did not give',
+    async (header) => {
+      mockFetch.mockResolvedValue(tooMany(header))
+      const error = (await saveLegalEntity('welld_ch', { baseVersion: 3, details }).catch((e: unknown) => e)) as LegalEntityApiError
+      expect(error.status).toBe(429)
+      expect(error.retryAfterSeconds).toBeUndefined()
+    },
+  )
+
+  it('only a 429 carries a wait', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify({ title: 'x', status: 503 }), { status: 503, headers: { 'Retry-After': '30' } }),
+    )
+    const error = (await saveLegalEntity('welld_ch', { baseVersion: 3, details }).catch((e: unknown) => e)) as LegalEntityApiError
+    expect(error.retryAfterSeconds).toBeUndefined()
   })
 })

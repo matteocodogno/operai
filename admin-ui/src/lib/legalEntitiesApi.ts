@@ -11,8 +11,8 @@
  *    cannot read throws `LegalEntityContractError` (a failed load: Banner + Retry). Members it does not know are
  *    ignored, so an additive change on the server never breaks the page.
  *  - Errors are `LegalEntityApiError`, an `ApiError` that also carries `problems[]` of a 422
- *    `invalid_legal_entity` (E5) and `currentVersion` of a 409 `version_conflict` (AC-2.6). Branch on `status` and
- *    `code`, never on the prose.
+ *    `invalid_legal_entity` (E5), `currentVersion` of a 409 `version_conflict` (AC-2.6) and `retryAfterSeconds` of a
+ *    429 `too_many_requests` (F3, T60). Branch on `status` and `code`, never on the prose.
  *  - A save sends the details exactly as the form holds them: blank address lines are NOT removed here, because
  *    `problems[].line` counts positions in the submitted array (E5).
  *
@@ -40,16 +40,25 @@ import type {
 // Errors
 // ---------------------------------------------------------------------------
 
-/** A non-2xx answer. `problems` only on a 422 `invalid_legal_entity`; `currentVersion` only on a 409 `version_conflict`. */
+type ErrorExtras = { problems?: LegalEntityProblem[]; currentVersion?: number; retryAfterSeconds?: number }
+
+/**
+ * A non-2xx answer. `problems` only on a 422 `invalid_legal_entity`; `currentVersion` only on a 409
+ * `version_conflict`; `retryAfterSeconds` only on a 429, and only when the `Retry-After` header was a whole number of
+ * seconds the browser could read (a cross-origin answer hides it unless the server exposes it: the page then says
+ * "wait a few minutes" and never invents a number).
+ */
 export class LegalEntityApiError extends ApiError {
   readonly problems: LegalEntityProblem[] | undefined
   readonly currentVersion: number | undefined
+  readonly retryAfterSeconds: number | undefined
 
-  constructor(problem: ApiProblem, extras: { problems?: LegalEntityProblem[]; currentVersion?: number } = {}) {
+  constructor(problem: ApiProblem, extras: ErrorExtras = {}) {
     super(problem)
     this.name = 'LegalEntityApiError'
     this.problems = extras.problems
     this.currentVersion = extras.currentVersion
+    this.retryAfterSeconds = extras.retryAfterSeconds
   }
 }
 
@@ -211,9 +220,57 @@ export const parseSaveResult = (value: unknown): SaveResult => {
   }
 }
 
+/** The three protected details (AC-9.1), in the closed order the check answers them. */
+export const PROTECTED_FIELDS = ['legalName', 'vatNumber', 'iban'] as const
+export type ProtectedField = (typeof PROTECTED_FIELDS)[number]
+
+/** One protected detail a save would change: as stored (the IBAN in groups of four), `""` = empty. */
+export type ProtectedChange = { field: ProtectedField; before: string; after: string }
+
+export type SaveCheck = {
+  baseVersion: number
+  /** `same`: the save would be a no-op (AC-2.1). */
+  outcome: 'change' | 'same'
+  changedFields: LegalEntityField[]
+  /** Only the protected details the save changes, in `PROTECTED_FIELDS` order. Empty: no confirmation (AC-9.5). */
+  protectedChanges: ProtectedChange[]
+}
+
+const parseProtectedChange = (value: unknown, path: string): ProtectedChange => {
+  const raw = record(value, path)
+  return {
+    field: oneOf<ProtectedField>(raw.field, PROTECTED_FIELDS, `${path}.field`),
+    before: text(raw.before, `${path}.before`),
+    after: text(raw.after, `${path}.after`),
+  }
+}
+
+/**
+ * The answer of the read-only check. A `protectedChanges` entry this build cannot read (an unknown field) is a
+ * contract failure, not something to skip: a skipped entry would be a protected change saved without being shown.
+ */
+export const parseSaveCheck = (value: unknown): SaveCheck => {
+  const raw = record(value, 'check')
+  return {
+    baseVersion: integer(raw.baseVersion, 'check.baseVersion'),
+    outcome: oneOf<SaveCheck['outcome']>(raw.outcome, ['change', 'same'], 'check.outcome'),
+    changedFields: fieldList(raw.changedFields, 'check.changedFields'),
+    protectedChanges: list(raw.protectedChanges, 'check.protectedChanges')
+      .map((item, index) => parseProtectedChange(item, `check.protectedChanges[${index}]`))
+      .sort((a, b) => PROTECTED_FIELDS.indexOf(a.field) - PROTECTED_FIELDS.indexOf(b.field)),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Transport
 // ---------------------------------------------------------------------------
+
+/** `Retry-After` as whole seconds; an HTTP date, a fraction, a negative or a missing header is "unknown". */
+const retryAfterSeconds = (response: Response): number | undefined => {
+  const header = response.headers?.get('Retry-After')?.trim()
+  if (header === undefined || !/^\d{1,9}$/.test(header)) return undefined
+  return Number(header)
+}
 
 const authBase = (): string => getAuthBaseUrl()
 
@@ -234,7 +291,8 @@ const throwFromResponse = async (response: Response): Promise<never> => {
     instance: typeof body.instance === 'string' ? body.instance : undefined,
     code: typeof body.code === 'string' ? body.code : undefined,
   }
-  const extras: { problems?: LegalEntityProblem[]; currentVersion?: number } = {}
+  const extras: ErrorExtras = {}
+  if (response.status === 429) extras.retryAfterSeconds = retryAfterSeconds(response)
   if (typeof body.currentVersion === 'number' && Number.isInteger(body.currentVersion)) {
     extras.currentVersion = body.currentVersion
   }
@@ -308,27 +366,38 @@ export const getVersion = async (entity: LegalEntityId, n: number): Promise<Lega
  * POST /legal-entities/{entity}/versions. `details` goes as given, blank address lines included (E5).
  * 201 `created: true`; 200 `created: false` (no-op, AC-2.1). Throws `LegalEntityApiError`: 403 `forbidden`,
  * 409 `version_conflict` (+ `currentVersion`) or `legal_entity_not_moved`, 422 `invalid_legal_entity`
- * (+ `problems`) or `invalid_request`.
+ * (+ `problems`) or `invalid_request`, 429 `too_many_requests` (+ `retryAfterSeconds`).
  */
 export const saveLegalEntity = async (
   entity: LegalEntityId,
   input: { baseVersion: number; details: LegalEntityDetails },
-): Promise<SaveResult> => {
-  const { baseVersion, details } = input
-  return parseSaveResult(
-    await postJson(`${entityPath(entity)}/versions`, {
-      baseVersion,
-      details: {
-        legalName: details.legalName,
-        address: { it: details.address.it, en: details.address.en },
-        vatNumber: details.vatNumber,
-        iban: details.iban,
-        contacts: { it: details.contacts.it, en: details.contacts.en },
-      },
-    }),
-  )
+): Promise<SaveResult> => parseSaveResult(await postJson(`${entityPath(entity)}/versions`, submission(input)))
+
+/** The body of a save and of its check: the same, field by field. */
+function submission({ baseVersion, details }: { baseVersion: number; details: LegalEntityDetails }) {
+  return {
+    baseVersion,
+    details: {
+      legalName: details.legalName,
+      address: { it: details.address.it, en: details.address.en },
+      vatNumber: details.vatNumber,
+      iban: details.iban,
+      contacts: { it: details.contacts.it, en: details.contacts.en },
+    },
+  }
 }
 
-/** POST /legal-entities/{entity}/versions/{n}/restore (AC-2.4). Refusals as a save, plus 404 `version_not_found`. */
+/**
+ * POST /legal-entities/{entity}/versions/check (AC-9.1, plan G1.7): what a save of exactly this body would change,
+ * writing nothing. Refusals are a save's: 403, 409 `version_conflict` (+ `currentVersion`) or `legal_entity_not_moved`,
+ * 422 `invalid_legal_entity` (+ `problems`) or `invalid_request`, and 429 `too_many_requests` (+ `retryAfterSeconds`)
+ * from the check's own window. A 404 while the services are updated one after the other is just a failed check.
+ */
+export const checkLegalEntity = async (
+  entity: LegalEntityId,
+  input: { baseVersion: number; details: LegalEntityDetails },
+): Promise<SaveCheck> => parseSaveCheck(await postJson(`${entityPath(entity)}/versions/check`, submission(input)))
+
+/** POST /legal-entities/{entity}/versions/{n}/restore (AC-2.4). Refusals as a save (429 too), plus 404 `version_not_found`. */
 export const restoreVersion = async (entity: LegalEntityId, n: number, baseVersion: number): Promise<SaveResult> =>
   parseSaveResult(await postJson(`${entityPath(entity)}/versions/${versionNumber(n)}/restore`, { baseVersion }))

@@ -26,7 +26,23 @@
  *                         Focus goes to the first such value (to Save when there is none) and Save then makes version
  *                         n+1. "Discard my changes" drops the draft and shows version n. Either way only THIS entity's
  *                         draft is touched; the page keeps one per entity.
+ *   429                   (T60) a warning with the wait in whole minutes and Retry; the values are kept and Save stays available.
  *   anything else         a warning with Retry; the values and the base version are kept.
+ *
+ * Save first runs the read-only CHECK (T60, design S12, F15; AC-9.1–9.6, 9.17): the page asks auth what this very body
+ * would change before anything is stored. Save is busy ("Checking…") meanwhile, the controls stay enabled.
+ *
+ *   no protected change   the save is sent at once, as before (an address or contacts change, an IBAN with other
+ *                         spacing or case, nothing at all: AC-9.5, 9.17). No dialog.
+ *   protected changes     `ProtectedChangeDialog` opens over the form with the check's Old / New values; nothing is
+ *                         sent. Cancel, Escape and the close control send nothing, keep every typed value and put focus
+ *                         back on Save (AC-9.2). Confirm sends ONE save with the body that was checked; its answer takes
+ *                         the states above (and the dialog goes). A confirmation is never remembered: every Save
+ *                         checks again, also after a refusal or a Reapply (AC-9.3).
+ *   the check is refused  422 / 409 / 403 / 429 take the state of a save refused the same way, with no dialog (a rule
+ *                         refusal comes before the confirmation). A check that fails any other way (network, 5xx, 404
+ *                         while services are updated one after the other) says so with Retry and saves nothing: without
+ *                         the check the page cannot know whether to ask.
  *
  * A save sends what the form holds when it is clicked, blank address lines included and in input order (E5: a
  * problem's `line` is the position in what was submitted). Edits made while the request runs are not in it and stay
@@ -57,7 +73,16 @@ import {
   submissionOf,
 } from './LegalEntityFormModel'
 import type { ControlKey } from './LegalEntityFormModel'
-import { LegalEntityApiError, getLegalEntity, getVersion, saveLegalEntity } from '../lib/legalEntitiesApi'
+import ProtectedChangeDialog from './ProtectedChangeDialog'
+import { waitText } from './ProtectedChangeModel'
+import {
+  LegalEntityApiError,
+  checkLegalEntity,
+  getLegalEntity,
+  getVersion,
+  saveLegalEntity,
+} from '../lib/legalEntitiesApi'
+import type { ProtectedChange } from '../lib/legalEntitiesApi'
 import { mergeOnConflict, takeTheirs } from '../lib/legalEntityMerge'
 import type { FlaggedValue } from '../lib/legalEntityMerge'
 import { valueNameList } from '../lib/legalEntityMappings'
@@ -77,6 +102,7 @@ import type {
   LegalEntity,
   LegalEntityDetails,
   LegalEntityField,
+  LegalEntityId,
   LegalEntityProblem,
   LegalEntityVersion,
 } from '../lib/legalEntityModel'
@@ -98,7 +124,25 @@ export type LegalEntityFormProps = {
 }
 
 type Outcome =
-  { kind: 'idle' } | { kind: 'saved'; version: number } | { kind: 'noop'; version: number } | { kind: 'failed' }
+  | { kind: 'idle' }
+  | { kind: 'saved'; version: number }
+  | { kind: 'noop'; version: number }
+  | { kind: 'failed' }
+  /** The check could not be made (not a refusal): nothing was saved. */
+  | { kind: 'checkFailed' }
+  /** A 429 from the check or the save; `wait` is the wait in words, `undefined` when the answer did not give one. */
+  | { kind: 'tooMany'; wait: string | undefined }
+
+/** Where a request is: asking the check, or sending the save. */
+type Phase = 'idle' | 'checking' | 'saving'
+
+/** A confirmation that is open: what the check said, and exactly what it checked (the save sends that, not the form). */
+type Confirming = {
+  entity: LegalEntityId
+  changes: ProtectedChange[]
+  sent: LegalEntityDetails
+  baseVersion: number
+}
 
 /** A refused save: the problems still standing, the details that were submitted, and a counter for the focus. */
 type Refusal = { problems: LegalEntityProblem[]; submitted: LegalEntityDetails; seq: number }
@@ -162,7 +206,9 @@ export default function LegalEntityForm({
   const shown = draft ?? base
   const dirty = changedFieldsBetween(shown, entity).length > 0
 
-  const [saving, setSaving] = useState(false)
+  const [phase, setPhase] = useState<Phase>('idle')
+  const saving = phase === 'saving'
+  const [confirming, setConfirming] = useState<Confirming | null>(null)
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' })
   const [refusal, setRefusal] = useState<Refusal | null>(null)
   const [conflict, setConflict] = useState<ConflictRead | null>(null)
@@ -178,12 +224,14 @@ export default function LegalEntityForm({
     setVersionSeen(entity.version)
     setRefusal(null)
     setConflict(null)
+    // A confirmation compares with the version it was asked on: once the entity moved, it no longer says the truth.
+    if (confirming !== null && phase !== 'saving') setConfirming(null)
   }
 
   // What a click reads: the form as it is NOW, not as it was when the callback was made.
-  const latest = useRef({ entity, shown, draft, dirty, conflict, onDraftChange, onEntityChange, onLost })
+  const latest = useRef({ entity, shown, draft, dirty, conflict, confirming, onDraftChange, onEntityChange, onLost })
   useEffect(() => {
-    latest.current = { entity, shown, draft, dirty, conflict, onDraftChange, onEntityChange, onLost }
+    latest.current = { entity, shown, draft, dirty, conflict, confirming, onDraftChange, onEntityChange, onLost }
   })
   const inFlight = useRef(false)
   const alive = useRef(true)
@@ -221,59 +269,142 @@ export default function LegalEntityForm({
     )
   }, [])
 
+  // A focus the handlers asked for after their change has rendered: a control id, or `save`.
+  const focusSeq = useRef(0)
+  useEffect(() => {
+    if (focusRequest === null || focusSeq.current === focusRequest.seq) return
+    focusSeq.current = focusRequest.seq
+    if (focusRequest.target === 'save') saveRef.current?.focus()
+    else formRef.current?.querySelector<HTMLElement>(`[id="${focusRequest.target}"]`)?.focus()
+  }, [focusRequest])
+  const requestFocus = useCallback(
+    (target: string) => setFocusRequest((previous) => ({ seq: (previous?.seq ?? 0) + 1, target })),
+    [],
+  )
+
+  /**
+   * The refusals a check and a save share: a lost grant, a newer version, rules refused (never a dialog for these) and
+   * a throttle. `true` when it was one of them; the caller says what any other failure means.
+   */
+  const handleRefusal = useCallback(
+    (error: unknown, sent: LegalEntityDetails, fromDialog: boolean): boolean => {
+      if (!(error instanceof LegalEntityApiError)) return false
+      if (error.status === 403) {
+        latest.current.onLost()
+        return true
+      }
+      if (error.status === 409 && error.code === 'version_conflict') {
+        readNewer(error.currentVersion)
+        return true
+      }
+      if (error.status === 422 && error.code === 'invalid_legal_entity' && error.problems && error.problems.length > 0) {
+        refusalSeq.current += 1
+        setRefusal({ problems: error.problems, submitted: sent, seq: refusalSeq.current })
+        return true
+      }
+      if (error.status === 429) {
+        setOutcome({ kind: 'tooMany', wait: waitText(error.retryAfterSeconds) })
+        if (fromDialog) requestFocus('save')
+        return true
+      }
+      return false
+    },
+    [readNewer, requestFocus],
+  )
+
+  /**
+   * The request that stores. `sent` and `baseVersion` are what the person saved from (and, after a confirmation, what
+   * the check was asked about). `fromDialog`: the confirmation is open, so it closes on the answer and focus goes
+   * back to Save (the library also does that, but only when the control that opened the dialog held focus).
+   */
+  const send = useCallback(
+    (id: LegalEntityId, sent: LegalEntityDetails, baseVersion: number, fromDialog: boolean) => {
+      inFlight.current = true
+      setPhase('saving')
+      saveLegalEntity(id, { baseVersion, details: sent }).then(
+        (result) => {
+          inFlight.current = false
+          const now = latest.current
+          // The version exists whether or not the person is still here: the page keeps the entity either way.
+          now.onEntityChange(result.entity)
+          if (!alive.current) return
+          // Typing made while the request ran is not in what was saved: it stays, as a draft against the new version.
+          if (now.draft === undefined || changedFieldsBetween(now.draft, sent).length === 0) now.onDraftChange(undefined)
+          setPhase('idle')
+          setConfirming(null)
+          setOutcome(
+            result.created ? { kind: 'saved', version: result.version } : { kind: 'noop', version: result.version },
+          )
+          if (fromDialog) requestFocus('save')
+        },
+        (error: unknown) => {
+          inFlight.current = false
+          if (!alive.current) return
+          setPhase('idle')
+          setConfirming(null)
+          if (handleRefusal(error, sent, fromDialog)) return
+          setOutcome({ kind: 'failed' })
+          if (fromDialog) requestFocus('save')
+        },
+      )
+    },
+    [handleRefusal, requestFocus],
+  )
+
   const save = useCallback(() => {
-    if (inFlight.current) return
+    // One request at a time, and none while a confirmation is open (its Confirm is the only way on).
+    if (inFlight.current || latest.current.confirming !== null) return
     const current = latest.current
     if (saveBlockedReason(current.dirty, current.conflict !== null) !== null) return
     inFlight.current = true
-    // What is sent is what the form holds now, its address lines as its inputs hold them (E5).
+    // What is checked and sent is what the form holds now, its address lines as its inputs hold them (E5).
     const sent = submissionOf(current.shown)
-    setSaving(true)
+    const id = current.entity.entity
+    const baseVersion = current.entity.version
+    setPhase('checking')
     setOutcome({ kind: 'idle' })
     setRefusal(null)
 
-    saveLegalEntity(current.entity.entity, { baseVersion: current.entity.version, details: sent }).then(
-      (result) => {
+    checkLegalEntity(id, { baseVersion, details: sent }).then(
+      (check) => {
+        // Nothing protected changes (or the save would change nothing): no question to ask, the save goes as it always did.
+        if (check.protectedChanges.length === 0) {
+          send(id, sent, baseVersion, false)
+          return
+        }
+        // Someone has to confirm, and nobody is here to: nothing is sent.
+        if (!alive.current) {
+          inFlight.current = false
+          return
+        }
         inFlight.current = false
-        const now = latest.current
-        // The version exists whether or not the person is still here: the page keeps the entity either way.
-        now.onEntityChange(result.entity)
-        if (!alive.current) return
-        // Typing made while the request ran is not in what was saved: it stays, as a draft against the new version.
-        if (now.draft === undefined || changedFieldsBetween(now.draft, sent).length === 0) now.onDraftChange(undefined)
-        setSaving(false)
-        setOutcome(
-          result.created ? { kind: 'saved', version: result.version } : { kind: 'noop', version: result.version },
-        )
+        setPhase('idle')
+        setConfirming({ entity: id, changes: check.protectedChanges, sent, baseVersion })
       },
       (error: unknown) => {
         inFlight.current = false
         if (!alive.current) return
-        setSaving(false)
-        if (error instanceof LegalEntityApiError) {
-          if (error.status === 403) {
-            latest.current.onLost()
-            return
-          }
-          if (error.status === 409 && error.code === 'version_conflict') {
-            readNewer(error.currentVersion)
-            return
-          }
-          if (
-            error.status === 422 &&
-            error.code === 'invalid_legal_entity' &&
-            error.problems &&
-            error.problems.length > 0
-          ) {
-            refusalSeq.current += 1
-            setRefusal({ problems: error.problems, submitted: sent, seq: refusalSeq.current })
-            return
-          }
-        }
-        setOutcome({ kind: 'failed' })
+        setPhase('idle')
+        // A refusal of the check is a refusal of the save: the same states, and never a dialog.
+        if (handleRefusal(error, sent, false)) return
+        // Network, 5xx, 404, an answer this build cannot read: without the check the page cannot know whether to ask.
+        setOutcome({ kind: 'checkFailed' })
       },
     )
-  }, [readNewer])
+  }, [handleRefusal, send])
+
+  /** Confirm: the one save, with the body that was checked. */
+  const confirmProtected = useCallback(() => {
+    const open = latest.current.confirming
+    if (open === null) return
+    send(open.entity, open.sent, open.baseVersion, true)
+  }, [send])
+
+  /** Cancel, Escape and the close control: nothing is sent, the form stays as typed, focus is back on Save (AC-9.2). */
+  const cancelProtected = useCallback(() => {
+    setConfirming(null)
+    requestFocus('save')
+  }, [requestFocus])
 
   // After a refusal: the summary is already on screen (it mounted with the refusal); focus goes to the first refused
   // control in page order, the exact address line included. Once per refusal, not again when a fix removes a problem.
@@ -291,16 +422,6 @@ export default function LegalEntityForm({
   useEffect(() => {
     if (readyVersion !== null) reapplyRef.current?.focus()
   }, [readyVersion])
-
-  // A focus the handlers asked for after their change has rendered: a control id, or `save`.
-  const focusSeq = useRef(0)
-  useEffect(() => {
-    if (focusRequest === null || focusSeq.current === focusRequest.seq) return
-    focusSeq.current = focusRequest.seq
-    if (focusRequest.target === 'save') saveRef.current?.focus()
-    else formRef.current?.querySelector<HTMLElement>(`[id="${focusRequest.target}"]`)?.focus()
-  }, [focusRequest])
-  const requestFocus = (target: string) => setFocusRequest((previous) => ({ seq: (previous?.seq ?? 0) + 1, target }))
 
   /** "Reapply my changes to version n": the merge puts the person's values on the newer version (AC-2.6). */
   const reapply = () => {
@@ -465,6 +586,26 @@ export default function LegalEntityForm({
       >
         {t.noop(outcome.version)}
       </Banner>
+    ) : outcome.kind === 'checkFailed' ? (
+      <Banner
+        tone="warning"
+        title={t.protected.checkFailed.title}
+        onRetry={save}
+        retryLabel={strings.common.actions.retry}
+        data-testid="admin-legal-check-failed"
+      >
+        {t.protected.checkFailed.body}
+      </Banner>
+    ) : outcome.kind === 'tooMany' ? (
+      <Banner
+        tone="warning"
+        title={t.saveFailed.tooManyTitle}
+        onRetry={save}
+        retryLabel={strings.common.actions.retry}
+        data-testid="admin-legal-too-many"
+      >
+        {outcome.wait === undefined ? t.saveFailed.tooManyNoWait : t.saveFailed.tooMany(outcome.wait)}
+      </Banner>
     ) : outcome.kind === 'failed' ? (
       <Banner
         tone="warning"
@@ -604,10 +745,21 @@ export default function LegalEntityForm({
         dirty={dirty}
         nextVersion={entity.version + 1}
         saving={saving}
+        checking={phase === 'checking'}
         conflict={conflict !== null}
         notice={notice}
         saveRef={saveRef}
       />
+      {confirming !== null && (
+        <ProtectedChangeDialog
+          entityName={strings.common.entities[confirming.entity]}
+          changes={confirming.changes}
+          nextVersion={confirming.baseVersion + 1}
+          busy={saving}
+          onConfirm={confirmProtected}
+          onCancel={cancelProtected}
+        />
+      )}
     </form>
   )
 }

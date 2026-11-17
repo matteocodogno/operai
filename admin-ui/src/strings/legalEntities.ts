@@ -109,6 +109,31 @@ export const en = {
   saveFailed: {
     title: 'The details could not be saved',
     body: 'Nothing changed. Your changes are still here. Try again.',
+    tooManyTitle: 'Too many saves in a short time',
+    tooMany: (minutes: string) =>
+      `Nothing was saved and your changes are still here. Wait about ${minutes}, then try again.`,
+    tooManyNoWait: 'Nothing was saved and your changes are still here. Wait a few minutes, then try again.',
+  },
+  wait: {
+    minutes: (n: number) => (n === 1 ? '1 minute' : `${n} minutes`),
+  },
+  protected: {
+    title: (entity: string) => `Save these changes to ${entity}?`,
+    intro:
+      'You are changing details that are printed on every offer and contract. Every tool uses the saved version within a minute. Check the new values before you save.',
+    told: (entity: string) =>
+      `Once saved, the other people who manage ${entity} and the administrators are told of this change.`,
+    listLabel: 'Details that change',
+    old: 'Old',
+    new: 'New',
+    none: 'None',
+    confirm: (n: number) => `Save as version ${n}`,
+    cancel: 'Cancel',
+    checking: 'Checking…',
+    checkFailed: {
+      title: 'The changes could not be checked',
+      body: 'Nothing was saved. The page could not check whether these changes need your confirmation. Your changes are still here. Try again.',
+    },
   },
   leave: {
     title: 'Leave without saving?',
@@ -168,6 +193,15 @@ export const en = {
     refused: (n: number, list: string) => `Version ${n} cannot be restored: ${list}. Nothing changed.`,
     conflict: 'A newer version was saved meanwhile. The history was reloaded; check it and try again.',
     failed: (n: number) => `Version ${n} was not restored. Nothing changed. Try again.`,
+    protectedIntro: (entity: string) =>
+      `This restore changes details that are printed on every offer and contract. Once restored, the other people who manage ${entity} and the administrators are told of it.`,
+    protectedLegend: (current: number, n: number) => `Old is the current version (${current}). New is version ${n}.`,
+    loadingDetails: (n: number) => `Loading the details of version ${n}…`,
+    detailsFailed: (n: number) =>
+      `The details of version ${n} could not be read, so the restore cannot be checked. Nothing was restored. Try again.`,
+    tooMany: (minutes: string) =>
+      `Too many changes in a short time. Nothing was restored. Wait about ${minutes}, then try again.`,
+    tooManyNoWait: 'Too many changes in a short time. Nothing was restored. Wait a few minutes, then try again.',
   },
   load: {
     failed: 'The legal entities could not be loaded',
@@ -284,6 +318,32 @@ export const it: typeof en = {
   saveFailed: {
     title: 'Non è stato possibile salvare i dati',
     body: 'Nulla è cambiato. Le tue modifiche sono ancora qui. Riprova.',
+    tooManyTitle: 'Troppi salvataggi in poco tempo',
+    tooMany: (minutes: string) =>
+      `Non è stato salvato nulla e le tue modifiche sono ancora qui. Aspetta circa ${minutes}, poi riprova.`,
+    tooManyNoWait:
+      'Non è stato salvato nulla e le tue modifiche sono ancora qui. Aspetta qualche minuto, poi riprova.',
+  },
+  wait: {
+    minutes: (n: number) => (n === 1 ? '1 minuto' : `${n} minuti`),
+  },
+  protected: {
+    title: (entity: string) => `Salvare queste modifiche a ${entity}?`,
+    intro:
+      'Stai modificando dati che vengono stampati su ogni offerta e contratto. Ogni strumento usa la versione salvata entro un minuto. Controlla i nuovi valori prima di salvare.',
+    told: (entity: string) =>
+      `Dopo il salvataggio, le altre persone che gestiscono ${entity} e gli amministratori vengono informati della modifica.`,
+    listLabel: 'Dati che cambiano',
+    old: 'Precedente',
+    new: 'Nuovo',
+    none: 'Nessun valore',
+    confirm: (n: number) => `Salva come versione ${n}`,
+    cancel: 'Annulla',
+    checking: 'Verifica in corso…',
+    checkFailed: {
+      title: 'Non è stato possibile verificare le modifiche',
+      body: 'Non è stato salvato nulla. La pagina non ha potuto verificare se queste modifiche richiedano la tua conferma. Le tue modifiche sono ancora qui. Riprova.',
+    },
   },
   leave: {
     title: 'Uscire senza salvare?',
@@ -343,6 +403,17 @@ export const it: typeof en = {
     refused: (n: number, list: string) => `La versione ${n} non può essere ripristinata: ${list}. Nulla è cambiato.`,
     conflict: 'Nel frattempo è stata salvata una versione più recente. La cronologia è stata ricaricata; controllala e riprova.',
     failed: (n: number) => `La versione ${n} non è stata ripristinata. Nulla è cambiato. Riprova.`,
+    protectedIntro: (entity: string) =>
+      `Questo ripristino modifica dati che vengono stampati su ogni offerta e contratto. Dopo il ripristino, le altre persone che gestiscono ${entity} e gli amministratori ne vengono informati.`,
+    protectedLegend: (current: number, n: number) =>
+      `Precedente è la versione corrente (${current}). Nuovo è la versione ${n}.`,
+    loadingDetails: (n: number) => `Caricamento dei dati della versione ${n}…`,
+    detailsFailed: (n: number) =>
+      `Non è stato possibile leggere i dati della versione ${n}, quindi il ripristino non si può verificare. Non è stato ripristinato nulla. Riprova.`,
+    tooMany: (minutes: string) =>
+      `Troppe modifiche in poco tempo. Non è stato ripristinato nulla. Aspetta circa ${minutes}, poi riprova.`,
+    tooManyNoWait:
+      'Troppe modifiche in poco tempo. Non è stato ripristinato nulla. Aspetta qualche minuto, poi riprova.',
   },
   load: {
     failed: 'Non è stato possibile caricare le società del gruppo',
