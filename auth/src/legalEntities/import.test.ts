@@ -31,6 +31,7 @@ import {
   type OpenedCrmSource,
 } from "./import";
 import type { Problem, RequiredField } from "./rules";
+import { ibanTail } from "./ibanTail";
 import { committedVersionCount, inRolledBackTx } from "./testDb";
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -269,13 +270,19 @@ suite("T9 — the copy of the CRM's legal details", () => {
           expect(audit.targetId).toBe(c.entity);
           const data = audit.data as {
             version: number;
-            source: { table: string; row: boolean; updatedAt: string | null };
+            source: { table: string; row: boolean; updatedAt: string | null; updatedBy: string | null };
             changes: Record<string, { before?: unknown; after: unknown }>;
             missing: string[];
             ibanPrintChanged: boolean;
           };
           expect(data.version).toBe(1);
-          expect(data.source).toEqual({ table: "crm.entity_profile", row: true, updatedAt: "2026-11-10T09:08:07.123Z" });
+          // T54 (F5 item 2): who last edited the CRM row (an id) is the only new member
+          expect(data.source).toEqual({
+            table: "crm.entity_profile",
+            row: true,
+            updatedAt: "2026-11-10T09:08:07.123Z",
+            updatedBy: "fixture",
+          });
           expect(data.changes["legalName"]).toEqual({ after: c.expect.legalName });
           expect(data.changes["address.it"]).toEqual({ after: c.expect.address });
           expect(data.changes["iban"]).toEqual({ after: c.expect.iban });
@@ -297,6 +304,96 @@ suite("T9 — the copy of the CRM's legal details", () => {
         const other = await db.$queryRaw<{ got: boolean }[]>`
           SELECT pg_try_advisory_xact_lock(hashtext(${"legal_entity:welld_it"})) AS got`;
         expect(other[0]?.got).toBe(false);
+      });
+    });
+  });
+
+  describe("T54 — who last edited the CRM row, and each IBAN's tail (F5 items 2 and 3)", () => {
+    const tailLine = (stdout: string, entity: LegalEntity): string => {
+      const block = stdout.split("\n\n").find((b) => b.startsWith(`${entity}:`));
+      if (!block) throw new Error(`no block for ${entity}`);
+      const ibanLines = block.split("\n").filter((l) => l.trim().startsWith("IBAN "));
+      expect(ibanLines).toHaveLength(1);
+      return ibanLines[0]!.trim();
+    };
+
+    test("the audit row's source carries the CRM row's updatedBy as stored, null without a row, and no other new member", async () => {
+      await seedCases(byName("complete-it"));
+      await crmAdmin`UPDATE "entity_profile" SET "updatedBy" = 'person-42' WHERE "entity" = 'welld_it'::"Entity"`;
+      await inTx(async (tx) => {
+        expect((await run(tx, true)).inserted).toBe(2);
+        const withRow = (await importAudit(tx, "welld_it"))[0]!.data as { source: Record<string, unknown> };
+        expect(withRow.source).toEqual({
+          table: "crm.entity_profile",
+          row: true,
+          updatedAt: "2026-11-10T09:08:07.123Z",
+          updatedBy: "person-42",
+        });
+        const noRow = (await importAudit(tx, "welld_ch"))[0]!.data as { source: Record<string, unknown> };
+        expect(noRow.source).toEqual({ table: "crm.entity_profile", row: false, updatedAt: null, updatedBy: null });
+        // the audit row holds no fragment of the IBAN beyond the moved value itself (changes.iban, T9): no tail member
+        const keys = Object.keys((await importAudit(tx, "welld_it"))[0]!.data as object).sort();
+        expect(keys).toEqual(["changes", "ibanPrintChanged", "invalid", "missing", "source", "version"]);
+      });
+    });
+
+    test("the dry run and the apply print per entity IBAN …1234 / IBAN set / IBAN none, and the JSON form carries the same", async () => {
+      await seedCases(byName("complete-it"), byName("complete-ch"));
+      await inTx(async (tx) => {
+        for (const args of [[], ["--apply"], []]) {
+          const r = await runMain(tx, args);
+          expect(r.code).toBe(0);
+          expect(tailLine(r.stdout, "welld_it")).toBe("IBAN \u20263456");
+          expect(tailLine(r.stdout, "welld_ch")).toBe("IBAN \u20262957");
+        }
+        const json = JSON.parse((await runMain(tx, ["--json"])).stdout) as ImportReport;
+        expect(entityReport(json, "welld_it").iban).toEqual({ state: "tail", last4: "3456" });
+        expect(entityReport(json, "welld_ch").iban).toEqual({ state: "tail", last4: "2957" });
+      });
+    });
+
+    test("no CRM row, a null IBAN and an IBAN of 8 characters or fewer: none / none / set, with no character shown", async () => {
+      const base = byName("complete-it").crm!;
+      await seedCrm([
+        { entity: "welld_it", profile: { ...base, iban: "AB12 CD34" } }, // 8 characters
+      ]);
+      await inTx(async (tx) => {
+        const r = await runMain(tx, []);
+        expect(tailLine(r.stdout, "welld_it")).toBe("IBAN set");
+        expect(tailLine(r.stdout, "welld_ch")).toBe("IBAN none"); // no row
+        expect(r.stdout).not.toContain("CD34");
+      });
+      await seedCrm([{ entity: "welld_it", profile: { ...base, iban: null } }]);
+      await inTx(async (tx) => {
+        expect(tailLine((await runMain(tx, [])).stdout, "welld_it")).toBe("IBAN none");
+      });
+      await seedCrm([{ entity: "welld_it", profile: { ...base, iban: "AB12 CD34 5" } }]); // 9 characters
+      await inTx(async (tx) => {
+        expect(tailLine((await runMain(tx, [])).stdout, "welld_it")).toBe("IBAN \u2026D345");
+      });
+    });
+
+    test("every fixture case: the line is exactly what the shared rule says of the moved IBAN, and only its tail is shown", async () => {
+      for (const c of CASES) {
+        await seedCases(c);
+        await inTx(async (tx) => {
+          const stdout = (await runMain(tx, [])).stdout;
+          const tail = ibanTail(c.expect.iban);
+          const want = tail.state === "tail" ? `IBAN \u2026${tail.last4}` : `IBAN ${tail.state}`;
+          expect(tailLine(stdout, c.entity)).toBe(want);
+          // a tail of the print form must not be accompanied by more of the value
+          if (c.expect.iban.length > 8) expect(stdout).not.toContain(c.expect.iban.slice(-8));
+        });
+      }
+    });
+
+    test("a CRM IBAN with a character outside A-Z / 0-9 in its tail is shown as set, never printed", async () => {
+      const base = byName("complete-it").crm!;
+      await seedCrm([{ entity: "welld_it", profile: { ...base, iban: "CH9300762011623852\u202e95" } }]);
+      await inTx(async (tx) => {
+        const r = await runMain(tx, []);
+        expect(tailLine(r.stdout, "welld_it")).toBe("IBAN set");
+        expect(r.stdout).not.toContain("\u202e");
       });
     });
   });
@@ -449,6 +546,7 @@ suite("T9 — the copy of the CRM's legal details", () => {
         vatNumber: null,
         iban: " ab12 \n cd ",
         updatedAt: "",
+        updatedBy: null,
       });
       expect(d.legalName).toBe("A B");
       expect(d.address.it).toEqual(["x y", "z"]);

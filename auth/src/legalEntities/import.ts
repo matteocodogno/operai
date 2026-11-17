@@ -25,7 +25,11 @@
  *     that is not read only is refused, never trusted;
  *   - nothing the CRM or the registry holds is ever printed or put in an error: the report names entities, categories,
  *     field names, reasons and line numbers only (a database error message can carry a failing row, so only its code
- *     is shown);
+ *     is shown). One exception, by the owner's decision (security review F5 item 3): each entity's IBAN is shown as
+ *     `IBAN …1234` (its last 4 characters), `IBAN set` (8 characters or fewer) or `IBAN none`, by the rule the
+ *     notices use (`ibanTail.ts`), so the owner can check what is copied against the bank's letter;
+ *   - the audit row of an import names the CRM row's `updatedAt` and `updatedBy` (a person id, not a value): who last
+ *     edited the row that became version 1 (F5 item 2);
  *   - the connection strings come from the environment only, never from an argument (they would show in `ps`).
  *
  * Exit codes: 0 accounted for (nothing `mismatched`), 1 a mismatch or a failure, 2 `crm_legal_columns_absent`,
@@ -35,6 +39,7 @@
 import { SQL } from "bun";
 import type { Prisma } from "../lib/generated/prisma/client";
 import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
+import { type IbanTail, ibanTail } from "./ibanTail";
 import {
   type Field,
   type LegalDetails,
@@ -104,6 +109,8 @@ export interface CrmProfile {
   iban: string | null;
   /** ISO 8601 (UTC) of the row's `updatedAt`, for the audit row. */
   updatedAt: string;
+  /** Who last edited the row (a person id as the CRM stored it), for the audit row; never printed. */
+  updatedBy: string | null;
 }
 
 /**
@@ -231,13 +238,14 @@ export function openCrmSource(url: string): OpenedCrmSource {
     async profile(entity) {
       const rows = (await sql`
         SELECT "legalName", to_jsonb("addressLines") AS "addressLines", "vatNumber", "iban",
-               to_char("updatedAt", ${TIMESTAMP_UTC}) AS "updatedAt"
+               to_char("updatedAt", ${TIMESTAMP_UTC}) AS "updatedAt", "updatedBy"
           FROM "entity_profile" WHERE "entity"::text = ${entity}`) as {
         legalName: unknown;
         addressLines: unknown;
         vatNumber: unknown;
         iban: unknown;
         updatedAt: unknown;
+        updatedBy: unknown;
       }[];
       const row = rows[0];
       if (!row) return null;
@@ -262,6 +270,7 @@ function readProfile(row: {
   vatNumber: unknown;
   iban: unknown;
   updatedAt: unknown;
+  updatedBy: unknown;
 }): CrmProfile {
   // The column is a nullable text[]; a NULL list prints as no lines.
   const raw = typeof row.addressLines === "string" ? JSON.parse(row.addressLines) : row.addressLines;
@@ -275,6 +284,7 @@ function readProfile(row: {
     vatNumber: text(row.vatNumber),
     iban: text(row.iban),
     updatedAt: text(row.updatedAt) ?? "",
+    updatedBy: text(row.updatedBy),
   };
 }
 
@@ -295,6 +305,8 @@ export interface EntityReport {
   invalid: Problem[];
   /** D2: the printed IBAN differs from the CRM's typed text. */
   ibanPrintChanged: boolean;
+  /** The IBAN being copied, as far as it may be shown: none, set, or its last 4 characters (F5 item 3). */
+  iban: IbanTail;
   /** `mismatched`: the compared fields on which the CRM row differs from version 1. */
   differs: string[];
 }
@@ -340,6 +352,10 @@ export function exitCodeOf(report: ImportReport): number {
 const problemText = (p: Problem): string =>
   `${p.field}${p.line === undefined ? "" : `[${p.line}]`} ${p.reason}${p.limit === undefined ? "" : ` (limit ${p.limit})`}`;
 
+/** `IBAN …1234` / `IBAN set` / `IBAN none` (the ellipsis is the single character U+2026, as in the notices). */
+export const ibanTailText = (tail: IbanTail): string =>
+  tail.state === "tail" ? `IBAN \u2026${tail.last4}` : `IBAN ${tail.state}`;
+
 /** The text report: counts, then one block per entity. Names, categories, reasons and numbers only. */
 export function formatReport(report: ImportReport): string {
   const lines: string[] = [];
@@ -354,6 +370,7 @@ export function formatReport(report: ImportReport): string {
   for (const e of report.entities) {
     lines.push("");
     lines.push(`${e.entity}: ${e.category}${e.crmRow ? "" : " (no CRM row: empty values)"}`);
+    lines.push(`  ${ibanTailText(e.iban)}`);
     if (e.differs.length > 0) lines.push(`  differs from version 1: ${e.differs.join(", ")}`);
     if (e.incomplete) lines.push(`  incomplete, missing: ${e.missing.join(", ")}`);
     if (e.invalid.length > 0) lines.push(`  invalid: ${e.invalid.map(problemText).join("; ")}`);
@@ -393,6 +410,7 @@ async function importEntity(
     missing: flags.missing,
     invalid: flags.invalid,
     ibanPrintChanged: flags.ibanPrintChanged,
+    iban: ibanTail(details.iban),
     differs: [] as string[],
   };
 
@@ -432,7 +450,13 @@ async function importEntity(
         summary: `Imported the CRM's legal details of ${entity} as version 1`,
         data: toJson({
           version: 1,
-          source: { table: "crm.entity_profile", row: profile !== null, updatedAt: profile?.updatedAt ?? null },
+          source: {
+            table: "crm.entity_profile",
+            row: profile !== null,
+            updatedAt: profile?.updatedAt ?? null,
+            // Who last edited the CRM row (F5 item 2): an id, not a value.
+            updatedBy: profile?.updatedBy ?? null,
+          },
           // The import has no `before`; `after` is the value moved (plan, audit shape).
           changes: Object.fromEntries(fields.map((f) => [f, { after: afterValue(details, f) }])),
           missing: flags.missing,
