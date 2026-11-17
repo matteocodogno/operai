@@ -236,9 +236,22 @@ export async function withIssuerPin<T>(run: () => Promise<T>): Promise<T> {
     if (!(error instanceof LegalEntityVersionMismatch)) throw error;
     console.warn(`[offers] legal_entity_version_mismatch (the service holds version ${error.currentVersion ?? "unknown"}): registry cache dropped, retrying once`);
     legalEntities.invalidate();
+    // letterhead-api refreshes its registry copy at most once per second per process and answers a mismatching pin inside that
+    // second with the 409 at once: the retry waits past the window, or a legitimate save would turn into a 503 (T72).
+    await issuerPinRetry.sleep(issuerPinRetry.waitMs);
     return run();
   }
 }
+
+/**
+ * How long `withIssuerPin` waits before its single retry: past the one-second window in which letterhead-api coalesces forced
+ * registry refreshes (T64), with margin. The wait is a fixed, bounded constant. `sleep` is the seam tests replace so that nothing
+ * really waits and no fake timer is needed.
+ */
+export const issuerPinRetry: { waitMs: number; sleep: (ms: number) => Promise<void> } = {
+  waitMs: 1100,
+  sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+};
 
 const isUnreadable = (error: unknown): error is Error & { fileName?: string } =>
   error instanceof Error && (error.name === "AttachmentUnreadableError" || error.constructor.name === "AttachmentUnreadableError");

@@ -25,8 +25,9 @@ import { LETTERHEAD_TIMEOUT_MS, createLetterheadClient, letterhead } from "../li
 import type { ServiceTokenProvider } from "../lib/serviceToken";
 
 // After the test world, never statically: `generation` pulls in the route guards, which must see the world's mocked JWT check.
-const { OFFER_TRANSACTION_TIMEOUT_MS, SERVICE_OFFER_TRANSACTION_TIMEOUT_MS, offerTransactionTimeoutMs } = await import("./generation");
+const { issuerPinRetry, OFFER_TRANSACTION_TIMEOUT_MS, SERVICE_OFFER_TRANSACTION_TIMEOUT_MS, offerTransactionTimeoutMs } = await import("./generation");
 
+const realPinSleep = issuerPinRetry.sleep;
 beforeEach(resetWorld);
 
 const YEAR = new Date().getUTCFullYear();
@@ -46,6 +47,12 @@ const fake = {
   pages: 2,
   /** The version of the issuer's details the service holds: a pin that is not it is a 409; null: it holds whatever is pinned. */
   issuerVersion: null as number | null,
+  /** The fake clock (ms), advanced only by the retry's injected sleep; with `refuseUntilMs`, the service's coalescing window (T64). */
+  clock: 0,
+  /** While `clock` is below this, the service answers every request 409 (its forced refresh is coalesced); null: no window. */
+  refuseUntilMs: null as number | null,
+  /** Every wait `withIssuerPin` asked for before its retry. */
+  sleeps: [] as number[],
 };
 
 /** The service's PDF: A4 pages that carry their own text, and the service's own title and producer. */
@@ -91,6 +98,13 @@ function installFakeService(): void {
   fake.version = 7;
   fake.pages = 2;
   fake.issuerVersion = null;
+  fake.clock = 0;
+  fake.refuseUntilMs = null;
+  fake.sleeps = [];
+  issuerPinRetry.sleep = async (ms) => {
+    fake.sleeps.push(ms);
+    fake.clock += ms;
+  };
   const tokens: ServiceTokenProvider = { getToken: async () => "svc-token", invalidate() {} };
   let served = 0;
   spy = spyOn(letterhead, "pdf").mockImplementation((content, options) =>
@@ -103,6 +117,10 @@ function installFakeService(): void {
         const href = new URL(String(url));
         const body = JSON.parse(String(init?.body));
         fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body });
+        // Inside its coalescing window the service has not refreshed yet: the pin is refused whatever it is.
+        if (fake.refuseUntilMs !== null && fake.clock < fake.refuseUntilMs) {
+          return refusal(409, "legal_entity_version_mismatch", {}, { currentVersion: 7 });
+        }
         // The service holds one version of the issuer's details: another pin is the contract's 409, with the version in use.
         if (fake.issuerVersion !== null && body.legalEntityVersion !== fake.issuerVersion) {
           return refusal(409, "legal_entity_version_mismatch", {}, { currentVersion: fake.issuerVersion });
@@ -134,6 +152,7 @@ afterEach(() => {
   env.LETTERHEAD_SERVICE_ENABLED = switchWas;
   spy?.mockRestore();
   spy = null;
+  issuerPinRetry.sleep = realPinSleep;
 });
 
 // ─── Reading a stored PDF ────────────────────────────────────────────────────────────────────────────────────────────
@@ -567,6 +586,30 @@ describe("the service prints another version of the issuer's details than crm-ap
       expect(bucket.objects.size).toBe(1);
       expect(bucket.deleted).toEqual([]);
       expect(await db.offerDraft.count()).toBe(0);
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("a 409 inside the service's one-second refresh window: the retry waits at least 1.1 s (bounded), then the offer is made; nothing was burnt by the first attempt", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    // The service answers 409 for the first second (its forced refresh is coalesced), then 200 for version 8.
+    fake.refuseUntilMs = 1000;
+    fake.issuerVersion = 8;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA", "Via Nuova 2"));
+    try {
+      const res = await generate(s);
+      expect(res.status, JSON.stringify(res.json)).toBe(201);
+      expect(res.json.reference).toBe(`0001/${YEAR}`);
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      // exactly one wait, long enough to leave the window and short enough to stay bounded
+      expect(fake.sleeps).toHaveLength(1);
+      expect(fake.sleeps[0]!).toBeGreaterThanOrEqual(1100);
+      expect(fake.sleeps[0]!).toBeLessThanOrEqual(2000);
+      expect(fake.clock).toBeGreaterThanOrEqual(1100);
+      expect((await sequences()).map((row) => row.last)).toEqual([1]);
+      expect(await offers(s.dealId)).toHaveLength(1);
     } finally {
       refresh.restore();
     }
