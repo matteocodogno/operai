@@ -886,7 +886,7 @@ suite-wide 401):
 |---|---|
 | `AUTH_AUDIENCE` | auth + all 4 resource servers (ADR 20260713-jwt-audience-claim-enforcement; `inventory-api` is the fourth, specs/20261006-hardware-inventory) |
 | `SERVICE_AUDIENCE` | auth + notify-api (ADR 20261006-scoped-service-jwt-fourth-notify-caller) — must be byte-identical across the two **and different from `AUTH_AUDIENCE`**; both refuse to start otherwise. `env:doctor` checks both. |
-| `<NAME>_SERVICE_CLIENT_SECRET` (`INVENTORY_`, `ESTIMAI_`, `REFUND_`, `ACTIVITIES_`) | the `secret` inside `auth`'s `SERVICE_CLIENTS` entry for that caller AND that caller's own `SERVICE_CLIENT_SECRET` (secret, 32–256 chars; ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049). One per caller; `auth` mints its own credential in process and has none. Set as a Railway Shared Variable directly on the project — there is no 1Password item, so it is never in a template. |
+| `<NAME>_SERVICE_CLIENT_SECRET` (`INVENTORY_`, `ESTIMAI_`, `REFUND_`, `ACTIVITIES_`, `LETTERHEAD_`) | the `secret` inside `auth`'s `SERVICE_CLIENTS` entry for that caller AND that caller's own `SERVICE_CLIENT_SECRET` (secret, 32–256 chars; ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049). One per caller; `auth` mints its own credential in process and has none. Set as a Railway Shared Variable directly on the project — there is no 1Password item, so it is never in a template. |
 | `AUTH_ISSUER` | all 4 resource servers (same public value) |
 | `NOTIFY_INTERNAL_URL` | auth + refund-api + estimai-api — the three services that CALL notify-api |
 
@@ -922,7 +922,7 @@ follows bucket ①).
 | `APP_ACCESS_CHECK_FLOOR_MS` / `APP_ACCESS_CHECK_RATE_LIMIT` / `APP_ACCESS_CHECK_RATE_WINDOW_MS` | **NEW (specs/20260807-estimate-sharing, T1/T2).** In-process anti-enumeration floor + rate limit for `POST /authz/app-access-check` (ADR 20260807-third-party-app-access-decision-endpoint-forwarded-jwt). Optional — code defaults `150`/`40`/`600000` apply if unset; set explicitly only to tune per environment. | no |
 | `IDENTITIES_RATE_LIMIT` / `IDENTITIES_RATE_WINDOW_MS` | **NEW (specs/20260807-estimate-sharing, T27).** In-process rate limit for `POST /authz/users/identities` (reuses the same `rateLimiter.ts` module as the pair above, a second instance keyed separately). Optional — code defaults `120`/`600000` apply if unset. No response-time floor needed (ADR 20260807-live-identity-resolution-by-id-fail-soft — this endpoint leaks no existence signal the caller doesn't already hold). | no |
 | `SERVICE_AUDIENCE` | **ADR 20261006-scoped-service-jwt-fourth-notify-caller, required since specs/20261013-notify-service-credentials (ADR 20261013-auth-mints-own-service-credential-in-process).** The `aud` stamped on scoped service JWTs, including `auth`'s own in-process credential for `POST /system/emails`: `${{shared.SERVICE_AUDIENCE}}`, byte-identical to `notify-api`'s and **different from `AUTH_AUDIENCE`** (startup exits otherwise). Startup also exits if it is absent. | no |
-| `SERVICE_CLIENTS` | **ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049.** JSON object keyed by client id, one entry per caller that asks `POST /system/service-token` (`inventory-api`, `estimai-api`, `refund-api`): `{"inventory-api":{"secret":"${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}","scope":"notifications.push emails.send"},…}` — full shape in § Notify credential rollout. Secret 32–256 chars; scopes are `notifications.push` and/or `emails.send`, each client only what it needs; client id is lower-case alphanumerics and single hyphens, and `auth` is reserved (ADR 20261013-auth-mints-own-service-credential-in-process). Never logged; a parse failure names the rule, never a value. Revoking a client = removing its entry (tokens already minted expire within 5 minutes). Verify the shared references resolved inside the JSON in the Variables tab. | **yes** |
+| `SERVICE_CLIENTS` | **ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049.** JSON object keyed by client id, one entry per caller that asks `POST /system/service-token` (`inventory-api`, `estimai-api`, `refund-api`): `{"inventory-api":{"secret":"${{shared.INVENTORY_SERVICE_CLIENT_SECRET}}","scope":"notifications.push emails.send"},…}` — full shape in § Notify credential rollout. Secret 32–256 chars; scopes are `notifications.push` and/or `emails.send`, each client only what it needs; client id is lower-case alphanumerics and single hyphens, and `auth` is reserved (ADR 20261013-auth-mints-own-service-credential-in-process). Never logged; a parse failure names the rule, never a value. Revoking a client = removing its entry (tokens already minted expire within 5 minutes). Verify the shared references resolved inside the JSON in the Variables tab. **specs/20261117-legal-entities:** the scope `legal-entities:read` (the registry's service read) is held by `crm-api` (added to its scopes) and by a new `letterhead-api` client, exactly that scope; `auth` refuses to start with a scope it does not know, so edit this variable only after the `auth` that knows it is live (§ Legal entities rollout). | **yes** |
 | `SERVICE_TOKEN_SERVICE_LIMIT` | **NEW (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).** Service tokens `POST /system/service-token` mints per calling service (the verified `system:<clientId>`) per window. Positive integer, optional, default `300` (steady state is about 3 per service per window). | no |
 | `USERS_CONTACT_SERVICE_LIMIT` | **NEW (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).** Contact lookups `POST /system/users/contact` answers per calling service per window. Only `system:notify-api` holds `users.contact`. Positive integer, optional, default `600`. | no |
 | `SYSTEM_INVALID_CREDENTIAL_LIMIT` | **NEW (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).** Requests with an INVALID credential per source address per window, one count shared by both routes. Positive integer, optional, default `20`. It never touches a valid credential. | no |
@@ -1593,6 +1593,7 @@ crm-api reaches it with a scoped service JWT (`letterhead:render`).
 | `ALLOWED_ORIGINS` | `https://operai.welld.io` (the shell only) | no |
 | `AUTH_ISSUER` / `AUTH_JWKS_URL` / `AUTH_BASE_URL` | public claim `https://auth.operai.welld.io`; internal `http://${{auth.RAILWAY_PRIVATE_DOMAIN}}:${{auth.PORT}}/auth/jwks` and `…:${{auth.PORT}}` | no |
 | `AUTH_AUDIENCE` / `SERVICE_AUDIENCE` | `${{shared.AUTH_AUDIENCE}}` / `${{shared.SERVICE_AUDIENCE}}` — must differ (the service refuses to start otherwise) | no |
+| `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | **NEW (specs/20261117-legal-entities, AC-3.2).** `letterhead-api` / `${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}` (≥ 32 chars, byte-identical to its `SERVICE_CLIENTS` entry, which holds exactly `legal-entities:read`). It reads the issuer's details from `auth`'s registry as itself. Required in production by the contract; set in release step 2 (§ Legal entities rollout) | secret: yes |
 | `LETTERHEAD_S3_BUCKET` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | **by reference** to the Railway bucket `letterhead`: `${{letterhead.BUCKET}}`, `${{letterhead.ACCESS_KEY_ID}}`, `${{letterhead.SECRET_ACCESS_KEY}}` (set by `provision-tool.sh --bucket`) | keys: yes |
 | `LETTERHEAD_S3_ENDPOINT` / `_REGION` / `_EU_ENDPOINT_HOSTS` | `https://t3.storageapi.dev` / `ams` / `t3.storageapi.dev` — the residency guard (AC-3.8): without a match the service does not start. ASSUMED to be the other tools' endpoint (template comment): confirm against the bucket once it exists | no |
 | `LH_WORKERS` / `LH_QUEUE` / `PORT` | `2` / `4` / `8088` | no |
@@ -2340,6 +2341,259 @@ timeline and tasks still load (they no longer depend on those tables).
   going back to the previous `crm-api` loses them. Roll forward (fix and redeploy) instead; the old
   tables are only a fallback for the state at the freeze.
 - After Step 5: one-way; restore from the backup taken before it.
+
+## Legal entities rollout (specs/20261117-legal-entities, ADR 20261117-the-crms-legal-details-move-to-the-registry-by-expand-copy-switch-contract-and-version-1-is-attributed-to-the-system, ADR 20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds)
+
+The legal name, address, VAT number and IBAN of `welld_it` and `welld_ch` move from `crm-api`'s
+`entity_profile` into a registry in `auth`, so that the CRM, the letterhead service and the
+administration page all print and edit one set of details. The move is **expand, credentials,
+copy, switch, contract**, with an announced freeze of the CRM's entity settings between the copy
+and the switch. Three rules run through all of it:
+
+- A push to `main` redeploys every changed Railway service and Vercel frontend in no fixed order
+  (ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired), and `auth` **refuses to start** with a `SERVICE_CLIENTS` scope it does not know. So the
+  order below is enforced by *what is live when*: wait for each step to be live, and read its log,
+  before the next.
+- The copy is "done" only when the **report** says so (both entities `inserted`, `present` or
+  `resolved`, `mismatched` 0, flags read by the owner), never because a command exited 0 once.
+- The CRM's four columns stay until Step 6, in a later release, so that reverting the switch is a
+  working undo. **Registry saves made after the switch are not in the CRM** (see Rollback by step).
+
+Everything below is commands and variable **names**. No value, connection string or secret is
+written in this file, in the release log or in a chat; the copy's report prints counts, categories
+and field names only, and can be pasted into the release log as it is.
+
+**Roles.** One person (the release owner) runs the steps and owns the freeze; an agent may prepare
+the commands, but the production ones are run by the owner, with the production credentials in the
+environment only. Steps 1, 5 and 6 are releases (RELEASING.md); Steps 2
+to 4 and 5b are environment and operator steps with no code push.
+
+### Variables (names; nothing here is a value)
+
+| Where | Variable | What it is |
+|---|---|---|
+| Railway **Shared Variable** (project level) | `LETTERHEAD_SERVICE_CLIENT_SECRET` | **NEW.** The secret of the new `letterhead-api` service client: 32-256 random characters (`openssl rand -hex 32`, 64 characters), no 1Password item, never written to a file. Referenced from BOTH sides below, byte-identical by construction. |
+| `auth` | `SERVICE_CLIENTS` | **Two edits.** The `crm-api` entry's `scope` gains `legal-entities:read` (it keeps every scope it has, `letterhead:render` included). A new entry `"letterhead-api":{"secret":"${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}","scope":"legal-entities:read"}`: exactly that scope, nothing else. Shape of the whole variable: `tools/env-doctor/templates/production/auth.env`. |
+| `letterhead-api` | `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` | **NEW.** `letterhead-api` / `${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}`. Code that does not read them yet ignores both, so they can be set before the switch. |
+| `crm-api` | none | Its registry client uses the `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET` pair it already has (plan, E14); its env contract does not change. |
+| the operator's shell, for Step 3 only | `DATABASE_URL`, `CRM_DATABASE_URL` | The registry's database (`auth`'s own, already in the service's environment) and the CRM's database. **Environment only**, never arguments (a URL on a command line lands in `ps` and the shell history), never stored (ADR 20261110-activities-service-access-delegated-to-host, amendment L4). |
+
+The scope is `legal-entities:read` (colon form, like `letterhead:render`), **not** `companies:read`
+and not `crm.companies.read`, which is about the CRM's customers. `.railway/railway.ts` is **not**
+changed by this feature (no new service, domain or bucket; the project's variables are unmanaged):
+`railway config plan` must still show no drift at each push.
+
+### Step 0 - preconditions (names only)
+
+- On the release commit, `mise run env:doctor` passes (the committed contract already carries the
+  new link: `crm-api` and `letterhead-api` against `auth`'s `SERVICE_CLIENTS`).
+- The owner has decided the spec's drift points D7 and D8 and has read both IBANs in the production
+  CRM Settings (the early check R2: does grouping in fours change their print), and has the day-before issuer
+  lines of both entities in a note (Step 5 compares with them).
+- Announce **now**, for the whole window up to Step 5: *the CRM's entity settings (legal name, address, VAT number, IBAN) are not edited*.
+  This is an announcement, not a code refusal; the pre-switch dry run (Step 4) is what catches a
+  slip.
+- **Do not grant `legal-entity:manage` to anyone before push 2 is live.** Push 1 makes `auth` derive
+  the Admin tool into `apps` for a holder of that permission, while the old `admin-ui` has no section
+  for them. The seed grants it only to the `admin` role, who already reach `admin-ui`. Grant managers
+  after Step 5 (Step 5, last item).
+
+### Step 1 - Expand (push 1): auth, `@operai/ui`, shell
+
+Push 1 is **not the branch head**: build it as a branch from `main` holding only the push-1 commits
+(auth, `operai-ui`, shell, docs and specs, their changesets), rebased in branch order (tasks.md, T16).
+`auth` gets the migration (table and trigger), the routes, the scope `legal-entities:read` among its
+known scopes, the derived `apps` entry and the import script; the library ships with the shell so a
+remote never loads before a shell that has its new exports. No consumer reads the registry yet.
+
+Release exactly as RELEASING.md says (before, release, after):
+
+```bash
+mise run env:doctor && mise run shared:check && mise run react:skew && mise run ui:check
+railway config plan                      # no drift, nothing destructive
+pnpm exec changeset status --verbose     # auth (minor), @operai/ui (minor), shell (patch)
+mise run release:version                 # then commit, as RELEASING.md says
+mise run release:tag
+git push --follow-tags                   # deploys auth (preDeploy applies the migration), shell, and the rest that changed
+```
+
+Gate to go on (observed, not assumed):
+
+```bash
+curl -s https://auth.operai.welld.io/health        # the new auth version; the migration ran in preDeploy
+curl -s https://operai.welld.io/version.json       # {"version":"<push-1 version>"}: the library change is live
+railway config plan                                # still no drift
+```
+
+and, signed in, `https://auth.operai.welld.io/legal-entities` answers **both** entities with
+`version: 0`.
+
+### Step 2 - Credentials (environment only, no code)
+
+Only after Step 1 is live (the new `auth` knows the scope; an old `auth` would refuse to start with it).
+
+1. In the Railway project's **Shared Variables**, create `LETTERHEAD_SERVICE_CLIENT_SECRET` with a
+   fresh random value (`openssl rand -hex 32`, pasted into the dashboard only).
+2. On `auth`, edit `SERVICE_CLIENTS`: add `legal-entities:read` to the `crm-api` entry's scope and add the
+   `letterhead-api` entry (both shapes in the table above), then let `auth` redeploy. Check the resolved
+   JSON in the Variables tab. A typo in a scope stops `auth` at startup; the new deployment then fails
+   its `/health` check instead of replacing the running one: read `railway logs --service auth`,
+   fix the variable, redeploy.
+3. On `letterhead-api`, set `SERVICE_CLIENT_ID=letterhead-api` and
+   `SERVICE_CLIENT_SECRET=${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}`.
+4. Verify, with the real values:
+
+```bash
+curl -s https://auth.operai.welld.io/health                              # auth restarted healthy on the new SERVICE_CLIENTS
+railway logs --service auth | head                                       # no scope or SERVICE_CLIENTS error at startup
+mise run env:doctor -- --env production --resolve                        # green: 1Password items exist, the link is checked
+mise run env:doctor -- --env production --live                           # green: the DEPLOYED values, secrets shown only as fingerprints
+```
+
+   Do not try the new credential by hand with `curl`: the secret would land in your shell history.
+   The doctor compares the two secrets and the scopes without printing them. Log the outcome in the
+   release log (no secret). To **revoke** the client, remove its `SERVICE_CLIENTS` entry (tokens already
+   minted expire within 5 minutes); to **rotate**, change the shared variable, then redeploy `auth` and
+   `letterhead-api`.
+
+### Step 3 - Copy: dry run, apply, dry run
+
+The script `auth/scripts/import-crm-legal-details.ts` is **in `auth`'s production image** (the
+Dockerfile copies it; nothing else of `scripts/`). Run it inside the running `auth` service, so its own
+`DATABASE_URL` is the target and the CRM's database is on the same private Postgres. The CRM's
+connection string is built from `auth`'s own by changing the database name, so no password is typed or pasted.
+It copies **nothing but version 1**, attributed to the system, with one `legal_entity.import` audit row per
+entity, under the entity's advisory lock; it never overwrites, repairs or prints a value.
+
+Announce the freeze first (Step 0), then:
+
+```bash
+railway ssh --service auth
+# inside (the image's shell, user bun, /app):
+cd /app
+export CRM_DATABASE_URL="${DATABASE_URL%/*}/crm"        # same server, database `crm` (if DATABASE_URL has a ?query, build it by hand)
+echo "${DATABASE_URL##*/} ${CRM_DATABASE_URL##*/}"      # database NAMES only: "auth crm"
+bun run scripts/import-crm-legal-details.ts             # 1. dry run: reads the CRM, writes nothing
+bun run scripts/import-crm-legal-details.ts --apply     # 2. version 1 of each entity that has none, with its audit row
+bun run scripts/import-crm-legal-details.ts             # 3. dry run again: the move is accounted for
+```
+
+`--json` prints the same report as JSON. Exit codes: **0** accounted for; **1** a `mismatched` or a
+failure (the report or `import failed: <code>` says which); **2** `crm_legal_columns_absent` (the CRM's
+columns are dropped: the move is over, Step 6 happened); **64** usage (an unknown argument, a missing
+or equal pair of connection strings).
+
+**The CRM session must open read only.** The script opens it with `default_transaction_read_only = on`
+as a startup parameter and reads the setting back before it reads anything: a server or pooler that
+drops the parameter ends the run with `crm_not_read_only` (exit 1, nothing read), by design. Check it
+on the real image: **the first dry run is that check**, and a run that reaches the report has passed
+it. If it ends `crm_not_read_only`, stop, do not work around it (no pooler URL, no other role), and
+report it. Use the private-domain connection above, direct to Postgres.
+To check the same on the image **before** the window, from a checkout with the compose databases up,
+without touching any environment (a dry run: no `--apply`; local credentials, as `mise run
+legal-entities:import` uses):
+
+```bash
+docker build -t auth-import-check auth
+docker run --rm --add-host=host.docker.internal:host-gateway \
+  -e DATABASE_URL="postgresql://postgres:postgres@host.docker.internal:5435/operai_auth" \
+  -e CRM_DATABASE_URL="postgresql://postgres:postgres@host.docker.internal:5435/crm" \
+  auth-import-check bun run scripts/import-crm-legal-details.ts          # a report and exit 0, not crm_not_read_only
+docker run --rm auth-import-check bun run scripts/import-crm-legal-details.ts --help   # usage, exit 64: the script is in the image
+```
+
+**Reading the report.** One line of counts (`found`, `inserted` - in a dry run `would insert` -,
+`present`, `resolved`, `mismatched`), one line of flags (`incomplete`, `invalid`, `ibanPrintChanged`),
+then a block per entity and the closing line `ACCOUNTED FOR` or `NOT ACCOUNTED FOR`. Per entity:
+
+| Category | Meaning |
+|---|---|
+| `inserted` (dry run: `would_insert`) | no version existed; version 1 written (or would be) from the CRM row |
+| `present` | a version exists and the CRM row, under the mapping, equals version 1 |
+| `resolved` | the CRM row differs from version 1 but equals the **current** registry version on the four values the CRM holds: someone carried the CRM edit into the registry |
+| `mismatched` | differs from both: an edit made in the CRM after the copy. **Nothing is overwritten**; the entity is not moved until an administrator resolves it |
+
+**Gate for every run:** both entities `inserted`, `present` or `resolved`, `mismatched` 0, the closing
+line `ACCOUNTED FOR`, and the owner has read the flags: `incomplete` (a required value is missing: the
+CRM refuses offers for that entity after the switch until a registry save completes it, so
+complete it **before** Step 5), `invalid` (a value today's rules refuse, moved as it is: the page marks "Needs
+correction", documents print as before), `ibanPrintChanged` (the IBAN now prints in groups of four: the
+owner signs off each one, D2). The first and the third dry run must show the same `found` (the source
+is frozen); the third must show `inserted 0` / `present 2`. A re-run of `--apply` inserts nothing, writes
+no audit row and exits 0. If `--apply` fails on the second entity, the first stays inserted and the
+next run reports it `present`. `crm_entity_profile_absent` means the wrong database. Keep the three
+reports (counts and flags only) in the release log with the date of the freeze announcement.
+
+### Step 4 - Pre-switch check (just before push 2)
+
+Run the same dry run once more from `auth`, immediately before cutting push 2:
+
+```bash
+railway ssh --service auth
+cd /app && export CRM_DATABASE_URL="${DATABASE_URL%/*}/crm"
+bun run scripts/import-crm-legal-details.ts      # present/resolved 2, mismatched 0
+```
+
+A `mismatched` entity means the CRM's legal fields were edited after the copy. **The switch does not
+happen.** An administrator resolves it with a registry save (the Legal entities page or its API, a new
+version carrying the edit); re-run until the entity reads `resolved`. The script never repairs it and
+the CRM columns are never edited back. Keep Step 4 and push 2 close together: an edit between them is
+not detected until Step 5b.
+
+### Step 5 - Switch (push 2), smoke, then Step 5b
+
+Push 2 is crm-api, crm-ui, letterhead-api, letterheads-ui and admin-ui together; it is correct in
+whatever order they come up (content version 2 fails closed against an old `letterhead-api`; `crm-api`
+ignores the legacy legal keys from an old `crm-ui`; `crm-ui` falls back to `issuerAddressLines` from an old
+`crm-api`; `admin-ui` only calls `auth`, already live). Release as in Step 1 (`pnpm exec changeset status
+--verbose`, `mise run release:version`, commit, `mise run release:tag`, `git push --follow-tags`),
+with Step 4's dry run just before. After the push:
+
+```bash
+curl -s https://operai.welld.io/version.json                 # the new suite version, once the shell's Vercel deploy is live
+curl -s https://crm-api.operai.welld.io/health              # crm-api reports its new version: the freeze ends here
+curl -s https://letterhead-api.operai.welld.io/health       # letterhead-api reports its new version
+railway config plan                                          # still no drift
+```
+
+End the freeze announcement when `crm-api` is live. Then **smoke, per entity** (`welld_it`, `welld_ch`):
+preview an offer in the CRM (the classic path and, where `LETTERHEAD_SERVICE_ENABLED` is `true`, the
+service path) and compare its issuer lines with the day before. They must be identical, apart from the
+contacts line and the IBAN grouping the owner signed off. A document that prints no issuer, or an
+offer refused with a message naming a missing value, means the entity is incomplete in the registry:
+complete it on the Legal entities page.
+
+**Step 5b - the post-switch dry run.** From now on the CRM's `PUT` ignores the legal keys, so the columns are
+final. Run the dry run once more (commands of Step 4): `mismatched` 0. A mismatch is an edit made between
+Step 4's check and `crm-api` going live; resolve it with a registry save. Log the report.
+
+**Last, grant the managers.** Now (not before) grant `legal-entity:manage` to the people who
+manage the details through the role editor, unconditioned for both entities or conditioned on the
+`entity` attribute for one (a Swiss accountant: `welld_ch` only). They then see only the Legal entities
+section of Admin.
+
+### Step 6 - Contract (a later release, never with the switch)
+
+Only after Step 5 has been live in production for a while and the reports are filed: a `crm-api` migration
+drops `legalName`, `addressLines`, `vatNumber` and `iban` from `entity_profile`, and the `issuerAddressLines`
+compatibility field and the legacy-key tolerance go. It is **one-way**: take a database backup first, and
+never put it in the push of Step 5. The CHANGELOG of push 2 names it as the next step. After it the import
+script exits **2** `crm_legal_columns_absent` before reading any row (expected); it stays in the repository
+as history.
+
+### Rollback by step
+
+- **Before Step 3 applies:** nothing was copied. Push 1 is inert (the registry answers `version: 0`, no
+  consumer reads it); to withdraw the credentials, remove the `letterhead-api` entry from
+  `SERVICE_CLIENTS` (the new scope may stay on `crm-api`: `auth` still knows it).
+- **After Step 3, before push 2:** the CRM is still the source; registry version 1 exists and is unused. Nothing to
+  undo; a re-run changes nothing.
+- **After push 2, before Step 6:** revert push 2 (redeploy the previous `crm-api`, `crm-ui`, `letterhead-api`,
+  `letterheads-ui` and `admin-ui`): the CRM columns are intact, so offers print CRM-sourced issuers again.
+  **Registry saves made after the switch are not in the CRM, and reverting loses them.** Before reverting, read
+  the registry history of both entities (version, who, when, changed fields), and after the revert re-enter any
+  change in the CRM's entity settings by hand; a document made after the revert prints the CRM's values.
+- **After Step 6:** one-way; restore from the backup taken before it.
 
 ## Push notifications (specs/20261111-push-notifications, ADR 20261111-web-push-encrypted-payloads-not-fcm/0085)
 
