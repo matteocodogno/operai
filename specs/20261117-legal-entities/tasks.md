@@ -500,7 +500,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74
+- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74, T75
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
@@ -751,6 +751,13 @@ same files.
     not CORS-safelisted, so every 429 would read "a few minutes" cross-origin.
   - done when: a CORS request to a throttled registry route exposes `Retry-After` (`Access-Control-Expose-Headers`
     contains it); auth suite green.
+
+- [ ] T75: auth — `notices/duty.test.ts`'s committed "real transactions" group uses T53's local-host guard — refs: AC-2.7 — deps: T53, T58
+  - touch: `auth/src/legalEntities/notices/duty.test.ts`
+  - agent: backend-dev · push 2
+  - added by the orchestrator 2026-11-17 (T59 report, F4 rule): the group checks only "registry empty"; it must
+    also run only when `committedTransactionsSkipReason(DATABASE_URL)` is null (`testDb.ts`).
+  - done when: the group skips with the one-line reason on a non-local host and runs on localhost; auth suite green.
 
 ## Follow-ups found during implementation (orchestrator, 2026-11-17)
 
