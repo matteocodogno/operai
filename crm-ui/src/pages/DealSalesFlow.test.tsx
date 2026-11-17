@@ -893,9 +893,12 @@ describe('Offers card (US-4)', () => {
     })
     await pickTemplate(dialog)
     fireEvent.click(within(dialog).getByTestId('crm-offer-dialog-submit'))
-    const text = (await within(dialog).findByTestId('crm-offer-dialog-error')).textContent ?? ''
-    expect(text).toBe(strings.offers.errors.legalEntityIncomplete('wellD CH', 'VAT number, Address (English)'))
-    expect(text).toContain('no offer was created')
+    const notice = await within(dialog).findByTestId('crm-wizard-legal-entity-incomplete')
+    const t = strings.offerWizard.legalEntity.incomplete
+    expect(notice.textContent).toContain(t.title('wellD CH'))
+    expect(notice.textContent).toContain(t.missing('VAT number, Address (English)'))
+    expect(notice.textContent).toContain(t.noOffer)
+    expect(within(dialog).queryByTestId('crm-offer-dialog-error')).toBeNull()
   })
 
   it('says the registry could not be read on a 503 legal_entities_unavailable, not the generic line (AC-5.5)', async () => {
