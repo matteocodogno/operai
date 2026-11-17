@@ -1087,3 +1087,7 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
 - FU-12 (T22, T65): `letterhead-api/api/tests/render.rs:680` (server start / wait for `/health`) failed once under
   parallel load in two separate runs and never on rerun — a start-up timeout or `free_port` race. QE (T45) to
   decide whether to widen the start-up wait or serialise the binary-spawning suites; CI has been green.
+- Orchestrator decision (2026-11-18, T40 report): design S12 says both buttons are `aria-disabled` while the
+  confirmation is busy; `@operai/ui` `ConfirmDialog` disables Confirm natively while `busy` (shared library
+  behaviour for every dialog of the suite). Accepted as is: the busy state is short and announced, axe is clean;
+  design.md S12 is read as "Confirm unavailable while busy". No library change.
