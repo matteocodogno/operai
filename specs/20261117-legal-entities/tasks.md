@@ -947,7 +947,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 ### Push 2 — crm-ui, letterhead-api, letterheads-ui (follow-ups and F6)
 
 - [ ] T63: crm-ui — the overflow notice points at Legal entities (FU-1); the classic Generate dialog and the offers card show `LegalEntityNotice` for an incomplete entity (FU-2) — refs: AC-6.3, AC-8.1, AC-8.2 — deps: T51
-  - touch: `crm-ui/src/strings/offerWizard.ts`, `crm-ui/src/components/offerWizard/LetterheadNotice*`, `crm-ui/src/components/offerWizard/LegalEntityNotice*`, `crm-ui/src/components/GenerateOfferDialog*`, `crm-ui/src/components/OffersCard*`, `crm-ui/src/components/offerWizard/ServicePreview*.test.tsx`, `crm-ui/src/pages/OfferWizardPage.generate.service.test.tsx`
+  - touch: `crm-ui/src/strings/offerWizard.ts`, `crm-ui/src/components/offerWizard/LetterheadNotice*`, `crm-ui/src/components/offerWizard/LegalEntityNotice*`, `crm-ui/src/components/GenerateOfferDialog*`, `crm-ui/src/components/OffersCard*`, `crm-ui/src/components/offerWizard/ServicePreview*.test.tsx`, `crm-ui/src/pages/OfferWizardPage.generate.service.test.tsx`, `crm-ui/src/pages/DealSalesFlow.test.tsx` (added 2026-11-17: its AC-6.3 test asserted the one-line error FU-2 replaces)
   - agent: frontend-dev · push 2
   - done when: Vitest — `letterhead.overflow.body`/`bodyAskAdmin` say T51's copy (Legal entities, link for a
     manager of that entity, sentence otherwise; en and it); a `legal_entity_incomplete` refusal in the classic
