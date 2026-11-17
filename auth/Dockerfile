@@ -31,6 +31,12 @@ RUN bun install --frozen-lockfile --production
 # Copy compiled source + generated Prisma client from builder
 COPY --chown=bun:bun --from=builder /app/src ./src
 COPY --chown=bun:bun --from=builder /app/prisma ./prisma
+
+# One-off operator script (specs/20261117-legal-entities T9/T12): the copy of the CRM's legal details into the registry,
+# run by hand inside this image (`bun run scripts/import-crm-legal-details.ts`, infra/README.md § Legal entities rollout,
+# step 3), never by the CMD below. It imports ../src/** (copied above) and nothing else, so only this file is copied: not
+# scripts/e2e-invite-fixtures.ts, a test fixture. It reads CRM_DATABASE_URL and DATABASE_URL from the environment only.
+COPY --chown=bun:bun scripts/import-crm-legal-details.ts ./scripts/import-crm-legal-details.ts
 COPY --chown=bun:bun tsconfig.json prisma.config.ts ./
 
 # Drop privileges: the official oven/bun:1.3-alpine image ships with a non-root
