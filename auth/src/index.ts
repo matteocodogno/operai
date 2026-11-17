@@ -49,6 +49,8 @@ app.use(
     origin: env.ALLOWED_ORIGINS,
     allowHeaders: ["Content-Type", "Authorization"],
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // `Retry-After` is not CORS-safelisted: without this a cross-origin page cannot read the wait of a 429 (T74).
+    exposeHeaders: ["Retry-After"],
     credentials: true,
   }),
 );

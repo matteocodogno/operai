@@ -9,8 +9,11 @@
  * own - 400, 401, 302 - which are all fine here; what is not fine is the app saying the path does not exist.)
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { getCookies } from "better-auth/cookies";
 import { auth } from "./auth.config";
+import { db } from "../lib/db";
+import { env } from "../lib/env";
 
 const { app } = await import("../index");
 
@@ -121,5 +124,79 @@ describe("the other route groups still answer through the assembled app (mount o
       if (await isAppNotFound(await send(method, path))) unreached.push(`${method} ${path}`);
     }
     expect(unreached).toEqual([]);
+  });
+});
+
+// ─── CORS: Retry-After is readable cross-origin (T74, AC-9.6, AC-8.1) ──────────────────────────────────────────────
+// `Retry-After` is not CORS-safelisted, so without `exposeHeaders` a cross-origin admin-ui cannot read the 429 wait.
+
+const RUN_ID = crypto.randomUUID().slice(0, 8);
+const createdUserIds: string[] = [];
+const createdRoleIds: string[] = [];
+
+afterAll(async () => {
+  await db.session.deleteMany({ where: { userId: { in: createdUserIds } } });
+  await db.role.deleteMany({ where: { id: { in: createdRoleIds } } });
+  await db.user.deleteMany({ where: { id: { in: createdUserIds } } });
+});
+
+/** A person who manages every legal entity, and the signed session cookie of a real Better Auth session for them. */
+async function managerCookie(): Promise<string> {
+  const user = await db.user.create({
+    data: { name: "T74 fixture", email: `t74-cors-${RUN_ID}-${crypto.randomUUID()}@legalentities.test`, emailVerified: true },
+  });
+  createdUserIds.push(user.id);
+  const role = await db.role.create({ data: { name: `t74-cors-${RUN_ID}-${crypto.randomUUID()}` } });
+  createdRoleIds.push(role.id);
+  await db.permissionRule.create({ data: { roleId: role.id, resource: "legal-entity", action: "manage" } });
+  await db.userRole.create({ data: { userId: user.id, roleId: role.id } });
+
+  const session = await (await auth.$context).internalAdapter.createSession(user.id, false);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.BETTER_AUTH_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(session.token));
+  const signed = `${session.token}.${btoa(String.fromCharCode(...new Uint8Array(sig)))}`;
+  return `${getCookies(auth.options).sessionToken.name}=${encodeURIComponent(signed)}`;
+}
+
+const ORIGIN = "http://localhost:5173";
+const exposed = (res: Response): string[] =>
+  (res.headers.get("access-control-expose-headers") ?? "").split(",").map((h) => h.trim().toLowerCase());
+
+describe("CORS exposes Retry-After (T74)", () => {
+  test("a throttled POST /legal-entities/:entity/versions from an allowed origin carries Retry-After AND exposes it", async () => {
+    const cookie = await managerCookie();
+    let throttled: Response | undefined;
+    for (let i = 0; i <= env.LEGAL_ENTITY_WRITE_RATE_LIMIT && throttled === undefined; i++) {
+      const res = await app.request("/legal-entities/welld_ch/versions", {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: ORIGIN, cookie },
+        body: "{}",
+      });
+      if (res.status === 429) throttled = res;
+      else expect(res.status).toBe(422); // spent attempts: counted, then refused for the empty body
+    }
+    expect(throttled).toBeDefined();
+    const res = throttled as Response;
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+    expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+    expect(exposed(res)).toContain("retry-after");
+  });
+
+  test("a preflight still answers 204 with the unchanged policy (origin, credentials, methods, headers)", async () => {
+    const res = await app.request("/legal-entities/welld_ch/versions", {
+      method: "OPTIONS",
+      headers: { origin: ORIGIN, "access-control-request-method": "POST", "access-control-request-headers": "content-type" },
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+    expect(res.headers.get("access-control-allow-credentials")).toBe("true");
+    expect(res.headers.get("access-control-allow-methods")).toBe("GET,POST,PUT,PATCH,DELETE,OPTIONS");
+    expect(res.headers.get("access-control-allow-headers")).toBe("Content-Type,Authorization");
+  });
+
+  test("an origin that is not allowed gets no CORS grant at all", async () => {
+    const res = await app.request("/health", { headers: { origin: "https://evil.example" } });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 });
