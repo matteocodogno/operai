@@ -228,6 +228,11 @@ export AUTH_JWKS_URL="${AUTH_JWKS_URL:-http://localhost:3001/auth/jwks}"
 export AUTH_BASE_URL="${AUTH_BASE_URL:-http://localhost:3001}"
 export AUTH_AUDIENCE="${AUTH_AUDIENCE:-operai-suite}"
 export SERVICE_AUDIENCE="${SERVICE_AUDIENCE:-operai-service}"
+# Its own client at auth (specs/20261117-legal-entities, scope legal-entities:read): how it reads the issuer's details.
+# Never the shell's SERVICE_CLIENT_ID / SECRET (another service's): only LETTERHEAD_SERVICE_CLIENT_* override. The local
+# secret must be the one of the `letterhead-api` entry in auth's SERVICE_CLIENTS (32 to 256 characters).
+export SERVICE_CLIENT_ID="${LETTERHEAD_SERVICE_CLIENT_ID:-letterhead-api}"
+export SERVICE_CLIENT_SECRET="${LETTERHEAD_SERVICE_CLIENT_SECRET:-local-letterhead-api-client-secret-0000}"
 export ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-http://localhost:5173}"
 export LETTERHEAD_S3_ENDPOINT=http://localhost:9000
 export LETTERHEAD_S3_REGION=us-east-1

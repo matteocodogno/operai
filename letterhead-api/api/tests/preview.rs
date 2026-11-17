@@ -650,6 +650,11 @@ fn server_env(
         ("AUTH_JWKS_URL", auth.jwks_url.clone()),
         ("AUTH_AUDIENCE", PERSON_AUDIENCE.to_owned()),
         ("SERVICE_AUDIENCE", SERVICE_AUDIENCE.to_owned()),
+        ("SERVICE_CLIENT_ID", "letterhead-api".to_owned()),
+        (
+            "SERVICE_CLIENT_SECRET",
+            "test-client-secret-0123456789abcdefgh".to_owned(),
+        ),
         ("ALLOWED_ORIGINS", ORIGIN.to_owned()),
         (
             "LETTERHEAD_S3_ENDPOINT",

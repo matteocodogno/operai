@@ -255,6 +255,11 @@ async fn render_migrate_is_not_what_serve_does_it_refuses_to_start_on_an_unmigra
         ("AUTH_JWKS_URL", "http://127.0.0.1:1/auth/jwks"),
         ("AUTH_AUDIENCE", "operai-suite"),
         ("SERVICE_AUDIENCE", "operai-service"),
+        ("SERVICE_CLIENT_ID", "letterhead-api"),
+        (
+            "SERVICE_CLIENT_SECRET",
+            "test-client-secret-0123456789abcdefgh",
+        ),
         ("ALLOWED_ORIGINS", "http://localhost:5173"),
         ("LETTERHEAD_S3_ENDPOINT", "http://localhost:9000"),
         ("LETTERHEAD_S3_REGION", "us-east-1"),

@@ -21,6 +21,8 @@
 //! | `AUTH_JWKS_URL`, `AUTH_BASE_URL` | yes | URLs of the `auth` service: `https`, or `http` only to a loopback, private or internal host (see [`is_internal_host`]) |
 //! | `AUTH_AUDIENCE` | yes | `aud` of person tokens |
 //! | `SERVICE_AUDIENCE` | yes | `aud` of service tokens; must differ from `AUTH_AUDIENCE` |
+//! | `SERVICE_CLIENT_ID` | yes | this service's own client at `auth` (`letterhead-api`, scope `legal-entities:read`); lower-case alphanumerics and single hyphens, at most 64 characters |
+//! | `SERVICE_CLIENT_SECRET` | yes | its secret, 32 to 256 characters (secret): exchanged at `AUTH_BASE_URL` for the service token that reads the legal entities registry |
 //! | `ALLOWED_ORIGINS` | yes | comma-separated origins (CORS); no wildcard |
 //! | `LETTERHEAD_S3_ENDPOINT`, `_REGION`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` | yes | the bucket; the two keys are secrets |
 //! | `LETTERHEAD_S3_EU_ENDPOINT_HOSTS` | for a non-AWS endpoint | comma-separated EU host suffixes |
@@ -59,6 +61,11 @@ pub const MIN_WORKER_RSS_MB: u64 = 64;
 /// Upper bound catches a typo (a byte count where MiB were meant); the real bound is the container's memory.
 pub const MAX_WORKER_RSS_MB: u64 = 16 * 1024;
 
+/// The limits `auth` puts on a service client (`auth/src/system/serviceClients.ts`).
+pub const MAX_CLIENT_ID_CHARS: usize = 64;
+pub const MIN_CLIENT_SECRET_CHARS: usize = 32;
+pub const MAX_CLIENT_SECRET_CHARS: usize = 256;
+
 /// AWS regions whose physical location is the EU (same list as `crm-api/src/lib/s3Residency.ts`).
 pub const EU_AWS_REGIONS: [&str; 8] = [
     "eu-west-1",
@@ -96,6 +103,15 @@ pub struct AuthConfig {
     pub audience: String,
 }
 
+/// This service's own credential at `auth` (specs/20261117-legal-entities, plan decision 7): a service client with
+/// the scope `legal-entities:read` and nothing else. It is read by the supervisor only; the workers start with an
+/// empty environment.
+#[derive(Debug, Clone)]
+pub struct ServiceClientConfig {
+    pub id: String,
+    pub secret: Secret,
+}
+
 #[derive(Debug, Clone)]
 pub struct S3Config {
     pub endpoint: Url,
@@ -114,6 +130,8 @@ pub struct Config {
     pub auth: AuthConfig,
     /// `aud` of service tokens (render routes).
     pub service_audience: String,
+    /// `SERVICE_CLIENT_ID` / `SERVICE_CLIENT_SECRET`: how this service reads the legal entities registry.
+    pub service_client: ServiceClientConfig,
     pub allowed_origins: Vec<String>,
     pub s3: S3Config,
     pub workers: usize,
@@ -165,6 +183,8 @@ impl Config {
         let auth_base_url = r.internal_or_https_url("AUTH_BASE_URL");
         let auth_audience = r.text("AUTH_AUDIENCE");
         let service_audience = r.text("SERVICE_AUDIENCE");
+        let service_client_id = r.client_id("SERVICE_CLIENT_ID");
+        let service_client_secret = r.client_secret("SERVICE_CLIENT_SECRET");
         let allowed_origins = r.origins("ALLOWED_ORIGINS");
         let workers = r.number("LH_WORKERS", DEFAULT_WORKERS as u64, 1, MAX_WORKERS as u64);
         let queue = r.number("LH_QUEUE", DEFAULT_QUEUE as u64, 0, MAX_QUEUE as u64);
@@ -214,6 +234,10 @@ impl Config {
                     audience: auth_audience?,
                 },
                 service_audience: service_audience?,
+                service_client: ServiceClientConfig {
+                    id: service_client_id?,
+                    secret: service_client_secret?,
+                },
                 allowed_origins,
                 s3: S3Config {
                     endpoint: s3_endpoint?,
@@ -411,6 +435,40 @@ impl<F: Fn(&str) -> Option<String>> Reader<F> {
         }
     }
 
+    /// A client id as `auth` accepts it in `SERVICE_CLIENTS`: lower-case alphanumerics and single hyphens, at most 64.
+    fn client_id(&mut self, name: &str) -> Option<String> {
+        let value = self.text(name)?;
+        let shaped = value.len() <= MAX_CLIENT_ID_CHARS
+            && value.split('-').all(|part| {
+                !part.is_empty()
+                    && part
+                        .bytes()
+                        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+            });
+        if shaped {
+            Some(value)
+        } else {
+            self.problems.push(format!(
+                "{name} must be lower-case alphanumerics and single hyphens, at most {MAX_CLIENT_ID_CHARS} characters"
+            ));
+            None
+        }
+    }
+
+    /// A client secret, exactly as given, of the length `auth` accepts (the value is never repeated).
+    fn client_secret(&mut self, name: &str) -> Option<Secret> {
+        let secret = self.secret(name)?;
+        let length = secret.expose().chars().count();
+        if (MIN_CLIENT_SECRET_CHARS..=MAX_CLIENT_SECRET_CHARS).contains(&length) {
+            Some(secret)
+        } else {
+            self.problems.push(format!(
+                "{name} must be {MIN_CLIENT_SECRET_CHARS} to {MAX_CLIENT_SECRET_CHARS} characters"
+            ));
+            None
+        }
+    }
+
     fn database_url(&mut self, name: &str) -> Option<Secret> {
         let value = self.raw(name)?;
         match Url::parse(value.trim()) {
@@ -515,6 +573,8 @@ mod tests {
     const SECRET_DB: &str = "postgresql://letterhead:db-pass-7f3a@postgres:5432/letterhead";
     const SECRET_KEY_ID: &str = "AKID-sentinel-91c2";
     const SECRET_KEY: &str = "SECRET-sentinel-55d0";
+    /// 40 characters, so it passes the length rule; a sentinel to look for in any printed text.
+    const SECRET_CLIENT: &str = "client-secret-sentinel-0d7b-letterhead-ok";
 
     /// A complete, valid development environment (what compose sets).
     fn valid() -> HashMap<&'static str, String> {
@@ -528,6 +588,8 @@ mod tests {
             ("AUTH_BASE_URL", "http://localhost:3001".to_owned()),
             ("AUTH_AUDIENCE", "operai-suite".to_owned()),
             ("SERVICE_AUDIENCE", "operai-service".to_owned()),
+            ("SERVICE_CLIENT_ID", "letterhead-api".to_owned()),
+            ("SERVICE_CLIENT_SECRET", SECRET_CLIENT.to_owned()),
             ("ALLOWED_ORIGINS", "http://localhost:5173".to_owned()),
             ("LETTERHEAD_S3_ENDPOINT", "http://minio:9000".to_owned()),
             ("LETTERHEAD_S3_REGION", "us-east-1".to_owned()),
@@ -575,6 +637,8 @@ mod tests {
             "AUTH_BASE_URL",
             "AUTH_AUDIENCE",
             "SERVICE_AUDIENCE",
+            "SERVICE_CLIENT_ID",
+            "SERVICE_CLIENT_SECRET",
             "ALLOWED_ORIGINS",
             "LETTERHEAD_S3_ENDPOINT",
             "LETTERHEAD_S3_REGION",
@@ -609,6 +673,70 @@ mod tests {
             problems(with("SERVICE_AUDIENCE", "operai-suite\n")),
             ["SERVICE_AUDIENCE must differ from AUTH_AUDIENCE"]
         );
+    }
+
+    #[test]
+    fn the_service_client_is_required_and_either_variable_missing_stops_the_start() {
+        let config = load(&valid()).expect("valid environment");
+        assert_eq!(config.service_client.id, "letterhead-api");
+        assert_eq!(config.service_client.secret.expose(), SECRET_CLIENT);
+        for name in ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"] {
+            let mut env = valid();
+            env.remove(name);
+            assert_eq!(problems(load(&env)), [format!("{name} is required")]);
+            assert_eq!(
+                problems(with(name, "  ")),
+                [format!("{name} is required")],
+                "a blank value counts as unset"
+            );
+        }
+    }
+
+    #[test]
+    fn the_service_client_follows_the_rules_auth_enforces_and_names_no_value() {
+        for bad in [
+            "Letterhead-Api",
+            "letterhead_api",
+            "-letterhead",
+            "letterhead-",
+            "letter--head",
+            "letter head",
+            &"a".repeat(65),
+        ] {
+            let found = problems(with("SERVICE_CLIENT_ID", bad));
+            assert_eq!(found.len(), 1, "{bad:?} should be refused");
+            assert!(found[0].starts_with("SERVICE_CLIENT_ID"), "{found:?}");
+            assert!(!found[0].contains(bad), "the value is never repeated");
+        }
+        assert!(with("SERVICE_CLIENT_ID", &"a".repeat(64)).is_ok());
+        assert!(with("SERVICE_CLIENT_ID", " letterhead-api\n").is_ok());
+
+        for bad in ["short", &"s".repeat(31), &"s".repeat(257)] {
+            let found = problems(with("SERVICE_CLIENT_SECRET", bad));
+            assert_eq!(
+                found,
+                ["SERVICE_CLIENT_SECRET must be 32 to 256 characters"],
+                "{} characters",
+                bad.len()
+            );
+        }
+        assert!(with("SERVICE_CLIENT_SECRET", &"s".repeat(32)).is_ok());
+        assert!(with("SERVICE_CLIENT_SECRET", &"s".repeat(256)).is_ok());
+    }
+
+    #[test]
+    fn the_service_client_secret_is_in_no_debug_output_and_no_problem() {
+        let config = load(&valid()).expect("valid environment");
+        let printed = format!("{config:?} {:#?}", config.service_client);
+        assert!(!printed.contains(SECRET_CLIENT), "{printed}");
+        assert!(printed.contains("<redacted>"));
+        // A malformed environment reports names and rules only.
+        let mut env = valid();
+        env.insert("SERVICE_CLIENT_ID", "BAD ID".to_owned());
+        env.insert("SERVICE_CLIENT_SECRET", "short-secret-sentinel".to_owned());
+        let found = problems(load(&env)).join("\n");
+        assert!(!found.contains("short-secret-sentinel"), "{found}");
+        assert!(!found.contains("BAD ID"), "{found}");
     }
 
     #[test]

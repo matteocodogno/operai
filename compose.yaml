@@ -363,6 +363,11 @@ services:
       AUTH_BASE_URL: ${LETTERHEAD_AUTH_BASE_URL:-http://host.docker.internal:3001}
       AUTH_AUDIENCE: ${AUTH_AUDIENCE:-operai-suite}
       SERVICE_AUDIENCE: ${SERVICE_AUDIENCE:-operai-service}
+      # Its own client at `auth` (specs/20261117-legal-entities): scope `legal-entities:read`, how it reads the issuer's
+      # details itself. Not the SERVICE_CLIENT_* of the shell, which are another service's. The local secret must be the
+      # one of the `letterhead-api` entry in auth's SERVICE_CLIENTS (32 to 256 characters).
+      SERVICE_CLIENT_ID: ${LETTERHEAD_SERVICE_CLIENT_ID:-letterhead-api}
+      SERVICE_CLIENT_SECRET: ${LETTERHEAD_SERVICE_CLIENT_SECRET:-local-letterhead-api-client-secret-0000}
       ALLOWED_ORIGINS: ${LETTERHEAD_ALLOWED_ORIGINS:-http://localhost:5173}
       LETTERHEAD_S3_ENDPOINT: http://minio:9000
       LETTERHEAD_S3_REGION: us-east-1 # placeholder; MinIO ignores it

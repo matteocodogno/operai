@@ -558,6 +558,11 @@ fn server_env(fixture: &Fixture, auth: &FakeAuth, port: u16) -> Vec<(&'static st
         ("AUTH_JWKS_URL", auth.jwks_url.clone()),
         ("AUTH_AUDIENCE", PERSON_AUDIENCE.to_owned()),
         ("SERVICE_AUDIENCE", SERVICE_AUDIENCE.to_owned()),
+        ("SERVICE_CLIENT_ID", "letterhead-api".to_owned()),
+        (
+            "SERVICE_CLIENT_SECRET",
+            "test-client-secret-0123456789abcdefgh".to_owned(),
+        ),
         ("ALLOWED_ORIGINS", ORIGIN.to_owned()),
         ("LETTERHEAD_S3_ENDPOINT", fixture.env.s3_endpoint.clone()),
         ("LETTERHEAD_S3_REGION", "us-east-1".to_owned()),

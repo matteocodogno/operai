@@ -93,6 +93,8 @@ Read and validated once, at startup, by `api/src/env.rs`. The process exits 1 an
 | `AUTH_BASE_URL` | yes | `auth`'s base URL (`/authz/resolve` for the configurator's routes; the person's bearer token is sent there). Same rule as `AUTH_JWKS_URL`. |
 | `AUTH_AUDIENCE` | yes | `aud` of person tokens. |
 | `SERVICE_AUDIENCE` | yes | `aud` of service tokens (`/v1/render/*`, scope `letterhead:render`). Must differ from `AUTH_AUDIENCE`. |
+| `SERVICE_CLIENT_ID` | yes | This service's own client at `auth` (`letterhead-api`): lower-case alphanumerics and single hyphens, at most 64 characters. Its only scope is `legal-entities:read` (see "The issuer's details" below). |
+| `SERVICE_CLIENT_SECRET` | yes | That client's secret, 32 to 256 characters. Secret; read by the supervisor only (the render workers start with an empty environment). |
 | `ALLOWED_ORIGINS` | yes | CORS origins, exactly as the browser sends them; no wildcard. |
 | `LETTERHEAD_S3_ENDPOINT` / `_REGION` / `_BUCKET` | yes | The EU bucket for logos and backgrounds. |
 | `LETTERHEAD_S3_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | yes | Its credentials. Secrets. |
@@ -112,6 +114,26 @@ name without a dot (a compose service name). Everything else needs `https`.
 (`s3.us-east-1.amazonaws.com`) must be an EU one too; any other
 endpoint needs its host to match `LETTERHEAD_S3_EU_ENDPOINT_HOSTS`. An empty or unset list, a host outside
 it, or a region outside the EU stops the start. This is the rule of `crm-api/src/lib/s3Residency.ts`.
+
+**The issuer's details (specs/20261117-legal-entities, AC-1.5, AC-3.3, AC-5.5).** The legal name, address, VAT number and
+IBAN that a document prints are `auth`'s, not the caller's: the service reads `GET {AUTH_BASE_URL}/system/legal-entities`
+as itself, with a service token from `POST {AUTH_BASE_URL}/system/service-token` (`SERVICE_CLIENT_ID` and
+`SERVICE_CLIENT_SECRET`; scope `legal-entities:read`). The code is `api/src/registry/`: `cache.rs` is the rule, `http.rs`
+the one real source. The rule is the consumer cache rule of the ADR, the same as `crm-api/src/lib/legalEntities.ts`:
+
+- one entry per process (both entities), stamped with the monotonic time its request was **sent**;
+- younger than 30 s: used with no call; otherwise refreshed (one refresh at a time, 5 s in all, no redirect, at most
+  64 KiB, a 401 drops the token and retries once);
+- the refresh fails and the entry is at most 60 s old: the entry is used and `registry_stale_used` is logged;
+- otherwise the read is `Unavailable` (the routes answer 503 `legal_entities_unavailable`, `Retry-After: 5`) and no
+  document is made from older details.
+
+So a save in `auth` is in every document started more than 60 s after it, and no document is made from details older
+than 60 s. The log has closed words and numbers (`registry event=registry_stale_used age_ms=… cause=…`), never a token,
+the secret or a value. The client id is `letterhead-api` in `auth`'s `SERVICE_CLIENTS` (`infra/README.md`); a start without
+either variable fails with exit code 1 before any socket is opened. The tests are `api/tests/registry.rs` (a fake clock and
+a fake source for the rule, a stub of `auth` on a loopback port for the real source, the shared fixture
+`specs/20261117-legal-entities/fixtures/legal-entities.json`).
 
 **Callers (AC-9.3).** No caller is named here or in the code. A caller is a service client at `auth`
 with the scope `letterhead:render`; adding one changes `auth`'s `SERVICE_CLIENTS`, not this service.
