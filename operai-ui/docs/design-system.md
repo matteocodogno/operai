@@ -345,7 +345,7 @@ A checkbox or radio is a 16px control drawn by `tokens.css`: outlined when
 empty, filled with the solid accent and a white mark when checked (a dash when
 indeterminate). Use the plain `<input type="checkbox">` with a `<label>`.
 
-## Data — `DataTable`, `ListRows`, `Badge`
+## Data — `DataTable`, `VersionTable`, `ListRows`, `Badge`
 
 - **`DataTable`** for rows with comparable columns: sr-only caption, `scope` on
   every header, `rowHeader` for the row's name (focusable for "focus the row just
@@ -397,7 +397,7 @@ indeterminate). Use the plain `<input type="checkbox">` with a `<label>`.
   meaning. Never an emoji (flag emoji do not render on Windows) and never a Unicode
   glyph as an icon.
 
-## Feedback — `Banner`, `StatePanel`, `SkeletonRows`, `Spinner`, `VisuallyHidden`
+## Feedback — `Banner`, `ErrorSummary`, `VersionBanner`, `StatePanel`, `SkeletonRows`, `Spinner`, `VisuallyHidden`
 
 Loading and empty states have one shape each (INC-22): loading is `SkeletonRows`
 with a polite `VisuallyHidden live` line (a route-level wait in the shell is a
@@ -413,6 +413,23 @@ A page shows exactly one state at a time:
 | forbidden | `StatePanel role="alert" focusOnMount` |
 | empty | `StatePanel` (no action if the page header already has it) |
 | loaded | the content |
+
+**Refused save and old versions (specs/20261117-legal-entities, decisions D-66).**
+
+- **`ErrorSummary`** lists what a refused save refused: `title` ("Nothing was saved. 3 values need your
+  attention."), an optional `hint`, and `items` (`{ id, text }`, in the order the page shows its controls). It is
+  an assertive `danger` `Banner`, one button per item calling `onGo(id)`. The page moves focus to the first
+  refused control itself; the summary is the second way in. Each control keeps its own `aria-invalid` and error
+  text, and says the same sentence. No items, no banner.
+- **`VersionTable`** is a record's history as a `DataTable`: the caption names the record, the version is the row
+  header (Current badge, "Restored from version m"), then who, when (`<time dateTime>`), what changed. Open and
+  Restore are named after their row ("Open version 3"). The current row has no Restore; `canRestore={false}`
+  shows Open only; a row with `restoreBlockedReason` keeps Restore `aria-disabled` and focusable, with the
+  reason beside it as its description (never `disabled`, never silent).
+- **`VersionBanner`** heads the page while an old version is open: an info, static (`live="off"`) `Banner`
+  whose heading takes focus on mount (give it a `key` per version), the app's sentence and optional `badge`,
+  Back and, when `restoreLabel` + `onRestore` are given, Restore (the same blocked rule). The fetching, the
+  copy and the restore dialog (`ConfirmDialog`) stay in the app.
 
 `Banner` tones:
 

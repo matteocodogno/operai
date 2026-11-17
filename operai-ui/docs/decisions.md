@@ -484,6 +484,24 @@ from 64rem to 80rem; `wide` goes from 90rem to no limit (the 24px gutter stays);
 stays 40rem. One change in `tokens.css`, no app touched. A block of running text that
 needs a reading measure inside a wider column sets its own `max-w-*`.
 
+## Lifted from letterheads-ui (2026-11-17)
+
+**D-66 — `ErrorSummary`, `VersionTable` and `VersionBanner` (specs/20261117-legal-entities, plan E9).** The
+legal-entities page in admin-ui is the second app that needs a refused-save summary and a version history, so
+the three letterheads-ui patterns (`ErrorSummary.tsx`, the table of `HistoryPanel.tsx`, the banner of
+`HistoryPanelVersion.tsx`) are built in the library, presentational and without copy: `{ title, hint, items,
+onGo }`, `{ caption, rows, labels, canRestore, onOpen, onRestore }`, `{ title, children, badge, onBack,
+onRestore, restoreBlockedReason }`. The fetching hook, `strings`, the `Problem` type and `RestoreDialog` (it owns
+an API call; its confirmation is `ConfirmDialog`) stay in the apps. Two behaviours are new against the originals:
+a version that cannot be restored keeps an `aria-disabled`, described Restore instead of hiding it, and
+`ErrorSummary` renders nothing for an empty list. The test ids are derived from one `testId` prop, not the
+letterheads names.
+
+letterheads-ui is **not** migrated in this change: it keeps its own copies, because specs/20261116-letterhead-service
+may still fix them in its QE/eval. **Follow-up (open):** once that spec is done, replace letterheads-ui's
+`ErrorSummary.tsx`, the table in `HistoryPanel.tsx` and the banner in `HistoryPanelVersion.tsx` with thin adapters
+over these three (binding its strings and its e2e test ids), and delete the copies.
+
 ## Not done (deliberately)
 
 - **refund-ui's detail pages keep their own `<h2 class="page-title">`**
