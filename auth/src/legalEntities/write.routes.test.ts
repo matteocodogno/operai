@@ -9,7 +9,8 @@
  *   - the "real transactions" group needs REAL commits (concurrency, the lock, a rollback after the insert): it runs
  *     only against a registry with NO version at all (a fresh test database), seeds one committed version and, in
  *     `afterAll`, removes every row it knows is its own - all of them, since the table was empty. Against a database that
- *     already holds a registry it is skipped, loudly, and touches nothing.
+ *     already holds a registry, or against a database whose host is not local (T53, F4: `isLocalDatabaseHost`), it is
+ *     skipped, loudly, and touches nothing.
  *
  * Only `auth.config` (the session source) is mocked.
  */
@@ -21,7 +22,15 @@ import { withAudit } from "../authz/audit";
 import { db } from "../lib/db";
 import type { Prisma } from "../lib/generated/prisma/client";
 import type { LegalEntity } from "./entities";
-import { committedVersionCount, inRolledBackTx, insertSql, type Tx, validImportRow } from "./testDb";
+import {
+  committedTransactionsSkipReason,
+  committedVersionCount,
+  inRolledBackTx,
+  insertSql,
+  isLocalDatabaseHost,
+  type Tx,
+  validImportRow,
+} from "./testDb";
 
 type FakeSession = { user: { id: string; email: string; name: string }; session: { id: string } } | null;
 let currentSession: FakeSession = null;
@@ -1055,8 +1064,49 @@ describe("the documentation", () => {
 
 // ─── Real transactions: the lock, a rollback after the insert, 20 parallel saves ──────────────────────────────────
 
-const registryIsEmpty = (await committedVersionCount()) === 0;
-if (!registryIsEmpty) {
+describe("the committed-transaction guard (F4)", () => {
+  test.each([
+    "postgresql://u:p@localhost:5435/db",
+    "postgresql://u:p@127.0.0.1:5432/db",
+    "postgresql://u:p@[::1]:5432/db",
+    "postgres://u:p@host.docker.internal:5432/db",
+    "postgresql://u:p@postgres:5432/db",
+    "postgresql://u:p@LOCALHOST/db?schema=public",
+  ])("%s runs", (url) => {
+    expect(isLocalDatabaseHost(url)).toBe(true);
+    expect(committedTransactionsSkipReason(url)).toBeNull();
+  });
+
+  test.each([
+    "postgresql://u:p@x.railway.internal:5432/db",
+    "postgresql://u:p@x.proxy.rlwy.net:5432/db",
+    "postgresql://u:p@db.example.com:5432/db",
+    "postgresql://u:p@localhost.evil.com:5432/db",
+    "postgresql://u:p@10.0.0.5:5432/db",
+    "postgresql://u:p@localhost/db?host=x.railway.internal",
+    "postgresql://u:p@localhost:5432,x.railway.internal:5432/db",
+    "mysql://u:p@localhost/db",
+    "not a url",
+    "",
+    undefined,
+  ])("%p is skipped", (url) => {
+    expect(isLocalDatabaseHost(url)).toBe(false);
+    expect(committedTransactionsSkipReason(url)).not.toBeNull();
+  });
+
+  test("the skip line names the reason and not the URL", () => {
+    const url = "postgresql://secretuser:secretpass@x.railway.internal:5432/proddb";
+    const line = committedTransactionsSkipReason(url)!;
+    expect(line).not.toContain("\n");
+    expect(line).toContain("local database host");
+    for (const leak of ["secretuser", "secretpass", "railway", "proddb"]) expect(line).not.toContain(leak);
+  });
+});
+
+const hostSkip = committedTransactionsSkipReason(process.env.DATABASE_URL);
+if (hostSkip) console.warn(hostSkip);
+const registryIsEmpty = hostSkip === null && (await committedVersionCount()) === 0;
+if (hostSkip === null && !registryIsEmpty) {
   console.warn(
     "write.routes.test.ts: the 'real transactions' group is SKIPPED because legal_entity_version already holds rows " +
       "(it needs a database with no registry, and removes its own rows afterwards). Use a fresh test database to run it.",

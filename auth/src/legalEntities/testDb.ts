@@ -16,6 +16,16 @@
  *   - never write a teardown that removes rows from the table (it raises `legal_entity_version_immutable`);
  *   - a statement that is EXPECTED to be refused goes through `attempt`, which wraps it in a savepoint:
  *     a failed statement aborts a Postgres transaction, and the savepoint keeps the rest of the test usable.
+ *
+ * The ONE exception: a "committed-transaction" group (T8's real transactions, T59's) needs real commits and removes
+ * its own rows afterwards by turning the table's triggers off for its own session, which the Tier 1 rules forbid elsewhere.
+ * That is only acceptable on a throwaway database, so such a group runs ONLY when `DATABASE_URL` names a local host
+ * (`isLocalDatabaseHost`, `committedTransactionsSkipReason`); against any other host it is skipped, with one line
+ * that names the reason and never the URL (it carries credentials). Wrap the group like this:
+ *
+ *   const skip = committedTransactionsSkipReason(process.env.DATABASE_URL);
+ *   if (skip) console.warn(skip);
+ *   (skip ? describe.skip : describe)("real transactions", ...);
  */
 
 import { db } from "../lib/db";
@@ -88,6 +98,38 @@ export async function attempt(tx: Tx, sql: string): Promise<string | null> {
   }
   await tx.$executeRawUnsafe("RELEASE SAVEPOINT le_attempt");
   return null;
+}
+
+/** The hosts a committed-transaction group may run against: this machine, or the compose database. */
+const LOCAL_DATABASE_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "::1", "host.docker.internal", "postgres"]);
+
+/**
+ * True only when `databaseUrl` is a PostgreSQL URL whose host is one of `LOCAL_DATABASE_HOSTS`. Fails closed: a missing,
+ * blank or unparseable value, a multi-host URL, or a `?host=` override that is not local all answer false.
+ */
+export function isLocalDatabaseHost(databaseUrl: string | undefined): boolean {
+  if (databaseUrl === undefined || databaseUrl.trim() === "") return false;
+  let url: URL;
+  try {
+    url = new URL(databaseUrl.trim());
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "postgresql:" && url.protocol !== "postgres:") return false;
+  // libpq lets `?host=` override the authority: every host it names must be local too.
+  const overrides = url.searchParams.getAll("host");
+  const hosts = [url.hostname, ...overrides].map((h) => h.toLowerCase().replace(/^\[|\]$/g, ""));
+  return hosts.every((h) => LOCAL_DATABASE_HOSTS.has(h));
+}
+
+/** `null` when a committed-transaction group may run; otherwise the one line to log when it is skipped (no URL in it). */
+export function committedTransactionsSkipReason(databaseUrl: string | undefined): string | null {
+  if (isLocalDatabaseHost(databaseUrl)) return null;
+  return (
+    "legal-entities tests: the committed-transaction group is SKIPPED because DATABASE_URL does not name a local " +
+    "database host (localhost, 127.0.0.1, ::1, host.docker.internal, postgres); it commits rows and bypasses the " +
+    "append-only triggers to remove them, so it never runs against a shared or remote database."
+  );
 }
 
 /** Number of committed rows, to assert that a test left nothing behind. */

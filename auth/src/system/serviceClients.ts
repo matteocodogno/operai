@@ -95,7 +95,8 @@ export const KNOWN_SERVICE_SCOPES = [
  *   capability; env-doctor's manifest holds the same five).
  * - `crm-api` (specs/20261103-projects-handoff, specs/20261110-activities, specs/20261117-legal-entities): its notify
  *   and deal-link scopes, the purchase orders of its deals (`projects.purchase-orders.read`), `activities.write`
- *   and the issuer's details (`legal-entities:read`).
+ *   the issuer's details (`legal-entities:read`) and the rendering of a document's pages (`letterhead:render`,
+ *   specs/20261116-letterhead-service; production holds it).
  * - `activities-api` (specs/20261110-activities): `notifications.push emails.send` — its task notices
  *   (AC-6.1/6.3) are email notices, and notify-api requires `emails.send` as well as
  *   `notifications.push` for `email: true` (ADR 20261101-notify-api-resolves-email-notice-address-from-auth). No `activities.write`: it is the
@@ -107,7 +108,7 @@ export const DOCUMENTED_CLIENT_SCOPES = {
   "meetings-api": "notifications.push host-notices.send",
   "projects-api": "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push",
   "crm-api":
-    "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read legal-entities:read",
+    "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read legal-entities:read letterhead:render",
   "activities-api": "notifications.push emails.send",
   "letterhead-api": "legal-entities:read",
 } as const;

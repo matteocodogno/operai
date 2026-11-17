@@ -119,6 +119,7 @@ describe("parseServiceClients", () => {
     expect(result.clients.get("letterhead-api")?.scopes).toEqual(["legal-entities:read"]);
     expect(result.clients.get("letterhead-api")?.scopes).not.toContain("letterhead:render");
     expect(result.clients.get("crm-api")?.scopes).toContain("legal-entities:read");
+    expect(result.clients.get("crm-api")?.scopes).toContain("letterhead:render");
   });
 
   test("a client holding letterhead:render parses and authenticates with it, alone or beside other scopes (specs/20261116-letterhead-service AC-3.1, AC-9.3)", () => {
@@ -283,7 +284,7 @@ describe("parseServiceClients", () => {
     }
   });
 
-  test("the documented crm-api entry adds activities.write and legal-entities:read to its existing scopes (specs/20261110-activities AC-1.2, specs/20261103-projects-handoff)", () => {
+  test("the documented crm-api entry adds activities.write, legal-entities:read and letterhead:render to its existing scopes (specs/20261110-activities AC-1.2, specs/20261103-projects-handoff)", () => {
     const documented = DOCUMENTED_CLIENT_SCOPES["crm-api"];
     const result = parseServiceClients(raw({ "crm-api": { secret: SECRET_A, scope: documented } }));
     expect(result.ok).toBe(true);
@@ -293,6 +294,7 @@ describe("parseServiceClients", () => {
       "deal-link-notices.send",
       "emails.send",
       "legal-entities:read",
+      "letterhead:render",
       "notifications.push",
       "projects.purchase-orders.read",
     ]);
