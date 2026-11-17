@@ -1,0 +1,193 @@
+{
+  "$comment": "MIG fixture set of specs/20261117-legal-entities (plan, Test strategy). Synthetic profiles of the CRM's `entity_profile` (the four legal columns), one scenario per case, each for ONE entity: a test seeds that entity's row (crm: null = no row) and leaves the other entity without one. `expect` is written by hand, independent of the code under test: the registry's version 1 after the move (mapping: CRM's own print rule, address lines into both languages, IBAN in electronic form), the `missing` and `invalid` flags, and `ibanPrintChanged` (true exactly when the typed IBAN text, after the CRM's print rule, differs from the IBAN in groups of four). Read by auth/src/legalEntities/import.test.ts (T9) and, for the complete cases (`expect.missing` empty), by crm-api's issuer golden capture (T24). No value here is a real company's: the IBANs are the standard documentation examples (IT60 X054 2811 1010 0000 0123 456, CH93 0076 2011 6238 5295 7), the VAT numbers and names are invented.",
+  "cases": [
+    {
+      "name": "complete-it",
+      "entity": "welld_it",
+      "crm": {
+        "legalName": "Qwerty Fixture Italia S.r.l.",
+        "addressLines": ["Via Pippo 1", "20100 Milano MI", "Italia"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60 X054 2811 1010 0000 0123 456"
+      },
+      "expect": {
+        "legalName": "Qwerty Fixture Italia S.r.l.",
+        "address": ["Via Pippo 1", "20100 Milano MI", "Italia"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60X0542811101000000123456",
+        "missing": [],
+        "invalid": [],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "complete-ch",
+      "entity": "welld_ch",
+      "crm": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "addressLines": ["Via Xyzzy 2", "6900 Lugano", "Svizzera"],
+        "vatNumber": "CHE-000.000.001 IVA",
+        "iban": "CH93 0076 2011 6238 5295 7"
+      },
+      "expect": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "address": ["Via Xyzzy 2", "6900 Lugano", "Svizzera"],
+        "vatNumber": "CHE-000.000.001 IVA",
+        "iban": "CH9300762011623852957",
+        "missing": [],
+        "invalid": [],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "missing-vat",
+      "entity": "welld_ch",
+      "crm": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "addressLines": ["Via Xyzzy 2", "6900 Lugano"],
+        "vatNumber": null,
+        "iban": "CH9300762011623852957"
+      },
+      "expect": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "address": ["Via Xyzzy 2", "6900 Lugano"],
+        "vatNumber": "",
+        "iban": "CH9300762011623852957",
+        "missing": ["vatNumber"],
+        "invalid": [],
+        "ibanPrintChanged": true
+      }
+    },
+    {
+      "name": "no-row",
+      "entity": "welld_it",
+      "crm": null,
+      "expect": {
+        "legalName": "",
+        "address": [],
+        "vatNumber": "",
+        "iban": "",
+        "missing": ["legalName", "address.it", "address.en", "vatNumber"],
+        "invalid": [],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "five-address-lines",
+      "entity": "welld_ch",
+      "crm": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "addressLines": ["Via Foo 3", "   ", "Piano 4", "Stanza 5", "Edificio B", "6900 Lugano"],
+        "vatNumber": "CHE-000.000.001 IVA",
+        "iban": "CH93 0076 2011 6238 5295 7"
+      },
+      "expect": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "address": ["Via Foo 3", "Piano 4", "Stanza 5", "Edificio B", "6900 Lugano"],
+        "vatNumber": "CHE-000.000.001 IVA",
+        "iban": "CH9300762011623852957",
+        "missing": [],
+        "invalid": [
+          { "field": "address.it", "reason": "too_many_lines", "limit": 4 },
+          { "field": "address.en", "reason": "too_many_lines", "limit": 4 }
+        ],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "iban-spaces-lower-case",
+      "entity": "welld_it",
+      "crm": {
+        "legalName": "Qwerty Fixture Italia S.r.l.",
+        "addressLines": ["Via Pippo 1", "20100 Milano MI"],
+        "vatNumber": "IT00000000017",
+        "iban": "it60 x054 2811 1010 0000 0123 456"
+      },
+      "expect": {
+        "legalName": "Qwerty Fixture Italia S.r.l.",
+        "address": ["Via Pippo 1", "20100 Milano MI"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60X0542811101000000123456",
+        "missing": [],
+        "invalid": [],
+        "ibanPrintChanged": true
+      }
+    },
+    {
+      "name": "iban-bad-check-digits",
+      "entity": "welld_ch",
+      "crm": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "addressLines": ["Via Xyzzy 2", "6900 Lugano"],
+        "vatNumber": "CHE-000.000.001 IVA",
+        "iban": "CH94 0076 2011 6238 5295 7"
+      },
+      "expect": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "address": ["Via Xyzzy 2", "6900 Lugano"],
+        "vatNumber": "CHE-000.000.001 IVA",
+        "iban": "CH9400762011623852957",
+        "missing": [],
+        "invalid": [{ "field": "iban", "reason": "iban_check_digits" }],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "line-break",
+      "entity": "welld_it",
+      "crm": {
+        "legalName": "Qwerty Fixture\r\nItalia S.r.l.",
+        "addressLines": ["Via Pippo 1\n  int. 2", "20100 Milano MI"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60 X054 2811\n1010 0000 0123 456"
+      },
+      "expect": {
+        "legalName": "Qwerty Fixture Italia S.r.l.",
+        "address": ["Via Pippo 1 int. 2", "20100 Milano MI"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60X0542811101000000123456",
+        "missing": [],
+        "invalid": [],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "line-separator",
+      "entity": "welld_ch",
+      "crm": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "addressLines": ["Via Xyzzy 2", "6900 Lugano"],
+        "vatNumber": "CHE-000.000.002 IVA",
+        "iban": "CH93 0076 2011 6238 5295 7"
+      },
+      "expect": {
+        "legalName": "Plugh Fixture Lugano SA",
+        "address": ["Via Xyzzy 2", "6900 Lugano"],
+        "vatNumber": "CHE-000.000.002 IVA",
+        "iban": "CH9300762011623852957",
+        "missing": [],
+        "invalid": [{ "field": "vatNumber", "reason": "line_break" }],
+        "ibanPrintChanged": false
+      }
+    },
+    {
+      "name": "special-characters",
+      "entity": "welld_it",
+      "crm": {
+        "legalName": "Qwerty \"Fixture\" {Italia}, S.r.l.",
+        "addressLines": ["Via Pippo \\ 1, int. 2", "NULL", "{20100} Milano; 'MI'"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60 X054 2811 1010 0000 0123 456"
+      },
+      "expect": {
+        "legalName": "Qwerty \"Fixture\" {Italia}, S.r.l.",
+        "address": ["Via Pippo \\ 1, int. 2", "NULL", "{20100} Milano; 'MI'"],
+        "vatNumber": "IT00000000017",
+        "iban": "IT60X0542811101000000123456",
+        "missing": [],
+        "invalid": [],
+        "ibanPrintChanged": false
+      }
+    }
+  ]
+}

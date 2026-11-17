@@ -264,3 +264,16 @@ docker compose up -d postgres
 docker compose run --rm letterhead-createdb
 (cd letterhead-api && DATABASE_URL="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@localhost:5435/letterhead" cargo run -p letterhead-api -- migrate)
 """
+# specs/20261117-legal-entities (T9): copy the CRM's legal details into the legal-entity registry (auth). LOCAL compose
+# databases only: both URLs are built here from POSTGRES_* and never taken from the environment, so a production
+# DATABASE_URL / CRM_DATABASE_URL exported in the shell cannot be reached through this task. It applies (`--apply`) and
+# prints counts and field names, never a value. Run `mise run db:migrate` first (the registry table and the CRM's
+# entity_profile must exist). The production runbook (dry run, apply, dry run, the gate) is infra/README.md.
+[tasks."legal-entities:import"]
+description = "Copy the CRM's legal details into the legal-entity registry — LOCAL compose databases, applies (production: infra/README.md runbook)"
+run = """
+set -e
+export DATABASE_URL="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@localhost:5435/operai_auth"
+export CRM_DATABASE_URL="postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@localhost:5435/crm"
+cd auth && bun run scripts/import-crm-legal-details.ts --apply
+"""
