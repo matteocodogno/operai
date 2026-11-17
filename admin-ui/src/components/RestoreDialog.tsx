@@ -8,14 +8,18 @@
  * given by the version view, or fetched when the dialog is opened from a row.
  *
  * The person never confirms a restore whose changes they have not been shown. While the two versions are not both in
- * hand the dialog is a READING dialog (the library `Dialog`, no Confirm at all): a skeleton and the hidden live
- * "Loading the details of version n…" while it reads, or the warning `restore.detailsFailed` with Retry when it cannot
- * (fail closed: without both versions it cannot tell whether a protected detail changes, AC-9.4, plan G7). Cancel works
- * in both. A restore from the version view hands the version it already read and the entity is the current one, so
- * the confirmation opens at once, with nothing to wait for. When both are read the dialog is the confirmation below,
- * and focus lands on Cancel as in every confirmation. After a 409 the version in effect has changed, so the details
- * are read again behind the open dialog: Confirm is busy ("Loading…") meanwhile, and a read that fails turns it back
- * into the reading dialog with Retry.
+ * hand the dialog is the same confirmation with Confirm `aria-disabled` and described by its reason (the library's
+ * `confirmDisabledReason`, design S7): a skeleton and the hidden live "Loading the details of version n…" while it
+ * reads, or the warning `restore.detailsFailed` with Retry when it cannot (fail closed: without both versions it
+ * cannot tell whether a protected detail changes, AC-9.4, plan G7). Confirm stays a focus stop so its reason can be
+ * read; Cancel, Escape and the close control work throughout (it is not `busy`). A restore from the version view hands
+ * the version it already read and the entity is the current one, so the confirmation is available at once, with
+ * nothing to wait for. Focus lands on Cancel as in every confirmation. After a 409 the version in effect has changed,
+ * so the details are read again behind the open dialog (the conflict message stays): nothing stale is listed, Confirm
+ * is `aria-disabled` with the loading reason, and a read that fails shows the warning with Retry.
+ *
+ * The dialog is `wide` (520 px) and `scrollBody`: the body, which can list three long protected values, scrolls
+ * between the title and the footer, so Cancel and Confirm are in view at 320 px.
  *
  * Protected details (AC-9.4, 9.6): below the change line, only when a protected detail (legal name, VAT number, IBAN)
  * differs between the current version (Old) and version n (New), the dialog says what that is, who is told, and lists
@@ -35,8 +39,8 @@
  * On success the dialog calls `onRestored(result)`; the caller closes it (it is unmounted, focus goes where the caller
  * decides: the entity heading).
  */
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { Banner, Button, ConfirmDialog, Dialog } from '@operai/ui'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Banner, ConfirmDialog } from '@operai/ui'
 import { refusedFields, restoreChanges } from './LegalEntityHistoryModel'
 import ProtectedChangeList from './ProtectedChangeList'
 import { protectedChangesBetween, waitText } from './ProtectedChangeModel'
@@ -99,8 +103,6 @@ export default function RestoreDialog({
   )
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<{ kind: Failure; list?: string; wait?: string } | null>(null)
-  const cancelRef = useRef<HTMLButtonElement>(null)
-  const readingId = useId()
 
   // The effect reads the latest props without re-running when they are replaced by an equal read.
   const latest = useRef({ entity, target, read, onRestored, onConflict, onLost })
@@ -191,51 +193,6 @@ export default function RestoreDialog({
     restore()
   }
 
-  // Reading: the two versions are not both in hand (first read, or after a 409 whose re-read failed). No Confirm.
-  if (compared === null || loadFailed) {
-    return (
-      <Dialog
-        title={t.restore.title(version)}
-        size="sm"
-        onClose={onCancel}
-        closeLabel={strings.common.actions.cancel}
-        describedBy={readingId}
-        initialFocusRef={cancelRef}
-        fallbackFocusRef={cancelRef}
-        testIdPrefix="admin-legal-restore"
-      >
-        <div id={readingId} className="dialog-body" data-testid="admin-legal-restore-reading">
-          <p className="m-0">{t.restore.body(version, base + 1, base)}</p>
-          {loadFailed ? (
-            <Banner
-              tone="warning"
-              className="mt-3"
-              onRetry={() => {
-                setAttempt((n) => n + 1)
-                // The button that had focus goes with the warning: Cancel is where the person lands.
-                cancelRef.current?.focus()
-              }}
-              retryLabel={strings.common.actions.retry}
-              retryTestId="admin-legal-restore-retry"
-              data-testid="admin-legal-restore-details-failed"
-            >
-              {t.restore.detailsFailed(version)}
-            </Banner>
-          ) : (
-            <div className="mt-3">
-              <SkeletonListRows rows={2} label={t.restore.loadingDetails(version)} />
-            </div>
-          )}
-        </div>
-        <div className="dialog-footer">
-          <Button ref={cancelRef} variant="ghost" onClick={onCancel} data-testid="admin-legal-restore-cancel">
-            {strings.common.actions.cancel}
-          </Button>
-        </div>
-      </Dialog>
-    )
-  }
-
   const error =
     failure !== null && failure.kind !== 'tooMany'
       ? failure.kind === 'refused'
@@ -247,32 +204,68 @@ export default function RestoreDialog({
             : t.restore.failed(version)
       : null
 
+  // The two versions are not both in hand (first read, a read again after a 409, or a read that failed): what the
+  // dialog says is the question and why it cannot be answered yet, never a stale list of changes.
+  const reading = shown === null
+  const disabledReason = reading
+    ? loadFailed
+      ? t.restore.detailsFailed(version)
+      : t.restore.loadingDetails(version)
+    : undefined
+
   return (
     <ConfirmDialog
       tone="primary"
+      size="wide"
+      scrollBody
       title={t.restore.title(version)}
       confirmLabel={t.restore.confirm(version)}
-      busyLabel={loading ? strings.common.loading : t.restore.busy}
+      confirmDisabledReason={disabledReason}
+      busyLabel={t.restore.busy}
       cancelLabel={strings.common.actions.cancel}
       closeLabel={strings.common.actions.cancel}
-      busy={busy || loading}
+      busy={busy}
       error={error}
       onConfirm={confirm}
       onCancel={onCancel}
       testIdPrefix="admin-legal-restore"
     >
       <p className="m-0">{t.restore.body(version, base + 1, base)}</p>
-      {changes.length > 0 && (
-        <p className="m-0 mt-2" data-testid="admin-legal-restore-changes">
-          {t.restore.changes(valueNameList(changes))}
-        </p>
-      )}
-      {protectedChanges.length > 0 && (
-        <div className="mt-3" data-testid="admin-legal-restore-protected">
-          <p className="m-0">{t.restore.protectedIntro(name)}</p>
-          <p className="m-0 mt-2 text-sm text-soft">{t.restore.protectedLegend(base, version)}</p>
-          <ProtectedChangeList changes={protectedChanges} testId="admin-legal-restore-protected-list" />
+      {shown === null ? (
+        <div className="mt-3" data-testid="admin-legal-restore-reading">
+          {loadFailed ? (
+            <Banner
+              tone="warning"
+              onRetry={() => {
+                setAttempt((n) => n + 1)
+                // The button that had focus goes with the warning: Cancel is where the person lands.
+                document.querySelector<HTMLElement>('[data-testid="admin-legal-restore-cancel"]')?.focus()
+              }}
+              retryLabel={strings.common.actions.retry}
+              retryTestId="admin-legal-restore-retry"
+              data-testid="admin-legal-restore-details-failed"
+            >
+              {t.restore.detailsFailed(version)}
+            </Banner>
+          ) : (
+            <SkeletonListRows rows={2} label={t.restore.loadingDetails(version)} />
+          )}
         </div>
+      ) : (
+        <>
+          {changes.length > 0 && (
+            <p className="m-0 mt-2" data-testid="admin-legal-restore-changes">
+              {t.restore.changes(valueNameList(changes))}
+            </p>
+          )}
+          {protectedChanges.length > 0 && (
+            <div className="mt-3" data-testid="admin-legal-restore-protected">
+              <p className="m-0">{t.restore.protectedIntro(name)}</p>
+              <p className="m-0 mt-2 text-sm text-soft">{t.restore.protectedLegend(base, version)}</p>
+              <ProtectedChangeList changes={protectedChanges} testId="admin-legal-restore-protected-list" />
+            </div>
+          )}
+        </>
       )}
       {failure?.kind === 'tooMany' && (
         <Banner tone="warning" className="mt-3" data-testid="admin-legal-restore-too-many">

@@ -12,6 +12,9 @@
  * `busy`: both buttons are disabled, Escape and the close control are ignored, and the dialog stays until the answer
  * (the caller then unmounts it and the form shows the outcome by its own states). The dialog owns no request.
  *
+ * `wide` (520 px) and `scrollBody`: three long values scroll between the title and the footer, so Cancel and Save are
+ * always in view, even at 320 px.
+ *
  * The values are those auth's check route answered, as they would be stored: the page does not mirror the
  * normalisation (plan decision 10).
  */
@@ -45,6 +48,8 @@ export default function ProtectedChangeDialog({
   return (
     <ConfirmDialog
       tone="primary"
+      size="wide"
+      scrollBody
       title={t.protected.title(entityName)}
       confirmLabel={t.protected.confirm(nextVersion)}
       busyLabel={t.bar.saving}

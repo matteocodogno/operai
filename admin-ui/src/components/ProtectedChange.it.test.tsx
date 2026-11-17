@@ -113,7 +113,9 @@ describe('in Italian', () => {
     // Reading, then failed.
     vi.mocked(getVersion).mockReturnValue(new Promise(() => undefined))
     const second = render(<RestoreDialog {...base} />)
-    expect(screen.getByText('Caricamento dei dati della versione 3…')).toBeTruthy()
+    // The skeleton's hidden live sentence, and the same sentence as Confirm's (aria-disabled) description.
+    expect(screen.getAllByText('Caricamento dei dati della versione 3…')).toHaveLength(2)
+    expect(screen.getByTestId('admin-legal-restore-confirm').getAttribute('aria-disabled')).toBe('true')
     expect(await axeIds(document.body)).toEqual([])
     second.unmount()
 

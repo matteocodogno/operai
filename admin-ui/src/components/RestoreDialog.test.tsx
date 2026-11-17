@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * RestoreDialog — the protected block, the reading dialog and the 429 (T60, specs/20261117-legal-entities, design S7
+ * RestoreDialog — the protected block, the reading state (Confirm aria-disabled with its reason) and the 429 (T60, specs/20261117-legal-entities, design S7
  * additions and flow F16; AC-9.4, 9.6, 9.17, 8.1). The T39 behaviour (what it makes, the refusals, the conflict, busy)
  * is covered by `LegalEntityHistory.test.tsx` with the real page around the dialog; this file is the dialog alone.
  */
@@ -174,26 +174,35 @@ describe('the dialog opens at once when it holds both versions, and reads what i
     expect(getVersion).not.toHaveBeenCalled()
   })
 
-  it('reads version n when the page does not hold it: a reading dialog with no Confirm, then the confirmation', async () => {
+  it('reads version n when the page does not hold it: the confirmation with Confirm aria-disabled and described by the loading sentence, then available', async () => {
     let settle: (value: LegalEntityVersion) => void = () => undefined
     vi.mocked(getVersion).mockReturnValue(new Promise((resolve) => (settle = resolve)))
     const { user, p } = show({ target: undefined })
 
     expect(getVersion).toHaveBeenCalledWith('welld_ch', 3)
-    const reading = screen.getByRole('dialog')
-    expect(within(reading).getByRole('heading', { name: 'Restore version 3?' })).toBeTruthy()
-    expect(reading.textContent).toContain('This creates version 9 with the same details as version 3')
-    expect(within(reading).getByText('Loading the details of version 3…')).toBeTruthy()
-    expect(within(reading).queryByTestId('admin-legal-restore-confirm')).toBeNull()
-    expect(screen.queryByRole('alertdialog')).toBeNull()
+    const box = screen.getByRole('alertdialog')
+    expect(within(box).getByRole('heading', { name: 'Restore version 3?' })).toBeTruthy()
+    expect(box.textContent).toContain('This creates version 9 with the same details as version 3')
+    // The hidden live sentence of the skeleton, and the same sentence as Confirm's description.
+    expect(within(box).getAllByText('Loading the details of version 3…')).toHaveLength(2)
+    expect(confirm().getAttribute('aria-disabled')).toBe('true')
+    expect(confirm().disabled).toBe(false)
+    expect(description(confirm())).toBe('Loading the details of version 3…')
     expect(document.activeElement).toBe(screen.getByTestId('admin-legal-restore-cancel'))
     expect(await axeViolations(document.body)).toEqual([])
 
+    // Confirm is still a focus stop (Tab from Cancel), and a press does nothing yet.
+    await user.tab()
+    expect(document.activeElement).toBe(confirm())
+    await user.keyboard('{Enter}')
+    await user.click(confirm())
+    expect(restoreVersion).not.toHaveBeenCalled()
+
     settle(OLDER)
-    const box = await screen.findByRole('alertdialog')
-    expect(within(box).getByTestId('admin-legal-restore-protected')).toBeTruthy()
+    expect(await within(box).findByTestId('admin-legal-restore-protected')).toBeTruthy()
     expect(confirm().textContent).toBe('Restore version 3')
-    expect(document.activeElement).toBe(screen.getByTestId('admin-legal-restore-cancel'))
+    expect(confirm().hasAttribute('aria-disabled')).toBe(false)
+    expect(confirm().hasAttribute('aria-describedby')).toBe(false)
     await user.click(screen.getByTestId('admin-legal-restore-cancel'))
     expect(p.onCancel).toHaveBeenCalledTimes(1)
   })
@@ -215,28 +224,41 @@ describe('the dialog opens at once when it holds both versions, and reads what i
     expect(within(box).getAllByRole('listitem').map((row) => row.querySelector('div')?.textContent)).toContain('Legal name')
   })
 
-  it('cannot be confirmed when the details cannot be read: a warning with Retry, no Confirm, nothing restored', async () => {
+  it('cannot be confirmed when the details cannot be read: a warning with Retry, Confirm aria-disabled with the same reason, nothing restored', async () => {
     vi.mocked(getVersion).mockRejectedValue(new TypeError('Failed to fetch'))
     const { user } = show({ target: undefined })
 
     const warning = await screen.findByTestId('admin-legal-restore-details-failed')
-    expect(warning.textContent).toContain(
-      'The details of version 3 could not be read, so the restore cannot be checked. Nothing was restored. Try again.',
-    )
-    expect(screen.queryByTestId('admin-legal-restore-confirm')).toBeNull()
-    expect(screen.queryByRole('alertdialog')).toBeNull()
+    const sentence =
+      'The details of version 3 could not be read, so the restore cannot be checked. Nothing was restored. Try again.'
+    expect(warning.textContent).toContain(sentence)
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    expect(confirm().getAttribute('aria-disabled')).toBe('true')
+    expect(description(confirm())).toBe(sentence)
+    await user.click(confirm())
     expect(restoreVersion).not.toHaveBeenCalled()
     expect(await axeViolations(document.body)).toEqual([])
 
-    // Retry reads again; when it works the confirmation opens.
+    // Retry reads again, focus lands on Cancel (the Retry button goes with the warning); when it works Confirm is available.
     vi.mocked(getVersion).mockReset().mockResolvedValue(OLDER)
     await user.click(screen.getByTestId('admin-legal-restore-retry'))
-    expect(await screen.findByRole('alertdialog')).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByTestId('admin-legal-restore-cancel'))
+    await waitFor(() => expect(confirm().hasAttribute('aria-disabled')).toBe(false))
     expect(getVersion).toHaveBeenCalledTimes(1)
-    expect(confirm()).toBeTruthy()
+    expect(screen.getByTestId('admin-legal-restore-protected')).toBeTruthy()
   })
 
-  it('goes back to reading, with Retry and no Confirm, when the re-read after a 409 fails', async () => {
+  it('can be cancelled with Escape or the close control after a failed read', async () => {
+    vi.mocked(getVersion).mockRejectedValue(new TypeError('Failed to fetch'))
+    const { user, p } = show({ target: undefined })
+    await screen.findByTestId('admin-legal-restore-details-failed')
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByTestId('admin-legal-restore-close'))
+    expect(p.onCancel).toHaveBeenCalledTimes(2)
+    expect(restoreVersion).not.toHaveBeenCalled()
+  })
+
+  it('goes back to reading, with Retry and Confirm aria-disabled, when the re-read after a 409 fails (the conflict message stays)', async () => {
     vi.mocked(restoreVersion).mockRejectedValue(
       new LegalEntityApiError({ type: 'x', title: 'c', status: 409, code: 'version_conflict' }, { currentVersion: 9 }),
     )
@@ -246,7 +268,42 @@ describe('the dialog opens at once when it holds both versions, and reads what i
 
     expect(await screen.findByTestId('admin-legal-restore-details-failed')).toBeTruthy()
     expect(p.onConflict).toHaveBeenCalledTimes(1)
-    expect(screen.queryByTestId('admin-legal-restore-confirm')).toBeNull()
+    expect(confirm().getAttribute('aria-disabled')).toBe('true')
+    expect(screen.getByTestId('admin-legal-restore-error').textContent).toContain('A newer version was saved meanwhile')
+    // Nothing of the old pair is listed.
+    expect(screen.queryByTestId('admin-legal-restore-protected')).toBeNull()
+    expect(screen.queryByTestId('admin-legal-restore-changes')).toBeNull()
+    await user.click(confirm())
+    expect(restoreVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps Cancel working while the re-read after a 409 is in flight, with Confirm aria-disabled and no stale list', async () => {
+    vi.mocked(restoreVersion).mockRejectedValue(
+      new LegalEntityApiError({ type: 'x', title: 'c', status: 409, code: 'version_conflict' }, { currentVersion: 9 }),
+    )
+    vi.mocked(getVersion).mockReturnValue(new Promise(() => undefined))
+    const { user, p } = show()
+    await user.click(confirm())
+
+    await waitFor(() => expect(confirm().getAttribute('aria-disabled')).toBe('true'))
+    expect(description(confirm())).toBe('Loading the details of version 3…')
+    expect(screen.queryByTestId('admin-legal-restore-protected')).toBeNull()
+    expect((screen.getByTestId('admin-legal-restore-cancel') as HTMLButtonElement).disabled).toBe(false)
+    await user.click(screen.getByTestId('admin-legal-restore-cancel'))
+    expect(p.onCancel).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('layout (320 px)', () => {
+  it('is the wide dialog whose body scrolls and whose footer is outside the scroll', async () => {
+    show()
+    const box = await screen.findByRole('alertdialog')
+    expect(box.className).toContain('dialog-wide')
+    expect(box.className).toContain('dialog-scroll')
+    const scroll = screen.getByTestId('admin-legal-restore-scroll')
+    expect(scroll.contains(screen.getByTestId('admin-legal-restore-protected'))).toBe(true)
+    expect(scroll.contains(confirm())).toBe(false)
+    expect(scroll.contains(screen.getByTestId('admin-legal-restore-cancel'))).toBe(false)
   })
 })
 
