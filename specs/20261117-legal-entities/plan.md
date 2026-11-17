@@ -1,6 +1,7 @@
 ---
 spec: 20261117
-status: draft
+status: approved
+approved: 2026-11-17
 ---
 
 # Plan: Legal entities — one registry of the group's companies, for every tool
@@ -550,7 +551,7 @@ Surfaces to review:
 - Personal data: the details are a company's (legal person); the contacts line may name a person or a direct
   number — low; no new retention.
 
-## Spec drift — proposed amendments (owner to decide; the spec is not edited)
+## Spec drift — amendments D1–D6 (accepted by the owner 2026-11-17 and applied to spec.md)
 
 - **D1 — Superseded ACs of specs/20261116-letterhead-service are not named.** This spec reverses letterhead
   AC-6.3 ("the values are sent by the caller; the service looks nothing up, keeps nothing"), AC-8.5 ("the sample's

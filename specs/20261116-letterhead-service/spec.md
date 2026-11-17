@@ -290,7 +290,7 @@ entity through placeholders, so that a change of address is made once, by the to
   lists the set. *(owner)*
 - **AC-6.2** A way to write a literal brace in a header or footer text exists and is shown in the
   configurator; a text that uses it prints the brace and is not read as a placeholder.
-- **AC-6.3** The values of the placeholders are sent by the caller with the render request;
+- **AC-6.3** *(Superseded 2026-11-17 by specs/20261117-legal-entities, amendment D1.)* The values of the placeholders are sent by the caller with the render request;
   the service looks nothing up, keeps nothing (AC-3.7) and a letterhead holds placeholders,
   never values. A request with no entity data at all is valid. In this spec the CRM sends the
   values of its entity profile (US-10). *(owner; the single source of the values across tools is
@@ -372,7 +372,7 @@ letterhead I have not seen.
   save: within 2 seconds of the last edit in 95 % of edits. The sample document runs to at least
   three pages and uses every block type, so the first page, the last page and a page in between
   can each be seen. *(owner; 2 s confirmed by the spike, O10)*
-- **AC-8.5** The sample's entity data is visibly marked as a sample and is not the data of a
+- **AC-8.5** *(Superseded 2026-11-17 by specs/20261117-legal-entities, amendment D1.)* The sample's entity data is visibly marked as a sample and is not the data of a
   real company; the preview never reads the CRM or any other tool.
 - **AC-8.6** While a newer preview is being made, the previous one stays on screen, marked as
   being updated; an answer that arrives after a newer one was asked for is discarded; when the
@@ -446,7 +446,7 @@ send are the same pages.
   edited, and a new revision of a sent offer, are generated after the switch with the entity's
   active letterhead, as AC-12.4 of specs/20261115-crm-offer-wizard already says of the legal
   name. *(owner: issued offers unchanged)*
-- **AC-10.10** crm-api sends, with each render, the legal name, the address lines, the VAT
+- **AC-10.10** *(Superseded 2026-11-17 by specs/20261117-legal-entities, amendment D1.)* crm-api sends, with each render, the legal name, the address lines, the VAT
   number and the IBAN of the entity's profile at that moment; the place of issue, which is part
   of the offer's content, is unchanged. The profile's rule that an empty legal name refuses
   generation (specs/20261115-crm-offer-wizard AC-12.7) is unchanged; any other blank value

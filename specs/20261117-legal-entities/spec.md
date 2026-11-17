@@ -77,7 +77,8 @@ when, and to bring an earlier one back, so that a mistake is found and undone wi
 - AC-2.3: Given a version in the history, when the person opens it, then they see all its details, read-only.
 - AC-2.4: Given an older version, when a person who may manage the entity restores it, then a new version is
   created whose details equal that version's (the versions in between stay in the history); restoring the current
-  version is not offered.
+  version is not offered. A restore is refused, as a save would be (AC-1.2–1.4), when that version's details are
+  not complete or valid *(amendment D4, owner 2026-11-17)*.
 - AC-2.5: Given any save or restore, then an entry is written to the administration audit log with who, when,
   which entity, and each changed value before and after *(owner)*.
 - AC-2.6: Given two people editing the same entity, when the second saves on a version that is no longer the
@@ -108,7 +109,8 @@ administration changes welld_ch and not welld_it.
 **Acceptance criteria:**
 
 - AC-4.1: Given the permission catalog, then it has a permission to manage legal entities that can be limited to
-  one or both entities, granted through roles like every other permission *(owner)*.
+  one or both entities, granted through roles like every other permission *(owner)*. Limited means the entity the
+  person belongs to; a grant cannot name another entity than theirs *(amendment D6, owner 2026-11-17)*.
 - AC-4.2: Given a person without that permission for an entity, when they try to save or restore its details,
   then they are refused and nothing changes; they can still read it (AC-3.1).
 - AC-4.3: Given a person who holds the permission for at least one entity, then the administration area shows
@@ -125,7 +127,8 @@ and to see the real details in the preview, so that what I see is what every too
 - AC-5.1: Given a document rendered by the letterhead service for an entity, in a language, then `{legal_name}`,
   `{address}`, `{vat}`, `{iban}` and `{contacts}` print that entity's current details from the registry, the
   address and the contacts line in the document's language. `{address}` keeps today's form (the lines joined by a
-  comma).
+  comma). The IBAN prints in groups of four characters (for example CH93 0076 2011 6238 5295 7) *(amendment D2,
+  owner 2026-11-17)*.
 - AC-5.2: Given a tool that asks for a document, then it no longer sends the issuer's details; any such details a
   tool still sends have no effect on what is printed *(owner, as proposed)*.
 - AC-5.3: Given an empty IBAN or contacts line, then the placeholder prints nothing, and a conditional segment
@@ -146,10 +149,11 @@ with the other tools.
 
 - AC-6.1: Given the CRM's entity settings, then they no longer hold the legal name, the address, the VAT number or
   the IBAN; they keep what is the CRM's own (the standard offer terms, the place of issue), and point to the Legal
-  entities page for the rest.
+  entities page for the rest: a link for those who may manage an entity; for the others, the name of the page and
+  that an administrator keeps it *(amendment D5, owner 2026-11-17)*.
 - AC-6.2: Given an offer or a contract made by the CRM, whether through the letterhead service or the classic
   path, then every place it printed the issuer's legal name, address, VAT number or IBAN prints the registry's
-  current values, in the document's language where the registry has two.
+  current values, in the document's language where the registry has two; the IBAN prints as in AC-5.1 *(D2)*.
 - AC-6.3: Given a legal entity whose required details (AC-1.2) are not all filled in, when an offer or a contract
   is generated for it, then it is refused with a message that names the missing details and where to fill them in
   (this replaces today's refusal for a missing legal name).
@@ -166,12 +170,15 @@ no document changes on the day of the release.
   entity's version 1 in the registry holds the profile's legal name, VAT number and IBAN, and its address lines in
   both languages; the contacts lines are empty.
 - AC-7.2: Given the move, then version 1 is attributed to the system, and the audit log records it.
-- AC-7.3: Given an entity whose CRM profile lacks a required detail (AC-1.2), then it is still moved with what
-  there is, and the Legal entities page marks it incomplete until someone saves it complete; AC-6.3 applies to it
+- AC-7.3: Given an entity whose CRM profile lacks a required detail (AC-1.2), or holds a value AC-1.3 or AC-1.4
+  refuse *(amendment D3, owner 2026-11-17)*, then it is still moved as it is (the IBAN only loses its spaces and is
+  upper-cased), and the Legal entities page marks it incomplete until someone saves it complete; AC-6.3 applies to it
   meanwhile.
 - AC-7.4: Given the move has run once, when it runs again, then it changes nothing.
 - AC-7.5: Given the day of the release, then a document generated for an entity with complete details prints the
-  same issuer details as the day before (apart from the contacts line, which is new).
+  same issuer details as the day before (apart from the contacts line, which is new); the IBAN prints as in AC-5.1,
+  and the move reports any entity whose printed IBAN would differ, which the owner accepts before the release
+  *(amendment D2, owner 2026-11-17)*.
 
 ### US-8: Accessible administration
 
@@ -197,6 +204,8 @@ no document changes on the day of the release.
 - *(owner)* The registry lives in the auth service and is administered from admin-ui; services read it with a
   service-token scope of its own (the request named it `companies:read`; its final name is the plan's).
 - *(owner)* The letterhead service reads the details itself, with a short cache; callers stop sending them.
+- *(amendment D1, owner 2026-11-17)* This spec supersedes specs/20261116-letterhead-service AC-6.3, AC-8.5 and
+  AC-10.10, replaced by AC-5.1, AC-5.2 and AC-5.4 here.
 
 ## Open questions
 
