@@ -445,7 +445,7 @@ describe("per-template caller binding", () => {
 });
 
 describe("the production table", () => {
-  it("binds nothing yet (T57 adds legal_entity_change): every template behaves as before for every caller", () => {
-    expect(Object.keys(EMAIL_TEMPLATE_POLICY)).toEqual([]);
+  it("binds exactly legal_entity_change: system:auth only, recipientId allowed", () => {
+    expect(EMAIL_TEMPLATE_POLICY).toEqual({ legal_entity_change: { callers: ["system:auth"], allowRecipientId: true } });
   });
 });
