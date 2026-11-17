@@ -538,3 +538,131 @@ mod body_text_is_not_resolved {
         assert_eq!(resolution.default.footer.left[0].parts, [text("WellD")]);
     }
 }
+
+/// Plan E3, AC-5.3, AC-5.4: the preview's "mark missing" option, and its absence.
+mod mark_missing {
+    use super::*;
+
+    fn marking_one(it: &str, language: Language, data: &EntityData) -> Vec<Part> {
+        let config = config_with(vec![line(it, it, 8.0, false, "000000")]);
+        let mut lines = resolve_marking(&config, language, data)
+            .expect("resolves")
+            .default
+            .footer
+            .left;
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        lines.remove(0).parts
+    }
+
+    fn no_iban() -> EntityData {
+        EntityData {
+            iban: None,
+            ..data()
+        }
+    }
+
+    fn missing(label: &str) -> Part {
+        Part::Missing(format!("\u{27E6}{label}\u{27E7}"))
+    }
+
+    #[test]
+    fn an_empty_value_prints_its_label_and_its_segment_is_kept() {
+        assert_eq!(
+            marking_one("[IBAN {iban}]", Language::En, &no_iban()),
+            [text("IBAN "), missing("IBAN")]
+        );
+        assert_eq!(
+            marking_one("{contacts}", Language::It, &EntityData::default()),
+            [missing("Riga contatti")]
+        );
+    }
+
+    #[test]
+    fn without_the_option_nothing_prints_and_the_segment_goes() {
+        // AC-5.3, as before this task.
+        assert_eq!(one("[IBAN {iban}]", &no_iban()), []);
+        assert_eq!(one("{iban}", &no_iban()), []);
+        assert_eq!(missing_of("[IBAN {iban}]", &no_iban()), ["iban"]);
+        let config = config_with(vec![line("x {iban}", "x {iban}", 8.0, false, "000000")]);
+        let resolution = resolve(&config, Language::It, &no_iban()).expect("resolves");
+        assert_eq!(resolution.default.footer.left[0].parts, [text("x ")]);
+    }
+
+    #[test]
+    fn the_missing_list_is_the_same_with_the_option() {
+        let config = config_with(vec![line(
+            "{legal_name} [IBAN {iban}] [{contacts}]",
+            "{legal_name} [IBAN {iban}] [{contacts}]",
+            8.0,
+            false,
+            "000000",
+        )]);
+        let d = EntityData {
+            iban: Some("   ".into()),
+            contacts: None,
+            ..data()
+        };
+        let plain = resolve(&config, Language::It, &d).unwrap();
+        let marked = resolve_marking(&config, Language::It, &d).unwrap();
+        assert_eq!(plain.missing_placeholders(), ["contacts", "iban"]);
+        assert_eq!(marked.missing_placeholders(), ["contacts", "iban"]);
+        assert_eq!(
+            marked.default.footer.left[0].parts,
+            [
+                text("WellD Sagl IBAN "),
+                missing("IBAN"),
+                text(" "),
+                missing("Riga contatti")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_complete_entity_resolves_the_same_with_the_option() {
+        let config = default_config();
+        for language in Language::ALL {
+            assert_eq!(
+                resolve(&config, language, &data()).unwrap(),
+                resolve_marking(&config, language, &data()).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn every_label_is_in_both_languages_and_the_page_placeholders_have_none() {
+        let expect = [
+            (Placeholder::LegalName, "Ragione sociale", "Legal name"),
+            (Placeholder::Address, "Indirizzo", "Address"),
+            (Placeholder::Vat, "Partita IVA", "VAT number"),
+            (Placeholder::Iban, "IBAN", "IBAN"),
+            (Placeholder::Contacts, "Riga contatti", "Contacts line"),
+        ];
+        for (placeholder, it, en) in expect {
+            assert_eq!(label(placeholder, Language::It), Some(it));
+            assert_eq!(label(placeholder, Language::En), Some(en));
+        }
+        assert_eq!(label(Placeholder::Page, Language::It), None);
+        assert_eq!(label(Placeholder::Pages, Language::En), None);
+    }
+
+    #[test]
+    fn a_blank_address_is_missing_and_a_page_number_never_is() {
+        let d = EntityData {
+            address_lines: Some(vec!["  ".into(), String::new()]),
+            ..data()
+        };
+        assert_eq!(
+            marking_one("{address} {page}", Language::En, &d),
+            [missing("Address"), text(" "), Part::Page]
+        );
+    }
+
+    #[test]
+    fn a_line_of_missing_values_alone_is_drawn() {
+        let config = config_with(vec![line("{vat}", "{vat}", 8.0, false, "000000")]);
+        let plain = resolve(&config, Language::It, &EntityData::default()).unwrap();
+        assert!(plain.default.footer.left.is_empty());
+        let marked = resolve_marking(&config, Language::It, &EntityData::default()).unwrap();
+        assert_eq!(marked.default.footer.left.len(), 1);
+    }
+}

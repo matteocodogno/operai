@@ -31,7 +31,7 @@ use crate::config::{
     LetterheadConfig, Problem, Reason as ConfigReason, Variant, bounds::FIT_TEST_VALUE_CHARS,
 };
 use crate::content::{EntityData, Language, RenderRequest};
-use crate::resolve::{Resolution, ResolvedVariant, resolve};
+use crate::resolve::{Resolution, ResolvedVariant, resolve, resolve_in};
 use crate::world::{self, Access, LayoutWorld};
 
 mod body;
@@ -74,7 +74,23 @@ pub struct Layout {
     template: &'static str,
     fonts: &'static [FontFile],
     shared: OnceLock<Shared>,
+    /// The state of the preview's "mark missing" mode: the same template with the one function that draws a
+    /// frame's line replaced (see [`MARKING_FROM`]). `None` when the template has no such line.
+    marking: OnceLock<Option<Shared>>,
 }
+
+/// The line of a layout 1 frame's template that the preview's "mark missing" mode replaces (plan E3): it draws
+/// a line's parts as one string in the line's look.
+const MARKING_FROM: &str = "par(safe(s, zone-width, c => c))";
+/// What replaces it: the parts are drawn each in its own look, and a part that stands for a missing value
+/// (`"m": true`) in the missing look of the paper (`--paper-mark` and `--paper-mark-ink` of the design system),
+/// so that it is words, glyphs and colour, never colour alone (DR-4). The text is the same text: a highlight
+/// draws a box behind it and adds no glyph.
+const MARKING_TO: &str = r#"par(safe-runs(l.parts.map(part => if "t" in part {
+    (text: part.t, wrap: if part.at("m", default: false) { c => highlight(fill: hex("ffe58a"), top-edge: 0.8em, bottom-edge: -0.2em, text(fill: hex("3a2a00"), c)) } else { c => c })
+  } else {
+    (text: if part.pg == "page" { str(p) } else { str(n) }, wrap: c => c)
+  }), zone-width))"#;
 
 impl Layout {
     pub const fn new(
@@ -89,6 +105,7 @@ impl Layout {
             template,
             fonts,
             shared: OnceLock::new(),
+            marking: OnceLock::new(),
         }
     }
 
@@ -100,22 +117,36 @@ impl Layout {
         self.template
     }
 
+    fn build(&self, template: String) -> Shared {
+        let fonts: Vec<Font> = self
+            .fonts
+            .iter()
+            .flat_map(|file| Font::iter(Bytes::new(file.bytes)))
+            .collect();
+        let main = world::main_id();
+        Shared {
+            library: world::library(),
+            book: LazyHash::new(FontBook::from_fonts(&fonts)),
+            fonts,
+            main,
+            source: Source::new(main, template),
+        }
+    }
+
     pub(crate) fn shared(&self) -> &Shared {
-        self.shared.get_or_init(|| {
-            let fonts: Vec<Font> = self
-                .fonts
-                .iter()
-                .flat_map(|file| Font::iter(Bytes::new(file.bytes)))
-                .collect();
-            let main = world::main_id();
-            Shared {
-                library: world::library(),
-                book: LazyHash::new(FontBook::from_fonts(&fonts)),
-                fonts,
-                main,
-                source: Source::new(main, self.template.to_owned()),
-            }
-        })
+        self.shared
+            .get_or_init(|| self.build(self.template.to_owned()))
+    }
+
+    /// The state of the "mark missing" mode, or `None` when this layout's template has no line to replace
+    /// (a layout that does not know the mode refuses it, rather than draw a document without the look).
+    fn marking(&self) -> Option<&Shared> {
+        self.marking
+            .get_or_init(|| {
+                (self.template.matches(MARKING_FROM).count() == 1)
+                    .then(|| self.build(self.template.replace(MARKING_FROM, MARKING_TO)))
+            })
+            .as_ref()
     }
 }
 
@@ -360,14 +391,22 @@ fn run(
     layout: &Layout,
     data: &Value,
     mut files: Vec<(String, Vec<u8>)>,
+    mark_missing: bool,
 ) -> Result<(PagedDocument, Vec<Access>), LayoutError> {
+    let shared = if mark_missing {
+        layout.marking().ok_or_else(|| LayoutError::Internal {
+            detail: "mark missing".to_owned(),
+        })?
+    } else {
+        layout.shared()
+    };
     files.push((
         world::DATA_PATH.to_owned(),
         serde_json::to_vec(data).map_err(|_| LayoutError::Internal {
             detail: "data.json".to_owned(),
         })?,
     ));
-    let world = LayoutWorld::new(layout.shared(), files);
+    let world = LayoutWorld::new(shared, files);
     let warned = typst::compile::<PagedDocument>(&world);
     match warned.output {
         Ok(document) => Ok((clusters::write_clusters_once(document), world.accesses())),
@@ -396,12 +435,25 @@ pub fn compile(
     assets: &Assets,
     request: &RenderRequest,
 ) -> Result<Compiled, LayoutError> {
-    let resolution = resolve(config, request.language, &request.entity_data).map_err(|e| {
-        LayoutError::InvalidConfig {
+    compile_in(layout, config, assets, request, false)
+}
+
+/// [`compile`] with the option that only the configurator's preview sets (plan E3, AC-5.4): with
+/// `mark_missing`, a placeholder without a value is drawn as its label between `⟦` and `⟧` in the missing look
+/// and a conditional segment around it is kept; the page's text holds the same marks. Without it this is
+/// [`compile`], to the byte.
+pub fn compile_in(
+    layout: &Layout,
+    config: &LetterheadConfig,
+    assets: &Assets,
+    request: &RenderRequest,
+    mark_missing: bool,
+) -> Result<Compiled, LayoutError> {
+    let resolution = resolve_in(config, request.language, &request.entity_data, mark_missing)
+        .map_err(|e| LayoutError::InvalidConfig {
             path: e.path,
             reason: e.reason,
-        }
-    })?;
+        })?;
     let asset_files = AssetFiles::of(config, assets)?;
     let setup = Setup {
         config,
@@ -412,7 +464,7 @@ pub fn compile(
     let mut files = asset_files.files.clone();
     let blocks = body::blocks(&request.blocks, &mut files)?;
     let data = data(&setup, blocks, None, false);
-    let (document, accesses) = run(layout, &data, files)?;
+    let (document, accesses) = run(layout, &data, files, mark_missing)?;
     let missing_placeholders = missing_of(&resolution, document.pages().len());
     Ok(Compiled {
         document,
@@ -494,7 +546,7 @@ pub fn check_fit(
                     assets: &asset_files,
                 };
                 let data = data(&setup, json!([]), Some(frame), true);
-                match run(layout, &data, asset_files.files.clone()) {
+                match run(layout, &data, asset_files.files.clone(), false) {
                     Ok(_) => {}
                     Err(LayoutError::Overflow { .. }) => {
                         let path = LayoutError::overflow_path(name, frame);

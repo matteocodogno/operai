@@ -871,3 +871,136 @@ fn a_document_is_compiled_through_the_registry() {
     let request = request("it", paragraphs(1, 3));
     assert!(compile(&LAYOUT_1, &bare_config(), &assets(), &request).is_ok());
 }
+
+/// Plan E3, AC-5.3, AC-5.4: the preview's "mark missing" option as it is drawn and read.
+mod mark_missing {
+    use super::*;
+    use crate::layout::compile_in;
+
+    const MARK: &str = "\u{27E6}IBAN\u{27E7}";
+
+    fn config() -> crate::config::LetterheadConfig {
+        let mut config = bare_config();
+        let footer = &mut config.variants.default.footer;
+        footer.valign = Valign::Bottom;
+        footer.left = vec![
+            plain_line("{legal_name}"),
+            plain_line("[IBAN {iban}]"),
+            plain_line("Pagina {page} di {pages}"),
+        ];
+        config
+    }
+
+    fn marked(config: &crate::config::LetterheadConfig, data: serde_json::Value) -> Compiled {
+        compile_in(
+            &LAYOUT_1,
+            config,
+            &assets(),
+            &request_with(
+                "it",
+                data,
+                json!([paragraph("Corpo."), paragraph("Corpo.")]),
+            ),
+            true,
+        )
+        .expect("compiles")
+    }
+
+    #[test]
+    fn an_empty_iban_is_drawn_and_read_as_its_label_and_its_segment_stays() {
+        let c = marked(&config(), json!({ "legalName": "WellD Sagl" }));
+        // The runs are `IBAN ` and the label: whitespace is normalised, as AC-1.3 does.
+        let text = page_text(&c, 1)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(text.contains("WellD Sagl"), "{text}");
+        assert!(text.contains(&format!("IBAN {MARK}")), "{text}");
+        assert!(text.contains("Pagina 1 di 1"), "{text}");
+        assert_eq!(c.missing_placeholders, ["iban"]);
+        // The missing look: a flat box of the paper-mark yellow behind the label, its text in the mark's ink.
+        let ink = ink(&c, 1);
+        let boxes: Vec<_> = ink
+            .iter()
+            .filter(|i| i.kind == InkKind::Shape && i.fill.as_deref() == Some("ffe58a"))
+            .collect();
+        assert_eq!(boxes.len(), 1, "{ink:?}");
+        let label = ink
+            .iter()
+            .find(|i| i.kind == InkKind::Text && i.fill.as_deref() == Some("3a2a00"))
+            .expect("the label's text in the ink of the mark");
+        assert!(label.left >= boxes[0].left - 0.01 && label.right <= boxes[0].right + 0.01);
+    }
+
+    #[test]
+    fn without_the_option_nothing_is_drawn_and_the_segment_is_dropped() {
+        let request = request_with(
+            "it",
+            json!({ "legalName": "WellD Sagl" }),
+            json!([paragraph("Corpo.")]),
+        );
+        let c = compiled(&config(), &request);
+        let text = page_text(&c, 1);
+        assert!(
+            !text.contains('\u{27E6}') && !text.contains('\u{27E7}'),
+            "{text}"
+        );
+        assert!(!text.contains("IBAN"), "{text}");
+        assert_eq!(c.missing_placeholders, ["iban"]);
+        assert!(
+            ink(&c, 1)
+                .iter()
+                .all(|i| i.fill.as_deref() != Some("ffe58a"))
+        );
+        // `compile` is `compile_in` without the option.
+        let same = compile_in(&LAYOUT_1, &config(), &assets(), &request, false).unwrap();
+        assert_eq!(page_text(&same, 1), text);
+    }
+
+    #[test]
+    fn a_complete_entity_is_laid_out_the_same_with_and_without_the_option() {
+        let request = request_with("it", entity_data(), json!([paragraph("Corpo.")]));
+        let plain = compiled(&config(), &request);
+        let marked = compile_in(&LAYOUT_1, &config(), &assets(), &request, true).unwrap();
+        assert_eq!(page_text(&plain, 1), page_text(&marked, 1));
+        assert_eq!(runs(&plain, 1), runs(&marked, 1));
+        assert_eq!(ink(&plain, 1), ink(&marked, 1));
+    }
+
+    #[test]
+    fn every_label_is_drawn_in_both_languages_and_a_long_label_still_fits_the_zone() {
+        let mut config = bare_config();
+        config.variants.default.footer.left =
+            vec![plain_line("{legal_name} {address} {vat} {iban} {contacts}")];
+        for (language, labels) in [
+            (
+                "it",
+                "Ragione sociale Indirizzo Partita IVA IBAN Riga contatti",
+            ),
+            ("en", "Legal name Address VAT number IBAN Contacts line"),
+        ] {
+            let c = compile_in(
+                &LAYOUT_1,
+                &config,
+                &assets(),
+                &request_with(language, json!({}), json!([paragraph("Corpo.")])),
+                true,
+            )
+            .unwrap();
+            let text = page_text(&c, 1);
+            let text = text.strip_prefix("Corpo. ").unwrap_or(&text).to_owned();
+            // The marks as words, in order, whatever the line breaks between them.
+            let words: String = text
+                .chars()
+                .filter(|c| *c != '\u{27E6}' && *c != '\u{27E7}')
+                .collect();
+            assert_eq!(
+                words.split_whitespace().collect::<Vec<_>>().join(" "),
+                labels,
+                "{text}"
+            );
+            assert_eq!(text.matches('\u{27E6}').count(), 5, "{text}");
+            assert_eq!(text.matches('\u{27E7}').count(), 5, "{text}");
+        }
+    }
+}

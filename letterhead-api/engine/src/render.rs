@@ -20,6 +20,16 @@ use crate::output::{self, PageSelection};
 /// AC-3.3: a document of more pages than this is refused.
 pub const MAX_PAGES: usize = 300;
 
+/// What a caller may ask besides the request. Only the configurator's preview sets anything here; the render
+/// routes use [`RenderOptions::default`], and a document made with it is the document of [`render`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RenderOptions {
+    /// An empty placeholder is drawn as its label between `⟦` and `⟧` in the missing look, a conditional
+    /// segment around it is kept, and the page's text holds the same marks (plan E3, AC-5.4). A document
+    /// never carries `⟦ ⟧` unless this is set.
+    pub mark_missing: bool,
+}
+
 /// A letterhead version as the engine needs it: its number, the layout it was saved with and its
 /// configuration. The assets it uses come with the call.
 #[derive(Debug, Clone, PartialEq)]
@@ -152,9 +162,25 @@ pub fn render(
     version: &LetterheadVersion,
     assets: &Assets,
 ) -> Result<Rendered, RenderError> {
+    render_with(request, version, assets, RenderOptions::default())
+}
+
+/// [`render`] with `options`: the configurator preview's "mark missing" mode (plan E3).
+pub fn render_with(
+    request: &RenderRequest,
+    version: &LetterheadVersion,
+    assets: &Assets,
+    options: RenderOptions,
+) -> Result<Rendered, RenderError> {
     let layout = layout::layout(version.layout_version)
         .ok_or(LayoutError::UnknownLayout(version.layout_version))?;
-    let compiled = layout::compile(layout, &version.config, assets, request)?;
+    let compiled = layout::compile_in(
+        layout,
+        &version.config,
+        assets,
+        request,
+        options.mark_missing,
+    )?;
     let page_count = compiled.document.pages().len();
     if page_count > MAX_PAGES {
         return Err(RenderError::TooManyPages);
@@ -163,7 +189,14 @@ pub fn render(
         .document
         .pages()
         .iter()
-        .map(layout::inspect::unprintable_characters)
+        .map(|page| {
+            let counted = layout::inspect::unprintable_characters(page);
+            if options.mark_missing {
+                counted.saturating_sub(mark_glyphs_without_a_font(page))
+            } else {
+                counted
+            }
+        })
         .sum();
     Ok(Rendered {
         document: compiled.document,
@@ -175,7 +208,184 @@ pub fn render(
     })
 }
 
+/// The `⟦` and `⟧` that the preview's "mark missing" mode draws are in none of the bundled fonts of layout 1:
+/// the font's own mark is drawn for each, and the page's text holds them all the same. They are the preview's
+/// marks and not characters of the person's document, so they are not part of the count of AC-7.6.
+fn mark_glyphs_without_a_font(page: &typst_layout::Page) -> usize {
+    layout::inspect::text_runs(page)
+        .iter()
+        .map(|run| {
+            let marks = run
+                .text
+                .chars()
+                .filter(|c| matches!(c, '\u{27E6}' | '\u{27E7}'));
+            run.unprintable.min(marks.count())
+        })
+        .sum()
+}
+
 // The tests live under output/ with the rest of this task's files.
 #[cfg(test)]
 #[path = "output/render_tests.rs"]
 mod tests;
+
+/// The configurator preview's "mark missing" option (plan E3, AC-5.3, AC-5.4), end to end: the options, the
+/// preview's picture and text, the PDF, the count of unprintable characters.
+#[cfg(test)]
+mod mark_missing_tests {
+    use super::*;
+    use crate::config::{Frame, Line, LocalText, Rule, Valign, default_config};
+    use crate::content::{Entity, EntityData, Language};
+    use crate::layout::CURRENT_LAYOUT;
+    use crate::sample;
+
+    fn line(text: &str) -> Line {
+        Line {
+            text: LocalText {
+                it: text.to_owned(),
+                en: text.to_owned(),
+            },
+            size: 8.0,
+            bold: false,
+            color: "595c69".to_owned(),
+        }
+    }
+
+    fn version() -> LetterheadVersion {
+        let mut config = default_config();
+        config.margins.bottom = 30.0;
+        config.variants.default.footer = Frame {
+            valign: Valign::Bottom,
+            rule: Rule {
+                show: false,
+                thickness_pt: 0.5,
+                color: "e50339".to_owned(),
+            },
+            left: vec![line("{legal_name}"), line("[IBAN {iban}]")],
+            center: Vec::new(),
+            right: vec![line("{page}/{pages}")],
+        };
+        config.variants.first = None;
+        config.variants.last = None;
+        LetterheadVersion {
+            number: 3,
+            layout_version: CURRENT_LAYOUT,
+            config,
+        }
+    }
+
+    fn no_iban() -> EntityData {
+        EntityData {
+            legal_name: Some("WellD Sagl".to_owned()),
+            ..EntityData::default()
+        }
+    }
+
+    fn rendered(options: RenderOptions) -> Rendered {
+        let request = sample::request_with(Entity::WelldIt, Language::En, no_iban());
+        render_with(&request, &version(), &Assets::new(), options).expect("renders")
+    }
+
+    fn footer_text(rendered: &Rendered) -> String {
+        let text = rendered.page_texts().remove(0);
+        text.lines().last().expect("a line").to_owned()
+    }
+
+    #[test]
+    fn with_the_option_an_empty_iban_is_in_the_page_text_and_listed() {
+        let marked = rendered(RenderOptions { mark_missing: true });
+        let texts = marked.page_texts();
+        assert!(
+            texts[0].contains("IBAN \u{27E6}IBAN\u{27E7}"),
+            "{}",
+            texts[0]
+        );
+        assert_eq!(marked.missing_placeholders, ["iban"]);
+        // The preview carries the same text (the page's text alternative, DR-4).
+        let pages = marked.preview(&PageSelection::All).expect("a preview");
+        assert_eq!(pages[0].text, texts[0]);
+        assert!(!pages[0].png.is_empty());
+        // The marks are the preview's, not characters the fonts lack in the person's document.
+        assert_eq!(marked.unprintable_characters, 0);
+    }
+
+    #[test]
+    fn without_it_the_iban_prints_nothing_its_segment_goes_and_it_is_listed() {
+        for options in [
+            RenderOptions::default(),
+            RenderOptions {
+                mark_missing: false,
+            },
+        ] {
+            let plain = rendered(options);
+            for text in plain.page_texts() {
+                assert!(
+                    !text.contains('\u{27E6}') && !text.contains('\u{27E7}'),
+                    "{text}"
+                );
+                assert!(!text.contains("IBAN"), "{text}");
+            }
+            assert_eq!(plain.missing_placeholders, ["iban"]);
+            assert_eq!(plain.unprintable_characters, 0);
+            assert!(footer_text(&plain).contains("WellD Sagl"));
+        }
+    }
+
+    #[test]
+    fn render_is_render_with_the_default_options_to_the_byte() {
+        let request = sample::request(Entity::WelldCh, Language::It);
+        let a = render(&request, &version(), &Assets::new()).unwrap();
+        let b = render_with(
+            &request,
+            &version(),
+            &Assets::new(),
+            RenderOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(a.pdf().unwrap(), b.pdf().unwrap());
+        assert_eq!(a.page_texts(), b.page_texts());
+    }
+
+    #[test]
+    fn a_complete_entity_makes_the_same_pdf_with_the_option() {
+        // Nothing is missing, so nothing is marked: the same text and the same positions.
+        let request = sample::request(Entity::WelldIt, Language::It);
+        let plain = render(&request, &version(), &Assets::new()).unwrap();
+        let marked = render_with(
+            &request,
+            &version(),
+            &Assets::new(),
+            RenderOptions { mark_missing: true },
+        )
+        .unwrap();
+        assert_eq!(plain.page_texts(), marked.page_texts());
+        assert_eq!(plain.missing_placeholders, marked.missing_placeholders);
+        assert_eq!(plain.unprintable_characters, marked.unprintable_characters);
+    }
+
+    #[test]
+    fn the_unavailable_registry_marks_every_placeholder_in_both_languages() {
+        let mut version = version();
+        version.config.variants.default.footer.left =
+            vec![line("{legal_name} {address} {vat} {iban} {contacts}")];
+        for (language, labels) in [
+            (Language::It, "\u{27E6}Ragione sociale\u{27E7}"),
+            (Language::En, "\u{27E6}Legal name\u{27E7}"),
+        ] {
+            let request = sample::request_with(Entity::WelldIt, language, EntityData::default());
+            let r = render_with(
+                &request,
+                &version,
+                &Assets::new(),
+                RenderOptions { mark_missing: true },
+            )
+            .unwrap();
+            let text = r.page_texts().remove(0);
+            assert!(text.contains(labels), "{text}");
+            assert_eq!(
+                r.missing_placeholders,
+                ["address", "contacts", "iban", "legal_name", "vat"]
+            );
+        }
+    }
+}

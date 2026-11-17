@@ -68,6 +68,13 @@ pub fn entity_data(entity: Entity) -> EntityData {
 
 /// The sample document for `entity` in `language`: the render request the configurator's preview makes.
 pub fn request(entity: Entity, language: Language) -> RenderRequest {
+    request_with(entity, language, entity_data(entity))
+}
+
+/// The sample document with the entity's details of the caller's choosing: the configurator preview shows the
+/// registry's details on the sample's body (specs/20261117-legal-entities AC-5.4). The body is the same as in
+/// [`request`], byte for byte; `EntityData::default()` is every placeholder missing.
+pub fn request_with(entity: Entity, language: Language, data: EntityData) -> RenderRequest {
     let t = texts(language);
     // Page 1: headings, paragraphs and their emphasis and styles, lists.
     let mut blocks: Vec<Block> = vec![
@@ -128,7 +135,7 @@ pub fn request(entity: Entity, language: Language) -> RenderRequest {
         letterhead_version: None,
         legal_entity_version: None,
         language,
-        entity_data: entity_data(entity),
+        entity_data: data,
         blocks,
     }
 }

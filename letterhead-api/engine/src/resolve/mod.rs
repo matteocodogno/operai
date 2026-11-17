@@ -15,6 +15,12 @@
 //!   the line as authored, so a line that is dropped cannot shift the looks of the lines after it (the spike's
 //!   finding, which keyed looks by position in the filtered list).
 //!
+//! **Mark missing (specs/20261117-legal-entities, plan E3, AC-5.4).** Only the configurator's preview asks for
+//! it ([`resolve_marking`]). A placeholder without a value is then drawn as its label between `⟦` and `⟧` in the
+//! missing look ([`Part::Missing`]) and a conditional segment around it is kept, so that the person sees what is
+//! not filled in; the placeholder is still listed as missing. The labels are a closed list in both languages
+//! ([`label`]). Without the option nothing changes: a document never carries `⟦ ⟧` unless its own text does.
+//!
 //! Values are printed as sent (AC-2.1: character for character): nothing is trimmed or unescaped, and entity
 //! data is never read for markup. The text of the document's own blocks never comes here: a `{name}` there is
 //! printed as typed (AC-2.4), because only the letterhead's texts are resolved.
@@ -33,6 +39,9 @@ use crate::content::{EntityData, Language};
 #[serde(rename_all = "camelCase")]
 pub enum Part {
     Text(String),
+    /// A placeholder without a value, in the preview's "mark missing" mode only: its label between `⟦` and `⟧`
+    /// (E3). Drawn in the missing look; its text is part of the page's text.
+    Missing(String),
     /// The page's own number.
     Page,
     /// The document's page count.
@@ -114,8 +123,32 @@ pub struct ResolveError {
     pub reason: Reason,
 }
 
+/// The label of an entity placeholder in the preview's "mark missing" mode (plan E3): a closed list, the same
+/// in every letterhead. `None` for `{page}` and `{pages}`, which are never missing.
+pub fn label(placeholder: Placeholder, language: Language) -> Option<&'static str> {
+    let (it, en) = match placeholder {
+        Placeholder::LegalName => ("Ragione sociale", "Legal name"),
+        Placeholder::Address => ("Indirizzo", "Address"),
+        Placeholder::Vat => ("Partita IVA", "VAT number"),
+        Placeholder::Iban => ("IBAN", "IBAN"),
+        Placeholder::Contacts => ("Riga contatti", "Contacts line"),
+        Placeholder::Page | Placeholder::Pages => return None,
+    };
+    Some(match language {
+        Language::It => it,
+        Language::En => en,
+    })
+}
+
+/// The text of a missing value in the preview: its label between `⟦` (U+27E6) and `⟧` (U+27E7).
+fn marked(placeholder: Placeholder, language: Language) -> Option<String> {
+    label(placeholder, language).map(|label| format!("\u{27E6}{label}\u{27E7}"))
+}
+
 /// The values of the entity placeholders, worked out once.
 struct Values {
+    /// The preview's "mark missing" mode, and the language its labels are in.
+    mark: Option<Language>,
     legal_name: Option<String>,
     address: Option<String>,
     vat: Option<String>,
@@ -132,7 +165,7 @@ fn present(value: &Option<String>) -> Option<String> {
 }
 
 impl Values {
-    fn of(data: &EntityData) -> Values {
+    fn of(data: &EntityData, mark: Option<Language>) -> Values {
         let address = data.address_lines.as_ref().and_then(|lines| {
             let kept: Vec<&str> = lines
                 .iter()
@@ -146,6 +179,7 @@ impl Values {
             }
         });
         Values {
+            mark,
             legal_name: present(&data.legal_name),
             address,
             vat: present(&data.vat),
@@ -194,6 +228,11 @@ fn emit(
                 Some(value) => push_text(parts, value),
                 None => {
                     missing.insert(placeholder.name());
+                    if let Some(language) = values.mark
+                        && let Some(label) = marked(*placeholder, language)
+                    {
+                        parts.push(Part::Missing(label));
+                    }
                 }
             },
             Token::Segment(inner) => {
@@ -201,7 +240,8 @@ fn emit(
                     Token::Placeholder(p) => values.has(*p),
                     _ => true,
                 });
-                if complete {
+                // Marking keeps an incomplete segment, so that its missing values show (AC-5.4).
+                if complete || values.mark.is_some() {
                     emit(inner, values, parts, missing);
                 } else {
                     // The whole segment goes; the placeholders in it that lack a value are still reported.
@@ -239,7 +279,7 @@ fn resolve_line(
     // A line with no text is not drawn and takes no height. A page number is text.
     let drawn = parts.iter().any(|p| match p {
         Part::Text(text) => !is_blank(text),
-        Part::Page | Part::Pages => true,
+        Part::Missing(_) | Part::Page | Part::Pages => true,
     });
     Ok(drawn.then(|| ResolvedLine {
         index,
@@ -335,7 +375,28 @@ pub fn resolve(
     language: Language,
     data: &EntityData,
 ) -> Result<Resolution, ResolveError> {
-    let values = Values::of(data);
+    resolve_in(config, language, data, false)
+}
+
+/// [`resolve`] in the configurator preview's "mark missing" mode (plan E3, AC-5.4): a placeholder without a
+/// value is a [`Part::Missing`] with its label, and a conditional segment around it is kept. The placeholders
+/// without a value are still listed as missing.
+pub fn resolve_marking(
+    config: &LetterheadConfig,
+    language: Language,
+    data: &EntityData,
+) -> Result<Resolution, ResolveError> {
+    resolve_in(config, language, data, true)
+}
+
+/// [`resolve`] with the option that only the preview sets.
+pub fn resolve_in(
+    config: &LetterheadConfig,
+    language: Language,
+    data: &EntityData,
+    mark: bool,
+) -> Result<Resolution, ResolveError> {
+    let values = Values::of(data, mark.then_some(language));
     let default = resolve_variant(&config.variants.default, "default", language, &values)?;
     let first = config
         .variants
