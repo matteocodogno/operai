@@ -19,7 +19,7 @@ import { withAudit } from "../../authz/audit";
 import { db } from "../../lib/db";
 import type { LegalEntity } from "../entities";
 import type { CrmSource } from "../import";
-import { committedVersionCount, attempt, inRolledBackTx, insertSql, type Tx, validImportRow } from "../testDb";
+import { committedTransactionsSkipReason, committedVersionCount, attempt, inRolledBackTx, insertSql, type Tx, validImportRow } from "../testDb";
 
 type FakeSession = { user: { id: string; email: string; name: string }; session: { id: string } } | null;
 let currentSession: FakeSession = null;
@@ -625,8 +625,12 @@ describe("LEGAL_ENTITY_NOTICE_EMAIL in lib/env.ts", () => {
 
 // ─── Real commits ────────────────────────────────────────────────────────────────────────────────────────────────
 
-const registryIsEmpty = (await committedVersionCount()) === 0;
-if (!registryIsEmpty) {
+// Host guard first (T53/F4, like write.routes.test.ts and dispatcher.test.ts): the group removes its rows with the
+// append-only triggers off, so it runs only on a local database, and the check precedes every query.
+const hostSkip = committedTransactionsSkipReason(process.env.DATABASE_URL);
+if (hostSkip) console.warn(hostSkip);
+const registryIsEmpty = hostSkip === null && (await committedVersionCount()) === 0;
+if (hostSkip === null && !registryIsEmpty) {
   console.warn(
     "notices/duty.test.ts: the 'real transactions' group is SKIPPED because legal_entity_version already holds rows " +
       "(it needs a database with no registry, and removes its own rows afterwards). Use a fresh test database to run it.",
