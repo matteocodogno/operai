@@ -289,7 +289,7 @@ fn texts(language: Language) -> Texts {
     match language {
         Language::It => Texts {
             title: "Documento di esempio",
-            intro: "Questo documento serve solo a vedere la carta intestata. I dati dell'azienda sono segnaposto e portano l'indicazione (SAMPLE).",
+            intro: "Questo documento serve solo a vedere la carta intestata. I dati dell'azienda che vi compaiono sono quelli reali; un dato non ancora compilato è evidenziato. Il resto del testo è un testo di esempio.",
             text_heading: "Titoli e paragrafi",
             plain: "Testo normale,",
             bold: "grassetto,",
@@ -327,7 +327,7 @@ fn texts(language: Language) -> Texts {
         },
         Language::En => Texts {
             title: "Sample document",
-            intro: "This document is only here to show the letterhead. The company's data are placeholders and carry the mark (SAMPLE).",
+            intro: "This document is only here to show the letterhead. The company's details in it are the real ones; a detail that is not filled in yet is marked. The rest of the text is sample text.",
             text_heading: "Headings and paragraphs",
             plain: "Plain text,",
             bold: "bold,",

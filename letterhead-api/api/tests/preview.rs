@@ -1228,9 +1228,13 @@ async fn preview_the_pages_hold_the_registrys_details_in_the_preview_language_an
                         n + 1
                     );
                 }
-                // The address of the other language is not printed, and nothing of the old sample's company is. (The
-                // sample's intro still says its data carry `(SAMPLE)`: see the report of T23.)
+                // The address of the other language is not printed, and nothing of the old sample's company is, and the
+                // intro no longer says the company's data are marked `(SAMPLE)` (FU-9).
                 assert!(!text.contains(other), "{entity} {language}: `{other}`");
+                assert!(
+                    !text.contains("(SAMPLE)"),
+                    "{entity} {language}: the old intro or marker"
+                );
                 for stale in [
                     "Esempio Italia",
                     "Via Esempio",
