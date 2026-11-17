@@ -1061,3 +1061,6 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
 - FU-11 (T67): `legalEntityConfigProblems` (env-doctor) is checked only against the shipped template; wiring it into
   `tools/env-doctor/check.ts` `checkSuite` would apply it to deployed values. The copy role's SQL (runbook step 3a)
   is untested — T45 rehearses it on compose.
+- FU-12 (T22, T65): `letterhead-api/api/tests/render.rs:680` (server start / wait for `/health`) failed once under
+  parallel load in two separate runs and never on rerun — a start-up timeout or `free_port` race. QE (T45) to
+  decide whether to widen the start-up wait or serialise the binary-spawning suites; CI has been green.
