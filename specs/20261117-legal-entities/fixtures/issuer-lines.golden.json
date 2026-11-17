@@ -1,0 +1,579 @@
+{
+  "$comment": "Golden issuer output of the document paths BEFORE the switch to the registry (specs/20261117-legal-entities T24, AC-7.5, amendment D2). Written by crm-api/src/offers/issuerGolden.capture.test.ts with CAPTURE_ISSUER_GOLDEN=1 on the pre-switch code; never re-capture after T26. Per complete case of crm-entity-profiles.json and language: `classic` = the strings crm-api's own PDF drew (header, footer as drawn and unwrapped, the body lines printed for [EMITTENTE] / [INDIRIZZO], the Author), `service` = `entityData` and the same body lines of the request sent to the layout service. Synthetic values only.",
+  "cases": [
+    {
+      "name": "complete-it",
+      "entity": "welld_it",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Qwerty Fixture Italia S.r.l.",
+              "Via Pippo 1",
+              "20100 Milano MI",
+              "Italia"
+            ],
+            "footer": "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · Italia · P. IVA IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · Italia · P. IVA IT00000000017 · IBAN IT60 X054 2811 1010 0000",
+              "0123 456"
+            ],
+            "body": [
+              "Emittente: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI, Italia"
+            ],
+            "author": "Qwerty Fixture Italia S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty Fixture Italia S.r.l.",
+              "addressLines": [
+                "Via Pippo 1",
+                "20100 Milano MI",
+                "Italia"
+              ],
+              "vat": "IT00000000017",
+              "iban": "IT60 X054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Emittente: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI, Italia"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Qwerty Fixture Italia S.r.l.",
+              "Via Pippo 1",
+              "20100 Milano MI",
+              "Italia"
+            ],
+            "footer": "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · Italia · VAT IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · Italia · VAT IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123",
+              "456"
+            ],
+            "body": [
+              "Issuer: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI, Italia"
+            ],
+            "author": "Qwerty Fixture Italia S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty Fixture Italia S.r.l.",
+              "addressLines": [
+                "Via Pippo 1",
+                "20100 Milano MI",
+                "Italia"
+              ],
+              "vat": "IT00000000017",
+              "iban": "IT60 X054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Issuer: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI, Italia"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "complete-ch",
+      "entity": "welld_ch",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Xyzzy 2",
+              "6900 Lugano",
+              "Svizzera"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · Svizzera · P. IVA CHE-000.000.001 IVA · IBAN CH93 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · Svizzera · P. IVA CHE-000.000.001 IVA · IBAN CH93 0076 2011 6238",
+              "5295 7"
+            ],
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano, Svizzera"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Xyzzy 2",
+                "6900 Lugano",
+                "Svizzera"
+              ],
+              "vat": "CHE-000.000.001 IVA",
+              "iban": "CH93 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano, Svizzera"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Xyzzy 2",
+              "6900 Lugano",
+              "Svizzera"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · Svizzera · VAT CHE-000.000.001 IVA · IBAN CH93 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · Svizzera · VAT CHE-000.000.001 IVA · IBAN CH93 0076 2011 6238",
+              "5295 7"
+            ],
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano, Svizzera"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Xyzzy 2",
+                "6900 Lugano",
+                "Svizzera"
+              ],
+              "vat": "CHE-000.000.001 IVA",
+              "iban": "CH93 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano, Svizzera"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "five-address-lines",
+      "entity": "welld_ch",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Foo 3",
+              "Piano 4",
+              "Stanza 5"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Foo 3 · Piano 4 · Stanza 5 · Edificio B · 6900 Lugano · P. IVA CHE-000.000.001 IVA · IBAN CH93 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Foo 3 · Piano 4 · Stanza 5 · Edificio B · 6900 Lugano · P. IVA CHE-000.000.001 IVA · IBAN CH93",
+              "0076 2011 6238 5295 7"
+            ],
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Foo 3, Piano 4, Stanza 5, Edificio B, 6900 Lugano"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Foo 3",
+                "Piano 4",
+                "Stanza 5",
+                "Edificio B",
+                "6900 Lugano"
+              ],
+              "vat": "CHE-000.000.001 IVA",
+              "iban": "CH93 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Foo 3, Piano 4, Stanza 5, Edificio B, 6900 Lugano"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Foo 3",
+              "Piano 4",
+              "Stanza 5"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Foo 3 · Piano 4 · Stanza 5 · Edificio B · 6900 Lugano · VAT CHE-000.000.001 IVA · IBAN CH93 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Foo 3 · Piano 4 · Stanza 5 · Edificio B · 6900 Lugano · VAT CHE-000.000.001 IVA · IBAN CH93",
+              "0076 2011 6238 5295 7"
+            ],
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Foo 3, Piano 4, Stanza 5, Edificio B, 6900 Lugano"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Foo 3",
+                "Piano 4",
+                "Stanza 5",
+                "Edificio B",
+                "6900 Lugano"
+              ],
+              "vat": "CHE-000.000.001 IVA",
+              "iban": "CH93 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Foo 3, Piano 4, Stanza 5, Edificio B, 6900 Lugano"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "iban-spaces-lower-case",
+      "entity": "welld_it",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Qwerty Fixture Italia S.r.l.",
+              "Via Pippo 1",
+              "20100 Milano MI"
+            ],
+            "footer": "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · P. IVA IT00000000017 · IBAN it60 x054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · P. IVA IT00000000017 · IBAN it60 x054 2811 1010 0000 0123 456"
+            ],
+            "body": [
+              "Emittente: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI"
+            ],
+            "author": "Qwerty Fixture Italia S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty Fixture Italia S.r.l.",
+              "addressLines": [
+                "Via Pippo 1",
+                "20100 Milano MI"
+              ],
+              "vat": "IT00000000017",
+              "iban": "it60 x054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Emittente: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Qwerty Fixture Italia S.r.l.",
+              "Via Pippo 1",
+              "20100 Milano MI"
+            ],
+            "footer": "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · VAT IT00000000017 · IBAN it60 x054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty Fixture Italia S.r.l. · Via Pippo 1 · 20100 Milano MI · VAT IT00000000017 · IBAN it60 x054 2811 1010 0000 0123 456"
+            ],
+            "body": [
+              "Issuer: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI"
+            ],
+            "author": "Qwerty Fixture Italia S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty Fixture Italia S.r.l.",
+              "addressLines": [
+                "Via Pippo 1",
+                "20100 Milano MI"
+              ],
+              "vat": "IT00000000017",
+              "iban": "it60 x054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Issuer: Qwerty Fixture Italia S.r.l. / Via Pippo 1, 20100 Milano MI"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "iban-bad-check-digits",
+      "entity": "welld_ch",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Xyzzy 2",
+              "6900 Lugano"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · P. IVA CHE-000.000.001 IVA · IBAN CH94 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · P. IVA CHE-000.000.001 IVA · IBAN CH94 0076 2011 6238 5295 7"
+            ],
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Xyzzy 2",
+                "6900 Lugano"
+              ],
+              "vat": "CHE-000.000.001 IVA",
+              "iban": "CH94 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Xyzzy 2",
+              "6900 Lugano"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · VAT CHE-000.000.001 IVA · IBAN CH94 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · VAT CHE-000.000.001 IVA · IBAN CH94 0076 2011 6238 5295 7"
+            ],
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Xyzzy 2",
+                "6900 Lugano"
+              ],
+              "vat": "CHE-000.000.001 IVA",
+              "iban": "CH94 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "line-break",
+      "entity": "welld_it",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Qwerty Fixture Italia S.r.l.",
+              "Via Pippo 1 int. 2",
+              "20100 Milano MI"
+            ],
+            "footer": "Qwerty Fixture Italia S.r.l. · Via Pippo 1 int. 2 · 20100 Milano MI · P. IVA IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty Fixture Italia S.r.l. · Via Pippo 1 int. 2 · 20100 Milano MI · P. IVA IT00000000017 · IBAN IT60 X054 2811",
+              "1010 0000 0123 456"
+            ],
+            "body": [
+              "Emittente: Qwerty Fixture Italia S.r.l. / Via Pippo 1 int. 2, 20100 Milano MI"
+            ],
+            "author": "Qwerty Fixture Italia S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty Fixture Italia S.r.l.",
+              "addressLines": [
+                "Via Pippo 1 int. 2",
+                "20100 Milano MI"
+              ],
+              "vat": "IT00000000017",
+              "iban": "IT60 X054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Emittente: Qwerty Fixture Italia S.r.l. / Via Pippo 1 int. 2, 20100 Milano MI"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Qwerty Fixture Italia S.r.l.",
+              "Via Pippo 1 int. 2",
+              "20100 Milano MI"
+            ],
+            "footer": "Qwerty Fixture Italia S.r.l. · Via Pippo 1 int. 2 · 20100 Milano MI · VAT IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty Fixture Italia S.r.l. · Via Pippo 1 int. 2 · 20100 Milano MI · VAT IT00000000017 · IBAN IT60 X054 2811",
+              "1010 0000 0123 456"
+            ],
+            "body": [
+              "Issuer: Qwerty Fixture Italia S.r.l. / Via Pippo 1 int. 2, 20100 Milano MI"
+            ],
+            "author": "Qwerty Fixture Italia S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty Fixture Italia S.r.l.",
+              "addressLines": [
+                "Via Pippo 1 int. 2",
+                "20100 Milano MI"
+              ],
+              "vat": "IT00000000017",
+              "iban": "IT60 X054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Issuer: Qwerty Fixture Italia S.r.l. / Via Pippo 1 int. 2, 20100 Milano MI"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "line-separator",
+      "entity": "welld_ch",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Xyzzy 2",
+              "6900 Lugano"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · P. IVA CHE-000.000.002?IVA · IBAN CH93 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · P. IVA CHE-000.000.002?IVA · IBAN CH93 0076 2011 6238 5295 7"
+            ],
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Xyzzy 2",
+                "6900 Lugano"
+              ],
+              "vat": "CHE-000.000.002 IVA",
+              "iban": "CH93 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Emittente: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Plugh Fixture Lugano SA",
+              "Via Xyzzy 2",
+              "6900 Lugano"
+            ],
+            "footer": "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · VAT CHE-000.000.002?IVA · IBAN CH93 0076 2011 6238 5295 7",
+            "footerLines": [
+              "Plugh Fixture Lugano SA · Via Xyzzy 2 · 6900 Lugano · VAT CHE-000.000.002?IVA · IBAN CH93 0076 2011 6238 5295 7"
+            ],
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ],
+            "author": "Plugh Fixture Lugano SA"
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Plugh Fixture Lugano SA",
+              "addressLines": [
+                "Via Xyzzy 2",
+                "6900 Lugano"
+              ],
+              "vat": "CHE-000.000.002 IVA",
+              "iban": "CH93 0076 2011 6238 5295 7"
+            },
+            "body": [
+              "Issuer: Plugh Fixture Lugano SA / Via Xyzzy 2, 6900 Lugano"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "special-characters",
+      "entity": "welld_it",
+      "languages": {
+        "it": {
+          "classic": {
+            "header": [
+              "Qwerty \"Fixture\" {Italia}, S.r.l.",
+              "Via Pippo \\ 1, int. 2",
+              "NULL",
+              "{20100} Milano; 'MI'"
+            ],
+            "footer": "Qwerty \"Fixture\" {Italia}, S.r.l. · Via Pippo \\ 1, int. 2 · NULL · {20100} Milano; 'MI' · P. IVA IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty \"Fixture\" {Italia}, S.r.l. · Via Pippo \\ 1, int. 2 · NULL · {20100} Milano; 'MI' · P. IVA IT00000000017 · IBAN IT60 X054 2811",
+              "1010 0000 0123 456"
+            ],
+            "body": [
+              "Emittente: Qwerty \"Fixture\" {Italia}, S.r.l. / Via Pippo \\ 1, int. 2, NULL, {20100} Milano; 'MI'"
+            ],
+            "author": "Qwerty \"Fixture\" {Italia}, S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty \"Fixture\" {Italia}, S.r.l.",
+              "addressLines": [
+                "Via Pippo \\ 1, int. 2",
+                "NULL",
+                "{20100} Milano; 'MI'"
+              ],
+              "vat": "IT00000000017",
+              "iban": "IT60 X054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Emittente: Qwerty \"Fixture\" {Italia}, S.r.l. / Via Pippo \\ 1, int. 2, NULL, {20100} Milano; 'MI'"
+            ]
+          }
+        },
+        "en": {
+          "classic": {
+            "header": [
+              "Qwerty \"Fixture\" {Italia}, S.r.l.",
+              "Via Pippo \\ 1, int. 2",
+              "NULL",
+              "{20100} Milano; 'MI'"
+            ],
+            "footer": "Qwerty \"Fixture\" {Italia}, S.r.l. · Via Pippo \\ 1, int. 2 · NULL · {20100} Milano; 'MI' · VAT IT00000000017 · IBAN IT60 X054 2811 1010 0000 0123 456",
+            "footerLines": [
+              "Qwerty \"Fixture\" {Italia}, S.r.l. · Via Pippo \\ 1, int. 2 · NULL · {20100} Milano; 'MI' · VAT IT00000000017 · IBAN IT60 X054 2811",
+              "1010 0000 0123 456"
+            ],
+            "body": [
+              "Issuer: Qwerty \"Fixture\" {Italia}, S.r.l. / Via Pippo \\ 1, int. 2, NULL, {20100} Milano; 'MI'"
+            ],
+            "author": "Qwerty \"Fixture\" {Italia}, S.r.l."
+          },
+          "service": {
+            "entityData": {
+              "legalName": "Qwerty \"Fixture\" {Italia}, S.r.l.",
+              "addressLines": [
+                "Via Pippo \\ 1, int. 2",
+                "NULL",
+                "{20100} Milano; 'MI'"
+              ],
+              "vat": "IT00000000017",
+              "iban": "IT60 X054 2811 1010 0000 0123 456"
+            },
+            "body": [
+              "Issuer: Qwerty \"Fixture\" {Italia}, S.r.l. / Via Pippo \\ 1, int. 2, NULL, {20100} Milano; 'MI'"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
