@@ -21,6 +21,7 @@ import { usersRouter } from "./admin/users.routes";
 import { userAddressRouter } from "./admin/userAddress.routes";
 import { addressRouter } from "./profile/address.routes";
 import { legalEntityReadRouter } from "./legalEntities/read.routes";
+import { legalEntityHistoryRouter } from "./legalEntities/history.routes";
 import { createSystemLegalEntitiesRouter } from "./legalEntities/system.routes";
 import { healthRouter } from "./health/health.routes";
 import { inviteRouter } from "./invite/invite.routes";
@@ -77,6 +78,8 @@ app.route("/", addressRouter);
 // The legal-entity registry, person read API (specs/20261117-legal-entities, T5). `/legal-entities/manageable` is
 // registered inside this router before `/legal-entities/{entity}` (E2).
 app.route("/", legalEntityReadRouter);
+// The history and the read-only version view (T7): GET only, each path with its own authentication and `no-store`.
+app.route("/", legalEntityHistoryRouter);
 app.route("/", invitationsRouter);
 app.route("/", accessRequestsRouter);
 app.route("/", inviteRouter);

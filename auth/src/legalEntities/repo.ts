@@ -8,6 +8,7 @@
  */
 
 import { db } from "../lib/db";
+import type { Field } from "./rules";
 import type { VersionRow } from "./serialize";
 
 /** Anything that can run a raw query: `db` or a transaction client. */
@@ -26,4 +27,44 @@ export async function currentVersions(client: Reader = db): Promise<VersionRow[]
       "contactsIt", "contactsEn", "createdAt"
     FROM "legal_entity_version"
     ORDER BY "entity", "version" DESC`;
+}
+
+/** One stored version with the record of how it came to be (the history and the version view). */
+export interface HistoryRow extends VersionRow {
+  /** The table CHECKs the three values. */
+  action: "import" | "save" | "restore";
+  restoredFrom: number | null;
+  /** As stored, in the closed-set order the save wrote (never recomputed on a read). */
+  changedFields: Field[];
+  /** null = the system (the import). */
+  createdByUserId: string | null;
+  createdByName: string | null;
+}
+
+/** Every version of one entity, newest first (AC-2.2): no page, no cap - a registry of two entities stays small. */
+export async function versionsOf(entity: string, client: Reader = db): Promise<HistoryRow[]> {
+  return client.$queryRaw<HistoryRow[]>`
+    SELECT
+      "entity", "version", "legalName",
+      COALESCE("addressIt", ARRAY[]::text[]) AS "addressIt", COALESCE("addressEn", ARRAY[]::text[]) AS "addressEn",
+      "vatNumber", "iban", "contactsIt", "contactsEn",
+      "action", "restoredFrom", COALESCE("changedFields", ARRAY[]::text[]) AS "changedFields",
+      "createdByUserId", "createdByName", "createdAt"
+    FROM "legal_entity_version"
+    WHERE "entity" = ${entity}
+    ORDER BY "version" DESC`;
+}
+
+/** Version `version` of `entity`, or null when it does not exist (`version` is an int4 the caller has bounded). */
+export async function versionOf(entity: string, version: number, client: Reader = db): Promise<HistoryRow | null> {
+  const rows = await client.$queryRaw<HistoryRow[]>`
+    SELECT
+      "entity", "version", "legalName",
+      COALESCE("addressIt", ARRAY[]::text[]) AS "addressIt", COALESCE("addressEn", ARRAY[]::text[]) AS "addressEn",
+      "vatNumber", "iban", "contactsIt", "contactsEn",
+      "action", "restoredFrom", COALESCE("changedFields", ARRAY[]::text[]) AS "changedFields",
+      "createdByUserId", "createdByName", "createdAt"
+    FROM "legal_entity_version"
+    WHERE "entity" = ${entity} AND "version" = ${version}`;
+  return rows[0] ?? null;
 }
