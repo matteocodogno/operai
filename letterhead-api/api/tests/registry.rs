@@ -44,8 +44,8 @@ use tokio::sync::Notify;
 use url::Url;
 
 use registry::cache::{
-    Clock, Failure, FetchFuture, Fetched, Registry, RegistryOptions, Snapshot, Source, Unavailable,
-    monotonic_clock,
+    Clock, Failure, FetchFuture, Fetched, PIN_REFRESH_BUDGET, PIN_REFRESH_WINDOW, Registry,
+    RegistryOptions, Snapshot, Source, Unavailable, monotonic_clock,
 };
 use registry::http::{HttpSource, ServiceClient};
 use registry::{
@@ -771,6 +771,49 @@ async fn registry_a_failed_forced_refresh_still_counts_for_the_second() {
     assert!(!rig.registry.refresh_for_pin());
     rig.clock.advance(SECOND);
     assert!(rig.registry.refresh_for_pin());
+}
+
+#[tokio::test]
+async fn registry_forced_refreshes_are_budgeted_per_ten_minutes_and_the_window_slides() {
+    let rig = rig();
+    rig.registry.all().await.expect("read");
+    // One a second, every one of them allowed, until the budget is spent.
+    for n in 0..PIN_REFRESH_BUDGET {
+        rig.clock.advance(SECOND);
+        rig.source.save("welld_ch", None);
+        assert!(rig.registry.refresh_for_pin(), "forced refresh {n}");
+        rig.registry.all().await.expect("read");
+    }
+    assert_eq!(rig.source.calls(), 1 + PIN_REFRESH_BUDGET);
+
+    // Spent: refused at once, nothing dropped, no call (the second has passed, so only the budget says no).
+    let held = version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh);
+    // (20 s: inside the 30 s the entry is fresh, so a plain read is the held entry too.)
+    for _ in 0..20 {
+        rig.clock.advance(SECOND);
+        rig.source.save("welld_ch", None);
+        assert!(!rig.registry.refresh_for_pin(), "over budget");
+        assert_eq!(
+            version_of(&rig.registry.all().await.expect("read"), Entity::WelldCh),
+            held,
+            "the held entry answers"
+        );
+    }
+    assert_eq!(rig.source.calls(), 1 + PIN_REFRESH_BUDGET);
+
+    // The window slides: the first forced refresh was at 1 s, so 10 minutes after it one is free again.
+    let elapsed = SECOND * (u32::try_from(PIN_REFRESH_BUDGET).expect("small") + 20);
+    let leaves_at = SECOND + PIN_REFRESH_WINDOW;
+    rig.clock.advance(leaves_at - elapsed - SECOND);
+    assert!(!rig.registry.refresh_for_pin(), "1 s short of the window");
+    rig.clock.advance(SECOND);
+    assert!(
+        rig.registry.refresh_for_pin(),
+        "the oldest has left the window"
+    );
+    assert_eq!(rig.source.calls(), 1 + PIN_REFRESH_BUDGET);
+    rig.registry.all().await.expect("read");
+    assert_eq!(rig.source.calls(), 2 + PIN_REFRESH_BUDGET);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

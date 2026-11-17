@@ -3058,7 +3058,7 @@ mod issuer {
         assert!(text_of(&reply).contains("NAME=Registry Italia Nuova S.r.l."));
         assert_eq!(world.auth.registry.reads(), 2);
 
-        // An older pin (the caller's own cache is behind), inside the second of the forced read: the 409 at once
+        // An older pin (the caller's own cache is behind): the 409 at once
         // with the version in use, no call.
         for route in ["/v1/render/pdf", "/v1/render/preview"] {
             pinned["legalEntityVersion"] = json!(3);
@@ -3074,12 +3074,12 @@ mod issuer {
         }
         assert_eq!(world.auth.registry.reads(), 2);
 
-        // A second later the same pin reads again, once, and is still the 409.
+        // A second later the same older pin still makes no call: no read can make it current (N2).
         tokio::time::sleep(Duration::from_millis(1_100)).await;
         let reply = post(&world.server, "/v1/render/pdf", &token, &pinned).await;
         assert_problem(&reply, 409, "legal_entity_version_mismatch");
         assert_eq!(reply.json()["currentVersion"], 4);
-        assert_eq!(world.auth.registry.reads(), 3);
+        assert_eq!(world.auth.registry.reads(), 2);
 
         // The refusal is in the log with the version, and it made no document (no pages).
         let lines = world.server.request_lines(7).await;

@@ -216,9 +216,11 @@ async fn serve(
 /// 8: one document, one version of the details).
 ///
 /// The cache gives the entity's details (fresh for 30 s, a stale entry for 60 s when `auth` fails, else
-/// `legal_entities_unavailable`). A pin that is not the version held is read as "the caller saw something else":
-/// the entry is dropped and read again, once, but at most once per second per process (a caller cannot make every
-/// request a call to `auth`; inside that second the held entry answers). Still different: 409 `legal_entity_version_mismatch` with the version
+/// `legal_entities_unavailable`). A pin older than or equal to the version held cannot be cured by a read (a version
+/// only goes up): the 409 `legal_entity_version_mismatch` at once, no call. A pin NEWER than the version held is
+/// read as "the caller saw something `auth` has since": the entry is dropped and read again, once, but at most
+/// once per second and at most a fixed budget per 10 minutes per process (a caller cannot make every request a call
+/// to `auth`, nor spend its allowance; beyond either, the held entry answers). Still different: 409 with the version
 /// in use, and the caller (crm-api) rebuilds its content and retries once. A pin that matches costs no call.
 async fn issuer_details(
     app: &AppState,
@@ -233,8 +235,16 @@ async fn issuer_details(
     if let Some(pin) = content.legal_entity_version
         && i64::from(pin) != details.version
     {
-        // At most one forced read per second per process (F6): inside that second, or when the entry is that
-        // young, nothing is dropped and the read below is the held entry (no call) or the refresh in flight.
+        if i64::from(pin) < details.version {
+            // Older than what is held: no read can make it current (N2). The 409 at once, no call.
+            facts.legal_entity_version = Some(details.version);
+            return Err(
+                ApiError::new(StatusCode::CONFLICT, "legal_entity_version_mismatch")
+                    .with("currentVersion", json!(details.version)),
+            );
+        }
+        // Newer: at most one forced read per second per process (F6) and a budget per 10 minutes (N2): beyond
+        // either, nothing is dropped and the read below is the held entry (no call) or the refresh in flight.
         app.registry.refresh_for_pin();
         details = app
             .registry

@@ -20,7 +20,13 @@
 //! refresh happens at most once per [`FORCED_REFRESH_EVERY`] per process, and not at all when the entry was sent
 //! less than that ago (it is as new as a forced refresh would make it); the others re-read what is held and answer
 //! with it.
+//!
+//! The same call is also budgeted (security re-review N2): at most [`PIN_REFRESH_BUDGET`] forced refreshes in any
+//! [`PIN_REFRESH_WINDOW`] per process, so that a stream of pins that run ahead of the registry cannot spend `auth`'s
+//! own allowance per service and turn the renders into 503. Beyond it nothing is dropped and the answer is the
+//! caller's 409 at once. (A pin that is not newer than the version held never gets here: the route answers it.)
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -34,6 +40,13 @@ use super::{FRESH_FOR, LegalEntityDetails, REFRESH_TIMEOUT, USABLE_FOR};
 
 /// The pin retry reads `auth` at most once in this time, per process (security review F6).
 pub const FORCED_REFRESH_EVERY: Duration = Duration::from_secs(1);
+
+/// The pin retry reads `auth` at most this many times in [`PIN_REFRESH_WINDOW`], per process (security re-review
+/// N2). Well under what `auth` allows one service (300 in 10 minutes).
+pub const PIN_REFRESH_BUDGET: usize = 100;
+
+/// The window of [`PIN_REFRESH_BUDGET`], sliding: no 10 minutes hold more than the budget.
+pub const PIN_REFRESH_WINDOW: Duration = Duration::from_secs(600);
 
 /// A monotonic clock: the time since some fixed origin. Ages and send times are differences of it. Never the wall
 /// clock, which can be set back.
@@ -179,6 +192,8 @@ struct State {
     epoch: u64,
     /// When the last forced refresh (`refresh_for_pin`) was started, on the registry's clock.
     last_forced: Option<Duration>,
+    /// The starts of the forced refreshes inside the window, oldest first (at most [`PIN_REFRESH_BUDGET`]).
+    forced: VecDeque<Duration>,
 }
 
 struct Inner {
@@ -306,7 +321,8 @@ impl Registry {
 
     /// The pin retry, coalesced: forgets the entry (as [`Registry::invalidate`]) so that the next read asks `auth`,
     /// unless a forced refresh was started less than [`FORCED_REFRESH_EVERY`] ago or the entry was sent less than
-    /// that ago. Returns whether it did. When it did not, the caller's next read is the held entry (no call) or the
+    /// that ago, or [`PIN_REFRESH_BUDGET`] forced refreshes were started in the last [`PIN_REFRESH_WINDOW`] (a
+    /// refused call does not use the budget; a started one does, whatever its outcome). Returns whether it did. When it did not, the caller's next read is the held entry (no call) or the
     /// refresh in flight (joined), and a pin that still differs is the caller's 409 at once.
     pub fn refresh_for_pin(&self) -> bool {
         let mut state = self.inner.state();
@@ -320,6 +336,17 @@ impl Registry {
         {
             return false;
         }
+        while state
+            .forced
+            .front()
+            .is_some_and(|at| now.saturating_sub(*at) >= PIN_REFRESH_WINDOW)
+        {
+            state.forced.pop_front();
+        }
+        if state.forced.len() >= PIN_REFRESH_BUDGET {
+            return false;
+        }
+        state.forced.push_back(now);
         state.last_forced = Some(now);
         state.entry = None;
         state.flight = None;
