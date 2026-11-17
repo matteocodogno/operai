@@ -17,6 +17,7 @@ import * as badges from './strings/badges'
 import * as common from './strings/common'
 import * as departments from './strings/departments'
 import * as invitations from './strings/invitations'
+import * as legalEntities from './strings/legalEntities'
 import * as nav from './strings/nav'
 import * as roles from './strings/roles'
 import * as users from './strings/users'
@@ -29,6 +30,7 @@ export const en = {
   common: common.en,
   departments: departments.en,
   invitations: invitations.en,
+  legalEntities: legalEntities.en,
   nav: nav.en,
   roles: roles.en,
   users: users.en,
@@ -42,6 +44,7 @@ export const it: typeof en = {
   common: common.it,
   departments: departments.it,
   invitations: invitations.it,
+  legalEntities: legalEntities.it,
   nav: nav.it,
   roles: roles.it,
   users: users.it,

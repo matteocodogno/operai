@@ -28,6 +28,24 @@ describe('strings catalogs', () => {
     expect(itCatalog.users.invite.sent('a@welld.ch')).toBe('Invito inviato a a@welld.ch')
   })
 
+  it('the Legal entities area (AC-8.2) is translated with the spec vocabulary, in both catalogs', () => {
+    expect(en.nav.legalEntities).toBe('Legal entities')
+    expect(itCatalog.nav.legalEntities).toBe('Società del gruppo')
+    expect(itCatalog.legalEntities.page.heading).toBe('Società del gruppo')
+    expect(catalogGaps(en.legalEntities, itCatalog.legalEntities)).toEqual([])
+    expect(en.legalEntities.entity.version(3, 'Ada', 'today')).toBe('Version 3 · saved by Ada · today')
+    expect(itCatalog.legalEntities.entity.version(3, 'Ada', 'oggi')).toBe('Versione 3 · salvata da Ada · oggi')
+    expect(en.legalEntities.problem.line('it', 2, 'x')).toBe('Line 2 of the Italian address: x')
+    expect(itCatalog.legalEntities.problem.line('en', 2, 'x')).toBe('Riga 2 dell’indirizzo inglese: x')
+    expect(en.legalEntities.refused.title(1)).toContain('1 value needs')
+    expect(itCatalog.legalEntities.refused.title(2)).toContain('2 valori richiedono')
+  })
+
+  it('the Audit description says it also lists legal entity changes (DR-8), in both languages', () => {
+    expect(en.audit.description).toContain('legal entity')
+    expect(itCatalog.audit.description).toContain('società del gruppo')
+  })
+
   it('selects English under an English document (the test default)', async () => {
     document.documentElement.setAttribute('lang', 'en')
     const { strings } = await import('./strings')
