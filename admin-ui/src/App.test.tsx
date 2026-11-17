@@ -19,10 +19,32 @@
  * `resolve.alias` points the bare specifier at a real (empty) local stub so
  * Vite's import-analysis is satisfied; nothing to assert on for it here.
  */
-import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+
+// The module is only ever mounted for a person the shell let in (`apps` carries "admin"); what they hold
+// decides the sections (T35, specs/20261117-legal-entities). Overridden per test.
+vi.mock('shell/session', async (importOriginal) => {
+  const original = await importOriginal<typeof import('shell/session')>()
+  return { ...original, usePermissions: vi.fn() }
+})
+vi.mock('./lib/legalEntitiesApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./lib/legalEntitiesApi')>()
+  return { ...original, getManageable: vi.fn() }
+})
 
 const { default: App } = await import('./App')
+const { usePermissions } = await import('shell/session')
+const { getManageable } = await import('./lib/legalEntitiesApi')
+
+const signInWith = (...permissions: { resource: string; action: string }[]) =>
+  vi.mocked(usePermissions).mockReturnValue({ epoch: 1, apps: ['admin'], roles: [], departments: [], permissions })
+
+beforeEach(() => {
+  signInWith({ resource: 'admin', action: 'access' })
+  vi.mocked(getManageable).mockReset()
+  vi.mocked(getManageable).mockResolvedValue([])
+})
 
 afterEach(() => {
   cleanup()
@@ -61,5 +83,30 @@ describe('App (admin-ui, mounted under /admin)', () => {
 
     expect(await screen.findByTestId('admin-audit-page')).not.toBeNull()
     expect(screen.queryByTestId('admin-roles-page')).toBeNull()
+  })
+
+  it('a manager-only person landing on /admin ends on /admin/legal-entities, its link carrying the basepath', async () => {
+    signInWith({ resource: 'legal-entity', action: 'manage' })
+    vi.mocked(getManageable).mockResolvedValue(['welld_ch'])
+    window.history.pushState(null, '', '/admin')
+
+    render(<App />)
+
+    expect(await screen.findByTestId('admin-legal-entities-page')).not.toBeNull()
+    expect(window.location.pathname).toBe('/admin/legal-entities')
+    expect(screen.getByRole('link', { name: 'Legal entities' }).getAttribute('href')).toBe('/admin/legal-entities')
+    expect(screen.queryByRole('link', { name: 'Roles' })).toBeNull()
+  })
+
+  it('a bad search on /admin/legal-entities is replaced by the defaults under the basepath, and never rendered', async () => {
+    vi.mocked(getManageable).mockResolvedValue(['welld_it', 'welld_ch'])
+    window.history.pushState(null, '', '/admin/legal-entities?entity=welld_de&view=x&version=abc')
+
+    render(<App />)
+
+    expect(await screen.findByTestId('admin-legal-entities-page')).not.toBeNull()
+    await waitFor(() => expect(window.location.search).toBe(''))
+    expect(window.location.pathname).toBe('/admin/legal-entities')
+    expect(document.body.textContent).not.toContain('welld_de')
   })
 })

@@ -9,7 +9,10 @@ import UserDetail from './pages/UserDetail'
 import InvitationsPage from './pages/InvitationsPage'
 import AccessRequestsPage from './pages/AccessRequestsPage'
 import AuditPage from './pages/AuditPage'
+import LegalEntitiesPage from './pages/LegalEntitiesPage'
 import NotFoundPage from './pages/NotFoundPage'
+import { isLegalEntityId } from './lib/legalEntityModel'
+import type { LegalEntityId } from './lib/legalEntityModel'
 
 // ---------------------------------------------------------------------------
 // createAppRouter — factory, not a module-scope singleton (T14,
@@ -44,17 +47,46 @@ import NotFoundPage from './pages/NotFoundPage'
 // SectionNav.tsx) once, above whichever section route currently renders.
 // ---------------------------------------------------------------------------
 
+/** The `/legal-entities` search (plan E7): every member optional, only ever one of the closed values. */
+export type LegalEntitiesSearch = {
+  entity?: LegalEntityId
+  view?: 'details' | 'history'
+  /** A whole number >= 1, only with `view=history`. */
+  version?: number
+}
+
+/**
+ * validateSearch of `/legal-entities` (plan E7). Whatever is not one of the closed values is DROPPED, not
+ * carried, so a bad `?entity=welld_de`, `?view=x` or `?version=abc` becomes the default (no member). The
+ * router leaves the raw address alone and merges this over it, so the route's `beforeLoad` rewrites the
+ * address to this result (a `replace`, no history entry) before the page mounts: the bad value never reaches it. The default entity depends on what the person may manage, so the page picks it, not this.
+ * `version` without `view=history` is dropped too. An unknown key is not kept.
+ */
+export function validateLegalEntitiesSearch(raw: Record<string, unknown>): LegalEntitiesSearch {
+  const search: LegalEntitiesSearch = {}
+  if (isLegalEntityId(raw.entity)) search.entity = raw.entity
+  if (raw.view === 'details' || raw.view === 'history') search.view = raw.view
+  if (
+    search.view === 'history' &&
+    typeof raw.version === 'number' &&
+    Number.isSafeInteger(raw.version) &&
+    raw.version >= 1
+  ) {
+    search.version = raw.version
+  }
+  return search
+}
+
 export function createAppRouter(basepath?: string) {
   const rootRoute = createRootRoute({ component: AdminShell })
 
-  // Root redirects to the first section (Roles) — mirrors estimai-ui's own
-  // index → /estimates redirect (src/router.tsx's indexRoute).
+  // The index renders nothing of its own: AdminShell redirects it (replace) to the first section the person
+  // may use (`/roles` for an administrator, `/legal-entities` for a manager-only person, who has to wait for
+  // `manageable` first, plan decision 5), which a `beforeLoad` here could not know.
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: '/',
-    beforeLoad: () => {
-      throw redirect({ to: '/roles' })
-    },
+    component: () => null,
   })
 
   // ---------------------------------------------------------------------------
@@ -145,6 +177,26 @@ export function createAppRouter(basepath?: string) {
     component: AccessRequestsPage,
   })
 
+  // Legal entities (T35, specs/20261117-legal-entities, plan E7): one page, the entities as tabs; the entity,
+  // the view (Details | History) and an opened version are search params (`validateLegalEntitiesSearch`).
+  // An unknown entity is not a 404: it falls back to the default tab.
+  const legalEntitiesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/legal-entities',
+    validateSearch: validateLegalEntitiesSearch,
+    // The router merges what `validateSearch` returns over the raw address, so a member the validator leaves
+    // out would still ride along: the address itself is rewritten (replace) to the validated search.
+    beforeLoad: ({ location }) => {
+      const raw = location.search as Record<string, unknown>
+      const clean = validateLegalEntitiesSearch(raw)
+      const keys = Object.keys(clean) as (keyof LegalEntitiesSearch)[]
+      if (Object.keys(raw).length !== keys.length || keys.some((key) => raw[key] !== clean[key])) {
+        throw redirect({ to: '/legal-entities', search: clean, replace: true })
+      }
+    },
+    component: LegalEntitiesPage,
+  })
+
   // The mileage rates and the accounting distribution email used to live here
   // at `/rates`; they moved to refund-ui's Settings tab (`/refund/settings`) on
   // 2026-11-13 (ADR 20260720-mileage-rate-model-snapshot-admin-ui-composition amendment). The old path is left to the not-found page.
@@ -164,6 +216,7 @@ export function createAppRouter(basepath?: string) {
     invitationsRoute,
     accessRequestsRoute,
     auditRoute,
+    legalEntitiesRoute,
   ])
 
   // `defaultNotFoundComponent` is the router-wide fallback for any path that

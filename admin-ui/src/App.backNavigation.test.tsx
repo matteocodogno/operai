@@ -11,6 +11,19 @@ import { StrictMode, Suspense, useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 
+// An administrator the shell let in (T35: the sections are decided by what the person holds).
+vi.mock('shell/session', async (importOriginal) => {
+  const original = await importOriginal<typeof import('shell/session')>()
+  return {
+    ...original,
+    usePermissions: () => PERMISSIONS,
+  }
+})
+vi.mock('./lib/legalEntitiesApi', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./lib/legalEntitiesApi')>()
+  return { ...original, getManageable: async () => [] }
+})
+
 const { default: App } = await import('./App')
 
 const afterPopState = (move: () => void) =>
@@ -21,6 +34,14 @@ const afterPopState = (move: () => void) =>
 
 /** Lets the mounted remote react to an address change, if it is going to. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50))
+
+const PERMISSIONS = {
+  epoch: 1,
+  apps: ['admin'],
+  roles: [],
+  departments: [],
+  permissions: [{ resource: 'admin', action: 'access' }],
+}
 
 afterEach(() => {
   cleanup()
