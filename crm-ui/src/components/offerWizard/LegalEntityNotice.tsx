@@ -17,6 +17,8 @@ export type LegalEntityNoticeProps = { entity: Entity; className?: string } & (
       missing: readonly string[]
       /** The pane's polite warning (no offer is in question), or the refusal of Generate (`danger`, announced at once). */
       where: 'preview' | 'generate'
+      /** A host that keeps the notice on screen after the refusal (the offers card) lets it be closed. */
+      onDismiss?: () => void
     }
   | {
       /** 503 `legal_entities_unavailable`: the registry cannot be read, so no offer is made (AC-5.5). */
@@ -78,6 +80,7 @@ export default function LegalEntityNotice(props: LegalEntityNoticeProps) {
       {...(generating ? {} : { live: 'polite' as const, compact: true })}
       title={t.incomplete.title(label)}
       actions={open}
+      {...(props.onDismiss ? { onDismiss: props.onDismiss, dismissLabel: strings.common.dismiss } : {})}
       {...(className ? { className } : {})}
       data-testid="crm-wizard-legal-entity-incomplete"
     >

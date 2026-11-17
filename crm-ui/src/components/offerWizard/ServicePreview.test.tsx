@@ -255,7 +255,7 @@ describe('ServicePreview — the words, in English and Italian (AC-10.13)', () =
   it('ends each sentence once (no doubled full stop where a notice joins two)', () => {
     for (const catalog of [en, italian]) {
       const l = catalog.offerWizard.letterhead
-      for (const text of [l.notConfigured.preview, l.notConfigured.generate, l.askAdmin, l.overflow.body]) {
+      for (const text of [l.notConfigured.preview, l.notConfigured.generate, l.askAdmin, l.overflow.body, l.overflow.bodyValueOnly, l.overflow.bodyLetterheadOnly, l.overflow.bodyAskAdmin]) {
         expect(text).toMatch(/[.]$/)
         expect(text).not.toMatch(/[.!?]{2}/)
       }

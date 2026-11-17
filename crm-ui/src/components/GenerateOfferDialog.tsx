@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Banner,
   Button,
@@ -23,7 +23,7 @@ import {
 } from '../lib/crmApi'
 import { isStaleWrite } from '../lib/api'
 import type { OfferInput } from '../lib/crmApi'
-import { offerFailure } from '../lib/offerErrors'
+import { legalEntityIncompleteOf, offerFailure } from '../lib/offerErrors'
 import {
   LIMITS,
   checkOfferLines,
@@ -43,6 +43,7 @@ import type {
   CostColumns,
   Currency,
   Deal,
+  Entity,
   Offer,
   OfferDraft,
   OfferForm,
@@ -51,6 +52,7 @@ import type {
 } from '../lib/types'
 import { first, maxLength, optional, required } from '../lib/validate'
 import { strings } from '../strings'
+import LegalEntityNotice from './offerWizard/LegalEntityNotice'
 import { CostColumnSwitches, OfferCostLinesEditor } from './CostLinesEditor'
 import MarkupHelp from './MarkupHelp'
 import SectionsEditor from './SectionsEditor'
@@ -149,8 +151,22 @@ export default function GenerateOfferDialog({
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 409 `legal_entity_incomplete` (AC-6.3, FU-2): the registry's notice, with the link for a manager, replaces the line
+  const [incomplete, setIncomplete] = useState<{ entity: Entity; missing: string[] } | null>(null)
   const [pickError, setPickError] = useState<{ contacts?: string; attachments?: string }>({})
   const fieldsRef = useRef<HTMLDivElement>(null)
+  /** Shows a refusal: the registry's notice for an incomplete legal entity, the readable line for anything else. */
+  const refuse = useCallback((line: string, failure: unknown) => {
+    const found = legalEntityIncompleteOf(failure)
+    if (found) {
+      // a body that names no entity we know is about the deal's own
+      setIncomplete({ entity: found.entity ?? deal.entity, missing: found.missing })
+      setError(null)
+    } else {
+      setIncomplete(null)
+      setError(line)
+    }
+  }, [deal.entity])
   const loadToken = useRef(0)
   const [version, setVersion] = useState<number | null>(null)
   const sourceOfferId = source?.offer.id
@@ -191,11 +207,11 @@ export default function GenerateOfferDialog({
       (failure: unknown) => {
         if (controller.signal.aborted || token !== loadToken.current) return
         setLoadingDraft(false)
-        setError(offerFailure(failure))
+        refuse(offerFailure(failure), failure)
       },
     )
     return () => controller.abort()
-  }, [deal.id, sourceOfferId])
+  }, [deal.id, sourceOfferId, refuse])
 
   // Active templates, the person's language first.
   const options = useMemo(() => {
@@ -214,6 +230,7 @@ export default function GenerateOfferDialog({
     setPending(null)
     setLoadingDraft(true)
     setError(null)
+    setIncomplete(null)
     setValidated(false)
     setErrors({})
     setPickError({})
@@ -226,7 +243,7 @@ export default function GenerateOfferDialog({
       (failure: unknown) => {
         if (token !== loadToken.current) return
         setLoadingDraft(false)
-        setError(offerFailure(failure))
+        refuse(offerFailure(failure), failure)
       },
     )
   }
@@ -282,6 +299,7 @@ export default function GenerateOfferDialog({
     setErrors(found)
     setValidated(true)
     setError(null)
+    setIncomplete(null)
     if (
       Object.values(found).some(Boolean) ||
       !sectionsValid(sectionsCheck) ||
@@ -315,7 +333,7 @@ export default function GenerateOfferDialog({
         : generateOffer(deal.id, body)
     request.then(onGenerated, (failure: unknown) => {
       setBusy(false)
-      setError(source?.mode === 'edit' && isStaleWrite(failure) ? strings.offers.errors.offerStale : offerFailure(failure))
+      refuse(source?.mode === 'edit' && isStaleWrite(failure) ? strings.offers.errors.offerStale : offerFailure(failure), failure)
     })
   }
 
@@ -586,6 +604,9 @@ export default function GenerateOfferDialog({
                 )}
               </Field>
             </fieldset>
+          )}
+          {incomplete !== null && (
+            <LegalEntityNotice problem="incomplete" where="generate" entity={incomplete.entity} missing={incomplete.missing} />
           )}
         </div>
       </FormDialog>

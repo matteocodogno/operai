@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { RouterProvider } from '@tanstack/react-router'
 import CrmShell from '../components/CrmShell'
 import { createAppRouter } from '../router'
+import { resetManageableLegalEntities } from '../hooks/useCanManageLegalEntity'
 import { sampleAnswers } from '../lib/offerEngine/answers'
 import { parseTemplate } from '../lib/offerEngine/syntax'
 import { en, it as italian, strings } from '../strings'
@@ -110,7 +111,7 @@ let server: FakeDraftServer
 const requests = () =>
   apiFetch.mock.calls.map(([url, init]) => `${init?.method ?? 'GET'} ${new URL(String(url)).pathname}`)
 
-async function mount() {
+async function mount(manages: string[] = []) {
   const made = offerDraftServer(draftView({ answers: COMPLETE }))
   server = made.server
   apiFetch.mockImplementation(
@@ -127,6 +128,7 @@ async function mount() {
       'GET /deals/d1/offer-wizard/context': () => ({ status: 200, body: CONTEXT }),
       'GET /offer-templates': () => ({ status: 200, body: { items: [TEMPLATE] } }),
       'GET /offer-templates/t1': () => ({ status: 200, body: TEMPLATE }),
+      'GET /legal-entities/manageable': () => ({ status: 200, body: { entities: manages } }),
       'POST /deals/d1/offer-draft/preview': () => ({ status: 200, body: PAGES }),
       ...made.routes,
     }),
@@ -146,6 +148,7 @@ function matchMedia(wide: boolean): void {
 }
 
 beforeEach(() => {
+  resetManageableLegalEntities()
   window.scrollTo = () => undefined
   matchMedia(true)
 })
@@ -235,7 +238,22 @@ describe('a Generate for an entity with no letterhead (AC-10.8)', () => {
     fireEvent.click(generate)
     const notice = await screen.findByTestId('crm-wizard-letterhead-overflow')
     expect(notice.textContent).toContain(t.letterhead.overflow.title('wellD CH', t.letterhead.overflow.footer))
+    expect(notice.textContent).toContain(t.letterhead.overflow.bodyAskAdmin)
     expect(within(notice).queryByRole('link')).toBeNull()
+  })
+
+  it('points a manager of the entity at Legal entities, and a holder of Letterheads at both (FU-1)', async () => {
+    session.apps = ['crm', 'letterheads']
+    const generate = await mount(['welld_ch'])
+    server.failNext('POST generate', problemAnswer(409, 'letterhead_overflow', { frame: 'header', entity: 'welld_ch' }))
+    fireEvent.click(generate)
+    const notice = await screen.findByTestId('crm-wizard-letterhead-overflow')
+    const legal = await within(notice).findByRole('link', { name: t.legalEntity.openNamed('wellD CH') })
+    expect(legal.getAttribute('href')).toBe('/admin/legal-entities?entity=welld_ch')
+    expect(notice.textContent).toContain(t.letterhead.overflow.body)
+    expect(within(notice).getByRole('link', { name: t.letterhead.open }).getAttribute('href')).toBe(
+      '/letterheads?entity=welld_ch',
+    )
   })
 })
 

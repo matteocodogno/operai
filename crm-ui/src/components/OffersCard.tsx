@@ -32,9 +32,9 @@ import {
 } from '../lib/crmApi'
 import { isStaleWrite } from '../lib/api'
 import { codeOf, errorMessage, statusOf } from '../lib/errors'
-import { offerFailure } from '../lib/offerErrors'
+import { legalEntityIncompleteOf, offerFailure } from '../lib/offerErrors'
 import { personName } from '../lib/people'
-import type { Deal, DealStage, DraftTarget, Offer, OfferDraftSummary } from '../lib/types'
+import type { Deal, DealStage, DraftTarget, Entity, Offer, OfferDraftSummary } from '../lib/types'
 import { useCrmCapabilities } from '../hooks/scopeContext'
 import { useCurrentUserId } from '../hooks/useCurrentUserId'
 import { useResource } from '../hooks/useResource'
@@ -42,6 +42,7 @@ import { strings } from '../strings'
 import GenerateOfferDialog from './GenerateOfferDialog'
 import type { OfferSource } from './GenerateOfferDialog'
 import { LoadFailure, Loading, Saved } from './LoadState'
+import LegalEntityNotice from './offerWizard/LegalEntityNotice'
 
 /** An Edit or a New revision of an offer: what the wizard is asked to start (design F11). */
 type Start = { offer: Offer; kind: 'edit' | 'revision' }
@@ -113,7 +114,8 @@ export default function OffersCard({
   const [dialog, setDialog] = useState<Dialog>(proposePrompt && deal.stage === 'qualified' ? 'proposal' : null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  // a line, or (FU-2) the registry's notice for a 409 `legal_entity_incomplete`, which carries the link for a manager
+  const [notice, setNotice] = useState<string | { entity: Entity; missing: string[] } | null>(null)
   const [starting, setStarting] = useState(false)
   const [confirmation, setConfirmation] = useState<string | null>(null)
   const [changedMeanwhile, setChangedMeanwhile] = useState(false)
@@ -142,7 +144,7 @@ export default function OffersCard({
     setNotice(null)
     getOfferDownload(dealId, offer.id).then(
       ({ url }) => window.open(url, '_blank', 'noopener'),
-      (failure: unknown) => setNotice(offerFailure(failure)),
+      (failure: unknown) => setNotice(noticeOf(failure, deal.entity)),
     )
   }
 
@@ -245,7 +247,7 @@ export default function OffersCard({
       if (wizard) return void (await wizardAddress({ offer, kind }))
       setDialog({ source: { offer, mode: kind === 'edit' ? 'edit' : 'revise' } })
     } catch (failure) {
-      setNotice(offerFailure(failure))
+      setNotice(noticeOf(failure, deal.entity))
     } finally {
       setStarting(false)
     }
@@ -483,10 +485,19 @@ export default function OffersCard({
       }
     >
       <div className="flex flex-col gap-3">
-        {notice && (
+        {typeof notice === 'string' && (
           <Banner tone="danger" onDismiss={() => setNotice(null)} dismissLabel={strings.common.dismiss} data-testid="crm-offers-notice">
             {notice}
           </Banner>
+        )}
+        {notice !== null && typeof notice === 'object' && (
+          <LegalEntityNotice
+            problem="incomplete"
+            where="generate"
+            entity={notice.entity}
+            missing={notice.missing}
+            onDismiss={() => setNotice(null)}
+          />
         )}
         {confirmation && <Saved message={confirmation} onDismiss={() => setConfirmation(null)} />}
         {changedMeanwhile && (
@@ -683,6 +694,13 @@ export default function OffersCard({
       )}
     </Card>
   )
+}
+
+/** The card's notice for a failure: the registry's notice for an incomplete legal entity, else the readable line. */
+function noticeOf(failure: unknown, dealEntity: Entity): string | { entity: Entity; missing: string[] } {
+  const found = legalEntityIncompleteOf(failure)
+  // a body that names no entity we know is about the deal's own
+  return found ? { entity: found.entity ?? dealEntity, missing: found.missing } : offerFailure(failure)
 }
 
 /** The stages "Mark as sent" moves on from: open, and not yet past an offer. */

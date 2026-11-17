@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CrmShell from '../CrmShell'
+import { resetManageableLegalEntities } from '../../hooks/useCanManageLegalEntity'
 import { initialAnswers, sampleContext } from '../../lib/offerEngine/answers'
 import { parseTemplate } from '../../lib/offerEngine/syntax'
 import { createAppRouter } from '../../router'
@@ -135,10 +136,13 @@ async function mount({
   service,
   preview = () => ({ status: 200, body: PAGES }),
   search = '?step=client',
+  manages = [],
 }: {
   service: boolean | undefined
   preview?: FakeHandler
   search?: string
+  /** The entities `auth` says the person may manage. */
+  manages?: string[]
 }) {
   const made = offerDraftServer(draftView({ answers: START }))
   apiFetch.mockImplementation(
@@ -161,6 +165,7 @@ async function mount({
       'GET /deals/d1/offer-wizard/context': () => ({ status: 200, body: CONTEXT }),
       'GET /offer-templates': () => ({ status: 200, body: { items: [WIZARD_TEMPLATE] } }),
       'GET /offer-templates/t1': () => ({ status: 200, body: WIZARD_TEMPLATE }),
+      'GET /legal-entities/manageable': () => ({ status: 200, body: { entities: manages } }),
       ...made.routes,
       [PREVIEW]: preview,
     }),
@@ -182,6 +187,7 @@ function matchMedia(wide: boolean): void {
 const tab = (name: string) => screen.findByRole('tab', { name: new RegExp(name) })
 
 beforeEach(() => {
+  resetManageableLegalEntities()
   window.scrollTo = () => undefined
   matchMedia(true)
 })
@@ -324,6 +330,20 @@ describe('when the preview cannot be made (AC-10.7, AC-10.8)', () => {
     expect(notice.textContent).toContain(t.letterhead.overflow.title('wellD CH', t.letterhead.overflow.footer))
     expect(notice.textContent).toContain(t.letterhead.overflow.bodyAskAdmin)
     expect(within(notice).queryByRole('link')).toBeNull()
+  })
+
+  it('points a manager of the entity without Letterheads at Legal entities only, with the value-only body (FU-1)', async () => {
+    session.apps = ['crm']
+    await mount({
+      service: true,
+      manages: ['welld_ch'],
+      preview: (): FakeAnswer => problemAnswer(409, 'letterhead_overflow', { frame: 'header', entity: 'welld_ch' }),
+    })
+    const notice = await screen.findByTestId('crm-wizard-letterhead-overflow')
+    const link = await within(notice).findByRole('link', { name: t.legalEntity.openNamed('wellD CH') })
+    expect(link.getAttribute('href')).toBe('/admin/legal-entities?entity=welld_ch')
+    expect(within(notice).getAllByRole('link')).toHaveLength(1)
+    expect(notice.textContent).toContain(t.letterhead.overflow.bodyValueOnly)
   })
 
   it('names the section that is too long (T50), keeps the last pages, shows no dialog and no retry, and follows the next change', async () => {

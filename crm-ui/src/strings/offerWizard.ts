@@ -380,9 +380,14 @@ const en = {
       generate: 'No offer was created.',
     },
     overflow: {
-      title: (entity: string, frame: string) => `A value of the ${entity} profile does not fit the letterhead's ${frame}`,
-      body: 'Shorten the value in CRM Settings, or change the letterhead.',
-      bodyAskAdmin: 'Shorten the value in CRM Settings, or ask an administrator to change the letterhead in Letterheads.',
+      title: (entity: string, frame: string) => `A legal detail of ${entity} does not fit the letterhead's ${frame}`,
+      body: 'Shorten the value on the Legal entities page, or change the letterhead.',
+      bodyValueOnly:
+        'Shorten the value on the Legal entities page, or ask an administrator to change the letterhead in Letterheads.',
+      bodyLetterheadOnly:
+        'Ask an administrator who keeps the Legal entities page to shorten the value, or change the letterhead.',
+      bodyAskAdmin:
+        'Ask an administrator who keeps the Legal entities page to shorten the value, or to change the letterhead in Letterheads.',
       header: 'header',
       footer: 'footer',
     },
@@ -808,10 +813,14 @@ const it: typeof en = {
     },
     overflow: {
       title: (entity: string, frame: string) =>
-        `Un valore del profilo di ${entity} è troppo lungo per ${frame} della carta intestata`,
-      body: 'Accorcia il valore nelle Impostazioni CRM, oppure modifica la carta intestata.',
+        `Un dato legale di ${entity} è troppo lungo per ${frame} della carta intestata`,
+      body: 'Accorcia il valore nella pagina Società del gruppo, oppure modifica la carta intestata.',
+      bodyValueOnly:
+        'Accorcia il valore nella pagina Società del gruppo, oppure chiedi a un amministratore di modificare la carta intestata in Carte intestate.',
+      bodyLetterheadOnly:
+        'Chiedi a un amministratore che gestisce la pagina Società del gruppo di accorciare il valore, oppure modifica la carta intestata.',
       bodyAskAdmin:
-        'Accorcia il valore nelle Impostazioni CRM, oppure chiedi a un amministratore di modificare la carta intestata in Carte intestate.',
+        'Chiedi a un amministratore che gestisce la pagina Società del gruppo di accorciare il valore, oppure di modificare la carta intestata in Carte intestate.',
       header: "l'intestazione",
       footer: 'il piè di pagina',
     },
