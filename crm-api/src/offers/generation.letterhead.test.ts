@@ -7,6 +7,11 @@
  * failure mapping under test is the one that ships. The fake answers a real PDF, made with pdf-lib, whose pages carry their own
  * text and size, so "crm-api drew nothing" and "the deal PDFs come after" are read from the stored bytes, not from a call log.
  * Real Postgres (compose), the assembled app. The switch is flipped on the `env` object, which the routes read at the request.
+ *
+ * The fake plays letterhead-api's side of the issuer's details too (specs/20261117-legal-entities T28; AC-5.2, AC-6.2): the
+ * content is version 2 with NO `entityData`, pinned by `legalEntityVersion`; `fake.issuerVersion` is the version of the
+ * registry's details the service holds, and a pin that is not it is the 409 `legal_entity_version_mismatch` of the contract
+ * (the crm-api registry fake is `registry`; the service has its own copy, which is what a mismatch is about).
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
@@ -39,6 +44,8 @@ const fake = {
   timeoutMs: LETTERHEAD_TIMEOUT_MS,
   version: 7,
   pages: 2,
+  /** The version of the issuer's details the service holds: a pin that is not it is a 409; null: it holds whatever is pinned. */
+  issuerVersion: null as number | null,
 };
 
 /** The service's PDF: A4 pages that carry their own text, and the service's own title and producer. */
@@ -55,16 +62,22 @@ async function servicePdf(pages = fake.pages): Promise<Uint8Array> {
   return doc.save({ useObjectStreams: false });
 }
 
-const pdfAnswer = async (over: { version?: number | null; bytes?: Uint8Array; type?: string } = {}) => {
+/** What `Legal-Entity-Version` says in a preset answer when the version is "the one that was pinned": the fake fills it in. */
+const PINNED = "=pin";
+
+const pdfAnswer = async (over: { version?: number | null; bytes?: Uint8Array; type?: string; issuerVersion?: number | null } = {}) => {
   const bytes = over.bytes ?? (await servicePdf());
   const headers: Record<string, string> = { "Content-Type": over.type ?? "application/pdf", "Page-Count": String(fake.pages), "Unprintable-Characters": "0" };
   const version = over.version === undefined ? fake.version : over.version;
   if (version !== null) headers["Letterhead-Version"] = String(version);
+  // The version of the issuer's details the service printed: the pin it was given unless the test says otherwise.
+  const printed = over.issuerVersion === undefined ? PINNED : over.issuerVersion === null ? null : String(over.issuerVersion);
+  if (printed !== null) headers["Legal-Entity-Version"] = printed;
   return new Response(bytes, { status: 200, headers });
 };
 
-const refusal = (status: number, code: string, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL: the service's own words" }), {
+const refusal = (status: number, code: string, headers: Record<string, string> = {}, extras: Record<string, unknown> = {}) =>
+  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL: the service's own words", ...extras }), {
     status,
     headers: { "Content-Type": "application/problem+json", ...headers },
   });
@@ -77,6 +90,7 @@ function installFakeService(): void {
   fake.timeoutMs = LETTERHEAD_TIMEOUT_MS;
   fake.version = 7;
   fake.pages = 2;
+  fake.issuerVersion = null;
   const tokens: ServiceTokenProvider = { getToken: async () => "svc-token", invalidate() {} };
   let served = 0;
   spy = spyOn(letterhead, "pdf").mockImplementation((content, options) =>
@@ -87,12 +101,23 @@ function installFakeService(): void {
       sleep: async () => {},
       fetchImpl: (async (url: unknown, init?: RequestInit) => {
         const href = new URL(String(url));
-        fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body: JSON.parse(String(init?.body)) });
+        const body = JSON.parse(String(init?.body));
+        fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body });
+        // The service holds one version of the issuer's details: another pin is the contract's 409, with the version in use.
+        if (fake.issuerVersion !== null && body.legalEntityVersion !== fake.issuerVersion) {
+          return refusal(409, "legal_entity_version_mismatch", {}, { currentVersion: fake.issuerVersion });
+        }
         const answer = fake.answers.length === 0 ? await pdfAnswer() : fake.answers[Math.min(served, fake.answers.length - 1)]!;
         served += 1;
         if (answer === "network-error") throw new TypeError("fetch failed SECRET-NETWORK-DETAIL");
         if (answer === "hang") {
           return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal!.reason)));
+        }
+        // A preset PDF answer prints the version that was pinned.
+        if (answer.headers.get("Legal-Entity-Version") === PINNED) {
+          const headers = new Headers(answer.headers);
+          headers.set("Legal-Entity-Version", String(body.legalEntityVersion));
+          return new Response(await answer.clone().arrayBuffer(), { status: answer.status, headers });
         }
         return answer.clone();
       }) as typeof fetch,
@@ -144,9 +169,9 @@ interface Setup {
   draft: { answers: any; version: number; templateVersion: number };
 }
 
-async function startDraft(entity: "welld_ch" | "welld_it" = "welld_ch"): Promise<Setup> {
+async function startDraft(entity: "welld_ch" | "welld_it" = "welld_ch", templateOverrides: Record<string, unknown> = {}): Promise<Setup> {
   const { deal } = await readyDealWithProfiles({ entity });
-  const template = await makeDraftTemplate({ entity });
+  const template = await makeDraftTemplate({ entity, ...templateOverrides });
   const created = await call("POST", `/deals/${deal.id}/offer-draft`, { body: { templateId: template.id }, headers: noMatch });
   if (created.status !== 201) throw new Error(`draft: ${created.status} ${JSON.stringify(created.json)}`);
   return { dealId: deal.id, draft: created.json };
@@ -208,12 +233,12 @@ describe("with the switch on", () => {
     expect((await offers(second.dealId))[0]!.letterheadVersion).toBe(3);
   });
 
-  it("sends the draft as content version 1 with the entity profile as it is now, as the service, asking for the active version (AC-10.1, AC-10.10)", async () => {
+  it("sends the draft as content version 2: no entityData, the version of the registry's details it used, as the service, asking for the active letterhead version (AC-5.2, AC-6.2)", async () => {
     const s = await startDraft();
-    // the profile changes after the draft was made: the render takes the values of its moment
-    // The registry's values at the moment of the call (the CRM's own columns are not read any more, T26): no VAT, no IBAN.
+    // The registry's details change after the draft was made: the render takes the version of its moment, and the service prints them itself.
     registry.set(
       completeEntity("welld_ch", {
+        version: 5,
         legalName: "wellD SA (nuova)",
         address: { it: ["Via Nuova 9", "6900 Lugano"], en: ["Via Nuova 9", "6900 Lugano"] },
         vatNumber: "",
@@ -229,27 +254,27 @@ describe("with the switch on", () => {
     const [sent] = fake.calls;
     expect(sent!.path).toBe("/v1/render/pdf");
     expect(sent!.authorization).toBe("Bearer svc-token");
-    expect(sent!.body).toMatchObject({
-      contentVersion: 1,
-      entity: "welld_ch",
-      language: "it",
-      entityData: { legalName: "wellD SA (nuova)", addressLines: ["Via Nuova 9", "6900 Lugano"] },
-    });
-    // a blank value prints nothing: it is not sent (AC-10.10)
-    expect(sent!.body.entityData).not.toHaveProperty("vat");
-    expect(sent!.body.entityData).not.toHaveProperty("iban");
+    expect(sent!.body).toMatchObject({ contentVersion: 2, entity: "welld_ch", language: "it", legalEntityVersion: 5 });
+    // the issuer's values are the service's to read: none is sent, not even blank
+    expect(sent!.body).not.toHaveProperty("entityData");
+    expect(Object.keys(sent!.body).sort()).toEqual(["blocks", "contentVersion", "entity", "language", "legalEntityVersion"]);
+    expect(JSON.stringify(sent!.body)).not.toContain("wellD SA (nuova)");
     // the active version is the service's default
     expect(sent!.body).not.toHaveProperty("letterheadVersion");
     // the offer's reference is in the document it renders (the title), not the pending label
     expect(JSON.stringify(sent!.body.blocks)).toContain(`0001/${YEAR}`);
+    // the snapshot beside the PDF is made from the same version of the details
+    const [row] = await offers(s.dealId);
+    expect((row!.snapshot as any).legalEntityVersion).toBe(5);
+    expect((row!.snapshot as any).issuer.legalName).toBe("wellD SA (nuova)");
   });
 
-  it("generates the same document as the preview shows: the same blocks and entity data for the same draft (AC-10.3)", async () => {
+  it("generates the same document as the preview shows: the same blocks and the same version of the issuer's details for the same draft (AC-10.3)", async () => {
     const s = await startDraft();
     const previews: any[] = [];
     const previewSpy = spyOn(letterhead, "preview").mockImplementation(async (content) => {
       previews.push(content);
-      return { letterheadVersion: 7, pageCount: 1, missingPlaceholders: [], unprintableCharacters: 0, pages: [] };
+      return { letterheadVersion: 7, legalEntityVersion: content.legalEntityVersion ?? 0, pageCount: 1, missingPlaceholders: [], unprintableCharacters: 0, pages: [] };
     });
     try {
       const body = { templateVersion: s.draft.templateVersion, target: { kind: "new" }, answers: s.draft.answers };
@@ -260,7 +285,9 @@ describe("with the switch on", () => {
     expect((await generate(s)).status).toBe(201);
     const [previewed] = previews;
     const [generated] = fake.calls;
-    expect(generated!.body.entityData).toEqual(previewed.entityData);
+    expect(generated!.body.legalEntityVersion).toBe(previewed.legalEntityVersion);
+    expect(generated!.body).not.toHaveProperty("entityData");
+    expect(previewed).not.toHaveProperty("entityData");
     expect(generated!.body.language).toBe(previewed.language);
     expect(generated!.body.blocks.length).toBe(previewed.blocks.length);
     // they differ only where the reference is printed: the preview of a new offer has none yet
@@ -351,6 +378,14 @@ describe("a service that fails leaves nothing behind (AC-10.6)", () => {
     { name: "is busy, and still is after the one retry", answers: async () => [refusal(429, "busy", { "Retry-After": "1" })], expected: unavailable },
     { name: "times out", answers: async () => ["hang"], timeoutMs: 40, expected: unavailable },
     { name: "answers a PDF that does not say its version", answers: async () => [await pdfAnswer({ version: null })], expected: unavailable },
+    { name: "answers a PDF that does not say which version of the issuer's details it printed", answers: async () => [await pdfAnswer({ issuerVersion: null })], expected: unavailable },
+    { name: "answers a PDF printed with another version of the issuer's details than the one pinned", answers: async () => [await pdfAnswer({ issuerVersion: 99 })], expected: unavailable },
+    { name: "is an old letterhead-api that does not know content version 2 (the skew fails closed, decision 6)", answers: async () => [refusal(422, "unsupported_content_version")], expected: unavailable },
+    {
+      name: "cannot read the registry of the issuer's details (its 503 legal_entities_unavailable, AC-5.5)",
+      answers: async () => [refusal(503, "legal_entities_unavailable", { "Retry-After": "5" })],
+      expected: unavailable,
+    },
     { name: "answers bytes that are not a PDF", answers: async () => [await pdfAnswer({ bytes: new TextEncoder().encode("<html>nope</html>") })], expected: unavailable },
     { name: "refuses the content (a defect of the CRM, not something to retry)", answers: async () => [refusal(422, "invalid_content")], expected: unavailable },
     { name: "has no active letterhead for the entity (AC-10.8)", answers: async () => [refusal(409, "letterhead_not_configured")], expected: { status: 409, code: "letterhead_not_configured" } },
@@ -437,6 +472,212 @@ describe("a service that fails leaves nothing behind (AC-10.6)", () => {
     expect(row!.objectKey).not.toBe(before.offers[0]!.objectKey);
     expect(bucket.objects.has(before.offers[0]!.objectKey)).toBe(false);
     expect(Buffer.from(storedPdf(row!.objectKey)).equals(Buffer.from(await servicePdf()))).toBe(true);
+  });
+});
+
+// ─── One document, one version of the issuer's details (decision 8; AC-6.2) ──────────────────────────────────────────────
+
+/** A wizard template whose body prints the issuer's name and address (`[EMITTENTE]`, `[INDIRIZZO]`): what the pin must keep in step with the frame. */
+const ISSUER_SOURCE = [
+  "@@salutation Spett.le",
+  "",
+  "ISSUER-LINE: [EMITTENTE] / [INDIRIZZO]",
+  "",
+  "## COSTI",
+  "@@step costs",
+  "@@costs",
+  "@@line work one_off | Lavoro | unit=deal | qty=1",
+  "@@total **TOTALE**",
+  "@@end",
+  "",
+  "@@field EMITTENTE",
+  "source: issuer",
+  "",
+  "@@field INDIRIZZO",
+  "source: issuerAddress",
+  "",
+].join("\n");
+
+const details = (version: number, legalName: string, street: string) =>
+  completeEntity("welld_ch", {
+    version,
+    legalName,
+    address: { it: [street, "6900 Lugano"], en: [street, "6900 Lugano"] },
+    vatNumber: "CHE-111.222.333 IVA",
+    iban: "CH9300762011623852957",
+    ibanPrint: "CH93 0076 2011 6238 5295 7",
+  });
+
+const issuerLineOf = (body: any): string => {
+  const texts = (body.blocks as any[]).map((block) => (block.type === "paragraph" ? block.runs.map((run: any) => run.text ?? "").join("") : ""));
+  const line = texts.find((text) => text.startsWith("ISSUER-LINE:"));
+  if (line === undefined) throw new Error(`the request has no issuer line: ${JSON.stringify(texts)}`);
+  return line;
+};
+
+/** The version of the registry's details crm-api reads after `invalidate()`: the registry's own refresh, as the real client does. */
+function refreshesOnInvalidate(next: ReturnType<typeof details>): { restore(): void } {
+  const real = registry.invalidate.bind(registry);
+  const hook = spyOn(registry, "invalidate").mockImplementation(() => {
+    real();
+    registry.set(next);
+  });
+  return { restore: () => hook.mockRestore() };
+}
+
+describe("the service prints another version of the issuer's details than crm-api read (AC-6.2)", () => {
+  // The registry fake counts every `invalidate()` of the process: a test reads the difference.
+  let dropped = 0;
+  beforeEach(() => {
+    dropped = registry.invalidations;
+  });
+
+  it("a 409 legal_entity_version_mismatch once: the cache is dropped, the registry read again, the document and the snapshot rebuilt, ONE retry, and the offer is made from the new version only", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    // The service already holds version 8 (a save was committed and its own copy refreshed); crm-api's registry is read again after the drop.
+    fake.issuerVersion = 8;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA", "Via Nuova 2"));
+    try {
+      const reads = registry.reads;
+      const res = await generate(s);
+      expect(res.status, JSON.stringify(res.json)).toBe(201);
+      expect(res.json.reference).toBe(`0001/${YEAR}`);
+
+      // exactly one retry: the first request was pinned to the version crm-api had read, the second to the version it read next
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      expect(registry.invalidations - dropped).toBe(1);
+      expect(registry.reads).toBeGreaterThan(reads);
+      // the body of each request prints the issuer of ITS version: the document was rebuilt, not re-sent
+      expect(issuerLineOf(fake.calls[0]!.body)).toBe("ISSUER-LINE: wellD OLD SA / Via Vecchia 1, 6900 Lugano");
+      expect(issuerLineOf(fake.calls[1]!.body)).toBe("ISSUER-LINE: wellD NEW SA / Via Nuova 2, 6900 Lugano");
+      for (const call of fake.calls) expect(call.body).not.toHaveProperty("entityData");
+
+      // what is stored is the second version, whole: the snapshot's issuer and version, and the PDF the service answered for it
+      const [row] = await offers(s.dealId);
+      const snapshot = row!.snapshot as any;
+      expect(snapshot.legalEntityVersion).toBe(8);
+      expect(snapshot.issuer).toEqual({ legalName: "wellD NEW SA", addressLines: ["Via Nuova 2", "6900 Lugano"], vatNumber: "CHE-111.222.333 IVA", iban: "CH93 0076 2011 6238 5295 7" });
+      expect(JSON.stringify(snapshot)).not.toContain("wellD OLD SA");
+      expect(row!.letterheadVersion).toBe(7);
+      expect(Buffer.from(storedPdf(row!.objectKey)).equals(Buffer.from(await servicePdf()))).toBe(true);
+      // the first attempt left nothing: one row, the number the failed attempt did not burn, one object, no draft
+      expect(await offers(s.dealId)).toHaveLength(1);
+      expect((await sequences()).map((row) => row.last)).toEqual([1]);
+      expect(bucket.objects.size).toBe(1);
+      expect(bucket.deleted).toEqual([]);
+      expect(await db.offerDraft.count()).toBe(0);
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("a 409 twice: 503 layout_service_unavailable, exactly two requests, and nothing is left behind (no row, no number, no object, the draft kept)", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    // The service holds version 9; crm-api's registry reads 8 after the drop: still not the service's.
+    fake.issuerVersion = 9;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA", "Via Nuova 2"));
+    try {
+      const before = await worldOf(s);
+      const res = await generate(s);
+      expect(res.status).toBe(503);
+      expect(res.json).toMatchObject({ code: "layout_service_unavailable" });
+      expect(JSON.stringify(res.json)).not.toContain("SECRET");
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      expect(registry.invalidations - dropped).toBe(1);
+      expect(await worldOf(s)).toEqual(before);
+      expect(bucket.deleted).toEqual([]);
+      // when the two agree again the person's retry takes the number that was never burnt
+      fake.issuerVersion = 8;
+      fake.calls = [];
+      const retry = await generate(s);
+      expect(retry.status).toBe(201);
+      expect(retry.json.reference).toBe(`0001/${YEAR}`);
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([8]);
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("a mismatch that finds the entity incomplete on the second read is that refusal (409 legal_entity_incomplete): no second request, nothing stored", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    fake.issuerVersion = 8;
+    const refresh = refreshesOnInvalidate(incompleteEntity("welld_ch", ["vatNumber"], { version: 8 }));
+    try {
+      const before = await worldOf(s);
+      const res = await generate(s);
+      expect(res.status).toBe(409);
+      expect(res.json).toMatchObject({ code: "legal_entity_incomplete", entity: "welld_ch", missing: ["vatNumber"] });
+      expect(fake.calls).toHaveLength(1);
+      expect(await worldOf(s)).toEqual(before);
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("a mismatch that finds the registry unreadable on the second read is 503 legal_entities_unavailable with Retry-After: 5: no second request, nothing stored", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    fake.issuerVersion = 8;
+    const real = registry.invalidate.bind(registry);
+    const hook = spyOn(registry, "invalidate").mockImplementation(() => {
+      real();
+      registry.unavailable();
+    });
+    try {
+      const before = await worldOf(s);
+      const res = await generate(s);
+      expect(res.status).toBe(503);
+      expect(res.json).toMatchObject({ code: "legal_entities_unavailable" });
+      expect(res.headers.get("Retry-After")).toBe("5");
+      expect(fake.calls).toHaveLength(1);
+      registry.unavailable(false);
+      expect(await worldOf(s)).toEqual(before);
+    } finally {
+      hook.mockRestore();
+      registry.unavailable(false);
+    }
+  });
+
+  it("a pin that matches is not retried and the cache is not dropped", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    fake.issuerVersion = 7;
+    expect((await generate(s)).status).toBe(201);
+    expect(fake.calls).toHaveLength(1);
+    expect(registry.invalidations - dropped).toBe(0);
+  });
+
+  it("an EDIT is rebuilt the same way: the same row and reference, the new PDF, the snapshot of the version that was printed, the old object gone", async () => {
+    const s = await startDraft("welld_ch", { source: ISSUER_SOURCE });
+    registry.set(details(7, "wellD OLD SA", "Via Vecchia 1"));
+    expect((await generate(s)).status).toBe(201);
+    const [made] = await offers(s.dealId);
+    const drafted = await call("POST", `/deals/${s.dealId}/offer-draft`, { body: { target: { kind: "edit", offerId: made!.id } }, headers: noMatch });
+    expect(drafted.status).toBe(201);
+    const editing: Setup = { dealId: s.dealId, draft: drafted.json };
+
+    fake.calls = [];
+    fake.issuerVersion = 8;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA", "Via Nuova 2"));
+    try {
+      const res = await generate(editing);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      const [row] = await offers(s.dealId);
+      expect(row!.id).toBe(made!.id);
+      expect(row!.version).toBe(2);
+      expect((row!.snapshot as any).reference).toBe(`0001/${YEAR}`);
+      expect((row!.snapshot as any).legalEntityVersion).toBe(8);
+      expect((row!.snapshot as any).issuer.legalName).toBe("wellD NEW SA");
+      expect(issuerLineOf(fake.calls[1]!.body)).toBe("ISSUER-LINE: wellD NEW SA / Via Nuova 2, 6900 Lugano");
+      expect(bucket.objects.has(made!.objectKey)).toBe(false);
+      expect(bucket.objects.has(row!.objectKey)).toBe(true);
+    } finally {
+      refresh.restore();
+    }
   });
 });
 

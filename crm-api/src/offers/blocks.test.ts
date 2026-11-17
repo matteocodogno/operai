@@ -19,12 +19,10 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { goldenToAnswers, type GoldenState } from "../offer-templates/wizardSeeds/goldenAnswers";
 import { WELLD_CH_IT_V1 } from "../offer-templates/wizardSeeds/welldChIt";
-import { ProblemError } from "../lib/problem";
 import { costsOf, documentText } from "../test-support/documentText";
 import {
   CONTENT_VERSION,
   draftToBlocks,
-  entityDataOf,
   snapshotToBlocks,
   templateToBlocks,
   type ContentBlock,
@@ -63,7 +61,9 @@ const STYLES = ["plain", "muted", "small", "right", "center", "title", "missing"
 const ALIGNS = ["left", "center", "right"];
 const ENTITIES = ["welld_it", "welld_ch"];
 const LANGUAGES = ["it", "en"];
-const ROOT_MEMBERS = ["contentVersion", "entity", "letterheadVersion", "language", "entityData", "blocks"];
+const ROOT_MEMBERS_V1 = ["contentVersion", "entity", "letterheadVersion", "language", "entityData", "blocks"];
+/** Version 2 adds the pin of the issuer's details; a version 1 request that carries it is refused as an unknown member. */
+const ROOT_MEMBERS = [...ROOT_MEMBERS_V1.slice(0, 3), "legalEntityVersion", ...ROOT_MEMBERS_V1.slice(3)];
 const ENTITY_DATA_MEMBERS = ["legalName", "addressLines", "vat", "iban", "contacts"];
 const MEMBERS: Record<string, string[]> = {
   heading: ["type", "level", "text", "style"],
@@ -272,16 +272,23 @@ export function validateContent(content: unknown): Verdict {
 
   if (!isObject(content)) return { rejection: null, problems: [{ path: "", reason: "wrong_type" }] };
   // The envelope first, each with its own code.
-  if (content["contentVersion"] !== CONTENT_VERSION) return { rejection: "unsupported_content_version", problems: [] };
+  const contentVersion = content["contentVersion"];
+  if (contentVersion !== 1 && contentVersion !== 2) return { rejection: "unsupported_content_version", problems: [] };
   if (typeof content["entity"] !== "string" || !ENTITIES.includes(content["entity"])) return { rejection: "unknown_entity", problems: [] };
   if (typeof content["language"] !== "string" || !LANGUAGES.includes(content["language"])) return { rejection: "unsupported_language", problems: [] };
 
-  unknownMembers(content, "", ROOT_MEMBERS);
+  unknownMembers(content, "", contentVersion === 2 ? ROOT_MEMBERS : ROOT_MEMBERS_V1);
   const version = content["letterheadVersion"];
   if (version !== undefined && version !== null) {
     if (typeof version !== "number") problem("/letterheadVersion", "wrong_type");
     else if (!Number.isInteger(version) || version < 1 || version > 2_147_483_647) problem("/letterheadVersion", "out_of_range");
   }
+  const pin = content["legalEntityVersion"];
+  if (contentVersion === 2 && pin !== undefined && pin !== null) {
+    if (typeof pin !== "number") problem("/legalEntityVersion", "wrong_type");
+    else if (!Number.isInteger(pin) || pin < 1 || pin > 2_147_483_647) problem("/legalEntityVersion", "out_of_range");
+  }
+  // `entityData` is read for its shape in both versions and then ignored by the service (AC-5.2).
   const data = content["entityData"];
   if (data !== undefined && data !== null) {
     if (!isObject(data)) problem("/entityData", "wrong_type");
@@ -323,8 +330,37 @@ function expectAccepted(content: LetterheadContent, label: string): void {
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const PROFILE: LetterheadProfile = { legalName: "wellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], vatNumber: "CHE-123.456.789 IVA", iban: "CH93 0076 2011 6238 5295 7" };
+/** The version of the registry's details the content is built from, and what a template with no deal prints of the issuer. */
+const PROFILE: LetterheadProfile = { legalName: "wellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], legalEntityVersion: 4 };
 const REFERENCE = "0017/2026";
+
+/** A stored legacy (contract) snapshot, to convert: its issuer is the one the registry had when it was made. */
+const SNAPSHOT: ContractSnapshot = (() => {
+  const template = DEFAULT_TEMPLATES_IT[0]!;
+  return {
+    kind: "contract",
+    template: { id: "t", name: template.name },
+    language: "it",
+    reference: REFERENCE,
+    issuedOn: "2026-11-17",
+    validUntil: "2026-12-17",
+    validityDays: 30,
+    place: "Lugano",
+    issuer: { legalName: PROFILE.legalName, addressLines: PROFILE.addressLines, vatNumber: "CHE-123.456.789 IVA", iban: "CH93 0076 2011 6238 5295 7" },
+    legalEntityVersion: PROFILE.legalEntityVersion,
+    salutation: template.salutation,
+    clientLines: ["Acme SA"],
+    contacts: [],
+    opening: template.opening,
+    sections: template.sections,
+    costs: { currency: "CHF", columns: template.costColumns, showTotal: true, lines: [{ description: "Voce", kind: "one_off", unitCents: 100_000, percentBp: null, quantity: 2, totalCents: 200_000 }], oneOffCents: 200_000, yearlyCents: 0 },
+    acceptanceLabel: template.acceptanceLabel,
+    annex: null,
+    attachments: [],
+    aiAssisted: false,
+    preparedBy: null,
+  };
+})();
 const GOLDEN_DIR = join(import.meta.dir, "..", "offer-templates", "wizardSeeds", "golden");
 
 const EFFORT: Scope = {
@@ -489,7 +525,7 @@ const squash = (text: string): string => text.replace(/\s+/g, "");
 // ─── The validator itself ────────────────────────────────────────────────────────────────────────────────────────────
 
 const para = (text: string): ContentBlock => ({ type: "paragraph", runs: [{ text }] });
-const request = (blocks: unknown, over: Record<string, unknown> = {}): unknown => ({ contentVersion: 1, entity: "welld_it", language: "it", blocks, ...over });
+const request = (blocks: unknown, over: Record<string, unknown> = {}): unknown => ({ contentVersion: 2, entity: "welld_it", language: "it", blocks, ...over });
 const problemsOf = (value: unknown): [string, string][] => validateContent(value).problems.map((p) => [p.path, p.reason]);
 
 describe("the validator itself: it refuses what letterhead-api's tests pin, so its acceptance means something", () => {
@@ -510,8 +546,8 @@ describe("the validator itself: it refuses what letterhead-api's tests pin, so i
     }
   });
 
-  it("accepts null only for letterheadVersion, entityData and each entityData member", () => {
-    expect(validateContent(request([para("x")], { letterheadVersion: null, entityData: null }))).toEqual({ rejection: null, problems: [] });
+  it("accepts null only for letterheadVersion, legalEntityVersion, entityData and each entityData member", () => {
+    expect(validateContent(request([para("x")], { letterheadVersion: null, legalEntityVersion: null, entityData: null }))).toEqual({ rejection: null, problems: [] });
     expect(validateContent(request([para("x")], { entityData: { legalName: null, addressLines: null, vat: null, iban: null, contacts: null } }))).toEqual({ rejection: null, problems: [] });
   });
 
@@ -554,22 +590,29 @@ describe("the validator itself: it refuses what letterhead-api's tests pin, so i
   });
 
   it("judges the envelope first, each with its own code", () => {
-    expect(validateContent({ ...(request([]) as object), contentVersion: 2 }).rejection).toBe("unsupported_content_version");
+    for (const refused of [0, 3, "2", null]) expect(validateContent({ ...(request([]) as object), contentVersion: refused }).rejection).toBe("unsupported_content_version");
+    // Both 1 and 2 are accepted; the pin is version 2's member only.
+    expect(validateContent({ ...(request([]) as object), contentVersion: 1 })).toEqual({ rejection: null, problems: [] });
+    expect(problemsOf({ ...(request([]) as object), contentVersion: 1, legalEntityVersion: 4 })).toEqual([["", "unknown_member"]]);
     expect(validateContent({ ...(request([]) as object), entity: "welld_xx" }).rejection).toBe("unknown_entity");
     expect(validateContent({ ...(request([]) as object), language: "fr" }).rejection).toBe("unsupported_language");
     expect(problemsOf(request([], { letterheadVersion: 0 }))).toEqual([["/letterheadVersion", "out_of_range"]]);
+    expect(problemsOf(request([], { legalEntityVersion: 0 }))).toEqual([["/legalEntityVersion", "out_of_range"]]);
+    expect(problemsOf(request([], { legalEntityVersion: "4" }))).toEqual([["/legalEntityVersion", "wrong_type"]]);
+    expect(problemsOf(request([], { legalEntityVersion: 4 }))).toEqual([]);
     expect(problemsOf(request([], { entityData: { vatNumber: "x" } }))).toEqual([["/entityData", "unknown_member"]]);
   });
 });
 
 // ─── The content the conversion builds ────────────────────────────────────────────────────────────────────────────────
 
-describe("the content the engine accepts (AC-10.3): every fixture is valid content v1", () => {
+describe("the content the engine accepts (AC-10.3): every fixture is valid content v2", () => {
   for (const item of CASES) {
     it(`${item.name}: as a stored draft`, () => {
       const built = draftOf(item);
       expectAccepted(built.content, item.name);
-      expect(built.content.contentVersion).toBe(1);
+      expect(built.content.contentVersion).toBe(2);
+      expect(built.content.legalEntityVersion).toBe(PROFILE.legalEntityVersion);
       expect(built.content.language).toBe(item.language);
       expect(built.content.blocks.length).toBeGreaterThan(5);
       // These fixtures are complete: nothing is owed and nothing is refused.
@@ -637,7 +680,7 @@ describe("the content the engine accepts (AC-10.3): every fixture is valid conte
         validUntil: "2026-12-17",
         validityDays: 30,
         place: "Lugano",
-        issuer: { legalName: PROFILE.legalName, addressLines: PROFILE.addressLines, vatNumber: PROFILE.vatNumber, iban: PROFILE.iban },
+        issuer: { legalName: PROFILE.legalName, addressLines: PROFILE.addressLines, vatNumber: "CHE-123.456.789 IVA", iban: "CH93 0076 2011 6238 5295 7" },
         salutation: template.salutation,
         clientLines: ["Acme Ltd", "1 High Street", "London"],
         contacts: ["Jane Doe"],
@@ -791,51 +834,38 @@ describe("what the content holds (AC-10.4, AC-10.10, G5)", () => {
     });
   });
 
-  it("entityData holds the profile's values at the moment of the call", () => {
-    const built = draftOf(CASES[0]!);
-    expect(built.content.entityData).toEqual({ legalName: "wellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], vat: "CHE-123.456.789 IVA", iban: "CH93 0076 2011 6238 5295 7" });
-    const changed = draftToBlocks({ entity: "welld_ch", ast: CASES[0]!.ast, answers: CASES[0]!.answers, context: CASES[0]!.context }, { ...PROFILE, legalName: "Other Sagl", iban: "CH00" });
-    expect(changed.content.entityData).toMatchObject({ legalName: "Other Sagl", iban: "CH00" });
+  it("sends no entityData (AC-5.2): the content's members are version 2's, and the issuer's values are nowhere in it", () => {
+    const item = CASES[0]!;
+    for (const content of [
+      draftOf(item).content,
+      templateToBlocks({ entity: "welld_ch", ast: item.ast, language: "it" }, PROFILE).content,
+      snapshotToBlocks(SNAPSHOT, PROFILE, "welld_ch"),
+    ]) {
+      expect(Object.keys(content).sort()).toEqual(["blocks", "contentVersion", "entity", "language", "legalEntityVersion"]);
+      expect(content).not.toHaveProperty("entityData");
+      expect(JSON.stringify(content)).not.toContain("CHE-123.456.789 IVA");
+      expect(JSON.stringify(content)).not.toContain("CH93 0076");
+    }
   });
 
-  it("a blank VAT is omitted from entityData (as a blank IBAN and a blank address line are), never sent empty or null", () => {
-    for (const blank of [null, "", "   ", "\n\t "]) {
-      const data = draftToBlocks({ entity: "welld_ch", ast, answers: CASES[0]!.answers, context: CASES[0]!.context }, { ...PROFILE, vatNumber: blank, iban: blank }).content.entityData;
-      expect(Object.keys(data).sort()).toEqual(["addressLines", "legalName"]);
-    }
-    const lines = entityDataOf({ ...PROFILE, addressLines: ["Via Pessina 9", "  ", "", "6900\nLugano"] }, "welld_ch");
-    expect(lines.addressLines).toEqual(["Via Pessina 9", "6900 Lugano"]);
-    expect(entityDataOf({ ...PROFILE, addressLines: [" ", ""] }, "welld_ch")).not.toHaveProperty("addressLines");
-    // The value is as the profile has it, trimmed: nothing else is done to it.
-    expect(entityDataOf({ ...PROFILE, vatNumber: "  CHE-1  " }, "welld_ch").vat).toBe("CHE-1");
-    expectAccepted(draftToBlocks({ entity: "welld_ch", ast, answers: CASES[0]!.answers, context: CASES[0]!.context }, { ...PROFILE, vatNumber: " ", iban: null }).content, "blank values");
+  it("legalEntityVersion is the version of the registry's details the document was built from, on every entry point", () => {
+    const item = CASES[0]!;
+    const input = { entity: "welld_ch" as const, ast: item.ast, answers: item.answers, context: item.context };
+    expect(draftToBlocks(input, { legalEntityVersion: 9 }).content.legalEntityVersion).toBe(9);
+    expect(templateToBlocks({ entity: "welld_ch", ast: item.ast, language: "it" }, { ...PROFILE, legalEntityVersion: 11 }).content.legalEntityVersion).toBe(11);
+    expect(snapshotToBlocks(SNAPSHOT, { legalEntityVersion: 13 }, "welld_it").legalEntityVersion).toBe(13);
+    // The pin is the only thing that changes: the same draft, another version.
+    const { legalEntityVersion: _a, ...first } = draftToBlocks(input, { legalEntityVersion: 1 }).content;
+    const { legalEntityVersion: _b, ...second } = draftToBlocks(input, { legalEntityVersion: 2 }).content;
+    expect(second).toEqual(first);
   });
 
-  it("an empty legal name still refuses, as generation always did (AC-12.7): 409 entity_profile_missing, on every entry point", () => {
-    const refuse = (call: () => unknown): ProblemError => {
-      try {
-        call();
-      } catch (error) {
-        if (error instanceof ProblemError) return error;
-        throw error;
-      }
-      throw new Error("did not refuse");
-    };
-    for (const legalName of ["", "   ", "\n", " \t\r\n "]) {
-      const profile = { ...PROFILE, legalName };
-      const refusals = [
-        refuse(() => draftToBlocks({ entity: "welld_ch", ast, answers: CASES[0]!.answers, context: CASES[0]!.context }, profile)),
-        refuse(() => templateToBlocks({ entity: "welld_ch", ast, language: "it" }, profile)),
-        refuse(() => entityDataOf(profile, "welld_ch")),
-      ];
-      for (const error of refusals) {
-        expect(error.status).toBe(409);
-        expect(error.code).toBe("entity_profile_missing");
-        expect(error.extras).toEqual({ entity: "welld_ch" });
-      }
+  it("the converter does not judge the issuer: completeness is the registry's (409 legal_entity_incomplete, upstream), never entity_profile_missing", () => {
+    // A blank name in the made-up context of a template with no deal is a value of the registry the route refused before; it is not refused here.
+    for (const legalName of ["", "   ", "\n"]) {
+      const item = CASES[0]!;
+      expect(() => templateToBlocks({ entity: "welld_ch", ast: item.ast, language: "it" }, { ...PROFILE, legalName })).not.toThrow();
     }
-    // A snapshot of a legacy offer is not made with a blank name either.
-    expect(() => snapshotToBlocks({ ...(JSON.parse("{}") as ContractSnapshot) }, { ...PROFILE, legalName: " " }, "welld_it")).toThrow(ProblemError);
   });
 
   it("no member is null or undefined anywhere in the blocks: an absent optional member is omitted (amendment 2026-11-17, 3c)", () => {

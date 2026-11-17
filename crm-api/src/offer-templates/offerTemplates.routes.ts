@@ -57,7 +57,7 @@ import { checkAnswers, type WizardAnswers } from "../offers/engine/answers";
 import { parseTemplate } from "../offers/engine/syntax";
 import { templateToBlocks } from "../offers/blocks";
 import { PreviewQuerySchema, PreviewResponseSchema, previewThroughService, requireLetterheadService } from "../offers/contentSchema";
-import { legalEntitiesRetryAfter, letterheadProfileOf, loadIssuer, loadProfile } from "../offers/generation";
+import { legalEntitiesRetryAfter, letterheadProfileOf, loadIssuer, loadProfile, withIssuerPin } from "../offers/generation";
 import { AnswersSchema } from "../offer-drafts/answersSchema";
 import { legacyContent } from "../offers/legacyContent";
 import { DEFAULT_TEMPLATES_EN } from "../offers/defaultTemplates.en";
@@ -774,15 +774,18 @@ async function tryPreviewOf(
     }
   }
   // The issuer is the registry's (409 `legal_entity_incomplete` when it is incomplete, 503 `legal_entities_unavailable` when unreadable);
-  // the CRM's own row only gives the place of issue and may not exist (E4).
-  const issuer = await loadIssuer(entity, { requireComplete: true });
-  const profile = await loadProfile(entity);
-  const blocks = templateToBlocks(
-    { entity, ast, language: body.language, ...(answers ? { answers } : {}) },
-    letterheadProfileOf(issuer, body.language, profile?.placeOfIssue ?? null),
-  );
-  c.header("Cache-Control", "no-store");
-  return previewThroughService(blocks, pages);
+  // the CRM's own row only gives the place of issue and may not exist (E4). The content names the version it was built from: when the
+  // service prints another, the registry is read again and the content rebuilt, once (AC-6.2).
+  return withIssuerPin(async () => {
+    const issuer = await loadIssuer(entity, { requireComplete: true });
+    const profile = await loadProfile(entity);
+    const blocks = templateToBlocks(
+      { entity, ast, language: body.language, ...(answers ? { answers } : {}) },
+      letterheadProfileOf(issuer, body.language, profile?.placeOfIssue ?? null),
+    );
+    c.header("Cache-Control", "no-store");
+    return previewThroughService(blocks, pages);
+  });
 }
 
 offerTemplatesRouter.openapi(tryPreviewRoute, async (c) => {

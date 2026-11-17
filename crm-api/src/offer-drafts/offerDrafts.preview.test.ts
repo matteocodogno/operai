@@ -8,13 +8,18 @@
  * (compose), the assembled app. The switch is flipped on the `env` object, which the routes read at the request.
  *
  * The `GET /scope` and `env` tests live here because T28's touch list names no other test file for them.
+ *
+ * The fake plays letterhead-api's side of the issuer's details as well (specs/20261117-legal-entities T28; AC-5.2, AC-6.2): the
+ * content is version 2 with NO `entityData`, pinned by `legalEntityVersion`; `fake.issuerVersion` is the version the service
+ * holds, and another pin is the contract's 409 `legal_entity_version_mismatch`, which the route answers by reading the registry
+ * again and rebuilding the content once.
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { join } from "node:path";
 // The test world first: it sets the environment the other modules read when they load.
 import { bucket, call, db, makeDraftTemplate, readyDealWithProfiles, registry, resetWorld, DRAFT_SOURCE, type PersonaName } from "../test-support/world";
-import { incompleteEntity } from "../test-support/fakeRegistry";
+import { completeEntity, incompleteEntity } from "../test-support/fakeRegistry";
 import { env } from "../lib/env";
 import { Hono } from "hono";
 import { ProblemError } from "../lib/problem";
@@ -36,6 +41,8 @@ const fake = {
   timeoutMs: 35_000,
   /** While set, a request that reached the service waits for it before it is answered (the in-flight cap's tests). */
   gate: null as Promise<void> | null,
+  /** The version of the issuer's details the service holds: another pin is the 409; null: it holds whatever is pinned. */
+  issuerVersion: null as number | null,
 };
 
 const previewBody = (pages: number[] = [1, 2]) => ({
@@ -45,9 +52,9 @@ const previewBody = (pages: number[] = [1, 2]) => ({
   unprintableCharacters: 0,
   pages: pages.map((n) => ({ n, image: `IMAGE-${n}`, text: `text of page ${n}` })),
 });
-const ok = (body: unknown = previewBody()) => Response.json(body, { status: 200 });
-const refusal = (status: number, code: string, headers: Record<string, string> = {}) =>
-  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL: the service's own words" }), {
+const ok = (body: unknown = { ...previewBody(), legalEntityVersion: 3 }) => Response.json(body, { status: 200 });
+const refusal = (status: number, code: string, headers: Record<string, string> = {}, extras: Record<string, unknown> = {}) =>
+  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL: the service's own words", ...extras }), {
     status,
     headers: { "Content-Type": "application/problem+json", ...headers },
   });
@@ -59,6 +66,7 @@ function installFakeService(): void {
   fake.answers = [];
   fake.timeoutMs = 35_000;
   fake.gate = null;
+  fake.issuerVersion = null;
   const tokens: ServiceTokenProvider = { getToken: async () => "svc-token", invalidate() {} };
   let served = 0;
   spy = spyOn(letterhead, "preview").mockImplementation((content, options) =>
@@ -69,9 +77,14 @@ function installFakeService(): void {
       sleep: async () => {},
       fetchImpl: (async (url: unknown, init?: RequestInit) => {
         const href = new URL(String(url));
-        fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body: JSON.parse(String(init?.body)) });
+        const body = JSON.parse(String(init?.body));
+        fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body });
         if (fake.gate) await fake.gate;
-        const answer = fake.answers.length === 0 ? ok() : fake.answers[Math.min(served, fake.answers.length - 1)]!;
+        if (fake.issuerVersion !== null && body.legalEntityVersion !== fake.issuerVersion) {
+          return refusal(409, "legal_entity_version_mismatch", {}, { currentVersion: fake.issuerVersion });
+        }
+        // The service prints the version it was pinned to, and says so.
+        const answer = fake.answers.length === 0 ? ok({ ...previewBody(), legalEntityVersion: body.legalEntityVersion }) : fake.answers[Math.min(served, fake.answers.length - 1)]!;
         served += 1;
         if (answer === "network-error") throw new TypeError("fetch failed SECRET-NETWORK-DETAIL");
         if (answer === "hang") {
@@ -172,7 +185,7 @@ describe("a section over the length limit (T50; AC-10.3, AC-10.4)", () => {
 });
 
 describe("POST /deals/{id}/offer-draft/preview", () => {
-  it("answers the service's preview unchanged plus the missing fields, and sends the draft as content version 1 (AC-10.3, AC-10.10)", async () => {
+  it("answers the service's preview unchanged plus the missing fields, and sends the draft as content version 2, pinned to the registry's version, with no entityData (AC-10.3, AC-5.2, AC-6.2)", async () => {
     const s = await startDraft();
     const res = await preview(s, bodyOf(s));
     expect(res.status).toBe(200);
@@ -183,18 +196,18 @@ describe("POST /deals/{id}/offer-draft/preview", () => {
     const [sent] = fake.calls;
     expect(sent!.path).toBe("/v1/render/preview");
     expect(sent!.authorization).toBe("Bearer svc-token");
-    expect(sent!.body).toMatchObject({
-      contentVersion: 1,
-      entity: "welld_ch",
-      language: "it",
-      // the entity profile at this moment (AC-10.10)
-      entityData: { legalName: "wellD SA", addressLines: ["Via Example 1", "6900 Lugano"], vat: "CHE-123.456.789 MWST", iban: "CH00 0000 0000 0000 0000 0" },
-    });
+    // the version of the registry's details this document was built from (the world's `welld_ch` is the fixture's version 3)
+    const version = (await registry.get("welld_ch")).version;
+    expect(sent!.body).toMatchObject({ contentVersion: 2, entity: "welld_ch", language: "it", legalEntityVersion: version });
+    // the issuer's values are the service's to read: none is sent
+    expect(sent!.body).not.toHaveProperty("entityData");
+    expect(Object.keys(sent!.body).sort()).toEqual(["blocks", "contentVersion", "entity", "language", "legalEntityVersion"]);
     // the active version is the service's default
     expect(sent!.body).not.toHaveProperty("letterheadVersion");
     expect(sent!.body.blocks.length).toBeGreaterThan(5);
     const wire = JSON.stringify(sent!.body);
     expect(wire).toContain("Acme Holding SA");
+    expect(wire).not.toContain("CHE-123.456.789 MWST");
     // an offer that has no number yet says so; the unanswered field is a highlighted run with its label (AC-10.4)
     expect(wire).toContain("NNNN/AAAA");
     expect(sent!.body.blocks.flatMap((b: any) => b.runs ?? [])).toContainEqual({ text: "Nota", style: "missing" });
@@ -334,6 +347,84 @@ describe("POST /deals/{id}/offer-draft/preview", () => {
     expect(fake.calls).toEqual([]);
   });
 
+  describe("when the service prints another version of the issuer's details than crm-api read (AC-6.2)", () => {
+    const ISSUER_SOURCE = SOURCE.replace("Nota: [NOTA]", "ISSUER-LINE: [EMITTENTE] / [INDIRIZZO]\n\nNota: [NOTA]") + "\n@@field EMITTENTE\nsource: issuer\n\n@@field INDIRIZZO\nsource: issuerAddress\n";
+    const details = (version: number, legalName: string) => completeEntity("welld_ch", { version, legalName, address: { it: [`${legalName} street`], en: [`${legalName} street`] } });
+    const issuerLine = (body: any): string => {
+      const texts = (body.blocks as any[]).map((block) => (block.type === "paragraph" ? block.runs.map((run: any) => run.text ?? "").join("") : ""));
+      return texts.find((text) => text.startsWith("ISSUER-LINE:")) ?? "(none)";
+    };
+    function refreshesOnInvalidate(next: ReturnType<typeof details>): { restore(): void } {
+      const real = registry.invalidate.bind(registry);
+      const hook = spyOn(registry, "invalidate").mockImplementation(() => {
+        real();
+        registry.set(next);
+      });
+      return { restore: () => hook.mockRestore() };
+    }
+
+    it("a 409 once: the registry is read again, the content rebuilt from it, ONE retry, and the answer is the retry's", async () => {
+      const s = await startDraft(ISSUER_SOURCE);
+      registry.set(details(7, "OLD"));
+      fake.issuerVersion = 8;
+      const refresh = refreshesOnInvalidate(details(8, "NEW"));
+      try {
+        const res = await preview(s, bodyOf(s));
+        expect(res.status, JSON.stringify(res.json)).toBe(200);
+        expect(res.headers.get("Cache-Control")).toBe("no-store");
+        expect(res.json).toEqual({ ...previewBody(), missingFields: [{ name: "NOTA", label: "Nota", step: expect.any(String) }] });
+        expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+        // each request prints the issuer of ITS version: never a body of one version under the pin of the other
+        expect(issuerLine(fake.calls[0]!.body)).toBe("ISSUER-LINE: OLD / OLD street");
+        expect(issuerLine(fake.calls[1]!.body)).toBe("ISSUER-LINE: NEW / NEW street");
+        for (const call of fake.calls) expect(call.body).not.toHaveProperty("entityData");
+        // nothing was stored
+        expect(await db.dealOffer.count()).toBe(0);
+        expect(await db.offerSequence.findMany()).toEqual([]);
+      } finally {
+        refresh.restore();
+      }
+    });
+
+    it("a 409 twice: 503 layout_service_unavailable after exactly two requests, nothing of the service's words, the draft usable", async () => {
+      const s = await startDraft(ISSUER_SOURCE);
+      registry.set(details(7, "OLD"));
+      fake.issuerVersion = 9;
+      const refresh = refreshesOnInvalidate(details(8, "NEW"));
+      try {
+        const res = await preview(s, bodyOf(s));
+        expect([res.status, res.json.code]).toEqual([503, "layout_service_unavailable"]);
+        expect(JSON.stringify(res.json)).not.toContain("SECRET");
+        expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+        // the person's wizard stays usable (AC-10.7)
+        const saved = await call("PUT", `/deals/${s.dealId}/offer-draft`, { ifMatch: s.draft.version, body: bodyOf(s, (a) => (a.fields.NOTA = "typed anyway")) });
+        expect(saved.status).toBe(200);
+      } finally {
+        refresh.restore();
+      }
+    });
+
+    it("a mismatch that finds the registry unreadable on the second read is 503 legal_entities_unavailable with Retry-After: 5, and the service is asked once", async () => {
+      const s = await startDraft(ISSUER_SOURCE);
+      registry.set(details(7, "OLD"));
+      fake.issuerVersion = 8;
+      const real = registry.invalidate.bind(registry);
+      const hook = spyOn(registry, "invalidate").mockImplementation(() => {
+        real();
+        registry.unavailable();
+      });
+      try {
+        const res = await preview(s, bodyOf(s));
+        expect([res.status, res.json.code, res.headers.get("Retry-After")]).toEqual([503, "legal_entities_unavailable", "5"]);
+        expect(fake.calls).toHaveLength(1);
+      } finally {
+        hook.mockRestore();
+        registry.unavailable(false);
+      }
+    });
+  });
+
+
   describe("when the service cannot draw the pages", () => {
     const failure = async (answers: Answer[], timeoutMs?: number) => {
       const s = await startDraft();
@@ -363,8 +454,10 @@ describe("POST /deals/{id}/offer-draft/preview", () => {
     });
 
     it("is 503 for a content the service refuses: crm-api's defect, nothing a person can fix", async () => {
-      for (const code of ["invalid_content", "content_too_large", "too_many_pages", "request_too_large", "unsupported_content_version"]) {
-        const res = await failure([refusal(code === "request_too_large" ? 413 : 422, code)]);
+      // `unsupported_content_version`: an old letterhead-api that does not know version 2 (the skew fails closed, decision 6);
+      // `legal_entities_unavailable`: the service cannot read the registry within its cache rule (AC-5.5).
+      for (const code of ["invalid_content", "content_too_large", "too_many_pages", "request_too_large", "unsupported_content_version", "legal_entities_unavailable"]) {
+        const res = await failure([refusal(code === "request_too_large" ? 413 : code === "legal_entities_unavailable" ? 503 : 422, code)]);
         expect({ code, status: res.status, answer: res.json.code }).toEqual({ code, status: 503, answer: "layout_service_unavailable" });
       }
     });

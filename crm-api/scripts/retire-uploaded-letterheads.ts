@@ -62,7 +62,6 @@ export const sampleContent = (entity: Entity): LetterheadContent => ({
   contentVersion: CONTENT_VERSION,
   entity,
   language: "en",
-  entityData: { legalName: "Retirement check" },
   blocks: [
     { type: "heading", level: 1, text: "Letterhead retirement check" },
     { type: "paragraph", runs: [{ text: "This page proves the layout service draws this entity's letterhead." }] },

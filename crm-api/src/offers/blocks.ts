@@ -1,6 +1,7 @@
 /**
- * An offer as content version 1 of the layout service (specs/20261116-letterhead-service US-10; AC-10.3, AC-10.4,
- * AC-10.10, AC-10.14; plan § API contracts, amendments G1, G5 and 2026-11-17 item 3).
+ * An offer as content version 2 of the layout service (specs/20261116-letterhead-service US-10; AC-10.3, AC-10.4,
+ * AC-10.14; plan § API contracts, amendments G1, G5 and 2026-11-17 item 3; specs/20261117-legal-entities T28: AC-5.2,
+ * AC-6.2, plan decisions 6 and 8).
  *
  * `draftToBlocks` is the one conversion that the wizard's preview, the template editor's "Try the wizard" and the
  * generation of the PDF all go through, so the draft previewed and the draft generated give the same pages
@@ -27,10 +28,13 @@
  *               `missing` run: nothing is owed. With `reference` given (an edit keeps its reference, generation has
  *               it) the engine prints the reference itself.
  *   absent      an optional member that is absent is OMITTED (`style`, `bold`, `ordered`, `align`, `header`,
- *               `widthRatio`, and every `entityData` member); `null` is never sent (amendment 2026-11-17, item 3c).
- *   profile     the entity profile's values at the moment of the call go in `entityData` (AC-10.10). A blank VAT,
- *               IBAN or address line is left out (it prints nothing); an empty legal name refuses, as the wizard's
- *               generation always did (specs/20261115-crm-offer-wizard AC-12.7): 409 `entity_profile_missing`.
+ *               `widthRatio`); `null` is never sent (amendment 2026-11-17, item 3c).
+ *   issuer      the issuer's legal name, address, VAT number and IBAN are NOT in the content: the service reads them from
+ *               the legal entities registry itself (decision 6; `entityData` is no longer sent, and the content is
+ *               version 2 so that an old service, which would print no issuer, refuses it instead). The content names
+ *               the version of the registry's details the caller used, `legalEntityVersion`: the service answers 409
+ *               `legal_entity_version_mismatch` when it prints another, and the caller rebuilds and retries once
+ *               (decision 8: one document, one version of the details; `withIssuerPin` in generation.ts).
  *   deal PDFs   the PDFs appended to the offer are neither drawn nor listed (G5): they are appended by crm-api
  *               after the rendered pages, unnumbered, so the "Allegati:" list names the annexes of the document only.
  *   text        the characters the offer engine already limited are kept as they are, with one exception: the ballot
@@ -49,7 +53,6 @@
  * Pure: no I/O, no clock, no database, no environment.
  */
 
-import { ProblemError } from "../lib/problem";
 import type { ContractSnapshot, OfferCosts, OfferLanguage } from "./contract";
 import { sampleAnswers, sampleContext, type WizardAnswers, type WizardContext } from "./engine/answers";
 import { computeCosts, type CostRowIn } from "./engine/costs";
@@ -63,9 +66,9 @@ import { words } from "./engine/words";
 import { formatManDays } from "./pdf";
 import type { Scope } from "./scope";
 
-// ─── Content version 1 (the members of letterhead-api/engine/src/content/model.rs) ───────────────────────────────────
+// ─── Content version 2 (the members of letterhead-api/engine/src/content/model.rs) ───────────────────────────────────
 
-export const CONTENT_VERSION = 1;
+export const CONTENT_VERSION = 2;
 
 /** The legal entities that have a letterhead (the `Entity` enum of the schema, without the generated client). */
 export type Entity = "welld_it" | "welld_ch";
@@ -120,30 +123,37 @@ export interface ContentPageBreak {
 /** Every block this file produces. (`image` is part of the model; an offer has none.) */
 export type ContentBlock = ContentParagraph | ContentHeading | ContentList | ContentTable | ContentPageBreak;
 
-export interface ContentEntityData {
-  readonly legalName?: string;
-  readonly addressLines?: readonly string[];
-  readonly vat?: string;
-  readonly iban?: string;
-}
-
-/** The body of `POST /v1/render/preview` and `POST /v1/render/pdf`, without `letterheadVersion` (the default: the active one). */
+/**
+ * The body of `POST /v1/render/preview` and `POST /v1/render/pdf`, without `letterheadVersion` (the default: the active one).
+ * There is no `entityData`: the issuer's details are the service's to read. `legalEntityVersion` is the version of the
+ * registry's details this content was built from (its body prints them, and so does the snapshot beside it). Only a sample
+ * that prints nothing of the issuer (the letterhead retirement check) may leave it out: every document is `PinnedContent`.
+ */
 export interface LetterheadContent {
   readonly contentVersion: typeof CONTENT_VERSION;
   readonly entity: Entity;
   readonly language: OfferLanguage;
-  readonly entityData: ContentEntityData;
+  readonly legalEntityVersion?: number;
   readonly blocks: readonly ContentBlock[];
 }
 
+/** A document's content: always pinned to the version of the issuer's details it was built from. */
+export type PinnedContent = LetterheadContent & { readonly legalEntityVersion: number };
+
 // ─── Inputs and answer ───────────────────────────────────────────────────────────────────────────────────────────────
 
-/** The entity profile's values that the letterhead takes (AC-10.10), read at the moment of the call. */
-export interface LetterheadProfile {
+/** The version of the registry's details a document is built from: the pin its content carries. */
+export interface IssuerPin {
+  readonly legalEntityVersion: number;
+}
+
+/**
+ * What a template with no deal prints of the issuer in its body (`[EMITTENTE]`, `[INDIRIZZO]`): the registry's legal name and
+ * address in the document's language, with the version they were read from. The header and the footer are the service's.
+ */
+export interface LetterheadProfile extends IssuerPin {
   readonly legalName: string;
   readonly addressLines: readonly string[];
-  readonly vatNumber: string | null;
-  readonly iban: string | null;
   /** Printed beside the date; only the try-preview context uses it (a draft's context already holds it). */
   readonly placeOfIssue?: string | null;
 }
@@ -178,7 +188,7 @@ export interface MissingField {
 }
 
 export interface DraftBlocks {
-  readonly content: LetterheadContent;
+  readonly content: PinnedContent;
   /** What the person still owes, from the engine: the preview's list of missing fields. */
   readonly missing: readonly MissingField[];
   /** What the engine refuses in the answers (a figure out of range, a section too long …): generation refuses the draft. */
@@ -187,43 +197,19 @@ export interface DraftBlocks {
 
 // ─── Entry points ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A supplied value on one line: a line break and the blanks around it become one space (security I-7, as `[EMITTENTE]`). */
-const oneLine = (text: string): string => text.replace(/\s*[\r\n]+\s*/g, " ").trim();
-
-/**
- * The profile's values as `entityData`. A blank VAT, IBAN or address line is omitted, never sent empty or as null; the
- * legal name is required (an empty one refuses).
- */
-export function entityDataOf(profile: LetterheadProfile, entity: Entity): ContentEntityData {
-  const legalName = oneLine(profile.legalName);
-  if (legalName === "") {
-    // The refusal of generation and of the preview alike: an offer never goes out without its issuer (AC-12.7).
-    throw new ProblemError({
-      status: 409,
-      code: "entity_profile_missing",
-      detail: "Set the entity's legal name in CRM settings before generating an offer",
-      extras: { entity },
-    });
-  }
-  const addressLines = profile.addressLines.map(oneLine).filter((line) => line !== "");
-  const vat = oneLine(profile.vatNumber ?? "");
-  const iban = oneLine(profile.iban ?? "");
-  return {
-    legalName,
-    ...(addressLines.length > 0 ? { addressLines } : {}),
-    ...(vat !== "" ? { vat } : {}),
-    ...(iban !== "" ? { iban } : {}),
-  };
-}
-
-/** The offer a stored draft makes, with the entity profile's values: what the draft preview and the generation render. */
-export function draftToBlocks(input: DraftInput, profile: LetterheadProfile): DraftBlocks {
-  const entityData = entityDataOf(profile, input.entity);
+/** The offer a stored draft makes, built from the registry's details of version `issuer`: what the draft preview and the generation render. */
+export function draftToBlocks(input: DraftInput, issuer: IssuerPin): DraftBlocks {
   const reference = input.reference ?? null;
   const resolved = resolveOffer(input.ast, input.answers, input.context, { reference });
   const printed = printedFromResolved(resolved, { currency: input.context.currency, reference, annex: input.annex ?? null });
   return {
-    content: { contentVersion: CONTENT_VERSION, entity: input.entity, language: resolved.language, entityData, blocks: documentBlocks(printed) },
+    content: {
+      contentVersion: CONTENT_VERSION,
+      entity: input.entity,
+      language: resolved.language,
+      legalEntityVersion: issuer.legalEntityVersion,
+      blocks: documentBlocks(printed),
+    },
     missing: resolved.missing.map(({ name, label, step }) => ({ name, label, step })),
     invalid: resolved.invalid,
   };
@@ -231,7 +217,7 @@ export function draftToBlocks(input: DraftInput, profile: LetterheadProfile): Dr
 
 /**
  * The same conversion for a template with no deal (G1): a made-up deal in the template's language (`sampleContext`) whose
- * issuer is the entity profile's, and the sample answers the editor holds (or the template's own). Nothing of the made-up
+ * issuer is the registry's, and the sample answers the editor holds (or the template's own). Nothing of the made-up
  * deal is real and none of it is stored.
  */
 export function templateToBlocks(input: TemplateInput, profile: LetterheadProfile): DraftBlocks {
@@ -248,14 +234,13 @@ export function templateToBlocks(input: TemplateInput, profile: LetterheadProfil
   return draftToBlocks({ entity: input.entity, ast: input.ast, answers, context, annex: input.annex ?? null }, profile);
 }
 
-/** An offer that was generated before (a contract snapshot, wizard or legacy template) as content, with today's profile values. */
-export function snapshotToBlocks(snapshot: ContractSnapshot, profile: LetterheadProfile, entity: Entity): LetterheadContent {
-  const entityData = entityDataOf(profile, entity);
+/** An offer that was generated before (a contract snapshot, wizard or legacy template) as content, pinned to the registry's version `issuer`. */
+export function snapshotToBlocks(snapshot: ContractSnapshot, issuer: IssuerPin, entity: Entity): PinnedContent {
   return {
     contentVersion: CONTENT_VERSION,
     entity,
     language: snapshot.language,
-    entityData,
+    legalEntityVersion: issuer.legalEntityVersion,
     blocks: documentBlocks(printedFromSnapshot(snapshot)),
   };
 }

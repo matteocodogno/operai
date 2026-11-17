@@ -6,12 +6,16 @@
  *
  * The service is an in-process fake behind the REAL client of T27 (see offerDrafts.preview.test.ts, which has the same
  * harness and the draft route's tests); real Postgres (compose), the assembled app. The switch is flipped on `env`.
+ *
+ * The content is version 2 with no `entityData` and a `legalEntityVersion` pin (specs/20261117-legal-entities T28; AC-5.2,
+ * AC-6.2); the fake service holds one version of the issuer's details (`fake.issuerVersion`) and answers another pin with the
+ * contract's 409, which the route answers by reading the registry again and rebuilding the content once.
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 // The test world first: it sets the environment the other modules read when they load.
 import { DRAFT_SOURCE, PERSONAS, WIZARD_SOURCE, call, db, makeWizardTemplate, putEntityProfile, registry, resetWorld, worldIssuer, type PersonaName } from "../test-support/world";
-import { incompleteEntity } from "../test-support/fakeRegistry";
+import { completeEntity, incompleteEntity } from "../test-support/fakeRegistry";
 import { env } from "../lib/env";
 import { MAX_PREVIEWS_IN_FLIGHT_PER_PERSON, previewCap } from "../offers/contentSchema";
 import { createLetterheadClient, letterhead } from "../lib/letterheadClient";
@@ -43,6 +47,8 @@ const fake = {
   timeoutMs: 35_000,
   /** While set, a request that reached the service waits for it before it is answered (the in-flight cap's tests). */
   gate: null as Promise<void> | null,
+  /** The version of the issuer's details the service holds: another pin is the 409; null: it holds whatever is pinned. */
+  issuerVersion: null as number | null,
 };
 
 const previewBody = (pages: number[] = [1, 2]) => ({
@@ -52,8 +58,8 @@ const previewBody = (pages: number[] = [1, 2]) => ({
   unprintableCharacters: 0,
   pages: pages.map((n) => ({ n, image: `IMAGE-${n}`, text: `text of page ${n}` })),
 });
-const refusal = (status: number, code: string) =>
-  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL: the service's own words" }), {
+const refusal = (status: number, code: string, extras: Record<string, unknown> = {}) =>
+  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL: the service's own words", ...extras }), {
     status,
     headers: { "Content-Type": "application/problem+json" },
   });
@@ -65,6 +71,7 @@ function installFakeService(): void {
   fake.answers = [];
   fake.timeoutMs = 35_000;
   fake.gate = null;
+  fake.issuerVersion = null;
   const tokens: ServiceTokenProvider = { getToken: async () => "svc-token", invalidate() {} };
   let served = 0;
   spy = spyOn(letterhead, "preview").mockImplementation((content, options) =>
@@ -75,9 +82,14 @@ function installFakeService(): void {
       sleep: async () => {},
       fetchImpl: (async (url: unknown, init?: RequestInit) => {
         const href = new URL(String(url));
-        fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body: JSON.parse(String(init?.body)) });
+        const body = JSON.parse(String(init?.body));
+        fake.calls.push({ path: `${href.pathname}${href.search}`, authorization: new Headers(init?.headers).get("Authorization"), body });
         if (fake.gate) await fake.gate;
-        const answer = fake.answers.length === 0 ? Response.json(previewBody()) : fake.answers[Math.min(served, fake.answers.length - 1)]!;
+        if (fake.issuerVersion !== null && body.legalEntityVersion !== fake.issuerVersion) {
+          return refusal(409, "legal_entity_version_mismatch", { currentVersion: fake.issuerVersion });
+        }
+        // The service prints the version it was pinned to, and says so.
+        const answer = fake.answers.length === 0 ? Response.json({ ...previewBody(), legalEntityVersion: body.legalEntityVersion }) : fake.answers[Math.min(served, fake.answers.length - 1)]!;
         served += 1;
         if (answer === "network-error") throw new TypeError("fetch failed SECRET-NETWORK-DETAIL");
         if (answer === "hang") {
@@ -166,12 +178,11 @@ describe("POST /offer-templates/{id}/try-preview", () => {
     const [sent] = fake.calls;
     expect(sent!.path).toBe("/v1/render/preview");
     expect(sent!.authorization).toBe("Bearer svc-token");
-    expect(sent!.body).toMatchObject({
-      contentVersion: 1,
-      entity: "welld_ch",
-      language: "it",
-      entityData: { legalName: "wellD SA", addressLines: ["Via Example 1", "6900 Lugano"], vat: "CHE-123.456.789 MWST", iban: "CH00 0000 0000 0000 0000 0" },
-    });
+    expect(sent!.body).toMatchObject({ contentVersion: 2, entity: "welld_ch", language: "it", legalEntityVersion: (await registry.get("welld_ch")).version });
+    // the issuer's values are the service's to read: none is sent
+    expect(sent!.body).not.toHaveProperty("entityData");
+    expect(Object.keys(sent!.body).sort()).toEqual(["blocks", "contentVersion", "entity", "language", "legalEntityVersion"]);
+    expect(JSON.stringify(sent!.body)).not.toContain("CHE-123.456.789 MWST");
     expect(sent!.body).not.toHaveProperty("letterheadVersion");
     // the TEXT AS TYPED, not the stored one, and the made-up deal's client
     const wire = JSON.stringify(sent!.body);
@@ -342,12 +353,66 @@ describe("POST /offer-templates/{id}/try-preview", () => {
     };
 
     it("is 503 layout_service_unavailable when it is unreachable, answers an error, is busy or times out", async () => {
-      for (const answers of [["network-error"], [refusal(500, "boom")], [refusal(429, "busy")], [refusal(422, "invalid_content")], [Response.json({ nope: true })]] as Answer[][]) {
+      for (const answers of [["network-error"], [refusal(500, "boom")], [refusal(429, "busy")], [refusal(422, "invalid_content")], [Response.json({ nope: true })], [refusal(422, "unsupported_content_version")], [refusal(503, "legal_entities_unavailable")]] as Answer[][]) {
         const res = await failure(answers);
         expect([res.status, res.json.code]).toEqual([503, "layout_service_unavailable"]);
       }
       const hung = await failure(["hang"], 40);
       expect([hung.status, hung.json.code]).toEqual([503, "layout_service_unavailable"]);
+    });
+
+    describe("the service prints another version of the issuer's details than crm-api read (AC-6.2)", () => {
+      const ISSUER_SOURCE = `${TYPED.replace("Nota: [NOTA]", "ISSUER-LINE: [EMITTENTE] / [INDIRIZZO]\n\nNota: [NOTA]")}\n@@field EMITTENTE\nsource: issuer\n\n@@field INDIRIZZO\nsource: issuerAddress\n`;
+      const details = (version: number, legalName: string) => completeEntity("welld_ch", { version, legalName, address: { it: [`${legalName} street`], en: [`${legalName} street`] } });
+      const issuerLine = (body: any): string => {
+        const texts = (body.blocks as any[]).map((block) => (block.type === "paragraph" ? block.runs.map((run: any) => run.text ?? "").join("") : ""));
+        return texts.find((text) => text.startsWith("ISSUER-LINE:")) ?? "(none)";
+      };
+      function refreshesOnInvalidate(next: ReturnType<typeof details>): { restore(): void } {
+        const real = registry.invalidate.bind(registry);
+        const hook = spyOn(registry, "invalidate").mockImplementation(() => {
+          real();
+          registry.set(next);
+        });
+        return { restore: () => hook.mockRestore() };
+      }
+      const body = (t: Parameters<typeof tryBody>[0]) => ({ ...tryBody(t), content: { ...tryBody(t).content, source: ISSUER_SOURCE } });
+
+      it("a 409 once: the registry is read again, the content rebuilt from it, ONE retry, and the answer is the retry's (saved and unsaved templates alike)", async () => {
+        const t = await template();
+        for (const run of [(b: unknown) => tryPreview(t, b), (b: unknown) => tryUnsaved(b)]) {
+          fake.calls = [];
+          registry.set(details(7, "OLD"));
+          fake.issuerVersion = 8;
+          const refresh = refreshesOnInvalidate(details(8, "NEW"));
+          try {
+            const res = await run(body(t));
+            expect(res.status, JSON.stringify(res.json)).toBe(200);
+            expect(res.headers.get("Cache-Control")).toBe("no-store");
+            expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+            expect(issuerLine(fake.calls[0]!.body)).toBe("ISSUER-LINE: OLD / OLD street");
+            expect(issuerLine(fake.calls[1]!.body)).toBe("ISSUER-LINE: NEW / NEW street");
+            for (const call of fake.calls) expect(call.body).not.toHaveProperty("entityData");
+          } finally {
+            refresh.restore();
+          }
+        }
+      });
+
+      it("a 409 twice: 503 layout_service_unavailable after exactly two requests", async () => {
+        const t = await template();
+        registry.set(details(7, "OLD"));
+        fake.issuerVersion = 9;
+        const refresh = refreshesOnInvalidate(details(8, "NEW"));
+        try {
+          const res = await tryPreview(t, body(t));
+          expect([res.status, res.json.code]).toEqual([503, "layout_service_unavailable"]);
+          expect(JSON.stringify(res.json)).not.toContain("SECRET");
+          expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+        } finally {
+          refresh.restore();
+        }
+      });
     });
 
     it("is 409 letterhead_not_configured when the entity has no active letterhead", async () => {
@@ -476,12 +541,8 @@ describe("POST /offer-templates/try-preview, a template that was never saved (T5
     const [sent] = fake.calls;
     expect(sent!.path).toBe("/v1/render/preview");
     expect(sent!.authorization).toBe("Bearer svc-token");
-    expect(sent!.body).toMatchObject({
-      contentVersion: 1,
-      entity: "welld_ch",
-      language: "it",
-      entityData: { legalName: "wellD SA", vat: "CHE-123.456.789 MWST", iban: "CH00 0000 0000 0000 0000 0" },
-    });
+    expect(sent!.body).toMatchObject({ contentVersion: 2, entity: "welld_ch", language: "it", legalEntityVersion: (await registry.get("welld_ch")).version });
+    expect(sent!.body).not.toHaveProperty("entityData");
     const wire = JSON.stringify(sent!.body);
     expect(wire).toContain("TYPED-ONLY-TEXT");
     expect(wire).toContain("Cliente di esempio SA");
@@ -501,7 +562,10 @@ describe("POST /offer-templates/try-preview, a template that was never saved (T5
     answers.fields.NOTA = "EDITORS-OWN-NOTE";
     const res = await tryUnsaved(unsavedBody({ answers }, "welld_it"));
     expect(res.status).toBe(200);
-    expect(fake.calls[0]!.body).toMatchObject({ entity: "welld_it", entityData: { legalName: "wellD Srl" } });
+    // the entity's own registry version, not the other's, and nothing of its details sent
+    expect(fake.calls[0]!.body).toMatchObject({ entity: "welld_it", legalEntityVersion: (await registry.get("welld_it")).version });
+    expect(fake.calls[0]!.body).not.toHaveProperty("entityData");
+    expect(JSON.stringify(fake.calls[0]!.body)).not.toContain("wellD Srl");
     expect(JSON.stringify(fake.calls[0]!.body)).toContain("EDITORS-OWN-NOTE");
   });
 

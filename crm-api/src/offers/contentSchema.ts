@@ -5,18 +5,17 @@
  *   POST /deals/{id}/offer-draft/preview?pages=…          the wizard's preview (offerDrafts.routes.ts)
  *   POST /offer-templates/{id}/try-preview?pages=…        "Try the wizard", no deal (offerTemplates.routes.ts)
  *
- * Both turn what the person sees into content version 1 (`blocks.ts`), ask letterhead-api for the pages through the client
+ * Both turn what the person sees into content version 2 (`blocks.ts`: no `entityData`, the issuer is the registry's, pinned by `legalEntityVersion`), ask letterhead-api for the pages through the client
  * of T27 and answer the service's preview unchanged, plus `missingFields`. Neither stores anything: the answer is made of
  * the request and the database as they are, and goes back to the browser with `Cache-Control: no-store`.
  *
- * This file holds the four things that must be the same in both, so the two cannot drift:
+ * This file holds the three things that must be the same in both, so the two cannot drift:
  *
  *   - the `pages` query and the answer's schema;
  *   - the switch (`requireLetterheadService`): with `LETTERHEAD_SERVICE_ENABLED` off the routes do not exist (404, as an
  *     unmounted route answers), so the CRM that has not made the switch cannot be told anything about the service;
- *   - the entity profile as the letterhead's profile (AC-10.10);
  *   - the one place a service refusal that the client reports as "unavailable" becomes the frame's overflow (409
- *     `letterhead_overflow`, T27's note): a profile value too long for the header or the footer is something the person can
+ *     `letterhead_overflow`, T27's note): a legal-details value too long for the header or the footer is something the person can
  *     fix, a service that is down is not.
  *
  * `overflowOf` is exported for the third caller, the generation of the PDF (`generation.ts`, T29): the frame's overflow is the same
@@ -32,7 +31,7 @@ import type { MiddlewareHandler } from "hono";
 import { env } from "../lib/env";
 import { LAYOUT_SERVICE_UNAVAILABLE, letterhead } from "../lib/letterheadClient";
 import { ProblemError, problem } from "../lib/problem";
-import type { DraftBlocks, Entity, LetterheadProfile } from "./blocks";
+import type { DraftBlocks, Entity } from "./blocks";
 
 // ─── The switch ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -150,25 +149,12 @@ export const PreviewResponseSchema = z.object({
 });
 export type PreviewResponse = z.infer<typeof PreviewResponseSchema>;
 
-// ─── The profile ─────────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** The entity profile's letterhead values at this moment (AC-10.10); the row has more columns than the letterhead takes. */
-export function profileOf(row: {
-  readonly legalName: string;
-  readonly addressLines: readonly string[];
-  readonly vatNumber: string | null;
-  readonly iban: string | null;
-  readonly placeOfIssue: string | null;
-}): LetterheadProfile {
-  return { legalName: row.legalName, addressLines: row.addressLines, vatNumber: row.vatNumber, iban: row.iban, placeOfIssue: row.placeOfIssue };
-}
-
 // ─── The call ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export const LETTERHEAD_OVERFLOW = "letterhead_overflow";
 
 /**
- * 409 `letterhead_overflow` when the service refused the document because a value of the profile makes the header or the
+ * 409 `letterhead_overflow` when the service refused the document because a value of the issuer's legal details makes the header or the
  * footer taller than its margin (`header_overflow` / `footer_overflow`, AC-5.3). The client reports it as the unavailable
  * answer carrying the service's code as `reason` (it never repeats the service's text); anything else is not touched. The
  * frame and the entity are named, never the value.
@@ -181,7 +167,7 @@ export function overflowOf(error: unknown, entity: Entity): ProblemError | null 
   return new ProblemError({
     status: 409,
     code: LETTERHEAD_OVERFLOW,
-    detail: `A value of the entity profile does not fit the letterhead's ${frame}: shorten it, or change the letterhead`,
+    detail: `A value of the issuer's legal details does not fit the letterhead's ${frame}: shorten it in the legal entities settings, or change the letterhead`,
     extras: { frame, entity },
   });
 }
@@ -209,7 +195,10 @@ export function sectionTooLong(blocks: DraftBlocks): ProblemError | null {
  * The service's preview of `blocks` (`pages`: those only, absent: all), as the routes answer it. Refused before any call:
  * 422 `section_too_long` (what generate refuses, so the preview is never a truncated draw). Failures: 409
  * `letterhead_not_configured` (the entity has no active letterhead, AC-10.8), 409 `letterhead_overflow` with `frame`, 503
- * `layout_service_unavailable` for everything else (unreachable, 5xx, `busy`, a timeout: AC-10.7).
+ * `layout_service_unavailable` for everything else (unreachable, 5xx, `busy`, a timeout: AC-10.7; the registry of the issuer's
+ * details unreadable at the service; an old service that does not know content version 2). A service that prints another
+ * version of the issuer's details than the blocks were built from throws `LegalEntityVersionMismatch` (also a 503), which the
+ * route's `withIssuerPin` answers by rebuilding the blocks from the registry once (AC-6.2).
  */
 export async function previewThroughService(blocks: DraftBlocks, pages: string | undefined): Promise<PreviewResponse> {
   const tooLong = sectionTooLong(blocks);

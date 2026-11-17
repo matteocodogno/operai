@@ -47,6 +47,7 @@ import {
   legalEntitiesRetryAfter,
   issuerValuesOf,
   letterheadProfileOf,
+  withIssuerPin,
   wizardSnapshotOf,
   type OfferRow,
   type StoredSnapshot,
@@ -626,20 +627,25 @@ offerDraftsRouter.openapi(
     // The letterhead is the deal's entity's: a template of another one is not drawn on it (as generate refuses it).
     if (template.entity !== deal.entity) throw notFound("Template not found");
 
-    // Everything below is what generation reads, from the same places, so the pages are the PDF's (AC-10.3).
-    const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true, requireCompleteIssuer: true });
-    const { ast } = parseTemplate(template.source!);
-    const context = wizardContextOf(inputs, template.language, serverToday());
-    const first = resolveOffer(ast, answers, context);
-    const annex = first.effortAnnex && inputs.estimate ? buildScope(inputs.estimate, { aiAssisted: first.aiAssisted, ...scopeLabels(template.language) }) : null;
-    // An edit keeps its offer's reference; a new offer and a revision have none yet, and the title says so.
-    const target = targetOf(row);
-    const blocks = draftToBlocks(
-      { entity: deal.entity, ast, answers, context, annex, reference: target.kind === "edit" ? target.reference : null },
-      letterheadProfileOf(inputs.issuer, template.language, inputs.profile?.placeOfIssue ?? null),
-    );
-    noStore(c);
-    return c.json(await previewThroughService(blocks, pages), 200);
+    // The registry is read inside the pin's retry: when the service prints another version of the issuer's details than the one the
+    // body was built from, the registry is read again and everything below is rebuilt, once (AC-6.2).
+    const preview = await withIssuerPin(async () => {
+      // Everything below is what generation reads, from the same places, so the pages are the PDF's (AC-10.3).
+      const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true, requireCompleteIssuer: true });
+      const { ast } = parseTemplate(template.source!);
+      const context = wizardContextOf(inputs, template.language, serverToday());
+      const first = resolveOffer(ast, answers, context);
+      const annex = first.effortAnnex && inputs.estimate ? buildScope(inputs.estimate, { aiAssisted: first.aiAssisted, ...scopeLabels(template.language) }) : null;
+      // An edit keeps its offer's reference; a new offer and a revision have none yet, and the title says so.
+      const target = targetOf(row);
+      const blocks = draftToBlocks(
+        { entity: deal.entity, ast, answers, context, annex, reference: target.kind === "edit" ? target.reference : null },
+        letterheadProfileOf(inputs.issuer, template.language, inputs.profile?.placeOfIssue ?? null),
+      );
+      noStore(c);
+      return previewThroughService(blocks, pages);
+    });
+    return c.json(preview, 200);
   },
   // A refused body is a refused save (`answers_invalid`); a refused `pages` is the plain 422 naming it.
   ((result: { success: boolean; target?: string }, c: Context) =>
@@ -779,136 +785,144 @@ offerDraftsRouter.openapi(generateRouteDef, async (c) => {
   }
 
   const issued = new Date();
-  // The registry is read here, before the transaction and any resolve or byte read: incomplete details are 409 `legal_entity_incomplete`
-  // (a blank legal name too, AC-12.7, DD-61), an unreadable registry 503 `legal_entities_unavailable`; no number is taken either way.
-  const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true, requireCompleteIssuer: true });
-  const context = wizardContextOf(inputs, template.language, isoDate(issued));
-  const { ast } = parseTemplate(template.source);
+  // Narrowed by the check above, and kept narrow inside the closure below.
+  const templateSource: string = template.source;
+  // The pin of the issuer's details (AC-6.2, decision 8): everything that reads the registry and builds from it is inside, so when the
+  // service answers `legal_entity_version_mismatch` the transaction has rolled back (no number, no object, the draft kept) and the
+  // registry is read again, the snapshot and the content rebuilt, once.
+  const { created, replacedKey, storage } = await withIssuerPin(async () => {
+    // The registry is read here, before the transaction and any resolve or byte read: incomplete details are 409 `legal_entity_incomplete`
+    // (a blank legal name too, AC-12.7, DD-61), an unreadable registry 503 `legal_entities_unavailable`; no number is taken either way.
+    const inputs = await loadWizardInputs(c, deal, { requireEstimate: true, archivedContacts: true, requireCompleteIssuer: true });
+    const context = wizardContextOf(inputs, template.language, isoDate(issued));
+    const { ast } = parseTemplate(templateSource);
 
-  // The first resolve has no reference: the pending one is not an issue (DD-44), the printed date's window is (DD-42).
-  const first = resolveOffer(ast, answers, context);
-  if (first.missing.length > 0 || first.invalid.length > 0) throw offerIncomplete(first);
-  const oneOffCents = first.costs.result.oneOffCents;
-  if (oneOffCents === null) throw new Error("generate: a complete offer has no price");
+    // The first resolve has no reference: the pending one is not an issue (DD-44), the printed date's window is (DD-42).
+    const first = resolveOffer(ast, answers, context);
+    if (first.missing.length > 0 || first.invalid.length > 0) throw offerIncomplete(first);
+    const oneOffCents = first.costs.result.oneOffCents;
+    if (oneOffCents === null) throw new Error("generate: a complete offer has no price");
 
-  // What only the database knows (018's 422s).
-  if (answers.client.contactIds.some((contactId) => !inputs.contacts.some((contact) => contact.id === contactId))) {
-    throw unprocessable("A contact is not one of the company's", { field: "contactIds" }, "contact_not_in_company");
-  }
-  const storage = requireStorage();
-  const { refs, bytes } = await loadAttachments(storage, id, answers.attachmentIds);
-  // The switch (AC-10.1), read once: the pages are the layout service's, or crm-api's own as they always were.
-  const viaService = env.LETTERHEAD_SERVICE_ENABLED;
-  // A stored letterhead is used only once checked in this process: 409 `letterhead_unusable` before any render (DD-76).
-  // With the switch on nothing reads the uploaded letterhead (AC-10.11), so it is neither read nor checked.
-  // No profile row: no letterhead, a plain page (E4).
-  const letterhead = !viaService && inputs.profile?.letterheadKey ? await usableLetterhead(storage, deal.entity, inputs.profile.letterheadKey) : null;
-  const { person } = await loadPeople(c, [userId]);
-  const annex = first.effortAnnex && inputs.estimate ? buildScope(inputs.estimate, { aiAssisted: first.aiAssisted, ...scopeLabels(template.language) }) : null;
+    // What only the database knows (018's 422s).
+    if (answers.client.contactIds.some((contactId) => !inputs.contacts.some((contact) => contact.id === contactId))) {
+      throw unprocessable("A contact is not one of the company's", { field: "contactIds" }, "contact_not_in_company");
+    }
+    const storage = requireStorage();
+    const { refs, bytes } = await loadAttachments(storage, id, answers.attachmentIds);
+    // The switch (AC-10.1), read once: the pages are the layout service's, or crm-api's own as they always were.
+    const viaService = env.LETTERHEAD_SERVICE_ENABLED;
+    // A stored letterhead is used only once checked in this process: 409 `letterhead_unusable` before any render (DD-76).
+    // With the switch on nothing reads the uploaded letterhead (AC-10.11), so it is neither read nor checked.
+    // No profile row: no letterhead, a plain page (E4).
+    const letterhead = !viaService && inputs.profile?.letterheadKey ? await usableLetterhead(storage, deal.entity, inputs.profile.letterheadKey) : null;
+    const { person } = await loadPeople(c, [userId]);
+    const annex = first.effortAnnex && inputs.estimate ? buildScope(inputs.estimate, { aiAssisted: first.aiAssisted, ...scopeLabels(template.language) }) : null;
 
-  const snapshotFor = (reference: string) =>
-    wizardSnapshotOf({
-      template: { id: template.id, name: template.name },
-      templateVersion: row.templateVersion,
-      answers,
-      // The second resolve, with the reference the offer takes: it prints where the template says so (DD-44, DD-52).
-      resolved: resolveOffer(ast, answers, context, { reference }),
-      reference,
-      currency: deal.currency,
-      profile: issuerValuesOf(inputs.issuer, template.language),
-      annex,
-      attachments: refs,
-      preparedBy: person(userId).name,
-    });
-  const render = viaService
-    ? (snapshot: ContractSnapshot) =>
-        renderOfferThroughService(
-          // The preview's own conversion (AC-10.3), with the reference the offer takes and the profile as it is now (AC-10.10).
-          draftToBlocks(
-            { entity: deal.entity, ast, answers, context, annex, reference: snapshot.reference },
-            letterheadProfileOf(inputs.issuer, template.language, inputs.profile?.placeOfIssue ?? null),
-          ).content,
-          { fileNames: refs.map((ref) => ref.fileName), bytes },
-        )
-    : (snapshot: ContractSnapshot) => renderOffer(snapshot, { letterhead, attachmentBytes: bytes });
+    const snapshotFor = (reference: string) =>
+      wizardSnapshotOf({
+        template: { id: template.id, name: template.name },
+        templateVersion: row.templateVersion,
+        answers,
+        // The second resolve, with the reference the offer takes: it prints where the template says so (DD-44, DD-52).
+        resolved: resolveOffer(ast, answers, context, { reference }),
+        reference,
+        currency: deal.currency,
+        profile: issuerValuesOf(inputs.issuer, template.language),
+        annex,
+        attachments: refs,
+        preparedBy: person(userId).name,
+      });
+    const render = viaService
+      ? (snapshot: ContractSnapshot) =>
+          renderOfferThroughService(
+            // The preview's own conversion (AC-10.3), with the reference the offer takes and the profile as it is now (AC-10.10).
+            draftToBlocks(
+              { entity: deal.entity, ast, answers, context, annex, reference: snapshot.reference },
+              letterheadProfileOf(inputs.issuer, template.language, inputs.profile?.placeOfIssue ?? null),
+            ).content,
+            { fileNames: refs.map((ref) => ref.fileName), bytes },
+          )
+      : (snapshot: ContractSnapshot) => renderOffer(snapshot, { letterhead, attachmentBytes: bytes });
 
-  // The object is put inside the transaction: whatever fails after it, the object goes too (ADR § Decision 3).
-  const written: { objectKey: string | null } = { objectKey: null };
-  let created: OfferRow;
-  let replacedKey: string | null = null;
-  try {
-    created = await inOfferTransaction(id, async (tx) => {
-      const newest = await latestOffer(tx, id);
-      let made: OfferRow;
-      if (row.targetKind === "edit") {
-        // Edit: the same row, the same reference, a new PDF — only while it is still the unsent latest the person opened.
-        const target = row.targetOfferId === null ? null : await tx.dealOffer.findUnique({ where: { id: row.targetOfferId } });
-        if (!target || target.deletedAt || target.dealId !== id) throw notFound("Offer not found");
-        if (newest?.id !== target.id) throw conflict("offer_not_latest", "Only the newest version of an offer can be edited", { offerId: target.id });
-        if (target.sentAt) throw conflict("offer_sent", "This offer has been sent: make a new revision instead", { offerId: target.id });
-        if (target.version !== row.targetOfferVersion) {
-          throw conflict("offer_changed", "The offer was changed since this draft was started: discard the draft and start again", { offerId: target.id });
-        }
-        const snapshot = snapshotFor((target.snapshot as unknown as ContractSnapshot).reference);
-        const { pdf, letterheadVersion } = renderedOf(await render(snapshot));
-        const objectKey = `offers/${id}/${crypto.randomUUID()}.pdf`;
-        await storage.putObject(objectKey, pdf, "application/pdf");
-        written.objectKey = objectKey;
-        // Compare-and-set on the offer's version, and never on a sent offer.
-        const changed = await tx.dealOffer.updateMany({
-          where: { id: target.id, version: target.version, sentAt: null, deletedAt: null },
-          data: {
-            language: template.language,
-            priceCents: BigInt(oneOffCents),
-            currency: deal.currency,
-            validityDays: first.validityDays,
-            snapshot: snapshot as unknown as Prisma.InputJsonValue,
-            objectKey,
-            sizeBytes: pdf.byteLength,
-            // The pages were drawn now: with the entity's active letterhead (AC-10.9), or by crm-api (null).
-            letterheadVersion,
-            version: { increment: 1 },
-            updatedBy: userId,
-            updatedAt: issued,
-          },
-        });
-        if (changed.count === 0) throw conflict("offer_changed", "The offer was changed since this draft was started", { offerId: target.id });
-        replacedKey = target.objectKey;
-        made = await tx.dealOffer.findUniqueOrThrow({ where: { id: target.id } });
-      } else {
-        if (row.targetKind === "revision") {
-          // Revision: the sent latest offer stays as it is; a new version follows it.
-          if (newest?.id !== row.targetOfferId) {
-            throw conflict("offer_not_latest", "Only the newest version of an offer can be revised", { offerId: row.targetOfferId });
+    // The object is put inside the transaction: whatever fails after it, the object goes too (ADR § Decision 3).
+    const written: { objectKey: string | null } = { objectKey: null };
+    let created: OfferRow;
+    let replacedKey = null as string | null;
+    try {
+      created = await inOfferTransaction(id, async (tx) => {
+        const newest = await latestOffer(tx, id);
+        let made: OfferRow;
+        if (row.targetKind === "edit") {
+          // Edit: the same row, the same reference, a new PDF — only while it is still the unsent latest the person opened.
+          const target = row.targetOfferId === null ? null : await tx.dealOffer.findUnique({ where: { id: row.targetOfferId } });
+          if (!target || target.deletedAt || target.dealId !== id) throw notFound("Offer not found");
+          if (newest?.id !== target.id) throw conflict("offer_not_latest", "Only the newest version of an offer can be edited", { offerId: target.id });
+          if (target.sentAt) throw conflict("offer_sent", "This offer has been sent: make a new revision instead", { offerId: target.id });
+          if (target.version !== row.targetOfferVersion) {
+            throw conflict("offer_changed", "The offer was changed since this draft was started: discard the draft and start again", { offerId: target.id });
           }
-          if (!newest.sentAt) throw notSent(newest);
-        } else if (blocksRevision(newest)) {
-          throw notSent(newest);
+          const snapshot = snapshotFor((target.snapshot as unknown as ContractSnapshot).reference);
+          const { pdf, letterheadVersion } = renderedOf(await render(snapshot));
+          const objectKey = `offers/${id}/${crypto.randomUUID()}.pdf`;
+          await storage.putObject(objectKey, pdf, "application/pdf");
+          written.objectKey = objectKey;
+          // Compare-and-set on the offer's version, and never on a sent offer.
+          const changed = await tx.dealOffer.updateMany({
+            where: { id: target.id, version: target.version, sentAt: null, deletedAt: null },
+            data: {
+              language: template.language,
+              priceCents: BigInt(oneOffCents),
+              currency: deal.currency,
+              validityDays: first.validityDays,
+              snapshot: snapshot as unknown as Prisma.InputJsonValue,
+              objectKey,
+              sizeBytes: pdf.byteLength,
+              // The pages were drawn now: with the entity's active letterhead (AC-10.9), or by crm-api (null).
+              letterheadVersion,
+              version: { increment: 1 },
+              updatedBy: userId,
+              updatedAt: issued,
+            },
+          });
+          if (changed.count === 0) throw conflict("offer_changed", "The offer was changed since this draft was started", { offerId: target.id });
+          replacedKey = target.objectKey;
+          made = await tx.dealOffer.findUniqueOrThrow({ where: { id: target.id } });
+        } else {
+          if (row.targetKind === "revision") {
+            // Revision: the sent latest offer stays as it is; a new version follows it.
+            if (newest?.id !== row.targetOfferId) {
+              throw conflict("offer_not_latest", "Only the newest version of an offer can be revised", { offerId: row.targetOfferId });
+            }
+            if (!newest.sentAt) throw notSent(newest);
+          } else if (blocksRevision(newest)) {
+            throw notSent(newest);
+          }
+          made = await createOfferVersion(tx, {
+            dealId: id,
+            entity: deal.entity,
+            currency: deal.currency,
+            storage,
+            issued,
+            userId,
+            language: template.language,
+            priceCents: oneOffCents,
+            validityDays: first.validityDays,
+            snapshotFor,
+            render,
+          });
+          written.objectKey = made.objectKey;
         }
-        made = await createOfferVersion(tx, {
-          dealId: id,
-          entity: deal.entity,
-          currency: deal.currency,
-          storage,
-          issued,
-          userId,
-          language: template.language,
-          priceCents: oneOffCents,
-          validityDays: first.validityDays,
-          snapshotFor,
-          render,
-        });
-        written.objectKey = made.objectKey;
-      }
-      // Conditioned on the version that was reviewed: a draft saved since is not consumed (ADR § Decision 2).
-      const removed = await tx.offerDraft.deleteMany({ where: { dealId: id, version: expected } });
-      if (removed.count === 0) throw await staleDraft(id);
-      return made;
-    });
-  } catch (error) {
-    if (written.objectKey) await storage.deleteObject(written.objectKey).catch(() => undefined);
-    throw error;
-  }
+        // Conditioned on the version that was reviewed: a draft saved since is not consumed (ADR § Decision 2).
+        const removed = await tx.offerDraft.deleteMany({ where: { dealId: id, version: expected } });
+        if (removed.count === 0) throw await staleDraft(id);
+        return made;
+      });
+    } catch (error) {
+      if (written.objectKey) await storage.deleteObject(written.objectKey).catch(() => undefined);
+      throw error;
+    }
+    return { created, replacedKey, storage };
+  });
   // The replaced PDF is unreachable now; a failed delete leaves an orphan, never a wrong document.
   if (replacedKey !== null) {
     const previous: string = replacedKey;

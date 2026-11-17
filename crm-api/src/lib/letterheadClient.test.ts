@@ -1,26 +1,28 @@
 /**
  * crm-api's render client for letterhead-api (specs/20261116-letterhead-service T27; AC-10.1, AC-10.6 to AC-10.8; plan
- * § API contracts). The service is a stub `fetch`: no network, no database.
+ * § API contracts; specs/20261117-legal-entities T28: content version 2 with the pin, AC-5.2, AC-6.2). The service is a stub
+ * `fetch`: no network, no database.
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import "../test-support/testAuth";
 import type { LetterheadContent } from "../offers/blocks";
-import { createLetterheadClient, LETTERHEAD_TIMEOUT_MS, type LetterheadClient } from "./letterheadClient";
+import { createLetterheadClient, LegalEntityVersionMismatch, LETTERHEAD_TIMEOUT_MS, type LetterheadClient } from "./letterheadClient";
 import { ProblemError } from "./problem";
 import type { ServiceTokenProvider } from "./serviceToken";
 
 const content: LetterheadContent = {
-  contentVersion: 1,
+  contentVersion: 2,
   entity: "welld_ch",
   language: "it",
-  entityData: { legalName: "wellD Sagl" },
+  legalEntityVersion: 3,
   blocks: [{ type: "paragraph", runs: [{ text: "Gentile cliente SECRET-DOCUMENT-TEXT" }] }],
 };
 
 const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 1, 2, 3]);
 const previewBody = {
   letterheadVersion: 7,
+  legalEntityVersion: 3,
   pageCount: 2,
   missingPlaceholders: ["iban"],
   unprintableCharacters: 0,
@@ -32,7 +34,7 @@ const previewBody = {
 const pdfAnswer = (headers: Record<string, string> = {}): Response =>
   new Response(PDF, {
     status: 200,
-    headers: { "Content-Type": "application/pdf", "Letterhead-Version": "7", "Page-Count": "3", "Missing-Placeholders": "", "Unprintable-Characters": "0", ...headers },
+    headers: { "Content-Type": "application/pdf", "Letterhead-Version": "7", "Legal-Entity-Version": "3", "Page-Count": "3", "Missing-Placeholders": "", "Unprintable-Characters": "0", ...headers },
   });
 const problem = (status: number, code: string, headers: Record<string, string> = {}): Response =>
   new Response(JSON.stringify({ title: "x", status, code, detail: "SECRET-SERVICE-DETAIL" }), { status, headers: { "Content-Type": "application/problem+json", ...headers } });
@@ -126,7 +128,7 @@ describe("the render calls (AC-10.1, AC-10.3)", () => {
     const { client, calls } = harness([pdfAnswer({ "Missing-Placeholders": "iban, vat", "Unprintable-Characters": "2" })]);
     const rendered = await client.pdf(content);
     expect(rendered.bytes).toEqual(PDF);
-    expect(rendered).toMatchObject({ letterheadVersion: 7, pageCount: 3, missingPlaceholders: ["iban", "vat"], unprintableCharacters: 2 });
+    expect(rendered).toMatchObject({ letterheadVersion: 7, legalEntityVersion: 3, pageCount: 3, missingPlaceholders: ["iban", "vat"], unprintableCharacters: 2 });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe("http://letterhead.test/v1/render/pdf");
     expect(calls[0]!.init.method).toBe("POST");
@@ -137,6 +139,25 @@ describe("the render calls (AC-10.1, AC-10.3)", () => {
     // The content as built, and no `letterheadVersion` member unless one was asked for.
     expect(calls[0]!.body).toEqual(JSON.parse(JSON.stringify(content)));
     expect("letterheadVersion" in calls[0]!.body).toBe(false);
+  });
+
+  it("sends content version 2 with the version of the issuer's details it used, and no entityData (AC-5.2)", async () => {
+    const { client, calls } = harness([pdfAnswer(), new Response(JSON.stringify(previewBody), { status: 200 })]);
+    await client.pdf(content);
+    await client.preview(content);
+    for (const call of calls) {
+      expect(call.body["contentVersion"]).toBe(2);
+      expect(call.body["legalEntityVersion"]).toBe(3);
+      expect(call.body).not.toHaveProperty("entityData");
+    }
+  });
+
+  it("a sample that prints nothing of the issuer may go without a pin: the member is not sent and no version is checked", async () => {
+    const { client, calls } = harness([pdfAnswer({ "Legal-Entity-Version": "12" })]);
+    const { legalEntityVersion: _, ...sample } = content;
+    const rendered = await client.pdf(sample);
+    expect(calls[0]!.body).not.toHaveProperty("legalEntityVersion");
+    expect(rendered.legalEntityVersion).toBe(12);
   });
 
   it("names a letterhead version only when asked, and takes the pages a preview asks for", async () => {
@@ -189,6 +210,12 @@ describe("failures are two Problems (AC-10.6, AC-10.7, AC-10.8)", () => {
       [413, "request_too_large", "request_too_large"],
       [422, "invalid_content", "invalid_content"],
       [422, "header_overflow", "header_overflow"],
+      // An old letterhead-api does not know content version 2: the skew fails closed (decision 6).
+      [422, "unsupported_content_version", "unsupported_content_version"],
+      // The service cannot read the registry within its cache rule (AC-5.5): no document, and not the caller's to fix.
+      [503, "legal_entities_unavailable", "legal_entities_unavailable"],
+      // The service's mismatch answer with another status is not the pin's: it is a plain refusal.
+      [422, "legal_entity_version_mismatch", "legal_entity_version_mismatch"],
       [422, "footer_overflow", "footer_overflow"],
       [422, "too_many_pages", "too_many_pages"],
       [500, "internal", undefined],
@@ -304,6 +331,58 @@ describe("failures are two Problems (AC-10.6, AC-10.7, AC-10.8)", () => {
       new Response(new Uint8Array([1, 2, 3, 4, 5, 6]), { status: 200, headers: { "Content-Type": "application/pdf", "Letterhead-Version": "7", "Page-Count": "1", "Unprintable-Characters": "0" } }),
     ];
     for (const answer of bad) expect((await refusal(harness([answer]).client.pdf(content))).code).toBe("layout_service_unavailable");
+  });
+});
+
+describe("the pin on the issuer's details (decision 8, AC-6.2)", () => {
+  const mismatch = (extra: Record<string, unknown> = { currentVersion: 4 }) =>
+    new Response(JSON.stringify({ title: "x", status: 409, code: "legal_entity_version_mismatch", detail: "SECRET-SERVICE-DETAIL", ...extra }), {
+      status: 409,
+      headers: { "Content-Type": "application/problem+json" },
+    });
+
+  it("409 legal_entity_version_mismatch is a LegalEntityVersionMismatch: the service's version is kept, it is a 503 layout_service_unavailable for a caller that does not retry, and it is not retried here", async () => {
+    for (const call of [(client: LetterheadClient) => client.pdf(content), (client: LetterheadClient) => client.preview(content)]) {
+      const { client, calls } = harness([mismatch(), pdfAnswer()]);
+      const error = await refusal(call(client));
+      expect(error).toBeInstanceOf(LegalEntityVersionMismatch);
+      expect((error as LegalEntityVersionMismatch).currentVersion).toBe(4);
+      expect([error.status, error.code]).toEqual([503, "layout_service_unavailable"]);
+      expect(error.extras).toEqual({ reason: "legal_entity_version_mismatch" });
+      expect(calls).toHaveLength(1);
+      expectNoLeak(error);
+    }
+  });
+
+  it("the current version is kept only when it is a positive whole number", async () => {
+    for (const extra of [{}, { currentVersion: "4" }, { currentVersion: 0 }, { currentVersion: 1.5 }]) {
+      const error = await refusal(harness([mismatch(extra)]).client.pdf(content));
+      expect(error).toBeInstanceOf(LegalEntityVersionMismatch);
+      expect((error as LegalEntityVersionMismatch).currentVersion).toBeNull();
+    }
+  });
+
+  it("503 legal_entities_unavailable (with Retry-After) is the plain unavailable answer, never retried and never a mismatch", async () => {
+    const { client, calls, slept } = harness([problem(503, "legal_entities_unavailable", { "Retry-After": "5" }), pdfAnswer()]);
+    const error = await refusal(client.pdf(content));
+    expect(error).not.toBeInstanceOf(LegalEntityVersionMismatch);
+    expect([error.status, error.code, error.extras]).toEqual([503, "layout_service_unavailable", { reason: "legal_entities_unavailable" }]);
+    expect(calls).toHaveLength(1);
+    expect(slept).toEqual([]);
+  });
+
+  it("an answer that does not name the pinned version is not usable: one PDF never mixes two versions of the details", async () => {
+    const wrongBody = { ...previewBody, legalEntityVersion: 2 };
+    const { legalEntityVersion: _, ...bodyWithout } = previewBody;
+    for (const body of [wrongBody, bodyWithout, { ...previewBody, legalEntityVersion: 0 }]) {
+      const error = await refusal(harness([new Response(JSON.stringify(body), { status: 200 })]).client.preview(content));
+      expect([error.status, error.code]).toEqual([503, "layout_service_unavailable"]);
+    }
+    for (const headers of [{ "Legal-Entity-Version": "2" }, { "Legal-Entity-Version": "" }, { "Legal-Entity-Version": "0" }, { "Legal-Entity-Version": "three" }]) {
+      expect((await refusal(harness([pdfAnswer(headers)]).client.pdf(content))).code).toBe("layout_service_unavailable");
+    }
+    const missing = new Response(PDF, { status: 200, headers: { "Content-Type": "application/pdf", "Letterhead-Version": "7", "Page-Count": "3", "Unprintable-Characters": "0" } });
+    expect((await refusal(harness([missing]).client.pdf(content))).code).toBe("layout_service_unavailable");
   });
 });
 

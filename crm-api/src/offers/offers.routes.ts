@@ -67,6 +67,7 @@ import {
   offerOrigin,
   prepareOffer,
   referenceFileName,
+  withIssuerPin,
   renderOffer,
   renderOfferThroughService,
   renderedOf,
@@ -364,28 +365,34 @@ offersRouter.openapi(generateRoute, async (c) => {
   const userId = c.get("userId");
   const latest = await latestOffer(db, id);
   if (blocksRevision(latest)) throw notSent(latest);
-  const prepared = await prepareOffer(c, dealScope(c), id, body);
-  const { deal } = prepared;
-  const issued = new Date();
-  const render = rendererOf(prepared);
+  // The pin of the issuer's details (AC-6.2, decision 8): the registry is read, the snapshot built and the service called inside, so a
+  // `legal_entity_version_mismatch` rolls the transaction back (no number, nothing stored) and everything is built again, once.
+  const { created, deal } = await withIssuerPin(async () => {
+    const prepared = await prepareOffer(c, dealScope(c), id, body);
+    const { deal } = prepared;
+    const issued = new Date();
+    const render = rendererOf(prepared);
 
-  const created = await inOfferTransaction(id, async (tx) => {
-    const newest = await latestOffer(tx, id);
-    if (blocksRevision(newest)) throw notSent(newest);
-    return createOfferVersion(tx, {
-      dealId: id,
-      entity: deal.entity,
-      currency: deal.currency,
-      storage: prepared.storage,
-      issued,
-      userId,
-      language: prepared.language,
-      priceCents: prepared.costs.oneOffCents,
-      validityDays: body.validityDays,
-      snapshotFor: (reference) => snapshotOf(prepared, body, reference, issued),
-      render,
+    const created = await inOfferTransaction(id, async (tx) => {
+      const newest = await latestOffer(tx, id);
+      if (blocksRevision(newest)) throw notSent(newest);
+      return createOfferVersion(tx, {
+        dealId: id,
+        entity: deal.entity,
+        currency: deal.currency,
+        storage: prepared.storage,
+        issued,
+        userId,
+        language: prepared.language,
+        priceCents: prepared.costs.oneOffCents,
+        validityDays: body.validityDays,
+        snapshotFor: (reference) => snapshotOf(prepared, body, reference, issued),
+        render,
+      });
     });
+    return { created, deal };
   });
+
   const [view] = await toViews(c, [created]);
   // E9 — the owner learns an offer exists (no figure in it, AC-1.2).
   await announce(c, {
@@ -476,52 +483,56 @@ offersRouter.openapi(editRoute, async (c) => {
   if (offer.sentAt) {
     throw conflict("offer_sent", "This offer has been sent: make a new revision instead", { offerId });
   }
-  const prepared = await prepareOffer(c, dealScope(c), id, body);
-  const issued = new Date();
   const previousKey = offer.objectKey;
-  const render = rendererOf(prepared);
+  // The pin of the issuer's details (AC-6.2, decision 8): as in the generation, everything that reads the registry is inside.
+  const { updated, storage } = await withIssuerPin(async () => {
+    const prepared = await prepareOffer(c, dealScope(c), id, body);
+    const issued = new Date();
+    const render = rendererOf(prepared);
 
-  const updated = await inOfferTransaction(
-    id,
-    async (tx) => {
-      const newest = await latestOffer(tx, id);
-      if (newest?.id !== offerId) {
-        throw conflict("offer_not_latest", "Only the newest version of an offer can be edited", { offerId });
-      }
-      const reference = (offer.snapshot as unknown as ContractSnapshot).reference;
-      const snapshot = snapshotOf(prepared, body, reference, issued);
-      const { pdf, letterheadVersion } = renderedOf(await render(snapshot));
-      const objectKey = `offers/${id}/${crypto.randomUUID()}.pdf`;
-      await prepared.storage.putObject(objectKey, pdf, "application/pdf");
-      // Compare-and-set on the version, and never on a sent offer.
-      const changed = await tx.dealOffer.updateMany({
-        where: { id: offerId, version: expected, sentAt: null, deletedAt: null },
-        data: {
-          language: prepared.language,
-          priceCents: BigInt(prepared.costs.oneOffCents),
-          currency: prepared.deal.currency,
-          validityDays: body.validityDays,
-          snapshot: snapshot as unknown as object,
-          objectKey,
-          sizeBytes: pdf.byteLength,
-          // The version of the letterhead this PDF was drawn with, or null when crm-api drew it (AC-10.2).
-          letterheadVersion,
-          version: { increment: 1 },
-          updatedBy: userId,
-          updatedAt: issued,
-        },
-      });
-      if (changed.count === 0) {
-        await prepared.storage.deleteObject(objectKey).catch(() => undefined);
-        const now = await tx.dealOffer.findUnique({ where: { id: offerId }, select: { version: true, sentAt: true } });
-        if (now?.sentAt) throw conflict("offer_sent", "This offer has been sent: make a new revision instead", { offerId });
-        throw versionConflict(now?.version ?? expected);
-      }
-      return tx.dealOffer.findUniqueOrThrow({ where: { id: offerId } });
-    },
-  );
+    const updated = await inOfferTransaction(
+      id,
+      async (tx) => {
+        const newest = await latestOffer(tx, id);
+        if (newest?.id !== offerId) {
+          throw conflict("offer_not_latest", "Only the newest version of an offer can be edited", { offerId });
+        }
+        const reference = (offer.snapshot as unknown as ContractSnapshot).reference;
+        const snapshot = snapshotOf(prepared, body, reference, issued);
+        const { pdf, letterheadVersion } = renderedOf(await render(snapshot));
+        const objectKey = `offers/${id}/${crypto.randomUUID()}.pdf`;
+        await prepared.storage.putObject(objectKey, pdf, "application/pdf");
+        // Compare-and-set on the version, and never on a sent offer.
+        const changed = await tx.dealOffer.updateMany({
+          where: { id: offerId, version: expected, sentAt: null, deletedAt: null },
+          data: {
+            language: prepared.language,
+            priceCents: BigInt(prepared.costs.oneOffCents),
+            currency: prepared.deal.currency,
+            validityDays: body.validityDays,
+            snapshot: snapshot as unknown as object,
+            objectKey,
+            sizeBytes: pdf.byteLength,
+            // The version of the letterhead this PDF was drawn with, or null when crm-api drew it (AC-10.2).
+            letterheadVersion,
+            version: { increment: 1 },
+            updatedBy: userId,
+            updatedAt: issued,
+          },
+        });
+        if (changed.count === 0) {
+          await prepared.storage.deleteObject(objectKey).catch(() => undefined);
+          const now = await tx.dealOffer.findUnique({ where: { id: offerId }, select: { version: true, sentAt: true } });
+          if (now?.sentAt) throw conflict("offer_sent", "This offer has been sent: make a new revision instead", { offerId });
+          throw versionConflict(now?.version ?? expected);
+        }
+        return tx.dealOffer.findUniqueOrThrow({ where: { id: offerId } });
+      },
+    );
+    return { updated, storage: prepared.storage };
+  });
   // The old PDF is unreachable now; a failed delete leaves an orphan, never a wrong document.
-  await prepared.storage.deleteObject(previousKey).catch((error: unknown) => {
+  await storage.deleteObject(previousKey).catch((error: unknown) => {
     console.error("[offers] could not delete the replaced PDF:", previousKey, error instanceof Error ? error.message : error);
   });
   const [view] = await toViews(c, [updated]);

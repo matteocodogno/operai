@@ -23,7 +23,7 @@ import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { getEstimate, type EstimateDocument } from "../lib/estimai";
 import type { Prisma } from "../lib/generated/prisma/client";
-import { LAYOUT_SERVICE_UNAVAILABLE, LETTERHEAD_TIMEOUT_MS, letterhead } from "../lib/letterheadClient";
+import { LAYOUT_SERVICE_UNAVAILABLE, LETTERHEAD_TIMEOUT_MS, LegalEntityVersionMismatch, letterhead } from "../lib/letterheadClient";
 import {
   LEGAL_ENTITIES_RETRY_AFTER_SECONDS,
   LEGAL_ENTITIES_UNAVAILABLE,
@@ -207,9 +207,37 @@ const issuerPrintOf = ({ legalName, addressLines, vatNumber, iban }: IssuerPrint
   iban,
 });
 
-/** The issuer as the layout service's content takes it (`entityData`), with the CRM's place of issue where the row has one. */
+/**
+ * What the layout service's content needs of the issuer: the version of the registry's details it is built from (the pin the
+ * service checks), and, for a template with no deal, the legal name and address its body prints. The service prints the frame
+ * (header, footer) from the registry itself: no value of the issuer is sent to it. `placeOfIssue` is the CRM's own where the row
+ * has one.
+ */
 export function letterheadProfileOf(details: LegalEntityDetails, language: OfferLanguage, placeOfIssue: string | null = null): LetterheadProfile {
-  return { ...issuerPrintOf(issuerValuesOf(details, language)), placeOfIssue };
+  const issuer = issuerValuesOf(details, language);
+  return { legalName: issuer.legalName, addressLines: [...issuer.addressLines], placeOfIssue, legalEntityVersion: issuer.legalEntityVersion };
+}
+
+/**
+ * Runs `run`, which reads the registry, builds the document and the snapshot beside it, and calls the layout service, with the
+ * pin of plan decision 8 (AC-6.2): when the service answers 409 `legal_entity_version_mismatch` (it prints a version other than
+ * the one `run` built from; its own copy was refreshed once already), the registry's cache is dropped and `run` is called ONCE
+ * more, so it reads the details again and rebuilds everything from them. One PDF never mixes two versions of the details, and
+ * the snapshot the offer stores is made from the same details as the pages.
+ *
+ * `run` must be restartable: nothing it did before the service answered may outlive it (the transaction of an offer is rolled
+ * back by the throw, so no number is consumed and nothing is stored). A second mismatch is the client's own 503
+ * `layout_service_unavailable`; every other failure, a refusal of the rebuilt document included, goes out as it is.
+ */
+export async function withIssuerPin<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!(error instanceof LegalEntityVersionMismatch)) throw error;
+    console.warn(`[offers] legal_entity_version_mismatch (the service holds version ${error.currentVersion ?? "unknown"}): registry cache dropped, retrying once`);
+    legalEntities.invalidate();
+    return run();
+  }
 }
 
 const isUnreadable = (error: unknown): error is Error & { fileName?: string } =>

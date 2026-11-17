@@ -17,10 +17,23 @@
  * The same cases are run through it here, against the same golden entries: it draws the page with the same renderer
  * (`renderContractPdf`, `plainLetterhead`), so the header, the footer and the Author must be the golden's; a legacy template has
  * no `[EMITTENTE]` / `[INDIRIZZO]` field, only `{issuer}` (the legal name) in its opening, which is checked against the golden's
- * name. The service path (switch on) is T28's.
+ * name.
+ *
+ * THE SERVICE PATH (switch on; specs/20261117-legal-entities T28, AC-5.2, AC-6.2, AC-7.5): the golden's `service` entries record what
+ * crm-api used to SEND to the layout service (`entityData` and the body lines). Now crm-api sends neither the details nor a version-1
+ * content: it sends content version 2, pinned by `legalEntityVersion`, and the service prints the registry's details itself
+ * (letterhead-api `registry::entity_data`: the legal name, `address[language]`, the VAT number and `ibanPrint`, verbatim). So the
+ * comparison is of what the service WOULD print: a stub letterhead-api (a `fetch` behind the real client) holds the same registry
+ * details as the fake registry, answers a pin that is not their version with the contract's 409, and for a pinned request computes
+ * `entity_data` the way the Rust function does. That, and the body lines of the very request the stub received, are compared with the
+ * golden's `service.entityData` and `service.body`. The one allowed difference is the same as the classic path's: the IBAN in groups
+ * of four where the fixture says `ibanPrintChanged` (the golden recorded the typed text; the registry prints `ibanPrint`). Nothing
+ * else differs, for every complete case and both languages; in particular the service no longer folds line breaks or drops blank
+ * address lines itself (the old `entityDataOf` did), because the move normalised them before they reached the registry: the
+ * fixture's `expect` values are what both sides use, and the golden's service values equal them.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { PDFArray, PDFDocument, PDFRawStream, decodePDFRawStream } from "pdf-lib";
@@ -28,11 +41,14 @@ import { PDFArray, PDFDocument, PDFRawStream, decodePDFRawStream } from "pdf-lib
 import { bucket, call, db, makeReadyDeal, makeWizardTemplate, offerBody, registry, resetWorld } from "../test-support/world";
 import { completeEntity } from "../test-support/fakeRegistry";
 import { env } from "../lib/env";
+import { LETTERHEAD_TIMEOUT_MS, createLetterheadClient, letterhead } from "../lib/letterheadClient";
+import type { LegalEntityDetails } from "../lib/legalEntities";
+import type { ServiceTokenProvider } from "../lib/serviceToken";
 import fixture from "../../../specs/20261117-legal-entities/fixtures/crm-entity-profiles.json";
 import { FRAME } from "./paper";
 
 const GOLDEN = JSON.parse(readFileSync(join(import.meta.dir, "../../../specs/20261117-legal-entities/fixtures/issuer-lines.golden.json"), "utf8")) as {
-  cases: { name: string; entity: Entity; languages: Record<Language, { classic: Classic }> }[];
+  cases: { name: string; entity: Entity; languages: Record<Language, { classic: Classic; service: Service }> }[];
 };
 
 type Entity = "welld_ch" | "welld_it";
@@ -44,6 +60,11 @@ interface Classic {
   readonly footer: string;
   readonly body: string[];
   readonly author: string;
+}
+/** What crm-api used to send the layout service, and what the service printed from it (the golden's `service`). */
+interface Service {
+  readonly entityData: { legalName: string; addressLines: string[]; vat?: string; iban?: string };
+  readonly body: string[];
 }
 interface FixtureCase {
   readonly name: string;
@@ -169,8 +190,8 @@ const storedOffer = async (dealId: string) => {
   return { row: row!, pdf: await PDFDocument.load(bucket.objects.get(row!.objectKey)!.bytes!) };
 };
 
-/** One wizard offer, as the people make it. */
-async function wizardOffer(c: FixtureCase, language: Language) {
+/** One wizard offer, as the people make it, and what was stored. */
+async function generatedWizardOffer(c: FixtureCase, language: Language) {
   await putTerms(c.entity);
   const { deal } = await makeReadyDeal({ entity: c.entity });
   const template = await makeWizardTemplate({ entity: c.entity, language, name: `Golden ${language}`, source: source(language) });
@@ -178,7 +199,12 @@ async function wizardOffer(c: FixtureCase, language: Language) {
   if (created.status !== 201) throw new Error(`draft: ${created.status} ${JSON.stringify(created.json)}`);
   const generated = await call("POST", `/deals/${deal.id}/offer-draft/generate`, { ifMatch: created.json.version });
   if (generated.status !== 201) throw new Error(`generate: ${generated.status} ${JSON.stringify(generated.json)}`);
-  const { row, pdf } = await storedOffer(deal.id);
+  return storedOffer(deal.id);
+}
+
+/** One wizard offer through the classic renderer, read back. */
+async function wizardOffer(c: FixtureCase, language: Language) {
+  const { row, pdf } = await generatedWizardOffer(c, language);
   return { row, classic: classicOf(pdf, true) };
 }
 
@@ -208,11 +234,12 @@ function expectedOf(c: FixtureCase, golden: Classic): Classic {
   return { ...golden, footer: golden.footer.replace(` IBAN ${typed}`, ` IBAN ${printed}`) };
 }
 
-const goldenOf = (name: string, language: Language) => {
+const goldenEntryOf = (name: string, language: Language) => {
   const entry = GOLDEN.cases.find((g) => g.name === name);
   if (!entry) throw new Error(`the golden has no case ${name}`);
-  return entry.languages[language].classic;
+  return entry.languages[language];
 };
+const goldenOf = (name: string, language: Language) => goldenEntryOf(name, language).classic;
 
 describe("the golden covers what the fixture's complete cases are", () => {
   it("has exactly the complete cases, and the IBAN differs only where the fixture says it does", () => {
@@ -304,4 +331,122 @@ describe("an English offer prints address.en, an Italian one address.it (AC-6.2)
       if (name === "wizard") expect(it.classic.body).toEqual([`Emittente: ${c.expect.legalName} / ${c.expect.address.join(", ")}`]);
     });
   }
+});
+
+// ─── The service path (specs/20261117-legal-entities T28) ───────────────────────────────────────────────────────────
+
+type Run = { text?: string };
+type Block = { type: string; runs?: Run[] };
+
+/** The paragraphs between the two markers of a request's blocks, each as its text. */
+function bodyLinesOf(blocks: Block[]): string[] {
+  const texts = blocks.map((block) => (block.type === "paragraph" ? (block.runs ?? []).map((r) => r.text ?? "").join("") : null));
+  const from = texts.indexOf(BEGIN);
+  const to = texts.indexOf(END);
+  if (from < 0 || to < from) throw new Error("the issuer markers are not in the request");
+  return texts.slice(from + 1, to).filter((text): text is string => text !== null && text !== "");
+}
+
+/**
+ * What letterhead-api prints of the issuer for a document in `language` (letterhead-api/api/src/registry/mod.rs `entity_data`): the
+ * registry's values, verbatim. Written here from the Rust function, not from crm-api's code.
+ */
+const printedBy = (details: LegalEntityDetails, language: Language) => ({
+  legalName: details.legalName,
+  addressLines: [...details.address[language]],
+  vat: details.vatNumber,
+  iban: details.ibanPrint,
+});
+
+/** What the stub service was asked, and what it would have printed for each request. */
+const asked: { body: any; printed: ReturnType<typeof printedBy> }[] = [];
+let stub: { mockRestore(): void } | null = null;
+
+async function stubPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.addPage([595.28, 841.89]);
+  return doc.save({ useObjectStreams: false });
+}
+
+/** A letterhead-api behind the real client: it holds the registry's details, refuses another pin, and notes what it would print. */
+function installStubService(): void {
+  asked.length = 0;
+  const tokens: ServiceTokenProvider = { getToken: async () => "svc-token", invalidate() {} };
+  stub = spyOn(letterhead, "pdf").mockImplementation((content, options) =>
+    createLetterheadClient({
+      baseUrl: "http://letterhead.test",
+      tokens,
+      timeoutMs: LETTERHEAD_TIMEOUT_MS,
+      sleep: async () => {},
+      fetchImpl: (async (_url: unknown, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        const held = await registry.get(body.entity);
+        if (body.legalEntityVersion !== held.version) {
+          return new Response(JSON.stringify({ status: 409, code: "legal_entity_version_mismatch", currentVersion: held.version }), {
+            status: 409,
+            headers: { "Content-Type": "application/problem+json" },
+          });
+        }
+        asked.push({ body, printed: printedBy(held, body.language) });
+        return new Response(await stubPdf(), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf",
+            "Letterhead-Version": "1",
+            "Legal-Entity-Version": String(held.version),
+            "Page-Count": "1",
+            "Unprintable-Characters": "0",
+          },
+        });
+      }) as typeof fetch,
+    }).pdf(content, options),
+  );
+}
+
+describe("a wizard offer through the layout service prints the golden's issuer (switch on; AC-5.2, AC-6.2, AC-7.5, D2)", () => {
+  beforeEach(async () => {
+    await resetWorld();
+    env.LETTERHEAD_SERVICE_ENABLED = true;
+    installStubService();
+  });
+  afterEach(() => {
+    stub?.mockRestore();
+    stub = null;
+  });
+
+  for (const c of cases) {
+    for (const language of LANGUAGES) {
+      it(`${c.name} / ${language}`, async () => {
+        seed(c);
+        const { row } = await generatedWizardOffer(c, language);
+        expect(asked).toHaveLength(1);
+        const { body, printed } = asked[0]!;
+        const golden = goldenEntryOf(c.name, language).service;
+
+        // What crm-api sends: content version 2, the registry's version as the pin, and no issuer value at all.
+        expect(body).toMatchObject({ contentVersion: 2, entity: c.entity, language, legalEntityVersion: VERSION });
+        expect(body).not.toHaveProperty("entityData");
+        expect(JSON.stringify(body.blocks)).not.toContain(c.expect.iban);
+        // The body's own issuer lines (`[EMITTENTE]` / `[INDIRIZZO]`) are the golden's, exactly: they carry no IBAN.
+        expect(bodyLinesOf(body.blocks)).toEqual(golden.body);
+
+        // What the service prints of the issuer: the golden's, with the IBAN in groups of four where (and only where) the fixture says so.
+        const typed = golden.entityData.iban;
+        expect(typed).toBeDefined();
+        expect(typed !== groupsOfFour(c.expect.iban)).toBe(c.expect.ibanPrintChanged);
+        expect(printed as Record<string, unknown>).toEqual({ ...golden.entityData, iban: groupsOfFour(c.expect.iban) });
+
+        // The snapshot beside the PDF is the same details at the same version.
+        const snapshot = row.snapshot as any;
+        expect(snapshot.issuer).toEqual({ legalName: c.expect.legalName, addressLines: c.expect.address, vatNumber: c.expect.vatNumber, iban: groupsOfFour(c.expect.iban) });
+        expect(snapshot.legalEntityVersion).toBe(VERSION);
+      });
+    }
+  }
+
+  it("the allowed IBAN difference is exactly the fixture's list: the golden's typed text differs from the groups of four only for the flagged case", () => {
+    const differing = cases.filter((c) => LANGUAGES.some((language) => goldenEntryOf(c.name, language).service.entityData.iban !== groupsOfFour(c.expect.iban))).map((c) => c.name);
+    expect(differing).toEqual(cases.filter((c) => c.expect.ibanPrintChanged).map((c) => c.name));
+    expect(differing).toEqual(["iban-spaces-lower-case"]);
+  });
 });

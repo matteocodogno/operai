@@ -28,9 +28,21 @@
  *
  *   What the service must hold: an ACTIVE letterhead for BOTH `welld_ch` and `welld_it` (a local one is seeded with
  *   `letterhead-api/perf/seed-local.ts`, which seeds `welld_it`; a version for `welld_ch` is the same script with the entity
- *   changed). The first test names what is missing. Nothing here writes to the service: it only renders.
+ *   changed), and the means to read the issuer's details itself (specs/20261117-legal-entities T28: the compose service has its
+ *   own client at `auth` and reads `GET /system/legal-entities`, so `auth` must be running with the entities moved: a service
+ *   that cannot read them answers 503 `legal_entities_unavailable`, which the first tests name). The first test names what is
+ *   missing. Nothing here writes to the service: it only renders.
+ *
+ *   The registry of crm-api's side is the test world's fake (`registry`). The service reads auth's own, whose version this test
+ *   does not choose, so before each test the fake is set to the version the SERVICE holds, which the service itself tells: a pin
+ *   no registry holds is answered 409 `legal_entity_version_mismatch` with `currentVersion` (`aligned`). The details the fake holds
+ *   are the world's, not auth's: the body prints the world's issuer and the frame the service's, which no assertion here compares.
  *
  * ── What it proves ──────────────────────────────────────────────────────────────────────────────────────────────────
+ *
+ *   Content version 2 (no `entityData`, pinned by `legalEntityVersion`): the answers name the version the service printed, and
+ *   a pin that is not the one in use is the 409 the client turns into `LegalEntityVersionMismatch` (the retry of AC-6.2 is
+ *   proved in `generation.letterhead.test.ts`, with a stub service that can be told to mismatch).
  *
  *   For an Italian offer (the seeded wizard template "Progetto a corpo", welld_ch), an English one (welld_it) and an Italian one
  *   with two appended deal PDFs (the seeded "Manutenzione e SLA"), taken through the real routes:
@@ -57,9 +69,9 @@ import { join } from "node:path";
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, StandardFonts, decodePDFRawStream, type PDFObject } from "pdf-lib";
 import { SignJWT, exportJWK, generateKeyPair, importJWK, type JWK } from "jose";
 // The test world first: it sets the environment the other modules read when they load.
-import { bucket, call, db, insertOfferRow, makeDraftTemplate, makeReadyDeal, readyDealWithProfiles, resetWorld, storedPdfAttachment } from "../test-support/world";
+import { bucket, call, db, insertOfferRow, makeDraftTemplate, makeReadyDeal, readyDealWithProfiles, registry, resetWorld, storedPdfAttachment, worldIssuer } from "../test-support/world";
 import { env } from "../lib/env";
-import { createLetterheadClient, letterhead, type LetterheadClient, type PreviewAnswer, type RenderedPdf } from "../lib/letterheadClient";
+import { createLetterheadClient, letterhead, LegalEntityVersionMismatch, type LetterheadClient, type PreviewAnswer, type RenderedPdf } from "../lib/letterheadClient";
 import type { LetterheadContent } from "./blocks";
 import { parseTemplate } from "./engine/syntax";
 
@@ -431,12 +443,50 @@ function defineContract(url: string): void {
     if (report.length > 0) console.log(`\n[letterhead contract] ${url}\n${report.join("\n")}\n`);
   });
 
+  type IssuerEntity = "welld_ch" | "welld_it";
+  /** The version of the issuer's details each entity has AT THE SERVICE, learned once from its own 409 (see the header). */
+  let held: Record<IssuerEntity, number> | null = null;
+
+  /** A pin no registry holds (the largest the service accepts): the service answers with the version it prints. */
+  async function serviceIssuerVersions(): Promise<Record<IssuerEntity, number>> {
+    if (held !== null) return held;
+    const found = {} as Record<IssuerEntity, number>;
+    for (const entity of ["welld_ch", "welld_it"] as const) {
+      const probe: LetterheadContent = { contentVersion: 2, entity, language: "it", legalEntityVersion: 2_147_483_647, blocks: [{ type: "paragraph", runs: [{ text: "Which version of the issuer's details do you print?" }] }] };
+      try {
+        await real.preview(probe, { pages: [1] });
+        throw new Error(`the service printed ${entity} for the pin 2147483647: it does not check the pin`);
+      } catch (error) {
+        if (!(error instanceof LegalEntityVersionMismatch)) {
+          const reason = error instanceof Error && "extras" in error ? JSON.stringify((error as { extras: unknown }).extras) : String(error);
+          throw new Error(
+            `the service did not say which version of the issuer's details it holds for ${entity} (${reason}): it must read them itself, so auth must be running with the legal entities moved and the service's own client configured (see the header)`,
+          );
+        }
+        if (error.currentVersion === null) throw new Error(`the service's 409 for ${entity} did not name the version in use`);
+        found[entity] = error.currentVersion;
+      }
+    }
+    held = found;
+    return found;
+  }
+
+  /** The fake registry of crm-api's side at the versions the service holds: the pin of every document of a test is the service's. */
+  async function alignRegistry(): Promise<void> {
+    // The first test proves the service is reachable and says what is missing; until it has passed there is nothing to ask.
+    if (Object.keys(active).length === 0) return;
+    const versions = await serviceIssuerVersions();
+    for (const entity of ["welld_ch", "welld_it"] as const) registry.set({ ...worldIssuer(entity), version: versions[entity] });
+  }
+
   beforeEach(async () => {
     await resetWorld();
     traffic.length = 0;
     seen.previews.length = 0;
     seen.pdfs.length = 0;
     env.LETTERHEAD_SERVICE_ENABLED = true;
+    await alignRegistry();
+    traffic.length = 0;
   });
 
   afterEach(() => {
@@ -619,7 +669,7 @@ function defineContract(url: string): void {
     if (options.pendingReference) expect(references).toBeGreaterThanOrEqual(1);
     else expect(fromPdf.join("\n")).toContain(reference);
 
-    // the missing placeholders: what crm-api sends is consumed under the names the service knows (AC-10.10); `contacts` is not sent (AC-10.10 lists four)
+    // the missing placeholders: the service prints the issuer from its own registry (AC-5.1), so what it consumes is the registry's, not the request's
     expect(sent.answer.missingPlaceholders).toEqual(pv.missingPlaceholders);
     for (const name of ["legal_name", "address", "vat", "iban"]) expect(pv.missingPlaceholders).not.toContain(name);
 
@@ -630,7 +680,16 @@ function defineContract(url: string): void {
     } else {
       expect(JSON.stringify(sent.content)).toBe(JSON.stringify(previewed.content));
     }
-    expect(sent.content.entityData).toEqual(previewed.content.entityData);
+    // content version 2: no `entityData`, and the pin is the version of the details the service printed, in the preview and in the PDF
+    for (const content of [sent.content, previewed.content]) {
+      expect(content.contentVersion).toBe(2);
+      expect(content).not.toHaveProperty("entityData");
+      expect(content.legalEntityVersion).toBe(held![s.entity]);
+    }
+    expect(sent.answer.legalEntityVersion).toBe(held![s.entity]);
+    expect(previewed.answer.legalEntityVersion).toBe(held![s.entity]);
+    expect(again.legalEntityVersion).toBe(held![s.entity]);
+    expect((row.snapshot as any).legalEntityVersion).toBe(held![s.entity]);
     expect(sent.content.language).toBe(s.language);
     expect(sent.content.entity).toBe(s.entity);
 
@@ -686,6 +745,34 @@ function defineContract(url: string): void {
       active = (await res.json()) as typeof active;
       for (const entity of ["welld_ch", "welld_it"]) {
         expect(active[entity], `the service has no active letterhead for ${entity}: seed one (letterhead-api/perf/seed-local.ts) before running this test`).not.toBeNull();
+      }
+    });
+
+    it("renders content version 2 pinned to the issuer's details: both entities answer the version they hold, in the preview and in the PDF, and another pin is the 409 with the version in use (AC-5.2, AC-6.2)", async () => {
+      for (const entity of ["welld_ch", "welld_it"] as const) {
+        const version = held![entity];
+        const content: LetterheadContent = { contentVersion: 2, entity, language: "it", legalEntityVersion: version, blocks: [{ type: "paragraph", runs: [{ text: "Pin check" }] }] };
+        const previewed = await real.preview(content, { pages: [1] });
+        expect(previewed.legalEntityVersion).toBe(version);
+        expect(previewed.letterheadVersion).toBe(active[entity]!.activeVersion);
+        const pdf = await real.pdf(content);
+        expect(pdf.legalEntityVersion).toBe(version);
+        expect(pdf.letterheadVersion).toBe(active[entity]!.activeVersion);
+        // the service reads the issuer itself: with no `entityData` the four values of the frame are not missing
+        expect(previewed.missingPlaceholders).not.toContain("legal_name");
+        expect(previewed.missingPlaceholders).not.toContain("iban");
+
+        for (const wrong of [version + 1, version + 2]) {
+          const refused = await real.pdf({ ...content, legalEntityVersion: wrong }).then(
+            () => null,
+            (error: unknown) => error,
+          );
+          expect(refused, `a pin of ${wrong} for ${entity}`).toBeInstanceOf(LegalEntityVersionMismatch);
+          expect((refused as LegalEntityVersionMismatch).currentVersion).toBe(version);
+        }
+        // a request with no pin prints whatever the service holds (a sample that prints nothing of the issuer)
+        const { legalEntityVersion: _unpinned, ...bare } = content;
+        expect((await real.preview(bare, { pages: [1] })).legalEntityVersion).toBe(version);
       }
     });
 

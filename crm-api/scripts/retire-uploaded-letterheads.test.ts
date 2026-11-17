@@ -304,7 +304,7 @@ describe("the render pre-check (security review F10)", () => {
     const pdf = (status = 200, headers: Record<string, string> = {}) =>
       new Response("%PDF-1.7 sample", {
         status,
-        headers: { "Content-Type": "application/pdf", "Letterhead-Version": "3", "Page-Count": "1", "Unprintable-Characters": "0", ...headers },
+        headers: { "Content-Type": "application/pdf", "Letterhead-Version": "3", "Legal-Entity-Version": "5", "Page-Count": "1", "Unprintable-Characters": "0", ...headers },
       });
     const clientAnswering = (answer: () => Response) =>
       createLetterheadClient({
@@ -324,17 +324,20 @@ describe("the render pre-check (security review F10)", () => {
       ["/v1/render/pdf", "welld_ch", "Bearer svc-token"],
       ["/v1/render/pdf", "welld_it", "Bearer svc-token"],
     ]);
-    // small: one heading and one line, no profile text, no letterhead version pinned
+    // small: one heading and one line, no issuer text, no letterhead version pinned, and no issuer version either (it prints nothing of it)
     expect(sent[0]!.body).toEqual(sampleContent("welld_ch"));
     expect(sent[0]!.body.blocks).toHaveLength(2);
     expect(sent[0]!.body.letterheadVersion).toBeUndefined();
+    expect(sent[0]!.body.contentVersion).toBe(2);
+    expect(sent[0]!.body).not.toHaveProperty("entityData");
+    expect(sent[0]!.body).not.toHaveProperty("legalEntityVersion");
 
     // the second entity keeps its letterhead while every bad answer is tried
     const it = (await profile("welld_it", true))!;
     sent.length = 0;
     bucket.deleted.length = 0;
     const before = await rows();
-    for (const answer of [() => pdf(500), () => new Response(null, { status: 409, headers: { "Content-Type": "application/problem+json" } }), () => pdf(200, { "Content-Type": "text/html" }), () => new Response("not a pdf", { headers: { "Content-Type": "application/pdf", "Letterhead-Version": "1", "Page-Count": "1", "Unprintable-Characters": "0" } })]) {
+    for (const answer of [() => pdf(500), () => new Response(null, { status: 409, headers: { "Content-Type": "application/problem+json" } }), () => pdf(200, { "Content-Type": "text/html" }), () => new Response("not a pdf", { headers: { "Content-Type": "application/pdf", "Letterhead-Version": "1", "Legal-Entity-Version": "5", "Page-Count": "1", "Unprintable-Characters": "0" } })]) {
       const bad = run({ apply: true, render: sampleRenderer(clientAnswering(answer)) });
       expect(await bad.go()).toBe(1);
       expect(bad.err.join("\n")).toContain("did NOT render");

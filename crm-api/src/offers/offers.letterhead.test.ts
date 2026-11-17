@@ -8,6 +8,10 @@
  * `generation.letterhead.test.ts`: it answers a real PDF whose pages carry their own text, so "crm-api drew nothing" and "the
  * deal PDFs come after" are read from the stored bytes. Real Postgres, the assembled app. The switch is flipped on the `env`
  * object, which the routes read at the request.
+ *
+ * As in `generation.letterhead.test.ts` the fake also plays the service's side of the issuer's details (specs/20261117-legal-entities
+ * T28; AC-5.2, AC-6.2): content version 2, no `entityData`, a `legalEntityVersion` pin that the service holds or refuses with 409
+ * `legal_entity_version_mismatch`, in which case the route reads the registry again and rebuilds the snapshot and the content, once.
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
@@ -29,7 +33,14 @@ const YEAR = new Date().getUTCFullYear();
 
 type Answer = Response | "network-error";
 
-const fake = { calls: [] as { path: string; body: any }[], answers: [] as Answer[], version: 7, pages: 2 };
+const fake = {
+  calls: [] as { path: string; body: any }[],
+  answers: [] as Answer[],
+  version: 7,
+  pages: 2,
+  /** The version of the issuer's details the service holds: another pin is the 409; null: it holds whatever is pinned. */
+  issuerVersion: null as number | null,
+};
 
 async function servicePdf(pages = fake.pages): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
@@ -43,11 +54,18 @@ async function servicePdf(pages = fake.pages): Promise<Uint8Array> {
 const pdfAnswer = async () =>
   new Response(await servicePdf(), {
     status: 200,
-    headers: { "Content-Type": "application/pdf", "Page-Count": String(fake.pages), "Unprintable-Characters": "0", "Letterhead-Version": String(fake.version) },
+    headers: {
+      "Content-Type": "application/pdf",
+      "Page-Count": String(fake.pages),
+      "Unprintable-Characters": "0",
+      "Letterhead-Version": String(fake.version),
+      // the version of the issuer's details the service printed: the pin, filled in when the request is answered
+      "Legal-Entity-Version": "=pin",
+    },
   });
 
-const refusal = (status: number, code: string) =>
-  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL" }), { status, headers: { "Content-Type": "application/problem+json" } });
+const refusal = (status: number, code: string, extras: Record<string, unknown> = {}) =>
+  new Response(JSON.stringify({ status, code, detail: "SECRET-SERVICE-DETAIL", ...extras }), { status, headers: { "Content-Type": "application/problem+json" } });
 
 let spy: { mockRestore(): void } | null = null;
 const switchWas = env.LETTERHEAD_SERVICE_ENABLED;
@@ -57,6 +75,7 @@ beforeEach(() => {
   fake.answers = [];
   fake.version = 7;
   fake.pages = 2;
+  fake.issuerVersion = null;
   const tokens: ServiceTokenProvider = { getToken: async () => "svc-token", invalidate() {} };
   let served = 0;
   spy = spyOn(letterhead, "pdf").mockImplementation((content, options) =>
@@ -66,10 +85,19 @@ beforeEach(() => {
       timeoutMs: LETTERHEAD_TIMEOUT_MS,
       sleep: async () => {},
       fetchImpl: (async (url: unknown, init?: RequestInit) => {
-        fake.calls.push({ path: new URL(String(url)).pathname, body: JSON.parse(String(init?.body)) });
+        const body = JSON.parse(String(init?.body));
+        fake.calls.push({ path: new URL(String(url)).pathname, body });
+        if (fake.issuerVersion !== null && body.legalEntityVersion !== fake.issuerVersion) {
+          return refusal(409, "legal_entity_version_mismatch", { currentVersion: fake.issuerVersion });
+        }
         const answer = fake.answers.length === 0 ? await pdfAnswer() : fake.answers[Math.min(served, fake.answers.length - 1)]!;
         served += 1;
         if (answer === "network-error") throw new TypeError("fetch failed SECRET-NETWORK-DETAIL");
+        if (answer.headers.get("Legal-Entity-Version") === "=pin") {
+          const headers = new Headers(answer.headers);
+          headers.set("Legal-Entity-Version", String(body.legalEntityVersion));
+          return new Response(await answer.clone().arrayBuffer(), { status: answer.status, headers });
+        }
         return answer.clone();
       }) as typeof fetch,
     }).pdf(content, options),
@@ -131,11 +159,12 @@ describe("a legacy-template offer with the switch on", () => {
     expect(list.json.items[0].letterheadVersion).toBe(7);
   });
 
-  it("sends the snapshot's document and the profile as it is now, asking for the active version (AC-10.1, AC-10.10)", async () => {
+  it("sends the snapshot's document as content version 2, pinned to the version of the registry's details it used, with no entityData, asking for the active version (AC-5.2, AC-6.2)", async () => {
     const { deal } = await readyDealWithProfiles();
     // The registry's values at the moment of the call (the CRM's own columns are not read any more, T26): no VAT, no IBAN.
     registry.set(
       completeEntity("welld_ch", {
+        version: 5,
         legalName: "wellD SA (nuova)",
         address: { it: ["Via Nuova 9", "6900 Lugano"], en: ["Via Nuova 9", "6900 Lugano"] },
         vatNumber: "",
@@ -150,17 +179,17 @@ describe("a legacy-template offer with the switch on", () => {
     expect(fake.calls).toHaveLength(1);
     const [sent] = fake.calls;
     expect(sent!.path).toBe("/v1/render/pdf");
-    expect(sent!.body).toMatchObject({
-      contentVersion: 1,
-      entity: "welld_ch",
-      entityData: { legalName: "wellD SA (nuova)", addressLines: ["Via Nuova 9", "6900 Lugano"] },
-    });
-    expect(sent!.body.entityData).not.toHaveProperty("vat");
-    expect(sent!.body.entityData).not.toHaveProperty("iban");
+    expect(sent!.body).toMatchObject({ contentVersion: 2, entity: "welld_ch", legalEntityVersion: 5 });
+    expect(sent!.body).not.toHaveProperty("entityData");
+    expect(Object.keys(sent!.body).sort()).toEqual(["blocks", "contentVersion", "entity", "language", "legalEntityVersion"]);
     expect(sent!.body).not.toHaveProperty("letterheadVersion");
     expect(sent!.body.blocks.length).toBeGreaterThan(0);
     // the offer's own reference is in what the service draws
     expect(JSON.stringify(sent!.body.blocks)).toContain(`0001/${YEAR}`);
+    // the snapshot beside the PDF carries the same version and the values of it
+    const [row] = await offers(deal.id);
+    expect((row!.snapshot as any).legalEntityVersion).toBe(5);
+    expect((row!.snapshot as any).issuer.legalName).toBe("wellD SA (nuova)");
   });
 
   it("appends the chosen deal PDFs after the service's pages, unchanged and unnumbered (AC-10.1)", async () => {
@@ -266,6 +295,8 @@ describe("a service that fails leaves a legacy-template offer as it was (AC-10.6
     { name: "answers 500", answers: [refusal(500, "internal_error")], expected: { status: 503, code: "layout_service_unavailable" } },
     { name: "has no active letterhead for the entity", answers: [refusal(409, "letterhead_not_configured")], expected: { status: 409, code: "letterhead_not_configured", entity: "welld_ch" } },
     { name: "cannot fit a profile value in the header", answers: [refusal(422, "header_overflow")], expected: { status: 409, code: "letterhead_overflow", frame: "header" } },
+    { name: "is an old letterhead-api that does not know content version 2", answers: [refusal(422, "unsupported_content_version")], expected: { status: 503, code: "layout_service_unavailable" } },
+    { name: "cannot read the registry of the issuer's details", answers: [refusal(503, "legal_entities_unavailable")], expected: { status: 503, code: "layout_service_unavailable" } },
   ];
 
   for (const failing of cases) {
@@ -312,6 +343,109 @@ describe("a service that fails leaves a legacy-template offer as it was (AC-10.6
     expect(res.json.code).toBe("attachment_unreadable");
     expect(fake.calls).toHaveLength(0);
     expect(await offers(deal.id)).toHaveLength(0);
+  });
+});
+
+// ─── One document, one version of the issuer's details ───────────────────────────────────────────────────────────────────
+
+describe("the service prints another version of the issuer's details than crm-api read (AC-6.2)", () => {
+  beforeEach(() => {
+    env.LETTERHEAD_SERVICE_ENABLED = true;
+  });
+
+  const details = (version: number, legalName: string) => completeEntity("welld_ch", { version, legalName });
+
+  /** crm-api's registry reads `next` after the cache is dropped, as the real client reads auth again. */
+  function refreshesOnInvalidate(next: ReturnType<typeof details>): { restore(): void } {
+    const real = registry.invalidate.bind(registry);
+    const hook = spyOn(registry, "invalidate").mockImplementation(() => {
+      real();
+      registry.set(next);
+    });
+    return { restore: () => hook.mockRestore() };
+  }
+
+  it("a 409 once: the registry is read again, the snapshot and the content rebuilt, ONE retry, and the offer is stored from the new version only", async () => {
+    const { deal } = await readyDealWithProfiles();
+    registry.set(details(7, "wellD OLD SA"));
+    fake.issuerVersion = 8;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA"));
+    try {
+      const res = await generate(deal.id, await classicBody(deal.id));
+      expect(res.status, JSON.stringify(res.json)).toBe(201);
+      expect(res.json.reference).toBe(`0001/${YEAR}`);
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      const [row] = await offers(deal.id);
+      expect((row!.snapshot as any).legalEntityVersion).toBe(8);
+      expect((row!.snapshot as any).issuer.legalName).toBe("wellD NEW SA");
+      // (The opening's own text is the person's, sent by the dialog from the prefill it read earlier: it is not rebuilt.)
+      expect(JSON.stringify((row!.snapshot as any).issuer)).not.toContain("wellD OLD SA");
+      expect(row!.letterheadVersion).toBe(7);
+      expect(await offers(deal.id)).toHaveLength(1);
+      expect((await sequences()).map((sequence) => sequence.last)).toEqual([1]);
+      expect(bucket.objects.size).toBe(1);
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("a 409 twice: 503 layout_service_unavailable after exactly two requests, and no row, no number, no object", async () => {
+    const { deal } = await readyDealWithProfiles();
+    registry.set(details(7, "wellD OLD SA"));
+    fake.issuerVersion = 9;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA"));
+    try {
+      const before = await worldOf(deal.id);
+      const res = await generate(deal.id, await classicBody(deal.id));
+      expect(res.status).toBe(503);
+      expect(res.json.code).toBe("layout_service_unavailable");
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      expect(await worldOf(deal.id)).toEqual(before);
+      expect(bucket.deleted).toEqual([]);
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("an edit is rebuilt the same way: the same row and reference, the new PDF, the snapshot of the version that was printed", async () => {
+    const { deal } = await readyDealWithProfiles();
+    registry.set(details(7, "wellD OLD SA"));
+    const made = await generate(deal.id, await classicBody(deal.id));
+    expect(made.status).toBe(201);
+    fake.calls = [];
+    fake.issuerVersion = 8;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA"));
+    try {
+      const res = await edit(deal.id, made.json.id, await classicBody(deal.id, { validityDays: 45 }), made.json.version);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      expect(fake.calls.map((call) => call.body.legalEntityVersion)).toEqual([7, 8]);
+      const [row] = await offers(deal.id);
+      expect(row!.id).toBe(made.json.id);
+      expect(row!.version).toBe(made.json.version + 1);
+      expect((row!.snapshot as any).reference).toBe(`0001/${YEAR}`);
+      expect((row!.snapshot as any).legalEntityVersion).toBe(8);
+      expect((row!.snapshot as any).issuer.legalName).toBe("wellD NEW SA");
+    } finally {
+      refresh.restore();
+    }
+  });
+
+  it("an edit that mismatches twice leaves the offer, its stored PDF and its snapshot as they were", async () => {
+    const { deal } = await readyDealWithProfiles();
+    registry.set(details(7, "wellD OLD SA"));
+    const made = await generate(deal.id, await classicBody(deal.id));
+    const before = await worldOf(deal.id);
+    fake.issuerVersion = 9;
+    const refresh = refreshesOnInvalidate(details(8, "wellD NEW SA"));
+    try {
+      const res = await edit(deal.id, made.json.id, await classicBody(deal.id, { validityDays: 45 }), made.json.version);
+      expect(res.status).toBe(503);
+      expect(res.json.code).toBe("layout_service_unavailable");
+      expect(await worldOf(deal.id)).toEqual(before);
+      expect(bucket.deleted).toEqual([]);
+    } finally {
+      refresh.restore();
+    }
   });
 });
 
