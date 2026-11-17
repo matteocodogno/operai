@@ -55,6 +55,7 @@ import { LEGAL_ENTITIES, type LegalEntity } from "./entities";
 import { FORBIDDEN_BODY, parseVersion, VERSION_NOT_FOUND_BODY } from "./history.routes";
 import { isLegalEntity, NO_STORE, unknownLegalEntity } from "./read.routes";
 import { appendVersion, type HistoryRow, latestVersion, lockEntity, type Reader, versionOf } from "./repo";
+import { kickNotices } from "./notices/dispatcher";
 import { hasNoRecipient, type NoticeDutyOptions, noRecipientsEntry, recordNoticeDuty } from "./notices/duty";
 import { changedFields, type Field, type LegalDetails, normalise, problems, protectedChanged, restorable } from "./rules";
 import { detailsOf, serializeEntity } from "./serialize";
@@ -184,7 +185,7 @@ class Refusal extends Error {
 }
 
 type Outcome =
-  | { kind: "created"; row: HistoryRow; before: LegalDetails; changed: Field[]; noRecipients: boolean }
+  | { kind: "created"; row: HistoryRow; before: LegalDetails; changed: Field[]; noRecipients: boolean; noticed: boolean }
   | { kind: "same"; row: HistoryRow };
 
 interface WriteRequest {
@@ -220,6 +221,8 @@ function auditValue(d: LegalDetails, f: Field): string | string[] {
 /** What the notice duty needs from the router (T58): the recipients (injectable) and the outside mailbox, read per save. */
 interface NoticeDeps extends NoticeDutyOptions {
   outsideMailbox: () => boolean;
+  /** After a protected change commits: hands the rows to the dispatcher (T59). Never awaited, never throws into the answer. */
+  kick: () => unknown;
 }
 
 async function write(audited: Audited, req: WriteRequest, notices: NoticeDeps): Promise<Outcome> {
@@ -249,7 +252,9 @@ async function write(audited: Audited, req: WriteRequest, notices: NoticeDeps): 
       // A protected change is a duty to tell people (US-9): the rows are written here, in the version's transaction,
       // with the recipients as they are NOW (AC-9.8). Nothing is sent from the request; an import never gets here.
       let noRecipients = false;
+      let noticed = false;
       if (protectedChanged(changed).length > 0) {
+        noticed = true;
         const duty = await recordNoticeDuty(
           tx,
           {
@@ -264,7 +269,7 @@ async function write(audited: Audited, req: WriteRequest, notices: NoticeDeps): 
         );
         noRecipients = hasNoRecipient(duty);
       }
-      return { kind: "created", row, before, changed, noRecipients };
+      return { kind: "created", row, before, changed, noRecipients, noticed };
     },
     // A no-op writes no audit row (AC-2.1): an empty list is "nothing to record".
     entry: (result) => {
@@ -371,6 +376,15 @@ export async function readBody<S extends z.ZodType>(c: Context<Env>, schema: S):
   return { ok: true, value: parsed.data };
 }
 
+/** `kick` after commit: not awaited, and nothing it throws or rejects with can reach the answer. */
+function kickAndForget(kick: () => unknown): void {
+  try {
+    void Promise.resolve(kick()).catch(() => undefined);
+  } catch {
+    // a failed hand-over is the sweep's to make up
+  }
+}
+
 /** Runs the write and maps its refusals; the success answer is `{ version, created, entity }` (201 or 200). */
 async function answer(c: Context<Env>, audited: Audited, req: WriteRequest, notices: NoticeDeps): Promise<Response> {
   let outcome: Outcome;
@@ -386,6 +400,9 @@ async function answer(c: Context<Env>, audited: Audited, req: WriteRequest, noti
     return respond(c, 500, INTERNAL_BODY);
   }
   const created = outcome.kind === "created";
+  // The transaction has committed: the notice duty is on disk. Hand it to the dispatcher at once, without waiting for
+  // it (AC-9.7); a lost kick is covered by the next sweep, and the answer is the same whatever notify-api does (AC-9.14).
+  if (outcome.kind === "created" && outcome.noticed) kickAndForget(notices.kick);
   return respond(c, created ? 201 : 200, {
     version: outcome.row.version,
     created,
@@ -403,8 +420,11 @@ export interface WriteRouterOptions {
   client?: Reader;
   /** The throttle (F3); the env's limits, a fresh pair per router, unless a test passes its own. */
   limits?: LegalEntityRateLimits;
-  /** The notice duty (T58): the recipients (`resolveRecipients`) and the outside mailbox (the env's) unless a test injects. */
-  notices?: NoticeDutyOptions & { outsideMailbox?: () => boolean };
+  /**
+   * The notice duty (T58): the recipients (`resolveRecipients`) and the outside mailbox (the env's) unless a test injects;
+   * and (T59) the hand-over to the dispatcher after commit (`kickNotices`: nothing until the server started it).
+   */
+  notices?: NoticeDutyOptions & { outsideMailbox?: () => boolean; kick?: () => unknown };
 }
 
 export function createLegalEntityWriteRouter({
@@ -417,6 +437,7 @@ export function createLegalEntityWriteRouter({
   const duty: NoticeDeps = {
     ...(notices.recipients !== undefined ? { recipients: notices.recipients } : {}),
     outsideMailbox: notices.outsideMailbox ?? (() => env.LEGAL_ENTITY_NOTICE_EMAIL !== undefined),
+    kick: notices.kick ?? kickNotices,
   };
 
   // POST only, per exact path (never `/legal-entities/*`): the GETs of T5 and T7 carry their own authentication.

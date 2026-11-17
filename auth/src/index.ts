@@ -36,6 +36,7 @@ import { createUserContactRouter, jwksFromAuth } from "./system/userContact.rout
 import { createSelfServiceTokenProvider } from "./system/selfServiceToken";
 import { createSystemRateLimits, LEGAL_ENTITIES_SERVICE_LIMIT } from "./system/systemRateLimits";
 import { setNotifyTokenProvider } from "./lib/notify";
+import { startNoticeDispatcher } from "./legalEntities/notices/dispatcher";
 import { setupOpenAPI } from "./openapi/registry";
 
 // Exported so `legalEntities/routerTable.test.ts` can read the real route table (AC-2.7).
@@ -115,6 +116,11 @@ app.route("/", createSystemLegalEntitiesRouter({ getJwks: jwksFromAuth(auth), li
 // module never depends on auth.config (see serviceToken.routes.ts).
 export const selfServiceTokenProvider = createSelfServiceTokenProvider({ signJwt: signServiceJwt });
 setNotifyTokenProvider(selfServiceTokenProvider);
+// The notice dispatcher of a protected legal-entity change (specs/20261117-legal-entities, T59; plan G6): sends the rows
+// the save wrote down, right after the save commits (`kickNotices`) and from a sweep every 15 s on every replica,
+// including once now. It needs the credential above, so it starts after it; never under `bun test`, where the routes'
+// kick does nothing and a test builds its own dispatcher.
+if (env.NODE_ENV !== "test") startNoticeDispatcher();
 
 // ── Test-auth router (structural defence-in-depth) ──────────────────────────
 // Only import + register when BOTH conditions are true at startup:

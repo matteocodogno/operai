@@ -213,3 +213,117 @@ export async function pushSystemNotification(
     };
   }
 }
+
+// ─── The legal-entity change notice (specs/20261117-legal-entities T59; plan amendment 2026-11-17 G5, G6) ──────────────
+
+/**
+ * Why a notice call did not deliver, from the closed set of `legal_entity_notice.lastReason` (plan G4):
+ *   - `notify_unreachable`: no credential, a network error or a timeout (the call may or may not have been stored:
+ *     the idempotency key makes the repeat safe);
+ *   - `notify_refused`: a 4xx, after the one retry of a 401 (an old notify-api that does not know the template says 400);
+ *   - `notify_error`: a 5xx, a redirect, or an answer that is not the contract's;
+ *   - `recipient_inactive`: notify-api resolved the person and they are not an active user;
+ *   - `email_not_configured`: notify-api's email group or Resend is not set.
+ */
+export type NoticeFailureReason =
+  | "notify_unreachable"
+  | "notify_refused"
+  | "notify_error"
+  | "recipient_inactive"
+  | "email_not_configured";
+
+export type NoticeSendResult = { status: "sent" } | { status: "failed"; reason: NoticeFailureReason };
+
+/** What the notice calls take beyond their body: the per-call timeout, and a `fetch` a test replaces. */
+export interface NoticeSendOptions {
+  timeoutMs?: number;
+  fetch?: typeof fetch;
+}
+
+/** `POST /system/notifications` with `idempotencyKey`; no `email` (the email is its own row and call, plan G1.4). */
+export interface LegalEntityNotificationInput {
+  readonly recipientId: string;
+  readonly originApp: "admin";
+  readonly severity: "warning";
+  readonly title: string;
+  readonly body: string;
+  readonly it: { readonly title: string; readonly body: string };
+  readonly link: { readonly href: string; readonly label?: string };
+  readonly idempotencyKey: string;
+}
+
+/** `POST /system/emails`, template `legal_entity_change`: one person by `recipientId`, or the outside mailbox by `to`. */
+export type LegalEntityEmailInput = {
+  readonly template: "legal_entity_change";
+  readonly data: object;
+  readonly idempotencyKey: string;
+} & ({ readonly recipientId: string } | { readonly to: string });
+
+/**
+ * One authenticated POST of a JSON body to notify-api: `auth`'s own service token, one retry of a 401 with a fresh
+ * one, a timeout, no redirects followed (the bearer token must not travel to another host). Never throws: an answer,
+ * or `null` when nothing came back (no credential, network error, timeout). The token and the body are never logged.
+ */
+async function postToNotify(path: string, body: object, options: NoticeSendOptions): Promise<Response | null> {
+  try {
+    if (!tokenProvider) throw new Error("notify token provider is not configured");
+    const send = options.fetch ?? fetch;
+    const requestBody = JSON.stringify(body);
+    const post = (token: string) =>
+      send(`${env.NOTIFY_INTERNAL_URL}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: requestBody,
+        redirect: "manual",
+        signal: AbortSignal.timeout(options.timeoutMs ?? PUSH_TIMEOUT_MS),
+      });
+    const token = await tokenProvider.getToken();
+    let response = await post(token);
+    if (response.status === 401) {
+      await response.body?.cancel().catch(() => {});
+      tokenProvider.invalidate(token);
+      response = await post(await tokenProvider.getToken());
+    }
+    return response;
+  } catch {
+    return null;
+  }
+}
+
+/** A non-2xx answer as a reason: 4xx is `notify_refused`, everything else (5xx, 3xx) `notify_error`. */
+function failureOfStatus(status: number): NoticeFailureReason {
+  return status >= 400 && status < 500 ? "notify_refused" : "notify_error";
+}
+
+/** The in-app call. 201 (stored) and 200 (a repeat of the same key: stored before) both mean delivered. */
+export async function sendLegalEntityNotification(
+  input: LegalEntityNotificationInput,
+  options: NoticeSendOptions = {},
+): Promise<NoticeSendResult> {
+  const response = await postToNotify("/system/notifications", input, options);
+  if (response === null) return { status: "failed", reason: "notify_unreachable" };
+  await response.body?.cancel().catch(() => {});
+  if (response.status === 200 || response.status === 201) return { status: "sent" };
+  return { status: "failed", reason: failureOfStatus(response.status) };
+}
+
+/**
+ * The email call. notify-api answers 200 `{ status: "sent" | "skipped" | "failed", reason? }`: a `skipped` is a failure
+ * with its reason (AC-9.14: no usable address is retried like any other failure), and so is `failed`.
+ */
+export async function sendLegalEntityEmail(
+  input: LegalEntityEmailInput,
+  options: NoticeSendOptions = {},
+): Promise<NoticeSendResult> {
+  const response = await postToNotify("/system/emails", input, options);
+  if (response === null) return { status: "failed", reason: "notify_unreachable" };
+  if (response.status !== 200) {
+    await response.body?.cancel().catch(() => {});
+    return { status: "failed", reason: failureOfStatus(response.status) };
+  }
+  const body = (await response.json().catch(() => null)) as { status?: unknown; reason?: unknown } | null;
+  if (body?.status === "sent") return { status: "sent" };
+  if (body?.status === "skipped" && body.reason === "recipient_inactive") return { status: "failed", reason: "recipient_inactive" };
+  if (body?.status === "skipped" && body.reason === "not_configured") return { status: "failed", reason: "email_not_configured" };
+  return { status: "failed", reason: "notify_error" };
+}

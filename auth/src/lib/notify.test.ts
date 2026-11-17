@@ -263,3 +263,148 @@ describe("notify client never returns a raw error message (specs/20261105-signup
     }
   });
 });
+
+// ─── The legal-entity change notice (specs/20261117-legal-entities T59; plan G5, G6) ──────────────────────────────
+
+const { sendLegalEntityEmail, sendLegalEntityNotification } = await import("./notify");
+
+const NOTICE_IN_APP = {
+  recipientId: "usr_1",
+  originApp: "admin",
+  severity: "warning",
+  title: "Legal details of WellD CH changed: IBAN",
+  body: "The legal details of WellD CH were changed.",
+  it: { title: "Dati legali di WellD CH modificati: IBAN", body: "I dati legali di WellD CH sono stati modificati." },
+  link: { href: "/admin/legal-entities?entity=welld_ch&view=history", label: "Open the history" },
+  idempotencyKey: "legal-entity-notice:row1",
+} as const;
+const NOTICE_EMAIL = {
+  template: "legal_entity_change",
+  recipientId: "usr_1",
+  data: { entity: "welld_ch" },
+  idempotencyKey: "legal-entity-notice:row2",
+} as const;
+
+describe("sendLegalEntityNotification", () => {
+  test("POSTs the body as it is to /system/notifications as system:auth (Bearer), no redirect followed, a timeout set", async () => {
+    stubFetch(() => Response.json({ id: "n1" }, { status: 201 }));
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP)).toEqual({ status: "sent" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe(`${env.NOTIFY_INTERNAL_URL}/system/notifications`);
+    expect(new Headers(calls[0]?.init.headers).get("authorization")).toBe("Bearer provider-token");
+    expect(calls[0]?.init.redirect).toBe("manual");
+    expect(calls[0]?.init.signal).toBeDefined();
+    const sent = JSON.parse(String(calls[0]?.init.body));
+    expect(sent).toEqual(NOTICE_IN_APP);
+    expect("email" in sent).toBe(false); // the email is its own row and its own call
+  });
+
+  test("200 (a repeat of the same key: stored before) is delivered too", async () => {
+    stubFetch(() => Response.json({ id: "n1" }, { status: 200 }));
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP)).toEqual({ status: "sent" });
+  });
+
+  test("the reasons: network and timeout, a 4xx (also a second 401), a 5xx, a redirect", async () => {
+    stubFetch(() => {
+      throw new TypeError("Unable to connect to http://notify.railway.internal:8081/system/notifications");
+    });
+    const unreachable = await sendLegalEntityNotification(NOTICE_IN_APP);
+    expect(unreachable).toEqual({ status: "failed", reason: "notify_unreachable" });
+    expect(JSON.stringify(unreachable)).not.toContain("railway.internal");
+
+    globalThis.fetch = ((_url: unknown, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "TimeoutError")));
+      })) as typeof fetch;
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP, { timeoutMs: 20 })).toEqual({ status: "failed", reason: "notify_unreachable" });
+
+    for (const [status, reason] of [[400, "notify_refused"], [403, "notify_refused"], [404, "notify_refused"], [429, "notify_refused"], [500, "notify_error"], [503, "notify_error"], [302, "notify_error"]] as const) {
+      stubFetch(() => new Response("x", { status }));
+      expect([status, await sendLegalEntityNotification(NOTICE_IN_APP)]).toEqual([status, { status: "failed", reason }]);
+      expect(calls).toHaveLength(1);
+    }
+
+    stubFetch(() => new Response("nope", { status: 401 }));
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP)).toEqual({ status: "failed", reason: "notify_refused" });
+    expect(calls).toHaveLength(2); // one retry of the 401, no more
+  });
+
+  test("a 401 drops the token and retries once with a fresh one", async () => {
+    const invalidated: string[] = [];
+    let n = 0;
+    setNotifyTokenProvider({ getToken: async () => `token-${++n}`, invalidate: (t) => void invalidated.push(t) });
+    let attempt = 0;
+    stubFetch(() => (++attempt === 1 ? new Response("expired", { status: 401 }) : Response.json({}, { status: 201 })));
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP)).toEqual({ status: "sent" });
+    expect(invalidated).toEqual(["token-1"]);
+    expect(new Headers(calls[1]?.init.headers).get("authorization")).toBe("Bearer token-2");
+  });
+
+  test("no credential or a failed mint is notify_unreachable, and notify-api is never called", async () => {
+    setNotifyTokenProvider(undefined);
+    stubFetch(() => Response.json({}, { status: 201 }));
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP)).toEqual({ status: "failed", reason: "notify_unreachable" });
+    setNotifyTokenProvider({
+      getToken: async () => {
+        throw new Error("signer unavailable");
+      },
+      invalidate: () => {},
+    });
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP)).toEqual({ status: "failed", reason: "notify_unreachable" });
+    expect(calls).toHaveLength(0);
+  });
+
+  test("an injected fetch is the one used (the dispatcher's tests talk to a fake notify-api)", async () => {
+    stubFetch(() => {
+      throw new Error("the global fetch must not be used");
+    });
+    const seen: string[] = [];
+    const fake = (async (url: string | URL | Request) => {
+      seen.push(String(url));
+      return Response.json({ id: "n" }, { status: 201 });
+    }) as typeof fetch;
+    expect(await sendLegalEntityNotification(NOTICE_IN_APP, { fetch: fake })).toEqual({ status: "sent" });
+    expect(seen).toEqual([`${env.NOTIFY_INTERNAL_URL}/system/notifications`]);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("sendLegalEntityEmail", () => {
+  test("POSTs template, recipientId (or `to`), data and the key to /system/emails", async () => {
+    stubFetch(() => Response.json({ deliveryId: "d1", status: "sent" }));
+    expect(await sendLegalEntityEmail(NOTICE_EMAIL)).toEqual({ status: "sent" });
+    expect(calls[0]?.url).toBe(`${env.NOTIFY_INTERNAL_URL}/system/emails`);
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual(NOTICE_EMAIL);
+
+    const outside = { template: "legal_entity_change", to: "ops@example.invalid", data: { entity: "welld_ch" }, idempotencyKey: "legal-entity-notice:row3" } as const;
+    expect(await sendLegalEntityEmail(outside)).toEqual({ status: "sent" });
+    expect(JSON.parse(String(calls[1]?.init.body))).toEqual(outside);
+  });
+
+  test("a `skipped` answer is a failure with its reason; `failed` and a surprise are notify_error", async () => {
+    const answers: [unknown, string][] = [
+      [{ status: "skipped", reason: "recipient_inactive" }, "recipient_inactive"],
+      [{ status: "skipped", reason: "not_configured" }, "email_not_configured"],
+      [{ status: "failed", reason: "contact_lookup_failed" }, "notify_error"],
+      [{ status: "failed", error: "Resend said no" }, "notify_error"],
+      [{ status: "skipped", reason: "something_new" }, "notify_error"],
+      [{ status: "queued" }, "notify_error"],
+      ["not json", "notify_error"],
+    ];
+    for (const [answer, reason] of answers) {
+      stubFetch(() => (typeof answer === "string" ? new Response(answer, { status: 200 }) : Response.json(answer)));
+      expect([answer, await sendLegalEntityEmail(NOTICE_EMAIL)]).toEqual([answer, { status: "failed", reason: reason as never }]);
+    }
+  });
+
+  test("the reasons of a non-200: network, 4xx, 5xx", async () => {
+    stubFetch(() => {
+      throw new Error("connect ECONNREFUSED");
+    });
+    expect(await sendLegalEntityEmail(NOTICE_EMAIL)).toEqual({ status: "failed", reason: "notify_unreachable" });
+    stubFetch(() => new Response("bad template", { status: 400 }));
+    expect(await sendLegalEntityEmail(NOTICE_EMAIL)).toEqual({ status: "failed", reason: "notify_refused" });
+    stubFetch(() => new Response("boom", { status: 502 }));
+    expect(await sendLegalEntityEmail(NOTICE_EMAIL)).toEqual({ status: "failed", reason: "notify_error" });
+  });
+});

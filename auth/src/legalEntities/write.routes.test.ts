@@ -136,10 +136,15 @@ function auditedIn(tx: Tx): Audited {
 
 const writeRouter = (tx: Tx, audited: Audited = auditedIn(tx)) => createLegalEntityWriteRouter({ audited, client: tx });
 
-/** A registry with no version, whatever was committed before: removed inside the rolled-back transaction only. */
+/**
+ * A registry with no version, whatever was committed before: removed inside the rolled-back transaction only. The notice
+ * rows go first (T58/T59: they name versions by a foreign key, and with the triggers off a version could be deleted
+ * from under them, leaving orphans).
+ */
 async function emptyRegistry(tx: Tx): Promise<void> {
   if ((await tx.legalEntityVersion.count()) === 0) return;
   await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+  await tx.$executeRawUnsafe("DELETE FROM legal_entity_notice");
   await tx.$executeRawUnsafe("DELETE FROM legal_entity_version");
   await tx.$executeRawUnsafe("SET LOCAL session_replication_role = origin");
 }
@@ -907,6 +912,73 @@ describe("restore (AC-2.4, D4, E1)", () => {
   });
 });
 
+// ─── The hand-over to the notice dispatcher (T59; AC-9.7, AC-9.14, AC-9.17) ───────────────────────────────────────
+
+describe("the kick after commit (T59)", () => {
+  const withKick = (tx: Tx, kick: () => unknown) =>
+    createLegalEntityWriteRouter({ audited: auditedIn(tx), client: tx, notices: { kick } });
+
+  test("a protected save and a protected restore kick once, after the version is stored; the answer is the same", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      signedInAs(await admin("kick-protected"));
+      let kicks = 0;
+      const seen: Promise<number>[] = [];
+      const kick = () => {
+        kicks += 1;
+        // The kick runs after the transaction body: the new version is already there to be read.
+        seen.push(tx.legalEntityVersion.count({ where: { entity: "welld_ch", version: 4 + kicks } }));
+      };
+      const router = withKick(tx, kick);
+
+      const res = await save(router, "welld_ch", { baseVersion: 4, details: details({ legalName: "wellD SA (v4)", iban: "CH56 0483 5012 3456 7800 9" }) });
+      expect(res.status).toBe(201);
+      expect(kicks).toBe(1);
+      expect(await seen[0]).toBe(1);
+
+      // Restoring version 2 changes the IBAN and the legal name back: a protected change again.
+      const back = await restore(router, "welld_ch", 2, { baseVersion: 5 });
+      expect(back.status).toBe(201);
+      expect(kicks).toBe(2);
+      expect(await seen[1]).toBe(1);
+    });
+  });
+
+  test("no kick for what is not a protected change, a no-op or a refusal (AC-9.17)", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      signedInAs(await admin("kick-none"));
+      let kicks = 0;
+      const router = withKick(tx, () => void (kicks += 1));
+
+      expect((await save(router, "welld_ch", { baseVersion: 4, details: details({ legalName: "wellD SA (v4)", contacts: { it: "Tel. +41 91 000 00 00", en: "x" } }) })).status).toBe(201);
+      expect((await save(router, "welld_ch", { baseVersion: 5, details: details({ legalName: "wellD SA (v4)", contacts: { it: "Tel. +41 91 000 00 00", en: "x" }, iban: "ch93 0076 2011 6238 5295 7" }) })).status).toBe(200); // spacing and case only
+      expect((await save(router, "welld_ch", { baseVersion: 1, details: details({ legalName: "Stale SA" }) })).status).toBe(409);
+      expect((await save(router, "welld_ch", { baseVersion: 5, details: details({ legalName: "" }) })).status).toBe(422);
+      expect((await save(router, "welld_it", { baseVersion: 0, details: details({ legalName: "Not Moved SA" }) })).status).toBe(409);
+      expect(kicks).toBe(0);
+    });
+  });
+
+  test("a kick that throws or rejects never changes the answer", async () => {
+    await inTx(async (tx) => {
+      await seedHistory(tx);
+      signedInAs(await admin("kick-broken"));
+      const thrown = await save(withKick(tx, () => { throw new Error("kick exploded"); }), "welld_ch", { baseVersion: 4, details: details({ legalName: "Kick A SA" }) });
+      expect(thrown.status).toBe(201);
+      const rejected = await save(withKick(tx, () => Promise.reject(new Error("kick rejected"))), "welld_ch", { baseVersion: 5, details: details({ legalName: "Kick B SA" }) });
+      expect(rejected.status).toBe(201);
+      expect(((await rejected.json()) as { version: number }).version).toBe(6);
+    });
+  });
+
+  test("the default kick does nothing until the server started the dispatcher (a test of the routes sends nothing)", async () => {
+    const { kickNotices, noticeDispatcherStarted } = await import("./notices/dispatcher");
+    expect(noticeDispatcherStarted()).toBe(false);
+    await expect(kickNotices()).resolves.toBeUndefined();
+  });
+});
+
 // ─── Failure handling ─────────────────────────────────────────────────────────────────────────────────────────────
 
 describe("an unexpected failure", () => {
@@ -1121,6 +1193,9 @@ realSuite("real transactions (committed; the registry is emptied again afterward
   async function wipeRegistry() {
     await db.$transaction(async (tx) => {
       await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+      // The notice rows first: the saves of this group that changed a protected detail wrote them (T58), and a version
+      // deleted from under a notice would leave it behind as an orphan.
+      await tx.$executeRawUnsafe("DELETE FROM legal_entity_notice");
       await tx.$executeRawUnsafe("DELETE FROM legal_entity_version");
     });
     await db.auditLog.deleteMany({ where: { actorUserId: { in: Array.from(createdUserIds) } } });
