@@ -6,6 +6,7 @@
 export const useSession = () => ({ data: null })
 export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)
 export const getLetterheadsApiBaseUrl = () => ''
+export const getAuthBaseUrl = () => ''
 
 // No capability by default: a test of something capability-gated says what it grants.
 export const usePermissions = () => ({

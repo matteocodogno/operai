@@ -12,14 +12,18 @@ import type { FakeAnswer } from '../test-support/fakeApi'
 
 const { apiFetch, session } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
-  session: { userId: 'u-ada' as string | null, authBase: 'http://auth.test' as string | null },
+  session: { userId: 'u-ada' as string | null, authBase: 'http://auth.test' as string | null, exportMissing: false },
 }))
 vi.mock('shell/session', () => ({
   apiFetch,
   getLetterheadsApiBaseUrl: () => 'http://letterhead-api.test',
-  getAuthBaseUrl: () => {
-    if (session.authBase === null) throw new Error('no auth base url')
-    return session.authBase
+  // a getter, so a test can make the export vanish at run time (an older shell)
+  get getAuthBaseUrl() {
+    if (session.exportMissing) return undefined
+    return () => {
+      if (session.authBase === null) throw new Error('no auth base url')
+      return session.authBase
+    }
   },
   useSession: () => ({ data: session.userId === null ? null : { user: { id: session.userId } } }),
 }))
@@ -32,6 +36,7 @@ const manageableCalls = () =>
 beforeEach(() => {
   session.userId = 'u-ada'
   session.authBase = 'http://auth.test'
+  session.exportMissing = false
   resetManageableLegalEntities()
 })
 afterEach(() => {
@@ -123,6 +128,15 @@ describe('useCanManageLegalEntity', () => {
 
   it('fails closed when the shell has no auth base URL to give', async () => {
     session.authBase = null
+    answerWith(() => ({ status: 200, body: { entities: ['welld_it'] } }))
+    const { result } = renderHook(() => useCanManageLegalEntity('welld_it'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(result.current).toBe(false)
+    expect(manageableCalls()).toHaveLength(0)
+  })
+
+  it('fails closed when the shell does not export getAuthBaseUrl at run time', async () => {
+    session.exportMissing = true
     answerWith(() => ({ status: 200, body: { entities: ['welld_it'] } }))
     const { result } = renderHook(() => useCanManageLegalEntity('welld_it'))
     await new Promise((resolve) => setTimeout(resolve, 0))

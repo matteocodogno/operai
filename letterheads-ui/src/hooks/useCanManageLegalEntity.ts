@@ -1,15 +1,7 @@
 import { useEffect, useState } from 'react'
-import * as shell from 'shell/session'
-import { useSession } from 'shell/session'
+import { getAuthBaseUrl, useSession } from 'shell/session'
 import { requestJson } from '../lib/api'
 import type { Entity } from '../lib/types'
-
-/**
- * The shell's auth base URL (`getAuthBaseUrl`, exposed by `shell/session` for federated remotes). Read through the
- * namespace, so a shell or test double that lacks it throws inside the ask below and the answer fails closed, instead of
- * breaking the page. The ambient declaration of `shell/session` (federation/remotes.d.ts) does not list it yet.
- */
-const authBaseUrl = (): string => (shell as unknown as { getAuthBaseUrl: () => string }).getAuthBaseUrl()
 
 /**
  * The entities the signed-in person may manage, asked of `auth` once per session (specs/20261117-legal-entities plan E2;
@@ -22,7 +14,7 @@ let asked: { userId: string; answer: Promise<ReadonlySet<string>> } | null = nul
 
 function manageableFor(userId: string): Promise<ReadonlySet<string>> {
   if (asked?.userId === userId) return asked.answer
-  const answer = (async () => requestJson<{ entities?: unknown }>(authBaseUrl(), '/legal-entities/manageable'))().then(
+  const answer = (async () => requestJson<{ entities?: unknown }>(getAuthBaseUrl(), '/legal-entities/manageable'))().then(
     (body) =>
       new Set<string>(
         Array.isArray(body?.entities) ? body.entities.filter((name): name is string => typeof name === 'string') : [],

@@ -25,6 +25,9 @@ declare module 'shell/session' {
   // letterhead-api, for every call of this tool's backend (person routes, `/v1/…`).
   export const getLetterheadsApiBaseUrl: () => string
 
+  // The auth service's base URL (shell/src/lib/session.ts `getAuthBaseUrl`), for the registry's `/legal-entities/manageable`.
+  export const getAuthBaseUrl: () => string
+
   // Permission resolution (ADR 20260713-authz-hand-rolled-rbac-abac-epoch-claims), used for UX gating only.
   export interface Permission {
     resource: string
