@@ -177,8 +177,11 @@ Reading the list:
 ## Push 1 — configuration contract and release plumbing
 
 - [ ] T12: Config contract and runbook — env-doctor link and template for `letterhead-api`, crm-api's scope, `infra/README.md`, `auth/.env.example` — refs: AC-3.2, AC-7.4, AC-7.5 — deps: T6, T9
-  - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/live.test.ts`, `tools/env-doctor/resolve.test.ts`, `tools/env-doctor/retiredToken.test.ts`, `tools/env-doctor/templates/production/letterhead-api.env`, `infra/README.md`, `auth/.env.example`
+  - touch: `tools/env-doctor/manifest.ts`, `tools/env-doctor/check.test.ts`, `tools/env-doctor/live.test.ts`, `tools/env-doctor/resolve.test.ts`, `tools/env-doctor/retiredToken.test.ts`, `tools/env-doctor/templates/production/letterhead-api.env`, `infra/README.md`, `auth/.env.example`, `auth/Dockerfile`
   - agent: devops · push 1
+  - added 2026-11-17 (T9 report): auth's production image copies only `src` and `prisma`; copy
+    `scripts/import-crm-legal-details.ts` too, and check on the real image (bun 1.3-alpine) that the CRM session
+    opens read-only (`default_transaction_read_only`), else the script fails closed with `crm_not_read_only`.
   - Details:
     - Manifest: crm-api link `requiredScopes += legal-entities:read`; a new link for caller `letterhead-api`
       (`legal-entities:read`); the template gains `SERVICE_CLIENT_ID`, `SERVICE_CLIENT_SECRET`.
