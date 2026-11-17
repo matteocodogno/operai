@@ -673,3 +673,18 @@ Critical path: the R13 gate, then T21 → T22 → T28 → T43 → T45 → T48 �
 most of crm-api, crm-ui Settings and admin-ui (B1–B10) fit before the gate opens. If the gate is slow, the
 dispatcher may run G-batch tasks on a rebased branch only after confirming 20261116 has no open fix task on the
 same files.
+
+## Follow-ups found during implementation (orchestrator, 2026-11-17)
+
+- FU-1 (T31): crm-ui `letterhead.overflow.body` / `bodyAskAdmin` still say "Shorten the value in CRM Settings"; the
+  overflowing values now live in the Legal entities registry — reword to point at the Legal entities page (link
+  for managers, sentence otherwise, as `LegalEntityNotice`). For QE (T45) to confirm and route.
+- FU-2 (T31): the classic `GenerateOfferDialog` and `OffersCard` show only the `offerFailure` sentence for
+  `legal_entity_incomplete`, with no link for managers (AC-6.3 holds; consistency with the wizard's notice).
+- FU-3 (T10): the `Tabs`/`TabNav` list already wrapped between tabs; `wrap` only breaks a single long label.
+  QE to check 320 px reflow on the real page.
+- FU-4 (T33): `toCorrect.title` copy was invented by frontend-dev ("These details need correction" / "Questi dati
+  vanno corretti") — designer to confirm.
+- FU-5 (T20): ADR candidate — how a layout draws the configurator's "missing" mark (runtime one-line template
+  patch in `layout/mod.rs`; a future layout 2 must provide it).
+- FU-6 (T12): `DOCUMENTED_CLIENT_SCOPES["crm-api"]` in auth omits `letterhead:render`, which production holds.
