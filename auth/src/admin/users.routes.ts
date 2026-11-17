@@ -52,6 +52,7 @@ import {
 } from "../auth/auth.middleware";
 import { db } from "../lib/db";
 import { withAudit } from "../authz/audit";
+import { LEGAL_ENTITIES } from "../legalEntities/entities";
 import { resolveEffectivePermissions } from "../authz/resolver";
 import type { Prisma } from "../lib/generated/prisma/client";
 import {
@@ -65,7 +66,8 @@ import {
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
-const ENTITY_VALUES = ["welld_ch", "welld_it"] as const;
+// One list of legal entities (specs/20261117-legal-entities, T1).
+const ENTITY_VALUES = LEGAL_ENTITIES;
 
 const IdParamSchema = z.object({ id: z.string().min(1) });
 
