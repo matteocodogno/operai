@@ -556,7 +556,7 @@ describe('the restore dialog (S7, AC-2.4)', () => {
     expect(restoreVersion).toHaveBeenCalledTimes(2)
   })
 
-  it('never opens when what it must show cannot be read, and says so on the history', async () => {
+  it('cannot be confirmed when what it must show cannot be read: the dialog says so with Retry and has no Confirm', async () => {
     vi.mocked(getVersion).mockImplementation(async (_entity, n) => {
       if (n === 1) throw new Error('down')
       return versionAnswer(n)
@@ -566,10 +566,10 @@ describe('the restore dialog (S7, AC-2.4)', () => {
     await screen.findByTestId('admin-legal-history-table')
     await user.click(button('Restore version 1'))
 
-    expect((await screen.findByTestId('error-banner')).textContent).toContain(
-      'Version 1 was not restored. Nothing changed. Try again.',
+    expect((await screen.findByTestId('admin-legal-restore-details-failed')).textContent).toContain(
+      'The details of version 1 could not be read, so the restore cannot be checked.',
     )
-    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.queryByTestId('admin-legal-restore-confirm')).toBeNull()
     expect(restoreVersion).not.toHaveBeenCalled()
   })
 })

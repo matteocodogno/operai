@@ -135,7 +135,6 @@ export default function LegalEntityHistory({
   const currentVersion = (list.items !== null ? latestVersion(list.items) : undefined) ?? entity.version
 
   const [restoring, setRestoring] = useState<Restoring | null>(null)
-  const [restoreFailed, setRestoreFailed] = useState<number | null>(null)
   const root = useRef<HTMLDivElement>(null)
 
   // Back from a version returns focus to that row's Open button (its row is where the person was).
@@ -158,7 +157,6 @@ export default function LegalEntityHistory({
 
   // From a row the dialog reads the version itself; from the version view it is handed the one already read.
   const restore = (n: number, target?: LegalEntityVersion) => {
-    setRestoreFailed(null)
     setRestoring({ version: n, target })
   }
 
@@ -215,11 +213,6 @@ export default function LegalEntityHistory({
 
   return (
     <div ref={root} data-testid="admin-legal-entity-history-slot">
-      {restoreFailed !== null && (
-        <div className="mb-3">
-          <ErrorBanner message={t.restore.failed(restoreFailed)} tone="danger" onDismiss={() => setRestoreFailed(null)} />
-        </div>
-      )}
       {body}
       {restoring !== null && (
         <RestoreDialog
@@ -233,10 +226,6 @@ export default function LegalEntityHistory({
           }}
           onConflict={handleConflict}
           onLost={onLost}
-          onLoadFailed={() => {
-            setRestoring(null)
-            setRestoreFailed(restoring.version)
-          }}
           onCancel={() => setRestoring(null)}
         />
       )}

@@ -65,11 +65,6 @@ export type RestoreDialogProps = {
   onConflict: () => void
   /** A 403: the person can no longer change this entity. */
   onLost: () => void
-  /**
-   * No longer called (T60): a read that fails is shown inside the dialog, with Retry, instead of closing it and saying so
-   * elsewhere. Kept optional so the history, which still passes it, compiles until it drops it.
-   */
-  onLoadFailed?: () => void
   onCancel: () => void
 }
 

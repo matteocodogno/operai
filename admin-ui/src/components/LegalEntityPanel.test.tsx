@@ -14,6 +14,7 @@ import { entityFixture, renderPage } from '../pages/LegalEntitiesPage.fixtures'
 import { ApiError } from '../lib/adminApi'
 import {
   LegalEntityApiError,
+  checkLegalEntity,
   getManageable,
   getVersion,
   listLegalEntities,
@@ -31,6 +32,7 @@ vi.mock('../lib/legalEntitiesApi', async (importOriginal) => {
     getVersion: vi.fn(),
     listVersions: vi.fn(),
     saveLegalEntity: vi.fn(),
+    checkLegalEntity: vi.fn(),
   }
 })
 
@@ -61,6 +63,9 @@ beforeEach(() => {
   vi.mocked(listLegalEntities).mockReset()
   vi.mocked(getVersion).mockReset()
   vi.mocked(saveLegalEntity).mockReset()
+  vi.mocked(checkLegalEntity)
+    .mockReset()
+    .mockResolvedValue({ baseVersion: 3, outcome: 'change', changedFields: [], protectedChanges: [] })
   vi.mocked(listVersions).mockReset()
   vi.mocked(listVersions).mockResolvedValue([])
   vi.mocked(getVersion).mockImplementation(async (entity, n) => ({ ...versionOf(entityFixture(entity)), version: n }))
