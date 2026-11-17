@@ -39,9 +39,11 @@ export const letterheadList = (overrides: Partial<LetterheadList> = {}): Letterh
   ...overrides,
 })
 
-/** A preview answer with `count` pages (`POST …/preview`); `tag` makes each page's picture and text distinct. */
+/** A preview answer with `count` pages (`POST …/preview`), the registry's details read (`issuerDetails: "current"`); `tag` makes each page's picture and text distinct. */
 export const previewAnswer = (count: number, tag = 'a') => ({
   letterheadVersion: null,
+  issuerDetails: 'current' as const,
+  legalEntityVersion: null as number | null,
   pageCount: count,
   missingPlaceholders: [],
   unprintableCharacters: [],

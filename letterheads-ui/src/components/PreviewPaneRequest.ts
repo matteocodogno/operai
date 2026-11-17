@@ -14,7 +14,7 @@ import { LatestResultBusyError, useLatestResult } from '@operai/ui'
 import type { LatestResult, PagePreviewState, PreviewPage } from '@operai/ui'
 import { ApiError, sendJson } from '../lib/api'
 import type { FormConfig, Problem } from '../lib/formStateTypes'
-import type { Entity } from '../lib/types'
+import type { Entity, IssuerDetails } from '../lib/types'
 
 export type PreviewLanguage = 'it' | 'en'
 
@@ -27,10 +27,16 @@ export interface PreviewInput {
   layoutVersion?: number
 }
 
-/** What the pane needs of the answer: the pages, in the language they were made in. */
+/**
+ * What the pane needs of the answer: the pages, in the language they were made in, and whether the issuer's details
+ * were the registry's (`current`) or could not be read (`unavailable`, every issuer placeholder shown as missing).
+ */
 export interface PreviewResult {
   language: PreviewLanguage
   pages: readonly PreviewPage[]
+  issuerDetails: IssuerDetails
+  /** The registry version the details were read at; `null` when they could not be read. */
+  legalEntityVersion: number | null
 }
 
 /** A 422 `invalid_letterhead`: the form holds refused values. Not a failure of the service (design F3.4). */
@@ -81,6 +87,13 @@ function toPages(answer: unknown): PreviewPage[] {
   })
 }
 
+/** Only `"unavailable"` is a state of its own; a service that says nothing of it is read as `current`. */
+const toIssuerDetails = (answer: Record<string, unknown>): IssuerDetails =>
+  answer.issuerDetails === 'unavailable' ? 'unavailable' : 'current'
+
+const toLegalEntityVersion = (answer: Record<string, unknown>): number | null =>
+  typeof answer.legalEntityVersion === 'number' ? answer.legalEntityVersion : null
+
 /**
  * One preview request. 422 `invalid_letterhead` becomes a `PreviewRefusedError`; 429 `busy` a
  * `LatestResultBusyError` that waits the service's `Retry-After`; everything else (5xx, 504, network, another
@@ -94,7 +107,14 @@ export async function requestPreview(input: PreviewInput, signal?: AbortSignal):
   }
   try {
     const answer = await sendJson<unknown>(`/v1/letterheads/${input.entity}/preview`, 'POST', body, { signal })
-    return { language: input.language, pages: toPages(answer) }
+    const pages = toPages(answer)
+    const details = answer as Record<string, unknown>
+    return {
+      language: input.language,
+      pages,
+      issuerDetails: toIssuerDetails(details),
+      legalEntityVersion: toLegalEntityVersion(details),
+    }
   } catch (error) {
     if (error instanceof ApiError) {
       if (error.status === 422 && error.code === 'invalid_letterhead') {
@@ -111,7 +131,11 @@ export async function requestPreview(input: PreviewInput, signal?: AbortSignal):
 }
 
 /** The request's state, and the refusal that was the last answer (kept while the next request runs). */
-export type PreviewRequest = LatestResult<PreviewResult> & { lastRefusal: PreviewRefusedError | null }
+export type PreviewRequest = LatestResult<PreviewResult> & {
+  lastRefusal: PreviewRefusedError | null
+  /** The entity the request is for (the pane's source line links to its Legal entities tab). */
+  entity: Entity
+}
 
 /**
  * The live preview of `input`: one request 300 ms after the last edit (the first one at once), the previous
@@ -136,7 +160,7 @@ export function usePreviewRequest(input: PreviewInput): PreviewRequest {
   const refusal = latest.status === 'failed' && latest.error instanceof PreviewRefusedError ? latest.error : null
   // Derived while rendering (no effect): replaced by each settled answer, kept while one is awaited.
   if ((latest.status === 'ready' || latest.status === 'failed') && refusal !== lastRefusal) setLastRefusal(refusal)
-  return { ...latest, lastRefusal }
+  return { ...latest, lastRefusal, entity: input.entity }
 }
 
 /** What the pane shows, derived from the request (see `describePreview`). */
@@ -149,6 +173,10 @@ export interface PreviewView {
   refused: number | null
   /** The preview could not be made (warning notice). */
   failed: boolean
+  /** The registry's details could not be read: the pages show every issuer detail as missing (warning notice). */
+  issuerUnavailable: boolean
+  /** The entity the preview is of. */
+  entity: Entity
 }
 
 interface RequestSnapshot {
@@ -156,10 +184,11 @@ interface RequestSnapshot {
   result: PreviewResult | undefined
   error: unknown
   lastRefusal: PreviewRefusedError | null
+  entity: Entity
 }
 
 /** Maps the request's status to the pane's state, notice and pages (design F3.2–F3.5, S7 states). */
-export function describePreview({ status, result, error, lastRefusal }: RequestSnapshot): PreviewView {
+export function describePreview({ status, result, error, lastRefusal, entity }: RequestSnapshot): PreviewView {
   const pages = result?.pages ?? []
   const refused = lastRefusal === null ? null : lastRefusal.problems.length
   const failed = status === 'failed' && !(error instanceof PreviewRefusedError)
@@ -170,5 +199,13 @@ export function describePreview({ status, result, error, lastRefusal }: RequestS
         ? 'loading'
         : 'updating'
       : 'ready'
-  return { state, pages, lang: result?.language, refused, failed }
+  return {
+    state,
+    pages,
+    lang: result?.language,
+    refused,
+    failed,
+    issuerUnavailable: result?.issuerDetails === 'unavailable',
+    entity,
+  }
 }

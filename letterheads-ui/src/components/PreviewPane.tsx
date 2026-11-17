@@ -1,12 +1,15 @@
 /**
  * The preview pane of the configurator (task T22; design S1, S7, F3, F4): the sample document drawn by the
  * service on the form as it is now, in `PagePreview`. It shows
- * - one sentence saying the company data is sample data (AC-8.5);
+ * - a source line saying the company details are the registry's, in the preview language, and the body is sample text
+ *   (AC-5.4), with a link to the entity's Legal entities tab for a person who may manage it, and a legend of the
+ *   "missing" look;
  * - the preview language, a viewing choice that is not saved (F4, AC-5.8);
  * - the pages, each a figure with its "Page N of M" alt and its text (AC-8.6);
  * - a polite notice when the form holds refused values (info), with one link per value that moves focus to its
  *   control (a refusal of the header can sit far above the control that was just changed), or when the preview
- *   could not be made (warning, with Try again). Neither moves focus by itself; the form stays usable and Save
+ *   could not be made (warning, with Try again), or when the registry's details could not be read (warning, with Try
+ *   again; the pages show every detail as missing). Neither moves focus by itself; the form stays usable and Save
  *   stays available.
  * The same component is the wide `aside` and the body of the narrow Drawer; both read one request.
  */
@@ -14,8 +17,13 @@ import { useId } from 'react'
 import { Banner, PagePreview, RadioGroupField } from '@operai/ui'
 import type { PagePreviewLabels } from '@operai/ui'
 import type { PreviewLanguage, PreviewView } from './PreviewPaneRequest'
+import { useCanManageLegalEntity } from '../hooks/useCanManageLegalEntity'
+import type { Entity } from '../lib/types'
 import type { Problem } from '../lib/formStateTypes'
 import { strings } from '../strings'
+
+/** The Legal entities page of admin-ui, opened on the entity's tab (plan E7). A plain link: Admin is another tool. */
+const legalEntitiesHref = (entity: Entity): string => `/admin/legal-entities?entity=${encodeURIComponent(entity)}`
 
 const labels = (): PagePreviewLabels => ({
   region: strings.preview.region,
@@ -53,6 +61,7 @@ export function PreviewPane({
   testId,
 }: PreviewPaneProps) {
   const radioName = useId()
+  const canManage = useCanManageLegalEntity(view.entity)
   const options: { value: PreviewLanguage; label: string }[] = [
     { value: 'it', label: strings.preview.it },
     { value: 'en', label: strings.preview.en },
@@ -60,8 +69,19 @@ export function PreviewPane({
   return (
     <div className="flex flex-col gap-3" data-testid={testId}>
       {heading && <h3 className="m-0 text-base font-semibold text-text">{strings.preview.title}</h3>}
-      <p className="m-0 text-sm text-soft" data-testid="letterheads-preview-sample">
-        {strings.preview.sample}
+      <p className="m-0 text-sm text-soft" data-testid="letterheads-preview-source">
+        {strings.preview.sourceLine}{' '}
+        {canManage ? (
+          <a href={legalEntitiesHref(view.entity)} className="link" data-testid="letterheads-preview-source-link">
+            {strings.preview.sourceLink}
+          </a>
+        ) : (
+          strings.preview.sourceAdmin
+        )}
+      </p>
+      <p className="m-0 flex flex-wrap items-center gap-2 text-xs text-soft" data-testid="letterheads-preview-legend">
+        <span className="rounded-sm bg-paper-mark px-1 text-paper-mark-ink">{strings.preview.legendMark}</span>
+        {strings.preview.legend}
       </p>
       <RadioGroupField label={strings.preview.language}>
         {options.map((option) => (
@@ -110,6 +130,20 @@ export function PreviewPane({
                 ))}
               </ul>
             )}
+          </Banner>
+        )}
+        {view.issuerUnavailable && (
+          <Banner
+            tone="warning"
+            live="polite"
+            title={strings.preview.unavailableTitle}
+            onRetry={onRetry}
+            retryLabel={strings.preview.retry}
+            retryTestId="letterheads-preview-unavailable-retry"
+            data-testid="letterheads-preview-unavailable"
+            className="mb-2"
+          >
+            {strings.preview.unavailableBody}
           </Banner>
         )}
         {view.failed && (

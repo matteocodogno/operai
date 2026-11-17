@@ -27,3 +27,10 @@ export type LetterheadList = Record<Entity, EntitySummary>
  * (T21) narrows this type; the frame only holds it.
  */
 export type Catalog = Readonly<Record<string, unknown>>
+
+/**
+ * `issuerDetails` of a configurator preview answer (specs/20261117-legal-entities AC-5.4, plan E3): `current` when
+ * the registry's details of the entity were read, `unavailable` when they could not be (the preview is still made,
+ * with every issuer placeholder in the "missing" look).
+ */
+export type IssuerDetails = 'current' | 'unavailable'

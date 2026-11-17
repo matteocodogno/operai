@@ -11,16 +11,20 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import userEvent from '@testing-library/user-event'
 import { LatestResultBusyError } from '@operai/ui'
 import { catalogFixture } from '../lib/formStateFixtures'
+import { axeViolations } from '../lib/formStateAxe'
 import { fakeApi, letterheadList, previewAnswer } from '../test-support/fakeApi'
+import type { FakeHandler } from '../test-support/fakeApi'
 
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock('shell/session', () => ({
   apiFetch,
   getLetterheadsApiBaseUrl: () => 'http://letterhead-api.test',
+  getAuthBaseUrl: () => 'http://auth.test',
   useSession: () => ({ data: { user: { id: 'u-ada' } } }),
 }))
 
 import App from '../App'
+import { resetManageableLegalEntities } from '../hooks/useCanManageLegalEntity'
 import { describePreview, PreviewRefusedError, requestPreview } from './PreviewPaneRequest'
 import type { PreviewInput } from './PreviewPaneRequest'
 import { defaultConfigFixture } from '../lib/formStateFixtures'
@@ -52,18 +56,25 @@ function deferred() {
 /** `previews[i]` answers the i-th preview request (the last one answers every later one). */
 async function renderPage({
   previews,
+  manageable = [],
+  manageableRoute,
   list = letterheadList({
     welld_it: { activeVersion: null, canManage: true },
     welld_ch: { activeVersion: null, canManage: true },
   }),
 }: {
   previews: Array<(sent: Sent) => Reply>
+  /** The entities `GET /legal-entities/manageable` lists (a person who manages none by default). */
+  manageable?: string[]
+  /** Replaces the answer of `manageable` (a pending or failing one). */
+  manageableRoute?: FakeHandler
   list?: ReturnType<typeof letterheadList>
 }) {
   const sent: Sent[] = []
   const base = fakeApi({
     'GET /v1/catalog': () => ({ status: 200, body: catalogFixture() }),
     'GET /v1/letterheads': () => ({ status: 200, body: list }),
+    'GET /legal-entities/manageable': manageableRoute ?? (() => ({ status: 200, body: { entities: manageable } })),
   })
   apiFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -85,6 +96,7 @@ const edit = (value: string) => fireEvent.change(top(), { target: { value } })
 const settle = (ms: number) => new Promise((done) => setTimeout(done, ms))
 
 beforeEach(() => {
+  resetManageableLegalEntities()
   window.scrollTo = () => undefined
   document.documentElement.removeAttribute('lang')
   if (typeof (globalThis as { CSS?: { escape?: unknown } }).CSS?.escape !== 'function') {
@@ -99,7 +111,7 @@ afterEach(() => {
 })
 
 describe('the first preview (F3.1, F3.6; AC-8.5, 8.6)', () => {
-  it('asks at once for the sample on the form as it is, says the data is sample, and shows each page with its alt and text', async () => {
+  it('asks at once for the sample on the form as it is, says where the details come from, and shows each page with its alt and text', async () => {
     const { sent } = await renderPage({ previews: [() => answer(2)] })
     expect(region().getAttribute('aria-busy')).toBe('true')
     expect(within(region()).getByText('Preparing the preview…')).not.toBeNull()
@@ -110,8 +122,8 @@ describe('the first preview (F3.1, F3.6; AC-8.5, 8.6)', () => {
     expect(sent[0].body).toEqual({ config: catalogFixture().defaultConfig, language: 'en' })
     expect(sent[0].body).not.toHaveProperty('layoutVersion')
 
-    expect(screen.getByTestId('letterheads-preview-sample').textContent).toBe(
-      'Sample document with sample company data. Nothing here is read from the CRM or any other tool.',
+    expect(screen.getByTestId('letterheads-preview-source').textContent).toBe(
+      'The company details (name, address, VAT number, IBAN, contacts) are the real ones from Legal entities, in the preview language. The body of the page is sample text. An administrator keeps them in Legal entities.',
     )
     expect(region().getAttribute('aria-busy')).toBe('false')
     expect(within(region()).getByText('2 pages')).not.toBeNull()
@@ -122,11 +134,16 @@ describe('the first preview (F3.1, F3.6; AC-8.5, 8.6)', () => {
     const caption = figure.querySelector('figcaption') as HTMLElement
     expect(caption.textContent).toBe('Text a of page 1')
     expect(caption.getAttribute('lang')).toBe('en')
-    // No other call: the sample is the service's own (AC-8.5).
-    expect(apiFetch.mock.calls.map(([url]) => String(url)).filter((url) => !url.endsWith('/preview'))).toEqual([
-      'http://letterhead-api.test/v1/catalog',
-      'http://letterhead-api.test/v1/letterheads',
-    ])
+    // No other call: the details are the service's own (AC-8.5); the one extra is the UX gate of the link (E2).
+    const others = apiFetch.mock.calls.map(([url]) => String(url)).filter((url) => !url.endsWith('/preview'))
+    expect(others).toHaveLength(3)
+    expect(others).toEqual(
+      expect.arrayContaining([
+        'http://letterhead-api.test/v1/catalog',
+        'http://letterhead-api.test/v1/letterheads',
+        'http://auth.test/legal-entities/manageable',
+      ]),
+    )
   })
 
   it('makes the sample in the person’s language at first (F3.6)', async () => {
@@ -374,6 +391,103 @@ describe('the preview language (F4; AC-5.8)', () => {
   })
 })
 
+describe('the source of the company details (AC-5.4, 8.1, 8.2; plan E2, E3, E7)', () => {
+  it('drops the old sample-data sentence and shows the legend of the missing look', async () => {
+    await renderPage({ previews: [() => answer(1)] })
+    await waitFor(() => expect(pageImages()).toHaveLength(1))
+    expect(document.body.textContent).not.toMatch(/sample company data|Nothing here is read from the CRM/)
+    const legend = screen.getByTestId('letterheads-preview-legend')
+    expect(legend.textContent).toBe('⟦Label⟧A detail that is not filled in yet.')
+    expect(within(legend).getByText('⟦Label⟧').className).toContain('bg-paper-mark')
+  })
+
+  it('links a person who may manage the entity to its Legal entities tab, and follows the entity', async () => {
+    await renderPage({ previews: [() => answer(1)], manageable: ['welld_it'] })
+    const link = (await screen.findByRole('link', { name: 'Edit them in Legal entities' })) as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/admin/legal-entities?entity=welld_it')
+    expect(screen.getByTestId('letterheads-preview-source').textContent).not.toContain('An administrator keeps')
+    // The other entity: the person manages only welld_it, so the sentence, no link.
+    await userEvent.click(screen.getByRole('tab', { name: /welld ch|WellD CH/i }))
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Edit them in Legal entities' })).toBeNull())
+    expect(screen.getByTestId('letterheads-preview-source').textContent).toContain('An administrator keeps them')
+  })
+
+  it('shows the sentence, never the link, while the answer is pending (fails closed)', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((done) => (release = done))
+    await renderPage({
+      previews: [() => answer(1)],
+      manageableRoute: async () => {
+        await gate
+        return { status: 200, body: { entities: ['welld_it'] } }
+      },
+    })
+    await waitFor(() => expect(pageImages()).toHaveLength(1))
+    expect(screen.queryByRole('link', { name: 'Edit them in Legal entities' })).toBeNull()
+    expect(screen.getByTestId('letterheads-preview-source').textContent).toContain('An administrator keeps them')
+    release()
+    expect(await screen.findByRole('link', { name: 'Edit them in Legal entities' })).not.toBeNull()
+  })
+
+  it('shows the sentence, never the link, when the answer fails (fails closed)', async () => {
+    await renderPage({
+      previews: [() => answer(1)],
+      manageableRoute: () => ({ status: 503, body: { status: 503, title: 'Down' } }),
+    })
+    await waitFor(() => expect(pageImages()).toHaveLength(1))
+    await waitFor(() =>
+      expect(apiFetch.mock.calls.some(([url]) => String(url).endsWith('/legal-entities/manageable'))).toBe(true),
+    )
+    await settle(0)
+    expect(screen.queryByRole('link', { name: 'Edit them in Legal entities' })).toBeNull()
+    expect(screen.getByTestId('letterheads-preview-source').textContent).toContain('An administrator keeps them')
+  })
+
+  it('has no accessibility violations with the link and the legend', async () => {
+    const { container } = await renderPage({ previews: [() => answer(1)], manageable: ['welld_it'] })
+    await screen.findByRole('link', { name: 'Edit them in Legal entities' })
+    await waitFor(() => expect(pageImages()).toHaveLength(1))
+    expect(await axeViolations(container)).toEqual([])
+  })
+})
+
+describe('the registry could not be read (issuerDetails "unavailable")', () => {
+  const unavailable = () =>
+    json(200, { ...previewAnswer(1, 'u'), issuerDetails: 'unavailable', legalEntityVersion: null })
+
+  it('keeps the pages and shows a warning with Try again in the preview slot; the form and Save are unaffected', async () => {
+    const { sent } = await renderPage({ previews: [unavailable, () => answer(1, 'b')] })
+    const notice = await screen.findByTestId('letterheads-preview-unavailable')
+    expect(within(region()).getByTestId('letterheads-preview-unavailable')).toBe(notice)
+    expect(notice.textContent).toContain('The company details could not be read')
+    expect(notice.textContent).toContain('Every company detail is shown as missing.')
+    expect(pageImages()).toHaveLength(1)
+    expect(screen.queryByTestId('letterheads-preview-failed')).toBeNull()
+    // The form stays editable and Save is not disabled by it.
+    expect(top().matches(':disabled')).toBe(false)
+    expect(screen.getByRole('button', { name: /^Save/ }).hasAttribute('disabled')).toBe(false)
+
+    await userEvent.click(within(notice).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(sent).toHaveLength(2))
+    await waitFor(() => expect(screen.queryByTestId('letterheads-preview-unavailable')).toBeNull())
+    expect(pageImages()).toHaveLength(1)
+  })
+
+  it('has no accessibility violations with the notice', async () => {
+    const { container } = await renderPage({ previews: [unavailable] })
+    await screen.findByTestId('letterheads-preview-unavailable')
+    expect(await axeViolations(container)).toEqual([])
+  })
+
+  it('is not shown for a current answer, nor for an answer that does not name the member', async () => {
+    await renderPage({
+      previews: [() => json(200, { ...previewAnswer(1), issuerDetails: 'current', legalEntityVersion: 4 })],
+    })
+    await waitFor(() => expect(pageImages()).toHaveLength(1))
+    expect(screen.queryByTestId('letterheads-preview-unavailable')).toBeNull()
+  })
+})
+
 describe('below xl: the Drawer (S1)', () => {
   it('opens the same preview from the bar’s Preview button without asking again, and closing loses nothing', async () => {
     const { sent } = await renderPage({ previews: [() => answer(2)] })
@@ -384,7 +498,7 @@ describe('below xl: the Drawer (S1)', () => {
     const drawer = await screen.findByRole('dialog', { name: 'Preview' })
     expect(within(drawer).getAllByRole('img')).toHaveLength(2)
     expect(within(drawer).getByRole('region', { name: 'Preview of the sample document' })).not.toBeNull()
-    expect(within(drawer).getByText(/Sample document with sample company data/)).not.toBeNull()
+    expect(within(drawer).getByText(/are the real ones from Legal entities/)).not.toBeNull()
     expect(sent).toHaveLength(1)
     await userEvent.click(within(drawer).getByRole('button', { name: 'Close the preview' }))
     expect(screen.queryByRole('dialog')).toBeNull()
@@ -427,6 +541,19 @@ describe('requestPreview and describePreview', () => {
     expect(JSON.parse(String(init.body))).toEqual({ config: input.config, language: 'it', layoutVersion: 2 })
     expect(result.language).toBe('it')
     expect(result.pages).toHaveLength(1)
+    expect(result).toMatchObject({ issuerDetails: 'current', legalEntityVersion: null })
+  })
+
+  it('reads issuerDetails and legalEntityVersion of the answer', async () => {
+    apiFetch.mockResolvedValueOnce(json(200, { ...previewAnswer(1), issuerDetails: 'current', legalEntityVersion: 7 }))
+    await expect(requestPreview(input)).resolves.toMatchObject({ issuerDetails: 'current', legalEntityVersion: 7 })
+    apiFetch.mockResolvedValueOnce(
+      json(200, { ...previewAnswer(1), issuerDetails: 'unavailable', legalEntityVersion: null }),
+    )
+    await expect(requestPreview(input)).resolves.toMatchObject({
+      issuerDetails: 'unavailable',
+      legalEntityVersion: null,
+    })
   })
 
   it('maps 422 invalid_letterhead to the refused problems, keeping only well-formed entries', async () => {
@@ -468,29 +595,43 @@ describe('requestPreview and describePreview', () => {
 
   it('describes each state of the request (S7): never an empty region, previous pages kept', () => {
     const pages = [{ image: 'aW1n', text: 't' }]
-    const result = { language: 'en' as const, pages }
+    const result = { language: 'en' as const, pages, issuerDetails: 'current' as const, legalEntityVersion: 3 }
+    const entity = 'welld_it' as const
     const refusal = new PreviewRefusedError([])
     expect(
-      describePreview({ status: 'pending', result: undefined, error: undefined, lastRefusal: null }),
+      describePreview({ status: 'pending', result: undefined, error: undefined, lastRefusal: null, entity }),
     ).toMatchObject({
       state: 'loading',
       pages: [],
     })
-    expect(describePreview({ status: 'pending', result, error: undefined, lastRefusal: null })).toMatchObject({
+    expect(describePreview({ status: 'pending', result, error: undefined, lastRefusal: null, entity })).toMatchObject({
       state: 'updating',
       pages,
     })
-    expect(describePreview({ status: 'ready', result, error: undefined, lastRefusal: null })).toMatchObject({
+    expect(describePreview({ status: 'ready', result, error: undefined, lastRefusal: null, entity })).toMatchObject({
       state: 'ready',
       refused: null,
       failed: false,
+      issuerUnavailable: false,
+      entity: 'welld_it',
     })
-    expect(describePreview({ status: 'failed', result, error: new Error('x'), lastRefusal: null })).toMatchObject({
+    expect(
+      describePreview({
+        status: 'ready',
+        result: { ...result, issuerDetails: 'unavailable', legalEntityVersion: null },
+        error: undefined,
+        lastRefusal: null,
+        entity,
+      }),
+    ).toMatchObject({ state: 'ready', issuerUnavailable: true })
+    expect(
+      describePreview({ status: 'failed', result, error: new Error('x'), lastRefusal: null, entity }),
+    ).toMatchObject({
       state: 'failed',
       failed: true,
       pages,
     })
-    expect(describePreview({ status: 'failed', result, error: refusal, lastRefusal: refusal })).toMatchObject({
+    expect(describePreview({ status: 'failed', result, error: refusal, lastRefusal: refusal, entity })).toMatchObject({
       state: 'ready',
       refused: 0,
       failed: false,

@@ -25,6 +25,7 @@ vi.mock('shell/session', () => ({
   apiFetch,
   registerNavigationBlocker,
   getLetterheadsApiBaseUrl: () => 'http://letterhead-api.test',
+  getAuthBaseUrl: () => 'http://auth.test',
   useSession: () => ({ data: { user: { id: 'u-ada' } } }),
 }))
 

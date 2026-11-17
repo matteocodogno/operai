@@ -2,7 +2,15 @@
 const en = {
   title: 'Preview',
   region: 'Preview of the sample document',
-  sample: 'Sample document with sample company data. Nothing here is read from the CRM or any other tool.',
+  sourceLine:
+    'The company details (name, address, VAT number, IBAN, contacts) are the real ones from Legal entities, in the preview language. The body of the page is sample text.',
+  sourceLink: 'Edit them in Legal entities',
+  sourceAdmin: 'An administrator keeps them in Legal entities.',
+  legendMark: '⟦Label⟧',
+  legend: 'A detail that is not filled in yet.',
+  unavailableTitle: 'The company details could not be read',
+  unavailableBody:
+    'Every company detail is shown as missing. The sample body and your settings are unaffected. This is only a preview; documents are not made while the details cannot be read.',
   language: 'Preview language',
   it: 'Italian',
   en: 'English',
@@ -21,7 +29,15 @@ const en = {
 const it: typeof en = {
   title: 'Anteprima',
   region: 'Anteprima del documento di esempio',
-  sample: 'Documento di esempio con dati aziendali di esempio. Nulla viene letto dal CRM o da altri strumenti.',
+  sourceLine:
+    'I dati dell’azienda (ragione sociale, indirizzo, partita IVA, IBAN, contatti) sono quelli reali di Società del gruppo, nella lingua dell’anteprima. Il corpo della pagina è un testo di esempio.',
+  sourceLink: 'Modificali in Società del gruppo',
+  sourceAdmin: 'Li gestisce un amministratore in Società del gruppo.',
+  legendMark: '⟦Etichetta⟧',
+  legend: 'Un dato non ancora compilato.',
+  unavailableTitle: 'Non è stato possibile leggere i dati dell’azienda',
+  unavailableBody:
+    'Ogni dato dell’azienda è mostrato come mancante. Il corpo di esempio e le tue impostazioni non cambiano. È solo un’anteprima; i documenti non vengono creati finché i dati non si possono leggere.',
   language: 'Lingua dell’anteprima',
   it: 'Italiano',
   en: 'Inglese',
