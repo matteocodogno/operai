@@ -698,3 +698,6 @@ same files.
 - FU-8 (T37): `admin-ui/src/pages/LegalEntitiesPage.test.tsx` — 2 T36 tests wait for the facts view where the
   form now renders (fix: wait for `admin-legal-form`); the T37 agent's edit was refused by the permission
   classifier (outside its touch). Pending owner decision on assigning the file to T40.
+- FU-9 (T23): the sample document's intro (`letterhead-api/engine/src/sample/mod.rs` ~L292, ~L330) still says the
+  company's data are placeholders marked "(SAMPLE)" — false in the configurator preview now that it shows the
+  registry's details (AC-5.4). Reword in it and en (engine-only, real documents unaffected).
