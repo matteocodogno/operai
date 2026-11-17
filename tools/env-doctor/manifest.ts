@@ -217,7 +217,9 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   // delete/erase/transfer calls) as `system:crm-api`.
   // specs/20261116-letterhead-service (T44, AC-9.3): crm-api also renders offers through letterhead-api as itself (`letterhead:render`,
   // verified by letterhead-api's /v1/render/*; the same client, so it is in the entry whatever the switch says).
-  { ...LINK_BASE, caller: "crm-api", requiredScopes: ["notifications.push", "emails.send", "deal-link-notices.send", "activities.write", "projects.purchase-orders.read", "letterhead:render"] },
+  // specs/20261117-legal-entities (T12, AC-3.2): crm-api also reads the issuer's details from auth's registry as itself
+  // (`legal-entities:read`, verified by auth's GET /system/legal-entities, ADR 20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds).
+  { ...LINK_BASE, caller: "crm-api", requiredScopes: ["notifications.push", "emails.send", "deal-link-notices.send", "activities.write", "projects.purchase-orders.read", "letterhead:render", "legal-entities:read"] },
   { ...LINK_BASE, caller: "notify-api", requiredScopes: ["users.contact"] },
   // specs/20261104-meetings: meetings-api pushes meeting notifications (notify-api) and posts host notices to
   // crm-api (ADR 20261104-meeting-host-contract-resolve-and-notices). No emails.send: an email notice, if ever wanted, is a deliberate widening.
@@ -237,6 +239,12 @@ export const SERVICE_CLIENT_LINKS: ReadonlyArray<{
   // (AC-6.1/6.3, ADR 20261101-notify-api-resolves-email-notice-address-from-auth), so BOTH scopes: without emails.send notify-api refuses every email notice
   // and only the in-app row is written. It calls the hosts as the caller, never as itself.
   { ...LINK_BASE, caller: "activities-api", requiredScopes: ["notifications.push", "emails.send"] },
+  // specs/20261117-legal-entities (T12, AC-3.2, plan decision 3): letterhead-api reads the issuer's details from auth's registry as
+  // itself (GET /system/legal-entities) and prints them in every render. Exactly this one scope: it VERIFIES `letterhead:render`
+  // on /v1/render/* but does not HOLD it (that is its callers'), and it sends no notices. A new client at auth, so the entry,
+  // the shared secret and this caller's SERVICE_CLIENT_ID/SECRET are one change (release step 2); auth refuses to start with a
+  // scope it does not know, so the entry is added only after the new auth is live.
+  { ...LINK_BASE, caller: "letterhead-api", requiredScopes: ["legal-entities:read"] },
 ];
 
 /**
@@ -445,8 +453,10 @@ export const REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = {
   // specs/20261116-letterhead-service: a JWKS resource server with two audiences (person tokens on /v1/letterheads/*, service tokens on
   // /v1/render/*). The whole list is what letterhead-api/api/src/env.rs requires at startup, minus the bucket's name and two credentials (set by reference to the Railway bucket) and its
   // optional LH_WORKERS / LH_QUEUE (default 2 / 4). The bucket's two credentials are set by reference to the Railway bucket and stay
-  // out of the committed template, as for crm-api / inventory-api. It has no service client: it calls `auth` with the caller's own
-  // token, and a new caller needs a credential at `auth`, not a line here (AC-9.3).
+  // out of the committed template, as for crm-api / inventory-api. A new CALLER of /v1/render/* needs a credential at `auth`, not a
+  // line here (AC-9.3). Since specs/20261117-legal-entities (T12) it also HAS a service client of its own (to read the registry):
+  // SERVICE_CLIENT_ID/SECRET are optional in its env.rs until the registry client ships (T21), so they are required for production
+  // only (PRODUCTION_REQUIRED_KEYS), where the SERVICE_CLIENT_LINKS entry above checks them against auth's registry.
   "letterhead-api": [
     "DATABASE_URL", "ALLOWED_ORIGINS", "AUTH_ISSUER", "AUTH_JWKS_URL", "AUTH_BASE_URL", "AUTH_AUDIENCE", "SERVICE_AUDIENCE",
     "LETTERHEAD_S3_ENDPOINT", "LETTERHEAD_S3_REGION", "LETTERHEAD_S3_EU_ENDPOINT_HOSTS", "PORT",
@@ -484,6 +494,10 @@ export const PRODUCTION_REQUIRED_KEYS: Partial<Record<ServiceName, string[]>> = 
   // succeeds but the PO's ops-manager is never notified, AC-4.3 / AC-4.4 — optional in env.ts, so
   // required here only for production).
   "projects-api": ["CRM_INTERNAL_URL", "ESTIMAI_INTERNAL_URL", "NOTIFY_INTERNAL_URL", "SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET", "SERVICE_AUDIENCE"],
+  // specs/20261117-legal-entities (T12, AC-3.2): letterhead-api reads the legal-entity registry with its own service client. Without the
+  // pair every registry read fails closed (503 legal_entities_unavailable) and no document prints an issuer. Production states both, so
+  // that the link to auth's SERVICE_CLIENTS entry (scope `legal-entities:read`) is actually checked rather than skipped as "missing".
+  "letterhead-api": ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"],
 };
 
 /**

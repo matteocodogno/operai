@@ -127,6 +127,68 @@ describe("env-doctor resolver", () => {
     expect(findings.some((f) => f.level === "error" && f.message.includes('lacks the "host-notices.send" scope'))).toBe(true);
   });
 
+  // specs/20261117-legal-entities T12 done-when, against the SHIPPED templates (AC-3.2): `legal-entities:read` on crm-api's entry and a
+  // new `letterhead-api` client, with the same shared secret reference on both sides.
+  describe("the legal-entity registry read (specs/20261117-legal-entities, T12)", () => {
+    const prod = (r: ReturnType<typeof loadTemplateSuite>) => checkSuite(r.suite, { env: "production", isProdLike: true, resolved: r.resolved });
+    const errorsOf = (r: ReturnType<typeof loadTemplateSuite>) =>
+      prod(r).filter((f) => f.level === "error").map((f) => `${f.scope}: ${f.message}`);
+    const registryOf = (r: ReturnType<typeof loadTemplateSuite>) => JSON.parse(r.suite.auth!.SERVICE_CLIENTS!) as Record<string, { secret: string; scope: string }>;
+    /** What `--resolve` / `--live` hands the doctor: every Railway shared reference replaced by a concrete secret, the same on both sides. */
+    function resolvedFixture() {
+      const r = loadTemplateSuite("production");
+      const reg = registryOf(r);
+      reg["crm-api"]!.secret = "c".repeat(40);
+      reg["letterhead-api"]!.secret = "l".repeat(40);
+      r.suite.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+      r.suite["crm-api"]!.SERVICE_CLIENT_SECRET = "c".repeat(40);
+      r.suite["letterhead-api"]!.SERVICE_CLIENT_SECRET = "l".repeat(40);
+      return { ...r, resolved: true };
+    }
+
+    test("the committed templates carry the scope on crm-api's entry and a letterhead-api client with exactly that scope", () => {
+      const r = loadTemplateSuite("production");
+      const reg = registryOf(r);
+      expect(reg["crm-api"]!.scope.split(" ")).toContain("legal-entities:read");
+      expect(reg["letterhead-api"]!.scope).toBe("legal-entities:read");
+      expect(r.suite["letterhead-api"]!.SERVICE_CLIENT_ID).toBe("letterhead-api");
+      // one shared reference, byte-identical on both sides (never a literal in a committed file)
+      expect(r.suite["letterhead-api"]!.SERVICE_CLIENT_SECRET).toBe("${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}");
+      expect(reg["letterhead-api"]!.secret).toBe(r.suite["letterhead-api"]!.SERVICE_CLIENT_SECRET!);
+    });
+
+    test("a resolved production fixture passes, and fails naming letterhead-api and legal-entities:read once the entry loses the scope", () => {
+      const ok = resolvedFixture();
+      expect(errorsOf(ok)).toEqual([]);
+      const bad = resolvedFixture();
+      const reg = registryOf(bad);
+      reg["letterhead-api"]!.scope = "letterhead:render";
+      bad.suite.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+      const errors = errorsOf(bad);
+      expect(errors).toContain('auth: auth.SERVICE_CLIENTS entry "letterhead-api" lacks the "legal-entities:read" scope');
+    });
+
+    test("the committed templates fail when crm-api's entry loses the scope, or the letterhead-api entry is gone", () => {
+      const r = loadTemplateSuite("production");
+      const reg = registryOf(r);
+      reg["crm-api"]!.scope = reg["crm-api"]!.scope.replace(" legal-entities:read", "");
+      delete (reg as Record<string, unknown>)["letterhead-api"];
+      r.suite.auth!.SERVICE_CLIENTS = JSON.stringify(reg);
+      const errors = errorsOf(r).join(" | ");
+      expect(errors).toContain('entry "crm-api" lacks the "legal-entities:read" scope');
+      expect(errors).toContain('no entry for client id "letterhead-api"');
+    });
+
+    test("the committed letterhead-api template fails without its client id or secret in production", () => {
+      const r = loadTemplateSuite("production");
+      delete r.suite["letterhead-api"]!.SERVICE_CLIENT_ID;
+      delete r.suite["letterhead-api"]!.SERVICE_CLIENT_SECRET;
+      const errors = errorsOf(r);
+      expect(errors).toContain("letterhead-api: SERVICE_CLIENT_ID is missing");
+      expect(errors).toContain("letterhead-api: SERVICE_CLIENT_SECRET is missing");
+    });
+  });
+
   test("the committed templates fail when crm-api has no SERVICE_AUDIENCE, or meetings-api no MEETINGS_S3_REGION", () => {
     const r = loadTemplateSuite("production");
     delete r.suite["crm-api"]!.SERVICE_AUDIENCE;

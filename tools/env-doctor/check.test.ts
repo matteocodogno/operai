@@ -555,7 +555,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
       "estimai-api": { secret: CLIENT_SECRET_EST, scope: "notifications.push estimate-notices.send" },
       "refund-api": { secret: CLIENT_SECRET_REF, scope: "notifications.push emails.send" },
       // crm-api holds a client of its own since specs/20261103-projects-handoff (it reads projects-api), required in production.
-      "crm-api": { secret: "k".repeat(40), scope: "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render" },
+      "crm-api": { secret: "k".repeat(40), scope: "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render legal-entities:read" },
       "meetings-api": { secret, scope },
     });
 
@@ -842,7 +842,7 @@ describe("env-doctor checker — meetings (specs/20261104-meetings)", () => {
 const CLIENT_SECRET_PROJECTS = "p".repeat(40);
 const CLIENT_SECRET_CRM = "m".repeat(40);
 const PROJECTS_SCOPES = "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push";
-const CRM_SCOPES = "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render";
+const CRM_SCOPES = "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render legal-entities:read";
 const projectsRegistry = (scope = PROJECTS_SCOPES, crmScope = CRM_SCOPES) =>
   JSON.stringify({
     ...JSON.parse(registry(CLIENT_SECRET)),
@@ -1188,7 +1188,7 @@ describe("env-doctor checker — activities-api (specs/20261110-activities)", ()
   const CLIENT_SECRET_PRJ = "p".repeat(40);
   /** Only the findings about one service (the baseline has several services sharing key names). */
   const errsAbout = (f: Finding[], svc: string) => errs(f).filter((x) => x.scope === svc).map((x) => x.message).join(" | ");
-  const CRM_SCOPES = "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render";
+  const CRM_SCOPES = "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render legal-entities:read";
   const activitiesRegistry = (crmScope = CRM_SCOPES, actScope = "notifications.push emails.send") =>
     JSON.stringify({
       ...JSON.parse(registry(CLIENT_SECRET)),
@@ -1377,5 +1377,168 @@ describe("env-doctor checker — activities-api (specs/20261110-activities)", ()
 
   test("the service-client secret is redacted", () => {
     expect(isSecretVar("SERVICE_CLIENT_SECRET")).toBe(true);
+  });
+});
+
+// specs/20261117-legal-entities (T12, AC-3.2): the registry's service read takes the scope `legal-entities:read`. crm-api holds it
+// besides its other scopes; letterhead-api is a NEW service client holding exactly it. A scope listed on one side only fails.
+describe("env-doctor checker — legal-entities:read (specs/20261117-legal-entities)", () => {
+  const CLIENT_SECRET_CRM = "m".repeat(40);
+  const CLIENT_SECRET_ACT = "a".repeat(40);
+  const CLIENT_SECRET_PRJ = "p".repeat(40);
+  const CLIENT_SECRET_LH = "l".repeat(40);
+  const CRM_SCOPES = "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render legal-entities:read";
+  const LH_SCOPES = "legal-entities:read";
+  /** Findings about one service only (the baseline has several services sharing key names). */
+  const errsAbout = (f: Finding[], svc: string) => errs(f).filter((x) => x.scope === svc).map((x) => x.message).join(" | ");
+  const fullRegistry = (crmScope = CRM_SCOPES, lhScope: string | null = LH_SCOPES, lhSecret = CLIENT_SECRET_LH) => {
+    const r: Record<string, unknown> = {
+      ...JSON.parse(registry(CLIENT_SECRET)),
+      "crm-api": { secret: CLIENT_SECRET_CRM, scope: crmScope },
+      "projects-api": { secret: CLIENT_SECRET_PRJ, scope: PROJECTS_SCOPES },
+      "activities-api": { secret: CLIENT_SECRET_ACT, scope: "notifications.push emails.send" },
+    };
+    if (lhScope !== null) r["letterhead-api"] = { secret: lhSecret, scope: lhScope };
+    return JSON.stringify(r);
+  };
+
+  function legalSuite(): SuiteEnv {
+    const s = validSuite();
+    s.auth!.SERVICE_CLIENTS = fullRegistry();
+    const rs = {
+      ALLOWED_ORIGINS: SHELL,
+      AUTH_ISSUER: AUTH_URL,
+      AUTH_JWKS_URL: "http://auth.railway.internal:3001/auth/jwks",
+      AUTH_BASE_URL: "http://auth.railway.internal:3001",
+      AUTH_AUDIENCE: AUD,
+      SERVICE_AUDIENCE: SVC_AUD,
+    };
+    s["crm-api"] = {
+      ...rs,
+      DATABASE_URL: "postgres://…/crm",
+      NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
+      SERVICE_CLIENT_ID: "crm-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_CRM,
+      ACTIVITIES_API_URL: "http://activities-api.railway.internal:8087",
+      LETTERHEAD_API_URL: "http://letterhead-api.railway.internal:8088",
+      LETTERHEAD_SERVICE_ENABLED: "false",
+      PROJECTS_INTERNAL_URL: "http://projects-api.railway.internal:8086",
+      PORT: "8084",
+    };
+    s["projects-api"] = {
+      ...rs,
+      DATABASE_URL: "postgres://…/projects",
+      CRM_INTERNAL_URL: "http://crm-api.railway.internal:8084",
+      ESTIMAI_INTERNAL_URL: "http://estimai-api.railway.internal:8080",
+      NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
+      SERVICE_CLIENT_ID: "projects-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_PRJ,
+      PORT: "8086",
+    };
+    s["activities-api"] = {
+      ...rs,
+      DATABASE_URL: "postgres://…/activities",
+      CRM_API_URL: "http://crm-api.railway.internal:8084",
+      PROJECTS_API_URL: "http://projects-api.railway.internal:8086",
+      NOTIFY_INTERNAL_URL: "http://notify-api.railway.internal:8080",
+      SERVICE_CLIENT_ID: "activities-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_ACT,
+      PORT: "8087",
+    };
+    s["letterhead-api"] = {
+      ...rs,
+      DATABASE_URL: "postgres://…/letterhead",
+      SERVICE_CLIENT_ID: "letterhead-api",
+      SERVICE_CLIENT_SECRET: CLIENT_SECRET_LH,
+      LETTERHEAD_S3_ENDPOINT: "https://t3.storageapi.dev",
+      LETTERHEAD_S3_REGION: "ams",
+      LETTERHEAD_S3_EU_ENDPOINT_HOSTS: "t3.storageapi.dev",
+      PORT: "8088",
+    };
+    return s;
+  }
+  const LOCAL = { env: "local", isProdLike: false };
+
+  test("a fully-correct suite with the registry read on crm-api and letterhead-api passes with no errors or warnings", () => {
+    const f = checkSuite(legalSuite(), PROD);
+    expect(errs(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+  });
+
+  test("a resolved production fixture whose registry lacks the scope fails naming letterhead-api and legal-entities:read", () => {
+    const s = legalSuite();
+    s.auth!.SERVICE_CLIENTS = fullRegistry(CRM_SCOPES, "letterhead:render");
+    const text = errText(checkSuite(s, { ...PROD, resolved: true }));
+    expect(text).toContain('auth.SERVICE_CLIENTS entry "letterhead-api" lacks the "legal-entities:read" scope');
+    expect(text).toContain('entry "letterhead-api" holds the "letterhead:render" scope, which letterhead-api does not need');
+  });
+
+  test("crm-api needs legal-entities:read, and a registry without it → error naming crm-api and the scope", () => {
+    const s = legalSuite();
+    s.auth!.SERVICE_CLIENTS = fullRegistry("notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read letterhead:render");
+    expect(errText(checkSuite(s, PROD))).toContain('entry "crm-api" lacks the "legal-entities:read" scope');
+  });
+
+  test("no letterhead-api entry in the registry → error: the token endpoint would answer 401 to it", () => {
+    const s = legalSuite();
+    s.auth!.SERVICE_CLIENTS = fullRegistry(CRM_SCOPES, null);
+    const text = errText(checkSuite(s, PROD));
+    expect(text).toContain('no entry for client id "letterhead-api"');
+    expect(text).toContain("letterhead-api");
+  });
+
+  test("letterhead-api holds exactly legal-entities:read: an extra scope on its entry → error", () => {
+    const s = legalSuite();
+    s.auth!.SERVICE_CLIENTS = fullRegistry(CRM_SCOPES, `${LH_SCOPES} crm.companies.read`);
+    expect(errText(checkSuite(s, PROD))).toContain('entry "letterhead-api" holds the "crm.companies.read" scope, which letterhead-api does not need');
+  });
+
+  test("legal-entities:read is held by crm-api and letterhead-api only — another client holding it → error", () => {
+    const s = legalSuite();
+    s.auth!.SERVICE_CLIENTS = JSON.stringify({
+      ...JSON.parse(fullRegistry()),
+      "activities-api": { secret: CLIENT_SECRET_ACT, scope: "notifications.push emails.send legal-entities:read" },
+    });
+    expect(errText(checkSuite(s, PROD))).toContain('entry "activities-api" holds the "legal-entities:read" scope, which activities-api does not need');
+  });
+
+  test("letterhead-api's secret differing from the registry entry's → error; a wrong id → error", () => {
+    const s = legalSuite();
+    s["letterhead-api"]!.SERVICE_CLIENT_SECRET = "z".repeat(40);
+    expect(errText(checkSuite(s, PROD))).toContain("letterhead-api.SERVICE_CLIENT_SECRET does not match");
+    s["letterhead-api"]!.SERVICE_CLIENT_ID = "someone-else";
+    expect(errText(checkSuite(s, PROD))).toContain('no entry for client id "someone-else"');
+  });
+
+  test("letterhead-api's secret must be 32 characters at least", () => {
+    const s = legalSuite();
+    s.auth!.SERVICE_CLIENTS = fullRegistry(CRM_SCOPES, LH_SCOPES, "s".repeat(31));
+    s["letterhead-api"]!.SERVICE_CLIENT_SECRET = "s".repeat(31);
+    expect(errsAbout(checkSuite(s, PROD), "letterhead-api")).toContain("SERVICE_CLIENT_SECRET is shorter than 32 characters");
+  });
+
+  test("letterhead-api SERVICE_CLIENT_ID and SERVICE_CLIENT_SECRET are required in production, not locally", () => {
+    for (const key of ["SERVICE_CLIENT_ID", "SERVICE_CLIENT_SECRET"]) {
+      const s = legalSuite();
+      delete s["letterhead-api"]![key];
+      expect(errsAbout(checkSuite(s, PROD), "letterhead-api")).toContain(`${key} is missing`);
+      expect(errText(checkSuite(s, LOCAL))).not.toContain(`${key} is missing`);
+    }
+  });
+
+  test("the same Railway reference on both sides is drift-proof (no warning), different references warn", () => {
+    const s = legalSuite();
+    const ref = "${{shared.LETTERHEAD_SERVICE_CLIENT_SECRET}}";
+    s.auth!.SERVICE_CLIENTS = fullRegistry(CRM_SCOPES, LH_SCOPES, ref);
+    s["letterhead-api"]!.SERVICE_CLIENT_SECRET = ref;
+    const same = checkSuite(s, PROD);
+    expect(errs(same)).toEqual([]);
+    expect(warns(same)).toEqual([]);
+    s["letterhead-api"]!.SERVICE_CLIENT_SECRET = "${{shared.OTHER}}";
+    expect(warns(checkSuite(s, PROD)).map((x) => x.message).join(" | ")).toContain("letterhead-api.SERVICE_CLIENT_SECRET and the secret in auth.SERVICE_CLIENTS entry");
+  });
+
+  test("letterhead-api's client secret is redacted when surfaced", () => {
+    expect(showValue("SERVICE_CLIENT_SECRET", CLIENT_SECRET_LH)).toStartWith("<redacted sha256:");
   });
 });
