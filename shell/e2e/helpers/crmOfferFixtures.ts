@@ -36,6 +36,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { seedAdminSession, type SeededSession } from './adminSession'
+import { ensureRegistryComplete, getRegistryEntity } from './legalEntitiesFixtures'
 import { newRunId, signInContext } from './meetingsFixtures'
 
 export { newRunId, signInContext }
@@ -147,22 +148,26 @@ export async function createDealPastEstimateGate(admin: SeededSession, label: st
 }
 
 /**
- * Makes sure welld_ch has a letterhead profile: generating an offer is refused without one (409 entity_profile_missing).
- * An existing profile is left exactly as it is; only a missing one is written.
+ * Makes sure welld_ch can issue an offer. Since specs/20261117-legal-entities the issuer's legal details are the REGISTRY's
+ * (auth, `/legal-entities`) and the CRM's entity settings hold only its own values (offer terms, place of issue; AC-6.1): the
+ * settings PUT is sent no legal key (crm-api would accept and ignore it, but a fixture must not rely on the tolerance, which
+ * goes with the contract step). So this does two things, each only when needed:
+ *   - the CRM has no settings row for the entity: one is written with the CRM's own values only;
+ *   - the registry entity is not in order (a required value missing or invalid): ONE registry save by `admin` fills it
+ *     (helpers/legalEntitiesFixtures.ts). The global setup has normally done it already; this keeps a spec that runs on its own
+ *     (E2E_SKIP_LEGAL_ENTITIES_SETUP=1) honest. An entity in order is never saved again.
+ * An existing row and existing legal values are left exactly as they are.
  */
 export async function ensureEntityProfile(admin: SeededSession): Promise<void> {
-  const listed = await must<{ items: { entity: string; legalName?: string | null }[] }>(
-    admin,
-    'GET',
-    '/entity-profiles',
-  )
-  const have = listed.body.items.find((profile) => profile.entity === 'welld_ch')
-  if (have?.legalName) return
-  await must(admin, 'PUT', '/entity-profiles/welld_ch', {
-    legalName: 'wellD SA',
-    addressLines: ['Via Example 1', '6900 Lugano'],
-    vatNumber: 'CHE-123.456.789 MWST',
-    iban: 'CH00 0000 0000 0000 0000 0',
+  await ensureOwnSettings(admin, 'welld_ch')
+  await ensureRegistryComplete(admin, 'welld_ch')
+}
+
+/** The CRM's own settings of `entity` exist (offer terms in both languages); no legal key is sent. Existing values stay. */
+export async function ensureOwnSettings(admin: SeededSession, entity: 'welld_ch' | 'welld_it'): Promise<void> {
+  const listed = await must<{ items: { entity: string }[] }>(admin, 'GET', '/entity-profiles')
+  if (listed.body.items.some((profile) => profile.entity === entity)) return
+  await must(admin, 'PUT', `/entity-profiles/${entity}`, {
     offerTermsEn: 'Payment within 30 days.',
     offerTermsIt: 'Pagamento a 30 giorni.',
   })
@@ -170,22 +175,50 @@ export async function ensureEntityProfile(admin: SeededSession): Promise<void> {
 
 export interface ProfileRow {
   entity: string
+  /** The issuer's legal name: the REGISTRY's (the CRM's settings no longer hold it). */
   legalName?: string | null
+  /** The registry's address lines in Italian (the language of the wizard templates the journeys use); see `address` for both. */
   addressLines?: string[] | null
+  /** The registry's address lines in both languages. */
+  address?: { it: string[]; en: string[] }
+  vatNumber?: string
+  /** The registry's IBAN as the documents print it (groups of four); empty when none. */
+  ibanPrint?: string
+  /** The registry version the details were read at. */
+  registryVersion?: number
+  /** The CRM's own: the letterhead upload, when there is one. */
   letterhead?: { uploadedAt: string } | null
 }
 
-/** welld_ch's entity profile exactly as crm-api returns it: what the journeys assert the issuer text against. */
+/**
+ * welld_ch's issuer as a journey asserts it: the CRM's own settings row (its letterhead) joined with the registry's legal
+ * details (what the documents print, AC-6.2). Read as `admin`; the registry is read as the entity it is, not as crm-api sees it.
+ */
 export async function getEntityProfile(admin: SeededSession): Promise<ProfileRow> {
   const listed = await must<{ items: ProfileRow[] }>(admin, 'GET', '/entity-profiles')
   const have = listed.body.items.find((profile) => profile.entity === 'welld_ch')
   if (!have) throw new Error('[crmOfferFixtures] welld_ch has no entity profile')
-  return have
+  const registry = await getRegistryEntity(admin, 'welld_ch')
+  return {
+    entity: have.entity,
+    letterhead: have.letterhead ?? null,
+    legalName: registry.legalName,
+    addressLines: registry.address.it,
+    address: registry.address,
+    vatNumber: registry.vatNumber,
+    ibanPrint: registry.ibanPrint,
+    registryVersion: registry.version,
+  }
 }
 
-/** The issuer's address as the offer prints it: the non-blank lines, in order, joined by a comma and a space (AC-12.9). */
-export const issuerAddressText = (profile: ProfileRow): string =>
-  (profile.addressLines ?? []).filter((line) => line.trim() !== '').join(', ')
+/**
+ * The issuer's address as the offer prints it: the non-blank lines of the registry's address in the document's language
+ * (Italian unless said: the wizard templates of these journeys are Italian), joined by a comma and a space (AC-12.9, AC-6.2).
+ */
+export const issuerAddressText = (profile: ProfileRow, language: 'it' | 'en' = 'it'): string =>
+  ((profile.address?.[language] ?? (language === 'it' ? profile.addressLines : null)) ?? [])
+    .filter((line) => line.trim() !== '')
+    .join(', ')
 
 /** The entity letterhead fixture (T59): one readable A4 page. */
 export const LETTERHEAD_FIXTURE = fileURLToPath(new URL('../fixtures/letterhead-a4.pdf', import.meta.url))

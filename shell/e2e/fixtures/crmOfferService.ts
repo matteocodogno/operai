@@ -22,7 +22,8 @@ import { createServer, connect, type Server, type Socket } from 'node:net'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Page } from '@playwright/test'
 import { seedUserSession, type SeededSession } from '../helpers/adminSession'
-import { MINIMAL_TEMPLATE_SOURCE, crmCall, type TemplateRow } from '../helpers/crmOfferFixtures'
+import { MINIMAL_TEMPLATE_SOURCE, crmCall, ensureOwnSettings, type TemplateRow } from '../helpers/crmOfferFixtures'
+import { ensureRegistryComplete } from '../helpers/legalEntitiesFixtures'
 import {
   LETTERHEADS_API_URL,
   activeVersion,
@@ -180,19 +181,14 @@ export async function ensureServiceLetterhead(admin: SeededSession, entity: Enti
   return saveVersion(admin, entity, (await catalog(admin)).defaultConfig)
 }
 
-/** The entity's CRM profile has a legal name (generation and preview are refused without one). Existing values stay. */
+/**
+ * The entity can issue a document: its CRM settings row exists (the CRM's own values only: since specs/20261117-legal-entities
+ * no legal key is sent) and the registry's legal details are in order (generation and preview are refused without a legal
+ * name and an address, AC-6.3). Existing values stay; an entity already in order gets no new registry version.
+ */
 export async function ensureProfileOf(admin: SeededSession, entity: EntityId): Promise<void> {
-  const listed = await crmCall<{ items: Array<{ entity: string; legalName?: string | null }> }>(admin, 'GET', '/entity-profiles')
-  if (listed.body.items.find((row) => row.entity === entity)?.legalName) return
-  const put = await crmCall(admin, 'PUT', `/entity-profiles/${entity}`, {
-    legalName: entity === 'welld_it' ? 'wellD Italia S.r.l.' : 'wellD SA',
-    addressLines: entity === 'welld_it' ? ['Via Esempio 2', '20100 Milano'] : ['Via Example 1', '6900 Lugano'],
-    vatNumber: entity === 'welld_it' ? 'IT00000000000' : 'CHE-123.456.789 MWST',
-    iban: 'CH00 0000 0000 0000 0000 0',
-    offerTermsEn: 'Payment within 30 days.',
-    offerTermsIt: 'Pagamento a 30 giorni.',
-  })
-  if (put.status !== 200) throw new Error(`[crmOfferService] PUT /entity-profiles/${entity} -> ${put.status}: ${JSON.stringify(put.body)}`)
+  await ensureOwnSettings(admin, entity)
+  await ensureRegistryComplete(admin, entity)
 }
 
 export interface EntityDeal {

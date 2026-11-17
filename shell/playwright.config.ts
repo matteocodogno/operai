@@ -56,6 +56,12 @@ import { defineConfig, devices } from '@playwright/test'
  *      stops "the service" in the middle of a session without touching a container. The spec header has the details; the
  *      preview timings (40 edits, p50/p95) are letterhead-api/perf/preview-edits.ts, not a Playwright spec.
  *
+ *  10. specs/20261117-legal-entities (T41): the global setup (e2e/global-setup.ts) prepares the legal-entity registry of `auth`
+ *      before any spec runs: `auth` migrated AND seeded (`cd auth && bun run db:release`: the `admin` role holds
+ *      `legal-entity:manage`), and, while an entity still has no version, the compose Postgres with the CRM database for
+ *      `mise run legal-entities:import` (T9). It leaves both entities at version >= 1 and complete and three people made
+ *      (admin, a welld_ch-conditioned manager, a no-grant user). E2E_SKIP_LEGAL_ENTITIES_SETUP=1 skips it.
+ *
  * Every notification the suite raises (invitation email from `auth`, refund
  * decisions and batch emails from `refund-api`, collaborator changes from
  * `estimai-api`, assignments from `inventory-api`) is sent under that caller's
@@ -211,6 +217,9 @@ const letterheadsRemotePort = new URL(letterheadsRemoteOrigin).port
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
+
+  // specs/20261117-legal-entities (T41): the registry seeded by the import and complete, and its three people (e2e/global-setup.ts).
+  globalSetup: './e2e/global-setup.ts',
 
   fullyParallel: false,
   forbidOnly: !!process.env['CI'],
