@@ -1043,3 +1043,8 @@ Push boundary: push-1 tasks T52–T57, T67, T69 depend only on push-1 tasks and 
 
 Then the existing tail: T43 (after T63–T66) → T45 → T47 and T16 → T17 → T18 → T44 → T48 → T49 → T71 → T50.
 Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T44 → T48 → T49 → T71 → T50.
+- Orchestrator decisions on T51's design drift (2026-11-17, owner asked not to be interrupted; recorded for review):
+  DR-14 — administrators: the `admin` role holds `legal-entity:manage` unconditioned by seed (T3), and department
+  admins inherit the same role, so every effective administrator can open the history link; no design change.
+  DR-17 — the push text on a lock screen may show the actor's name and the two IBAN tails: allowed by AC-9.12 and
+  the owner's "push in English" reading; accepted. DR-13, DR-15, DR-16, DR-18 — as the design says; DR-18 goes to T63.
