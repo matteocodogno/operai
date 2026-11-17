@@ -442,7 +442,7 @@ Reading the list:
     values that change, handles 422/409/403/5xx as design S7; success focuses the entity heading; read-only
     entity shows Open only; axe 0 violations.
 
-- [ ] T40: admin-ui — FU-7 string gaps and FU-8's failing tests fixed, then the accessibility sweep of design.md's list (every screen state incl. S12 and the S5/S7 additions, dark and light, Italian once, 320 px) — refs: AC-8.1, AC-8.2, AC-9.6 — deps: T37, T38, T39, T51, T60, T61
+- [ ] T40: admin-ui — FU-7 string gaps and FU-8's failing tests fixed, then the accessibility sweep of design.md's list (every screen state incl. S12 and the S5/S7 additions, dark and light, Italian once, 320 px) — refs: AC-8.1, AC-8.2, AC-9.6 — deps: T37, T38, T39, T51, T60, T61, T73
   - touch: `admin-ui/src/pages/LegalEntitiesPage.a11y.test.tsx`, `admin-ui/src/pages/LegalEntitiesPage.test.tsx`, `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/strings.test.tsx`, `admin-ui/src/lib/legalEntityMappings*`, `admin-ui/src/components/AddressLinesField*`, `admin-ui/src/components/ConflictBanner*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/LegalEntityHistory*`, `admin-ui/src/components/LegalEntityVersionView*`
   - agent: frontend-dev for FU-7/FU-8 (copy from T51), then quality-engineer for the sweep · push 2
   - widened 2026-11-17 (owner): it now also fixes FU-7 (admin-ui string gaps, with the designer's copy from T51)
@@ -500,7 +500,7 @@ Reading the list:
 
 ## QE, security, eval
 
-- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68
+- [ ] T45: QE — the move rehearsed on compose end to end (dry run, apply, dry run, golden comparison) and the full AC run — refs: AC-1.1, AC-1.2, AC-1.3, AC-1.4, AC-1.5, AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5, AC-2.6, AC-2.7, AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-4.1, AC-4.2, AC-4.3, AC-5.1, AC-5.2, AC-5.3, AC-5.4, AC-5.5, AC-6.1, AC-6.2, AC-6.3, AC-6.4, AC-7.1, AC-7.2, AC-7.3, AC-7.4, AC-7.5, AC-8.1, AC-8.2, AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.7, AC-9.8, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15, AC-9.16, AC-9.17 — deps: T40, T42, T43, T53, T54, T59, T62, T67, T68, T73, T74
   - touch: `specs/20261117-legal-entities/qe-report.md`
   - agent: quality-engineer
   - done when: `qe-report.md` maps every AC to passing evidence, records the MIG rehearsal (counts and flags,
@@ -736,6 +736,22 @@ same files.
   - done when: a test with a fake letterhead service that answers 409 for 1 s then 200 shows one retry after ≥ 1.1 s
     and a 200; the existing retry tests stay green; crm-api typecheck and suite green.
 
+- [ ] T73: `@operai/ui` ConfirmDialog — body scrolls with the footer always visible at 320 px, an aria-disabled Confirm with a described reason (`confirmDisabledReason`), an optional width; admin-ui's S12 and restore dialog adopt them as design S7/S12 say — refs: AC-9.1, AC-9.4, AC-9.6, AC-8.1 — deps: T60
+  - touch: `operai-ui/src/components/ConfirmDialog*`, `operai-ui/src/components/Dialog*`, `operai-ui/src/styles/tokens.css`, `operai-ui/src/index.ts`, `operai-ui/docs/design-system.md`, `admin-ui/src/components/ProtectedChangeDialog*`, `admin-ui/src/components/RestoreDialog*`, `.changeset/*`
+  - agent: frontend-dev · push 1 (library) + push 2 (admin-ui)
+  - added by the orchestrator 2026-11-17 (T60 report, library gaps): opt-in props only, existing dialogs unchanged; a
+    changeset bumps `@operai/ui` (push 1, ships with the shell).
+  - done when: library tests show the footer in view with three long details at 320 px (layout asserted by
+    classes/CSS, story added), Confirm `aria-disabled` + `aria-describedby` reason while the restore dialog reads or
+    after a failed read (design S7), the same Cancel/Escape semantics; axe 0; ui:check steps green.
+- [ ] T74: auth — expose `Retry-After` over CORS so admin-ui can read the 429 wait — refs: AC-9.6, AC-8.1 — deps: T52
+  - touch: `auth/src/index.ts`, `auth/src/auth/auth.mount.test.ts`
+  - agent: backend-dev · push 1
+  - added by the orchestrator 2026-11-17 (T60 report): the CORS middleware sets no `exposeHeaders`; `Retry-After` is
+    not CORS-safelisted, so every 429 would read "a few minutes" cross-origin.
+  - done when: a CORS request to a throttled registry route exposes `Retry-After` (`Access-Control-Expose-Headers`
+    contains it); auth suite green.
+
 ## Follow-ups found during implementation (orchestrator, 2026-11-17)
 
 - FU-1 (T31): crm-ui `letterhead.overflow.body` / `bodyAskAdmin` still say "Shorten the value in CRM Settings"; the
@@ -917,7 +933,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
 ### Push 2 — admin-ui
 
 - [ ] T60: admin-ui — the protected-change confirmation on save (S12) and in the restore dialog (S7), and the 429 state — refs: AC-9.1, AC-9.2, AC-9.3, AC-9.4, AC-9.5, AC-9.6, AC-9.17, AC-8.1, AC-8.2 — deps: T51, T55
-  - touch: `admin-ui/src/components/ProtectedChange*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/RestoreDialog*`, `admin-ui/src/lib/legalEntitiesApi*`, `admin-ui/src/strings/legalEntities.ts`
+  - touch: `admin-ui/src/components/ProtectedChange*`, `admin-ui/src/components/LegalEntityForm*`, `admin-ui/src/components/RestoreDialog*`, `admin-ui/src/lib/legalEntitiesApi*`, `admin-ui/src/strings/legalEntities.ts`, `admin-ui/src/components/LegalEntityPanel.test.tsx`, `admin-ui/src/components/LegalEntityHistory.test.tsx`, `admin-ui/src/components/LegalEntityHistory.tsx` (added 2026-11-17: tests made stale by the check call and the in-dialog read failure; `onLoadFailed`/`restoreFailed` dead code)
   - agent: frontend-dev · push 2
   - Details: plan G7; design S12 and the S7 additions (T51); `ProtectedChangeDialog` and `ProtectedChangeList` on the
     library's `ConfirmDialog` (no acknowledge checkbox); Save → check → dialog → save.
