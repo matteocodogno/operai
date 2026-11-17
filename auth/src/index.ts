@@ -20,6 +20,7 @@ import { rolesRouter } from "./admin/roles.routes";
 import { usersRouter } from "./admin/users.routes";
 import { userAddressRouter } from "./admin/userAddress.routes";
 import { addressRouter } from "./profile/address.routes";
+import { legalEntityReadRouter } from "./legalEntities/read.routes";
 import { healthRouter } from "./health/health.routes";
 import { inviteRouter } from "./invite/invite.routes";
 import { invitationsRouter } from "./invitations/invitations.routes";
@@ -72,6 +73,9 @@ app.route("/", rolesRouter);
 app.route("/", usersRouter);
 app.route("/", userAddressRouter);
 app.route("/", addressRouter);
+// The legal-entity registry, person read API (specs/20261117-legal-entities, T5). `/legal-entities/manageable` is
+// registered inside this router before `/legal-entities/{entity}` (E2).
+app.route("/", legalEntityReadRouter);
 app.route("/", invitationsRouter);
 app.route("/", accessRequestsRouter);
 app.route("/", inviteRouter);

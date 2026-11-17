@@ -1,0 +1,78 @@
+{
+  "items": [
+    {
+      "entity": "welld_it",
+      "version": 1,
+      "updatedAt": "2026-11-17T09:00:00.000Z",
+      "legalName": "wellD S.r.l.",
+      "address": {
+        "it": [
+          "Via Roma 1",
+          "Piano terra",
+          "Via della Posta, xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "20121 Milano",
+          "Italia"
+        ],
+        "en": [
+          "Via Roma 1",
+          "20121 Milan",
+          "Italy"
+        ]
+      },
+      "vatNumber": "IT01234567890",
+      "iban": "IT60X0542811101000000123457",
+      "ibanPrint": "IT60 X054 2811 1010 0000 0123 457",
+      "contacts": {
+        "it": "",
+        "en": ""
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": [
+        {
+          "field": "address.it",
+          "line": 2,
+          "reason": "too_long",
+          "limit": 120
+        },
+        {
+          "field": "address.it",
+          "reason": "too_many_lines",
+          "limit": 4
+        },
+        {
+          "field": "iban",
+          "reason": "iban_check_digits"
+        }
+      ]
+    },
+    {
+      "entity": "welld_ch",
+      "version": 3,
+      "updatedAt": "2026-11-17T10:12:00.000Z",
+      "legalName": "wellD SA",
+      "address": {
+        "it": [
+          "Via Cantonale 1",
+          "6900 Lugano",
+          "Svizzera"
+        ],
+        "en": [
+          "Via Cantonale 1",
+          "6900 Lugano",
+          "Switzerland"
+        ]
+      },
+      "vatNumber": "CHE-123.456.789 IVA",
+      "iban": "CH9300762011623852957",
+      "ibanPrint": "CH93 0076 2011 6238 5295 7",
+      "contacts": {
+        "it": "Tel. +41 91 000 00 00 · info@welld.ch",
+        "en": "Phone +41 91 000 00 00 · info@welld.ch"
+      },
+      "complete": true,
+      "missing": [],
+      "invalid": []
+    }
+  ]
+}
