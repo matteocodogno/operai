@@ -36,6 +36,7 @@ import { db } from "../lib/db";
 import { env } from "../lib/env";
 import { Prisma } from "../lib/generated/prisma/client";
 import { getAppCatalog } from "./catalog";
+import { ADMIN_APP_ID } from "./catalogs/admin";
 import { CRM_APP_ID } from "./catalogs/crm";
 import { ESTIMAI_APP_ID } from "./catalogs/estimai";
 import { INVENTORY_APP_ID } from "./catalogs/inventory";
@@ -58,6 +59,7 @@ import {
   PROJECT_MANAGER_ROLE_NAME,
   seed,
   seedAccountingRoleGrants,
+  seedAdminCatalog,
   seedAdminRoleGrants,
   seedAppAccessCatalog,
   seedCrmCatalog,
@@ -66,6 +68,7 @@ import {
   seedEstimaiGrants,
   seedInventoryCatalog,
   seedInventoryGrants,
+  seedLegalEntityGrants,
   seedLetterheadsCatalog,
   seedLetterheadsGrants,
   seedMeetingsCatalog,
@@ -119,17 +122,14 @@ describe("seedSystemRoles (T11, AC-6.2)", () => {
 });
 
 describe("seedAppAccessCatalog (T11, US-7)", () => {
-  test("registers a single access-only resource for admin, idempotent on re-run", async () => {
+  test("registers nothing for `admin` (it declares its own catalog, AC-4.1) and never prunes it, idempotent on re-run", async () => {
+    expect(SUITE_APPS.some((app) => app.appId === ADMIN_APP_ID)).toBe(false);
+    await seedAdminCatalog();
     await seedAppAccessCatalog();
-    await seedAppAccessCatalog(); // re-run — full-replace upsert, must not duplicate
+    await seedAppAccessCatalog(); // re-run — must not prune what `seedAdminCatalog` registered
 
-    for (const appId of ["admin"]) {
-      const catalog = await getAppCatalog(appId);
-      const accessResource = catalog.resources.find((r) => r.key === appId);
-      expect(accessResource).toBeDefined();
-      expect(accessResource?.actions).toHaveLength(1);
-      expect(accessResource?.actions[0]?.key).toBe("access");
-    }
+    const catalog = await getAppCatalog(ADMIN_APP_ID);
+    expect(catalog.resources.map((r) => r.key).sort()).toEqual(["admin", "legal-entity"]);
   });
 
   test("estimai is excluded from SUITE_APPS — it declares/registers its own full catalog (T26), not this one", () => {
@@ -1385,6 +1385,110 @@ describe("seedLetterheadsGrants (specs/20261116-letterhead-service — AC-8.9)",
     });
     const permissions = [{ resource: "letterhead", action: "manage", conditions: toRuleConditions(rule.conditions) }];
     expect(entityGrantFor(permissions, "letterhead", "manage", { entity: null }, "IT")).toEqual({
+      unconditioned: true,
+    });
+  });
+});
+
+// ─── specs/20261117-legal-entities ───────────────────────────────────────────────────
+
+describe("seedAdminCatalog (specs/20261117-legal-entities — AC-4.1)", () => {
+  test("registers the admin catalog — admin:access kept, legal-entity:manage with the entity condition, idempotent", async () => {
+    await seedAdminCatalog();
+    await seedAdminCatalog();
+    const catalog = await getAppCatalog(ADMIN_APP_ID);
+    const byResource = new Map(
+      catalog.resources.map((r) => [r.key, r.actions.map((a) => [a.key, a.supportedConditions])]),
+    );
+    expect([...byResource.keys()].sort()).toEqual(["admin", "legal-entity"]);
+    expect(byResource.get("admin")).toEqual([["access", []]]);
+    expect(byResource.get("legal-entity")).toEqual([["manage", ["entity"]]]);
+  });
+
+  test("admin is excluded from SUITE_APPS but reached by the admin role through ALL_APP_IDS", () => {
+    expect(SUITE_APPS.some((app) => app.appId === ADMIN_APP_ID)).toBe(false);
+    expect(ALL_APP_IDS).toContain(ADMIN_APP_ID);
+  });
+
+  test("seed() leaves admin:access and legal-entity:manage in the catalog (no second registration prunes it)", async () => {
+    await seed();
+    const catalog = await getAppCatalog(ADMIN_APP_ID);
+    expect(catalog.resources.map((r) => r.key).sort()).toEqual(["admin", "legal-entity"]);
+  });
+});
+
+describe("seedLegalEntityGrants (specs/20261117-legal-entities — AC-4.1)", () => {
+  const LEGAL_ENTITY_RESOURCES = [ADMIN_APP_ID, "legal-entity"];
+
+  /** Every admin-app rule, with the name of the role that holds it. */
+  const adminAppRules = async () => {
+    const rules = await db.permissionRule.findMany({
+      where: { resource: { in: LEGAL_ENTITY_RESOURCES } },
+      include: { role: { select: { name: true } } },
+    });
+    return rules.map((r) => ({ role: r.role.name, grant: `${r.resource}:${r.action}`, conditions: r.conditions }));
+  };
+
+  async function clearGrants() {
+    await db.permissionRule.deleteMany({ where: { resource: { in: LEGAL_ENTITY_RESOURCES } } });
+  }
+  beforeEach(clearGrants);
+  afterAll(async () => {
+    await clearGrants();
+    await seedAdminRoleGrants();
+    await seedLegalEntityGrants();
+  });
+
+  test("run twice, the admin role holds the unconditioned grant once and admin:access still exists", async () => {
+    await seedSystemRoles();
+    await seedAdminCatalog();
+    await seedAdminRoleGrants();
+    await seedLegalEntityGrants();
+    await seedLegalEntityGrants();
+    const rules = await adminAppRules();
+    expect(rules.map((r) => `${r.role} ${r.grant}`).sort()).toEqual([
+      `${ADMIN_ROLE_NAME} admin:access`,
+      `${ADMIN_ROLE_NAME} legal-entity:manage`,
+    ]);
+    for (const rule of rules) expect(rule.conditions).toBeNull();
+  });
+
+  test("seed() twice: no role other than admin gets the grant", async () => {
+    await seed();
+    await seed();
+    const holders = (await adminAppRules()).filter((r) => r.grant === "legal-entity:manage").map((r) => r.role);
+    expect(holders).toEqual([ADMIN_ROLE_NAME]);
+  });
+
+  test("an existing conditioned grant on the admin role is not overwritten (non-destructive)", async () => {
+    await seedSystemRoles();
+    const admin = await db.role.findUniqueOrThrow({ where: { name: ADMIN_ROLE_NAME } });
+    await db.permissionRule.create({
+      data: {
+        roleId: admin.id,
+        resource: "legal-entity",
+        action: "manage",
+        conditions: { attributes: [{ key: "entity", match: "user" }] },
+      },
+    });
+    await seedLegalEntityGrants();
+    const rules = (await adminAppRules()).filter((r) => r.grant === "legal-entity:manage");
+    expect(rules).toHaveLength(1);
+    expect(rules[0]?.conditions).not.toBeNull();
+  });
+
+  test("the admin's unconditioned grant covers every entity, even for a user with none", async () => {
+    await seedSystemRoles();
+    await seedLegalEntityGrants();
+    const admin = await db.role.findUniqueOrThrow({ where: { name: ADMIN_ROLE_NAME } });
+    const rule = await db.permissionRule.findFirstOrThrow({
+      where: { roleId: admin.id, resource: "legal-entity", action: "manage" },
+    });
+    const permissions = [{ resource: "legal-entity", action: "manage", conditions: toRuleConditions(rule.conditions) }];
+    expect(entityGrantFor(permissions, "legal-entity", "manage", { entity: null }, "IT")).toEqual({
+      unconditioned: true,
+    });
+    expect(entityGrantFor(permissions, "legal-entity", "manage", { entity: null }, "CH")).toEqual({
       unconditioned: true,
     });
   });

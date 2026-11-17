@@ -14,7 +14,8 @@
  *      editable — an admin may still attach rules to them.
  *   2. {@link seedAppAccessCatalog} — register the suite-wide "can see this
  *      app" catalog via `upsertAppCatalog` (T5): one resource per suite app
- *      that has NOT declared its own full catalog yet (`admin`), keyed by
+ *      that has NOT declared its own full catalog yet (none today: `admin` declares
+ *      its own, `catalogs/admin.ts`), keyed by
  *      the app id itself (per `catalog.ts`'s convention for the app-access
  *      resource), each with a single `access` action. This lets an admin
  *      grant/deny app visibility (US-7) from day one, independent of any
@@ -127,6 +128,7 @@ import { type AppCatalogInput, upsertAppCatalog } from "./catalog";
 import { ESTIMAI_CATALOG } from "./catalogs/estimai";
 import { CRM_APP_ID, CRM_CATALOG } from "./catalogs/crm";
 import { INVENTORY_APP_ID, INVENTORY_CATALOG } from "./catalogs/inventory";
+import { ADMIN_APP_ID, ADMIN_CATALOG } from "./catalogs/admin";
 import { LETTERHEADS_APP_ID, LETTERHEADS_CATALOG } from "./catalogs/letterheads";
 import { MEETINGS_APP_ID, MEETINGS_CATALOG } from "./catalogs/meetings";
 import { PROJECTS_APP_ID, PROJECTS_CATALOG } from "./catalogs/projects";
@@ -157,9 +159,12 @@ export const SYSTEM_ROLE_NAMES = [
  * registers its own full catalog ({@link seedEstimaiCatalog} T26,
  * {@link seedRefundCatalog} T2), so neither is registered twice with
  * conflicting full-replace payloads. Add an app here only until it ships its
- * own catalog declaration.
+ * own catalog declaration. `admin` left this list for {@link ADMIN_CATALOG}
+ * (specs/20261117-legal-entities, AC-4.1) — registering it twice would make the
+ * two full-replace upserts prune each other. The list is empty now but stays:
+ * it is the seam the next access-only app uses.
  */
-export const SUITE_APPS: { appId: string; label: string }[] = [{ appId: "admin", label: "Admin" }];
+export const SUITE_APPS: { appId: string; label: string }[] = [];
 
 /**
  * Upserts the four system roles (AC-6.2). Idempotent: re-running never
@@ -271,6 +276,15 @@ export async function seedLetterheadsCatalog(): Promise<void> {
 }
 
 /**
+ * Registers the Admin tool's catalog (specs/20261117-legal-entities — AC-4.1): `admin:access`
+ * and entity-scoped `legal-entity:manage`. Idempotent (full-replace upsert per `appId`).
+ * `admin` is registered ONLY here, never via `SUITE_APPS`.
+ */
+export async function seedAdminCatalog(): Promise<void> {
+  await upsertAppCatalog(ADMIN_CATALOG);
+}
+
+/**
  * Every catalog a suite app declares itself (everything registered by a
  * `seed<App>Catalog` above; the access-only {@link SUITE_APPS} are separate).
  * `catalogs/uniqueResourceKeys.test.ts` checks no two of them share a resource
@@ -284,10 +298,11 @@ export const DECLARED_CATALOGS: readonly AppCatalogInput[] = [
   MEETINGS_CATALOG,
   PROJECTS_CATALOG,
   LETTERHEADS_CATALOG,
+  ADMIN_CATALOG,
 ];
 
 /**
- * Every suite app id. `estimai`/`refund`/`inventory` declare their own
+ * Every suite app id. `estimai`/`refund`/`inventory`/`admin` declare their own
  * catalogs; the rest come from SUITE_APPS. (`inventory` being listed here is
  * only so `seedAdminRoleGrants` grants `admin` its `access`; it is NOT a
  * second catalog registration.)
@@ -300,6 +315,7 @@ export const ALL_APP_IDS: readonly string[] = [
   MEETINGS_APP_ID,
   PROJECTS_APP_ID,
   LETTERHEADS_APP_ID,
+  ADMIN_APP_ID,
   ...SUITE_APPS.map((a) => a.appId),
 ];
 
@@ -903,6 +919,25 @@ export async function seedLetterheadsGrants(): Promise<void> {
   await ensureGrant(adminRole.id, "letterhead", "manage");
 }
 
+/**
+ * Seeds the legal-entity role grant (specs/20261117-legal-entities — AC-4.1, plan Key decision 4):
+ * `admin` holds `legal-entity:manage`, UNCONDITIONED (every entity). Its `admin:access`
+ * comes from {@link seedAdminRoleGrants} (`ALL_APP_IDS`). No other role holds the permission:
+ * an administrator grants it in the Admin tool, and a grant conditioned on the entity covers
+ * the holder's own entity only.
+ *
+ * Idempotent and non-destructive, through {@link ensureGrant}, exactly like
+ * {@link seedLetterheadsGrants}.
+ */
+export async function seedLegalEntityGrants(): Promise<void> {
+  const adminRole = await db.role.upsert({
+    where: { name: ADMIN_ROLE_NAME },
+    update: {},
+    create: { name: ADMIN_ROLE_NAME, isSystem: true },
+  });
+  await ensureGrant(adminRole.id, "legal-entity", "manage");
+}
+
 /** Runs every deploy-time seed step (all idempotent). */
 export async function seed(): Promise<void> {
   await seedSystemRoles();
@@ -914,6 +949,7 @@ export async function seed(): Promise<void> {
   await seedMeetingsCatalog();
   await seedProjectsCatalog();
   await seedLetterheadsCatalog();
+  await seedAdminCatalog();
   await seedAdminRoleGrants();
   await seedAccountingRoleGrants();
   await seedRefundAdminRole();
@@ -925,6 +961,7 @@ export async function seed(): Promise<void> {
   await seedEstimaiGrants();
   await seedProjectsGrants();
   await seedLetterheadsGrants();
+  await seedLegalEntityGrants();
   await ensureBootstrapAdmin();
 }
 
@@ -1006,6 +1043,7 @@ if (import.meta.main) {
           "rate admin grants + settings admin grants + inventory catalog + inventory grants " +
           "+ CRM catalog + CRM grants + projects catalog + projects grants " +
           "+ letterheads catalog + letterheads grants " +
+          "+ admin catalog + legal-entity grants " +
           "+ bootstrap admin",
       );
       process.exit(0);

@@ -36,7 +36,7 @@ describe("catalog resource keys are unique across the suite", () => {
   });
 
   test("every declared catalog is in the list the check runs over", () => {
-    expect(DECLARED_CATALOGS.map((c) => c.appId).sort()).toEqual(["crm", "estimai", "inventory", "letterheads", "meetings", "projects", "refund"]);
+    expect(DECLARED_CATALOGS.map((c) => c.appId).sort()).toEqual(["admin", "crm", "estimai", "inventory", "letterheads", "meetings", "projects", "refund"]);
   });
 
   test("a duplicate resource key fails the check", () => {
