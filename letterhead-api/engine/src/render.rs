@@ -99,9 +99,20 @@ pub struct Rendered {
     pub missing_placeholders: Vec<&'static str>,
     /// How many characters of the document no font held, over every page (AC-7.6). Never which.
     pub unprintable_characters: usize,
+    /// Made with [`RenderOptions::mark_missing`]: the pages' text then holds `⟦Label⟧` for each marked label
+    /// (which the drawing does not: it holds the label only, see [`output::page_text_marking`]).
+    marking: bool,
 }
 
 impl Rendered {
+    fn text_of(&self, page: &typst_layout::Page) -> String {
+        if self.marking {
+            output::page_text_marking(page)
+        } else {
+            output::page_text(page)
+        }
+    }
+
     /// The PDF of the whole document (AC-1.1): the same bytes for the same request (AC-1.4).
     pub fn pdf(&self) -> Result<Vec<u8>, RenderError> {
         output::pdf(&self.document).ok_or_else(|| {
@@ -131,7 +142,7 @@ impl Rendered {
                     png: image.png,
                     width: image.width,
                     height: image.height,
-                    text: output::page_text(page),
+                    text: self.text_of(page),
                 })
             })
             .collect()
@@ -142,7 +153,7 @@ impl Rendered {
         self.document
             .pages()
             .iter()
-            .map(output::page_text)
+            .map(|page| self.text_of(page))
             .collect()
     }
 
@@ -189,14 +200,7 @@ pub fn render_with(
         .document
         .pages()
         .iter()
-        .map(|page| {
-            let counted = layout::inspect::unprintable_characters(page);
-            if options.mark_missing {
-                counted.saturating_sub(mark_glyphs_without_a_font(page))
-            } else {
-                counted
-            }
-        })
+        .map(layout::inspect::unprintable_characters)
         .sum();
     Ok(Rendered {
         document: compiled.document,
@@ -205,23 +209,8 @@ pub fn render_with(
         page_count,
         missing_placeholders: compiled.missing_placeholders,
         unprintable_characters,
+        marking: options.mark_missing,
     })
-}
-
-/// The `⟦` and `⟧` that the preview's "mark missing" mode draws are in none of the bundled fonts of layout 1:
-/// the font's own mark is drawn for each, and the page's text holds them all the same. They are the preview's
-/// marks and not characters of the person's document, so they are not part of the count of AC-7.6.
-fn mark_glyphs_without_a_font(page: &typst_layout::Page) -> usize {
-    layout::inspect::text_runs(page)
-        .iter()
-        .map(|run| {
-            let marks = run
-                .text
-                .chars()
-                .filter(|c| matches!(c, '\u{27E6}' | '\u{27E7}'));
-            run.unprintable.min(marks.count())
-        })
-        .sum()
 }
 
 // The tests live under output/ with the rest of this task's files.
@@ -295,6 +284,8 @@ mod mark_missing_tests {
     fn with_the_option_an_empty_iban_is_in_the_page_text_and_listed() {
         let marked = rendered(RenderOptions { mark_missing: true });
         let texts = marked.page_texts();
+        // The text alternative has the marks, the drawing (checked in `layout::frame`) only the label: in
+        // this mode alone the page's text differs from the drawn glyphs, on purpose (DR-4).
         assert!(
             texts[0].contains("IBAN \u{27E6}IBAN\u{27E7}"),
             "{}",
@@ -305,7 +296,7 @@ mod mark_missing_tests {
         let pages = marked.preview(&PageSelection::All).expect("a preview");
         assert_eq!(pages[0].text, texts[0]);
         assert!(!pages[0].png.is_empty());
-        // The marks are the preview's, not characters the fonts lack in the person's document.
+        // No bracket is typeset, so nothing counts as unprintable.
         assert_eq!(marked.unprintable_characters, 0);
     }
 
@@ -387,5 +378,42 @@ mod mark_missing_tests {
                 ["address", "contacts", "iban", "legal_name", "vat"]
             );
         }
+    }
+
+    #[test]
+    fn adjacent_and_broken_labels_are_marked_one_by_one_and_a_users_own_marks_are_not() {
+        let mut version = version();
+        version.config.variants.default.footer.left = vec![
+            line("{iban}{contacts}{vat}"),
+            line("{legal_name} \u{27E6}mine\u{27E7}"),
+        ];
+        let request = sample::request_with(
+            Entity::WelldIt,
+            Language::It,
+            EntityData {
+                legal_name: Some("WellD".to_owned()),
+                ..EntityData::default()
+            },
+        );
+        let r = render_with(
+            &request,
+            &version,
+            &Assets::new(),
+            RenderOptions { mark_missing: true },
+        )
+        .unwrap();
+        let text = r.page_texts().remove(0);
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "\u{27E6}IBAN\u{27E7} \u{27E6}Riga contatti\u{27E7} \u{27E6}Partita IVA\u{27E7}"
+            ) || flat.contains(
+                "\u{27E6}IBAN\u{27E7}\u{27E6}Riga contatti\u{27E7}\u{27E6}Partita IVA\u{27E7}"
+            ),
+            "{text}"
+        );
+        // A person's own marks are text like any other, and an unprintable character as before.
+        assert!(text.contains("WellD \u{27E6}mine\u{27E7}"), "{text}");
+        assert_eq!(r.unprintable_characters, 2 * r.page_count);
     }
 }

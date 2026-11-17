@@ -11,7 +11,7 @@ mod text;
 
 pub use self::pdf::pdf;
 pub use self::png::{PREVIEW_COLOURS, PREVIEW_PIXELS_PER_PT, PreviewImage, preview_image};
-pub use self::text::page_text;
+pub use self::text::{page_text, page_text_marking};
 
 /// Which pages of a preview are wanted (AC-1.2): all by default, or the pages of `?pages=1,2,3`.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

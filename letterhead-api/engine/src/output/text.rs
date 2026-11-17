@@ -13,7 +13,8 @@
 
 use typst_layout::Page;
 
-use crate::layout::inspect;
+use crate::layout::inspect::{self, TextRun};
+use crate::resolve::is_label;
 
 /// Two runs are on one line when their baselines are less than this many pt apart.
 const SAME_LINE_PT: f64 = 2.0;
@@ -22,9 +23,55 @@ const SAME_LINE_PT: f64 = 2.0;
 const WORD_GAP_EM: f64 = 0.15;
 
 pub fn page_text(page: &Page) -> String {
+    join(inspect::text_runs(page))
+}
+
+/// The ink of the missing look (`--paper-mark-ink`): what the preview's template sets a marked label in.
+const MARK_INK: &str = "3a2a00";
+
+/// The text of a page of the configurator preview's "mark missing" mode (plan E3, DR-4): [`page_text`] with
+/// `⟦` and `⟧` around each label that was drawn in the missing look. The drawing holds the label only (no
+/// bundled font has these two glyphs), so in this mode alone the page's text differs from the drawn glyphs; the
+/// marks are the text alternative of the missing look. A label is a run, or the runs of a broken line, set in
+/// the mark's ink that together say one of the closed labels. A document made without the option never goes
+/// through here, so it never carries `⟦ ⟧`.
+pub fn page_text_marking(page: &Page) -> String {
+    let mut runs = inspect::text_runs(page);
+    let mut open: Option<(usize, String)> = None; // where the label started, and what it says so far
+    for i in 0..runs.len() {
+        if runs[i].fill.as_deref() != Some(MARK_INK) || runs[i].text.trim().is_empty() {
+            open = None;
+            continue;
+        }
+        let (start, said) = open.get_or_insert((i, String::new()));
+        let start = *start;
+        if !said.is_empty() {
+            said.push(' ');
+        }
+        said.push_str(
+            &runs[i]
+                .text
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+        if is_label(said) {
+            let first = &runs[start].text;
+            let lead = first.len() - first.trim_start().len();
+            runs[start].text.insert(lead, '\u{27E6}');
+            let last = &mut runs[i].text;
+            let end = last.trim_end().len();
+            last.insert(end, '\u{27E7}');
+            open = None;
+        }
+    }
+    join(runs)
+}
+
+fn join(runs: Vec<TextRun>) -> String {
     let mut lines: Vec<String> = Vec::new();
     let mut last: Option<(f64, f64)> = None; // the baseline and the right end of the previous run
-    for run in inspect::text_runs(page) {
+    for run in runs {
         let continues = last.is_some_and(|(y, end)| {
             (run.y - y).abs() < SAME_LINE_PT && run.x >= end - WORD_GAP_EM * run.size
         });

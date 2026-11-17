@@ -16,9 +16,10 @@
 //!   finding, which keyed looks by position in the filtered list).
 //!
 //! **Mark missing (specs/20261117-legal-entities, plan E3, AC-5.4).** Only the configurator's preview asks for
-//! it ([`resolve_marking`]). A placeholder without a value is then drawn as its label between `⟦` and `⟧` in the
-//! missing look ([`Part::Missing`]) and a conditional segment around it is kept, so that the person sees what is
-//! not filled in; the placeholder is still listed as missing. The labels are a closed list in both languages
+//! it ([`resolve_marking`]). A placeholder without a value is then drawn as its label in the missing look
+//! ([`Part::Missing`]) and a conditional segment around it is kept, so that the person sees what is not filled
+//! in; the placeholder is still listed as missing. The drawing holds the label only: no bundled font has `⟦` and
+//! `⟧`, so the page's text (not the drawing) adds them around a marked label (`output::page_text_marking`). The labels are a closed list in both languages
 //! ([`label`]). Without the option nothing changes: a document never carries `⟦ ⟧` unless its own text does.
 //!
 //! Values are printed as sent (AC-2.1: character for character): nothing is trimmed or unescaped, and entity
@@ -39,8 +40,8 @@ use crate::content::{EntityData, Language};
 #[serde(rename_all = "camelCase")]
 pub enum Part {
     Text(String),
-    /// A placeholder without a value, in the preview's "mark missing" mode only: its label between `⟦` and `⟧`
-    /// (E3). Drawn in the missing look; its text is part of the page's text.
+    /// A placeholder without a value, in the preview's "mark missing" mode only: its bare label (E3), drawn in
+    /// the missing look. The `⟦ ⟧` around it are added to the page's text, never drawn.
     Missing(String),
     /// The page's own number.
     Page,
@@ -140,9 +141,13 @@ pub fn label(placeholder: Placeholder, language: Language) -> Option<&'static st
     })
 }
 
-/// The text of a missing value in the preview: its label between `⟦` (U+27E6) and `⟧` (U+27E7).
-fn marked(placeholder: Placeholder, language: Language) -> Option<String> {
-    label(placeholder, language).map(|label| format!("\u{27E6}{label}\u{27E7}"))
+/// Whether `text` is one of the closed labels, in either language.
+pub fn is_label(text: &str) -> bool {
+    Placeholder::ALL.into_iter().any(|p| {
+        Language::ALL
+            .into_iter()
+            .any(|language| label(p, language) == Some(text))
+    })
 }
 
 /// The values of the entity placeholders, worked out once.
@@ -229,9 +234,9 @@ fn emit(
                 None => {
                     missing.insert(placeholder.name());
                     if let Some(language) = values.mark
-                        && let Some(label) = marked(*placeholder, language)
+                        && let Some(label) = label(*placeholder, language)
                     {
-                        parts.push(Part::Missing(label));
+                        parts.push(Part::Missing(label.to_owned()));
                     }
                 }
             },

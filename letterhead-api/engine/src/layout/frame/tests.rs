@@ -877,8 +877,6 @@ mod mark_missing {
     use super::*;
     use crate::layout::compile_in;
 
-    const MARK: &str = "\u{27E6}IBAN\u{27E7}";
-
     fn config() -> crate::config::LetterheadConfig {
         let mut config = bare_config();
         let footer = &mut config.variants.default.footer;
@@ -915,7 +913,17 @@ mod mark_missing {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(text.contains("WellD Sagl"), "{text}");
-        assert!(text.contains(&format!("IBAN {MARK}")), "{text}");
+        // The drawing holds the bare label: no bundled font has `⟦ ⟧`, so they are added to the page's text
+        // only (`output::page_text_marking`), and nothing is typeset that no font holds.
+        assert!(text.contains("IBAN IBAN"), "{text}");
+        assert!(
+            !text.contains('\u{27E6}') && !text.contains('\u{27E7}'),
+            "{text}"
+        );
+        assert_eq!(
+            crate::layout::inspect::unprintable_characters(&c.document.pages()[0]),
+            0
+        );
         assert!(text.contains("Pagina 1 di 1"), "{text}");
         assert_eq!(c.missing_placeholders, ["iban"]);
         // The missing look: a flat box of the paper-mark yellow behind the label, its text in the mark's ink.
@@ -990,17 +998,12 @@ mod mark_missing {
             let text = page_text(&c, 1);
             let text = text.strip_prefix("Corpo. ").unwrap_or(&text).to_owned();
             // The marks as words, in order, whatever the line breaks between them.
-            let words: String = text
-                .chars()
-                .filter(|c| *c != '\u{27E6}' && *c != '\u{27E7}')
-                .collect();
+            let words: String = text.chars().collect();
             assert_eq!(
                 words.split_whitespace().collect::<Vec<_>>().join(" "),
                 labels,
                 "{text}"
             );
-            assert_eq!(text.matches('\u{27E6}').count(), 5, "{text}");
-            assert_eq!(text.matches('\u{27E7}').count(), 5, "{text}");
         }
     }
 }

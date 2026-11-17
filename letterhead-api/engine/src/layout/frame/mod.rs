@@ -13,7 +13,7 @@ use crate::resolve::{Part, ResolvedFrame, ResolvedLine, ResolvedVariant};
 fn part(part: &Part) -> Value {
     match part {
         Part::Text(text) => json!({ "t": text }),
-        // Only in the preview's "mark missing" mode: the preview's template draws it in the missing look.
+        // Only in the preview's "mark missing" mode: the preview's template draws the bare label in the missing look.
         Part::Missing(label) => json!({ "t": label, "m": true }),
         Part::Page => json!({ "pg": "page" }),
         Part::Pages => json!({ "pg": "pages" }),

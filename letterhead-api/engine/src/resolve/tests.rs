@@ -562,7 +562,7 @@ mod mark_missing {
     }
 
     fn missing(label: &str) -> Part {
-        Part::Missing(format!("\u{27E6}{label}\u{27E7}"))
+        Part::Missing(label.to_owned())
     }
 
     #[test]
@@ -643,6 +643,12 @@ mod mark_missing {
         }
         assert_eq!(label(Placeholder::Page, Language::It), None);
         assert_eq!(label(Placeholder::Pages, Language::En), None);
+    }
+
+    #[test]
+    fn is_label_knows_the_closed_list_only() {
+        assert!(is_label("Riga contatti") && is_label("VAT number") && is_label("IBAN"));
+        assert!(!is_label("iban") && !is_label("\u{27E6}IBAN\u{27E7}") && !is_label(""));
     }
 
     #[test]
