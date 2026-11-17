@@ -838,6 +838,8 @@ correction" satisfies AC-7.3's "marks it incomplete" is the owner's reading: spe
 
 ## Amendment 2026-11-17 after security review
 
+> Approved by the owner on 2026-11-17 together with tasks T51–T71; readings confirmed: push text English only, a 422 refusal comes before the confirmation, "administrator" = effective admin, notice time in Europe/Zurich.
+
 Source: `security-review.md` (T46: F1 medium, F2–F7 low), the spec's **US-9 (AC-9.1–AC-9.17)**, owner-approved
 2026-11-17 as the answer to F1, the owner's decision of the same day to **fix every low finding (F2–F7) in this
 feature**, the follow-ups FU-1–FU-10 of `tasks.md`, defect D1 (`62babb4e`), and the owner's decision that **push 1 is
