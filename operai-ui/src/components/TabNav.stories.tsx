@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Meta, StoryObj } from '@storybook/react-vite'
+import { Badge } from './Badge'
 import { TabNav, tabLinkClassName } from './TabNav'
 
 /**
@@ -59,4 +60,27 @@ export const Default: Story = {
 export const WithEndSlot: Story = {
   name: 'With an end tab',
   render: (args) => <Demo label={args.label} withEnd />,
+}
+
+/**
+ * `wrap`: the section row reflows onto further rows and breaks a long label instead of needing a sideways scroll
+ * (WCAG 1.4.10 reflow at 320 px). Opt-in; without it the list renders exactly as before.
+ */
+export const WrapsAt320px: Story = {
+  name: 'Wraps at 320 px (long labels with badges)',
+  render: (args) => (
+    <div className="w-[320px] max-w-full border-b border-rule bg-ink-soft px-4">
+      <TabNav label={args.label} wrap end={<a href="#audit" className={tabLinkClassName}>Audit</a>}>
+        <a href="#roles" className={tabLinkClassName} aria-current="page">
+          Roles
+        </a>
+        <a href="#departments" className={tabLinkClassName}>
+          Departments
+        </a>
+        <a href="#legal" className={tabLinkClassName}>
+          Legal entities <Badge tone="warning" glyph="!">Needs correction</Badge>
+        </a>
+      </TabNav>
+    </div>
+  ),
 }

@@ -7,7 +7,11 @@ import { Button, buttonClassName } from './Button'
 import { DataTable } from './DataTable'
 import { Field } from './Field'
 import { StatePanel } from './StatePanel'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { useState } from 'react'
 import { TabNav } from './TabNav'
+import { Tabs } from './Tabs'
 
 afterEach(() => {
   cleanup()
@@ -218,6 +222,109 @@ describe('TabNav', () => {
     )
     expect(screen.getByRole('navigation', { name: 'Sections' })).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(1)
+  })
+})
+
+const tabsMarkup = (wrap?: boolean) => (
+  <Tabs
+    label="Views"
+    idPrefix="t"
+    value="a"
+    onChange={() => {}}
+    wrap={wrap}
+    tabs={[
+      { id: 'a', label: 'Alpha' },
+      { id: 'b', label: 'Beta' },
+    ]}
+  />
+)
+
+const tabNavMarkup = (wrap?: boolean) => (
+  <TabNav label="Sections" wrap={wrap} end={<a className="tab-link" href="/z">Audit</a>}>
+    <a className="tab-link" href="/a" aria-current="page">
+      A
+    </a>
+    <a className="tab-link" href="/b">
+      B
+    </a>
+  </TabNav>
+)
+
+describe('Tabs and TabNav wrap (opt-in)', () => {
+  it('Tabs: without wrap the markup is unchanged', () => {
+    const { container } = render(tabsMarkup())
+    expect(container.innerHTML).toMatchInlineSnapshot(`"<div role="tablist" aria-label="Views" class="tab-list"><button type="button" role="tab" id="t-tab-a" aria-selected="true" aria-controls="t-panel-a" tabindex="0" class="tab-link">Alpha</button><button type="button" role="tab" id="t-tab-b" aria-selected="false" aria-controls="t-panel-b" tabindex="-1" class="tab-link">Beta</button></div>"`)
+    expect(screen.getByRole('tablist')).toHaveAttribute('class', 'tab-list')
+  })
+
+  it('TabNav: without wrap the markup is unchanged', () => {
+    const { container } = render(tabNavMarkup())
+    expect(container.innerHTML).toMatchInlineSnapshot(`"<nav aria-label="Sections"><ul class="tab-list"><li><a class="tab-link" href="/a" aria-current="page">A</a></li><li><a class="tab-link" href="/b">B</a></li><li class="tab-list-end"><a class="tab-link" href="/z">Audit</a></li></ul></nav>"`)
+    expect(screen.getByRole('list')).toHaveAttribute('class', 'tab-list')
+  })
+
+  it('wrap only adds the opt-in class; nothing else changes', () => {
+    const plain = render(tabsMarkup()).container.innerHTML
+    cleanup()
+    const wrapped = render(tabsMarkup(true)).container.innerHTML
+    expect(wrapped).toBe(plain.replace('class="tab-list"', 'class="tab-list tab-list-wrap"'))
+    cleanup()
+    const plainNav = render(tabNavMarkup()).container.innerHTML
+    cleanup()
+    const wrappedNav = render(tabNavMarkup(true)).container.innerHTML
+    expect(wrappedNav).toBe(plainNav.replace('class="tab-list"', 'class="tab-list tab-list-wrap"'))
+  })
+
+  it('wrap is false-y safe: wrap={false} renders like the default', () => {
+    const plain = render(tabsMarkup()).container.innerHTML
+    cleanup()
+    expect(render(tabsMarkup(false)).container.innerHTML).toBe(plain)
+  })
+
+  it('a wrapped list has no horizontal scroll container around it', () => {
+    render(tabNavMarkup(true))
+    const list = screen.getByRole('list')
+    for (let node: HTMLElement | null = list; node; node = node.parentElement) {
+      expect(node.style.overflowX).toBe('')
+      expect(node.className).not.toMatch(/overflow-x|table-region/)
+    }
+  })
+
+  it('keeps arrow-key navigation when wrapped', async () => {
+    function Harness() {
+      const [value, setValue] = useState<'a' | 'b'>('a')
+      return (
+        <Tabs
+          label="Views"
+          idPrefix="h"
+          value={value}
+          onChange={setValue}
+          wrap
+          tabs={[
+            { id: 'a', label: 'Alpha' },
+            { id: 'b', label: 'Beta' },
+          ]}
+        />
+      )
+    }
+    render(<Harness />)
+    screen.getByRole('tab', { name: 'Alpha' }).focus()
+    await userEvent.keyboard('{ArrowRight}')
+    expect(screen.getByRole('tab', { name: 'Beta' })).toHaveFocus()
+    expect(screen.getByRole('tab', { name: 'Beta' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('the stylesheet wraps the list and never scrolls it sideways', () => {
+    const css = readFileSync(join(process.cwd(), 'src/styles/tokens.css'), 'utf8')
+    const rule = (selector: string) => {
+      const start = css.indexOf(`${selector} {`)
+      expect(start, `${selector} rule`).toBeGreaterThan(-1)
+      return css.slice(start, css.indexOf('}', start))
+    }
+    expect(rule('.tab-list')).toMatch(/flex-wrap:\s*wrap/)
+    for (const selector of ['.tab-list', '.tab-list-wrap .tab-link']) {
+      expect(rule(selector)).not.toMatch(/overflow(-x)?:\s*(auto|scroll)/)
+    }
   })
 })
 

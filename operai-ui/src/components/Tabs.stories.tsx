@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import type { Meta, StoryObj } from '@storybook/react-vite'
 import { fn } from 'storybook/test'
+import { Badge } from './Badge'
 import { Card } from './Card'
 import { FactList } from './FactList'
 import { Tabs, tabPanelProps } from './Tabs'
@@ -78,4 +79,48 @@ function Demo({ label }: { label: string }) {
 export const InPageViews: Story = {
   name: 'In-page views',
   render: (args) => <Demo label={args.label} />,
+}
+
+const ENTITY_TABS = [
+  {
+    id: 'welld_it',
+    label: (
+      <>
+        Welld Italia S.r.l. <Badge tone="warning" glyph="!">Needs correction</Badge>
+      </>
+    ),
+  },
+  {
+    id: 'welld_ch',
+    label: (
+      <>
+        Welld Switzerland GmbH <Badge tone="muted" glyph="–">Not moved yet</Badge>
+      </>
+    ),
+  },
+] as const
+
+type Entity = (typeof ENTITY_TABS)[number]['id']
+
+function WrapDemo({ label }: { label: string }) {
+  const idPrefix = useId()
+  const [entity, setEntity] = useState<Entity>('welld_it')
+  return (
+    // A 320 px frame: the strip wraps onto a second row and the page never scrolls sideways.
+    <div className="w-[320px] max-w-full">
+      <Tabs label={label} tabs={ENTITY_TABS} value={entity} onChange={setEntity} idPrefix={idPrefix} wrap />
+      <div {...tabPanelProps(idPrefix, entity)}>
+        <p className="mt-3 text-sm text-soft">Panel for {entity}.</p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * `wrap`: long labels carrying badges reflow onto further rows (and break inside a label) instead of needing a
+ * sideways scroll: WCAG 1.4.10 reflow at 320 px. Opt-in; without it the list renders exactly as before.
+ */
+export const WrapsAt320px: Story = {
+  name: 'Wraps at 320 px (long labels with badges)',
+  render: (args) => <WrapDemo label={args.label} />,
 }

@@ -12,13 +12,18 @@ export type TabNavProps = {
   children: ReactNode
   /** Tabs pinned to the far end of the row (a section that is not part of the main set, like Audit). */
   end?: ReactNode
+  /**
+   * Let the tab row reflow onto further rows and break a long label, so it never needs a sideways scroll
+   * (WCAG 1.4.10 reflow at 320 px). Opt-in; unset, the list renders exactly as before.
+   */
+  wrap?: boolean
 }
 
 /** TabNav — a tool's section tabs, under the tool title. Router-agnostic. */
-export function TabNav({ label, children, end }: TabNavProps) {
+export function TabNav({ label, children, end, wrap }: TabNavProps) {
   return (
     <nav aria-label={label}>
-      <ul className="tab-list">
+      <ul className={wrap ? 'tab-list tab-list-wrap' : 'tab-list'}>
         {Children.toArray(children).map((child, index) => (
           <li key={index}>{child}</li>
         ))}

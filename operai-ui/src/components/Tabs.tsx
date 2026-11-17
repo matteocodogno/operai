@@ -15,6 +15,11 @@ export type TabsProps<Id extends string> = {
   /** Prefix for the tab and panel ids; pair each panel with `tabPanelProps(idPrefix, id)`. */
   idPrefix: string
   testId?: string
+  /**
+   * Let the tab list reflow onto further rows and break a long label, so it never needs a sideways scroll
+   * (WCAG 1.4.10 reflow at 320 px). Opt-in; unset, the list renders exactly as before.
+   */
+  wrap?: boolean
 }
 
 /**
@@ -22,9 +27,9 @@ export type TabsProps<Id extends string> = {
  * INC-32): EstimAI's Activities / Summary / Parameters. A real tablist: one tab
  * stop, arrow keys, Home and End move between tabs, `aria-selected` marks the
  * current one. Sections of a tool that are separate pages with their own URL
- * use `TabNav` (links) instead. Same look as `TabNav`.
+ * use `TabNav` (links) instead. Same look as `TabNav`. `wrap` lets the list reflow at narrow widths.
  */
-export function Tabs<Id extends string>({ label, tabs, value, onChange, idPrefix, testId }: TabsProps<Id>) {
+export function Tabs<Id extends string>({ label, tabs, value, onChange, idPrefix, testId, wrap }: TabsProps<Id>) {
   const listRef = useRef<HTMLDivElement>(null)
 
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -46,7 +51,7 @@ export function Tabs<Id extends string>({ label, tabs, value, onChange, idPrefix
   }
 
   return (
-    <div ref={listRef} role="tablist" aria-label={label} className="tab-list" onKeyDown={move} data-testid={testId}>
+    <div ref={listRef} role="tablist" aria-label={label} className={wrap ? 'tab-list tab-list-wrap' : 'tab-list'} onKeyDown={move} data-testid={testId}>
       {tabs.map((tab) => {
         const selected = tab.id === value
         return (

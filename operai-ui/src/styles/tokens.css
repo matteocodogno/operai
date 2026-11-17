@@ -622,6 +622,19 @@ select:not([multiple]):not([size]) {
     margin-left: auto;
   }
 
+  /* Opt-in (`wrap` on <Tabs> / <TabNav>): the list already wraps between tabs; this lets one tab shrink to the
+     row and break its own label (a long name carrying a badge), so nothing ever scrolls sideways at 320 px. */
+  .tab-list-wrap > li,
+  .tab-list-wrap > .tab-link {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .tab-list-wrap .tab-link {
+    overflow-wrap: anywhere;
+    text-align: start;
+  }
+
   /* On a router <Link> or a plain <a>. Active = aria-current="page" (TanStack
      Router sets it on an active Link) or data-status="active". */
   .tab-link {
