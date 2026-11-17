@@ -899,7 +899,7 @@ task here only has to precede T16. No new push-1 task depends on a push-2 task.
     `outside` in-app row and an unknown status; auth suite green.
 
 - [ ] T59: auth — the notice dispatcher: kick and sweep, leases, retries for 24 h, idempotency keys, the content (in-app en/it, email data), outcomes in the audit log, started with the server — refs: AC-9.7, AC-9.9, AC-9.10, AC-9.11, AC-9.12, AC-9.13, AC-9.14, AC-9.15 — deps: T58, T56, T57, T54, T53, T51
-  - touch: `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`, `auth/src/legalEntities/notices/content.ts`, `auth/src/legalEntities/notices/content.test.ts`, `auth/src/legalEntities/notices/copy.ts`, `auth/src/legalEntities/notices/copy.test.ts`, `auth/src/lib/notify.ts`, `auth/src/lib/notify.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/index.ts`
+  - touch: `auth/src/legalEntities/notices/dispatcher.ts`, `auth/src/legalEntities/notices/dispatcher.test.ts`, `auth/src/legalEntities/notices/content.ts`, `auth/src/legalEntities/notices/content.test.ts`, `auth/src/legalEntities/notices/copy.ts`, `auth/src/legalEntities/notices/copy.test.ts`, `auth/src/lib/notify.ts`, `auth/src/lib/notify.test.ts`, `auth/src/legalEntities/write.routes.ts`, `auth/src/index.ts`, `auth/src/legalEntities/write.routes.test.ts` (added 2026-11-17, T58 report: `wipeRegistry`/`emptyRegistry` must also delete `legal_entity_notice` rows, which the real-transactions group otherwise leaves as orphans)
   - agent: backend-dev · push 2
   - Details: plan G6 (schedule, reasons, leases, logs), G5 (both notify calls, `severity: "warning"`), G1.6 (copy of
     T51 in `copy.ts`, en/it), `ibanTail` (T54), the host guard of T53 for committed-transaction tests.
