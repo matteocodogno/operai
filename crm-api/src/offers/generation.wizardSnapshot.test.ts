@@ -15,7 +15,7 @@ import { wizardSnapshotOf } from "./generation";
 
 const seed = (code: string) => WELLD_CH_IT_V1.find((entry) => entry.code === code)!;
 const REFERENCE = "0017/2026";
-const PROFILE = { legalName: "wellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], vatNumber: "CHE-1", iban: "CH00" };
+const PROFILE = { legalName: "wellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], vatNumber: "CHE-1", iban: "CH00", legalEntityVersion: 7 };
 
 function build(code: string, change: (ast: ReturnType<typeof parseTemplate>["ast"], answers: WizardAnswers) => WizardAnswers = (_, a) => a) {
   const { ast } = parseTemplate(seed(code).source);
@@ -75,7 +75,9 @@ describe("wizardSnapshotOf", () => {
     expect(snapshot.contactIds).toEqual(["sample-contact"]);
     expect(snapshot.language).toBe("it");
     expect(snapshot.reference).toBe(REFERENCE);
+    // The print keeps the shape every snapshot has had; the registry's version goes beside it (T27, AC-6.2, AC-6.4).
     expect(snapshot.issuer).toEqual({ legalName: "wellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], vatNumber: "CHE-1", iban: "CH00" });
+    expect(snapshot.legalEntityVersion).toBe(7);
     expect(snapshot.preparedBy).toBe("Ada");
     expect(snapshot.place).toBe(resolved.client.place);
   });
@@ -148,6 +150,19 @@ describe("wizardSnapshotOf", () => {
       const bytes = await renderContractPdf(snapshot, { letterhead: null, attachments: [] });
       expect(bytes.byteLength).toBeGreaterThan(1_000);
     }
+  });
+
+  it("has no legalEntityVersion when the caller has no registry behind it (a sample render), and never puts it in `issuer`", () => {
+    const { ast } = parseTemplate(seed("T1").source);
+    const answers = sampleAnswers(ast, "it");
+    const resolved = resolveOffer(ast, answers, sampleContext("it"), { reference: REFERENCE });
+    const { legalEntityVersion: _version, ...bare } = PROFILE;
+    const input = { template: { id: "t", name: "T" }, templateVersion: 1, answers, resolved, reference: REFERENCE, currency: "CHF" as const, annex: null, attachments: [], preparedBy: null };
+    const without = wizardSnapshotOf({ ...input, profile: bare });
+    expect("legalEntityVersion" in without).toBe(false);
+    expect(JSON.stringify(without)).not.toContain("legalEntityVersion");
+    const withVersion = wizardSnapshotOf({ ...input, profile: PROFILE });
+    expect(Object.keys(withVersion.issuer).sort()).toEqual(["addressLines", "iban", "legalName", "vatNumber"]);
   });
 
   it("refuses a resolved offer that is not complete: no printed date, or a cost with no amount", () => {

@@ -133,6 +133,11 @@ export interface ContractSnapshot {
     readonly vatNumber: string | null;
     readonly iban: string | null;
   };
+  /**
+   * The version of the registry's legal-entity details `issuer` was read from (specs/20261117-legal-entities, plan § Data
+   * model; AC-6.2). Absent in a snapshot made before the registry: those are never touched (AC-6.4).
+   */
+  readonly legalEntityVersion?: number;
   readonly salutation: string;
   /** First line printed bold (AC-1.2). */
   readonly clientLines: readonly string[];

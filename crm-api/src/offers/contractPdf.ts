@@ -356,7 +356,7 @@ class Flow {
       thickness: 0.5,
       color: GRID,
     });
-    const footer = [legalName, ...addressLines,issuer.vatNumber ? `${t.vat} ${issuer.vatNumber}` : null, issuer.iban ? `IBAN ${issuer.iban}` : null]
+    const footer = [legalName, ...addressLines, issuer.vatNumber ? `${t.vat} ${issuer.vatNumber}` : null, issuer.iban ? `IBAN ${issuer.iban}` : null]
       .filter(Boolean)
       .join("  ·  ");
     for (const [index, line] of layoutRuns([run(footer)], BODY_W, 8, this.fonts).slice(0, 3).entries()) {

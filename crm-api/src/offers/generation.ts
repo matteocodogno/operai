@@ -174,11 +174,19 @@ export const legalEntitiesRetryAfter: MiddlewareHandler = async (c, next) => {
 };
 
 /** What an offer prints of the issuer, in the offer's language: the legal name, `address[language]`, the VAT number and the IBAN as printed. */
-export interface IssuerValues {
+export interface IssuerPrint {
   readonly legalName: string;
   readonly addressLines: readonly string[];
   readonly vatNumber: string | null;
   readonly iban: string | null;
+}
+
+/**
+ * `IssuerPrint` and the version of the registry's details it was read from. The snapshot's `issuer` is the print (its shape
+ * is the one old snapshots have, AC-6.4); the version goes beside it as `legalEntityVersion`, additive (plan § Data model).
+ */
+export interface IssuerValues extends IssuerPrint {
+  readonly legalEntityVersion: number;
 }
 
 export function issuerValuesOf(details: LegalEntityDetails, language: OfferLanguage): IssuerValues {
@@ -187,12 +195,21 @@ export function issuerValuesOf(details: LegalEntityDetails, language: OfferLangu
     addressLines: details.address[language],
     vatNumber: details.vatNumber === "" ? null : details.vatNumber,
     iban: details.ibanPrint === "" ? null : details.ibanPrint,
+    legalEntityVersion: details.version,
   };
 }
 
+/** The snapshot's `issuer`: the print only, in the shape every snapshot has had. */
+const issuerPrintOf = ({ legalName, addressLines, vatNumber, iban }: IssuerPrint): IssuerPrint => ({
+  legalName,
+  addressLines: [...addressLines],
+  vatNumber,
+  iban,
+});
+
 /** The issuer as the layout service's content takes it (`entityData`), with the CRM's place of issue where the row has one. */
 export function letterheadProfileOf(details: LegalEntityDetails, language: OfferLanguage, placeOfIssue: string | null = null): LetterheadProfile {
-  return { ...issuerValuesOf(details, language), placeOfIssue };
+  return { ...issuerPrintOf(issuerValuesOf(details, language)), placeOfIssue };
 }
 
 const isUnreadable = (error: unknown): error is Error & { fileName?: string } =>
@@ -329,7 +346,8 @@ export function snapshotOf(prepared: Prepared, body: GenerateBody, reference: st
     validUntil: isoDate(new Date(issued.getTime() + body.validityDays * 86_400_000)),
     validityDays: body.validityDays,
     place: profile?.placeOfIssue ?? DEFAULT_PLACE,
-    issuer: { ...issuerValuesOf(prepared.issuer, prepared.language) },
+    issuer: issuerPrintOf(issuerValuesOf(prepared.issuer, prepared.language)),
+    legalEntityVersion: prepared.issuer.version,
     salutation: body.salutation,
     clientLines: body.clientLines,
     contacts: prepared.contacts,
@@ -355,8 +373,12 @@ export interface WizardSnapshotInput {
   readonly resolved: ResolvedOffer;
   readonly reference: string;
   readonly currency: "CHF" | "EUR";
-  /** The issuer's values as the offer prints them (`issuerValuesOf` of the registry's details, in the offer's language). */
-  readonly profile: IssuerValues;
+  /**
+   * The issuer's values as the offer prints them (`issuerValuesOf` of the registry's details, in the offer's language), with
+   * the version they were read from. A caller with no registry behind it (a sample render) may leave the version out: the
+   * snapshot then has none.
+   */
+  readonly profile: IssuerPrint & { readonly legalEntityVersion?: number };
   /** The effort detail, or null when the offer has none (the template's, or no estimate). */
   readonly annex: Scope | null;
   readonly attachments: readonly OfferAttachmentRef[];
@@ -402,12 +424,8 @@ export function wizardSnapshotOf(input: WizardSnapshotInput): ContractSnapshot {
     validUntil: isoDate(new Date(Date.parse(`${issuedOn}T00:00:00Z`) + resolved.validityDays * 86_400_000)),
     validityDays: resolved.validityDays,
     place: resolved.client.place,
-    issuer: {
-      legalName: input.profile.legalName,
-      addressLines: input.profile.addressLines,
-      vatNumber: input.profile.vatNumber,
-      iban: input.profile.iban,
-    },
+    issuer: issuerPrintOf(input.profile),
+    ...(input.profile.legalEntityVersion !== undefined ? { legalEntityVersion: input.profile.legalEntityVersion } : {}),
     salutation: resolved.salutation,
     clientLines: resolved.client.lines,
     contacts: resolved.client.contacts,

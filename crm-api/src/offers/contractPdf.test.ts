@@ -191,6 +191,17 @@ describe("renderContractPdf — letterhead, frame and page numbers", () => {
     expect(first).not.toContain("int. 3");
   });
 
+  it("prints the VAT number and the IBAN as the snapshot holds them, in the footer; the registry version is never drawn (T27, AC-6.2, D2)", async () => {
+    const issuer = { legalName: "WellD Sagl", addressLines: ["Via Pessina 9", "6900 Lugano"], vatNumber: "CHE-1", iban: "CH93 0076 2011 6238 5295 7" };
+    const plain = await render(snapshot({ issuer }), { letterhead: null });
+    expect(plain.text[0]!.join(" ")).toContain("WellD Sagl · Via Pessina 9 · 6900 Lugano · P. IVA CHE-1 · IBAN CH93 0076 2011 6238 5295 7");
+    const english = await render(snapshot({ issuer, language: "en" }), { letterhead: null });
+    expect(english.text[0]!.join(" ")).toContain("VAT CHE-1 · IBAN CH93 0076 2011 6238 5295 7");
+    // A snapshot made after the registry carries its version; it changes nothing on the page, so one made before it draws the same bytes.
+    const versioned = await render(snapshot({ issuer, legalEntityVersion: 9 }), { letterhead: null });
+    expect(Buffer.from(versioned.bytes).equals(Buffer.from(plain.bytes))).toBe(true);
+  });
+
   it("is deterministic for the same inputs", async () => {
     const a = await render(snapshot({ annex: scope }));
     const b = await render(snapshot({ annex: scope }));
