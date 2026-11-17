@@ -27,6 +27,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import axe from 'axe-core'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import AuditPage from './AuditPage'
 import type { AuditLogEntry, Paginated } from '../lib/adminApi'
@@ -72,6 +73,37 @@ const entryB: AuditLogEntry = {
   summary: 'Revoked role "admin" from user-42',
   data: { before: { roles: ['admin', 'employee'] }, after: { roles: ['employee'] } },
   createdAt: '2026-07-09T08:00:00.000Z',
+}
+
+const entryLegalSave: AuditLogEntry = {
+  id: 'audit-3',
+  actorUserId: 'user-admin-1',
+  actor: { id: 'user-admin-1', name: 'Luca Camerini', email: 'luca.camerini@welld.ch' },
+  action: 'legal_entity.save',
+  targetType: 'legal_entity',
+  targetId: 'welld-ch',
+  summary: 'Saved version 3 of welld-ch: iban, address.it',
+  data: {
+    version: 3,
+    baseVersion: 2,
+    changes: {
+      iban: { before: 'CH0000000000000000001', after: 'CH9999999999999999999' },
+      'address.it': { before: ['Via Vecchia 1'], after: ['Via Nuova 2', '6900 Lugano'] },
+    },
+  } as AuditLogEntry['data'],
+  createdAt: '2026-07-11T10:00:00.000Z',
+}
+
+const entryNoticeFailed: AuditLogEntry = {
+  id: 'audit-4',
+  actorUserId: null,
+  actor: null,
+  action: 'legal_entity.notice_failed',
+  targetType: 'legal_entity',
+  targetId: 'welld-ch',
+  summary: 'Notice for version 3 of welld-ch failed (attempt 1)',
+  data: { version: 3, attempt: 1, reason: 'notify_unreachable' } as AuditLogEntry['data'],
+  createdAt: '2026-07-11T10:01:00.000Z',
 }
 
 const pageOf = (items: AuditLogEntry[], total = items.length): Paginated<AuditLogEntry> => ({
@@ -248,6 +280,82 @@ describe('AuditPage', () => {
 
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByTestId('audit-diff-audit-2')).toBeNull()
+  })
+
+  // (F2) Legal entity rows: panes derived from data.changes (F7, AC-2.5)
+  it('shows each changed field of a legal_entity.save row in the Before and After panes', async () => {
+    vi.mocked(adminApi.listAudit).mockResolvedValue(pageOf([entryLegalSave]))
+
+    render(<AuditPage />)
+    await waitFor(() => expect(screen.getByTestId('audit-table')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('audit-row-toggle-audit-3'))
+
+    const panes = screen.getByTestId('audit-diff-audit-3').querySelectorAll('pre')
+    expect(panes).toHaveLength(2)
+    expect(JSON.parse(panes[0].textContent ?? '')).toEqual({
+      iban: 'CH0000000000000000001',
+      'address.it': ['Via Vecchia 1'],
+    })
+    expect(JSON.parse(panes[1].textContent ?? '')).toEqual({
+      iban: 'CH9999999999999999999',
+      'address.it': ['Via Nuova 2', '6900 Lugano'],
+    })
+    expect(screen.getByTestId('audit-diff-audit-3').textContent).not.toContain('(not recorded)')
+  })
+
+  it('shows a notice row\'s summary and invents no before or after for it', async () => {
+    vi.mocked(adminApi.listAudit).mockResolvedValue(pageOf([entryNoticeFailed]))
+
+    render(<AuditPage />)
+    await waitFor(() => expect(screen.getByTestId('audit-table')).not.toBeNull())
+
+    expect(screen.getByText('Notice for version 3 of welld-ch failed (attempt 1)')).not.toBeNull()
+    fireEvent.click(screen.getByTestId('audit-row-toggle-audit-4'))
+
+    const panes = screen.getByTestId('audit-diff-audit-4').querySelectorAll('pre')
+    expect(panes).toHaveLength(2)
+    expect(panes[0].textContent).toBe('(not recorded)')
+    expect(panes[1].textContent).toBe('(not recorded)')
+  })
+
+  it('prefers data.before/data.after when present, and ignores a malformed data.changes', async () => {
+    const mixed: AuditLogEntry = {
+      ...entryA,
+      id: 'audit-5',
+      data: { before: { x: 1 }, after: { x: 2 }, changes: { y: { before: 'a', after: 'b' } } } as AuditLogEntry['data'],
+    }
+    const malformed: AuditLogEntry = {
+      ...entryNoticeFailed,
+      id: 'audit-6',
+      data: { changes: ['nope'] } as unknown as AuditLogEntry['data'],
+    }
+    vi.mocked(adminApi.listAudit).mockResolvedValue(pageOf([mixed, malformed]))
+
+    render(<AuditPage />)
+    await waitFor(() => expect(screen.getByTestId('audit-table')).not.toBeNull())
+
+    fireEvent.click(screen.getByTestId('audit-row-toggle-audit-5'))
+    fireEvent.click(screen.getByTestId('audit-row-toggle-audit-6'))
+
+    const mixedPanes = screen.getByTestId('audit-diff-audit-5').querySelectorAll('pre')
+    expect(JSON.parse(mixedPanes[0].textContent ?? '')).toEqual({ x: 1 })
+    expect(JSON.parse(mixedPanes[1].textContent ?? '')).toEqual({ x: 2 })
+    const badPanes = screen.getByTestId('audit-diff-audit-6').querySelectorAll('pre')
+    expect(badPanes[0].textContent).toBe('(not recorded)')
+    expect(badPanes[1].textContent).toBe('(not recorded)')
+  })
+
+  it('has no axe violations with legal entity rows expanded', async () => {
+    vi.mocked(adminApi.listAudit).mockResolvedValue(pageOf([entryLegalSave, entryNoticeFailed]))
+
+    const { container } = render(<AuditPage />)
+    await waitFor(() => expect(screen.getByTestId('audit-table')).not.toBeNull())
+    fireEvent.click(screen.getByTestId('audit-row-toggle-audit-3'))
+    fireEvent.click(screen.getByTestId('audit-row-toggle-audit-4'))
+
+    const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false }, region: { enabled: false } } })
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes[0]?.target.join(' ')}`)).toEqual([])
   })
 
   // (G) No mutate affordance anywhere (AC-5.3 by omission)

@@ -74,6 +74,39 @@ const formatDiffSide = (value: unknown): string => {
   }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/**
+ * The two panes of an entry's expanded row. Authorization rows carry
+ * `data.before` / `data.after` and render exactly as they always did. Legal
+ * entity save and restore rows carry `data.changes` (`{ <field>: { before,
+ * after } }`, auth `write.routes.ts`) instead, so — only when neither
+ * `before` nor `after` is present — each pane is rebuilt from it as
+ * `{ <field>: <value> }` (security-review F7, plan G10). Anything else
+ * (notice and import rows, a malformed `changes`) yields nothing: the panes
+ * then say "not recorded" rather than invent a before or an after.
+ */
+const diffSidesOf = (data: AuditLogEntry['data']): { before: unknown; after: unknown } => {
+  if (data === null || data === undefined) return { before: undefined, after: undefined }
+  if (data.before !== undefined || data.after !== undefined) return { before: data.before, after: data.after }
+
+  const changes: unknown = (data as Record<string, unknown>).changes
+  if (!isRecord(changes)) return { before: undefined, after: undefined }
+
+  const before: Record<string, unknown> = {}
+  const after: Record<string, unknown> = {}
+  for (const [field, change] of Object.entries(changes)) {
+    if (!isRecord(change)) continue
+    if (change.before !== undefined) before[field] = change.before
+    if (change.after !== undefined) after[field] = change.after
+  }
+  return {
+    before: Object.keys(before).length > 0 ? before : undefined,
+    after: Object.keys(after).length > 0 ? after : undefined,
+  }
+}
+
 type AuditState =
   { status: 'loading' } | { status: 'loaded'; result: Paginated<AuditLogEntry> } | { status: 'error'; message: string }
 
@@ -211,26 +244,28 @@ export default function AuditPage() {
                 { id: 'summary', header: t.columns.summary, render: (entry) => entry.summary },
               ]}
               // The expanded entry's before/after, as a full-width row under it (DataTable renderDetail).
-              renderDetail={(entry) =>
-                expandedIds.has(entry.id) ? (
+              renderDetail={(entry) => {
+                if (!expandedIds.has(entry.id)) return null
+                const sides = diffSidesOf(entry.data)
+                return (
                   <div id={`audit-diff-${entry.id}`} data-testid={`audit-diff-${entry.id}`}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <p className="text-2xs mb-1 text-soft">{t.before}</p>
                         <pre className="text-2xs whitespace-pre-wrap break-words p-2 rounded bg-ink-mid text-text">
-                          {formatDiffSide(entry.data?.before)}
+                          {formatDiffSide(sides.before)}
                         </pre>
                       </div>
                       <div>
                         <p className="text-2xs mb-1 text-soft">{t.after}</p>
                         <pre className="text-2xs whitespace-pre-wrap break-words p-2 rounded bg-ink-mid text-text">
-                          {formatDiffSide(entry.data?.after)}
+                          {formatDiffSide(sides.after)}
                         </pre>
                       </div>
                     </div>
                   </div>
-                ) : null
-              }
+                )
+              }}
             />
 
             <Pagination page={page} pageSize={PAGE_SIZE} total={state.result.total} onPageChange={setPage} />
