@@ -20,9 +20,9 @@ Reading the list:
   and letterheads-ui tasks (T30–T32) use existing exports only.
 - **Owner tasks** are marked **[OWNER]**: they need production credentials, a release push or the owner's
   sign-off, and are never run by an agent. An agent may prepare their commands and read their outputs.
-- **Gate R13.** Tasks marked "gate: 20261116/T36" start only once specs/20261116-letterhead-service T36 (its
-  closing task) is checked, or after rebasing on whatever fixes its QE/eval rounds add: they edit the same files
-  (plan R13; ADR 20261117 letterhead-service-reads…, Risks).
+- **Gate R13 — lifted by the owner on 2026-11-17.** specs/20261116 is stuck after its bounded eval loop; its code is
+  merged and live. Tasks once marked with the gate start when their deps allow, on main as it is; any later fix of
+  that spec is rebased onto this work (plan R13 stays a risk, not a gate).
 - **Paths.** `letterhead-api/` paths: `engine/` = the pure crate, `api/` = the supervisor. The shared engine copies
   `crm-api/src/offers/engine/**` and `crm-ui/src/lib/offerEngine/**` are not touched by any task (plan E14).
 - **Follow-ups that are not tasks** (they serve no AC of this spec): letterheads-ui moves onto the lifted
@@ -199,7 +199,7 @@ Reading the list:
 
 ## Owner steps before the switch
 
-- [ ] T14: **[OWNER]** Decide spec drift D7 (letterhead AC-1.8 "same pages" vs AC-5.2) and D8 (AC-7.3 "incomplete" vs Needs correction) — refs: AC-5.2, AC-7.3 — deps: none
+- [x] T14: **[OWNER]** Decide spec drift D7 (letterhead AC-1.8 "same pages" vs AC-5.2) and D8 (AC-7.3 "incomplete" vs Needs correction) — refs: AC-5.2, AC-7.3 — deps: none
   - touch: `specs/20261117-legal-entities/spec.md`, `specs/20261116-letterhead-service/spec.md`
   - agent: owner (the product-owner agent writes the amendment the owner dictates)
   - done when: both spec files carry the owner's decision (amendment applied or rejected, dated); if D8 is
@@ -234,7 +234,7 @@ Reading the list:
 
 - [ ] T19: letterhead-api engine — content version 2, optional `legalEntityVersion`, `entityData` parsed in both versions — refs: AC-5.2 — deps: none
   - touch: `letterhead-api/engine/src/content/**`
-  - agent: backend-dev (Rust) · push 2 · gate: 20261116/T36
+  - agent: backend-dev (Rust) · push 2
   - done when: `cargo test -p letterhead-engine content::` — v1 and v2 accepted; 0 and 3 → `unsupported_content_version`;
     `legalEntityVersion` accepted only in v2 (a v1 carrying it is refused as an unknown member, as today); v2
     with or without `entityData` accepted, v1's structural check unchanged; the golden corpus and pinning tests
@@ -242,7 +242,7 @@ Reading the list:
 
 - [ ] T20: letterhead-api engine — "mark missing" for the configurator preview: label in the missing look, segment kept, `⟦Label⟧` in the page text — refs: AC-5.3, AC-5.4 — deps: none
   - touch: `letterhead-api/engine/src/resolve/**`, `letterhead-api/engine/src/layout/frame/**`, `letterhead-api/engine/src/layout/mod.rs`, `letterhead-api/engine/src/output/text.rs`, `letterhead-api/engine/src/render.rs`, `letterhead-api/engine/src/sample/**`
-  - agent: backend-dev (Rust) · push 2 · gate: 20261116/T36
+  - agent: backend-dev (Rust) · push 2
   - Details: plan E3 (closed labels, both languages); a render option that only the supervisor's preview job sets.
   - done when: unit tests — with the option, an empty `{iban}` prints `⟦IBAN⟧` in the missing look, its
     conditional segment stays, and the page text holds `⟦IBAN⟧`; without it, AC-5.3's behaviour (prints nothing,
@@ -250,7 +250,7 @@ Reading the list:
 
 - [ ] T21: letterhead-api — service token client and the registry cache (fresh 30 s, usable 60 s, sent-time stamp), env `SERVICE_CLIENT_ID`/`SECRET` — refs: AC-1.5, AC-3.3, AC-5.5 — deps: T5, T6
   - touch: `letterhead-api/api/src/registry/**`, `letterhead-api/api/src/env.rs`, `letterhead-api/api/src/main.rs`, `letterhead-api/api/Cargo.toml`, `letterhead-api/Cargo.lock`, `letterhead-api/api/tests/registry.rs`, `letterhead-api/README.md`, `compose.yaml`, `mise.toml`
-  - agent: backend-dev (Rust) · push 2 · gate: 20261116/T36
+  - agent: backend-dev (Rust) · push 2
   - Details: plan decision 7 and sequence "Consumer read" (single flight, 5 s timeout, no redirects, ≤ 64 KiB,
     401 → drop token and retry once; secret only in the supervisor); `registry::entity_data(details, language)`
     builds the job's `EntityData` (`address[lang]`, `contacts[lang]`, `ibanPrint`). Local defaults in
@@ -262,7 +262,7 @@ Reading the list:
 
 - [ ] T22: letterhead-api — renders print the registry's issuer: v2, the version pin, 409 mismatch, 503 unavailable, `Legal-Entity-Version`, log fields — refs: AC-1.5, AC-5.1, AC-5.2, AC-5.3, AC-5.5 — deps: T19, T21
   - touch: `letterhead-api/api/src/routes/render.rs`, `letterhead-api/api/src/log.rs`, `letterhead-api/api/tests/render.rs`, `letterhead-api/api/tests/render_db.rs`
-  - agent: backend-dev (Rust) · push 2 · gate: 20261116/T36
+  - agent: backend-dev (Rust) · push 2
   - done when: route tests with a fake auth — v2 per entity × language prints the registry's legal name,
     `address[lang]` joined with ", ", VAT, `ibanPrint`, `contacts[lang]` (it and en addresses differ in print);
     v1 with `entityData` "EVIL SA" prints the registry's name and never "EVIL", logs `entity_data_ignored=true`;
@@ -273,7 +273,7 @@ Reading the list:
 
 - [ ] T23: letterhead-api — the configurator preview shows the registry's details (`mark missing`, `issuerDetails`, `legalEntityVersion`) — refs: AC-5.4 — deps: T20, T21
   - touch: `letterhead-api/api/src/routes/preview.rs`, `letterhead-api/api/src/pool/job.rs`, `letterhead-api/api/src/pool/wire.rs`, `letterhead-api/api/src/worker.rs`, `letterhead-api/api/tests/preview.rs`
-  - agent: backend-dev (Rust) · push 2 · gate: 20261116/T36
+  - agent: backend-dev (Rust) · push 2
   - done when: route tests — the preview's page text holds the registry's details in the preview language and
     the sample's body; an empty value → `⟦Label⟧` (E3); registry unavailable → still 200, every placeholder
     marked, `issuerDetails: "unavailable"`, `legalEntityVersion: null`; the mark option never reaches a
@@ -299,7 +299,7 @@ Reading the list:
 
 - [ ] T26: crm-api — the issuer comes from the registry: wizard context per language, the refusals of E4 on every document path, `entity_profile_missing` gone from them — refs: AC-5.5, AC-6.2, AC-6.3, AC-7.3 — deps: T24, T25
   - touch: `crm-api/src/offers/generation.ts`, `crm-api/src/offers/offers.routes.ts`, `crm-api/src/offer-drafts/context.ts`, `crm-api/src/offer-drafts/offerDrafts.routes.ts`, `crm-api/src/offer-templates/offerTemplates.routes.ts`, `crm-api/src/test-support/world.ts`, `crm-api/src/offer-drafts/*.test.ts`, `crm-api/src/offer-templates/**/*.test.ts`, `crm-api/src/offers/offers.test.ts`, `crm-api/src/offers/offers.wizardGuards.test.ts`
-  - agent: backend-dev · push 2 · gate: 20261116/T36
+  - agent: backend-dev · push 2
   - Details: read the registry before the deal transaction; `WizardContext.issuerLegalName` and
     `issuerAddressLines = address[language]`; context answer gains `issuerAddress {it, en}`, keeps
     `issuerAddressLines` (Italian) for an old crm-ui; a missing profile row no longer refuses (E4).
@@ -320,7 +320,7 @@ Reading the list:
 
 - [ ] T28: crm-api — the service path sends content v2 without `entityData`, pins `legalEntityVersion` and retries once — refs: AC-5.2, AC-6.2, AC-7.5 — deps: T27, T22
   - touch: `crm-api/src/offers/blocks.ts`, `crm-api/src/offers/blocks.test.ts`, `crm-api/src/offers/contentSchema.ts`, `crm-api/src/lib/letterheadClient.ts`, `crm-api/src/lib/letterheadClient.test.ts`, `crm-api/src/offers/generation.ts`, `crm-api/src/offers/generation.letterhead.test.ts`, `crm-api/src/offers/offers.letterhead.test.ts`, `crm-api/src/offers/letterheadContract.test.ts`, `crm-api/src/offer-drafts/offerDrafts.routes.ts`, `crm-api/src/offer-drafts/offerDrafts.preview.test.ts`, `crm-api/src/offer-templates/offerTemplates.routes.ts`, `crm-api/src/offer-templates/offerTemplates.tryPreview.test.ts`
-  - agent: backend-dev · push 2 · gate: 20261116/T36
+  - agent: backend-dev · push 2
   - done when: the client's request schema has no `entityData` and `contentVersion: 2` with the version used;
     a fake service answering 409 mismatch once → invalidate, rebuild, one retry, success; twice → 503
     `layout_service_unavailable`; an old service answering `unsupported_content_version` → 503
@@ -348,7 +348,7 @@ Reading the list:
 
 - [ ] T31: crm-ui — `LegalEntityNotice`, the refusal codes of E4, and the issuer address in the document's language — refs: AC-5.5, AC-6.2, AC-6.3, AC-8.2 — deps: T30, T26
   - touch: `crm-ui/src/components/offerWizard/LegalEntityNotice*`, `crm-ui/src/lib/offerErrors.ts`, `crm-ui/src/lib/errors.test.ts`, `crm-ui/src/components/offerWizard/useServicePreview.ts`, `crm-ui/src/components/offerWizard/useServicePreview.test.tsx`, `crm-ui/src/components/offerWizard/ServicePreview.tsx`, `crm-ui/src/components/offerWizard/ServicePreview*.test.tsx`, `crm-ui/src/components/offerWizard/DocumentPreview.tsx`, `crm-ui/src/components/offerWizard/DocumentPreview*.test.tsx`, `crm-ui/src/components/offerWizard/OfferWizard.tsx`, `crm-ui/src/pages/OfferWizardPage.tsx`, `crm-ui/src/pages/OfferWizardPage*.test.tsx`, `crm-ui/src/pages/DealSalesFlow.test.tsx`, `crm-ui/src/components/templateEditor/TryWizardView.tsx`, `crm-ui/src/components/templateEditor/TryWizardView.service.test.tsx`, `crm-ui/src/strings/offers.ts`, `crm-ui/src/strings/offerWizard.ts`, `crm-ui/src/lib/crmApi.ts`, `crm-ui/src/lib/types.ts`
-  - agent: frontend-dev · push 2 · gate: 20261116/T36
+  - agent: frontend-dev · push 2
   - done when: Vitest — generate/edit/revise refused 409 `legal_entity_incomplete` → danger notice naming the
     missing values, link for a manager, sentence otherwise; preview panes → polite warning; 503
     `legal_entities_unavailable` → notice with Retry; `entity_profile_missing` handled nowhere but the letterhead
@@ -360,7 +360,7 @@ Reading the list:
 
 - [ ] T32: letterheads-ui — the preview says its details are the registry's, the legend of the missing look, the link, the unavailable state — refs: AC-5.4, AC-8.1, AC-8.2 — deps: T23, T5
   - touch: `letterheads-ui/src/components/PreviewPane.tsx`, `letterheads-ui/src/components/PreviewPane.test.tsx`, `letterheads-ui/src/components/PreviewPaneRequest.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.ts`, `letterheads-ui/src/hooks/useCanManageLegalEntity.test.tsx`, `letterheads-ui/src/strings/preview.ts`, `letterheads-ui/src/lib/types.ts`, `letterheads-ui/src/test-support/fakeApi.ts`, `letterheads-ui/src/pages/ConfiguratorPage.save.test.tsx`
-  - agent: frontend-dev · push 2 · gate: 20261116/T36
+  - agent: frontend-dev · push 2
   - done when: Vitest — the old "sample company data" sentence is gone; the source line with a link for a
     manager, the sentence otherwise; the legend shows `⟦ ⟧`; `issuerDetails: "unavailable"` → warning with Try
     again in the preview slot, form and Save unaffected; axe 0 violations; strings parity green.
@@ -489,7 +489,6 @@ Reading the list:
 - [ ] T48: **[OWNER]** Release steps 4–5 — pre-switch dry run, merge push 2, cut the release, push; the freeze ends when crm-api is live — refs: AC-5.1, AC-6.1, AC-6.2, AC-7.4 — deps: T18, T44, T45, T46, T14
   - touch: `CHANGELOG.md`, `*/CHANGELOG.md`, `*/package.json`, `shell/src/lib/suiteVersion.generated.json`, `.changeset/*`, `specs/20261117-legal-entities/release-log.md`
   - agent: owner (RELEASING.md)
-  - gate: 20261116/T36 checked (its QE no longer tests the superseded ACs; D1, D7)
   - done when: the dry run just before the push reports `mismatched` 0; after the push every changed service
     reports its new version and crm-api is live; logged.
 

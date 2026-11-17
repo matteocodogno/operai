@@ -1,7 +1,7 @@
 ---
 id: 20261117
 slug: legal-entities
-status: approved
+status: in-progress
 approved: 2026-11-17
 rigor: production
 created: 2026-11-17
@@ -172,8 +172,9 @@ no document changes on the day of the release.
 - AC-7.2: Given the move, then version 1 is attributed to the system, and the audit log records it.
 - AC-7.3: Given an entity whose CRM profile lacks a required detail (AC-1.2), or holds a value AC-1.3 or AC-1.4
   refuse *(amendment D3, owner 2026-11-17)*, then it is still moved as it is (the IBAN only loses its spaces and is
-  upper-cased), and the Legal entities page marks it incomplete until someone saves it complete; AC-6.3 applies to it
-  meanwhile.
+  upper-cased), and the Legal entities page marks it incomplete (a required detail is missing; AC-6.3 applies to it meanwhile)
+  or in need of correction (only values AC-1.3 or AC-1.4 refuse; documents are not refused for them) until someone
+  saves it correct *(amendment D8, owner 2026-11-17)*.
 - AC-7.4: Given the move has run once, when it runs again, then it changes nothing.
 - AC-7.5: Given the day of the release, then a document generated for an entity with complete details prints the
   same issuer details as the day before (apart from the contacts line, which is new); the IBAN prints as in AC-5.1,
@@ -206,6 +207,9 @@ no document changes on the day of the release.
 - *(owner)* The letterhead service reads the details itself, with a short cache; callers stop sending them.
 - *(amendment D1, owner 2026-11-17)* This spec supersedes specs/20261116-letterhead-service AC-6.3, AC-8.5 and
   AC-10.10, replaced by AC-5.1, AC-5.2 and AC-5.4 here.
+- *(amendment D7, owner 2026-11-17)* It also supersedes specs/20261116-letterhead-service AC-1.8 for the issuer's
+  details only: a request of an earlier content version renders after the upgrade with the registry's current
+  details, not those it sent; everything else on its pages is unchanged.
 
 ## Open questions
 

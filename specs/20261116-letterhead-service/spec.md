@@ -117,7 +117,7 @@ PDF, so that what the person previewed is what the PDF contains.
   outside the margins (AC-5.1). *(amendment A4)*
 - **AC-1.7** A named style is chosen by name from the set the service defines. A request
   naming a style outside that set is refused (AC-3.6) and nothing is rendered.
-- **AC-1.8** Every request states its content version. A version the service does not support is
+- **AC-1.8** *(Superseded 2026-11-17 for the issuer's details only by specs/20261117-legal-entities, amendment D7.)* Every request states its content version. A version the service does not support is
   refused with `unsupported_content_version`; a request of a version the service supported
   before an upgrade renders after the upgrade with the same pages (AC-4.5). *(owner:
   versioned blocks)*
