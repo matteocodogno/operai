@@ -726,6 +726,16 @@ most of crm-api, crm-ui Settings and admin-ui (B1–B10) fit before the gate ope
 dispatcher may run G-batch tasks on a rebased branch only after confirming 20261116 has no open fix task on the
 same files.
 
+- [ ] T72: crm-api — wait past letterhead-api's one-second forced-refresh window before the single pin retry — refs: AC-6.2, AC-5.5 — deps: T64
+  - touch: `crm-api/src/offers/generation.ts`, `crm-api/src/offers/*.test.ts`
+  - agent: backend-dev · push 2
+  - added by the orchestrator 2026-11-17 (T64 report): letterhead-api now refreshes at most once per second per
+    process, and a mismatching pin inside that second gets the 409 at once; crm-api's single retry in `withIssuerPin`
+    could land in the same second and turn a legitimate save into a 503. Wait ≥ 1.1 s (bounded, cancellable) before
+    the retry; nothing else changes.
+  - done when: a test with a fake letterhead service that answers 409 for 1 s then 200 shows one retry after ≥ 1.1 s
+    and a 200; the existing retry tests stay green; crm-api typecheck and suite green.
+
 ## Follow-ups found during implementation (orchestrator, 2026-11-17)
 
 - FU-1 (T31): crm-ui `letterhead.overflow.body` / `bodyAskAdmin` still say "Shorten the value in CRM Settings"; the
