@@ -1048,3 +1048,6 @@ Critical path: T51 → T57 → T59 → T68 → T45 → T16 → T17 → T18 → T
   admins inherit the same role, so every effective administrator can open the history link; no design change.
   DR-17 — the push text on a lock screen may show the actor's name and the two IBAN tails: allowed by AC-9.12 and
   the owner's "push in English" reading; accepted. DR-13, DR-15, DR-16, DR-18 — as the design says; DR-18 goes to T63.
+- FU-11 (T67): `legalEntityConfigProblems` (env-doctor) is checked only against the shipped template; wiring it into
+  `tools/env-doctor/check.ts` `checkSuite` would apply it to deployed values. The copy role's SQL (runbook step 3a)
+  is untested — T45 rehearses it on compose.
