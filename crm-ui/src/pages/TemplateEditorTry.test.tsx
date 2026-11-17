@@ -244,10 +244,6 @@ label: Progetto
   const issuerTemplate = { ...WIZARD, source: ISSUER_SOURCE }
   const PROFILE = {
     entity: 'welld_ch',
-    legalName: 'Profilo Reale SA',
-    addressLines: ['Via Reale 7', '6900 Lugano'],
-    vatNumber: null,
-    iban: null,
     offerTermsEn: null,
     offerTermsIt: null,
     placeOfIssue: null,
@@ -305,18 +301,17 @@ label: Progetto
     URL.revokeObjectURL = vi.fn()
   })
 
-  it('prints the profile’s legal name and address lines, with no sample note, after one profile read', async () => {
+  it('prints the sample supplier and says so at once: the profile no longer holds the legal details (AC-6.1)', async () => {
     await openTry(readable())
-    await waitFor(async () => expect((await paper()).textContent).toContain('Fornitore: Profilo Reale SA.'))
-    expect((await paper()).textContent).toContain('Sede: Via Reale 7, 6900 Lugano.')
-    expect((await paper()).textContent).not.toContain(SAMPLE_NAME)
-    expect(screen.queryByText(w.try.issuerSample(entityLabel))).toBeNull()
+    expect((await paper()).textContent).toContain(`Fornitore: ${SAMPLE_NAME}.`)
+    expect((await paper()).textContent).toContain(`Sede: ${SAMPLE_ADDRESS}.`)
+    expect(screen.getByText(w.try.issuerSample(entityLabel))).not.toBeNull()
     expect(profileCalls()).toHaveLength(1)
   })
 
   it('reads the profiles once per mount: a keystroke, a step and a reset do not read them again', async () => {
     await openTry(readable())
-    await waitFor(async () => expect((await paper()).textContent).toContain('Profilo Reale SA'))
+    await waitFor(async () => expect((await band()).getAttribute('data-state')).toBe('none'))
     fireEvent.click(screen.getByRole('tab', { name: new RegExp(wizard.steps.costs) }))
     fireEvent.click(screen.getByRole('button', { name: w.try.reset }))
     fireEvent.click(viewTab(w.edit))
@@ -327,25 +322,23 @@ label: Progetto
     expect(profileCalls()).toHaveLength(2)
   })
 
-  it('renders at once on the sample values while the profile is being read, with no note (D-28)', async () => {
+  it('renders at once on the sample values while the profile is being read, and the letterhead waits (D-28)', async () => {
     let release: (answer: { status: number; body: unknown }) => void = () => undefined
     const gate = new Promise<{ status: number; body: unknown }>((resolve) => (release = resolve))
     await openTry(() => gate)
     expect((await paper()).textContent).toContain(`Fornitore: ${SAMPLE_NAME}.`)
-    expect(screen.queryByText(w.try.issuerSample(entityLabel))).toBeNull()
     // the letterhead waits for the answer: pending, not failed
     expect((await band()).getAttribute('data-state')).toBe('pending')
     release({ status: 200, body: { items: [PROFILE] } })
-    await waitFor(async () => expect((await paper()).textContent).toContain('Fornitore: Profilo Reale SA.'))
-    expect(screen.queryByText(w.try.issuerSample(entityLabel))).toBeNull()
+    await waitFor(async () => expect((await band()).getAttribute('data-state')).toBe('none'))
+    expect((await paper()).textContent).toContain(`Fornitore: ${SAMPLE_NAME}.`)
   })
 
   it.each([
     ['cannot be read (403, no deal:financials)', () => ({ status: 403, body: { status: 403, title: 'Forbidden' } })],
     ['cannot be read (503)', () => ({ status: 503, body: { status: 503, title: 'Unavailable' } })],
     ['has no row for the entity', () => ({ status: 200, body: { items: [{ ...PROFILE, entity: 'welld_it' }] } })],
-    ['has a blank legal name', readable({ legalName: '   ' })],
-  ])('when the profile %s, shows the sample supplier and says they are samples', async (_name, handler) => {
+  ])('when the profile %s, the sample supplier and the note are the same', async (_name, handler) => {
     await openTry(handler as FakeHandler)
     expect(await screen.findByText(w.try.issuerSample(entityLabel))).not.toBeNull()
     const text = (await paper()).textContent
@@ -362,14 +355,6 @@ label: Progetto
     const note = await screen.findByText(w.try.issuerSample(entityLabel))
     expect(note.closest('[role="alert"]')).toBeNull()
     expect(note.closest('[aria-live="assertive"]')).toBeNull()
-  })
-
-  it('uses the profile’s own name, never a sample, even when it has no address, and then says the address is not set', async () => {
-    await openTry(readable({ addressLines: [] }))
-    await waitFor(async () => expect((await paper()).textContent).toContain('Fornitore: Profilo Reale SA.'))
-    expect(screen.queryByText(w.try.issuerSample(entityLabel))).toBeNull()
-    expect(await screen.findByTestId('crm-wizard-address-notice')).not.toBeNull()
-    expect((await paper()).textContent).not.toContain(SAMPLE_ADDRESS)
   })
 
   it('shows the profile’s letterhead through the one attempt, and reads nothing else from the CRM (AC-8.5)', async () => {

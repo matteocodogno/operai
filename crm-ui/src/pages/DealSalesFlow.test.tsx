@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { RouterProvider } from '@tanstack/react-router'
 import CrmShell from '../components/CrmShell'
 import { createAppRouter } from '../router'
+import { strings } from '../strings'
 import { ADA, fakeApi, nulRefusalAnswer, page } from '../test-support/fakeApi'
 import type { FakeHandler } from '../test-support/fakeApi'
 
@@ -876,16 +877,40 @@ describe('Offers card (US-4)', () => {
     )
   })
 
-  it('maps entity_profile_missing to a readable error and keeps the dialog', async () => {
+  it('names the missing legal details of a 409 legal_entity_incomplete and keeps the dialog (AC-6.3)', async () => {
     const dialog = await openDialog({
       'POST /deals/d1/offers': () => ({
         status: 409,
-        body: { status: 409, title: 'Conflict', code: 'entity_profile_missing', detail: 'x' },
+        body: {
+          status: 409,
+          title: 'Conflict',
+          code: 'legal_entity_incomplete',
+          detail: 'x',
+          entity: 'welld_ch',
+          missing: ['vatNumber', 'address.en'],
+        },
       }),
     })
     await pickTemplate(dialog)
     fireEvent.click(within(dialog).getByTestId('crm-offer-dialog-submit'))
-    expect((await within(dialog).findByTestId('crm-offer-dialog-error')).textContent).toContain('letterhead')
+    const text = (await within(dialog).findByTestId('crm-offer-dialog-error')).textContent ?? ''
+    expect(text).toBe(strings.offers.errors.legalEntityIncomplete('wellD CH', 'VAT number, Address (English)'))
+    expect(text).toContain('no offer was created')
+  })
+
+  it('says the registry could not be read on a 503 legal_entities_unavailable, not the generic line (AC-5.5)', async () => {
+    const dialog = await openDialog({
+      'POST /deals/d1/offers': () => ({
+        status: 503,
+        headers: { 'Retry-After': '5' },
+        body: { status: 503, title: 'Unavailable', code: 'legal_entities_unavailable', detail: 'x' },
+      }),
+    })
+    await pickTemplate(dialog)
+    fireEvent.click(within(dialog).getByTestId('crm-offer-dialog-submit'))
+    expect((await within(dialog).findByTestId('crm-offer-dialog-error')).textContent).toBe(
+      strings.offers.errors.legalEntitiesUnavailable,
+    )
   })
 
   it('maps storage_unconfigured on generate to a readable error', async () => {

@@ -357,10 +357,13 @@ describe('when the preview cannot be made (AC-10.7, AC-10.8)', () => {
   })
 
   it.each([
-    ['entity_profile_missing', 409, 'crm-wizard-service-preview-profile'],
+    ['legal_entity_incomplete', 409, 'crm-wizard-legal-entity-incomplete'],
     ['answers_invalid', 422, 'crm-wizard-service-preview-invalid'],
   ])('tells a %s politely, without a retry button', async (code, status, testId) => {
-    await mount({ service: true, preview: () => problemAnswer(status, code) })
+    await mount({
+      service: true,
+      preview: () => problemAnswer(status, code, code === 'legal_entity_incomplete' ? { entity: 'welld_ch', missing: ['iban'] } : {}),
+    })
     const notice = await screen.findByTestId(testId)
     expect(notice.getAttribute('role')).toBe('status')
     expect(within(notice).queryByRole('button')).toBeNull()

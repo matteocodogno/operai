@@ -1,6 +1,7 @@
 import { Badge, Banner, Icon, PagePreview, type PagePreviewLabels } from '@operai/ui'
 import type { Entity } from '../../lib/types'
 import { strings } from '../../strings'
+import LegalEntityNotice from './LegalEntityNotice'
 import LetterheadNotice from './LetterheadNotice'
 import type { ServicePreviewNotice, ServicePreviewResult } from './useServicePreview'
 
@@ -48,7 +49,6 @@ function Notice({
   hasPages: boolean
   onRetry: () => void
 }) {
-  const label = strings.badges.entity[entity]
   switch (notice.kind) {
     case 'failed':
       return (
@@ -68,11 +68,15 @@ function Notice({
       return <LetterheadNotice entity={entity} problem="notConfigured" where="preview" />
     case 'overflow':
       return <LetterheadNotice entity={entity} problem="overflow" frame={notice.frame} />
-    case 'profileMissing':
+    case 'legalEntityIncomplete':
+      // the entity the refusal names is the issuer's; the deal's own stands in for a body that names none we know
       return (
-        <Banner tone="warning" live="polite" compact data-testid="crm-wizard-service-preview-profile">
-          {s.profileMissing(label)}
-        </Banner>
+        <LegalEntityNotice
+          entity={notice.entity ?? entity}
+          problem="incomplete"
+          missing={notice.missing}
+          where="preview"
+        />
       )
     case 'invalid':
       return (

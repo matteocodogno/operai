@@ -481,8 +481,9 @@ export type ServicePreviewAnswer = {
 /**
  * The pages the layout service draws for the UNSAVED draft body (specs/20261116-letterhead-service AC-10.3; the same body a
  * save sends, `If-Match` not read). Nothing is stored. Only with the service switched on: otherwise 404. Refusals the wizard
- * tells apart: 409 `letterhead_not_configured`, 409 `letterhead_overflow` (`frame`, `entity`), 409 `entity_profile_missing`,
- * 422 `answers_invalid`, 503 `layout_service_unavailable`.
+ * tells apart: 409 `letterhead_not_configured`, 409 `letterhead_overflow` (`frame`, `entity`), 409 `legal_entity_incomplete`
+ * (`entity`, `missing[]`: the registry's details of the issuer, specs/20261117-legal-entities E4), 422 `answers_invalid`,
+ * 503 `layout_service_unavailable` (and 503 `legal_entities_unavailable` with `Retry-After: 5`).
  */
 export const previewOfferDraft = (dealId: string, input: DraftSaveInput, init?: Init) =>
   requestJson<ServicePreviewAnswer>(getCrmApiBaseUrl(), `${draftPath(dealId)}/preview`, {

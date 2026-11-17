@@ -129,7 +129,12 @@ const en = {
     draftTooLarge: 'The draft is too large to save.',
     offerIncomplete: 'The offer is not complete.',
     estimateNotReady: 'An offer is generated from a ready estimate. Mark the estimate ready first.',
-    profileMissing: 'The entity’s letterhead is not set. Fill it in under Settings, then generate the offer.',
+    /** 409 `legal_entity_incomplete` (specs/20261117-legal-entities AC-6.3): `list` is the missing details in words. */
+    legalEntityIncomplete: (entity: string, list: string) =>
+      `The legal details of ${entity} are incomplete, so no offer was created.${list === '' ? '' : ` Missing: ${list}.`} They are filled in on the Legal entities page, which an administrator keeps.`,
+    /** 503 `legal_entities_unavailable` (AC-5.5): nothing was created and no number used. */
+    legalEntitiesUnavailable:
+      'The legal details could not be read, so no offer was created. Try again in a moment.',
     // 409 `letterhead_unusable` (security M-4, plan DD-76): the stored letterhead fails the service's size bound
     letterheadUnusable: (entity: string) =>
       `The letterhead of ${entity} can no longer be used. Upload it again in CRM Settings.`,
@@ -325,7 +330,10 @@ const it: typeof en = {
     draftTooLarge: 'La bozza è troppo grande per essere salvata.',
     offerIncomplete: "L'offerta non è completa.",
     estimateNotReady: "Un'offerta si genera da una stima pronta. Segna prima la stima come pronta.",
-    profileMissing: "L'intestazione della società non è impostata. Compilala in Impostazioni, poi genera l'offerta.",
+    legalEntityIncomplete: (entity: string, list: string) =>
+      `I dati legali di ${entity} sono incompleti, quindi non è stata creata nessuna offerta.${list === '' ? '' : ` Mancano: ${list}.`} Si compilano nella pagina Società del gruppo, gestita da un amministratore.`,
+    legalEntitiesUnavailable:
+      'Non è stato possibile leggere i dati legali, quindi non è stata creata nessuna offerta. Riprova tra poco.',
     letterheadUnusable: (entity: string) =>
       `La carta intestata di ${entity} non può più essere usata. Caricala di nuovo nelle Impostazioni CRM.`,
     storageUnconfigured:

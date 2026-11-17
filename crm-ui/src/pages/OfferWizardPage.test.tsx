@@ -418,7 +418,7 @@ describe('OfferWizardPage — the draft’s states (AC-6.3, AC-8.4; S9)', () => 
       expect(buttons).toHaveLength(2)
       for (const button of buttons) expect(button.getAttribute('aria-disabled')).toBe('true')
       expect(screen.getAllByText(blankReason()).length).toBeGreaterThan(0)
-      expect(blankReason()).toBe('Set the legal name of wellD CH in CRM Settings.')
+      expect(blankReason()).toBe('The legal name of wellD CH is empty. It is kept on the Legal entities page.')
       expect(screen.queryByText(/\d+ missing/)).toBeNull()
     })
 
@@ -820,6 +820,48 @@ describe('OfferWizardPage — the preview on the letterhead (T65; AC-11.1 to AC-
     )
     // not a missing field, and Generate is not blocked by it
     expect(screen.queryByText(t.preview.missingBadge(1))).toBeNull()
+  })
+})
+
+describe('OfferWizardPage — the issuer’s address in the offer’s language (specs/20261117-legal-entities AC-6.2, E4)', () => {
+  const withAddress = V1.replace('## SCOPE', '{{?SEDE::Sede: [SEDE].}}\n\n## SCOPE').concat(
+    '\n@@field SEDE\nlabel: Sede\nsource: issuerAddress\n',
+  )
+  const BOTH = { it: ['Via Nassa 1', '6900 Lugano'], en: ['Nassa Street 1', '6900 Lugano, Switzerland'] }
+  const inLanguage = (language: 'it' | 'en') => ({
+    draft: draftView({
+      answers: { ...START, lastStep: 'scope' },
+      template: { ...draftView().template, language },
+    }),
+    template: template(withAddress, 1, { language }),
+  })
+  const preview = async () => (await screen.findByRole('region', { name: t.preview.title })).textContent
+
+  beforeEach(() => matchMedia(true))
+
+  it('prints the English address for an English template and the Italian one for an Italian template', async () => {
+    await mount({ ...inLanguage('en'), context: { issuerAddress: BOTH } })
+    const english = await preview()
+    expect(english).toContain('Nassa Street 1, 6900 Lugano, Switzerland')
+    expect(english).not.toContain('Via Nassa 1')
+    cleanup()
+    apiFetch.mockReset()
+    await mount({ ...inLanguage('it'), context: { issuerAddress: BOTH } })
+    const italian = await preview()
+    expect(italian).toContain('Via Nassa 1, 6900 Lugano')
+    expect(italian).not.toContain('Nassa Street')
+  })
+
+  it('falls back to `issuerAddressLines` when an older crm-api sends no `issuerAddress`', async () => {
+    await mount({ ...inLanguage('en'), context: { issuerAddressLines: ['Via Vecchia 3'] } })
+    expect(await preview()).toContain('Via Vecchia 3')
+  })
+
+  it('says the address is not set when the template’s language has none, though the other one has', async () => {
+    await mount({ ...inLanguage('en'), context: { issuerAddress: { it: BOTH.it, en: [] } } })
+    expect((await screen.findByTestId('crm-wizard-address-notice')).textContent).toBe(
+      t.preview.addressNotice('WellD Sagl'),
+    )
   })
 })
 

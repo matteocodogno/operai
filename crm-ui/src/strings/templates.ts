@@ -142,7 +142,7 @@ const en = {
       noGenerate: 'Generating is not available in the editor.',
       /** AC-12.8, AC-12.13: `entity` is the entity's badge label. */
       issuerSample: (entity: string) =>
-        `The supplier's name and address are samples: the profile of ${entity} could not be read.`,
+        `The supplier's name and address are samples here. Offers for ${entity} print the details kept on the Legal entities page.`,
     },
     /** One message per `ProblemCode` of the template grammar (plan § Engine contracts); `name` is the field, block or column it is about. */
     problem: {
@@ -504,7 +504,7 @@ const it: typeof en = {
       goProblems: 'Vai ai problemi',
       noGenerate: "La generazione non è disponibile nell'editor.",
       issuerSample: (entity: string) =>
-        `Nome e indirizzo del fornitore sono di esempio: non è stato possibile leggere il profilo di ${entity}.`,
+        `Nome e indirizzo del fornitore qui sono di esempio. Le offerte di ${entity} stampano i dati della pagina Società del gruppo.`,
     },
     problem: {
       block_not_closed: (name?: string) => `Il blocco «${name ?? ''}» è aperto ma non viene mai chiuso.`,

@@ -10,8 +10,16 @@ export function offerFailure(error: unknown): string {
   switch (codeOf(error)) {
     case 'estimate_not_ready':
       return t.estimateNotReady
-    case 'entity_profile_missing':
-      return t.profileMissing
+    // specs/20261117-legal-entities (E4): the issuer's details come from the registry; a missing CRM profile row no longer
+    // refuses a document, so `entity_profile_missing` is worded only where the letterhead upload says it (LetterheadCard)
+    case 'legal_entity_incomplete': {
+      const found = legalEntityIncompleteOf(error)
+      if (!found) return errorMessage(error)
+      const label = found.entity ? strings.badges.entity[found.entity] : ''
+      return label ? t.legalEntityIncomplete(label, legalDetailsInWords(found.missing)) : errorMessage(error)
+    }
+    case 'legal_entities_unavailable':
+      return legalEntitiesUnavailableOf(error) ? t.legalEntitiesUnavailable : errorMessage(error)
     case 'storage_unconfigured':
       return t.storageUnconfigured
     case 'estimai_unavailable':
@@ -89,6 +97,30 @@ export function letterheadUnusableOf(error: unknown): { entity: Entity | null } 
   if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'letterhead_unusable') return null
   const entity = error.extras['entity']
   return { entity: typeof entity === 'string' && ENTITIES.includes(entity) ? (entity as Entity) : null }
+}
+
+/**
+ * A 409 `legal_entity_incomplete` (specs/20261117-legal-entities AC-6.3): the registry says the issuer's details are not all
+ * filled in. `entity` is the one the body names (null when it names none we know) and `missing` the values it lists, as
+ * received. Null for any other failure — the code alone is not enough, the status must agree.
+ */
+export function legalEntityIncompleteOf(error: unknown): { entity: Entity | null; missing: string[] } | null {
+  if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'legal_entity_incomplete') return null
+  const { entity, missing } = error.extras
+  return {
+    entity: typeof entity === 'string' && ENTITIES.includes(entity) ? (entity as Entity) : null,
+    missing: Array.isArray(missing) ? missing.filter((value): value is string => typeof value === 'string') : [],
+  }
+}
+
+/** A 503 `legal_entities_unavailable` (AC-5.5): the registry cannot be read, so no document is made (retry after 5 s). */
+export const legalEntitiesUnavailableOf = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 503 && error.code === 'legal_entities_unavailable'
+
+/** The missing details of a refusal as one list of words (design S10); a value we have no word for is shown as received. */
+export function legalDetailsInWords(missing: readonly string[]): string {
+  const words = strings.offerWizard.legalEntity.missingWords
+  return missing.map((value) => (Object.hasOwn(words, value) ? words[value] : value)).join(', ')
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

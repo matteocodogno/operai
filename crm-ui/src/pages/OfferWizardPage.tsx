@@ -12,6 +12,7 @@ import {
   formatDateTime,
 } from '@operai/ui'
 import { LoadFailure, Loading } from '../components/LoadState'
+import LegalEntityNotice from '../components/offerWizard/LegalEntityNotice'
 import LetterheadNotice from '../components/offerWizard/LetterheadNotice'
 import OfferWizard from '../components/offerWizard/OfferWizard'
 import SaveStatus from '../components/offerWizard/SaveStatus'
@@ -29,9 +30,24 @@ import { getDeal, getWizardContext, previewOfferDraft } from '../lib/crmApi'
 import { codeOf, errorMessage, pdfCheckUnavailableOf, statusOf } from '../lib/errors'
 import type { WizardAnswers, WizardContext } from '../lib/offerEngine/answers'
 import type { Issue } from '../lib/offerEngine/resolve'
-import { draftExistsOf, invalidAnswersLine, letterheadUnusableOf, offerFailure } from '../lib/offerErrors'
+import {
+  draftExistsOf,
+  invalidAnswersLine,
+  legalEntitiesUnavailableOf,
+  legalEntityIncompleteOf,
+  letterheadUnusableOf,
+  offerFailure,
+} from '../lib/offerErrors'
 import { personName } from '../lib/people'
-import type { Deal, DraftTargetInput, Offer, OfferLanguage, WizardContextResponse, WizardTemplate } from '../lib/types'
+import type {
+  Deal,
+  DraftTargetInput,
+  Entity,
+  Offer,
+  OfferLanguage,
+  WizardContextResponse,
+  WizardTemplate,
+} from '../lib/types'
 import type { OfferWizardSearch } from '../router'
 import { strings } from '../strings'
 
@@ -41,6 +57,16 @@ const t = strings.offerWizard
 function nextRevisionReference(reference: string): string {
   const match = /^(.*?)(?:r(\d+))?$/.exec(reference)
   return `${match?.[1] ?? reference}r${Number(match?.[2] ?? 0) + 1}`
+}
+
+/**
+ * The issuer's address in the template's language (specs/20261117-legal-entities AC-6.2): the registry's, as the context
+ * answers it for both languages. An older crm-api sends the Italian lines alone, so those stand in for the language it
+ * does not send (and for a body whose `issuerAddress` is not the contract).
+ */
+function issuerAddressOf(response: WizardContextResponse, language: OfferLanguage): string[] {
+  const lines: unknown = response.issuerAddress?.[language]
+  return Array.isArray(lines) ? (lines as string[]) : response.issuerAddressLines
 }
 
 /**
@@ -55,7 +81,7 @@ function wizardContextOf(response: WizardContextResponse, language: OfferLanguag
     currency: response.currency,
     dealAmountCents: response.dealAmountCents,
     issuerLegalName: response.issuerLegalName,
-    issuerAddressLines: response.issuerAddressLines,
+    issuerAddressLines: issuerAddressOf(response, language),
     placeOfIssue: response.placeOfIssue,
     clientLines: response.clientLines,
     contacts: response.contacts,
@@ -96,6 +122,10 @@ type Failure =
   /** 409 `letterhead_not_configured` (AC-10.8) or `letterhead_overflow`: the service path's refusals of the entity's letterhead. */
   | { kind: 'letterhead'; notice: Extract<ServicePreviewNotice, { kind: 'notConfigured' | 'overflow' }> }
   | { kind: 'pdfCheck'; message: string }
+  /** 409 `legal_entity_incomplete` (AC-6.3): the registry's details of the issuer are not all filled in; nothing was created. */
+  | { kind: 'legalEntityIncomplete'; entity: Entity | null; missing: readonly string[] }
+  /** 503 `legal_entities_unavailable` (AC-5.5): the registry could not be read; no offer number was used. */
+  | { kind: 'legalEntitiesUnavailable' }
   | { kind: 'retry' }
 
 const ATTACHMENT_CODES = ['attachment_invalid', 'attachment_not_pdf', 'attachment_unreadable', 'attachments_too_large']
@@ -113,6 +143,10 @@ function failureOf(error: unknown): Failure | 'handled' {
   // the letterhead service's answers (AC-10.6, AC-10.8): the status must agree with the code, as for every refusal here
   if (error instanceof ApiError && error.status === 503 && code === 'layout_service_unavailable')
     return { kind: 'layoutUnavailable' }
+  // the registry's answers (AC-5.5, AC-6.3): the status must agree with the code here too
+  const incomplete = legalEntityIncompleteOf(error)
+  if (incomplete) return { kind: 'legalEntityIncomplete', ...incomplete }
+  if (legalEntitiesUnavailableOf(error)) return { kind: 'legalEntitiesUnavailable' }
   if (error instanceof ApiError && error.status === 409) {
     const notice = noticeOf(error)
     if (notice.kind === 'notConfigured' || notice.kind === 'overflow') return { kind: 'letterhead', notice }
@@ -353,7 +387,15 @@ function Workspace({ deal, titleId }: { deal: Deal; titleId: string }) {
   )
 
   if (draft.load === 'loading' || context.status === 'loading') return shell(<Loading label={t.page.loading} />)
-  if (context.status === 'error') return shell(<LoadFailure error={context.error} onRetry={context.retry} />)
+  if (context.status === 'error')
+    // the registry that holds the issuer's details cannot be read (AC-5.5): said as that, not as the authorization service
+    return shell(
+      legalEntitiesUnavailableOf(context.error) ? (
+        <LegalEntityNotice entity={deal.entity} problem="unavailable" onRetry={context.retry} />
+      ) : (
+        <LoadFailure error={context.error} onRetry={context.retry} />
+      ),
+    )
   if (draft.load === 'error') return shell(<LoadFailure error={draft.loadError} onRetry={() => void draft.reload()} />)
   const loaded = response!
 
@@ -564,6 +606,23 @@ function Workspace({ deal, titleId }: { deal: Deal; titleId: string }) {
             ) : (
               <LetterheadNotice entity={deal.entity} problem="overflow" frame={failure.notice.frame} />
             ),
+        }
+      case 'legalEntityIncomplete':
+        // one rule in two places (design S10): the link to Legal entities only for a person who may manage that entity
+        return {
+          node: (
+            <LegalEntityNotice
+              entity={failure.entity ?? deal.entity}
+              problem="incomplete"
+              missing={failure.missing}
+              where="generate"
+            />
+          ),
+        }
+      case 'legalEntitiesUnavailable':
+        // nothing to fix here: no offer number was used, so trying again is safe (AC-5.5)
+        return {
+          node: <LegalEntityNotice entity={deal.entity} problem="unavailable" onRetry={() => void generate()} />,
         }
       case 'letterheadUnusable':
         // the fix is in CRM Settings, outside the wizard: no action (D-41); Generate stays available to try again

@@ -308,7 +308,15 @@ describe('noticeOf — the refusals the preview route has (T28)', () => {
     [problem(409, 'letterhead_not_configured'), { kind: 'notConfigured' }],
     [problem(409, 'letterhead_overflow', { frame: 'footer', entity: 'welld_it' }), { kind: 'overflow', frame: 'footer' }],
     [problem(409, 'letterhead_overflow', { frame: 'header', entity: 'welld_ch' }), { kind: 'overflow', frame: 'header' }],
-    [problem(409, 'entity_profile_missing'), { kind: 'profileMissing' }],
+    [
+      problem(409, 'legal_entity_incomplete', { entity: 'welld_ch', missing: ['vatNumber', 'address.en'] }),
+      { kind: 'legalEntityIncomplete', entity: 'welld_ch', missing: ['vatNumber', 'address.en'] },
+    ],
+    [problem(409, 'legal_entity_incomplete'), { kind: 'legalEntityIncomplete', entity: null, missing: [] }],
+    [problem(409, 'legal_entity_incomplete', { entity: 'welld_xx', missing: 'x' }), { kind: 'legalEntityIncomplete', entity: null, missing: [] }],
+    // the code of a document path that is gone (E4) is a failure like any other one now
+    [problem(409, 'entity_profile_missing'), { kind: 'failed' }],
+    [problem(503, 'legal_entities_unavailable'), { kind: 'failed' }],
     [problem(422, 'answers_invalid'), { kind: 'invalid' }],
     [
       problem(422, 'section_too_long', { sections: [{ name: 'section:SCOPE#0', label: 'SCOPE' }] }),

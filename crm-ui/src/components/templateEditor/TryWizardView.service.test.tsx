@@ -74,10 +74,6 @@ const WIZARD = {
 
 const PROFILE = {
   entity: 'welld_ch',
-  legalName: 'Profilo Reale SA',
-  addressLines: ['Via Reale 7', '6900 Lugano'],
-  vatNumber: null,
-  iban: null,
   offerTermsEn: null,
   offerTermsIt: null,
   placeOfIssue: null,
@@ -292,11 +288,19 @@ describe('when the preview cannot be made (AC-10.7, AC-10.8)', () => {
     expect(notice.textContent).toContain(wizard.letterhead.askAdmin)
   })
 
-  it('tells a blank legal name (409 entity_profile_missing) without a retry', async () => {
-    await open({ preview: () => problemAnswer(409, 'entity_profile_missing') })
+  it('tells incomplete legal details (409 legal_entity_incomplete) politely, naming them, without a retry (AC-6.3)', async () => {
+    await open({
+      preview: () => problemAnswer(409, 'legal_entity_incomplete', { entity: 'welld_ch', missing: ['vatNumber', 'address.en'] }),
+    })
     await goTry()
-    const notice = await screen.findByTestId('crm-wizard-service-preview-profile')
+    const notice = await screen.findByTestId('crm-wizard-legal-entity-incomplete')
     expect(within(notice).queryByRole('button')).toBeNull()
+    expect(notice.textContent).toContain(wizard.legalEntity.incomplete.title('wellD CH'))
+    expect(notice.textContent).toContain('VAT number, Address (English)')
+    expect(notice.textContent).not.toContain(wizard.legalEntity.incomplete.noOffer)
+    // not a manager of the entity (the question is unanswered here): the sentence, never the link
+    expect(within(notice).queryByRole('link')).toBeNull()
+    expect(notice.textContent).toContain(wizard.legalEntity.incomplete.askAdmin)
   })
 
   it('does not make the view fall back to the approximate preview when the service fails', async () => {

@@ -45,7 +45,7 @@ const en = {
     counts: (missing: number, correct: number) => `${missing} missing · ${correct} to correct`,
     generateBlocked: 'Complete the missing items to generate the offer.',
     /** AC-12.7: `entity` is the entity's badge label — the legal name is what is blank. */
-    blockedLegalName: (entity: string) => `Set the legal name of ${entity} in CRM Settings.`,
+    blockedLegalName: (entity: string) => `The legal name of ${entity} is empty. It is kept on the Legal entities page.`,
     generating: 'Generating…',
     generatingLive: 'Generating the offer. This can take a few seconds.',
   },
@@ -340,7 +340,7 @@ const en = {
     // 409 `letterhead_unusable` (security M-4, AC-11.4): said after `offers.errors.letterheadUnusable`'s two sentences
     letterheadUnusableTail: 'Offers for this entity cannot be generated until then.',
     addressNotice: (entity: string) =>
-      `The address of ${entity} is not set, so it is not printed in the offer. Set it in CRM Settings.`,
+      `The address of ${entity} is not set in this offer's language, so it is not printed in the offer. It is kept on the Legal entities page.`,
     addressNoticeLabel: 'Issuer address',
     unpagedNotice:
       'This preview is too long to lay out as pages, so it is shown as one continuous sheet. The PDF is the authority.',
@@ -362,9 +362,6 @@ const en = {
     retry: 'Try again',
     /** 422 `answers_invalid`: the draft's own save says which answer; the preview follows the next change. */
     invalidAnswers: 'The preview cannot be made while an answer is not valid. Correct it and the preview will follow.',
-    /** 409 `entity_profile_missing`: the legal name is blank (AC-12.7), as the action bar says. */
-    profileMissing: (entity: string) =>
-      `The preview cannot be made: the legal name of ${entity} is not set. Set it in CRM Settings.`,
     /** 422 `section_too_long` (T50): generate refuses the same text; the pages shown stay the last ones that could be made. */
     sectionTooLong: (sections: readonly string[]) =>
       `${
@@ -391,6 +388,33 @@ const en = {
     },
     open: 'Open Letterheads',
     askAdmin: 'Ask an administrator to set it up in Letterheads.',
+  },
+  /**
+   * The legal details of the issuer are incomplete, or cannot be read (specs/20261117-legal-entities AC-5.5, AC-6.3, design S10):
+   * the refusals of generate, edit and revise (danger), of the preview (polite warning) and of a context that cannot be read.
+   */
+  legalEntity: {
+    incomplete: {
+      title: (entity: string) => `The legal details of ${entity} are incomplete`,
+      noOffer: 'No offer was created.',
+      missing: (list: string) => `Missing: ${list}.`,
+      fillIn: 'Fill them in on the Legal entities page, then try again.',
+      askAdmin: 'Ask an administrator who keeps the Legal entities page to fill them in.',
+    },
+    unavailable: {
+      title: 'The legal details could not be read',
+      body: 'No offer was created: no offer number was used and the draft is unchanged. Try again in a moment.',
+    },
+    open: 'Open Legal entities',
+    /** The link's accessible name: the destination and the entity (it starts with the visible words). */
+    openNamed: (entity: string) => `Open Legal entities, ${entity}`,
+    /** What `missing[]` of the refusal says, in words; a value that is not here is shown as it was received. */
+    missingWords: {
+      legalName: 'Legal name',
+      'address.it': 'Address (Italian)',
+      'address.en': 'Address (English)',
+      vatNumber: 'VAT number',
+    } as Record<string, string>,
   },
   generate: {
     fail: {
@@ -452,7 +476,7 @@ const it: typeof en = {
     progress: "Avanzamento dell'offerta",
     counts: (missing: number, correct: number) => `${missing} mancanti · ${correct} da correggere`,
     generateBlocked: "Completa gli elementi mancanti per generare l'offerta.",
-    blockedLegalName: (entity: string) => `Imposta la ragione sociale di ${entity} nelle Impostazioni CRM.`,
+    blockedLegalName: (entity: string) => `La ragione sociale di ${entity} è vuota. Si trova nella pagina Società del gruppo.`,
     generating: 'Generazione…',
     generatingLive: "Generazione dell'offerta in corso. Può richiedere qualche secondo.",
   },
@@ -746,7 +770,7 @@ const it: typeof en = {
       `Non è stato possibile mostrare qui la carta intestata di ${entity}. Viene comunque aggiunta nel PDF.`,
     letterheadUnusableTail: 'Non si possono generare offerte per questa entità finché non lo fai.',
     addressNotice: (entity: string) =>
-      `L'indirizzo di ${entity} non è impostato, quindi non viene stampato nell'offerta. Impostalo nelle Impostazioni CRM.`,
+      `L'indirizzo di ${entity} non è impostato nella lingua di questa offerta, quindi non viene stampato nell'offerta. Si trova nella pagina Società del gruppo.`,
     addressNoticeLabel: "Indirizzo dell'emittente",
     unpagedNotice:
       "L'anteprima è troppo lunga per essere impaginata, quindi è mostrata come un unico foglio continuo. Fa fede il PDF.",
@@ -767,8 +791,6 @@ const it: typeof en = {
     retry: 'Riprova',
     invalidAnswers:
       "L'anteprima non si può creare finché una risposta non è valida. Correggila e l'anteprima seguirà.",
-    profileMissing: (entity: string) =>
-      `L'anteprima non si può creare: la ragione sociale di ${entity} non è impostata. Impostala nelle Impostazioni CRM.`,
     sectionTooLong: (sections: readonly string[]) =>
       `${
         sections.length === 0
@@ -795,6 +817,27 @@ const it: typeof en = {
     },
     open: 'Apri Carte intestate',
     askAdmin: 'Chiedi a un amministratore di configurarla in Carte intestate.',
+  },
+  legalEntity: {
+    incomplete: {
+      title: (entity: string) => `I dati legali di ${entity} sono incompleti`,
+      noOffer: 'Non è stata creata nessuna offerta.',
+      missing: (list: string) => `Mancano: ${list}.`,
+      fillIn: 'Compilali nella pagina Società del gruppo, poi riprova.',
+      askAdmin: 'Chiedi a un amministratore che gestisce la pagina Società del gruppo di compilarli.',
+    },
+    unavailable: {
+      title: 'Non è stato possibile leggere i dati legali',
+      body: 'Non è stata creata nessuna offerta: nessun numero di offerta è stato usato e la bozza è invariata. Riprova tra poco.',
+    },
+    open: 'Apri Società del gruppo',
+    openNamed: (entity: string) => `Apri Società del gruppo, ${entity}`,
+    missingWords: {
+      legalName: 'Ragione sociale',
+      'address.it': 'Indirizzo (italiano)',
+      'address.en': 'Indirizzo (inglese)',
+      vatNumber: 'Partita IVA',
+    } as Record<string, string>,
   },
   generate: {
     fail: {

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './api'
-import { answerLabelOf, answersNulRefused, invalidAnswersLine, letterheadUnusableOf, offerFailure } from './offerErrors'
+import {
+  answerLabelOf,
+  answersNulRefused,
+  invalidAnswersLine,
+  legalDetailsInWords,
+  legalEntitiesUnavailableOf,
+  legalEntityIncompleteOf,
+  letterheadUnusableOf,
+  offerFailure,
+} from './offerErrors'
 import { parseTemplate } from './offerEngine/syntax'
 import { strings } from '../strings'
 
@@ -122,5 +131,56 @@ describe('offerFailure — the PDF check could not run (503)', () => {
   ])('%s reads as our own sentence, for generate, edit and revise alike', (code, copy) => {
     const error = new ApiError({ status: 503, title: 'Unavailable', code, detail: 'The file could not be checked.' })
     expect(offerFailure(error)).toBe(copy)
+  })
+})
+
+// 409 `legal_entity_incomplete` and 503 `legal_entities_unavailable` (specs/20261117-legal-entities E4; AC-5.5, AC-6.3, design S10).
+describe('offerFailure — the issuer’s legal details (AC-5.5, AC-6.3)', () => {
+  const refused = (extras: Record<string, unknown>, status = 409) =>
+    new ApiError({ status, title: 'Conflict', code: 'legal_entity_incomplete', detail: 'SERVER DETAIL', extras })
+  const unavailable = (status = 503) =>
+    new ApiError({ status, title: 'Unavailable', code: 'legal_entities_unavailable', detail: 'SERVER DETAIL', retryAfterSeconds: 5 })
+
+  it('names the entity by its badge and the missing details in words', () => {
+    const line = offerFailure(refused({ entity: 'welld_ch', missing: ['vatNumber', 'address.it', 'swift'] }))
+    expect(line).toBe(strings.offers.errors.legalEntityIncomplete('wellD CH', 'VAT number, Address (Italian), swift'))
+    expect(line).toContain('no offer was created')
+  })
+
+  it('has no honest sentence for a body that names no entity we know: the server’s own line stands', () => {
+    expect(offerFailure(refused({ missing: ['legalName'] }))).toBe('SERVER DETAIL')
+    expect(offerFailure(refused({ entity: 'welld_xx', missing: ['legalName'] }))).toBe('SERVER DETAIL')
+  })
+
+  it('needs the status to agree with the code, as every other refusal does', () => {
+    expect(legalEntityIncompleteOf(refused({ entity: 'welld_it', missing: [] }, 422))).toBeNull()
+    expect(offerFailure(refused({ entity: 'welld_it', missing: [] }, 422))).toBe('SERVER DETAIL')
+    expect(legalEntitiesUnavailableOf(unavailable(500))).toBe(false)
+    expect(legalEntitiesUnavailableOf(unavailable())).toBe(true)
+    expect(legalEntitiesUnavailableOf(new Error('x'))).toBe(false)
+  })
+
+  it('reads `entity` and `missing` as the contract has them, and ignores what is not a text', () => {
+    expect(legalEntityIncompleteOf(refused({ entity: 'welld_it', missing: ['legalName', 7, null] }))).toEqual({
+      entity: 'welld_it',
+      missing: ['legalName'],
+    })
+    expect(legalEntityIncompleteOf(refused({ entity: 'welld_it', missing: 'legalName' }))).toEqual({
+      entity: 'welld_it',
+      missing: [],
+    })
+  })
+
+  it('says the registry could not be read, in our own words', () => {
+    expect(offerFailure(unavailable())).toBe(strings.offers.errors.legalEntitiesUnavailable)
+  })
+
+  it('words a missing value that is a property of Object as received, not as a prototype member', () => {
+    expect(legalDetailsInWords(['constructor', 'toString'])).toBe('constructor, toString')
+  })
+
+  it('no longer words entity_profile_missing: it is the letterhead upload’s alone (E4)', () => {
+    const error = new ApiError({ status: 409, title: 'Conflict', code: 'entity_profile_missing', detail: 'SERVER DETAIL' })
+    expect(offerFailure(error)).toBe('SERVER DETAIL')
   })
 })

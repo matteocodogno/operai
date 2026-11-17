@@ -8,13 +8,17 @@
 import { catalogGaps } from '@operai/ui'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetManageableLegalEntities } from '../../hooks/useCanManageLegalEntity'
 import { en, it as italian, strings } from '../../strings'
 import ServicePreview, { type ServicePreviewProps } from './ServicePreview'
 import type { ServicePreviewNotice, ServicePreviewResult } from './useServicePreview'
 
-const session = vi.hoisted(() => ({ apps: [] as string[] }))
+const { apiFetch, session } = vi.hoisted(() => ({ apiFetch: vi.fn(), session: { apps: [] as string[] } }))
 vi.mock('shell/session', () => ({
+  apiFetch,
+  getAuthBaseUrl: () => 'http://auth.test',
+  useSession: () => ({ data: { user: { id: 'u-ada' } } }),
   usePermissions: () => ({ epoch: 0, apps: session.apps, roles: [], departments: [], permissions: [] }),
 }))
 
@@ -40,8 +44,14 @@ function view(overrides: Partial<ServicePreviewResult> = {}, props: Partial<Serv
   )
 }
 
+beforeEach(() => {
+  // `manageable` is never answered here: the legal entity notice stays on its sentence, which is what these tests read
+  apiFetch.mockImplementation(() => new Promise(() => undefined))
+  resetManageableLegalEntities()
+})
 afterEach(() => {
   cleanup()
+  apiFetch.mockReset()
   session.apps = []
 })
 
@@ -134,11 +144,15 @@ describe('ServicePreview — the preview could not be updated (AC-10.7)', () => 
     expect(retry).toHaveBeenCalledTimes(1)
   })
 
-  it('tells a profile without a legal name and an answer that is not valid in the same polite way', () => {
-    const { unmount } = render(view({ state: 'blocked', notice: { kind: 'profileMissing' } }))
-    expect(screen.getByTestId('crm-wizard-service-preview-profile').textContent).toBe(
-      t.servicePreview.profileMissing('wellD IT'),
+  it('tells incomplete legal details and an answer that is not valid in the same polite way (AC-6.3)', () => {
+    const { unmount } = render(
+      view({ state: 'blocked', notice: { kind: 'legalEntityIncomplete', entity: 'welld_ch', missing: ['legalName'] } }),
     )
+    const incomplete = screen.getByTestId('crm-wizard-legal-entity-incomplete')
+    expect(incomplete.getAttribute('role')).toBe('status')
+    expect(incomplete.textContent).toContain(t.legalEntity.incomplete.title('wellD CH'))
+    expect(incomplete.textContent).toContain('Legal name')
+    expect(within(incomplete).queryByRole('button')).toBeNull()
     unmount()
     render(view({ state: 'blocked', notice: { kind: 'invalid' } }))
     expect(screen.getByTestId('crm-wizard-service-preview-invalid').textContent).toBe(t.servicePreview.invalidAnswers)
@@ -222,7 +236,10 @@ describe('ServicePreview — the words, in English and Italian (AC-10.13)', () =
       expect(s.pages(1)).toContain('1')
       expect(s.pages(4)).toContain('4')
       expect(s.pageAlt(2, 5)).toMatch(/2.*5/)
-      expect(s.profileMissing('wellD CH')).toContain('wellD CH')
+      const e = catalog.offerWizard.legalEntity
+      expect(e.incomplete.title('wellD CH')).toContain('wellD CH')
+      expect(e.incomplete.missing('X')).toContain('X')
+      expect(e.openNamed('wellD CH')).toContain('wellD CH')
       expect(s.sectionTooLong(['OGGETTO'])).toContain('OGGETTO')
       expect(s.sectionTooLong(['A', 'B'])).toMatch(/A.*B/)
       expect(s.sectionTooLong([])).toContain('20 000')

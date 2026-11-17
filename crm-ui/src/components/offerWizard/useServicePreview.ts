@@ -3,6 +3,7 @@ import { LatestResultBusyError, useLatestResult, type PagePreviewState, type Pre
 import { ApiError } from '../../lib/api'
 import type { ServicePreviewAnswer } from '../../lib/crmApi'
 import type { WizardAnswers } from '../../lib/offerEngine/answers'
+import { legalEntityIncompleteOf } from '../../lib/offerErrors'
 import type { Entity } from '../../lib/types'
 
 /** The wizard's debounce before it asks again (design F12.2). */
@@ -29,8 +30,11 @@ export type ServicePreviewNotice =
   | { kind: 'notConfigured' }
   /** 409 `letterhead_overflow` (T27): a profile value does not fit the header or the footer. */
   | { kind: 'overflow'; frame: 'header' | 'footer' }
-  /** 409 `entity_profile_missing`: the legal name is blank. */
-  | { kind: 'profileMissing' }
+  /**
+   * 409 `legal_entity_incomplete` (specs/20261117-legal-entities AC-6.3): the registry says the issuer's details are not all
+   * filled in. `entity` is the one the body names (null when it names none we know); `missing` is what it lists.
+   */
+  | { kind: 'legalEntityIncomplete'; entity: Entity | null; missing: readonly string[] }
   /** 422 `answers_invalid`: the draft holds an answer the engine refuses; the next change asks again. */
   | { kind: 'invalid' }
   /**
@@ -67,7 +71,8 @@ export function noticeOf(error: unknown): ServicePreviewNotice {
     if (error.status === 409 && error.code === 'letterhead_overflow') {
       return { kind: 'overflow', frame: error.extras['frame'] === 'footer' ? 'footer' : 'header' }
     }
-    if (error.status === 409 && error.code === 'entity_profile_missing') return { kind: 'profileMissing' }
+    const incomplete = legalEntityIncompleteOf(error)
+    if (incomplete) return { kind: 'legalEntityIncomplete', ...incomplete }
     if (error.status === 422 && error.code === 'answers_invalid') return { kind: 'invalid' }
     if (error.status === 422 && error.code === 'section_too_long') {
       return { kind: 'sectionTooLong', sections: sectionHeadings(error.extras['sections']) }
