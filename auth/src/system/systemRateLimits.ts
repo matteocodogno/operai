@@ -1,5 +1,5 @@
 /**
- * The limits of the two internal endpoints every backend calls —
+ * The limits of the internal endpoints every backend calls —
  * `POST /system/service-token` (ADR 20261006-scoped-service-jwt-fourth-notify-caller/0049) and `POST /system/users/contact`
  * (ADR 20261101-notify-api-resolves-email-notice-address-from-auth) — as decided by specs/20261111-push-notifications US-7 and ADR 20261112-system-endpoints-limited-per-verified-service.
  *
@@ -11,9 +11,11 @@
  *                    `system:<clientId>`           (300 per window by default)
  *   usersContact     a VALID contact-lookup credential, keyed by the verified
  *                    JWT `sub`                      (600 per window)
- *   invalidCredentials  an INVALID credential of either endpoint, keyed by
+ *   legalEntities    a VALID legal-entity read credential (`legal-entities:read`), keyed by the verified `sub`
+ *                    (300 per window; a fixed default, no env variable: specs/20261117-legal-entities, T6, AC-3.2)
+ *   invalidCredentials  an INVALID credential of any of these endpoints, keyed by
  *                    the source address — the only key available before there
- *                    is an identity. ONE counter shared by both routes (20 per
+ *                    is an identity. ONE counter shared by all routes (20 per
  *                    window), capped at `INVALID_MAX_KEYS` keys.
  *
  * Why not one address bucket (the old shape): on Railway's private network no
@@ -41,25 +43,31 @@ import { createSlidingWindowRateLimiter, type RateLimiter } from "../lib/rateLim
 /** Distinct source addresses held for the invalid-credential count; past this, new ones share one overflow key. */
 export const INVALID_MAX_KEYS = 50_000;
 
+/** Legal-entity reads per calling service per window: a consumer caches 30 s, so ~20 per 10 min is the steady rate. */
+export const LEGAL_ENTITIES_SERVICE_LIMIT = 300;
+
 export interface SystemRateLimitConfig {
   /** Service tokens per calling service per window (AC-7.1). */
   serviceTokenLimit: number;
   /** Contact lookups per calling service per window (AC-7.2). */
   usersContactLimit: number;
-  /** Invalid-credential requests per source address per window, both routes together (AC-7.5). */
+  /** Legal-entity reads per calling service per window (specs/20261117-legal-entities AC-3.2). */
+  legalEntitiesLimit: number;
+  /** Invalid-credential requests per source address per window, all routes together (AC-7.5). */
   invalidLimit: number;
-  /** The one window of all three limiters, and the source of `Retry-After`. */
+  /** The one window of all four limiters, and the source of `Retry-After`. */
   windowMs: number;
 }
 
-export type SystemRoute = "service-token" | "users/contact";
+export type SystemRoute = "service-token" | "users/contact" | "legal-entities";
 
 export interface SystemRateLimits {
   invalidCredentials: RateLimiter;
   serviceToken: RateLimiter;
   usersContact: RateLimiter;
+  legalEntities: RateLimiter;
   windowMs: number;
-  /** The ONLY 429 of the two routes. */
+  /** The ONLY 429 of the /system routes. */
   tooManyRequests(c: Context): Response;
   /**
    * Bounded log line for a refusal, at most one per key per window. `invalid`
@@ -75,6 +83,7 @@ export function createSystemRateLimits(
   const config: SystemRateLimitConfig = {
     serviceTokenLimit: env.SERVICE_TOKEN_SERVICE_LIMIT,
     usersContactLimit: env.USERS_CONTACT_SERVICE_LIMIT,
+    legalEntitiesLimit: LEGAL_ENTITIES_SERVICE_LIMIT,
     invalidLimit: env.SYSTEM_INVALID_CREDENTIAL_LIMIT,
     windowMs: env.SYSTEM_RATE_WINDOW_MS,
     ...options.config,
@@ -99,6 +108,7 @@ export function createSystemRateLimits(
     invalidCredentials: create(config.invalidLimit, INVALID_MAX_KEYS),
     serviceToken: create(config.serviceTokenLimit),
     usersContact: create(config.usersContactLimit),
+    legalEntities: create(config.legalEntitiesLimit),
     windowMs,
 
     tooManyRequests(c) {

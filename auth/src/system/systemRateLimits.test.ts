@@ -22,9 +22,25 @@ describe("createSystemRateLimits — defaults and counting", () => {
     expect(limits.serviceToken.consume("system:a").allowed).toBe(false);
     for (let i = 0; i < 600; i++) expect(limits.usersContact.consume("system:a").allowed).toBe(true);
     expect(limits.usersContact.consume("system:a").allowed).toBe(false);
+    for (let i = 0; i < 300; i++) expect(limits.legalEntities.consume("system:a").allowed).toBe(true);
+    expect(limits.legalEntities.consume("system:a").allowed).toBe(false);
     for (let i = 0; i < 20; i++) expect(limits.invalidCredentials.consume("direct").allowed).toBe(true);
     expect(limits.invalidCredentials.consume("direct").allowed).toBe(false);
     expect(limits.windowMs).toBe(600_000);
+  });
+
+  test("the legal-entities limiter is its own counter, per service, driven by the injected clock (specs/20261117-legal-entities AC-3.2)", () => {
+    const c = clock();
+    const limits = createSystemRateLimits({ now: c.now, config: { legalEntitiesLimit: 2, windowMs: 1000 } });
+    expect(limits.legalEntities.consume("system:crm-api").allowed).toBe(true);
+    expect(limits.legalEntities.consume("system:crm-api").allowed).toBe(true);
+    expect(limits.legalEntities.consume("system:crm-api").allowed).toBe(false);
+    expect(limits.legalEntities.consume("system:letterhead-api").allowed).toBe(true);
+    // not shared with the other verified-service limiters
+    expect(limits.usersContact.consume("system:crm-api").allowed).toBe(true);
+    expect(limits.serviceToken.consume("system:crm-api").allowed).toBe(true);
+    c.advance(1001);
+    expect(limits.legalEntities.consume("system:crm-api").allowed).toBe(true);
   });
 
   test("services are independent of each other and of the invalid count", () => {

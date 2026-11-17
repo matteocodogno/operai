@@ -21,6 +21,7 @@ import { usersRouter } from "./admin/users.routes";
 import { userAddressRouter } from "./admin/userAddress.routes";
 import { addressRouter } from "./profile/address.routes";
 import { legalEntityReadRouter } from "./legalEntities/read.routes";
+import { createSystemLegalEntitiesRouter } from "./legalEntities/system.routes";
 import { healthRouter } from "./health/health.routes";
 import { inviteRouter } from "./invite/invite.routes";
 import { invitationsRouter } from "./invitations/invitations.routes";
@@ -30,7 +31,7 @@ import { signinRouter } from "./signin/signin.routes";
 import { createServiceTokenRouter, signWithAuth } from "./system/serviceToken.routes";
 import { createUserContactRouter, jwksFromAuth } from "./system/userContact.routes";
 import { createSelfServiceTokenProvider } from "./system/selfServiceToken";
-import { createSystemRateLimits } from "./system/systemRateLimits";
+import { createSystemRateLimits, LEGAL_ENTITIES_SERVICE_LIMIT } from "./system/systemRateLimits";
 import { setNotifyTokenProvider } from "./lib/notify";
 import { setupOpenAPI } from "./openapi/registry";
 
@@ -80,14 +81,18 @@ app.route("/", invitationsRouter);
 app.route("/", accessRequestsRouter);
 app.route("/", inviteRouter);
 const signServiceJwt = signWithAuth(auth);
-// One set of limits for both /system endpoints: the invalid-credential count is shared (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).
+// One set of limits for the /system endpoints: the invalid-credential count is shared (specs/20261111-push-notifications US-7, ADR 20261112-system-endpoints-limited-per-verified-service).
 const systemLimits = createSystemRateLimits();
 console.log(
   `[system] limits per ${env.SYSTEM_RATE_WINDOW_MS} ms: service-token ${env.SERVICE_TOKEN_SERVICE_LIMIT} per service, ` +
-    `users/contact ${env.USERS_CONTACT_SERVICE_LIMIT} per service, invalid credentials ${env.SYSTEM_INVALID_CREDENTIAL_LIMIT} per source`,
+    `users/contact ${env.USERS_CONTACT_SERVICE_LIMIT} per service, legal-entities ${LEGAL_ENTITIES_SERVICE_LIMIT} per service, ` +
+    `invalid credentials ${env.SYSTEM_INVALID_CREDENTIAL_LIMIT} per source`,
 );
 app.route("/", createServiceTokenRouter({ signJwt: signServiceJwt, limits: systemLimits }));
 app.route("/", createUserContactRouter({ getJwks: jwksFromAuth(auth), limits: systemLimits }));
+// The service read API of the legal-entity registry (specs/20261117-legal-entities, T6): the same limits object (one
+// shared invalid-credential count); its own key-set cache, so a re-read here never spends the contact route's cooldown.
+app.route("/", createSystemLegalEntitiesRouter({ getJwks: jwksFromAuth(auth), limits: systemLimits }));
 // `auth`'s own notify credential (specs/20261013-notify-service-credentials T7, ADR 20261013-auth-mints-own-service-credential-in-process): invitation emails
 // authenticate with it. Injected here, not imported by lib/notify.ts, so that
 // module never depends on auth.config (see serviceToken.routes.ts).

@@ -84,7 +84,41 @@ describe("parseServiceClients", () => {
       "estimai.estimates.read",
       "projects.purchase-orders.read",
       "letterhead:render",
+      "legal-entities:read",
     ]);
+  });
+
+  test("legal-entities:read parses alone or beside other scopes, and a near miss refuses to start (specs/20261117-legal-entities AC-3.2)", () => {
+    const ok = parseServiceClients(
+      raw({
+        "letterhead-api": { secret: SECRET_A, scope: "legal-entities:read" },
+        "crm-api": { secret: SECRET_B, scope: "notifications.push legal-entities:read" },
+      }),
+    );
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.clients.get("letterhead-api")?.scopes).toEqual(["legal-entities:read"]);
+      expect(ok.clients.get("crm-api")?.scopes).toEqual(["notifications.push", "legal-entities:read"]);
+    }
+    for (const scope of ["legal-entities:write", "legal-entities.read", "legal-entity:read", "companies:read", "LEGAL-ENTITIES:READ"]) {
+      const bad = parseServiceClients(raw({ "letterhead-api": { secret: SECRET_A, scope } }));
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.errors.join("\n")).toContain("letterhead-api");
+    }
+  });
+
+  test("the documented letterhead-api entry is exactly legal-entities:read, and crm-api's adds it", () => {
+    const result = parseServiceClients(
+      raw({
+        "letterhead-api": { secret: SECRET_A, scope: DOCUMENTED_CLIENT_SCOPES["letterhead-api"] },
+        "crm-api": { secret: SECRET_B, scope: DOCUMENTED_CLIENT_SCOPES["crm-api"] },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.clients.get("letterhead-api")?.scopes).toEqual(["legal-entities:read"]);
+    expect(result.clients.get("letterhead-api")?.scopes).not.toContain("letterhead:render");
+    expect(result.clients.get("crm-api")?.scopes).toContain("legal-entities:read");
   });
 
   test("a client holding letterhead:render parses and authenticates with it, alone or beside other scopes (specs/20261116-letterhead-service AC-3.1, AC-9.3)", () => {
@@ -249,7 +283,7 @@ describe("parseServiceClients", () => {
     }
   });
 
-  test("the documented crm-api entry adds activities.write to its existing four scopes (specs/20261110-activities AC-1.2, specs/20261103-projects-handoff)", () => {
+  test("the documented crm-api entry adds activities.write and legal-entities:read to its existing scopes (specs/20261110-activities AC-1.2, specs/20261103-projects-handoff)", () => {
     const documented = DOCUMENTED_CLIENT_SCOPES["crm-api"];
     const result = parseServiceClients(raw({ "crm-api": { secret: SECRET_A, scope: documented } }));
     expect(result.ok).toBe(true);
@@ -258,6 +292,7 @@ describe("parseServiceClients", () => {
       "activities.write",
       "deal-link-notices.send",
       "emails.send",
+      "legal-entities:read",
       "notifications.push",
       "projects.purchase-orders.read",
     ]);

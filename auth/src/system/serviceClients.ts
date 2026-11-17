@@ -62,6 +62,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
  * - `letterhead:render`: render a document's pages through the letterhead service
  *   (specs/20261116-letterhead-service, AC-3.1, AC-9.3). Held by a calling tool's api
  *   (crm-api first); the letterhead service verifies it.
+ * - `legal-entities:read`: read the group's legal entities through auth's `GET /system/legal-entities[/{entity}]`
+ *   (specs/20261117-legal-entities, AC-3.2; auth verifies it itself). Held by crm-api and letterhead-api.
  */
 export const KNOWN_SERVICE_SCOPES = [
   "notifications.push",
@@ -77,6 +79,7 @@ export const KNOWN_SERVICE_SCOPES = [
   "estimai.estimates.read",
   "projects.purchase-orders.read",
   "letterhead:render",
+  "legal-entities:read",
 ] as const;
 
 /**
@@ -90,18 +93,23 @@ export const KNOWN_SERVICE_SCOPES = [
  *   referent contacts, an estimate's man-days, and pushes the ops-manager's
  *   notification; it sends no email, so no `emails.send` (ADR 20261013-all-notify-callers-scoped-credentials-shared-token-retired one scope per
  *   capability; env-doctor's manifest holds the same five).
- * - `crm-api` (specs/20261103-projects-handoff, specs/20261110-activities): its notify and deal-link scopes, the purchase
- *   orders of its deals (`projects.purchase-orders.read`) and `activities.write`.
+ * - `crm-api` (specs/20261103-projects-handoff, specs/20261110-activities, specs/20261117-legal-entities): its notify
+ *   and deal-link scopes, the purchase orders of its deals (`projects.purchase-orders.read`), `activities.write`
+ *   and the issuer's details (`legal-entities:read`).
  * - `activities-api` (specs/20261110-activities): `notifications.push emails.send` — its task notices
  *   (AC-6.1/6.3) are email notices, and notify-api requires `emails.send` as well as
  *   `notifications.push` for `email: true` (ADR 20261101-notify-api-resolves-email-notice-address-from-auth). No `activities.write`: it is the
  *   service that scope writes to.
+ * - `letterhead-api` (specs/20261117-legal-entities, AC-3.2): `legal-entities:read` only — it reads the issuer's
+ *   details itself; it verifies `letterhead:render` but does not hold it, and sends no notices.
  */
 export const DOCUMENTED_CLIENT_SCOPES = {
   "meetings-api": "notifications.push host-notices.send",
   "projects-api": "crm.companies.read crm.deals.read crm.contacts.read estimai.estimates.read notifications.push",
-  "crm-api": "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read",
+  "crm-api":
+    "notifications.push emails.send deal-link-notices.send activities.write projects.purchase-orders.read legal-entities:read",
   "activities-api": "notifications.push emails.send",
+  "letterhead-api": "legal-entities:read",
 } as const;
 
 /**
