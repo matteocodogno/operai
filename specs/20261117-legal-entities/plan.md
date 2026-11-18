@@ -136,6 +136,8 @@ amendment; the plan states what it assumes until the owner decides.
    mix two versions in one PDF. So content v2 carries an optional `legalEntityVersion` (the version crm-api used):
    letterhead-api refreshes when its entry is older and answers 409 `legal_entity_version_mismatch`
    (`currentVersion`) when it still differs; crm-api drops its cache entry, rebuilds the content and retries once.
+   *(Superseded in part — only a pin newer than the held version forces a refresh, at most 1/s and 100 per 10 min
+   per process; crm-api waits 1.1 s before its retry: see Sync 2026-11-18, H1.)*
    Rejected: crm-api sending the details (owner constraint: the service reads them itself).
 9. **The move: expand → copy (announced freeze of CRM entity settings) → switch → contract**, the shape the owner
    accepted for the activities move (`ADR 20261110-activities-migration-write-pause`) **[ADR-4]**. The copy is a
@@ -226,10 +228,10 @@ the token and retries once.
 `legalName`, `address[language]`, `vatNumber`, `ibanPrint` (AC-6.2) → snapshot `issuer` from the same values
 (`snapshotOf`, `wizardSnapshotOf`, `crm-api/src/offers/generation.ts`) → classic path draws from the snapshot as
 today (`contractPdf.ts`), service path sends content v2 with `legalEntityVersion` → on 409 mismatch: invalidate,
-re-read, rebuild, retry once.
+re-read, rebuild, retry once *(after a fixed 1.1 s wait: see Sync 2026-11-18, H1)*.
 
 **Render (letterhead-api).** As today, plus: after validation, before the pool, take the entity's details from the
-cache (503 `legal_entities_unavailable` per decision 7) → `legalEntityVersion` check (decision 8) → the job's
+cache (503 `legal_entities_unavailable` per decision 7) → `legalEntityVersion` check (decision 8; *as built: see Sync 2026-11-18, H1*) → the job's
 `EntityData` = registry values in the request's language (`address[language]`, `contacts[language]`,
 `ibanPrint`) → worker unchanged → answer gains `legalEntityVersion` (preview JSON member; PDF header
 `Legal-Entity-Version`) → the one log line gains `legal_entity_version` and `entity_data_ignored`.
@@ -416,7 +418,7 @@ questions).
 | Status | `code` | When |
 | --- | --- | --- |
 | 503 | `legal_entities_unavailable`, `Retry-After: 5` | registry unreadable and nothing read within 60 s (AC-5.5) |
-| 409 | `legal_entity_version_mismatch` + `currentVersion` | `legalEntityVersion` given and not the current one after a refresh |
+| 409 | `legal_entity_version_mismatch` + `currentVersion` | `legalEntityVersion` given and not the current one after a refresh *(a refresh only for a newer pin, within a budget; an older or equal pin is 409 at once: see Sync 2026-11-18, H1)* |
 | 422 | `unsupported_content_version` | 0, 3 or more (was: anything but 1) |
 
   Success answers gain `legalEntityVersion` (preview JSON) / `Legal-Entity-Version` (PDF header).
@@ -514,7 +516,7 @@ exists either way (it reports, and the gate is the owner's sign-off).
 | R5 | Unordered deploys inside the switch push. | Content v2 fails closed; crm-api tolerates old crm-ui bodies; crm-ui tolerates the old context answer; admin-ui depends only on push 1. Each pairing is a B-int / V-ui test. |
 | R6 | auth refuses to start with an unknown scope in `SERVICE_CLIENTS`. | Credentials are set only after push 1 is live (step 2), per `infra/README.md`'s existing rule. letterhead-api's new required variables are set before push 2. |
 | R7 | auth becomes a dependency of document making: a 60 s auth outage stops offers and renders. | Owner decision OQ-6. crm-api and letterhead-api already need auth (JWKS, `/authz/resolve`). Logged `registry_stale_used` / `legal_entities_unavailable` make it visible. |
-| R8 | Two caches can hold different versions for up to 60 s. | `legalEntityVersion` pin + one retry (decision 8); test in AC-6.2. |
+| R8 | Two caches can hold different versions for up to 60 s. | `legalEntityVersion` pin + one retry (decision 8); test in AC-6.2. *(Pin rule and the 1.1 s retry wait as built: see Sync 2026-11-18, H1.)* |
 | R9 | Real details are longer than the 40-character fit check: a footer that fit the sample may overflow with a 200-character legal name, so every render of that entity fails (`footer_overflow` → crm-api 409 `letterhead_overflow`). | The configurator preview now uses real details, so the designer sees it (AC-5.4); R-int test with a 200-character name. Not blocked at registry save (it would make auth depend on letterhead-api). |
 | R10 | The Tier 1 trigger breaks auth tests that clean tables. | Registry tests use a rolled-back transaction or a per-file database; no existing test touches the new table. Checked by running the whole auth suite in T1. |
 | R11 | A non-administrator in admin-ui sees admin sections that 403. | Sections by capability, hidden routes redirect; E2E in AC-4.3. The admin APIs keep `requireAdmin`. |
@@ -592,7 +594,8 @@ Surfaces to review:
 2. **ADR-2:** Issuer details are read by the letterhead service from the registry, never sent by callers:
    `contentVersion: 2`, `entityData` accepted and ignored in every version, a `legalEntityVersion` pin; and the
    consumers' cache rule (fresh 30 s, usable 60 s when the registry fails, then refuse). Supersedes the "caller
-   sends the values" part of the letterhead design (D1).
+   sends the values" part of the letterhead design (D1). *(Written; its point 3 "The pin" and point 4 are amended by
+   the pin-refresh ADR of 2026-11-18: see Sync 2026-11-18, H1 and H2.)*
 3. **ADR-3:** An app can be reached through a capability it administers: `/authz/me` derives `admin` into `apps`
    for holders of `legal-entity:manage` over at least one entity, and admin-ui shows its sections by capability.
 4. **ADR-4 (or an addendum to ADR 20261110-activities-migration-write-pause):** the CRM's legal details move by
@@ -1002,7 +1005,9 @@ failed), `legal_entity.notice_given_up`, `legal_entity.notice_no_recipients`. `d
 - `Notification` += `callerSub String?`, `idempotencyKey String?`; partial unique index `(callerSub, idempotencyKey)
   WHERE idempotencyKey IS NOT NULL`.
 - `EmailDelivery` += `callerSub String?`, `idempotencyKey String?`; index `(callerSub, idempotencyKey)` (several
-  failed attempts may share a key; at most one `sent`).
+  failed attempts may share a key; at most one `sent`). *(As built, "at most one `sent`" is a partial unique index
+  `WHERE idempotencyKey IS NOT NULL AND status = 'sent'`, plus a CHECK on both tables that a key never exists without
+  its caller: see Sync 2026-11-18, H3.)*
 
 **auth env** (`lib/env.ts`): `LEGAL_ENTITY_NOTICE_EMAIL` (optional, an email address; unset = no outside
 recipient), `LEGAL_ENTITY_WRITE_RATE_LIMIT` (default 10), `LEGAL_ENTITY_CHECK_RATE_LIMIT` (default 60),
@@ -1014,7 +1019,8 @@ recipient), `LEGAL_ENTITY_WRITE_RATE_LIMIT` (default 10), `LEGAL_ENTITY_CHECK_RA
 
 Body: exactly the save's `{ baseVersion, details }`. Same order of refusals as the save (401, 403, 404, 403, 413,
 422 `invalid_request`, 422 `invalid_legal_entity`), then 409 `legal_entity_not_moved`, 409 `version_conflict` +
-`currentVersion` when `baseVersion` is not current, 429 `too_many_requests` (its own per-person limiter, G9). No
+`currentVersion` when `baseVersion` is not current, 429 `too_many_requests` (its own per-person limiter, G9).
+*(As built, the 429 comes right after the authorisation refusals and before 413: see Sync 2026-11-18, H4.)* No
 lock, no transaction, no row, no audit row, `Cache-Control: no-store`.
 
 ```jsonc
@@ -1036,7 +1042,7 @@ the union of the pages; the page asks for the next one (G11).
 
 **auth save, restore, check: 429** (F3): `too_many_requests` (the suite's `tooManyRequests` body, `Retry-After`),
 counted per user id after authorisation and before the body is read; save and restore share one window, the check
-has its own.
+has its own. *(`Retry-After` is exposed over CORS, T74: see Sync 2026-11-18, H4.)*
 
 **auth save, restore, check, history, version view, `manageable`: a deleted user** (F2) → 403 `forbidden` (the
 constant body); `manageable` answers `{ entities: [] }`; person reads `GET /legal-entities[/{entity}]` → 401.
@@ -1047,10 +1053,12 @@ notification; nothing is published, pushed or mailed. A concurrent repeat losing
 and answers 200.
 
 **notify-api `POST /system/emails`** (push 1): optional `idempotencyKey` (same rule); a repeat after a `sent` attempt
-→ 200 with the same `deliveryId`, nothing sent; after only `failed` attempts → a new attempt. Template
+→ 200 with the same `deliveryId`, nothing sent *(answered before the address lookup: see Sync 2026-11-18, H3)*; after only
+`failed` attempts → a new attempt. Template
 **`legal_entity_change`**: bound to `system:auth` only (another caller → 403 `template_not_allowed`, nothing
 written); exactly one of `to` | `recipientId`, and `recipientId` is accepted **only** for this template (no other
-caller gains "mail any user by id"). With `recipientId`: inactive user → 200 `{ status: "skipped", reason:
+caller gains "mail any user by id"; *as built, `recipientId` on another template is 400 `recipient_id_not_allowed`:
+see Sync 2026-11-18, H3*). With `recipientId`: inactive user → 200 `{ status: "skipped", reason:
 "recipient_inactive" }`; contact lookup failed → `{ status: "failed", reason: "contact_lookup_failed" }`; email group
 unset → `{ status: "skipped", reason: "not_configured" }`. Response `status` gains `skipped` and an optional closed
 `reason`.
@@ -1070,7 +1078,8 @@ unset → `{ status: "skipped", reason: "not_configured" }`. Response `status` g
 
 The link is built by notify-api from its `APP_BASE_URL` and the closed entity:
 `/admin/legal-entities?entity=<entity>&view=history` (E7). Resend receives `Idempotency-Key: <sub>:<key>`
-(SDK option if 6.17 has it, else the raw header; the task verifies which).
+(SDK option if 6.17 has it, else the raw header; the task verifies which). *(Settled: the SDK option, resend 6.17.2:
+see Sync 2026-11-18, H3.)*
 
 **auth → notify-api, the in-app call**: `{ recipientId, originApp: "admin", severity: "warning", title, body,
 it: { title, body }, link: { href: "/admin/legal-entities?entity=<e>&view=history" }, idempotencyKey }` (no
@@ -1107,13 +1116,15 @@ it: { title, body }, link: { href: "/admin/legal-entities?entity=<e>&view=histor
   **`ProtectedChangeDialog`** (built on `ConfirmDialog`, no acknowledge checkbox — with a field the library would not
   focus Cancel; AC-9.1) → Cancel / Escape / close: nothing sent, values kept, focus back on Save (AC-9.2, 9.6) →
   Confirm: `POST …/versions` with the same body; its answer takes the existing paths (saved, no-op, refused,
-  conflict, 403, failed); the dialog closes first. A confirmation is never remembered: every Save checks again
-  (AC-9.3). A failed check (network, 5xx, 404 during push skew) → "could not check" banner + Retry, nothing saved
+  conflict, 403, failed); the dialog closes first *(superseded: the dialog stays open and busy until the save's
+  answer, sends the checked body, and is mounted beside the form, never inside it: see Sync 2026-11-18, H5)*. A
+  confirmation is never remembered: every Save checks again (AC-9.3). A failed check (network, 5xx, 404 during push skew) → "could not check" banner + Retry, nothing saved
   (fail closed: without the check the page cannot know whether to ask).
 - **Restore** (`RestoreDialog`): on open it reads version n when the page does not hold it (loading state), and
   lists, under "Old" (current) / "New" (version n), each protected detail that differs, from the two `LegalEntity`
   answers (`ibanPrint` for the IBAN); none differ → the dialog is as before (AC-9.4). Version n cannot be read →
-  Confirm unavailable with the reason + Retry.
+  Confirm unavailable with the reason + Retry *(built as an `aria-disabled` Confirm with a described reason, T73:
+  see Sync 2026-11-18, H5)*.
 - One presentational **`ProtectedChangeList`** renders the list in both dialogs: a `<dl>`/table per detail with the
   visible labels "Old"/"New", the empty value as the word "None" (never blank), legal name and VAT in full, IBAN in
   groups of four, `lang` not set on values (they are not prose).
@@ -1144,7 +1155,8 @@ accepted. compose sets a high limit only for the e2e stack. History paging as G5
 - **F4 (fix as proposed).** The "real transactions" group of `write.routes.test.ts` runs only when the host of
   `DATABASE_URL` is `localhost`, `127.0.0.1`, `::1`, `host.docker.internal` or the compose service name (`postgres`),
   and never for `*.railway.internal` / `*.rlwy.net`; otherwise it is skipped with one loud line. `testDb.ts`'s header
-  states the exception. Any new committed-transaction test (the dispatcher's, G6) uses the same guard.
+  states the exception. Any new committed-transaction test (the dispatcher's, G6) uses the same guard *(applied to
+  `notices/duty.test.ts` by T75: see Sync 2026-11-18, H4)*.
 - **F5 (fix all three).** (1) devops: the runbook creates a `SELECT`-only role on `entity_profile`'s legal columns,
   `updatedAt` and `updatedBy` in the `crm` database for the copy window, `CRM_DATABASE_URL` set by hand to it, the
   role dropped afterwards (T18 uses it). (2) the import audit row's `source` gains `updatedBy` (a person id). (3) the
@@ -1153,7 +1165,9 @@ accepted. compose sets a high limit only for the e2e stack. History paging as G5
   no other value.
 - **F6 (fix as proposed).** letterhead-api coalesces forced refreshes: at most one per second per process; a
   mismatching pin with an entry fetched less than a second ago answers 409 `legal_entity_version_mismatch` at once,
-  without calling auth. A matching pin still costs nothing.
+  without calling auth. A matching pin still costs nothing. *(Superseded by T64 + T76: a pin at or below the held
+  version is 409 with no registry call; only a newer pin forces a refresh, at most 1/s and 100 per 10 minutes per
+  process; crm-api waits 1.1 s before its single retry, T72. See Sync 2026-11-18, H1.)*
 - **F7 (decided: the page, not the row).** `AuditPage` derives the Before/After panes from `data.changes` when
   `data.before`/`data.after` are absent (`{ field: before }` / `{ field: after }`, value names as stored keys); the
   notice actions show their `data` as today's panes would (no values in them). Rejected: also writing `before`/
@@ -1180,7 +1194,8 @@ accepts exactly three POSTs. No performance concern at auth's route count.
 Required, because design.md says "no confirmation step on an IBAN change" and lists it as scope creep. The designer
 adds (inline TODO in design.md, task T51): S12 the protected-change confirmation (states and copy keys), the S7
 restore additions, the S5 "Show older versions" states, the 429 state, the notice copy (in-app en/it, email en),
-and the copy owed by FU-1, FU-4, FU-7 and FU-9.
+and the copy owed by FU-1, FU-4, FU-7 and FU-9. *(S12's busy state as built differs from the design's wording:
+see Sync 2026-11-18, H5.)*
 
 ### G14 — Follow-ups FU-1…FU-10
 
@@ -1190,7 +1205,7 @@ and the copy owed by FU-1, FU-4, FU-7 and FU-9.
 | FU-2 classic `GenerateOfferDialog`/`OffersCard` show no link for `legal_entity_incomplete` | fix (render `LegalEntityNotice`) | T63 |
 | FU-3 `wrap` vs 320 px reflow | no code: verified in the widened T40 sweep at 320 px and by QE | T40, T45 |
 | FU-4 `toCorrect.title` copy invented | designer confirms or replaces | T51 (applied in T40) |
-| FU-5 configurator mark drawn by a runtime template patch | no code: ADR candidate 8 | — |
+| FU-5 configurator mark drawn by a runtime template patch | no code: ADR candidate 8 *(written: Sync 2026-11-18, H2)* | — |
 | FU-6 `DOCUMENTED_CLIENT_SCOPES["crm-api"]` omits `letterhead:render` | fix | T53 |
 | FU-7 admin-ui string gaps | fix (owner: T40 widened, copy from T51) | T40 |
 | FU-8 2 failing tests in `LegalEntitiesPage.test.tsx` | fix (owner: T40 widened) | T40 |
@@ -1205,7 +1220,8 @@ QE PASS (T45) and the security re-review (T70) first → **push 1** (T16: auth, 
 → step 2 credentials (T17) → step 3 copy (T18) → step 4 → **push 2** (T48: crm-api, crm-ui, letterhead-api,
 letterheads-ui, admin-ui, **auth (US-9 notices)**) → step 5 smoke and 5b (T49) → **step 7 (new, T71)**: set
 `LEGAL_ENTITY_NOTICE_EMAIL` and confirm the notice path in production; only after it may `legal-entity:manage` be
-granted to anyone but the `admin` role (spec Constraint, OQ-12).
+granted to anyone but the `admin` role (spec Constraint, OQ-12). *(Confirmed after implementation, with T44's
+changesets prepared ahead on the branch and consumed after T16: see Sync 2026-11-18, H8.)*
 
 | Goes in | Why |
 | --- | --- |
@@ -1255,7 +1271,7 @@ Test deltas for the fixes:
 | AC-2.6/AC-1.5 (F3) | the 11th save/restore of a person within 10 minutes → 429 with `Retry-After`, nothing written; another person unaffected; admin-ui shows the 429 state |
 | F4 | the real-transaction group skips (and says so) for a `*.railway.internal` host; runs for `localhost` |
 | AC-7.2/AC-7.5 (F5) | the import audit `source.updatedBy`; the report shows `…1234`/`set`/`none` and never a full IBAN (marker scan) |
-| AC-5.5/AC-6.2 (F6) | 100 mismatching renders in one second → at most one registry call; the second within 1 s → 409 without a call |
+| AC-5.5/AC-6.2 (F6) | 100 mismatching renders in one second → at most one registry call; the second within 1 s → 409 without a call *(extended by T72/T76: see Sync 2026-11-18, H10)* |
 | AC-2.5 (F7) | `AuditPage` shows before/after of a `legal_entity.save` row from `data.changes` |
 
 **Coverage check:** 52 ACs (the 35 above + AC-9.1–9.17); every one has at least one row in the two tables.
@@ -1264,7 +1280,7 @@ Test deltas for the fixes:
 
 | # | Risk | Mitigation / early check |
 | --- | --- | --- |
-| R15 | Duplicate notice after an ambiguous failure. | notify-api idempotency per caller + key; Resend `Idempotency-Key` (24 h). Residual: if the SDK cannot pass the key, a crash between Resend's accept and notify-api's record → one duplicate email; the task records which. |
+| R15 | Duplicate notice after an ambiguous failure. | notify-api idempotency per caller + key; Resend `Idempotency-Key` (24 h). Residual: if the SDK cannot pass the key, a crash between Resend's accept and notify-api's record → one duplicate email; the task records which. *(The SDK passes it: residual closed for 24 h, Sync 2026-11-18, H3.)* |
 | R16 | The dispatcher stops (crash loop, a bug) and notices wait. | Sweep on start; `legal_entity_notice_overdue` log; every row ends `delivered` or `given_up` with an audit entry within 24 h. |
 | R17 | Recipients computed under the entity lock slow a protected save. | Candidates narrowed by the rule; a handful of users; A-int measures the save with 50 candidates. Only protected saves pay. |
 | R18 | Notice spam from an abused session. | F3 limiter (10 writes per 10 min per person). |
@@ -1289,19 +1305,252 @@ Still **YES**, and the re-review is scheduled (T70, `owasp-reviewer`, frontier t
 
 ### ADR candidates (added)
 
+*(All four written 2026-11-18, with their paths in Sync 2026-11-18, H2.)*
+
 5. **Notices of a protected change are a durable duty**: an outbox written in the version's transaction,
    at-least-once dispatch with receiver idempotency, retries for 24 h, outcomes in the audit log. Amends ADR
    20261105 (auth raises a second kind of notice under origin `admin`) and departs from ADR 20260716 §4
-   (best-effort, no retry) for this notice.
+   (best-effort, no retry) for this notice. **Written:**
+   `docs/adr/20261117-notices-of-a-protected-legal-entity-change-are-a-durable-duty-an-outbox-written-in-the-versions-transaction-sent-at-least-once-for-24-hours-with-outcomes-in-the-audit-log.md`.
 6. **notify-api `/system/*` idempotency keys and per-template caller binding**, with `recipientId` addressing for a
-   bound template (amends ADR 20260714 and ADR 20261101).
+   bound template (amends ADR 20260714 and ADR 20261101). **Written:**
+   `docs/adr/20261117-notify-api-system-routes-protect-against-repeats-by-a-caller-scoped-idempotency-key-and-bind-a-template-to-its-caller-with-closed-typed-data.md`.
 7. **A confirmation backed by a read-only server check**: admin-ui asks auth what a save would change; the registry
-   enforces no confirmation (spec Non-goal).
+   enforces no confirmation (spec Non-goal). **Written:**
+   `docs/adr/20261117-a-confirmation-is-backed-by-a-read-only-server-check-it-is-admin-uis-and-the-registry-does-not-enforce-it-and-when-the-check-cannot-be-made-nothing-is-saved.md`.
 8. **(FU-5)** How a letterhead layout draws the configurator's "missing" mark (runtime one-line template patch in
-   `layout/mod.rs`; a future layout 2 must provide it).
+   `layout/mod.rs`; a future layout 2 must provide it). **Written:**
+   `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md`.
 
 ### Spec drift
 
 None found. US-9 is buildable as written. Readings the owner may confirm (none changes an AC): R-a (push text
 English, R20), R-b (a rule refusal comes before the confirmation, G7), R-c (administrator = effective admin, G3),
 R-d (the notice's time zone is Europe/Zurich, stated with its abbreviation).
+
+## Sync 2026-11-18 after implementation
+
+Source: the branch as built (product code up to `95ebd129`, ADRs in `caf5564a`), `tasks.md` (T72–T76, D1–D3, the
+follow-ups and the orchestrator's recorded decisions), `qe-report.md` (T45, PASS 52/52), `security-review-2.md` (T70,
+PASS WITH NOTES), the six ADRs of 2026-11-17/18, and eval round 1 (2026-11-18, spec fidelity finding (b)). The plan
+stays `approved`: this block records what was built and decided after approval. It designs nothing new and
+**changes no acceptance criterion**. Where the text above is now wrong, it carries a pointer "(see Sync 2026-11-18,
+Hn)", and this block wins. Items are numbered H1…H12.
+
+### H1 — The version pin as built (F6 → T64 + T76; crm-api T72)
+
+This supersedes decision 8's "refreshes when its entry is older", G10 F6, and the pin part of ADR candidate 2
+(ADR-2 point 3).
+
+- **A pin at or below the held version** gets 409 `legal_entity_version_mismatch` + `currentVersion` at once, with
+  **no registry call**. Versions only go up, so a read cannot cure it. A matching pin still costs nothing.
+- **Only a newer pin forces a refresh.** `refresh_for_pin()` forgets the entry so that the next read asks auth. It
+  does not do so when any of these holds:
+  - a forced refresh started less than 1 s ago (`FORCED_REFRESH_EVERY`);
+  - the entry itself was sent less than 1 s ago;
+  - 100 forced refreshes started in the last 600 s (`PIN_REFRESH_BUDGET`, `PIN_REFRESH_WINDOW`, a sliding window,
+    per process).
+
+  A started refresh counts against the budget whatever its outcome. A refused one does not count. When no refresh is
+  made, the read uses the held entry or joins the refresh already in flight, and a pin that still differs is the
+  caller's 409 at once.
+  (`letterhead-api/api/src/registry/cache.rs`, `api/src/routes/render.rs` `issuer_details`.)
+- **crm-api waits 1.1 s before its single retry (T72).** On 409 it drops its entry, waits
+  `issuerPinRetry.waitMs = 1100` (fixed, behind a test seam, past the one-second window), re-reads, rebuilds and
+  retries **once**. A second mismatch is 503 `layout_service_unavailable` (`crm-api/src/offers/generation.ts`).
+- **Unchanged:** the 30 s / 60 s cache rule, the sent-time stamp, single flight, and the 409 / retry-once contract.
+  The ordinary 30 s refresh is not budgeted, so AC-3.3 and AC-5.5 hold as proved in decision 7. No PDF mixes two
+  versions (AC-6.2): a pin is never "cured" by stale data.
+- **Why (security-review-2.md N2).** The 1/s spacing alone still allowed 600 forced refreshes per 10 minutes per
+  process. auth allows each service 300 legal-entity reads per 10 minutes in total, so a stream of mismatching pins
+  could use up letterhead-api's allowance, and every render would then become 503.
+- **Record:** `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md`.
+  It amends points 3 and 4 of ADR-2
+  (`docs/adr/20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.md`).
+  The ADR-2 file itself does not yet point forward to it.
+- **For the owner to review:** the numbers (1 s, 100 per 600 s, 1.1 s) were set by the orchestrator from the
+  re-review's recommendation. No separate owner approval is recorded (the ADR's Status line says so).
+
+### H2 — ADR candidates: all written
+
+| Candidate | Record |
+| --- | --- |
+| ADR-1 | `docs/adr/20261117-legal-entity-registry-in-auth-is-append-only-versions-immutable-in-the-database.md` |
+| ADR-2 | `docs/adr/20261117-the-letterhead-service-reads-the-issuers-details-itself-and-consumers-use-them-for-at-most-60-seconds.md` (points 3–4 amended, H1) |
+| ADR-3 | `docs/adr/20261117-an-app-is-reachable-through-a-capability-it-administers-admin-in-authz-me-apps-and-admin-ui-sections-by-capability.md` |
+| ADR-4 | `docs/adr/20261117-the-crms-legal-details-move-to-the-registry-by-expand-copy-switch-contract-and-version-1-is-attributed-to-the-system.md` |
+| 5 (durable notices; amends 20261105, departs from 20260716 §4) | `docs/adr/20261117-notices-of-a-protected-legal-entity-change-are-a-durable-duty-an-outbox-written-in-the-versions-transaction-sent-at-least-once-for-24-hours-with-outcomes-in-the-audit-log.md` |
+| 6 (notify-api idempotency and template binding; amends 20260714, 20261101) | `docs/adr/20261117-notify-api-system-routes-protect-against-repeats-by-a-caller-scoped-idempotency-key-and-bind-a-template-to-its-caller-with-closed-typed-data.md` |
+| 7 (confirmation backed by a read-only check) | `docs/adr/20261117-a-confirmation-is-backed-by-a-read-only-server-check-it-is-admin-uis-and-the-registry-does-not-enforce-it-and-when-the-check-cannot-be-made-nothing-is-saved.md` |
+| 8 (FU-5, the missing mark) | `docs/adr/20261117-a-layout-draws-the-configurators-missing-mark-through-a-runtime-patch-of-one-template-line-the-label-only-in-the-drawing-and-the-brackets-only-in-the-page-text-and-a-layout-that-cannot-is-refused.md` |
+| not a candidate (D3 rule) | `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md` |
+| not a candidate (F6/N2, H1) | `docs/adr/20261118-a-pin-ahead-of-the-held-version-forces-one-registry-refresh-at-most-once-a-second-and-100-times-in-10-minutes-per-process-and-any-other-mismatching-pin-is-answered-409-at-once.md` |
+
+- `AGENTS.md` gained one line for each of the six new records (`caf5564a`).
+- The new records state their amendments in their Status lines. The older ADRs (20260714, 20260716, 20261101, 20261105
+  and ADR-2) do not point forward yet; whether to add that is the ADR writer's decision, not this plan's.
+
+### H3 — notify-api: where the code differs from G4/G5 (found by the ADR writer)
+
+- **Emails: a partial unique index.** `email_delivery` has the ordinary index of G4 **and** a partial unique index on
+  `(callerSub, idempotencyKey) WHERE idempotencyKey IS NOT NULL AND status = 'sent'`. So "at most one `sent`" is
+  enforced by the database, not only by the code, and failed attempts may still repeat. Both tables also gain a CHECK
+  that a key never exists without its caller (`idempotencyKey IS NULL OR callerSub IS NOT NULL`), so a NULL `callerSub`
+  cannot get around the unique indexes (`notify-api/prisma/migrations/20261117100000_system_idempotency`).
+- **`recipientId` on another template → 400 `recipient_id_not_allowed`.**
+  - The binding is a policy table, `EMAIL_TEMPLATE_POLICY` (`callers`, `allowRecipientId`).
+  - A caller outside `callers` gets 403 `template_not_allowed`, with nothing written (as in G5).
+  - A template absent from the table stays open to every `emails.send` holder and takes `to` only.
+
+  (`notify-api/src/system/emails.routes.ts`.)
+- **The Resend key goes through the SDK option**: `emails.send(payload, { idempotencyKey })`, resend 6.17.2.
+  - A `<sub>:<key>` pair over 256 characters is hashed, not truncated.
+  - Resend refusing a reused key is a soft `failed`, never a throw.
+  - R15's residual (no key reaching Resend) does not apply: the 24 h window is covered.
+- **A repeat of a delivered email answers before the address lookup.** A repeat after a `sent` attempt answers 200
+  with the same `deliveryId` **before** looking up the recipient's address. A recipient who became inactive since
+  then cannot turn a delivered send into a `skipped`.
+
+No AC is affected. AC-9.12 and AC-9.14 are covered as G5 intended, and the strict `data` shape is unchanged.
+
+### H4 — auth: smaller deltas
+
+- **Check route, refusal order (G5).** As built and recorded in ADR 7, the order is:
+  401 → 403 → 404 → 403 → **429** (the check's own limiter) → 413 → 422 `invalid_request` → 422
+  `invalid_legal_entity` → 409 `legal_entity_not_moved` → 409 `version_conflict`.
+  That is, the 429 is counted after authorisation and before the body is read, as G5's 429 paragraph already says.
+  The list in G5 put it last.
+- **T74.** auth's CORS middleware exposes `Retry-After` (`Access-Control-Expose-Headers`). admin-ui reads the real
+  wait of a 429 from another origin; before this, every 429 would read "a few minutes". Push 1 (`e531ab30`).
+- **T75.** The committed "real transactions" group of `auth/src/legalEntities/notices/duty.test.ts` runs only when
+  `committedTransactionsSkipReason(DATABASE_URL)` is null. This is G10 F4's guard, as G10 required for any new
+  committed-transaction test. Push 2 (`815d58eb`).
+- **D1 (`62babb4e`, push 1).** Better Auth is mounted on `"/*"` and no longer on `"/**"`.
+  - Why: `"/**"` is not Hono wildcard syntax. Once the legal-entities router made SmartRouter fall back to
+    TrieRouter, every `/auth/**` route answered 404.
+  - `auth/src/auth/auth.mount.test.ts` now goes through the assembled app.
+  - G12's routing rules are the lesson. They held for the check route.
+
+### H5 — admin-ui: the confirmation as built (D3, T73, the S12 busy reading)
+
+- **D3 (`95ebd129`, high, found by the T68 e2e).** Confirm did not save. `ProtectedChangeDialog` was mounted inside the
+  form's `<form>`, and `ConfirmDialog` renders its own `<form>` without a portal. Confirm therefore did the browser's
+  native submit (a navigation) and no POST was sent. As built now:
+  - the dialog is a **sibling** of the form, never inside it;
+  - Confirm sends **one** save with the body that was checked (`open.sent`, `open.baseVersion`), not a re-read of
+    the form;
+  - the dialog **stays open and busy until the save's answer** and then goes. This supersedes G7's "the dialog closes
+    first"; design F15 already said "the dialog stays busy until the answer";
+  - D-T68-2: both dialogs' computed accessible descriptions hold every Old and New value.
+
+  A unit test asserts that there is no nested `<form>` and drives a real `requestSubmit`. The rule is recorded as
+  `docs/adr/20261118-a-dialog-that-renders-its-own-form-is-mounted-beside-the-form-never-inside-it.md`.
+- **S12 busy state (orchestrator decision, 2026-11-18, T40 report; recorded for review).** design.md S12 says both
+  buttons are `aria-disabled` while the confirmation is busy. `@operai/ui` `ConfirmDialog` disables Confirm
+  **natively** while `busy`, which is shared library behaviour for every dialog in the suite.
+  - Accepted as is: the busy state is short and announced, and axe is clean on both dialogs.
+  - S12 is read as "Confirm unavailable while busy". There is no library change.
+  - Amending the S12 text and the a11y line in design.md belongs to the designer (eval round 1, design fidelity), not
+    to this plan.
+- **T73 (library in push 1 `bbc1e27c`, admin-ui in push 2 `5ffee437`).** `ConfirmDialog` gains three opt-in props:
+  - `scrollBody`: the body scrolls and the footer stays visible at 320 px;
+  - `confirmDisabledReason`: Confirm is `aria-disabled`, with the reason in its description;
+  - `size`.
+
+  Existing dialogs are unchanged. The restore dialog uses `confirmDisabledReason` while it reads version n and after a
+  failed read: this is how G7's "Confirm unavailable with the reason + Retry" is built. admin-ui relies on the
+  push-1 shell for these props, as E10 allows.
+
+### H6 — letterhead-api engine: D2
+
+`c63a0681` (found by QE in the T43 e2e): in the configurator preview's page text, a missing label that wraps onto a
+second line keeps its `⟦ ⟧`. The case was the English "Contacts line" in a footer line `{iban} {contacts}`. Real
+documents' output is unchanged, and the golden corpus stays byte-identical. This refines E3 and is recorded in ADR 8.
+
+### H7 — Design decisions taken unattended (orchestrator, 2026-11-17; recorded in tasks.md for the owner's review)
+
+- **DR-14.** An effective administrator can always open the notice's history link. The reason: the `admin` role holds
+  `legal-entity:manage` unconditioned by seed (T3), and department admins inherit that role. No design change.
+  Consistent with G3, which notifies effective administrators whether or not they hold the grant.
+- **DR-17.** The push text on a lock screen may show the actor's name and the two IBAN tails. This is allowed by
+  AC-9.12 and by reading R-a (push text in English, R20). Accepted.
+- DR-13, DR-15, DR-16 and DR-18 stand as design.md says; DR-18 was done in T63.
+- Still open with the owner (not plan decisions):
+  - **N1 / O-1:** the actor's display name can be edited by its holder through `POST /auth/update-user`, and the
+    notice prints that name. It must be decided before T71. Choosing "add the actor's email" would change AC-9.11,
+    which is the PO's to amend.
+  - The copy review of T51.
+
+### H8 — Release order: G15 still holds
+
+The sequence is unchanged: QE (T45) and T70 → **T16 push 1** → T17 → T18 → step 4 → **T48 push 2** → T49 → T71 → T50.
+
+T44's six push-2 changesets (`87a24dee`) are already on the branch:
+`.changeset/legal-entities-{admin-ui,auth-notices,crm-api,crm-ui,letterhead-api,letterheads-ui}.md`. T44's dep on
+T16 is read as **"consumed after T16"**, not "written after T16". This is safe for these reasons:
+
+- **The push-1 cut is built from `main` by cherry-picking only push-1 commits** (T16 note). `87a24dee` is a push-2
+  commit and is not picked, so T16's release cut cannot consume or bump these six packages.
+- **They are consumed by T48's cut**, after T16, T17, T18 and step 4, in the same release session. That is exactly
+  what T44's note asks: "push-2 changesets must not be consumed by the push-1 cut".
+- **The late commits fall on the correct side of the split:**
+  - push 1: `62babb4e` (D1), `e531ab30` (T74) and `bbc1e27c` (T73's library half);
+  - push 2: `aa345b64` (T72), `5ffee437` (T73's admin-ui half), `815d58eb` (T75), `fcaedf07` (T76), `c63a0681` (D2),
+    `95ebd129` (D3) and `87a24dee` (T44).
+
+  T73 was already committed as two commits, so the split needs no surgery.
+
+Added check at T16, before cutting: the push-1 release branch contains none of the six files above. (`changeset
+status` will still list auth, from its push-1 changesets `legal-entities-registry-auth*.md`; that is expected.)
+
+The early tick of T44 (eval round 1, trajectory) is an orchestrator matter. It does not change this order.
+
+### H9 — FU-12: root cause found, still open (test infrastructure, not the product)
+
+`letterhead-api/api/tests/render.rs:680` is the spawned server **exiting** before `/health` ("the database did not
+answer in time" / `PoolTimedOut`). It is not a start-up timeout and not a `free_port` race (QE simulated
+13 200 starts with 0 failed binds).
+
+**Root cause: Postgres connection exhaustion.** About 40 tests each start a server with its own pool, and compose's
+default `max_connections = 100` is reached by one instance of the suite. Any other client on the shared compose
+Postgres tips it over: another session's suite or an e2e stack. CI has its own Postgres per job and is green, but
+it also peaks at the cap.
+
+**Recommendation** (QE §11; owners: dev for the helpers, devops for compose):
+1. Do not widen the `/health` wait.
+2. In the helpers of `render.rs`, `preview.rs`, `read.rs`, `write.rs` and `residue.rs` that spawn the binary, bound
+   the servers starting at once (a process-wide semaphore of about 4), or give the spawned server a smaller pool
+   through its environment.
+3. Set `max_connections=200` in `compose.yaml` for machines where several sessions share it.
+
+No product code changes, and no AC depends on it. It weakens the R-int level's reliability on shared hosts only.
+
+### H10 — Test strategy deltas (as built)
+
+| AC / finding | Added to "What proves it" |
+| --- | --- |
+| AC-5.5/AC-6.2 (F6, T76) | an older or equal pin → 409 at once and again a second later, with no registry call; a newer pin refreshes once, then waits a second; a failed forced refresh still counts for the second; the 101st forced refresh in 600 s is refused and the window slides (`api/tests/registry.rs`, `api/tests/render.rs`) |
+| AC-6.2 (T72) | a fake letterhead service answering 409 for 1 s then 200 → one retry after ≥ 1.1 s and a 200; the existing retry tests (a second mismatch → 503 `layout_service_unavailable`) stay green |
+| AC-9.3/AC-9.1 (D3) | no nested `<form>` anywhere on the page; Confirm drives a real `requestSubmit` and calls the save once with the checked body; e2e journeys of `protected-legal-details.spec.ts` and `legal-entities.spec.ts` |
+| AC-9.6 (D3, T73) | the computed accessible description of both dialogs holds each Old/New value; the footer stays in view at 320 px; Confirm is `aria-disabled` with a described reason while the restore dialog reads |
+| AC-5.4 (D2) | an engine test of an English wrapped missing label keeps `⟦ ⟧` in the page text; real output unchanged |
+| AC-9.14 (H3) | a repeat after `sent` sends nothing and a repeat after `failed` sends again; the key is not shared across callers; the key reaches Resend as `Idempotency-Key` through the SDK option and a Resend refusal of a key is a soft failure (`emails.idempotency.test.ts`, `email.channel.resend.test.ts`) |
+| AC-8.1/AC-9.6 (T74) | a CORS request to a throttled registry route exposes `Retry-After` |
+
+**Coverage check:** unchanged. All 52 ACs map to at least one test, and QE executed every one (qe-report.md §9).
+
+### H11 — Risks (updated)
+
+| # | Risk | Mitigation / early check |
+| --- | --- | --- |
+| R8 (amended) | Two caches differ for up to 60 s. | The pin, refreshed only when newer, within the budget; crm-api retries once after 1.1 s (H1). |
+| R15 (closed) | A duplicate email after an ambiguous failure. | The Resend key goes through the SDK option (H3). |
+| R23 | The pin budget is used up (100 forced refreshes per 10 min) by abuse or a crm-api bug. Legitimately newer pins then get 409, and crm-api's one retry ends in 503 until the window slides. | Bounded to 10 minutes. The ordinary 30 s refresh is unaffected, so the held entry catches up within 30 s and the next pin matches. Visible as `layout_service_unavailable`. |
+| R24 | The budget is per process: N replicas of letterhead-api make N × 100 against auth's 300 per service. | Every service in `.railway/railway.ts` declares one replica today. If letterhead-api is scaled to 3 or more, or auth's `LEGAL_ENTITIES_SERVICE_LIMIT` is lowered, revisit H1 (the pin ADR's own trigger). |
+
+### H12 — Spec drift
+
+**None found.** H1 changes when letterhead-api re-reads the registry, not what a document prints. AC-3.3, AC-5.5 and
+AC-6.2 hold, and a budget refusal is a refused document (503), never a document printed with older details. H3–H6
+settle points the plan left open, or fix the plan's own text against a design that was already approved (F15). The
+open owner items (N1/O-1 and the T51 copy) are listed in H7. They would become spec changes only through the PO.
