@@ -462,6 +462,145 @@ describe("a protected change with no recipient (AC-9.15)", () => {
   });
 });
 
+// ─── AC-9.11 (D9): the author's account email, captured with the rows ─────────────────────────────────────────────
+
+describe("the notice rows carry the author's account email (AC-9.11, amendment D9, plan J2/J3)", () => {
+  const protectedSave = (tx: Tx, baseVersion = 2, router = writeRouter(tx, { notices: { outsideMailbox: () => true } })) =>
+    save(router, "welld_ch", { baseVersion, details: details({ iban: "CH5604835012345678009" }) });
+
+  test("a protected save writes the actor's address on every row of the version: the person rows and the outside row, all equal", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-all");
+      const other = await inTxPerson(tx, "email-other", "welld_ch");
+      const role = await inTxRole(tx, { conditions: { attributes: [{ key: "entity", match: "user" }] } });
+      await tx.userRole.create({ data: { userId: other.id, roleId: role.id } });
+      signedInAs(actor);
+      expect((await protectedSave(tx)).status).toBe(201);
+      const rows = await notices(tx, "welld_ch", 3);
+      expect(rows.some((r) => r.recipientKind === "outside")).toBe(true);
+      expect(rows.some((r) => r.recipient === other.id)).toBe(true);
+      expect(rows.length).toBeGreaterThanOrEqual(5);
+      // the author's address, on the rows of every recipient, not the recipient's own
+      for (const row of rows) expect(row.authorEmail).toBe(actor.email);
+    });
+  });
+
+  test("the address changed in the database after the session was made: the rows carry the committed one, not the session's", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-fresh");
+      signedInAs(actor); // the session (cookie cache) still holds actor.email
+      const fresh = `changed-${actor.email}`;
+      await tx.user.update({ where: { id: actor.id }, data: { email: fresh } });
+      expect((await protectedSave(tx)).status).toBe(201);
+      const rows = await notices(tx, "welld_ch", 3);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row.authorEmail).toBe(fresh);
+    });
+  });
+
+  test("an empty address is stored as null and the save is 201", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-empty");
+      await tx.user.update({ where: { id: actor.id }, data: { email: "" } });
+      signedInAs(actor);
+      expect((await protectedSave(tx)).status).toBe(201);
+      const rows = await notices(tx, "welld_ch", 3);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row.authorEmail).toBeNull();
+    });
+  });
+
+  test("a missing user row stores null on every row and does not fail the duty", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const person = await inTxPerson(tx, "email-missing-recipient", "welld_ch");
+      const result = await recordNoticeDuty(
+        tx,
+        { entity: "welld_ch", version: 2, action: "save", actorUserId: "u-does-not-exist", storedAt: new Date("2026-11-10T10:00:00.000Z"), outsideMailbox: true },
+        { recipients: async () => [person.id] },
+      );
+      expect(result).toEqual({ persons: 1, outside: true });
+      const rows = await notices(tx, "welld_ch", 2);
+      expect(rows.length).toBe(3);
+      for (const row of rows) expect(row.authorEmail).toBeNull();
+    });
+  });
+
+  test("a malformed address is stored as is (no format check, no 500): the content treats it as none (T81)", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-malformed");
+      const odd = `  Not An Address <${RUN_ID}>  `;
+      await tx.user.update({ where: { id: actor.id }, data: { email: odd } });
+      signedInAs(actor);
+      expect((await protectedSave(tx)).status).toBe(201);
+      const rows = await notices(tx, "welld_ch", 3);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row.authorEmail).toBe(odd); // verbatim: not trimmed, not lowercased
+    });
+  });
+
+  test("the address is stored verbatim: no lowercasing", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-case");
+      const mixed = `Mixed.Case-${RUN_ID}@LegalEntities.test`;
+      await tx.user.update({ where: { id: actor.id }, data: { email: mixed } });
+      signedInAs(actor);
+      expect((await protectedSave(tx)).status).toBe(201);
+      for (const row of await notices(tx, "welld_ch", 3)) expect(row.authorEmail).toBe(mixed);
+    });
+  });
+
+  test("a protected change with nobody to tell reads and writes nothing (no row, no address anywhere)", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-nobody");
+      signedInAs(actor);
+      const router = writeRouter(tx, { notices: { recipients: async () => [], outsideMailbox: () => false } });
+      expect((await protectedSave(tx, 2, router)).status).toBe(201);
+      expect(await noticeCount(tx)).toBe(0);
+    });
+  });
+
+  test("the address appears in no audit entry of the save (it is content of the notice only)", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-audit");
+      signedInAs(actor);
+      expect((await protectedSave(tx)).status).toBe(201);
+      const entries = await tx.auditLog.findMany({ where: { targetType: "legal_entity", targetId: "welld_ch" } });
+      expect(entries.length).toBeGreaterThan(0);
+      expect(JSON.stringify(entries)).not.toContain(actor.email);
+      expect(JSON.stringify(noRecipientsEntry({ entity: "welld_ch", version: 3 }))).not.toContain("@");
+    });
+  });
+
+  test("the duty never touches the address afterwards: its source has no update of a notice row", () => {
+    const source = readFileSync(join(import.meta.dir, "duty.ts"), "utf8");
+    expect(source).not.toMatch(/legalEntityNotice\.(update|updateMany|upsert)\b/);
+  });
+
+  test("an import, a no-op, a non-protected save and a refusal write no row, as before", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const actor = await admin("email-none");
+      signedInAs(actor);
+      const router = writeRouter(tx, { notices: { outsideMailbox: () => true } });
+      // not protected (the contacts only)
+      expect((await save(router, "welld_ch", { baseVersion: 2, details: details({ contacts: { it: "x", en: "" } }) })).status).toBe(201);
+      // a no-op (the same details again)
+      await save(router, "welld_ch", { baseVersion: 3, details: details({ contacts: { it: "x", en: "" } }) });
+      // a refusal (a stale base)
+      expect((await save(router, "welld_ch", { baseVersion: 1, details: details({ iban: "CH5604835012345678009" }) })).status).toBeGreaterThanOrEqual(400);
+      expect(await noticeCount(tx)).toBe(0);
+    });
+  });
+});
+
 // ─── AC-9.12: no value in a row or an entry ──────────────────────────────────────────────────────────────────────
 
 describe("no value of any detail in a notice row or a notice entry (AC-9.12)", () => {
@@ -579,6 +718,20 @@ describe("the table refuses what the duty never writes (plan G4)", () => {
     });
   });
 
+  test("authorEmail: null, an address and a malformed address go in; the empty string is refused by the not-empty CHECK (and only that one)", async () => {
+    await inTx(async (tx) => {
+      await seedTwoVersions(tx);
+      const withEmail = (value: string, recipient: string) =>
+        `INSERT INTO legal_entity_notice ("id","entity","version","recipient","recipientKind","channel","status","authorEmail") VALUES (` +
+        `'n-${crypto.randomUUID()}','welld_ch',2,'${recipient}','person','email','pending',${value})`;
+      expect(await attempt(tx, withEmail("NULL", "u-null"))).toBeNull();
+      expect(await attempt(tx, withEmail("'anna@example.com'", "u-ok"))).toBeNull();
+      expect(await attempt(tx, withEmail("'not an address'", "u-odd"))).toBeNull(); // no format CHECK
+      expect(await attempt(tx, withEmail("' '", "u-space"))).toBeNull();
+      expect(await attempt(tx, withEmail("''", "u-empty"))).toContain("legal_entity_notice_authorEmail_not_empty");
+    });
+  });
+
   test("a second row for the same version, recipient and channel is refused; so is a version that does not exist; and so is removing a named version", async () => {
     await inTx(async (tx) => {
       await seedTwoVersions(tx);
@@ -691,6 +844,7 @@ realSuite("real transactions (committed; the registry and the notices are emptie
     expect(ok.status).toBe(201);
     const rows = await db.legalEntityNotice.findMany({ where: { entity: ENTITY, version: 2 } });
     expect(rows.filter((r) => r.recipient === actor.id).map((r) => r.channel).sort()).toEqual(["email", "in_app"]);
+    expect(rows.every((r) => r.authorEmail === actor.email)).toBe(true); // committed with the rows (AC-9.11)
     expect(await db.auditLog.count({ where: { action: "legal_entity.save", targetId: ENTITY } })).toBe(1);
   });
 });

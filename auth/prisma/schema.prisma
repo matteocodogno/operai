@@ -411,7 +411,8 @@ model LegalEntityVersion {
 /// sends and updates the status columns. Tier 2 like `audit_log` (ADR 20260804-two-tier-audit-assurance-auth-audit-log-application-level):
 /// rows change status, so there is no immutability trigger; the version it refers to is Tier 1 and cannot go while a
 /// notice names it (FK RESTRICT). It holds NO value of any detail (AC-9.12): content is rebuilt from the immutable
-/// versions at send time, and the outside address is never stored (read from the environment at send time).
+/// versions at send time, and the outside address is never stored (read from the environment at send time). The one
+/// personal value it holds is the author's account email (`authorEmail`, amendment D9).
 /// CHECK constraints live in the migration SQL.
 model LegalEntityNotice {
   id            String    @id @default(cuid())
@@ -429,6 +430,10 @@ model LegalEntityNotice {
   deliveredAt   DateTime?
   givenUpAt     DateTime?
   createdAt     DateTime  @default(now()) // = the version's createdAt (the transaction time), set by the writer
+  /// The actor's account email when the version was stored (AC-9.11, amendment D9); null = none on record.
+  /// Personal data: content of the notice only; never in a log line or an audit entry. Written once, never updated.
+  /// CHECK not empty (no CHECK on the form: a failing CHECK must not turn a valid save into a 500).
+  authorEmail   String?
 
   legalEntityVersion LegalEntityVersion @relation(fields: [entity, version], references: [entity, version], onDelete: Restrict)
 
